@@ -1,0 +1,7 @@
+export default function ReportsPage() {
+  return (
+    <div className="flex flex-1 items-center justify-center py-20">
+      <p className="text-sm text-zinc-500">Reports — coming soon</p>
+    </div>
+  );
+}

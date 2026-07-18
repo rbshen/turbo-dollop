@@ -22,5 +22,23 @@ class FMPClient:
             response.raise_for_status()
             return response.json()
 
+    async def get_profile(self, ticker: str) -> dict | list:
+        return await self.get("/profile", {"symbol": ticker})
+
+    async def get_quote(self, ticker: str) -> dict | list:
+        return await self.get("/quote", {"symbol": ticker})
+
+    async def get_price_change(self, ticker: str) -> dict | list:
+        return await self.get("/stock-price-change", {"symbol": ticker})
+
+    async def get_analyst_estimates(self, ticker: str) -> dict | list:
+        return await self.get("/analyst-estimates", {"symbol": ticker, "period": "annual", "limit": 10})
+
+    async def get_ratios(self, ticker: str) -> dict | list:
+        return await self.get("/ratios", {"symbol": ticker, "limit": 1})
+
+    async def get_earnings(self, ticker: str) -> dict | list:
+        return await self.get("/earnings", {"symbol": ticker, "limit": 8})
+
 
 fmp_client = FMPClient()
