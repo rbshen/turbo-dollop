@@ -1,28 +1,12 @@
-import logging
 from datetime import date
-from typing import Awaitable
 
-import httpx
 from sqlmodel import Session
 
-from cache import get_or_fetch
+from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
 from fmp_client import fmp_client
 from schemas import TickerSummaryOut
-
-logger = logging.getLogger(__name__)
-
-
-async def _safe(label: str, coro: Awaitable[dict | list]) -> dict | list:
-    """Isolate one FMP sub-fetch: a failure here (e.g. this FMP plan lacking
-    access to a given endpoint) shouldn't take down the whole summary — the
-    caller falls back to nulls for whatever fields depended on it."""
-    try:
-        return await coro
-    except httpx.HTTPError as exc:
-        logger.warning("FMP fetch failed for %s: %s", label, exc)
-        return {}
 
 
 def _first(data: dict | list) -> dict:
@@ -76,19 +60,19 @@ async def get_summary(ticker: str) -> TickerSummaryOut:
 
     with Session(engine) as session:
         profile = _first(
-            await _safe(
+            await safe_fetch(
                 "profile",
                 get_or_fetch(session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days),
             )
         )
         quote = _first(
-            await _safe(
+            await safe_fetch(
                 "quote",
                 get_or_fetch(session, ticker, "quote", "latest", lambda: fmp_client.get_quote(ticker), staleness_days),
             )
         )
         price_change = _first(
-            await _safe(
+            await safe_fetch(
                 "price_change",
                 get_or_fetch(
                     session, ticker, "price_change", "latest", lambda: fmp_client.get_price_change(ticker), staleness_days
@@ -96,18 +80,18 @@ async def get_summary(ticker: str) -> TickerSummaryOut:
             )
         )
         ratios = _first(
-            await _safe(
+            await safe_fetch(
                 "ratios",
                 get_or_fetch(session, ticker, "ratios", "latest", lambda: fmp_client.get_ratios(ticker), staleness_days),
             )
         )
-        estimates_data = await _safe(
+        estimates_data = await safe_fetch(
             "analyst_estimates",
             get_or_fetch(
                 session, ticker, "analyst_estimates", "latest", lambda: fmp_client.get_analyst_estimates(ticker), staleness_days
             ),
         )
-        earnings_data = await _safe(
+        earnings_data = await safe_fetch(
             "earnings",
             get_or_fetch(session, ticker, "earnings", "latest", lambda: fmp_client.get_earnings(ticker), staleness_days),
         )

@@ -40,5 +40,11 @@ class FMPClient:
     async def get_earnings(self, ticker: str) -> dict | list:
         return await self.get("/earnings", {"symbol": ticker, "limit": 8})
 
+    async def get_income_statement(self, ticker: str, period: str, limit: int) -> dict | list:
+        return await self.get("/income-statement", {"symbol": ticker, "period": period, "limit": limit})
+
+    async def get_cash_flow_statement(self, ticker: str, period: str, limit: int) -> dict | list:
+        return await self.get("/cash-flow-statement", {"symbol": ticker, "period": period, "limit": limit})
+
 
 fmp_client = FMPClient()

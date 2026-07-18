@@ -1,10 +1,14 @@
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import Awaitable, Callable
 
+import httpx
 from sqlmodel import Session, select
 
 from models import FundamentalsCache
+
+logger = logging.getLogger(__name__)
 
 
 async def get_or_fetch(
@@ -44,3 +48,14 @@ async def get_or_fetch(
     session.add(row)
     session.commit()
     return data
+
+
+async def safe_fetch(label: str, coro: Awaitable[dict | list]) -> dict | list:
+    """Isolate one FMP sub-fetch: a failure here (e.g. an FMP plan lacking
+    access to a given endpoint) shouldn't take down the whole request — the
+    caller falls back to nulls for whatever fields depended on it."""
+    try:
+        return await coro
+    except httpx.HTTPError as exc:
+        logger.warning("FMP fetch failed for %s: %s", label, exc)
+        return {}
