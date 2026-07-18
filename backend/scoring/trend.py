@@ -70,4 +70,20 @@ def classify_trend(values: list[float]) -> TrendResult:
     if abs(growth_before_last) < FLAT_WINDOW_THRESHOLD and last_jump > SPIKE_THRESHOLD:
         return TrendResult("flat_then_spike", 20)
 
-    return TrendResult("multiple_dips", 40)
+    # Deliberately refined beyond step1_revenue_income_cfo_assessment_prompt.md's
+    # original flat 40-for-any-2+-dips read -- see CLAUDE.md's "Scoring rubric
+    # deviations" section. A resolved dip from several years ago is a
+    # different risk profile than one still resolving now, so recovery and
+    # recency each get their own tier instead of collapsing into one bucket.
+    all_recovered = all(arr[-1] >= arr[i] for i in real_dips)
+    if not all_recovered:
+        # At least one dip never got back to its pre-dip level by TTM --
+        # genuinely uneven, unchanged from the original flat tier.
+        return TrendResult("multiple_dips", 40)
+
+    n = len(arr)
+    recent_fy_indices = {n - 2, n - 3}  # the 2 FYs immediately before TTM
+    dip_is_recent = any((i + 1) in recent_fy_indices for i in real_dips)
+    if dip_is_recent:
+        return TrendResult("multiple_dips_recent", 60)
+    return TrendResult("multiple_dips_resolved", 75)

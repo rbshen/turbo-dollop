@@ -45,6 +45,27 @@ the configurable staleness window — `Settings.cache_staleness_days` in
 `CACHE_STALENESS_DAYS` env var. Never hardcode the staleness window at a call
 site.
 
+## Scoring rubric deviations
+
+Step 1's scoring rubric intentionally diverges from
+`step1_revenue_income_cfo_assessment_prompt.md` in a few specific,
+deliberate ways — these are refinements made after live testing against
+real tickers, not implementation drift. The doc describes the tiers
+qualitatively; `backend/scoring/trend.py` and `backend/scoring/step1.py`
+are the source of truth for the exact thresholds and logic, with comments
+at each deviation point. Current deviations:
+
+- **Verdict bands** are 0-69 Fail / 70-85 Pass / 86-100 Strong Pass (not
+  the doc's original 4-band scale).
+- **Margins classification** uses windowed early-vs-late direction plus
+  explicit dip-count and sustained-decline checks, not a raw stdev-of-diffs
+  volatility check — a single big dip-and-full-recovery year no longer
+  reads as "wildly inconsistent" just because it produces high variance.
+- **Multi-dip trend tier** (2+ real dips in Revenue/Net Income/CFO/Operating
+  Income) is split by recovery and recency rather than one flat score: an
+  unrecovered dip stays at 40, a recovered dip within the last 2 fiscal
+  years is 60, and a recovered dip older than that is 75.
+
 ## Workflow rules
 
 - **Plan Mode by default.** Propose a plan and wait for confirmation before
