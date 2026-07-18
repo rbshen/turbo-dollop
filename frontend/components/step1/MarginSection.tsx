@@ -23,9 +23,10 @@ function average(values: (number | null)[]): number | null {
 
 interface Props {
   data: Step1Out;
+  chartWidth: number;
 }
 
-export function MarginSection({ data }: Props) {
+export function MarginSection({ data, chartWidth }: Props) {
   const [mode, setMode] = useState<"bar" | "line">("bar");
 
   const values: Record<MarginMetricKey, (number | null)[]> = {
@@ -47,13 +48,14 @@ export function MarginSection({ data }: Props) {
         mode={mode}
         yTicks={MARGIN_TICKS}
         yTickFormat={(v) => `${v}%`}
+        containerWidth={chartWidth}
       />
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-max text-sm">
           <thead>
             <tr className="border-b border-zinc-800 text-left text-xs uppercase tracking-widest text-zinc-500">
-              <th className="py-2 pr-4 font-medium">Metric</th>
+              <th className="sticky left-0 z-10 bg-zinc-900 py-2 pr-4 font-medium">Metric</th>
               {data.years.map((year) => (
                 <th key={year} className="py-2 pr-4 text-right font-medium">
                   {year}
@@ -68,7 +70,10 @@ export function MarginSection({ data }: Props) {
               const avg = average(series);
               return (
                 <tr key={s.key} className="border-b border-zinc-900">
-                  <td className="py-2 pr-4 text-zinc-400">{s.label}</td>
+                  <td className="sticky left-0 z-10 bg-zinc-900 py-2 pr-4 text-zinc-400">
+                    <span className="mr-1.5 inline-block size-2 rounded-full align-middle" style={{ backgroundColor: s.color }} />
+                    {s.label}
+                  </td>
                   {series.map((v, i) => (
                     <td key={i} className="py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
                       {v != null ? `${v.toFixed(2)}%` : "—"}

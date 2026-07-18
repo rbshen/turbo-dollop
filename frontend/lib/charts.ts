@@ -1,3 +1,7 @@
+export const BAR_WIDTH = 14;
+export const BAR_GAP = 3;
+export const DEFAULT_GROUP_GAP = 20;
+
 /** "Nice" round-number tick values from 0 to a bit past `max`, for an axis
  * with no fixed tick set (unlike the margin chart's fixed 0/25/50/75/100). */
 export function computeNiceTicks(max: number, count = 4): number[] {
@@ -11,8 +15,11 @@ export function computeNiceTicks(max: number, count = 4): number[] {
   else if (residual > 1) step = 2 * magnitude;
   else step = magnitude;
 
+  // Top tick must cover max (not just get close to it) so the largest bar in
+  // the dataset never clips against the topmost gridline.
+  const top = Math.ceil(max / step) * step;
   const ticks: number[] = [];
-  for (let t = 0; t <= max + step * 0.001; t += step) {
+  for (let t = 0; t <= top + step * 0.001; t += step) {
     ticks.push(Math.round(t / step) * step);
   }
   return ticks;
