@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Awaitable, Callable
 
 import httpx
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
 from models import FundamentalsCache
@@ -34,18 +35,25 @@ async def get_or_fetch(
     data = await fetch_fn()
     raw_json = json.dumps(data)
 
-    if row:
-        row.raw_json = raw_json
-        row.fetched_at = now
-    else:
-        row = FundamentalsCache(
-            ticker=ticker,
-            statement_type=statement_type,
-            period=period,
-            fetched_at=now,
-            raw_json=raw_json,
-        )
-    session.add(row)
+    # Upsert, not a plain insert: two concurrent requests for the same cache
+    # key (e.g. TickerHeader and Step1Card both mounting on a fresh ticker
+    # page and racing to cache "profile", or React Strict Mode double-firing
+    # an effect in dev) can both see a cache miss above and both reach this
+    # write. A plain INSERT would raise a UNIQUE constraint violation (500)
+    # when the second one lands; ON CONFLICT DO UPDATE makes the write itself
+    # atomic, so the loser updates instead of erroring.
+    stmt = sqlite_insert(FundamentalsCache).values(
+        ticker=ticker,
+        statement_type=statement_type,
+        period=period,
+        fetched_at=now,
+        raw_json=raw_json,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["ticker", "statement_type", "period"],
+        set_={"raw_json": raw_json, "fetched_at": now},
+    )
+    session.execute(stmt)
     session.commit()
     return data
 
