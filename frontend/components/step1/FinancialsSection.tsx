@@ -58,34 +58,49 @@ export function FinancialsSection({ data, chartWidth }: Props) {
         <p className="text-xs text-zinc-500">Cash flow from operations not applicable — {data.cfo_exempt_reason}.</p>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-max border-separate border-spacing-0 text-sm">
+      <div className="flex">
+        <table className="shrink-0 border-separate border-spacing-0 text-sm">
           <thead>
             <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
-              <th className="sticky left-0 z-10 border-b border-zinc-800 bg-zinc-900 py-2 pr-8 font-medium">Metric</th>
-              {data.years.map((year) => (
-                <th key={year} className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">
-                  {year}
-                </th>
-              ))}
+              <th className="whitespace-nowrap border-b border-zinc-800 py-2 pr-8 font-medium">Metric</th>
             </tr>
           </thead>
           <tbody>
             {series.map((s) => (
               <tr key={s.key}>
-                <td className="sticky left-0 z-10 border-b border-zinc-900 bg-zinc-900 py-2 pr-8 text-zinc-400">
+                <td className="whitespace-nowrap border-b border-zinc-900 py-2 pr-8 text-zinc-400">
                   <span className="mr-1.5 inline-block size-2 rounded-full align-middle" style={{ backgroundColor: s.color }} />
                   {s.label}
                 </td>
-                {values[s.key].map((v, i) => (
-                  <td key={i} className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
-                    {v != null ? fmtTableMoney(v) : "—"}
-                  </td>
-                ))}
               </tr>
             ))}
           </tbody>
         </table>
+
+        <div className="flex-1 overflow-x-auto">
+          <table className="w-full min-w-max border-separate border-spacing-0 text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
+                {data.years.map((year) => (
+                  <th key={year} className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">
+                    {year}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {series.map((s) => (
+                <tr key={s.key}>
+                  {values[s.key].map((v, i) => (
+                    <td key={i} className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
+                      {v != null ? fmtTableMoney(v) : "—"}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
