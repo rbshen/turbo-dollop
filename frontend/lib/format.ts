@@ -31,11 +31,37 @@ export function fmtCompactMoney(n: number): string {
   return fmtMoney(n);
 }
 
+/** "#,###.00M" — table format for raw dollar figures (e.g. 416161000000 -> "416,161.00M"). */
+export function fmtTableMoney(n: number): string {
+  return (n / 1_000_000).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "M";
+}
+
 /** "+1.23%" / "-1.23%" / "0.00%"; expects a value already in percentage points (e.g. 11.98 for 11.98%). */
 export function fmtPct(n: number, decimals = 2): string {
   const threshold = 0.5 * Math.pow(10, -decimals);
   if (Math.abs(n) < threshold) return (0).toFixed(decimals) + "%";
   return (n >= 0 ? "+" : "") + n.toFixed(decimals) + "%";
+}
+
+export interface AxisMoneyUnit {
+  divisor: number;
+  suffix: string;
+}
+
+/** Picks one consistent compact unit (k/M/B/T) for a whole chart axis based on
+ * its max value, per the mockup's "$Xk"-style compact tick format generalized
+ * across magnitudes — so a large-cap ticker's axis reads "$400B" instead of
+ * an absurd "$400,000,000k". */
+export function pickAxisMoneyUnit(maxAbs: number): AxisMoneyUnit {
+  if (maxAbs >= 1e12) return { divisor: 1e12, suffix: "T" };
+  if (maxAbs >= 1e9) return { divisor: 1e9, suffix: "B" };
+  if (maxAbs >= 1e6) return { divisor: 1e6, suffix: "M" };
+  if (maxAbs >= 1e3) return { divisor: 1e3, suffix: "k" };
+  return { divisor: 1, suffix: "" };
+}
+
+export function fmtAxisMoney(n: number, unit: AxisMoneyUnit): string {
+  return `$${(n / unit.divisor).toFixed(0)}${unit.suffix}`;
 }
 
 /** Plain number, fixed decimals (e.g. beta, P/E). */

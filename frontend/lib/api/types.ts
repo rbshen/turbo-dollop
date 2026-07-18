@@ -17,3 +17,36 @@ export interface TickerSummaryOut {
   fair_value_price: number | null;
   fair_value_verdict: "undervalued" | "overvalued" | "fair" | null;
 }
+
+export interface Step1TrendComponent {
+  score: number;
+  pattern: string;
+}
+
+export interface Step1NetIncomeComponent extends Step1TrendComponent {
+  used_operating_income_backup: boolean;
+}
+
+export interface Step1Components {
+  revenue: Step1TrendComponent;
+  net_income: Step1NetIncomeComponent;
+  cfo: Step1TrendComponent | null;
+  margins: Step1TrendComponent;
+}
+
+export interface Step1Out {
+  ticker: string;
+  years: string[];
+  revenue: (number | null)[];
+  net_income: (number | null)[];
+  operating_income: (number | null)[];
+  cfo: (number | null)[] | null;
+  gross_margin: (number | null)[];
+  net_margin: (number | null)[];
+  cfo_exempt_reason: string | null;
+  net_income_one_off: boolean;
+  cfo_one_off: boolean;
+  score: number;
+  verdict: string;
+  components: Step1Components;
+}
