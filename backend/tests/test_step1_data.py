@@ -66,7 +66,7 @@ def test_get_step1_data_builds_series_and_ttm_and_caches(monkeypatch):
     assert result.cfo_exempt_reason is None
     assert result.components["cfo"] is not None
     assert 0 <= result.score <= 100
-    assert result.verdict in {"Strong Pass", "Pass with caution", "May not pass — investigate", "Fail"}
+    assert result.verdict in {"Strong Pass", "Pass", "Fail"}
     assert call_count == {
         "profile": 1,
         "income_annual": 1,
