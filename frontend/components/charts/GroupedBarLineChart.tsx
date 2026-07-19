@@ -51,9 +51,13 @@ export function GroupedBarLineChart({
   const plotHeight = height;
   const svgWidth = plotWidth + MARGIN.left + MARGIN.right;
   const svgHeight = plotHeight + MARGIN.top + MARGIN.bottom;
+  const scaleMin = yTicks[0] ?? 0;
   const scaleMax = yTicks[yTicks.length - 1] || 1;
 
-  const yFor = (v: number) => plotHeight - (v / scaleMax) * plotHeight;
+  // Generalized to a possibly-negative scaleMin (e.g. Step 4's Cash
+  // Conversion Cycle chart) -- reduces to the original 0-anchored formula
+  // whenever scaleMin is 0, which every other chart in the app relies on.
+  const yFor = (v: number) => plotHeight - ((v - scaleMin) / (scaleMax - scaleMin)) * plotHeight;
   const groupX = (categoryIndex: number) => categoryIndex * (groupWidth + groupGap);
 
   return (

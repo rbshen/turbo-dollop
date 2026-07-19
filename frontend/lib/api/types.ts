@@ -107,3 +107,45 @@ export interface Step5Out {
   verdict: string;
   hard_fail: boolean;
 }
+
+export interface Step4RatioComponent {
+  label: string;
+  points: number;
+}
+
+export interface Step4CccComponent {
+  pattern: string;
+  points: number;
+}
+
+export interface Step4Components {
+  roe: Step4RatioComponent;
+  roic: Step4RatioComponent | null;
+  revenue_vs_ar: Step4RatioComponent;
+  ccc: Step4CccComponent | null;
+}
+
+export interface Step4Out {
+  ticker: string;
+  years: string[];
+  // "Standard" / "Bank" / "Insurance" / "Utility" / "REIT/Property
+  // Developer" -- shared classifier with Step 5.
+  company_type: string;
+  classification_note: string;
+  roe: (number | null)[];
+  // null (the whole field) when ROIC is exempt (Bank / Insurance / Utility).
+  roic: (number | null)[] | null;
+  roic_exempt_reason: string | null;
+  revenue: (number | null)[];
+  accounts_receivable: (number | null)[];
+  // null (the whole field) when no physical inventory was detected.
+  ccc: (number | null)[] | null;
+  ccc_exempt_reason: string | null;
+  // null when required raw data is missing.
+  score: number | null;
+  // "Fail" / "Pass" / "Strong Pass" for scored tickers; "insufficient_data"
+  // when required figures are missing.
+  verdict: string;
+  hard_fail: boolean;
+  components: Step4Components;
+}
