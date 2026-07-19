@@ -16,14 +16,21 @@ function classFor(score: number, verdict: string): string {
 interface Props {
   score: number;
   verdict: string;
+  /** "lg" is used by the Overall Assessment card, which sits above all the
+   * per-step cards and should read as a size step up from them. */
+  size?: "default" | "lg";
 }
 
-export function ScoreBadge({ score, verdict }: Props) {
+export function ScoreBadge({ score, verdict, size = "default" }: Props) {
   const cls = classFor(score, verdict);
+  const sizeCls =
+    size === "lg" ? "gap-4 rounded-xl px-6 py-3" : "gap-3 rounded-lg px-4 py-2";
+  const scoreCls = size === "lg" ? "text-5xl" : "text-3xl";
+  const verdictCls = size === "lg" ? "text-base" : "text-sm";
   return (
-    <span className={`inline-flex items-center gap-3 rounded-lg border px-4 py-2 ${cls}`}>
-      <span className="font-mono text-3xl font-bold leading-none tabular-nums">{score}</span>
-      <span className="text-sm font-semibold">{verdict}</span>
+    <span className={`inline-flex items-center border ${sizeCls} ${cls}`}>
+      <span className={`font-mono font-bold leading-none tabular-nums ${scoreCls}`}>{score}</span>
+      <span className={`font-semibold ${verdictCls}`}>{verdict}</span>
     </span>
   );
 }
