@@ -13,11 +13,8 @@ AGREEMENT_MODERATE = 20.0
 MAGNITUDE_WEIGHT = 0.70
 AGREEMENT_WEIGHT = 0.30
 
-VERDICT_BANDS = [
-    (91, 100, "Strong Pass"),
-    (70, 90, "Pass"),
-    (0, 69, "Fail"),
-]
+# Score threshold for "Strong Pass" among Pass verdicts (see _verdict_for).
+STRONG_PASS_SCORE = 90
 
 
 class ScoreResult(NamedTuple):
@@ -49,11 +46,20 @@ def _score_agreement(spread_pct: float) -> int:
     return 20
 
 
-def _verdict_for(score: int) -> str:
-    for low, high, label in VERDICT_BANDS:
-        if low <= score <= high:
-            return label
-    return "Fail"
+def _verdict_for(score: int, magnitude_score: int) -> str:
+    # Deliberately refined beyond step2_positive_growth_rate_assessment_
+    # prompt.md's original score-band verdict -- see CLAUDE.md's "Scoring
+    # rubric deviations". The doc's own scale only fails a company for
+    # negative projected growth; 0-5% is "borderline" and 5-10% is "modest
+    # but acceptable", neither a fail condition. Analyst disagreement (the
+    # agreement component, 30% weight) should never by itself drag a
+    # genuinely positive-growth company under the Fail line, so Fail is
+    # gated on the magnitude tier alone, not the blended score.
+    if magnitude_score == 0:
+        return "Fail"
+    if score > STRONG_PASS_SCORE:
+        return "Strong Pass"
+    return "Pass"
 
 
 def score_step2(growth_rate_pct: float, spread_pct: float) -> ScoreResult:
@@ -69,5 +75,5 @@ def score_step2(growth_rate_pct: float, spread_pct: float) -> ScoreResult:
         magnitude_score=magnitude_score,
         agreement_score=agreement_score,
         score=score,
-        verdict=_verdict_for(score),
+        verdict=_verdict_for(score, magnitude_score),
     )

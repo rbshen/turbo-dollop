@@ -30,7 +30,7 @@ def _year_offset(rows_base_year: int, row: dict) -> int:
     return date.fromisoformat(row["date"][:10]).year - rows_base_year
 
 
-def _project(rows: list[dict], avg_field: str, low_field: str, high_field: str) -> dict | None:
+def _project(rows: list[dict], avg_field: str, low_field: str, high_field: str, analysts_field: str) -> dict | None:
     """CAGR from the nearest forward estimate to the forward estimate
     closest to 4 years out, plus that target year's high/low spread as a %
     of its average -- see CLAUDE.md's Step 2 data-source substitution."""
@@ -75,6 +75,9 @@ def _project(rows: list[dict], avg_field: str, low_field: str, high_field: str) 
         "growth_rate": growth_rate,
         "spread": spread,
         "table": table,
+        # Informational only -- doesn't affect the score, just lets the UI
+        # show how many analysts the agreement spread is actually built on.
+        "analyst_count": target.get(analysts_field),
     }
 
 
@@ -102,24 +105,27 @@ async def get_step2_data(ticker: str) -> Step2Out:
 
     # Prefer revenue estimates; fall back to EPS if revenue projections
     # aren't available for this ticker.
-    projection = _project(rows, "revenueAvg", "revenueLow", "revenueHigh")
+    projection = _project(rows, "revenueAvg", "revenueLow", "revenueHigh", "numAnalystsRevenue")
     basis = "revenue"
     if projection is None:
-        projection = _project(rows, "epsAvg", "epsLow", "epsHigh")
+        projection = _project(rows, "epsAvg", "epsLow", "epsHigh", "numAnalystsEps")
         basis = "eps"
 
     if projection is None:
-        result = score_step2(growth_rate_pct=0.0, spread_pct=100.0)
+        # No real growth rate to score -- explicitly Fail rather than
+        # feeding a fabricated 0.0 growth rate through score_step2, which
+        # would now read as non-negative and pass under the magnitude-gated
+        # verdict logic below.
         return Step2Out(
             ticker=ticker,
             basis=None,
             estimates=[],
             growth_catalysts=growth_catalysts,
-            score=result.score,
-            verdict=result.verdict,
+            score=0,
+            verdict="Fail",
             components={
-                "magnitude": {"score": result.magnitude_score},
-                "agreement": {"score": result.agreement_score},
+                "magnitude": {"score": 0},
+                "agreement": {"score": 0},
                 "insufficient_data": True,
             },
         )
@@ -134,6 +140,7 @@ async def get_step2_data(ticker: str) -> Step2Out:
         target_fiscal_year=projection["target_fiscal_year"],
         growth_rate=projection["growth_rate"],
         estimate_spread=projection["spread"],
+        target_analyst_count=projection["analyst_count"],
         growth_catalysts=growth_catalysts,
         score=result.score,
         verdict=result.verdict,

@@ -102,7 +102,11 @@ export function Step2Card({ ticker }: Props) {
             <p className="text-sm text-zinc-300">
               {agreementLabel(data.estimate_spread)}
               {data.estimate_spread != null && (
-                <span className="text-zinc-500"> — spread of {fmtPct(data.estimate_spread, 1)} around the average</span>
+                <span className="text-zinc-500">
+                  {" "}
+                  — spread of {fmtPct(data.estimate_spread, 1)} around the average
+                  {data.target_analyst_count != null && ` (based on ${data.target_analyst_count} analysts)`}
+                </span>
               )}
             </p>
           </div>

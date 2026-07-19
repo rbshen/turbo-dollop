@@ -68,3 +68,48 @@ def test_combined_weighting_fail():
 def test_score_clamped_to_valid_range():
     result = score_step2(growth_rate_pct=50.0, spread_pct=5.0)
     assert 0 <= result.score <= 100
+
+
+def test_positive_growth_with_low_score_still_passes():
+    # Solid positive growth (magnitude 85) dragged under 70 by a wide
+    # analyst spread (agreement 20) -- score = 0.7*85 + 0.3*20 = 65.5 -> 66,
+    # but per the source doc, only negative growth is a fail condition:
+    # analyst disagreement alone must never turn this into a Fail. This is
+    # the exact AAPL/LRCX scenario that motivated the fix.
+    result = score_step2(growth_rate_pct=13.5, spread_pct=22.2)
+    assert result.score < 70
+    assert result.verdict == "Pass"
+
+
+def test_negative_growth_still_fails_regardless_of_agreement():
+    # Even a perfectly tight analyst spread (agreement 100) can't rescue
+    # negative projected growth -- Fail is gated on the magnitude tier, not
+    # the blended score. score = 0.7*0 + 0.3*100 = 30, well above 0, but
+    # still Fail.
+    result = score_step2(growth_rate_pct=-1.0, spread_pct=2.0)
+    assert result.verdict == "Fail"
+
+
+def test_zero_growth_is_borderline_not_fail():
+    # Exactly 0% growth is the boundary of the doc's "borderline" tier
+    # (0-5%), not negative -- must not fail.
+    result = score_step2(growth_rate_pct=0.0, spread_pct=50.0)
+    assert result.verdict == "Pass"
+
+
+def test_pass_tier_strong_pass_above_90():
+    result = score_step2(growth_rate_pct=20.0, spread_pct=5.0)  # score 100
+    assert result.verdict == "Strong Pass"
+
+
+def test_pass_tier_pass_at_75_to_90():
+    result = score_step2(growth_rate_pct=20.0, spread_pct=25.0)  # score 76
+    assert 75 <= result.score <= 90
+    assert result.verdict == "Pass"
+
+
+def test_pass_tier_pass_below_70():
+    # magnitude 65 (5-10% growth), agreement 20 (wide) -> 0.7*65+0.3*20=51.5 -> 52
+    result = score_step2(growth_rate_pct=7.0, spread_pct=25.0)
+    assert result.score < 70
+    assert result.verdict == "Pass"

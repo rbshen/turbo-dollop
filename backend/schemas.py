@@ -66,6 +66,9 @@ class Step2Out(BaseModel):
     # labeled "analyst estimate range" in the UI, NOT "source consensus":
     # this is multiple analysts on one platform, not multiple platforms.
     estimate_spread: float | None = None
+    # Informational only -- how many analysts the target year's spread is
+    # built on; doesn't affect the score.
+    target_analyst_count: int | None = None
     # Manually-curated free text; not factored into the score (see
     # CLAUDE.md). Null when nothing has been recorded yet.
     growth_catalysts: str | None = None

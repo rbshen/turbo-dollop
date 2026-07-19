@@ -76,6 +76,9 @@ export interface Step2Out {
   // High/low spread as a % of the average estimate -- "analyst estimate
   // range", not cross-platform "source consensus".
   estimate_spread: number | null;
+  // Informational only -- how many analysts the target year's spread is
+  // built on; doesn't affect the score.
+  target_analyst_count: number | null;
   growth_catalysts: string | null;
   score: number;
   verdict: string;
