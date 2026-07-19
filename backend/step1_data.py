@@ -6,6 +6,7 @@ from db import engine
 from fmp_client import fmp_client
 from schemas import Step1Out
 from scoring.step1 import score_step1
+from ttm import sum_last_four_quarters
 
 
 def _first(data: dict | list) -> dict:
@@ -27,13 +28,6 @@ def _detect_exemption(sector: str | None, industry: str | None) -> str | None:
     if sector in {"Basic Materials", "Energy"}:
         return "Commodity Company"
     return None
-
-
-def _sum_quarters(quarters: list[dict], field: str) -> float | None:
-    values = [q[field] for q in quarters if q.get(field) is not None]
-    if len(values) < 4:
-        return None
-    return sum(values[:4])
 
 
 def _annual_series(annual_rows: list[dict], field: str) -> tuple[list[str], list[float | None]]:
@@ -115,11 +109,11 @@ async def get_step1_data(ticker: str) -> Step1Out:
     cfo = [cash_flow_by_year.get(year, {}).get("netCashProvidedByOperatingActivities") for year in years]
 
     years = years + ["TTM"]
-    revenue = revenue + [_sum_quarters(income_quarterly, "revenue")]
-    gross_profit = gross_profit + [_sum_quarters(income_quarterly, "grossProfit")]
-    operating_income = operating_income + [_sum_quarters(income_quarterly, "operatingIncome")]
-    net_income = net_income + [_sum_quarters(income_quarterly, "netIncome")]
-    cfo = cfo + [_sum_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities")]
+    revenue = revenue + [sum_last_four_quarters(income_quarterly, "revenue")]
+    gross_profit = gross_profit + [sum_last_four_quarters(income_quarterly, "grossProfit")]
+    operating_income = operating_income + [sum_last_four_quarters(income_quarterly, "operatingIncome")]
+    net_income = net_income + [sum_last_four_quarters(income_quarterly, "netIncome")]
+    cfo = cfo + [sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities")]
 
     gross_margin = [(gp / rev * 100) if gp is not None and rev else None for gp, rev in zip(gross_profit, revenue)]
     net_margin = [(ni / rev * 100) if ni is not None and rev else None for ni, rev in zip(net_income, revenue)]

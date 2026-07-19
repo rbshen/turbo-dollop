@@ -6,6 +6,7 @@ from db import engine
 from fmp_client import fmp_client
 from schemas import Step5Out, Step5RatioResult
 from scoring.step5 import classify_company_type, score_step5_reit, score_step5_standard
+from ttm import sum_last_four_quarters
 
 
 def _first(data: dict | list) -> dict:
@@ -36,48 +37,57 @@ async def get_step5_data(ticker: str) -> Step5Out:
             # raw components to compute one -- deferred, not approximated.
             return Step5Out(ticker=ticker, company_type=company_type, score=None, verdict="not_supported")
 
+        # Balance sheet items are point-in-time snapshots -- the latest
+        # available quarter is simply more current than the latest annual
+        # filing (which can be many months stale by the time this is viewed).
         balance_sheet = await safe_fetch(
-            "balance_sheet_statement_annual",
+            "balance_sheet_statement_quarterly",
             get_or_fetch(
                 session,
                 ticker,
                 "balance_sheet_statement",
-                "annual",
-                lambda: fmp_client.get_balance_sheet_statement(ticker, "annual", 1),
+                "quarterly",
+                lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", 1),
                 staleness_days,
             ),
         )
-        # Same cache key + limit Step 1 already populates ("income_statement"/
-        # "annual" and "cash_flow_statement"/"annual", both limit 10) --
-        # requesting a different limit here would return whichever payload
-        # was cached first regardless of what this call asked for, since the
-        # cache key doesn't encode limit.
-        income_statement = await safe_fetch(
-            "income_statement_annual",
+        # EBITDA, net interest expense, and CFO are flow measures (activity
+        # over a period), not snapshots -- a single quarter's figure would
+        # understate them ~4x relative to the debt figures they're compared
+        # against, so these are summed trailing-twelve-months instead, same
+        # convention and cache key + limit Step 1 already populates
+        # ("income_statement"/"quarterly" and "cash_flow_statement"/
+        # "quarterly", both limit 4).
+        income_quarterly = await safe_fetch(
+            "income_statement_quarterly",
             get_or_fetch(
                 session,
                 ticker,
                 "income_statement",
-                "annual",
-                lambda: fmp_client.get_income_statement(ticker, "annual", 10),
+                "quarterly",
+                lambda: fmp_client.get_income_statement(ticker, "quarter", 4),
                 staleness_days,
             ),
         )
-        cash_flow_statement = await safe_fetch(
-            "cash_flow_statement_annual",
+        cash_flow_quarterly = await safe_fetch(
+            "cash_flow_statement_quarterly",
             get_or_fetch(
                 session,
                 ticker,
                 "cash_flow_statement",
-                "annual",
-                lambda: fmp_client.get_cash_flow_statement(ticker, "annual", 10),
+                "quarterly",
+                lambda: fmp_client.get_cash_flow_statement(ticker, "quarter", 4),
                 staleness_days,
             ),
         )
 
     balance_sheet_row = _first(balance_sheet)
-    income_row = _first(income_statement)
-    cash_flow_row = _first(cash_flow_statement)
+    income_quarterly = income_quarterly if isinstance(income_quarterly, list) else []
+    cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
+
+    ebitda_ttm = sum_last_four_quarters(income_quarterly, "ebitda")
+    net_interest_income_ttm = sum_last_four_quarters(income_quarterly, "netInterestIncome")
+    cfo_ttm = sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities")
 
     total_debt = balance_sheet_row.get("totalDebt")
     total_assets = balance_sheet_row.get("totalAssets")
@@ -104,23 +114,22 @@ async def get_step5_data(ticker: str) -> Step5Out:
     current_liabilities = balance_sheet_row.get("totalCurrentLiabilities")
     short_term_debt = balance_sheet_row.get("shortTermDebt")
     long_term_debt = balance_sheet_row.get("longTermDebt")
-    ebitda = income_row.get("ebitda")
-    net_interest_income = income_row.get("netInterestIncome")
-    cfo = cash_flow_row.get("netCashProvidedByOperatingActivities")
 
     current_ratio = current_assets / current_liabilities if current_assets is not None and current_liabilities else None
     debt_to_ebitda = (
-        ((short_term_debt or 0) + (long_term_debt or 0)) / ebitda
-        if ebitda is not None and ebitda > 0
+        ((short_term_debt or 0) + (long_term_debt or 0)) / ebitda_ttm
+        if ebitda_ttm is not None and ebitda_ttm > 0
         else None
     )
     # A company earning net interest income has no interest burden for this
     # ratio's purpose (clamped at 0, not left negative).
-    net_interest_expense = max(0.0, -net_interest_income) if net_interest_income is not None else None
+    net_interest_expense_ttm = max(0.0, -net_interest_income_ttm) if net_interest_income_ttm is not None else None
     # CFO <= 0 makes the ratio meaningless (or sign-flipped) rather than
     # just large -- treated as unavailable, not computed.
     debt_servicing_pct = (
-        net_interest_expense / cfo * 100 if net_interest_expense is not None and cfo is not None and cfo > 0 else None
+        net_interest_expense_ttm / cfo_ttm * 100
+        if net_interest_expense_ttm is not None and cfo_ttm is not None and cfo_ttm > 0
+        else None
     )
 
     if current_ratio is None or debt_to_ebitda is None or debt_servicing_pct is None:
