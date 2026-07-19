@@ -5,6 +5,7 @@ from sqlmodel import Session
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
+from debt_metrics import compute_debt_metrics
 from fmp_client import fmp_client
 from schemas import TickerSummaryOut
 
@@ -95,11 +96,41 @@ async def get_summary(ticker: str) -> TickerSummaryOut:
             "earnings",
             get_or_fetch(session, ticker, "earnings", "latest", lambda: fmp_client.get_earnings(ticker), staleness_days),
         )
+        # Same cache keys + limits Step 1/Step 5 already populate
+        # ("balance_sheet_statement"/"quarterly" limit 1, "income_statement"/
+        # "quarterly" limit 4) -- compute_debt_metrics is the same shared
+        # calculation Step 5's debt ratios use, so the header and Step 5's
+        # card can never show inconsistent numbers for the same ticker.
+        balance_sheet_data = await safe_fetch(
+            "balance_sheet_statement_quarterly",
+            get_or_fetch(
+                session,
+                ticker,
+                "balance_sheet_statement",
+                "quarterly",
+                lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", 1),
+                staleness_days,
+            ),
+        )
+        income_quarterly_data = await safe_fetch(
+            "income_statement_quarterly",
+            get_or_fetch(
+                session,
+                ticker,
+                "income_statement",
+                "quarterly",
+                lambda: fmp_client.get_income_statement(ticker, "quarter", 4),
+                staleness_days,
+            ),
+        )
 
     estimates = estimates_data if isinstance(estimates_data, list) else []
     earnings = earnings_data if isinstance(earnings_data, list) else []
     price = quote.get("price")
     eps_cagr = _compute_eps_cagr(estimates)
+    debt_metrics = compute_debt_metrics(
+        _first(balance_sheet_data), income_quarterly_data if isinstance(income_quarterly_data, list) else []
+    )
 
     return TickerSummaryOut(
         company_name=profile.get("companyName"),
@@ -119,6 +150,9 @@ async def get_summary(ticker: str) -> TickerSummaryOut:
         eps_growth_3_5y=eps_cagr * 100 if eps_cagr is not None else None,
         pe_ratio=ratios.get("priceToEarningsRatio"),
         next_earnings_date=_next_earnings_date(earnings),
+        total_debt=debt_metrics.total_debt,
+        ebitda_ttm=debt_metrics.ebitda_ttm,
+        net_interest_expense_ttm=debt_metrics.net_interest_expense_ttm,
         # Fair value calculation is out of scope for this phase (per spec) —
         # placeholder only, so the UI has a real field to render.
         fair_value_price=round(price * 1.1, 2) if price else None,

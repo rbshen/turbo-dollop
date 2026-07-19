@@ -19,6 +19,13 @@ class TickerSummaryOut(BaseModel):
     eps_growth_3_5y: float | None = None
     pe_ratio: float | None = None
     next_earnings_date: date | None = None
+    # Same figures Step 5's debt ratios are built from (backend/debt_metrics.py)
+    # -- latest-quarter snapshot for total_debt, TTM for the other two.
+    # Shown for every company type, including Bank/REIT: these are raw
+    # figures, not Step 5's classified ratios, so there's no exemption here.
+    total_debt: float | None = None
+    ebitda_ttm: float | None = None
+    net_interest_expense_ttm: float | None = None
     # Placeholder only — real fair value calculation is out of scope for this phase.
     fair_value_price: float | None = None
     fair_value_verdict: str | None = None

@@ -3,6 +3,7 @@ from sqlmodel import Session
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
+from debt_metrics import compute_debt_metrics
 from fmp_client import fmp_client
 from schemas import Step5Out, Step5RatioResult
 from scoring.step5 import classify_company_type, score_step5_reit, score_step5_standard
@@ -85,10 +86,15 @@ async def get_step5_data(ticker: str) -> Step5Out:
     income_quarterly = income_quarterly if isinstance(income_quarterly, list) else []
     cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
 
-    ebitda_ttm = sum_last_four_quarters(income_quarterly, "ebitda")
-    net_interest_income_ttm = sum_last_four_quarters(income_quarterly, "netInterestIncome")
+    # Shared with the ticker header's raw metric tiles -- single source of
+    # truth so the two views can never diverge for the same ticker.
+    debt_metrics = compute_debt_metrics(balance_sheet_row, income_quarterly)
+    ebitda_ttm = debt_metrics.ebitda_ttm
     cfo_ttm = sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities")
 
+    # REIT gearing uses FMP's own totalDebt field (a broader aggregate than
+    # short+long term debt alone), a different definition than the Standard
+    # path's debt_to_ebitda below -- unchanged from before this refactor.
     total_debt = balance_sheet_row.get("totalDebt")
     total_assets = balance_sheet_row.get("totalAssets")
     deferred_revenue = balance_sheet_row.get("deferredRevenue")
@@ -112,23 +118,18 @@ async def get_step5_data(ticker: str) -> Step5Out:
     # Standard path.
     current_assets = balance_sheet_row.get("totalCurrentAssets")
     current_liabilities = balance_sheet_row.get("totalCurrentLiabilities")
-    short_term_debt = balance_sheet_row.get("shortTermDebt")
-    long_term_debt = balance_sheet_row.get("longTermDebt")
 
     current_ratio = current_assets / current_liabilities if current_assets is not None and current_liabilities else None
     debt_to_ebitda = (
-        ((short_term_debt or 0) + (long_term_debt or 0)) / ebitda_ttm
-        if ebitda_ttm is not None and ebitda_ttm > 0
+        debt_metrics.total_debt / ebitda_ttm
+        if debt_metrics.total_debt is not None and ebitda_ttm is not None and ebitda_ttm > 0
         else None
     )
-    # A company earning net interest income has no interest burden for this
-    # ratio's purpose (clamped at 0, not left negative).
-    net_interest_expense_ttm = max(0.0, -net_interest_income_ttm) if net_interest_income_ttm is not None else None
     # CFO <= 0 makes the ratio meaningless (or sign-flipped) rather than
     # just large -- treated as unavailable, not computed.
     debt_servicing_pct = (
-        net_interest_expense_ttm / cfo_ttm * 100
-        if net_interest_expense_ttm is not None and cfo_ttm is not None and cfo_ttm > 0
+        debt_metrics.net_interest_expense_ttm / cfo_ttm * 100
+        if debt_metrics.net_interest_expense_ttm is not None and cfo_ttm is not None and cfo_ttm > 0
         else None
     )
 

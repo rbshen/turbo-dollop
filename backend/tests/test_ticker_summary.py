@@ -43,13 +43,31 @@ FAKE_EARNINGS = [
     {"date": "2026-01-29", "epsActual": 2.85, "epsEstimated": 2.67},
 ]
 
+FAKE_BALANCE_SHEET_QUARTERLY = [{"shortTermDebt": 5_000_000_000, "longTermDebt": 95_000_000_000}]
+
+FAKE_INCOME_QUARTERLY = [
+    {"ebitda": 30_000_000_000, "netInterestIncome": -750_000_000},
+    {"ebitda": 29_000_000_000, "netInterestIncome": -750_000_000},
+    {"ebitda": 28_000_000_000, "netInterestIncome": -750_000_000},
+    {"ebitda": 27_000_000_000, "netInterestIncome": -750_000_000},
+]
+
 
 def test_get_summary_maps_fields_and_caches(monkeypatch):
     test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(test_engine)
     monkeypatch.setattr(ticker_summary, "engine", test_engine)
 
-    call_count = {"profile": 0, "quote": 0, "price_change": 0, "ratios": 0, "analyst_estimates": 0, "earnings": 0}
+    call_count = {
+        "profile": 0,
+        "quote": 0,
+        "price_change": 0,
+        "ratios": 0,
+        "analyst_estimates": 0,
+        "earnings": 0,
+        "balance_sheet": 0,
+        "income_statement": 0,
+    }
 
     async def fake_profile(ticker):
         call_count["profile"] += 1
@@ -75,12 +93,22 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
         call_count["earnings"] += 1
         return FAKE_EARNINGS
 
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        call_count["balance_sheet"] += 1
+        return FAKE_BALANCE_SHEET_QUARTERLY
+
+    async def fake_income_statement(ticker, period, limit):
+        call_count["income_statement"] += 1
+        return FAKE_INCOME_QUARTERLY
+
     monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", fake_profile)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_quote", fake_quote)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_price_change", fake_price_change)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios", fake_ratios)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_analyst_estimates", fake_estimates)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_earnings", fake_earnings)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_income_statement", fake_income_statement)
 
     summary = asyncio.run(get_summary("aapl"))
 
@@ -99,11 +127,27 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     assert summary.eps_growth_3_5y > 0
     assert summary.fair_value_price == 209.55
     assert summary.fair_value_verdict == "undervalued"
-    assert call_count == {"profile": 1, "quote": 1, "price_change": 1, "ratios": 1, "analyst_estimates": 1, "earnings": 1}
+    # Same shared calculation Step 5's debt ratios use (backend/debt_metrics.py):
+    # total_debt = 5B + 95B; ebitda_ttm = 30+29+28+27B; net interest expense
+    # TTM = -(-750M*4) = 3B.
+    assert summary.total_debt == 100_000_000_000
+    assert summary.ebitda_ttm == 114_000_000_000
+    assert summary.net_interest_expense_ttm == 3_000_000_000
+    expected_call_count = {
+        "profile": 1,
+        "quote": 1,
+        "price_change": 1,
+        "ratios": 1,
+        "analyst_estimates": 1,
+        "earnings": 1,
+        "balance_sheet": 1,
+        "income_statement": 1,
+    }
+    assert call_count == expected_call_count
 
     # Second call within the staleness window should hit the cache, not FMP again.
     asyncio.run(get_summary("aapl"))
-    assert call_count == {"profile": 1, "quote": 1, "price_change": 1, "ratios": 1, "analyst_estimates": 1, "earnings": 1}
+    assert call_count == expected_call_count
 
 
 def test_eps_cagr_requires_at_least_two_positive_estimates():

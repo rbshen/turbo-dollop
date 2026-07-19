@@ -14,6 +14,12 @@ export interface TickerSummaryOut {
   eps_growth_3_5y: number | null;
   pe_ratio: number | null;
   next_earnings_date: string | null;
+  // Same figures Step 5's debt ratios are built from (backend/debt_metrics.py)
+  // -- latest-quarter snapshot for total_debt, TTM for the other two. Shown
+  // for every company type, including Bank/REIT.
+  total_debt: number | null;
+  ebitda_ttm: number | null;
+  net_interest_expense_ttm: number | null;
   fair_value_price: number | null;
   fair_value_verdict: "undervalued" | "overvalued" | "fair" | null;
 }
