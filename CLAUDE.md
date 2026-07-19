@@ -55,8 +55,11 @@ qualitatively; `backend/scoring/trend.py` and `backend/scoring/step1.py`
 are the source of truth for the exact thresholds and logic, with comments
 at each deviation point. Current deviations:
 
-- **Verdict bands** are 0-69 Fail / 70-85 Pass / 86-100 Strong Pass (not
-  the doc's original 4-band scale).
+- **Verdict bands** are 0-69 Fail / 70-90 Pass / 91-100 Strong Pass (not
+  the doc's original 4-band scale). The score badge further splits the
+  70-90 "Pass" band into two color shades (70-74 amber, 75-90 light green)
+  without a text distinction — see `frontend/components/step1/ScoreBadge.tsx`.
+  Step 2 uses the same bands and badge.
 - **Margins classification** uses windowed early-vs-late direction plus
   explicit dip-count and sustained-decline checks, not a raw stdev-of-diffs
   volatility check — a single big dip-and-full-recovery year no longer
@@ -65,6 +68,30 @@ at each deviation point. Current deviations:
   Income) is split by recovery and recency rather than one flat score: an
   unrecovered dip stays at 40, a recovered dip within the last 2 fiscal
   years is 60, and a recovered dip older than that is 75.
+
+Step 2's source doc (`step2_positive_growth_rate_assessment_prompt.md`)
+calls for 3-4 independent platforms (GuruFocus, Finviz, Zacks, etc.) with
+projections averaged and compared for cross-platform agreement. FMP is our
+sole data source, so this is substituted with FMP's `/analyst-estimates`
+endpoint, which aggregates multiple analysts (not multiple platforms) into
+avg/high/low per forward fiscal year:
+
+- The average projected growth rate (CAGR from the nearest forward
+  estimate to the forward estimate closest to 4 years out) stands in for
+  the doc's cross-platform average.
+- The high/low spread as a % of the average, for that same target year,
+  stands in for the doc's cross-platform "source agreement" check. This is
+  **analyst estimate range**, not cross-platform consensus, and is labeled
+  as such in the API/UI (`backend/schemas.py::Step2Out`,
+  `frontend/components/step2/Step2Card.tsx`) so it's never mistaken for
+  what the source doc actually describes.
+- Revenue estimates are preferred over EPS when both are available (EPS is
+  more exposed to buyback/margin noise than the underlying growth story);
+  EPS is used as a fallback when revenue estimates are missing.
+- Growth catalysts (the doc's Step 3/4 qualitative research) are a
+  manually-curated free-text field (`models.py::GrowthCatalystNote`), not
+  factored into the score — same scoping as Step 1's manually-flagged
+  one-off booleans. No edit UI exists yet; it's backend-settable only.
 
 ## Workflow rules
 

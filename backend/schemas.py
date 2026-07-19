@@ -43,3 +43,32 @@ class Step1Out(BaseModel):
     score: int
     verdict: str
     components: dict
+
+
+class Step2EstimateRow(BaseModel):
+    fiscal_year: str
+    growth_avg: float
+    growth_high: float
+    growth_low: float
+
+
+class Step2Out(BaseModel):
+    ticker: str
+    # Which FMP metric the projection is based on -- revenue is preferred,
+    # EPS is a fallback when revenue estimates are unavailable (see
+    # CLAUDE.md's "Scoring rubric deviations").
+    basis: str | None = None
+    estimates: list[Step2EstimateRow] = []
+    base_fiscal_year: str | None = None
+    target_fiscal_year: str | None = None
+    growth_rate: float | None = None
+    # High/low spread as a % of the average estimate for the target year --
+    # labeled "analyst estimate range" in the UI, NOT "source consensus":
+    # this is multiple analysts on one platform, not multiple platforms.
+    estimate_spread: float | None = None
+    # Manually-curated free text; not factored into the score (see
+    # CLAUDE.md). Null when nothing has been recorded yet.
+    growth_catalysts: str | None = None
+    score: int
+    verdict: str
+    components: dict

@@ -27,8 +27,8 @@ MARGIN_SHARP_DECLINE = -5.0
 MARGIN_FLAT_DIRECTION = 1.0  # early-vs-late average move smaller than this counts as "no net direction"
 
 VERDICT_BANDS = [
-    (86, 100, "Strong Pass"),
-    (70, 85, "Pass"),
+    (91, 100, "Strong Pass"),
+    (70, 90, "Pass"),
     (0, 69, "Fail"),
 ]
 

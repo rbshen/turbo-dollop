@@ -50,3 +50,34 @@ export interface Step1Out {
   verdict: string;
   components: Step1Components;
 }
+
+export interface Step2EstimateRow {
+  fiscal_year: string;
+  growth_avg: number;
+  growth_high: number;
+  growth_low: number;
+}
+
+export interface Step2Components {
+  magnitude: { score: number; growth_rate?: number };
+  agreement: { score: number; spread?: number };
+  insufficient_data?: boolean;
+}
+
+export interface Step2Out {
+  ticker: string;
+  // Which FMP metric the projection is based on -- revenue preferred, EPS
+  // as a fallback (see CLAUDE.md's "Scoring rubric deviations").
+  basis: "revenue" | "eps" | null;
+  estimates: Step2EstimateRow[];
+  base_fiscal_year: string | null;
+  target_fiscal_year: string | null;
+  growth_rate: number | null;
+  // High/low spread as a % of the average estimate -- "analyst estimate
+  // range", not cross-platform "source consensus".
+  estimate_spread: number | null;
+  growth_catalysts: string | null;
+  score: number;
+  verdict: string;
+  components: Step2Components;
+}

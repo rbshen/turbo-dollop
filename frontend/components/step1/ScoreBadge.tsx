@@ -1,9 +1,13 @@
-const VERDICT_STYLES: Record<string, string> = {
-  "Strong Pass": "bg-emerald-900/40 text-emerald-300 border-emerald-700/40",
-  "Pass with caution": "bg-amber-900/40 text-amber-300 border-amber-700/40",
-  "May not pass — investigate": "bg-orange-900/40 text-orange-300 border-orange-700/40",
-  Fail: "bg-red-900/40 text-red-400 border-red-800/40",
-};
+// Color is chosen from the numeric score, not the verdict string: 70-74
+// and 75-90 both display the text "Pass" (see CLAUDE.md's "Scoring rubric
+// deviations") but need different shades, so a verdict-keyed lookup can't
+// tell them apart.
+function classFor(score: number): string {
+  if (score > 90) return "bg-emerald-900/40 text-emerald-300 border-emerald-700/40"; // Strong Pass
+  if (score >= 75) return "bg-emerald-900/20 text-emerald-400 border-emerald-800/30"; // Pass (light green)
+  if (score >= 70) return "bg-amber-900/40 text-amber-300 border-amber-700/40"; // Pass (neutral)
+  return "bg-red-900/40 text-red-400 border-red-800/40"; // Fail
+}
 
 interface Props {
   score: number;
@@ -11,7 +15,7 @@ interface Props {
 }
 
 export function ScoreBadge({ score, verdict }: Props) {
-  const cls = VERDICT_STYLES[verdict] ?? "bg-zinc-800 text-zinc-400 border-zinc-700/40";
+  const cls = classFor(score);
   return (
     <span className={`inline-flex items-center gap-3 rounded-lg border px-4 py-2 ${cls}`}>
       <span className="font-mono text-3xl font-bold leading-none tabular-nums">{score}</span>
