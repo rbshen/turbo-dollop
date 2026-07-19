@@ -75,3 +75,29 @@ class Step2Out(BaseModel):
     score: int
     verdict: str
     components: dict
+
+
+class Step5RatioResult(BaseModel):
+    value: float
+    label: str
+    points: int
+
+
+class Step5Out(BaseModel):
+    ticker: str
+    # "Standard" / "Bank" / "REIT/Property Developer" -- best-effort
+    # sector/industry text match, not a certified determination (see
+    # CLAUDE.md's "Scoring rubric deviations").
+    company_type: str
+    classification_note: str = "Best-effort classification from sector/industry text — not a certified determination."
+    ratios: dict[str, Step5RatioResult] = {}
+    # Informational only (deferred-revenue exception) -- not auto-applied to
+    # the Current Ratio calculation, per the source doc's manual-review note.
+    deferred_revenue_current: float | None = None
+    # None for Bank (not yet supported) or when required raw data is
+    # missing -- never a fabricated number.
+    score: int | None = None
+    # "Fail" / "Pass" / "Strong Pass" for scored tickers; "not_supported"
+    # for Bank; "insufficient_data" when required figures are missing.
+    verdict: str
+    hard_fail: bool = False

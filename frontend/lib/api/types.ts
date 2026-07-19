@@ -84,3 +84,26 @@ export interface Step2Out {
   verdict: string;
   components: Step2Components;
 }
+
+export interface Step5RatioResult {
+  value: number;
+  label: string;
+  points: number;
+}
+
+export interface Step5Out {
+  ticker: string;
+  // "Standard" / "Bank" / "REIT/Property Developer" -- best-effort
+  // sector/industry text match, not a certified determination.
+  company_type: string;
+  classification_note: string;
+  ratios: Record<string, Step5RatioResult>;
+  // Informational only (deferred-revenue exception) -- not auto-applied.
+  deferred_revenue_current: number | null;
+  // null for Bank (not yet supported) or when required data is missing.
+  score: number | null;
+  // "Fail" / "Pass" / "Strong Pass" for scored tickers; "not_supported" for
+  // Bank; "insufficient_data" when required figures are missing.
+  verdict: string;
+  hard_fail: boolean;
+}

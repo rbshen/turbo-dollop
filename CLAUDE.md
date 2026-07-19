@@ -4,9 +4,10 @@
 
 Fathom is a company fundamentals valuation web app. It runs a multi-step
 fundamental screen on any US-listed ticker. There are 5 steps total in the
-methodology; only **Step 1 (Revenue, income and cash flow)** is implemented
-so far. Later steps follow the same chart/table/score pattern established by
-Step 1 and are added in later phases.
+methodology; **Step 1 (Revenue, income and cash flow)**, **Step 2 (Positive
+growth rate)**, and **Step 5 (Conservative debt)** are implemented so far.
+Steps 3 and 4 follow the same chart/table/score pattern and are added in
+later phases.
 
 ## Tech stack
 
@@ -94,6 +95,33 @@ avg/high/low per forward fiscal year:
   manually-curated free-text field (`models.py::GrowthCatalystNote`), not
   factored into the score — same scoping as Step 1's manually-flagged
   one-off booleans. No edit UI exists yet; it's backend-settable only.
+
+Step 5's source doc (`step5_conservative_debt_assessment_prompt.md`) calls
+for a CET1 ratio check for Banks. An investigation confirmed FMP has no
+CET1 field and no raw components to compute one (checked ratios,
+ratios-ttm, key-metrics, balance sheet, and speculative bank-specific
+endpoints — all absent or 404). This is **deferred, not approximated**:
+Bank tickers get `verdict: "not_supported"` and `score: null`
+(`backend/step5_data.py`, `frontend/components/step5/Step5Card.tsx`), never
+a fabricated or estimated capital ratio.
+
+Step 5 is a hard pass/fail bankruptcy filter, not a continuous score, so
+its "Scoring rubric deviations" are structural rather than threshold
+tweaks:
+
+- **Hard-fail override**: if any ratio breaches its hard limit (Current
+  Ratio <1.0, Debt/EBITDA >3.0, Debt Servicing Ratio ≥30%, or Gearing >45%
+  for REITs), the verdict is Fail regardless of the blended score — mirrors
+  the Step 2 fix (a hard rule must never be diluted by averaging with
+  healthy ratios). The numeric score still displays for context.
+- Company classification (Standard / Bank / REIT-or-Property-Developer) is
+  a best-effort sector/industry text match, surfaced in the UI/API
+  (`classification_note`) rather than hidden, since a misclassified ticker
+  would silently apply the wrong ratio set.
+- The deferred-revenue exception (a low Current Ratio driven by deferred
+  revenue isn't a red flag) is shown as an informational note only, not
+  auto-detected or auto-adjusted — same non-automated treatment as Step 1's
+  one-off items.
 
 ## Workflow rules
 
