@@ -65,9 +65,11 @@ at each deviation point. Current deviations:
   volatility check — a single big dip-and-full-recovery year no longer
   reads as "wildly inconsistent" just because it produces high variance.
 - **Multi-dip trend tier** (2+ real dips in Revenue/Net Income/CFO/Operating
-  Income) is split by recovery and recency rather than one flat score: an
-  unrecovered dip stays at 40, a recovered dip within the last 2 fiscal
-  years is 60, and a recovered dip older than that is 75.
+  Income) is split by recovery rather than one flat score: an unrecovered
+  dip (TTM hasn't reclaimed the pre-dip peak) stays at 40; once every dip
+  has recovered past its own pre-dip peak, it scores 75 regardless of how
+  recently the dip happened -- a fully resolved dip reads the same whether
+  it was 5 years ago or last fiscal year.
 
 Step 2's source doc (`step2_positive_growth_rate_assessment_prompt.md`)
 calls for 3-4 independent platforms (GuruFocus, Finviz, Zacks, etc.) with

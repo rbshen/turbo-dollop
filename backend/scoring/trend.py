@@ -72,18 +72,14 @@ def classify_trend(values: list[float]) -> TrendResult:
 
     # Deliberately refined beyond step1_revenue_income_cfo_assessment_prompt.md's
     # original flat 40-for-any-2+-dips read -- see CLAUDE.md's "Scoring rubric
-    # deviations" section. A resolved dip from several years ago is a
-    # different risk profile than one still resolving now, so recovery and
-    # recency each get their own tier instead of collapsing into one bucket.
+    # deviations" section. Whether every dip recovered past its own pre-dip
+    # peak by TTM matters; how recently it happened doesn't -- a dip that's
+    # fully bounced back above where it started reads the same whether that
+    # happened years ago or just last fiscal year.
     all_recovered = all(arr[-1] >= arr[i] for i in real_dips)
     if not all_recovered:
         # At least one dip never got back to its pre-dip level by TTM --
         # genuinely uneven, unchanged from the original flat tier.
         return TrendResult("multiple_dips", 40)
 
-    n = len(arr)
-    recent_fy_indices = {n - 2, n - 3}  # the 2 FYs immediately before TTM
-    dip_is_recent = any((i + 1) in recent_fy_indices for i in real_dips)
-    if dip_is_recent:
-        return TrendResult("multiple_dips_recent", 60)
     return TrendResult("multiple_dips_resolved", 75)

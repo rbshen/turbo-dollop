@@ -49,13 +49,14 @@ def test_multiple_dips_resolved_scores_75_when_both_dips_are_old_and_recovered()
     assert score == 75
 
 
-def test_multiple_dips_recent_scores_60_when_a_dip_is_in_the_last_two_fys():
-    # 2 real dips, both fully recovered, but the second one lands in the
-    # most recent 2 FYs before TTM -- still resolving recently enough to
-    # score lower than a long-resolved dip.
+def test_multiple_dips_resolved_scores_75_even_when_the_recovered_dip_is_recent():
+    # 2 real dips, both fully recovered past their own pre-dip peak by TTM,
+    # even though the second one is in the most recent 2 FYs before TTM --
+    # recency no longer matters once recovery is confirmed (see CLAUDE.md's
+    # Step 1 deviations); this used to score 60 for the recent dip.
     pattern, score = classify_trend([100, 80, 110, 140, 170, 200, 160, 210, 230])
-    assert pattern == "multiple_dips_recent"
-    assert score == 60
+    assert pattern == "multiple_dips_resolved"
+    assert score == 75
 
 
 def test_flat_then_spike():
