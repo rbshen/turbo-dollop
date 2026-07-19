@@ -152,7 +152,8 @@ async def get_summary(ticker: str) -> TickerSummaryOut:
         next_earnings_date=_next_earnings_date(earnings),
         total_debt=debt_metrics.total_debt,
         ebitda_ttm=debt_metrics.ebitda_ttm,
-        net_interest_expense_ttm=debt_metrics.net_interest_expense_ttm,
+        interest_expense_ttm=debt_metrics.interest_expense_ttm,
+        interest_income_ttm=debt_metrics.interest_income_ttm,
         # Fair value calculation is out of scope for this phase (per spec) —
         # placeholder only, so the UI has a real field to render.
         fair_value_price=round(price * 1.1, 2) if price else None,

@@ -19,7 +19,9 @@ export interface TickerSummaryOut {
   // for every company type, including Bank/REIT.
   total_debt: number | null;
   ebitda_ttm: number | null;
-  net_interest_expense_ttm: number | null;
+  // Gross figures, not netted against each other.
+  interest_expense_ttm: number | null;
+  interest_income_ttm: number | null;
   fair_value_price: number | null;
   fair_value_verdict: "undervalued" | "overvalued" | "fair" | null;
 }

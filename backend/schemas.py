@@ -25,7 +25,9 @@ class TickerSummaryOut(BaseModel):
     # figures, not Step 5's classified ratios, so there's no exemption here.
     total_debt: float | None = None
     ebitda_ttm: float | None = None
-    net_interest_expense_ttm: float | None = None
+    # Gross figures, not netted against each other.
+    interest_expense_ttm: float | None = None
+    interest_income_ttm: float | None = None
     # Placeholder only — real fair value calculation is out of scope for this phase.
     fair_value_price: float | None = None
     fair_value_verdict: str | None = None

@@ -46,10 +46,10 @@ FAKE_EARNINGS = [
 FAKE_BALANCE_SHEET_QUARTERLY = [{"shortTermDebt": 5_000_000_000, "longTermDebt": 95_000_000_000}]
 
 FAKE_INCOME_QUARTERLY = [
-    {"ebitda": 30_000_000_000, "netInterestIncome": -750_000_000},
-    {"ebitda": 29_000_000_000, "netInterestIncome": -750_000_000},
-    {"ebitda": 28_000_000_000, "netInterestIncome": -750_000_000},
-    {"ebitda": 27_000_000_000, "netInterestIncome": -750_000_000},
+    {"ebitda": 30_000_000_000, "interestExpense": 800_000_000, "interestIncome": 50_000_000, "netInterestIncome": -750_000_000},
+    {"ebitda": 29_000_000_000, "interestExpense": 800_000_000, "interestIncome": 50_000_000, "netInterestIncome": -750_000_000},
+    {"ebitda": 28_000_000_000, "interestExpense": 800_000_000, "interestIncome": 50_000_000, "netInterestIncome": -750_000_000},
+    {"ebitda": 27_000_000_000, "interestExpense": 800_000_000, "interestIncome": 50_000_000, "netInterestIncome": -750_000_000},
 ]
 
 
@@ -128,11 +128,12 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     assert summary.fair_value_price == 209.55
     assert summary.fair_value_verdict == "undervalued"
     # Same shared calculation Step 5's debt ratios use (backend/debt_metrics.py):
-    # total_debt = 5B + 95B; ebitda_ttm = 30+29+28+27B; net interest expense
-    # TTM = -(-750M*4) = 3B.
+    # total_debt = 5B + 95B; ebitda_ttm = 30+29+28+27B; interest expense TTM
+    # = 800M*4; interest income TTM = 50M*4.
     assert summary.total_debt == 100_000_000_000
     assert summary.ebitda_ttm == 114_000_000_000
-    assert summary.net_interest_expense_ttm == 3_000_000_000
+    assert summary.interest_expense_ttm == 3_200_000_000
+    assert summary.interest_income_ttm == 200_000_000
     expected_call_count = {
         "profile": 1,
         "quote": 1,

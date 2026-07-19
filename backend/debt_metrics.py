@@ -6,6 +6,13 @@ from ttm import sum_last_four_quarters
 class DebtMetrics(NamedTuple):
     total_debt: float | None
     ebitda_ttm: float | None
+    # Gross figures (not netted against each other) -- shown separately on
+    # the ticker header per its own request, rather than as one combined
+    # "net interest expense" number.
+    interest_expense_ttm: float | None
+    interest_income_ttm: float | None
+    # Still needed by Step 5's Debt Servicing Ratio, which does want the
+    # netted, floored-at-0 figure.
     net_interest_expense_ttm: float | None
 
 
@@ -31,10 +38,18 @@ def compute_debt_metrics(balance_sheet_row: dict, income_quarterly: list[dict]) 
     )
 
     ebitda_ttm = sum_last_four_quarters(income_quarterly, "ebitda")
+    interest_expense_ttm = sum_last_four_quarters(income_quarterly, "interestExpense")
+    interest_income_ttm = sum_last_four_quarters(income_quarterly, "interestIncome")
     net_interest_income_ttm = sum_last_four_quarters(income_quarterly, "netInterestIncome")
     # A company earning net interest income has no interest burden for this
     # purpose (clamped at 0, not left negative) -- same convention as
     # Step 5's Debt Servicing Ratio.
     net_interest_expense_ttm = max(0.0, -net_interest_income_ttm) if net_interest_income_ttm is not None else None
 
-    return DebtMetrics(total_debt=total_debt, ebitda_ttm=ebitda_ttm, net_interest_expense_ttm=net_interest_expense_ttm)
+    return DebtMetrics(
+        total_debt=total_debt,
+        ebitda_ttm=ebitda_ttm,
+        interest_expense_ttm=interest_expense_ttm,
+        interest_income_ttm=interest_income_ttm,
+        net_interest_expense_ttm=net_interest_expense_ttm,
+    )

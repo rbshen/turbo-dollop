@@ -14,7 +14,8 @@ export interface MetricDef {
 export const DEFAULT_METRICS: MetricDef[] = [
   { key: "total_debt", label: "Debt (ST + LT)", format: "compactMoney" },
   { key: "ebitda_ttm", label: "EBITDA (TTM)", format: "compactMoney" },
-  { key: "net_interest_expense_ttm", label: "Net Interest Expense (TTM)", format: "compactMoney" },
+  { key: "interest_expense_ttm", label: "Interest Expense (TTM)", format: "compactMoney" },
+  { key: "interest_income_ttm", label: "Interest Income (TTM)", format: "compactMoney" },
   { key: "market_cap", label: "Market Cap", format: "compactMoney" },
   { key: "beta", label: "Beta", format: "number" },
   { key: "perf_1m", label: "1M Performance", format: "percent" },
