@@ -7,7 +7,8 @@ from config import settings
 from db import engine
 from debt_metrics import compute_debt_metrics
 from fmp_client import fmp_client
-from schemas import TickerSummaryOut
+from schemas import OutlierWarning, TickerSummaryOut
+from ttm import TOTAL_QUARTERS_NEEDED
 
 
 def _first(data: dict | list) -> dict:
@@ -119,7 +120,7 @@ async def get_summary(ticker: str) -> TickerSummaryOut:
                 ticker,
                 "income_statement",
                 "quarterly",
-                lambda: fmp_client.get_income_statement(ticker, "quarter", 4),
+                lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
             ),
         )
@@ -131,6 +132,11 @@ async def get_summary(ticker: str) -> TickerSummaryOut:
     debt_metrics = compute_debt_metrics(
         _first(balance_sheet_data), income_quarterly_data if isinstance(income_quarterly_data, list) else []
     )
+    outlier_warnings = [
+        OutlierWarning(metric=group.metric, date=fq.date, value=fq.value, trailing_median=fq.trailing_median)
+        for group in debt_metrics.outlier_flags
+        for fq in group.flagged
+    ]
 
     return TickerSummaryOut(
         company_name=profile.get("companyName"),
@@ -154,6 +160,7 @@ async def get_summary(ticker: str) -> TickerSummaryOut:
         ebitda_ttm=debt_metrics.ebitda_ttm,
         interest_expense_ttm=debt_metrics.interest_expense_ttm,
         interest_income_ttm=debt_metrics.interest_income_ttm,
+        outlier_warnings=outlier_warnings,
         # Fair value calculation is out of scope for this phase (per spec) —
         # placeholder only, so the UI has a real field to render.
         fair_value_price=round(price * 1.1, 2) if price else None,

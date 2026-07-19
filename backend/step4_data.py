@@ -7,7 +7,7 @@ from fmp_client import fmp_client
 from schemas import Step4Out
 from scoring.classification import classify_company_type
 from scoring.step4 import classify_ccc_trend, score_revenue_vs_ar, score_roe, score_roic, score_step4
-from ttm import sum_last_four_quarters
+from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 ROIC_EXEMPT_TYPES = {"Bank", "Insurance", "Utility"}
 ANNUAL_WINDOW = 5
@@ -101,7 +101,7 @@ async def get_step4_data(ticker: str) -> Step4Out:
                 ticker,
                 "income_statement",
                 "quarterly",
-                lambda: fmp_client.get_income_statement(ticker, "quarter", 4),
+                lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
             ),
         )
@@ -177,9 +177,9 @@ async def get_step4_data(ticker: str) -> Step4Out:
     roic = [v * 100 if v is not None else None for v in roic]
 
     years = years + ["TTM"]
-    revenue = revenue + [sum_last_four_quarters(income_quarterly, "revenue")]
-    net_income = net_income + [sum_last_four_quarters(income_quarterly, "netIncome")]
-    cost_of_revenue = cost_of_revenue + [sum_last_four_quarters(income_quarterly, "costOfRevenue")]
+    revenue = revenue + [sum_last_four_quarters(income_quarterly, "revenue").total]
+    net_income = net_income + [sum_last_four_quarters(income_quarterly, "netIncome").total]
+    cost_of_revenue = cost_of_revenue + [sum_last_four_quarters(income_quarterly, "costOfRevenue").total]
     equity = equity + [balance_sheet_latest.get("totalStockholdersEquity")]
     accounts_receivable = accounts_receivable + [balance_sheet_latest.get("accountsReceivables")]
     inventory = inventory + [balance_sheet_latest.get("inventory")]

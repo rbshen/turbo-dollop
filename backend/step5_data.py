@@ -3,11 +3,11 @@ from sqlmodel import Session
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
-from debt_metrics import compute_debt_metrics
+from debt_metrics import MetricOutlierFlags, compute_debt_metrics
 from fmp_client import fmp_client
-from schemas import Step5Out, Step5RatioResult
+from schemas import OutlierWarning, Step5Out, Step5RatioResult
 from scoring.step5 import classify_company_type, score_step5_reit, score_step5_standard
-from ttm import sum_last_four_quarters
+from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 
 def _first(data: dict | list) -> dict:
@@ -18,6 +18,14 @@ def _first(data: dict | list) -> dict:
 
 def _ratio_out(raw: dict) -> Step5RatioResult:
     return Step5RatioResult(value=raw["value"], label=raw["label"], points=raw["points"])
+
+
+def _outlier_warnings(*flag_groups: MetricOutlierFlags) -> list[OutlierWarning]:
+    return [
+        OutlierWarning(metric=group.metric, date=fq.date, value=fq.value, trailing_median=fq.trailing_median)
+        for group in flag_groups
+        for fq in group.flagged
+    ]
 
 
 async def get_step5_data(ticker: str) -> Step5Out:
@@ -58,7 +66,9 @@ async def get_step5_data(ticker: str) -> Step5Out:
         # against, so these are summed trailing-twelve-months instead, same
         # convention and cache key + limit Step 1 already populates
         # ("income_statement"/"quarterly" and "cash_flow_statement"/
-        # "quarterly", both limit 4).
+        # "quarterly", both limit TOTAL_QUARTERS_NEEDED -- the extra
+        # quarters beyond the 4 being summed feed the outlier-detection
+        # baseline in ttm.py::sum_last_four_quarters).
         income_quarterly = await safe_fetch(
             "income_statement_quarterly",
             get_or_fetch(
@@ -66,7 +76,7 @@ async def get_step5_data(ticker: str) -> Step5Out:
                 ticker,
                 "income_statement",
                 "quarterly",
-                lambda: fmp_client.get_income_statement(ticker, "quarter", 4),
+                lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
             ),
         )
@@ -77,7 +87,7 @@ async def get_step5_data(ticker: str) -> Step5Out:
                 ticker,
                 "cash_flow_statement",
                 "quarterly",
-                lambda: fmp_client.get_cash_flow_statement(ticker, "quarter", 4),
+                lambda: fmp_client.get_cash_flow_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
             ),
         )
@@ -90,7 +100,12 @@ async def get_step5_data(ticker: str) -> Step5Out:
     # truth so the two views can never diverge for the same ticker.
     debt_metrics = compute_debt_metrics(balance_sheet_row, income_quarterly)
     ebitda_ttm = debt_metrics.ebitda_ttm
-    cfo_ttm = sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities")
+    cfo_result = sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities")
+    cfo_ttm = cfo_result.total
+
+    outlier_warnings = _outlier_warnings(
+        *debt_metrics.outlier_flags, MetricOutlierFlags(metric="cfo_ttm", flagged=cfo_result.flagged)
+    )
 
     # REIT gearing uses FMP's own totalDebt field (a broader aggregate than
     # short+long term debt alone), a different definition than the Standard
@@ -101,7 +116,13 @@ async def get_step5_data(ticker: str) -> Step5Out:
 
     if company_type == "REIT/Property Developer":
         if total_debt is None or not total_assets:
-            return Step5Out(ticker=ticker, company_type=company_type, score=None, verdict="insufficient_data")
+            return Step5Out(
+                ticker=ticker,
+                company_type=company_type,
+                score=None,
+                verdict="insufficient_data",
+                outlier_warnings=outlier_warnings,
+            )
 
         gearing_pct = total_debt / total_assets * 100
         result = score_step5_reit(gearing_pct)
@@ -113,6 +134,7 @@ async def get_step5_data(ticker: str) -> Step5Out:
             score=result["score"],
             verdict=result["verdict"],
             hard_fail=result["hard_fail"],
+            outlier_warnings=outlier_warnings,
         )
 
     # Standard path.
@@ -134,7 +156,13 @@ async def get_step5_data(ticker: str) -> Step5Out:
     )
 
     if current_ratio is None or debt_to_ebitda is None or debt_servicing_pct is None:
-        return Step5Out(ticker=ticker, company_type=company_type, score=None, verdict="insufficient_data")
+        return Step5Out(
+            ticker=ticker,
+            company_type=company_type,
+            score=None,
+            verdict="insufficient_data",
+            outlier_warnings=outlier_warnings,
+        )
 
     result = score_step5_standard(current_ratio, debt_to_ebitda, debt_servicing_pct)
     return Step5Out(
@@ -149,4 +177,5 @@ async def get_step5_data(ticker: str) -> Step5Out:
         score=result["score"],
         verdict=result["verdict"],
         hard_fail=result["hard_fail"],
+        outlier_warnings=outlier_warnings,
     )

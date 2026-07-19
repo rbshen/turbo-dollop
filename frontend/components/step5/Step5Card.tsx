@@ -1,6 +1,7 @@
 "use client";
 
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
+import { OutlierWarningNote } from "@/components/shared/OutlierWarningNote";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { fmtNumber, fmtPct, fmtTableMoney } from "@/lib/format";
 import type { Step5RatioResult } from "@/lib/api/types";
@@ -8,6 +9,14 @@ import type { Step5RatioResult } from "@/lib/api/types";
 interface Props {
   ticker: string;
 }
+
+const OUTLIER_METRIC_LABELS: Record<string, string> = {
+  ebitda_ttm: "EBITDA (TTM)",
+  interest_expense_ttm: "Interest Expense (TTM)",
+  interest_income_ttm: "Interest Income (TTM)",
+  net_interest_expense_ttm: "Net Interest Expense (TTM)",
+  cfo_ttm: "Cash Flow from Operations (TTM)",
+};
 
 const RATIO_LABELS: Record<string, string> = {
   current_ratio: "Current Ratio",
@@ -84,6 +93,8 @@ export function Step5Card({ ticker }: Props) {
         </p>
         <p className="text-xs text-zinc-600">{data.classification_note}</p>
       </div>
+
+      <OutlierWarningNote warnings={data.outlier_warnings} labels={OUTLIER_METRIC_LABELS} />
 
       {isBank ? (
         <p className="text-sm text-zinc-500">Not yet supported — CET1 data unavailable from FMP.</p>

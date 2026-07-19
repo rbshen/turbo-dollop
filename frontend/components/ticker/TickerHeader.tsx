@@ -58,7 +58,7 @@ export function TickerHeader({ symbol }: Props) {
         <p className="text-xs text-zinc-500">Next earnings: {data.next_earnings_date}</p>
       )}
 
-      <MetricsGrid metrics={DEFAULT_METRICS} values={data} />
+      <MetricsGrid metrics={DEFAULT_METRICS} values={data} outlierWarnings={data.outlier_warnings} />
     </div>
   );
 }

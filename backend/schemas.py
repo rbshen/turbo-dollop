@@ -3,6 +3,18 @@ from datetime import date
 from pydantic import BaseModel
 
 
+class OutlierWarning(BaseModel):
+    """A TTM-summed flow metric where one of the 4 summed quarters looked
+    anomalous against its trailing history -- informational only, never
+    changes the number it's attached to, a score, or a verdict (see
+    ttm.py::sum_last_four_quarters)."""
+
+    metric: str
+    date: str | None = None
+    value: float
+    trailing_median: float
+
+
 class TickerSummaryOut(BaseModel):
     company_name: str | None = None
     ticker: str
@@ -28,6 +40,7 @@ class TickerSummaryOut(BaseModel):
     # Gross figures, not netted against each other.
     interest_expense_ttm: float | None = None
     interest_income_ttm: float | None = None
+    outlier_warnings: list[OutlierWarning] = []
     # Placeholder only — real fair value calculation is out of scope for this phase.
     fair_value_price: float | None = None
     fair_value_verdict: str | None = None
@@ -110,6 +123,7 @@ class Step5Out(BaseModel):
     # for Bank; "insufficient_data" when required figures are missing.
     verdict: str
     hard_fail: bool = False
+    outlier_warnings: list[OutlierWarning] = []
 
 
 class Step4Out(BaseModel):

@@ -1,6 +1,11 @@
 from typing import NamedTuple
 
-from ttm import sum_last_four_quarters
+from ttm import FlaggedQuarter, sum_last_four_quarters
+
+
+class MetricOutlierFlags(NamedTuple):
+    metric: str
+    flagged: list[FlaggedQuarter]
 
 
 class DebtMetrics(NamedTuple):
@@ -14,6 +19,10 @@ class DebtMetrics(NamedTuple):
     # Still needed by Step 5's Debt Servicing Ratio, which does want the
     # netted, floored-at-0 figure.
     net_interest_expense_ttm: float | None
+    # Only metrics that actually have a flagged quarter -- see ttm.py's
+    # sum_last_four_quarters for the detection rule. Never alters the
+    # values above; purely informational for callers to surface.
+    outlier_flags: list[MetricOutlierFlags]
 
 
 def compute_debt_metrics(balance_sheet_row: dict, income_quarterly: list[dict]) -> DebtMetrics:
@@ -23,9 +32,10 @@ def compute_debt_metrics(balance_sheet_row: dict, income_quarterly: list[dict]) 
     tiles (`ticker_summary.py`), so the two views can never show
     inconsistent numbers for the same ticker. No I/O here -- each caller
     fetches `balance_sheet_row` (latest quarterly snapshot) and
-    `income_quarterly` (last 4 quarters) itself, using the same cache
-    keys/limits Step 1/Step 5 already populate (see CLAUDE.md's caching
-    policy and the Step 5 data-freshness fix in 2f3cc98).
+    `income_quarterly` (last `ttm.TOTAL_QUARTERS_NEEDED` quarters, most-
+    recent-first) itself, using the same cache keys/limits Step 1/Step 5
+    already populate (see CLAUDE.md's caching policy and the Step 5
+    data-freshness fix in 2f3cc98).
 
     Applies uniformly to every company type: these are raw figures, not
     Step 5's classified ratios, so there's no Bank/REIT exemption here."""
@@ -37,19 +47,33 @@ def compute_debt_metrics(balance_sheet_row: dict, income_quarterly: list[dict]) 
         else None
     )
 
-    ebitda_ttm = sum_last_four_quarters(income_quarterly, "ebitda")
-    interest_expense_ttm = sum_last_four_quarters(income_quarterly, "interestExpense")
-    interest_income_ttm = sum_last_four_quarters(income_quarterly, "interestIncome")
-    net_interest_income_ttm = sum_last_four_quarters(income_quarterly, "netInterestIncome")
+    ebitda_result = sum_last_four_quarters(income_quarterly, "ebitda")
+    interest_expense_result = sum_last_four_quarters(income_quarterly, "interestExpense")
+    interest_income_result = sum_last_four_quarters(income_quarterly, "interestIncome")
+    net_interest_income_result = sum_last_four_quarters(income_quarterly, "netInterestIncome")
     # A company earning net interest income has no interest burden for this
     # purpose (clamped at 0, not left negative) -- same convention as
     # Step 5's Debt Servicing Ratio.
-    net_interest_expense_ttm = max(0.0, -net_interest_income_ttm) if net_interest_income_ttm is not None else None
+    net_interest_expense_ttm = (
+        max(0.0, -net_interest_income_result.total) if net_interest_income_result.total is not None else None
+    )
+
+    outlier_flags = [
+        MetricOutlierFlags(metric=metric, flagged=result.flagged)
+        for metric, result in [
+            ("ebitda_ttm", ebitda_result),
+            ("interest_expense_ttm", interest_expense_result),
+            ("interest_income_ttm", interest_income_result),
+            ("net_interest_expense_ttm", net_interest_income_result),
+        ]
+        if result.flagged
+    ]
 
     return DebtMetrics(
         total_debt=total_debt,
-        ebitda_ttm=ebitda_ttm,
-        interest_expense_ttm=interest_expense_ttm,
-        interest_income_ttm=interest_income_ttm,
+        ebitda_ttm=ebitda_result.total,
+        interest_expense_ttm=interest_expense_result.total,
+        interest_income_ttm=interest_income_result.total,
         net_interest_expense_ttm=net_interest_expense_ttm,
+        outlier_flags=outlier_flags,
     )

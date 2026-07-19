@@ -73,6 +73,7 @@ def test_compute_debt_metrics_handles_missing_fields():
     assert empty_result.interest_expense_ttm is None
     assert empty_result.interest_income_ttm is None
     assert empty_result.net_interest_expense_ttm is None
+    assert empty_result.outlier_flags == []
 
     # Only one of short/long term debt present -- still computable, treating
     # the missing side as 0 rather than the whole figure as unavailable.
@@ -134,3 +135,75 @@ def test_ticker_summary_and_step5_agree_on_the_same_raw_figures(monkeypatch):
     # coincidentally-close reimplementation.
     expected_debt_to_ebitda = summary_result.total_debt / summary_result.ebitda_ttm
     assert step5_result.ratios["debt_to_ebitda"].value == expected_debt_to_ebitda
+    assert step5_result.outlier_warnings == []
+    assert summary_result.outlier_warnings == []
+
+
+# 4 recent quarters (most-recent-first) with an anomalous interestExpense in
+# the most recent one, plus 8 stable baseline quarters -- mirrors the real
+# PEP Q2 2026 case (confirmed a data error, ~10x the trailing median).
+INCOME_QUARTERLY_WITH_OUTLIER = [
+    {"date": "2026-06-13", "ebitda": 5_000_000_000, "interestExpense": 2_300_000_000, "interestIncome": 0, "netInterestIncome": -2_300_000_000},
+    {"date": "2026-03-21", "ebitda": 4_800_000_000, "interestExpense": 301_000_000, "interestIncome": 0, "netInterestIncome": -301_000_000},
+    {"date": "2025-12-27", "ebitda": 4_700_000_000, "interestExpense": 333_000_000, "interestIncome": 0, "netInterestIncome": -333_000_000},
+    {"date": "2025-09-06", "ebitda": 4_600_000_000, "interestExpense": 264_000_000, "interestIncome": 0, "netInterestIncome": -264_000_000},
+] + [
+    {"date": f"baseline-{i}", "ebitda": 4_500_000_000, "interestExpense": v, "interestIncome": 0, "netInterestIncome": -v}
+    for i, v in enumerate([260_000_000, 264_000_000, 264_000_000, 219_000_000, 230_000_000, 240_000_000, 250_000_000, 245_000_000])
+]
+
+
+def test_outlier_warning_propagates_through_step5_and_ticker_summary(monkeypatch):
+    """The PEP-style anomaly must surface in both API responses -- as a
+    warning only, never changing the ratio/score/verdict it's attached to."""
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(step5_data, "engine", test_engine)
+    monkeypatch.setattr(ticker_summary, "engine", test_engine)
+
+    async def fake_profile(ticker):
+        return PROFILE
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return BALANCE_SHEET_QUARTERLY
+
+    async def fake_income_statement(ticker, period, limit):
+        return INCOME_QUARTERLY_WITH_OUTLIER
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return CASH_FLOW_QUARTERLY
+
+    async def fake_empty_list(*args, **kwargs):
+        return []
+
+    for mod in (step5_data, ticker_summary):
+        monkeypatch.setattr(mod.fmp_client, "get_profile", fake_profile)
+        monkeypatch.setattr(mod.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+        monkeypatch.setattr(mod.fmp_client, "get_income_statement", fake_income_statement)
+
+    monkeypatch.setattr(step5_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_quote", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_price_change", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_analyst_estimates", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_earnings", fake_empty_list)
+
+    step5_result = asyncio.run(get_step5_data("pep"))
+    summary_result = asyncio.run(get_summary("pep"))
+
+    # The raw TTM sum itself is unaffected -- still includes the flagged
+    # $2.3B quarter exactly as fetched, not dropped or adjusted.
+    assert summary_result.interest_expense_ttm == 2_300_000_000 + 301_000_000 + 333_000_000 + 264_000_000
+
+    # Both interest_expense_ttm and net_interest_expense_ttm are genuinely
+    # anomalous here (interestIncome is a constant 0, so netInterestIncome
+    # mirrors -interestExpense exactly) -- both correctly flag.
+    for warnings in (step5_result.outlier_warnings, summary_result.outlier_warnings):
+        assert len(warnings) == 2
+        metrics = {w.metric for w in warnings}
+        assert metrics == {"interest_expense_ttm", "net_interest_expense_ttm"}
+        assert all(w.date == "2026-06-13" for w in warnings)
+
+    # Purely informational -- doesn't change Step 5's verdict/score/tiers.
+    assert step5_result.verdict in {"Pass", "Strong Pass", "Fail"}
+    assert step5_result.score is not None

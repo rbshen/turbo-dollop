@@ -1,3 +1,13 @@
+export interface OutlierWarning {
+  // Matches a TickerSummaryOut/MetricDef key (e.g. "interest_expense_ttm")
+  // or a Step5 debt metric name (e.g. "cfo_ttm") -- never changes the
+  // value, score, or verdict it's attached to, purely informational.
+  metric: string;
+  date: string | null;
+  value: number;
+  trailing_median: number;
+}
+
 export interface TickerSummaryOut {
   company_name: string | null;
   ticker: string;
@@ -22,6 +32,7 @@ export interface TickerSummaryOut {
   // Gross figures, not netted against each other.
   interest_expense_ttm: number | null;
   interest_income_ttm: number | null;
+  outlier_warnings: OutlierWarning[];
   fair_value_price: number | null;
   fair_value_verdict: "undervalued" | "overvalued" | "fair" | null;
 }
@@ -114,6 +125,7 @@ export interface Step5Out {
   // Bank; "insufficient_data" when required figures are missing.
   verdict: string;
   hard_fail: boolean;
+  outlier_warnings: OutlierWarning[];
 }
 
 export interface Step4RatioComponent {
