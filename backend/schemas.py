@@ -15,6 +15,12 @@ class OutlierWarning(BaseModel):
     trailing_median: float
 
 
+class RefreshResult(BaseModel):
+    ticker: str
+    cleared_entries: int
+    statement_types: list[str]
+
+
 class TickerSummaryOut(BaseModel):
     company_name: str | None = None
     ticker: str

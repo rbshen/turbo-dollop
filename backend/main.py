@@ -4,7 +4,8 @@ import httpx
 from fastapi import FastAPI, HTTPException
 
 from db import init_db
-from schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
+from refresh import clear_ticker_cache
+from schemas import RefreshResult, Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
 from step1_data import get_step1_data
 from step2_data import get_step2_data
 from step4_data import get_step4_data
@@ -64,3 +65,8 @@ async def ticker_step5(ticker: str) -> Step5Out:
         return await get_step5_data(ticker)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"FMP request failed: {exc}") from exc
+
+
+@app.post("/api/tickers/{ticker}/refresh", response_model=RefreshResult)
+async def ticker_refresh(ticker: str) -> RefreshResult:
+    return clear_ticker_cache(ticker)

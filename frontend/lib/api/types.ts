@@ -8,6 +8,12 @@ export interface OutlierWarning {
   trailing_median: number;
 }
 
+export interface RefreshResult {
+  ticker: string;
+  cleared_entries: number;
+  statement_types: string[];
+}
+
 export interface TickerSummaryOut {
   company_name: string | null;
   ticker: string;

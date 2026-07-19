@@ -4,6 +4,7 @@ import { ExchangeBadge } from "@/components/ticker/ExchangeBadge";
 import { FairValuePill } from "@/components/ticker/FairValuePill";
 import { MetricsGrid } from "@/components/ticker/MetricsGrid";
 import { PriceChange } from "@/components/ticker/PriceChange";
+import { RefreshButton } from "@/components/ticker/RefreshButton";
 import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
 import { DEFAULT_METRICS } from "@/lib/metrics/config";
 
@@ -44,6 +45,9 @@ export function TickerHeader({ symbol }: Props) {
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">{data.company_name ?? data.ticker}</h1>
         <span className="font-mono text-sm text-zinc-500">{data.ticker}</span>
         {data.exchange && <ExchangeBadge exchange={data.exchange} />}
+        <span className="ml-auto">
+          <RefreshButton ticker={data.ticker} />
+        </span>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
