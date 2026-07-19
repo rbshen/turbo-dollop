@@ -5,9 +5,9 @@
 Fathom is a company fundamentals valuation web app. It runs a multi-step
 fundamental screen on any US-listed ticker. There are 5 steps total in the
 methodology; **Step 1 (Revenue, income and cash flow)**, **Step 2 (Positive
-growth rate)**, and **Step 5 (Conservative debt)** are implemented so far.
-Steps 3 and 4 follow the same chart/table/score pattern and are added in
-later phases.
+growth rate)**, **Step 4 (Profitable and operationally efficient)**, and
+**Step 5 (Conservative debt)** are implemented so far. Step 3 follows the
+same chart/table/score pattern and is added in a later phase.
 
 ## Tech stack
 
@@ -122,6 +122,68 @@ tweaks:
   revenue isn't a red flag) is shown as an informational note only, not
   auto-detected or auto-adjusted — same non-automated treatment as Step 1's
   one-off items.
+
+Step 4's source doc (`step4_profitability_efficiency_assessment_prompt.md`)
+gives ROE/ROIC tiers, an AR-outpacing-magnitude concept, and a qualitative
+CCC pattern table without committing to exact scoring formulas for any of
+them. `backend/scoring/step4.py` operationalizes each into concrete
+thresholds — deviations from a strict reading of the doc:
+
+- **Company classification** extends the same shared classifier Step 5
+  uses (`classify_company_type`, now in `backend/scoring/classification.py`
+  rather than duplicated) with Insurance and Utility. Insurance is checked
+  **before** Bank since both share the "Financial Services" sector — an
+  insurer whose industry text doesn't also match "bank" would otherwise be
+  misclassified. Step 5 is unaffected: its code already branches
+  `if Bank / if REIT / else standard-path`, so Insurance/Utility tickers
+  fall through to Step 5's standard ratio path exactly as before.
+- **ROE/ROIC tiering** uses both the average across the 5yr+TTM window
+  *and* the minimum single-year value as a consistency check (a high
+  average diluted by one very weak year lands in the "marginal" tier, not
+  "excellent") — the doc doesn't specify this, but a straight average alone
+  would let one bad year hide behind several good ones.
+- **Negative-equity substitute signal**: per the doc's own exception, if
+  shareholders' equity is ≤0 in any period, raw ROE is ignored entirely for
+  the whole metric (not just that period) and replaced by a check for
+  positive-and-non-declining Net Income across the window (net income
+  positive throughout, last period ≥ first) — a simple "last ≥ first" bar,
+  deliberately not a full trend classifier, since the doc's own language
+  ("consistently maintained/growing") is qualitative.
+- **Revenue vs. Accounts Receivable** tiers are checked worst-first since
+  the doc's bullets overlap: majority-outpacing or revenue-declining-
+  while-AR-grows (0) takes priority over 3+-years-or-large-gap (40), which
+  takes priority over 0-or-one-small-gap (100), with 1-2 isolated years
+  otherwise landing at 70. A YoY gap under 2 percentage points is treated
+  as noise, not real outpacing (same noise-floor convention as Step 1's
+  margin classifier).
+- **CCC trend classification** reuses Step 1's margin-classifier logic
+  (early/late-window direction + dip-count + sustained-decline, now shared
+  via `backend/scoring/series_trend.py`) run on the *negated* series, since
+  a declining CCC is the desirable direction (faster cash conversion) while
+  a declining margin is not. The doc gives no numeric CCC thresholds (unlike
+  margins, which were tuned after live testing) — the window/dip/sustained-
+  decline constants in `scoring/step4.py` are first-pass judgment calls, not
+  values validated against a prior baseline.
+- **CCC exemption (no physical inventory)** is data-driven — inventory
+  reading as 0 or null — but is checked **only against the 5 annual
+  filings**, not the latest-quarter snapshot appended for the "TTM" column.
+  FMP's latest-quarter inventory figure proved unreliable for genuinely
+  inventory-free companies during verification (Mastercard showed +$2.06B,
+  ServiceNow showed -$28M in their latest quarter despite 5 straight
+  clean-zero annual years) — a data-provider classification artifact, not a
+  real change in the business.
+- **Equal-weight redistribution** is a generalized N-way split (1/N across
+  whatever metrics are applicable — 25% each if all 4 apply, 33.3% each if
+  ROIC is exempt, 50% each if ROIC and CCC are both exempt), not a fixed
+  reassignment table like Step 1's CFO exemption — Step 4 has more possible
+  exemption combinations than Step 1's single CFO on/off switch.
+- **Hard-fail override**: verdict is Fail regardless of the blended score
+  if ROE lands in its Fail tier (avg <8%), or ROIC does (when applicable) —
+  mirrors Step 2/Step 5's hard-fail pattern. Revenue-vs-AR and CCC landing
+  in their own worst tier (0 points) drag the score down but do **not**
+  force a Fail verdict — the doc treats a Receivables/CCC red flag as
+  "investigate before proceeding," not an automatic disqualifier the way
+  persistently poor ROE/ROIC is.
 
 ## Workflow rules
 

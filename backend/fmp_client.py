@@ -49,5 +49,11 @@ class FMPClient:
     async def get_balance_sheet_statement(self, ticker: str, period: str, limit: int) -> dict | list:
         return await self.get("/balance-sheet-statement", {"symbol": ticker, "period": period, "limit": limit})
 
+    async def get_key_metrics(self, ticker: str, period: str, limit: int) -> dict | list:
+        return await self.get("/key-metrics", {"symbol": ticker, "period": period, "limit": limit})
+
+    async def get_key_metrics_ttm(self, ticker: str) -> dict | list:
+        return await self.get("/key-metrics-ttm", {"symbol": ticker})
+
 
 fmp_client = FMPClient()

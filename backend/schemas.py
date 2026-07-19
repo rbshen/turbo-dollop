@@ -101,3 +101,31 @@ class Step5Out(BaseModel):
     # for Bank; "insufficient_data" when required figures are missing.
     verdict: str
     hard_fail: bool = False
+
+
+class Step4Out(BaseModel):
+    ticker: str
+    years: list[str]
+    # "Standard" / "Bank" / "Insurance" / "Utility" / "REIT/Property
+    # Developer" -- best-effort sector/industry text match, shared with
+    # Step 5 (see CLAUDE.md's "Scoring rubric deviations").
+    company_type: str
+    classification_note: str = "Best-effort classification from sector/industry text — not a certified determination."
+    roe: list[float | None]
+    # None (the whole field) when ROIC is exempt for this company type
+    # (Bank / Insurance / Utility) -- not a list of nulls.
+    roic: list[float | None] | None = None
+    roic_exempt_reason: str | None = None
+    revenue: list[float | None]
+    accounts_receivable: list[float | None]
+    # None (the whole field) when no physical inventory was detected across
+    # the reporting window.
+    ccc: list[float | None] | None = None
+    ccc_exempt_reason: str | None = None
+    # None when required raw data is missing -- never a fabricated number.
+    score: int | None = None
+    # "Fail" / "Pass" / "Strong Pass" for scored tickers; "insufficient_data"
+    # when required figures are missing.
+    verdict: str
+    hard_fail: bool = False
+    components: dict = {}

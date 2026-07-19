@@ -1,7 +1,6 @@
-from typing import NamedTuple
-
 import numpy as np
 
+from scoring.series_trend import analyze_series_direction
 from scoring.trend import TrendResult, classify_trend
 
 WEIGHTS_STANDARD = {"revenue": 0.30, "net_income": 0.30, "cfo": 0.30, "margins": 0.10}
@@ -33,27 +32,14 @@ VERDICT_BANDS = [
 ]
 
 
-class _MarginSeriesAnalysis(NamedTuple):
-    direction: float  # late-window average minus early-window average
-    num_real_dips: int
-    sustained_decline: bool
-
-
-def _analyze_margin_series(values: np.ndarray) -> _MarginSeriesAnalysis:
-    window = min(MARGIN_TREND_WINDOW, len(values))
-    direction = float(values[-window:].mean() - values[:window].mean())
-
-    diffs = np.diff(values)
-    num_real_dips = int(np.count_nonzero(diffs < -MARGIN_DIP_POINTS))
-
-    sustained_decline = False
-    for i in range(len(diffs) - MARGIN_SUSTAINED_DECLINE_STEPS + 1):
-        run = diffs[i : i + MARGIN_SUSTAINED_DECLINE_STEPS]
-        if np.all(run < 0) and run.sum() <= -MARGIN_SUSTAINED_DECLINE_POINTS:
-            sustained_decline = True
-            break
-
-    return _MarginSeriesAnalysis(direction, num_real_dips, sustained_decline)
+def _analyze_margin_series(values: np.ndarray):
+    return analyze_series_direction(
+        values,
+        MARGIN_TREND_WINDOW,
+        MARGIN_DIP_POINTS,
+        MARGIN_SUSTAINED_DECLINE_STEPS,
+        MARGIN_SUSTAINED_DECLINE_POINTS,
+    )
 
 
 def _classify_margins(gross_margin: list[float], net_margin: list[float], revenue_growing: bool) -> TrendResult:

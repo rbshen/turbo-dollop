@@ -1,28 +1,27 @@
 from typing import NamedTuple
 
+from scoring.classification import classify_company_type
+
 # Score threshold for "Strong Pass" -- same convention as Step 1/Step 2's
 # shared badge tiers (>90 Strong Pass, else Pass when not a hard fail).
 STRONG_PASS_SCORE = 90
+
+__all__ = [
+    "classify_company_type",
+    "RatioResult",
+    "score_current_ratio",
+    "score_debt_to_ebitda",
+    "score_debt_servicing",
+    "score_gearing",
+    "score_step5_standard",
+    "score_step5_reit",
+]
 
 
 class RatioResult(NamedTuple):
     label: str
     points: int
     hard_fail: bool
-
-
-def classify_company_type(sector: str | None, industry: str | None) -> str:
-    """Best-effort sector/industry text match for Step 5's Step 0
-    classification -- not a certified determination. A misclassified
-    ticker would silently apply the wrong ratio set, so this is always
-    surfaced in the UI/API, never hidden (see CLAUDE.md)."""
-    sector = (sector or "").strip()
-    industry_lower = (industry or "").strip().lower()
-    if sector == "Financial Services" and "bank" in industry_lower:
-        return "Bank"
-    if sector == "Real Estate" or "reit" in industry_lower:
-        return "REIT/Property Developer"
-    return "Standard"
 
 
 def score_current_ratio(value: float) -> RatioResult:
