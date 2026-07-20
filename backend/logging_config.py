@@ -25,11 +25,27 @@ class RedactApiKeyFilter(logging.Filter):
         return True
 
 
+def apply_redaction_filters() -> None:
+    """Attaches the redaction filter directly to the specific loggers that
+    can emit a raw FMP/SEC request URL (httpx's own request logging, and
+    cache.safe_fetch's warning on a failed fetch, which embeds the raw
+    httpx exception -- URL and apikey included -- in its message). Filters
+    attached to a logger run before that logger hands the record to any
+    handler, so this works regardless of what handler configuration is in
+    effect -- unlike configure_logging() below, it doesn't touch handlers,
+    levels, or output destination, so it's safe to call from the live
+    FastAPI app (main.py) without fighting uvicorn's own logging setup."""
+    redact_filter = RedactApiKeyFilter()
+    for name in ("httpx", "cache", "fmp_client", "sec_edgar"):
+        logging.getLogger(name).addFilter(redact_filter)
+
+
 def configure_logging(log_path: Path) -> None:
     """Shared logging setup for the standalone scripts (nightly fundamentals
     fetch, S&P 500 list refresh): file + console output, both with the
     redaction filter attached so a real API key can never reach either."""
     log_path.parent.mkdir(exist_ok=True)
+    apply_redaction_filters()
     redact_filter = RedactApiKeyFilter()
 
     file_handler = logging.FileHandler(log_path)

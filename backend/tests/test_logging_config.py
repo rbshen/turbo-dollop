@@ -44,14 +44,14 @@ def test_configure_logging_writes_redacted_output_to_the_log_file(tmp_path):
     log_path = tmp_path / "test.log"
     configure_logging(log_path)
 
-    real_looking_key = "2PX7nJMJf9aVU83vFFugCQPXDuDghkQv"
+    fake_key_shaped_value = "FAKE0000TESTKEY0000PLACEHOLDER0"
     logging.getLogger("httpx").info(
         "HTTP Request: GET https://financialmodelingprep.com/stable/quote?symbol=AAPL&apikey=%s \"HTTP/1.1 200 OK\"",
-        real_looking_key,
+        fake_key_shaped_value,
     )
     for handler in logging.getLogger().handlers:
         handler.flush()
 
     content = log_path.read_text()
-    assert real_looking_key not in content
+    assert fake_key_shaped_value not in content
     assert "apikey=REDACTED" in content
