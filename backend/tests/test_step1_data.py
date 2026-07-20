@@ -8,16 +8,16 @@ from step1_data import get_step1_data
 PROFILE = [{"sector": "Technology", "industry": "Consumer Electronics"}]
 
 INCOME_ANNUAL = [
-    {"fiscalYear": "2025", "revenue": 300, "grossProfit": 150, "operatingIncome": 100, "netIncome": 80},
-    {"fiscalYear": "2024", "revenue": 250, "grossProfit": 120, "operatingIncome": 80, "netIncome": 60},
-    {"fiscalYear": "2023", "revenue": 200, "grossProfit": 100, "operatingIncome": 60, "netIncome": 40},
+    {"fiscalYear": "2025", "revenue": 300, "netInterestIncome": 130, "grossProfit": 150, "operatingIncome": 100, "netIncome": 80},
+    {"fiscalYear": "2024", "revenue": 250, "netInterestIncome": 110, "grossProfit": 120, "operatingIncome": 80, "netIncome": 60},
+    {"fiscalYear": "2023", "revenue": 200, "netInterestIncome": 90, "grossProfit": 100, "operatingIncome": 60, "netIncome": 40},
 ]
 
 INCOME_QUARTERLY = [
-    {"date": "2026-03-31", "revenue": 80, "grossProfit": 40, "operatingIncome": 27, "netIncome": 21},
-    {"date": "2025-12-31", "revenue": 80, "grossProfit": 40, "operatingIncome": 27, "netIncome": 21},
-    {"date": "2025-09-30", "revenue": 80, "grossProfit": 40, "operatingIncome": 27, "netIncome": 21},
-    {"date": "2025-06-30", "revenue": 80, "grossProfit": 40, "operatingIncome": 27, "netIncome": 21},
+    {"date": "2026-03-31", "revenue": 80, "netInterestIncome": 35, "grossProfit": 40, "operatingIncome": 27, "netIncome": 21},
+    {"date": "2025-12-31", "revenue": 80, "netInterestIncome": 35, "grossProfit": 40, "operatingIncome": 27, "netIncome": 21},
+    {"date": "2025-09-30", "revenue": 80, "netInterestIncome": 35, "grossProfit": 40, "operatingIncome": 27, "netIncome": 21},
+    {"date": "2025-06-30", "revenue": 80, "netInterestIncome": 35, "grossProfit": 40, "operatingIncome": 27, "netIncome": 21},
 ]
 
 CASH_FLOW_ANNUAL = [
@@ -60,6 +60,7 @@ def test_get_step1_data_builds_series_and_ttm_and_caches(monkeypatch):
     assert result.ticker == "AAPL"
     assert result.years == ["2023", "2024", "2025", "TTM"]
     assert result.revenue == [200, 250, 300, 320]
+    assert result.revenue_label == "Revenue"
     assert result.net_income == [40, 60, 80, 84]
     assert result.cfo == [50, 70, 90, 96]
     assert result.gross_margin[0] == 50.0
@@ -99,3 +100,12 @@ def test_bank_is_cfo_exempt(monkeypatch):
     assert result.cfo_exempt_reason == "Bank"
     assert result.cfo is None
     assert result.components["cfo"] is None
+
+    # Change 1: Banks show Net Interest Income in place of Revenue, clearly
+    # labeled -- not silently substituted under the old "Revenue" label.
+    assert result.revenue_label == "Net Interest Income"
+    assert result.revenue == [90, 110, 130, 140]
+
+    # Margins must stay tied to real Revenue, not NII -- gross margin here
+    # should read against the 200/250/300/320 revenue series, not NII.
+    assert result.gross_margin[0] == 50.0  # grossProfit 100 / revenue 200 * 100

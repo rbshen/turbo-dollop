@@ -63,6 +63,10 @@ export interface Step1Out {
   ticker: string;
   years: string[];
   revenue: (number | null)[];
+  // "Revenue" for every company type except Bank, where it's "Net Interest
+  // Income" -- always shown alongside this field, never silently swapped
+  // under the old label.
+  revenue_label: string;
   net_income: (number | null)[];
   operating_income: (number | null)[];
   cfo: (number | null)[] | null;

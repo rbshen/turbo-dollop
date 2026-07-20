@@ -89,10 +89,18 @@ def score_step1(
     gross_margin: list[float],
     net_margin: list[float],
     cfo_exempt: bool,
+    margin_context_revenue: list[float] | None = None,
 ) -> dict:
     """Pure scoring function per CLAUDE.md's Step 1 spec: takes parsed metric
     series (chronological, oldest fiscal year -> TTM) and returns
-    {score, verdict, components}. No I/O, no FMP/DB dependency."""
+    {score, verdict, components}. No I/O, no FMP/DB dependency.
+
+    `margin_context_revenue` lets the caller feed a different series purely
+    for the margin classifier's revenue_growing check than the one being
+    trend-classified as "Revenue" -- used for Bank tickers, where `revenue`
+    is actually Net Interest Income (see step1_data.py), but margins should
+    still read against real revenue growth. Defaults to `revenue` itself,
+    unchanged behavior for every other company type."""
     revenue_result = classify_trend(revenue)
     net_income_result = classify_trend(net_income)
 
@@ -103,7 +111,8 @@ def score_step1(
         net_income_backup_used = backup_score != net_income_result.score
         net_income_result = TrendResult(net_income_result.pattern, backup_score)
 
-    revenue_growing = revenue[-1] > revenue[0] if len(revenue) >= 2 else False
+    growth_reference = margin_context_revenue if margin_context_revenue is not None else revenue
+    revenue_growing = growth_reference[-1] > growth_reference[0] if len(growth_reference) >= 2 else False
     margin_result = _classify_margins(gross_margin, net_margin, revenue_growing)
 
     if cfo_exempt or cfo is None:

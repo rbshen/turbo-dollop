@@ -101,6 +101,7 @@ async def get_step1_data(ticker: str) -> Step1Out:
     cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
 
     years, revenue = _annual_series(income_annual, "revenue")
+    _, net_interest_income = _annual_series(income_annual, "netInterestIncome")
     _, gross_profit = _annual_series(income_annual, "grossProfit")
     _, operating_income = _annual_series(income_annual, "operatingIncome")
     _, net_income = _annual_series(income_annual, "netIncome")
@@ -110,16 +111,28 @@ async def get_step1_data(ticker: str) -> Step1Out:
 
     years = years + ["TTM"]
     revenue = revenue + [sum_last_four_quarters(income_quarterly, "revenue").total]
+    net_interest_income = net_interest_income + [sum_last_four_quarters(income_quarterly, "netInterestIncome").total]
     gross_profit = gross_profit + [sum_last_four_quarters(income_quarterly, "grossProfit").total]
     operating_income = operating_income + [sum_last_four_quarters(income_quarterly, "operatingIncome").total]
     net_income = net_income + [sum_last_four_quarters(income_quarterly, "netIncome").total]
     cfo = cfo + [sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities").total]
 
+    # Margins are always computed from real Revenue, regardless of company
+    # type -- deliberately untouched by the Bank substitution below.
     gross_margin = [(gp / rev * 100) if gp is not None and rev else None for gp, rev in zip(gross_profit, revenue)]
     net_margin = [(ni / rev * 100) if ni is not None and rev else None for ni, rev in zip(net_income, revenue)]
 
     exemption = _detect_exemption(profile.get("sector"), profile.get("industry"))
     cfo_exempt = exemption is not None
+    is_bank = exemption == "Bank"
+
+    # Banks: the Revenue check (score + Financials Trend chart) uses Net
+    # Interest Income instead of Revenue -- FMP's netInterestIncome is a
+    # clean standard-schema field, unlike Revenue which mixes interest and
+    # non-interest income in a way that obscures the core lending-spread
+    # trend.
+    display_revenue = net_interest_income if is_bank else revenue
+    revenue_label = "Net Interest Income" if is_bank else "Revenue"
 
     # classify_trend needs a clean, gap-free chronological series -- the raw
     # (with-gaps) arrays above are what the UI renders, these filtered copies
@@ -127,19 +140,21 @@ async def get_step1_data(ticker: str) -> Step1Out:
     clean_cfo = [v for v in cfo if v is not None] if not cfo_exempt else None
 
     result = score_step1(
-        revenue=[v for v in revenue if v is not None],
+        revenue=[v for v in display_revenue if v is not None],
         net_income=[v for v in net_income if v is not None],
         operating_income=[v for v in operating_income if v is not None],
         cfo=clean_cfo,
         gross_margin=[v for v in gross_margin if v is not None],
         net_margin=[v for v in net_margin if v is not None],
         cfo_exempt=cfo_exempt,
+        margin_context_revenue=[v for v in revenue if v is not None],
     )
 
     return Step1Out(
         ticker=ticker,
         years=years,
-        revenue=revenue,
+        revenue=display_revenue,
+        revenue_label=revenue_label,
         net_income=net_income,
         operating_income=operating_income,
         cfo=None if cfo_exempt else cfo,

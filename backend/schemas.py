@@ -56,6 +56,12 @@ class Step1Out(BaseModel):
     ticker: str
     years: list[str]
     revenue: list[float | None]
+    # "Revenue" for every company type except Bank, where it's "Net Interest
+    # Income" (revenue's own field mixes interest and non-interest income in
+    # a way that obscures the core lending-spread trend for banks). Never
+    # silently substituted under the old label -- always shown alongside
+    # this field.
+    revenue_label: str = "Revenue"
     net_income: list[float | None]
     operating_income: list[float | None]
     # None (the whole field) when the ticker is CFO-exempt (bank / property

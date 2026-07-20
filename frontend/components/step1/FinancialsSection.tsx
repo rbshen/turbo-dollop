@@ -25,7 +25,9 @@ interface Props {
 export function FinancialsSection({ data, chartWidth }: Props) {
   const [mode, setMode] = useState<"bar" | "line">("bar");
 
-  const series = ALL_SERIES.filter((s) => s.key !== "cfo" || data.cfo !== null);
+  const series = ALL_SERIES.filter((s) => s.key !== "cfo" || data.cfo !== null).map((s) =>
+    s.key === "revenue" ? { ...s, label: data.revenue_label } : s
+  );
   const values: Record<FinancialMetricKey, (number | null)[]> = {
     revenue: data.revenue,
     net_income: data.net_income,
