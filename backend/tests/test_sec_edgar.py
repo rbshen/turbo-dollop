@@ -19,10 +19,17 @@ FIXTURES = Path(__file__).parent / "fixtures"
 PEP_FACTS = json.loads((FIXTURES / "pep_company_facts_sample.json").read_text())
 OXM_FACTS = json.loads((FIXTURES / "oxm_company_facts_sample.json").read_text())
 
-TICKER_CIK_MAP = {
-    "0": {"cik_str": 77476, "ticker": "PEP", "title": "PEPSICO INC"},
-    "1": {"cik_str": 75288, "ticker": "OXM", "title": "OXFORD INDUSTRIES INC"},
-}
+# Real, zero-padded /profile.cik values confirmed live for these tickers --
+# same format FMP actually returns.
+PEP_PROFILE = [{"symbol": "PEP", "cik": "0000077476"}]
+OXM_PROFILE = [{"symbol": "OXM", "cik": "0000075288"}]
+
+
+def _fake_get_profile(profile_by_ticker: dict[str, list[dict]]):
+    async def fake_get_profile(ticker):
+        return profile_by_ticker.get(ticker.upper(), [])
+
+    return fake_get_profile
 
 
 def _fresh_engine(monkeypatch=None):
@@ -107,45 +114,54 @@ def test_cfo_returns_none_when_target_period_not_present():
 # --- get_cik ----------------------------------------------------------------
 
 
-def test_get_cik_finds_ticker_in_the_cached_map(monkeypatch):
+def test_get_cik_reads_the_zero_padded_cik_field_from_fmp_profile(monkeypatch):
     engine = _fresh_engine(monkeypatch)
-
-    async def fake_fetch():
-        return TICKER_CIK_MAP
-
-    monkeypatch.setattr(sec_edgar, "_fetch_ticker_cik_map", fake_fetch)
+    monkeypatch.setattr(sec_edgar.fmp_client, "get_profile", _fake_get_profile({"PEP": PEP_PROFILE, "OXM": OXM_PROFILE}))
 
     with Session(engine) as session:
-        cik = asyncio.run(get_cik(session, "pep", 7))  # lowercase input
-    assert cik == 77476
+        pep_cik = asyncio.run(get_cik(session, "pep", 7))  # lowercase input
+        oxm_cik = asyncio.run(get_cik(session, "OXM", 7))
+    assert pep_cik == 77476
+    assert oxm_cik == 75288  # per-ticker lookup, not just always the first argument
 
 
-def test_get_cik_returns_none_when_ticker_not_found(monkeypatch):
+def test_get_cik_returns_none_when_profile_has_no_cik_field(monkeypatch):
     engine = _fresh_engine(monkeypatch)
-
-    async def fake_fetch():
-        return TICKER_CIK_MAP
-
-    monkeypatch.setattr(sec_edgar, "_fetch_ticker_cik_map", fake_fetch)
+    monkeypatch.setattr(sec_edgar.fmp_client, "get_profile", _fake_get_profile({"ZZZZINVALID": [{"symbol": "ZZZZINVALID"}]}))
 
     with Session(engine) as session:
         cik = asyncio.run(get_cik(session, "ZZZZINVALID", 7))
     assert cik is None
 
 
-def test_cik_map_is_cached_not_refetched_on_second_call(monkeypatch):
+def test_get_cik_returns_none_when_profile_fetch_is_empty(monkeypatch):
+    # E.g. FMP has no /profile data at all for this ticker (empty list) --
+    # same 402-on-dotted-share-class case observed live for BRK.B/BF.B.
+    engine = _fresh_engine(monkeypatch)
+
+    async def empty_profile(ticker):
+        return []
+
+    monkeypatch.setattr(sec_edgar.fmp_client, "get_profile", empty_profile)
+
+    with Session(engine) as session:
+        cik = asyncio.run(get_cik(session, "BRK.B", 7))
+    assert cik is None
+
+
+def test_profile_is_cached_not_refetched_on_second_call_for_the_same_ticker(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     call_count = {"n": 0}
 
-    async def fake_fetch():
+    async def fake_get_profile(ticker):
         call_count["n"] += 1
-        return TICKER_CIK_MAP
+        return PEP_PROFILE
 
-    monkeypatch.setattr(sec_edgar, "_fetch_ticker_cik_map", fake_fetch)
+    monkeypatch.setattr(sec_edgar.fmp_client, "get_profile", fake_get_profile)
 
     with Session(engine) as session:
         asyncio.run(get_cik(session, "PEP", 7))
-        asyncio.run(get_cik(session, "OXM", 7))
+        asyncio.run(get_cik(session, "PEP", 7))
     assert call_count["n"] == 1
 
 
@@ -155,13 +171,11 @@ def test_cik_map_is_cached_not_refetched_on_second_call(monkeypatch):
 def test_cross_check_interest_expense_reports_discrepancy_for_pep(monkeypatch):
     engine = _fresh_engine(monkeypatch)
 
-    async def fake_cik_map():
-        return TICKER_CIK_MAP
+    monkeypatch.setattr(sec_edgar.fmp_client, "get_profile", _fake_get_profile({"PEP": PEP_PROFILE}))
 
     async def fake_company_facts(cik):
         return PEP_FACTS
 
-    monkeypatch.setattr(sec_edgar, "_fetch_ticker_cik_map", fake_cik_map)
     monkeypatch.setattr(sec_edgar, "_fetch_company_facts", fake_company_facts)
 
     with Session(engine) as session:
@@ -180,13 +194,11 @@ def test_cross_check_cfo_confirms_fmp_figure_when_they_match(monkeypatch):
     # only ever report problems.
     engine = _fresh_engine(monkeypatch)
 
-    async def fake_cik_map():
-        return TICKER_CIK_MAP
+    monkeypatch.setattr(sec_edgar.fmp_client, "get_profile", _fake_get_profile({"PEP": PEP_PROFILE}))
 
     async def fake_company_facts(cik):
         return PEP_FACTS
 
-    monkeypatch.setattr(sec_edgar, "_fetch_ticker_cik_map", fake_cik_map)
     monkeypatch.setattr(sec_edgar, "_fetch_company_facts", fake_company_facts)
 
     with Session(engine) as session:
@@ -201,10 +213,7 @@ def test_cross_check_cfo_confirms_fmp_figure_when_they_match(monkeypatch):
 def test_cross_check_degrades_gracefully_when_cik_not_found(monkeypatch):
     engine = _fresh_engine(monkeypatch)
 
-    async def fake_cik_map():
-        return TICKER_CIK_MAP
-
-    monkeypatch.setattr(sec_edgar, "_fetch_ticker_cik_map", fake_cik_map)
+    monkeypatch.setattr(sec_edgar.fmp_client, "get_profile", _fake_get_profile({"PEP": PEP_PROFILE}))
 
     with Session(engine) as session:
         result = asyncio.run(cross_check_interest_expense(session, "ZZZZINVALID", date(2026, 6, 13), 100.0, 7))
@@ -218,13 +227,11 @@ def test_cross_check_degrades_gracefully_when_cik_not_found(monkeypatch):
 def test_cross_check_degrades_gracefully_on_network_error(monkeypatch):
     engine = _fresh_engine(monkeypatch)
 
-    async def fake_cik_map():
-        return TICKER_CIK_MAP
+    monkeypatch.setattr(sec_edgar.fmp_client, "get_profile", _fake_get_profile({"PEP": PEP_PROFILE}))
 
     async def failing_company_facts(cik):
         raise httpx.HTTPError("simulated network failure")
 
-    monkeypatch.setattr(sec_edgar, "_fetch_ticker_cik_map", fake_cik_map)
     monkeypatch.setattr(sec_edgar, "_fetch_company_facts", failing_company_facts)
 
     with Session(engine) as session:
@@ -237,13 +244,11 @@ def test_cross_check_degrades_gracefully_on_network_error(monkeypatch):
 def test_cross_check_degrades_gracefully_when_no_matching_tag_or_period(monkeypatch):
     engine = _fresh_engine(monkeypatch)
 
-    async def fake_cik_map():
-        return TICKER_CIK_MAP
+    monkeypatch.setattr(sec_edgar.fmp_client, "get_profile", _fake_get_profile({"PEP": PEP_PROFILE}))
 
     async def fake_company_facts(cik):
         return PEP_FACTS
 
-    monkeypatch.setattr(sec_edgar, "_fetch_ticker_cik_map", fake_cik_map)
     monkeypatch.setattr(sec_edgar, "_fetch_company_facts", fake_company_facts)
 
     with Session(engine) as session:
@@ -257,14 +262,12 @@ def test_company_facts_cached_not_refetched_on_second_call(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     call_count = {"n": 0}
 
-    async def fake_cik_map():
-        return TICKER_CIK_MAP
+    monkeypatch.setattr(sec_edgar.fmp_client, "get_profile", _fake_get_profile({"PEP": PEP_PROFILE}))
 
     async def fake_company_facts(cik):
         call_count["n"] += 1
         return PEP_FACTS
 
-    monkeypatch.setattr(sec_edgar, "_fetch_ticker_cik_map", fake_cik_map)
     monkeypatch.setattr(sec_edgar, "_fetch_company_facts", fake_company_facts)
 
     with Session(engine) as session:

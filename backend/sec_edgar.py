@@ -7,17 +7,11 @@ from sqlmodel import Session
 
 from cache import get_or_fetch
 from config import settings
+from fmp_client import fmp_client
 
 logger = logging.getLogger(__name__)
 
-TICKER_CIK_URL = "https://www.sec.gov/files/company_tickers.json"
 COMPANY_FACTS_URL_TEMPLATE = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
-
-# Sentinel "ticker" for the ticker->CIK map -- not a real company, but
-# shares the exact same FundamentalsCache table/staleness mechanism as
-# every other cached fetch in this app (no real ticker is ever prefixed
-# with "_", so this can never collide).
-CIK_MAP_CACHE_KEY = "_SEC_CIK_MAP"
 
 # Confirmed during investigation: both PEP and OXM independently changed
 # which of these tags they use for interest expense over time -- never
@@ -60,23 +54,28 @@ class CrossCheckResult(NamedTuple):
     note: str
 
 
-async def _fetch_ticker_cik_map() -> dict:
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(TICKER_CIK_URL, headers={"User-Agent": settings.sec_edgar_user_agent})
-        response.raise_for_status()
-        return response.json()
-
-
 async def get_cik(session: Session, ticker: str, staleness_days: int) -> int | None:
-    """Ticker -> CIK via the cached SEC ticker map, refreshed on the same
-    staleness cadence as every other cached fetch in this app (weekly-ish
-    at the default 7-day setting) -- no separate script/cron needed."""
-    raw = await get_or_fetch(session, CIK_MAP_CACHE_KEY, "sec_cik_map", "latest", _fetch_ticker_cik_map, staleness_days)
+    """Ticker -> CIK read from FMP's own /profile.cik field (already a
+    zero-padded 10-digit string, e.g. "0000077476" for PEP -- confirmed live
+    to match the real SEC CIK exactly) rather than SEC's own ticker->CIK map
+    (www.sec.gov/files/company_tickers.json). That host is blocked at the
+    Akamai edge for this VPS's IP -- data.sec.gov (the actual XBRL fetch
+    below) is unaffected, so this removes the www.sec.gov dependency
+    entirely. Cached under the same "profile"/"latest" key every other
+    pipeline already populates, so this is very often a cache hit, not a
+    new FMP call."""
     ticker = ticker.upper()
-    for entry in raw.values():
-        if entry.get("ticker", "").upper() == ticker:
-            return entry.get("cik_str")
-    return None
+    profile = await get_or_fetch(session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days)
+    row = profile[0] if isinstance(profile, list) and profile else profile
+    if not isinstance(row, dict):
+        return None
+    cik = row.get("cik")
+    if not cik:
+        return None
+    try:
+        return int(cik)
+    except (TypeError, ValueError):
+        return None
 
 
 async def _fetch_company_facts(cik: int) -> dict:
