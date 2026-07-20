@@ -9,7 +9,7 @@ from scoring.classification import classify_company_type
 from scoring.step4 import classify_ccc_trend, score_revenue_vs_ar, score_roe, score_roic, score_step4
 from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
-ROIC_EXEMPT_TYPES = {"Bank", "Insurance", "Utility"}
+ROIC_EXEMPT_TYPES = {"Bank", "Insurance", "Utility", "REIT/Property Developer"}
 ANNUAL_WINDOW = 5
 
 

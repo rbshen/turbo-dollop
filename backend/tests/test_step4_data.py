@@ -151,6 +151,29 @@ def test_roic_exempt_for_bank(monkeypatch):
     assert result.components["roic"] is None
 
 
+def test_roic_exempt_for_reit(monkeypatch):
+    # Bug fix: REIT/Property Developer was missing from ROIC_EXEMPT_TYPES --
+    # structurally high leverage is core to the REIT business model too, same
+    # rationale as Bank/Insurance/Utility.
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, sector="Real Estate", industry="REIT - Industrial")
+
+    result = asyncio.run(get_step4_data("pld"))
+
+    assert result.company_type == "REIT/Property Developer"
+    assert result.roic is None
+    assert result.roic_exempt_reason is not None
+    assert "REIT/Property Developer" in result.roic_exempt_reason
+    assert result.components["roic"] is None
+
+    # CCC exemption is separate, data-driven (zero-inventory detection) --
+    # must be unaffected by the ROIC fix. This fixture's balance sheet has
+    # non-zero inventory, so CCC should still be scored normally.
+    assert result.ccc is not None
+    assert result.ccc_exempt_reason is None
+    assert result.components["ccc"] is not None
+
+
 def test_ccc_exempt_when_no_inventory_across_window(monkeypatch):
     _fresh_engine(monkeypatch)
     no_inventory_annual = [{**row, "inventory": 0} for row in BALANCE_SHEET_ANNUAL]
