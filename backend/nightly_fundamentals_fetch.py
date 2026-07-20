@@ -32,6 +32,7 @@ from sqlmodel import Session, select
 
 from db import engine, init_db
 from fmp_client import fmp_client
+from logging_config import configure_logging
 from models import IndexConstituent
 from step1_data import get_step1_data
 from step2_data import get_step2_data
@@ -46,15 +47,6 @@ LOG_PATH = Path(__file__).resolve().parent / "logs" / "nightly_fundamentals_fetc
 # but a further batch right after started drawing 429s). 220/min leaves
 # real headroom under even the conservative end of that range.
 TARGET_REQUESTS_PER_MINUTE = 220
-
-
-def _configure_logging() -> None:
-    LOG_PATH.parent.mkdir(exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[logging.FileHandler(LOG_PATH), logging.StreamHandler()],
-    )
 
 
 def load_sp500_tickers(session: Session) -> list[str]:
@@ -75,7 +67,7 @@ async def main(tickers: list[str] | None = None) -> dict:
     an explicit list (used by the CLI's --limit/--tickers and by tests)
     bypasses the DB lookup entirely. Returns the run summary dict so tests
     can assert on it directly rather than scraping the log."""
-    _configure_logging()
+    configure_logging(LOG_PATH)
     logger = logging.getLogger(__name__)
     init_db()
 

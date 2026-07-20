@@ -18,22 +18,14 @@ from pathlib import Path
 from sqlmodel import Session
 
 from db import engine, init_db
+from logging_config import configure_logging
 from sp500_scraper import refresh_sp500_constituents
 
 LOG_PATH = Path(__file__).resolve().parent / "logs" / "sp500_list_refresh.log"
 
 
-def _configure_logging() -> None:
-    LOG_PATH.parent.mkdir(exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[logging.FileHandler(LOG_PATH), logging.StreamHandler()],
-    )
-
-
 async def main() -> None:
-    _configure_logging()
+    configure_logging(LOG_PATH)
     logger = logging.getLogger(__name__)
     init_db()
 
