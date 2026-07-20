@@ -58,6 +58,38 @@ async def get_or_fetch(
     return data
 
 
+async def force_fetch(
+    session: Session,
+    ticker: str,
+    statement_type: str,
+    period: str,
+    fetch_fn: Callable[[], Awaitable[dict | list]],
+) -> dict | list:
+    """Like get_or_fetch, but always calls fetch_fn() and overwrites the
+    cache row regardless of fetched_at -- for one-off targeted refreshes
+    that must ignore the normal staleness window (e.g. backfilling a cache
+    key after a fetch-limit change, see bulk_refresh_step4_annual.py).
+    Not used by any live request path -- those all go through get_or_fetch."""
+    data = await fetch_fn()
+    raw_json = json.dumps(data)
+    now = datetime.now()
+
+    stmt = sqlite_insert(FundamentalsCache).values(
+        ticker=ticker,
+        statement_type=statement_type,
+        period=period,
+        fetched_at=now,
+        raw_json=raw_json,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["ticker", "statement_type", "period"],
+        set_={"raw_json": raw_json, "fetched_at": now},
+    )
+    session.execute(stmt)
+    session.commit()
+    return data
+
+
 async def safe_fetch(label: str, coro: Awaitable[dict | list]) -> dict | list:
     """Isolate one FMP sub-fetch: a failure here (e.g. an FMP plan lacking
     access to a given endpoint) shouldn't take down the whole request — the
