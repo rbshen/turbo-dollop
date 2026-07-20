@@ -14,6 +14,28 @@ class FundamentalsCache(SQLModel, table=True):
     raw_json: str
 
 
+class IndexConstituent(SQLModel, table=True):
+    """A ticker's membership in a named index (e.g. "sp500"), scraped from
+    Wikipedia since FMP's own constituents endpoint is unavailable on this
+    plan (see sp500_scraper.py). Refreshed weekly, independent of the
+    nightly per-ticker fundamentals fetch -- index membership changes a
+    handful of times a year, not nightly."""
+
+    __table_args__ = (UniqueConstraint("index_name", "ticker", name="uq_index_constituent"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    index_name: str = Field(index=True)
+    ticker: str = Field(index=True)
+    company_name: str
+    sector: str | None = None
+    sub_industry: str | None = None
+    # Wikipedia's own text for this column -- not always a clean single
+    # date (some rows note a re-added date or a range), stored verbatim
+    # rather than force-parsed.
+    date_added: str | None = None
+    last_synced_at: datetime
+
+
 class GrowthCatalystNote(SQLModel, table=True):
     """Manually-curated Step 2 growth catalyst text per ticker. No FMP data
     can answer "why is this company expected to grow" -- this is a free-text

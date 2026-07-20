@@ -1,0 +1,23 @@
+# Fathom cron schedule. Install with: crontab crontab.txt
+# (This replaces the whole crontab for this user -- merge by hand with
+# `crontab -e` if other jobs already exist outside this project.)
+#
+# To change either schedule, edit the "minute hour" fields below -- nothing
+# in the scripts themselves needs touching for a schedule change.
+
+# Nightly S&P 500 fundamentals refresh, 2:00 AM server time.
+# Reuses the existing cache-aware fetch pipeline (get_step1_data /
+# get_step2_data / get_step4_data / get_step5_data / get_summary) -- first
+# run after this project's initial deploy does a full cold-cache fetch
+# (~7,000 FMP calls, ~30 min); every run after that is mostly cache hits,
+# since get_or_fetch only calls FMP for tickers whose cache has actually
+# gone stale. Its own log (with per-ticker detail and the run summary)
+# lives at backend/logs/nightly_fundamentals_fetch.log; the redirect below
+# is only a catch-all for a crash before that log gets configured.
+0 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python nightly_fundamentals_fetch.py >> /home/shen/fathom/backend/logs/nightly_fundamentals_fetch_cron.log 2>&1
+
+# Weekly S&P 500 constituent list refresh (Wikipedia scrape), Sundays at
+# 1:00 AM server time -- runs before the nightly fetch above so a freshly
+# added/removed ticker is reflected the same night. Index membership only
+# changes a handful of times a year, hence weekly rather than nightly.
+0 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python refresh_sp500_list.py >> /home/shen/fathom/backend/logs/sp500_list_refresh_cron.log 2>&1

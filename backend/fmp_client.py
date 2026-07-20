@@ -1,26 +1,73 @@
+import asyncio
+import logging
+import time
+
 import httpx
 
 from config import settings
+
+logger = logging.getLogger(__name__)
+
+# Investigation (see project history) found the empirical rate limit sits
+# somewhere around 300-600 requests/minute on a rolling window, recovering
+# roughly 65-70s after a 429. A couple of bounded retries at that recovery
+# interval is a safety net for occasional hits -- proactive pacing (below)
+# is the primary defense, not this.
+RATE_LIMIT_MAX_RETRIES = 2
+RATE_LIMIT_RETRY_BACKOFF_SECONDS = 65.0
 
 
 class FMPClient:
     """Thin wrapper around the Financial Modeling Prep REST API.
 
-    Endpoint-specific methods (income statement, cash flow, etc.) are added
-    in a later phase once the data requirements are implemented; this is
-    generic request plumbing only.
+    `min_request_interval` throttles real outbound HTTP calls (never cache
+    hits, since those never reach this class) to a minimum gap between
+    requests -- 0.0 (default) means no throttling, correct for the
+    interactive app where traffic is naturally sparse. The nightly bulk
+    fetch script raises it on this same module-level singleton before
+    running, so pacing lives here once rather than being duplicated per
+    caller.
     """
 
-    def __init__(self, base_url: str | None = None, api_key: str | None = None) -> None:
+    def __init__(self, base_url: str | None = None, api_key: str | None = None, min_request_interval: float = 0.0) -> None:
         self.base_url = base_url or settings.fmp_base_url
         self.api_key = api_key or settings.fmp_api_key
+        self.min_request_interval = min_request_interval
+        self.request_count = 0
+        self._last_request_at: float | None = None
+        self._pace_lock = asyncio.Lock()
+
+    async def _pace(self) -> None:
+        if self.min_request_interval <= 0:
+            return
+        async with self._pace_lock:
+            now = time.monotonic()
+            if self._last_request_at is not None:
+                wait = self.min_request_interval - (now - self._last_request_at)
+                if wait > 0:
+                    await asyncio.sleep(wait)
+            self._last_request_at = time.monotonic()
 
     async def get(self, endpoint: str, params: dict | None = None) -> dict | list:
         query = {**(params or {}), "apikey": self.api_key}
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=30.0) as client:
-            response = await client.get(endpoint, params=query)
+        for attempt in range(RATE_LIMIT_MAX_RETRIES + 1):
+            await self._pace()
+            self.request_count += 1
+            async with httpx.AsyncClient(base_url=self.base_url, timeout=30.0) as client:
+                response = await client.get(endpoint, params=query)
+            if response.status_code == 429 and attempt < RATE_LIMIT_MAX_RETRIES:
+                logger.warning(
+                    "FMP 429 rate limit hit for %s (attempt %d/%d), backing off %.0fs",
+                    endpoint,
+                    attempt + 1,
+                    RATE_LIMIT_MAX_RETRIES,
+                    RATE_LIMIT_RETRY_BACKOFF_SECONDS,
+                )
+                await asyncio.sleep(RATE_LIMIT_RETRY_BACKOFF_SECONDS)
+                continue
             response.raise_for_status()
             return response.json()
+        raise AssertionError("unreachable")  # loop always returns or raises above
 
     async def get_profile(self, ticker: str) -> dict | list:
         return await self.get("/profile", {"symbol": ticker})
