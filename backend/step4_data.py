@@ -10,15 +10,13 @@ from scoring.step4 import classify_ccc_trend, score_revenue_vs_ar, score_roe, sc
 from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 ROIC_EXEMPT_TYPES = {"Bank", "Insurance", "Utility", "REIT/Property Developer"}
-# Scoring stays anchored to step4_profitability_efficiency_assessment_
-# prompt.md's own explicit "5 years" language (not a range like Step 1's
-# "5-10 years") -- see CLAUDE.md's Step 4 deviations. Display is
-# deliberately wider (10yr+TTM, matching Step 1) purely for visual
-# consistency -- these are now two intentionally decoupled windows for
-# this step: DISPLAY_ANNUAL_WINDOW controls what's fetched/shown,
-# SCORING_ANNUAL_WINDOW controls what actually feeds the score/verdict.
-SCORING_ANNUAL_WINDOW = 5
-DISPLAY_ANNUAL_WINDOW = 10
+# Both display AND scoring now use the same 10yr+TTM window, matching Step
+# 1 -- a deliberate deviation beyond step4_profitability_efficiency_
+# assessment_prompt.md's explicit "5 years" language (see CLAUDE.md's Step
+# 4 deviations). There used to be a separate, narrower SCORING_ANNUAL_WINDOW
+# (5) feeding only the score while display used the full 10 -- that
+# decoupling has been removed; a single window now drives both.
+ANNUAL_WINDOW = 10
 
 
 def _first(data: dict | list) -> dict:
@@ -27,7 +25,7 @@ def _first(data: dict | list) -> dict:
     return data or {}
 
 
-def _annual_series(annual_rows: list[dict], field: str, count: int = DISPLAY_ANNUAL_WINDOW) -> list[float | None]:
+def _annual_series(annual_rows: list[dict], field: str, count: int = ANNUAL_WINDOW) -> list[float | None]:
     # FMP returns annual rows most-recent-first; take the most recent
     # `count` and reverse to chronological (oldest fiscal year first).
     # Always padded to exactly `count` slots (None-padded at the oldest end)
@@ -39,21 +37,13 @@ def _annual_series(annual_rows: list[dict], field: str, count: int = DISPLAY_ANN
     return [None] * pad + [row.get(field) for row in rows]
 
 
-def _annual_years(*row_sources: list[dict], count: int = DISPLAY_ANNUAL_WINDOW) -> list[str]:
+def _annual_years(*row_sources: list[dict], count: int = ANNUAL_WINDOW) -> list[str]:
     for rows in row_sources:
         if rows:
             trimmed = list(reversed(rows[:count]))
             pad = count - len(trimmed)
             return ["—"] * pad + [row.get("fiscalYear", row.get("date", "")[:4]) for row in trimmed]
     return ["—"] * count
-
-
-def _scoring_window(series: list) -> list:
-    """Slice a chronological (oldest -> TTM) DISPLAY series down to the
-    doc-specified 5yr+TTM SCORING window -- the last SCORING_ANNUAL_WINDOW
-    annual periods plus TTM, regardless of how much more history the
-    display series itself carries."""
-    return series[-(SCORING_ANNUAL_WINDOW + 1) :]
 
 
 def _clean_aligned(*series: list) -> list[list]:
@@ -128,7 +118,7 @@ async def get_step4_data(ticker: str) -> Step4Out:
                 ticker,
                 "balance_sheet_statement",
                 "annual",
-                lambda: fmp_client.get_balance_sheet_statement(ticker, "annual", DISPLAY_ANNUAL_WINDOW),
+                lambda: fmp_client.get_balance_sheet_statement(ticker, "annual", ANNUAL_WINDOW),
                 staleness_days,
             ),
         )
@@ -153,7 +143,7 @@ async def get_step4_data(ticker: str) -> Step4Out:
                 ticker,
                 "key_metrics",
                 "annual",
-                lambda: fmp_client.get_key_metrics(ticker, "annual", DISPLAY_ANNUAL_WINDOW),
+                lambda: fmp_client.get_key_metrics(ticker, "annual", ANNUAL_WINDOW),
                 staleness_days,
             ),
         )
@@ -213,35 +203,23 @@ async def get_step4_data(ticker: str) -> Step4Out:
         else None
     )
 
-    # Data-driven detection: no physical inventory across the 5 annual
-    # filings *within the scoring window* reads as inventory being 0 or null
-    # in every year (confirmed reliable for CRM, ADBE; MSFT is a notable
-    # false-negative risk since it carries real hardware inventory despite
-    # being thought of as "pure software"). Checked against the
-    # SCORING_ANNUAL_WINDOW slice, not the full (now longer) display
-    # history -- this exemption feeds the score, so it must stay anchored
-    # to the same 5yr window as everything else that's scored. Deliberately
-    # checked on the annual history only, not the latest-quarter snapshot
-    # appended below: FMP's quarterly inventory figure has proven unreliable
-    # for inventory-free companies (e.g. MA shows +$2.06B, NOW shows -$28M
-    # in their latest quarter despite 5 straight clean-zero annual years) --
-    # a likely data-provider classification artifact, not a real change in
-    # the business.
-    ccc_exempt = all(v is None or v == 0 for v in _scoring_window(inventory)[:-1])
+    # Data-driven detection: no physical inventory across all 10 annual
+    # filings reads as inventory being 0 or null in every year (confirmed
+    # reliable for CRM, ADBE; MSFT is a notable false-negative risk since it
+    # carries real hardware inventory despite being thought of as "pure
+    # software"). Checked against the full annual history now that scoring
+    # itself uses the full 10yr window -- deliberately still checked on the
+    # annual history only, not the latest-quarter snapshot appended below:
+    # FMP's quarterly inventory figure has proven unreliable for
+    # inventory-free companies (e.g. MA shows +$2.06B, NOW shows -$28M in
+    # their latest quarter despite straight clean-zero annual years) -- a
+    # likely data-provider classification artifact, not a real change in the
+    # business.
+    ccc_exempt = all(v is None or v == 0 for v in inventory[:-1])
     ccc_exempt_reason = "No physical inventory detected across the reporting window — CCC not applicable." if ccc_exempt else None
 
-    # Scoring is anchored to the doc-specified 5yr+TTM window regardless of
-    # how much more history is fetched/displayed above -- slice down to the
-    # scoring window before cleaning/feeding into any scoring function.
-    roe_scoring = _scoring_window(roe)
-    equity_scoring = _scoring_window(equity)
-    net_income_scoring = _scoring_window(net_income)
-    revenue_scoring = _scoring_window(revenue)
-    ar_scoring = _scoring_window(accounts_receivable)
-    roic_scoring = _scoring_window(roic)
-
-    roe_clean, equity_clean, net_income_clean = _clean_aligned(roe_scoring, equity_scoring, net_income_scoring)
-    revenue_clean, ar_clean = _clean_aligned(revenue_scoring, ar_scoring)
+    roe_clean, equity_clean, net_income_clean = _clean_aligned(roe, equity, net_income)
+    revenue_clean, ar_clean = _clean_aligned(revenue, accounts_receivable)
 
     if len(roe_clean) < 2 or len(revenue_clean) < 2:
         return Step4Out(
@@ -264,27 +242,18 @@ async def get_step4_data(ticker: str) -> Step4Out:
 
     roic_result = None
     if not roic_exempt:
-        roic_clean = [v for v in roic_scoring if v is not None]
+        roic_clean = [v for v in roic if v is not None]
         roic_result = score_roic(roic_clean) if len(roic_clean) >= 2 else None
 
-    # ccc_series is the DISPLAY series (full window, shown in Step4Out.ccc)
-    # -- scoring recomputes CCC from the scoring-window slice of the same
-    # raw inputs, rather than slicing the already-computed display series,
-    # so the scoring math is identical in method and inputs to what it was
-    # before this display window was extended.
+    # ccc_series now feeds both display (Step4Out.ccc) and scoring directly
+    # -- no separate scoring-window recomputation needed now that the two
+    # windows are the same.
     ccc_series: list[float] | None = None
     ccc_result = None
     if not ccc_exempt:
         ccc_series = _compute_ccc_series(revenue, cost_of_revenue, inventory, accounts_receivable, accounts_payable)
-        ccc_scoring_series = _compute_ccc_series(
-            _scoring_window(revenue),
-            _scoring_window(cost_of_revenue),
-            _scoring_window(inventory),
-            _scoring_window(accounts_receivable),
-            _scoring_window(accounts_payable),
-        )
-        if len(ccc_scoring_series) >= 2:
-            ccc_result = classify_ccc_trend(ccc_scoring_series)
+        if len(ccc_series) >= 2:
+            ccc_result = classify_ccc_trend(ccc_series)
 
     result = score_step4(roe_result, ar_result, roic_result, ccc_result)
 

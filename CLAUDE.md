@@ -129,20 +129,20 @@ CCC pattern table without committing to exact scoring formulas for any of
 them. `backend/scoring/step4.py` operationalizes each into concrete
 thresholds — deviations from a strict reading of the doc:
 
-- **Display window (10yr+TTM) is now decoupled from the scoring window
-  (5yr+TTM)**. The doc specifies "5 years" explicitly for ROE, ROIC,
-  Revenue-vs-AR, and CCC (unlike Step 1's doc, which gives a "5-10 year"
-  range) — scoring stays anchored to that 5yr+TTM window exactly as
-  specified. The charts/tables were originally built to match, but were
-  extended to the same 10yr+TTM window as Step 1 purely for visual
-  consistency across the app — a deliberate deviation from the doc's
-  window for *display only*. `backend/step4_data.py`'s
-  `DISPLAY_ANNUAL_WINDOW` (10) controls what's fetched/shown;
-  `SCORING_ANNUAL_WINDOW` (5) controls what actually feeds the score,
-  sliced out of the display series via `_scoring_window()` before any
-  scoring function runs. The two must never be conflated — a ticker's
-  chart can show 10 years of history while its score is still computed
-  from only the most recent 5.
+- **Both the display and scoring window are 10yr+TTM**, matching Step 1.
+  The doc specifies "5 years" explicitly for ROE, ROIC, Revenue-vs-AR, and
+  CCC (unlike Step 1's doc, which gives a "5-10 year" range) — this is a
+  deliberate deviation beyond that explicit language, for consistency with
+  Step 1 across the whole app. `backend/step4_data.py`'s `ANNUAL_WINDOW`
+  (10) controls both what's fetched/shown and what feeds the score — there
+  used to be a separate, narrower `SCORING_ANNUAL_WINDOW` (5) sliced out via
+  a `_scoring_window()` helper so the chart could show more history than
+  the score was based on; that decoupling has been removed, so a ticker's
+  score now reflects its full 10-year history, not just the most recent 5.
+  This means scores can shift versus the earlier 5yr-scoring behavior for
+  tickers with a materially different pattern in years 6-10 versus the
+  most recent 5 — an intentional tradeoff for a longer, more complete read
+  on ROE/ROIC/AR/CCC trends, at the cost of the doc's own "5 years" framing.
 - **Company classification** extends the same shared classifier Step 5
   uses (`classify_company_type`, now in `backend/scoring/classification.py`
   rather than duplicated) with Insurance and Utility. Insurance is checked
@@ -151,7 +151,7 @@ thresholds — deviations from a strict reading of the doc:
   misclassified. Step 5 is unaffected: its code already branches
   `if Bank / if REIT / else standard-path`, so Insurance/Utility tickers
   fall through to Step 5's standard ratio path exactly as before.
-- **ROE/ROIC tiering** uses both the average across the 5yr+TTM window
+- **ROE/ROIC tiering** uses both the average across the 10yr+TTM window
   *and* the minimum single-year value as a consistency check (a high
   average diluted by one very weak year lands in the "marginal" tier, not
   "excellent") — the doc doesn't specify this, but a straight average alone
@@ -179,11 +179,11 @@ thresholds — deviations from a strict reading of the doc:
   decline constants in `scoring/step4.py` are first-pass judgment calls, not
   values validated against a prior baseline.
 - **CCC exemption (no physical inventory)** is data-driven — inventory
-  reading as 0 or null — but is checked **only against the 5 annual
+  reading as 0 or null — but is checked **only against the 10 annual
   filings**, not the latest-quarter snapshot appended for the "TTM" column.
   FMP's latest-quarter inventory figure proved unreliable for genuinely
   inventory-free companies during verification (Mastercard showed +$2.06B,
-  ServiceNow showed -$28M in their latest quarter despite 5 straight
+  ServiceNow showed -$28M in their latest quarter despite straight
   clean-zero annual years) — a data-provider classification artifact, not a
   real change in the business.
 - **Equal-weight redistribution** is a generalized N-way split (1/N across

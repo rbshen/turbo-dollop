@@ -6,11 +6,13 @@ import step4_data
 from step4_data import get_step4_data
 
 # 10 years total (2016-2025) -- the recent 5 (2021-2025) are the exact same
-# values this fixture had before the display window was extended to
-# 10yr+TTM, so any assertion pinned to those years/indices proves scoring
-# is unaffected. The older 5 (2016-2020) are deliberately BAD (poor
-# ROE/ROIC, wildly different revenue/AR/inventory) so a test can prove
-# scoring still ignores them even though they're now fetched/displayed.
+# values this fixture had before the display/scoring window was extended to
+# 10yr+TTM, so any assertion pinned to those years/indices proves what the
+# window used to cover. The older 5 (2016-2020) are deliberately BAD (poor
+# ROE/ROIC, wildly different revenue/AR/inventory) -- now that scoring uses
+# the full 10yr window (matching Step 1), these years DO feed the score;
+# tests below exercise that on purpose (see
+# test_scoring_now_uses_the_full_10yr_window_including_bad_older_years).
 #
 # Revenue/AR both compound at 10%/yr across the recent 5 so Metric 3 reads
 # "healthy" (0 gap) in the baseline fixture -- tests that care about AR
@@ -143,30 +145,35 @@ def test_standard_company_full_pipeline(monkeypatch):
     assert result.components["roic"] is not None
 
 
-def test_scoring_stays_anchored_to_5yr_window_despite_bad_older_display_years(monkeypatch):
-    # The older 5 years (2016-2020) have deliberately terrible ROE/ROIC
-    # (2%, well below the 8% hard-fail floor) and wildly different
-    # revenue/AR/inventory. If scoring ever accidentally used the full
-    # 10yr+TTM display window instead of the doc-specified 5yr+TTM scoring
-    # window, hard_fail would flip to True and these tiers would collapse.
+def test_scoring_now_uses_the_full_10yr_window_including_bad_older_years(monkeypatch):
+    # The older 5 years (2016-2020) have deliberately terrible ROE/ROIC (2%)
+    # blended in with the recent 5's excellent 20%/18%. Scoring now uses the
+    # full 10yr+TTM window (matching Step 1), so the 10-year average (11%)
+    # lands ROE/ROIC in the "marginal" tier instead of "excellent" -- proof
+    # the extra years actually feed the tier classification, not just the
+    # display arrays.
     _fresh_engine(monkeypatch)
     _patch_fmp(monkeypatch)
 
     result = asyncio.run(get_step4_data("aapl"))
 
-    assert result.hard_fail is False
-    assert result.components["roe"]["label"] == "excellent"
-    assert result.components["roic"]["label"] == "excellent"
+    assert result.hard_fail is False  # 11% avg is still above the 8% fail floor
+    assert result.components["roe"]["label"] == "marginal"
+    assert result.components["roic"]["label"] == "marginal"
+    # Revenue and AR move in lockstep in both windows of this fixture, so
+    # Metric 3 is unaffected by which years are included.
     assert result.components["revenue_vs_ar"]["label"] == "healthy"
 
 
-def test_score_identical_with_or_without_the_extra_display_years(monkeypatch):
-    """The strongest possible proof that scoring didn't change: run the same
-    ticker twice -- once with only the recent 5yr+TTM data (the exact shape
-    this fixture had before the display window was extended) and once with
-    the full 10yr+TTM fixture (older 5 years deliberately bad) -- and
-    confirm score/verdict/hard_fail/components are identical. If the
-    extension ever leaked into scoring, this would fail immediately."""
+def test_score_differs_between_5yr_only_and_full_10yr_scoring_data(monkeypatch):
+    """Before/after comparison proving the scoring window extension actually
+    changes real scores now (unlike the earlier display-only change): run
+    the same ticker once with only the recent 5yr+TTM data (the exact shape
+    this fixture had before either window was extended) and once with the
+    full 10yr+TTM fixture (older 5 years deliberately bad) -- ROE/ROIC drop
+    from "excellent" to "marginal" once the bad older years are included,
+    while Revenue-vs-AR and CCC (unaffected by the bad older years in this
+    fixture) stay the same."""
     _fresh_engine(monkeypatch)
     _patch_fmp(
         monkeypatch,
@@ -180,15 +187,24 @@ def test_score_identical_with_or_without_the_extra_display_years(monkeypatch):
     _patch_fmp(monkeypatch)  # full 10-year fixture
     extended = asyncio.run(get_step4_data("aapl"))
 
-    assert extended.score == baseline.score
-    assert extended.verdict == baseline.verdict
-    assert extended.hard_fail == baseline.hard_fail
-    assert extended.components == baseline.components
-    # But the DISPLAY window genuinely differs -- not just a no-op change.
-    # Both arrays pad to the same length (11) regardless of how much real
-    # history is available, so the real difference is content: the
-    # 5yr-only baseline pads the older slots with placeholders, while the
-    # extended fixture has real (if deliberately bad) data there instead.
+    assert baseline.score == 100
+    assert baseline.verdict == "Strong Pass"
+    assert baseline.components["roe"]["label"] == "excellent"
+    assert baseline.components["roic"]["label"] == "excellent"
+
+    assert extended.score == 80
+    assert extended.verdict == "Pass"
+    assert extended.components["roe"]["label"] == "marginal"
+    assert extended.components["roic"]["label"] == "marginal"
+    # Metrics not affected by the bad older years in this fixture stay put.
+    assert extended.components["revenue_vs_ar"] == baseline.components["revenue_vs_ar"]
+    assert extended.components["ccc"] == baseline.components["ccc"]
+
+    # The window genuinely differs -- not just a no-op change. Both arrays
+    # pad to the same length (11) regardless of how much real history is
+    # available, so the real difference is content: the 5yr-only baseline
+    # pads the older slots with placeholders, while the extended fixture has
+    # real (if deliberately bad) data there instead.
     assert baseline.years[0] == "—"
     assert extended.years[0] == "2016"
 
@@ -250,12 +266,12 @@ def test_ccc_exempt_when_no_inventory_across_window(monkeypatch):
     assert result.components["ccc"] is None
 
 
-def test_ccc_exemption_checked_against_scoring_window_not_full_display_history(monkeypatch):
-    # The older 5 display years (2016-2020) have non-zero inventory in the
-    # base fixture -- only the recent 5 (2021-2025, the scoring window)
-    # need to read as zero-inventory for the exemption to fire. Proves the
-    # exemption check didn't silently start looking at the wider display
-    # window instead of the scoring window.
+def test_ccc_exemption_now_requires_zero_inventory_across_the_full_10yr_history(monkeypatch):
+    # Only the recent 5 years (2021-2025) read as zero-inventory here; the
+    # older 5 (2016-2020) carry real inventory. Now that scoring uses the
+    # full 10yr window, the exemption must NOT fire -- a mixed history no
+    # longer qualifies as "no physical inventory across the reporting
+    # window" just because the most recent years happen to be clean.
     _fresh_engine(monkeypatch)
     mixed_inventory_annual = [
         {**row, "inventory": 0} if row["fiscalYear"] in {"2021", "2022", "2023", "2024", "2025"} else row
@@ -271,9 +287,9 @@ def test_ccc_exemption_checked_against_scoring_window_not_full_display_history(m
 
     result = asyncio.run(get_step4_data("crm"))
 
-    assert result.ccc is None
-    assert result.ccc_exempt_reason is not None
-    assert result.components["ccc"] is None
+    assert result.ccc is not None
+    assert result.ccc_exempt_reason is None
+    assert result.components["ccc"] is not None
 
 
 def test_ccc_exemption_survives_a_noisy_latest_quarter_inventory_figure(monkeypatch):

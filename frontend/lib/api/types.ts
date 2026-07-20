@@ -175,10 +175,12 @@ export interface Step4Components {
 }
 
 export interface Step4Out {
-  // years/roe/roic/revenue/accounts_receivable/ccc are the DISPLAY window
-  // (10yr+TTM, matching Step 1). score/verdict/hard_fail/components are
-  // computed from a narrower 5yr+TTM SCORING window instead -- a
-  // deliberate, intentional decoupling (see CLAUDE.md's Step 4 deviations).
+  // years/roe/roic/revenue/accounts_receivable/ccc AND
+  // score/verdict/hard_fail/components all share the same 10yr+TTM window,
+  // matching Step 1 -- a deliberate deviation beyond the source doc's
+  // explicit "5 years" (see CLAUDE.md's Step 4 deviations). There used to
+  // be a narrower 5yr+TTM scoring window decoupled from a wider display
+  // window; that decoupling has been removed.
   ticker: string;
   years: string[];
   // "Standard" / "Bank" / "Insurance" / "Utility" / "REIT/Property
