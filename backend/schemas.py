@@ -67,6 +67,11 @@ class Step1Out(BaseModel):
     # None (the whole field) when the ticker is CFO-exempt (bank / property
     # developer / commodity company) — not a list of nulls.
     cfo: list[float | None] | None = None
+    # FCF = CFO - CapEx -- exempt under the exact same conditions as CFO
+    # (derived from it, so the same "not a reliable trend signal for these
+    # business models" reasoning applies). None (the whole field) whenever
+    # cfo is None, never scored independently of CFO's exemption.
+    fcf: list[float | None] | None = None
     gross_margin: list[float | None]
     net_margin: list[float | None]
     cfo_exempt_reason: str | None = None

@@ -57,6 +57,9 @@ export interface Step1Components {
   net_income: Step1NetIncomeComponent;
   cfo: Step1TrendComponent | null;
   margins: Step1TrendComponent;
+  // null whenever cfo is null -- FCF is derived from CFO, exempt under the
+  // exact same conditions.
+  fcf: Step1TrendComponent | null;
 }
 
 export interface Step1Out {
@@ -70,6 +73,10 @@ export interface Step1Out {
   net_income: (number | null)[];
   operating_income: (number | null)[];
   cfo: (number | null)[] | null;
+  // FCF = CFO - CapEx. null (the whole field) whenever cfo is null -- same
+  // exemption as CFO, since FCF is derived from it. Table/score only, not
+  // part of the Financials Trend chart.
+  fcf: (number | null)[] | null;
   gross_margin: (number | null)[];
   net_margin: (number | null)[];
   cfo_exempt_reason: string | null;

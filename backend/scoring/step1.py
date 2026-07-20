@@ -3,8 +3,33 @@ import numpy as np
 from scoring.series_trend import analyze_series_direction
 from scoring.trend import TrendResult, classify_trend
 
-WEIGHTS_STANDARD = {"revenue": 0.30, "net_income": 0.30, "cfo": 0.30, "margins": 0.10}
-WEIGHTS_CFO_EXEMPT = {"revenue": 0.45, "net_income": 0.45, "cfo": 0.0, "margins": 0.10}
+WEIGHTS_STANDARD = {"revenue": 0.25, "net_income": 0.25, "cfo": 0.25, "margins": 0.10, "fcf": 0.15}
+# FCF is derived from CFO, so wherever CFO is exempt (Bank / Property
+# Developer / Commodity Company), FCF is exempt for the same underlying
+# reason -- their combined 25%+15% redistributes evenly across the 3
+# remaining applicable metrics (Revenue, Net Income, Margins), same
+# equal-redistribution convention used everywhere else in this app.
+_CFO_FCF_EXEMPT_WEIGHT = WEIGHTS_STANDARD["cfo"] + WEIGHTS_STANDARD["fcf"]
+_REDISTRIBUTE_TARGETS = ("revenue", "net_income", "margins")
+_PER_TARGET_BONUS = _CFO_FCF_EXEMPT_WEIGHT / len(_REDISTRIBUTE_TARGETS)
+WEIGHTS_CFO_EXEMPT = {
+    "revenue": WEIGHTS_STANDARD["revenue"] + _PER_TARGET_BONUS,
+    "net_income": WEIGHTS_STANDARD["net_income"] + _PER_TARGET_BONUS,
+    "cfo": 0.0,
+    "margins": WEIGHTS_STANDARD["margins"] + _PER_TARGET_BONUS,
+    "fcf": 0.0,
+}
+
+# --- Free Cash Flow tiers -----------------------------------------------
+# FCF is "consistently positive," not a growth trend -- deliberately does
+# NOT reuse classify_trend's 6-tier pattern. What matters per the doc's own
+# rationale is whether a cash-burn stretch is sustained (2+ CONSECUTIVE
+# negative years = bankruptcy risk), not merely whether a negative year
+# exists somewhere in the history.
+FCF_EXCELLENT_SCORE = 100
+FCF_GOOD_SCORE = 85
+FCF_MARGINAL_SCORE = 60
+FCF_FAIL_SCORE = 0
 
 NET_INCOME_BACKUP_THRESHOLD = 40
 NET_INCOME_BACKUP_CAP = 80
@@ -74,6 +99,39 @@ def _classify_margins(gross_margin: list[float], net_margin: list[float], revenu
     return TrendResult("gradually_compressing", 60)
 
 
+def _classify_fcf(fcf: list[float]) -> TrendResult:
+    """FCF tiering: all-positive -> Excellent; a single isolated negative
+    year -> Good (a one-off blip, not a pattern); any run of 2+ consecutive
+    negative years anywhere in the window -> Fail; negative years present
+    but never 2 in a row (e.g. two scattered, non-adjacent negative years)
+    -> Marginal. Checking max-consecutive-run first means "exactly 1
+    negative year" and "2+ scattered negative years" fall out directly from
+    the count, since a lone negative year can never itself form a run >= 2."""
+    if len(fcf) < 2:
+        return TrendResult("insufficient_data", 0)
+
+    negative_years = sum(1 for v in fcf if v < 0)
+    if negative_years == 0:
+        return TrendResult("consistently_positive", FCF_EXCELLENT_SCORE)
+
+    max_consecutive = 0
+    current_run = 0
+    for v in fcf:
+        if v < 0:
+            current_run += 1
+            max_consecutive = max(max_consecutive, current_run)
+        else:
+            current_run = 0
+
+    if max_consecutive >= 2:
+        return TrendResult("sustained_cash_burn", FCF_FAIL_SCORE)
+
+    if negative_years == 1:
+        return TrendResult("isolated_dip", FCF_GOOD_SCORE)
+
+    return TrendResult("scattered_negative_years", FCF_MARGINAL_SCORE)
+
+
 def _verdict_for(score: int) -> str:
     for low, high, label in VERDICT_BANDS:
         if low <= score <= high:
@@ -89,6 +147,7 @@ def score_step1(
     gross_margin: list[float],
     net_margin: list[float],
     cfo_exempt: bool,
+    fcf: list[float] | None = None,
     margin_context_revenue: list[float] | None = None,
 ) -> dict:
     """Pure scoring function per CLAUDE.md's Step 1 spec: takes parsed metric
@@ -117,9 +176,11 @@ def score_step1(
 
     if cfo_exempt or cfo is None:
         cfo_result = None
+        fcf_result = None
         weights = WEIGHTS_CFO_EXEMPT
     else:
         cfo_result = classify_trend(cfo)
+        fcf_result = _classify_fcf(fcf) if fcf is not None else None
         weights = WEIGHTS_STANDARD
 
     weighted_sum = (
@@ -127,6 +188,7 @@ def score_step1(
         + net_income_result.score * weights["net_income"]
         + (cfo_result.score if cfo_result else 0) * weights["cfo"]
         + margin_result.score * weights["margins"]
+        + (fcf_result.score if fcf_result else 0) * weights["fcf"]
     )
     score = max(0, min(100, round(weighted_sum)))
 
@@ -142,6 +204,7 @@ def score_step1(
             },
             "cfo": {"score": cfo_result.score, "pattern": cfo_result.pattern} if cfo_result else None,
             "margins": {"score": margin_result.score, "pattern": margin_result.pattern},
+            "fcf": {"score": fcf_result.score, "pattern": fcf_result.pattern} if fcf_result else None,
         },
         "weights": weights,
     }

@@ -108,6 +108,10 @@ async def get_step1_data(ticker: str) -> Step1Out:
 
     cash_flow_by_year = {row.get("fiscalYear"): row for row in cash_flow_annual}
     cfo = [cash_flow_by_year.get(year, {}).get("netCashProvidedByOperatingActivities") for year in years]
+    # capitalExpenditure is already reported as a negative number (cash
+    # outflow) by FMP -- FCF = CFO + capitalExpenditure, not CFO -
+    # capitalExpenditure, which would double-subtract it.
+    capex = [cash_flow_by_year.get(year, {}).get("capitalExpenditure") for year in years]
 
     years = years + ["TTM"]
     revenue = revenue + [sum_last_four_quarters(income_quarterly, "revenue").total]
@@ -116,6 +120,9 @@ async def get_step1_data(ticker: str) -> Step1Out:
     operating_income = operating_income + [sum_last_four_quarters(income_quarterly, "operatingIncome").total]
     net_income = net_income + [sum_last_four_quarters(income_quarterly, "netIncome").total]
     cfo = cfo + [sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities").total]
+    capex = capex + [sum_last_four_quarters(cash_flow_quarterly, "capitalExpenditure").total]
+
+    fcf = [c + x if c is not None and x is not None else None for c, x in zip(cfo, capex)]
 
     # Margins are always computed from real Revenue, regardless of company
     # type -- deliberately untouched by the Bank substitution below.
@@ -136,8 +143,11 @@ async def get_step1_data(ticker: str) -> Step1Out:
 
     # classify_trend needs a clean, gap-free chronological series -- the raw
     # (with-gaps) arrays above are what the UI renders, these filtered copies
-    # are only for scoring.
+    # are only for scoring. FCF mirrors CFO's exemption exactly (it's
+    # derived from CFO, so the same "not a reliable signal for these
+    # business models" reasoning applies).
     clean_cfo = [v for v in cfo if v is not None] if not cfo_exempt else None
+    clean_fcf = [v for v in fcf if v is not None] if not cfo_exempt else None
 
     result = score_step1(
         revenue=[v for v in display_revenue if v is not None],
@@ -147,6 +157,7 @@ async def get_step1_data(ticker: str) -> Step1Out:
         gross_margin=[v for v in gross_margin if v is not None],
         net_margin=[v for v in net_margin if v is not None],
         cfo_exempt=cfo_exempt,
+        fcf=clean_fcf,
         margin_context_revenue=[v for v in revenue if v is not None],
     )
 
@@ -158,6 +169,7 @@ async def get_step1_data(ticker: str) -> Step1Out:
         net_income=net_income,
         operating_income=operating_income,
         cfo=None if cfo_exempt else cfo,
+        fcf=None if cfo_exempt else fcf,
         gross_margin=gross_margin,
         net_margin=net_margin,
         cfo_exempt_reason=exemption,

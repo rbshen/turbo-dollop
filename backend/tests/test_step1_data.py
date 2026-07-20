@@ -21,12 +21,12 @@ INCOME_QUARTERLY = [
 ]
 
 CASH_FLOW_ANNUAL = [
-    {"fiscalYear": "2025", "netCashProvidedByOperatingActivities": 90},
-    {"fiscalYear": "2024", "netCashProvidedByOperatingActivities": 70},
-    {"fiscalYear": "2023", "netCashProvidedByOperatingActivities": 50},
+    {"fiscalYear": "2025", "netCashProvidedByOperatingActivities": 90, "capitalExpenditure": -20},
+    {"fiscalYear": "2024", "netCashProvidedByOperatingActivities": 70, "capitalExpenditure": -15},
+    {"fiscalYear": "2023", "netCashProvidedByOperatingActivities": 50, "capitalExpenditure": -10},
 ]
 
-CASH_FLOW_QUARTERLY = [{"netCashProvidedByOperatingActivities": 24} for _ in range(4)]
+CASH_FLOW_QUARTERLY = [{"netCashProvidedByOperatingActivities": 24, "capitalExpenditure": -5} for _ in range(4)]
 
 
 def _patch_fmp(monkeypatch, call_count, sector="Technology", industry="Consumer Electronics"):
@@ -63,9 +63,14 @@ def test_get_step1_data_builds_series_and_ttm_and_caches(monkeypatch):
     assert result.revenue_label == "Revenue"
     assert result.net_income == [40, 60, 80, 84]
     assert result.cfo == [50, 70, 90, 96]
+    # capitalExpenditure is already negative (FMP convention) -- FCF = CFO +
+    # capitalExpenditure: 50-10=40, 70-15=55, 90-20=70, TTM 96-20=76.
+    assert result.fcf == [40, 55, 70, 76]
     assert result.gross_margin[0] == 50.0
     assert result.cfo_exempt_reason is None
     assert result.components["cfo"] is not None
+    assert result.components["fcf"]["pattern"] == "consistently_positive"
+    assert result.components["fcf"]["score"] == 100
     assert 0 <= result.score <= 100
     assert result.verdict in {"Strong Pass", "Pass", "Fail"}
     assert call_count == {
@@ -100,6 +105,11 @@ def test_bank_is_cfo_exempt(monkeypatch):
     assert result.cfo_exempt_reason == "Bank"
     assert result.cfo is None
     assert result.components["cfo"] is None
+
+    # FCF mirrors CFO's exemption exactly -- derived from CFO, so it's not a
+    # reliable signal for Banks either.
+    assert result.fcf is None
+    assert result.components["fcf"] is None
 
     # Change 1: Banks show Net Interest Income in place of Revenue, clearly
     # labeled -- not silently substituted under the old "Revenue" label.

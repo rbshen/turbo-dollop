@@ -17,6 +17,24 @@ const ALL_SERIES: (ChartSeries & { key: FinancialMetricKey })[] = [
   { key: "revenue", label: "Revenue", color: "#eda100" },
 ];
 
+// FCF is table/score-only, deliberately not part of the Financials Trend
+// chart above -- kept out of ALL_SERIES so it can never end up on the chart.
+const FCF_COLOR = "#8b5cf6";
+
+const FCF_TIER_LABELS: Record<string, string> = {
+  consistently_positive: "Excellent",
+  isolated_dip: "Good",
+  scattered_negative_years: "Marginal",
+  sustained_cash_burn: "Fail",
+  insufficient_data: "Insufficient data",
+};
+
+function fcfTierClass(pattern: string): string {
+  if (pattern === "sustained_cash_burn") return "text-red-400";
+  if (pattern === "scattered_negative_years") return "text-amber-300";
+  return "text-zinc-400";
+}
+
 interface Props {
   data: Step1Out;
   chartWidth: number;
@@ -57,7 +75,9 @@ export function FinancialsSection({ data, chartWidth }: Props) {
       />
 
       {data.cfo === null && (
-        <p className="text-xs text-zinc-500">Cash flow from operations not applicable — {data.cfo_exempt_reason}.</p>
+        <p className="text-xs text-zinc-500">
+          Cash flow from operations and free cash flow not applicable — {data.cfo_exempt_reason}.
+        </p>
       )}
 
       <div className="flex">
@@ -76,6 +96,19 @@ export function FinancialsSection({ data, chartWidth }: Props) {
                 </td>
               </tr>
             ))}
+            {data.fcf !== null && (
+              <tr key="fcf">
+                <td className="whitespace-nowrap border-b border-zinc-900 py-2 pr-8 text-zinc-400">
+                  <span className="mr-1.5 inline-block size-2 rounded-full align-middle" style={{ backgroundColor: FCF_COLOR }} />
+                  Free cash flow
+                  {data.components.fcf && (
+                    <span className={`ml-2 text-xs font-medium ${fcfTierClass(data.components.fcf.pattern)}`}>
+                      · {FCF_TIER_LABELS[data.components.fcf.pattern] ?? data.components.fcf.pattern}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
 
@@ -100,6 +133,15 @@ export function FinancialsSection({ data, chartWidth }: Props) {
                   ))}
                 </tr>
               ))}
+              {data.fcf !== null && (
+                <tr key="fcf">
+                  {data.fcf.map((v, i) => (
+                    <td key={i} className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
+                      {v != null ? fmtTableMoney(v) : "—"}
+                    </td>
+                  ))}
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
