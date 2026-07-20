@@ -1,14 +1,23 @@
+from datetime import date as date_cls
+
 from sqlmodel import Session
 
+import sec_edgar
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
 from debt_metrics import MetricOutlierFlags, compute_debt_metrics
 from fmp_client import fmp_client
 from npl import compute_npl_ratio
-from schemas import OutlierWarning, Step5Out, Step5RatioResult
+from schemas import OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
 from scoring.step5 import classify_company_type, score_npl, score_step5_reit, score_step5_standard
 from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
+
+# The Debt Servicing Ratio's own two inputs -- an outlier flagged on either
+# of these triggers an on-demand SEC EDGAR cross-check (see sec_edgar.py).
+# Never triggered in bulk/nightly -- only when a specific quarter is
+# already flagged for a specific ticker being viewed.
+SEC_CROSS_CHECK_METRICS = {"net_interest_expense_ttm", "cfo_ttm"}
 
 
 def _first(data: dict | list) -> dict:
@@ -27,6 +36,32 @@ def _outlier_warnings(*flag_groups: MetricOutlierFlags) -> list[OutlierWarning]:
         for group in flag_groups
         for fq in group.flagged
     ]
+
+
+async def _attach_sec_cross_checks(
+    session: Session, ticker: str, warnings: list[OutlierWarning], staleness_days: int
+) -> list[OutlierWarning]:
+    """On-demand only -- called with exactly the flagged quarter(s) for one
+    ticker's Step 5 view, never in a bulk sweep (SEC EDGAR's rate-limit
+    penalty for exceeding 10 req/sec is a 10-minute lockout, far harsher
+    than FMP's)."""
+    result = []
+    for warning in warnings:
+        if warning.metric not in SEC_CROSS_CHECK_METRICS or not warning.date:
+            result.append(warning)
+            continue
+
+        target_end = date_cls.fromisoformat(warning.date)
+        if warning.metric == "net_interest_expense_ttm":
+            # warning.value is the raw quarterly netInterestIncome figure
+            # (negative = net expense) -- flip sign to match SEC's
+            # positive-expense tag convention.
+            cross_check = await sec_edgar.cross_check_interest_expense(session, ticker, target_end, -warning.value, staleness_days)
+        else:  # cfo_ttm
+            cross_check = await sec_edgar.cross_check_cfo(session, ticker, target_end, warning.value, staleness_days)
+
+        result.append(warning.model_copy(update={"sec_cross_check": SecCrossCheck(**cross_check._asdict())}))
+    return result
 
 
 async def get_step5_data(ticker: str) -> Step5Out:
@@ -155,6 +190,13 @@ async def get_step5_data(ticker: str) -> Step5Out:
     outlier_warnings = _outlier_warnings(
         *debt_metrics.outlier_flags, MetricOutlierFlags(metric="cfo_ttm", flagged=cfo_result.flagged)
     )
+
+    if outlier_warnings:
+        # Fresh, short-lived session scoped to just this on-demand
+        # cross-check -- only opened when there's actually something
+        # flagged, not on every Step 5 view.
+        with Session(engine) as sec_session:
+            outlier_warnings = await _attach_sec_cross_checks(sec_session, ticker, outlier_warnings, staleness_days)
 
     # REIT gearing uses FMP's own totalDebt field (a broader aggregate than
     # short+long term debt alone), a different definition than the Standard

@@ -188,6 +188,16 @@ def test_outlier_warning_propagates_through_step5_and_ticker_summary(monkeypatch
     monkeypatch.setattr(ticker_summary.fmp_client, "get_analyst_estimates", fake_empty_list)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_earnings", fake_empty_list)
 
+    # This test predates the SEC EDGAR cross-check and isn't testing it --
+    # short-circuit to "no CIK found" so it doesn't hit the real network
+    # (get_step5_data now calls it whenever net_interest_expense_ttm is
+    # flagged, which it is here). The cross-check itself is covered by
+    # test_sec_edgar.py and the dedicated tests in test_step5_data.py.
+    async def fake_get_cik(session, ticker, staleness_days):
+        return None
+
+    monkeypatch.setattr(step5_data.sec_edgar, "get_cik", fake_get_cik)
+
     step5_result = asyncio.run(get_step5_data("pep"))
     summary_result = asyncio.run(get_summary("pep"))
 

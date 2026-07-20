@@ -7,10 +7,15 @@ import nightly_fundamentals_fetch as nightly
 from models import IndexConstituent
 
 
-def _fresh_engine(monkeypatch):
+def _fresh_engine(monkeypatch, tmp_path):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(nightly, "engine", engine)
+    # main() calls configure_logging(LOG_PATH) with force=True, which
+    # reconfigures the ROOT logger for the rest of this pytest process --
+    # pointing it at a tmp_path file instead of the real production log
+    # keeps test runs from polluting backend/logs/nightly_fundamentals_fetch.log.
+    monkeypatch.setattr(nightly, "LOG_PATH", tmp_path / "test_nightly.log")
     return engine
 
 
@@ -33,8 +38,8 @@ def _patch_all_steps(monkeypatch, calls, fail_for: set[str] | None = None):
     monkeypatch.setattr(nightly, "get_summary", make_step("summary"))
 
 
-def test_load_sp500_tickers_reads_from_the_index_constituent_table(monkeypatch):
-    engine = _fresh_engine(monkeypatch)
+def test_load_sp500_tickers_reads_from_the_index_constituent_table(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
     with Session(engine) as session:
         session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime.now()))
         session.add(IndexConstituent(index_name="sp500", ticker="MSFT", company_name="Microsoft", last_synced_at=datetime.now()))
@@ -46,8 +51,8 @@ def test_load_sp500_tickers_reads_from_the_index_constituent_table(monkeypatch):
     assert set(tickers) == {"AAPL", "MSFT"}
 
 
-def test_a_failing_ticker_does_not_abort_the_run(monkeypatch):
-    _fresh_engine(monkeypatch)
+def test_a_failing_ticker_does_not_abort_the_run(monkeypatch, tmp_path):
+    _fresh_engine(monkeypatch, tmp_path)
     calls: list[tuple[str, str]] = []
     _patch_all_steps(monkeypatch, calls, fail_for={"BADCO"})
     monkeypatch.setattr(nightly.fmp_client, "request_count", 0)
@@ -63,8 +68,8 @@ def test_a_failing_ticker_does_not_abort_the_run(monkeypatch):
     assert summary["failures"] == [("BADCO", "simulated failure fetching step1 for BADCO")]
 
 
-def test_summary_reports_all_five_expected_fields(monkeypatch):
-    _fresh_engine(monkeypatch)
+def test_summary_reports_all_five_expected_fields(monkeypatch, tmp_path):
+    _fresh_engine(monkeypatch, tmp_path)
     calls: list[tuple[str, str]] = []
     _patch_all_steps(monkeypatch, calls)
     monkeypatch.setattr(nightly.fmp_client, "request_count", 0)
@@ -82,8 +87,8 @@ def test_summary_reports_all_five_expected_fields(monkeypatch):
     assert {c[1] for c in calls} == {"step1", "step2", "step4", "step5", "summary"}
 
 
-def test_pacing_is_configured_before_the_run_starts(monkeypatch):
-    _fresh_engine(monkeypatch)
+def test_pacing_is_configured_before_the_run_starts(monkeypatch, tmp_path):
+    _fresh_engine(monkeypatch, tmp_path)
     calls: list[tuple[str, str]] = []
     _patch_all_steps(monkeypatch, calls)
     monkeypatch.setattr(nightly.fmp_client, "request_count", 0)
@@ -95,8 +100,8 @@ def test_pacing_is_configured_before_the_run_starts(monkeypatch):
     assert nightly.fmp_client.min_request_interval == expected_interval
 
 
-def test_empty_ticker_list_is_handled_without_crashing(monkeypatch):
-    _fresh_engine(monkeypatch)
+def test_empty_ticker_list_is_handled_without_crashing(monkeypatch, tmp_path):
+    _fresh_engine(monkeypatch, tmp_path)
 
     summary = asyncio.run(nightly.main(tickers=[]))
 

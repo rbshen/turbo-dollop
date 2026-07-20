@@ -3,6 +3,20 @@ from datetime import date
 from pydantic import BaseModel
 
 
+class SecCrossCheck(BaseModel):
+    """Result of cross-checking an outlier-flagged Net Interest Expense or
+    CFO quarter against SEC EDGAR's own XBRL filing data (see sec_edgar.py).
+    `available=False` whenever the lookup itself couldn't complete (no CIK,
+    no matching tag/period, network error) -- the original outlier warning
+    is always still shown regardless, this is additive-only."""
+
+    available: bool
+    sec_value: float | None = None
+    tag_used: str | None = None
+    matches_fmp: bool | None = None
+    note: str
+
+
 class OutlierWarning(BaseModel):
     """A TTM-summed flow metric where one of the 4 summed quarters looked
     anomalous against its trailing history -- informational only, never
@@ -13,6 +27,9 @@ class OutlierWarning(BaseModel):
     date: str | None = None
     value: float
     trailing_median: float
+    # Only populated for the Debt Servicing Ratio's own two inputs
+    # (net_interest_expense_ttm, cfo_ttm) -- see step5_data.py.
+    sec_cross_check: SecCrossCheck | None = None
 
 
 class RefreshResult(BaseModel):

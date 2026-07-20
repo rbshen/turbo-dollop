@@ -325,3 +325,140 @@ def test_bank_npl_annual_fallback_still_respects_plausibility_floor(monkeypatch)
 
     assert result.ratios == {}
     assert result.npl_as_of is None
+
+
+# --- SEC EDGAR cross-check wiring (Debt Servicing Ratio's own two inputs) --
+# The cross-check logic itself (candidate-tag fallback, YTD subtraction,
+# CIK lookup, caching, graceful degradation) is covered by test_sec_edgar.py
+# against real fixture data -- these tests only confirm get_step5_data
+# wires it in correctly: right metrics, right sign, right on-demand scoping.
+
+INCOME_QUARTERLY_WITH_INTEREST_OUTLIER = [
+    {"date": "2026-06-13", "ebitda": 5_000_000_000, "interestExpense": 2_300_000_000, "interestIncome": 0, "netInterestIncome": -2_300_000_000},
+    {"date": "2026-03-21", "ebitda": 4_800_000_000, "interestExpense": 301_000_000, "interestIncome": 0, "netInterestIncome": -301_000_000},
+    {"date": "2025-12-27", "ebitda": 4_700_000_000, "interestExpense": 333_000_000, "interestIncome": 0, "netInterestIncome": -333_000_000},
+    {"date": "2025-09-06", "ebitda": 4_600_000_000, "interestExpense": 264_000_000, "interestIncome": 0, "netInterestIncome": -264_000_000},
+] + [
+    {"date": f"baseline-{i}", "ebitda": 4_500_000_000, "interestExpense": 260_000_000, "interestIncome": 0, "netInterestIncome": -260_000_000}
+    for i in range(8)
+]
+
+CASH_FLOW_QUARTERLY_WITH_CFO_OUTLIER = [
+    {"date": "2026-03-21", "netCashProvidedByOperatingActivities": 41_000_000},
+    {"date": "2025-12-27", "netCashProvidedByOperatingActivities": 5_000_000_000},
+    {"date": "2025-09-06", "netCashProvidedByOperatingActivities": 5_000_000_000},
+    {"date": "2025-06-14", "netCashProvidedByOperatingActivities": 5_000_000_000},
+] + [{"date": f"baseline-{i}", "netCashProvidedByOperatingActivities": 5_000_000_000} for i in range(8)]
+
+
+def _patch_fmp_with_outliers(monkeypatch):
+    async def fake_profile(ticker):
+        return [{"sector": "Technology", "industry": "Consumer Electronics"}]
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return BALANCE_SHEET_QUARTERLY
+
+    async def fake_income_statement(ticker, period, limit):
+        return INCOME_QUARTERLY_WITH_INTEREST_OUTLIER
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return CASH_FLOW_QUARTERLY_WITH_CFO_OUTLIER
+
+    monkeypatch.setattr(step5_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step5_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    monkeypatch.setattr(step5_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step5_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+
+def test_sec_cross_check_attached_only_to_its_two_scoped_metrics(monkeypatch):
+    # interest_expense_ttm also flags here (same root-cause anomaly as
+    # net_interest_expense_ttm, since interestIncome is a constant 0), but
+    # it's not one of the Debt Servicing Ratio's own two inputs -- only
+    # net_interest_expense_ttm and cfo_ttm should get a cross-check.
+    _fresh_engine(monkeypatch)
+    _patch_fmp_with_outliers(monkeypatch)
+
+    calls = []
+
+    async def fake_cross_check_interest_expense(session, ticker, target_end, fmp_value, staleness_days):
+        calls.append(("interest_expense", ticker, target_end, fmp_value))
+        return step5_data.sec_edgar.CrossCheckResult(True, 230_000_000.0, "InterestExpense", False, "FMP's figure appears to be a data error -- SEC EDGAR's filed value differs significantly.")
+
+    async def fake_cross_check_cfo(session, ticker, target_end, fmp_value, staleness_days):
+        calls.append(("cfo", ticker, target_end, fmp_value))
+        return step5_data.sec_edgar.CrossCheckResult(True, 41_000_000.0, "NetCashProvidedByUsedInOperatingActivities", True, "SEC EDGAR confirms FMP's figure.")
+
+    monkeypatch.setattr(step5_data.sec_edgar, "cross_check_interest_expense", fake_cross_check_interest_expense)
+    monkeypatch.setattr(step5_data.sec_edgar, "cross_check_cfo", fake_cross_check_cfo)
+
+    result = asyncio.run(get_step5_data("pep"))
+
+    warnings_by_metric = {w.metric: w for w in result.outlier_warnings}
+    assert set(warnings_by_metric) == {"interest_expense_ttm", "net_interest_expense_ttm", "cfo_ttm"}
+
+    assert warnings_by_metric["interest_expense_ttm"].sec_cross_check is None
+
+    nie = warnings_by_metric["net_interest_expense_ttm"].sec_cross_check
+    assert nie is not None
+    assert nie.available is True
+    assert nie.sec_value == 230_000_000.0
+    assert nie.matches_fmp is False
+
+    cfo = warnings_by_metric["cfo_ttm"].sec_cross_check
+    assert cfo is not None
+    assert cfo.matches_fmp is True
+
+    # Both scoped metrics were actually cross-checked, exactly once each.
+    assert {c[0] for c in calls} == {"interest_expense", "cfo"}
+
+
+def test_sec_cross_check_receives_sign_flipped_positive_expense_value(monkeypatch):
+    # warning.value for net_interest_expense_ttm is the raw quarterly
+    # netInterestIncome figure (-2,300,000,000, negative = net expense) --
+    # the wiring must flip it to a positive expense value before calling
+    # the cross-check, to match SEC's positive-expense tag convention.
+    _fresh_engine(monkeypatch)
+    _patch_fmp_with_outliers(monkeypatch)
+
+    received = {}
+
+    async def fake_cross_check_interest_expense(session, ticker, target_end, fmp_value, staleness_days):
+        received["value"] = fmp_value
+        received["target_end"] = target_end
+        return step5_data.sec_edgar.CrossCheckResult(True, 230_000_000.0, "InterestExpense", False, "note")
+
+    async def fake_cross_check_cfo(session, ticker, target_end, fmp_value, staleness_days):
+        return step5_data.sec_edgar.CrossCheckResult(True, fmp_value, "tag", True, "SEC EDGAR confirms FMP's figure.")
+
+    monkeypatch.setattr(step5_data.sec_edgar, "cross_check_interest_expense", fake_cross_check_interest_expense)
+    monkeypatch.setattr(step5_data.sec_edgar, "cross_check_cfo", fake_cross_check_cfo)
+
+    asyncio.run(get_step5_data("pep"))
+
+    assert received["value"] == 2_300_000_000.0  # positive, not the raw -2,300,000,000
+    assert received["target_end"].isoformat() == "2026-06-13"
+
+
+def test_sec_cross_check_never_attempted_when_nothing_is_flagged(monkeypatch):
+    # The on-demand-only guarantee: for the vast majority of tickers with no
+    # outlier, SEC EDGAR must never be touched at all.
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch)  # baseline fixtures, no anomalies
+
+    calls = []
+
+    async def fake_cross_check_interest_expense(*args, **kwargs):
+        calls.append("interest_expense")
+        return step5_data.sec_edgar.CrossCheckResult(True, 0.0, "tag", True, "note")
+
+    async def fake_cross_check_cfo(*args, **kwargs):
+        calls.append("cfo")
+        return step5_data.sec_edgar.CrossCheckResult(True, 0.0, "tag", True, "note")
+
+    monkeypatch.setattr(step5_data.sec_edgar, "cross_check_interest_expense", fake_cross_check_interest_expense)
+    monkeypatch.setattr(step5_data.sec_edgar, "cross_check_cfo", fake_cross_check_cfo)
+
+    result = asyncio.run(get_step5_data("aapl"))
+
+    assert result.outlier_warnings == []
+    assert calls == []
