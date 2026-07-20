@@ -54,7 +54,8 @@ CASH_FLOW_QUARTERLY = [{"date": "2026-03-28", "netCashProvidedByOperatingActivit
 
 # No usable NPL tags -- the default for every non-Bank test and any Bank
 # test that isn't specifically exercising the NPL computation.
-FULL_AS_REPORTED_QUARTERLY_MISSING = [{"date": "2026-03-28", "period": "Q2", "data": {}}]
+FULL_AS_REPORTED_QUARTERLY_MISSING = [{"date": "2026-03-28", "period": "Q2", "fiscalYear": 2026, "data": {}}]
+FULL_AS_REPORTED_ANNUAL_MISSING = [{"date": "2025-12-31", "period": "FY", "fiscalYear": 2025, "data": {}}]
 
 # total_loans (400) is 40% of BALANCE_SHEET_QUARTERLY's totalAssets (1000)
 # -- well above the plausibility floor, so this reads as a trustworthy tag
@@ -63,6 +64,7 @@ FULL_AS_REPORTED_QUARTERLY_GOOD = [
     {
         "date": "2026-03-28",
         "period": "Q2",
+        "fiscalYear": 2026,
         "data": {
             "financingreceivableexcludingaccruedinterestnonaccrual": 8,
             "financingreceivableexcludingaccruedinterestbeforeallowanceforcreditloss": 400,
@@ -78,6 +80,47 @@ FULL_AS_REPORTED_QUARTERLY_IMPLAUSIBLE = [
     {
         "date": "2026-03-28",
         "period": "Q2",
+        "fiscalYear": 2026,
+        "data": {
+            "financingreceivableexcludingaccruedinterestnonaccrual": 2,
+            "financingreceivableexcludingaccruedinterestbeforeallowanceforcreditloss": 50,
+        },
+    }
+]
+
+# USB/TFC-style: nonaccrual tag absent from the latest quarter (total_loans
+# still present), so the fallback should read from the annual filing below.
+FULL_AS_REPORTED_QUARTERLY_MISSING_NONACCRUAL_ONLY = [
+    {
+        "date": "2026-03-28",
+        "period": "Q2",
+        "fiscalYear": 2026,
+        "data": {"financingreceivableexcludingaccruedinterestbeforeallowanceforcreditloss": 400},
+    }
+]
+
+# The annual-fallback figures: nonaccrual 8 / total_loans 400 -> 2% ("good"),
+# same magnitude as FULL_AS_REPORTED_QUARTERLY_GOOD so a test can tell the
+# two apart by which as_of label comes back, not just by the ratio value.
+FULL_AS_REPORTED_ANNUAL_GOOD = [
+    {
+        "date": "2025-12-31",
+        "period": "FY",
+        "fiscalYear": 2025,
+        "data": {
+            "financingreceivableexcludingaccruedinterestnonaccrual": 8,
+            "financingreceivableexcludingaccruedinterestbeforeallowanceforcreditloss": 400,
+        },
+    }
+]
+
+# Fallback-eligible (nonaccrual missing quarterly) but the annual filing's
+# total_loans is itself implausibly small -- the floor must still apply.
+FULL_AS_REPORTED_ANNUAL_IMPLAUSIBLE = [
+    {
+        "date": "2025-12-31",
+        "period": "FY",
+        "fiscalYear": 2025,
         "data": {
             "financingreceivableexcludingaccruedinterestnonaccrual": 2,
             "financingreceivableexcludingaccruedinterestbeforeallowanceforcreditloss": 50,
@@ -91,7 +134,8 @@ def _patch_fmp(
     sector="Technology",
     industry="Consumer Electronics",
     income_quarterly=None,
-    full_as_reported=None,
+    full_as_reported_quarterly=None,
+    full_as_reported_annual=None,
 ):
     async def fake_profile(ticker):
         return [{"sector": sector, "industry": industry}]
@@ -106,7 +150,9 @@ def _patch_fmp(
         return CASH_FLOW_QUARTERLY
 
     async def fake_full_as_reported(ticker, period, limit):
-        return full_as_reported if full_as_reported is not None else FULL_AS_REPORTED_QUARTERLY_MISSING
+        if period == "quarter":
+            return full_as_reported_quarterly if full_as_reported_quarterly is not None else FULL_AS_REPORTED_QUARTERLY_MISSING
+        return full_as_reported_annual if full_as_reported_annual is not None else FULL_AS_REPORTED_ANNUAL_MISSING
 
     monkeypatch.setattr(step5_data.fmp_client, "get_profile", fake_profile)
     monkeypatch.setattr(step5_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
@@ -176,7 +222,7 @@ def test_bank_overall_verdict_stays_not_supported_regardless_of_npl(monkeypatch)
         monkeypatch,
         sector="Financial Services",
         industry="Banks - Diversified",
-        full_as_reported=FULL_AS_REPORTED_QUARTERLY_GOOD,
+        full_as_reported_quarterly=FULL_AS_REPORTED_QUARTERLY_GOOD,
     )
 
     result = asyncio.run(get_step5_data("jpm"))
@@ -187,27 +233,36 @@ def test_bank_overall_verdict_stays_not_supported_regardless_of_npl(monkeypatch)
 
 
 def test_bank_npl_ratio_computed_when_tags_present_and_plausible(monkeypatch):
+    # JPM-style: quarterly nonaccrual is present, so no fallback should be
+    # needed -- the annual fixture here is deliberately empty to prove that.
     _fresh_engine(monkeypatch)
     _patch_fmp(
         monkeypatch,
         sector="Financial Services",
         industry="Banks - Diversified",
-        full_as_reported=FULL_AS_REPORTED_QUARTERLY_GOOD,
+        full_as_reported_quarterly=FULL_AS_REPORTED_QUARTERLY_GOOD,
+        full_as_reported_annual=FULL_AS_REPORTED_ANNUAL_MISSING,
     )
 
     result = asyncio.run(get_step5_data("jpm"))
 
     assert result.ratios["npl_ratio"].value == 2.0  # 8 / 400 * 100
     assert result.ratios["npl_ratio"].label == "good"
+    assert result.npl_as_of == "Q2 2026"
 
 
 def test_bank_npl_ratio_unavailable_when_total_loans_implausibly_small(monkeypatch):
+    # BAC/WFC/C/PNC/MTB-style: nonaccrual IS present quarterly, just paired
+    # with an implausible total_loans -- must NOT trigger the annual
+    # fallback (that's a different problem), so a plausible-looking annual
+    # fixture here must still be ignored.
     _fresh_engine(monkeypatch)
     _patch_fmp(
         monkeypatch,
         sector="Financial Services",
         industry="Banks - Diversified",
-        full_as_reported=FULL_AS_REPORTED_QUARTERLY_IMPLAUSIBLE,
+        full_as_reported_quarterly=FULL_AS_REPORTED_QUARTERLY_IMPLAUSIBLE,
+        full_as_reported_annual=FULL_AS_REPORTED_ANNUAL_GOOD,
     )
 
     result = asyncio.run(get_step5_data("bac"))
@@ -215,9 +270,10 @@ def test_bank_npl_ratio_unavailable_when_total_loans_implausibly_small(monkeypat
     assert result.company_type == "Bank"
     assert result.verdict == "not_supported"
     assert result.ratios == {}
+    assert result.npl_as_of is None
 
 
-def test_bank_npl_ratio_unavailable_when_tags_missing(monkeypatch):
+def test_bank_npl_ratio_unavailable_when_tags_missing_in_both_periods(monkeypatch):
     _fresh_engine(monkeypatch)
     _patch_fmp(monkeypatch, sector="Financial Services", industry="Banks - Diversified")
 
@@ -226,3 +282,46 @@ def test_bank_npl_ratio_unavailable_when_tags_missing(monkeypatch):
     assert result.company_type == "Bank"
     assert result.verdict == "not_supported"
     assert result.ratios == {}
+    assert result.npl_as_of is None
+
+
+def test_bank_npl_falls_back_to_annual_when_quarterly_nonaccrual_missing(monkeypatch):
+    # USB/TFC-style: the nonaccrual tag is a genuine 10-K-only disclosure
+    # gap for this filer -- absent from the latest quarter, present in the
+    # annual filing. The fallback must use the annual filing's own
+    # total_loans too (not mix it with the quarterly total_loans), and the
+    # response must clearly label which filing it's actually as-of.
+    _fresh_engine(monkeypatch)
+    _patch_fmp(
+        monkeypatch,
+        sector="Financial Services",
+        industry="Banks - Diversified",
+        full_as_reported_quarterly=FULL_AS_REPORTED_QUARTERLY_MISSING_NONACCRUAL_ONLY,
+        full_as_reported_annual=FULL_AS_REPORTED_ANNUAL_GOOD,
+    )
+
+    result = asyncio.run(get_step5_data("usb"))
+
+    assert result.ratios["npl_ratio"].value == 2.0  # 8 / 400 * 100, both from the annual filing
+    assert result.ratios["npl_ratio"].label == "good"
+    assert result.npl_as_of == "FY2025 annual filing"
+
+
+def test_bank_npl_annual_fallback_still_respects_plausibility_floor(monkeypatch):
+    # Quarterly nonaccrual missing (fallback triggers), but the annual
+    # filing's total_loans is itself implausibly small -- must still
+    # degrade to unavailable rather than trust it just because it's the
+    # fallback path.
+    _fresh_engine(monkeypatch)
+    _patch_fmp(
+        monkeypatch,
+        sector="Financial Services",
+        industry="Banks - Diversified",
+        full_as_reported_quarterly=FULL_AS_REPORTED_QUARTERLY_MISSING_NONACCRUAL_ONLY,
+        full_as_reported_annual=FULL_AS_REPORTED_ANNUAL_IMPLAUSIBLE,
+    )
+
+    result = asyncio.run(get_step5_data("xyz"))
+
+    assert result.ratios == {}
+    assert result.npl_as_of is None

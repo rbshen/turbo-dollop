@@ -125,6 +125,12 @@ class Step5Out(BaseModel):
     company_type: str
     classification_note: str = "Best-effort classification from sector/industry text — not a certified determination."
     ratios: dict[str, Step5RatioResult] = {}
+    # Set only when ratios["npl_ratio"] is present -- labels which filing the
+    # NPL figure is actually as-of (e.g. "FY2025 annual filing" vs. "Q2
+    # 2026"). A fallback to the annual filing (see npl.py) must never be
+    # presented as equally current as a ticker where the quarterly figure
+    # was available.
+    npl_as_of: str | None = None
     # Informational only (deferred-revenue exception) -- not auto-applied to
     # the Current Ratio calculation, per the source doc's manual-review note.
     deferred_revenue_current: float | None = None

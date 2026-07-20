@@ -65,7 +65,7 @@ async def get_step5_data(ticker: str) -> Step5Out:
             # NPL is a partial signal, computed from FMP's raw XBRL-tag dump
             # (not the standardized schema) -- see npl.py for why this is
             # NOT trusted blindly across every bank ticker.
-            full_as_reported = await safe_fetch(
+            full_as_reported_quarterly = await safe_fetch(
                 "financial_statement_full_as_reported_quarterly",
                 get_or_fetch(
                     session,
@@ -76,10 +76,24 @@ async def get_step5_data(ticker: str) -> Step5Out:
                     staleness_days,
                 ),
             )
-            full_as_reported_row = _first(full_as_reported)
-            raw_tags = full_as_reported_row.get("data") or {} if isinstance(full_as_reported_row, dict) else {}
+            # Fallback source when the latest quarter's nonaccrual-loan tag
+            # is absent -- confirmed a real 10-K-only disclosure gap for
+            # some filers (USB, TFC), not a data error.
+            full_as_reported_annual = await safe_fetch(
+                "financial_statement_full_as_reported_annual",
+                get_or_fetch(
+                    session,
+                    ticker,
+                    "financial_statement_full_as_reported",
+                    "annual",
+                    lambda: fmp_client.get_financial_statement_full_as_reported(ticker, "annual", 1),
+                    staleness_days,
+                ),
+            )
+            quarterly_row = _first(full_as_reported_quarterly)
+            annual_row = _first(full_as_reported_annual)
 
-            npl_result = compute_npl_ratio(raw_tags, balance_sheet_row.get("totalAssets"))
+            npl_result = compute_npl_ratio(quarterly_row, annual_row, balance_sheet_row.get("totalAssets"))
             ratios = {}
             if npl_result.ratio_pct is not None:
                 npl_score = score_npl(npl_result.ratio_pct)
@@ -87,7 +101,14 @@ async def get_step5_data(ticker: str) -> Step5Out:
                     {"value": npl_result.ratio_pct, "label": npl_score.label, "points": npl_score.points}
                 )
 
-            return Step5Out(ticker=ticker, company_type=company_type, ratios=ratios, score=None, verdict="not_supported")
+            return Step5Out(
+                ticker=ticker,
+                company_type=company_type,
+                ratios=ratios,
+                npl_as_of=npl_result.as_of,
+                score=None,
+                verdict="not_supported",
+            )
 
         # EBITDA, net interest expense, and CFO are flow measures (activity
         # over a period), not snapshots -- a single quarter's figure would
