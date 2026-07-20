@@ -5,8 +5,9 @@ from config import settings
 from db import engine
 from debt_metrics import MetricOutlierFlags, compute_debt_metrics
 from fmp_client import fmp_client
+from npl import compute_npl_ratio
 from schemas import OutlierWarning, Step5Out, Step5RatioResult
-from scoring.step5 import classify_company_type, score_step5_reit, score_step5_standard
+from scoring.step5 import classify_company_type, score_npl, score_step5_reit, score_step5_standard
 from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 
@@ -41,11 +42,6 @@ async def get_step5_data(ticker: str) -> Step5Out:
         )
         company_type = classify_company_type(profile.get("sector"), profile.get("industry"))
 
-        if company_type == "Bank":
-            # Investigation already confirmed FMP has no CET1 field and no
-            # raw components to compute one -- deferred, not approximated.
-            return Step5Out(ticker=ticker, company_type=company_type, score=None, verdict="not_supported")
-
         # Balance sheet items are point-in-time snapshots -- the latest
         # available quarter is simply more current than the latest annual
         # filing (which can be many months stale by the time this is viewed).
@@ -60,6 +56,39 @@ async def get_step5_data(ticker: str) -> Step5Out:
                 staleness_days,
             ),
         )
+        balance_sheet_row = _first(balance_sheet)
+
+        if company_type == "Bank":
+            # CET1 is still unavailable (confirmed: FMP has no field and no
+            # raw components to compute one) -- deferred, not approximated,
+            # so the overall verdict stays "not_supported" regardless of NPL.
+            # NPL is a partial signal, computed from FMP's raw XBRL-tag dump
+            # (not the standardized schema) -- see npl.py for why this is
+            # NOT trusted blindly across every bank ticker.
+            full_as_reported = await safe_fetch(
+                "financial_statement_full_as_reported_quarterly",
+                get_or_fetch(
+                    session,
+                    ticker,
+                    "financial_statement_full_as_reported",
+                    "quarterly",
+                    lambda: fmp_client.get_financial_statement_full_as_reported(ticker, "quarter", 1),
+                    staleness_days,
+                ),
+            )
+            full_as_reported_row = _first(full_as_reported)
+            raw_tags = full_as_reported_row.get("data") or {} if isinstance(full_as_reported_row, dict) else {}
+
+            npl_result = compute_npl_ratio(raw_tags, balance_sheet_row.get("totalAssets"))
+            ratios = {}
+            if npl_result.ratio_pct is not None:
+                npl_score = score_npl(npl_result.ratio_pct)
+                ratios["npl_ratio"] = _ratio_out(
+                    {"value": npl_result.ratio_pct, "label": npl_score.label, "points": npl_score.points}
+                )
+
+            return Step5Out(ticker=ticker, company_type=company_type, ratios=ratios, score=None, verdict="not_supported")
+
         # EBITDA, net interest expense, and CFO are flow measures (activity
         # over a period), not snapshots -- a single quarter's figure would
         # understate them ~4x relative to the debt figures they're compared
@@ -92,7 +121,6 @@ async def get_step5_data(ticker: str) -> Step5Out:
             ),
         )
 
-    balance_sheet_row = _first(balance_sheet)
     income_quarterly = income_quarterly if isinstance(income_quarterly, list) else []
     cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
 

@@ -55,5 +55,14 @@ class FMPClient:
     async def get_key_metrics_ttm(self, ticker: str) -> dict | list:
         return await self.get("/key-metrics-ttm", {"symbol": ticker})
 
+    async def get_financial_statement_full_as_reported(self, ticker: str, period: str, limit: int) -> dict | list:
+        # Raw SEC-XBRL-tag dump, NOT the standardized schema the other
+        # methods above use -- field names are the filer's own XBRL tags, so
+        # they are not guaranteed consistent across companies (see
+        # npl.py::compute_npl_ratio for how this is handled defensively).
+        return await self.get(
+            "/financial-statement-full-as-reported", {"symbol": ticker, "period": period, "limit": limit}
+        )
+
 
 fmp_client = FMPClient()

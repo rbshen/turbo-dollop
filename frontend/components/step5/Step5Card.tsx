@@ -23,6 +23,7 @@ const RATIO_LABELS: Record<string, string> = {
   debt_to_ebitda: "Debt / EBITDA",
   debt_servicing_ratio: "Debt Servicing Ratio",
   gearing_ratio: "Gearing Ratio",
+  npl_ratio: "NPL Ratio",
 };
 
 const TIER_LABELS: Record<string, string> = {
@@ -33,7 +34,7 @@ const TIER_LABELS: Record<string, string> = {
   fail: "Fail",
 };
 
-const PERCENT_RATIOS = new Set(["debt_servicing_ratio", "gearing_ratio"]);
+const PERCENT_RATIOS = new Set(["debt_servicing_ratio", "gearing_ratio", "npl_ratio"]);
 
 function formatRatioValue(key: string, value: number): string {
   return PERCENT_RATIOS.has(key) ? fmtPct(value, 1) : `${fmtNumber(value, 2)}x`;
@@ -97,7 +98,28 @@ export function Step5Card({ ticker }: Props) {
       <OutlierWarningNote warnings={data.outlier_warnings} labels={OUTLIER_METRIC_LABELS} />
 
       {isBank ? (
-        <p className="text-sm text-zinc-500">Not yet supported — CET1 data unavailable from FMP.</p>
+        <>
+          {data.ratios.npl_ratio ? (
+            <table className="w-full border-separate border-spacing-0 text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
+                  <th className="border-b border-zinc-800 py-2 pr-4 font-medium">Ratio</th>
+                  <th className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">Value</th>
+                  <th className="border-b border-zinc-800 py-2 text-right font-medium">Tier</th>
+                </tr>
+              </thead>
+              <tbody>{ratioRows(data.ratios)}</tbody>
+            </table>
+          ) : (
+            <p className="text-sm text-zinc-500">
+              NPL ratio not available for {ticker} — the required loan-book figures weren&apos;t present in the
+              expected filing format.
+            </p>
+          )}
+          <p className="text-sm text-zinc-500">
+            CET1 ratio still unavailable from FMP — Step 5 verdict incomplete for Banks.
+          </p>
+        </>
       ) : data.verdict === "insufficient_data" ? (
         <p className="text-sm text-zinc-500">Required balance sheet/income statement figures were unavailable for {ticker}.</p>
       ) : (

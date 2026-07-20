@@ -13,6 +13,7 @@ __all__ = [
     "score_debt_to_ebitda",
     "score_debt_servicing",
     "score_gearing",
+    "score_npl",
     "score_step5_standard",
     "score_step5_reit",
 ]
@@ -62,6 +63,23 @@ def score_gearing(value_pct: float) -> RatioResult:
     if value_pct <= 45.0:
         return RatioResult("approaching_limit", 60, False)
     return RatioResult("fail", 0, True)
+
+
+def score_npl(value_pct: float) -> RatioResult:
+    """NPL ratio tiers, mirroring Debt/EBITDA's excellent/good/acceptable/
+    fail structure (both are higher-is-worse ratios). The source doc's own
+    threshold is <5% = pass, so >=5% is the hard-fail boundary; the
+    sub-tiers above that are first-pass judgment calls, same status as
+    Step 4's CCC thresholds (no doc-given numeric gradation exists).
+    This is a partial signal only -- CET1 is still unavailable for Banks,
+    so this ratio alone never produces a Bank verdict (see step5_data.py)."""
+    if value_pct >= 5.0:
+        return RatioResult("fail", 0, True)
+    if value_pct >= 3.0:
+        return RatioResult("acceptable", 70, False)
+    if value_pct >= 1.0:
+        return RatioResult("good", 85, False)
+    return RatioResult("excellent", 100, False)
 
 
 def _verdict_for(score: int, hard_fail: bool) -> str:

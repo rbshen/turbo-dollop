@@ -4,6 +4,7 @@ from scoring.step5 import (
     score_debt_servicing,
     score_debt_to_ebitda,
     score_gearing,
+    score_npl,
     score_step5_reit,
     score_step5_standard,
 )
@@ -99,6 +100,34 @@ def test_debt_servicing_approaching_limit():
 def test_debt_servicing_fail_at_or_above_30():
     result = score_debt_servicing(30.0)
     assert result == ("fail", 0, True)
+
+
+# --- NPL Ratio tiers (Bank, partial signal only) ---
+
+
+def test_npl_excellent_below_1():
+    assert score_npl(0.5) == ("excellent", 100, False)
+
+
+def test_npl_good():
+    assert score_npl(2.0) == ("good", 85, False)
+
+
+def test_npl_boundary_at_1_is_good_not_excellent():
+    assert score_npl(1.0) == ("good", 85, False)
+
+
+def test_npl_acceptable():
+    assert score_npl(4.0) == ("acceptable", 70, False)
+
+
+def test_npl_boundary_at_3_is_acceptable_not_good():
+    assert score_npl(3.0) == ("acceptable", 70, False)
+
+
+def test_npl_fail_at_or_above_5():
+    assert score_npl(5.0) == ("fail", 0, True)
+    assert score_npl(7.5) == ("fail", 0, True)
 
 
 # --- Gearing Ratio tiers (REIT) ---
