@@ -129,6 +129,20 @@ CCC pattern table without committing to exact scoring formulas for any of
 them. `backend/scoring/step4.py` operationalizes each into concrete
 thresholds — deviations from a strict reading of the doc:
 
+- **Display window (10yr+TTM) is now decoupled from the scoring window
+  (5yr+TTM)**. The doc specifies "5 years" explicitly for ROE, ROIC,
+  Revenue-vs-AR, and CCC (unlike Step 1's doc, which gives a "5-10 year"
+  range) — scoring stays anchored to that 5yr+TTM window exactly as
+  specified. The charts/tables were originally built to match, but were
+  extended to the same 10yr+TTM window as Step 1 purely for visual
+  consistency across the app — a deliberate deviation from the doc's
+  window for *display only*. `backend/step4_data.py`'s
+  `DISPLAY_ANNUAL_WINDOW` (10) controls what's fetched/shown;
+  `SCORING_ANNUAL_WINDOW` (5) controls what actually feeds the score,
+  sliced out of the display series via `_scoring_window()` before any
+  scoring function runs. The two must never be conflated — a ticker's
+  chart can show 10 years of history while its score is still computed
+  from only the most recent 5.
 - **Company classification** extends the same shared classifier Step 5
   uses (`classify_company_type`, now in `backend/scoring/classification.py`
   rather than duplicated) with Insurance and Utility. Insurance is checked

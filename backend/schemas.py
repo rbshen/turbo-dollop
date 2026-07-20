@@ -167,6 +167,12 @@ class Step5Out(BaseModel):
 
 
 class Step4Out(BaseModel):
+    # years/roe/roic/revenue/accounts_receivable/ccc are all the DISPLAY
+    # window -- 10yr+TTM, matching Step 1, for chart/table consistency.
+    # score/verdict/hard_fail/components are computed from the doc-specified
+    # 5yr+TTM SCORING window instead (step4_data.py's SCORING_ANNUAL_WINDOW)
+    # -- a deliberate, intentional decoupling (see CLAUDE.md's Step 4
+    # deviations): the chart shows more history than the score is based on.
     ticker: str
     years: list[str]
     # "Standard" / "Bank" / "Insurance" / "Utility" / "REIT/Property
