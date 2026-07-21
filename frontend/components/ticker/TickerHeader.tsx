@@ -2,11 +2,9 @@
 
 import { ExchangeBadge } from "@/components/ticker/ExchangeBadge";
 import { FairValuePill } from "@/components/ticker/FairValuePill";
-import { MetricsGrid } from "@/components/ticker/MetricsGrid";
 import { PriceChange } from "@/components/ticker/PriceChange";
 import { RefreshButton } from "@/components/ticker/RefreshButton";
 import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
-import { DEFAULT_METRICS } from "@/lib/metrics/config";
 
 interface Props {
   symbol: string;
@@ -61,8 +59,6 @@ export function TickerHeader({ symbol }: Props) {
       {data.next_earnings_date && (
         <p className="text-xs text-zinc-500">Next earnings: {data.next_earnings_date}</p>
       )}
-
-      <MetricsGrid metrics={DEFAULT_METRICS} values={data} outlierWarnings={data.outlier_warnings} />
     </div>
   );
 }

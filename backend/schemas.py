@@ -44,6 +44,9 @@ class TickerSummaryOut(BaseModel):
     exchange: str | None = None
     sector: str | None = None
     industry: str | None = None
+    # FMP's own company-profile prose blurb -- shown as-is on the ticker
+    # page's Summary tab, not generated/edited by this app.
+    description: str | None = None
     price: float | None = None
     change: float | None = None
     change_percent: float | None = None

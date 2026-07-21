@@ -11,6 +11,7 @@ FAKE_PROFILE = [
         "exchange": "NASDAQ",
         "sector": "Technology",
         "industry": "Consumer Electronics",
+        "description": "Apple Inc. designs, manufactures, and markets smartphones and related products.",
         "beta": 1.2,
         "mktCap": 3_000_000_000_000,
     }
@@ -116,6 +117,7 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     assert summary.company_name == "Apple Inc."
     assert summary.exchange == "NASDAQ"
     assert summary.sector == "Technology"
+    assert summary.description == "Apple Inc. designs, manufactures, and markets smartphones and related products."
     assert summary.price == 190.5
     assert summary.change_percent == 0.66
     assert summary.market_cap == 3_000_000_000_000

@@ -179,6 +179,7 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         exchange=profile.get("exchangeShortName") or profile.get("exchange"),
         sector=profile.get("sector"),
         industry=profile.get("industry"),
+        description=profile.get("description"),
         price=price,
         change=quote.get("change"),
         change_percent=quote.get("changePercentage", quote.get("changesPercentage")),

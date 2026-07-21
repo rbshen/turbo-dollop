@@ -32,6 +32,7 @@ export interface TickerSummaryOut {
   exchange: string | null;
   sector: string | null;
   industry: string | null;
+  description: string | null;
   price: number | null;
   change: number | null;
   change_percent: number | null;
