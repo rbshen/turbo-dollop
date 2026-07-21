@@ -10,6 +10,39 @@ ROE_EXCELLENT_AVG = 15.0
 ROE_GOOD_AVG = 12.0
 ROE_MARGINAL_AVG = 8.0
 ROE_MIN_YEAR_CONSISTENCY = 8.0
+# ROE/ROIC's avg+min-year tiering had no trend awareness at all -- the only
+# "consistently X%" check in the app that worked this way (everything else
+# is now direction-aware after this session's Margins/CCC fixes). Two
+# distinct failure modes, confirmed via live data, need two distinct
+# mechanisms (mirrors Margins needing both Rule 1's durable-reversal gate
+# AND a separate late-window spike guard -- not one trick fixing both):
+#
+# 1. A single anomalous high year inflates the plain average enough to
+#    reach a higher tier (MPWR: a one-time tax benefit took ROE's average
+#    from 17.5% to 21.1%). ROE_SPIKE_RATIO_THRESHOLD gates this -- only the
+#    series MAXIMUM is ever a candidate for exclusion (never the minimum:
+#    ROE_MIN_YEAR_CONSISTENCY already exists specifically to catch a single
+#    bad year, and excluding a low outlier here would silently undo that),
+#    and only when it's genuinely extreme relative to the rest, not just
+#    "whichever point happens to be most extreme" -- confirmed necessary
+#    via live data: without the ratio gate, MPWR's own ROIC (a real 24.5%
+#    cyclical peak, not an anomaly) was wrongly excluded too.
+# 2. A severe, still-not-durably-recovered decline (INTU: ROE 84%->12.6%
+#    trough, only partial recovery to 23.3% TTM) still scores "excellent"
+#    since both average and single-worst-year clear their bars regardless
+#    of trajectory. ROE_TREND_WINDOW/ROE_SUSTAINED_DECLINE_STEPS/POINTS
+#    reuse analyze_series_direction's exact windowed-direction +
+#    sustained-decline logic already used for Margins/CCC, tuned for
+#    ROE/ROIC's own scale (much larger swings than margins). If a sustained
+#    decline hasn't been reclaimed by TTM, the tier is capped one notch
+#    down (excellent->good, good->marginal) -- but never demoted past
+#    "marginal" into a manufactured hard-fail; "fail" only ever comes from
+#    the doc's own absolute floor, never invented by a trend correction.
+ROE_SPIKE_RATIO_THRESHOLD = 2.0
+ROE_TREND_WINDOW = 3
+ROE_DIP_POINTS = 5.0
+ROE_SUSTAINED_DECLINE_STEPS = 2
+ROE_SUSTAINED_DECLINE_POINTS = 15.0
 
 # --- Revenue vs Accounts Receivable ------------------------------------------
 # A YoY gap (AR growth % minus revenue growth %) smaller than this is noise,
@@ -63,6 +96,44 @@ def _score_avg_min_tier(avg: float, min_year: float) -> tuple[str, int, bool]:
     return "fail", 0, True
 
 
+def _spike_robust_avg(values: list[float]) -> float:
+    """The plain average, but with the series MAXIMUM excluded when it's
+    >=2x the median of the rest -- an anomalous high year (e.g. a one-time
+    tax benefit) can't inflate the average into a higher tier on its own.
+    Never excludes the minimum -- see this module's ROE/ROIC comment block
+    for why that would undo the min-year consistency floor."""
+    arr = np.asarray(values, dtype=float)
+    if len(arr) < 3:
+        return float(arr.mean())
+    idx = int(np.argmax(arr))
+    others = np.delete(arr, idx)
+    others_median = float(np.median(others))
+    if others_median > 0 and arr[idx] / others_median >= ROE_SPIKE_RATIO_THRESHOLD:
+        return float(others.mean())
+    return float(arr.mean())
+
+
+_TIER_DEMOTION = {"excellent": ("good", 85), "good": ("marginal", 60)}
+
+
+def _demote_for_unrecovered_decline(values: list[float], label: str, points: int) -> tuple[str, int]:
+    """Caps a tier one notch down (excellent->good, good->marginal -- never
+    past marginal) when a sustained decline hasn't been reclaimed by TTM.
+    Reuses analyze_series_direction's exact sustained-decline detection
+    (as Margins/CCC do), tuned for ROE/ROIC's own scale."""
+    if label not in _TIER_DEMOTION:
+        return label, points
+    arr = np.asarray(values, dtype=float)
+    analysis = analyze_series_direction(
+        arr, ROE_TREND_WINDOW, ROE_DIP_POINTS, ROE_SUSTAINED_DECLINE_STEPS, ROE_SUSTAINED_DECLINE_POINTS
+    )
+    w = min(ROE_TREND_WINDOW, len(arr))
+    early_avg = float(arr[:w].mean())
+    if analysis.sustained_decline and arr[-1] < early_avg:
+        return _TIER_DEMOTION[label]
+    return label, points
+
+
 def _net_income_consistent_and_positive(net_income: list[float]) -> bool:
     """Substitute signal for ROE when equity is negative anywhere in the
     window: positive throughout, and net growth over the window (last >=
@@ -87,9 +158,10 @@ def score_roe(roe: list[float], equity: list[float | None], net_income: list[flo
     valid = [v for v in roe if v is not None]
     if not valid:
         return RatioResult("insufficient_data", 0, False)
-    avg = sum(valid) / len(valid)
+    avg = _spike_robust_avg(valid)
     min_year = min(valid)
     label, points, hard_fail = _score_avg_min_tier(avg, min_year)
+    label, points = _demote_for_unrecovered_decline(valid, label, points)
     return RatioResult(label, points, hard_fail)
 
 
@@ -97,9 +169,10 @@ def score_roic(roic: list[float]) -> RatioResult:
     valid = [v for v in roic if v is not None]
     if not valid:
         return RatioResult("insufficient_data", 0, False)
-    avg = sum(valid) / len(valid)
+    avg = _spike_robust_avg(valid)
     min_year = min(valid)
     label, points, hard_fail = _score_avg_min_tier(avg, min_year)
+    label, points = _demote_for_unrecovered_decline(valid, label, points)
     return RatioResult(label, points, hard_fail)
 
 

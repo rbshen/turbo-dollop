@@ -44,6 +44,72 @@ def test_roe_fail_below_8_is_hard_fail():
     assert result == ("fail", 0, True)
 
 
+# --- ROE/ROIC trend-awareness: spike-robust average ---
+
+
+def test_roe_anomalous_spike_excluded_flips_tier():
+    # A single year >=2x the median of the rest (a one-time tax benefit,
+    # e.g. MPWR's real 2024) can't inflate the average into a higher tier
+    # on its own -- 50 vs a 14-median baseline (3.6x) is excluded, leaving
+    # a robust average of 14 ("good"), not the raw average's 20 ("excellent").
+    result = score_roe([14.0, 14.0, 14.0, 50.0, 14.0, 14.0], POSITIVE_EQUITY, [10.0] * 6)
+    assert result == ("good", 85, False)
+
+
+def test_roe_ordinary_variation_not_excluded_as_spike():
+    # 24 vs a 16-median baseline is only 1.5x -- not extreme enough to
+    # count as an anomaly (mirrors MPWR's own ROIC: a real ~1.6x cyclical
+    # peak that must NOT be excluded). The raw average (17.33, "excellent")
+    # stands unchanged.
+    result = score_roe([16.0, 16.0, 16.0, 24.0, 16.0, 16.0], POSITIVE_EQUITY, [10.0] * 6)
+    assert result == ("excellent", 100, False)
+
+
+def test_roe_low_outlier_year_is_never_excluded():
+    # Mirrors DAL's real shape: a severe crash year (-40) must NEVER be
+    # treated as an "anomaly" to exclude -- only the series MAXIMUM is ever
+    # a candidate, since ROE_MIN_YEAR_CONSISTENCY already exists
+    # specifically to catch a single bad year; erasing it here would
+    # silently undo that protection and wrongly promote a real fail.
+    result = score_roe([16.0, 16.0, 16.0, -40.0, 16.0, 16.0], POSITIVE_EQUITY, [10.0] * 6)
+    assert result == ("fail", 0, True)
+
+
+# --- ROE/ROIC trend-awareness: decline-durability gate ---
+
+
+def test_roe_unrecovered_decline_demotes_from_excellent_to_good():
+    # Mirrors INTU's real shape: a severe decline (early-window avg 38 ->
+    # trough 12) with only partial recovery by TTM (14, still far below
+    # the early-window average) -- both avg (25.8) and min-year (12) clear
+    # "excellent" today, but the decline hasn't actually been reclaimed.
+    result = score_roe([40.0, 38.0, 36.0, 15.0, 12.0, 14.0], POSITIVE_EQUITY, [10.0] * 6)
+    assert result == ("good", 85, False)
+
+
+def test_roe_recovered_decline_does_not_demote():
+    # Same early decline, but TTM (50) has since climbed back ABOVE the
+    # early-window average (38) -- a durably reversed decline must read
+    # the same as if it never happened, exactly like Margins' Rule 1.
+    result = score_roe([40.0, 38.0, 36.0, 15.0, 45.0, 50.0], POSITIVE_EQUITY, [10.0] * 6)
+    assert result == ("excellent", 100, False)
+
+
+def test_roe_decline_recovered_to_exactly_the_early_average_does_not_demote():
+    # Boundary: TTM == early-window average exactly -- the gate uses a
+    # strict "<", so exact reclamation counts as recovered.
+    result = score_roe([40.0, 38.0, 36.0, 15.0, 12.0, 38.0], POSITIVE_EQUITY, [10.0] * 6)
+    assert result == ("excellent", 100, False)
+
+
+def test_roe_unrecovered_decline_from_good_demotes_to_marginal_not_fail():
+    # The demotion must never manufacture a hard-fail that the absolute
+    # avg/min-year floor itself didn't already produce -- caps at
+    # "marginal", the same floor a plain avg/min-year read would allow.
+    result = score_roe([20.0, 18.0, 16.0, 7.0, 6.0, 7.0], POSITIVE_EQUITY, [10.0] * 6)
+    assert result == ("marginal", 60, False)
+
+
 # --- Negative equity exception ---
 
 
@@ -79,6 +145,14 @@ def test_roic_excellent():
 
 def test_roic_fail_is_hard_fail():
     assert score_roic([2.0] * 6) == ("fail", 0, True)
+
+
+def test_roic_shares_the_same_spike_robust_and_decline_durability_gates():
+    # ROIC goes through the exact same _spike_robust_avg /
+    # _demote_for_unrecovered_decline path as ROE -- one confirmation
+    # that neither mechanism is ROE-only.
+    assert score_roic([14.0, 14.0, 14.0, 50.0, 14.0, 14.0]) == ("good", 85, False)
+    assert score_roic([40.0, 38.0, 36.0, 15.0, 12.0, 14.0]) == ("good", 85, False)
 
 
 # --- Metric 3: Revenue vs Accounts Receivable ---
