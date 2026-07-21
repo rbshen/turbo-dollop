@@ -18,6 +18,13 @@ ROE_MIN_YEAR_CONSISTENCY = 8.0
 AR_GAP_NOISE_FLOOR = 2.0
 AR_GAP_SMALL_MAX = 15.0
 AR_GAP_MEDIUM_MAX = 50.0
+# "Concerning" was originally a fixed "3 of 5" transitions (the doc's own
+# 5yr window) -- expressed as a ratio so it rescales correctly now that the
+# window is 10yr+TTM (10 transitions). At n=5 this still rounds to 3
+# (backward compatible); at n=10 it's 6, restoring the same ~60% severity
+# the original "3+" tier represented before the window extension (see
+# CLAUDE.md's Step 4 deviations).
+AR_CONCERNING_TRANSITION_RATIO = 0.6
 
 # --- Cash Conversion Cycle ----------------------------------------------------
 # No doc-given numeric thresholds exist for CCC (unlike margins, which were
@@ -100,11 +107,13 @@ def _ar_gap_magnitude(gap: float) -> str:
 def score_revenue_vs_ar(revenue: list[float], accounts_receivable: list[float]) -> RatioResult:
     """Metric 3: Revenue must grow at the same or faster rate than
     Accounts Receivable. Checked worst-first since the tiers below overlap
-    (e.g. "3+ years" and "majority" can both be true at once):
+    (e.g. the "concerning" count and "majority" can both be true at once):
 
     1. Majority of transitions outpacing, OR revenue declining while AR
        grows in the same year -> 0 (auto-escalate regardless of count).
-    2. 3+ transitions outpacing, OR any single large-magnitude (>50pp) gap -> 40.
+    2. `concerning_threshold`+ transitions outpacing (proportional to the
+       window size -- see AR_CONCERNING_TRANSITION_RATIO), OR any single
+       large-magnitude (>50pp) gap -> 40.
     3. 0 outpacing transitions, or exactly 1 isolated year with a small
        (<=15pp) gap -> 100.
     4. Otherwise (1-2 outpacing transitions, not caught above) -> 70.
@@ -131,10 +140,14 @@ def score_revenue_vs_ar(revenue: list[float], accounts_receivable: list[float]) 
     num_outpacing = len(outpacing_gaps)
     has_large = any(_ar_gap_magnitude(g) == "large" for g in outpacing_gaps)
     majority_outpacing = num_outpacing > n / 2
+    # floor of 3: below a 5-transition window, "3+" was never reachable via
+    # count anyway (n=1-2 can't produce 3 outpacing transitions), so the
+    # ratio must not round down below the original absolute floor.
+    concerning_threshold = max(3, round(AR_CONCERNING_TRANSITION_RATIO * n))
 
     if majority_outpacing or strong_red_flag:
         return RatioResult("outpacing_majority_or_red_flag", 0, False)
-    if num_outpacing >= 3 or has_large:
+    if num_outpacing >= concerning_threshold or has_large:
         return RatioResult("outpacing_concerning", 40, False)
     if num_outpacing == 0:
         return RatioResult("healthy", 100, False)

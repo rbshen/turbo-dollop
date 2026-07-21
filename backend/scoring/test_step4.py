@@ -113,9 +113,49 @@ def test_ar_two_outpacing_years_not_majority_scores_70():
     assert score_revenue_vs_ar(revenue, ar) == ("outpacing_isolated", 70, False)
 
 
-def test_ar_three_outpacing_years_scores_40():
+def test_ar_three_of_five_outpacing_years_hits_majority_not_concerning():
+    # 3 of 5 transitions (the doc's original 5yr+TTM window) also hits
+    # majority (3 > 5/2) before the count-based "concerning" check is ever
+    # reached -- this was true of the ORIGINAL fixed threshold too (3 was
+    # always the majority boundary at n=5), so the rescaled threshold
+    # (max(3, round(0.6*5)) == 3) doesn't change this outcome at all.
+    revenue, ar = _build([10] * 5, [10, 10, 40, 22, 30])  # gaps: 0,0,30,12,20 -> 3 outpacing
+    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_majority_or_red_flag", 0, False)
+
+
+def test_ar_three_of_six_outpacing_years_no_longer_concerning():
+    # Same 3-outpacing count as above, but over 6 transitions instead of 5
+    # (50% vs. the doc-calibrated 60% severity bar) -- proportional
+    # rescaling means this now reads as isolated noise, not concerning.
+    # (Also demonstrates why a fixed count of 3 was miscalibrated for any
+    # window wider than 5 transitions.)
     revenue, ar = _build([10] * 6, [10, 10, 10, 40, 22, 30])  # gaps: 0,0,0,30,12,20 -> 3 outpacing
-    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_concerning", 40, False)
+    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_isolated", 70, False)
+
+
+def test_ar_five_of_ten_outpacing_years_not_yet_concerning():
+    # The exact rescaling this fix was built for: at n=10 (10yr+TTM), the
+    # threshold is 6 (round(0.6*10)), so 5 outpacing years -- which used to
+    # trip the old fixed "3+" rule -- now correctly reads as isolated.
+    revenue = [10] * 10
+    ar = [10, 10, 10, 10, 40, 30, 25, 22, 18, 10]  # 5 gaps > 2pp (indices 4-8)
+    revenue_vals, ar_vals = _build(revenue, ar)
+    assert score_revenue_vs_ar(revenue_vals, ar_vals) == ("outpacing_isolated", 70, False)
+
+
+def test_ar_six_of_ten_outpacing_years_hits_majority_not_concerning():
+    # One more outpacing transition than the case above (6 of 10 = 60%)
+    # crosses BOTH the rescaled concerning threshold (6) and the majority
+    # boundary (>5) at the same count -- majority is checked first, so
+    # this lands on the worst tier, not "concerning". This mirrors the
+    # original 5-transition design exactly: since the ratio (0.6) sits
+    # above the 50% majority line, "concerning via count alone" is always
+    # subsumed by majority at any window size, old or new -- not a new
+    # quirk this fix introduces.
+    revenue = [10] * 10
+    ar = [10, 10, 10, 40, 30, 25, 22, 18, 15, 10]  # 6 gaps > 2pp (indices 3-8)
+    revenue_vals, ar_vals = _build(revenue, ar)
+    assert score_revenue_vs_ar(revenue_vals, ar_vals) == ("outpacing_majority_or_red_flag", 0, False)
 
 
 def test_ar_single_large_gap_scores_40_even_if_isolated():
