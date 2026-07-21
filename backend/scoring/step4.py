@@ -157,8 +157,16 @@ def classify_ccc_trend(ccc: list[float]) -> TrendResult:
     )
 
     # Rule 1: a sustained multi-period rise in real CCC (the negated series
-    # sustainedly falling) can't be masked by a later improvement.
-    if analysis.sustained_decline:
+    # sustainedly falling) can't be masked by a later improvement -- UNLESS
+    # direction (the early-vs-late-window average, computed above) shows the
+    # decline has since been durably outweighed. sustained_decline is a flat
+    # scan across the whole window with no recency awareness, so on a now-
+    # 10yr+TTM series an old, small, fully-reversed blip (e.g. a 2016-2018
+    # uptick preceding a decade of improvement) could otherwise permanently
+    # cap the score at 0 even while direction is strongly positive -- this
+    # gate reuses the same CCC_STABLE_TOLERANCE_DAYS boundary the "stable"
+    # tier below already uses, rather than a new constant.
+    if analysis.sustained_decline and analysis.direction < CCC_STABLE_TOLERANCE_DAYS:
         return TrendResult("sustained_upward", 0)
 
     # Rule 2: 2+ real swings netting out flat overall -- genuine volatility,

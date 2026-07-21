@@ -170,6 +170,36 @@ def test_ccc_insufficient_data():
     assert classify_ccc_trend([50.0]) == TrendResult("insufficient_data", 0)
 
 
+def test_ccc_old_resolved_dip_does_not_override_a_strongly_positive_trend():
+    # Mirrors MSFT's real shape: a small early rise (sustained_decline
+    # fires on the 2016-2018 uptick), followed by a much larger decline
+    # that leaves the overall direction strongly positive (improving).
+    # Before the recency gate, sustained_decline alone forced 0
+    # regardless of direction -- must not happen anymore.
+    result = classify_ccc_trend([20, 26, 30, 15, 0, -15])
+    assert result.pattern != "sustained_upward"
+    assert result.score > 0
+    assert result == TrendResult("volatile_but_net_declining", 70)
+
+
+def test_ccc_recent_unresolved_decline_still_overrides_to_zero():
+    # Regression guard: a genuinely still-worsening series (direction
+    # stays clearly negative, matching ANET/FTNT's real shape) must keep
+    # scoring 0 -- the recency gate must not soften real deterioration.
+    result = classify_ccc_trend([30, 32, 38, 44, 50, 56])
+    assert result == TrendResult("sustained_upward", 0)
+
+
+def test_ccc_direction_exactly_at_the_stable_tolerance_boundary_does_not_override():
+    # direction lands at (a hair above, due to float precision) exactly
+    # CCC_STABLE_TOLERANCE_DAYS (-1.0) despite sustained_decline firing on
+    # an early rise -- the gate uses a strict "<", so a direction that's
+    # merely at the boundary (not clearly negative) does not re-trigger
+    # the hard override; it falls through to the ordinary tiering instead.
+    result = classify_ccc_trend([10, 16, 20, 21, 21, 7])
+    assert result.pattern != "sustained_upward"
+
+
 # --- score_step4: weight redistribution + hard-fail override ---
 
 
