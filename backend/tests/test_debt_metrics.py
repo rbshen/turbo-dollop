@@ -25,6 +25,7 @@ INCOME_QUARTERLY = [
     {
         "date": "2026-03-28",
         "ebitda": 30_000_000_000,
+        "operatingIncome": 22_000_000_000,
         "interestExpense": 800_000_000,
         "interestIncome": 50_000_000,
         "netInterestIncome": -750_000_000,
@@ -32,6 +33,7 @@ INCOME_QUARTERLY = [
     {
         "date": "2025-12-27",
         "ebitda": 29_000_000_000,
+        "operatingIncome": 21_000_000_000,
         "interestExpense": 800_000_000,
         "interestIncome": 50_000_000,
         "netInterestIncome": -750_000_000,
@@ -39,6 +41,7 @@ INCOME_QUARTERLY = [
     {
         "date": "2025-09-27",
         "ebitda": 28_000_000_000,
+        "operatingIncome": 20_000_000_000,
         "interestExpense": 800_000_000,
         "interestIncome": 50_000_000,
         "netInterestIncome": -750_000_000,
@@ -46,6 +49,7 @@ INCOME_QUARTERLY = [
     {
         "date": "2025-06-28",
         "ebitda": 27_000_000_000,
+        "operatingIncome": 19_000_000_000,
         "interestExpense": 800_000_000,
         "interestIncome": 50_000_000,
         "netInterestIncome": -750_000_000,
@@ -61,6 +65,7 @@ def test_compute_debt_metrics_pure_calculation():
     result = compute_debt_metrics(BALANCE_SHEET_QUARTERLY[0], INCOME_QUARTERLY)
     assert result.total_debt == 100_000_000_000
     assert result.ebitda_ttm == 114_000_000_000
+    assert result.ebit_ttm == 82_000_000_000
     assert result.interest_expense_ttm == 3_200_000_000
     assert result.interest_income_ttm == 200_000_000
     assert result.net_interest_expense_ttm == 3_000_000_000
@@ -70,6 +75,7 @@ def test_compute_debt_metrics_handles_missing_fields():
     empty_result = compute_debt_metrics({}, [])
     assert empty_result.total_debt is None
     assert empty_result.ebitda_ttm is None
+    assert empty_result.ebit_ttm is None
     assert empty_result.interest_expense_ttm is None
     assert empty_result.interest_income_ttm is None
     assert empty_result.net_interest_expense_ttm is None
@@ -80,6 +86,7 @@ def test_compute_debt_metrics_handles_missing_fields():
     result = compute_debt_metrics({"shortTermDebt": 5_000_000_000}, [])
     assert result.total_debt == 5_000_000_000
     assert result.ebitda_ttm is None
+    assert result.ebit_ttm is None
     assert result.interest_expense_ttm is None
     assert result.interest_income_ttm is None
     assert result.net_interest_expense_ttm is None

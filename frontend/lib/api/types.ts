@@ -134,9 +134,16 @@ export interface Step2Out {
 }
 
 export interface Step5RatioResult {
-  value: number;
+  // null only for interest_coverage_ratio when interest expense is
+  // missing/non-positive.
+  value: number | null;
+  // Current Ratio only: the deferred-revenue-adjusted value, once the raw
+  // ratio itself isn't already comfortable.
+  adjusted_value: number | null;
   label: string;
   points: number;
+  // True when a Borderline breach was excused by its tiebreaker.
+  saved_by_tiebreaker: boolean;
 }
 
 export interface Step5Out {
@@ -146,14 +153,18 @@ export interface Step5Out {
   company_type: string;
   classification_note: string;
   ratios: Record<string, Step5RatioResult>;
-  // Informational only (deferred-revenue exception) -- not auto-applied.
+  // Now wired into the Current Ratio verdict itself (see
+  // ratios.current_ratio.adjusted_value) -- kept for display/context.
   deferred_revenue_current: number | null;
   // null for Bank (not yet supported) or when required data is missing.
   score: number | null;
-  // "Fail" / "Pass" / "Strong Pass" for scored tickers; "not_supported" for
-  // Bank; "insufficient_data" when required figures are missing.
+  // "Fail" / "Pass" / "Strong Pass" / "Pass with caution" for scored
+  // tickers; "not_supported" for Bank; "insufficient_data" when required
+  // figures are missing.
   verdict: string;
   hard_fail: boolean;
+  // True whenever verdict === "Pass with caution".
+  pass_with_caution: boolean;
   outlier_warnings: OutlierWarning[];
 }
 

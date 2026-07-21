@@ -134,9 +134,18 @@ class Step2Out(BaseModel):
 
 
 class Step5RatioResult(BaseModel):
-    value: float
+    # None only for interest_coverage_ratio when interest expense is
+    # missing/non-positive -- never a fabricated number.
+    value: float | None
+    # Current Ratio only: the deferred-revenue-adjusted value used for
+    # tiering once the raw ratio itself isn't already comfortable. Equals
+    # `value` (or omitted) whenever deferred revenue didn't change anything.
+    adjusted_value: float | None = None
     label: str
     points: int
+    # True when a Borderline breach was excused by its tiebreaker (deferred
+    # revenue for Current Ratio, Interest Coverage for the other two).
+    saved_by_tiebreaker: bool = False
 
 
 class Step5Out(BaseModel):
@@ -153,16 +162,22 @@ class Step5Out(BaseModel):
     # presented as equally current as a ticker where the quarterly figure
     # was available.
     npl_as_of: str | None = None
-    # Informational only (deferred-revenue exception) -- not auto-applied to
-    # the Current Ratio calculation, per the source doc's manual-review note.
+    # Deferred revenue is now wired into the Current Ratio verdict itself
+    # (see ratios["current_ratio"].adjusted_value) -- this raw figure is
+    # kept for display/context, not just as an unused note.
     deferred_revenue_current: float | None = None
     # None for Bank (not yet supported) or when required raw data is
     # missing -- never a fabricated number.
     score: int | None = None
-    # "Fail" / "Pass" / "Strong Pass" for scored tickers; "not_supported"
-    # for Bank; "insufficient_data" when required figures are missing.
+    # "Fail" / "Pass" / "Strong Pass" for scored tickers; "Pass with
+    # caution" when a Borderline breach was excused by its tiebreaker;
+    # "not_supported" for Bank; "insufficient_data" when required figures
+    # are missing.
     verdict: str
     hard_fail: bool = False
+    # True whenever verdict == "Pass with caution" -- convenience flag so
+    # the frontend doesn't need to string-match the verdict.
+    pass_with_caution: bool = False
     outlier_warnings: list[OutlierWarning] = []
 
 

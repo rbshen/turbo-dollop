@@ -44,10 +44,10 @@ BALANCE_SHEET_QUARTERLY = [
 # uses only the single most recent quarter (rather than summing all 4)
 # produces a detectably different, wrong result.
 INCOME_QUARTERLY = [
-    {"date": "2026-03-28", "ebitda": 100, "netInterestIncome": -10},
-    {"date": "2025-12-27", "ebitda": 90, "netInterestIncome": -10},
-    {"date": "2025-09-27", "ebitda": 80, "netInterestIncome": -10},
-    {"date": "2025-06-28", "ebitda": 70, "netInterestIncome": -10},
+    {"date": "2026-03-28", "ebitda": 100, "operatingIncome": 80, "interestExpense": 10, "netInterestIncome": -10},
+    {"date": "2025-12-27", "ebitda": 90, "operatingIncome": 70, "interestExpense": 10, "netInterestIncome": -10},
+    {"date": "2025-09-27", "ebitda": 80, "operatingIncome": 60, "interestExpense": 10, "netInterestIncome": -10},
+    {"date": "2025-06-28", "ebitda": 70, "operatingIncome": 50, "interestExpense": 10, "netInterestIncome": -10},
 ]
 
 CASH_FLOW_QUARTERLY = [{"date": "2026-03-28", "netCashProvidedByOperatingActivities": 50} for _ in range(4)]
@@ -198,6 +198,106 @@ def test_ebitda_and_net_interest_expense_are_ttm_summed(monkeypatch):
     # incorrectly, e.g. 3 quarters).
     assert result.ratios["debt_servicing_ratio"].value == 20.0
     assert result.ratios["debt_servicing_ratio"].label == "approaching_limit"
+
+
+def test_interest_coverage_ratio_is_ebit_ttm_over_interest_expense_ttm(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch)
+
+    result = asyncio.run(get_step5_data("aapl"))
+
+    # ebit (operatingIncome) TTM = 80+70+60+50 = 260; interest_expense_ttm
+    # = 10*4 = 40 -> 260/40 = 6.5x ("safe"), shown regardless of whether it
+    # ends up mattering (debt_to_ebitda/DSR are both Comfortable here).
+    assert result.ratios["interest_coverage_ratio"].value == 6.5
+    assert result.ratios["interest_coverage_ratio"].label == "safe"
+    assert result.pass_with_caution is False
+
+
+# Deliberately larger debt so Debt/EBITDA lands Borderline (3.0-4.0), and a
+# healthy EBIT/interest-expense ratio so Interest Coverage is "safe" --
+# end-to-end proof that a real Borderline breach gets excused and the
+# overall verdict reads "Pass with caution", not silently "Pass".
+BALANCE_SHEET_QUARTERLY_BORDERLINE_DEBT = [
+    {
+        "date": "2026-03-28",
+        "period": "Q2",
+        "totalCurrentAssets": 500,
+        "totalCurrentLiabilities": 400,
+        "shortTermDebt": 250,
+        "longTermDebt": 800,
+        "totalDebt": 1050,
+        "totalAssets": 3000,
+        "deferredRevenue": 20,
+    }
+]
+
+INCOME_QUARTERLY_BORDERLINE_DEBT = [
+    {"date": "2026-03-28", "ebitda": 100, "operatingIncome": 80, "interestExpense": 5, "netInterestIncome": -5},
+    {"date": "2025-12-27", "ebitda": 90, "operatingIncome": 70, "interestExpense": 5, "netInterestIncome": -5},
+    {"date": "2025-09-27", "ebitda": 80, "operatingIncome": 60, "interestExpense": 5, "netInterestIncome": -5},
+    {"date": "2025-06-28", "ebitda": 70, "operatingIncome": 50, "interestExpense": 5, "netInterestIncome": -5},
+]
+
+
+def test_borderline_debt_to_ebitda_saved_by_icr_reads_pass_with_caution_end_to_end(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, income_quarterly=INCOME_QUARTERLY_BORDERLINE_DEBT)
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return BALANCE_SHEET_QUARTERLY_BORDERLINE_DEBT if period == "quarter" else BALANCE_SHEET_ANNUAL
+
+    monkeypatch.setattr(step5_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+
+    result = asyncio.run(get_step5_data("aapl"))
+
+    # debt_to_ebitda = 1050 / 340 = 3.088x -- Borderline (3.0-4.0).
+    assert result.ratios["debt_to_ebitda"].label == "borderline_saved_by_icr"
+    assert result.ratios["debt_to_ebitda"].saved_by_tiebreaker is True
+    # ICR = 260 / 20 = 13x -- safe.
+    assert result.ratios["interest_coverage_ratio"].label == "safe"
+    assert result.pass_with_caution is True
+    assert result.verdict == "Pass with caution"
+    assert result.hard_fail is False
+
+
+# A raw Current Ratio below 1.0, resolved to >=1.0 once deferred revenue is
+# subtracted from current liabilities -- end-to-end proof this is now wired
+# into the verdict, not just an informational note.
+BALANCE_SHEET_QUARTERLY_DEFERRED_REVENUE_RESCUE = [
+    {
+        "date": "2026-03-28",
+        "period": "Q2",
+        "totalCurrentAssets": 500,
+        "totalCurrentLiabilities": 600,
+        "shortTermDebt": 50,
+        "longTermDebt": 150,
+        "totalDebt": 200,
+        "totalAssets": 1000,
+        "deferredRevenue": 200,
+    }
+]
+
+
+def test_current_ratio_rescued_by_deferred_revenue_reads_pass_with_caution_end_to_end(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch)
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return BALANCE_SHEET_QUARTERLY_DEFERRED_REVENUE_RESCUE if period == "quarter" else BALANCE_SHEET_ANNUAL
+
+    monkeypatch.setattr(step5_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+
+    result = asyncio.run(get_step5_data("aapl"))
+
+    # raw = 500/600 = 0.833 (Borderline); adjusted = 500/(600-200) = 1.25
+    # (Comfortable) -- rescued.
+    assert result.ratios["current_ratio"].value == 500 / 600
+    assert result.ratios["current_ratio"].adjusted_value == 1.25
+    assert result.ratios["current_ratio"].saved_by_tiebreaker is True
+    assert result.pass_with_caution is True
+    assert result.verdict == "Pass with caution"
+    assert result.hard_fail is False
 
 
 def test_insufficient_data_when_fewer_than_four_quarters_available(monkeypatch):

@@ -12,6 +12,7 @@ interface Props {
 
 const OUTLIER_METRIC_LABELS: Record<string, string> = {
   ebitda_ttm: "EBITDA (TTM)",
+  ebit_ttm: "EBIT (TTM)",
   interest_expense_ttm: "Interest Expense (TTM)",
   interest_income_ttm: "Interest Income (TTM)",
   net_interest_expense_ttm: "Net Interest Expense (TTM)",
@@ -22,6 +23,7 @@ const RATIO_LABELS: Record<string, string> = {
   current_ratio: "Current Ratio",
   debt_to_ebitda: "Debt / EBITDA",
   debt_servicing_ratio: "Debt Servicing Ratio",
+  interest_coverage_ratio: "Interest Coverage Ratio",
   gearing_ratio: "Gearing Ratio",
   npl_ratio: "NPL Ratio",
 };
@@ -32,18 +34,41 @@ const TIER_LABELS: Record<string, string> = {
   acceptable: "Acceptable",
   approaching_limit: "Approaching limit",
   fail: "Fail",
+  // Severity-band tiers (Current Ratio, Debt/EBITDA, Debt Servicing Ratio).
+  borderline_saved_by_icr: "Borderline (saved by Interest Coverage)",
+  borderline_fail: "Borderline — Fail",
+  severe: "Severe — Fail",
+  // Interest Coverage Ratio's own tiers (informational, no points of its own).
+  safe: "Safe",
+  tight: "Tight",
+  dangerous: "Dangerous",
+  not_applicable: "N/A",
 };
 
 const PERCENT_RATIOS = new Set(["debt_servicing_ratio", "gearing_ratio", "npl_ratio"]);
 
-function formatRatioValue(key: string, value: number): string {
+function formatRatioValue(key: string, value: number | null): string {
+  if (value == null) return "N/A";
   return PERCENT_RATIOS.has(key) ? fmtPct(value, 1) : `${fmtNumber(value, 2)}x`;
 }
 
 function tierClass(label: string): string {
-  if (label === "fail") return "text-red-400";
-  if (label === "approaching_limit") return "text-amber-300";
+  if (label === "fail" || label === "borderline_fail" || label === "severe" || label === "dangerous") return "text-red-400";
+  if (label === "approaching_limit" || label === "borderline_saved_by_icr" || label === "tight") return "text-amber-300";
   return "text-zinc-100";
+}
+
+const TIEBREAKER_FOR: Record<string, string> = {
+  current_ratio: "deferred revenue",
+  debt_to_ebitda: "a healthy Interest Coverage Ratio",
+  debt_servicing_ratio: "a healthy Interest Coverage Ratio",
+};
+
+function savedRatioSummary(ratios: Record<string, Step5RatioResult>): string {
+  const saved = Object.entries(ratios).filter(([, r]) => r.saved_by_tiebreaker);
+  return saved
+    .map(([key]) => `${RATIO_LABELS[key] ?? key} was borderline but excused by ${TIEBREAKER_FOR[key] ?? "its tiebreaker"}`)
+    .join("; ");
 }
 
 function ratioRows(ratios: Record<string, Step5RatioResult>) {
@@ -52,6 +77,9 @@ function ratioRows(ratios: Record<string, Step5RatioResult>) {
       <td className="border-b border-zinc-900 py-2 pr-4 text-zinc-400">{RATIO_LABELS[key] ?? key}</td>
       <td className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
         {formatRatioValue(key, r.value)}
+        {r.saved_by_tiebreaker && key === "current_ratio" && r.adjusted_value != null && (
+          <span className="ml-1 text-zinc-500">→ {formatRatioValue(key, r.adjusted_value)}</span>
+        )}
       </td>
       <td className={`border-b border-zinc-900 py-2 text-right font-medium ${tierClass(r.label)}`}>
         {TIER_LABELS[r.label] ?? r.label}
@@ -137,16 +165,26 @@ export function Step5Card({ ticker }: Props) {
 
           {data.deferred_revenue_current != null && data.deferred_revenue_current > 0 && (
             <p className="text-xs text-zinc-600">
-              Deferred revenue (current): {fmtTableMoney(data.deferred_revenue_current)} — informational only. A low
-              Current Ratio driven mainly by deferred revenue (cash already collected, not yet delivered) isn&apos;t
-              necessarily a red flag; this isn&apos;t auto-applied to the ratio above.
+              Deferred revenue (current): {fmtTableMoney(data.deferred_revenue_current)} — cash already collected,
+              not yet delivered, so it isn&apos;t a real short-term obligation.
+              {data.ratios.current_ratio?.saved_by_tiebreaker
+                ? " Subtracting it from current liabilities is what resolved the Current Ratio's apparent shortfall above."
+                : " Subtracted from current liabilities when tiering the Current Ratio above."}
+            </p>
+          )}
+
+          {data.pass_with_caution && (
+            <p className="text-sm text-amber-400">
+              Pass with caution: {savedRatioSummary(data.ratios)}.
             </p>
           )}
 
           <p className="text-sm text-zinc-400">
             {data.hard_fail
               ? "At least one ratio breached its hard limit, so this fails regardless of the blended score shown above."
-              : "No ratio breached its hard limit."}
+              : data.pass_with_caution
+                ? "No ratio breached its hard limit outright, but see the caution note above."
+                : "No ratio breached its hard limit."}
           </p>
         </>
       )}

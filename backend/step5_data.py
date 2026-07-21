@@ -27,7 +27,16 @@ def _first(data: dict | list) -> dict:
 
 
 def _ratio_out(raw: dict) -> Step5RatioResult:
-    return Step5RatioResult(value=raw["value"], label=raw["label"], points=raw["points"])
+    # interest_coverage_ratio is informational only -- it influences the
+    # OTHER ratios' scoring (as the icr_is_safe signal) but has no points
+    # of its own, so "points" is absent from its dict.
+    return Step5RatioResult(
+        value=raw["value"],
+        adjusted_value=raw.get("adjusted_value"),
+        label=raw["label"],
+        points=raw.get("points", 0),
+        saved_by_tiebreaker=raw.get("saved_by_tiebreaker", False),
+    )
 
 
 def _outlier_warnings(*flag_groups: MetricOutlierFlags) -> list[OutlierWarning]:
@@ -247,6 +256,17 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
     current_liabilities = balance_sheet_row.get("totalCurrentLiabilities")
 
     current_ratio = current_assets / current_liabilities if current_assets is not None and current_liabilities else None
+    # Deferred revenue -- a current LIABILITY representing cash already
+    # collected, not a real short-term obligation -- is now wired into the
+    # Current Ratio verdict itself (see scoring/step5.py::score_current_ratio),
+    # not just an informational note. Falls back to the raw ratio if
+    # subtracting it would leave a non-positive denominator.
+    adjusted_liabilities = current_liabilities - (deferred_revenue or 0) if current_liabilities else None
+    adjusted_current_ratio = (
+        current_assets / adjusted_liabilities
+        if current_assets is not None and adjusted_liabilities is not None and adjusted_liabilities > 0
+        else current_ratio
+    )
     debt_to_ebitda = (
         debt_metrics.total_debt / ebitda_ttm
         if debt_metrics.total_debt is not None and ebitda_ttm is not None and ebitda_ttm > 0
@@ -259,6 +279,17 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
         if debt_metrics.net_interest_expense_ttm is not None and cfo_ttm is not None and cfo_ttm > 0
         else None
     )
+    # Interest Coverage Ratio: the Debt/EBITDA and Debt Servicing Ratio
+    # tiebreaker (never Current Ratio's -- that's deferred revenue above).
+    # Interest expense <= 0 makes the ratio meaningless -- None, not
+    # fabricated as "infinitely safe".
+    interest_coverage_ratio = (
+        debt_metrics.ebit_ttm / debt_metrics.interest_expense_ttm
+        if debt_metrics.ebit_ttm is not None
+        and debt_metrics.interest_expense_ttm is not None
+        and debt_metrics.interest_expense_ttm > 0
+        else None
+    )
 
     if current_ratio is None or debt_to_ebitda is None or debt_servicing_pct is None:
         return Step5Out(
@@ -269,7 +300,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
             outlier_warnings=outlier_warnings,
         )
 
-    result = score_step5_standard(current_ratio, debt_to_ebitda, debt_servicing_pct)
+    result = score_step5_standard(current_ratio, adjusted_current_ratio, debt_to_ebitda, debt_servicing_pct, interest_coverage_ratio)
     return Step5Out(
         ticker=ticker,
         company_type=company_type,
@@ -277,10 +308,12 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
             "current_ratio": _ratio_out(result["ratios"]["current_ratio"]),
             "debt_to_ebitda": _ratio_out(result["ratios"]["debt_to_ebitda"]),
             "debt_servicing_ratio": _ratio_out(result["ratios"]["debt_servicing_ratio"]),
+            "interest_coverage_ratio": _ratio_out(result["ratios"]["interest_coverage_ratio"]),
         },
         deferred_revenue_current=deferred_revenue,
         score=result["score"],
         verdict=result["verdict"],
         hard_fail=result["hard_fail"],
+        pass_with_caution=result["pass_with_caution"],
         outlier_warnings=outlier_warnings,
     )

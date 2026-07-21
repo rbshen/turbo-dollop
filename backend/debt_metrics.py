@@ -11,6 +11,15 @@ class MetricOutlierFlags(NamedTuple):
 class DebtMetrics(NamedTuple):
     total_debt: float | None
     ebitda_ttm: float | None
+    # EBIT (operating income) -- feeds Step 5's Interest Coverage Ratio
+    # tiebreaker (EBIT / interest_expense_ttm below). No FMP field or other
+    # intermediate value for EBIT exists anywhere in this codebase already
+    # (Step 4's ROIC pulls FMP's own returnOnInvestedCapital directly, not
+    # a locally-computed EBIT), so this is derived fresh here -- reusing
+    # the same "operatingIncome" field Step 1's operating_income series
+    # already trusts as EBIT-equivalent, and the same sum_last_four_quarters
+    # helper as every other TTM figure in this function.
+    ebit_ttm: float | None
     # Gross figures (not netted against each other) -- shown separately on
     # the ticker header per its own request, rather than as one combined
     # "net interest expense" number.
@@ -48,6 +57,7 @@ def compute_debt_metrics(balance_sheet_row: dict, income_quarterly: list[dict]) 
     )
 
     ebitda_result = sum_last_four_quarters(income_quarterly, "ebitda")
+    ebit_result = sum_last_four_quarters(income_quarterly, "operatingIncome")
     interest_expense_result = sum_last_four_quarters(income_quarterly, "interestExpense")
     interest_income_result = sum_last_four_quarters(income_quarterly, "interestIncome")
     net_interest_income_result = sum_last_four_quarters(income_quarterly, "netInterestIncome")
@@ -62,6 +72,7 @@ def compute_debt_metrics(balance_sheet_row: dict, income_quarterly: list[dict]) 
         MetricOutlierFlags(metric=metric, flagged=result.flagged)
         for metric, result in [
             ("ebitda_ttm", ebitda_result),
+            ("ebit_ttm", ebit_result),
             ("interest_expense_ttm", interest_expense_result),
             ("interest_income_ttm", interest_income_result),
             ("net_interest_expense_ttm", net_interest_income_result),
@@ -72,6 +83,7 @@ def compute_debt_metrics(balance_sheet_row: dict, income_quarterly: list[dict]) 
     return DebtMetrics(
         total_debt=total_debt,
         ebitda_ttm=ebitda_result.total,
+        ebit_ttm=ebit_result.total,
         interest_expense_ttm=interest_expense_result.total,
         interest_income_ttm=interest_income_result.total,
         net_interest_expense_ttm=net_interest_expense_ttm,

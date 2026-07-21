@@ -18,6 +18,9 @@ const STEP_CHIPS: { key: keyof TickerScoreOut; verdictKey: keyof TickerScoreOut;
 function chipClass(score: number | null, verdict: string | null): string {
   if (score == null) return "border-zinc-800 bg-zinc-900 text-zinc-600"; // exempt/unavailable for this step
   if (verdict === "Fail") return "border-red-800/40 bg-red-900/20 text-red-400";
+  // Step 5's "Pass with caution" (a Borderline breach excused by its
+  // tiebreaker) -- distinct from both a clean Pass and a Fail.
+  if (verdict === "Pass with caution") return "border-amber-700/50 bg-amber-900/20 text-amber-400";
   if (score > 90) return "border-emerald-700/40 bg-emerald-900/20 text-emerald-300";
   return "border-zinc-700 bg-zinc-800/60 text-zinc-300";
 }
