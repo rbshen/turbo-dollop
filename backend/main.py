@@ -2,14 +2,24 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from db import engine, init_db
 from logging_config import apply_redaction_filters
-from models import TickerScore
+from models import IndexConstituent, TickerScore
 from recompute_ticker_scores import recompute_all
 from refresh import clear_ticker_cache
-from schemas import RecomputeSummary, RefreshResult, Step1Out, Step2Out, Step4Out, Step5Out, TickerScoreOut, TickerSummaryOut
+from schemas import (
+    RecomputeSummary,
+    RefreshResult,
+    ScreenerMeta,
+    Step1Out,
+    Step2Out,
+    Step4Out,
+    Step5Out,
+    TickerScoreOut,
+    TickerSummaryOut,
+)
 from step1_data import get_step1_data
 from step2_data import get_step2_data
 from step4_data import get_step4_data
@@ -113,6 +123,18 @@ def screener_list() -> list[TickerScoreOut]:
     with Session(engine) as session:
         rows = session.exec(select(TickerScore)).all()
     return [TickerScoreOut(**row.model_dump()) for row in rows]
+
+
+@app.get("/api/screener/meta", response_model=ScreenerMeta)
+def screener_meta() -> ScreenerMeta:
+    # A ticker with no cached profile at all (e.g. BRK.B/BF.B's FMP 402) gets
+    # no TickerScore row -- this lets the UI show an honest "X of Y S&P 500
+    # tickers" count rather than silently presenting a partial list as complete.
+    with Session(engine) as session:
+        total_sp500_constituents = session.exec(
+            select(func.count()).select_from(IndexConstituent).where(IndexConstituent.index_name == "sp500")
+        ).one()
+    return ScreenerMeta(total_sp500_constituents=total_sp500_constituents)
 
 
 @app.post("/api/screener/recompute", response_model=RecomputeSummary)

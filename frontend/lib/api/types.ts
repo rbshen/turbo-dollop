@@ -204,3 +204,41 @@ export interface Step4Out {
   hard_fail: boolean;
   components: Step4Components;
 }
+
+export interface TickerScoreOut {
+  ticker: string;
+  company_name: string | null;
+  sector: string | null;
+  industry: string | null;
+  company_type: string | null;
+  step1_score: number | null;
+  step1_verdict: string | null;
+  step2_score: number | null;
+  step2_verdict: string | null;
+  step4_score: number | null;
+  step4_verdict: string | null;
+  step5_score: number | null;
+  step5_verdict: string | null;
+  // null (along with overall_verdict) when any non-exempt step is missing --
+  // a ticker can have a row here without a full Overall Assessment.
+  overall_score: number | null;
+  overall_verdict: string | null;
+  market_cap: number | null;
+  pe_ratio: number | null;
+  beta: number | null;
+  computed_at: string;
+}
+
+export interface ScreenerMeta {
+  // Total stored S&P 500 constituents -- not the same as the length of
+  // GET /api/screener's response, since a ticker with no cached profile at
+  // all (e.g. an FMP 402) gets no TickerScoreOut row at all.
+  total_sp500_constituents: number;
+}
+
+export interface RecomputeSummary {
+  processed: number;
+  failed: number;
+  duration_seconds: number;
+  failures: [string, string][];
+}

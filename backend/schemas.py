@@ -235,3 +235,11 @@ class RecomputeSummary(BaseModel):
     failed: int
     duration_seconds: float
     failures: list[tuple[str, str]] = []
+
+
+class ScreenerMeta(BaseModel):
+    # Total stored S&P 500 constituents -- NOT the same as len(GET
+    # /api/screener)'s response, since a ticker with no cached profile at
+    # all gets no TickerScore row. The gap between the two is what the
+    # Screener page's "X of Y" transparency note is built from.
+    total_sp500_constituents: int

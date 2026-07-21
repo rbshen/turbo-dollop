@@ -5,7 +5,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 import main
-from models import TickerScore
+from models import IndexConstituent, TickerScore
 
 
 def _fresh_engine(monkeypatch):
@@ -79,6 +79,30 @@ def test_screener_recompute_calls_recompute_all_and_returns_its_summary(monkeypa
     assert body["processed"] == 503
     assert body["failed"] == 2
     assert body["failures"] == [["BRK.B", "402"], ["BF.B", "402"]]
+
+
+def test_screener_meta_returns_the_total_sp500_constituent_count(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime(2026, 1, 1)))
+        session.add(IndexConstituent(index_name="sp500", ticker="MSFT", company_name="Microsoft", last_synced_at=datetime(2026, 1, 1)))
+        session.add(IndexConstituent(index_name="other-index", ticker="XYZ", company_name="Not S&P", last_synced_at=datetime(2026, 1, 1)))
+        session.commit()
+
+    with TestClient(main.app) as client:
+        response = client.get("/api/screener/meta")
+
+    assert response.status_code == 200
+    assert response.json() == {"total_sp500_constituents": 2}
+
+
+def test_screener_meta_is_zero_when_no_constituents_stored(monkeypatch):
+    _fresh_engine(monkeypatch)
+
+    with TestClient(main.app) as client:
+        response = client.get("/api/screener/meta")
+
+    assert response.json() == {"total_sp500_constituents": 0}
 
 
 def test_screener_recompute_never_calls_the_script_entry_point(monkeypatch):
