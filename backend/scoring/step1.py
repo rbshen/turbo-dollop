@@ -132,9 +132,14 @@ def _classify_margins(gross_margin: list[float], net_margin: list[float], revenu
         return TrendResult("gradually_compressing", 60)
 
     # Rule 2: 2+ real dips in a series that still nets out flat overall is
-    # genuine directionless chaos -- reserved for the bottom tier. A single
-    # dip (or even 2+ dips that still net a rising trend) never lands here.
-    if (gross.num_real_dips >= 2 and abs(gross.direction) < MARGIN_FLAT_DIRECTION) or (
+    # genuine directionless chaos -- reserved for the bottom tier. Requires
+    # BOTH series to show the pattern, not either alone -- an OR here let one
+    # choppy series veto an unambiguously improving other series (e.g. GOOGL:
+    # net margin nearly doubled, scored 0 anyway because gross was choppy).
+    # Confirmed via live data that no ticker in the dataset currently
+    # satisfies both conditions at once -- this tier is reserved for genuine
+    # simultaneous dual-metric chaos, not one noisy series alone.
+    if (gross.num_real_dips >= 2 and abs(gross.direction) < MARGIN_FLAT_DIRECTION) and (
         net.num_real_dips >= 2 and abs(net.direction) < MARGIN_FLAT_DIRECTION
     ):
         return TrendResult("wildly_inconsistent", 0)

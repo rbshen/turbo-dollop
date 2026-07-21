@@ -204,6 +204,29 @@ def test_margins_wildly_inconsistent_requires_real_oscillation_not_just_variance
     assert score == 0
 
 
+def test_margins_one_choppy_series_no_longer_vetoes_an_unambiguously_improving_other():
+    # GOOGL's real gross/net margin history: gross bounces around with 2+
+    # real dips netting flat (chaotic on its own), but net margin nearly
+    # doubles over the same window -- a clearly, unambiguously improving
+    # business. Requiring BOTH series to be chaotic (not either alone)
+    # means this no longer reads as the worst possible tier.
+    gross = [61.1, 58.9, 56.5, 55.6, 53.6, 56.9, 55.4, 56.6, 58.2, 59.7, 60.4]
+    net = [21.6, 11.4, 22.5, 21.2, 22.1, 29.5, 21.2, 24.0, 28.6, 32.8, 37.9]
+    pattern, score = _classify_margins(gross, net, revenue_growing=True)
+    assert pattern != "wildly_inconsistent"
+
+
+def test_margins_chaotic_net_alone_no_longer_vetoes_a_steadily_rising_gross():
+    # PAYX's real gross/net margin history: net margin wobbles in a narrow
+    # band (2+ real dips, near-flat direction), but gross margin rises
+    # steadily and cleanly. One noisy series shouldn't veto an otherwise
+    # clean read.
+    gross = [70.8, 69.9, 68.8, 68.3, 68.7, 70.6, 71.0, 72.0, 72.4, 74.3, 74.3]
+    net = [25.9, 27.6, 27.4, 27.2, 27.1, 30.2, 31.1, 32.0, 29.7, 27.0, 27.0]
+    pattern, score = _classify_margins(gross, net, revenue_growing=True)
+    assert pattern != "wildly_inconsistent"
+
+
 def test_score_clamped_to_valid_range():
     result = score_step1(
         revenue=GROWING,
