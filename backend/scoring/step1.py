@@ -67,19 +67,53 @@ def _analyze_margin_series(values: np.ndarray):
     )
 
 
+def _series_recovered(values: np.ndarray, analysis) -> bool:
+    """True if this series has no sustained decline, or -- if it does --
+    the decline has been durably reversed: direction is non-negative AND
+    the current (TTM) value has climbed back to at least the same
+    early-window baseline `direction` itself is measured against. Confirmed
+    via live data (see CLAUDE.md's Step 1 deviations) that a 10yr+TTM
+    window makes an old, small, fully-reversed decline (frequently the
+    COVID-2020 FY) permanently cap otherwise-excellent margins at
+    "gradually_compressing" -- the same class of bug fixed in Step 4's CCC
+    classifier. Uses the early-window AVERAGE rather than the single value
+    right before the decline began, since that value is often itself an
+    anomalous spike (e.g. a one-off gain) -- requiring a full re-exceedance
+    of a spike would leave genuine recoveries capped forever."""
+    if not analysis.sustained_decline:
+        return True
+    if analysis.direction < MARGIN_STABLE_TOLERANCE:
+        return False
+    w = min(MARGIN_TREND_WINDOW, len(values))
+    return bool(values[-1] >= values[:w].mean())
+
+
 def _classify_margins(gross_margin: list[float], net_margin: list[float], revenue_growing: bool) -> TrendResult:
     if len(gross_margin) < 2 or len(net_margin) < 2:
         return TrendResult("insufficient_data", 0)
 
-    gross = _analyze_margin_series(np.asarray(gross_margin, dtype=float))
-    net = _analyze_margin_series(np.asarray(net_margin, dtype=float))
+    gross_arr = np.asarray(gross_margin, dtype=float)
+    net_arr = np.asarray(net_margin, dtype=float)
+    gross = _analyze_margin_series(gross_arr)
+    net = _analyze_margin_series(net_arr)
 
     # Rule 1: a sustained multi-year decline anywhere must not be masked by
-    # a later rebound, no matter how positive the early-vs-late average
-    # ends up looking -- this can never read as "stable_or_expanding".
+    # a later rebound -- UNLESS the decline has been durably reversed (see
+    # _series_recovered). The sharp-decline check always runs first,
+    # regardless of reversal status: a currently sharply-negative net
+    # margin must never be excused by an unrelated gross-side recovery.
     if gross.sustained_decline or net.sustained_decline:
         if net.direction < MARGIN_SHARP_DECLINE and revenue_growing:
             return TrendResult("sharply_declining", 20)
+        if not (_series_recovered(gross_arr, gross) and _series_recovered(net_arr, net)):
+            return TrendResult("gradually_compressing", 60)
+        # Exempted: durably reversed. Read straight off the stable/expanding
+        # check below -- deliberately does NOT fall through to Rule 2,
+        # whose per-series dip count has its own separately-known issues
+        # (see CLAUDE.md) and would otherwise turn a confirmed recovery
+        # into the WORST tier for a near-flat-but-positive ticker.
+        if gross.direction >= MARGIN_STABLE_TOLERANCE and net.direction >= MARGIN_STABLE_TOLERANCE:
+            return TrendResult("stable_or_expanding", 100)
         return TrendResult("gradually_compressing", 60)
 
     # Rule 2: 2+ real dips in a series that still nets out flat overall is

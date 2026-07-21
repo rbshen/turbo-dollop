@@ -126,15 +126,57 @@ def test_margins_single_big_dip_with_full_recovery_reads_as_stable():
     assert score == 100
 
 
-def test_margins_sustained_decline_not_forgiven_by_late_rebound():
-    # A genuine 3-year decline (60 -> 58 -> 50 -> 42) followed by a strong
-    # late rebound (-> 80) must not read as "stable_or_expanding" just
-    # because the early-vs-late average nets positive.
-    gross = [60, 58, 50, 42, 55, 70, 75, 78, 80]
-    net = [25, 24, 20, 15, 22, 30, 33, 35, 37]
+def test_margins_sustained_decline_not_forgiven_by_partial_rebound():
+    # A genuine 3-year decline (60 -> 58 -> 50 -> 42) followed by only a
+    # partial rebound (-> 49, still well below the pre-decline 60) must not
+    # read as "stable_or_expanding" -- the decline hasn't actually been
+    # reversed, regardless of what the early-vs-late average nets to.
+    gross = [60, 58, 50, 42, 45, 46, 47, 48, 49]
+    net = [25, 24, 20, 15, 17, 18, 18, 19, 19]
     pattern, score = _classify_margins(gross, net, revenue_growing=True)
     assert pattern == "gradually_compressing"
     assert score == 60
+
+
+def test_margins_sustained_decline_forgiven_once_durably_reversed():
+    # Same shape as the case above, but the late rebound (-> 80) fully
+    # reverses AND exceeds the pre-decline peak (60) -- confirmed via real
+    # tickers (CRM, TJX, PG, STE, MSCI, ADBE, VRSN) that this must NOT stay
+    # permanently capped just because a multi-year decline occurred
+    # somewhere in a 10yr+TTM window (see CLAUDE.md's Step 1 deviations).
+    gross = [60, 58, 50, 42, 55, 70, 75, 78, 80]
+    net = [25, 24, 20, 15, 22, 30, 33, 35, 37]
+    pattern, score = _classify_margins(gross, net, revenue_growing=True)
+    assert pattern == "stable_or_expanding"
+    assert score == 100
+
+
+def test_margins_positive_average_direction_alone_is_not_enough_to_forgive():
+    # Boundary case distinguishing this fix from a plain direction-sign
+    # gate: the early-vs-late WINDOW AVERAGE direction is exactly flat
+    # (0.0, passing the stable tolerance), but the single most recent
+    # (TTM-equivalent) value is still well below the early-window average
+    # -- i.e. the series is declining again at the tail end. Must stay
+    # capped: a positive multi-year average alone doesn't mean "recovered".
+    gross = [70, 70, 70, 40, 30, 20, 90, 70, 50]
+    net = [25, 25, 25, 15, 12, 9, 32, 25, 18]
+    pattern, score = _classify_margins(gross, net, revenue_growing=True)
+    assert pattern == "gradually_compressing"
+    assert score == 60
+
+
+def test_margins_sharp_decline_not_excused_by_unrelated_gross_recovery():
+    # Regression guard: net margin is currently sharply declining (below
+    # MARGIN_SHARP_DECLINE) while gross margin -- which independently
+    # triggered sustained_decline and has since durably recovered -- must
+    # not let the recovery gate excuse net's ongoing sharp decline. The
+    # sharp-decline check must always run first, regardless of reversal
+    # status on the OTHER series (mirrors a real case found in APD).
+    gross = [30, 29, 30, 26, 22, 30, 32, 33, 32]  # dips then recovers past its own early average
+    net = [20, 19, 18, 10, 5, 3, 2, 1, -3]  # currently in a sharp, unresolved decline
+    pattern, score = _classify_margins(gross, net, revenue_growing=True)
+    assert pattern == "sharply_declining"
+    assert score == 20
 
 
 def test_margins_wildly_inconsistent_requires_real_oscillation_not_just_variance():
