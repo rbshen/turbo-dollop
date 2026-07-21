@@ -25,6 +25,13 @@ AR_GAP_MEDIUM_MAX = 50.0
 # the original "3+" tier represented before the window extension (see
 # CLAUDE.md's Step 4 deviations).
 AR_CONCERNING_TRANSITION_RATIO = 0.6
+# strong_red_flag (revenue declining while AR grows in the same year) had no
+# recency awareness -- a single real-but-old occurrence (e.g. NVDA's FY2020
+# crypto/gaming glut, 8 of 10 transitions old) permanently forced a hard 0
+# regardless of everything since. Reuses the same 3-FY "recent" window
+# CCC_TREND_WINDOW/MARGIN_TREND_WINDOW already use elsewhere in the app,
+# rather than inventing a new convention.
+AR_RED_FLAG_RECENCY_WINDOW = 3
 
 # --- Cash Conversion Cycle ----------------------------------------------------
 # No doc-given numeric thresholds exist for CCC (unlike margins, which were
@@ -110,7 +117,9 @@ def score_revenue_vs_ar(revenue: list[float], accounts_receivable: list[float]) 
     (e.g. the "concerning" count and "majority" can both be true at once):
 
     1. Majority of transitions outpacing, OR revenue declining while AR
-       grows in the same year -> 0 (auto-escalate regardless of count).
+       grows in the same year within the last AR_RED_FLAG_RECENCY_WINDOW
+       transitions -> 0 (auto-escalate regardless of count). An old,
+       resolved occurrence outside that window no longer counts on its own.
     2. `concerning_threshold`+ transitions outpacing (proportional to the
        window size -- see AR_CONCERNING_TRANSITION_RATIO), OR any single
        large-magnitude (>50pp) gap -> 40.
@@ -131,7 +140,7 @@ def score_revenue_vs_ar(revenue: list[float], accounts_receivable: list[float]) 
             continue
         revenue_yoy = (curr_rev - prev_rev) / abs(prev_rev) * 100
         ar_yoy = (curr_ar - prev_ar) / abs(prev_ar) * 100
-        if revenue_yoy < 0 and ar_yoy > 0:
+        if revenue_yoy < 0 and ar_yoy > 0 and i >= n - AR_RED_FLAG_RECENCY_WINDOW:
             strong_red_flag = True
         gap = ar_yoy - revenue_yoy
         if gap > AR_GAP_NOISE_FLOOR:

@@ -174,6 +174,30 @@ def test_ar_strong_red_flag_revenue_declining_ar_growing_scores_0():
     assert score_revenue_vs_ar(revenue, ar) == ("outpacing_majority_or_red_flag", 0, False)
 
 
+def test_ar_old_red_flag_outside_the_recency_window_no_longer_forces_zero():
+    # Mirrors NVDA's real shape: revenue declining while AR grows, but in
+    # the OLDEST transition (index 0 of 6) -- well outside the last
+    # AR_RED_FLAG_RECENCY_WINDOW transitions. A single old, resolved
+    # occurrence must no longer permanently force the worst tier.
+    revenue, ar = _build([-10, 5, 5, 5, 5, 5], [10, 5, 5, 5, 5, 5])
+    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_isolated", 70, False)
+
+
+def test_ar_recent_red_flag_still_forces_zero():
+    # Same shape, but the revenue-declining/AR-growing transition is the
+    # MOST RECENT one -- a genuinely current problem must still hard-fail
+    # regardless of the recency gate.
+    revenue, ar = _build([5, 5, 5, 5, 5, -10], [5, 5, 5, 5, 5, 10])
+    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_majority_or_red_flag", 0, False)
+
+
+def test_ar_red_flag_at_the_recency_window_boundary_still_counts():
+    # i == n - AR_RED_FLAG_RECENCY_WINDOW is the OLDEST transition still
+    # inside the recency window (inclusive) -- must still force 0.
+    revenue, ar = _build([5, 5, 5, -10, 5, 5], [5, 5, 5, 10, 5, 5])
+    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_majority_or_red_flag", 0, False)
+
+
 def test_ar_insufficient_data_with_fewer_than_two_periods():
     assert score_revenue_vs_ar([100.0], [50.0]) == ("insufficient_data", 0, False)
 
