@@ -165,6 +165,21 @@ def test_margins_positive_average_direction_alone_is_not_enough_to_forgive():
     assert score == 60
 
 
+def test_margins_late_window_spike_does_not_forgive_an_otherwise_flat_series():
+    # Mirrors LYV's real shape: gross margin flat at ~30% for the entire
+    # history, then a single anomalous TTM-equivalent spike to 45. Net
+    # margin is genuinely flat throughout (never triggers anything). The
+    # raw direction reads positive purely because of that one late-window
+    # outlier -- removing it (the same de-spike test used to find this
+    # class of bug) flips direction negative, so this must NOT read as
+    # "stable_or_expanding" just because of one anomalous point.
+    gross = [30, 30, 30, 30, 30, 30, 30, 26, 45]
+    net = [10, 10, 10, 10, 10, 10, 10, 10, 10]
+    pattern, score = _classify_margins(gross, net, revenue_growing=True)
+    assert pattern == "gradually_compressing"
+    assert score == 60
+
+
 def test_margins_sharp_decline_not_excused_by_unrelated_gross_recovery():
     # Regression guard: net margin is currently sharply declining (below
     # MARGIN_SHARP_DECLINE) while gross margin -- which independently

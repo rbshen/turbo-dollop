@@ -240,6 +240,27 @@ def test_ccc_direction_exactly_at_the_stable_tolerance_boundary_does_not_overrid
     assert result.pattern != "sustained_upward"
 
 
+def test_ccc_late_window_spike_does_not_forgive_a_genuinely_worsening_trend():
+    # Mirrors ABBV/CDNS's real shape: real CCC drifts upward (worsening)
+    # for 8 periods via alternating up/down moves (never 2 consecutive
+    # worsening periods, so sustained_decline never fires), then one wild
+    # anomalous TTM value (-300, an implausible one-off) that reads as a
+    # dramatic "improvement" on its own. Direction alone (raw) is positive
+    # only because of that single point -- must not read as improving.
+    result = classify_ccc_trend([70, 68, 74, 72, 78, 76, 82, 80, -300])
+    assert result == TrendResult("sustained_upward", 0)
+
+
+def test_ccc_spike_guard_does_not_touch_cases_already_resolved_by_the_recency_gate():
+    # Regression guard: the spike guard must never re-examine a ticker
+    # whose sustained_decline was already resolved by the recency gate
+    # above (e.g. MSFT/NEM's real shape) -- confirmed this must stay
+    # exactly as already fixed, not be re-capped by a second, unrelated
+    # check.
+    result = classify_ccc_trend([20, 26, 30, 15, 0, -15])
+    assert result == TrendResult("volatile_but_net_declining", 70)
+
+
 # --- score_step4: weight redistribution + hard-fail override ---
 
 

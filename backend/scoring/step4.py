@@ -2,7 +2,7 @@ from typing import NamedTuple
 
 import numpy as np
 
-from scoring.series_trend import analyze_series_direction
+from scoring.series_trend import analyze_series_direction, robust_late_direction
 from scoring.trend import TrendResult
 
 # --- ROE / ROIC tiers (percent) ---------------------------------------------
@@ -188,6 +188,17 @@ def classify_ccc_trend(ccc: list[float]) -> TrendResult:
         return TrendResult("volatile_no_trend", 40)
 
     if analysis.direction >= CCC_STABLE_TOLERANCE_DAYS:
+        # Spike guard: the mirror-image of Rule 1's dip-side gate -- a single
+        # anomalous good-side CCC point in the late window (e.g. one wildly
+        # negative TTM quarter) can flip `direction` positive even when the
+        # rest of the window shows a flat or genuinely worsening trend (real
+        # cases: ABBV, CDNS). Deliberately restricted to tickers that never
+        # triggered sustained_decline above -- applying it unconditionally
+        # would also re-touch cases already resolved by Rule 1's own gate
+        # (confirmed: NEM, one of the originally-fixed 17, would otherwise
+        # flip back to 0), which must stay exactly as already fixed.
+        if not analysis.sustained_decline and robust_late_direction(negated, CCC_TREND_WINDOW) < CCC_STABLE_TOLERANCE_DAYS:
+            return TrendResult("sustained_upward", 0)
         if analysis.num_real_dips >= 1:
             return TrendResult("volatile_but_net_declining", 70)
         return TrendResult("declining_or_stable", 100)

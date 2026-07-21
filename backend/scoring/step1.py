@@ -1,6 +1,6 @@
 import numpy as np
 
-from scoring.series_trend import analyze_series_direction
+from scoring.series_trend import analyze_series_direction, robust_late_direction
 from scoring.trend import TrendResult, classify_trend
 
 WEIGHTS_STANDARD = {"revenue": 0.25, "net_income": 0.25, "cfo": 0.25, "margins": 0.10, "fcf": 0.15}
@@ -88,6 +88,21 @@ def _series_recovered(values: np.ndarray, analysis) -> bool:
     return bool(values[-1] >= values[:w].mean())
 
 
+def _stable_and_spike_robust(gross_arr: np.ndarray, gross, net_arr: np.ndarray, net) -> bool:
+    """True if both series read as non-negative direction AND that reading
+    isn't solely propped up by a single anomalous point in the late window
+    (e.g. LYV: a decade flat at 23-30% gross margin, then one TTM spike to
+    44.7% flips direction positive on its own). Mirrors sustained_decline's
+    dip-side gate, but for the opposite failure mode -- see CLAUDE.md's
+    Step 1 deviations."""
+    if not (gross.direction >= MARGIN_STABLE_TOLERANCE and net.direction >= MARGIN_STABLE_TOLERANCE):
+        return False
+    return (
+        robust_late_direction(gross_arr, MARGIN_TREND_WINDOW) >= MARGIN_STABLE_TOLERANCE
+        and robust_late_direction(net_arr, MARGIN_TREND_WINDOW) >= MARGIN_STABLE_TOLERANCE
+    )
+
+
 def _classify_margins(gross_margin: list[float], net_margin: list[float], revenue_growing: bool) -> TrendResult:
     if len(gross_margin) < 2 or len(net_margin) < 2:
         return TrendResult("insufficient_data", 0)
@@ -112,7 +127,7 @@ def _classify_margins(gross_margin: list[float], net_margin: list[float], revenu
         # whose per-series dip count has its own separately-known issues
         # (see CLAUDE.md) and would otherwise turn a confirmed recovery
         # into the WORST tier for a near-flat-but-positive ticker.
-        if gross.direction >= MARGIN_STABLE_TOLERANCE and net.direction >= MARGIN_STABLE_TOLERANCE:
+        if _stable_and_spike_robust(gross_arr, gross, net_arr, net):
             return TrendResult("stable_or_expanding", 100)
         return TrendResult("gradually_compressing", 60)
 
@@ -124,7 +139,7 @@ def _classify_margins(gross_margin: list[float], net_margin: list[float], revenu
     ):
         return TrendResult("wildly_inconsistent", 0)
 
-    if gross.direction >= MARGIN_STABLE_TOLERANCE and net.direction >= MARGIN_STABLE_TOLERANCE:
+    if _stable_and_spike_robust(gross_arr, gross, net_arr, net):
         return TrendResult("stable_or_expanding", 100)
 
     if net.direction < MARGIN_SHARP_DECLINE and revenue_growing:
