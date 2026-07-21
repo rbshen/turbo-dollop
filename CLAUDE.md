@@ -198,6 +198,30 @@ thresholds — deviations from a strict reading of the doc:
   force a Fail verdict — the doc treats a Receivables/CCC red flag as
   "investigate before proceeding," not an automatic disqualifier the way
   persistently poor ROE/ROIC is.
+- **CCC's `sustained_decline` override is gated on `direction` sign.** The
+  10yr+TTM window extension exposed a contradiction: `sustained_decline`
+  scans the *entire* window for a qualifying multi-period rise in real CCC
+  with no recency awareness, so an old, small, fully-reversed blip (e.g.
+  MSFT's 2016-2018 uptick, since outweighed by a decade of improvement)
+  could permanently cap the score at 0 even while `direction` (the
+  early-vs-late-window average) was strongly positive. `classify_ccc_trend`
+  now only honors the override when `direction < CCC_STABLE_TOLERANCE_DAYS`
+  (reusing the existing -1.0 constant, not a new one) — a durably-reversed
+  decline no longer masks an otherwise-improving trend. `analyze_series_direction`
+  itself and Step 1's margin classifier (which independently calls the same
+  shared function) are untouched by this.
+- **Revenue-vs-AR's "concerning" tier threshold is proportional, not a
+  fixed count.** It was originally "3 of 5" transitions (60% severity,
+  matching the doc's 5yr window) but was never rescaled when the window
+  extended to 10yr+TTM (10 transitions), so it fired at just 30% severity
+  instead — inflating false positives. `AR_CONCERNING_TRANSITION_RATIO`
+  (0.6) now generalizes this to `max(3, round(0.6 * n))` transitions,
+  restoring the original relative severity at any window size (still 3 at
+  n=5, 6 at n=10). `majority_outpacing` was already proportional (`> n/2`)
+  and needed no change. Because the ratio (0.6) sits above the 50%
+  majority line, the count-based "concerning" tier remains structurally
+  subsumed by "majority" at every window size — a pre-existing property of
+  the original design, not an artifact of this rescaling.
 
 ## Workflow rules
 
