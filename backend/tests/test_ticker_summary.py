@@ -182,3 +182,29 @@ def test_eps_cagr_prefers_estimate_closest_to_four_years_out():
 def test_next_earnings_date_picks_nearest_unreported():
     assert ticker_summary._next_earnings_date(FAKE_EARNINGS).isoformat() == "2026-07-30"
     assert ticker_summary._next_earnings_date([]) is None
+
+
+def test_next_earnings_date_returns_none_for_etf_shaped_data():
+    # ETFs (SPY, QQQ, ...) never report earnings, so FMP returns historical
+    # distribution/dividend rows with epsActual always null. Without also
+    # requiring the date to be in the future, `min()` over the entire
+    # history picks the OLDEST row -- a garbage decades-old "next earnings
+    # date" -- instead of correctly reading as "no earnings".
+    etf_shaped = [
+        {"date": "2010-03-19", "epsActual": None},
+        {"date": "2015-06-19", "epsActual": None},
+        {"date": "2020-12-18", "epsActual": None},
+    ]
+    assert ticker_summary._next_earnings_date(etf_shaped) is None
+
+
+def test_next_earnings_date_still_finds_a_genuine_future_date_among_null_rows():
+    # Regression guard: a normal ticker with a real upcoming earnings date
+    # (also epsActual=None, since it hasn't been reported yet) must still
+    # be found correctly -- the fix only excludes PAST null rows.
+    normal = [
+        {"date": "2025-01-30", "epsActual": 2.4},
+        {"date": "2025-04-30", "epsActual": 2.1},
+        {"date": "2026-08-15", "epsActual": None},
+    ]
+    assert ticker_summary._next_earnings_date(normal).isoformat() == "2026-08-15"

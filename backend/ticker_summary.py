@@ -18,8 +18,18 @@ def _first(data: dict | list) -> dict:
 
 
 def _next_earnings_date(earnings: list[dict]) -> date | None:
-    """The nearest not-yet-reported (epsActual is null) earnings date."""
-    upcoming = [row["date"] for row in earnings if row.get("date") and row.get("epsActual") is None]
+    """The nearest not-yet-reported (epsActual is null) earnings date --
+    also requires the date itself to be in the future. ETFs (SPY, QQQ, ...)
+    never report earnings, so every historical row FMP returns for them has
+    a null epsActual; without the date check, `min()` over the entire
+    history picks the OLDEST row in the dataset (a garbage decades-old
+    "next earnings date") instead of correctly reading as "no earnings"."""
+    today = date.today()
+    upcoming = [
+        row["date"]
+        for row in earnings
+        if row.get("date") and row.get("epsActual") is None and date.fromisoformat(row["date"][:10]) >= today
+    ]
     if not upcoming:
         return None
     return date.fromisoformat(min(upcoming)[:10])
