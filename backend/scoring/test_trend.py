@@ -59,6 +59,37 @@ def test_multiple_dips_resolved_scores_75_even_when_the_recovered_dip_is_recent(
     assert score == 75
 
 
+def test_dip_recovery_measured_against_pre_spike_baseline_not_the_spike_itself():
+    # Mirrors MPWR's real shape: a genuine, durable growth trajectory
+    # (100 -> 110 -> 120) interrupted by a one-time >100% spike (120 -> 450,
+    # a one-off tax benefit) that then reverts (450 -> 200). TTM (210) never
+    # climbs back to the fake spike value (450), but comfortably clears the
+    # last genuine pre-spike value (120) -- this must read as a real,
+    # recovered dip, not a permanently-uncapped "multiple_dips".
+    pattern, score = classify_trend([100, 110, 120, 450, 200, 210])
+    assert pattern == "significant_dip_recovers"
+    assert score == 70
+
+
+def test_dip_baseline_fallback_requires_more_than_a_100_percent_jump():
+    # Boundary: the jump before the dip is EXACTLY +100% (ratio == 1.0, not
+    # > 1.0) -- the fallback must not trigger, so recovery is still measured
+    # against the (non-fallback) pre-dip value directly, same as before this
+    # fix existed.
+    pattern, score = classify_trend([50, 60, 100, 200, 90, 95])
+    assert pattern == "multiple_dips"
+    assert score == 40
+
+
+def test_multi_dip_path_also_uses_the_spike_aware_baseline():
+    # 2 real dips: the first (450 -> 150) follows a genuine >100% spike and
+    # should be measured against the pre-spike value (150); the second
+    # (300 -> 250) is an ordinary dip. Both recover under the fixed logic.
+    pattern, score = classify_trend([100, 150, 450, 150, 300, 250, 400])
+    assert pattern == "multiple_dips_resolved"
+    assert score == 75
+
+
 def test_flat_then_spike():
     pattern, score = classify_trend([100, 90, 106, 88, 103, 145])
     assert pattern == "flat_then_spike"

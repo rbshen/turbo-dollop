@@ -15,6 +15,14 @@ SIGNIFICANT_DIP = 0.10
 # multi-dip growth.
 SPIKE_THRESHOLD = 0.25
 FLAT_WINDOW_THRESHOLD = 0.10
+# How large a single-year jump must be before the value it produced is
+# treated as an unreliable "pre-dip peak" to measure recovery against,
+# rather than a genuine baseline (see CLAUDE.md's Step 1 deviations -- MPWR).
+# Deliberately much higher than SPIKE_THRESHOLD: an ordinary strong-growth
+# year routinely exceeds 25%, but a >=100% single-year jump is rare enough
+# to reliably flag a one-time event (confirmed via real cases -- MPWR,
+# PEP, GS, UNP -- all trace to genuine one-off items, not normal growth).
+DIP_BASELINE_SPIKE_RATIO = 1.0
 
 
 class TrendResult(NamedTuple):
@@ -27,6 +35,18 @@ def _pct_changes(values: np.ndarray) -> np.ndarray:
     curr = values[1:]
     with np.errstate(divide="ignore", invalid="ignore"):
         return np.where(prev != 0, (curr - prev) / np.abs(prev), np.sign(curr))
+
+
+def _effective_pre_dip_value(arr: np.ndarray, pct_changes: np.ndarray, dip_index: int) -> float:
+    """The value to measure "has this dip recovered" against. Normally the
+    value immediately before the dip -- but if THAT value was itself
+    produced by a >=100% one-year jump, it's a spike, not a genuine
+    baseline, and measuring recovery against a fake peak punishes durable
+    growth for a single non-recurring event. Falls back to the value from
+    before the jump in that case."""
+    if dip_index > 0 and pct_changes[dip_index - 1] > DIP_BASELINE_SPIKE_RATIO:
+        return float(arr[dip_index - 1])
+    return float(arr[dip_index])
 
 
 def classify_trend(values: list[float]) -> TrendResult:
@@ -54,7 +74,7 @@ def classify_trend(values: list[float]) -> TrendResult:
 
     if real_dips.size == 1:
         dip_index = int(real_dips[0])
-        pre_dip_value = arr[dip_index]
+        pre_dip_value = _effective_pre_dip_value(arr, pct_changes, dip_index)
         recovered = arr[-1] >= pre_dip_value
         if not recovered:
             # Dipped and never got back to the pre-dip level by TTM -- closer
@@ -76,7 +96,7 @@ def classify_trend(values: list[float]) -> TrendResult:
     # peak by TTM matters; how recently it happened doesn't -- a dip that's
     # fully bounced back above where it started reads the same whether that
     # happened years ago or just last fiscal year.
-    all_recovered = all(arr[-1] >= arr[i] for i in real_dips)
+    all_recovered = all(arr[-1] >= _effective_pre_dip_value(arr, pct_changes, i) for i in real_dips)
     if not all_recovered:
         # At least one dip never got back to its pre-dip level by TTM --
         # genuinely uneven, unchanged from the original flat tier.
