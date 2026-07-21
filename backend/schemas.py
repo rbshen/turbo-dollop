@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -199,3 +199,39 @@ class Step4Out(BaseModel):
     verdict: str
     hard_fail: bool = False
     components: dict = {}
+
+
+class TickerScoreOut(BaseModel):
+    """A pre-computed row for the Screener page (see ticker_score.py) --
+    denormalized from the same 5 functions Step 1/2/4/5 and the ticker
+    header call, refreshed by the nightly fetch job and the standalone
+    recompute_ticker_scores.py script. Every score/verdict is None when
+    that step's data wasn't available for this ticker (mirrors each step's
+    own None-for-insufficient-data convention)."""
+
+    ticker: str
+    company_name: str | None = None
+    sector: str | None = None
+    industry: str | None = None
+    company_type: str | None = None
+    step1_score: int | None = None
+    step1_verdict: str | None = None
+    step2_score: int | None = None
+    step2_verdict: str | None = None
+    step4_score: int | None = None
+    step4_verdict: str | None = None
+    step5_score: int | None = None
+    step5_verdict: str | None = None
+    overall_score: int | None = None
+    overall_verdict: str | None = None
+    market_cap: float | None = None
+    pe_ratio: float | None = None
+    beta: float | None = None
+    computed_at: datetime
+
+
+class RecomputeSummary(BaseModel):
+    processed: int
+    failed: int
+    duration_seconds: float
+    failures: list[tuple[str, str]] = []

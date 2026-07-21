@@ -19,7 +19,8 @@ async def get_or_fetch(
     period: str,
     fetch_fn: Callable[[], Awaitable[dict | list]],
     staleness_days: int,
-) -> dict | list:
+    cache_only: bool = False,
+) -> dict | list | None:
     row = session.exec(
         select(FundamentalsCache).where(
             FundamentalsCache.ticker == ticker,
@@ -31,6 +32,16 @@ async def get_or_fetch(
     now = datetime.now()
     if row and now - row.fetched_at < timedelta(days=staleness_days):
         return json.loads(row.raw_json)
+
+    if cache_only:
+        # Used by ticker_score.py's recompute path, which must make zero
+        # FMP calls -- returns whatever's cached (even if stale) rather
+        # than nothing, since a slightly-stale score is still far more
+        # useful than no score; a missing row returns None, which every
+        # existing call site already treats the same as a failed fetch
+        # (see safe_fetch's {} fallback and the `if isinstance(x, list)
+        # else []`/`_first` patterns throughout step*_data.py).
+        return json.loads(row.raw_json) if row else None
 
     data = await fetch_fn()
     raw_json = json.dumps(data)

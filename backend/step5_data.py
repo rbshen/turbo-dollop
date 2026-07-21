@@ -64,7 +64,13 @@ async def _attach_sec_cross_checks(
     return result
 
 
-async def get_step5_data(ticker: str) -> Step5Out:
+async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
+    """`cache_only=True` (used by ticker_score.py's recompute path) reads
+    only whatever's already cached and never calls FMP -- see
+    cache.get_or_fetch's own cache_only branch. It also skips the SEC EDGAR
+    cross-check entirely regardless of whether an outlier is flagged: that
+    cross-check is on-demand-only by design (SEC's rate-limit penalty is a
+    10-minute lockout), and must never fire during a ~500-ticker sweep."""
     ticker = ticker.upper()
     staleness_days = settings.cache_staleness_days
 
@@ -72,7 +78,9 @@ async def get_step5_data(ticker: str) -> Step5Out:
         profile = _first(
             await safe_fetch(
                 "profile",
-                get_or_fetch(session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days),
+                get_or_fetch(
+                    session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days, cache_only
+                ),
             )
         )
         company_type = classify_company_type(profile.get("sector"), profile.get("industry"))
@@ -89,6 +97,7 @@ async def get_step5_data(ticker: str) -> Step5Out:
                 "quarterly",
                 lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", 1),
                 staleness_days,
+                cache_only,
             ),
         )
         balance_sheet_row = _first(balance_sheet)
@@ -109,6 +118,7 @@ async def get_step5_data(ticker: str) -> Step5Out:
                     "quarterly",
                     lambda: fmp_client.get_financial_statement_full_as_reported(ticker, "quarter", 1),
                     staleness_days,
+                    cache_only,
                 ),
             )
             # Fallback source when the latest quarter's nonaccrual-loan tag
@@ -123,6 +133,7 @@ async def get_step5_data(ticker: str) -> Step5Out:
                     "annual",
                     lambda: fmp_client.get_financial_statement_full_as_reported(ticker, "annual", 1),
                     staleness_days,
+                    cache_only,
                 ),
             )
             quarterly_row = _first(full_as_reported_quarterly)
@@ -163,6 +174,7 @@ async def get_step5_data(ticker: str) -> Step5Out:
                 "quarterly",
                 lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
+                cache_only,
             ),
         )
         cash_flow_quarterly = await safe_fetch(
@@ -174,6 +186,7 @@ async def get_step5_data(ticker: str) -> Step5Out:
                 "quarterly",
                 lambda: fmp_client.get_cash_flow_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
+                cache_only,
             ),
         )
 
@@ -191,10 +204,11 @@ async def get_step5_data(ticker: str) -> Step5Out:
         *debt_metrics.outlier_flags, MetricOutlierFlags(metric="cfo_ttm", flagged=cfo_result.flagged)
     )
 
-    if outlier_warnings:
+    if outlier_warnings and not cache_only:
         # Fresh, short-lived session scoped to just this on-demand
         # cross-check -- only opened when there's actually something
-        # flagged, not on every Step 5 view.
+        # flagged, not on every Step 5 view, and never at all in
+        # cache_only mode (see this function's docstring).
         with Session(engine) as sec_session:
             outlier_warnings = await _attach_sec_cross_checks(sec_session, ticker, outlier_warnings, staleness_days)
 

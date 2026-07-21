@@ -56,7 +56,10 @@ def _compute_eps_cagr(estimates: list[dict]) -> float | None:
     return (target_eps / base_eps) ** (1 / years) - 1
 
 
-async def get_summary(ticker: str) -> TickerSummaryOut:
+async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut:
+    """`cache_only=True` (used by ticker_score.py's recompute path) reads
+    only whatever's already cached and never calls FMP -- see
+    cache.get_or_fetch's own cache_only branch."""
     ticker = ticker.upper()
     staleness_days = settings.cache_staleness_days
 
@@ -64,38 +67,58 @@ async def get_summary(ticker: str) -> TickerSummaryOut:
         profile = _first(
             await safe_fetch(
                 "profile",
-                get_or_fetch(session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days),
+                get_or_fetch(
+                    session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days, cache_only
+                ),
             )
         )
         quote = _first(
             await safe_fetch(
                 "quote",
-                get_or_fetch(session, ticker, "quote", "latest", lambda: fmp_client.get_quote(ticker), staleness_days),
+                get_or_fetch(
+                    session, ticker, "quote", "latest", lambda: fmp_client.get_quote(ticker), staleness_days, cache_only
+                ),
             )
         )
         price_change = _first(
             await safe_fetch(
                 "price_change",
                 get_or_fetch(
-                    session, ticker, "price_change", "latest", lambda: fmp_client.get_price_change(ticker), staleness_days
+                    session,
+                    ticker,
+                    "price_change",
+                    "latest",
+                    lambda: fmp_client.get_price_change(ticker),
+                    staleness_days,
+                    cache_only,
                 ),
             )
         )
         ratios = _first(
             await safe_fetch(
                 "ratios",
-                get_or_fetch(session, ticker, "ratios", "latest", lambda: fmp_client.get_ratios(ticker), staleness_days),
+                get_or_fetch(
+                    session, ticker, "ratios", "latest", lambda: fmp_client.get_ratios(ticker), staleness_days, cache_only
+                ),
             )
         )
         estimates_data = await safe_fetch(
             "analyst_estimates",
             get_or_fetch(
-                session, ticker, "analyst_estimates", "latest", lambda: fmp_client.get_analyst_estimates(ticker), staleness_days
+                session,
+                ticker,
+                "analyst_estimates",
+                "latest",
+                lambda: fmp_client.get_analyst_estimates(ticker),
+                staleness_days,
+                cache_only,
             ),
         )
         earnings_data = await safe_fetch(
             "earnings",
-            get_or_fetch(session, ticker, "earnings", "latest", lambda: fmp_client.get_earnings(ticker), staleness_days),
+            get_or_fetch(
+                session, ticker, "earnings", "latest", lambda: fmp_client.get_earnings(ticker), staleness_days, cache_only
+            ),
         )
         # Same cache keys + limits Step 1/Step 5 already populate
         # ("balance_sheet_statement"/"quarterly" limit 1, "income_statement"/
@@ -111,6 +134,7 @@ async def get_summary(ticker: str) -> TickerSummaryOut:
                 "quarterly",
                 lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", 1),
                 staleness_days,
+                cache_only,
             ),
         )
         income_quarterly_data = await safe_fetch(
@@ -122,6 +146,7 @@ async def get_summary(ticker: str) -> TickerSummaryOut:
                 "quarterly",
                 lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
+                cache_only,
             ),
         )
 

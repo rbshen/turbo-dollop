@@ -86,7 +86,10 @@ def _get_growth_catalysts(session: Session, ticker: str) -> str | None:
     return row.notes if row else None
 
 
-async def get_step2_data(ticker: str) -> Step2Out:
+async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
+    """`cache_only=True` (used by ticker_score.py's recompute path) reads
+    only whatever's already cached and never calls FMP -- see
+    cache.get_or_fetch's own cache_only branch."""
     ticker = ticker.upper()
     staleness_days = settings.cache_staleness_days
     today = date.today()
@@ -95,7 +98,13 @@ async def get_step2_data(ticker: str) -> Step2Out:
         estimates_data = await safe_fetch(
             "analyst_estimates",
             get_or_fetch(
-                session, ticker, "analyst_estimates", "latest", lambda: fmp_client.get_analyst_estimates(ticker), staleness_days
+                session,
+                ticker,
+                "analyst_estimates",
+                "latest",
+                lambda: fmp_client.get_analyst_estimates(ticker),
+                staleness_days,
+                cache_only,
             ),
         )
         growth_catalysts = _get_growth_catalysts(session, ticker)

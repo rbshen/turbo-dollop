@@ -31,11 +31,16 @@ def _patch_all_steps(monkeypatch, calls, fail_for: set[str] | None = None):
 
         return fn
 
+    async def fake_compute_ticker_score(ticker, cache_only=False):
+        calls.append((ticker, "ticker_score", cache_only))
+        return None
+
     monkeypatch.setattr(nightly, "get_step1_data", make_step("step1"))
     monkeypatch.setattr(nightly, "get_step2_data", make_step("step2"))
     monkeypatch.setattr(nightly, "get_step4_data", make_step("step4"))
     monkeypatch.setattr(nightly, "get_step5_data", make_step("step5"))
     monkeypatch.setattr(nightly, "get_summary", make_step("summary"))
+    monkeypatch.setattr(nightly, "compute_ticker_score", fake_compute_ticker_score)
 
 
 def test_load_sp500_tickers_reads_from_the_index_constituent_table(monkeypatch, tmp_path):
@@ -83,8 +88,26 @@ def test_summary_reports_all_five_expected_fields(monkeypatch, tmp_path):
     assert "calls_made" in summary
     assert "duration_seconds" in summary
     # All five existing get_*_data/get_summary functions must be called for
-    # every ticker -- nothing bespoke, reusing the actual pipeline.
-    assert {c[1] for c in calls} == {"step1", "step2", "step4", "step5", "summary"}
+    # every ticker -- nothing bespoke, reusing the actual pipeline -- plus
+    # the Screener score computation that now runs after them.
+    assert {c[1] for c in calls} == {"step1", "step2", "step4", "step5", "summary", "ticker_score"}
+
+
+def test_ticker_score_is_computed_cache_only_after_each_tickers_fetch(monkeypatch, tmp_path):
+    _fresh_engine(monkeypatch, tmp_path)
+    calls: list[tuple] = []
+    _patch_all_steps(monkeypatch, calls)
+    monkeypatch.setattr(nightly.fmp_client, "request_count", 0)
+    monkeypatch.setattr(nightly.fmp_client, "min_request_interval", 0.0)
+
+    asyncio.run(nightly.main(tickers=["AAPL", "MSFT"]))
+
+    score_calls = [c for c in calls if c[1] == "ticker_score"]
+    assert {c[0] for c in score_calls} == {"AAPL", "MSFT"}
+    # cache_only=True -- the raw data was just fetched/cached moments
+    # earlier in this same run, so recomputing scores must add zero extra
+    # FMP calls.
+    assert all(c[2] is True for c in score_calls)
 
 
 def test_pacing_is_configured_before_the_run_starts(monkeypatch, tmp_path):

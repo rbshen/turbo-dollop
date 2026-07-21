@@ -73,7 +73,10 @@ def _compute_ccc_series(
     return ccc
 
 
-async def get_step4_data(ticker: str) -> Step4Out:
+async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
+    """`cache_only=True` (used by ticker_score.py's recompute path) reads
+    only whatever's already cached and never calls FMP -- see
+    cache.get_or_fetch's own cache_only branch."""
     ticker = ticker.upper()
     staleness_days = settings.cache_staleness_days
 
@@ -81,7 +84,9 @@ async def get_step4_data(ticker: str) -> Step4Out:
         profile = _first(
             await safe_fetch(
                 "profile",
-                get_or_fetch(session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days),
+                get_or_fetch(
+                    session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days, cache_only
+                ),
             )
         )
         company_type = classify_company_type(profile.get("sector"), profile.get("industry"))
@@ -98,6 +103,7 @@ async def get_step4_data(ticker: str) -> Step4Out:
                 "annual",
                 lambda: fmp_client.get_income_statement(ticker, "annual", 10),
                 staleness_days,
+                cache_only,
             ),
         )
         income_quarterly = await safe_fetch(
@@ -109,6 +115,7 @@ async def get_step4_data(ticker: str) -> Step4Out:
                 "quarterly",
                 lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
+                cache_only,
             ),
         )
         balance_sheet_annual = await safe_fetch(
@@ -120,6 +127,7 @@ async def get_step4_data(ticker: str) -> Step4Out:
                 "annual",
                 lambda: fmp_client.get_balance_sheet_statement(ticker, "annual", ANNUAL_WINDOW),
                 staleness_days,
+                cache_only,
             ),
         )
         # Same cache key + limit Step 5 already populates ("balance_sheet_
@@ -134,6 +142,7 @@ async def get_step4_data(ticker: str) -> Step4Out:
                 "quarterly",
                 lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", 1),
                 staleness_days,
+                cache_only,
             ),
         )
         key_metrics_annual = await safe_fetch(
@@ -145,6 +154,7 @@ async def get_step4_data(ticker: str) -> Step4Out:
                 "annual",
                 lambda: fmp_client.get_key_metrics(ticker, "annual", ANNUAL_WINDOW),
                 staleness_days,
+                cache_only,
             ),
         )
         key_metrics_ttm = _first(
@@ -157,6 +167,7 @@ async def get_step4_data(ticker: str) -> Step4Out:
                     "ttm",
                     lambda: fmp_client.get_key_metrics_ttm(ticker),
                     staleness_days,
+                    cache_only,
                 ),
             )
         )

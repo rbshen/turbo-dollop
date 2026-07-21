@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -110,3 +110,46 @@ def test_force_fetch_inserts_when_no_row_exists():
 
     result = asyncio.run(run())
     assert result == {"value": 1}
+
+
+def test_cache_only_never_calls_fetch_fn_even_when_the_row_is_stale():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    stale_time = datetime.now() - timedelta(days=30)
+    with Session(engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="profile",
+                period="latest",
+                fetched_at=stale_time,
+                raw_json='{"sector": "Technology"}',
+            )
+        )
+        session.commit()
+
+    async def fetch_fn():
+        raise AssertionError("fetch_fn must never be called in cache_only mode")
+
+    async def run():
+        with Session(engine) as session:
+            return await get_or_fetch(session, "AAPL", "profile", "latest", fetch_fn, staleness_days=7, cache_only=True)
+
+    result = asyncio.run(run())
+    assert result == {"sector": "Technology"}  # stale data returned anyway -- still better than nothing
+
+
+def test_cache_only_returns_none_when_no_row_exists():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    async def fetch_fn():
+        raise AssertionError("fetch_fn must never be called in cache_only mode")
+
+    async def run():
+        with Session(engine) as session:
+            return await get_or_fetch(session, "ZZZZ", "profile", "latest", fetch_fn, staleness_days=7, cache_only=True)
+
+    result = asyncio.run(run())
+    assert result is None

@@ -9,6 +9,13 @@ cold cache does a full fetch (~7,000 calls, ~30 min at the paced rate
 below); every run after that is mostly cache hits, since get_or_fetch only
 calls FMP for a ticker/statement whose cache has actually gone stale.
 
+After fetching each ticker's raw data, also computes and stores its
+Screener row (ticker_score.compute_ticker_score) -- cache_only=True since
+the data was just cached moments earlier in this exact function, so this
+adds zero extra FMP calls. See recompute_ticker_scores.py for the separate
+on-demand path that re-scores every ticker from already-cached data alone,
+without running this full fetch first.
+
 Default schedule: 2am server time, nightly (see crontab.txt in this
 directory). To change the schedule, edit that one crontab line -- nothing
 in this script needs touching for a schedule change.
@@ -38,6 +45,7 @@ from step1_data import get_step1_data
 from step2_data import get_step2_data
 from step4_data import get_step4_data
 from step5_data import get_step5_data
+from ticker_score import compute_ticker_score
 from ticker_summary import get_summary
 
 LOG_PATH = Path(__file__).resolve().parent / "logs" / "nightly_fundamentals_fetch.log"
@@ -60,6 +68,7 @@ async def _refresh_one_ticker(ticker: str) -> None:
     await get_step4_data(ticker)
     await get_step5_data(ticker)
     await get_summary(ticker)
+    await compute_ticker_score(ticker, cache_only=True)
 
 
 async def main(tickers: list[str] | None = None) -> dict:

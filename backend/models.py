@@ -45,3 +45,33 @@ class GrowthCatalystNote(SQLModel, table=True):
     ticker: str = Field(primary_key=True)
     notes: str
     updated_at: datetime
+
+
+class TickerScore(SQLModel, table=True):
+    """Pre-computed Step 1/2/4/5 + Overall Assessment scores for the
+    Screener page (see ticker_score.py) -- a denormalized read-model kept
+    separate from the live per-ticker pages, which still compute their own
+    scores fresh on each view. Populated two ways: the nightly fetch job
+    (after fetching each ticker's raw data) and the standalone
+    recompute_ticker_scores.py script (cache-only, zero FMP calls, for
+    re-scoring all tickers immediately after a scoring-logic change)."""
+
+    ticker: str = Field(primary_key=True)
+    company_name: str | None = None
+    sector: str | None = None
+    industry: str | None = None
+    company_type: str | None = None
+    step1_score: int | None = None
+    step1_verdict: str | None = None
+    step2_score: int | None = None
+    step2_verdict: str | None = None
+    step4_score: int | None = None
+    step4_verdict: str | None = None
+    step5_score: int | None = None
+    step5_verdict: str | None = None
+    overall_score: int | None = None
+    overall_verdict: str | None = None
+    market_cap: float | None = None
+    pe_ratio: float | None = None
+    beta: float | None = None
+    computed_at: datetime
