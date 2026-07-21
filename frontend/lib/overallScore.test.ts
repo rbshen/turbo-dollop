@@ -130,6 +130,45 @@ describe("computeOverallAssessment", () => {
     const result = computeOverallAssessment(steps);
     expect(result.failingSteps).toEqual(["Step 1", "Step 5"]);
   });
+
+  it("shows Fail, not Pass, when the score is under 70", () => {
+    // Mirrors CCL's real shape -- a low blended score must read as "Fail",
+    // matching the shared 0-69/70-90/91-100 bands used everywhere else in
+    // the app (previously always read "Pass" regardless of how low).
+    const steps: StepSnapshot[] = [
+      snapshot("step1", "Step 1", 57, "Fail"),
+      snapshot("step2", "Step 2", 58, "Pass"),
+      snapshot("step4", "Step 4", 20, "Fail"),
+      snapshot("step5", "Step 5", 28, "Fail"),
+    ];
+    const result = computeOverallAssessment(steps);
+    expect(result.score!).toBeLessThan(70);
+    expect(result.verdict).toBe("Fail");
+  });
+
+  it("a score of exactly 70 is Pass, not Fail", () => {
+    const steps: StepSnapshot[] = [
+      snapshot("step1", "Step 1", 70, "Pass"),
+      snapshot("step2", "Step 2", 70, "Pass"),
+      snapshot("step4", "Step 4", 70, "Pass"),
+      snapshot("step5", "Step 5", 70, "Pass"),
+    ];
+    const result = computeOverallAssessment(steps);
+    expect(result.score).toBe(70);
+    expect(result.verdict).toBe("Pass");
+  });
+
+  it("a score of 69 is Fail", () => {
+    const steps: StepSnapshot[] = [
+      snapshot("step1", "Step 1", 69, "Pass"),
+      snapshot("step2", "Step 2", 69, "Pass"),
+      snapshot("step4", "Step 4", 69, "Pass"),
+      snapshot("step5", "Step 5", 69, "Pass"),
+    ];
+    const result = computeOverallAssessment(steps);
+    expect(result.score).toBe(69);
+    expect(result.verdict).toBe("Fail");
+  });
 });
 
 function round(n: number): number {

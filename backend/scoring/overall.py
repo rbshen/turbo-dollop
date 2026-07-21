@@ -12,6 +12,7 @@ IMPLEMENTED_STEPS = len(STEP_WEIGHTS)
 TOTAL_METHODOLOGY_STEPS = 5
 
 STRONG_PASS_THRESHOLD = 90
+PASS_THRESHOLD = 70
 
 
 class StepSnapshot(NamedTuple):
@@ -38,7 +39,7 @@ class StepBreakdownEntry(NamedTuple):
 class OverallAssessment(NamedTuple):
     status: str  # "complete" | "incomplete"
     score: int | None
-    verdict: str | None  # "Strong Pass" | "Pass" | None
+    verdict: str | None  # "Strong Pass" | "Pass" | "Fail" | None
     breakdown: list[StepBreakdownEntry]
     incomplete_steps: list[str]
     failing_steps: list[str]
@@ -59,13 +60,21 @@ def _status_for(snapshot: StepSnapshot) -> str:
     return "ok"
 
 
+def _verdict_for(score: int) -> str:
+    if score > STRONG_PASS_THRESHOLD:
+        return "Strong Pass"
+    if score >= PASS_THRESHOLD:
+        return "Pass"
+    return "Fail"
+
+
 def compute_overall_assessment(steps: list[StepSnapshot]) -> OverallAssessment:
     """Pure port of frontend/lib/overallScore.ts::computeOverallAssessment,
     minus the "loading" status -- there's no async/loading concept here,
     since the backend calls each step's data function synchronously and
     already has (or doesn't have) a result by the time this runs. Every
     other rule (renormalization across non-exempt steps, no hard-fail
-    override, `score > 90` -> Strong Pass) is identical."""
+    override, verdict bands) is identical."""
     with_status = [(s, _status_for(s)) for s in steps]
 
     incomplete = [(s, st) for s, st in with_status if st in ("error", "incomplete")]
@@ -98,8 +107,11 @@ def compute_overall_assessment(steps: list[StepSnapshot]) -> OverallAssessment:
         score=score,
         # No hard-fail override -- deliberately a pure weighted average
         # (unlike every individual step). The failing_steps list is the
-        # separate, non-blocking "worth reviewing directly" signal.
-        verdict=(("Strong Pass" if score > STRONG_PASS_THRESHOLD else "Pass") if score is not None else None),
+        # separate, non-blocking "worth reviewing directly" signal. The
+        # verdict BAND, though, must match the shared 0-69/70-90/91-100
+        # bands used everywhere else in the app (see CLAUDE.md) -- a score
+        # under 70 showing "Pass" was a bug, not a deliberate deviation.
+        verdict=(_verdict_for(score) if score is not None else None),
         breakdown=breakdown,
         incomplete_steps=[] if can_compute else [s.label for s, _ in incomplete],
         failing_steps=failing_steps,

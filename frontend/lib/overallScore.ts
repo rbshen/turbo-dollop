@@ -11,6 +11,18 @@ export const STEP_WEIGHTS = {
 
 export type StepKey = keyof typeof STEP_WEIGHTS;
 
+// Shared 0-69/70-90/91-100 verdict bands used everywhere else in the app
+// (see CLAUDE.md's "Scoring rubric deviations") -- must match backend
+// scoring/overall.py::_verdict_for exactly.
+export const STRONG_PASS_THRESHOLD = 90;
+export const PASS_THRESHOLD = 70;
+
+function verdictFor(score: number): "Strong Pass" | "Pass" | "Fail" {
+  if (score > STRONG_PASS_THRESHOLD) return "Strong Pass";
+  if (score >= PASS_THRESHOLD) return "Pass";
+  return "Fail";
+}
+
 export const IMPLEMENTED_STEPS = Object.keys(STEP_WEIGHTS).length;
 export const TOTAL_METHODOLOGY_STEPS = 5;
 
@@ -40,7 +52,7 @@ export interface StepBreakdownEntry {
 export interface OverallAssessment {
   status: "loading" | "complete" | "incomplete";
   score: number | null;
-  verdict: "Strong Pass" | "Pass" | null;
+  verdict: "Strong Pass" | "Pass" | "Fail" | null;
   breakdown: StepBreakdownEntry[];
   incompleteSteps: string[];
   failingSteps: string[];
@@ -108,10 +120,11 @@ export function computeOverallAssessment(steps: StepSnapshot[]): OverallAssessme
     status: canCompute ? "complete" : "incomplete",
     score,
     // No hard-fail override here -- deliberately a pure weighted average
-    // (unlike every individual step). A low score just reads as a low
-    // "Pass"; the failingSteps warning note is the separate, non-blocking
-    // signal for "worth reviewing directly".
-    verdict: score !== null ? (score > 90 ? "Strong Pass" : "Pass") : null,
+    // (unlike every individual step); the failingSteps warning note is the
+    // separate, non-blocking signal for "worth reviewing directly". The
+    // verdict BAND, though, must match the shared bands used everywhere
+    // else in the app -- a score under 70 showing "Pass" was a bug.
+    verdict: score !== null ? verdictFor(score) : null,
     breakdown: withStatus.map((s) => ({
       key: s.key,
       label: s.label,

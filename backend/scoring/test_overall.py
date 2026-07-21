@@ -114,6 +114,46 @@ def test_stays_silent_no_failing_steps_when_nothing_failed():
     assert result.failing_steps == []
 
 
+def test_score_under_70_shows_fail_not_pass():
+    # Mirrors CCL's real shape: a low blended score (well under 70) must
+    # read as "Fail", matching the shared 0-69/70-90/91-100 bands used
+    # everywhere else in the app -- previously this always read "Pass"
+    # regardless of how low the score was.
+    steps = [
+        snapshot("step1", "Step 1", 57, "Fail"),
+        snapshot("step2", "Step 2", 58, "Pass"),
+        snapshot("step4", "Step 4", 20, "Fail"),
+        snapshot("step5", "Step 5", 28, "Fail"),
+    ]
+    result = compute_overall_assessment(steps)
+    assert result.score < 70
+    assert result.verdict == "Fail"
+
+
+def test_score_of_exactly_70_is_pass_not_fail():
+    steps = [
+        snapshot("step1", "Step 1", 70, "Pass"),
+        snapshot("step2", "Step 2", 70, "Pass"),
+        snapshot("step4", "Step 4", 70, "Pass"),
+        snapshot("step5", "Step 5", 70, "Pass"),
+    ]
+    result = compute_overall_assessment(steps)
+    assert result.score == 70
+    assert result.verdict == "Pass"
+
+
+def test_score_of_69_is_fail():
+    steps = [
+        snapshot("step1", "Step 1", 69, "Pass"),
+        snapshot("step2", "Step 2", 69, "Pass"),
+        snapshot("step4", "Step 4", 69, "Pass"),
+        snapshot("step5", "Step 5", 69, "Pass"),
+    ]
+    result = compute_overall_assessment(steps)
+    assert result.score == 69
+    assert result.verdict == "Fail"
+
+
 def test_lists_every_failing_step_by_name_when_more_than_one_fails():
     steps = [
         snapshot("step1", "Step 1", 0, "Fail"),
