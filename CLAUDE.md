@@ -71,6 +71,34 @@ at each deviation point. Current deviations:
   has recovered past its own pre-dip peak, it scores 75 regardless of how
   recently the dip happened -- a fully resolved dip reads the same whether
   it was 5 years ago or last fiscal year.
+- **Margins' `sustained_decline` override (Rule 1) is gated on durable
+  reversal**, not unconditional. The 10yr+TTM window extension exposed the
+  same class of bug fixed in Step 4's CCC classifier: a sustained decline
+  occurring once anywhere in the window (frequently the COVID-2020 FY)
+  permanently capped the score at "gradually_compressing" even when the
+  company had since fully recovered to new highs. Confirmed affecting
+  128/499 tickers (26%), including MSCI, ADBE, CRM, TJX, PG, STE, VRSN. The
+  override now only applies if direction is still net negative, OR the
+  current (TTM) value is still below the early-window baseline `direction`
+  itself is measured against (deliberately not the single pre-decline
+  value, which is frequently an anomalous spike rather than a real
+  baseline — requiring re-exceedance of a spike would leave genuine
+  recoveries capped forever). Exempted cases read straight off the
+  stable/expanding check rather than falling through to Rule 2 (whose
+  independent per-series dip-count logic has its own separately-known
+  issues — see below) — falling through was found to actively worsen 16
+  tickers from 60 to 0 during verification. The sharp-decline check still
+  runs first regardless of reversal status, so a still-declining net
+  margin is never excused by an unrelated gross-side recovery.
+- **Rule 2's "wildly_inconsistent" trigger (2+ real dips netting flat) and
+  the fixed 2-point absolute dip threshold are known, separate issues, not
+  yet fixed.** Rule 2 fires independently per-series (gross OR net), so a
+  company with one genuinely choppy series and one clearly, strongly
+  improving series (e.g. GOOGL: net margin nearly doubled, direction
+  +14.6) can still land on the worst possible score. Separately, the
+  2-point absolute dip threshold isn't scaled to a company's margin level,
+  so naturally low-margin businesses (e.g. MCK, ~1-5% margins) can trip it
+  on ordinary noise. Both deferred pending a follow-up investigation.
 
 Step 2's source doc (`step2_positive_growth_rate_assessment_prompt.md`)
 calls for 3-4 independent platforms (GuruFocus, Finviz, Zacks, etc.) with
