@@ -7,6 +7,7 @@ import { ComingSoonPanel } from "@/components/ticker/ComingSoonPanel";
 import { FinancialsTab } from "@/components/ticker/FinancialsTab";
 import { SummaryTab } from "@/components/ticker/SummaryTab";
 import { TickerTabs } from "@/components/ticker/TickerTabs";
+import { ValuationTab } from "@/components/ticker/ValuationTab";
 import { DEFAULT_TICKER_TAB, type TickerTab } from "@/lib/tickerTabs";
 
 interface Props {
@@ -23,7 +24,7 @@ export function TickerTabsContainer({ ticker }: Props) {
       {tab === "financials" && <FinancialsTab ticker={ticker} />}
       {tab === "companyMetrics" && <ComingSoonPanel label="Company Metrics" />}
       {tab === "analysis" && <AnalysisTab ticker={ticker} />}
-      {tab === "valuation" && <ComingSoonPanel label="Valuation" />}
+      {tab === "valuation" && <ValuationTab ticker={ticker} />}
     </div>
   );
 }

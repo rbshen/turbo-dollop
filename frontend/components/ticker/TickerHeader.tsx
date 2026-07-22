@@ -53,7 +53,7 @@ export function TickerHeader({ symbol }: Props) {
           <span className="font-mono text-xl font-bold tabular-nums text-zinc-100">${data.price.toFixed(2)}</span>
         )}
         <PriceChange change={data.change} changePercent={data.change_percent} />
-        <FairValuePill verdict={data.fair_value_verdict} price={data.fair_value_price} />
+        <FairValuePill verdict={data.fair_value_verdict} price={data.fair_value_price} method={data.fair_value_method} />
       </div>
 
       {data.next_earnings_date && (

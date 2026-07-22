@@ -54,6 +54,9 @@ export interface TickerSummaryOut {
   outlier_warnings: OutlierWarning[];
   fair_value_price: number | null;
   fair_value_verdict: "undervalued" | "overvalued" | "fair" | null;
+  // e.g. "DCF" / "DFCF" / "DNI" / "DNI (Normalized)" / "P/B" / "PSG" -- null
+  // when Step 3 selected PASS (no valuation method applies).
+  fair_value_method: string | null;
 }
 
 export interface Step1TrendComponent {
@@ -285,4 +288,79 @@ export interface FinancialsOut {
   income_statement: FinancialsStatementOut;
   balance_sheet: FinancialsStatementOut;
   cash_flow: FinancialsStatementOut;
+}
+
+export type Step3Method = "DCF" | "DFCF" | "DNI" | "DNI_NORMALIZED" | "PRICE_TO_BOOK" | "PSG" | "PASS";
+
+export interface Step3MethodStep {
+  step: string;
+  check: string;
+  // null when the check couldn't run at all (missing data), distinct from
+  // a real false.
+  passed: boolean | null;
+  detail: string;
+}
+
+export interface Step3CapmComponents {
+  risk_free_rate: number;
+  market_risk_premium: number;
+  beta: number;
+  // True when beta < 0.8 -- outside the workbook's own manual reference
+  // table range. CAPM is still applied directly, not floored.
+  beta_outside_reference_range: boolean;
+}
+
+export interface Step3Inputs {
+  current_value: number | null;
+  current_value_label: string | null;
+  total_debt: number | null;
+  cash_and_st_investments: number | null;
+  // False when only cashAndCashEquivalents was available. True does NOT
+  // mean equity securities are excluded -- FMP has no equity-vs-debt split
+  // within short-term investments, so this toggle is "cash only" vs "cash +
+  // all short-term investments" (undifferentiated), not a true
+  // equity-holdings exclusion.
+  cash_and_st_investments_includes_short_term_investments: boolean;
+  growth_yr_1_5: number | null;
+  growth_yr_6_10: number | null;
+  growth_yr_11_20: number;
+  growth_yr_1_5_source: string | null;
+  shares_outstanding: number | null;
+  shares_outstanding_source: string | null;
+  discount_rate: number | null;
+  capm: Step3CapmComponents | null;
+  current_fiscal_year: string | null;
+  fx_rate: number;
+  last_close: number | null;
+  // Price-to-Book inputs.
+  book_value_per_share: number | null;
+  historical_pb_ratios: number[] | null;
+  pb_lookback: string | null;
+  // PSG inputs.
+  sales_per_share: number | null;
+  projected_growth_rate: number | null;
+  fair_psg_ratio: number | null;
+}
+
+export interface Step3PBBands {
+  minus_2sd: number;
+  minus_1sd: number;
+  mean: number;
+  plus_1sd: number;
+  plus_2sd: number;
+}
+
+export interface Step3Out {
+  ticker: string;
+  company_type: string;
+  classification_note: string;
+  selected_method: Step3Method;
+  method_reasoning: Step3MethodStep[];
+  // Set only when selected_method === "PASS".
+  pass_reason: string | null;
+  inputs: Step3Inputs;
+  intrinsic_value_per_share: number | null;
+  pb_bands: Step3PBBands | null;
+  discount_premium_pct: number | null;
+  verdict: "undervalued" | "overvalued" | "fair" | null;
 }
