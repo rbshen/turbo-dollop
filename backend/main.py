@@ -5,12 +5,15 @@ from fastapi import FastAPI, HTTPException
 from sqlmodel import Session, func, select
 
 from db import engine, init_db
+from discount_rate_config import get_discount_rate_config, update_discount_rate_config
 from logging_config import apply_redaction_filters
 from models import IndexConstituent, TickerScore
 from recompute_ticker_scores import recompute_all
 from refresh import clear_ticker_cache
 from financials_data import get_financials_data
 from schemas import (
+    DiscountRateConfigIn,
+    DiscountRateConfigOut,
     FinancialsOut,
     RecomputeSummary,
     RefreshResult,
@@ -45,6 +48,20 @@ app = FastAPI(title="Fathom", lifespan=lifespan)
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/api/config/discount-rate", response_model=DiscountRateConfigOut)
+def discount_rate_config() -> DiscountRateConfigOut:
+    with Session(engine) as session:
+        row = get_discount_rate_config(session)
+    return DiscountRateConfigOut(**row.model_dump())
+
+
+@app.put("/api/config/discount-rate", response_model=DiscountRateConfigOut)
+def update_discount_rate(body: DiscountRateConfigIn) -> DiscountRateConfigOut:
+    with Session(engine) as session:
+        row = update_discount_rate_config(session, body.risk_free_rate, body.market_risk_premium)
+    return DiscountRateConfigOut(**row.model_dump())
 
 
 @app.get("/api/tickers/{ticker}/summary", response_model=TickerSummaryOut)

@@ -1,11 +1,10 @@
-from datetime import date
-
 from sqlmodel import Session
 
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
 from debt_metrics import compute_debt_metrics
+from discount_rate_config import get_discount_rate_config
 from fmp_client import fmp_client
 from schemas import Step3CapmComponents, Step3Inputs, Step3MethodStep, Step3Out, Step3PBBands
 from scoring.classification import classify_company_type
@@ -36,9 +35,6 @@ GROWTH_YR_6_10_CAP = 0.15
 # 10yr+TTM convention elsewhere -- see CLAUDE.md's Step 1/4 deviations).
 PB_LOOKBACK_LONG = 10
 PB_LOOKBACK_SHORT = 5
-# Historical 10yr Treasury yields averaged over the last N completed
-# calendar year-ends, per spec §5.
-TREASURY_LOOKBACK_YEARS = 5
 
 
 def _first(data: dict | list) -> dict:
@@ -54,27 +50,6 @@ def _annual_series(annual_rows: list[dict], field: str) -> tuple[list[str], list
     years = [row.get("fiscalYear", row.get("date", "")[:4]) for row in rows]
     values = [row.get(field) for row in rows]
     return years, values
-
-
-def _year_end_risk_free_rate(treasury_rows: list[dict]) -> float | None:
-    """Average of the last TREASURY_LOOKBACK_YEARS distinct calendar
-    year-ends' 10yr Treasury yield. `treasury_rows` is most-recent-first
-    (FMP's own ordering); the first row encountered for a given calendar
-    year is that year's latest (year-end) reading."""
-    today = date.today()
-    target_years = set(range(today.year - TREASURY_LOOKBACK_YEARS, today.year))
-    seen: dict[int, float] = {}
-    for row in treasury_rows:
-        row_date = row.get("date")
-        rate = row.get("year10")
-        if not row_date or rate is None:
-            continue
-        year = int(row_date[:4])
-        if year in target_years and year not in seen:
-            seen[year] = rate
-    if not seen:
-        return None
-    return (sum(seen.values()) / len(seen)) / 100
 
 
 def _shares_outstanding(quote: dict, income_quarterly: list[dict]) -> tuple[float | None, str | None]:
@@ -111,7 +86,6 @@ async def get_step3_data(
     the math in exactly one place instead of duplicating it in TypeScript."""
     ticker = ticker.upper()
     staleness_days = settings.cache_staleness_days
-    today = date.today()
 
     with Session(engine) as session:
         profile = _first(
@@ -212,23 +186,11 @@ async def get_step3_data(
                 cache_only,
             ),
         )
-        # Date-ranged, so the natural (ticker, statement_type, period) cache
-        # key needs the range baked into `period` -- otherwise a request
-        # made a year from now would incorrectly reuse this year's cached
-        # window forever.
-        treasury_period_key = f"last_{TREASURY_LOOKBACK_YEARS}y_ending_{today.year - 1}"
-        treasury_rates = await safe_fetch(
-            "treasury_rates",
-            get_or_fetch(
-                session,
-                ticker,
-                "treasury_rates",
-                treasury_period_key,
-                lambda: fmp_client.get_treasury_rates(f"{today.year - TREASURY_LOOKBACK_YEARS}-01-01", f"{today.year - 1}-12-31"),
-                staleness_days,
-                cache_only,
-            ),
-        )
+        # Risk-Free Rate and Market Risk Premium are both manual, human-
+        # maintained settings (see /settings and CLAUDE.md) -- read inside
+        # this session block since discount_rate_config.py's helper takes a
+        # Session, not fetched from FMP like everything else above.
+        discount_rate_row = get_discount_rate_config(session)
 
     income_annual = income_annual if isinstance(income_annual, list) else []
     income_quarterly = income_quarterly if isinstance(income_quarterly, list) else []
@@ -236,7 +198,6 @@ async def get_step3_data(
     cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
     balance_sheet_quarterly = balance_sheet_quarterly if isinstance(balance_sheet_quarterly, list) else []
     ratios_annual = ratios_annual if isinstance(ratios_annual, list) else []
-    treasury_rates = treasury_rates if isinstance(treasury_rates, list) else []
     balance_sheet_latest = _first(balance_sheet_quarterly)
 
     company_type = classify_company_type(profile.get("sector"), profile.get("industry"))
@@ -306,12 +267,11 @@ async def get_step3_data(
 
     shares_outstanding, shares_source = _shares_outstanding(quote, income_quarterly)
 
-    risk_free_rate = _year_end_risk_free_rate(treasury_rates)
     beta = profile.get("beta")
     capm = None
     discount_rate = None
-    if risk_free_rate is not None and beta is not None:
-        capm_result = compute_capm(risk_free_rate, settings.market_risk_premium_us, beta)
+    if beta is not None:
+        capm_result = compute_capm(discount_rate_row.risk_free_rate, discount_rate_row.market_risk_premium, beta)
         discount_rate = capm_result["discount_rate"]
         capm = Step3CapmComponents(
             risk_free_rate=capm_result["risk_free_rate"],

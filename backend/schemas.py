@@ -319,6 +319,18 @@ class Step3Out(BaseModel):
     verdict: str | None = None
 
 
+class DiscountRateConfigOut(BaseModel):
+    region: str
+    risk_free_rate: float
+    market_risk_premium: float
+    updated_at: datetime
+
+
+class DiscountRateConfigIn(BaseModel):
+    risk_free_rate: float
+    market_risk_premium: float
+
+
 class TickerScoreOut(BaseModel):
     """A pre-computed row for the Screener page (see ticker_score.py) --
     denormalized from the same 5 functions Step 1/2/4/5 and the ticker

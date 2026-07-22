@@ -47,6 +47,24 @@ class GrowthCatalystNote(SQLModel, table=True):
     updated_at: datetime
 
 
+class DiscountRateConfig(SQLModel, table=True):
+    """Manually-maintained CAPM inputs for Step 3's discount rate (see
+    step6_intrinsic_value_calculation_prompt.md §5) -- Risk-Free Rate and
+    Market Risk Premium are both 5-year trailing averages sourced from
+    market-risk-premia.com, deliberately not auto-fetched (that source's
+    terms only support citing the number, not automated re-fetching; see
+    CLAUDE.md). Editable via the /settings page. Keyed by region so a
+    China/HK row can be added later without a schema change, even though
+    only "US" is exposed in the UI today -- this app's screener is S&P 500
+    (US-listed) only. Beta stays live per-ticker from FMP, untouched by
+    this table."""
+
+    region: str = Field(primary_key=True)
+    risk_free_rate: float
+    market_risk_premium: float
+    updated_at: datetime
+
+
 class TickerScore(SQLModel, table=True):
     """Pre-computed Step 1/2/4/5 + Overall Assessment scores for the
     Screener page (see ticker_score.py) -- a denormalized read-model kept

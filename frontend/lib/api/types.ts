@@ -350,6 +350,16 @@ export interface Step3PBBands {
   plus_2sd: number;
 }
 
+export interface DiscountRateConfigOut {
+  region: string;
+  // Decimal fractions (e.g. 0.03608 for 3.608%), 5-year trailing averages
+  // per step6_intrinsic_value_calculation_prompt.md §5 -- manually
+  // maintained, not auto-fetched. See /settings.
+  risk_free_rate: number;
+  market_risk_premium: number;
+  updated_at: string;
+}
+
 export interface Step3Out {
   ticker: string;
   company_type: string;
