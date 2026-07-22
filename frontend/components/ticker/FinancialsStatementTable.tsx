@@ -72,7 +72,11 @@ export function FinancialsStatementTable({ data }: Props) {
                 {group.label && (
                   <tr>
                     {data.periods.map((_, i) => (
-                      <td key={i} className="border-b border-zinc-900 pt-4 pb-1" />
+                      // text-xs matches the label column's group-header row (line 37) --
+                      // without it this cell inherits text-sm from the table and the row
+                      // grows taller than its label-side counterpart, drifting the two
+                      // tables out of vertical alignment by a few px per group.
+                      <td key={i} className="border-b border-zinc-900 pt-4 pb-1 text-xs" />
                     ))}
                   </tr>
                 )}
