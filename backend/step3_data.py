@@ -1,0 +1,372 @@
+from datetime import date
+
+from sqlmodel import Session
+
+from cache import get_or_fetch, safe_fetch
+from config import settings
+from db import engine
+from debt_metrics import compute_debt_metrics
+from fmp_client import fmp_client
+from schemas import Step3CapmComponents, Step3Inputs, Step3MethodStep, Step3Out
+from scoring.classification import classify_company_type
+from scoring.step3 import compute_capm, normalize_fcf, select_method
+from step2_data import get_step2_data
+from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
+
+# Workbook default (step6_intrinsic_value_calculation_prompt.md §4.1) --
+# never automated, matches the source spreadsheet's own fallback.
+FAIR_PSG_RATIO_DEFAULT = 0.2
+# Confirmed with the user: matches the spec's own worked example and
+# standard long-term/GDP-growth DCF convention. User-editable per ticker in
+# the UI (Phase 3) -- this is only the pre-filled default.
+TERMINAL_GROWTH_RATE_DEFAULT = 0.04
+# P/B lookback per spec §3.1 -- only "5 years" or "10 years" are valid, pick
+# the longer window when enough history exists (matches this app's existing
+# 10yr+TTM convention elsewhere -- see CLAUDE.md's Step 1/4 deviations).
+PB_LOOKBACK_LONG = 10
+PB_LOOKBACK_SHORT = 5
+# Historical 10yr Treasury yields averaged over the last N completed
+# calendar year-ends, per spec §5.
+TREASURY_LOOKBACK_YEARS = 5
+
+
+def _first(data: dict | list) -> dict:
+    if isinstance(data, list):
+        return data[0] if data else {}
+    return data or {}
+
+
+def _annual_series(annual_rows: list[dict], field: str) -> tuple[list[str], list[float | None]]:
+    # FMP returns annual rows most-recent-first; reverse to chronological
+    # (oldest fiscal year first) -- same idiom as step1_data.py/step4_data.py.
+    rows = list(reversed(annual_rows))
+    years = [row.get("fiscalYear", row.get("date", "")[:4]) for row in rows]
+    values = [row.get(field) for row in rows]
+    return years, values
+
+
+def _year_end_risk_free_rate(treasury_rows: list[dict]) -> float | None:
+    """Average of the last TREASURY_LOOKBACK_YEARS distinct calendar
+    year-ends' 10yr Treasury yield. `treasury_rows` is most-recent-first
+    (FMP's own ordering); the first row encountered for a given calendar
+    year is that year's latest (year-end) reading."""
+    today = date.today()
+    target_years = set(range(today.year - TREASURY_LOOKBACK_YEARS, today.year))
+    seen: dict[int, float] = {}
+    for row in treasury_rows:
+        row_date = row.get("date")
+        rate = row.get("year10")
+        if not row_date or rate is None:
+            continue
+        year = int(row_date[:4])
+        if year in target_years and year not in seen:
+            seen[year] = rate
+    if not seen:
+        return None
+    return (sum(seen.values()) / len(seen)) / 100
+
+
+def _shares_outstanding(quote: dict, income_quarterly: list[dict]) -> tuple[float | None, str | None]:
+    """Prefers marketCap/price (both instant quote-level figures, per spec
+    gotcha #2's "most recent instant" rule) over the income statement's
+    weightedAverageShsOutDil, which is a period-average flow figure, not an
+    instant share count -- used only as a fallback when quote data is
+    incomplete."""
+    market_cap, price = quote.get("marketCap"), quote.get("price")
+    if market_cap and price:
+        return market_cap / price, "marketCap / price (latest quote)"
+    latest_quarter = _first(income_quarterly)
+    shares = latest_quarter.get("weightedAverageShsOutDil")
+    if shares:
+        return shares, "weightedAverageShsOutDil (latest quarter, diluted)"
+    return None, None
+
+
+async def get_step3_data(ticker: str, cache_only: bool = False) -> Step3Out:
+    """`cache_only=True` (used by ticker_score.py's recompute path) reads
+    only whatever's already cached and never calls FMP -- see
+    cache.get_or_fetch's own cache_only branch."""
+    ticker = ticker.upper()
+    staleness_days = settings.cache_staleness_days
+    today = date.today()
+
+    with Session(engine) as session:
+        profile = _first(
+            await safe_fetch(
+                "profile",
+                get_or_fetch(
+                    session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days, cache_only
+                ),
+            )
+        )
+        quote = _first(
+            await safe_fetch(
+                "quote",
+                get_or_fetch(
+                    session, ticker, "quote", "latest", lambda: fmp_client.get_quote(ticker), staleness_days, cache_only
+                ),
+            )
+        )
+        # Same cache key + limit Step 1/Step 4 already populate
+        # ("income_statement"/"annual", limit 10).
+        income_annual = await safe_fetch(
+            "income_statement_annual",
+            get_or_fetch(
+                session,
+                ticker,
+                "income_statement",
+                "annual",
+                lambda: fmp_client.get_income_statement(ticker, "annual", 10),
+                staleness_days,
+                cache_only,
+            ),
+        )
+        income_quarterly = await safe_fetch(
+            "income_statement_quarterly",
+            get_or_fetch(
+                session,
+                ticker,
+                "income_statement",
+                "quarterly",
+                lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
+                staleness_days,
+                cache_only,
+            ),
+        )
+        cash_flow_annual = await safe_fetch(
+            "cash_flow_statement_annual",
+            get_or_fetch(
+                session,
+                ticker,
+                "cash_flow_statement",
+                "annual",
+                lambda: fmp_client.get_cash_flow_statement(ticker, "annual", 10),
+                staleness_days,
+                cache_only,
+            ),
+        )
+        cash_flow_quarterly = await safe_fetch(
+            "cash_flow_statement_quarterly",
+            get_or_fetch(
+                session,
+                ticker,
+                "cash_flow_statement",
+                "quarterly",
+                lambda: fmp_client.get_cash_flow_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
+                staleness_days,
+                cache_only,
+            ),
+        )
+        # Same cache key Step 4/Step 5 already populate
+        # ("balance_sheet_statement"/"quarterly", limit TOTAL_QUARTERS_NEEDED)
+        # -- this call site only reads row 0 (latest quarter), per spec
+        # gotcha #2 (latest instant, not FY-end).
+        balance_sheet_quarterly = await safe_fetch(
+            "balance_sheet_statement_quarterly",
+            get_or_fetch(
+                session,
+                ticker,
+                "balance_sheet_statement",
+                "quarterly",
+                lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
+                staleness_days,
+                cache_only,
+            ),
+        )
+        # New cache key: 10yr annual ratios history (P/B bands + latest
+        # book/sales-per-share) -- distinct from ticker_summary.py's
+        # "ratios"/"latest" key (limit=1), so the two never fight over the
+        # same cache row despite both hitting /ratios.
+        ratios_annual = await safe_fetch(
+            "ratios_annual_10y",
+            get_or_fetch(
+                session,
+                ticker,
+                "ratios",
+                "annual_10y",
+                lambda: fmp_client.get_ratios(ticker, "annual", 10),
+                staleness_days,
+                cache_only,
+            ),
+        )
+        # Date-ranged, so the natural (ticker, statement_type, period) cache
+        # key needs the range baked into `period` -- otherwise a request
+        # made a year from now would incorrectly reuse this year's cached
+        # window forever.
+        treasury_period_key = f"last_{TREASURY_LOOKBACK_YEARS}y_ending_{today.year - 1}"
+        treasury_rates = await safe_fetch(
+            "treasury_rates",
+            get_or_fetch(
+                session,
+                ticker,
+                "treasury_rates",
+                treasury_period_key,
+                lambda: fmp_client.get_treasury_rates(f"{today.year - TREASURY_LOOKBACK_YEARS}-01-01", f"{today.year - 1}-12-31"),
+                staleness_days,
+                cache_only,
+            ),
+        )
+
+    income_annual = income_annual if isinstance(income_annual, list) else []
+    income_quarterly = income_quarterly if isinstance(income_quarterly, list) else []
+    cash_flow_annual = cash_flow_annual if isinstance(cash_flow_annual, list) else []
+    cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
+    balance_sheet_quarterly = balance_sheet_quarterly if isinstance(balance_sheet_quarterly, list) else []
+    ratios_annual = ratios_annual if isinstance(ratios_annual, list) else []
+    treasury_rates = treasury_rates if isinstance(treasury_rates, list) else []
+    balance_sheet_latest = _first(balance_sheet_quarterly)
+
+    company_type = classify_company_type(profile.get("sector"), profile.get("industry"))
+
+    years, revenue_annual = _annual_series(income_annual, "revenue")
+    _, net_income_annual = _annual_series(income_annual, "netIncome")
+
+    cash_flow_by_year = {row.get("fiscalYear"): row for row in cash_flow_annual}
+    cfo_annual = [cash_flow_by_year.get(year, {}).get("netCashProvidedByOperatingActivities") for year in years]
+    # capitalExpenditure is already negative (cash outflow) in FMP's schema
+    # -- FCF = CFO + capitalExpenditure, not CFO - capitalExpenditure.
+    capex_annual = [cash_flow_by_year.get(year, {}).get("capitalExpenditure") for year in years]
+    fcf_annual = [c + x if c is not None and x is not None else None for c, x in zip(cfo_annual, capex_annual)]
+
+    revenue_ttm = sum_last_four_quarters(income_quarterly, "revenue").total
+    net_income_ttm = sum_last_four_quarters(income_quarterly, "netIncome").total
+    cfo_ttm = sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities").total
+    capex_ttm = sum_last_four_quarters(cash_flow_quarterly, "capitalExpenditure").total
+    fcf_ttm = cfo_ttm + capex_ttm if cfo_ttm is not None and capex_ttm is not None else None
+
+    # Clean (no-None), chronological series for the method-selection tree --
+    # trend classification needs a gap-free run, same convention step1_data.py
+    # uses for classify_trend's own inputs. cfo/capex are filtered jointly
+    # (not independently) since normalize_fcf zips them positionally --
+    # independent filtering could silently misalign "this year's CFO" with
+    # "a different year's CapEx" if one series has a stray missing year the
+    # other doesn't (see step4_data.py's _clean_aligned for the same concern).
+    revenue_clean = [v for v in revenue_annual if v is not None] + ([revenue_ttm] if revenue_ttm is not None else [])
+    net_income_clean = [v for v in net_income_annual if v is not None] + ([net_income_ttm] if net_income_ttm is not None else [])
+    fcf_clean = [v for v in fcf_annual if v is not None] + ([fcf_ttm] if fcf_ttm is not None else [])
+
+    cfo_capex_pairs = [(c, x) for c, x in zip(cfo_annual, capex_annual) if c is not None and x is not None]
+    if cfo_ttm is not None and capex_ttm is not None:
+        cfo_capex_pairs.append((cfo_ttm, capex_ttm))
+    cfo_clean = [c for c, _ in cfo_capex_pairs]
+    capex_clean = [x for _, x in cfo_capex_pairs]
+
+    selection = select_method(
+        company_type=company_type,
+        cfo_series=cfo_clean,
+        cfo_ttm=cfo_ttm,
+        net_income_series=net_income_clean,
+        net_income_ttm=net_income_ttm,
+        fcf_series=fcf_clean,
+        capex_series=capex_clean,
+        revenue_series=revenue_clean,
+    )
+    trail = [
+        Step3MethodStep(step=s.step, check=s.check, passed=s.passed, detail=s.detail) for s in selection.decision_trail
+    ]
+
+    # Zero/near-zero debt should read as 0, never a fabricated/missing value
+    # (spec gotcha #6) -- compute_debt_metrics already implements exactly
+    # this rule, shared with Step 5 and the ticker header.
+    debt_metrics = compute_debt_metrics(balance_sheet_latest, income_quarterly)
+
+    cash_only = balance_sheet_latest.get("cashAndCashEquivalents")
+    cash_incl_st_investments = balance_sheet_latest.get("cashAndShortTermInvestments")
+    # FMP's standardized schema has no equity-vs-debt split within short-term
+    # investments (confirmed by inspecting JPM/AAPL/GOOGL/MSFT payloads) --
+    # so the spec's "include equity-security holdings?" toggle is
+    # approximated as "cash only" vs "cash + all short-term investments"
+    # (which may include equity positions, undifferentiated). Defaults to
+    # the combined figure; Phase 3 exposes both for the user-visible toggle
+    # the spec explicitly asks for.
+    cash_and_st_investments = cash_incl_st_investments if cash_incl_st_investments is not None else cash_only
+
+    shares_outstanding, shares_source = _shares_outstanding(quote, income_quarterly)
+
+    risk_free_rate = _year_end_risk_free_rate(treasury_rates)
+    beta = profile.get("beta")
+    capm = None
+    discount_rate = None
+    if risk_free_rate is not None and beta is not None:
+        capm_result = compute_capm(risk_free_rate, settings.market_risk_premium_us, beta)
+        discount_rate = capm_result["discount_rate"]
+        capm = Step3CapmComponents(
+            risk_free_rate=capm_result["risk_free_rate"],
+            market_risk_premium=capm_result["market_risk_premium"],
+            beta=capm_result["beta"],
+            beta_outside_reference_range=capm_result["beta_outside_reference_range"],
+        )
+
+    step2_out = await get_step2_data(ticker, cache_only)
+    growth_yr_1_5 = step2_out.growth_rate / 100 if step2_out.growth_rate is not None else None
+    growth_yr_1_5_source = (
+        f"Step 2 analyst-estimate CAGR ({step2_out.basis} basis)" if step2_out.growth_rate is not None else None
+    )
+
+    current_fiscal_year = years[-1] if years else None
+
+    normalized_fcf_series = normalize_fcf(cfo_clean, capex_clean) if selection.current_value_source == "fcf_normalized" else None
+    current_value_by_source = {
+        "cfo_ttm": cfo_ttm,
+        "fcf_ttm": fcf_ttm,
+        "fcf_normalized": normalized_fcf_series[-1] if normalized_fcf_series else None,
+        "net_income_ttm": net_income_ttm,
+        "net_income_smoothed": (
+            sum(net_income_clean[-5:]) / len(net_income_clean[-5:]) if net_income_clean else None
+        ),
+    }
+    current_value = current_value_by_source.get(selection.current_value_source) if selection.current_value_source else None
+    current_value_labels = {
+        "cfo_ttm": "Operating Cash Flow (Current)",
+        "fcf_ttm": "Free Cash Flow (Current)",
+        "fcf_normalized": "Free Cash Flow (Normalized, 5yr avg CapEx)",
+        "net_income_ttm": "Net Income (Current)",
+        "net_income_smoothed": "Net Income (Smoothed, 5yr avg)",
+    }
+    current_value_label = current_value_labels.get(selection.current_value_source) if selection.current_value_source else None
+
+    # P/B inputs.
+    pb_history = [row.get("priceToBookRatio") for row in ratios_annual if row.get("priceToBookRatio") is not None]
+    pb_lookback = None
+    if len(pb_history) >= PB_LOOKBACK_LONG:
+        pb_lookback = f"{PB_LOOKBACK_LONG} years"
+    elif len(pb_history) >= PB_LOOKBACK_SHORT:
+        pb_lookback = f"{PB_LOOKBACK_SHORT} years"
+    book_value_per_share = _first(ratios_annual).get("bookValuePerShare")
+
+    # PSG inputs.
+    sales_per_share = _first(ratios_annual).get("revenuePerShare")
+
+    inputs = Step3Inputs(
+        current_value=current_value,
+        current_value_label=current_value_label,
+        total_debt=debt_metrics.total_debt,
+        cash_and_st_investments=cash_and_st_investments,
+        cash_and_st_investments_includes_short_term_investments=cash_incl_st_investments is not None,
+        growth_yr_1_5=growth_yr_1_5,
+        growth_yr_6_10=growth_yr_1_5,
+        growth_yr_11_20=TERMINAL_GROWTH_RATE_DEFAULT,
+        growth_yr_1_5_source=growth_yr_1_5_source,
+        shares_outstanding=shares_outstanding,
+        shares_outstanding_source=shares_source,
+        discount_rate=discount_rate,
+        capm=capm,
+        current_fiscal_year=current_fiscal_year,
+        fx_rate=1.0,
+        last_close=quote.get("price"),
+        book_value_per_share=book_value_per_share,
+        historical_pb_ratios=pb_history or None,
+        pb_lookback=pb_lookback,
+        sales_per_share=sales_per_share,
+        projected_growth_rate=growth_yr_1_5,
+        fair_psg_ratio=FAIR_PSG_RATIO_DEFAULT,
+    )
+
+    return Step3Out(
+        ticker=ticker,
+        company_type=company_type,
+        selected_method=selection.method,
+        method_reasoning=trail,
+        pass_reason=selection.pass_reason,
+        inputs=inputs,
+    )

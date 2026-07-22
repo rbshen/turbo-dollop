@@ -17,6 +17,7 @@ from schemas import (
     ScreenerMeta,
     Step1Out,
     Step2Out,
+    Step3Out,
     Step4Out,
     Step5Out,
     TickerScoreOut,
@@ -24,6 +25,7 @@ from schemas import (
 )
 from step1_data import get_step1_data
 from step2_data import get_step2_data
+from step3_data import get_step3_data
 from step4_data import get_step4_data
 from step5_data import get_step5_data
 from ticker_summary import get_summary
@@ -77,6 +79,20 @@ async def ticker_step1(ticker: str) -> Step1Out:
 async def ticker_step2(ticker: str) -> Step2Out:
     try:
         return await get_step2_data(ticker)
+    except httpx.HTTPError as exc:
+        # Not f"...{exc}": httpx's exception message embeds the full request
+        # URL, apikey included -- every FMP fetch site already goes through
+        # cache.safe_fetch (which swallows httpx.HTTPError entirely), so
+        # this branch is currently dead in practice, but a raw exc here
+        # would leak the key into the response body the moment that stops
+        # being true for some future call site.
+        raise HTTPException(status_code=502, detail="FMP request failed") from exc
+
+
+@app.get("/api/tickers/{ticker}/step3", response_model=Step3Out)
+async def ticker_step3(ticker: str) -> Step3Out:
+    try:
+        return await get_step3_data(ticker)
     except httpx.HTTPError as exc:
         # Not f"...{exc}": httpx's exception message embeds the full request
         # URL, apikey included -- every FMP fetch site already goes through

@@ -81,8 +81,11 @@ class FMPClient:
     async def get_analyst_estimates(self, ticker: str) -> dict | list:
         return await self.get("/analyst-estimates", {"symbol": ticker, "period": "annual", "limit": 10})
 
-    async def get_ratios(self, ticker: str) -> dict | list:
-        return await self.get("/ratios", {"symbol": ticker, "limit": 1})
+    async def get_ratios(self, ticker: str, period: str = "annual", limit: int = 1) -> dict | list:
+        return await self.get("/ratios", {"symbol": ticker, "period": period, "limit": limit})
+
+    async def get_treasury_rates(self, from_date: str, to_date: str) -> dict | list:
+        return await self.get("/treasury-rates", {"from": from_date, "to": to_date})
 
     async def get_earnings(self, ticker: str) -> dict | list:
         return await self.get("/earnings", {"symbol": ticker, "limit": 8})

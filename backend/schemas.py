@@ -219,6 +219,100 @@ class Step4Out(BaseModel):
     components: dict = {}
 
 
+class Step3MethodStep(BaseModel):
+    """One node of the method-selection decision trail (see scoring/step3.py
+    ::select_method) -- surfaced in full so the UI can show *why* a method
+    was picked, not just the answer."""
+
+    step: str
+    check: str
+    # None when the check couldn't run at all (missing data), not the same
+    # as a real False.
+    passed: bool | None
+    detail: str
+
+
+class Step3CapmComponents(BaseModel):
+    risk_free_rate: float
+    market_risk_premium: float
+    beta: float
+    # True when beta < 0.8 -- outside the workbook's own manual reference
+    # table range (see step6_intrinsic_value_calculation_prompt.md §5).
+    # CAPM is still applied directly, not floored; this is informational.
+    beta_outside_reference_range: bool
+
+
+class Step3Inputs(BaseModel):
+    # --- 20yr engine inputs (DCF / DFCF / DNI) ---
+    current_value: float | None = None
+    current_value_label: str | None = None
+    total_debt: float | None = None
+    cash_and_st_investments: float | None = None
+    # False when only cashAndCashEquivalents was available (no separate
+    # short-term-investments figure to add in). True does NOT mean equity
+    # securities are excluded -- FMP's standardized schema has no
+    # equity-vs-debt split within short-term investments (confirmed against
+    # JPM/AAPL/GOOGL/MSFT), so the spec's "include equity holdings?" toggle
+    # is approximated as "cash only" vs "cash + all short-term investments"
+    # (undifferentiated) rather than a true equity-securities exclusion.
+    cash_and_st_investments_includes_short_term_investments: bool = False
+    growth_yr_1_5: float | None = None
+    growth_yr_6_10: float | None = None
+    growth_yr_11_20: float
+    # e.g. "Step 2 analyst-estimate CAGR (revenue basis)" -- None means no
+    # Step 2 growth rate was available for this ticker.
+    growth_yr_1_5_source: str | None = None
+    shares_outstanding: float | None = None
+    shares_outstanding_source: str | None = None
+    discount_rate: float | None = None
+    capm: Step3CapmComponents | None = None
+    current_fiscal_year: str | None = None
+    # Hardcoded 1.0 for now -- this app's screener is S&P 500 (US-listed,
+    # USD-denominated) only, so the spec's HK/China cross-currency branch
+    # isn't built. Revisit if non-US tickers are ever added.
+    fx_rate: float = 1.0
+    last_close: float | None = None
+
+    # --- Price-to-Book inputs ---
+    book_value_per_share: float | None = None
+    historical_pb_ratios: list[float] | None = None
+    pb_lookback: str | None = None
+
+    # --- PSG inputs ---
+    sales_per_share: float | None = None
+    projected_growth_rate: float | None = None
+    fair_psg_ratio: float | None = None
+
+
+class Step3PBBands(BaseModel):
+    minus_2sd: float
+    minus_1sd: float
+    mean: float
+    plus_1sd: float
+    plus_2sd: float
+
+
+class Step3Out(BaseModel):
+    ticker: str
+    # "Standard" / "Bank" / "Insurance" / "Utility" / "REIT/Property
+    # Developer" -- best-effort sector/industry text match, shared with
+    # Step 4/Step 5 (see CLAUDE.md's "Scoring rubric deviations").
+    company_type: str
+    classification_note: str = "Best-effort classification from sector/industry text — not a certified determination."
+    # DCF | DFCF | DNI | DNI_NORMALIZED | PRICE_TO_BOOK | PSG | PASS
+    selected_method: str
+    method_reasoning: list[Step3MethodStep] = []
+    # Set only when selected_method == "PASS".
+    pass_reason: str | None = None
+    inputs: Step3Inputs
+    # Below: None until the calculation engine runs (Phase 2).
+    intrinsic_value_per_share: float | None = None
+    pb_bands: Step3PBBands | None = None
+    discount_premium_pct: float | None = None
+    # "undervalued" / "fair" / "overvalued" -- None until Phase 2.
+    verdict: str | None = None
+
+
 class TickerScoreOut(BaseModel):
     """A pre-computed row for the Screener page (see ticker_score.py) --
     denormalized from the same 5 functions Step 1/2/4/5 and the ticker
