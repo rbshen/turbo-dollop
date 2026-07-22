@@ -145,6 +145,14 @@ def test_cash_flow_annual_ttm_is_summed_from_quarters():
     assert cfo_row.emphasis is True
 
 
+def test_annual_ttm_label_includes_latest_quarter_date_when_available():
+    dated_quarterly = [{**row, "date": "2026-06-30"} for row in FAKE_INCOME_QUARTERLY]
+    period = financials_data._annual_period(
+        FAKE_INCOME_ANNUAL, dated_quarterly, [(None, INCOME_STATEMENT_FIELDS)], ttm_mode="sum"
+    )
+    assert period.periods[-1] == "TTM (2026-06-30)"
+
+
 def test_quarterly_period_has_no_ttm_column():
     period = financials_data._quarterly_period(FAKE_INCOME_QUARTERLY, [(None, INCOME_STATEMENT_FIELDS)])
     assert len(period.periods) == TOTAL_QUARTERS_NEEDED

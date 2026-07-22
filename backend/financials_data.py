@@ -202,7 +202,11 @@ def _trim_and_pad(rows: list[dict], count: int) -> list[dict]:
 def _annual_labels(rows: list[dict], count: int) -> list[str]:
     trimmed = list(reversed(rows[:count]))
     pad = count - len(trimmed)
-    return ["—"] * pad + [r.get("fiscalYear", r.get("date", "")[:4]) for r in trimmed]
+    # Bare year only -- fiscalYear preferred, falling back to the period-end
+    # date's year for rows/fixtures without it. The TTM column is the one
+    # place a full date is shown (see _annual_period), since "TTM" alone
+    # doesn't say which date it's as-of.
+    return ["—"] * pad + [r.get("fiscalYear") or r.get("date", "—")[:4] for r in trimmed]
 
 
 def _quarter_label(row: dict) -> str:
@@ -266,7 +270,10 @@ def _annual_period(
     labels = _annual_labels(annual_rows, ANNUAL_WINDOW)
     ttm_row = _ttm_row_summed(quarterly_rows, grouped_fields) if ttm_mode == "sum" else _ttm_row_latest(quarterly_rows)
     rows = rows + [ttm_row]
-    labels = labels + ["TTM"]
+    # TTM is the one annual column that keeps a full date -- "TTM" alone
+    # doesn't say which date it's as-of, unlike a bare fiscal year.
+    ttm_date = quarterly_rows[0].get("date") if quarterly_rows else None
+    labels = labels + [f"TTM ({ttm_date})" if ttm_date else "TTM"]
     return FinancialsPeriodOut(periods=labels, groups=_build_groups(rows, grouped_fields))
 
 
