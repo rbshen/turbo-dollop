@@ -67,9 +67,15 @@ class TickerSummaryOut(BaseModel):
     interest_expense_ttm: float | None = None
     interest_income_ttm: float | None = None
     outlier_warnings: list[OutlierWarning] = []
-    # Placeholder only — real fair value calculation is out of scope for this phase.
+    # Sourced from Step 3's valuation result (see step3_data.py::get_step3_data)
+    # -- None when Step 3 selected PASS (no valuation method applies) or
+    # couldn't compute a value from available data.
     fair_value_price: float | None = None
     fair_value_verdict: str | None = None
+    # e.g. "DCF" / "DFCF" / "DNI" / "DNI (Normalized)" / "P/B" / "PSG" --
+    # None when Step 3 selected PASS. Shown on the header pill alongside the
+    # verdict so it's never presented as a bare "Undervalued" with no method.
+    fair_value_method: str | None = None
 
 
 class Step1Out(BaseModel):

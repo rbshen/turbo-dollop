@@ -90,9 +90,19 @@ async def ticker_step2(ticker: str) -> Step2Out:
 
 
 @app.get("/api/tickers/{ticker}/step3", response_model=Step3Out)
-async def ticker_step3(ticker: str) -> Step3Out:
+async def ticker_step3(
+    ticker: str,
+    growth_yr_1_5: float | None = None,
+    growth_yr_6_10: float | None = None,
+    growth_yr_11_20: float | None = None,
+) -> Step3Out:
     try:
-        return await get_step3_data(ticker)
+        return await get_step3_data(
+            ticker,
+            growth_yr_1_5_override=growth_yr_1_5,
+            growth_yr_6_10_override=growth_yr_6_10,
+            growth_yr_11_20_override=growth_yr_11_20,
+        )
     except httpx.HTTPError as exc:
         # Not f"...{exc}": httpx's exception message embeds the full request
         # URL, apikey included -- every FMP fetch site already goes through

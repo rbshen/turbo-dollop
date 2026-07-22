@@ -1,5 +1,7 @@
 from typing import NamedTuple
 
+import numpy as np
+
 from scoring.trend import classify_trend
 
 # "5+ years" per step6_intrinsic_value_calculation_prompt.md §1 -- the
@@ -205,3 +207,151 @@ def compute_capm(risk_free_rate: float, market_risk_premium: float, beta: float)
         "beta": beta,
         "beta_outside_reference_range": beta < 0.8,
     }
+
+
+# First-pass ±10% band, not yet validated against a prior baseline (same
+# caveat as REVENUE_AGGRESSIVE_GROWTH_CAGR above) -- easy to retune later.
+VALUATION_UNDERVALUED_THRESHOLD = -0.10
+VALUATION_OVERVALUED_THRESHOLD = 0.10
+
+
+def classify_valuation_verdict(discount_premium_pct: float | None) -> str | None:
+    if discount_premium_pct is None:
+        return None
+    if discount_premium_pct <= VALUATION_UNDERVALUED_THRESHOLD:
+        return "undervalued"
+    if discount_premium_pct >= VALUATION_OVERVALUED_THRESHOLD:
+        return "overvalued"
+    return "fair"
+
+
+def _discount_premium_pct(last_close: float | None, intrinsic_value_per_share: float | None) -> float | None:
+    if not last_close or not intrinsic_value_per_share:
+        return None
+    return last_close / intrinsic_value_per_share - 1
+
+
+class TwentyYearEngineResult(NamedTuple):
+    intrinsic_value_per_share: float
+    discount_premium_pct: float | None
+    pv_sum: float
+
+
+def run_20yr_engine(
+    current_value: float,
+    growth_yr_1_5: float,
+    growth_yr_6_10: float,
+    growth_yr_11_20: float,
+    discount_rate: float,
+    shares_outstanding: float,
+    total_debt: float,
+    cash_and_st_investments: float,
+    fx_rate: float,
+    last_close: float | None,
+) -> TwentyYearEngineResult:
+    """Spec §2.2-2.4's shared 20yr projection/discount/roll-up engine --
+    identical math for DCF/DFCF/DNI, differing only in what `current_value`
+    represents (see §2.5's method-specific labels, handled by the caller).
+    Cross-checked cell-for-cell against the spec's own MSFT DFCF worked
+    example in the source workbook (PV sum, IV/share, discount %)."""
+    growth_rates = np.concatenate(
+        [np.full(5, growth_yr_1_5), np.full(5, growth_yr_6_10), np.full(10, growth_yr_11_20)]
+    )
+    cumulative_growth = np.cumprod(1 + growth_rates)
+    projected_values = current_value * cumulative_growth
+
+    years = np.arange(1, 21)
+    discount_factors = 1 / (1 + discount_rate) ** years
+    discounted_values = projected_values * discount_factors
+
+    pv_sum = float(discounted_values.sum())
+    intrinsic_value_pre_adj = pv_sum / shares_outstanding
+    less_debt_per_share = total_debt / shares_outstanding
+    plus_cash_per_share = cash_and_st_investments / shares_outstanding
+    intrinsic_value_per_share = intrinsic_value_pre_adj - less_debt_per_share + plus_cash_per_share
+    final_iv_per_share = intrinsic_value_per_share * fx_rate
+
+    return TwentyYearEngineResult(
+        intrinsic_value_per_share=final_iv_per_share,
+        discount_premium_pct=_discount_premium_pct(last_close, final_iv_per_share),
+        pv_sum=pv_sum,
+    )
+
+
+class PriceToBookResult(NamedTuple):
+    mean_pb: float
+    sd_pb: float
+    bands: dict  # "minus_2sd"/"minus_1sd"/"mean"/"plus_1sd"/"plus_2sd" -> IV per share
+    discount_premium_pct: float | None
+
+
+def run_price_to_book(
+    book_value_per_share: float,
+    historical_pb_ratios: list[float],
+    lookback: str,
+    fx_rate: float,
+    last_close: float | None,
+) -> PriceToBookResult:
+    """Spec §3.2's 5-band mean/SD engine. `historical_pb_ratios` must be
+    chronological (oldest first) -- "last N entries" means the N most
+    recent. Uses sample stdev (ddof=1, matching Excel's STDEV.S).
+
+    Note: the source workbook's own "VMI IV Calculator (Mean PB)" sheet has
+    a labeling bug on its minus-side band columns -- its "Mean - 1 SD"
+    column actually holds the 2SD-away value and vice versa (confirmed
+    against JPM's worked example: mean=1.752, SD=0.213002, and the column
+    labeled "-1 SD" holds 1.325995 = mean - 2*SD, not mean - SD). The plus
+    side is correctly ordered. This implementation follows the spec's
+    literal formula (mathematically correct), not the workbook's own
+    mislabeled minus-side columns."""
+    window = historical_pb_ratios[-5:] if lookback == "5 years" else historical_pb_ratios[-10:]
+    arr = np.asarray(window, dtype=float)
+    mean_pb = float(arr.mean())
+    sd_pb = float(arr.std(ddof=1))
+
+    pb_bands = {
+        "minus_2sd": mean_pb - 2 * sd_pb,
+        "minus_1sd": mean_pb - 1 * sd_pb,
+        "mean": mean_pb,
+        "plus_1sd": mean_pb + 1 * sd_pb,
+        "plus_2sd": mean_pb + 2 * sd_pb,
+    }
+    iv_bands = {label: pb * book_value_per_share * fx_rate for label, pb in pb_bands.items()}
+
+    return PriceToBookResult(
+        mean_pb=mean_pb,
+        sd_pb=sd_pb,
+        bands=iv_bands,
+        discount_premium_pct=_discount_premium_pct(last_close, iv_bands["mean"]),
+    )
+
+
+class PSGResult(NamedTuple):
+    intrinsic_value_per_share: float
+    current_psg_ratio: float | None
+    discount_premium_pct: float | None
+
+
+def run_psg(
+    sales_per_share: float,
+    projected_growth_rate: float,
+    fair_psg_ratio: float,
+    fx_rate: float,
+    last_close: float | None,
+) -> PSGResult:
+    """Spec §4.2 -- note the literal `* 100`: growth is expressed as a
+    percentage number inside this specific formula, not a decimal fraction."""
+    intrinsic_value_per_share = fair_psg_ratio * sales_per_share * projected_growth_rate * 100
+    final_iv_per_share = intrinsic_value_per_share * fx_rate
+
+    current_psg_ratio = (
+        last_close / sales_per_share / (projected_growth_rate * 100)
+        if last_close is not None and sales_per_share and projected_growth_rate
+        else None
+    )
+
+    return PSGResult(
+        intrinsic_value_per_share=final_iv_per_share,
+        current_psg_ratio=current_psg_ratio,
+        discount_premium_pct=_discount_premium_pct(last_close, final_iv_per_share),
+    )

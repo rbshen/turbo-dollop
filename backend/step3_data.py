@@ -7,9 +7,17 @@ from config import settings
 from db import engine
 from debt_metrics import compute_debt_metrics
 from fmp_client import fmp_client
-from schemas import Step3CapmComponents, Step3Inputs, Step3MethodStep, Step3Out
+from schemas import Step3CapmComponents, Step3Inputs, Step3MethodStep, Step3Out, Step3PBBands
 from scoring.classification import classify_company_type
-from scoring.step3 import compute_capm, normalize_fcf, select_method
+from scoring.step3 import (
+    classify_valuation_verdict,
+    compute_capm,
+    normalize_fcf,
+    run_20yr_engine,
+    run_price_to_book,
+    run_psg,
+    select_method,
+)
 from step2_data import get_step2_data
 from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
@@ -82,10 +90,22 @@ def _shares_outstanding(quote: dict, income_quarterly: list[dict]) -> tuple[floa
     return None, None
 
 
-async def get_step3_data(ticker: str, cache_only: bool = False) -> Step3Out:
+async def get_step3_data(
+    ticker: str,
+    cache_only: bool = False,
+    growth_yr_1_5_override: float | None = None,
+    growth_yr_6_10_override: float | None = None,
+    growth_yr_11_20_override: float | None = None,
+) -> Step3Out:
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
-    cache.get_or_fetch's own cache_only branch."""
+    cache.get_or_fetch's own cache_only branch.
+
+    `growth_yr_*_override` (decimal fractions, e.g. 0.15 for 15%) let the
+    Phase 3 UI recompute with user-edited growth rates -- when given, they
+    replace the computed defaults in `inputs` itself (so what's displayed
+    always matches what fed the engine) without any new FMP fetch, keeping
+    the math in exactly one place instead of duplicating it in TypeScript."""
     ticker = ticker.upper()
     staleness_days = settings.cache_staleness_days
     today = date.today()
@@ -302,6 +322,14 @@ async def get_step3_data(ticker: str, cache_only: bool = False) -> Step3Out:
     growth_yr_1_5_source = (
         f"Step 2 analyst-estimate CAGR ({step2_out.basis} basis)" if step2_out.growth_rate is not None else None
     )
+    growth_yr_6_10 = growth_yr_1_5
+    growth_yr_11_20 = TERMINAL_GROWTH_RATE_DEFAULT
+    if growth_yr_1_5_override is not None:
+        growth_yr_1_5 = growth_yr_1_5_override
+    if growth_yr_6_10_override is not None:
+        growth_yr_6_10 = growth_yr_6_10_override
+    if growth_yr_11_20_override is not None:
+        growth_yr_11_20 = growth_yr_11_20_override
 
     current_fiscal_year = years[-1] if years else None
 
@@ -325,8 +353,14 @@ async def get_step3_data(ticker: str, cache_only: bool = False) -> Step3Out:
     }
     current_value_label = current_value_labels.get(selection.current_value_source) if selection.current_value_source else None
 
-    # P/B inputs.
-    pb_history = [row.get("priceToBookRatio") for row in ratios_annual if row.get("priceToBookRatio") is not None]
+    # P/B inputs. ratios_annual is most-recent-first (FMP's own order);
+    # reversed to chronological (oldest first) since run_price_to_book's
+    # "last N entries" convention means the N most recent, matching the
+    # spec's own pseudocode -- also the natural left-to-right order for a
+    # Phase 3 chart.
+    pb_history = list(
+        reversed([row.get("priceToBookRatio") for row in ratios_annual if row.get("priceToBookRatio") is not None])
+    )
     pb_lookback = None
     if len(pb_history) >= PB_LOOKBACK_LONG:
         pb_lookback = f"{PB_LOOKBACK_LONG} years"
@@ -344,8 +378,8 @@ async def get_step3_data(ticker: str, cache_only: bool = False) -> Step3Out:
         cash_and_st_investments=cash_and_st_investments,
         cash_and_st_investments_includes_short_term_investments=cash_incl_st_investments is not None,
         growth_yr_1_5=growth_yr_1_5,
-        growth_yr_6_10=growth_yr_1_5,
-        growth_yr_11_20=TERMINAL_GROWTH_RATE_DEFAULT,
+        growth_yr_6_10=growth_yr_6_10,
+        growth_yr_11_20=growth_yr_11_20,
         growth_yr_1_5_source=growth_yr_1_5_source,
         shares_outstanding=shares_outstanding,
         shares_outstanding_source=shares_source,
@@ -362,6 +396,58 @@ async def get_step3_data(ticker: str, cache_only: bool = False) -> Step3Out:
         fair_psg_ratio=FAIR_PSG_RATIO_DEFAULT,
     )
 
+    intrinsic_value_per_share = None
+    pb_bands = None
+    discount_premium_pct = None
+
+    if selection.method in ("DCF", "DFCF", "DNI", "DNI_NORMALIZED"):
+        if None not in (
+            inputs.current_value,
+            inputs.growth_yr_1_5,
+            inputs.growth_yr_6_10,
+            inputs.discount_rate,
+            inputs.shares_outstanding,
+            inputs.total_debt,
+            inputs.cash_and_st_investments,
+        ):
+            engine_result = run_20yr_engine(
+                current_value=inputs.current_value,
+                growth_yr_1_5=inputs.growth_yr_1_5,
+                growth_yr_6_10=inputs.growth_yr_6_10,
+                growth_yr_11_20=inputs.growth_yr_11_20,
+                discount_rate=inputs.discount_rate,
+                shares_outstanding=inputs.shares_outstanding,
+                total_debt=inputs.total_debt,
+                cash_and_st_investments=inputs.cash_and_st_investments,
+                fx_rate=inputs.fx_rate,
+                last_close=inputs.last_close,
+            )
+            intrinsic_value_per_share = engine_result.intrinsic_value_per_share
+            discount_premium_pct = engine_result.discount_premium_pct
+    elif selection.method == "PRICE_TO_BOOK":
+        if inputs.book_value_per_share is not None and inputs.pb_lookback is not None:
+            pb_result = run_price_to_book(
+                book_value_per_share=inputs.book_value_per_share,
+                historical_pb_ratios=inputs.historical_pb_ratios,
+                lookback=inputs.pb_lookback,
+                fx_rate=inputs.fx_rate,
+                last_close=inputs.last_close,
+            )
+            pb_bands = Step3PBBands(**pb_result.bands)
+            intrinsic_value_per_share = pb_result.bands["mean"]
+            discount_premium_pct = pb_result.discount_premium_pct
+    elif selection.method == "PSG":
+        if inputs.sales_per_share is not None and inputs.projected_growth_rate is not None:
+            psg_result = run_psg(
+                sales_per_share=inputs.sales_per_share,
+                projected_growth_rate=inputs.projected_growth_rate,
+                fair_psg_ratio=inputs.fair_psg_ratio,
+                fx_rate=inputs.fx_rate,
+                last_close=inputs.last_close,
+            )
+            intrinsic_value_per_share = psg_result.intrinsic_value_per_share
+            discount_premium_pct = psg_result.discount_premium_pct
+
     return Step3Out(
         ticker=ticker,
         company_type=company_type,
@@ -369,4 +455,8 @@ async def get_step3_data(ticker: str, cache_only: bool = False) -> Step3Out:
         method_reasoning=trail,
         pass_reason=selection.pass_reason,
         inputs=inputs,
+        intrinsic_value_per_share=intrinsic_value_per_share,
+        pb_bands=pb_bands,
+        discount_premium_pct=discount_premium_pct,
+        verdict=classify_valuation_verdict(discount_premium_pct),
     )

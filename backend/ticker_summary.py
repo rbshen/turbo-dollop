@@ -8,7 +8,17 @@ from db import engine
 from debt_metrics import compute_debt_metrics
 from fmp_client import fmp_client
 from schemas import OutlierWarning, TickerSummaryOut
+from step3_data import get_step3_data
 from ttm import TOTAL_QUARTERS_NEEDED
+
+FAIR_VALUE_METHOD_LABELS = {
+    "DCF": "DCF",
+    "DFCF": "DFCF",
+    "DNI": "DNI",
+    "DNI_NORMALIZED": "DNI (Normalized)",
+    "PRICE_TO_BOOK": "P/B",
+    "PSG": "PSG",
+}
 
 
 def _first(data: dict | list) -> dict:
@@ -173,6 +183,14 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         for fq in group.flagged
     ]
 
+    # Step 3's own session is separate from this function's -- get_step3_data
+    # manages its own Session(engine) block, same as the get_step2_data call
+    # it makes internally.
+    step3_out = await get_step3_data(ticker, cache_only)
+    fair_value_method = (
+        FAIR_VALUE_METHOD_LABELS.get(step3_out.selected_method) if step3_out.selected_method != "PASS" else None
+    )
+
     return TickerSummaryOut(
         company_name=profile.get("companyName"),
         ticker=ticker,
@@ -197,8 +215,7 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         interest_expense_ttm=debt_metrics.interest_expense_ttm,
         interest_income_ttm=debt_metrics.interest_income_ttm,
         outlier_warnings=outlier_warnings,
-        # Fair value calculation is out of scope for this phase (per spec) —
-        # placeholder only, so the UI has a real field to render.
-        fair_value_price=round(price * 1.1, 2) if price else None,
-        fair_value_verdict="undervalued" if price else None,
+        fair_value_price=step3_out.intrinsic_value_per_share,
+        fair_value_verdict=step3_out.verdict,
+        fair_value_method=fair_value_method,
     )
