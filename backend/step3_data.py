@@ -28,6 +28,9 @@ FAIR_PSG_RATIO_DEFAULT = 0.2
 # standard long-term/GDP-growth DCF convention. User-editable per ticker in
 # the UI (Phase 3) -- this is only the pre-filled default.
 TERMINAL_GROWTH_RATE_DEFAULT = 0.04
+# Confirmed with the user: Yr 6-10 defaults to Yr 1-5 except when Yr 1-5
+# exceeds this, in which case the default is capped here.
+GROWTH_YR_6_10_CAP = 0.15
 # P/B lookback per spec §3.1 -- only "5 years" or "10 years" are valid, pick
 # the longer window when enough history exists (matches this app's existing
 # 10yr+TTM convention elsewhere -- see CLAUDE.md's Step 1/4 deviations).
@@ -322,7 +325,13 @@ async def get_step3_data(
     growth_yr_1_5_source = (
         f"Step 2 analyst-estimate CAGR ({step2_out.basis} basis)" if step2_out.growth_rate is not None else None
     )
-    growth_yr_6_10 = growth_yr_1_5
+    # Yr 6-10 defaults to Yr 1-5, but capped at 15% when Yr 1-5 itself runs
+    # hotter than that -- an unmoderated 5yr analyst-estimate growth rate
+    # (e.g. 40%+ for a high-growth name) isn't a credible assumption to
+    # silently carry into years 6-10 too. Default only: a user's own
+    # override below is never clamped, matching this feature's "editable,
+    # not silently fixed" growth-rate convention.
+    growth_yr_6_10 = min(growth_yr_1_5, GROWTH_YR_6_10_CAP) if growth_yr_1_5 is not None else None
     growth_yr_11_20 = TERMINAL_GROWTH_RATE_DEFAULT
     if growth_yr_1_5_override is not None:
         growth_yr_1_5 = growth_yr_1_5_override
