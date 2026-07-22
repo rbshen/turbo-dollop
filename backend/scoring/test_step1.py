@@ -24,7 +24,7 @@ def test_strong_pass_all_growing():
     assert result["verdict"] == "Strong Pass"
     assert result["components"]["cfo"]["score"] == 100
     assert result["components"]["fcf"]["score"] == 100
-    assert result["weights"] == {"revenue": 0.25, "net_income": 0.25, "cfo": 0.25, "margins": 0.10, "fcf": 0.15}
+    assert result["weights"] == {"revenue": 0.35, "net_income": 0.20, "cfo": 0.30, "margins": 0.10, "fcf": 0.05}
 
 
 def test_fail_all_declining():
@@ -53,13 +53,13 @@ def test_cfo_exemption_redistributes_weights():
         net_margin=NET_MARGINS_STABLE,
         cfo_exempt=True,
     )
-    # CFO's 25% + FCF's 15% (40% combined) redistribute evenly across the 3
-    # remaining applicable metrics: 0.25 + 0.4/3, 0.25 + 0.4/3, 0.10 + 0.4/3.
+    # CFO's 30% + FCF's 5% (35% combined) redistribute evenly across the 3
+    # remaining applicable metrics: 0.35 + 0.35/3, 0.20 + 0.35/3, 0.10 + 0.35/3.
     assert result["weights"]["cfo"] == 0.0
     assert result["weights"]["fcf"] == 0.0
-    assert result["weights"]["revenue"] == pytest.approx(0.383333, abs=1e-5)
-    assert result["weights"]["net_income"] == pytest.approx(0.383333, abs=1e-5)
-    assert result["weights"]["margins"] == pytest.approx(0.233333, abs=1e-5)
+    assert result["weights"]["revenue"] == pytest.approx(0.466667, abs=1e-5)
+    assert result["weights"]["net_income"] == pytest.approx(0.316667, abs=1e-5)
+    assert result["weights"]["margins"] == pytest.approx(0.216667, abs=1e-5)
     assert result["components"]["cfo"] is None
     assert result["components"]["fcf"] is None
     assert result["score"] == 100

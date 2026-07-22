@@ -23,7 +23,7 @@ def test_significant_dip_recovers():
     # -20% dip, recovers past the pre-dip peak by TTM.
     pattern, score = classify_trend([100, 110, 88, 105, 115])
     assert pattern == "significant_dip_recovers"
-    assert score == 70
+    assert score == 85
 
 
 def test_multiple_dips():
@@ -68,7 +68,7 @@ def test_dip_recovery_measured_against_pre_spike_baseline_not_the_spike_itself()
     # recovered dip, not a permanently-uncapped "multiple_dips".
     pattern, score = classify_trend([100, 110, 120, 450, 200, 210])
     assert pattern == "significant_dip_recovers"
-    assert score == 70
+    assert score == 85
 
 
 def test_dip_baseline_fallback_requires_more_than_a_100_percent_jump():

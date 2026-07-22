@@ -3,7 +3,22 @@ import numpy as np
 from scoring.series_trend import analyze_series_direction, robust_late_direction
 from scoring.trend import TrendResult, classify_trend
 
-WEIGHTS_STANDARD = {"revenue": 0.25, "net_income": 0.25, "cfo": 0.25, "margins": 0.10, "fcf": 0.15}
+# Revenue > CFO > Net Income priority hierarchy per a refined reading of
+# the methodology doc: Revenue is the foundation ("if revenue isn't
+# growing, the business is shrinking"); CFO is weighted above Net Income
+# since it's "the actual cash the business generates," while Net Income is
+# explicitly "most susceptible to distortion" (one-off gains/losses, tax
+# anomalies, non-operating items) -- see the Operating-Income backup
+# mechanism below, which already exists for exactly this reason. Margins
+# stay a lower-weight supporting indicator (unchanged); FCF drops to the
+# smallest weight, matching its own simpler role (a positive/negative
+# check, not a growth trend -- see _classify_fcf). Was
+# {0.25, 0.25, 0.25, 0.10, 0.15}. Verified via a full 427-ticker simulation
+# before adopting: real trade-offs exist (10 tickers flip Pass->Fail,
+# e.g. AMGN: Net Income 75 via Operating-Income backup vs CFO 40
+# unresolved -- shifting weight toward the harder-to-distort CFO figure is
+# the hierarchy working as intended there, not collateral damage).
+WEIGHTS_STANDARD = {"revenue": 0.35, "net_income": 0.20, "cfo": 0.30, "margins": 0.10, "fcf": 0.05}
 # FCF is derived from CFO, so wherever CFO is exempt (Bank / Property
 # Developer / Commodity Company), FCF is exempt for the same underlying
 # reason -- their combined 25%+15% redistributes evenly across the 3

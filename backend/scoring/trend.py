@@ -83,7 +83,21 @@ def classify_trend(values: list[float]) -> TrendResult:
         dip_pct = pct_changes[dip_index]
         if abs(dip_pct) <= SIGNIFICANT_DIP:
             return TrendResult("small_dip_recovers", 90)
-        return TrendResult("significant_dip_recovers", 70)
+        # Was 70 -- close enough to multiple_dips_resolved's 75 (2+ dips,
+        # all recovered) that a single larger-but-fully-recovered dip
+        # scored WORSE than two smaller resolved dips, an inversion with no
+        # real justification (confirmed via AMZN: a clean 2022 net loss,
+        # since fully recovered 3 years running, capped at 70). Raised to
+        # 85 -- still below small_dip_recovers' 90 (a genuinely severe dip
+        # is a different risk profile from a mild one, so some distinction
+        # is kept), but much closer, matching a refined reading of the
+        # methodology doc: "one or two down years acceptable if the
+        # broader trend is up," not graded by dip magnitude. Verified via a
+        # full 427-ticker simulation before adopting: purely monotonic,
+        # zero tickers lose points at this value. multiple_dips_resolved's
+        # 75 is untouched -- a separately, deliberately validated value
+        # (see CLAUDE.md), out of scope here.
+        return TrendResult("significant_dip_recovers", 85)
 
     growth_before_last = _pct_changes(arr[[0, -2]])[0]
     last_jump = pct_changes[-1]
