@@ -5,6 +5,7 @@ from sqlmodel import SQLModel, create_engine
 import ticker_summary
 from schemas import Step3Inputs, Step3Out
 from ticker_summary import get_summary
+from ttm import TOTAL_QUARTERS_NEEDED
 
 # get_summary sources fair_value_price/verdict/method from Step 3's own
 # result (see ticker_summary.py::get_summary). Step 3's own fetch pipeline
@@ -113,6 +114,11 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
 
     async def fake_balance_sheet_statement(ticker, period, limit):
         call_count["balance_sheet"] += 1
+        # Must share Step 4/Step 5/the Financials tab's deeper limit -- a
+        # regression back to limit=1 here would win the race on a fresh
+        # ticker page load (this is the default tab) and cache a thin
+        # 1-row result under the shared cache key for everyone else.
+        assert limit == TOTAL_QUARTERS_NEEDED
         return FAKE_BALANCE_SHEET_QUARTERLY
 
     async def fake_income_statement(ticker, period, limit):

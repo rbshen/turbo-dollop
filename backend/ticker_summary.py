@@ -140,11 +140,17 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
                 session, ticker, "earnings", "latest", lambda: fmp_client.get_earnings(ticker), staleness_days, cache_only
             ),
         )
-        # Same cache keys + limits Step 1/Step 5 already populate
-        # ("balance_sheet_statement"/"quarterly" limit 1, "income_statement"/
-        # "quarterly" limit 4) -- compute_debt_metrics is the same shared
-        # calculation Step 5's debt ratios use, so the header and Step 5's
-        # card can never show inconsistent numbers for the same ticker.
+        # Same cache key Step 4/Step 5/the Financials tab also populate
+        # ("balance_sheet_statement"/"quarterly") -- limit is
+        # TOTAL_QUARTERS_NEEDED to match them (bumped from 1 in the
+        # Financials tab commit; this call site was missed then, and its
+        # limit-1 fetch racing against theirs on a fresh ticker page load
+        # would win and cache a thin 1-row result for everyone, since this
+        # is the default tab and fetches first). This call site still only
+        # reads row 0 below, so the deeper fetch doesn't change anything
+        # here. compute_debt_metrics is the same shared calculation Step 5's
+        # debt ratios use, so the header and Step 5's card can never show
+        # inconsistent numbers for the same ticker.
         balance_sheet_data = await safe_fetch(
             "balance_sheet_statement_quarterly",
             get_or_fetch(
@@ -152,7 +158,7 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
                 ticker,
                 "balance_sheet_statement",
                 "quarterly",
-                lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", 1),
+                lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
                 cache_only,
             ),
