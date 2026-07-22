@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { AnalysisTab } from "@/components/ticker/AnalysisTab";
 import { ComingSoonPanel } from "@/components/ticker/ComingSoonPanel";
+import { FinancialsTab } from "@/components/ticker/FinancialsTab";
 import { SummaryTab } from "@/components/ticker/SummaryTab";
 import { TickerTabs } from "@/components/ticker/TickerTabs";
 import { DEFAULT_TICKER_TAB, type TickerTab } from "@/lib/tickerTabs";
@@ -19,7 +20,7 @@ export function TickerTabsContainer({ ticker }: Props) {
     <div>
       <TickerTabs active={tab} onChange={setTab} />
       {tab === "summary" && <SummaryTab ticker={ticker} />}
-      {tab === "financials" && <ComingSoonPanel label="Financials" />}
+      {tab === "financials" && <FinancialsTab ticker={ticker} />}
       {tab === "companyMetrics" && <ComingSoonPanel label="Company Metrics" />}
       {tab === "analysis" && <AnalysisTab ticker={ticker} />}
       {tab === "valuation" && <ComingSoonPanel label="Valuation" />}

@@ -130,9 +130,12 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
                 cache_only,
             ),
         )
-        # Same cache key + limit Step 5 already populates ("balance_sheet_
-        # statement"/"quarterly", limit 1) -- balance sheet items are
-        # snapshots, so the latest quarter stands in for the "TTM" column.
+        # Same cache key Step 5 and the Financials tab (financials_data.py)
+        # also populate ("balance_sheet_statement"/"quarterly") -- limit is
+        # TOTAL_QUARTERS_NEEDED so the Financials tab has real quarterly
+        # history; this call site still only reads row 0 (the latest
+        # quarter, used as the "TTM" column stand-in below), so the deeper
+        # fetch doesn't change anything here.
         balance_sheet_quarterly = await safe_fetch(
             "balance_sheet_statement_quarterly",
             get_or_fetch(
@@ -140,7 +143,7 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
                 ticker,
                 "balance_sheet_statement",
                 "quarterly",
-                lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", 1),
+                lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
                 cache_only,
             ),

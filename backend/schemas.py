@@ -261,3 +261,40 @@ class ScreenerMeta(BaseModel):
     # all gets no TickerScore row. The gap between the two is what the
     # Screener page's "X of Y" transparency note is built from.
     total_sp500_constituents: int
+
+
+class FinancialsLineItem(BaseModel):
+    label: str
+    values: list[float | None]
+    # "money" or "per_share" -- tells the frontend which formatter to use
+    # (fmtTableMoney vs fmtNumber), since EPS rows would otherwise be
+    # divided by 1e6 like every other row and read as ~0.00.
+    unit: str = "money"
+    # Bold/subtotal row (e.g. "Total Assets") -- a lightweight rendering
+    # hint, not a computed value; the totals themselves come straight from
+    # FMP's own reported total fields, never summed client- or server-side.
+    emphasis: bool = False
+
+
+class FinancialsGroup(BaseModel):
+    # None renders with no group header -- used by Income Statement, which
+    # has no natural sub-grouping the way Balance Sheet/Cash Flow do.
+    label: str | None = None
+    items: list[FinancialsLineItem]
+
+
+class FinancialsPeriodOut(BaseModel):
+    periods: list[str]
+    groups: list[FinancialsGroup]
+
+
+class FinancialsStatementOut(BaseModel):
+    annual: FinancialsPeriodOut
+    quarterly: FinancialsPeriodOut
+
+
+class FinancialsOut(BaseModel):
+    ticker: str
+    income_statement: FinancialsStatementOut
+    balance_sheet: FinancialsStatementOut
+    cash_flow: FinancialsStatementOut

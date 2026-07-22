@@ -254,3 +254,35 @@ export interface RecomputeSummary {
   duration_seconds: number;
   failures: [string, string][];
 }
+
+export interface FinancialsLineItem {
+  label: string;
+  values: (number | null)[];
+  // "money" | "per_share" -- which formatter to use (fmtTableMoney vs fmtNumber).
+  unit: string;
+  // Bold/subtotal row (e.g. "Total Assets").
+  emphasis: boolean;
+}
+
+export interface FinancialsGroup {
+  // null renders with no group header (Income Statement's flat list).
+  label: string | null;
+  items: FinancialsLineItem[];
+}
+
+export interface FinancialsPeriodOut {
+  periods: string[];
+  groups: FinancialsGroup[];
+}
+
+export interface FinancialsStatementOut {
+  annual: FinancialsPeriodOut;
+  quarterly: FinancialsPeriodOut;
+}
+
+export interface FinancialsOut {
+  ticker: string;
+  income_statement: FinancialsStatementOut;
+  balance_sheet: FinancialsStatementOut;
+  cash_flow: FinancialsStatementOut;
+}

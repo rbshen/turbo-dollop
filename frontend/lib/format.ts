@@ -36,6 +36,13 @@ export function fmtTableMoney(n: number): string {
   return (n / 1_000_000).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "M";
 }
 
+/** "#,###.00" — like fmtTableMoney but without the "M" suffix, for tables
+ * that already state their unit once (e.g. a "figures in USD millions"
+ * note) instead of repeating it on every cell. */
+export function fmtTableNumber(n: number): string {
+  return (n / 1_000_000).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 /** "+1.23%" / "-1.23%" / "0.00%"; expects a value already in percentage points (e.g. 11.98 for 11.98%). */
 export function fmtPct(n: number, decimals = 2): string {
   const threshold = 0.5 * Math.pow(10, -decimals);

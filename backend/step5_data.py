@@ -97,6 +97,10 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
         # Balance sheet items are point-in-time snapshots -- the latest
         # available quarter is simply more current than the latest annual
         # filing (which can be many months stale by the time this is viewed).
+        # Limit is TOTAL_QUARTERS_NEEDED (shared cache key with Step 4 and
+        # the Financials tab's financials_data.py, which needs the deeper
+        # history) -- this call site still only reads row 0 below, so the
+        # deeper fetch doesn't change anything here.
         balance_sheet = await safe_fetch(
             "balance_sheet_statement_quarterly",
             get_or_fetch(
@@ -104,7 +108,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
                 ticker,
                 "balance_sheet_statement",
                 "quarterly",
-                lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", 1),
+                lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
                 cache_only,
             ),

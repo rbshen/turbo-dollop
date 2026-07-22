@@ -9,7 +9,9 @@ from logging_config import apply_redaction_filters
 from models import IndexConstituent, TickerScore
 from recompute_ticker_scores import recompute_all
 from refresh import clear_ticker_cache
+from financials_data import get_financials_data
 from schemas import (
+    FinancialsOut,
     RecomputeSummary,
     RefreshResult,
     ScreenerMeta,
@@ -103,6 +105,20 @@ async def ticker_step4(ticker: str) -> Step4Out:
 async def ticker_step5(ticker: str) -> Step5Out:
     try:
         return await get_step5_data(ticker)
+    except httpx.HTTPError as exc:
+        # Not f"...{exc}": httpx's exception message embeds the full request
+        # URL, apikey included -- every FMP fetch site already goes through
+        # cache.safe_fetch (which swallows httpx.HTTPError entirely), so
+        # this branch is currently dead in practice, but a raw exc here
+        # would leak the key into the response body the moment that stops
+        # being true for some future call site.
+        raise HTTPException(status_code=502, detail="FMP request failed") from exc
+
+
+@app.get("/api/tickers/{ticker}/financials", response_model=FinancialsOut)
+async def ticker_financials(ticker: str) -> FinancialsOut:
+    try:
+        return await get_financials_data(ticker)
     except httpx.HTTPError as exc:
         # Not f"...{exc}": httpx's exception message embeds the full request
         # URL, apikey included -- every FMP fetch site already goes through
