@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 
-import { GroupedBarLineChart, type ChartSeries } from "@/components/charts/GroupedBarLineChart";
 import { ModeToggle } from "@/components/charts/ModeToggle";
+import { type ChartSeries, RechartsGroupedChart } from "@/components/charts/RechartsGroupedChart";
 import type { Step4Out } from "@/lib/api/types";
 import { computeNiceTicksRange } from "@/lib/charts";
 
@@ -11,10 +11,9 @@ const SERIES: ChartSeries[] = [{ key: "ccc", label: "Cash Conversion Cycle", col
 
 interface Props {
   data: Step4Out;
-  chartWidth: number;
 }
 
-export function CccSection({ data, chartWidth }: Props) {
+export function CccSection({ data }: Props) {
   const [mode, setMode] = useState<"bar" | "line">("bar");
 
   if (data.ccc === null) {
@@ -37,14 +36,13 @@ export function CccSection({ data, chartWidth }: Props) {
         <ModeToggle mode={mode} onChange={setMode} />
       </div>
 
-      <GroupedBarLineChart
+      <RechartsGroupedChart
         categories={data.years}
         series={SERIES}
         values={values}
         mode={mode}
         yTicks={yTicks}
         yTickFormat={(v) => `${v}d`}
-        containerWidth={chartWidth}
       />
 
       <div className="flex">

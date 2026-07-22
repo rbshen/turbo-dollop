@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 
-import { GroupedBarLineChart, type ChartSeries } from "@/components/charts/GroupedBarLineChart";
 import { ModeToggle } from "@/components/charts/ModeToggle";
+import { type ChartSeries, RechartsGroupedChart } from "@/components/charts/RechartsGroupedChart";
 import type { Step4Out } from "@/lib/api/types";
 import { computeNiceTicksRange } from "@/lib/charts";
 
@@ -16,10 +16,9 @@ const ALL_SERIES: (ChartSeries & { key: RoeRoicKey })[] = [
 
 interface Props {
   data: Step4Out;
-  chartWidth: number;
 }
 
-export function RoeRoicSection({ data, chartWidth }: Props) {
+export function RoeRoicSection({ data }: Props) {
   const [mode, setMode] = useState<"bar" | "line">("bar");
 
   const series = ALL_SERIES.filter((s) => s.key !== "roic" || data.roic !== null);
@@ -38,14 +37,13 @@ export function RoeRoicSection({ data, chartWidth }: Props) {
         <ModeToggle mode={mode} onChange={setMode} />
       </div>
 
-      <GroupedBarLineChart
+      <RechartsGroupedChart
         categories={data.years}
         series={series}
         values={values}
         mode={mode}
         yTicks={yTicks}
         yTickFormat={(v) => `${v}%`}
-        containerWidth={chartWidth}
       />
 
       {data.roic === null && (

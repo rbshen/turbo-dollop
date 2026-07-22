@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 
-import { GroupedBarLineChart, type ChartSeries } from "@/components/charts/GroupedBarLineChart";
 import { ModeToggle } from "@/components/charts/ModeToggle";
+import { type ChartSeries, RechartsGroupedChart } from "@/components/charts/RechartsGroupedChart";
 import type { Step4Out } from "@/lib/api/types";
 import { computeNiceTicks } from "@/lib/charts";
 import { fmtAxisMoney, fmtTableMoney, pickAxisMoneyUnit } from "@/lib/format";
@@ -17,10 +17,9 @@ const SERIES: (ChartSeries & { key: RevenueArKey })[] = [
 
 interface Props {
   data: Step4Out;
-  chartWidth: number;
 }
 
-export function RevenueArSection({ data, chartWidth }: Props) {
+export function RevenueArSection({ data }: Props) {
   const [mode, setMode] = useState<"bar" | "line">("bar");
 
   const values: Record<RevenueArKey, (number | null)[]> = {
@@ -39,14 +38,13 @@ export function RevenueArSection({ data, chartWidth }: Props) {
         <ModeToggle mode={mode} onChange={setMode} />
       </div>
 
-      <GroupedBarLineChart
+      <RechartsGroupedChart
         categories={data.years}
         series={SERIES}
         values={values}
         mode={mode}
         yTicks={yTicks}
         yTickFormat={(v) => fmtAxisMoney(v, unit)}
-        containerWidth={chartWidth}
       />
 
       <div className="flex">

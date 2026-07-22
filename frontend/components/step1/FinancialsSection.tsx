@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 
-import { GroupedBarLineChart, type ChartSeries } from "@/components/charts/GroupedBarLineChart";
 import { ModeToggle } from "@/components/charts/ModeToggle";
+import { type ChartSeries, RechartsGroupedChart } from "@/components/charts/RechartsGroupedChart";
 import type { Step1Out } from "@/lib/api/types";
 import { computeNiceTicks } from "@/lib/charts";
 import { fmtAxisMoney, fmtTableMoney, pickAxisMoneyUnit } from "@/lib/format";
@@ -19,10 +19,9 @@ const ALL_SERIES: (ChartSeries & { key: FinancialMetricKey })[] = [
 
 interface Props {
   data: Step1Out;
-  chartWidth: number;
 }
 
-export function FinancialsSection({ data, chartWidth }: Props) {
+export function FinancialsSection({ data }: Props) {
   const [mode, setMode] = useState<"bar" | "line">("bar");
 
   const series = ALL_SERIES.filter((s) => s.key !== "cfo" || data.cfo !== null).map((s) =>
@@ -46,14 +45,13 @@ export function FinancialsSection({ data, chartWidth }: Props) {
         <ModeToggle mode={mode} onChange={setMode} />
       </div>
 
-      <GroupedBarLineChart
+      <RechartsGroupedChart
         categories={data.years}
         series={series}
         values={values}
         mode={mode}
         yTicks={yTicks}
         yTickFormat={(v) => fmtAxisMoney(v, unit)}
-        containerWidth={chartWidth}
       />
 
       {data.cfo === null && (

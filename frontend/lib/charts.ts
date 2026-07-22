@@ -1,6 +1,5 @@
 export const BAR_WIDTH = 14;
 export const BAR_GAP = 3;
-export const DEFAULT_GROUP_GAP = 20;
 
 function niceStep(rawStep: number): number {
   const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));

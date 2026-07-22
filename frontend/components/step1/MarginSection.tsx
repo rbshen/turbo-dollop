@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 
-import { GroupedBarLineChart, type ChartSeries } from "@/components/charts/GroupedBarLineChart";
 import { ModeToggle } from "@/components/charts/ModeToggle";
+import { type ChartSeries, RechartsGroupedChart } from "@/components/charts/RechartsGroupedChart";
 import type { Step1Out } from "@/lib/api/types";
 
 type MarginMetricKey = "gross_margin" | "net_margin";
@@ -23,10 +23,9 @@ function average(values: (number | null)[]): number | null {
 
 interface Props {
   data: Step1Out;
-  chartWidth: number;
 }
 
-export function MarginSection({ data, chartWidth }: Props) {
+export function MarginSection({ data }: Props) {
   const [mode, setMode] = useState<"bar" | "line">("bar");
 
   const values: Record<MarginMetricKey, (number | null)[]> = {
@@ -41,14 +40,13 @@ export function MarginSection({ data, chartWidth }: Props) {
         <ModeToggle mode={mode} onChange={setMode} />
       </div>
 
-      <GroupedBarLineChart
+      <RechartsGroupedChart
         categories={data.years}
         series={MARGIN_SERIES}
         values={values}
         mode={mode}
         yTicks={MARGIN_TICKS}
         yTickFormat={(v) => `${v}%`}
-        containerWidth={chartWidth}
       />
 
       <div className="flex">

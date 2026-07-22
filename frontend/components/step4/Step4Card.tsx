@@ -4,7 +4,6 @@ import { ScoreBadge } from "@/components/step1/ScoreBadge";
 import { CccSection } from "@/components/step4/CccSection";
 import { RevenueArSection } from "@/components/step4/RevenueArSection";
 import { RoeRoicSection } from "@/components/step4/RoeRoicSection";
-import { useElementWidth } from "@/lib/hooks/useElementWidth";
 import { useStep4 } from "@/lib/hooks/useStep4";
 
 interface Props {
@@ -44,7 +43,6 @@ function tierClass(points: number): string {
 
 export function Step4Card({ ticker }: Props) {
   const { data, error } = useStep4(ticker);
-  const [chartsRef, chartsWidth] = useElementWidth<HTMLDivElement>();
 
   if (error) {
     return (
@@ -120,10 +118,10 @@ export function Step4Card({ ticker }: Props) {
           : "Neither ROE nor ROIC breached its Fail tier."}
       </p>
 
-      <div ref={chartsRef} className="space-y-6">
-        <RoeRoicSection data={data} chartWidth={chartsWidth} />
-        <RevenueArSection data={data} chartWidth={chartsWidth} />
-        <CccSection data={data} chartWidth={chartsWidth} />
+      <div className="space-y-6">
+        <RoeRoicSection data={data} />
+        <RevenueArSection data={data} />
+        <CccSection data={data} />
       </div>
     </div>
   );

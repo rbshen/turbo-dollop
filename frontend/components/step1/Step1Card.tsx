@@ -3,7 +3,6 @@
 import { FinancialsSection } from "@/components/step1/FinancialsSection";
 import { MarginSection } from "@/components/step1/MarginSection";
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
-import { useElementWidth } from "@/lib/hooks/useElementWidth";
 import { useStep1 } from "@/lib/hooks/useStep1";
 
 interface Props {
@@ -12,7 +11,6 @@ interface Props {
 
 export function Step1Card({ ticker }: Props) {
   const { data, error } = useStep1(ticker);
-  const [chartsRef, chartsWidth] = useElementWidth<HTMLDivElement>();
 
   if (error) {
     return (
@@ -39,9 +37,9 @@ export function Step1Card({ ticker }: Props) {
         <ScoreBadge score={data.score} verdict={data.verdict} />
       </div>
 
-      <div ref={chartsRef} className="space-y-6">
-        <FinancialsSection data={data} chartWidth={chartsWidth} />
-        <MarginSection data={data} chartWidth={chartsWidth} />
+      <div className="space-y-6">
+        <FinancialsSection data={data} />
+        <MarginSection data={data} />
       </div>
     </div>
   );
