@@ -245,6 +245,30 @@ def test_roic_exempt_for_reit(monkeypatch):
     assert result.components["ccc"] is not None
 
 
+def test_roe_roic_divergence_note_surfaces_on_the_full_pipeline(monkeypatch):
+    # Flat ROE (25%, "excellent") vs flat ROIC (10%, "marginal") -- a stable
+    # shape with no decline-durability-gate interaction, isolating just the
+    # divergence check's own behavior end-to-end.
+    _fresh_engine(monkeypatch)
+    key_metrics_annual = [{**row, "returnOnEquity": 0.25, "returnOnInvestedCapital": 0.10} for row in KEY_METRICS_ANNUAL]
+    _patch_fmp(monkeypatch, key_metrics_annual=key_metrics_annual)
+
+    async def fake_key_metrics_ttm(ticker):
+        return [{"returnOnEquityTTM": 0.25, "returnOnInvestedCapitalTTM": 0.10}]
+
+    monkeypatch.setattr(step4_data.fmp_client, "get_key_metrics_ttm", fake_key_metrics_ttm)
+
+    result = asyncio.run(get_step4_data("aapl"))
+
+    assert result.components["roe"]["label"] == "excellent"
+    assert result.components["roic"]["label"] == "marginal"
+    assert result.roe_roic_divergence_note is not None
+    assert "excellent" in result.roe_roic_divergence_note
+    assert "marginal" in result.roe_roic_divergence_note
+    # Informational only -- score/verdict are unaffected by the note.
+    assert result.hard_fail is False
+
+
 def test_ccc_exempt_when_no_inventory_across_window(monkeypatch):
     _fresh_engine(monkeypatch)
     no_inventory_annual = [{**row, "inventory": 0} for row in BALANCE_SHEET_ANNUAL]

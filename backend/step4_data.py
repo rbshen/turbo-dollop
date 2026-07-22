@@ -286,4 +286,5 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
         verdict=result["verdict"],
         hard_fail=result["hard_fail"],
         components=result["components"],
+        roe_roic_divergence_note=result["roe_roic_divergence_note"],
     )

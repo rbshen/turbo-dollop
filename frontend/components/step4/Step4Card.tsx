@@ -91,6 +91,9 @@ export function Step4Card({ ticker }: Props) {
         <p className="text-xs text-zinc-600">{data.classification_note}</p>
         {data.roic_exempt_reason && <p className="text-xs text-zinc-600">{data.roic_exempt_reason}</p>}
         {data.ccc_exempt_reason && <p className="text-xs text-zinc-600">{data.ccc_exempt_reason}</p>}
+        {data.roe_roic_divergence_note && (
+          <p className="text-xs text-amber-400">{data.roe_roic_divergence_note}</p>
+        )}
       </div>
 
       <table className="w-full border-separate border-spacing-0 text-sm">

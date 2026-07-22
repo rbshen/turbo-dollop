@@ -218,6 +218,9 @@ export interface Step4Out {
   verdict: string;
   hard_fail: boolean;
   components: Step4Components;
+  // Informational only -- never changes score/verdict. Present when ROE is
+  // "excellent"/"good" while ROIC is "marginal".
+  roe_roic_divergence_note: string | null;
 }
 
 export interface TickerScoreOut {

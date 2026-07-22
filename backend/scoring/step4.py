@@ -176,6 +176,36 @@ def score_roic(roic: list[float]) -> RatioResult:
     return RatioResult(label, points, hard_fail)
 
 
+def check_roe_roic_divergence(roe: RatioResult, roic: RatioResult | None) -> str | None:
+    """Surfaces the doc's own ROIC rationale ("closes a blind spot... a
+    company can inflate ROE by loading up on debt to fund buybacks") as an
+    explicit, informational flag -- never a score/verdict change, since
+    ROIC's own tier already pulls the blend down and a real penalty would
+    double-count it.
+
+    Tier-relative, not a raw pp gap or ratio: live-data investigation found
+    a fixed gap threshold can't separate genuine leverage stories (SYY: ROE
+    66/ROIC 12, both real) from clean compounders with a naturally large
+    gap (MA: ROE 139/ROIC 41, both "excellent" -- ROIC is elite in absolute
+    terms despite the huge gap to ROE). Comparing tiers instead does
+    separate them cleanly. Only fires on ROIC == "marginal": a "fail" ROIC
+    already trips score_step4's hard-fail override on its own (no need to
+    double-flag), and ROIC == "good"/"excellent" isn't a real divergence
+    even when ROE is one tier higher (too common, not clearly meaningful --
+    confirmed via live data). roic=None (Bank/Insurance/Utility/REIT
+    exemption) and non-tier ROE labels (the negative-equity substitute
+    paths) never match this condition, so both are naturally exempt without
+    special-casing.
+    """
+    if roic is None or roic.label != "marginal" or roe.label not in ("excellent", "good"):
+        return None
+    return (
+        f"ROE ({roe.label}) is notably stronger than ROIC ({roic.label}) — "
+        "may indicate leverage or buybacks are inflating equity returns "
+        "rather than genuine capital efficiency."
+    )
+
+
 def _ar_gap_magnitude(gap: float) -> str:
     if gap <= AR_GAP_SMALL_MAX:
         return "small"
@@ -326,6 +356,7 @@ def score_step4(
         "verdict": _verdict_for(score, hard_fail),
         "hard_fail": hard_fail,
         "weight_per_metric": weight,
+        "roe_roic_divergence_note": check_roe_roic_divergence(roe, roic),
         "components": {
             "roe": {"label": roe.label, "points": roe.points},
             "roic": {"label": roic.label, "points": roic.points} if roic is not None else None,

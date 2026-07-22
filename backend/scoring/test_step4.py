@@ -1,4 +1,5 @@
 from scoring.step4 import (
+    check_roe_roic_divergence,
     classify_ccc_trend,
     score_revenue_vs_ar,
     score_roe,
@@ -153,6 +154,50 @@ def test_roic_shares_the_same_spike_robust_and_decline_durability_gates():
     # that neither mechanism is ROE-only.
     assert score_roic([14.0, 14.0, 14.0, 50.0, 14.0, 14.0]) == ("good", 85, False)
     assert score_roic([40.0, 38.0, 36.0, 15.0, 12.0, 14.0]) == ("good", 85, False)
+
+
+# --- ROE-vs-ROIC divergence flag ---
+
+
+def test_divergence_flags_excellent_roe_marginal_roic():
+    roe = _ratio("excellent", 100)
+    roic = _ratio("marginal", 60)
+    note = check_roe_roic_divergence(roe, roic)
+    assert note is not None
+    assert "excellent" in note and "marginal" in note
+
+
+def test_divergence_flags_good_roe_marginal_roic():
+    roe = _ratio("good", 85)
+    roic = _ratio("marginal", 60)
+    assert check_roe_roic_divergence(roe, roic) is not None
+
+
+def test_divergence_silent_when_roic_also_strong():
+    # Mirrors MA's real shape: a large absolute gap, but ROIC is still
+    # comfortably "excellent" in its own right -- not a real divergence.
+    roe = _ratio("excellent", 100)
+    assert check_roe_roic_divergence(roe, _ratio("excellent", 100)) is None
+    assert check_roe_roic_divergence(roe, _ratio("good", 85)) is None
+
+
+def test_divergence_silent_when_roic_already_fails():
+    # A "fail" ROIC already trips score_step4's hard-fail override on its
+    # own -- no need to double-flag.
+    roe = _ratio("excellent", 100)
+    assert check_roe_roic_divergence(roe, _ratio("fail", 0, hard_fail=True)) is None
+
+
+def test_divergence_silent_when_roic_exempt():
+    roe = _ratio("excellent", 100)
+    assert check_roe_roic_divergence(roe, None) is None
+
+
+def test_divergence_silent_for_negative_equity_substitute_labels():
+    # The negative-equity substitute paths never produce "excellent"/"good"
+    # labels, so they're naturally exempt without special-casing.
+    roe = _ratio("positive_despite_negative_equity", 100)
+    assert check_roe_roic_divergence(roe, _ratio("marginal", 60)) is None
 
 
 # --- Metric 3: Revenue vs Accounts Receivable ---
@@ -427,3 +472,26 @@ def test_ar_or_ccc_landing_in_their_own_zero_tier_does_not_hard_fail():
     assert result["score"] == 50  # (100 + 0 + 100 + 0) / 4
     assert result["hard_fail"] is False
     assert result["verdict"] == "Pass"
+
+
+def test_score_step4_surfaces_roe_roic_divergence_note_without_changing_score():
+    # The note is informational only -- it rides alongside the blended
+    # score/verdict, never altering them (ROIC's own "marginal" tier
+    # already pulled the blend down on its own).
+    roe = _ratio("excellent", 100)
+    ar = _ratio("healthy", 100)
+    roic = _ratio("marginal", 60)
+    ccc = TrendResult("declining_or_stable", 100)
+    result = score_step4(roe, ar, roic, ccc)
+    assert result["roe_roic_divergence_note"] is not None
+    assert result["score"] == 90  # (100 + 100 + 60 + 100) / 4, unaffected by the note
+    assert result["verdict"] == "Pass"
+
+
+def test_score_step4_no_divergence_note_when_not_applicable():
+    roe = _ratio("excellent", 100)
+    ar = _ratio("healthy", 100)
+    roic = _ratio("excellent", 100)
+    ccc = TrendResult("declining_or_stable", 100)
+    result = score_step4(roe, ar, roic, ccc)
+    assert result["roe_roic_divergence_note"] is None

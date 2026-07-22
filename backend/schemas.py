@@ -223,6 +223,10 @@ class Step4Out(BaseModel):
     verdict: str
     hard_fail: bool = False
     components: dict = {}
+    # Informational only -- never changes score/verdict (see CLAUDE.md's
+    # Step 4 deviations). None unless ROE is "excellent"/"good" while ROIC
+    # is "marginal" (a "fail" ROIC already hard-fails on its own).
+    roe_roic_divergence_note: str | None = None
 
 
 class Step3MethodStep(BaseModel):
