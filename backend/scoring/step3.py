@@ -29,6 +29,12 @@ _CONSISTENTLY_INCREASING_PATTERNS = {
 # caveat as Step 4's CCC thresholds -- see CLAUDE.md).
 REVENUE_AGGRESSIVE_GROWTH_CAGR = 0.15
 
+# A non-positive value blocks "increasing consistently" outright only if
+# it's this recent (too fresh to trust as resolved); an older one falls
+# through to classify_trend instead of failing immediately -- see
+# _positive_and_increasing.
+NEGATIVE_VALUE_RECENCY_YEARS = 3
+
 CAPEX_NORMALIZATION_YEARS = 5
 
 
@@ -50,13 +56,30 @@ class MethodSelection(NamedTuple):
 
 
 def _positive_and_increasing(values: list[float] | None) -> tuple[bool, str]:
+    """A non-positive value used to disqualify the whole series outright,
+    regardless of how long ago it happened or how strong the recovery
+    since -- e.g. AMZN's 2022 net loss (Rivian stake writedown) permanently
+    blocked "increasing consistently" despite 3 straight years of strong
+    growth since. Now only a *recent* non-positive value (within
+    NEGATIVE_VALUE_RECENCY_YEARS of the most recent/TTM point) fails
+    outright; an older one falls through to classify_trend, whose own
+    dip-recovery patterns (small_dip_recovers / significant_dip_recovers /
+    multiple_dips_resolved) can read it the same way they already read a
+    dip that stayed positive -- classify_trend's percent-change math
+    already treats a negative-to-positive swing as a (very) real dip on its
+    own, so no separate recovery logic is needed here."""
     if not values or len(values) < METHOD_SELECTION_MIN_YEARS:
         return False, f"fewer than {METHOD_SELECTION_MIN_YEARS} years of data"
-    if any(v <= 0 for v in values):
-        return False, "not positive throughout the window"
+
+    negative_indices = [i for i, v in enumerate(values) if v <= 0]
+    if negative_indices:
+        years_since_negative = (len(values) - 1) - max(negative_indices)
+        if years_since_negative <= NEGATIVE_VALUE_RECENCY_YEARS:
+            return False, f"non-positive value within the last {NEGATIVE_VALUE_RECENCY_YEARS} years"
+
     trend = classify_trend(values)
     if trend.pattern in _CONSISTENTLY_INCREASING_PATTERNS:
-        return True, f"positive throughout, trend pattern '{trend.pattern}'"
+        return True, f"trend pattern '{trend.pattern}'"
     return False, f"trend pattern '{trend.pattern}' does not read as consistently increasing"
 
 
