@@ -1,5 +1,6 @@
 import { Fragment } from "react";
 
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { FinancialsPeriodOut } from "@/lib/api/types";
 import { fmtNumber, fmtTableNumber } from "@/lib/format";
 
@@ -16,89 +17,69 @@ function formatValue(value: number | null, unit: string): string {
   return unit === "per_share" ? fmtNumber(value) : fmtTableNumber(value);
 }
 
-// Same sticky-label-column + scrollable-value-table layout as Step 1's
-// FinancialsSection, generalized to render optional group subheaders
-// (Balance Sheet/Cash Flow) -- Income Statement's single ungrouped list
-// just never has a group.label, so no subheader row is rendered for it.
+// Single table with a sticky label column, replacing the former two-tables-
+// side-by-side layout -- that approach relied on independently laid-out
+// label/value tables producing matching row heights, which broke every time
+// a row's content (e.g. an empty group-header cell) rendered at a different
+// height than its counterpart. One <tr> per line item can't drift out of
+// alignment with itself.
 export function FinancialsStatementTable({ data }: Props) {
+  const columnCount = data.periods.length + 1;
+
   return (
-    <div className="flex">
-      <table className="shrink-0 border-separate border-spacing-0 text-sm">
-        <thead>
-          <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
-            <th className="whitespace-nowrap border-b border-zinc-800 py-2 pr-8 font-medium">Line item</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.groups.map((group, gi) => (
-            <Fragment key={gi}>
-              {group.label && (
-                <tr>
-                  <td className="whitespace-nowrap border-b border-zinc-900 pt-4 pb-1 pr-8 text-xs font-semibold uppercase tracking-widest text-zinc-500">
-                    {group.label}
-                  </td>
-                </tr>
-              )}
-              {group.items.map((item) => (
-                <tr key={item.label}>
-                  <td
-                    className={`whitespace-nowrap border-b border-zinc-900 py-2 pr-8 ${
-                      item.emphasis ? "font-medium text-zinc-100" : "text-zinc-400"
+    <Table className="border-separate border-spacing-0 text-sm">
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          <TableHead className="sticky left-0 z-10 whitespace-nowrap border-b border-zinc-800 bg-zinc-950 py-2 pr-8 text-xs font-medium uppercase tracking-widest text-zinc-500">
+            Line item
+          </TableHead>
+          {data.periods.map((period, i) => (
+            <TableHead
+              key={i}
+              className="whitespace-nowrap border-b border-zinc-800 py-2 pr-4 text-right text-xs font-medium uppercase tracking-widest text-zinc-500"
+            >
+              {period}
+            </TableHead>
+          ))}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {data.groups.map((group, gi) => (
+          <Fragment key={gi}>
+            {group.label && (
+              <TableRow className="hover:bg-transparent">
+                <TableCell
+                  colSpan={columnCount}
+                  className="border-b border-zinc-900 pt-4 pb-1 text-xs font-semibold uppercase tracking-widest text-zinc-500"
+                >
+                  {group.label}
+                </TableCell>
+              </TableRow>
+            )}
+            {group.items.map((item) => (
+              <TableRow key={item.label} className="hover:bg-transparent">
+                <TableCell
+                  className={`sticky left-0 z-10 whitespace-nowrap border-b border-zinc-900 bg-zinc-950 py-2 pr-8 ${
+                    item.emphasis ? "font-medium text-zinc-100" : "text-zinc-400"
+                  }`}
+                >
+                  {item.label}
+                </TableCell>
+                {item.values.map((value, i) => (
+                  <TableCell
+                    key={i}
+                    className={`border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums ${
+                      item.emphasis ? "font-medium text-zinc-100" : "text-zinc-300"
                     }`}
                   >
-                    {item.label}
-                  </td>
-                </tr>
-              ))}
-            </Fragment>
-          ))}
-        </tbody>
-      </table>
-
-      <div className="flex-1 overflow-x-auto">
-        <table className="w-full min-w-max border-separate border-spacing-0 text-sm">
-          <thead>
-            <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
-              {data.periods.map((period, i) => (
-                <th key={i} className="whitespace-nowrap border-b border-zinc-800 py-2 pr-4 text-right font-medium">
-                  {period}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {data.groups.map((group, gi) => (
-              <Fragment key={gi}>
-                {group.label && (
-                  <tr>
-                    {data.periods.map((_, i) => (
-                      // text-xs matches the label column's group-header row (line 37) --
-                      // without it this cell inherits text-sm from the table and the row
-                      // grows taller than its label-side counterpart, drifting the two
-                      // tables out of vertical alignment by a few px per group.
-                      <td key={i} className="border-b border-zinc-900 pt-4 pb-1 text-xs" />
-                    ))}
-                  </tr>
-                )}
-                {group.items.map((item) => (
-                  <tr key={item.label}>
-                    {item.values.map((value, i) => (
-                      <td
-                        key={i}
-                        className={`border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums ${
-                          item.emphasis ? "font-medium text-zinc-100" : "text-zinc-300"
-                        }`}
-                      >
-                        {formatValue(value, item.unit)}
-                      </td>
-                    ))}
-                  </tr>
+                    {formatValue(value, item.unit)}
+                  </TableCell>
                 ))}
-              </Fragment>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+          </Fragment>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
