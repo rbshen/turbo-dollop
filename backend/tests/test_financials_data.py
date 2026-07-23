@@ -13,8 +13,22 @@ from financials_data import (
 from ttm import TOTAL_QUARTERS_NEEDED
 
 FAKE_INCOME_ANNUAL = [
-    {"fiscalYear": "2025", "revenue": 400_000_000_000, "netIncome": 100_000_000_000, "eps": 7.0, "epsDiluted": 6.9},
-    {"fiscalYear": "2024", "revenue": 380_000_000_000, "netIncome": 95_000_000_000, "eps": 6.5, "epsDiluted": 6.4},
+    {
+        "fiscalYear": "2025",
+        "date": "2025-12-31",
+        "revenue": 400_000_000_000,
+        "netIncome": 100_000_000_000,
+        "eps": 7.0,
+        "epsDiluted": 6.9,
+    },
+    {
+        "fiscalYear": "2024",
+        "date": "2024-12-31",
+        "revenue": 380_000_000_000,
+        "netIncome": 95_000_000_000,
+        "eps": 6.5,
+        "epsDiluted": 6.4,
+    },
 ]
 
 # Most-recent-first (FMP's own ordering), as sum_last_four_quarters requires.
@@ -58,8 +72,8 @@ FAKE_INCOME_QUARTERLY = [
 ]
 
 FAKE_BALANCE_SHEET_ANNUAL = [
-    {"fiscalYear": "2025", "totalAssets": 350_000_000_000, "totalLiabilities": 280_000_000_000},
-    {"fiscalYear": "2024", "totalAssets": 330_000_000_000, "totalLiabilities": 270_000_000_000},
+    {"fiscalYear": "2025", "date": "2025-12-31", "totalAssets": 350_000_000_000, "totalLiabilities": 280_000_000_000},
+    {"fiscalYear": "2024", "date": "2024-12-31", "totalAssets": 330_000_000_000, "totalLiabilities": 270_000_000_000},
 ]
 
 FAKE_BALANCE_SHEET_QUARTERLY = [
@@ -68,7 +82,12 @@ FAKE_BALANCE_SHEET_QUARTERLY = [
 ]
 
 FAKE_CASH_FLOW_ANNUAL = [
-    {"fiscalYear": "2025", "netCashProvidedByOperatingActivities": 110_000_000_000, "freeCashFlow": 98_000_000_000},
+    {
+        "fiscalYear": "2025",
+        "date": "2025-12-31",
+        "netCashProvidedByOperatingActivities": 110_000_000_000,
+        "freeCashFlow": 98_000_000_000,
+    },
 ]
 
 FAKE_CASH_FLOW_QUARTERLY = [
@@ -85,8 +104,8 @@ def test_income_statement_annual_ttm_is_summed_from_quarters():
     )
     assert len(period.periods) == ANNUAL_WINDOW + 1
     assert period.periods[-1] == "TTM"
-    # Padded years read "—", then the 2 real fiscal years, then "TTM".
-    assert period.periods[-3:] == ["2024", "2025", "TTM"]
+    # Padded years read "—", then the 2 real fiscal year-end dates, then "TTM".
+    assert period.periods[-3:] == ["2024-12-31", "2025-12-31", "TTM"]
 
     assert len(period.groups) == 1
     group = period.groups[0]

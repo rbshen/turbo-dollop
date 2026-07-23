@@ -202,11 +202,9 @@ def _trim_and_pad(rows: list[dict], count: int) -> list[dict]:
 def _annual_labels(rows: list[dict], count: int) -> list[str]:
     trimmed = list(reversed(rows[:count]))
     pad = count - len(trimmed)
-    # Bare year only -- fiscalYear preferred, falling back to the period-end
-    # date's year for rows/fixtures without it. The TTM column is the one
-    # place a full date is shown (see _annual_period), since "TTM" alone
-    # doesn't say which date it's as-of.
-    return ["—"] * pad + [r.get("fiscalYear") or r.get("date", "—")[:4] for r in trimmed]
+    # Full fiscal year-end date -- falls back to the bare fiscalYear for
+    # rows/fixtures without a "date" field.
+    return ["—"] * pad + [r.get("date") or r.get("fiscalYear", "—") for r in trimmed]
 
 
 def _quarter_label(row: dict) -> str:
