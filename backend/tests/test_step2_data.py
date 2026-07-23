@@ -57,6 +57,29 @@ def test_target_year_picks_row_closest_to_four_years_out_within_window(monkeypat
     assert result.estimate_spread == pytest.approx(expected_spread)
 
 
+def test_target_year_skips_zero_value_row_for_a_usable_one_in_the_same_pool(monkeypatch):
+    _fresh_engine(monkeypatch)
+    # Offset 4 is exactly the window center but has revenueAvg=0 -- a real
+    # FMP artifact for sparsely-covered far-out years. Offset 3 is also
+    # in-window and has a real value, so it should be picked instead of
+    # falling through to "insufficient data".
+    rows = [
+        _row(0, revenueAvg=100, revenueLow=90, revenueHigh=110),
+        _row(1, revenueAvg=110, revenueLow=100, revenueHigh=120),
+        _row(2, revenueAvg=120, revenueLow=110, revenueHigh=130),
+        _row(3, revenueAvg=140, revenueLow=130, revenueHigh=150),
+        _row(4, revenueAvg=0, revenueLow=0, revenueHigh=0),
+    ]
+    _patch_estimates(monkeypatch, rows)
+
+    result = asyncio.run(get_step2_data("TEST"))
+
+    assert result.basis == "revenue"
+    assert result.target_fiscal_year == str(BASE_YEAR + 3)
+    expected_cagr = ((140 / 100) ** (1 / 3) - 1) * 100
+    assert result.growth_rate == pytest.approx(expected_cagr)
+
+
 def test_target_falls_back_to_furthest_row_when_none_in_window(monkeypatch):
     _fresh_engine(monkeypatch)
     # Only offsets 0, 1, 2 available -- none reach the 3-5yr window, so the

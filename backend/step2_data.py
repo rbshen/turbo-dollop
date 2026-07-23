@@ -41,11 +41,16 @@ def _project(rows: list[dict], avg_field: str, low_field: str, high_field: str, 
     base_year = date.fromisoformat(base["date"][:10]).year
     later = rows[1:]
     in_window = [r for r in later if TARGET_WINDOW_MIN_YEARS <= _year_offset(base_year, r) <= TARGET_WINDOW_MAX_YEARS]
-    target = (
-        min(in_window, key=lambda r: abs(_year_offset(base_year, r) - TARGET_WINDOW_CENTER_YEARS))
-        if in_window
-        else later[-1]
-    )
+    candidates = in_window if in_window else later
+    # FMP sometimes reports 0 for avg_field on sparsely-covered far-out
+    # years even when a nearer year in the same pool has a real estimate --
+    # prefer a usable row over blindly picking whatever's closest to the
+    # window center. Falls back to the full pool only if nothing in it has
+    # real data, so a genuinely all-null/zero pool still surfaces as None
+    # downstream rather than masking the gap.
+    usable = [r for r in candidates if r.get(avg_field)]
+    pool = usable if usable else candidates
+    target = min(pool, key=lambda r: abs(_year_offset(base_year, r) - TARGET_WINDOW_CENTER_YEARS))
 
     base_val = base.get(avg_field)
     target_val = target.get(avg_field)
