@@ -176,9 +176,19 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     }
     assert call_count == expected_call_count
 
-    # Second call within the staleness window should hit the cache, not FMP again.
+    # Second call within the staleness window should hit the cache for
+    # everything except quote -- price is fetched fresh on every live
+    # ticker-page view (see cache.force_fetch usage in get_summary), quote's
+    # own independent cache key, so this doesn't force a refetch of anything
+    # else bundled into the summary call.
     asyncio.run(get_summary("aapl"))
-    assert call_count == expected_call_count
+    assert call_count == {**expected_call_count, "quote": 2}
+
+    # cache_only=True (the Screener recompute path) must still make zero FMP
+    # calls, including for quote -- the force-fetch above only applies to the
+    # live (cache_only=False) path.
+    asyncio.run(get_summary("aapl", cache_only=True))
+    assert call_count == {**expected_call_count, "quote": 2}
 
 
 def test_eps_cagr_requires_at_least_two_positive_estimates():

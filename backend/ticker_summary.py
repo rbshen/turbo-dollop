@@ -2,7 +2,7 @@ from datetime import date
 
 from sqlmodel import Session
 
-from cache import get_or_fetch, safe_fetch
+from cache import force_fetch, get_or_fetch, safe_fetch
 from config import settings
 from db import engine
 from debt_metrics import compute_debt_metrics
@@ -92,14 +92,27 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
                 ),
             )
         )
-        quote = _first(
-            await safe_fetch(
-                "quote",
-                get_or_fetch(
-                    session, ticker, "quote", "latest", lambda: fmp_client.get_quote(ticker), staleness_days, cache_only
-                ),
+        # Price is fetched fresh on every live ticker-page view rather than
+        # riding the fundamentals staleness window -- quote is its own cache
+        # key, independent of profile/ratios/etc., so this doesn't force a
+        # refetch of anything else bundled into this function. Skipped under
+        # cache_only (the Screener recompute path), which must make zero FMP
+        # calls (see recompute_ticker_scores.py).
+        if cache_only:
+            quote = _first(
+                await safe_fetch(
+                    "quote",
+                    get_or_fetch(
+                        session, ticker, "quote", "latest", lambda: fmp_client.get_quote(ticker), staleness_days, cache_only
+                    ),
+                )
             )
-        )
+        else:
+            quote = _first(
+                await safe_fetch(
+                    "quote", force_fetch(session, ticker, "quote", "latest", lambda: fmp_client.get_quote(ticker))
+                )
+            )
         price_change = _first(
             await safe_fetch(
                 "price_change",
