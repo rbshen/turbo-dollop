@@ -116,9 +116,30 @@ avg/high/low per forward fiscal year:
   as such in the API/UI (`backend/schemas.py::Step2Out`,
   `frontend/components/step2/Step2Card.tsx`) so it's never mistaken for
   what the source doc actually describes.
-- Revenue estimates are preferred over EPS when both are available (EPS is
-  more exposed to buyback/margin noise than the underlying growth story);
-  EPS is used as a fallback when revenue estimates are missing.
+- **EPS estimates are preferred over revenue** when both are available;
+  revenue is used as a fallback when EPS doesn't yield a usable CAGR (most
+  commonly a negative base-year EPS, which makes a CAGR mathematically
+  undefined even though the field itself is populated). This is a
+  deliberate reversal of this app's original choice, which preferred
+  revenue specifically because EPS is more exposed to buyback/margin-
+  expansion noise than the underlying growth story — that reasoning still
+  holds, but EPS growth is now judged the more decision-relevant figure for
+  this methodology and the noise tradeoff is accepted. `basis` in
+  `Step2Out` reflects whichever field actually produced the score, and the
+  UI/Valuation-input labeling already read this dynamically, so no
+  hardcoded "Revenue" label needed to change anywhere. This growth rate is
+  also reused directly as Step 3's (Valuation) Yr 1-5 growth input
+  (`step3_data.py`, `growth_yr_1_5`), so this switch changes Valuation
+  outputs project-wide, not just Step 2's own verdict.
+- The target-year picker (closest forward estimate to 4 years out, within
+  the 3-5yr window) skips rows where the field being scored is null or
+  zero, preferring a usable row from elsewhere in the same candidate pool
+  over blindly taking whichever row is nearest the window center. This
+  matters far more under EPS than it ever did under revenue: FMP
+  frequently reports `epsAvg: 0` for sparsely-analyst-covered far-out
+  years even when a nearer in-window year has a real EPS estimate, which
+  would otherwise misread as "insufficient data" for names that do have a
+  usable projection.
 - Growth catalysts (the doc's Step 3/4 qualitative research) are a
   manually-curated free-text field (`models.py::GrowthCatalystNote`), not
   factored into the score — same scoping as Step 1's manually-flagged

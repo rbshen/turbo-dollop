@@ -45,15 +45,15 @@ def test_target_year_picks_row_closest_to_four_years_out_within_window(monkeypat
 
     result = asyncio.run(get_step2_data("TEST"))
 
-    assert result.basis == "revenue"
+    assert result.basis == "eps"
     assert result.base_fiscal_year == str(BASE_YEAR)
     # Offset 4 (BASE_YEAR + 4) is exactly 4 years out -- closest to the
     # window's 4yr center, beating offsets 3 and 5 which are both in-window
     # but farther from the center.
     assert result.target_fiscal_year == str(BASE_YEAR + 4)
-    expected_cagr = ((160 / 100) ** (1 / 4) - 1) * 100
+    expected_cagr = ((1.6 / 1) ** (1 / 4) - 1) * 100
     assert result.growth_rate == pytest.approx(expected_cagr)
-    expected_spread = (180 - 140) / 160 * 100
+    expected_spread = (1.8 - 1.4) / 1.6 * 100
     assert result.estimate_spread == pytest.approx(expected_spread)
 
 
@@ -113,19 +113,19 @@ def test_past_dated_rows_are_excluded_from_base_selection(monkeypatch):
     assert result.base_fiscal_year == str(BASE_YEAR)
 
 
-def test_falls_back_to_eps_when_revenue_estimates_are_missing(monkeypatch):
+def test_falls_back_to_revenue_when_eps_estimates_are_missing(monkeypatch):
     _fresh_engine(monkeypatch)
     rows = [
-        _row(0, revenueAvg=None, revenueLow=None, revenueHigh=None, epsAvg=1.0, epsLow=0.9, epsHigh=1.1),
-        _row(1, revenueAvg=None, revenueLow=None, revenueHigh=None, epsAvg=1.1, epsLow=1.0, epsHigh=1.2),
-        _row(4, revenueAvg=None, revenueLow=None, revenueHigh=None, epsAvg=1.6, epsLow=1.4, epsHigh=1.8),
+        _row(0, epsAvg=None, epsLow=None, epsHigh=None, revenueAvg=100, revenueLow=90, revenueHigh=110),
+        _row(1, epsAvg=None, epsLow=None, epsHigh=None, revenueAvg=110, revenueLow=100, revenueHigh=120),
+        _row(4, epsAvg=None, epsLow=None, epsHigh=None, revenueAvg=160, revenueLow=140, revenueHigh=180),
     ]
     _patch_estimates(monkeypatch, rows)
 
     result = asyncio.run(get_step2_data("TEST"))
 
-    assert result.basis == "eps"
-    expected_cagr = ((1.6 / 1.0) ** (1 / 4) - 1) * 100
+    assert result.basis == "revenue"
+    expected_cagr = ((160 / 100) ** (1 / 4) - 1) * 100
     assert result.growth_rate == pytest.approx(expected_cagr)
 
 

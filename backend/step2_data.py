@@ -117,13 +117,17 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
     estimates = estimates_data if isinstance(estimates_data, list) else []
     rows = _future_rows(estimates, today)
 
-    # Prefer revenue estimates; fall back to EPS if revenue projections
-    # aren't available for this ticker.
-    projection = _project(rows, "revenueAvg", "revenueLow", "revenueHigh", "numAnalystsRevenue")
-    basis = "revenue"
+    # Prefer EPS estimates -- less exposed to the "insufficient data" gap
+    # revenue-only sourcing had, and the basis this app's methodology now
+    # standardizes on (see CLAUDE.md's Step 2 rationale). Fall back to
+    # revenue if EPS doesn't yield a usable CAGR for this ticker (most
+    # commonly a negative base-year EPS, which makes a CAGR mathematically
+    # undefined even when the field itself is populated).
+    projection = _project(rows, "epsAvg", "epsLow", "epsHigh", "numAnalystsEps")
+    basis = "eps"
     if projection is None:
-        projection = _project(rows, "epsAvg", "epsLow", "epsHigh", "numAnalystsEps")
-        basis = "eps"
+        projection = _project(rows, "revenueAvg", "revenueLow", "revenueHigh", "numAnalystsRevenue")
+        basis = "revenue"
 
     if projection is None:
         # No real growth rate to score -- explicitly Fail rather than
