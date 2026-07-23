@@ -7,6 +7,7 @@ from sqlmodel import Session, func, select
 from db import engine, init_db
 from discount_rate_config import get_discount_rate_config, update_discount_rate_config
 from logging_config import apply_redaction_filters
+from moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from models import IndexConstituent, TickerScore
 from recompute_ticker_scores import recompute_all
 from refresh import clear_ticker_cache
@@ -15,6 +16,8 @@ from schemas import (
     DiscountRateConfigIn,
     DiscountRateConfigOut,
     FinancialsOut,
+    MoatScoreConfigIn,
+    MoatScoreConfigOut,
     RecomputeSummary,
     RefreshResult,
     ScreenerMeta,
@@ -23,6 +26,8 @@ from schemas import (
     Step3Out,
     Step4Out,
     Step5Out,
+    TickerMoatIn,
+    TickerMoatOut,
     TickerScoreOut,
     TickerSummaryOut,
 )
@@ -31,6 +36,7 @@ from step2_data import get_step2_data
 from step3_data import get_step3_data
 from step4_data import get_step4_data
 from step5_data import get_step5_data
+from ticker_score import compute_ticker_score
 from ticker_summary import get_summary
 
 apply_redaction_filters()
@@ -62,6 +68,20 @@ def update_discount_rate(body: DiscountRateConfigIn) -> DiscountRateConfigOut:
     with Session(engine) as session:
         row = update_discount_rate_config(session, body.risk_free_rate, body.market_risk_premium)
     return DiscountRateConfigOut(**row.model_dump())
+
+
+@app.get("/api/config/moat", response_model=MoatScoreConfigOut)
+def moat_score_config() -> MoatScoreConfigOut:
+    with Session(engine) as session:
+        row = get_moat_score_config(session)
+    return MoatScoreConfigOut(**row.model_dump())
+
+
+@app.put("/api/config/moat", response_model=MoatScoreConfigOut)
+def update_moat_score(body: MoatScoreConfigIn) -> MoatScoreConfigOut:
+    with Session(engine) as session:
+        row = update_moat_score_config(session, body.wide_moat_score, body.narrow_moat_score, body.no_moat_score)
+    return MoatScoreConfigOut(**row.model_dump())
 
 
 @app.get("/api/tickers/{ticker}/summary", response_model=TickerSummaryOut)
@@ -175,6 +195,30 @@ async def ticker_financials(ticker: str) -> FinancialsOut:
 @app.post("/api/tickers/{ticker}/refresh", response_model=RefreshResult)
 async def ticker_refresh(ticker: str) -> RefreshResult:
     return clear_ticker_cache(ticker)
+
+
+@app.get("/api/tickers/{ticker}/moat", response_model=TickerMoatOut)
+def ticker_moat(ticker: str) -> TickerMoatOut:
+    ticker = ticker.upper()
+    with Session(engine) as session:
+        row = get_ticker_moat(session, ticker)
+    if row is None:
+        return TickerMoatOut(ticker=ticker, moat=None, updated_at=None)
+    return TickerMoatOut(**row.model_dump())
+
+
+@app.put("/api/tickers/{ticker}/moat", response_model=TickerMoatOut)
+async def update_ticker_moat(ticker: str, body: TickerMoatIn) -> TickerMoatOut:
+    ticker = ticker.upper()
+    with Session(engine) as session:
+        row = set_ticker_moat(session, ticker, body.moat)
+    # cache_only=True -- a moat change alone shouldn't trigger a surprise FMP
+    # fetch (same philosophy as recompute_ticker_scores.py); this just makes
+    # sure the Screener's TickerScore row isn't left stale after an explicit
+    # user action. No-op (returns None, skipped) if this ticker has never
+    # been viewed and has no cached profile yet.
+    await compute_ticker_score(ticker, cache_only=True)
+    return TickerMoatOut(**row.model_dump())
 
 
 @app.get("/api/screener", response_model=list[TickerScoreOut])

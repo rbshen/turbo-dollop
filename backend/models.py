@@ -65,6 +65,35 @@ class DiscountRateConfig(SQLModel, table=True):
     updated_at: datetime
 
 
+class TickerMoat(SQLModel, table=True):
+    """User-set Economic Moat classification -- manually curated, never
+    fetched from FMP (no data provider has this). Absence of a row means
+    "not set", the default for every ticker; Overall Assessment ignores
+    moat entirely in that case (see scoring/overall.py). Same
+    non-FundamentalsCache treatment as GrowthCatalystNote, for the same
+    reason (user-authored, not fetched). Editable via the ticker page's
+    Economic Moat tab, gated behind a confirm step in the UI."""
+
+    ticker: str = Field(primary_key=True)
+    moat: str  # "no_moat" | "narrow_moat" | "wide_moat"
+    updated_at: datetime
+
+
+class MoatScoreConfig(SQLModel, table=True):
+    """Configurable point values (0-100 scale, same as every step score)
+    each moat state contributes to Overall Assessment once a ticker has a
+    moat set -- editable via /settings, same lazy-seed get-or-create
+    pattern as DiscountRateConfig (see moat.py). Singleton row, keyed on a
+    fixed `key` the way DiscountRateConfig is keyed by region -- no region
+    concept applies here, just one global config."""
+
+    key: str = Field(primary_key=True, default="default")
+    wide_moat_score: float
+    narrow_moat_score: float
+    no_moat_score: float
+    updated_at: datetime
+
+
 class TickerScore(SQLModel, table=True):
     """Pre-computed Step 1/2/4/5 + Overall Assessment scores for the
     Screener page (see ticker_score.py) -- a denormalized read-model kept
@@ -87,6 +116,10 @@ class TickerScore(SQLModel, table=True):
     step4_verdict: str | None = None
     step5_score: int | None = None
     step5_verdict: str | None = None
+    # None when no moat is set for this ticker -- Overall Assessment
+    # ignores moat entirely in that case (see scoring/overall.py).
+    moat: str | None = None
+    moat_score: float | None = None
     overall_score: int | None = None
     overall_verdict: str | None = None
     market_cap: float | None = None

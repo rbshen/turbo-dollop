@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { AnalysisTab } from "@/components/ticker/AnalysisTab";
 import { ComingSoonPanel } from "@/components/ticker/ComingSoonPanel";
+import { EconomicMoatTab } from "@/components/ticker/EconomicMoatTab";
 import { FinancialsTab } from "@/components/ticker/FinancialsTab";
 import { SummaryTab } from "@/components/ticker/SummaryTab";
 import { TickerTabs } from "@/components/ticker/TickerTabs";
@@ -25,6 +26,7 @@ export function TickerTabsContainer({ ticker }: Props) {
       {tab === "companyMetrics" && <ComingSoonPanel label="Company Metrics" />}
       {tab === "analysis" && <AnalysisTab ticker={ticker} />}
       {tab === "valuation" && <ValuationTab ticker={ticker} />}
+      {tab === "moat" && <EconomicMoatTab ticker={ticker} />}
     </div>
   );
 }

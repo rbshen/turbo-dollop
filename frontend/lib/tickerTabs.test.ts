@@ -3,13 +3,14 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_TICKER_TAB, TICKER_TABS } from "@/lib/tickerTabs";
 
 describe("tickerTabs", () => {
-  it("has exactly the 5 Phase A tabs, in display order", () => {
+  it("has exactly the 6 tabs, in display order", () => {
     expect(TICKER_TABS.map((t) => t.key)).toEqual([
       "summary",
       "financials",
       "companyMetrics",
       "analysis",
       "valuation",
+      "moat",
     ]);
   });
 

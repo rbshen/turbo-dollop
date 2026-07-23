@@ -7,7 +7,8 @@ from sqlmodel import Session
 
 from db import engine
 from models import TickerScore
-from scoring.overall import StepSnapshot, compute_overall_assessment
+from moat import get_moat_score_config, get_ticker_moat, resolve_moat_score
+from scoring.overall import MoatSnapshot, StepSnapshot, compute_overall_assessment
 from step1_data import get_step1_data
 from step2_data import get_step2_data
 from step4_data import get_step4_data
@@ -61,13 +62,25 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
     if summary_error or summary is None or summary.company_name is None:
         return None
 
+    # Moat is user-set, not fetched -- reading it is a plain DB lookup, not
+    # part of the cache_only/FMP-call story the 5 _safe_step calls above are
+    # guarding.
+    with Session(engine) as session:
+        ticker_moat = get_ticker_moat(session, ticker)
+        moat_snapshot = (
+            MoatSnapshot(ticker_moat.moat, resolve_moat_score(get_moat_score_config(session), ticker_moat.moat))
+            if ticker_moat is not None
+            else None
+        )
+
     overall = compute_overall_assessment(
         [
             _snapshot("step1", step1, step1_error),
             _snapshot("step2", step2, step2_error),
             _snapshot("step4", step4, step4_error),
             _snapshot("step5", step5, step5_error),
-        ]
+        ],
+        moat=moat_snapshot,
     )
 
     # Step 4 and Step 5 independently run the same shared classifier
@@ -90,6 +103,8 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         step4_verdict=step4.verdict if step4 else None,
         step5_score=step5.score if step5 else None,
         step5_verdict=step5.verdict if step5 else None,
+        moat=moat_snapshot.moat if moat_snapshot else None,
+        moat_score=moat_snapshot.score if moat_snapshot else None,
         overall_score=overall.score,
         overall_verdict=overall.verdict,
         market_cap=summary.market_cap,

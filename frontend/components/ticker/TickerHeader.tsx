@@ -2,8 +2,10 @@
 
 import { ExchangeBadge } from "@/components/ticker/ExchangeBadge";
 import { FairValuePill } from "@/components/ticker/FairValuePill";
+import { MoatPill } from "@/components/ticker/MoatPill";
 import { PriceChange } from "@/components/ticker/PriceChange";
 import { RefreshButton } from "@/components/ticker/RefreshButton";
+import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
 import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
 
 interface Props {
@@ -12,6 +14,7 @@ interface Props {
 
 export function TickerHeader({ symbol }: Props) {
   const { data, error } = useTickerSummary(symbol);
+  const { data: moatData } = useTickerMoat(symbol);
 
   if (error) {
     return (
@@ -54,6 +57,7 @@ export function TickerHeader({ symbol }: Props) {
         )}
         <PriceChange change={data.change} changePercent={data.change_percent} />
         <FairValuePill verdict={data.fair_value_verdict} price={data.fair_value_price} method={data.fair_value_method} />
+        <MoatPill moat={moatData?.moat} />
       </div>
 
       {data.next_earnings_date && (

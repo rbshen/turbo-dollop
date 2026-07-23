@@ -223,6 +223,23 @@ export interface Step4Out {
   roe_roic_divergence_note: string | null;
 }
 
+export type MoatValue = "no_moat" | "narrow_moat" | "wide_moat";
+
+export interface TickerMoatOut {
+  ticker: string;
+  // null means "not set" -- the default for every ticker until a user
+  // explicitly sets one via the Economic Moat tab.
+  moat: MoatValue | null;
+  updated_at: string | null;
+}
+
+export interface MoatScoreConfigOut {
+  wide_moat_score: number;
+  narrow_moat_score: number;
+  no_moat_score: number;
+  updated_at: string;
+}
+
 export interface TickerScoreOut {
   ticker: string;
   company_name: string | null;
@@ -237,6 +254,9 @@ export interface TickerScoreOut {
   step4_verdict: string | null;
   step5_score: number | null;
   step5_verdict: string | null;
+  // null when no moat is set for this ticker.
+  moat: MoatValue | null;
+  moat_score: number | null;
   // null (along with overall_verdict) when any non-exempt step is missing --
   // a ticker can have a row here without a full Overall Assessment.
   overall_score: number | null;

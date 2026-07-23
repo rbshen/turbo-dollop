@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -335,6 +336,31 @@ class DiscountRateConfigIn(BaseModel):
     market_risk_premium: float
 
 
+class TickerMoatOut(BaseModel):
+    ticker: str
+    # None means "not set" -- the default for every ticker until a user
+    # explicitly sets one via the Economic Moat tab.
+    moat: str | None = None
+    updated_at: datetime | None = None
+
+
+class TickerMoatIn(BaseModel):
+    moat: Literal["no_moat", "narrow_moat", "wide_moat"]
+
+
+class MoatScoreConfigOut(BaseModel):
+    wide_moat_score: float
+    narrow_moat_score: float
+    no_moat_score: float
+    updated_at: datetime
+
+
+class MoatScoreConfigIn(BaseModel):
+    wide_moat_score: float
+    narrow_moat_score: float
+    no_moat_score: float
+
+
 class TickerScoreOut(BaseModel):
     """A pre-computed row for the Screener page (see ticker_score.py) --
     denormalized from the same 5 functions Step 1/2/4/5 and the ticker
@@ -356,6 +382,9 @@ class TickerScoreOut(BaseModel):
     step4_verdict: str | None = None
     step5_score: int | None = None
     step5_verdict: str | None = None
+    # None when no moat is set for this ticker.
+    moat: str | None = None
+    moat_score: float | None = None
     overall_score: int | None = None
     overall_verdict: str | None = None
     market_cap: float | None = None

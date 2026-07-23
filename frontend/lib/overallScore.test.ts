@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { computeOverallAssessment, type StepSnapshot } from "@/lib/overallScore";
+import { computeOverallAssessment, type MoatSnapshot, type StepSnapshot } from "@/lib/overallScore";
 
 function snapshot(key: StepSnapshot["key"], label: string, score: number | null, verdict: string): StepSnapshot {
   return { key, label, hasError: false, data: { score, verdict } };
@@ -174,3 +174,103 @@ describe("computeOverallAssessment", () => {
 function round(n: number): number {
   return Math.round(n);
 }
+
+// --- Economic Moat (worked examples, ticker blending to 90 across Steps
+// 1/2/4/5 with all four present) ---
+
+const STEPS_BLENDING_TO_90: StepSnapshot[] = [
+  snapshot("step1", "Step 1", 90, "Pass"),
+  snapshot("step2", "Step 2", 90, "Pass"),
+  snapshot("step4", "Step 4", 90, "Pass"),
+  snapshot("step5", "Step 5", 90, "Pass"),
+];
+
+describe("computeOverallAssessment with moat", () => {
+  it("omitted moat is byte-identical to the pre-Moat behavior", () => {
+    const result = computeOverallAssessment(STEPS_BLENDING_TO_90);
+    expect(result.score).toBe(90);
+    expect(result.verdict).toBe("Pass"); // 90 is the Pass/Strong Pass boundary
+    expect(result.breakdown.some((b) => b.key === "moat")).toBe(false);
+  });
+
+  it("null moat behaves the same as omitted", () => {
+    const result = computeOverallAssessment(STEPS_BLENDING_TO_90, null);
+    expect(result.score).toBe(90);
+    expect(result.breakdown.some((b) => b.key === "moat")).toBe(false);
+  });
+
+  it("Wide Moat worked example: 0.69*90 + 0.31*100 = 93.1 -> 93", () => {
+    const moat: MoatSnapshot = { moat: "wide_moat", score: 100 };
+    const result = computeOverallAssessment(STEPS_BLENDING_TO_90, moat);
+    expect(result.score).toBe(93);
+    expect(result.verdict).toBe("Strong Pass");
+  });
+
+  it("Narrow Moat worked example: 0.69*90 + 0.31*65 = 82.25 -> 82", () => {
+    const moat: MoatSnapshot = { moat: "narrow_moat", score: 65 };
+    const result = computeOverallAssessment(STEPS_BLENDING_TO_90, moat);
+    expect(result.score).toBe(82);
+    expect(result.verdict).toBe("Pass");
+  });
+
+  it("No Moat worked example caps below the Pass threshold: 0.69*90 = 62.1 -> 62", () => {
+    const moat: MoatSnapshot = { moat: "no_moat", score: 0 };
+    const result = computeOverallAssessment(STEPS_BLENDING_TO_90, moat);
+    expect(result.score).toBe(62);
+    expect(result.verdict).toBe("Fail");
+  });
+
+  it("No Moat caps even a perfect steps score at 69, Fail -- hard-fail-via-arithmetic by design", () => {
+    const steps: StepSnapshot[] = [
+      snapshot("step1", "Step 1", 100, "Strong Pass"),
+      snapshot("step2", "Step 2", 100, "Strong Pass"),
+      snapshot("step4", "Step 4", 100, "Strong Pass"),
+      snapshot("step5", "Step 5", 100, "Strong Pass"),
+    ];
+    const moat: MoatSnapshot = { moat: "no_moat", score: 0 };
+    const result = computeOverallAssessment(steps, moat);
+    expect(result.score).toBe(69);
+    expect(result.verdict).toBe("Fail");
+  });
+
+  it("moat does not rescue an incomplete steps blend", () => {
+    const steps: StepSnapshot[] = [
+      ...STEPS_BLENDING_TO_90.slice(0, 3),
+      { key: "step5", label: "Step 5", hasError: true, data: undefined },
+    ];
+    const moat: MoatSnapshot = { moat: "wide_moat", score: 100 };
+    const result = computeOverallAssessment(steps, moat);
+    expect(result.status).toBe("incomplete");
+    expect(result.score).toBeNull();
+  });
+
+  it("moat applies on top of a renormalized steps blend with an exempt step", () => {
+    const steps: StepSnapshot[] = [
+      snapshot("step1", "Step 1", 90, "Pass"),
+      snapshot("step2", "Step 2", 90, "Pass"),
+      snapshot("step4", "Step 4", 90, "Pass"),
+      snapshot("step5", "Step 5", null, "not_supported"),
+    ];
+    // Steps-only blend renormalizes to 90 (all remaining scores equal) --
+    // applying moat on top must still be 0.69*90 + 0.31*100 = 93.1 -> 93,
+    // not a different number from a flat single-stage renormalization.
+    const moat: MoatSnapshot = { moat: "wide_moat", score: 100 };
+    const result = computeOverallAssessment(steps, moat);
+    expect(result.score).toBe(93);
+  });
+
+  it("moat breakdown entry never appears in failingSteps", () => {
+    const moat: MoatSnapshot = { moat: "no_moat", score: 0 };
+    const result = computeOverallAssessment(STEPS_BLENDING_TO_90, moat);
+    expect(result.failingSteps).toEqual([]);
+    const moatEntry = result.breakdown.find((b) => b.key === "moat")!;
+    expect(moatEntry.verdict).toBe("No Moat");
+    expect(moatEntry.score).toBe(0);
+  });
+
+  it("moatLoading holds the whole result in loading status", () => {
+    const result = computeOverallAssessment(STEPS_BLENDING_TO_90, null, true);
+    expect(result.status).toBe("loading");
+    expect(result.score).toBeNull();
+  });
+});

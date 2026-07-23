@@ -25,6 +25,8 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     step4_verdict: "Pass",
     step5_score: 60,
     step5_verdict: "Pass",
+    moat: null,
+    moat_score: null,
     overall_score: 78,
     overall_verdict: "Pass",
     market_cap: 3_000_000_000_000,
