@@ -56,6 +56,21 @@ def test_load_sp500_tickers_reads_from_the_index_constituent_table(monkeypatch, 
     assert set(tickers) == {"AAPL", "MSFT"}
 
 
+def test_load_universe_tickers_unions_sp500_and_dow_without_duplicates(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    with Session(engine) as session:
+        session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime.now()))
+        # AMGN is in both lists today -- must appear once, not twice.
+        session.add(IndexConstituent(index_name="sp500", ticker="AMGN", company_name="Amgen", last_synced_at=datetime.now()))
+        session.add(IndexConstituent(index_name="dow", ticker="AMGN", company_name="Amgen", last_synced_at=datetime.now()))
+        session.add(IndexConstituent(index_name="dow", ticker="MMM", company_name="3M", last_synced_at=datetime.now()))
+        session.commit()
+
+        tickers = nightly.load_universe_tickers(session)
+
+    assert sorted(tickers) == ["AAPL", "AMGN", "MMM"]
+
+
 def test_a_failing_ticker_does_not_abort_the_run(monkeypatch, tmp_path):
     _fresh_engine(monkeypatch, tmp_path)
     calls: list[tuple[str, str]] = []

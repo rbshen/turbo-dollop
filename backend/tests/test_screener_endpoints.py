@@ -82,6 +82,27 @@ def test_screener_list_is_empty_when_no_rows_exist(monkeypatch):
     assert response.json() == []
 
 
+def test_screener_list_filters_by_universe_query_param(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime(2026, 1, 1)))
+        session.add(IndexConstituent(index_name="dow", ticker="MMM", company_name="3M", last_synced_at=datetime(2026, 1, 1)))
+        session.add(TickerScore(ticker="AAPL", company_name="Apple Inc.", computed_at=datetime(2026, 1, 1)))
+        session.add(TickerScore(ticker="MMM", company_name="3M Co.", computed_at=datetime(2026, 1, 1)))
+        session.commit()
+
+    with TestClient(main.app) as client:
+        default_response = client.get("/api/screener")
+        sp500_response = client.get("/api/screener", params={"universe": "sp500"})
+        dow_response = client.get("/api/screener", params={"universe": "dow"})
+        invalid_response = client.get("/api/screener", params={"universe": "qqq"})
+
+    assert {row["ticker"] for row in default_response.json()} == {"AAPL"}  # defaults to sp500
+    assert {row["ticker"] for row in sp500_response.json()} == {"AAPL"}
+    assert {row["ticker"] for row in dow_response.json()} == {"MMM"}
+    assert invalid_response.status_code == 422
+
+
 def test_screener_recompute_calls_recompute_all_and_returns_its_summary(monkeypatch):
     _fresh_engine(monkeypatch)
 
@@ -101,19 +122,21 @@ def test_screener_recompute_calls_recompute_all_and_returns_its_summary(monkeypa
     assert body["failures"] == [["BRK.B", "402"], ["BF.B", "402"]]
 
 
-def test_screener_meta_returns_the_total_sp500_constituent_count(monkeypatch):
+def test_screener_meta_returns_the_total_constituent_count_for_the_selected_universe(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     with Session(engine) as session:
         session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime(2026, 1, 1)))
         session.add(IndexConstituent(index_name="sp500", ticker="MSFT", company_name="Microsoft", last_synced_at=datetime(2026, 1, 1)))
-        session.add(IndexConstituent(index_name="other-index", ticker="XYZ", company_name="Not S&P", last_synced_at=datetime(2026, 1, 1)))
+        session.add(IndexConstituent(index_name="dow", ticker="MMM", company_name="3M", last_synced_at=datetime(2026, 1, 1)))
         session.commit()
 
     with TestClient(main.app) as client:
-        response = client.get("/api/screener/meta")
+        default_response = client.get("/api/screener/meta")
+        dow_response = client.get("/api/screener/meta", params={"universe": "dow"})
 
-    assert response.status_code == 200
-    assert response.json() == {"total_sp500_constituents": 2}
+    assert default_response.status_code == 200
+    assert default_response.json() == {"universe": "sp500", "total_constituents": 2}
+    assert dow_response.json() == {"universe": "dow", "total_constituents": 1}
 
 
 def test_screener_meta_is_zero_when_no_constituents_stored(monkeypatch):
@@ -122,7 +145,7 @@ def test_screener_meta_is_zero_when_no_constituents_stored(monkeypatch):
     with TestClient(main.app) as client:
         response = client.get("/api/screener/meta")
 
-    assert response.json() == {"total_sp500_constituents": 0}
+    assert response.json() == {"universe": "sp500", "total_constituents": 0}
 
 
 def test_screener_recompute_never_calls_the_script_entry_point(monkeypatch):

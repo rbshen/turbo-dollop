@@ -1,5 +1,6 @@
-"""Standalone script: re-score every S&P 500 ticker already in the stored
-constituent list (see sp500_scraper.py / IndexConstituent), reading ONLY
+"""Standalone script: re-score every ticker already in the stored S&P 500 +
+Dow constituent lists (see sp500_scraper.py / dow_scraper.py /
+IndexConstituent -- load_universe_tickers unions both), reading ONLY
 already-cached raw data -- makes zero FMP calls. This exists specifically
 for when scoring logic changes (which has happened repeatedly in this
 project -- e.g. the Step 4 window extension) so all ~500 tickers' Screener
@@ -32,7 +33,7 @@ from sqlmodel import Session
 
 from db import engine, init_db
 from logging_config import configure_logging
-from nightly_fundamentals_fetch import load_sp500_tickers
+from nightly_fundamentals_fetch import load_universe_tickers
 from ticker_score import compute_ticker_score
 
 LOG_PATH = Path(__file__).resolve().parent / "logs" / "recompute_ticker_scores.log"
@@ -41,16 +42,16 @@ logger = logging.getLogger(__name__)
 
 
 async def recompute_all(tickers: list[str] | None = None) -> dict:
-    """`tickers=None` means "use the full stored S&P 500 list" -- passing an
-    explicit list (used by the CLI's --limit/--tickers, the API endpoint,
-    and tests) bypasses the DB lookup entirely. Returns the run summary
-    dict, same shape as nightly_fundamentals_fetch.main()'s (minus
+    """`tickers=None` means "use the full stored S&P 500 + Dow list" --
+    passing an explicit list (used by the CLI's --limit/--tickers, the API
+    endpoint, and tests) bypasses the DB lookup entirely. Returns the run
+    summary dict, same shape as nightly_fundamentals_fetch.main()'s (minus
     calls_made, which is always 0 here by design -- this path never calls
     FMP). Deliberately does NOT touch logging config or call init_db() --
     see this module's docstring for why."""
     if tickers is None:
         with Session(engine) as session:
-            tickers = load_sp500_tickers(session)
+            tickers = load_universe_tickers(session)
 
     if not tickers:
         logger.error("No tickers to process -- run refresh_sp500_list.py first, or pass an explicit ticker list.")
@@ -119,7 +120,7 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     if args.limit:
         init_db()
         with Session(engine) as session:
-            all_tickers = load_sp500_tickers(session)
+            all_tickers = load_universe_tickers(session)
         return all_tickers[: args.limit]
     return None
 

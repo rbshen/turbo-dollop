@@ -21,3 +21,9 @@
 # added/removed ticker is reflected the same night. Index membership only
 # changes a handful of times a year, hence weekly rather than nightly.
 0 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python refresh_sp500_list.py >> /home/shen/fathom/backend/logs/sp500_list_refresh_cron.log 2>&1
+
+# Weekly Dow Jones constituent list refresh (Wikipedia scrape), Sundays at
+# 1:05 AM server time -- staggered a few minutes after the S&P 500 refresh
+# above (both still run before the 2 AM nightly fetch) so the two Wikipedia
+# scrapes don't overlap.
+5 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python refresh_dow_list.py >> /home/shen/fathom/backend/logs/dow_list_refresh_cron.log 2>&1

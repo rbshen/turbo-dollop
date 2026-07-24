@@ -30,6 +30,7 @@ from schemas import (
     TickerMoatOut,
     TickerScoreOut,
     TickerSummaryOut,
+    Universe,
 )
 from step1_data import get_step1_data
 from step2_data import get_step2_data
@@ -222,26 +223,27 @@ async def update_ticker_moat(ticker: str, body: TickerMoatIn) -> TickerMoatOut:
 
 
 @app.get("/api/screener", response_model=list[TickerScoreOut])
-def screener_list() -> list[TickerScoreOut]:
-    # Filtered to S&P 500 constituents -- TickerScore also picks up rows for
-    # any ticker ever viewed individually (see compute_ticker_score's other
-    # call sites), which must not leak into this "S&P 500 tickers" list.
+def screener_list(universe: Universe = "sp500") -> list[TickerScoreOut]:
+    # Filtered to the selected universe's constituents -- TickerScore also
+    # picks up rows for any ticker ever viewed individually (see
+    # compute_ticker_score's other call sites), which must not leak into
+    # this list.
     with Session(engine) as session:
-        sp500_tickers = select(IndexConstituent.ticker).where(IndexConstituent.index_name == "sp500")
-        rows = session.exec(select(TickerScore).where(TickerScore.ticker.in_(sp500_tickers))).all()
+        universe_tickers = select(IndexConstituent.ticker).where(IndexConstituent.index_name == universe)
+        rows = session.exec(select(TickerScore).where(TickerScore.ticker.in_(universe_tickers))).all()
     return [TickerScoreOut(**row.model_dump()) for row in rows]
 
 
 @app.get("/api/screener/meta", response_model=ScreenerMeta)
-def screener_meta() -> ScreenerMeta:
+def screener_meta(universe: Universe = "sp500") -> ScreenerMeta:
     # A ticker with no cached profile at all (e.g. BRK.B/BF.B's FMP 402) gets
-    # no TickerScore row -- this lets the UI show an honest "X of Y S&P 500
-    # tickers" count rather than silently presenting a partial list as complete.
+    # no TickerScore row -- this lets the UI show an honest "X of Y" count
+    # rather than silently presenting a partial list as complete.
     with Session(engine) as session:
-        total_sp500_constituents = session.exec(
-            select(func.count()).select_from(IndexConstituent).where(IndexConstituent.index_name == "sp500")
+        total_constituents = session.exec(
+            select(func.count()).select_from(IndexConstituent).where(IndexConstituent.index_name == universe)
         ).one()
-    return ScreenerMeta(total_sp500_constituents=total_sp500_constituents)
+    return ScreenerMeta(universe=universe, total_constituents=total_constituents)
 
 
 @app.post("/api/screener/recompute", response_model=RecomputeSummary)

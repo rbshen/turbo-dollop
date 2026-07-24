@@ -405,12 +405,17 @@ class RecomputeSummary(BaseModel):
     failures: list[tuple[str, str]] = []
 
 
+Universe = Literal["sp500", "dow"]
+
+
 class ScreenerMeta(BaseModel):
-    # Total stored S&P 500 constituents -- NOT the same as len(GET
-    # /api/screener)'s response, since a ticker with no cached profile at
-    # all gets no TickerScore row. The gap between the two is what the
-    # Screener page's "X of Y" transparency note is built from.
-    total_sp500_constituents: int
+    universe: Universe
+    # Total stored constituents for `universe` -- NOT the same as
+    # len(GET /api/screener)'s response for that same universe, since a
+    # ticker with no cached profile at all gets no TickerScore row. The gap
+    # between the two is what the Screener page's "X of Y" transparency
+    # note is built from.
+    total_constituents: int
 
 
 class FinancialsLineItem(BaseModel):

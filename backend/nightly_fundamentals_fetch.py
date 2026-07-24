@@ -1,6 +1,7 @@
-"""Standalone script: nightly fundamentals refresh for every S&P 500
-ticker in the stored constituent list (see sp500_scraper.py /
-IndexConstituent), via the app's existing cache-aware fetch pipeline --
+"""Standalone script: nightly fundamentals refresh for every ticker in the
+stored S&P 500 + Dow constituent lists (see sp500_scraper.py /
+dow_scraper.py / IndexConstituent -- load_universe_tickers unions both),
+via the app's existing cache-aware fetch pipeline --
 get_step1_data / get_step2_data / get_step4_data / get_step5_data /
 get_summary. Nothing bespoke here: these are the exact same functions
 Step 1/2/4/5 and the ticker header already call, each already going through
@@ -62,6 +63,22 @@ def load_sp500_tickers(session: Session) -> list[str]:
     return [row.ticker for row in rows]
 
 
+def load_dow_tickers(session: Session) -> list[str]:
+    rows = session.exec(select(IndexConstituent).where(IndexConstituent.index_name == "dow")).all()
+    return [row.ticker for row in rows]
+
+
+def load_universe_tickers(session: Session) -> list[str]:
+    """Union of every index this pipeline covers -- today all 30 Dow
+    constituents also happen to be S&P 500 members, but that's not
+    guaranteed to stay true, and a Dow-only ticker must still get fetched
+    nightly (and get a TickerScore row) once the Screener can filter to a
+    Dow universe. load_sp500_tickers itself stays untouched/sp500-only --
+    other callers (bulk_refresh_step4_annual.py) depend on that exact
+    scope."""
+    return sorted(set(load_sp500_tickers(session)) | set(load_dow_tickers(session)))
+
+
 async def _refresh_one_ticker(ticker: str) -> None:
     await get_step1_data(ticker)
     await get_step2_data(ticker)
@@ -72,20 +89,20 @@ async def _refresh_one_ticker(ticker: str) -> None:
 
 
 async def main(tickers: list[str] | None = None) -> dict:
-    """`tickers=None` means "use the full stored S&P 500 list" -- passing
-    an explicit list (used by the CLI's --limit/--tickers and by tests)
-    bypasses the DB lookup entirely. Returns the run summary dict so tests
-    can assert on it directly rather than scraping the log."""
+    """`tickers=None` means "use the full stored S&P 500 + Dow list" --
+    passing an explicit list (used by the CLI's --limit/--tickers and by
+    tests) bypasses the DB lookup entirely. Returns the run summary dict so
+    tests can assert on it directly rather than scraping the log."""
     configure_logging(LOG_PATH)
     logger = logging.getLogger(__name__)
     init_db()
 
     if tickers is None:
         with Session(engine) as session:
-            tickers = load_sp500_tickers(session)
+            tickers = load_universe_tickers(session)
 
     if not tickers:
-        logger.error("No tickers to process -- run refresh_sp500_list.py first, or pass an explicit ticker list.")
+        logger.error("No tickers to process -- run refresh_sp500_list.py/refresh_dow_list.py first, or pass an explicit ticker list.")
         return {"processed": 0, "failed": 0, "calls_made": 0, "duration_seconds": 0.0, "failures": []}
 
     fmp_client.min_request_interval = 60.0 / TARGET_REQUESTS_PER_MINUTE
@@ -146,7 +163,7 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     if args.limit:
         init_db()
         with Session(engine) as session:
-            all_tickers = load_sp500_tickers(session)
+            all_tickers = load_universe_tickers(session)
         return all_tickers[: args.limit]
     return None
 
