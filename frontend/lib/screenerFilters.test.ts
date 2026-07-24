@@ -6,6 +6,7 @@ import {
   extractCompanyTypes,
   extractSectors,
   filterTickerScores,
+  parseMarketCapInput,
   sortTickerScores,
   type ScreenerFilterState,
 } from "@/lib/screenerFilters";
@@ -32,6 +33,7 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     market_cap: 3_000_000_000_000,
     pe_ratio: 30,
     beta: 1.2,
+    valuation_verdict: null,
     computed_at: "2026-01-01T00:00:00",
     ...overrides,
   };
@@ -154,6 +156,36 @@ describe("sortTickerScores", () => {
     ];
     expect(sortTickerScores(rows, "market_cap", "desc").map((r) => r.ticker)).toEqual(["BIG", "SMALL"]);
   });
+});
+
+describe("parseMarketCapInput", () => {
+  it("parses a bare number as raw dollars, unchanged from before B/M support", () => {
+    expect(parseMarketCapInput("3000000000")).toBe(3_000_000_000);
+  });
+
+  it("parses an empty string as null (no filter on that side)", () => {
+    expect(parseMarketCapInput("")).toBeNull();
+    expect(parseMarketCapInput("   ")).toBeNull();
+  });
+
+  it.each([
+    ["1B", 1_000_000_000],
+    ["1 B", 1_000_000_000],
+    ["1b", 1_000_000_000],
+    ["1 b", 1_000_000_000],
+    ["2M", 2_000_000],
+    ["2 m", 2_000_000],
+    ["1.5B", 1_500_000_000],
+  ])("parses %s -> %d", (input, expected) => {
+    expect(parseMarketCapInput(input)).toBe(expected);
+  });
+
+  it.each([["1X"], ["1 gazillion"], ["abc"], ["-5B"], ["-5"], ["1BB"]])(
+    "returns undefined (invalid) for %s",
+    (input) => {
+      expect(parseMarketCapInput(input)).toBeUndefined();
+    },
+  );
 });
 
 describe("extractSectors / extractCompanyTypes", () => {

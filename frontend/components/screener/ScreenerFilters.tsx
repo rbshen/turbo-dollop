@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
+
 import { MultiSelectDropdown } from "@/components/screener/MultiSelectDropdown";
-import type { RangeFilter, ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
+import { parseMarketCapInput, type RangeFilter, type ScreenerFilterState, type SortDirection, type SortField } from "@/lib/screenerFilters";
 
 interface Props {
   filters: ScreenerFilterState;
@@ -55,6 +57,62 @@ function RangeInput({
   );
 }
 
+/** One side (min or max) of the Market Cap range: free-text so "1B" / "2 m"
+ * can be typed, not just raw digits. Kept as local text state independent
+ * of the numeric filter value -- an in-progress or invalid keystroke (e.g.
+ * "1X") shows an inline error and leaves the last valid filter value
+ * untouched, rather than being coerced to 0/NaN or clearing the filter. */
+function MarketCapSideInput({
+  placeholder,
+  value,
+  onChange,
+}: {
+  placeholder: string;
+  value: number | null;
+  onChange: (value: number | null) => void;
+}) {
+  const [text, setText] = useState(value == null ? "" : String(value));
+  const [invalid, setInvalid] = useState(false);
+
+  function handleChange(next: string) {
+    setText(next);
+    const parsed = parseMarketCapInput(next);
+    if (parsed === undefined) {
+      setInvalid(true);
+      return;
+    }
+    setInvalid(false);
+    onChange(parsed);
+  }
+
+  return (
+    <div className="flex flex-col">
+      <input
+        type="text"
+        inputMode="decimal"
+        placeholder={placeholder}
+        value={text}
+        onChange={(e) => handleChange(e.target.value)}
+        className={`w-20 rounded-md border bg-zinc-900 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none ${
+          invalid ? "border-red-800/60 focus:border-red-600" : "border-zinc-700 focus:border-zinc-500"
+        }`}
+      />
+      {invalid && <span className="mt-0.5 text-[10px] text-red-400">e.g. 1B, 2 M, or 500000000</span>}
+    </div>
+  );
+}
+
+function MarketCapRangeInput({ value, onChange }: { value: RangeFilter; onChange: (range: RangeFilter) => void }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="w-16 shrink-0 text-xs text-zinc-500">Mkt Cap</span>
+      <MarketCapSideInput placeholder="Min" value={value.min} onChange={(min) => onChange({ ...value, min })} />
+      <span className="text-zinc-700">–</span>
+      <MarketCapSideInput placeholder="Max" value={value.max} onChange={(max) => onChange({ ...value, max })} />
+    </div>
+  );
+}
+
 export function ScreenerFilters({ filters, onFiltersChange, sectors, companyTypes, sortField, sortDirection, onSortChange }: Props) {
   function patch(partial: Partial<ScreenerFilterState>) {
     onFiltersChange({ ...filters, ...partial });
@@ -71,7 +129,7 @@ export function ScreenerFilters({ filters, onFiltersChange, sectors, companyType
       </div>
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <RangeInput label="Mkt Cap" value={filters.marketCap} onChange={(r) => patch({ marketCap: r })} />
+        <MarketCapRangeInput value={filters.marketCap} onChange={(r) => patch({ marketCap: r })} />
         <RangeInput label="P/E" value={filters.peRatio} onChange={(r) => patch({ peRatio: r })} />
         <RangeInput label="Beta" value={filters.beta} onChange={(r) => patch({ beta: r })} />
       </div>
