@@ -267,6 +267,9 @@ export interface TickerScoreOut {
   // "undervalued" / "fair" / "overvalued" -- same Step 3 verdict as the
   // ticker header's FairValuePill. null when Step 3 has no usable verdict.
   valuation_verdict: string | null;
+  // Step 2's analyst-estimate CAGR %, EPS basis preferred (see CLAUDE.md's
+  // Step 2 deviation note). null when Step 2 has no usable projection.
+  growth_rate: number | null;
   computed_at: string;
 }
 

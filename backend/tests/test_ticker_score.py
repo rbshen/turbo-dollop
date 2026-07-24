@@ -31,8 +31,8 @@ def _step1(score=90, verdict="Pass"):
     )
 
 
-def _step2(score=80, verdict="Pass"):
-    return Step2Out(ticker="AAPL", score=score, verdict=verdict, components={})
+def _step2(score=80, verdict="Pass", growth_rate=12.5):
+    return Step2Out(ticker="AAPL", score=score, verdict=verdict, growth_rate=growth_rate, components={})
 
 
 def _step4(score=70, verdict="Pass", company_type="Standard"):
@@ -118,6 +118,7 @@ def test_computes_and_upserts_a_full_row(monkeypatch):
     assert result.pe_ratio == 30.0
     assert result.beta == 1.2
     assert result.valuation_verdict == "undervalued"
+    assert result.growth_rate == 12.5
 
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()

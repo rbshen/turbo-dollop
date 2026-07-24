@@ -34,6 +34,7 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     pe_ratio: 30,
     beta: 1.2,
     valuation_verdict: null,
+    growth_rate: 12.5,
     computed_at: "2026-01-01T00:00:00",
     ...overrides,
   };
@@ -148,6 +149,18 @@ describe("filterTickerScores", () => {
     const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, valuationVerdict: ["undervalued"] };
     expect(filterTickerScores(rows, filters)).toHaveLength(0);
   });
+
+  it("filters by a growth rate range", () => {
+    const rows = [row({ ticker: "FAST", growth_rate: 25 }), row({ ticker: "SLOW", growth_rate: 2 })];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, growthRate: { min: 10, max: null } };
+    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["FAST"]);
+  });
+
+  it("excludes a ticker missing a growth rate once a growth rate filter is active", () => {
+    const rows = [row({ ticker: "NOGROWTH", growth_rate: null })];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, growthRate: { min: 10, max: null } };
+    expect(filterTickerScores(rows, filters)).toHaveLength(0);
+  });
 });
 
 describe("sortTickerScores", () => {
@@ -192,6 +205,11 @@ describe("sortTickerScores", () => {
       row({ ticker: "BIG", market_cap: 3_000_000_000_000 }),
     ];
     expect(sortTickerScores(rows, "market_cap", "desc").map((r) => r.ticker)).toEqual(["BIG", "SMALL"]);
+  });
+
+  it("sorts by growth rate", () => {
+    const rows = [row({ ticker: "SLOW", growth_rate: 2 }), row({ ticker: "FAST", growth_rate: 25 })];
+    expect(sortTickerScores(rows, "growth_rate", "desc").map((r) => r.ticker)).toEqual(["FAST", "SLOW"]);
   });
 });
 

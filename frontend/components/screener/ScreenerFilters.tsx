@@ -32,6 +32,7 @@ const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: "market_cap", label: "Market cap" },
   { value: "pe_ratio", label: "P/E" },
   { value: "beta", label: "Beta" },
+  { value: "growth_rate", label: "Growth rate" },
 ];
 
 function RangeInput({
@@ -140,6 +141,7 @@ export function ScreenerFilters({ filters, onFiltersChange, sectors, companyType
         <MarketCapRangeInput value={filters.marketCap} onChange={(r) => patch({ marketCap: r })} />
         <RangeInput label="P/E" value={filters.peRatio} onChange={(r) => patch({ peRatio: r })} />
         <RangeInput label="Beta" value={filters.beta} onChange={(r) => patch({ beta: r })} />
+        <RangeInput label="Growth" value={filters.growthRate} onChange={(r) => patch({ growthRate: r })} />
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3">

@@ -131,4 +131,8 @@ class TickerScore(SQLModel, table=True):
     # FairValuePill. Not a new Step 3 call: `compute_ticker_score` already
     # fetches summary for market_cap/pe_ratio/beta above.
     valuation_verdict: str | None = None
+    # Step 2's analyst-estimate CAGR % (EPS basis preferred, revenue
+    # fallback -- see CLAUDE.md's Step 2 deviation note), lifted straight
+    # from Step2Out.growth_rate. None when Step 2 has no usable projection.
+    growth_rate: float | None = None
     computed_at: datetime

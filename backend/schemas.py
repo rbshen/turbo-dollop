@@ -393,6 +393,8 @@ class TickerScoreOut(BaseModel):
     # "undervalued" / "fair" / "overvalued" -- same Step 3 verdict as the
     # ticker header's FairValuePill (see models.py::TickerScore).
     valuation_verdict: str | None = None
+    # Step 2's analyst-estimate CAGR % (see models.py::TickerScore).
+    growth_rate: float | None = None
     computed_at: datetime
 
 

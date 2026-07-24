@@ -73,6 +73,7 @@ export interface ScreenerFilterState {
   marketCap: RangeFilter;
   peRatio: RangeFilter;
   beta: RangeFilter;
+  growthRate: RangeFilter;
   // Empty array means "no filter applied" (every sector/type passes) --
   // NOT "exclude everything".
   sectors: string[];
@@ -90,6 +91,7 @@ export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
   marketCap: EMPTY_RANGE,
   peRatio: EMPTY_RANGE,
   beta: EMPTY_RANGE,
+  growthRate: EMPTY_RANGE,
   sectors: [],
   companyTypes: [],
   moat: [],
@@ -118,6 +120,7 @@ export function filterTickerScores(rows: TickerScoreOut[], filters: ScreenerFilt
     if (!inRange(row.market_cap, filters.marketCap)) return false;
     if (!inRange(row.pe_ratio, filters.peRatio)) return false;
     if (!inRange(row.beta, filters.beta)) return false;
+    if (!inRange(row.growth_rate, filters.growthRate)) return false;
     if (filters.sectors.length > 0 && (!row.sector || !filters.sectors.includes(row.sector))) return false;
     if (filters.companyTypes.length > 0 && (!row.company_type || !filters.companyTypes.includes(row.company_type))) {
       return false;
@@ -138,7 +141,8 @@ export type SortField =
   | "step5_score"
   | "market_cap"
   | "pe_ratio"
-  | "beta";
+  | "beta"
+  | "growth_rate";
 
 export type SortDirection = "asc" | "desc";
 
