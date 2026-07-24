@@ -22,6 +22,7 @@ def _fresh_engine(monkeypatch):
 def test_screener_list_returns_stored_rows(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     with Session(engine) as session:
+        session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime(2026, 1, 1)))
         session.add(
             TickerScore(
                 ticker="AAPL",
@@ -50,6 +51,25 @@ def test_screener_list_returns_stored_rows(monkeypatch):
     assert body[0]["company_name"] == "Apple Inc."
     assert body[0]["overall_score"] == 85
     assert body[0]["market_cap"] == 3_000_000_000_000.0
+
+
+def test_screener_list_excludes_a_ticker_score_row_outside_the_sp500_list(monkeypatch):
+    # A ticker can get a TickerScore row just from being viewed individually
+    # (compute_ticker_score's other call sites) without ever being an S&P
+    # 500 constituent -- that must not leak into the "S&P 500 tickers" list.
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime(2026, 1, 1)))
+        session.add(TickerScore(ticker="AAPL", company_name="Apple Inc.", computed_at=datetime(2026, 1, 1)))
+        session.add(TickerScore(ticker="ARM", company_name="Arm Holdings", computed_at=datetime(2026, 1, 1)))
+        session.commit()
+
+    with TestClient(main.app) as client:
+        response = client.get("/api/screener")
+
+    assert response.status_code == 200
+    tickers = {row["ticker"] for row in response.json()}
+    assert tickers == {"AAPL"}
 
 
 def test_screener_list_is_empty_when_no_rows_exist(monkeypatch):

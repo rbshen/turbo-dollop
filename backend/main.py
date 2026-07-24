@@ -223,8 +223,12 @@ async def update_ticker_moat(ticker: str, body: TickerMoatIn) -> TickerMoatOut:
 
 @app.get("/api/screener", response_model=list[TickerScoreOut])
 def screener_list() -> list[TickerScoreOut]:
+    # Filtered to S&P 500 constituents -- TickerScore also picks up rows for
+    # any ticker ever viewed individually (see compute_ticker_score's other
+    # call sites), which must not leak into this "S&P 500 tickers" list.
     with Session(engine) as session:
-        rows = session.exec(select(TickerScore)).all()
+        sp500_tickers = select(IndexConstituent.ticker).where(IndexConstituent.index_name == "sp500")
+        rows = session.exec(select(TickerScore).where(TickerScore.ticker.in_(sp500_tickers))).all()
     return [TickerScoreOut(**row.model_dump()) for row in rows]
 
 
