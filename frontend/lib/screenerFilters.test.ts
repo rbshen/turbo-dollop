@@ -111,6 +111,43 @@ describe("filterTickerScores", () => {
     const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, sectors: ["Technology"] };
     expect(filterTickerScores(rows, filters)).toHaveLength(0);
   });
+
+  it("filters by moat multi-select", () => {
+    const rows = [
+      row({ ticker: "WIDE", moat: "wide_moat" }),
+      row({ ticker: "NARROW", moat: "narrow_moat" }),
+      row({ ticker: "NONE", moat: "no_moat" }),
+    ];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, moat: ["wide_moat", "no_moat"] };
+    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["WIDE", "NONE"]);
+  });
+
+  it('treats a null moat as the "not_set" filter value', () => {
+    const rows = [row({ ticker: "UNSET", moat: null }), row({ ticker: "WIDE", moat: "wide_moat" })];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, moat: ["not_set"] };
+    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["UNSET"]);
+  });
+
+  it("does not exclude a null-moat ticker when no moat filter is active", () => {
+    const rows = [row({ ticker: "UNSET", moat: null })];
+    expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(1);
+  });
+
+  it("filters by valuation status multi-select", () => {
+    const rows = [
+      row({ ticker: "UNDER", valuation_verdict: "undervalued" }),
+      row({ ticker: "OVER", valuation_verdict: "overvalued" }),
+      row({ ticker: "FAIR", valuation_verdict: "fair" }),
+    ];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, valuationVerdict: ["undervalued", "overvalued"] };
+    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["UNDER", "OVER"]);
+  });
+
+  it("excludes a ticker missing a valuation verdict once a valuation filter is active", () => {
+    const rows = [row({ ticker: "NOVERDICT", valuation_verdict: null })];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, valuationVerdict: ["undervalued"] };
+    expect(filterTickerScores(rows, filters)).toHaveLength(0);
+  });
 });
 
 describe("sortTickerScores", () => {

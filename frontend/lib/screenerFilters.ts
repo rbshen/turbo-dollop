@@ -1,3 +1,6 @@
+import type { MultiSelectOption } from "@/components/screener/MultiSelectDropdown";
+import { VALUATION_LABELS } from "@/components/screener/ValuationBadge";
+import { MOAT_LABELS } from "@/lib/overallScore";
 import type { TickerScoreOut } from "@/lib/api/types";
 
 export interface RangeFilter {
@@ -36,6 +39,31 @@ export function parseMarketCapInput(raw: string): number | null | undefined {
   return value * multiplier;
 }
 
+// Sentinel for "no moat set" (absence of a TickerMoat row -- the default
+// state for every ticker, see CLAUDE.md's Economic Moat deviation note) --
+// not a real stored moat value, so it can't collide with "wide_moat" etc.
+export const MOAT_NOT_SET = "not_set";
+
+// Fixed 4-value set, not data-derived from the current rows (unlike
+// Sector/Company type, which only ever offer values actually present) --
+// every moat state should always be selectable even if no ticker in the
+// current universe happens to have it set yet.
+export const MOAT_FILTER_OPTIONS: MultiSelectOption[] = [
+  { value: "wide_moat", label: MOAT_LABELS.wide_moat },
+  { value: "narrow_moat", label: MOAT_LABELS.narrow_moat },
+  { value: "no_moat", label: MOAT_LABELS.no_moat },
+  { value: MOAT_NOT_SET, label: "Not set" },
+];
+
+// No "not set" option here, unlike Moat -- Valuation status only has the 3
+// states the spec calls for; a ticker with no verdict yet is excluded once
+// this filter is active, same as the existing null-sector convention.
+export const VALUATION_FILTER_OPTIONS: MultiSelectOption[] = [
+  { value: "undervalued", label: VALUATION_LABELS.undervalued },
+  { value: "fair", label: VALUATION_LABELS.fair },
+  { value: "overvalued", label: VALUATION_LABELS.overvalued },
+];
+
 export interface ScreenerFilterState {
   overallScore: RangeFilter;
   step1Score: RangeFilter;
@@ -49,6 +77,8 @@ export interface ScreenerFilterState {
   // NOT "exclude everything".
   sectors: string[];
   companyTypes: string[];
+  moat: string[];
+  valuationVerdict: string[];
 }
 
 export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
@@ -62,6 +92,8 @@ export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
   beta: EMPTY_RANGE,
   sectors: [],
   companyTypes: [],
+  moat: [],
+  valuationVerdict: [],
 };
 
 // A range filter is only "active" if min or max is actually set -- an
@@ -88,6 +120,10 @@ export function filterTickerScores(rows: TickerScoreOut[], filters: ScreenerFilt
     if (!inRange(row.beta, filters.beta)) return false;
     if (filters.sectors.length > 0 && (!row.sector || !filters.sectors.includes(row.sector))) return false;
     if (filters.companyTypes.length > 0 && (!row.company_type || !filters.companyTypes.includes(row.company_type))) {
+      return false;
+    }
+    if (filters.moat.length > 0 && !filters.moat.includes(row.moat ?? MOAT_NOT_SET)) return false;
+    if (filters.valuationVerdict.length > 0 && (!row.valuation_verdict || !filters.valuationVerdict.includes(row.valuation_verdict))) {
       return false;
     }
     return true;

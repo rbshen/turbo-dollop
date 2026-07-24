@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 // discount/premium %, which stay on the ticker page's Valuation tab). Same
 // underlying verdict and colors as the ticker header's FairValuePill, just
 // worded for a list view rather than a single-ticker detail view.
-const VALUATION_LABELS: Record<string, string> = {
+export const VALUATION_LABELS: Record<string, string> = {
   undervalued: "Undervalued",
   overvalued: "Overvalued",
   fair: "Fair Valued",

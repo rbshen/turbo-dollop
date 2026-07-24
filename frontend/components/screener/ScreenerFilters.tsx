@@ -3,7 +3,15 @@
 import { useState } from "react";
 
 import { MultiSelectDropdown } from "@/components/screener/MultiSelectDropdown";
-import { parseMarketCapInput, type RangeFilter, type ScreenerFilterState, type SortDirection, type SortField } from "@/lib/screenerFilters";
+import {
+  MOAT_FILTER_OPTIONS,
+  parseMarketCapInput,
+  VALUATION_FILTER_OPTIONS,
+  type RangeFilter,
+  type ScreenerFilterState,
+  type SortDirection,
+  type SortField,
+} from "@/lib/screenerFilters";
 
 interface Props {
   filters: ScreenerFilterState;
@@ -135,12 +143,24 @@ export function ScreenerFilters({ filters, onFiltersChange, sectors, companyType
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3">
-        <MultiSelectDropdown label="Sector" options={sectors} selected={filters.sectors} onChange={(s) => patch({ sectors: s })} />
+        <MultiSelectDropdown
+          label="Sector"
+          options={sectors.map((s) => ({ value: s, label: s }))}
+          selected={filters.sectors}
+          onChange={(s) => patch({ sectors: s })}
+        />
         <MultiSelectDropdown
           label="Company type"
-          options={companyTypes}
+          options={companyTypes.map((t) => ({ value: t, label: t }))}
           selected={filters.companyTypes}
           onChange={(s) => patch({ companyTypes: s })}
+        />
+        <MultiSelectDropdown label="Moat" options={MOAT_FILTER_OPTIONS} selected={filters.moat} onChange={(s) => patch({ moat: s })} />
+        <MultiSelectDropdown
+          label="Valuation"
+          options={VALUATION_FILTER_OPTIONS}
+          selected={filters.valuationVerdict}
+          onChange={(s) => patch({ valuationVerdict: s })}
         />
 
         <div className="ml-auto flex items-center gap-2">

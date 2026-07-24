@@ -2,9 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 
+export interface MultiSelectOption {
+  value: string;
+  label: string;
+}
+
 interface Props {
   label: string;
-  options: string[];
+  options: MultiSelectOption[];
   selected: string[];
   onChange: (selected: string[]) => void;
 }
@@ -21,11 +26,12 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Prop
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
-  function toggle(option: string) {
-    onChange(selected.includes(option) ? selected.filter((o) => o !== option) : [...selected, option]);
+  function toggle(value: string) {
+    onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]);
   }
 
-  const summary = selected.length === 0 ? label : selected.length === 1 ? selected[0] : `${label} (${selected.length})`;
+  const selectedLabel = selected.length === 1 ? (options.find((o) => o.value === selected[0])?.label ?? selected[0]) : "";
+  const summary = selected.length === 0 ? label : selected.length === 1 ? selectedLabel : `${label} (${selected.length})`;
 
   return (
     <div ref={ref} className="relative">
@@ -54,16 +60,16 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Prop
           ) : (
             options.map((option) => (
               <label
-                key={option}
+                key={option.value}
                 className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
               >
                 <input
                   type="checkbox"
-                  checked={selected.includes(option)}
-                  onChange={() => toggle(option)}
+                  checked={selected.includes(option.value)}
+                  onChange={() => toggle(option.value)}
                   className="size-3.5 rounded border-zinc-600 bg-zinc-800 accent-zinc-400"
                 />
-                {option}
+                {option.label}
               </label>
             ))
           )}
