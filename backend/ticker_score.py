@@ -110,6 +110,7 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         market_cap=summary.market_cap,
         pe_ratio=summary.pe_ratio,
         beta=summary.beta,
+        valuation_verdict=summary.fair_value_verdict,
         computed_at=datetime.now(),
     )
 

@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-const VERDICT_STYLES: Record<string, string> = {
+export const VERDICT_STYLES: Record<string, string> = {
   undervalued: "bg-emerald-900/40 text-emerald-300 border-emerald-700/40",
   overvalued: "bg-red-900/40 text-red-400 border-red-800/40",
   fair: "bg-zinc-800 text-zinc-400 border-zinc-700/40",

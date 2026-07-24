@@ -52,7 +52,7 @@ def _step5(score=60, verdict="Pass", company_type="Standard"):
     return Step5Out(ticker="AAPL", company_type=company_type, score=score, verdict=verdict)
 
 
-def _summary(company_name="Apple Inc.", sector="Technology", industry="Consumer Electronics"):
+def _summary(company_name="Apple Inc.", sector="Technology", industry="Consumer Electronics", fair_value_verdict="undervalued"):
     return TickerSummaryOut(
         company_name=company_name,
         ticker="AAPL",
@@ -61,6 +61,7 @@ def _summary(company_name="Apple Inc.", sector="Technology", industry="Consumer 
         market_cap=3_000_000_000_000.0,
         pe_ratio=30.0,
         beta=1.2,
+        fair_value_verdict=fair_value_verdict,
     )
 
 
@@ -116,6 +117,7 @@ def test_computes_and_upserts_a_full_row(monkeypatch):
     assert result.market_cap == 3_000_000_000_000.0
     assert result.pe_ratio == 30.0
     assert result.beta == 1.2
+    assert result.valuation_verdict == "undervalued"
 
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()

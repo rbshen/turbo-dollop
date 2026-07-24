@@ -125,4 +125,10 @@ class TickerScore(SQLModel, table=True):
     market_cap: float | None = None
     pe_ratio: float | None = None
     beta: float | None = None
+    # "undervalued" / "fair" / "overvalued" -- lifted straight from the
+    # Step 3 verdict `get_summary` already computes (ticker_summary.py's
+    # `fair_value_verdict`), same source as the ticker header's
+    # FairValuePill. Not a new Step 3 call: `compute_ticker_score` already
+    # fetches summary for market_cap/pe_ratio/beta above.
+    valuation_verdict: str | None = None
     computed_at: datetime

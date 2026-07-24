@@ -390,6 +390,9 @@ class TickerScoreOut(BaseModel):
     market_cap: float | None = None
     pe_ratio: float | None = None
     beta: float | None = None
+    # "undervalued" / "fair" / "overvalued" -- same Step 3 verdict as the
+    # ticker header's FairValuePill (see models.py::TickerScore).
+    valuation_verdict: str | None = None
     computed_at: datetime
 
 

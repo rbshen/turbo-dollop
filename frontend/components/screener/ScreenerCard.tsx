@@ -1,6 +1,8 @@
 import Link from "next/link";
 
+import { MoatPill } from "@/components/ticker/MoatPill";
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
+import { ValuationBadge } from "@/components/screener/ValuationBadge";
 import type { TickerScoreOut } from "@/lib/api/types";
 import { fmtCompactMoney, fmtNumber } from "@/lib/format";
 
@@ -51,6 +53,13 @@ export function ScreenerCard({ data }: Props) {
         </span>
         <span className="truncate text-zinc-600">{data.sector ?? "—"}</span>
       </div>
+
+      {(data.moat != null || data.valuation_verdict != null) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <MoatPill moat={data.moat} />
+          <ValuationBadge verdict={data.valuation_verdict} />
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-1.5">
         {STEP_CHIPS.map(({ key, verdictKey, label }) => {

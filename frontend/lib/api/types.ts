@@ -264,6 +264,9 @@ export interface TickerScoreOut {
   market_cap: number | null;
   pe_ratio: number | null;
   beta: number | null;
+  // "undervalued" / "fair" / "overvalued" -- same Step 3 verdict as the
+  // ticker header's FairValuePill. null when Step 3 has no usable verdict.
+  valuation_verdict: string | null;
   computed_at: string;
 }
 
