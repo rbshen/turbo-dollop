@@ -175,6 +175,9 @@ export interface Step5Out {
   hard_fail: boolean;
   // True whenever verdict === "Pass with caution".
   pass_with_caution: boolean;
+  // Weight each ratio contributed to `score`, keyed the same as `ratios`.
+  // Empty for Bank (no composite score exists to weight).
+  weights: Record<string, number>;
   outlier_warnings: OutlierWarning[];
 }
 

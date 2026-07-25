@@ -194,6 +194,10 @@ class Step5Out(BaseModel):
     # True whenever verdict == "Pass with caution" -- convenience flag so
     # the frontend doesn't need to string-match the verdict.
     pass_with_caution: bool = False
+    # Weight each ratio contributed to `score` -- WEIGHTS_STANDARD /
+    # WEIGHTS_REIT from scoring/step5.py, keyed the same as `ratios`. Empty
+    # for Bank (no composite score exists to weight).
+    weights: dict[str, float] = {}
     outlier_warnings: list[OutlierWarning] = []
 
 

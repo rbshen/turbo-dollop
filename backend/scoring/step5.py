@@ -35,6 +35,14 @@ BORDERLINE_SAVED_SCORE = 60
 ICR_SAFE = 3.0
 ICR_DANGEROUS = 1.0
 
+# --- Weights ------------------------------------------------------------------
+# Unlike Step 1/Step 4, Step 5 has no exemption/redistribution logic -- these
+# are always flat splits, surfaced explicitly for the Reasoning breakdown UI
+# the same way Step 1/Step 2 do (WEIGHTS_STANDARD, MAGNITUDE_WEIGHT/
+# AGREEMENT_WEIGHT), rather than left implicit in the `/ 3` below.
+WEIGHTS_STANDARD = {"current_ratio": 1 / 3, "debt_to_ebitda": 1 / 3, "debt_servicing_ratio": 1 / 3}
+WEIGHTS_REIT = {"gearing_ratio": 1.0}
+
 __all__ = [
     "classify_company_type",
     "RatioResult",
@@ -197,6 +205,7 @@ def score_step5_standard(
         "verdict": _verdict_for(score, hard_fail, saved_by_tiebreaker),
         "hard_fail": hard_fail,
         "pass_with_caution": not hard_fail and saved_by_tiebreaker,
+        "weights": WEIGHTS_STANDARD,
         "ratios": {
             "current_ratio": {
                 "value": current_ratio,
@@ -232,6 +241,7 @@ def score_step5_reit(gearing_pct: float) -> dict:
         "score": g.points,
         "verdict": _verdict_for(g.points, g.hard_fail, False),
         "hard_fail": g.hard_fail,
+        "weights": WEIGHTS_REIT,
         "ratios": {
             "gearing_ratio": {"value": gearing_pct, "label": g.label, "points": g.points},
         },

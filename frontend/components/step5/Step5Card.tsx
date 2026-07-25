@@ -1,10 +1,20 @@
 "use client";
 
+import { CaretDown } from "@phosphor-icons/react";
+
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
 import { OutlierWarningNote } from "@/components/shared/OutlierWarningNote";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { fmtNumber, fmtPct, fmtTableMoney } from "@/lib/format";
-import type { Step5RatioResult } from "@/lib/api/types";
+import type { Step5Out, Step5RatioResult } from "@/lib/api/types";
+
+// Order mirrors scoring/step5.py's WEIGHTS_STANDARD / WEIGHTS_REIT -- the
+// ratios that actually carry weight/points. Interest Coverage Ratio and NPL
+// are excluded: ICR is a tiebreaker signal only (see the footnote below the
+// table), and NPL is a partial signal with no composite score to explain
+// (Bank verdict is always "not_supported").
+const REASONING_ORDER = ["current_ratio", "debt_to_ebitda", "debt_servicing_ratio", "gearing_ratio"] as const;
 
 interface Props {
   ticker: string;
@@ -71,6 +81,22 @@ function savedRatioSummary(ratios: Record<string, Step5RatioResult>): string {
     .join("; ");
 }
 
+function reasoningRows(data: Step5Out) {
+  return REASONING_ORDER.map((key) => {
+    const weight = data.weights[key];
+    const ratio = data.ratios[key];
+    if (weight == null || !ratio) return null;
+    return {
+      key,
+      label: RATIO_LABELS[key] ?? key,
+      tierLabel: TIER_LABELS[ratio.label] ?? ratio.label,
+      score: ratio.points,
+      weight,
+      contribution: Math.round(weight * ratio.points),
+    };
+  }).filter((row): row is NonNullable<typeof row> => row !== null);
+}
+
 function ratioRows(ratios: Record<string, Step5RatioResult>) {
   return Object.entries(ratios).map(([key, r]) => (
     <tr key={key}>
@@ -108,6 +134,8 @@ export function Step5Card({ ticker }: Props) {
   }
 
   const isBank = data.company_type === "Bank";
+  const reasoning = data.score != null ? reasoningRows(data) : [];
+  const icr = data.ratios.interest_coverage_ratio;
 
   return (
     <div className="space-y-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
@@ -116,12 +144,48 @@ export function Step5Card({ ticker }: Props) {
         {data.score != null && <ScoreBadge score={data.score} verdict={data.verdict} />}
       </div>
 
-      <div className="space-y-1">
-        <p className="text-sm text-zinc-300">
-          Classified as <span className="font-medium text-zinc-100">{data.company_type}</span>
-        </p>
-        <p className="text-xs text-zinc-600">{data.classification_note}</p>
-      </div>
+      {reasoning.length > 0 && (
+        <Collapsible>
+          <CollapsibleTrigger className="group flex items-center gap-1.5 text-xs uppercase tracking-widest text-zinc-500 hover:text-zinc-300">
+            <CaretDown size={12} className="transition-transform duration-200 group-data-[panel-open]:rotate-180" />
+            Reasoning
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <table className="mt-3 w-full border-separate border-spacing-0 text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
+                  <th className="border-b border-zinc-800 py-2 pr-4 font-medium">Ratio</th>
+                  <th className="border-b border-zinc-800 py-2 pr-4 font-medium">Tier</th>
+                  <th className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">Weight</th>
+                  <th className="border-b border-zinc-800 py-2 text-right font-medium">Contribution</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reasoning.map((row) => (
+                  <tr key={row.key}>
+                    <td className="border-b border-zinc-900 py-2 pr-4 text-zinc-400">{row.label}</td>
+                    <td className={`border-b border-zinc-900 py-2 pr-4 font-medium ${tierClass(data.ratios[row.key]?.label ?? "")}`}>
+                      {row.tierLabel}
+                    </td>
+                    <td className="border-b border-zinc-900 py-2 pr-4 text-right text-zinc-400">
+                      {Math.round(row.weight * 100)}%
+                    </td>
+                    <td className="border-b border-zinc-900 py-2 text-right text-zinc-100">{row.contribution} pts</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {icr && (
+              <p className="mt-2 text-xs text-zinc-600">
+                Interest Coverage Ratio carries no weight of its own — it&apos;s the tiebreaker that can excuse a
+                Borderline breach on Debt/EBITDA or Debt Servicing Ratio above (currently{" "}
+                {TIER_LABELS[icr.label] ?? icr.label}
+                {icr.value != null && <>, {formatRatioValue("interest_coverage_ratio", icr.value)}</>}).
+              </p>
+            )}
+          </CollapsibleContent>
+        </Collapsible>
+      )}
 
       <OutlierWarningNote warnings={data.outlier_warnings} labels={OUTLIER_METRIC_LABELS} />
 

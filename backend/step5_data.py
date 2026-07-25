@@ -252,6 +252,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
             score=result["score"],
             verdict=result["verdict"],
             hard_fail=result["hard_fail"],
+            weights=result["weights"],
             outlier_warnings=outlier_warnings,
         )
 
@@ -319,5 +320,6 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
         verdict=result["verdict"],
         hard_fail=result["hard_fail"],
         pass_with_caution=result["pass_with_caution"],
+        weights=result["weights"],
         outlier_warnings=outlier_warnings,
     )
