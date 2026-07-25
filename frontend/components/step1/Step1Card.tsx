@@ -32,7 +32,7 @@ export function Step1Card({ ticker }: Props) {
     <div className="space-y-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">
-          Step 1 · Revenue, income and cash flow
+          Financials
         </h2>
         <ScoreBadge score={data.score} verdict={data.verdict} />
       </div>

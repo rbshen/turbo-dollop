@@ -15,10 +15,10 @@ interface Props {
 }
 
 const STEP_LABELS = {
-  step1: "Step 1 · Track Record",
-  step2: "Step 2 · Growth Rate",
-  step4: "Step 4 · Profitability",
-  step5: "Step 5 · Debt",
+  step1: "Financials",
+  step2: "Growth Rate",
+  step4: "Profitability",
+  step5: "Debt",
 } as const;
 
 const MOAT_SCORE_FIELD: Record<"no_moat" | "narrow_moat" | "wide_moat", (config: MoatScoreConfigOut) => number> = {
@@ -51,8 +51,8 @@ export function OverallAssessmentCard({ ticker }: Props) {
   const snapshots: StepSnapshot[] = [
     { key: "step1", label: STEP_LABELS.step1, hasError: !!step1.error, data: step1.data ? { score: step1.data.score, verdict: step1.data.verdict } : undefined },
     { key: "step2", label: STEP_LABELS.step2, hasError: !!step2.error, data: step2.data ? { score: step2.data.score, verdict: step2.data.verdict } : undefined },
-    { key: "step4", label: STEP_LABELS.step4, hasError: !!step4.error, data: step4.data ? { score: step4.data.score, verdict: step4.data.verdict } : undefined },
     { key: "step5", label: STEP_LABELS.step5, hasError: !!step5.error, data: step5.data ? { score: step5.data.score, verdict: step5.data.verdict } : undefined },
+    { key: "step4", label: STEP_LABELS.step4, hasError: !!step4.error, data: step4.data ? { score: step4.data.score, verdict: step4.data.verdict } : undefined },
   ];
 
   // tickerMoat.data.moat === null means confirmed "not set" -- no moat

@@ -112,7 +112,7 @@ export function Step5Card({ ticker }: Props) {
   return (
     <div className="space-y-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Step 5 · Conservative debt</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Debt</h2>
         {data.score != null && <ScoreBadge score={data.score} verdict={data.verdict} />}
       </div>
 

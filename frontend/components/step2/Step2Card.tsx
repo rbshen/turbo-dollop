@@ -53,7 +53,7 @@ export function Step2Card({ ticker }: Props) {
     <div className="space-y-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">
-          Step 2 · Positive growth rate
+          Growth Rate
         </h2>
         <ScoreBadge score={data.score} verdict={data.verdict} />
       </div>
