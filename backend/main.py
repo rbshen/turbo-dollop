@@ -227,10 +227,14 @@ def screener_list(universe: Universe = "sp500") -> list[TickerScoreOut]:
     # Filtered to the selected universe's constituents -- TickerScore also
     # picks up rows for any ticker ever viewed individually (see
     # compute_ticker_score's other call sites), which must not leak into
-    # this list.
+    # a named-index list. universe="all" is the deliberate escape hatch for
+    # that: every cached ticker, index member or not.
     with Session(engine) as session:
-        universe_tickers = select(IndexConstituent.ticker).where(IndexConstituent.index_name == universe)
-        rows = session.exec(select(TickerScore).where(TickerScore.ticker.in_(universe_tickers))).all()
+        if universe == "all":
+            rows = session.exec(select(TickerScore)).all()
+        else:
+            universe_tickers = select(IndexConstituent.ticker).where(IndexConstituent.index_name == universe)
+            rows = session.exec(select(TickerScore).where(TickerScore.ticker.in_(universe_tickers))).all()
     return [TickerScoreOut(**row.model_dump()) for row in rows]
 
 
@@ -238,11 +242,16 @@ def screener_list(universe: Universe = "sp500") -> list[TickerScoreOut]:
 def screener_meta(universe: Universe = "sp500") -> ScreenerMeta:
     # A ticker with no cached profile at all (e.g. BRK.B/BF.B's FMP 402) gets
     # no TickerScore row -- this lets the UI show an honest "X of Y" count
-    # rather than silently presenting a partial list as complete.
+    # rather than silently presenting a partial list as complete. universe=
+    # "all" has no such gap by definition (it IS the cached-ticker count),
+    # so total_constituents there always equals screener_list's own length.
     with Session(engine) as session:
-        total_constituents = session.exec(
-            select(func.count()).select_from(IndexConstituent).where(IndexConstituent.index_name == universe)
-        ).one()
+        if universe == "all":
+            total_constituents = session.exec(select(func.count()).select_from(TickerScore)).one()
+        else:
+            total_constituents = session.exec(
+                select(func.count()).select_from(IndexConstituent).where(IndexConstituent.index_name == universe)
+            ).one()
     return ScreenerMeta(universe=universe, total_constituents=total_constituents)
 
 

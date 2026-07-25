@@ -26,6 +26,7 @@ const PAGE_SIZE = 24;
 const UNIVERSE_LABELS: Record<ScreenerUniverse, string> = {
   sp500: "S&P 500",
   dow: "Dow 30",
+  all: "All",
 };
 
 export default function ScreenerPage() {

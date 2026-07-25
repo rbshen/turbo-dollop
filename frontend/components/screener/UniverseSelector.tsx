@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 const UNIVERSE_OPTIONS: { value: ScreenerUniverse; label: string }[] = [
   { value: "sp500", label: "S&P 500" },
   { value: "dow", label: "Dow 30" },
+  { value: "all", label: "All" },
 ];
 
 interface Props {

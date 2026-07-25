@@ -273,14 +273,16 @@ export interface TickerScoreOut {
   computed_at: string;
 }
 
-export type ScreenerUniverse = "sp500" | "dow";
+export type ScreenerUniverse = "sp500" | "dow" | "all";
 
 export interface ScreenerMeta {
   universe: ScreenerUniverse;
   // Total stored constituents for `universe` -- not the same as the length
   // of GET /api/screener's response for that same universe, since a ticker
   // with no cached profile at all (e.g. an FMP 402) gets no TickerScoreOut
-  // row at all.
+  // row at all. universe="all" has no such gap by definition (it IS the
+  // cached-ticker count), so total_constituents there always equals the
+  // response length.
   total_constituents: number;
 }
 

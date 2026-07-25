@@ -405,7 +405,7 @@ class RecomputeSummary(BaseModel):
     failures: list[tuple[str, str]] = []
 
 
-Universe = Literal["sp500", "dow"]
+Universe = Literal["sp500", "dow", "all"]
 
 
 class ScreenerMeta(BaseModel):

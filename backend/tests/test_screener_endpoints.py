@@ -103,6 +103,24 @@ def test_screener_list_filters_by_universe_query_param(monkeypatch):
     assert invalid_response.status_code == 422
 
 
+def test_screener_list_universe_all_returns_every_cached_ticker_regardless_of_index(monkeypatch):
+    # universe="all" is the deliberate escape hatch past index membership --
+    # a ticker only ever viewed individually (never an S&P 500 or Dow
+    # constituent) must still show up here, unlike the sp500/dow filters.
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime(2026, 1, 1)))
+        session.add(TickerScore(ticker="AAPL", company_name="Apple Inc.", computed_at=datetime(2026, 1, 1)))
+        session.add(TickerScore(ticker="ARM", company_name="Arm Holdings", computed_at=datetime(2026, 1, 1)))
+        session.commit()
+
+    with TestClient(main.app) as client:
+        response = client.get("/api/screener", params={"universe": "all"})
+
+    assert response.status_code == 200
+    assert {row["ticker"] for row in response.json()} == {"AAPL", "ARM"}
+
+
 def test_screener_recompute_calls_recompute_all_and_returns_its_summary(monkeypatch):
     _fresh_engine(monkeypatch)
 
@@ -137,6 +155,23 @@ def test_screener_meta_returns_the_total_constituent_count_for_the_selected_univ
     assert default_response.status_code == 200
     assert default_response.json() == {"universe": "sp500", "total_constituents": 2}
     assert dow_response.json() == {"universe": "dow", "total_constituents": 1}
+
+
+def test_screener_meta_universe_all_counts_every_ticker_score_row(monkeypatch):
+    # Unlike sp500/dow, "all" has no separate constituent list to compare
+    # against -- total_constituents is just how many TickerScore rows exist,
+    # index membership aside.
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime(2026, 1, 1)))
+        session.add(TickerScore(ticker="AAPL", company_name="Apple Inc.", computed_at=datetime(2026, 1, 1)))
+        session.add(TickerScore(ticker="ARM", company_name="Arm Holdings", computed_at=datetime(2026, 1, 1)))
+        session.commit()
+
+    with TestClient(main.app) as client:
+        response = client.get("/api/screener/meta", params={"universe": "all"})
+
+    assert response.json() == {"universe": "all", "total_constituents": 2}
 
 
 def test_screener_meta_is_zero_when_no_constituents_stored(monkeypatch):
