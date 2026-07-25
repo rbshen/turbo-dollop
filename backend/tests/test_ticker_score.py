@@ -33,7 +33,7 @@ def _step1(score=90, verdict="Pass"):
 
 
 def _step2(score=80, verdict="Pass", growth_rate=12.5):
-    return Step2Out(ticker="AAPL", score=score, verdict=verdict, growth_rate=growth_rate, components={})
+    return Step2Out(ticker="AAPL", score=score, verdict=verdict, growth_rate=growth_rate, components={}, weights={})
 
 
 def _step4(score=70, verdict="Pass", company_type="Standard"):

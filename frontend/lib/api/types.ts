@@ -114,8 +114,8 @@ export interface Step2EstimateRow {
 }
 
 export interface Step2Components {
-  magnitude: { score: number; growth_rate?: number };
-  agreement: { score: number; spread?: number };
+  magnitude: { score: number; tier?: string; growth_rate?: number };
+  agreement: { score: number; tier?: string; spread?: number };
   insufficient_data?: boolean;
 }
 
@@ -138,6 +138,9 @@ export interface Step2Out {
   score: number;
   verdict: string;
   components: Step2Components;
+  // Weight each component contributed to `score` -- keyed the same as
+  // `components`.
+  weights: Record<string, number>;
 }
 
 export interface Step5RatioResult {

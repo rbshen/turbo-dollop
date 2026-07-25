@@ -144,6 +144,9 @@ class Step2Out(BaseModel):
     score: int
     verdict: str
     components: dict
+    # Weight each component contributed to `score` -- MAGNITUDE_WEIGHT /
+    # AGREEMENT_WEIGHT from scoring/step2.py, keyed the same as `components`.
+    weights: dict[str, float]
 
 
 class Step5RatioResult(BaseModel):

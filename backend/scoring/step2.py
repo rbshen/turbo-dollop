@@ -19,31 +19,33 @@ STRONG_PASS_SCORE = 90
 
 class ScoreResult(NamedTuple):
     magnitude_score: int
+    magnitude_tier: str
     agreement_score: int
+    agreement_tier: str
     score: int
     verdict: str
 
 
-def _score_magnitude(growth_rate_pct: float) -> int:
+def _score_magnitude(growth_rate_pct: float) -> tuple[int, str]:
     # Bucket boundaries are half-open ([low, high)) so e.g. exactly 15%
     # falls in the 10-15 bucket (85), not the >15 bucket (100).
     if growth_rate_pct > MAGNITUDE_HIGH:
-        return 100
+        return 100, "strong"
     if growth_rate_pct >= MAGNITUDE_SOLID:
-        return 85
+        return 85, "solid"
     if growth_rate_pct >= MAGNITUDE_MODEST:
-        return 65
+        return 65, "modest"
     if growth_rate_pct >= MAGNITUDE_BORDERLINE:
-        return 40
-    return 0
+        return 40, "weak"
+    return 0, "negative"
 
 
-def _score_agreement(spread_pct: float) -> int:
+def _score_agreement(spread_pct: float) -> tuple[int, str]:
     if spread_pct < AGREEMENT_TIGHT:
-        return 100
+        return 100, "tight"
     if spread_pct <= AGREEMENT_MODERATE:
-        return 60
-    return 20
+        return 60, "moderate"
+    return 20, "wide"
 
 
 def _verdict_for(score: int, magnitude_score: int) -> str:
@@ -67,13 +69,15 @@ def score_step2(growth_rate_pct: float, spread_pct: float) -> ScoreResult:
     already-computed projected growth rate and estimate-range spread (both
     percentages) and returns the weighted score. No I/O, no FMP/DB
     dependency -- mirrors score_step1's shape."""
-    magnitude_score = _score_magnitude(growth_rate_pct)
-    agreement_score = _score_agreement(spread_pct)
+    magnitude_score, magnitude_tier = _score_magnitude(growth_rate_pct)
+    agreement_score, agreement_tier = _score_agreement(spread_pct)
     weighted_sum = magnitude_score * MAGNITUDE_WEIGHT + agreement_score * AGREEMENT_WEIGHT
     score = max(0, min(100, round(weighted_sum)))
     return ScoreResult(
         magnitude_score=magnitude_score,
+        magnitude_tier=magnitude_tier,
         agreement_score=agreement_score,
+        agreement_tier=agreement_tier,
         score=score,
         verdict=_verdict_for(score, magnitude_score),
     )

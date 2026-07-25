@@ -8,7 +8,9 @@ from db import engine
 from fmp_client import fmp_client
 from models import GrowthCatalystNote
 from schemas import Step2EstimateRow, Step2Out
-from scoring.step2 import score_step2
+from scoring.step2 import AGREEMENT_WEIGHT, MAGNITUDE_WEIGHT, score_step2
+
+WEIGHTS = {"magnitude": MAGNITUDE_WEIGHT, "agreement": AGREEMENT_WEIGHT}
 
 # The 3-5yr horizon the source doc asks for, centered on 4 years out --
 # same window ticker_summary.py already uses for the header's EPS CAGR.
@@ -146,6 +148,7 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
                 "agreement": {"score": 0},
                 "insufficient_data": True,
             },
+            weights=WEIGHTS,
         )
 
     result = score_step2(growth_rate_pct=projection["growth_rate"], spread_pct=projection["spread"] or 100.0)
@@ -163,7 +166,16 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
         score=result.score,
         verdict=result.verdict,
         components={
-            "magnitude": {"score": result.magnitude_score, "growth_rate": projection["growth_rate"]},
-            "agreement": {"score": result.agreement_score, "spread": projection["spread"]},
+            "magnitude": {
+                "score": result.magnitude_score,
+                "tier": result.magnitude_tier,
+                "growth_rate": projection["growth_rate"],
+            },
+            "agreement": {
+                "score": result.agreement_score,
+                "tier": result.agreement_tier,
+                "spread": projection["spread"],
+            },
         },
+        weights=WEIGHTS,
     )
