@@ -253,10 +253,25 @@ class Step3CapmComponents(BaseModel):
     beta_outside_reference_range: bool
 
 
+class Step3CurrentValueCandidates(BaseModel):
+    """All four candidate figures the method-selection tree can pick from as
+    `current_value`, not just the one matching the auto-selected method --
+    Manual Calculation needs the rest so switching its method dropdown to
+    something other than what Auto picked still pre-fills a sensible
+    starting value."""
+
+    cfo_ttm: float | None = None
+    fcf_ttm: float | None = None
+    fcf_normalized: float | None = None
+    net_income_ttm: float | None = None
+    net_income_smoothed: float | None = None
+
+
 class Step3Inputs(BaseModel):
     # --- 20yr engine inputs (DCF / DFCF / DNI) ---
     current_value: float | None = None
     current_value_label: str | None = None
+    current_value_candidates: Step3CurrentValueCandidates = Step3CurrentValueCandidates()
     total_debt: float | None = None
     cash_and_st_investments: float | None = None
     # False when only cashAndCashEquivalents was available (no separate
@@ -288,6 +303,12 @@ class Step3Inputs(BaseModel):
     book_value_per_share: float | None = None
     historical_pb_ratios: list[float] | None = None
     pb_lookback: str | None = None
+    # Computed from historical_pb_ratios/pb_lookback whenever both are
+    # available, regardless of the auto-selected method -- lets Manual
+    # Calculation pre-fill a real mean/SD P/B pair even when Auto picked a
+    # different method for this ticker.
+    pb_mean_ratio: float | None = None
+    pb_sd_ratio: float | None = None
 
     # --- PSG inputs ---
     sales_per_share: float | None = None
@@ -322,6 +343,45 @@ class Step3Out(BaseModel):
     discount_premium_pct: float | None = None
     # "undervalued" / "fair" / "overvalued" -- None until Phase 2.
     verdict: str | None = None
+
+
+class Step3ManualRequest(BaseModel):
+    """Manual Calculation's what-if request -- every field is optional since
+    only the fields relevant to `method` need be populated; scoring.step3's
+    run_manual_calculation reports which ones are missing for the chosen
+    method rather than this schema enforcing it up front."""
+
+    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | PRICE_TO_BOOK | PSG
+    # 20yr engine inputs.
+    current_value: float | None = None
+    growth_yr_1_5: float | None = None
+    growth_yr_6_10: float | None = None
+    growth_yr_11_20: float | None = None
+    discount_rate: float | None = None
+    shares_outstanding: float | None = None
+    total_debt: float | None = None
+    cash_and_st_investments: float | None = None
+    # Price-to-Book inputs.
+    book_value_per_share: float | None = None
+    pb_mean_ratio: float | None = None
+    pb_sd_ratio: float | None = None
+    # PSG inputs.
+    sales_per_share: float | None = None
+    projected_growth_rate: float | None = None
+    fair_psg_ratio: float | None = None
+    # Supplied by the caller (already available from the live Auto
+    # Calculation fetch) rather than re-fetched server-side.
+    last_close: float | None = None
+
+
+class Step3ManualOut(BaseModel):
+    intrinsic_value_per_share: float | None = None
+    pb_bands: Step3PBBands | None = None
+    discount_premium_pct: float | None = None
+    verdict: str | None = None
+    # Set when the chosen method is missing a required input -- e.g.
+    # "Missing required inputs for DCF".
+    error: str | None = None
 
 
 class DiscountRateConfigOut(BaseModel):

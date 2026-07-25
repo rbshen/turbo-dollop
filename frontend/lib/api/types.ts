@@ -345,9 +345,18 @@ export interface Step3CapmComponents {
   beta_outside_reference_range: boolean;
 }
 
+export interface Step3CurrentValueCandidates {
+  cfo_ttm: number | null;
+  fcf_ttm: number | null;
+  fcf_normalized: number | null;
+  net_income_ttm: number | null;
+  net_income_smoothed: number | null;
+}
+
 export interface Step3Inputs {
   current_value: number | null;
   current_value_label: string | null;
+  current_value_candidates: Step3CurrentValueCandidates;
   total_debt: number | null;
   cash_and_st_investments: number | null;
   // False when only cashAndCashEquivalents was available. True does NOT
@@ -371,6 +380,8 @@ export interface Step3Inputs {
   book_value_per_share: number | null;
   historical_pb_ratios: number[] | null;
   pb_lookback: string | null;
+  pb_mean_ratio: number | null;
+  pb_sd_ratio: number | null;
   // PSG inputs.
   sales_per_share: number | null;
   projected_growth_rate: number | null;
@@ -408,4 +419,35 @@ export interface Step3Out {
   pb_bands: Step3PBBands | null;
   discount_premium_pct: number | null;
   verdict: "undervalued" | "overvalued" | "fair" | null;
+}
+
+// Manual Calculation's what-if request/response -- every request field is
+// optional since only the fields relevant to `method` need be populated;
+// the backend reports which ones are missing for the chosen method via
+// `error` rather than this type enforcing it up front.
+export interface Step3ManualRequest {
+  method: Step3Method;
+  current_value?: number | null;
+  growth_yr_1_5?: number | null;
+  growth_yr_6_10?: number | null;
+  growth_yr_11_20?: number | null;
+  discount_rate?: number | null;
+  shares_outstanding?: number | null;
+  total_debt?: number | null;
+  cash_and_st_investments?: number | null;
+  book_value_per_share?: number | null;
+  pb_mean_ratio?: number | null;
+  pb_sd_ratio?: number | null;
+  sales_per_share?: number | null;
+  projected_growth_rate?: number | null;
+  fair_psg_ratio?: number | null;
+  last_close?: number | null;
+}
+
+export interface Step3ManualOut {
+  intrinsic_value_per_share: number | null;
+  pb_bands: Step3PBBands | null;
+  discount_premium_pct: number | null;
+  verdict: "undervalued" | "overvalued" | "fair" | null;
+  error: string | null;
 }

@@ -23,7 +23,10 @@ from schemas import (
     ScreenerMeta,
     Step1Out,
     Step2Out,
+    Step3ManualOut,
+    Step3ManualRequest,
     Step3Out,
+    Step3PBBands,
     Step4Out,
     Step5Out,
     TickerMoatIn,
@@ -34,6 +37,7 @@ from schemas import (
 )
 from step1_data import get_step1_data
 from step2_data import get_step2_data
+from scoring.step3 import run_manual_calculation
 from step3_data import get_step3_data
 from step4_data import get_step4_data
 from step5_data import get_step5_data
@@ -128,19 +132,9 @@ async def ticker_step2(ticker: str) -> Step2Out:
 
 
 @app.get("/api/tickers/{ticker}/step3", response_model=Step3Out)
-async def ticker_step3(
-    ticker: str,
-    growth_yr_1_5: float | None = None,
-    growth_yr_6_10: float | None = None,
-    growth_yr_11_20: float | None = None,
-) -> Step3Out:
+async def ticker_step3(ticker: str) -> Step3Out:
     try:
-        return await get_step3_data(
-            ticker,
-            growth_yr_1_5_override=growth_yr_1_5,
-            growth_yr_6_10_override=growth_yr_6_10,
-            growth_yr_11_20_override=growth_yr_11_20,
-        )
+        return await get_step3_data(ticker)
     except httpx.HTTPError as exc:
         # Not f"...{exc}": httpx's exception message embeds the full request
         # URL, apikey included -- every FMP fetch site already goes through
@@ -149,6 +143,40 @@ async def ticker_step3(
         # would leak the key into the response body the moment that stops
         # being true for some future call site.
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
+
+
+# `ticker` stays in the path for consistency with the rest of this endpoint
+# family even though the calc itself is pure/ticker-agnostic -- see
+# scoring.step3.run_manual_calculation's own docstring. No FMP/DB I/O here:
+# `req.last_close` is supplied by the caller (already available from the
+# live /step3 fetch the Manual Calculation panel seeds itself from).
+@app.post("/api/tickers/{ticker}/step3/manual", response_model=Step3ManualOut)
+async def ticker_step3_manual(ticker: str, req: Step3ManualRequest) -> Step3ManualOut:
+    result = run_manual_calculation(
+        method=req.method,
+        current_value=req.current_value,
+        growth_yr_1_5=req.growth_yr_1_5,
+        growth_yr_6_10=req.growth_yr_6_10,
+        growth_yr_11_20=req.growth_yr_11_20,
+        discount_rate=req.discount_rate,
+        shares_outstanding=req.shares_outstanding,
+        total_debt=req.total_debt,
+        cash_and_st_investments=req.cash_and_st_investments,
+        book_value_per_share=req.book_value_per_share,
+        pb_mean_ratio=req.pb_mean_ratio,
+        pb_sd_ratio=req.pb_sd_ratio,
+        sales_per_share=req.sales_per_share,
+        projected_growth_rate=req.projected_growth_rate,
+        fair_psg_ratio=req.fair_psg_ratio,
+        last_close=req.last_close,
+    )
+    return Step3ManualOut(
+        intrinsic_value_per_share=result.intrinsic_value_per_share,
+        pb_bands=Step3PBBands(**result.pb_bands) if result.pb_bands else None,
+        discount_premium_pct=result.discount_premium_pct,
+        verdict=result.verdict,
+        error=result.error,
+    )
 
 
 @app.get("/api/tickers/{ticker}/step4", response_model=Step4Out)

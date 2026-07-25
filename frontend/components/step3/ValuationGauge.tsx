@@ -2,45 +2,40 @@
 
 import { Cell, Customized, Pie, PieChart } from "recharts";
 
-import { fmtPct } from "@/lib/format";
+import { fmtMoney } from "@/lib/format";
 
 interface Props {
-  /** Fraction, e.g. -0.218 for -21.8%. */
+  /** Fraction, e.g. -0.218 for -21.8%. Drives the needle position. */
   discountPremiumPct: number | null;
+  intrinsicValuePerShare: number | null;
+  lastClose: number | null;
 }
 
 // Fixed-size (non-responsive) chart -- a small embedded status widget, not
 // a data-dense chart that needs to reflow with its container.
-const WIDTH = 280;
-const HEIGHT = 168;
+const WIDTH = 320;
+const HEIGHT = 196;
 const CX = WIDTH / 2;
-const CY = HEIGHT - 12;
+const CY = HEIGHT - 38;
 const INNER_RADIUS = 68;
 const OUTER_RADIUS = 100;
 
 // Clamped display domain -- real discount/premium values can run far wider
 // (e.g. a heavily-levered mature company's DNI result), but the gauge's job
 // is to show *which zone* the stock is in, not plot every possible value;
-// off-scale values pin to the arc's end and the exact % is still shown as
-// text below.
+// off-scale values pin to the arc's end.
 const DOMAIN_MIN = -0.5;
 const DOMAIN_MAX = 0.5;
-const FAIR_BAND = 0.1;
 
-// Same undervalued/fair/overvalued colors as FairValuePill and the rest of
-// the app's status conventions (emerald/zinc/red), so the gauge reads as
-// part of one consistent system rather than introducing a new palette.
-const BANDS = [
-  { key: "undervalued", from: DOMAIN_MIN, to: -FAIR_BAND, color: "#34d399" },
-  { key: "fair", from: -FAIR_BAND, to: FAIR_BAND, color: "#71717a" },
-  { key: "overvalued", from: FAIR_BAND, to: DOMAIN_MAX, color: "#f87171" },
-];
-
-const VERDICT_LABELS: Record<string, string> = {
-  undervalued: "Undervalued",
-  overvalued: "Overvalued",
-  fair: "Fair value",
-};
+// 5 equal segments, left (most undervalued) -> right (most overvalued).
+const SEGMENT_COLORS = ["#059669", "#34d399", "#facc15", "#fb923c", "#f87171"];
+const SEGMENT_WIDTH = (DOMAIN_MAX - DOMAIN_MIN) / SEGMENT_COLORS.length;
+const BANDS = SEGMENT_COLORS.map((color, i) => ({
+  key: `seg-${i}`,
+  from: DOMAIN_MIN + i * SEGMENT_WIDTH,
+  to: DOMAIN_MIN + (i + 1) * SEGMENT_WIDTH,
+  color,
+}));
 
 function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v));
@@ -67,13 +62,42 @@ function Needle({ angleDeg }: { angleDeg: number }) {
   );
 }
 
-export function ValuationGauge({ discountPremiumPct }: Props) {
+// Round 1/2 tried positioning the Stock Price callout "near the needle"
+// (first overlaid on the arc, then on a pill meant to paint on top of it) --
+// both still read as clipped/hidden under the arc in practice, since it
+// shared geometry with the colored band regardless of paint order. Fixed
+// here by giving both callouts a static position entirely outside the arc's
+// radius (the clear strip above it, split left/right), the same strip
+// "Intrinsic value" already occupied alone -- geometrically guaranteed to
+// never sit under any arc color, no z-index/paint-order reasoning required.
+function Callouts({ intrinsicValuePerShare, lastClose }: { intrinsicValuePerShare: number | null; lastClose: number | null }) {
+  const leftX = CX - 72;
+  const rightX = CX + 72;
+  return (
+    <>
+      <text x={leftX} y={14} textAnchor="middle" className="fill-zinc-500" style={{ fontSize: 10, letterSpacing: "0.03em" }}>
+        Intrinsic value
+      </text>
+      <text x={leftX} y={31} textAnchor="middle" className="fill-zinc-100" style={{ fontSize: 16, fontWeight: 700 }}>
+        {intrinsicValuePerShare != null ? fmtMoney(intrinsicValuePerShare) : "—"}
+      </text>
+      <text x={rightX} y={14} textAnchor="middle" className="fill-zinc-500" style={{ fontSize: 10, letterSpacing: "0.03em" }}>
+        Stock price
+      </text>
+      <text x={rightX} y={31} textAnchor="middle" className="fill-zinc-100" style={{ fontSize: 16, fontWeight: 700 }}>
+        {lastClose != null ? fmtMoney(lastClose) : "—"}
+      </text>
+    </>
+  );
+}
+
+export function ValuationGauge({ discountPremiumPct, intrinsicValuePerShare, lastClose }: Props) {
   const data = BANDS.map((b) => ({ ...b, value: b.to - b.from }));
-  const verdict = discountPremiumPct == null ? null : discountPremiumPct <= -FAIR_BAND ? "undervalued" : discountPremiumPct >= FAIR_BAND ? "overvalued" : "fair";
+  const needleAngle = discountPremiumPct != null ? valueToAngleDeg(discountPremiumPct) : null;
   const isOffScale = discountPremiumPct != null && (discountPremiumPct < DOMAIN_MIN || discountPremiumPct > DOMAIN_MAX);
 
   return (
-    <div className="flex flex-col items-center gap-1" role="img" aria-label="Discount/premium to intrinsic value gauge">
+    <div className="flex flex-col items-center" role="img" aria-label="Intrinsic value vs stock price gauge">
       <PieChart width={WIDTH} height={HEIGHT}>
         <Pie
           data={data}
@@ -91,18 +115,25 @@ export function ValuationGauge({ discountPremiumPct }: Props) {
             <Cell key={entry.key} fill={entry.color} />
           ))}
         </Pie>
-        {discountPremiumPct != null && <Customized component={() => <Needle angleDeg={valueToAngleDeg(discountPremiumPct)} />} />}
+        <Customized component={() => <Callouts intrinsicValuePerShare={intrinsicValuePerShare} lastClose={lastClose} />} />
+        <Customized
+          component={() => (
+            <>
+              <text x={CX - OUTER_RADIUS} y={CY + 24} textAnchor="start" className="fill-zinc-500" style={{ fontSize: 11 }}>
+                Undervalued
+              </text>
+              <text x={CX + OUTER_RADIUS} y={CY + 24} textAnchor="end" className="fill-zinc-500" style={{ fontSize: 11 }}>
+                Overvalued
+              </text>
+            </>
+          )}
+        />
+        {needleAngle != null && <Customized component={() => <Needle angleDeg={needleAngle} />} />}
       </PieChart>
-      {discountPremiumPct != null && verdict ? (
-        <p className="text-sm">
-          <span className="font-mono font-semibold tabular-nums text-zinc-100">{fmtPct(discountPremiumPct * 100, 1)}</span>{" "}
-          <span className="text-zinc-500">
-            {VERDICT_LABELS[verdict]}
-            {isOffScale && " (off-scale)"}
-          </span>
-        </p>
-      ) : (
+      {discountPremiumPct == null ? (
         <p className="text-sm text-zinc-600">No discount/premium available</p>
+      ) : (
+        isOffScale && <p className="text-xs text-zinc-600">Off-scale, pinned to arc end</p>
       )}
     </div>
   );

@@ -308,16 +308,17 @@ class PriceToBookResult(NamedTuple):
     discount_premium_pct: float | None
 
 
-def run_price_to_book(
+def bands_from_mean_sd(
     book_value_per_share: float,
-    historical_pb_ratios: list[float],
-    lookback: str,
+    mean_pb: float,
+    sd_pb: float,
     fx_rate: float,
     last_close: float | None,
 ) -> PriceToBookResult:
-    """Spec §3.2's 5-band mean/SD engine. `historical_pb_ratios` must be
-    chronological (oldest first) -- "last N entries" means the N most
-    recent. Uses sample stdev (ddof=1, matching Excel's STDEV.S).
+    """Spec §3.2's 5-band roll-up, factored out of `run_price_to_book` so a
+    caller that already has (or wants to directly supply) a mean/SD P/B
+    pair -- e.g. Manual Calculation's what-if panel -- doesn't need to hand
+    in a full historical-ratio array just to get the same bands.
 
     Note: the source workbook's own "VMI IV Calculator (Mean PB)" sheet has
     a labeling bug on its minus-side band columns -- its "Mean - 1 SD"
@@ -327,11 +328,6 @@ def run_price_to_book(
     side is correctly ordered. This implementation follows the spec's
     literal formula (mathematically correct), not the workbook's own
     mislabeled minus-side columns."""
-    window = historical_pb_ratios[-5:] if lookback == "5 years" else historical_pb_ratios[-10:]
-    arr = np.asarray(window, dtype=float)
-    mean_pb = float(arr.mean())
-    sd_pb = float(arr.std(ddof=1))
-
     pb_bands = {
         "minus_2sd": mean_pb - 2 * sd_pb,
         "minus_1sd": mean_pb - 1 * sd_pb,
@@ -347,6 +343,23 @@ def run_price_to_book(
         bands=iv_bands,
         discount_premium_pct=_discount_premium_pct(last_close, iv_bands["mean"]),
     )
+
+
+def run_price_to_book(
+    book_value_per_share: float,
+    historical_pb_ratios: list[float],
+    lookback: str,
+    fx_rate: float,
+    last_close: float | None,
+) -> PriceToBookResult:
+    """Spec §3.2's 5-band mean/SD engine. `historical_pb_ratios` must be
+    chronological (oldest first) -- "last N entries" means the N most
+    recent. Uses sample stdev (ddof=1, matching Excel's STDEV.S)."""
+    window = historical_pb_ratios[-5:] if lookback == "5 years" else historical_pb_ratios[-10:]
+    arr = np.asarray(window, dtype=float)
+    mean_pb = float(arr.mean())
+    sd_pb = float(arr.std(ddof=1))
+    return bands_from_mean_sd(book_value_per_share, mean_pb, sd_pb, fx_rate, last_close)
 
 
 class PSGResult(NamedTuple):
@@ -378,3 +391,99 @@ def run_psg(
         current_psg_ratio=current_psg_ratio,
         discount_premium_pct=_discount_premium_pct(last_close, final_iv_per_share),
     )
+
+
+_TWENTY_YEAR_METHODS = {"DCF", "DFCF", "DNI", "DNI_NORMALIZED"}
+
+
+class ManualCalculationResult(NamedTuple):
+    intrinsic_value_per_share: float | None
+    pb_bands: dict | None
+    discount_premium_pct: float | None
+    verdict: str | None
+    error: str | None
+
+
+def run_manual_calculation(
+    method: str,
+    current_value: float | None,
+    growth_yr_1_5: float | None,
+    growth_yr_6_10: float | None,
+    growth_yr_11_20: float | None,
+    discount_rate: float | None,
+    shares_outstanding: float | None,
+    total_debt: float | None,
+    cash_and_st_investments: float | None,
+    book_value_per_share: float | None,
+    pb_mean_ratio: float | None,
+    pb_sd_ratio: float | None,
+    sales_per_share: float | None,
+    projected_growth_rate: float | None,
+    fair_psg_ratio: float | None,
+    last_close: float | None,
+) -> ManualCalculationResult:
+    """Manual Calculation's what-if engine -- a pure function over
+    caller-supplied inputs (the Manual Calculation UI panel, pre-filled
+    from live Auto Calculation data and then user-edited), reusing the same
+    engines `get_step3_data` uses for the automatic answer rather than
+    duplicating any of this math a third time. `fx_rate` fixed at 1.0,
+    matching the rest of this app (see CLAUDE.md -- S&P 500/Dow, US-listed
+    USD-only tickers). No I/O: `last_close` is supplied by the caller
+    (already available from the live Auto Calculation fetch) rather than
+    re-fetched here."""
+    fx_rate = 1.0
+
+    if method in _TWENTY_YEAR_METHODS:
+        if None in (current_value, growth_yr_1_5, growth_yr_6_10, growth_yr_11_20, discount_rate, shares_outstanding, total_debt, cash_and_st_investments):
+            return ManualCalculationResult(None, None, None, None, f"Missing required inputs for {method}")
+        engine_result = run_20yr_engine(
+            current_value=current_value,
+            growth_yr_1_5=growth_yr_1_5,
+            growth_yr_6_10=growth_yr_6_10,
+            growth_yr_11_20=growth_yr_11_20,
+            discount_rate=discount_rate,
+            shares_outstanding=shares_outstanding,
+            total_debt=total_debt,
+            cash_and_st_investments=cash_and_st_investments,
+            fx_rate=fx_rate,
+            last_close=last_close,
+        )
+        return ManualCalculationResult(
+            engine_result.intrinsic_value_per_share,
+            None,
+            engine_result.discount_premium_pct,
+            classify_valuation_verdict(engine_result.discount_premium_pct),
+            None,
+        )
+
+    if method == "PRICE_TO_BOOK":
+        if None in (book_value_per_share, pb_mean_ratio, pb_sd_ratio):
+            return ManualCalculationResult(None, None, None, None, "Missing required inputs for PRICE_TO_BOOK")
+        pb_result = bands_from_mean_sd(book_value_per_share, pb_mean_ratio, pb_sd_ratio, fx_rate, last_close)
+        return ManualCalculationResult(
+            pb_result.bands["mean"],
+            pb_result.bands,
+            pb_result.discount_premium_pct,
+            classify_valuation_verdict(pb_result.discount_premium_pct),
+            None,
+        )
+
+    if method == "PSG":
+        if None in (sales_per_share, projected_growth_rate, fair_psg_ratio):
+            return ManualCalculationResult(None, None, None, None, "Missing required inputs for PSG")
+        psg_result = run_psg(
+            sales_per_share=sales_per_share,
+            projected_growth_rate=projected_growth_rate,
+            fair_psg_ratio=fair_psg_ratio,
+            fx_rate=fx_rate,
+            last_close=last_close,
+        )
+        return ManualCalculationResult(
+            psg_result.intrinsic_value_per_share,
+            None,
+            psg_result.discount_premium_pct,
+            classify_valuation_verdict(psg_result.discount_premium_pct),
+            None,
+        )
+
+    return ManualCalculationResult(None, None, None, None, f"Unknown method: {method}")

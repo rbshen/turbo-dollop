@@ -6,7 +6,7 @@ from db import engine
 from debt_metrics import compute_debt_metrics
 from discount_rate_config import get_discount_rate_config
 from fmp_client import fmp_client
-from schemas import Step3CapmComponents, Step3Inputs, Step3MethodStep, Step3Out, Step3PBBands
+from schemas import Step3CapmComponents, Step3CurrentValueCandidates, Step3Inputs, Step3MethodStep, Step3Out, Step3PBBands
 from scoring.classification import classify_company_type
 from scoring.step3 import (
     classify_valuation_verdict,
@@ -71,19 +71,10 @@ def _shares_outstanding(quote: dict, income_quarterly: list[dict]) -> tuple[floa
 async def get_step3_data(
     ticker: str,
     cache_only: bool = False,
-    growth_yr_1_5_override: float | None = None,
-    growth_yr_6_10_override: float | None = None,
-    growth_yr_11_20_override: float | None = None,
 ) -> Step3Out:
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
-    cache.get_or_fetch's own cache_only branch.
-
-    `growth_yr_*_override` (decimal fractions, e.g. 0.15 for 15%) let the
-    Phase 3 UI recompute with user-edited growth rates -- when given, they
-    replace the computed defaults in `inputs` itself (so what's displayed
-    always matches what fed the engine) without any new FMP fetch, keeping
-    the math in exactly one place instead of duplicating it in TypeScript."""
+    cache.get_or_fetch's own cache_only branch."""
     ticker = ticker.upper()
     staleness_days = settings.cache_staleness_days
 
@@ -288,21 +279,17 @@ async def get_step3_data(
     # Yr 6-10 defaults to Yr 1-5, but capped at 15% when Yr 1-5 itself runs
     # hotter than that -- an unmoderated 5yr analyst-estimate growth rate
     # (e.g. 40%+ for a high-growth name) isn't a credible assumption to
-    # silently carry into years 6-10 too. Default only: a user's own
-    # override below is never clamped, matching this feature's "editable,
-    # not silently fixed" growth-rate convention.
+    # silently carry into years 6-10 too.
     growth_yr_6_10 = min(growth_yr_1_5, GROWTH_YR_6_10_CAP) if growth_yr_1_5 is not None else None
     growth_yr_11_20 = TERMINAL_GROWTH_RATE_DEFAULT
-    if growth_yr_1_5_override is not None:
-        growth_yr_1_5 = growth_yr_1_5_override
-    if growth_yr_6_10_override is not None:
-        growth_yr_6_10 = growth_yr_6_10_override
-    if growth_yr_11_20_override is not None:
-        growth_yr_11_20 = growth_yr_11_20_override
 
     current_fiscal_year = years[-1] if years else None
 
-    normalized_fcf_series = normalize_fcf(cfo_clean, capex_clean) if selection.current_value_source == "fcf_normalized" else None
+    # Computed unconditionally (not just for whichever source the
+    # method-selection tree actually picked) so Manual Calculation can
+    # pre-fill a sensible Current Value default no matter which method the
+    # user selects there -- see Step3CurrentValueCandidates.
+    normalized_fcf_series = normalize_fcf(cfo_clean, capex_clean)
     current_value_by_source = {
         "cfo_ttm": cfo_ttm,
         "fcf_ttm": fcf_ttm,
@@ -313,6 +300,7 @@ async def get_step3_data(
         ),
     }
     current_value = current_value_by_source.get(selection.current_value_source) if selection.current_value_source else None
+    current_value_candidates = Step3CurrentValueCandidates(**current_value_by_source)
     current_value_labels = {
         "cfo_ttm": "Operating Cash Flow (Current)",
         "fcf_ttm": "Free Cash Flow (Current)",
@@ -337,12 +325,26 @@ async def get_step3_data(
         pb_lookback = f"{PB_LOOKBACK_SHORT} years"
     book_value_per_share = _first(ratios_annual).get("bookValuePerShare")
 
+    # Computed unconditionally (not just when PRICE_TO_BOOK is the
+    # auto-selected method) so Manual Calculation can pre-fill a real
+    # mean/SD P/B pair regardless of which method the user selects there.
+    pb_result = None
+    if book_value_per_share is not None and pb_lookback is not None:
+        pb_result = run_price_to_book(
+            book_value_per_share=book_value_per_share,
+            historical_pb_ratios=pb_history,
+            lookback=pb_lookback,
+            fx_rate=1.0,
+            last_close=quote.get("price"),
+        )
+
     # PSG inputs.
     sales_per_share = _first(ratios_annual).get("revenuePerShare")
 
     inputs = Step3Inputs(
         current_value=current_value,
         current_value_label=current_value_label,
+        current_value_candidates=current_value_candidates,
         total_debt=debt_metrics.total_debt,
         cash_and_st_investments=cash_and_st_investments,
         cash_and_st_investments_includes_short_term_investments=cash_incl_st_investments is not None,
@@ -360,6 +362,8 @@ async def get_step3_data(
         book_value_per_share=book_value_per_share,
         historical_pb_ratios=pb_history or None,
         pb_lookback=pb_lookback,
+        pb_mean_ratio=pb_result.mean_pb if pb_result else None,
+        pb_sd_ratio=pb_result.sd_pb if pb_result else None,
         sales_per_share=sales_per_share,
         projected_growth_rate=growth_yr_1_5,
         fair_psg_ratio=FAIR_PSG_RATIO_DEFAULT,
@@ -394,14 +398,7 @@ async def get_step3_data(
             intrinsic_value_per_share = engine_result.intrinsic_value_per_share
             discount_premium_pct = engine_result.discount_premium_pct
     elif selection.method == "PRICE_TO_BOOK":
-        if inputs.book_value_per_share is not None and inputs.pb_lookback is not None:
-            pb_result = run_price_to_book(
-                book_value_per_share=inputs.book_value_per_share,
-                historical_pb_ratios=inputs.historical_pb_ratios,
-                lookback=inputs.pb_lookback,
-                fx_rate=inputs.fx_rate,
-                last_close=inputs.last_close,
-            )
+        if pb_result is not None:
             pb_bands = Step3PBBands(**pb_result.bands)
             intrinsic_value_per_share = pb_result.bands["mean"]
             discount_premium_pct = pb_result.discount_premium_pct
