@@ -7,6 +7,8 @@ import { Pagination } from "@/components/screener/Pagination";
 import { RecomputeButton } from "@/components/screener/RecomputeButton";
 import { ScreenerCard } from "@/components/screener/ScreenerCard";
 import { ScreenerFilters } from "@/components/screener/ScreenerFilters";
+import { UniverseSelector } from "@/components/screener/UniverseSelector";
+import type { ScreenerUniverse } from "@/lib/api/types";
 import { useScreener, useScreenerMeta } from "@/lib/hooks/useScreener";
 import {
   DEFAULT_FILTER_STATE,
@@ -21,14 +23,25 @@ import {
 
 const PAGE_SIZE = 24;
 
+const UNIVERSE_LABELS: Record<ScreenerUniverse, string> = {
+  sp500: "S&P 500",
+  dow: "Dow 30",
+};
+
 export default function ScreenerPage() {
-  const { data, error } = useScreener();
-  const { data: meta } = useScreenerMeta();
+  const [universe, setUniverse] = useState<ScreenerUniverse>("sp500");
+  const { data, error } = useScreener(universe);
+  const { data: meta } = useScreenerMeta(universe);
 
   const [filters, setFilters] = useState<ScreenerFilterState>(DEFAULT_FILTER_STATE);
   const [sortField, setSortField] = useState<SortField>("overall_score");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(1);
+
+  function handleUniverseChange(next: ScreenerUniverse) {
+    setUniverse(next);
+    setPage(1);
+  }
 
   const sectors = useMemo(() => extractSectors(data ?? []), [data]);
   const companyTypes = useMemo(() => extractCompanyTypes(data ?? []), [data]);
@@ -73,11 +86,14 @@ export default function ScreenerPage() {
         <div>
           <h1 className="text-xl font-semibold text-zinc-100">Screener</h1>
           <p className="text-xs text-zinc-500">
-            {data.length} of {meta ? meta.total_sp500_constituents : "…"} S&P 500 tickers
+            {data.length} of {meta ? meta.total_constituents : "…"} {UNIVERSE_LABELS[universe]} tickers
             {sorted.length !== data.length && ` — ${sorted.length} match the current filters`}
           </p>
         </div>
-        <RecomputeButton />
+        <div className="flex items-center gap-2">
+          <UniverseSelector value={universe} onChange={handleUniverseChange} />
+          <RecomputeButton />
+        </div>
       </div>
 
       <ScreenerFilters

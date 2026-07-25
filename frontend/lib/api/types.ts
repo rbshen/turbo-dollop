@@ -273,11 +273,15 @@ export interface TickerScoreOut {
   computed_at: string;
 }
 
+export type ScreenerUniverse = "sp500" | "dow";
+
 export interface ScreenerMeta {
-  // Total stored S&P 500 constituents -- not the same as the length of
-  // GET /api/screener's response, since a ticker with no cached profile at
-  // all (e.g. an FMP 402) gets no TickerScoreOut row at all.
-  total_sp500_constituents: number;
+  universe: ScreenerUniverse;
+  // Total stored constituents for `universe` -- not the same as the length
+  // of GET /api/screener's response for that same universe, since a ticker
+  // with no cached profile at all (e.g. an FMP 402) gets no TickerScoreOut
+  // row at all.
+  total_constituents: number;
 }
 
 export interface RecomputeSummary {
