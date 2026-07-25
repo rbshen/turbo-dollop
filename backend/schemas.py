@@ -109,6 +109,9 @@ class Step1Out(BaseModel):
     score: int
     verdict: str
     components: dict
+    # Weight each component contributed to `score` -- WEIGHTS_STANDARD or
+    # WEIGHTS_CFO_EXEMPT from scoring/step1.py, keyed the same as `components`.
+    weights: dict[str, float]
 
 
 class Step2EstimateRow(BaseModel):

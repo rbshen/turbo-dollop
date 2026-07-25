@@ -101,6 +101,9 @@ export interface Step1Out {
   score: number;
   verdict: string;
   components: Step1Components;
+  // Weight each component contributed to `score` -- keyed the same as
+  // `components` ("cfo"/"fcf" are 0 whenever those components are null).
+  weights: Record<string, number>;
 }
 
 export interface Step2EstimateRow {

@@ -28,6 +28,7 @@ def _step1(score=90, verdict="Pass"):
         score=score,
         verdict=verdict,
         components={},
+        weights={},
     )
 
 

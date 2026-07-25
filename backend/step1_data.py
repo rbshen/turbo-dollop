@@ -185,4 +185,5 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
         score=result["score"],
         verdict=result["verdict"],
         components=result["components"],
+        weights=result["weights"],
     )
