@@ -1,3 +1,5 @@
+import type { ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
+
 export interface SecCrossCheck {
   available: boolean;
   sec_value: number | null;
@@ -314,6 +316,17 @@ export interface ScreenerMeta {
   // cached-ticker count), so total_constituents there always equals the
   // response length.
   total_constituents: number;
+}
+
+export interface SavedScreenerFilter {
+  id: number;
+  name: string;
+  universe: ScreenerUniverse;
+  sort_field: SortField;
+  sort_direction: SortDirection;
+  filters: ScreenerFilterState;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface RecomputeSummary {

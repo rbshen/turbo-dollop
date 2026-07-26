@@ -1,0 +1,177 @@
+"use client";
+
+import { Trash } from "@phosphor-icons/react";
+import { useEffect, useRef, useState } from "react";
+
+import { deleteScreenerFilter, saveScreenerFilter, useSavedFilters } from "@/lib/hooks/useSavedFilters";
+import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
+import type { ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
+
+interface Props {
+  universe: ScreenerUniverse;
+  sortField: SortField;
+  sortDirection: SortDirection;
+  filters: ScreenerFilterState;
+  onLoad: (saved: SavedScreenerFilter) => void;
+}
+
+type SaveStep = "idle" | "naming" | "confirmOverwrite";
+
+export function SavedFiltersBar({ universe, sortField, sortDirection, filters, onLoad }: Props) {
+  const { data: saved } = useSavedFilters();
+  const [listOpen, setListOpen] = useState(false);
+  const [saveStep, setSaveStep] = useState<SaveStep>("idle");
+  const [name, setName] = useState("");
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (listRef.current && !listRef.current.contains(e.target as Node)) setListOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  function openNaming() {
+    setName("");
+    setSaveStep("naming");
+    setListOpen(false);
+  }
+
+  function cancelSave() {
+    setSaveStep("idle");
+    setName("");
+  }
+
+  async function doSave(trimmedName: string) {
+    await saveScreenerFilter(trimmedName, {
+      universe,
+      sort_field: sortField,
+      sort_direction: sortDirection,
+      filters,
+    });
+    setSaveStep("idle");
+    setName("");
+  }
+
+  async function handleConfirm() {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+
+    const existing = saved?.find((s) => s.name === trimmedName);
+    if (existing && saveStep !== "confirmOverwrite") {
+      setSaveStep("confirmOverwrite");
+      return;
+    }
+    await doSave(trimmedName);
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <div ref={listRef} className="relative">
+        <button
+          type="button"
+          onClick={() => setListOpen((o) => !o)}
+          className="flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
+        >
+          Saved views {saved && saved.length > 0 ? `(${saved.length})` : ""}
+          <span className="text-zinc-500">▾</span>
+        </button>
+
+        {listOpen && (
+          <div className="absolute z-20 mt-1 max-h-64 w-64 overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 p-1 shadow-lg">
+            {!saved || saved.length === 0 ? (
+              <p className="px-2 py-1 text-xs text-zinc-600">No saved views yet</p>
+            ) : (
+              saved.map((s) => (
+                <div
+                  key={s.id}
+                  className="flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                  onClick={() => {
+                    onLoad(s);
+                    setListOpen(false);
+                  }}
+                >
+                  <span className="truncate">{s.name}</span>
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await deleteScreenerFilter(s.name);
+                    }}
+                    className="shrink-0 text-zinc-600 hover:text-red-400"
+                    title={`Delete "${s.name}"`}
+                  >
+                    <Trash size={14} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
+      {saveStep === "idle" && (
+        <button
+          type="button"
+          onClick={openNaming}
+          className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
+        >
+          Save current view
+        </button>
+      )}
+
+      {saveStep === "naming" && (
+        <div className="flex items-center gap-1.5">
+          <input
+            type="text"
+            autoFocus
+            placeholder="View name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleConfirm();
+              if (e.key === "Escape") cancelSave();
+            }}
+            className="w-40 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={!name.trim()}
+            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={cancelSave}
+            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-500 hover:border-zinc-500 hover:text-zinc-300"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {saveStep === "confirmOverwrite" && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-amber-400">A saved view named &quot;{name.trim()}&quot; already exists — overwrite?</span>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            className="rounded-md border border-amber-800/60 bg-zinc-900 px-2 py-1 text-xs text-amber-300 hover:border-amber-600"
+          >
+            Overwrite
+          </button>
+          <button
+            type="button"
+            onClick={cancelSave}
+            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-500 hover:border-zinc-500 hover:text-zinc-300"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

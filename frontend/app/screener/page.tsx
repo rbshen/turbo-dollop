@@ -5,10 +5,11 @@ import { useMemo, useState } from "react";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Pagination } from "@/components/screener/Pagination";
 import { RecomputeButton } from "@/components/screener/RecomputeButton";
+import { SavedFiltersBar } from "@/components/screener/SavedFiltersBar";
 import { ScreenerCard } from "@/components/screener/ScreenerCard";
 import { ScreenerFilters } from "@/components/screener/ScreenerFilters";
 import { UniverseSelector } from "@/components/screener/UniverseSelector";
-import type { ScreenerUniverse } from "@/lib/api/types";
+import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
 import { useScreener, useScreenerMeta } from "@/lib/hooks/useScreener";
 import {
   DEFAULT_FILTER_STATE,
@@ -65,6 +66,14 @@ export default function ScreenerPage() {
     setPage(1);
   }
 
+  function handleLoadSavedFilter(saved: SavedScreenerFilter) {
+    setFilters(saved.filters);
+    setSortField(saved.sort_field);
+    setSortDirection(saved.sort_direction);
+    setUniverse(saved.universe);
+    setPage(1);
+  }
+
   if (error) {
     return (
       <PageContainer className="py-12">
@@ -96,6 +105,14 @@ export default function ScreenerPage() {
           <RecomputeButton />
         </div>
       </div>
+
+      <SavedFiltersBar
+        universe={universe}
+        sortField={sortField}
+        sortDirection={sortDirection}
+        filters={filters}
+        onLoad={handleLoadSavedFilter}
+      />
 
       <ScreenerFilters
         filters={filters}
