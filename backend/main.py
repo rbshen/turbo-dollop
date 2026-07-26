@@ -1,3 +1,4 @@
+import json
 from contextlib import asynccontextmanager
 
 import httpx
@@ -8,11 +9,12 @@ from db import engine, init_db
 from discount_rate_config import get_discount_rate_config, update_discount_rate_config
 from logging_config import apply_redaction_filters
 from moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
-from models import IndexConstituent, TickerScore
+from models import IndexConstituent, SavedScreenerFilter, TickerScore
 from recompute_ticker_scores import recompute_all
 from refresh import clear_ticker_cache
 from financials_data import get_financials_data
 from ratios_data import get_ratios_data
+from saved_screener_filters import delete_saved_filter, list_saved_filters, upsert_saved_filter
 from segmentation_data import get_segmentation_data
 from schemas import (
     DiscountRateConfigIn,
@@ -23,6 +25,8 @@ from schemas import (
     RatiosOut,
     RecomputeSummary,
     RefreshResult,
+    SavedScreenerFilterIn,
+    SavedScreenerFilterOut,
     ScreenerMeta,
     SegmentationOut,
     Step1Out,
@@ -317,3 +321,45 @@ async def screener_recompute() -> RecomputeSummary:
     # docstring).
     summary = await recompute_all()
     return RecomputeSummary(**summary)
+
+
+def _saved_filter_out(row: SavedScreenerFilter) -> SavedScreenerFilterOut:
+    return SavedScreenerFilterOut(
+        id=row.id,
+        name=row.name,
+        universe=row.universe,
+        sort_field=row.sort_field,
+        sort_direction=row.sort_direction,
+        filters=json.loads(row.filters_json),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+@app.get("/api/screener/filters", response_model=list[SavedScreenerFilterOut])
+def screener_filters_list() -> list[SavedScreenerFilterOut]:
+    with Session(engine) as session:
+        rows = list_saved_filters(session)
+    return [_saved_filter_out(row) for row in rows]
+
+
+@app.put("/api/screener/filters/{name}", response_model=SavedScreenerFilterOut)
+def screener_filters_upsert(name: str, body: SavedScreenerFilterIn) -> SavedScreenerFilterOut:
+    with Session(engine) as session:
+        row = upsert_saved_filter(
+            session,
+            name=name,
+            universe=body.universe,
+            sort_field=body.sort_field,
+            sort_direction=body.sort_direction,
+            filters_json=json.dumps(body.filters),
+        )
+    return _saved_filter_out(row)
+
+
+@app.delete("/api/screener/filters/{name}", status_code=204)
+def screener_filters_delete(name: str) -> None:
+    with Session(engine) as session:
+        deleted = delete_saved_filter(session, name)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"No saved filter named '{name}'")

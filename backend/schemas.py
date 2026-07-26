@@ -500,6 +500,24 @@ class RecomputeSummary(BaseModel):
     failures: list[tuple[str, str]] = []
 
 
+class SavedScreenerFilterIn(BaseModel):
+    universe: str
+    sort_field: str
+    sort_direction: str
+    filters: dict
+
+
+class SavedScreenerFilterOut(BaseModel):
+    id: int
+    name: str
+    universe: str
+    sort_field: str
+    sort_direction: str
+    filters: dict
+    created_at: datetime
+    updated_at: datetime
+
+
 Universe = Literal["sp500", "dow", "all"]
 
 

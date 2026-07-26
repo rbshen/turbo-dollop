@@ -94,6 +94,29 @@ class MoatScoreConfig(SQLModel, table=True):
     updated_at: datetime
 
 
+class SavedScreenerFilter(SQLModel, table=True):
+    """A user-named snapshot of the Screener page's full filter/sort/universe
+    state (see frontend/lib/screenerFilters.ts's ScreenerFilterState), so a
+    frequently-used view can be reloaded instead of rebuilt by hand each
+    time. Global list, no per-user scoping (this app has no auth concept --
+    same as TickerMoat/DiscountRateConfig). filters_json stores the
+    ScreenerFilterState object as-is (verbatim JSON, not decomposed into
+    columns) since its shape is expected to keep growing as new filter
+    fields are added -- same "store raw, don't force a rigid schema"
+    reasoning as FundamentalsCache.raw_json."""
+
+    __table_args__ = (UniqueConstraint("name", name="uq_saved_screener_filter_name"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    universe: str
+    sort_field: str
+    sort_direction: str
+    filters_json: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class TickerScore(SQLModel, table=True):
     """Pre-computed Step 1/2/4/5 + Overall Assessment scores for the
     Screener page (see ticker_score.py) -- a denormalized read-model kept
