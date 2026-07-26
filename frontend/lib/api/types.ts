@@ -305,9 +305,13 @@ export interface RecomputeSummary {
 export interface FinancialsLineItem {
   label: string;
   values: (number | null)[];
-  // "money" | "per_share" -- which formatter to use (fmtTableMoney vs fmtNumber).
+  // Which formatter to use: "money" (fmtTableMoney), "per_share" (fmtNumber,
+  // also used by Ratios' Graham Number/Net-Net), "shares" (fmtTableMoney,
+  // label spells out "(millions)" itself), or, for the Ratios tab: "ratio"
+  // (plain multiple, e.g. "12.3x"), "percent" (e.g. "24.7%"), "days"
+  // (e.g. "63.4 days").
   unit: string;
-  // Bold/subtotal row (e.g. "Total Assets").
+  // Bold/subtotal row (e.g. "Total Assets"). Always false for Ratios rows.
   emphasis: boolean;
 }
 
@@ -325,6 +329,12 @@ export interface FinancialsPeriodOut {
 export interface FinancialsStatementOut {
   annual: FinancialsPeriodOut;
   quarterly: FinancialsPeriodOut;
+}
+
+export interface RatiosOut {
+  ticker: string;
+  periods: string[];
+  groups: FinancialsGroup[];
 }
 
 export interface FinancialsOut {

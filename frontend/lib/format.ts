@@ -76,6 +76,23 @@ export function fmtNumber(n: number, decimals = 2): string {
   return n.toFixed(decimals);
 }
 
+/** "24.7%" -- unsigned, unlike fmtPct's "+24.7%"/"-24.7%": correct for a
+ * margin/yield/payout reading, which isn't a delta and shouldn't imply one.
+ * Expects a value already in percentage points (e.g. 24.7 for 24.7%). */
+export function fmtPlainPct(n: number, decimals = 1): string {
+  return n.toFixed(decimals) + "%";
+}
+
+/** "12.3x" -- a plain multiple (P/E, Debt/Equity, turnover ratios, etc.). */
+export function fmtRatio(n: number, decimals = 2): string {
+  return n.toFixed(decimals) + "x";
+}
+
+/** "63.4 days" -- DSO/DPO/DIO. */
+export function fmtDays(n: number, decimals = 1): string {
+  return n.toFixed(decimals) + " days";
+}
+
 /** Tailwind text class based on sign; near-zero is muted. */
 export function pnlClass(n: number): string {
   if (n > 0.005) return "text-emerald-400";

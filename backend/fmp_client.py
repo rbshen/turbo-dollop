@@ -102,6 +102,9 @@ class FMPClient:
     async def get_key_metrics_ttm(self, ticker: str) -> dict | list:
         return await self.get("/key-metrics-ttm", {"symbol": ticker})
 
+    async def get_ratios_ttm(self, ticker: str) -> dict | list:
+        return await self.get("/ratios-ttm", {"symbol": ticker})
+
     async def get_financial_statement_full_as_reported(self, ticker: str, period: str, limit: int) -> dict | list:
         # Raw SEC-XBRL-tag dump, NOT the standardized schema the other
         # methods above use -- field names are the filer's own XBRL tags, so

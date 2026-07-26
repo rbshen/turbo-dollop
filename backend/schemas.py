@@ -491,9 +491,15 @@ class ScreenerMeta(BaseModel):
 class FinancialsLineItem(BaseModel):
     label: str
     values: list[float | None]
-    # "money" or "per_share" -- tells the frontend which formatter to use
-    # (fmtTableMoney vs fmtNumber), since EPS rows would otherwise be
-    # divided by 1e6 like every other row and read as ~0.00.
+    # Tells the frontend which formatter to use, since a bare number reads
+    # wrong under the wrong unit (e.g. an EPS row divided by 1e6 like every
+    # other "money" row would read as ~0.00). Accepted values: "money"
+    # (default, /1e6-scaled), "per_share" (unscaled $, 2dp -- also used by
+    # Ratios' Graham Number/Net-Net, which are $-per-share intrinsic-value
+    # estimates, not company totals), "shares" (unscaled count, /1e6-scaled
+    # like money but the label spells out "(millions)" itself since it isn't
+    # USD), and, added for the Ratios tab: "ratio" (plain multiple, e.g.
+    # "12.3x"), "percent" (e.g. "24.7%"), "days" (e.g. "63.4 days").
     unit: str = "money"
     # Bold/subtotal row (e.g. "Total Assets") -- a lightweight rendering
     # hint, not a computed value; the totals themselves come straight from
@@ -523,3 +529,15 @@ class FinancialsOut(BaseModel):
     income_statement: FinancialsStatementOut
     balance_sheet: FinancialsStatementOut
     cash_flow: FinancialsStatementOut
+
+
+class RatiosOut(BaseModel):
+    """Raw-metrics display only (no scoring/verdicts) for the Ratios tab --
+    unlike FinancialsOut there's no annual/quarterly split, since FMP's
+    stable /key-metrics and /ratios endpoints 402 on period=quarter under
+    our current plan; this is Annual (10yr) + TTM only, a single flat table
+    closer in shape to FinancialsPeriodOut alone than to FinancialsOut."""
+
+    ticker: str
+    periods: list[str]
+    groups: list[FinancialsGroup]
