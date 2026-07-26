@@ -25,10 +25,10 @@ interface Props {
 
 const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: "overall_score", label: "Overall score" },
-  { value: "step1_score", label: "Step 1 score" },
-  { value: "step2_score", label: "Step 2 score" },
-  { value: "step4_score", label: "Step 4 score" },
-  { value: "step5_score", label: "Step 5 score" },
+  { value: "step1_score", label: "Financials score" },
+  { value: "step2_score", label: "Growth Rate score" },
+  { value: "step4_score", label: "Profitability score" },
+  { value: "step5_score", label: "Debt score" },
   { value: "market_cap", label: "Market cap" },
   { value: "pe_ratio", label: "P/E" },
   { value: "beta", label: "Beta" },
@@ -46,7 +46,7 @@ function RangeInput({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="w-16 shrink-0 text-xs text-zinc-500">{label}</span>
+      <span className="w-24 shrink-0 text-xs text-zinc-500">{label}</span>
       <input
         type="number"
         placeholder="Min"
@@ -114,7 +114,7 @@ function MarketCapSideInput({
 function MarketCapRangeInput({ value, onChange }: { value: RangeFilter; onChange: (range: RangeFilter) => void }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="w-16 shrink-0 text-xs text-zinc-500">Mkt Cap</span>
+      <span className="w-24 shrink-0 text-xs text-zinc-500">Mkt Cap</span>
       <MarketCapSideInput placeholder="Min" value={value.min} onChange={(min) => onChange({ ...value, min })} />
       <span className="text-zinc-700">–</span>
       <MarketCapSideInput placeholder="Max" value={value.max} onChange={(max) => onChange({ ...value, max })} />
@@ -131,10 +131,10 @@ export function ScreenerFilters({ filters, onFiltersChange, sectors, companyType
     <div className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
       <div className="flex flex-wrap gap-x-6 gap-y-2">
         <RangeInput label="Overall" value={filters.overallScore} onChange={(r) => patch({ overallScore: r })} />
-        <RangeInput label="Step 1" value={filters.step1Score} onChange={(r) => patch({ step1Score: r })} />
-        <RangeInput label="Step 2" value={filters.step2Score} onChange={(r) => patch({ step2Score: r })} />
-        <RangeInput label="Step 4" value={filters.step4Score} onChange={(r) => patch({ step4Score: r })} />
-        <RangeInput label="Step 5" value={filters.step5Score} onChange={(r) => patch({ step5Score: r })} />
+        <RangeInput label="Financials" value={filters.step1Score} onChange={(r) => patch({ step1Score: r })} />
+        <RangeInput label="Growth Rate" value={filters.step2Score} onChange={(r) => patch({ step2Score: r })} />
+        <RangeInput label="Profitability" value={filters.step4Score} onChange={(r) => patch({ step4Score: r })} />
+        <RangeInput label="Debt" value={filters.step5Score} onChange={(r) => patch({ step5Score: r })} />
       </div>
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">

@@ -11,10 +11,10 @@ interface Props {
 }
 
 const STEP_CHIPS: { key: keyof TickerScoreOut; verdictKey: keyof TickerScoreOut; label: string }[] = [
-  { key: "step1_score", verdictKey: "step1_verdict", label: "S1" },
-  { key: "step2_score", verdictKey: "step2_verdict", label: "S2" },
-  { key: "step4_score", verdictKey: "step4_verdict", label: "S4" },
-  { key: "step5_score", verdictKey: "step5_verdict", label: "S5" },
+  { key: "step1_score", verdictKey: "step1_verdict", label: "F" },
+  { key: "step2_score", verdictKey: "step2_verdict", label: "G" },
+  { key: "step5_score", verdictKey: "step5_verdict", label: "D" },
+  { key: "step4_score", verdictKey: "step4_verdict", label: "P" },
 ];
 
 function chipClass(score: number | null, verdict: string | null): string {
