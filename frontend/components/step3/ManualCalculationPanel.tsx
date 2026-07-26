@@ -326,7 +326,12 @@ export function ManualCalculationPanel({ ticker, autoData }: Props) {
           vertical-align issue within any single row. */}
       <Table className="text-sm">
         <TableBody>
-          <InputRow label="Discount/Premium" value={pctText(result?.discount_premium_pct ?? null)} />
+          {/* pr-2 -- not present on Auto's copy of this same row -- offsets
+              this value to match the ~8px inset every ManualInputRow's
+              bordered input has from its own px-2 padding. Without it, this
+              one plain-text value (no input box) sits flush at the cell's
+              right edge, visibly right of every input-box value below it. */}
+          <InputRow label="Discount/Premium" value={<span className="pr-2">{pctText(result?.discount_premium_pct ?? null)}</span>} />
           {isTwentyYearMethod && (
             <>
               <ManualInputRow label="Growth Yr 1-5" sublabel="% per year" value={form.growthYr15} onChange={field("growthYr15")} kind="pct" />
