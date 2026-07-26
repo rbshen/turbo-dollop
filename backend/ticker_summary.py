@@ -8,6 +8,7 @@ from db import engine
 from debt_metrics import compute_debt_metrics
 from fmp_client import fmp_client
 from schemas import OutlierWarning, TickerSummaryOut
+from step2_data import get_step2_data
 from step3_data import get_step3_data
 from ttm import TOTAL_QUARTERS_NEEDED
 
@@ -43,37 +44,6 @@ def _next_earnings_date(earnings: list[dict]) -> date | None:
     if not upcoming:
         return None
     return date.fromisoformat(min(upcoming)[:10])
-
-
-def _compute_eps_cagr(estimates: list[dict]) -> float | None:
-    """Projected EPS growth rate: CAGR from the nearest annual EPS estimate to
-    whichever available estimate sits closest to 4 years out (the middle of
-    the spec's "3-5yr" horizon), falling back to the furthest estimate if
-    none falls in that window."""
-    rows = [
-        (row["date"], row["epsAvg"])
-        for row in estimates
-        if row.get("date") and row.get("epsAvg") is not None and row["epsAvg"] > 0
-    ]
-    if len(rows) < 2:
-        return None
-    rows.sort(key=lambda r: r[0])
-    base_date_str, base_eps = rows[0]
-    base_year = date.fromisoformat(base_date_str[:10]).year
-
-    def year_offset(date_str: str) -> int:
-        return date.fromisoformat(date_str[:10]).year - base_year
-
-    later_rows = rows[1:]
-    in_window = [r for r in later_rows if 3 <= year_offset(r[0]) <= 5]
-    target_date_str, target_eps = (
-        min(in_window, key=lambda r: abs(year_offset(r[0]) - 4)) if in_window else later_rows[-1]
-    )
-
-    years = year_offset(target_date_str)
-    if years <= 0:
-        return None
-    return (target_eps / base_eps) ** (1 / years) - 1
 
 
 async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut:
@@ -135,18 +105,6 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
                 ),
             )
         )
-        estimates_data = await safe_fetch(
-            "analyst_estimates",
-            get_or_fetch(
-                session,
-                ticker,
-                "analyst_estimates",
-                "latest",
-                lambda: fmp_client.get_analyst_estimates(ticker),
-                staleness_days,
-                cache_only,
-            ),
-        )
         earnings_data = await safe_fetch(
             "earnings",
             get_or_fetch(
@@ -189,10 +147,8 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
             ),
         )
 
-    estimates = estimates_data if isinstance(estimates_data, list) else []
     earnings = earnings_data if isinstance(earnings_data, list) else []
     price = quote.get("price")
-    eps_cagr = _compute_eps_cagr(estimates)
     debt_metrics = compute_debt_metrics(
         _first(balance_sheet_data), income_quarterly_data if isinstance(income_quarterly_data, list) else []
     )
@@ -202,9 +158,10 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         for fq in group.flagged
     ]
 
-    # Step 3's own session is separate from this function's -- get_step3_data
-    # manages its own Session(engine) block, same as the get_step2_data call
-    # it makes internally.
+    # Step 2/Step 3 each manage their own Session(engine) block, separate
+    # from this function's -- same non-conflicting pattern get_step3_data's
+    # internal get_step2_data call already proves out.
+    step2_out = await get_step2_data(ticker, cache_only)
     step3_out = await get_step3_data(ticker, cache_only)
     fair_value_method = (
         FAIR_VALUE_METHOD_LABELS.get(step3_out.selected_method) if step3_out.selected_method != "PASS" else None
@@ -224,9 +181,7 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         beta=profile.get("beta"),
         perf_1m=price_change.get("1M"),
         perf_6m=price_change.get("6M"),
-        # price-change/quote percentages from FMP already come as percentage
-        # points (e.g. 11.98 for 11.98%); normalize the CAGR fraction to match.
-        eps_growth_3_5y=eps_cagr * 100 if eps_cagr is not None else None,
+        eps_growth_3_5y=step2_out.growth_rate,
         pe_ratio=ratios.get("priceToEarningsRatio"),
         next_earnings_date=_next_earnings_date(earnings),
         total_debt=debt_metrics.total_debt,

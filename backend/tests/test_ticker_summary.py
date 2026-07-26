@@ -2,6 +2,7 @@ import asyncio
 
 from sqlmodel import SQLModel, create_engine
 
+import step2_data
 import ticker_summary
 from schemas import Step3Inputs, Step3Out
 from ticker_summary import get_summary
@@ -76,6 +77,11 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(test_engine)
     monkeypatch.setattr(ticker_summary, "engine", test_engine)
+    # get_step2_data manages its own Session(engine) bound to step2_data's
+    # own module-level import -- patching only ticker_summary's engine
+    # leaves it pointed at the real db, so it'd silently read/write whatever
+    # is already cached there instead of this test's fixtures.
+    monkeypatch.setattr(step2_data, "engine", test_engine)
 
     call_count = {
         "profile": 0,
@@ -152,8 +158,12 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     assert summary.perf_6m == 12.5
     assert summary.pe_ratio == 30.1
     assert summary.next_earnings_date is not None and summary.next_earnings_date.isoformat() == "2026-07-30"
-    assert summary.eps_growth_3_5y is not None
-    assert summary.eps_growth_3_5y > 0
+    # Must equal Step 2's own growth_rate exactly (same _project computation,
+    # same base year 2026 / target year 2030 four-years-out window) -- this
+    # is the regression guard for the bug where a near-duplicate calculation
+    # here disagreed with the Step 2 card because it lacked Step 2's
+    # future-only date filter and could window off a different base year.
+    assert summary.eps_growth_3_5y == ((13.38 / 8.31) ** (1 / 4) - 1) * 100
     assert summary.fair_value_price == 200.0
     assert summary.fair_value_verdict == "undervalued"
     assert summary.fair_value_method == "DCF"
@@ -189,34 +199,6 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     # live (cache_only=False) path.
     asyncio.run(get_summary("aapl", cache_only=True))
     assert call_count == {**expected_call_count, "quote": 2}
-
-
-def test_eps_cagr_requires_at_least_two_positive_estimates():
-    assert ticker_summary._compute_eps_cagr([]) is None
-    assert ticker_summary._compute_eps_cagr([{"date": "2026-12-31", "epsAvg": 1.0}]) is None
-    assert (
-        ticker_summary._compute_eps_cagr(
-            [
-                {"date": "2026-12-31", "epsAvg": -1.0},
-                {"date": "2027-12-31", "epsAvg": -2.0},
-            ]
-        )
-        is None
-    )
-
-
-def test_eps_cagr_prefers_estimate_closest_to_four_years_out():
-    # base=2026 (eps 8), then 2027/2028/2029/2030 — 2030 is 4y out, should be preferred.
-    cagr = ticker_summary._compute_eps_cagr(
-        [
-            {"date": "2026-09-27", "epsAvg": 8.0},
-            {"date": "2027-09-27", "epsAvg": 9.0},
-            {"date": "2028-09-27", "epsAvg": 10.0},
-            {"date": "2029-09-27", "epsAvg": 11.0},
-            {"date": "2030-09-27", "epsAvg": 16.0},
-        ]
-    )
-    assert cagr == (16.0 / 8.0) ** (1 / 4) - 1
 
 
 def test_next_earnings_date_picks_nearest_unreported():
