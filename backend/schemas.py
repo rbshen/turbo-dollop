@@ -52,9 +52,34 @@ class TickerSummaryOut(BaseModel):
     change: float | None = None
     change_percent: float | None = None
     market_cap: float | None = None
+    # Latest-quarter figure from /stable/enterprise-values (not a live
+    # recompute) -- fresher than the endpoint's latest-annual row, see
+    # CLAUDE.md's Summary tab expansion notes.
+    enterprise_value: float | None = None
     beta: float | None = None
+    # Trailing PEG (priceToEarningsGrowthRatioTTM) and forward PEG
+    # (forwardPriceToEarningsGrowthRatioTTM) from /stable/ratios-ttm -- shown
+    # side by side, matching the precedent already set on the Ratios tab.
+    peg_ratio: float | None = None
+    forward_peg_ratio: float | None = None
+    # Derived via shares.py::compute_shares_outstanding -- the same figure
+    # Step 3's valuation math uses, since /stable/profile has no
+    # sharesOutstanding field on our FMP plan.
+    shares_outstanding: float | None = None
+    shares_outstanding_source: str | None = None
+    # Recomputed from daily historical price/volume, NOT profile's
+    # averageVolume -- confirmed empirically that field is closer to a
+    # ~50-63 trading-day average than a 30-day one.
+    avg_volume_30d: float | None = None
+    avg_dollar_volume_20d: float | None = None
     perf_1m: float | None = None
     perf_6m: float | None = None
+    perf_ytd: float | None = None
+    perf_1y: float | None = None
+    perf_5y: float | None = None
+    perf_10y: float | None = None
+    week52_high: float | None = None
+    week52_low: float | None = None
     eps_growth_3_5y: float | None = None
     pe_ratio: float | None = None
     next_earnings_date: date | None = None
@@ -541,3 +566,22 @@ class RatiosOut(BaseModel):
     ticker: str
     periods: list[str]
     groups: list[FinancialsGroup]
+
+
+class SegmentationOut(BaseModel):
+    """Revenue-by-business-segment and revenue-by-geography breakdowns for
+    the Summary tab's two new charts (see segmentation_data.py). Annual-only
+    on our FMP plan -- /revenue-product-segmentation and
+    /revenue-geographic-segmentation both 402 on period=quarter, confirmed
+    empirically, so there's no TTM column here unlike Ratios/Financials.
+    `*_segments`/`*_values` are None/empty when the ticker doesn't disclose
+    that breakdown (a clean empty FMP payload, not an error) -- the frontend
+    shows a "not disclosed" note rather than a broken chart in that case."""
+
+    ticker: str
+    product_years: list[str]
+    product_segments: list[str] | None = None
+    product_values: dict[str, list[float | None]] = {}
+    geographic_years: list[str]
+    geographic_segments: list[str] | None = None
+    geographic_values: dict[str, list[float | None]] = {}

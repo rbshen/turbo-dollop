@@ -17,6 +17,7 @@ from scoring.step3 import (
     run_psg,
     select_method,
 )
+from shares import compute_shares_outstanding
 from step2_data import get_step2_data
 from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
@@ -50,22 +51,6 @@ def _annual_series(annual_rows: list[dict], field: str) -> tuple[list[str], list
     years = [row.get("fiscalYear", row.get("date", "")[:4]) for row in rows]
     values = [row.get(field) for row in rows]
     return years, values
-
-
-def _shares_outstanding(quote: dict, income_quarterly: list[dict]) -> tuple[float | None, str | None]:
-    """Prefers marketCap/price (both instant quote-level figures, per spec
-    gotcha #2's "most recent instant" rule) over the income statement's
-    weightedAverageShsOutDil, which is a period-average flow figure, not an
-    instant share count -- used only as a fallback when quote data is
-    incomplete."""
-    market_cap, price = quote.get("marketCap"), quote.get("price")
-    if market_cap and price:
-        return market_cap / price, "marketCap / price (latest quote)"
-    latest_quarter = _first(income_quarterly)
-    shares = latest_quarter.get("weightedAverageShsOutDil")
-    if shares:
-        return shares, "weightedAverageShsOutDil (latest quarter, diluted)"
-    return None, None
 
 
 async def get_step3_data(
@@ -256,7 +241,7 @@ async def get_step3_data(
     # the spec explicitly asks for.
     cash_and_st_investments = cash_incl_st_investments if cash_incl_st_investments is not None else cash_only
 
-    shares_outstanding, shares_source = _shares_outstanding(quote, income_quarterly)
+    shares_outstanding, shares_source = compute_shares_outstanding(quote, income_quarterly)
 
     beta = profile.get("beta")
     capm = None

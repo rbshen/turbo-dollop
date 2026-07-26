@@ -31,6 +31,18 @@ export function fmtCompactMoney(n: number): string {
   return fmtMoney(n);
 }
 
+/** "4.90T" / "482.11B" / "12.50M" — like fmtCompactMoney but without the "$",
+ * for share counts / trading volume where a dollar sign would be wrong. */
+export function fmtCompactNumber(n: number): string {
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  if (abs >= 1e12) return `${sign}${(abs / 1e12).toFixed(2)}T`;
+  if (abs >= 1e9) return `${sign}${(abs / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${sign}${(abs / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${sign}${(abs / 1e3).toFixed(2)}K`;
+  return sign + absLocale(n, 0);
+}
+
 /** "#,###.00M" — table format for raw dollar figures (e.g. 416161000000 -> "416,161.00M"). */
 export function fmtTableMoney(n: number): string {
   return (n / 1_000_000).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "M";

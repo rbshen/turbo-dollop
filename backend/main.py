@@ -13,6 +13,7 @@ from recompute_ticker_scores import recompute_all
 from refresh import clear_ticker_cache
 from financials_data import get_financials_data
 from ratios_data import get_ratios_data
+from segmentation_data import get_segmentation_data
 from schemas import (
     DiscountRateConfigIn,
     DiscountRateConfigOut,
@@ -23,6 +24,7 @@ from schemas import (
     RecomputeSummary,
     RefreshResult,
     ScreenerMeta,
+    SegmentationOut,
     Step1Out,
     Step2Out,
     Step3ManualOut,
@@ -234,6 +236,14 @@ async def ticker_ratios(ticker: str) -> RatiosOut:
         # this branch is currently dead in practice, but a raw exc here
         # would leak the key into the response body the moment that stops
         # being true for some future call site.
+        raise HTTPException(status_code=502, detail="FMP request failed") from exc
+
+
+@app.get("/api/tickers/{ticker}/segmentation", response_model=SegmentationOut)
+async def ticker_segmentation(ticker: str) -> SegmentationOut:
+    try:
+        return await get_segmentation_data(ticker)
+    except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
 
 

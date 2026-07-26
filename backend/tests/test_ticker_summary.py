@@ -42,10 +42,12 @@ FAKE_QUOTE = [
         "change": 1.25,
         "changePercentage": 0.66,
         "marketCap": 3_000_000_000_000,
+        "yearHigh": 199.62,
+        "yearLow": 164.08,
     }
 ]
 
-FAKE_PRICE_CHANGE = [{"1M": 3.2, "6M": 12.5}]
+FAKE_PRICE_CHANGE = [{"1M": 3.2, "6M": 12.5, "ytd": 15.1, "1Y": 22.4, "5Y": 123.5, "10Y": 1277.8}]
 
 FAKE_RATIOS = [{"priceToEarningsRatio": 30.1}]
 
@@ -72,6 +74,19 @@ FAKE_INCOME_QUARTERLY = [
     {"ebitda": 27_000_000_000, "interestExpense": 800_000_000, "interestIncome": 50_000_000, "netInterestIncome": -750_000_000},
 ]
 
+FAKE_ENTERPRISE_VALUES = [{"date": "2026-03-28", "enterpriseValue": 3_900_000_000_000}]
+
+FAKE_RATIOS_TTM = [{"priceToEarningsGrowthRatioTTM": 1.39, "forwardPriceToEarningsGrowthRatioTTM": 3.86}]
+
+# Newest-first, matching FMP's actual /historical-price-eod/full ordering
+# (confirmed empirically) -- only 3 rows, enough to exercise both the
+# 30-calendar-day and 20-trading-day windows without a large fixture.
+FAKE_DAILY_PRICES = [
+    {"date": "2026-07-24", "close": 333.02, "volume": 47_000_000},
+    {"date": "2026-07-23", "close": 320.00, "volume": 50_000_000},
+    {"date": "2026-06-20", "close": 300.00, "volume": 60_000_000},  # outside the 30-calendar-day window
+]
+
 
 def test_get_summary_maps_fields_and_caches(monkeypatch):
     test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
@@ -92,6 +107,9 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
         "earnings": 0,
         "balance_sheet": 0,
         "income_statement": 0,
+        "enterprise_values": 0,
+        "ratios_ttm": 0,
+        "historical_price_eod": 0,
     }
 
     async def fake_profile(ticker):
@@ -131,6 +149,20 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
         call_count["income_statement"] += 1
         return FAKE_INCOME_QUARTERLY
 
+    async def fake_enterprise_values(ticker, period, limit):
+        call_count["enterprise_values"] += 1
+        assert period == "quarter"
+        assert limit == 1
+        return FAKE_ENTERPRISE_VALUES
+
+    async def fake_ratios_ttm(ticker):
+        call_count["ratios_ttm"] += 1
+        return FAKE_RATIOS_TTM
+
+    async def fake_historical_price_eod(ticker, from_date, to_date):
+        call_count["historical_price_eod"] += 1
+        return FAKE_DAILY_PRICES
+
     async def fake_get_step3_data(ticker, cache_only=False):
         return FAKE_STEP3_OUT
 
@@ -143,6 +175,9 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     monkeypatch.setattr(ticker_summary.fmp_client, "get_earnings", fake_earnings)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_enterprise_values", fake_enterprise_values)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios_ttm", fake_ratios_ttm)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_historical_price_eod", fake_historical_price_eod)
 
     summary = asyncio.run(get_summary("aapl"))
 
@@ -154,8 +189,29 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     assert summary.price == 190.5
     assert summary.change_percent == 0.66
     assert summary.market_cap == 3_000_000_000_000
+    assert summary.enterprise_value == 3_900_000_000_000
+    assert summary.peg_ratio == 1.39
+    assert summary.forward_peg_ratio == 3.86
+    # marketCap / price (latest quote) -- same formula Step 3's valuation
+    # math uses (shares.py::compute_shares_outstanding), so Summary and
+    # Step 3 can never disagree.
+    assert summary.shares_outstanding == 3_000_000_000_000 / 190.5
+    assert summary.shares_outstanding_source == "marketCap / price (latest quote)"
+    # FAKE_DAILY_PRICES: most recent row is 2026-07-24; the 2026-06-20 row
+    # falls outside its trailing 30-calendar-day window, so only the first
+    # two rows count toward the 30-day average volume.
+    assert summary.avg_volume_30d == (47_000_000 + 50_000_000) / 2
+    # 20-trading-day dollar volume is a positional slice (newest-first) --
+    # all 3 fixture rows fall within the first 20, so all 3 count.
+    assert summary.avg_dollar_volume_20d == (333.02 * 47_000_000 + 320.00 * 50_000_000 + 300.00 * 60_000_000) / 3
     assert summary.perf_1m == 3.2
     assert summary.perf_6m == 12.5
+    assert summary.perf_ytd == 15.1
+    assert summary.perf_1y == 22.4
+    assert summary.perf_5y == 123.5
+    assert summary.perf_10y == 1277.8
+    assert summary.week52_high == 199.62
+    assert summary.week52_low == 164.08
     assert summary.pe_ratio == 30.1
     assert summary.next_earnings_date is not None and summary.next_earnings_date.isoformat() == "2026-07-30"
     # Must equal Step 2's own growth_rate exactly (same _project computation,
@@ -183,6 +239,9 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
         "earnings": 1,
         "balance_sheet": 1,
         "income_statement": 1,
+        "enterprise_values": 1,
+        "ratios_ttm": 1,
+        "historical_price_eod": 1,
     }
     assert call_count == expected_call_count
 

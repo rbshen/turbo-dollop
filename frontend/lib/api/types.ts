@@ -37,9 +37,30 @@ export interface TickerSummaryOut {
   change: number | null;
   change_percent: number | null;
   market_cap: number | null;
+  // Latest-quarter figure from /stable/enterprise-values, not a live recompute.
+  enterprise_value: number | null;
   beta: number | null;
+  // Trailing / forward PEG from /stable/ratios-ttm, shown side by side
+  // (same precedent as the Ratios tab).
+  peg_ratio: number | null;
+  forward_peg_ratio: number | null;
+  // Derived the same way Step 3's valuation math derives it
+  // (marketCap / price, falling back to weightedAverageShsOutDil) --
+  // /stable/profile has no sharesOutstanding field on our FMP plan.
+  shares_outstanding: number | null;
+  shares_outstanding_source: string | null;
+  // Recomputed from daily historical price/volume, not profile.averageVolume
+  // (confirmed empirically to be closer to a ~50-63 trading-day average).
+  avg_volume_30d: number | null;
+  avg_dollar_volume_20d: number | null;
   perf_1m: number | null;
   perf_6m: number | null;
+  perf_ytd: number | null;
+  perf_1y: number | null;
+  perf_5y: number | null;
+  perf_10y: number | null;
+  week52_high: number | null;
+  week52_low: number | null;
   eps_growth_3_5y: number | null;
   pe_ratio: number | null;
   next_earnings_date: string | null;
@@ -335,6 +356,18 @@ export interface RatiosOut {
   ticker: string;
   periods: string[];
   groups: FinancialsGroup[];
+}
+
+export interface SegmentationOut {
+  ticker: string;
+  product_years: string[];
+  // null/empty = not disclosed by this ticker (a clean empty FMP payload,
+  // not an error) -- render a "not disclosed" note, not a broken chart.
+  product_segments: string[] | null;
+  product_values: Record<string, (number | null)[]>;
+  geographic_years: string[];
+  geographic_segments: string[] | null;
+  geographic_values: Record<string, (number | null)[]>;
 }
 
 export interface FinancialsOut {

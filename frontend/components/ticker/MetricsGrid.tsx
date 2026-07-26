@@ -1,8 +1,6 @@
-import { Gear } from "@phosphor-icons/react";
-
 import { OutlierWarningNote } from "@/components/shared/OutlierWarningNote";
-import { fmtCompactMoney, fmtNumber, fmtPct } from "@/lib/format";
-import type { MetricDef } from "@/lib/metrics/config";
+import { fmtCompactMoney, fmtCompactNumber, fmtNumber, fmtPct, fmtRatio } from "@/lib/format";
+import type { MetricDef, MetricGroup } from "@/lib/metrics/config";
 import type { OutlierWarning, TickerSummaryOut } from "@/lib/api/types";
 
 interface StatCardProps {
@@ -23,47 +21,49 @@ function StatCard({ label, value, flagged }: StatCardProps) {
         </span>
       )}
       <p className="text-xs font-medium uppercase tracking-widest text-zinc-500">{label}</p>
-      <p className="mt-1 font-mono text-xl font-bold leading-none tabular-nums text-zinc-100">{value}</p>
+      <p className="mt-1 truncate font-mono text-xl font-bold leading-none tabular-nums text-zinc-100">{value}</p>
     </div>
   );
 }
 
 function formatValue(value: TickerSummaryOut[keyof TickerSummaryOut], format: MetricDef["format"]): string {
-  if (value == null || typeof value !== "number") return "—";
+  if (value == null) return "—";
+  if (format === "text") return typeof value === "string" ? value : "—";
+  if (typeof value !== "number") return "—";
   if (format === "compactMoney") return fmtCompactMoney(value);
+  if (format === "compactNumber") return fmtCompactNumber(value);
   if (format === "percent") return fmtPct(value);
+  if (format === "ratio") return fmtRatio(value);
   return fmtNumber(value);
 }
 
 interface Props {
-  metrics: MetricDef[];
+  groups: MetricGroup[];
   values: TickerSummaryOut;
   outlierWarnings?: OutlierWarning[];
 }
 
-export function MetricsGrid({ metrics, values, outlierWarnings = [] }: Props) {
+export function MetricsGrid({ groups, values, outlierWarnings = [] }: Props) {
   const flaggedKeys = new Set(outlierWarnings.map((w) => w.metric));
-  const labels = Object.fromEntries(metrics.map((m) => [m.key, m.label]));
+  const labels = Object.fromEntries(groups.flatMap((g) => g.metrics).map((m) => [m.key, m.label]));
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
-        {metrics.map((metric) => (
-          <StatCard
-            key={metric.key}
-            label={metric.label}
-            value={formatValue(values[metric.key], metric.format)}
-            flagged={flaggedKeys.has(metric.key)}
-          />
-        ))}
-        <button
-          type="button"
-          className="flex min-w-0 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-zinc-700 px-4 py-3 text-zinc-500 transition-colors hover:border-zinc-500 hover:text-zinc-300"
-        >
-          <Gear size={18} />
-          <span className="text-xs font-medium uppercase tracking-widest">Configure</span>
-        </button>
-      </div>
+    <div className="space-y-5">
+      {groups.map((group) => (
+        <div key={group.title} className="space-y-2">
+          <h3 className="text-xs font-medium uppercase tracking-widest text-zinc-500">{group.title}</h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {group.metrics.map((metric) => (
+              <StatCard
+                key={metric.key}
+                label={metric.label}
+                value={formatValue(values[metric.key], metric.format)}
+                flagged={flaggedKeys.has(metric.key)}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
 
       <OutlierWarningNote warnings={outlierWarnings} labels={labels} />
     </div>

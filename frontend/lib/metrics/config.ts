@@ -1,6 +1,6 @@
 import type { TickerSummaryOut } from "@/lib/api/types";
 
-export type MetricFormat = "compactMoney" | "number" | "percent";
+export type MetricFormat = "compactMoney" | "compactNumber" | "number" | "percent" | "ratio" | "text";
 
 export interface MetricDef {
   key: keyof TickerSummaryOut;
@@ -8,18 +8,57 @@ export interface MetricDef {
   format: MetricFormat;
 }
 
-/** Ticker header metrics grid — a configurable list rather than a hardcoded
- * set of tiles, so more metrics can be added later without touching the
- * grid component itself. */
-export const DEFAULT_METRICS: MetricDef[] = [
-  { key: "total_debt", label: "Debt (ST + LT)", format: "compactMoney" },
-  { key: "ebitda_ttm", label: "EBITDA (TTM)", format: "compactMoney" },
-  { key: "interest_expense_ttm", label: "Interest Expense (TTM)", format: "compactMoney" },
-  { key: "interest_income_ttm", label: "Interest Income (TTM)", format: "compactMoney" },
-  { key: "market_cap", label: "Market Cap", format: "compactMoney" },
-  { key: "beta", label: "Beta", format: "number" },
-  { key: "perf_1m", label: "1M Performance", format: "percent" },
-  { key: "perf_6m", label: "6M Performance", format: "percent" },
-  { key: "eps_growth_3_5y", label: "EPS Growth (3-5Y)", format: "percent" },
-  { key: "pe_ratio", label: "P/E Ratio", format: "number" },
+export interface MetricGroup {
+  title: string;
+  metrics: MetricDef[];
+}
+
+/** Ticker header metrics grid, grouped by category -- each group is a
+ * configurable list rather than a hardcoded set of tiles, so more metrics
+ * can be added later without touching the grid component itself. */
+export const METRIC_GROUPS: MetricGroup[] = [
+  {
+    title: "Classification",
+    metrics: [
+      { key: "sector", label: "Sector", format: "text" },
+      { key: "industry", label: "Industry", format: "text" },
+    ],
+  },
+  {
+    title: "Size & Valuation",
+    metrics: [
+      { key: "market_cap", label: "Market Cap", format: "compactMoney" },
+      { key: "enterprise_value", label: "Enterprise Value", format: "compactMoney" },
+      { key: "pe_ratio", label: "P/E Ratio", format: "number" },
+      { key: "peg_ratio", label: "PEG Ratio", format: "ratio" },
+      { key: "forward_peg_ratio", label: "Forward PEG Ratio", format: "ratio" },
+    ],
+  },
+  {
+    title: "Liquidity & Trading",
+    metrics: [
+      { key: "beta", label: "Beta", format: "number" },
+      { key: "shares_outstanding", label: "Shares Outstanding", format: "compactNumber" },
+      { key: "avg_volume_30d", label: "30-Day Avg Volume", format: "compactNumber" },
+      { key: "avg_dollar_volume_20d", label: "20-Day Avg $ Volume", format: "compactMoney" },
+    ],
+  },
+  {
+    title: "Price Performance",
+    metrics: [
+      { key: "perf_1m", label: "1M Performance", format: "percent" },
+      { key: "perf_6m", label: "6M Performance", format: "percent" },
+      { key: "perf_ytd", label: "YTD Performance", format: "percent" },
+      { key: "perf_1y", label: "1Y Performance", format: "percent" },
+      { key: "perf_5y", label: "5Y Performance", format: "percent" },
+      { key: "perf_10y", label: "10Y Performance", format: "percent" },
+      { key: "week52_high", label: "52 Week High", format: "compactMoney" },
+      { key: "week52_low", label: "52 Week Low", format: "compactMoney" },
+    ],
+  },
+  {
+    title: "Growth",
+    metrics: [{ key: "eps_growth_3_5y", label: "EPS Growth (3-5Y)", format: "percent" }],
+  },
 ];
+

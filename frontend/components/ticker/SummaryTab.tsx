@@ -1,8 +1,10 @@
 "use client";
 
 import { MetricsGrid } from "@/components/ticker/MetricsGrid";
+import { SegmentationSection } from "@/components/ticker/SegmentationSection";
+import { useSegmentation } from "@/lib/hooks/useSegmentation";
 import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
-import { DEFAULT_METRICS } from "@/lib/metrics/config";
+import { METRIC_GROUPS } from "@/lib/metrics/config";
 
 interface Props {
   ticker: string;
@@ -10,6 +12,7 @@ interface Props {
 
 export function SummaryTab({ ticker }: Props) {
   const { data, error } = useTickerSummary(ticker);
+  const { data: segmentation } = useSegmentation(ticker);
 
   if (error) {
     return (
@@ -38,8 +41,28 @@ export function SummaryTab({ ticker }: Props) {
 
       <div className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Key Statistics</h2>
-        <MetricsGrid metrics={DEFAULT_METRICS} values={data} outlierWarnings={data.outlier_warnings} />
+        <MetricsGrid groups={METRIC_GROUPS} values={data} outlierWarnings={data.outlier_warnings} />
       </div>
+
+      {segmentation && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Operating Revenue</h2>
+          <SegmentationSection
+            title="By Business Segment"
+            years={segmentation.product_years}
+            segments={segmentation.product_segments}
+            values={segmentation.product_values}
+            notDisclosedNote={`${ticker} does not disclose a business-segment revenue breakdown.`}
+          />
+          <SegmentationSection
+            title="By Geographic Region"
+            years={segmentation.geographic_years}
+            segments={segmentation.geographic_segments}
+            values={segmentation.geographic_values}
+            notDisclosedNote={`${ticker} does not disclose a geographic revenue breakdown.`}
+          />
+        </div>
+      )}
     </div>
   );
 }

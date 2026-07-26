@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from sqlmodel import Session
 
@@ -8,9 +8,18 @@ from db import engine
 from debt_metrics import compute_debt_metrics
 from fmp_client import fmp_client
 from schemas import OutlierWarning, TickerSummaryOut
+from shares import compute_shares_outstanding
 from step2_data import get_step2_data
 from step3_data import get_step3_data
 from ttm import TOTAL_QUARTERS_NEEDED
+
+# Trailing window for the daily price/volume fetch backing the 30-day
+# average-volume and 20-day average-dollar-volume tiles -- comfortably
+# covers both windows (30 calendar days and 20 trading days) plus weekends
+# /holidays, without needing years of history: the 6 performance tiles are
+# sourced from /stable/stock-price-change instead (see below), which already
+# returns ytd/1Y/5Y/10Y pre-computed, so this fetch doesn't need to.
+DAILY_PRICE_LOOKBACK_DAYS = 45
 
 FAIR_VALUE_METHOD_LABELS = {
     "DCF": "DCF",
@@ -44,6 +53,31 @@ def _next_earnings_date(earnings: list[dict]) -> date | None:
     if not upcoming:
         return None
     return date.fromisoformat(min(upcoming)[:10])
+
+
+def _avg_volume_30d(daily_prices: list[dict]) -> float | None:
+    """Average `volume` over the trailing 30 calendar days -- NOT
+    profile.averageVolume, which was confirmed empirically to track closer
+    to a ~50-63 trading-day average than a literal 30-day one."""
+    if not daily_prices:
+        return None
+    most_recent = date.fromisoformat(daily_prices[0]["date"][:10])
+    cutoff = most_recent - timedelta(days=30)
+    window = [row for row in daily_prices if date.fromisoformat(row["date"][:10]) >= cutoff]
+    if not window:
+        return None
+    return sum(row["volume"] for row in window) / len(window)
+
+
+def _avg_dollar_volume_20d(daily_prices: list[dict]) -> float | None:
+    """Average close*volume over the trailing 20 TRADING days (a distinct,
+    independently-specified window from the 30-CALENDAR-day share-volume
+    average above) -- FMP returns daily rows newest-first, confirmed
+    empirically, so this is a plain positional slice."""
+    window = daily_prices[:20]
+    if not window:
+        return None
+    return sum(row["close"] * row["volume"] for row in window) / len(window)
 
 
 async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut:
@@ -146,12 +180,59 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
                 cache_only,
             ),
         )
+        enterprise_values_data = await safe_fetch(
+            "enterprise_values",
+            get_or_fetch(
+                session,
+                ticker,
+                "enterprise_values",
+                "quarter",
+                lambda: fmp_client.get_enterprise_values(ticker, "quarter", 1),
+                staleness_days,
+                cache_only,
+            ),
+        )
+        # Same cache key ratios_data.py (the Ratios tab) already populates --
+        # shared, not duplicated, so visiting either tab first warms it for
+        # the other.
+        ratios_ttm = _first(
+            await safe_fetch(
+                "ratios_ttm",
+                get_or_fetch(
+                    session, ticker, "ratios", "ttm", lambda: fmp_client.get_ratios_ttm(ticker), staleness_days, cache_only
+                ),
+            )
+        )
+        # ~45 calendar days is enough to cover both the 30-calendar-day
+        # average-volume window and the 20-trading-day average-dollar-volume
+        # window (see DAILY_PRICE_LOOKBACK_DAYS) -- the 6 performance tiles
+        # come from price_change above instead, so this fetch doesn't need
+        # years of history.
+        today = date.today()
+        daily_prices_data = await safe_fetch(
+            "historical_price_eod",
+            get_or_fetch(
+                session,
+                ticker,
+                "historical_price_eod",
+                "daily",
+                lambda: fmp_client.get_historical_price_eod(
+                    ticker, (today - timedelta(days=DAILY_PRICE_LOOKBACK_DAYS)).isoformat(), today.isoformat()
+                ),
+                staleness_days,
+                cache_only,
+            ),
+        )
 
     earnings = earnings_data if isinstance(earnings_data, list) else []
     price = quote.get("price")
-    debt_metrics = compute_debt_metrics(
-        _first(balance_sheet_data), income_quarterly_data if isinstance(income_quarterly_data, list) else []
-    )
+    income_quarterly = income_quarterly_data if isinstance(income_quarterly_data, list) else []
+    debt_metrics = compute_debt_metrics(_first(balance_sheet_data), income_quarterly)
+    enterprise_value = _first(enterprise_values_data).get("enterpriseValue")
+    shares_outstanding, shares_outstanding_source = compute_shares_outstanding(quote, income_quarterly)
+    daily_prices = daily_prices_data if isinstance(daily_prices_data, list) else []
+    avg_volume_30d = _avg_volume_30d(daily_prices)
+    avg_dollar_volume_20d = _avg_dollar_volume_20d(daily_prices)
     outlier_warnings = [
         OutlierWarning(metric=group.metric, date=fq.date, value=fq.value, trailing_median=fq.trailing_median)
         for group in debt_metrics.outlier_flags
@@ -178,9 +259,22 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         change=quote.get("change"),
         change_percent=quote.get("changePercentage", quote.get("changesPercentage")),
         market_cap=quote.get("marketCap") or profile.get("mktCap"),
+        enterprise_value=enterprise_value,
         beta=profile.get("beta"),
+        peg_ratio=ratios_ttm.get("priceToEarningsGrowthRatioTTM"),
+        forward_peg_ratio=ratios_ttm.get("forwardPriceToEarningsGrowthRatioTTM"),
+        shares_outstanding=shares_outstanding,
+        shares_outstanding_source=shares_outstanding_source,
+        avg_volume_30d=avg_volume_30d,
+        avg_dollar_volume_20d=avg_dollar_volume_20d,
         perf_1m=price_change.get("1M"),
         perf_6m=price_change.get("6M"),
+        perf_ytd=price_change.get("ytd"),
+        perf_1y=price_change.get("1Y"),
+        perf_5y=price_change.get("5Y"),
+        perf_10y=price_change.get("10Y"),
+        week52_high=quote.get("yearHigh"),
+        week52_low=quote.get("yearLow"),
         eps_growth_3_5y=step2_out.growth_rate,
         pe_ratio=ratios.get("priceToEarningsRatio"),
         next_earnings_date=_next_earnings_date(earnings),
