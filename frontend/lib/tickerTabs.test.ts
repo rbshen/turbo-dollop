@@ -7,7 +7,7 @@ describe("tickerTabs", () => {
     expect(TICKER_TABS.map((t) => t.key)).toEqual([
       "summary",
       "financials",
-      "companyMetrics",
+      "ratios",
       "analysis",
       "valuation",
       "moat",

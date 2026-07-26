@@ -23,7 +23,7 @@ export function TickerTabsContainer({ ticker }: Props) {
       <TickerTabs active={tab} onChange={setTab} />
       {tab === "summary" && <SummaryTab ticker={ticker} />}
       {tab === "financials" && <FinancialsTab ticker={ticker} />}
-      {tab === "companyMetrics" && <ComingSoonPanel label="Company Metrics" />}
+      {tab === "ratios" && <ComingSoonPanel label="Ratios" />}
       {tab === "analysis" && <AnalysisTab ticker={ticker} />}
       {tab === "valuation" && <ValuationTab ticker={ticker} />}
       {tab === "moat" && <EconomicMoatTab ticker={ticker} />}

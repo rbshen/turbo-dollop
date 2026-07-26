@@ -1,4 +1,4 @@
-export type TickerTab = "summary" | "financials" | "companyMetrics" | "analysis" | "valuation" | "moat";
+export type TickerTab = "summary" | "financials" | "ratios" | "analysis" | "valuation" | "moat";
 
 export interface TickerTabDef {
   key: TickerTab;
@@ -10,7 +10,7 @@ export interface TickerTabDef {
 export const TICKER_TABS: TickerTabDef[] = [
   { key: "summary", label: "Summary" },
   { key: "financials", label: "Financials" },
-  { key: "companyMetrics", label: "Company Metrics" },
+  { key: "ratios", label: "Ratios" },
   { key: "analysis", label: "Analysis" },
   { key: "valuation", label: "Valuation" },
   { key: "moat", label: "Economic Moat" },
