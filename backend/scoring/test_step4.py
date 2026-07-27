@@ -122,12 +122,24 @@ def test_negative_equity_with_positive_growing_income_scores_100():
     assert result == ("positive_despite_negative_equity", 100, False)
 
 
-def test_negative_equity_with_a_loss_year_scores_60_not_a_fail():
+def test_negative_equity_with_a_recent_loss_year_scores_60_not_a_fail():
     equity = [100.0, 100.0, -50.0, 100.0, 100.0, 100.0]
-    net_income = [10.0, -5.0, 10.0, 10.0, 10.0, 10.0]
+    net_income = [10.0, 10.0, 10.0, 10.0, 10.0, -5.0]  # loss at TTM -- recent
     result = score_roe([-999.0] * 6, equity, net_income)
     assert result == ("negative_equity_inconsistent_income", 60, False)
     assert result.hard_fail is False
+
+
+def test_negative_equity_with_an_old_recovered_loss_scores_100():
+    # Same shape as the recent-loss case, but the loss is 4 periods before
+    # TTM (outside DIP_RECOVERY_RECENCY_YEARS) and classify_trend reads the
+    # series as significant_dip_recovers -- an old, since-resolved loss
+    # shouldn't permanently disqualify the substitute signal, same
+    # philosophy as Step 3's CFO/Net Income recency fix.
+    equity = [100.0, 100.0, -50.0, 100.0, 100.0, 100.0]
+    net_income = [10.0, -5.0, 10.0, 10.0, 10.0, 10.0]
+    result = score_roe([-999.0] * 6, equity, net_income)
+    assert result == ("positive_despite_negative_equity", 100, False)
 
 
 def test_negative_equity_with_declining_income_scores_60():

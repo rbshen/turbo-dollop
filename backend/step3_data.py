@@ -204,6 +204,13 @@ async def get_step3_data(
     revenue_clean = [v for v in revenue_annual if v is not None] + ([revenue_ttm] if revenue_ttm is not None else [])
     net_income_clean = [v for v in net_income_annual if v is not None] + ([net_income_ttm] if net_income_ttm is not None else [])
     fcf_clean = [v for v in fcf_annual if v is not None] + ([fcf_ttm] if fcf_ttm is not None else [])
+    # Same filter as fcf_clean above, so this stays index-aligned with both
+    # fcf_clean (the [3a] series) and cfo_clean/capex_clean below (from
+    # which [3b]'s normalized series is derived) -- lets select_method name
+    # the actual offending period(s) in its failure detail for both checks.
+    fcf_period_labels = [f"FY{year}" for year, v in zip(years, fcf_annual) if v is not None] + (
+        ["TTM"] if fcf_ttm is not None else []
+    )
 
     cfo_capex_pairs = [(c, x) for c, x in zip(cfo_annual, capex_annual) if c is not None and x is not None]
     if cfo_ttm is not None and capex_ttm is not None:
@@ -220,6 +227,7 @@ async def get_step3_data(
         fcf_series=fcf_clean,
         capex_series=capex_clean,
         revenue_series=revenue_clean,
+        fcf_period_labels=fcf_period_labels,
     )
     trail = [
         Step3MethodStep(step=s.step, check=s.check, passed=s.passed, detail=s.detail) for s in selection.decision_trail

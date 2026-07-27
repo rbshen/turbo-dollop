@@ -2,7 +2,7 @@ from typing import NamedTuple
 
 import numpy as np
 
-from scoring.trend import classify_trend
+from scoring.trend import RECOVERY_PATTERNS, classify_trend
 
 # "5+ years" per step6_intrinsic_value_calculation_prompt.md §1 -- the
 # method-selection tree's own minimum window for every "consistently
@@ -12,17 +12,6 @@ METHOD_SELECTION_MIN_YEARS = 5
 # Step 3 of the tree: "CFO > 1.5 x Net Income?" -- both figures are the
 # "current" (TTM) values per spec §2.1, not a trend check.
 CFO_TO_NI_RATIO_THRESHOLD = 1.5
-
-# classify_trend patterns that read as "increasing consistently" for method-
-# selection purposes -- lenient by design (a resolved dip still counts),
-# reusing Step 1's already-computed trend classification per the feature
-# brief's explicit instruction, rather than reimplementing trend detection.
-_CONSISTENTLY_INCREASING_PATTERNS = {
-    "grows_every_year",
-    "small_dip_recovers",
-    "significant_dip_recovers",
-    "multiple_dips_resolved",
-}
 
 # The doc doesn't give a numeric bar for "aggressively" growing revenue --
 # first-pass judgment call, not yet validated against a prior baseline (same
@@ -78,21 +67,53 @@ def _positive_and_increasing(values: list[float] | None) -> tuple[bool, str]:
             return False, f"non-positive value within the last {NEGATIVE_VALUE_RECENCY_YEARS} years"
 
     trend = classify_trend(values)
-    if trend.pattern in _CONSISTENTLY_INCREASING_PATTERNS:
+    if trend.pattern in RECOVERY_PATTERNS:
         return True, f"trend pattern '{trend.pattern}'"
     return False, f"trend pattern '{trend.pattern}' does not read as consistently increasing"
 
 
-def _fcf_positive_and_consistent(fcf_values: list[float] | None) -> tuple[bool, str]:
-    """Stricter than Step 1's own FCF scoring tiers (which award partial
-    credit for an isolated dip) -- this is a binary eligibility gate for
-    method selection, not a point-scoring rubric, so "consistent" is read
-    literally as all-positive across the window."""
+_MAX_NAMED_PERIODS_IN_DETAIL = 3
+
+
+def _fcf_positive_and_consistent(
+    fcf_values: list[float] | None, period_labels: list[str] | None = None
+) -> tuple[bool, str]:
+    """Brought in line with _positive_and_increasing's trend-aware
+    tolerance -- previously the one remaining check in select_method
+    reading "consistent" as a pure floor (all-positive across the whole
+    window), which permanently blocked a durably recovered old dip (e.g.
+    AMD's FY2017/2018, since fully recovered to $8.57B TTM FCF) the same
+    way _positive_and_increasing used to for CFO/Net Income before
+    e0af903. A non-positive value still fails outright if it's recent
+    (within NEGATIVE_VALUE_RECENCY_YEARS of the most recent/TTM point);
+    an older one falls through to classify_trend, same as
+    _positive_and_increasing. `period_labels`, when supplied and aligned
+    1:1 with fcf_values, names the actual recent offending period(s) in
+    the failure detail instead of a generic message."""
     if not fcf_values or len(fcf_values) < METHOD_SELECTION_MIN_YEARS:
         return False, f"fewer than {METHOD_SELECTION_MIN_YEARS} years of data"
     if all(v > 0 for v in fcf_values):
         return True, "positive in every year of the window"
-    return False, "at least one non-positive year in the window"
+
+    negative_indices = [i for i, v in enumerate(fcf_values) if v <= 0]
+    years_since_negative = (len(fcf_values) - 1) - max(negative_indices)
+    if years_since_negative <= NEGATIVE_VALUE_RECENCY_YEARS:
+        recent_indices = [
+            i for i in negative_indices if (len(fcf_values) - 1) - i <= NEGATIVE_VALUE_RECENCY_YEARS
+        ]
+        if period_labels is not None and len(period_labels) == len(fcf_values):
+            offending = [period_labels[i] for i in recent_indices]
+            named = ", ".join(offending[:_MAX_NAMED_PERIODS_IN_DETAIL])
+            remaining = len(offending) - _MAX_NAMED_PERIODS_IN_DETAIL
+            if remaining > 0:
+                named += f" and {remaining} more"
+            return False, f"{named} non-positive within the last {NEGATIVE_VALUE_RECENCY_YEARS} years"
+        return False, f"non-positive value within the last {NEGATIVE_VALUE_RECENCY_YEARS} years"
+
+    trend = classify_trend(fcf_values)
+    if trend.pattern in RECOVERY_PATTERNS:
+        return True, f"trend pattern '{trend.pattern}'"
+    return False, f"trend pattern '{trend.pattern}' does not read as consistently increasing"
 
 
 def normalize_fcf(cfo_series: list[float], capex_series: list[float]) -> list[float] | None:
@@ -137,11 +158,17 @@ def select_method(
     fcf_series: list[float] | None,
     capex_series: list[float] | None,
     revenue_series: list[float] | None,
+    fcf_period_labels: list[str] | None = None,
 ) -> MethodSelection:
     """Pure implementation of step6_intrinsic_value_calculation_prompt.md
     §1's method-selection tree. All series are chronological (oldest first,
     ending TTM); *_ttm are the single "current" figures per spec §2.1.
-    No I/O -- step3_data.py sources every input from FMP/Step 1/Step 2."""
+    No I/O -- step3_data.py sources every input from FMP/Step 1/Step 2.
+    `fcf_period_labels`, when supplied, must align 1:1 with both fcf_series
+    and cfo_series/capex_series -- step3_data.py builds fcf_clean and
+    cfo_clean/capex_clean from the same non-None filter, so one label list
+    correctly names periods for both the [3a] raw-FCF check and the [3b]
+    normalized-FCF check."""
     trail: list[MethodStep] = []
 
     # 1. Company type check.
@@ -171,7 +198,7 @@ def select_method(
             if not ratio_ok:
                 return MethodSelection("DCF", "cfo_ttm", trail, None)
 
-            fcf_ok, fcf_detail = _fcf_positive_and_consistent(fcf_series)
+            fcf_ok, fcf_detail = _fcf_positive_and_consistent(fcf_series, fcf_period_labels)
             trail.append(MethodStep("3a", "FCF (CFO - CapEx) positive and consistent?", fcf_ok, fcf_detail))
             if fcf_ok:
                 return MethodSelection("DFCF", "fcf_ttm", trail, None)
@@ -179,7 +206,7 @@ def select_method(
             normalized = (
                 normalize_fcf(cfo_series, capex_series) if cfo_series is not None and capex_series is not None else None
             )
-            norm_ok, norm_detail = _fcf_positive_and_consistent(normalized)
+            norm_ok, norm_detail = _fcf_positive_and_consistent(normalized, fcf_period_labels)
             trail.append(
                 MethodStep(
                     "3b",

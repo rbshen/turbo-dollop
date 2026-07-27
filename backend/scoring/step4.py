@@ -3,7 +3,7 @@ from typing import NamedTuple
 import numpy as np
 
 from scoring.series_trend import analyze_series_direction, robust_late_direction
-from scoring.trend import TrendResult
+from scoring.trend import RECOVERY_PATTERNS, TrendResult, classify_trend
 
 # --- ROE / ROIC tiers (percent) ---------------------------------------------
 ROE_EXCELLENT_AVG = 15.0
@@ -43,6 +43,12 @@ ROE_TREND_WINDOW = 3
 ROE_DIP_POINTS = 5.0
 ROE_SUSTAINED_DECLINE_STEPS = 2
 ROE_SUSTAINED_DECLINE_POINTS = 15.0
+# An old, since-recovered bad year (single low ROE/ROIC year, or a
+# negative-equity-substitute loss year) shouldn't permanently disqualify --
+# same recency-gate + classify_trend fallback Step 1/Step 3 use. Matches
+# the app-wide "3" recency convention (AR_RED_FLAG_RECENCY_WINDOW below,
+# Step 1's FCF_CASH_BURN_RECENCY_YEARS, Step 3's NEGATIVE_VALUE_RECENCY_YEARS).
+DIP_RECOVERY_RECENCY_YEARS = 3
 
 # --- Revenue vs Accounts Receivable ------------------------------------------
 # A YoY gap (AR growth % minus revenue growth %) smaller than this is noise,
@@ -86,10 +92,30 @@ class RatioResult(NamedTuple):
     hard_fail: bool
 
 
-def _score_avg_min_tier(avg: float, min_year: float) -> tuple[str, int, bool]:
-    if avg > ROE_EXCELLENT_AVG and min_year >= ROE_MIN_YEAR_CONSISTENCY:
+def _min_year_consistency_satisfied(valid: list[float], min_year: float) -> bool:
+    """min_year clearing ROE_MIN_YEAR_CONSISTENCY is the literal bar; but a
+    single old, since-recovered bad year (e.g. MPWR-style) shouldn't
+    permanently disqualify an otherwise-strong average -- same recency-gate
+    + classify_trend fallback Step 3 uses for CFO/Net Income/FCF. A RECENT
+    low year still disqualifies outright; an older one is excused only if
+    classify_trend confirms a durable recovery since. Uses the LAST index
+    where the series hits min_year (not the first), so a value that recurs
+    both early and late in the window is correctly read as recent."""
+    if min_year >= ROE_MIN_YEAR_CONSISTENCY:
+        return True
+    min_indices = [i for i, v in enumerate(valid) if v == min_year]
+    years_since_min = (len(valid) - 1) - max(min_indices)
+    if years_since_min <= DIP_RECOVERY_RECENCY_YEARS:
+        return False
+    trend = classify_trend(valid)
+    return trend.pattern in RECOVERY_PATTERNS
+
+
+def _score_avg_min_tier(valid: list[float], avg: float, min_year: float) -> tuple[str, int, bool]:
+    consistent = _min_year_consistency_satisfied(valid, min_year)
+    if avg > ROE_EXCELLENT_AVG and consistent:
         return "excellent", 100, False
-    if avg >= ROE_GOOD_AVG and min_year >= ROE_MIN_YEAR_CONSISTENCY:
+    if avg >= ROE_GOOD_AVG and consistent:
         return "good", 85, False
     if avg >= ROE_MARGINAL_AVG:
         return "marginal", 60, False
@@ -136,13 +162,22 @@ def _demote_for_unrecovered_decline(values: list[float], label: str, points: int
 
 def _net_income_consistent_and_positive(net_income: list[float]) -> bool:
     """Substitute signal for ROE when equity is negative anywhere in the
-    window: positive throughout, and net growth over the window (last >=
-    first) -- deliberately the same simple "last >= first" bar Step 1 uses
-    for revenue_growing, not a full trend classifier, since the doc's own
-    language ("consistently maintained/growing") is qualitative."""
-    if not net_income or any(v <= 0 for v in net_income):
+    window: positive throughout (or an old, since-recovered loss year --
+    same recency-gate + classify_trend fallback used elsewhere in this
+    app), and net growth over the window when no loss occurred at all
+    (last >= first, deliberately the same simple bar Step 1 uses for
+    revenue_growing, not a full trend classifier, since the doc's own
+    language ("consistently maintained/growing") is qualitative)."""
+    if not net_income:
         return False
-    return net_income[-1] >= net_income[0]
+    negative_indices = [i for i, v in enumerate(net_income) if v <= 0]
+    if not negative_indices:
+        return net_income[-1] >= net_income[0]
+    years_since_negative = (len(net_income) - 1) - max(negative_indices)
+    if years_since_negative <= DIP_RECOVERY_RECENCY_YEARS:
+        return False
+    trend = classify_trend(net_income)
+    return trend.pattern in RECOVERY_PATTERNS
 
 
 def score_roe(roe: list[float], equity: list[float | None], net_income: list[float]) -> RatioResult:
@@ -160,7 +195,7 @@ def score_roe(roe: list[float], equity: list[float | None], net_income: list[flo
         return RatioResult("insufficient_data", 0, False)
     avg = _spike_robust_avg(valid)
     min_year = min(valid)
-    label, points, hard_fail = _score_avg_min_tier(avg, min_year)
+    label, points, hard_fail = _score_avg_min_tier(valid, avg, min_year)
     label, points = _demote_for_unrecovered_decline(valid, label, points)
     return RatioResult(label, points, hard_fail)
 
@@ -171,7 +206,7 @@ def score_roic(roic: list[float]) -> RatioResult:
         return RatioResult("insufficient_data", 0, False)
     avg = _spike_robust_avg(valid)
     min_year = min(valid)
-    label, points, hard_fail = _score_avg_min_tier(avg, min_year)
+    label, points, hard_fail = _score_avg_min_tier(valid, avg, min_year)
     label, points = _demote_for_unrecovered_decline(valid, label, points)
     return RatioResult(label, points, hard_fail)
 
@@ -225,7 +260,15 @@ def score_revenue_vs_ar(revenue: list[float], accounts_receivable: list[float]) 
        resolved occurrence outside that window no longer counts on its own.
     2. `concerning_threshold`+ transitions outpacing (proportional to the
        window size -- see AR_CONCERNING_TRANSITION_RATIO), OR any single
-       large-magnitude (>50pp) gap -> 40.
+       large-magnitude (>50pp) gap -> 40. Same recency exemption as rule 1:
+       if every qualifying transition (count- or large-gap-driving) falls
+       outside the last AR_RED_FLAG_RECENCY_WINDOW transitions, this is an
+       old, since-resolved pattern, not a live concern, and falls through
+       to rules 3/4 using the still-intact full-window gap list. In
+       practice the count-based trigger alone can never reach this rule
+       without also tripping rule 1's majority check first (concerning_
+       threshold sits at or above the 50% majority line at every window
+       size), so this exemption is only ever reachable via has_large.
     3. 0 outpacing transitions, or exactly 1 isolated year with a small
        (<=15pp) gap -> 100.
     4. Otherwise (1-2 outpacing transitions, not caught above) -> 70.
@@ -234,7 +277,7 @@ def score_revenue_vs_ar(revenue: list[float], accounts_receivable: list[float]) 
     if n < 1 or len(accounts_receivable) != len(revenue):
         return RatioResult("insufficient_data", 0, False)
 
-    outpacing_gaps: list[float] = []
+    outpacing_gaps: list[tuple[int, float]] = []
     strong_red_flag = False
     for i in range(n):
         prev_rev, curr_rev = revenue[i], revenue[i + 1]
@@ -247,10 +290,11 @@ def score_revenue_vs_ar(revenue: list[float], accounts_receivable: list[float]) 
             strong_red_flag = True
         gap = ar_yoy - revenue_yoy
         if gap > AR_GAP_NOISE_FLOOR:
-            outpacing_gaps.append(gap)
+            outpacing_gaps.append((i, gap))
 
-    num_outpacing = len(outpacing_gaps)
-    has_large = any(_ar_gap_magnitude(g) == "large" for g in outpacing_gaps)
+    all_gaps = [g for _, g in outpacing_gaps]
+    num_outpacing = len(all_gaps)
+    has_large = any(_ar_gap_magnitude(g) == "large" for g in all_gaps)
     majority_outpacing = num_outpacing > n / 2
     # floor of 3: below a 5-transition window, "3+" was never reachable via
     # count anyway (n=1-2 can't produce 3 outpacing transitions), so the
@@ -260,10 +304,12 @@ def score_revenue_vs_ar(revenue: list[float], accounts_receivable: list[float]) 
     if majority_outpacing or strong_red_flag:
         return RatioResult("outpacing_majority_or_red_flag", 0, False)
     if num_outpacing >= concerning_threshold or has_large:
-        return RatioResult("outpacing_concerning", 40, False)
+        recent_gaps = [g for i, g in outpacing_gaps if i >= n - AR_RED_FLAG_RECENCY_WINDOW]
+        if recent_gaps:
+            return RatioResult("outpacing_concerning", 40, False)
     if num_outpacing == 0:
         return RatioResult("healthy", 100, False)
-    if num_outpacing == 1 and _ar_gap_magnitude(outpacing_gaps[0]) == "small":
+    if num_outpacing == 1 and _ar_gap_magnitude(all_gaps[0]) == "small":
         return RatioResult("healthy", 100, False)
     return RatioResult("outpacing_isolated", 70, False)
 

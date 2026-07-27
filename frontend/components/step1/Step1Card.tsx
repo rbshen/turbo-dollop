@@ -44,6 +44,7 @@ const TIER_LABELS: Record<string, string> = {
   // FCF
   consistently_positive: "Consistently positive",
   sustained_cash_burn: "Sustained cash burn",
+  cash_burn_recovered: "Cash burn, since recovered",
   isolated_dip: "Isolated negative year",
   scattered_negative_years: "Scattered negative years",
 };

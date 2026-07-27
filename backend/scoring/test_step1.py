@@ -292,6 +292,29 @@ def test_fcf_marginal_scattered_non_consecutive_negative_years():
     assert score == 60
 
 
+def test_fcf_old_recovered_cash_burn_scores_good_not_fail():
+    # Mirrors AMD's real shape: a 2-consecutive-negative run early in the
+    # window (indices 1-2 here, 7 periods before the last point), followed
+    # by strong, growing positive FCF ever since -- classify_trend reads
+    # this as multiple_dips_resolved, so an old, durably recovered
+    # cash-burn stretch no longer permanently reads as "sustained_cash_burn".
+    fcf = [10, -20, -30, 100, 200, 300, 400, 500, 600, 700]
+    pattern, score = _classify_fcf(fcf)
+    assert pattern == "cash_burn_recovered"
+    assert score == 85
+
+
+def test_fcf_old_unrecovered_cash_burn_still_fails():
+    # Same old run position as above, but the series never durably
+    # recovers past the pre-dip level (classify_trend reads multiple_dips,
+    # not a resolved pattern) -- an old run alone isn't enough to excuse
+    # the tier; the recovery must actually be confirmed.
+    fcf = [100, -20, -30, 10, 15, 12, 18, 20, 22, 25]
+    pattern, score = _classify_fcf(fcf)
+    assert pattern == "sustained_cash_burn"
+    assert score == 0
+
+
 def test_fcf_insufficient_data_below_two_points():
     pattern, score = _classify_fcf([50])
     assert pattern == "insufficient_data"

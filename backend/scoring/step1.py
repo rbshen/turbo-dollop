@@ -1,7 +1,7 @@
 import numpy as np
 
 from scoring.series_trend import analyze_series_direction, robust_late_direction
-from scoring.trend import TrendResult, classify_trend
+from scoring.trend import RECOVERY_PATTERNS, TrendResult, classify_trend
 
 # Revenue > CFO > Net Income priority hierarchy per a refined reading of
 # the methodology doc: Revenue is the foundation ("if revenue isn't
@@ -36,15 +36,23 @@ WEIGHTS_CFO_EXEMPT = {
 }
 
 # --- Free Cash Flow tiers -----------------------------------------------
-# FCF is "consistently positive," not a growth trend -- deliberately does
-# NOT reuse classify_trend's 6-tier pattern. What matters per the doc's own
-# rationale is whether a cash-burn stretch is sustained (2+ CONSECUTIVE
-# negative years = bankruptcy risk), not merely whether a negative year
-# exists somewhere in the history.
+# FCF is "consistently positive," not a growth trend -- what matters per the
+# doc's own rationale is whether a cash-burn stretch is sustained (2+
+# CONSECUTIVE negative years = bankruptcy risk), not merely whether a
+# negative year exists somewhere in the history. A qualifying run still
+# fails outright if it's recent; an older one is excused only if
+# classify_trend confirms the series has since durably recovered -- same
+# recency-gate + classify_trend fallback Step 3's method-selection tree
+# uses for CFO/Net Income/FCF (see scoring/step3.py).
 FCF_EXCELLENT_SCORE = 100
 FCF_GOOD_SCORE = 85
 FCF_MARGINAL_SCORE = 60
 FCF_FAIL_SCORE = 0
+# A qualifying 2+-consecutive-negative-year run still fails outright if it
+# ended within this many periods of TTM (too fresh to trust as resolved) --
+# matches the "3" recency convention already used throughout this app
+# (Step 3's NEGATIVE_VALUE_RECENCY_YEARS, Step 4's AR_RED_FLAG_RECENCY_WINDOW).
+FCF_CASH_BURN_RECENCY_YEARS = 3
 
 NET_INCOME_BACKUP_THRESHOLD = 40
 NET_INCOME_BACKUP_CAP = 80
@@ -170,12 +178,15 @@ def _classify_margins(gross_margin: list[float], net_margin: list[float], revenu
 
 def _classify_fcf(fcf: list[float]) -> TrendResult:
     """FCF tiering: all-positive -> Excellent; a single isolated negative
-    year -> Good (a one-off blip, not a pattern); any run of 2+ consecutive
-    negative years anywhere in the window -> Fail; negative years present
+    year -> Good (a one-off blip, not a pattern); negative years present
     but never 2 in a row (e.g. two scattered, non-adjacent negative years)
-    -> Marginal. Checking max-consecutive-run first means "exactly 1
-    negative year" and "2+ scattered negative years" fall out directly from
-    the count, since a lone negative year can never itself form a run >= 2."""
+    -> Marginal; a run of 2+ consecutive negative years -> Fail, UNLESS that
+    run ended more than FCF_CASH_BURN_RECENCY_YEARS ago AND classify_trend
+    confirms the series has since durably recovered (e.g. AMD's FY2017/2018,
+    since fully recovered to $8.57B TTM FCF) -- an old, resolved cash-burn
+    stretch shouldn't permanently read as an ongoing bankruptcy-risk signal.
+    A run too recent to trust as resolved still fails outright, same as
+    everywhere else in this app."""
     if len(fcf) < 2:
         return TrendResult("insufficient_data", 0)
 
@@ -183,16 +194,28 @@ def _classify_fcf(fcf: list[float]) -> TrendResult:
     if negative_years == 0:
         return TrendResult("consistently_positive", FCF_EXCELLENT_SCORE)
 
-    max_consecutive = 0
-    current_run = 0
-    for v in fcf:
+    # Track where each qualifying 2+-consecutive-negative run ENDS, not just
+    # whether one exists -- recency is judged off the most recent such run.
+    run_end_indices: list[int] = []
+    run_start = None
+    for i, v in enumerate(fcf):
         if v < 0:
-            current_run += 1
-            max_consecutive = max(max_consecutive, current_run)
+            if run_start is None:
+                run_start = i
         else:
-            current_run = 0
+            if run_start is not None and i - run_start >= 2:
+                run_end_indices.append(i - 1)
+            run_start = None
+    if run_start is not None and len(fcf) - run_start >= 2:
+        run_end_indices.append(len(fcf) - 1)
 
-    if max_consecutive >= 2:
+    if run_end_indices:
+        years_since_run_end = (len(fcf) - 1) - max(run_end_indices)
+        if years_since_run_end <= FCF_CASH_BURN_RECENCY_YEARS:
+            return TrendResult("sustained_cash_burn", FCF_FAIL_SCORE)
+        trend = classify_trend(fcf)
+        if trend.pattern in RECOVERY_PATTERNS:
+            return TrendResult("cash_burn_recovered", FCF_GOOD_SCORE)
         return TrendResult("sustained_cash_burn", FCF_FAIL_SCORE)
 
     if negative_years == 1:

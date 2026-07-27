@@ -30,6 +30,20 @@ class TrendResult(NamedTuple):
     score: int
 
 
+# classify_trend patterns that represent a durable recovery -- shared by
+# every "an old, since-resolved dip/negative value shouldn't permanently
+# disqualify" check in this app (Step 1 FCF, Step 3 method-selection, Step 4
+# ROE/ROIC and negative-equity substitute). grows_every_year is included for
+# completeness even though callers only ever reach this set after a
+# disqualifying value has already occurred.
+RECOVERY_PATTERNS = {
+    "grows_every_year",
+    "small_dip_recovers",
+    "significant_dip_recovers",
+    "multiple_dips_resolved",
+}
+
+
 def _pct_changes(values: np.ndarray) -> np.ndarray:
     prev = values[:-1]
     curr = values[1:]
