@@ -20,13 +20,28 @@ interface Props {
   yTicks: number[];
   yTickFormat: (v: number) => string;
   height?: number;
+  // Every existing caller has ~10 annual/TTM categories, dense enough to
+  // label every tick (the default, unchanged). A dense monthly series (e.g.
+  // Analyst Ratings' 90+ point history) needs Recharts to thin its own
+  // X-axis labels instead of overlapping them -- opt in per-caller rather
+  // than changing the default for everyone.
+  xAxisInterval?: number | "preserveStart" | "preserveEnd" | "preserveStartEnd";
 }
 
 // Recharts/shadcn-based chart, replacing the old hand-rolled SVG
 // GroupedBarLineChart. ChartContainer's own ResponsiveContainer measures
 // width automatically, replacing the old component's manual
 // useElementWidth plumbing (no containerWidth prop needed here).
-export function RechartsGroupedChart({ categories, series, values, mode, yTicks, yTickFormat, height = 216 }: Props) {
+export function RechartsGroupedChart({
+  categories,
+  series,
+  values,
+  mode,
+  yTicks,
+  yTickFormat,
+  height = 216,
+  xAxisInterval = 0,
+}: Props) {
   const [hovered, setHovered] = useState<string | null>(null);
 
   const chartData = categories.map((cat, i) => {
@@ -51,7 +66,13 @@ export function RechartsGroupedChart({ categories, series, values, mode, yTicks,
     >
       <ComposedChart data={chartData} barGap={BAR_GAP} barCategoryGap="20%">
         <CartesianGrid vertical={false} stroke="#27272a" />
-        <XAxis dataKey="category" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 10 }} />
+        <XAxis
+          dataKey="category"
+          interval={xAxisInterval}
+          tickLine={false}
+          axisLine={false}
+          tick={{ fill: "#71717a", fontSize: 10 }}
+        />
         <YAxis
           domain={domain}
           ticks={yTicks}

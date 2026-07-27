@@ -523,3 +523,63 @@ export interface Step3ManualOut {
   verdict: "undervalued" | "overvalued" | "fair" | null;
   error: string | null;
 }
+
+export interface ConsensusBanner {
+  // FMP's own live consensus label (grades-consensus.consensus) -- not
+  // derived from the app's own weighted-score banding (see
+  // RecommendationDetailsColumn.consensus for why historical columns can't
+  // use the same live label).
+  rating: string;
+  analyst_count: number;
+  buy_count: number;
+  hold_count: number;
+  sell_count: number;
+}
+
+export interface PriceTargetSummary {
+  current_price: number | null;
+  target_consensus: number | null;
+  target_high: number | null;
+  target_low: number | null;
+  target_median: number | null;
+  upside_pct: number | null;
+}
+
+export interface RatingHistoryPoint {
+  date: string;
+  buy_pct: number;
+  hold_pct: number;
+  sell_pct: number;
+  avg_rating: number;
+  // Null until the monthly snapshot cron has captured a price target near
+  // this month -- FMP has no historical price-target series of its own, so
+  // this line starts empty and fills in going forward.
+  avg_price_target: number | null;
+}
+
+export interface RecommendationDetailsColumn {
+  // "Current" / "2M Ago" / "6M Ago" / "1Y Ago".
+  label: string;
+  buy: number;
+  outperform: number;
+  hold: number;
+  underperform: number;
+  sell: number;
+  mean: number | null;
+  // "Current" uses FMP's live consensus text verbatim; the three historical
+  // columns are the app's own weighted-score banding onto this table's own
+  // row labels -- a deliberate methodology difference, not a bug.
+  consensus: string | null;
+  // Null wherever no PriceTargetSnapshot falls within tolerance of this
+  // column's target date -- most commonly all three historical columns,
+  // until the monthly cron has enough history.
+  target: number | null;
+}
+
+export interface AnalystRatingsOut {
+  ticker: string;
+  banner: ConsensusBanner;
+  price_target: PriceTargetSummary;
+  history: RatingHistoryPoint[];
+  recommendation_details: RecommendationDetailsColumn[];
+}
