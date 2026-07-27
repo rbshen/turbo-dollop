@@ -203,6 +203,20 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
                 ),
             )
         )
+        financial_growth = _first(
+            await safe_fetch(
+                "financial_growth",
+                get_or_fetch(
+                    session,
+                    ticker,
+                    "financial_growth",
+                    "annual",
+                    lambda: fmp_client.get_financial_growth(ticker, "annual", 1),
+                    staleness_days,
+                    cache_only,
+                ),
+            )
+        )
         # ~45 calendar days is enough to cover both the 30-calendar-day
         # average-volume window and the 20-trading-day average-dollar-volume
         # window (see DAILY_PRICE_LOOKBACK_DAYS) -- the 6 performance tiles
@@ -263,6 +277,9 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         beta=profile.get("beta"),
         peg_ratio=ratios_ttm.get("priceToEarningsGrowthRatioTTM"),
         forward_peg_ratio=ratios_ttm.get("forwardPriceToEarningsGrowthRatioTTM"),
+        dividend_yield=(
+            ratios_ttm["dividendYieldTTM"] * 100 if ratios_ttm.get("dividendYieldTTM") is not None else None
+        ),
         shares_outstanding=shares_outstanding,
         shares_outstanding_source=shares_outstanding_source,
         avg_volume_30d=avg_volume_30d,
@@ -276,6 +293,12 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         week52_high=quote.get("yearHigh"),
         week52_low=quote.get("yearLow"),
         eps_growth_3_5y=step2_out.growth_rate,
+        revenue_growth_yoy=(
+            financial_growth["revenueGrowth"] * 100 if financial_growth.get("revenueGrowth") is not None else None
+        ),
+        net_income_growth_yoy=(
+            financial_growth["netIncomeGrowth"] * 100 if financial_growth.get("netIncomeGrowth") is not None else None
+        ),
         pe_ratio=ratios.get("priceToEarningsRatio"),
         next_earnings_date=_next_earnings_date(earnings),
         total_debt=debt_metrics.total_debt,

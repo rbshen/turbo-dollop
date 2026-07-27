@@ -46,6 +46,9 @@ export interface TickerSummaryOut {
   // (same precedent as the Ratios tab).
   peg_ratio: number | null;
   forward_peg_ratio: number | null;
+  // dividendYieldTTM from the same /stable/ratios-ttm call, already
+  // percentage-scaled on the backend (see schemas.py::TickerSummaryOut).
+  dividend_yield: number | null;
   // Derived the same way Step 3's valuation math derives it
   // (marketCap / price, falling back to weightedAverageShsOutDil) --
   // /stable/profile has no sharesOutstanding field on our FMP plan.
@@ -64,6 +67,10 @@ export interface TickerSummaryOut {
   week52_high: number | null;
   week52_low: number | null;
   eps_growth_3_5y: number | null;
+  // revenueGrowth/netIncomeGrowth from /stable/financial-growth (latest
+  // annual FY, YoY), already percentage-scaled on the backend.
+  revenue_growth_yoy: number | null;
+  net_income_growth_yoy: number | null;
   pe_ratio: number | null;
   next_earnings_date: string | null;
   // Same figures Step 5's debt ratios are built from (backend/debt_metrics.py)

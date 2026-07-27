@@ -117,6 +117,9 @@ class FMPClient:
     async def get_revenue_geographic_segmentation(self, ticker: str) -> dict | list:
         return await self.get("/revenue-geographic-segmentation", {"symbol": ticker})
 
+    async def get_financial_growth(self, ticker: str, period: str = "annual", limit: int = 1) -> dict | list:
+        return await self.get("/financial-growth", {"symbol": ticker, "period": period, "limit": limit})
+
     async def get_financial_statement_full_as_reported(self, ticker: str, period: str, limit: int) -> dict | list:
         # Raw SEC-XBRL-tag dump, NOT the standardized schema the other
         # methods above use -- field names are the filer's own XBRL tags, so

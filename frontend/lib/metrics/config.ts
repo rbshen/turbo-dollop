@@ -37,12 +37,17 @@ export const METRIC_GROUPS: MetricGroup[] = [
       { key: "pe_ratio", label: "P/E Ratio", format: "number" },
       { key: "peg_ratio", label: "PEG Ratio", format: "ratio" },
       { key: "forward_peg_ratio", label: "Forward PEG Ratio", format: "ratio" },
+      { key: "dividend_yield", label: "Dividend Yield", format: "percent" },
     ],
   },
   {
     title: "Growth",
     column: "left",
-    metrics: [{ key: "eps_growth_3_5y", label: "EPS Growth (3-5Y)", format: "percent" }],
+    metrics: [
+      { key: "eps_growth_3_5y", label: "EPS Growth (3-5Y)", format: "percent" },
+      { key: "revenue_growth_yoy", label: "Revenue Growth (YoY)", format: "percent" },
+      { key: "net_income_growth_yoy", label: "Net Income Growth (YoY)", format: "percent" },
+    ],
   },
   {
     title: "Liquidity & Trading",

@@ -62,6 +62,12 @@ class TickerSummaryOut(BaseModel):
     # side by side, matching the precedent already set on the Ratios tab.
     peg_ratio: float | None = None
     forward_peg_ratio: float | None = None
+    # dividendYieldTTM from the same /stable/ratios-ttm call as the PEG
+    # fields above -- FMP returns it as a fraction (e.g. 0.0032), scaled by
+    # *100 here to match every other percent field on this model (see
+    # eps_growth_3_5y/perf_* -- the frontend's fmtPct just appends "%" with
+    # no scaling of its own).
+    dividend_yield: float | None = None
     # Derived via shares.py::compute_shares_outstanding -- the same figure
     # Step 3's valuation math uses, since /stable/profile has no
     # sharesOutstanding field on our FMP plan.
@@ -81,6 +87,12 @@ class TickerSummaryOut(BaseModel):
     week52_high: float | None = None
     week52_low: float | None = None
     eps_growth_3_5y: float | None = None
+    # revenueGrowth/netIncomeGrowth from /stable/financial-growth (latest
+    # annual FY, YoY) -- a data domain not otherwise used in this app.
+    # Also fractions on the raw FMP payload, *100 scaled here for the same
+    # reason as dividend_yield above.
+    revenue_growth_yoy: float | None = None
+    net_income_growth_yoy: float | None = None
     pe_ratio: float | None = None
     next_earnings_date: date | None = None
     # Same figures Step 5's debt ratios are built from (backend/debt_metrics.py)
