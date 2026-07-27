@@ -10,6 +10,9 @@ export interface MetricDef {
 
 export interface MetricGroup {
   title: string;
+  /** Which of the Summary tab's two side-by-side tables this whole group
+   * renders in -- groups are never split across both columns. */
+  column: "left" | "right";
   metrics: MetricDef[];
 }
 
@@ -19,6 +22,7 @@ export interface MetricGroup {
 export const METRIC_GROUPS: MetricGroup[] = [
   {
     title: "Classification",
+    column: "left",
     metrics: [
       { key: "sector", label: "Sector", format: "text" },
       { key: "industry", label: "Industry", format: "text" },
@@ -26,6 +30,7 @@ export const METRIC_GROUPS: MetricGroup[] = [
   },
   {
     title: "Size & Valuation",
+    column: "left",
     metrics: [
       { key: "market_cap", label: "Market Cap", format: "compactMoney" },
       { key: "enterprise_value", label: "Enterprise Value", format: "compactMoney" },
@@ -35,7 +40,13 @@ export const METRIC_GROUPS: MetricGroup[] = [
     ],
   },
   {
+    title: "Growth",
+    column: "left",
+    metrics: [{ key: "eps_growth_3_5y", label: "EPS Growth (3-5Y)", format: "percent" }],
+  },
+  {
     title: "Liquidity & Trading",
+    column: "right",
     metrics: [
       { key: "beta", label: "Beta", format: "number" },
       { key: "shares_outstanding", label: "Shares Outstanding", format: "compactNumber" },
@@ -45,6 +56,7 @@ export const METRIC_GROUPS: MetricGroup[] = [
   },
   {
     title: "Price Performance",
+    column: "right",
     metrics: [
       { key: "perf_1m", label: "1M Performance", format: "percent" },
       { key: "perf_6m", label: "6M Performance", format: "percent" },
@@ -55,10 +67,6 @@ export const METRIC_GROUPS: MetricGroup[] = [
       { key: "week52_high", label: "52 Week High", format: "compactMoney" },
       { key: "week52_low", label: "52 Week Low", format: "compactMoney" },
     ],
-  },
-  {
-    title: "Growth",
-    metrics: [{ key: "eps_growth_3_5y", label: "EPS Growth (3-5Y)", format: "percent" }],
   },
 ];
 

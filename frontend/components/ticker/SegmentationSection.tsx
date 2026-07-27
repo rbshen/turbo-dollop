@@ -1,18 +1,7 @@
 import { RechartsStackedChart } from "@/components/charts/RechartsStackedChart";
 import { computeNiceTicks } from "@/lib/charts";
 import { fmtAxisMoney, fmtTableMoney, pickAxisMoneyUnit } from "@/lib/format";
-
-// Same 8-hue categorical palette already hardcoded elsewhere in this app's
-// charts (FinancialsSection.tsx/CccSection.tsx) -- validated dataviz-skill
-// reference order, assigned here in descending-contribution rank so the
-// most prominent segment always lands on the same hue. Segments are
-// dynamic per-company free text, so unlike those fixed-metric charts there
-// can be more series than fit the palette -- segmentation_data.py caps real
-// segments at 7 and folds any remainder into "Other", which always renders
-// in this fixed muted gray rather than a "generated" 8th/9th hue.
-const SEGMENT_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7"];
-const OTHER_COLOR = "#71717a";
-const OTHER_LABEL = "Other";
+import { OTHER_COLOR, OTHER_LABEL, SEGMENT_COLORS } from "@/lib/segmentColors";
 
 interface Props {
   title: string;
