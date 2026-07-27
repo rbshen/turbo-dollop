@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
@@ -159,3 +159,28 @@ class TickerScore(SQLModel, table=True):
     # from Step2Out.growth_rate. None when Step 2 has no usable projection.
     growth_rate: float | None = None
     computed_at: datetime
+
+
+class PriceTargetSnapshot(SQLModel, table=True):
+    """Monthly point-in-time snapshot of FMP's price-target-consensus per
+    ticker, written by monthly_price_target_snapshot.py. FMP has no
+    historical price-target-consensus series of its own (unlike
+    grades-historical, which is already a ready-made monthly series) -- this
+    table exists purely to accumulate one going forward, feeding the Analyst
+    Ratings tab's price-target history line and the Recommendation Details
+    table's "N ago" Target column once enough months have been captured.
+
+    Deliberately append-only, unlike every other table in this file: no
+    UniqueConstraint, plain session.add()/commit() inserts (see
+    monthly_price_target_snapshot.py), never upserted via cache.get_or_fetch
+    -- the whole point is to preserve every past snapshot, not overwrite the
+    latest value the way FundamentalsCache/TickerScore do."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    ticker: str = Field(index=True)
+    snapshot_date: date
+    target_consensus: float | None = None
+    target_high: float | None = None
+    target_low: float | None = None
+    target_median: float | None = None
+    fetched_at: datetime

@@ -27,3 +27,13 @@
 # above (both still run before the 2 AM nightly fetch) so the two Wikipedia
 # scrapes don't overlap.
 5 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python refresh_dow_list.py >> /home/shen/fathom/backend/logs/dow_list_refresh_cron.log 2>&1
+
+# Monthly price-target-consensus snapshot, 3:00 AM server time on the 1st of
+# each month -- FMP has no historical price-target series of its own (unlike
+# grades-historical, already a ready-made monthly series), so this
+# accumulates one going forward for the Analyst Ratings tab's price-target
+# history line and Recommendation Details "N ago" Target column. Both start
+# empty and fill in as this job runs. Monthly (not nightly) to match
+# grades-historical's own monthly grain and keep the snapshot table's growth
+# bounded.
+0 3 1 * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python monthly_price_target_snapshot.py >> /home/shen/fathom/backend/logs/monthly_price_target_snapshot_cron.log 2>&1

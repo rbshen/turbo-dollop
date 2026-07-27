@@ -615,3 +615,90 @@ class SegmentationOut(BaseModel):
     geographic_years: list[str]
     geographic_segments: list[str] | None = None
     geographic_values: dict[str, list[float | None]] = {}
+
+
+class RatingBucketCounts(BaseModel):
+    """FMP's native 5-bucket analyst rating counts (grades-consensus /
+    grades-historical) -- reused as-is by both the current consensus banner
+    and each historical Recommendation Details column, rather than
+    collapsing to 3 buckets everywhere (the banner's segmented bar collapses
+    separately, see ConsensusBanner)."""
+
+    strong_buy: int
+    buy: int
+    hold: int
+    sell: int
+    strong_sell: int
+
+
+class ConsensusBanner(BaseModel):
+    # FMP's own live consensus label (grades-consensus.consensus) --
+    # verbatim, not derived from our own weighted-score banding (see
+    # RecommendationDetailsColumn for why historical columns can't do the
+    # same).
+    rating: str
+    analyst_count: int
+    # 3-bucket collapse of RatingBucketCounts for the segmented bar:
+    # buy = strong_buy + buy, sell = sell + strong_sell.
+    buy_count: int
+    hold_count: int
+    sell_count: int
+
+
+class PriceTargetSummary(BaseModel):
+    current_price: float | None = None
+    target_consensus: float | None = None
+    target_high: float | None = None
+    target_low: float | None = None
+    target_median: float | None = None
+    # % upside/downside of target_consensus vs. current_price. None if
+    # either input is missing.
+    upside_pct: float | None = None
+
+
+class RatingHistoryPoint(BaseModel):
+    date: str
+    buy_pct: float
+    hold_pct: float
+    sell_pct: float
+    # Weighted score (5=Strong Buy ... 1=Strong Sell) averaged across all
+    # analysts in that month's grades-historical snapshot -- see
+    # analyst_ratings_data.py's _weighted_score.
+    avg_rating: float
+    # None until monthly_price_target_snapshot.py has captured a snapshot
+    # for/near this month -- FMP has no historical price-target series of
+    # its own, so this line starts empty and fills in going forward.
+    avg_price_target: float | None = None
+
+
+class RecommendationDetailsColumn(BaseModel):
+    # "Current" / "2M Ago" / "6M Ago" / "1Y Ago".
+    label: str
+    buy: int
+    outperform: int
+    hold: int
+    underperform: int
+    sell: int
+    # Weighted score, same formula as RatingHistoryPoint.avg_rating.
+    mean: float | None = None
+    # "Current" uses FMP's own live consensus text (see ConsensusBanner);
+    # the three historical columns have no FMP-provided consensus label, so
+    # this is our own weighted-score banding onto this table's own row
+    # labels (Buy/Outperform/Hold/Underperform/Sell) -- see
+    # analyst_ratings_data.py's _band_consensus. This is a deliberate
+    # methodology difference between the Current column and the other
+    # three, not an inconsistency to fix.
+    consensus: str | None = None
+    # None where no PriceTargetSnapshot row falls within tolerance of this
+    # column's target date (see analyst_ratings_data.py's
+    # _nearest_snapshot) -- most commonly all three historical columns,
+    # until the monthly cron has enough history.
+    target: float | None = None
+
+
+class AnalystRatingsOut(BaseModel):
+    ticker: str
+    banner: ConsensusBanner
+    price_target: PriceTargetSummary
+    history: list[RatingHistoryPoint]
+    recommendation_details: list[RecommendationDetailsColumn]

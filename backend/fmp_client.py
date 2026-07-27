@@ -117,6 +117,18 @@ class FMPClient:
     async def get_revenue_geographic_segmentation(self, ticker: str) -> dict | list:
         return await self.get("/revenue-geographic-segmentation", {"symbol": ticker})
 
+    async def get_grades_consensus(self, ticker: str) -> dict | list:
+        return await self.get("/grades-consensus", {"symbol": ticker})
+
+    async def get_grades_historical(self, ticker: str, limit: int = 120) -> dict | list:
+        # Monthly point-in-time snapshots of the 5-bucket rating distribution
+        # -- limit=120 (10 years of monthly rows) rather than the default,
+        # since this doubles as the Rating History chart's data source.
+        return await self.get("/grades-historical", {"symbol": ticker, "limit": limit})
+
+    async def get_price_target_consensus(self, ticker: str) -> dict | list:
+        return await self.get("/price-target-consensus", {"symbol": ticker})
+
     async def get_financial_growth(self, ticker: str, period: str = "annual", limit: int = 1) -> dict | list:
         return await self.get("/financial-growth", {"symbol": ticker, "period": period, "limit": limit})
 

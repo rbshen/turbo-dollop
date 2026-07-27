@@ -5,6 +5,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from sqlmodel import Session, func, select
 
+from analyst_ratings_data import get_analyst_ratings_data
 from db import engine, init_db
 from discount_rate_config import get_discount_rate_config, update_discount_rate_config
 from logging_config import apply_redaction_filters
@@ -17,6 +18,7 @@ from ratios_data import get_ratios_data
 from saved_screener_filters import delete_saved_filter, list_saved_filters, upsert_saved_filter
 from segmentation_data import get_segmentation_data
 from schemas import (
+    AnalystRatingsOut,
     DiscountRateConfigIn,
     DiscountRateConfigOut,
     FinancialsOut,
@@ -247,6 +249,14 @@ async def ticker_ratios(ticker: str) -> RatiosOut:
 async def ticker_segmentation(ticker: str) -> SegmentationOut:
     try:
         return await get_segmentation_data(ticker)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="FMP request failed") from exc
+
+
+@app.get("/api/tickers/{ticker}/analyst-ratings", response_model=AnalystRatingsOut)
+async def ticker_analyst_ratings(ticker: str) -> AnalystRatingsOut:
+    try:
+        return await get_analyst_ratings_data(ticker)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
 
