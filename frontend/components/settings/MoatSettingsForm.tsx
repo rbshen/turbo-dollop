@@ -71,7 +71,7 @@ function MoatScoreForm({ data }: { data: MoatScoreConfigOut }) {
         <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Economic Moat Point Values</h2>
         <p className="mt-1 text-xs text-zinc-600">
           Point values (0-100 scale) each Economic Moat state contributes to Overall Assessment once a ticker has a
-          moat set. Applied as: <span className="font-mono text-zinc-400">0.69 × Steps 1/2/4/5 blend + 0.31 × moat score</span>.
+          moat set. Applied as: <span className="font-mono text-zinc-400">0.69 × Financials/Growth Rate/Profitability/Debt blend + 0.31 × moat score</span>.
         </p>
       </div>
 

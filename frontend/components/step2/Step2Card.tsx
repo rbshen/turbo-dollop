@@ -66,7 +66,7 @@ export function Step2Card({ ticker }: Props) {
   if (error) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <p className="text-sm text-red-400">Couldn&apos;t load Step 2 data — {error.message}</p>
+        <p className="text-sm text-red-400">Couldn&apos;t load Growth Rate data — {error.message}</p>
       </div>
     );
   }
@@ -74,7 +74,7 @@ export function Step2Card({ ticker }: Props) {
   if (!data) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <p className="text-sm text-zinc-600 animate-pulse">Loading Step 2…</p>
+        <p className="text-sm text-zinc-600 animate-pulse">Loading Growth Rate…</p>
       </div>
     );
   }

@@ -120,7 +120,7 @@ export function Step5Card({ ticker }: Props) {
   if (error) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <p className="text-sm text-red-400">Couldn&apos;t load Step 5 data — {error.message}</p>
+        <p className="text-sm text-red-400">Couldn&apos;t load Debt data — {error.message}</p>
       </div>
     );
   }
@@ -128,7 +128,7 @@ export function Step5Card({ ticker }: Props) {
   if (!data) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <p className="text-sm text-zinc-600 animate-pulse">Loading Step 5…</p>
+        <p className="text-sm text-zinc-600 animate-pulse">Loading Debt…</p>
       </div>
     );
   }
@@ -209,7 +209,7 @@ export function Step5Card({ ticker }: Props) {
             </p>
           )}
           <p className="text-sm text-zinc-500">
-            CET1 ratio still unavailable from FMP — Step 5 verdict incomplete for Banks.
+            CET1 ratio still unavailable from FMP — Debt verdict incomplete for Banks.
           </p>
         </>
       ) : data.verdict === "insufficient_data" ? (

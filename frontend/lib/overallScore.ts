@@ -23,9 +23,6 @@ function verdictFor(score: number): "Strong Pass" | "Pass" | "Fail" {
   return "Fail";
 }
 
-export const IMPLEMENTED_STEPS = Object.keys(STEP_WEIGHTS).length;
-export const TOTAL_METHODOLOGY_STEPS = 5;
-
 // Once a ticker has an Economic Moat set (any of the 3 real states -- "not
 // set" is unaffected and uses the pure Steps 1/2/4/5 blend above, untouched),
 // Steps 1+2+4+5 combined occupy 69% of Overall Assessment and Moat occupies
@@ -79,8 +76,6 @@ export interface OverallAssessment {
   breakdown: StepBreakdownEntry[];
   incompleteSteps: string[];
   failingSteps: string[];
-  assessedCount: number;
-  totalMethodologySteps: number;
 }
 
 function statusFor(snapshot: StepSnapshot): StepStatus {
@@ -138,8 +133,6 @@ export function computeOverallAssessment(
       })),
       incompleteSteps: [],
       failingSteps: [],
-      assessedCount: IMPLEMENTED_STEPS,
-      totalMethodologySteps: TOTAL_METHODOLOGY_STEPS,
     };
   }
 
@@ -210,7 +203,5 @@ export function computeOverallAssessment(
     breakdown,
     incompleteSteps: canCompute ? [] : incomplete.map((s) => s.label),
     failingSteps,
-    assessedCount: IMPLEMENTED_STEPS,
-    totalMethodologySteps: TOTAL_METHODOLOGY_STEPS,
   };
 }

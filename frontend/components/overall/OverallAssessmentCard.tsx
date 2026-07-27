@@ -88,10 +88,6 @@ export function OverallAssessmentCard({ ticker }: Props) {
         </p>
       ) : (
         <>
-          <p className="text-xs text-zinc-600">
-            {result.assessedCount} of {result.totalMethodologySteps} steps assessed — Step 3 not yet available.
-          </p>
-
           <div className="flex flex-wrap gap-2">
             {result.breakdown.map((entry) => (
               <span key={entry.key} className={`rounded-full border px-3 py-1 text-xs font-medium ${chipClass(entry)}`}>

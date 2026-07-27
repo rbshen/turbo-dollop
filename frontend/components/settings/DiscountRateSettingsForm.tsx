@@ -72,7 +72,7 @@ function DiscountRateForm({ data }: { data: DiscountRateConfigOut }) {
         <p className="mt-1 text-xs text-zinc-600">
           Risk-Free Rate and Market Risk Premium are 5-year trailing averages from market-risk-premia.com/us.html — manually
           maintained here, not auto-fetched (see CLAUDE.md). Beta stays sourced live per-ticker from FMP. Feeds every ticker&apos;s
-          Step 3 discount rate: <span className="font-mono text-zinc-400">Rf + β × MRP</span>.
+          Valuation discount rate: <span className="font-mono text-zinc-400">Rf + β × MRP</span>.
         </p>
       </div>
 

@@ -47,7 +47,7 @@ export function Step4Card({ ticker }: Props) {
   if (error) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <p className="text-sm text-red-400">Couldn&apos;t load Step 4 data — {error.message}</p>
+        <p className="text-sm text-red-400">Couldn&apos;t load Profitability data — {error.message}</p>
       </div>
     );
   }
@@ -55,7 +55,7 @@ export function Step4Card({ ticker }: Props) {
   if (!data) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <p className="text-sm text-zinc-600 animate-pulse">Loading Step 4…</p>
+        <p className="text-sm text-zinc-600 animate-pulse">Loading Profitability…</p>
       </div>
     );
   }
@@ -85,10 +85,6 @@ export function Step4Card({ ticker }: Props) {
       </div>
 
       <div className="space-y-1">
-        <p className="text-sm text-zinc-300">
-          Classified as <span className="font-medium text-zinc-100">{data.company_type}</span>
-        </p>
-        <p className="text-xs text-zinc-600">{data.classification_note}</p>
         {data.roic_exempt_reason && <p className="text-xs text-zinc-600">{data.roic_exempt_reason}</p>}
         {data.ccc_exempt_reason && <p className="text-xs text-zinc-600">{data.ccc_exempt_reason}</p>}
         {data.roe_roic_divergence_note && (

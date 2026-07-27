@@ -132,7 +132,7 @@ export function Step3Card({ ticker }: Props) {
   if (error) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <p className="text-sm text-red-400">Couldn&apos;t load Step 3 data — {error.message}</p>
+        <p className="text-sm text-red-400">Couldn&apos;t load Valuation data — {error.message}</p>
       </div>
     );
   }
@@ -140,7 +140,7 @@ export function Step3Card({ ticker }: Props) {
   if (!data) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <p className="text-sm text-zinc-600 animate-pulse">Loading Step 3…</p>
+        <p className="text-sm text-zinc-600 animate-pulse">Loading Valuation…</p>
       </div>
     );
   }
@@ -259,13 +259,6 @@ export function Step3Card({ ticker }: Props) {
             </div>
 
             <ManualCalculationPanel ticker={ticker} autoData={data} />
-          </div>
-
-          <div className="space-y-1">
-            <p className="text-sm text-zinc-300">
-              Classified as <span className="font-medium text-zinc-100">{data.company_type}</span>
-            </p>
-            <p className="text-xs text-zinc-600">{data.classification_note}</p>
           </div>
         </>
       )}

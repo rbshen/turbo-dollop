@@ -66,9 +66,9 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Economic Moat</h2>
           <p className="mt-1 text-xs text-zinc-600">
-            A manually-set classification, not computed from data. Once set, Steps 1/2/4/5 combined occupy 69% of
-            Overall Assessment and Moat occupies the other 31% — see the Overall Assessment card for how this ticker
-            is currently blended.
+            A manually-set classification, not computed from data. Once set, Financials/Growth Rate/Profitability/Debt
+            combined occupy 69% of Overall Assessment and Moat occupies the other 31% — see the Overall Assessment
+            card for how this ticker is currently blended.
           </p>
         </div>
 
