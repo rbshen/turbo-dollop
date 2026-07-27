@@ -31,6 +31,8 @@ export function ScreenerCard({ data }: Props) {
   return (
     <Link
       href={`/tickers/${data.ticker}`}
+      target="_blank"
+      rel="noopener noreferrer"
       className="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 transition-colors hover:border-zinc-600"
     >
       <div className="flex items-start justify-between gap-2">
