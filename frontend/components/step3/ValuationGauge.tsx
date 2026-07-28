@@ -130,11 +130,22 @@ export function ValuationGauge({ discountPremiumPct, intrinsicValuePerShare, las
         />
         {needleAngle != null && <Customized component={() => <Needle angleDeg={needleAngle} />} />}
       </PieChart>
-      {discountPremiumPct == null ? (
-        <p className="text-sm text-zinc-600">No discount/premium available</p>
-      ) : (
-        isOffScale && <p className="text-xs text-zinc-600">Off-scale, pinned to arc end</p>
-      )}
+      {/* Always rendered at a fixed height, even when neither message
+          applies (the normal in-scale case) -- same "blank placeholder"
+          convention Step3Card/ManualCalculationPanel use for row sublabels.
+          This component is shared by Auto and Manual, sitting directly
+          above their Discount/Premium row; letting this caption line
+          appear/disappear based on discountPremiumPct's value made the
+          gauge itself a variable-height element, which is what drifted
+          Discount/Premium (and every row below it) out of alignment
+          whenever only one side's value was null or off-scale. */}
+      <p className="h-4 text-xs text-zinc-600">
+        {discountPremiumPct == null
+          ? "No discount/premium available"
+          : isOffScale
+            ? "Off-scale, pinned to arc end"
+            : " "}
+      </p>
     </div>
   );
 }
