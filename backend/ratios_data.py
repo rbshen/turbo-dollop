@@ -3,6 +3,7 @@ from sqlmodel import Session
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
+from first import _first
 from fmp_client import fmp_client
 from schemas import FinancialsGroup, FinancialsLineItem, RatiosOut
 from ttm import TOTAL_QUARTERS_NEEDED
@@ -127,12 +128,6 @@ CATEGORIES: list[tuple[str, list[FieldSpec]]] = [
     ("Per-Share", PER_SHARE_FIELDS),
     ("Payout", PAYOUT_FIELDS),
 ]
-
-
-def _first(data: dict | list) -> dict:
-    if isinstance(data, list):
-        return data[0] if data else {}
-    return data or {}
 
 
 def _annual_years(*row_sources: list[dict], count: int = ANNUAL_WINDOW) -> list[str]:

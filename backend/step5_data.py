@@ -7,6 +7,7 @@ from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
 from debt_metrics import MetricOutlierFlags, compute_debt_metrics
+from first import _first
 from fmp_client import fmp_client
 from npl import compute_npl_ratio
 from schemas import OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
@@ -18,12 +19,6 @@ from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 # Never triggered in bulk/nightly -- only when a specific quarter is
 # already flagged for a specific ticker being viewed.
 SEC_CROSS_CHECK_METRICS = {"net_interest_expense_ttm", "cfo_ttm"}
-
-
-def _first(data: dict | list) -> dict:
-    if isinstance(data, list):
-        return data[0] if data else {}
-    return data or {}
 
 
 def _ratio_out(raw: dict) -> Step5RatioResult:

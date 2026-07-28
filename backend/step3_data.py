@@ -5,6 +5,7 @@ from config import settings
 from db import engine
 from debt_metrics import compute_debt_metrics
 from discount_rate_config import get_discount_rate_config
+from first import _first
 from fmp_client import fmp_client
 from schemas import Step3CapmComponents, Step3CurrentValueCandidates, Step3Inputs, Step3MethodStep, Step3Out, Step3PBBands
 from scoring.classification import classify_company_type
@@ -40,12 +41,6 @@ GROWTH_YR_6_10_CAP = 0.15
 # 10yr+TTM convention elsewhere -- see CLAUDE.md's Step 1/4 deviations).
 PB_LOOKBACK_LONG = 10
 PB_LOOKBACK_SHORT = 5
-
-
-def _first(data: dict | list) -> dict:
-    if isinstance(data, list):
-        return data[0] if data else {}
-    return data or {}
 
 
 def _annual_series(annual_rows: list[dict], field: str) -> tuple[list[str], list[float | None]]:

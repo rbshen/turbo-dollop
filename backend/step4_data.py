@@ -3,6 +3,7 @@ from sqlmodel import Session
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
+from first import _first
 from fmp_client import fmp_client
 from schemas import Step4Out
 from scoring.classification import classify_company_type
@@ -32,12 +33,6 @@ AR_EXEMPT_TYPES = {"REIT/Property Developer"}
 # (5) feeding only the score while display used the full 10 -- that
 # decoupling has been removed; a single window now drives both.
 ANNUAL_WINDOW = 10
-
-
-def _first(data: dict | list) -> dict:
-    if isinstance(data, list):
-        return data[0] if data else {}
-    return data or {}
 
 
 def _annual_series(annual_rows: list[dict], field: str, count: int = ANNUAL_WINDOW) -> list[float | None]:

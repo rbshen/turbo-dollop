@@ -6,6 +6,7 @@ from sqlmodel import Session, select
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
+from first import _first
 from fmp_client import fmp_client
 from models import PriceTargetSnapshot
 from schemas import AnalystRatingsOut, ConsensusBanner, PriceTargetSummary, RatingHistoryPoint, RecommendationDetailsColumn
@@ -22,12 +23,6 @@ CONSENSUS_BANDS = [(4.5, "Buy"), (3.5, "Outperform"), (2.5, "Hold"), (1.5, "Unde
 # avoids a sparsely-covered ticker's stale/missing month silently reading as
 # a much older or newer one.
 SNAPSHOT_TOLERANCE_DAYS = 45
-
-
-def _first(data: dict | list) -> dict:
-    if isinstance(data, list):
-        return data[0] if data else {}
-    return data or {}
 
 
 def _counts_from_grades_consensus(raw: dict) -> dict:

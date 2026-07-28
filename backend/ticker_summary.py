@@ -6,6 +6,7 @@ from cache import force_fetch, get_or_fetch, safe_fetch
 from config import settings
 from db import engine
 from debt_metrics import compute_debt_metrics
+from first import _first
 from fmp_client import fmp_client
 from schemas import OutlierWarning, TickerSummaryOut
 from shares import compute_shares_outstanding
@@ -29,12 +30,6 @@ FAIR_VALUE_METHOD_LABELS = {
     "PRICE_TO_BOOK": "P/B",
     "PSG": "PSG",
 }
-
-
-def _first(data: dict | list) -> dict:
-    if isinstance(data, list):
-        return data[0] if data else {}
-    return data or {}
 
 
 def _next_earnings_date(earnings: list[dict]) -> date | None:

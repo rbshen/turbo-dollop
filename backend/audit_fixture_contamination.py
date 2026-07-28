@@ -21,6 +21,7 @@ import json
 from sqlmodel import Session, select
 
 from db import engine, init_db
+from first import _first
 from models import FundamentalsCache
 
 # Case-insensitive substrings that showed up in the confirmed incident's
@@ -33,12 +34,6 @@ SUSPECT_NAME_SUBSTRINGS = ("acme", "test", "placeholder", "dummy", "sample", "ex
 # genuinely report this by coincidence, so this is only ever combined with
 # the duplicate-date check below, never flagged alone.
 FIXTURE_CFO_VALUE = 10_000_000_000
-
-
-def _first(data) -> dict:
-    if isinstance(data, list):
-        return data[0] if data else {}
-    return data if isinstance(data, dict) else {}
 
 
 def _check_profile(ticker: str, data) -> list[str]:
