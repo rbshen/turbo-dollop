@@ -92,7 +92,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
                 ),
             )
         )
-        company_type = classify_company_type(profile.get("sector"), profile.get("industry"))
+        company_type = classify_company_type(profile.get("sector"), profile.get("industry"), ticker)
 
         # Balance sheet items are point-in-time snapshots -- the latest
         # available quarter is simply more current than the latest annual

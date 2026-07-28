@@ -129,6 +129,33 @@ def test_bank_is_cfo_exempt(monkeypatch):
     assert result.gross_margin[0] == 50.0  # grossProfit 100 / revenue 200 * 100
 
 
+def test_insurance_is_cfo_exempt_but_keeps_revenue_label(monkeypatch):
+    # MET/PGR-shaped: sector "Financial Services", industry "Insurance -
+    # Life" -- Insurance now gets the same CFO/FCF de-emphasis Bank already
+    # had (claim timing/reserve movements/investment portfolio fluctuations
+    # make OCF noisy for insurers too), but must NOT get Bank's Net Interest
+    # Income revenue-label swap -- that's Bank-only.
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(step1_data, "engine", test_engine)
+
+    call_count = {"profile": 0, "income_annual": 0, "income_quarter": 0, "cash_flow_annual": 0, "cash_flow_quarter": 0}
+    _patch_fmp(monkeypatch, call_count, sector="Financial Services", industry="Insurance - Life")
+
+    result = asyncio.run(get_step1_data("met"))
+
+    assert result.cfo_exempt_reason == "Insurance"
+    assert result.cfo is None
+    assert result.components["cfo"] is None
+    assert result.fcf is None
+    assert result.components["fcf"] is None
+
+    # Unlike Bank, Insurance keeps the plain Revenue label/series -- no NII
+    # swap.
+    assert result.revenue_label == "Revenue"
+    assert result.revenue == [200, 250, 300, 320]
+
+
 def test_insufficient_data_when_cash_flow_fetch_fails(monkeypatch):
     # Mirrors the confirmed Step 1 repro: a genuine FMP fetch failure on ONE
     # of Step 1's 5 independently-isolated safe_fetch calls (cash flow) must

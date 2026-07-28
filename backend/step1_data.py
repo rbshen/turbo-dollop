@@ -5,6 +5,7 @@ from config import settings
 from db import engine
 from fmp_client import fmp_client
 from schemas import Step1Out
+from scoring.classification import classify_company_type
 from scoring.step1 import score_step1
 from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
@@ -15,15 +16,26 @@ def _first(data: dict | list) -> dict:
     return data or {}
 
 
-def _detect_exemption(sector: str | None, industry: str | None) -> str | None:
+def _detect_exemption(sector: str | None, industry: str | None, ticker: str | None = None) -> str | None:
     """Heuristic sector/industry match for the Step 1 CFO exemption (Bank /
-    Property Developer / Commodity Company) — not exhaustive industry-code
-    matching, a reasonable approximation for this phase."""
+    Insurance / Property Developer / Commodity Company) — not exhaustive
+    industry-code matching, a reasonable approximation for this phase.
+
+    Delegates Bank/Insurance/REIT detection to the shared
+    scoring.classification.classify_company_type -- the same classifier
+    Step 4/5/Valuation use -- so Step 1 never drifts out of sync with them
+    again (this used to be a fully standalone keyword match that only knew
+    about Bank/Real Estate/Basic Materials+Energy, and had no Insurance
+    branch at all: Insurance tickers got no CFO de-emphasis even though the
+    reasoning -- claim timing, reserve movements, investment portfolio
+    fluctuations making OCF noisy -- applies to them exactly as it does to
+    Banks). Commodity Company has no equivalent in the shared classifier
+    (it's a Step 1-only exemption), so that check stays local."""
     sector = (sector or "").strip()
-    industry_lower = (industry or "").strip().lower()
-    if sector == "Financial Services" and "bank" in industry_lower:
-        return "Bank"
-    if sector == "Real Estate":
+    shared_type = classify_company_type(sector, industry, ticker)
+    if shared_type in ("Bank", "Insurance"):
+        return shared_type
+    if shared_type == "REIT/Property Developer":
         return "Property Developer"
     if sector in {"Basic Materials", "Energy"}:
         return "Commodity Company"
@@ -138,7 +150,7 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
     gross_margin = [(gp / rev * 100) if gp is not None and rev else None for gp, rev in zip(gross_profit, revenue)]
     net_margin = [(ni / rev * 100) if ni is not None and rev else None for ni, rev in zip(net_income, revenue)]
 
-    exemption = _detect_exemption(profile.get("sector"), profile.get("industry"))
+    exemption = _detect_exemption(profile.get("sector"), profile.get("industry"), ticker)
     cfo_exempt = exemption is not None
     is_bank = exemption == "Bank"
 

@@ -89,7 +89,7 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
                 ),
             )
         )
-        company_type = classify_company_type(profile.get("sector"), profile.get("industry"))
+        company_type = classify_company_type(profile.get("sector"), profile.get("industry"), ticker)
 
         # Same cache key + limit Step 1 already populates ("income_statement"
         # / "annual", limit 10) -- requesting a different limit here would
