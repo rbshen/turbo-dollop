@@ -76,6 +76,11 @@ export interface OverallAssessment {
   breakdown: StepBreakdownEntry[];
   incompleteSteps: string[];
   failingSteps: string[];
+  // Steps whose verdict is "Pass with caution" (currently only Step 5's
+  // Borderline-breach-excused-by-tiebreaker state) -- a real breach
+  // occurred, so this is surfaced separately from failingSteps rather than
+  // silently blending into a plain Pass.
+  cautionSteps: string[];
 }
 
 function statusFor(snapshot: StepSnapshot): StepStatus {
@@ -133,6 +138,7 @@ export function computeOverallAssessment(
       })),
       incompleteSteps: [],
       failingSteps: [],
+      cautionSteps: [],
     };
   }
 
@@ -150,6 +156,7 @@ export function computeOverallAssessment(
     : null;
 
   const failingSteps = ok.filter((s) => s.data!.verdict === "Fail").map((s) => s.label);
+  const cautionSteps = ok.filter((s) => s.data!.verdict === "Pass with caution").map((s) => s.label);
 
   let score: number | null;
   let displayScale: number;
@@ -203,5 +210,6 @@ export function computeOverallAssessment(
     breakdown,
     incompleteSteps: canCompute ? [] : incomplete.map((s) => s.label),
     failingSteps,
+    cautionSteps,
   };
 }

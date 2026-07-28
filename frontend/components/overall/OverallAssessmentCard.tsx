@@ -9,6 +9,7 @@ import { useStep4 } from "@/lib/hooks/useStep4";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
 import { computeOverallAssessment, type MoatSnapshot, type StepBreakdownEntry, type StepSnapshot } from "@/lib/overallScore";
+import { chipClassFor } from "@/lib/tierColor";
 
 interface Props {
   ticker: string;
@@ -26,13 +27,6 @@ const MOAT_SCORE_FIELD: Record<"no_moat" | "narrow_moat" | "wide_moat", (config:
   narrow_moat: (config) => config.narrow_moat_score,
   wide_moat: (config) => config.wide_moat_score,
 };
-
-function chipClass(entry: StepBreakdownEntry): string {
-  if (entry.status === "exempt") return "border-zinc-800 bg-zinc-900 text-zinc-500";
-  if (entry.verdict === "Fail") return "border-red-800/40 bg-red-900/20 text-red-400";
-  if (entry.score != null && entry.score > 90) return "border-emerald-700/40 bg-emerald-900/20 text-emerald-300";
-  return "border-zinc-700 bg-zinc-800/60 text-zinc-300";
-}
 
 function chipLabel(entry: StepBreakdownEntry): string {
   if (entry.status === "exempt") return `${entry.label} · N/A`;
@@ -90,7 +84,7 @@ export function OverallAssessmentCard({ ticker }: Props) {
         <>
           <div className="flex flex-wrap gap-2">
             {result.breakdown.map((entry) => (
-              <span key={entry.key} className={`rounded-full border px-3 py-1 text-xs font-medium ${chipClass(entry)}`}>
+              <span key={entry.key} className={`rounded-full border px-3 py-1 text-xs font-medium ${chipClassFor(entry.score, entry.verdict)}`}>
                 {chipLabel(entry)}
               </span>
             ))}
@@ -100,6 +94,13 @@ export function OverallAssessmentCard({ ticker }: Props) {
             <p className="text-sm text-amber-300">
               ⚠️ {result.failingSteps.join(", ")} failed — reflected in the weighted score above, but worth reviewing
               directly.
+            </p>
+          )}
+
+          {result.cautionSteps.length > 0 && (
+            <p className="text-sm text-amber-400">
+              ⚠️ {result.cautionSteps.join(", ")} passed with caution — a real breach was excused by its tiebreaker,
+              reflected in the weighted score above, but worth reviewing directly.
             </p>
           )}
         </>

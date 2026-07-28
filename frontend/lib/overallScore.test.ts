@@ -131,6 +131,27 @@ describe("computeOverallAssessment", () => {
     expect(result.failingSteps).toEqual(["Step 1", "Step 5"]);
   });
 
+  it("flags a caution-warning when a step's verdict is Pass with caution", () => {
+    // Mirrors Step 5's real shape -- a Borderline breach excused by its
+    // tiebreaker must surface here too, not just blend silently into the
+    // weighted score (previously missing -- see OverallAssessmentCard's
+    // chip fix, same underlying gap).
+    const steps: StepSnapshot[] = [
+      snapshot("step1", "Step 1", 90, "Pass"),
+      snapshot("step2", "Step 2", 90, "Pass"),
+      snapshot("step4", "Step 4", 90, "Pass"),
+      snapshot("step5", "Step 5", 95, "Pass with caution"),
+    ];
+    const result = computeOverallAssessment(steps);
+    expect(result.cautionSteps).toEqual(["Step 5"]);
+    expect(result.failingSteps).toEqual([]);
+  });
+
+  it("stays silent (no cautionSteps) when nothing passed with caution", () => {
+    const result = computeOverallAssessment(BASE);
+    expect(result.cautionSteps).toEqual([]);
+  });
+
   it("shows Fail, not Pass, when the score is under 70", () => {
     // Mirrors CCL's real shape -- a low blended score must read as "Fail",
     // matching the shared 0-69/70-90/91-100 bands used everywhere else in

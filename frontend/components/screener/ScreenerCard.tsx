@@ -5,6 +5,7 @@ import { ScoreBadge } from "@/components/step1/ScoreBadge";
 import { ValuationBadge } from "@/components/screener/ValuationBadge";
 import type { TickerScoreOut } from "@/lib/api/types";
 import { fmtCompactMoney, fmtNumber } from "@/lib/format";
+import { chipClassFor } from "@/lib/tierColor";
 
 interface Props {
   data: TickerScoreOut;
@@ -16,16 +17,6 @@ const STEP_CHIPS: { key: keyof TickerScoreOut; verdictKey: keyof TickerScoreOut;
   { key: "step5_score", verdictKey: "step5_verdict", label: "D" },
   { key: "step4_score", verdictKey: "step4_verdict", label: "P" },
 ];
-
-function chipClass(score: number | null, verdict: string | null): string {
-  if (score == null) return "border-zinc-800 bg-zinc-900 text-zinc-600"; // exempt/unavailable for this step
-  if (verdict === "Fail") return "border-red-800/40 bg-red-900/20 text-red-400";
-  // Step 5's "Pass with caution" (a Borderline breach excused by its
-  // tiebreaker) -- distinct from both a clean Pass and a Fail.
-  if (verdict === "Pass with caution") return "border-amber-700/50 bg-amber-900/20 text-amber-400";
-  if (score > 90) return "border-emerald-700/40 bg-emerald-900/20 text-emerald-300";
-  return "border-zinc-700 bg-zinc-800/60 text-zinc-300";
-}
 
 export function ScreenerCard({ data }: Props) {
   return (
@@ -68,7 +59,7 @@ export function ScreenerCard({ data }: Props) {
           const score = data[key] as number | null;
           const verdict = data[verdictKey] as string | null;
           return (
-            <span key={label} className={`rounded-full border px-2 py-0.5 text-xs font-medium ${chipClass(score, verdict)}`}>
+            <span key={label} className={`rounded-full border px-2 py-0.5 text-xs font-medium ${chipClassFor(score, verdict)}`}>
               {label} · {score ?? "—"}
             </span>
           );

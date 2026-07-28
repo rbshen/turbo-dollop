@@ -1,3 +1,5 @@
+import { classFor } from "@/lib/tierColor";
+
 // Color depends on both verdict and score: 70-74 and 75-90 both display
 // the text "Pass" (see CLAUDE.md's "Scoring rubric deviations") but need
 // different shades, so color can't be chosen from verdict text alone.
@@ -5,18 +7,8 @@
 // derived from them -- Step 2's Fail is gated on projected growth being
 // negative, not on the blended score, so a "Pass" verdict can occur at any
 // score (e.g. positive-but-modest growth dragged down by analyst
-// disagreement) and must never render red.
-function classFor(score: number, verdict: string): string {
-  if (verdict === "Fail") return "bg-red-900/40 text-red-400 border-red-800/40";
-  // Step 5's "Pass with caution" (a Borderline breach excused by its
-  // tiebreaker) must read as visually distinct from BOTH a clean Pass and
-  // a Fail -- checked before the score-based tiers, same priority as Fail,
-  // since a real breach occurred regardless of how high the blended score is.
-  if (verdict === "Pass with caution") return "bg-amber-900/30 text-amber-400 border-amber-700/50";
-  if (score > 90) return "bg-emerald-900/40 text-emerald-300 border-emerald-700/40"; // Strong Pass
-  if (score >= 75) return "bg-emerald-900/20 text-emerald-400 border-emerald-800/30"; // Pass (light green)
-  return "bg-amber-900/40 text-amber-300 border-amber-700/40"; // Pass (neutral)
-}
+// disagreement) and must never render red. See lib/tierColor.ts for the
+// exact tiering, shared with ScreenerCard/OverallAssessmentCard's chips.
 
 interface Props {
   score: number;
