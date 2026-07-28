@@ -391,6 +391,14 @@ class Step3Out(BaseModel):
     method_reasoning: list[Step3MethodStep] = []
     # Set only when selected_method == "PASS".
     pass_reason: str | None = None
+    # Only meaningful when selected_method == "PASS". True when at least one
+    # check in method_reasoning has passed=None (couldn't run at all due to
+    # missing/too-thin data -- a fetch failure or a genuinely too-thin
+    # history) rather than every check genuinely computing a
+    # disqualification -- lets the frontend distinguish "insufficient data"
+    # from "no method applies" even though both currently share
+    # selected_method == "PASS".
+    insufficient_data: bool = False
     inputs: Step3Inputs
     # Below: None until the calculation engine runs (Phase 2).
     intrinsic_value_per_share: float | None = None

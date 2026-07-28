@@ -167,7 +167,11 @@ export function Step3Card({ ticker }: Props) {
       </details>
 
       {isPass ? (
-        <p className="text-sm text-zinc-400">{data.pass_reason}</p>
+        <p className="text-sm text-zinc-400">
+          {data.insufficient_data
+            ? `Insufficient data was available to select a valuation method for ${ticker}.`
+            : data.pass_reason}
+        </p>
       ) : (
         <>
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">

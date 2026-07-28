@@ -494,6 +494,11 @@ export interface Step3Out {
   method_reasoning: Step3MethodStep[];
   // Set only when selected_method === "PASS".
   pass_reason: string | null;
+  // Only meaningful when selected_method === "PASS". True when at least one
+  // check in method_reasoning has passed === null (couldn't run at all due
+  // to missing/too-thin data) rather than every check genuinely computing a
+  // disqualification.
+  insufficient_data: boolean;
   inputs: Step3Inputs;
   intrinsic_value_per_share: number | null;
   pb_bands: Step3PBBands | null;

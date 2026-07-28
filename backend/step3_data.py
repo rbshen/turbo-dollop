@@ -413,6 +413,7 @@ async def get_step3_data(
         selected_method=selection.method,
         method_reasoning=trail,
         pass_reason=selection.pass_reason,
+        insufficient_data=selection.insufficient_data,
         inputs=inputs,
         intrinsic_value_per_share=intrinsic_value_per_share,
         pb_bands=pb_bands,

@@ -42,9 +42,19 @@ class MethodSelection(NamedTuple):
     current_value_source: str | None
     decision_trail: list[MethodStep]
     pass_reason: str | None
+    # True only when method == "PASS" AND at least one step in
+    # decision_trail has passed=None (a check that couldn't run at all due
+    # to missing/too-thin data) -- distinguishes "we don't have enough data
+    # to say" from "we checked and no method genuinely applies." Every
+    # early-return branch above leaves this at its default False: a
+    # None-passed step is always falsy, so it can never be the reason an
+    # earlier branch's own `if x_ok:` took an early return -- a None
+    # anywhere in the trail only ever coincides with falling through to the
+    # final PASS below.
+    insufficient_data: bool = False
 
 
-def _positive_and_increasing(values: list[float] | None) -> tuple[bool, str]:
+def _positive_and_increasing(values: list[float] | None) -> tuple[bool | None, str]:
     """A non-positive value used to disqualify the whole series outright,
     regardless of how long ago it happened or how strong the recovery
     since -- e.g. AMZN's 2022 net loss (Rivian stake writedown) permanently
@@ -56,9 +66,14 @@ def _positive_and_increasing(values: list[float] | None) -> tuple[bool, str]:
     multiple_dips_resolved) can read it the same way they already read a
     dip that stayed positive -- classify_trend's percent-change math
     already treats a negative-to-positive swing as a (very) real dip on its
-    own, so no separate recovery logic is needed here."""
+    own, so no separate recovery logic is needed here.
+
+    Returns None (not False) when there's too little data to run the check
+    at all -- a fetch failure or a genuinely too-thin history -- so the
+    caller can tell that apart from a real computed disqualification,
+    matching Step3MethodStep.passed's existing bool | None convention."""
     if not values or len(values) < METHOD_SELECTION_MIN_YEARS:
-        return False, f"fewer than {METHOD_SELECTION_MIN_YEARS} years of data"
+        return None, f"fewer than {METHOD_SELECTION_MIN_YEARS} years of data"
 
     negative_indices = [i for i, v in enumerate(values) if v <= 0]
     if negative_indices:
@@ -77,7 +92,7 @@ _MAX_NAMED_PERIODS_IN_DETAIL = 3
 
 def _fcf_positive_and_consistent(
     fcf_values: list[float] | None, period_labels: list[str] | None = None
-) -> tuple[bool, str]:
+) -> tuple[bool | None, str]:
     """Brought in line with _positive_and_increasing's trend-aware
     tolerance -- previously the one remaining check in select_method
     reading "consistent" as a pure floor (all-positive across the whole
@@ -89,9 +104,12 @@ def _fcf_positive_and_consistent(
     an older one falls through to classify_trend, same as
     _positive_and_increasing. `period_labels`, when supplied and aligned
     1:1 with fcf_values, names the actual recent offending period(s) in
-    the failure detail instead of a generic message."""
+    the failure detail instead of a generic message.
+
+    Returns None (not False) when there's too little data to run the check
+    at all, same convention and rationale as _positive_and_increasing."""
     if not fcf_values or len(fcf_values) < METHOD_SELECTION_MIN_YEARS:
-        return False, f"fewer than {METHOD_SELECTION_MIN_YEARS} years of data"
+        return None, f"fewer than {METHOD_SELECTION_MIN_YEARS} years of data"
     if all(v > 0 for v in fcf_values):
         return True, "positive in every year of the window"
 
@@ -128,14 +146,18 @@ def normalize_fcf(cfo_series: list[float], capex_series: list[float]) -> list[fl
     return [cfo + avg_capex for cfo in cfo_series]
 
 
-def _revenue_growing_aggressively(revenue_series: list[float] | None) -> tuple[bool, str]:
+def _revenue_growing_aggressively(revenue_series: list[float] | None) -> tuple[bool | None, str]:
     """CAGR from the earliest *positive*-revenue year to TTM -- not simply
     index 0, since a recently-IPO'd or pre-production company (e.g. RIVN:
     $0 revenue in its earliest two reported years, then $55M -> $5.4B) would
     otherwise poison the base and read as "not positive" despite genuinely
-    aggressive growth."""
+    aggressive growth.
+
+    Returns None (not False) for the insufficient-history case only -- "not
+    positive across the window" below is a genuine business fact given
+    enough real history, not a data gap, so it stays a real False."""
     if not revenue_series or len(revenue_series) < 2:
-        return False, "insufficient revenue history"
+        return None, "insufficient revenue history"
     positive_from = next((i for i, v in enumerate(revenue_series) if v > 0), None)
     if positive_from is None or positive_from == len(revenue_series) - 1:
         return False, "revenue not positive across the window"
@@ -226,7 +248,7 @@ def select_method(
     if ni_ok:
         return MethodSelection("DNI", "net_income_ttm", trail, None)
 
-    profitable_now = net_income_ttm is not None and net_income_ttm > 0
+    profitable_now = None if net_income_ttm is None else net_income_ttm > 0
     trail.append(MethodStep("4a", "Profitable but inconsistent?", profitable_now, f"TTM Net Income={net_income_ttm}"))
     if profitable_now and net_income_series:
         window = net_income_series[-METHOD_SELECTION_MIN_YEARS:]
@@ -242,7 +264,13 @@ def select_method(
     if growing:
         return MethodSelection("PSG", None, trail, None)
 
-    return MethodSelection("PASS", None, trail, "No valuation method in the tree applies to this company's data.")
+    return MethodSelection(
+        "PASS",
+        None,
+        trail,
+        "No valuation method in the tree applies to this company's data.",
+        insufficient_data=any(step.passed is None for step in trail),
+    )
 
 
 def compute_capm(risk_free_rate: float, market_risk_premium: float, beta: float) -> dict:
