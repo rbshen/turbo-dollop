@@ -6,7 +6,7 @@ function absLocale(n: number, decimals: number): string {
 }
 
 /** "+" / "-" / "" for use as a sign prefix; values within +/-0.005 are display-zero. */
-export function signChar(n: number): string {
+function signChar(n: number): string {
   if (Math.abs(n) < 0.005) return "";
   return n >= 0 ? "+" : "-";
 }
