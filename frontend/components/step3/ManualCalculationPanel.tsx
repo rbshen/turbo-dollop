@@ -236,7 +236,7 @@ export function ManualCalculationPanel({ ticker, autoData }: Props) {
   const [method, setMethod] = useState<Step3Method>(initialMethod);
   const [form, setForm] = useState<FormState>(() => defaultsForMethod(initialMethod, autoData));
 
-  const { trigger, data: result, error: mutationError, isMutating: loading } = useSWRMutation(`/tickers/${ticker}/step3/manual`, manualCalcFetcher, { throwOnError: false });
+  const { trigger, reset, data: result, error: mutationError, isMutating: loading } = useSWRMutation(`/tickers/${ticker}/step3/manual`, manualCalcFetcher, { throwOnError: false });
 
   // Intrinsic Value/Gauge/Discount-Premium are not live on every keystroke
   // -- they only refresh when the method changes or "Calculate" is clicked.
@@ -258,6 +258,11 @@ export function ManualCalculationPanel({ ticker, autoData }: Props) {
     const defaults = defaultsForMethod(next, autoData);
     setMethod(next);
     setForm(defaults);
+    // Clear the previous method's result immediately -- otherwise
+    // useSWRMutation keeps showing its last resolved `data` (the old
+    // method's numbers) under the new method's label/rows until the new
+    // POST resolves.
+    reset();
     runCalculate(next, defaults);
   }
 
