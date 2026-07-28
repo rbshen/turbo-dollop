@@ -1,3 +1,4 @@
+import { Info } from "@phosphor-icons/react";
 import { Fragment } from "react";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -7,6 +8,17 @@ import { fmtNumber, fmtTableNumber } from "@/lib/format";
 interface Props {
   data: FinancialsPeriodOut;
 }
+
+// Confirmed by investigation: FMP's data for these two specific fields is
+// genuinely incomplete for a meaningful slice of tickers (e.g. MSFT reads
+// $0 for every cached period despite SEC EDGAR's own filings showing real,
+// nonzero figures) -- and FMP sends a literal 0 rather than null for the
+// missing case, so the gap isn't otherwise visible to a reader the way an
+// em-dash ("—", used for actual nulls) would be. Applies regardless of
+// whether the currently-displayed period happens to have a real number.
+const INCOMPLETE_COVERAGE_LABELS = new Set(["Income Taxes Paid", "Interest Paid"]);
+const INCOMPLETE_COVERAGE_NOTE =
+  "Data source coverage for this line is incomplete — a $0 here may mean no data was reported, not that the actual amount was zero.";
 
 function formatValue(value: number | null, unit: string): string {
   if (value == null) return "—";
@@ -64,6 +76,11 @@ export function FinancialsStatementTable({ data }: Props) {
                   }`}
                 >
                   {item.label}
+                  {INCOMPLETE_COVERAGE_LABELS.has(item.label) && (
+                    <span className="ml-1.5 inline-flex align-middle text-zinc-500" title={INCOMPLETE_COVERAGE_NOTE}>
+                      <Info size={13} weight="bold" />
+                    </span>
+                  )}
                 </TableCell>
                 {item.values.map((value, i) => (
                   <TableCell
