@@ -134,6 +134,7 @@ export function Step5Card({ ticker }: Props) {
   }
 
   const isBank = data.company_type === "Bank";
+  const isInsurance = data.company_type === "Insurance";
   const reasoning = data.score != null ? reasoningRows(data) : [];
   const icr = data.ratios.interest_coverage_ratio;
 
@@ -212,6 +213,13 @@ export function Step5Card({ ticker }: Props) {
             CET1 ratio still unavailable from FMP — Debt verdict incomplete for Banks.
           </p>
         </>
+      ) : isInsurance ? (
+        <p className="text-sm text-zinc-500">
+          Standard debt ratios (Current Ratio, Debt/EBITDA, Debt Servicing Ratio) aren&apos;t meaningful for
+          insurers — their balance sheets are dominated by loss reserves and unearned premiums, not a comparable
+          short-term liquidity picture. No substitute capital-adequacy signal is currently available from FMP, so
+          Debt verdict is incomplete for {ticker}.
+        </p>
       ) : data.verdict === "insufficient_data" ? (
         <p className="text-sm text-zinc-500">Required balance sheet/income statement figures were unavailable for {ticker}.</p>
       ) : (

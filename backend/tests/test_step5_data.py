@@ -332,6 +332,37 @@ def test_bank_overall_verdict_stays_not_supported_regardless_of_npl(monkeypatch)
     assert result.score is None
 
 
+def test_insurance_stays_not_supported_despite_severe_current_ratio_breach(monkeypatch):
+    # PGR-shaped repro: a real, severe Current Ratio breach (0.67, well
+    # below the 0.7 "severe" floor) that would hard-fail the Standard path
+    # outright (Debt/EBITDA, DSR, and ICR were all excellent in the real
+    # PGR data, but Current Ratio alone still forced a 67/Fail verdict --
+    # confirmed via investigation this is a false Fail, since Current Ratio
+    # isn't a meaningful liquidity signal for an insurer's balance sheet).
+    # Insurance must never reach the Standard scoring path at all, so this
+    # severe balance sheet shape must still resolve to not_supported/None,
+    # not a hard-fail Fail.
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, sector="Financial Services", industry="Insurance - Property & Casualty")
+
+    # Applied after _patch_fmp so this override (not _patch_fmp's own
+    # default fixture) is what get_step5_data actually sees.
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        if period == "quarter":
+            return [{**BALANCE_SHEET_QUARTERLY[0], "totalCurrentAssets": 100, "totalCurrentLiabilities": 300, "deferredRevenue": 0}]
+        return BALANCE_SHEET_ANNUAL
+
+    monkeypatch.setattr(step5_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+
+    result = asyncio.run(get_step5_data("pgr"))
+
+    assert result.company_type == "Insurance"
+    assert result.verdict == "not_supported"
+    assert result.score is None
+    assert result.ratios == {}
+    assert result.hard_fail is False
+
+
 def test_bank_npl_ratio_computed_when_tags_present_and_plausible(monkeypatch):
     # JPM-style: quarterly nonaccrual is present, so no fallback should be
     # needed -- the annual fixture here is deliberately empty to prove that.

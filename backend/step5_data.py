@@ -169,6 +169,32 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
                 verdict="not_supported",
             )
 
+        if company_type == "Insurance":
+            # The Standard path's 3 hard-numeric ratios (Current Ratio /
+            # Debt-EBITDA / Debt Servicing Ratio) aren't meaningful for
+            # insurers -- their balance sheets are dominated by loss
+            # reserves and unearned premiums (not comparable to a real
+            # short-term liquidity picture), and their debt levels need
+            # general qualitative judgement, not a hard numeric threshold
+            # (confirmed via repro: PGR's real Current Ratio of 0.67 alone
+            # forced a hard-fail "severe" breach and a 67/Fail verdict
+            # despite Debt/EBITDA, DSR, and Interest Coverage Ratio all
+            # reading excellent -- Current Ratio's deferred-revenue rescue
+            # can't save this either, since insurers carry unearned premium
+            # reserves under a different balance-sheet line FMP's schema
+            # doesn't map to "deferredRevenue"). Unlike Bank, there's no
+            # NPL-equivalent partial signal available for Insurance (no
+            # capital-adequacy ratio computable from FMP's data, the same
+            # class of gap as Bank's own CET1), so this returns immediately
+            # with no ratios at all rather than attempting one.
+            return Step5Out(
+                ticker=ticker,
+                company_type=company_type,
+                ratios={},
+                score=None,
+                verdict="not_supported",
+            )
+
         # EBITDA, net interest expense, and CFO are flow measures (activity
         # over a period), not snapshots -- a single quarter's figure would
         # understate them ~4x relative to the debt figures they're compared
