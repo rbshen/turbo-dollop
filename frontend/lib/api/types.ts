@@ -232,7 +232,9 @@ export interface Step4CccComponent {
 export interface Step4Components {
   roe: Step4RatioComponent;
   roic: Step4RatioComponent | null;
-  revenue_vs_ar: Step4RatioComponent;
+  // null when exempt (REIT/Property Developer -- no comparable "selling on
+  // credit" concept for a rental-income business model).
+  revenue_vs_ar: Step4RatioComponent | null;
   ccc: Step4CccComponent | null;
 }
 
@@ -258,6 +260,9 @@ export interface Step4Out {
   // null (the whole field) when no physical inventory was detected.
   ccc: (number | null)[] | null;
   ccc_exempt_reason: string | null;
+  // Set only for REIT/Property Developer -- Revenue-vs-AR has no
+  // comparable concept for a rental-income business model.
+  revenue_vs_ar_exempt_reason: string | null;
   // null when required raw data is missing.
   score: number | null;
   // "Fail" / "Pass" / "Strong Pass" for scored tickers; "insufficient_data"

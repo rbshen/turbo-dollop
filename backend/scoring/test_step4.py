@@ -454,6 +454,34 @@ def test_roic_and_ccc_both_exempt_redistributes_to_remaining_two():
     assert result["score"] == 90
 
 
+def test_ar_exempt_reit_redistributes_to_remaining_three():
+    # REIT: ROIC and CCC are already exempt (company-type gates), AR is now
+    # exempt too -- only ROE is left applicable in the worst case, but this
+    # case still has a real CCC-equivalent-free reading via... actually for
+    # REIT all three of AR/ROIC/CCC are typically exempt at once (see the
+    # all-three-exempt test below); this test isolates AR's own exemption
+    # against an otherwise-standard metric set to confirm the redistribution
+    # math specifically for ar=None on its own.
+    roe = _ratio("good", 90)
+    roic = _ratio("excellent", 100)
+    ccc = TrendResult("declining_or_stable", 90)
+    result = score_step4(roe, None, roic, ccc)
+    assert abs(result["weight_per_metric"] - 1 / 3) < 1e-9
+    assert result["components"]["revenue_vs_ar"] is None
+
+
+def test_ar_roic_ccc_all_exempt_reit_shape_redistributes_to_roe_alone():
+    # REIT's real shape: AR, ROIC, and CCC are all exempt at once -- only
+    # ROE is left, at 100% weight.
+    roe = _ratio("good", 90)
+    result = score_step4(roe, None, None, None)
+    assert result["weight_per_metric"] == 1.0
+    assert result["score"] == 90
+    assert result["components"]["revenue_vs_ar"] is None
+    assert result["components"]["roic"] is None
+    assert result["components"]["ccc"] is None
+
+
 def test_hard_fail_from_roe_overrides_verdict_despite_good_score():
     roe = _ratio("fail", 0, hard_fail=True)
     ar = _ratio("healthy", 100)

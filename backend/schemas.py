@@ -272,6 +272,10 @@ class Step4Out(BaseModel):
     # the reporting window.
     ccc: list[float | None] | None = None
     ccc_exempt_reason: str | None = None
+    # Set only for REIT/Property Developer -- Revenue-vs-AR has no
+    # comparable concept for a rental-income business model, so it's
+    # excluded from scoring the same way ccc_exempt_reason excludes CCC.
+    revenue_vs_ar_exempt_reason: str | None = None
     # None when required raw data is missing -- never a fabricated number.
     score: int | None = None
     # "Fail" / "Pass" / "Strong Pass" for scored tickers; "insufficient_data"

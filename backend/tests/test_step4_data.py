@@ -237,12 +237,66 @@ def test_roic_exempt_for_reit(monkeypatch):
     assert "REIT/Property Developer" in result.roic_exempt_reason
     assert result.components["roic"] is None
 
-    # CCC exemption is separate, data-driven (zero-inventory detection) --
-    # must be unaffected by the ROIC fix. This fixture's balance sheet has
-    # non-zero inventory, so CCC should still be scored normally.
-    assert result.ccc is not None
-    assert result.ccc_exempt_reason is None
-    assert result.components["ccc"] is not None
+    # CCC is now a hard company-type gate for REIT (see
+    # test_ccc_exempt_for_reit_regardless_of_inventory_data below) -- this
+    # fixture's balance sheet happens to carry non-zero inventory, but that
+    # no longer matters for a REIT: CCC must still read exempt.
+    assert result.ccc is None
+    assert result.ccc_exempt_reason is not None
+    assert result.components["ccc"] is None
+
+    # Revenue-vs-AR is also exempt for REIT -- no comparable "selling on
+    # credit" concept for a rental-income business model.
+    assert result.revenue_vs_ar_exempt_reason is not None
+    assert result.components["revenue_vs_ar"] is None
+
+
+def test_ccc_exempt_for_reit_regardless_of_inventory_data(monkeypatch):
+    # Real-world finding (O/Realty Income): the data-driven "no physical
+    # inventory" heuristic isn't reliable for every REIT -- FMP can report a
+    # non-null/non-zero inventory-tagged figure despite CCC being
+    # conceptually meaningless for a rental-income business. This fixture
+    # deliberately uses the Standard-company BALANCE_SHEET_ANNUAL fixture
+    # (real non-zero inventory throughout) with a REIT sector/industry to
+    # prove the exemption is now unconditional for this company type.
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, sector="Real Estate", industry="REIT - Retail")
+
+    result = asyncio.run(get_step4_data("o"))
+
+    assert result.company_type == "REIT/Property Developer"
+    assert result.ccc is None
+    assert "REIT/Property Developer" in result.ccc_exempt_reason
+    assert result.components["ccc"] is None
+
+
+def test_ccc_hard_gate_applies_to_bank_insurance_utility_too(monkeypatch):
+    _fresh_engine(monkeypatch)
+    for ticker, sector, industry, expected_type in [
+        ("jpm2", "Financial Services", "Banks - Diversified", "Bank"),
+        ("met2", "Financial Services", "Insurance - Life", "Insurance"),
+        ("duk2", "Utilities", "Regulated Electric", "Utility"),
+    ]:
+        # Distinct tickers per iteration -- same cache key would otherwise
+        # serve the first iteration's fixture for every subsequent one.
+        _patch_fmp(monkeypatch, sector=sector, industry=industry)
+        result = asyncio.run(get_step4_data(ticker))
+        assert result.company_type == expected_type
+        assert result.ccc is None
+        assert result.ccc_exempt_reason is not None
+        assert expected_type in result.ccc_exempt_reason
+
+
+def test_revenue_vs_ar_not_exempt_for_bank_insurance_utility(monkeypatch):
+    # AR_EXEMPT_TYPES is REIT-only -- Bank/Insurance/Utility still score
+    # Revenue-vs-AR normally (only CCC/ROIC are exempt for them).
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, sector="Financial Services", industry="Banks - Diversified")
+
+    result = asyncio.run(get_step4_data("jpm"))
+
+    assert result.revenue_vs_ar_exempt_reason is None
+    assert result.components["revenue_vs_ar"] is not None
 
 
 def test_roe_roic_divergence_note_surfaces_on_the_full_pipeline(monkeypatch):

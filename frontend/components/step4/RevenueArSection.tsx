@@ -22,6 +22,15 @@ interface Props {
 export function RevenueArSection({ data }: Props) {
   const [mode, setMode] = useState<"bar" | "line">("bar");
 
+  if (data.revenue_vs_ar_exempt_reason) {
+    return (
+      <div className="space-y-3">
+        <h3 className="text-xs font-medium uppercase tracking-widest text-zinc-500">Revenue vs Accounts Receivable</h3>
+        <p className="text-sm text-zinc-500">Not applicable — {data.revenue_vs_ar_exempt_reason}</p>
+      </div>
+    );
+  }
+
   const values: Record<RevenueArKey, (number | null)[]> = {
     revenue: data.revenue,
     accounts_receivable: data.accounts_receivable,

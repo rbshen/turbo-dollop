@@ -376,16 +376,23 @@ def _verdict_for(score: int, hard_fail: bool) -> str:
 
 def score_step4(
     roe: RatioResult,
-    ar: RatioResult,
+    ar: RatioResult | None,
     roic: RatioResult | None,
     ccc: TrendResult | None,
 ) -> dict:
     """Pure scoring function: equal-weight redistribution among whatever
     metrics are applicable (all 4 -> 25% each; ROIC exempt -> remaining 3 at
-    33.3% each; ROIC+CCC both exempt -> remaining 2 at 50% each), with a
-    hard-fail override if ROE or ROIC (when applicable) lands in its Fail
-    tier -- mirrors Step 2/Step 5's hard-fail override pattern."""
-    applicable: list[tuple[str, int]] = [("roe", roe.points), ("ar", ar.points)]
+    33.3% each; ROIC+CCC both exempt -> remaining 2 at 50% each; AR also
+    exempt -- REIT -> remaining 1 at 100%), with a hard-fail override if
+    ROE or ROIC (when applicable) lands in its Fail tier -- mirrors
+    Step 2/Step 5's hard-fail override pattern. `ar=None` mirrors the
+    roic/ccc optional-exemption pattern -- Revenue-vs-Accounts-Receivable
+    isn't part of the REIT framework (a rental-income business model has no
+    comparable receivables-outpacing-revenue concept), so it's excluded the
+    same way CCC already is for REITs."""
+    applicable: list[tuple[str, int]] = [("roe", roe.points)]
+    if ar is not None:
+        applicable.append(("ar", ar.points))
     if roic is not None:
         applicable.append(("roic", roic.points))
     if ccc is not None:
@@ -406,7 +413,7 @@ def score_step4(
         "components": {
             "roe": {"label": roe.label, "points": roe.points},
             "roic": {"label": roic.label, "points": roic.points} if roic is not None else None,
-            "revenue_vs_ar": {"label": ar.label, "points": ar.points},
+            "revenue_vs_ar": {"label": ar.label, "points": ar.points} if ar is not None else None,
             "ccc": {"pattern": ccc.pattern, "points": ccc.score} if ccc is not None else None,
         },
     }

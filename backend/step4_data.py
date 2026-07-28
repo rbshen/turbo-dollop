@@ -10,6 +10,21 @@ from scoring.step4 import classify_ccc_trend, score_revenue_vs_ar, score_roe, sc
 from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 ROIC_EXEMPT_TYPES = {"Bank", "Insurance", "Utility", "REIT/Property Developer"}
+# CCC (Cash Conversion Cycle) has no comparable inventory/receivables cash-
+# conversion concept for these business models -- Banks/Insurance/Utilities/
+# REITs don't sell goods on credit or carry inventory the way CCC assumes.
+# This is now a hard gate on company_type, not left to the data-driven
+# "inventory reads null/zero" heuristic below alone: that heuristic isn't
+# reliable for every REIT (confirmed live -- Realty Income (O) reports a
+# non-null/non-zero inventory-tagged figure despite CCC being conceptually
+# meaningless for a rental-income business, which previously let CCC score
+# 0 and drag Step 4 to a false Fail for a well-regarded REIT).
+CCC_EXEMPT_TYPES = {"Bank", "Insurance", "REIT/Property Developer", "Utility"}
+# Revenue-vs-Accounts-Receivable isn't part of the REIT framework (a rental-
+# income business model has no comparable "selling on credit" concept) --
+# exempted the same way CCC is for REITs, rather than scored either
+# direction.
+AR_EXEMPT_TYPES = {"REIT/Property Developer"}
 # Both display AND scoring now use the same 10yr+TTM window, matching Step
 # 1 -- a deliberate deviation beyond step4_profitability_efficiency_
 # assessment_prompt.md's explicit "5 years" language (see CLAUDE.md's Step
@@ -217,25 +232,48 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
         else None
     )
 
-    # Data-driven detection: no physical inventory across all 10 annual
-    # filings reads as inventory being 0 or null in every year (confirmed
-    # reliable for CRM, ADBE; MSFT is a notable false-negative risk since it
-    # carries real hardware inventory despite being thought of as "pure
-    # software"). Checked against the full annual history now that scoring
-    # itself uses the full 10yr window -- deliberately still checked on the
-    # annual history only, not the latest-quarter snapshot appended below:
-    # FMP's quarterly inventory figure has proven unreliable for
-    # inventory-free companies (e.g. MA shows +$2.06B, NOW shows -$28M in
-    # their latest quarter despite straight clean-zero annual years) -- a
-    # likely data-provider classification artifact, not a real change in the
-    # business.
-    ccc_exempt = all(v is None or v == 0 for v in inventory[:-1])
-    ccc_exempt_reason = "No physical inventory detected across the reporting window — CCC not applicable." if ccc_exempt else None
+    # Data-driven detection (unchanged for Standard/other company types): no
+    # physical inventory across all 10 annual filings reads as inventory
+    # being 0 or null in every year (confirmed reliable for CRM, ADBE; MSFT
+    # is a notable false-negative risk since it carries real hardware
+    # inventory despite being thought of as "pure software"). Checked
+    # against the full annual history now that scoring itself uses the full
+    # 10yr window -- deliberately still checked on the annual history only,
+    # not the latest-quarter snapshot appended below: FMP's quarterly
+    # inventory figure has proven unreliable for inventory-free companies
+    # (e.g. MA shows +$2.06B, NOW shows -$28M in their latest quarter
+    # despite straight clean-zero annual years) -- a likely data-provider
+    # classification artifact, not a real change in the business.
+    #
+    # Bank/Insurance/REIT/Utility are exempted unconditionally via
+    # CCC_EXEMPT_TYPES above regardless of what this heuristic finds -- see
+    # that constant's comment for why the heuristic alone isn't trustworthy
+    # for these types.
+    company_type_ccc_exempt = company_type in CCC_EXEMPT_TYPES
+    data_driven_ccc_exempt = all(v is None or v == 0 for v in inventory[:-1])
+    ccc_exempt = company_type_ccc_exempt or data_driven_ccc_exempt
+    if company_type_ccc_exempt:
+        ccc_exempt_reason = f"CCC not applicable for {company_type} — no comparable inventory/receivables cash-conversion cycle for this business model."
+    elif data_driven_ccc_exempt:
+        ccc_exempt_reason = "No physical inventory detected across the reporting window — CCC not applicable."
+    else:
+        ccc_exempt_reason = None
+
+    ar_exempt = company_type in AR_EXEMPT_TYPES
+    ar_exempt_reason = (
+        f"Revenue vs. Accounts Receivable not applicable for {company_type} — no comparable "
+        "\"selling on credit\" concept for a rental-income business model."
+        if ar_exempt
+        else None
+    )
 
     roe_clean, equity_clean, net_income_clean = _clean_aligned(roe, equity, net_income)
     revenue_clean, ar_clean = _clean_aligned(revenue, accounts_receivable)
 
-    if len(roe_clean) < 2 or len(revenue_clean) < 2:
+    # revenue_clean/ar_clean only feed the AR check -- when it's exempt
+    # (REIT), a data gap there shouldn't block the rest of Step 4 from
+    # scoring, since nothing downstream still needs those series.
+    if len(roe_clean) < 2 or (not ar_exempt and len(revenue_clean) < 2):
         return Step4Out(
             ticker=ticker,
             years=years,
@@ -247,12 +285,13 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
             accounts_receivable=accounts_receivable,
             ccc=None,
             ccc_exempt_reason=ccc_exempt_reason,
+            revenue_vs_ar_exempt_reason=ar_exempt_reason,
             score=None,
             verdict="insufficient_data",
         )
 
     roe_result = score_roe(roe_clean, equity_clean, net_income_clean)
-    ar_result = score_revenue_vs_ar(revenue_clean, ar_clean)
+    ar_result = None if ar_exempt else score_revenue_vs_ar(revenue_clean, ar_clean)
 
     roic_result = None
     if not roic_exempt:
@@ -282,6 +321,7 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
         accounts_receivable=accounts_receivable,
         ccc=None if ccc_exempt else ccc_series,
         ccc_exempt_reason=ccc_exempt_reason,
+        revenue_vs_ar_exempt_reason=ar_exempt_reason,
         score=result["score"],
         verdict=result["verdict"],
         hard_fail=result["hard_fail"],
