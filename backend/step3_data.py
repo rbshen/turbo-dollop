@@ -11,7 +11,11 @@ from scoring.classification import classify_company_type
 from scoring.step3 import (
     classify_valuation_verdict,
     compute_capm,
+    dividend_yield_meets_reit_threshold,
+    dpu_growth_note,
+    historical_pb_buy_signal,
     normalize_fcf,
+    pb_benchmark_for,
     run_20yr_engine,
     run_price_to_book,
     run_psg,
@@ -334,6 +338,29 @@ async def get_step3_data(
     # PSG inputs.
     sales_per_share = _first(ratios_annual).get("revenuePerShare")
 
+    # Additive, informational-only fields (CLAUDE.md's Bank/REIT/Insurance
+    # investigation) -- never change intrinsic_value_per_share/
+    # discount_premium_pct/verdict above, which keep their existing
+    # mean+-10% logic untouched. The -1SD value itself already exists as
+    # pb_result.bands["minus_1sd"] whenever P/B was computed (unconditional,
+    # same as pb_mean_ratio/pb_sd_ratio above) -- this just names the
+    # framework's own buy signal explicitly.
+    pb_buy_signal = (
+        historical_pb_buy_signal(quote.get("price"), pb_result.bands["minus_1sd"]) if pb_result is not None else None
+    )
+    pb_benchmark = pb_benchmark_for(company_type)
+
+    # REIT Dividend/DPU signal -- dividendYield/dividendPerShare are already
+    # present on the same ratios_annual rows fetched above for the P/B
+    # lookback, no new FMP call needed. FMP reports dividendYield as a
+    # fraction (e.g. 0.04), scaled *100 here to match every other percent
+    # field on this model (same convention ticker_summary.py's dividend_yield
+    # already uses for the TTM equivalent from /ratios-ttm).
+    dividend_yield_raw = _first(ratios_annual).get("dividendYield")
+    dividend_yield_pct = dividend_yield_raw * 100 if dividend_yield_raw is not None else None
+    dpu_series = list(reversed([row.get("dividendPerShare") for row in ratios_annual]))
+    is_reit = company_type == "REIT/Property Developer"
+
     inputs = Step3Inputs(
         current_value=current_value,
         current_value_label=current_value_label,
@@ -419,4 +446,11 @@ async def get_step3_data(
         pb_bands=pb_bands,
         discount_premium_pct=discount_premium_pct,
         verdict=classify_valuation_verdict(discount_premium_pct),
+        historical_pb_buy_signal=pb_buy_signal,
+        benchmark_pb_low=pb_benchmark.low if pb_benchmark else None,
+        benchmark_pb_high=pb_benchmark.high if pb_benchmark else None,
+        benchmark_pb_note=pb_benchmark.note if pb_benchmark else None,
+        dividend_yield_pct=dividend_yield_pct if is_reit else None,
+        dividend_yield_meets_reit_threshold=dividend_yield_meets_reit_threshold(dividend_yield_pct) if is_reit else None,
+        dpu_growth_note=dpu_growth_note(dpu_series) if is_reit else None,
     )

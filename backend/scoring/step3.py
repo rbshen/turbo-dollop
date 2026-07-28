@@ -199,48 +199,70 @@ def select_method(
         return MethodSelection("PRICE_TO_BOOK", None, trail, None)
     trail.append(MethodStep("1", "Bank / REIT / Property Developer?", False, f"company_type={company_type}"))
 
-    # 2. Cash flow quality check.
-    cfo_ok, cfo_detail = _positive_and_increasing(cfo_series)
-    trail.append(MethodStep("2", "CFO positive and increasing consistently (5+ yrs)?", cfo_ok, cfo_detail))
+    # 1a. Insurance skips the CFO-based method family entirely (steps
+    # 2/3/3a/3b below) -- claim timing, reserve movements, and investment
+    # portfolio fluctuations make OCF unreliable for insurers (same
+    # reasoning already applied to Step 1's CFO de-emphasis), so a DCF/DFCF
+    # selection here would be building on a noisy signal the framework
+    # explicitly distrusts for this company type. Insurance still falls
+    # through to the existing Net Income check (step 4) and its own
+    # DNI -> DNI_NORMALIZED -> PSG -> PASS fallback chain unchanged --
+    # deliberately NOT forced to DNI unconditionally, since that would
+    # fabricate a value for a distressed insurer with genuinely
+    # insufficient NI history (inconsistent with this app's established
+    # insufficient-data conventions elsewhere).
+    if company_type == "Insurance":
+        trail.append(
+            MethodStep(
+                "1a",
+                "Insurance — cash-flow-based methods skipped?",
+                True,
+                "OCF unreliable for insurers (claim timing, reserve movements, investment portfolio fluctuations)",
+            )
+        )
+    else:
+        # 2. Cash flow quality check.
+        cfo_ok, cfo_detail = _positive_and_increasing(cfo_series)
+        trail.append(MethodStep("2", "CFO positive and increasing consistently (5+ yrs)?", cfo_ok, cfo_detail))
 
-    if cfo_ok:
-        # 3. CFO vs Net Income check.
-        if cfo_ttm is None or net_income_ttm is None:
-            trail.append(MethodStep("3", "CFO > 1.5x Net Income?", None, "missing current CFO or Net Income"))
-        else:
-            ratio_ok = cfo_ttm > CFO_TO_NI_RATIO_THRESHOLD * net_income_ttm
-            trail.append(
-                MethodStep(
-                    "3",
-                    "CFO > 1.5x Net Income?",
-                    ratio_ok,
-                    f"CFO={cfo_ttm:,.0f} vs 1.5x NI={CFO_TO_NI_RATIO_THRESHOLD * net_income_ttm:,.0f}",
+        if cfo_ok:
+            # 3. CFO vs Net Income check.
+            if cfo_ttm is None or net_income_ttm is None:
+                trail.append(MethodStep("3", "CFO > 1.5x Net Income?", None, "missing current CFO or Net Income"))
+            else:
+                ratio_ok = cfo_ttm > CFO_TO_NI_RATIO_THRESHOLD * net_income_ttm
+                trail.append(
+                    MethodStep(
+                        "3",
+                        "CFO > 1.5x Net Income?",
+                        ratio_ok,
+                        f"CFO={cfo_ttm:,.0f} vs 1.5x NI={CFO_TO_NI_RATIO_THRESHOLD * net_income_ttm:,.0f}",
+                    )
                 )
-            )
-            if not ratio_ok:
-                return MethodSelection("DCF", "cfo_ttm", trail, None)
+                if not ratio_ok:
+                    return MethodSelection("DCF", "cfo_ttm", trail, None)
 
-            fcf_ok, fcf_detail = _fcf_positive_and_consistent(fcf_series, fcf_period_labels)
-            trail.append(MethodStep("3a", "FCF (CFO - CapEx) positive and consistent?", fcf_ok, fcf_detail))
-            if fcf_ok:
-                return MethodSelection("DFCF", "fcf_ttm", trail, None)
+                fcf_ok, fcf_detail = _fcf_positive_and_consistent(fcf_series, fcf_period_labels)
+                trail.append(MethodStep("3a", "FCF (CFO - CapEx) positive and consistent?", fcf_ok, fcf_detail))
+                if fcf_ok:
+                    return MethodSelection("DFCF", "fcf_ttm", trail, None)
 
-            normalized = (
-                normalize_fcf(cfo_series, capex_series) if cfo_series is not None and capex_series is not None else None
-            )
-            norm_ok, norm_detail = _fcf_positive_and_consistent(normalized, fcf_period_labels)
-            trail.append(
-                MethodStep(
-                    "3b",
-                    f"FCF normalized with {CAPEX_NORMALIZATION_YEARS}yr avg CapEx now positive and consistent?",
-                    norm_ok,
-                    norm_detail,
+                normalized = (
+                    normalize_fcf(cfo_series, capex_series) if cfo_series is not None and capex_series is not None else None
                 )
-            )
-            if norm_ok:
-                return MethodSelection("DFCF", "fcf_normalized", trail, None)
-            # Falls through to step 4, same as the "NO" branch when CFO
-            # itself fails the quality check.
+                norm_ok, norm_detail = _fcf_positive_and_consistent(normalized, fcf_period_labels)
+                trail.append(
+                    MethodStep(
+                        "3b",
+                        f"FCF normalized with {CAPEX_NORMALIZATION_YEARS}yr avg CapEx now positive and consistent?",
+                        norm_ok,
+                        norm_detail,
+                    )
+                )
+                if norm_ok:
+                    return MethodSelection("DFCF", "fcf_normalized", trail, None)
+                # Falls through to step 4, same as the "NO" branch when CFO
+                # itself fails the quality check.
 
     # 4. Net income check.
     ni_ok, ni_detail = _positive_and_increasing(net_income_series)
@@ -307,6 +329,76 @@ def _discount_premium_pct(last_close: float | None, intrinsic_value_per_share: f
     if not last_close or not intrinsic_value_per_share:
         return None
     return last_close / intrinsic_value_per_share - 1
+
+
+# --- Additive, informational-only fields (never change verdict/score) ------
+# The framework's own buy signal for Bank/REIT P/B (never wired into
+# classify_valuation_verdict above, which keeps its existing mean+-10% read
+# unchanged) -- "price at/below -1 SD of historical average P/B". The -1SD
+# value itself already exists as pb_bands.minus_1sd (bands_from_mean_sd
+# computes all 5 unconditionally); this just names the comparison.
+def historical_pb_buy_signal(last_close: float | None, minus_1sd_iv_per_share: float | None) -> bool | None:
+    if last_close is None or minus_1sd_iv_per_share is None:
+        return None
+    return last_close <= minus_1sd_iv_per_share
+
+
+# Fixed sanity-range benchmarks from the framework, surfaced as context next
+# to the ticker-specific historical mean/SD bands -- never used to gate or
+# adjust the actual P/B calculation. REIT's upper bound is conditionally
+# 1.5 "given high double-digit DPU growth" per the framework -- that
+# condition is judged qualitatively by whoever reads the DPU growth note
+# alongside this, not automated into a second numeric threshold here.
+BANK_PB_BENCHMARK_LOW = 1.2
+BANK_PB_BENCHMARK_HIGH = 1.4
+REIT_PB_BENCHMARK_FAIR_MAX = 1.2
+REIT_PB_BENCHMARK_STRETCH_MAX = 1.5
+
+
+class PbBenchmark(NamedTuple):
+    low: float | None
+    high: float | None
+    note: str | None
+
+
+def pb_benchmark_for(company_type: str) -> PbBenchmark | None:
+    if company_type == "Bank":
+        return PbBenchmark(BANK_PB_BENCHMARK_LOW, BANK_PB_BENCHMARK_HIGH, None)
+    if company_type == "REIT/Property Developer":
+        return PbBenchmark(
+            None,
+            REIT_PB_BENCHMARK_FAIR_MAX,
+            f"Up to {REIT_PB_BENCHMARK_STRETCH_MAX} is acceptable given high double-digit DPU growth.",
+        )
+    return None
+
+
+# REIT Dividend/DPU Yield check -- >=4% per the framework. Sourced from
+# ratios_annual's dividendYield field, already fetched by step3_data.py for
+# the P/B lookback -- no new FMP call needed.
+REIT_DIVIDEND_YIELD_THRESHOLD_PCT = 4.0
+
+
+def dividend_yield_meets_reit_threshold(dividend_yield_pct: float | None) -> bool | None:
+    if dividend_yield_pct is None:
+        return None
+    return dividend_yield_pct >= REIT_DIVIDEND_YIELD_THRESHOLD_PCT
+
+
+def dpu_growth_note(dpu_per_share: list[float]) -> str | None:
+    """Simple last-vs-first read over the dividendPerShare annual series --
+    the same "last >= first" bar Step 4 uses for its own negative-equity Net
+    Income substitute (see scoring/step4.py::_net_income_consistent_and_
+    positive), not a full trend classifier, since the framework's own
+    language ("consistently growing or stable") is qualitative. None when
+    there's too little data to say anything."""
+    valid = [v for v in dpu_per_share if v is not None]
+    if len(valid) < 2:
+        return None
+    first, last = valid[0], valid[-1]
+    if last >= first:
+        return f"DPU/share grew from {first:.2f} to {last:.2f} over the reporting window."
+    return f"DPU/share declined from {first:.2f} to {last:.2f} over the reporting window."
 
 
 class TwentyYearEngineResult(NamedTuple):

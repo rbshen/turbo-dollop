@@ -509,6 +509,23 @@ export interface Step3Out {
   pb_bands: Step3PBBands | null;
   discount_premium_pct: number | null;
   verdict: "undervalued" | "overvalued" | "fair" | null;
+
+  // --- Additive, informational-only fields (never change verdict above) --
+  // The framework's own P/B buy signal ("price at/below -1SD of historical
+  // average P/B") -- set whenever pb_bands exist, not gated to company_type.
+  historical_pb_buy_signal: boolean | null;
+  // Fixed sanity-range benchmarks (Bank 1.2-1.4, REIT <=1.2/up to 1.5 with
+  // high DPU growth) -- context only, never used to gate or adjust
+  // intrinsic_value_per_share/verdict above. null for company types the
+  // framework gives no benchmark for.
+  benchmark_pb_low: number | null;
+  benchmark_pb_high: number | null;
+  benchmark_pb_note: string | null;
+  // REIT-only: Dividend/DPU Yield check (>=4%) and a simple growing/
+  // declining read on dividendPerShare. null for every other company type.
+  dividend_yield_pct: number | null;
+  dividend_yield_meets_reit_threshold: boolean | null;
+  dpu_growth_note: string | null;
 }
 
 // Manual Calculation's what-if request/response -- every request field is

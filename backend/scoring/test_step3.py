@@ -5,6 +5,10 @@ from scoring.step3 import (
     _positive_and_increasing,
     _revenue_growing_aggressively,
     bands_from_mean_sd,
+    dividend_yield_meets_reit_threshold,
+    dpu_growth_note,
+    historical_pb_buy_signal,
+    pb_benchmark_for,
     run_20yr_engine,
     run_price_to_book,
     select_method,
@@ -223,6 +227,83 @@ def test_select_method_bank_reit_uses_price_to_book():
     assert result.decision_trail[0].detail == "company_type=Bank"
 
 
+def test_select_method_insurance_skips_cfo_family_even_with_strong_cfo_data():
+    # PGR-shaped repro: even when CFO data would otherwise clearly qualify
+    # for DCF/DFCF (positive, increasing, > 1.5x NI, FCF positive and
+    # consistent), Insurance must never land on a CFO-based method --
+    # confirmed as a real regression via investigation (PGR landed on plain
+    # DCF before this fix, contradicting the framework's own rationale that
+    # insurer OCF is unreliable). Net Income here also increases every year,
+    # so this should land on DNI via step 4, having skipped 2/3/3a/3b
+    # entirely.
+    cfo = [100, 110, 121, 133, 146, 160]
+    ni = [50, 60, 70, 80, 90, 100]
+    fcf = [c * 0.7 for c in cfo]
+    capex = [-c * 0.3 for c in cfo]
+    result = select_method(
+        company_type="Insurance",
+        cfo_series=cfo,
+        cfo_ttm=160,
+        net_income_series=ni,
+        net_income_ttm=100,
+        fcf_series=fcf,
+        capex_series=capex,
+        revenue_series=[500, 520, 540, 560, 580, 600],
+    )
+    assert result.method == "DNI"
+    assert result.current_value_source == "net_income_ttm"
+    steps_by_id = {s.step: s for s in result.decision_trail}
+    assert "2" not in steps_by_id
+    assert "3" not in steps_by_id
+    assert "3a" not in steps_by_id
+    assert "3b" not in steps_by_id
+    assert steps_by_id["1a"].passed is True
+    assert steps_by_id["4"].passed is True
+
+
+def test_select_method_insurance_falls_back_to_dni_normalized_when_ni_inconsistent():
+    # MET-shaped: choppy Net Income (not a clean uptrend) but profitable now
+    # and smoothed-positive -- lands on DNI_NORMALIZED via the same 4/4a/4a-1
+    # fallback Standard companies use, having still skipped the CFO family.
+    choppy_ni = [50, -10, 40, -5, 45, 30]
+    result = select_method(
+        company_type="Insurance",
+        cfo_series=[100, 110, 90, 105, 95, 98],
+        cfo_ttm=98,
+        net_income_series=choppy_ni,
+        net_income_ttm=30,
+        fcf_series=None,
+        capex_series=None,
+        revenue_series=[100, 110, 90, 105, 95, 98],
+    )
+    assert result.method == "DNI_NORMALIZED"
+    assert result.current_value_source == "net_income_smoothed"
+    steps_by_id = {s.step: s for s in result.decision_trail}
+    assert "2" not in steps_by_id
+
+
+def test_select_method_insurance_can_still_fall_through_to_psg_or_pass():
+    # An unprofitable insurer with genuinely weak Net Income still degrades
+    # gracefully to PSG (if revenue is growing aggressively) or PASS --
+    # Insurance is never forced onto a fabricated DNI value regardless of
+    # data quality, same discipline the rest of this app already applies to
+    # data gaps.
+    result = select_method(
+        company_type="Insurance",
+        cfo_series=None,
+        cfo_ttm=None,
+        net_income_series=[-500, -400, -300, -200, -100, -50],
+        net_income_ttm=-50,
+        fcf_series=None,
+        capex_series=None,
+        revenue_series=[100, 100, 100, 100, 100, 100],
+    )
+    assert result.method == "PASS"
+    steps_by_id = {s.step: s for s in result.decision_trail}
+    assert "2" not in steps_by_id
+    assert steps_by_id["1a"].passed is True
+
+
 def test_select_method_dcf_when_cfo_not_1_5x_net_income():
     # Step 2 YES, step 3 NO -- CFO qualifies but isn't > 1.5x Net Income.
     cfo = [100, 110, 121, 133, 146, 160]
@@ -381,3 +462,62 @@ def test_select_method_psg_when_unprofitable_but_revenue_growing_aggressively():
     step5 = next(s for s in result.decision_trail if s.step == "5")
     assert step5.passed is True
     assert "214.8%" in step5.detail
+
+
+# --- Additive informational fields (never affect verdict/score) ----------
+
+
+def test_historical_pb_buy_signal_true_at_or_below_minus_1sd():
+    assert historical_pb_buy_signal(last_close=90.0, minus_1sd_iv_per_share=100.0) is True
+    assert historical_pb_buy_signal(last_close=100.0, minus_1sd_iv_per_share=100.0) is True
+
+
+def test_historical_pb_buy_signal_false_above_minus_1sd():
+    assert historical_pb_buy_signal(last_close=110.0, minus_1sd_iv_per_share=100.0) is False
+
+
+def test_historical_pb_buy_signal_none_when_data_missing():
+    assert historical_pb_buy_signal(None, 100.0) is None
+    assert historical_pb_buy_signal(100.0, None) is None
+
+
+def test_pb_benchmark_for_bank():
+    b = pb_benchmark_for("Bank")
+    assert b.low == 1.2
+    assert b.high == 1.4
+    assert b.note is None
+
+
+def test_pb_benchmark_for_reit_has_conditional_stretch_note():
+    b = pb_benchmark_for("REIT/Property Developer")
+    assert b.low is None
+    assert b.high == 1.2
+    assert "1.5" in b.note
+
+
+def test_pb_benchmark_for_other_types_is_none():
+    assert pb_benchmark_for("Standard") is None
+    assert pb_benchmark_for("Insurance") is None
+
+
+def test_dividend_yield_meets_reit_threshold():
+    assert dividend_yield_meets_reit_threshold(4.0) is True
+    assert dividend_yield_meets_reit_threshold(5.5) is True
+    assert dividend_yield_meets_reit_threshold(3.9) is False
+    assert dividend_yield_meets_reit_threshold(None) is None
+
+
+def test_dpu_growth_note_growing():
+    note = dpu_growth_note([1.0, 1.1, 1.2, 1.3])
+    assert "grew from 1.00 to 1.30" in note
+
+
+def test_dpu_growth_note_declining():
+    note = dpu_growth_note([1.3, 1.2, 1.1, 1.0])
+    assert "declined from 1.30 to 1.00" in note
+
+
+def test_dpu_growth_note_none_when_insufficient_data():
+    assert dpu_growth_note([]) is None
+    assert dpu_growth_note([1.0]) is None
+    assert dpu_growth_note([None, None]) is None

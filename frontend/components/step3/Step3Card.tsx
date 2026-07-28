@@ -5,7 +5,7 @@ import { ValuationGauge } from "@/components/step3/ValuationGauge";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { useStep3 } from "@/lib/hooks/useStep3";
 import { fmtMoney, fmtNumber, fmtPct } from "@/lib/format";
-import type { Step3PBBands } from "@/lib/api/types";
+import type { Step3Out, Step3PBBands } from "@/lib/api/types";
 
 interface Props {
   ticker: string;
@@ -123,6 +123,51 @@ export function PBBandsTable({ bands, lastClose }: { bands: Step3PBBands; lastCl
         )}
       </tbody>
     </table>
+  );
+}
+
+// Additive, informational-only context alongside the ticker-specific P/B
+// bands above -- never changes intrinsic_value_per_share/discount_premium_pct/
+// verdict, which keep their existing mean+-10% logic untouched. Framework
+// context: the -1SD buy signal, the fixed sanity-range benchmark (Bank
+// 1.2-1.4, REIT <=1.2/up to 1.5 with high DPU growth), and REIT's
+// Dividend/DPU Yield + DPU-growth notes.
+export function ValuationContextNotes({ data }: { data: Step3Out }) {
+  const hasBenchmark = data.benchmark_pb_low != null || data.benchmark_pb_high != null;
+  const hasDividendInfo = data.dividend_yield_pct != null || data.dpu_growth_note != null;
+
+  if (data.historical_pb_buy_signal == null && !hasBenchmark && !hasDividendInfo) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-1.5 text-xs text-zinc-500">
+      {data.historical_pb_buy_signal != null && (
+        <p>
+          Historical P/B buy signal (price at/below −1 SD):{" "}
+          <span className={data.historical_pb_buy_signal ? "text-emerald-400" : "text-zinc-400"}>
+            {data.historical_pb_buy_signal ? "Yes" : "No"}
+          </span>
+        </p>
+      )}
+      {hasBenchmark && (
+        <p>
+          Benchmark P/B range: {data.benchmark_pb_low != null ? fmtNumber(data.benchmark_pb_low) : "—"}
+          {" – "}
+          {data.benchmark_pb_high != null ? fmtNumber(data.benchmark_pb_high) : "—"}
+          {data.benchmark_pb_note && <> ({data.benchmark_pb_note})</>}
+        </p>
+      )}
+      {data.dividend_yield_pct != null && (
+        <p>
+          Dividend Yield: {fmtPct(data.dividend_yield_pct, 1)}
+          {data.dividend_yield_meets_reit_threshold != null && (
+            <> ({data.dividend_yield_meets_reit_threshold ? "meets" : "below"} the 4% REIT threshold)</>
+          )}
+        </p>
+      )}
+      {data.dpu_growth_note && <p>{data.dpu_growth_note}</p>}
+    </div>
   );
 }
 
@@ -256,6 +301,8 @@ export function Step3Card({ ticker }: Props) {
               </Table>
 
               {isPB && data.pb_bands && <PBBandsTable bands={data.pb_bands} lastClose={data.inputs.last_close} />}
+
+              {isPB && <ValuationContextNotes data={data} />}
 
               {isTwentyYearMethod && data.inputs.capm?.beta_outside_reference_range && (
                 <p className="text-xs text-amber-400">† Beta is below 0.8, outside the workbook&apos;s manual reference table range — CAPM is still applied directly.</p>

@@ -411,6 +411,27 @@ class Step3Out(BaseModel):
     # "undervalued" / "fair" / "overvalued" -- None until Phase 2.
     verdict: str | None = None
 
+    # --- Additive, informational-only fields (never change verdict above) --
+    # The framework's own P/B buy signal for Bank/REIT ("price at/below -1SD
+    # of historical average P/B") -- set whenever pb_bands/pb_result exist,
+    # not gated to company_type, mirroring pb_mean_ratio/pb_sd_ratio's own
+    # unconditional computation.
+    historical_pb_buy_signal: bool | None = None
+    # Fixed sanity-range benchmarks from the framework (Bank 1.2-1.4, REIT
+    # <=1.2/up to 1.5 with high DPU growth) -- context only, never used to
+    # gate or adjust intrinsic_value_per_share/verdict above. None for
+    # company types the framework gives no benchmark for.
+    benchmark_pb_low: float | None = None
+    benchmark_pb_high: float | None = None
+    benchmark_pb_note: str | None = None
+    # REIT-only: Dividend/DPU Yield check (>=4%) and a simple growing/
+    # declining read on dividendPerShare, both sourced from the same
+    # ratios_annual data already fetched for the P/B lookback -- no new FMP
+    # call. None for every other company type.
+    dividend_yield_pct: float | None = None
+    dividend_yield_meets_reit_threshold: bool | None = None
+    dpu_growth_note: str | None = None
+
 
 class Step3ManualRequest(BaseModel):
     """Manual Calculation's what-if request -- every field is optional since

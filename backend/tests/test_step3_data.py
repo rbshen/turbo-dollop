@@ -1,6 +1,7 @@
 import asyncio
 
 import httpx
+import pytest
 from sqlmodel import SQLModel, create_engine
 
 import step3_data
@@ -155,3 +156,136 @@ def test_pass_with_real_data_is_not_flagged_as_insufficient(monkeypatch):
     assert steps_by_id["2"].passed is False
     assert steps_by_id["4"].passed is False
     assert steps_by_id["5"].passed is False
+
+
+def test_insurance_never_lands_on_cfo_based_method_end_to_end(monkeypatch):
+    # PGR-shaped repro: strong, consistently-increasing CFO that would
+    # otherwise qualify for DCF/DFCF -- Insurance must still skip straight
+    # to the Net Income check and land on a DNI-family method.
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_profile(ticker):
+        return [{"sector": "Financial Services", "industry": "Insurance - Property & Casualty", "beta": 0.9}]
+
+    async def fake_income_statement(ticker, period, limit):
+        if period == "annual":
+            return [
+                {"fiscalYear": "2025", "revenue": 300, "netIncome": 50},
+                {"fiscalYear": "2024", "revenue": 280, "netIncome": 40},
+                {"fiscalYear": "2023", "revenue": 260, "netIncome": 30},
+                {"fiscalYear": "2022", "revenue": 240, "netIncome": 20},
+                {"fiscalYear": "2021", "revenue": 220, "netIncome": 10},
+            ]
+        return [{"date": "2026-03-31", "revenue": 80, "netIncome": 15} for _ in range(4)]
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        if period == "annual":
+            return [
+                {"fiscalYear": "2025", "netCashProvidedByOperatingActivities": 100, "capitalExpenditure": -5},
+                {"fiscalYear": "2024", "netCashProvidedByOperatingActivities": 90, "capitalExpenditure": -5},
+                {"fiscalYear": "2023", "netCashProvidedByOperatingActivities": 80, "capitalExpenditure": -5},
+                {"fiscalYear": "2022", "netCashProvidedByOperatingActivities": 70, "capitalExpenditure": -5},
+                {"fiscalYear": "2021", "netCashProvidedByOperatingActivities": 60, "capitalExpenditure": -5},
+            ]
+        return [{"netCashProvidedByOperatingActivities": 25, "capitalExpenditure": -1.25} for _ in range(4)]
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step3_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step3_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+    result = asyncio.run(get_step3_data("pgr"))
+
+    assert result.company_type == "Insurance"
+    assert result.selected_method in ("DNI", "DNI_NORMALIZED", "PSG", "PASS")
+    steps_by_id = {s.step: s for s in result.method_reasoning}
+    assert "2" not in steps_by_id
+    assert "3" not in steps_by_id
+    assert steps_by_id["1a"].passed is True
+
+
+def test_reit_gets_dividend_dpu_fields_and_pb_benchmark(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_profile(ticker):
+        return [{"sector": "Real Estate", "industry": "REIT - Retail", "beta": 1.0}]
+
+    async def fake_ratios(ticker, period, limit):
+        return [
+            {
+                "fiscalYear": str(2025 - i),
+                "priceToBookRatio": 1.3 + i * 0.02,
+                "bookValuePerShare": 50.0,
+                "revenuePerShare": 10.0,
+                "dividendYield": 0.045,
+                "dividendPerShare": 2.0 + (9 - i) * 0.1,
+            }
+            for i in range(10)
+        ]
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step3_data.fmp_client, "get_ratios", fake_ratios)
+
+    result = asyncio.run(get_step3_data("o"))
+
+    assert result.company_type == "REIT/Property Developer"
+    assert result.selected_method == "PRICE_TO_BOOK"
+    # dividendYield 0.045 -> 4.5%, above the 4% REIT threshold.
+    assert result.dividend_yield_pct == pytest.approx(4.5)
+    assert result.dividend_yield_meets_reit_threshold is True
+    assert result.dpu_growth_note is not None
+    assert "grew" in result.dpu_growth_note
+    # REIT benchmark: no fixed low, 1.2 fair-value ceiling, conditional note.
+    assert result.benchmark_pb_low is None
+    assert result.benchmark_pb_high == 1.2
+    assert "1.5" in result.benchmark_pb_note
+
+
+def test_bank_gets_pb_benchmark_and_buy_signal(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_profile(ticker):
+        return [{"sector": "Financial Services", "industry": "Banks - Diversified", "beta": 1.1}]
+
+    async def fake_quote(ticker):
+        # Deliberately below the -1SD band computed from the ratios below
+        # (mean 1.0, sd ~0 given flat 1.0 history -> -1SD == 1.0 * 50 == 50) --
+        # picking a price well under that to trip the buy signal.
+        return [{"price": 10.0, "marketCap": 10_000_000_000}]
+
+    async def fake_ratios(ticker, period, limit):
+        return [{"fiscalYear": str(2025 - i), "priceToBookRatio": 1.0, "bookValuePerShare": 50.0} for i in range(10)]
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step3_data.fmp_client, "get_quote", fake_quote)
+    monkeypatch.setattr(step3_data.fmp_client, "get_ratios", fake_ratios)
+
+    result = asyncio.run(get_step3_data("jpm"))
+
+    assert result.company_type == "Bank"
+    assert result.selected_method == "PRICE_TO_BOOK"
+    assert result.benchmark_pb_low == 1.2
+    assert result.benchmark_pb_high == 1.4
+    assert result.benchmark_pb_note is None
+    # Bank isn't REIT -- no dividend/DPU fields.
+    assert result.dividend_yield_pct is None
+    assert result.dividend_yield_meets_reit_threshold is None
+    assert result.dpu_growth_note is None
+    # Flat P/B history -> sd=0 -> minus_1sd == mean == 50.0; price 10.0 is
+    # well below that, so the buy signal should read True.
+    assert result.historical_pb_buy_signal is True
+
+
+def test_standard_company_has_no_benchmark_or_dividend_fields(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    result = asyncio.run(get_step3_data("TEST"))
+
+    assert result.company_type == "Standard"
+    assert result.benchmark_pb_low is None
+    assert result.benchmark_pb_high is None
+    assert result.dividend_yield_pct is None
+    assert result.dpu_growth_note is None
