@@ -1,5 +1,6 @@
 import asyncio
 
+import httpx
 from sqlmodel import SQLModel, create_engine
 
 import step1_data
@@ -45,6 +46,13 @@ def _patch_fmp(monkeypatch, call_count, sector="Technology", industry="Consumer 
     monkeypatch.setattr(step1_data.fmp_client, "get_profile", fake_profile)
     monkeypatch.setattr(step1_data.fmp_client, "get_income_statement", fake_income_statement)
     monkeypatch.setattr(step1_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+
+def _fresh_engine(monkeypatch):
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(step1_data, "engine", test_engine)
+    return test_engine
 
 
 def test_get_step1_data_builds_series_and_ttm_and_caches(monkeypatch):
@@ -119,3 +127,81 @@ def test_bank_is_cfo_exempt(monkeypatch):
     # Margins must stay tied to real Revenue, not NII -- gross margin here
     # should read against the 200/250/300/320 revenue series, not NII.
     assert result.gross_margin[0] == 50.0  # grossProfit 100 / revenue 200 * 100
+
+
+def test_insufficient_data_when_cash_flow_fetch_fails(monkeypatch):
+    # Mirrors the confirmed Step 1 repro: a genuine FMP fetch failure on ONE
+    # of Step 1's 5 independently-isolated safe_fetch calls (cash flow) must
+    # not fabricate a scored Fail out of an otherwise-strong ticker -- Revenue/
+    # Net Income/Margins here are all real and strong (grows_every_year /
+    # stable_or_expanding); only CFO/FCF read as insufficient_data. Same
+    # insufficient_data convention as Step 2's fix (see CLAUDE.md).
+    _fresh_engine(monkeypatch)
+
+    async def fake_profile(ticker):
+        return [{"sector": "Technology", "industry": "Consumer Electronics"}]
+
+    async def fake_income_statement(ticker, period, limit):
+        return INCOME_ANNUAL if period == "annual" else INCOME_QUARTERLY
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        raise httpx.ConnectError("boom")
+
+    monkeypatch.setattr(step1_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step1_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step1_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+    result = asyncio.run(get_step1_data("TEST"))
+
+    assert result.score is None
+    assert result.verdict == "insufficient_data"
+    assert result.components == {}
+
+
+def test_insufficient_data_when_total_fetch_failure(monkeypatch):
+    # Every underlying fetch failing (profile + income statement + cash
+    # flow) must collapse to the same insufficient_data state as the
+    # single-endpoint failure above, not a maximally-negative fabricated
+    # Fail.
+    _fresh_engine(monkeypatch)
+
+    async def raise_error(*args, **kwargs):
+        raise httpx.ConnectError("boom")
+
+    monkeypatch.setattr(step1_data.fmp_client, "get_profile", raise_error)
+    monkeypatch.setattr(step1_data.fmp_client, "get_income_statement", raise_error)
+    monkeypatch.setattr(step1_data.fmp_client, "get_cash_flow_statement", raise_error)
+
+    result = asyncio.run(get_step1_data("TEST"))
+
+    assert result.score is None
+    assert result.verdict == "insufficient_data"
+    assert result.components == {}
+
+
+def test_insufficient_data_when_genuinely_thin_cash_flow_history(monkeypatch):
+    # Not a fetch failure -- FMP responds successfully but with zero annual
+    # cash-flow filings (a real data gap for this ticker, e.g. a data
+    # provider coverage gap). Must land on the same insufficient_data state
+    # as an actual fetch failure above, not a scored Fail -- the two are
+    # deliberately indistinguishable downstream (see CLAUDE.md's Step 1/
+    # Step 2 deviations).
+    _fresh_engine(monkeypatch)
+
+    async def fake_profile(ticker):
+        return [{"sector": "Technology", "industry": "Consumer Electronics"}]
+
+    async def fake_income_statement(ticker, period, limit):
+        return INCOME_ANNUAL if period == "annual" else INCOME_QUARTERLY
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return [] if period == "annual" else CASH_FLOW_QUARTERLY
+
+    monkeypatch.setattr(step1_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step1_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step1_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+    result = asyncio.run(get_step1_data("TEST"))
+
+    assert result.score is None
+    assert result.verdict == "insufficient_data"

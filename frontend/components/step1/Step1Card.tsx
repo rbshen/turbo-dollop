@@ -79,6 +79,17 @@ export function Step1Card({ ticker }: Props) {
     );
   }
 
+  if (data.verdict === "insufficient_data" || data.score == null) {
+    return (
+      <div className="space-y-4 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
+        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">
+          Financials
+        </h2>
+        <p className="text-sm text-zinc-500">Required figures were unavailable for {ticker}.</p>
+      </div>
+    );
+  }
+
   const componentRows = METRIC_ORDER.map((key) => {
     const component = data.components[key as keyof typeof data.components];
     if (!component) return null;

@@ -305,14 +305,24 @@ def score_step1(
     still read against real revenue growth. Defaults to `revenue` itself,
     unchanged behavior for every other company type."""
     revenue_result = classify_trend(revenue)
-    net_income_result = classify_trend(net_income)
+    net_income_raw = classify_trend(net_income)
 
+    net_income_result = net_income_raw
     net_income_backup_used = False
-    if net_income_result.score <= NET_INCOME_BACKUP_THRESHOLD:
+    oi_result = None
+    if net_income_raw.score <= NET_INCOME_BACKUP_THRESHOLD:
         oi_result = classify_trend(operating_income)
-        backup_score = min(NET_INCOME_BACKUP_CAP, max(net_income_result.score, oi_result.score))
-        net_income_backup_used = backup_score != net_income_result.score
-        net_income_result = TrendResult(net_income_result.pattern, backup_score)
+        backup_score = min(NET_INCOME_BACKUP_CAP, max(net_income_raw.score, oi_result.score))
+        net_income_backup_used = backup_score != net_income_raw.score
+        net_income_result = TrendResult(net_income_raw.pattern, backup_score)
+
+    # Net Income only reads as a genuine data gap if BOTH it and its own
+    # Operating-Income backup came up short -- if OI has real data, the
+    # backup mechanism above already produced a legitimate (if low) score,
+    # not a fabricated one.
+    net_income_insufficient = net_income_raw.pattern == "insufficient_data" and (
+        oi_result is None or oi_result.pattern == "insufficient_data"
+    )
 
     growth_reference = margin_context_revenue if margin_context_revenue is not None else revenue
     revenue_growing = growth_reference[-1] > growth_reference[0] if len(growth_reference) >= 2 else False
@@ -326,6 +336,33 @@ def score_step1(
         cfo_result = classify_trend(cfo)
         fcf_result = _classify_fcf(fcf) if fcf is not None else None
         weights = WEIGHTS_STANDARD
+
+    # A fetch failure (cache.py::safe_fetch swallows httpx.HTTPError to {})
+    # and a genuinely too-thin real response both collapse to the same
+    # classify_trend/_classify_fcf "insufficient_data" pattern -- previously
+    # that pattern's score of 0 was folded into the weighted sum below like
+    # any other real (if bad) result, fabricating a scored Fail out of a
+    # data gap (mirrors the bug already fixed in Step 2 -- see CLAUDE.md).
+    # cfo/fcf are only "required" when not cfo-exempt; an exemption is not
+    # a gap. fcf_result being None (not cfo-exempt, but no fcf series
+    # supplied at all) is a distinct, pre-existing "FCF isn't being scored"
+    # convention -- step1_data.py's real caller never actually passes
+    # fcf=None unless cfo_exempt is also True, so this branch only exists
+    # for direct scoring-function callers (tests) that omit the optional
+    # fcf param; it isn't a reachable fetch-failure/data-gap shape and
+    # shouldn't gate the whole step.
+    cfo_fcf_applicable = not (cfo_exempt or cfo is None)
+    cfo_insufficient = cfo_fcf_applicable and cfo_result.pattern == "insufficient_data"
+    fcf_insufficient = cfo_fcf_applicable and fcf_result is not None and fcf_result.pattern == "insufficient_data"
+
+    if (
+        revenue_result.pattern == "insufficient_data"
+        or net_income_insufficient
+        or margin_result.pattern == "insufficient_data"
+        or cfo_insufficient
+        or fcf_insufficient
+    ):
+        return {"score": None, "verdict": "insufficient_data", "components": {}, "weights": weights}
 
     weighted_sum = (
         revenue_result.score * weights["revenue"]

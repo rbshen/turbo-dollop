@@ -128,7 +128,9 @@ export interface Step1Out {
   cfo_exempt_reason: string | null;
   net_income_one_off: boolean;
   cfo_one_off: boolean;
-  score: number;
+  // null when required raw data is missing (verdict is "insufficient_data"
+  // then) -- never a fabricated number.
+  score: number | null;
   verdict: string;
   components: Step1Components;
   // Weight each component contributed to `score` -- keyed the same as

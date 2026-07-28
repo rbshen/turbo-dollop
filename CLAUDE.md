@@ -99,6 +99,23 @@ at each deviation point. Current deviations:
   2-point absolute dip threshold isn't scaled to a company's margin level,
   so naturally low-margin businesses (e.g. MCK, ~1-5% margins) can trip it
   on ordinary noise. Both deferred pending a follow-up investigation.
+- **`score_step1` returns `score: None, verdict: "insufficient_data"`**
+  (Step2Out/Step4Out/Step5Out's own convention) when any of Revenue/Net
+  Income/CFO/Margins/FCF has too few real data points to classify — rather
+  than folding `classify_trend`'s/`_classify_fcf`'s "insufficient_data"
+  pattern (score `0`) into the weighted sum like any other real result. A
+  prior version of this code did exactly that, fabricating a scored Fail
+  out of a data gap: confirmed via repro that a single failed FMP fetch
+  (e.g. `cash_flow_statement`) on an otherwise-strong ticker dragged the
+  score down to 65/"Fail" purely because CFO/FCF read as `insufficient_data,
+  0` rather than being excluded. This is the same class of bug already fixed
+  in Step 2 (`cache.py::safe_fetch` swallows `httpx.HTTPError` to `{}`,
+  indistinguishable downstream from a genuinely-thin real response) — CFO-
+  exempt companies (Bank/Property Developer/Commodity) are unaffected, since
+  cfo/fcf simply aren't required for them. Net Income's own Operating-Income
+  backup is unaffected too: NI only counts as a genuine gap if OI's
+  `classify_trend` also reads `insufficient_data` — if OI has real data, the
+  existing backup mechanism already produces a legitimate score.
 
 Step 2's source doc (`step2_positive_growth_rate_assessment_prompt.md`)
 calls for 3-4 independent platforms (GuruFocus, Finviz, Zacks, etc.) with

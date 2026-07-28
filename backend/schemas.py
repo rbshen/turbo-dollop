@@ -143,9 +143,13 @@ class Step1Out(BaseModel):
     # scope for this phase (per spec).
     net_income_one_off: bool = False
     cfo_one_off: bool = False
-    score: int
+    # None when required raw data is missing -- never a fabricated number
+    # (same convention as Step2Out/Step4Out/Step5Out).
+    score: int | None = None
+    # "Fail" / "Pass" / "Strong Pass" for scored tickers; "insufficient_data"
+    # when required figures are missing.
     verdict: str
-    components: dict
+    components: dict = {}
     # Weight each component contributed to `score` -- WEIGHTS_STANDARD or
     # WEIGHTS_CFO_EXEMPT from scoring/step1.py, keyed the same as `components`.
     weights: dict[str, float]
