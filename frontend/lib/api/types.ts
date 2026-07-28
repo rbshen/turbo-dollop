@@ -143,10 +143,12 @@ export interface Step2EstimateRow {
   growth_low: number;
 }
 
+// Only meaningful when Step2Out.score is non-null -- Step2Card early-
+// returns before ever reading these fields in the insufficient_data case
+// (components is {} then), same convention as Step4Components.
 export interface Step2Components {
   magnitude: { score: number; tier?: string; growth_rate?: number };
   agreement: { score: number; tier?: string; spread?: number };
-  insufficient_data?: boolean;
 }
 
 export interface Step2Out {
@@ -165,7 +167,11 @@ export interface Step2Out {
   // built on; doesn't affect the score.
   target_analyst_count: number | null;
   growth_catalysts: string | null;
-  score: number;
+  // null when no usable growth projection exists in either basis (verdict
+  // is "insufficient_data" then) -- never a fabricated number.
+  score: number | null;
+  // "Fail" / "Pass" / "Strong Pass" for scored tickers; "insufficient_data"
+  // when neither EPS nor Revenue yields a usable CAGR.
   verdict: string;
   components: Step2Components;
   // Weight each component contributed to `score` -- keyed the same as

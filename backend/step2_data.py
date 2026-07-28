@@ -132,22 +132,22 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
         basis = "revenue"
 
     if projection is None:
-        # No real growth rate to score -- explicitly Fail rather than
-        # feeding a fabricated 0.0 growth rate through score_step2, which
-        # would now read as non-negative and pass under the magnitude-gated
-        # verdict logic below.
+        # No real growth rate to score -- neither EPS nor Revenue yielded a
+        # usable CAGR (too few/no future analyst estimate rows, which also
+        # covers a failed FMP fetch: safe_fetch swallows the exception to
+        # `{}`, indistinguishable downstream from a genuinely-thin response).
+        # This is a data gap, not evidence of poor growth -- score=None/
+        # verdict="insufficient_data" (Step4Out/Step5Out's own convention)
+        # rather than a fabricated scored Fail, which previously collapsed
+        # "we have no data" and "this company is failing" into the same
+        # verdict feeding Overall Assessment and the Screener.
         return Step2Out(
             ticker=ticker,
             basis=None,
             estimates=[],
             growth_catalysts=growth_catalysts,
-            score=0,
-            verdict="Fail",
-            components={
-                "magnitude": {"score": 0},
-                "agreement": {"score": 0},
-                "insufficient_data": True,
-            },
+            score=None,
+            verdict="insufficient_data",
             weights=WEIGHTS,
         )
 

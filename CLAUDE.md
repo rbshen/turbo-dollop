@@ -144,6 +144,23 @@ avg/high/low per forward fiscal year:
   manually-curated free-text field (`models.py::GrowthCatalystNote`), not
   factored into the score — same scoping as Step 1's manually-flagged
   one-off booleans. No edit UI exists yet; it's backend-settable only.
+- **When neither EPS nor Revenue yields a usable CAGR** (too few/no future
+  analyst estimate rows — including the case where `cache.py::safe_fetch`
+  swallowed a genuine FMP fetch failure to `{}`, indistinguishable
+  downstream from a real empty response), Step 2 returns `score: None,
+  verdict: "insufficient_data"` — Step4Out/Step5Out's own convention —
+  rather than a fabricated `score: 0, verdict: "Fail"`. A prior version of
+  this code scored these identically to a genuinely weak/negative growth
+  projection, which fed a false Fail into Overall Assessment's 22%-weighted
+  blend and the Screener with no way to distinguish "no data" from "bad
+  growth". `scoring/overall.py`'s `_status_for` already treated any
+  null-score/non-`"not_supported"` step as `"incomplete"` (excluded from
+  the blend, whole Overall Assessment marked incomplete rather than
+  computed) — this was Step 4/5's existing behavior; Step 2 just never
+  adopted it. Confirmed via cache-only inspection of the live universe that
+  this only changes tickers with a genuinely empty/too-thin cached
+  `analyst_estimates` response (e.g. ECHO, HONA, L) — every other ticker's
+  score/verdict is unaffected.
 
 Step 5's source doc (`step5_conservative_debt_assessment_prompt.md`) calls
 for a CET1 ratio check for Banks. An investigation confirmed FMP has no

@@ -1,6 +1,7 @@
 import asyncio
 from datetime import date, datetime
 
+import httpx
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
@@ -154,6 +155,49 @@ def test_insufficient_data_when_fewer_than_two_future_rows(monkeypatch):
 
     result = asyncio.run(get_step2_data("TEST"))
 
+    # A data gap, not a scored Fail -- score=None/verdict="insufficient_data"
+    # (Step4Out/Step5Out's own convention), not a fabricated 0/100 number
+    # that would silently drag down Overall Assessment's 22%-weighted blend.
     assert result.basis is None
-    assert result.components["insufficient_data"] is True
-    assert 0 <= result.score <= 100
+    assert result.score is None
+    assert result.verdict == "insufficient_data"
+    assert result.components == {}
+
+
+def test_insufficient_data_when_no_estimates_at_all(monkeypatch):
+    # Mirrors ECHO/HONA's real cached shape: FMP responds successfully but
+    # with zero analyst estimate rows -- not a fetch failure, just no
+    # coverage. Must land on the same insufficient_data state as the
+    # too-few-rows case above, not a scored Fail.
+    _fresh_engine(monkeypatch)
+    _patch_estimates(monkeypatch, [])
+
+    result = asyncio.run(get_step2_data("TEST"))
+
+    assert result.basis is None
+    assert result.score is None
+    assert result.verdict == "insufficient_data"
+    assert result.growth_rate is None
+    assert result.components == {}
+
+
+def test_insufficient_data_when_fetch_fails(monkeypatch):
+    # A genuine FMP fetch failure (cache.py::safe_fetch catches
+    # httpx.HTTPError and returns {}) must collapse to the same
+    # insufficient_data state as a genuinely-thin real response -- not a
+    # scored Fail. The two are indistinguishable by the time _project sees
+    # them (see CLAUDE.md's Step 2 deviations); this test confirms the
+    # *outcome* is still correct even though the specific cause can't be
+    # recovered downstream.
+    _fresh_engine(monkeypatch)
+
+    async def fake_get_analyst_estimates(ticker):
+        raise httpx.ConnectError("boom")
+
+    monkeypatch.setattr(step2_data.fmp_client, "get_analyst_estimates", fake_get_analyst_estimates)
+
+    result = asyncio.run(get_step2_data("TEST"))
+
+    assert result.basis is None
+    assert result.score is None
+    assert result.verdict == "insufficient_data"

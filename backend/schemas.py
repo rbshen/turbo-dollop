@@ -178,9 +178,13 @@ class Step2Out(BaseModel):
     # Manually-curated free text; not factored into the score (see
     # CLAUDE.md). Null when nothing has been recorded yet.
     growth_catalysts: str | None = None
-    score: int
+    # None when no usable growth projection exists in either basis -- never
+    # a fabricated number (same convention as Step4Out/Step5Out).
+    score: int | None = None
+    # "Fail" / "Pass" / "Strong Pass" for scored tickers; "insufficient_data"
+    # when neither EPS nor Revenue yields a usable CAGR.
     verdict: str
-    components: dict
+    components: dict = {}
     # Weight each component contributed to `score` -- MAGNITUDE_WEIGHT /
     # AGREEMENT_WEIGHT from scoring/step2.py, keyed the same as `components`.
     weights: dict[str, float]
