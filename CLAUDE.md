@@ -355,6 +355,77 @@ thresholds — deviations from a strict reading of the doc:
   subsumed by "majority" at every window size — a pre-existing property of
   the original design, not an artifact of this rescaling.
 
+## Company classification: non-lender ticker overrides
+
+`classify_company_type` (`backend/scoring/classification.py`) broadens its
+Bank branch beyond the literal "bank" substring to also catch brokers
+("Financial - Capital Markets"), asset managers ("Asset Management"), and
+credit-card/credit issuers ("Financial - Credit Services"). **Sector/
+industry text alone cannot reliably distinguish a genuine lender from a
+non-lender within these categories** — companies with the *identical*
+industry string can have completely different balance-sheet economics
+(a payment network vs. a card issuer; a pure asset manager vs. one with a
+captive bank subsidiary). Confirmed live via FMP profile + income-statement
+data: BLK and AMP both report "Asset Management"; V and AXP both report
+"Financial - Credit Services." Only a ticker-level check of actual
+netInterestIncome-as-%-of-revenue — not the sector/industry text — can tell
+these apart, so `NON_LENDER_TICKER_OVERRIDES` exists to carve the confirmed
+non-lenders back out to `"Standard"`. This was verified once, by hand,
+against real data for each ticker below — it is not derived from any rule.
+
+Applying Bank's treatment (Step 1's CFO/FCF de-emphasis in favor of Net
+Interest Income, Step 4's ROIC exemption, Valuation's forced Price-to-Book
+method) to a genuine non-lender produces nonsensical output — confirmed
+regression: V/MA/BLK's Step 1 scores dropped 30-50+ points purely from a
+near-zero/negative NII series standing in for real revenue, not from the
+intended CFO-de-emphasis effect.
+
+NII/revenue % below is each ticker's most recent annual FMP figure at the
+time of the 2026-07-28 investigation (`netInterestIncome / revenue`,
+cached in `backend/fathom.db`'s `fundamentalscache` table) — it will drift
+year to year and isn't re-verified automatically.
+
+**Excluded from Bank → classified `"Standard"`:**
+
+| Ticker | NII/revenue | Business model |
+|---|---|---|
+| V | -1.5% | Payment network (Visa) — no cardmember lending, small net interest *expense* |
+| MA | -2.2% | Payment network (Mastercard) — no cardmember lending |
+| PYPL | +0.2% | Payment processor/digital wallet — positive NII is float/interest on customer balances, not a loan book |
+| GPN | -6.4% | Payment processor/merchant acquirer (Global Payments) — no lending |
+| APO | -0.8% | Alternative asset manager/PE (Apollo) — no banking subsidiary |
+| ARES | -1.5% | Alternative asset manager (Ares Management) — no banking subsidiary |
+| BEN | -1.1% | Traditional asset manager (Franklin Resources/Templeton) — no banking subsidiary |
+| BLK | -0.09% | Asset manager (BlackRock), the largest in the world — no banking subsidiary |
+| BX | -0.7% | PE/alternative asset manager (Blackstone) — no banking subsidiary |
+| IVZ | -0.5% | Asset manager (Invesco) — no banking subsidiary |
+| KKR | +0.6% | PE/alternative asset manager — positive but negligible NII, not a real loan book |
+| TROW | +6.8% | Traditional/mutual-fund asset manager (T. Rowe Price) — no banking subsidiary; NII is short-term investment income, not a retail/commercial loan book |
+| PFG | -0.01% | Insurance and retirement-services company (Principal Financial Group) — not a lender at all; industry text alone puts it in the Bank-keyword branch |
+
+**Confirmed lenders — kept as `"Bank"`:**
+
+| Ticker | NII/revenue | Business model |
+|---|---|---|
+| SYF | 96.6% | Private-label/co-brand credit-card issuer (Synchrony) with Synchrony Bank — pure consumer lending business |
+| COF | 61.9% | Credit-card issuer *and* retail bank (Capital One) — full consumer lending book |
+| SCHW | 42.5% | Broker with Charles Schwab Bank — real deposit-taking/lending balance sheet |
+| HOOD | 33.9% | Robinhood — margin lending and cash-sweep interest are real NII, not incidental |
+| AXP | 21.6% | Card network *with* a real cardmember loan book (American Express), unlike V/MA |
+| AMP | 17.2% | Ameriprise Financial — has Ameriprise Bank FSB subsidiary |
+| NTRS | 16.9% | Northern Trust — custody bank with real lending/deposit operations |
+| RJF | 13.5% | Raymond James — has Raymond James Bank subsidiary |
+| STT | 13.1% | State Street — custody bank (State Street Bank and Trust) with real lending |
+| GS | 10.8% | Goldman Sachs — investment bank with real deposit-taking/lending and trading-book NII |
+| MS | 8.7% | Morgan Stanley — investment bank with Morgan Stanley Private Bank / wealth-management lending |
+
+**This list does not auto-generalize.** A new ticker that lands in the same
+sector/industry buckets (e.g. a newly-listed fintech IPO, a new asset
+manager) classifies as `"Bank"` by default and needs the same manual
+NII/revenue check before being added to either side of this list — there
+is no automated signal that would catch a new non-lender or a new lender
+on its own.
+
 ## Workflow rules
 
 - **Plan Mode by default.** Propose a plan and wait for confirmation before

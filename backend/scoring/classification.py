@@ -32,7 +32,11 @@ _BANK_INDUSTRY_KEYWORDS = ("bank", "capital markets", "asset management", "credi
 # credit-services company will classify as Bank by default and needs this
 # list updated manually if it turns out to be a non-lender too (same
 # maintenance model as classify_company_type's whole best-effort approach,
-# just at ticker granularity instead of sector/industry granularity).
+# just at ticker granularity instead of sector/industry granularity). See
+# CLAUDE.md ("Company classification: non-lender ticker overrides") for the
+# full per-ticker table -- every entry here and every confirmed-lender
+# ticker kept as Bank, with its NII/revenue % and one-line business-model
+# reason.
 NON_LENDER_TICKER_OVERRIDES = {
     "APO", "ARES", "BEN", "BLK", "BX", "GPN", "IVZ", "KKR", "MA", "PFG", "PYPL", "TROW", "V",
 }
