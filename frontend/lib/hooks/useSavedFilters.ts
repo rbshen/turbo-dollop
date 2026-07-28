@@ -1,8 +1,9 @@
 "use client";
 
-import useSWR, { mutate } from "swr";
+import { mutate } from "swr";
 
-import { apiDelete, apiFetch, apiPut } from "@/lib/api/client";
+import { apiDelete, apiPut } from "@/lib/api/client";
+import { useApiResource } from "@/lib/hooks/useApiResource";
 import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
 import type { ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
 
@@ -16,7 +17,7 @@ export interface SaveScreenerFilterBody {
 }
 
 export function useSavedFilters() {
-  return useSWR<SavedScreenerFilter[]>(KEY, (path: string) => apiFetch<SavedScreenerFilter[]>(path));
+  return useApiResource<SavedScreenerFilter[]>(KEY);
 }
 
 export async function saveScreenerFilter(name: string, body: SaveScreenerFilterBody): Promise<SavedScreenerFilter> {

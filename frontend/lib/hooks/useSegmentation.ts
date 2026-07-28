@@ -1,12 +1,8 @@
 "use client";
 
-import useSWR from "swr";
-
-import { apiFetch } from "@/lib/api/client";
+import { useApiResource } from "@/lib/hooks/useApiResource";
 import type { SegmentationOut } from "@/lib/api/types";
 
 export function useSegmentation(ticker: string) {
-  return useSWR<SegmentationOut>(`/tickers/${ticker}/segmentation`, (path: string) =>
-    apiFetch<SegmentationOut>(path)
-  );
+  return useApiResource<SegmentationOut>(`/tickers/${ticker}/segmentation`);
 }

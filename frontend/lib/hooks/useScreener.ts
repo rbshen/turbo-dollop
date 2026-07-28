@@ -1,14 +1,12 @@
 "use client";
 
-import useSWR from "swr";
-
-import { apiFetch } from "@/lib/api/client";
+import { useApiResource } from "@/lib/hooks/useApiResource";
 import type { ScreenerMeta, ScreenerUniverse, TickerScoreOut } from "@/lib/api/types";
 
 export function useScreener(universe: ScreenerUniverse) {
-  return useSWR<TickerScoreOut[]>(`/screener?universe=${universe}`, (path: string) => apiFetch<TickerScoreOut[]>(path));
+  return useApiResource<TickerScoreOut[]>(`/screener?universe=${universe}`);
 }
 
 export function useScreenerMeta(universe: ScreenerUniverse) {
-  return useSWR<ScreenerMeta>(`/screener/meta?universe=${universe}`, (path: string) => apiFetch<ScreenerMeta>(path));
+  return useApiResource<ScreenerMeta>(`/screener/meta?universe=${universe}`);
 }

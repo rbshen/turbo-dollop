@@ -1,10 +1,8 @@
 "use client";
 
-import useSWR from "swr";
-
-import { apiFetch } from "@/lib/api/client";
+import { useApiResource } from "@/lib/hooks/useApiResource";
 import type { Step1Out } from "@/lib/api/types";
 
 export function useStep1(ticker: string) {
-  return useSWR<Step1Out>(`/tickers/${ticker}/step1`, (path: string) => apiFetch<Step1Out>(path));
+  return useApiResource<Step1Out>(`/tickers/${ticker}/step1`);
 }
