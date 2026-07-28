@@ -6,6 +6,7 @@ import { mutate } from "swr";
 import { apiPut } from "@/lib/api/client";
 import type { DiscountRateConfigOut } from "@/lib/api/types";
 import { useDiscountRateConfig } from "@/lib/hooks/useDiscountRateConfig";
+import { fmtNumber } from "@/lib/format";
 
 type Status = "idle" | "saving" | "saved" | "error";
 
@@ -34,8 +35,8 @@ export function DiscountRateSettingsForm() {
 }
 
 function DiscountRateForm({ data }: { data: DiscountRateConfigOut }) {
-  const [rfText, setRfText] = useState((data.risk_free_rate * 100).toFixed(3));
-  const [mrpText, setMrpText] = useState((data.market_risk_premium * 100).toFixed(3));
+  const [rfText, setRfText] = useState(fmtNumber(data.risk_free_rate * 100, 3));
+  const [mrpText, setMrpText] = useState(fmtNumber(data.market_risk_premium * 100, 3));
   const [status, setStatus] = useState<Status>("idle");
 
   async function handleSave() {

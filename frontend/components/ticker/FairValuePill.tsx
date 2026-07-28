@@ -1,3 +1,4 @@
+import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const VERDICT_STYLES: Record<string, string> = {
@@ -29,7 +30,7 @@ export function FairValuePill({ verdict, price, method }: Props) {
   return (
     <span className={cn("inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-semibold", cls)}>
       {label}
-      <span className="font-mono tabular-nums">${price.toFixed(2)}</span>
+      <span className="font-mono tabular-nums">{fmtMoney(price)}</span>
       {method && <span className="font-normal opacity-70">({method})</span>}
     </span>
   );

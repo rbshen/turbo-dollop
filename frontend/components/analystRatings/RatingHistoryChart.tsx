@@ -6,7 +6,7 @@ import { type ChartSeries, RechartsGroupedChart } from "@/components/charts/Rech
 import { SegmentedControl } from "@/components/shared/SegmentedControl";
 import type { RatingHistoryPoint } from "@/lib/api/types";
 import { computeNiceTicks } from "@/lib/charts";
-import { fmtAxisMoney, pickAxisMoneyUnit } from "@/lib/format";
+import { fmtAxisMoney, fmtNumber, pickAxisMoneyUnit } from "@/lib/format";
 
 interface Props {
   history: RatingHistoryPoint[];
@@ -61,7 +61,7 @@ export function RatingHistoryChart({ history }: Props) {
     mode === "distribution"
       ? (v: number) => `${v}%`
       : mode === "avgRating"
-        ? (v: number) => v.toFixed(1)
+        ? (v: number) => fmtNumber(v, 1)
         : (v: number) => fmtAxisMoney(v, targetUnit);
 
   return (

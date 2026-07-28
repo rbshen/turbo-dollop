@@ -7,6 +7,7 @@ import { PriceChange } from "@/components/ticker/PriceChange";
 import { RefreshButton } from "@/components/ticker/RefreshButton";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
 import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
+import { fmtMoney } from "@/lib/format";
 
 interface Props {
   symbol: string;
@@ -53,7 +54,7 @@ export function TickerHeader({ symbol }: Props) {
 
       <div className="flex flex-wrap items-center gap-3">
         {data.price != null && (
-          <span className="font-mono text-xl font-bold tabular-nums text-zinc-100">${data.price.toFixed(2)}</span>
+          <span className="font-mono text-xl font-bold tabular-nums text-zinc-100">{fmtMoney(data.price)}</span>
         )}
         <PriceChange change={data.change} changePercent={data.change_percent} />
         <FairValuePill verdict={data.fair_value_verdict} price={data.fair_value_price} method={data.fair_value_method} />
