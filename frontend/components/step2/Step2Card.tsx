@@ -2,8 +2,10 @@
 
 import { CaretDown } from "@phosphor-icons/react";
 
+import { ReasoningTable } from "@/components/shared/ReasoningTable";
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useStep2 } from "@/lib/hooks/useStep2";
 import { fmtPct } from "@/lib/format";
 
@@ -119,32 +121,11 @@ export function Step2Card({ ticker }: Props) {
           Reasoning
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <table className="mt-3 w-full border-separate border-spacing-0 text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
-                <th className="border-b border-zinc-800 py-2 pr-4 font-medium">Metric</th>
-                <th className="border-b border-zinc-800 py-2 pr-4 font-medium">Tier</th>
-                <th className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">Weight</th>
-                <th className="border-b border-zinc-800 py-2 text-right font-medium">Contribution</th>
-              </tr>
-            </thead>
-            <tbody>
-              {componentRows.map((row) => (
-                <tr key={row.key}>
-                  <td className="border-b border-zinc-900 py-2 pr-4 text-zinc-400">{row.label}</td>
-                  <td className={`border-b border-zinc-900 py-2 pr-4 font-medium ${tierClass(row.score)}`}>
-                    {row.tierLabel}
-                  </td>
-                  <td className="border-b border-zinc-900 py-2 pr-4 text-right text-zinc-400">
-                    {Math.round(row.weight * 100)}%
-                  </td>
-                  <td className="border-b border-zinc-900 py-2 text-right text-zinc-100">
-                    {row.contribution} pts
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="mt-3">
+            <ReasoningTable
+              rows={componentRows.map((row) => ({ ...row, tierClassName: tierClass(row.score) }))}
+            />
+          </div>
         </CollapsibleContent>
       </Collapsible>
 
@@ -153,32 +134,32 @@ export function Step2Card({ ticker }: Props) {
           Analyst estimates ({data.basis === "eps" ? "EPS" : "revenue"}) — cumulative growth from FY
           {data.base_fiscal_year}
         </h3>
-        <table className="w-full border-separate border-spacing-0 text-sm">
-          <thead>
-            <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
-              <th className="border-b border-zinc-800 py-2 pr-4 font-medium">Fiscal year</th>
-              <th className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">Avg growth</th>
-              <th className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">High</th>
-              <th className="border-b border-zinc-800 py-2 text-right font-medium">Low</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table className="w-full border-separate border-spacing-0 text-sm">
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead className="border-b border-zinc-800 py-2 pr-4 font-medium">Fiscal year</TableHead>
+              <TableHead className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">Avg growth</TableHead>
+              <TableHead className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">High</TableHead>
+              <TableHead className="border-b border-zinc-800 py-2 text-right font-medium">Low</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {data.estimates.map((row) => (
-              <tr key={row.fiscal_year}>
-                <td className="border-b border-zinc-900 py-2 pr-4 text-zinc-400">FY{row.fiscal_year}</td>
-                <td className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
+              <TableRow key={row.fiscal_year} className="hover:bg-transparent">
+                <TableCell className="border-b border-zinc-900 py-2 pr-4 text-zinc-400">FY{row.fiscal_year}</TableCell>
+                <TableCell className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
                   {fmtPct(row.growth_avg, 1)}
-                </td>
-                <td className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
+                </TableCell>
+                <TableCell className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
                   {fmtPct(row.growth_high, 1)}
-                </td>
-                <td className="border-b border-zinc-900 py-2 text-right font-mono tabular-nums text-zinc-100">
+                </TableCell>
+                <TableCell className="border-b border-zinc-900 py-2 text-right font-mono tabular-nums text-zinc-100">
                   {fmtPct(row.growth_low, 1)}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       <div className="space-y-1">

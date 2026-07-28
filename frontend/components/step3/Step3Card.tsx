@@ -2,7 +2,7 @@
 
 import { ManualCalculationPanel } from "@/components/step3/ManualCalculationPanel";
 import { ValuationGauge } from "@/components/step3/ValuationGauge";
-import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useStep3 } from "@/lib/hooks/useStep3";
 import { fmtMoney, fmtNumber, fmtPct } from "@/lib/format";
 import type { Step3Out, Step3PBBands } from "@/lib/api/types";
@@ -99,30 +99,32 @@ export function InputRow({ label, sublabel, value }: { label: string; sublabel?:
 export function PBBandsTable({ bands, lastClose }: { bands: Step3PBBands; lastClose: number | null }) {
   const order: (keyof Step3PBBands)[] = ["minus_2sd", "minus_1sd", "mean", "plus_1sd", "plus_2sd"];
   return (
-    <table className="w-full border-separate border-spacing-0 text-sm">
-      <thead>
-        <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
-          <th className="border-b border-zinc-800 py-2 pr-4 font-medium">Band</th>
-          <th className="border-b border-zinc-800 py-2 text-right font-medium">Intrinsic Value</th>
-        </tr>
-      </thead>
-      <tbody>
+    <Table className="w-full border-separate border-spacing-0 text-sm">
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          <TableHead className="border-b border-zinc-800 py-2 pr-4 font-medium">Band</TableHead>
+          <TableHead className="border-b border-zinc-800 py-2 text-right font-medium">Intrinsic Value</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {order.map((key) => (
-          <tr key={key}>
-            <td className="border-b border-zinc-900 py-1.5 pr-4 text-zinc-400">{PB_BAND_LABELS[key]}</td>
-            <td className={`border-b border-zinc-900 py-1.5 text-right font-mono ${key === "mean" ? "font-semibold text-zinc-100" : "text-zinc-300"}`}>
+          <TableRow key={key} className="hover:bg-transparent">
+            <TableCell className="border-b border-zinc-900 py-1.5 pr-4 text-zinc-400">{PB_BAND_LABELS[key]}</TableCell>
+            <TableCell
+              className={`border-b border-zinc-900 py-1.5 text-right font-mono ${key === "mean" ? "font-semibold text-zinc-100" : "text-zinc-300"}`}
+            >
               {fmtMoney(bands[key])}
-            </td>
-          </tr>
+            </TableCell>
+          </TableRow>
         ))}
         {lastClose != null && (
-          <tr>
-            <td className="py-1.5 pr-4 text-zinc-500">Last Close</td>
-            <td className="py-1.5 text-right font-mono text-zinc-300">{fmtMoney(lastClose)}</td>
-          </tr>
+          <TableRow className="hover:bg-transparent">
+            <TableCell className="py-1.5 pr-4 text-zinc-500">Last Close</TableCell>
+            <TableCell className="py-1.5 text-right font-mono text-zinc-300">{fmtMoney(lastClose)}</TableCell>
+          </TableRow>
         )}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   );
 }
 

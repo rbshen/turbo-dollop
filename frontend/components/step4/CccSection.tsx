@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { ModeToggle } from "@/components/charts/ModeToggle";
 import { type ChartSeries, RechartsGroupedChart } from "@/components/charts/RechartsGroupedChart";
+import { SeriesTrendTable } from "@/components/shared/SeriesTrendTable";
 import type { Step4Out } from "@/lib/api/types";
 import { computeNiceTicksRange } from "@/lib/charts";
 
@@ -45,46 +46,13 @@ export function CccSection({ data }: Props) {
         yTickFormat={(v) => `${v}d`}
       />
 
-      <div className="flex">
-        <table className="shrink-0 border-separate border-spacing-0 text-sm">
-          <thead>
-            <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
-              <th className="whitespace-nowrap border-b border-zinc-800 py-2 pr-8 font-medium">Metric</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td className="whitespace-nowrap border-b border-zinc-900 py-2 pr-8 text-zinc-400">
-                <span className="mr-1.5 inline-block size-2 rounded-full align-middle" style={{ backgroundColor: SERIES[0].color }} />
-                {SERIES[0].label}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div className="flex-1 overflow-x-auto">
-          <table className="w-full min-w-max border-separate border-spacing-0 text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
-                {data.years.map((year) => (
-                  <th key={year} className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">
-                    {year}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                {data.ccc.map((v, i) => (
-                  <td key={i} className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
-                    {v != null ? `${v.toFixed(1)}d` : "—"}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <SeriesTrendTable
+        labelHeader="Metric"
+        years={data.years}
+        series={SERIES}
+        values={values}
+        formatValue={(v) => `${v.toFixed(1)}d`}
+      />
     </div>
   );
 }

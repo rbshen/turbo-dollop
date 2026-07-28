@@ -1,5 +1,6 @@
 "use client";
 
+import { ReasoningTable } from "@/components/shared/ReasoningTable";
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
 import { CccSection } from "@/components/step4/CccSection";
 import { RevenueArSection } from "@/components/step4/RevenueArSection";
@@ -93,24 +94,15 @@ export function Step4Card({ ticker }: Props) {
         )}
       </div>
 
-      <table className="w-full border-separate border-spacing-0 text-sm">
-        <thead>
-          <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
-            <th className="border-b border-zinc-800 py-2 pr-4 font-medium">Metric</th>
-            <th className="border-b border-zinc-800 py-2 text-right font-medium">Tier</th>
-          </tr>
-        </thead>
-        <tbody>
-          {componentRows.map((row) => (
-            <tr key={row.key}>
-              <td className="border-b border-zinc-900 py-2 pr-4 text-zinc-400">{METRIC_LABELS[row.key] ?? row.key}</td>
-              <td className={`border-b border-zinc-900 py-2 text-right font-medium ${tierClass(row.points)}`}>
-                {TIER_LABELS[row.tierKey] ?? row.tierKey}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <ReasoningTable
+        showWeightContribution={false}
+        rows={componentRows.map((row) => ({
+          key: row.key,
+          label: METRIC_LABELS[row.key] ?? row.key,
+          tierLabel: TIER_LABELS[row.tierKey] ?? row.tierKey,
+          tierClassName: tierClass(row.points),
+        }))}
+      />
 
       <p className="text-sm text-zinc-400">
         {data.hard_fail

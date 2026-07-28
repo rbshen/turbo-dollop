@@ -2,6 +2,7 @@
 
 import { CaretDown } from "@phosphor-icons/react";
 
+import { ReasoningTable } from "@/components/shared/ReasoningTable";
 import { FinancialsSection } from "@/components/step1/FinancialsSection";
 import { MarginSection } from "@/components/step1/MarginSection";
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
@@ -119,30 +120,11 @@ export function Step1Card({ ticker }: Props) {
           Reasoning
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <table className="mt-3 w-full border-separate border-spacing-0 text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
-                <th className="border-b border-zinc-800 py-2 pr-4 font-medium">Metric</th>
-                <th className="border-b border-zinc-800 py-2 pr-4 font-medium">Tier</th>
-                <th className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">Weight</th>
-                <th className="border-b border-zinc-800 py-2 text-right font-medium">Contribution</th>
-              </tr>
-            </thead>
-            <tbody>
-              {componentRows.map((row) => (
-                <tr key={row.key}>
-                  <td className="border-b border-zinc-900 py-2 pr-4 text-zinc-400">{row.label}</td>
-                  <td className={`border-b border-zinc-900 py-2 pr-4 font-medium ${tierClass(row.score)}`}>
-                    {row.tierLabel}
-                  </td>
-                  <td className="border-b border-zinc-900 py-2 pr-4 text-right text-zinc-400">
-                    {Math.round(row.weight * 100)}%
-                  </td>
-                  <td className="border-b border-zinc-900 py-2 text-right text-zinc-100">{row.contribution} pts</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="mt-3">
+            <ReasoningTable
+              rows={componentRows.map((row) => ({ ...row, tierClassName: tierClass(row.score) }))}
+            />
+          </div>
         </CollapsibleContent>
       </Collapsible>
 

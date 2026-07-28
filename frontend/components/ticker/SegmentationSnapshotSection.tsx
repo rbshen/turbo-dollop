@@ -1,4 +1,5 @@
 import { RechartsPieChart } from "@/components/charts/RechartsPieChart";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fmtPlainPct, fmtTableMoney } from "@/lib/format";
 import { OTHER_COLOR, OTHER_LABEL, SEGMENT_COLORS } from "@/lib/segmentColors";
 
@@ -49,37 +50,37 @@ export function SegmentationSnapshotSection({ title, headerYear, year, segments,
 
       <RechartsPieChart series={series} values={values} valueFormat={fmtTableMoney} />
 
-      <table className="w-full border-separate border-spacing-0 text-sm">
-        <thead>
-          <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
-            <th className="whitespace-nowrap border-b border-zinc-800 py-2 pr-8 font-medium">Segment</th>
-            <th className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">Revenue</th>
-            <th className="border-b border-zinc-800 py-2 text-right font-medium">Share</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table className="w-full border-separate border-spacing-0 text-sm">
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="whitespace-nowrap border-b border-zinc-800 py-2 pr-8 font-medium">Segment</TableHead>
+            <TableHead className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">Revenue</TableHead>
+            <TableHead className="border-b border-zinc-800 py-2 text-right font-medium">Share</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {series.map((s) => {
             const v = values[s.key];
             return (
-              <tr key={s.key}>
-                <td className="whitespace-nowrap border-b border-zinc-900 py-2 pr-8 text-zinc-400">
+              <TableRow key={s.key} className="hover:bg-transparent">
+                <TableCell className="whitespace-nowrap border-b border-zinc-900 py-2 pr-8 text-zinc-400">
                   <span
                     className="mr-1.5 inline-block size-2 rounded-full align-middle"
                     style={{ backgroundColor: s.color }}
                   />
                   {s.label}
-                </td>
-                <td className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
+                </TableCell>
+                <TableCell className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
                   {v != null ? fmtTableMoney(v) : "—"}
-                </td>
-                <td className="border-b border-zinc-900 py-2 text-right font-mono tabular-nums text-zinc-400">
+                </TableCell>
+                <TableCell className="border-b border-zinc-900 py-2 text-right font-mono tabular-nums text-zinc-400">
                   {v != null && total > 0 ? fmtPlainPct((v / total) * 100) : "—"}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             );
           })}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }

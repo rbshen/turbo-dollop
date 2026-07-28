@@ -4,7 +4,9 @@ import { CaretDown } from "@phosphor-icons/react";
 
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
 import { OutlierWarningNote } from "@/components/shared/OutlierWarningNote";
+import { ReasoningTable } from "@/components/shared/ReasoningTable";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { fmtNumber, fmtPct, fmtTableMoney } from "@/lib/format";
 import type { Step5Out, Step5RatioResult } from "@/lib/api/types";
@@ -99,20 +101,22 @@ function reasoningRows(data: Step5Out) {
 
 function ratioRows(ratios: Record<string, Step5RatioResult>, showTier: boolean) {
   return Object.entries(ratios).map(([key, r]) => (
-    <tr key={key}>
-      <td className="border-b border-zinc-900 py-2 pr-4 text-zinc-400">{RATIO_LABELS[key] ?? key}</td>
-      <td className={`border-b border-zinc-900 py-2 ${showTier ? "pr-4" : ""} text-right font-mono tabular-nums text-zinc-100`}>
+    <TableRow key={key} className="hover:bg-transparent">
+      <TableCell className="border-b border-zinc-900 py-2 pr-4 text-zinc-400">{RATIO_LABELS[key] ?? key}</TableCell>
+      <TableCell
+        className={`border-b border-zinc-900 py-2 ${showTier ? "pr-4" : ""} text-right font-mono tabular-nums text-zinc-100`}
+      >
         {formatRatioValue(key, r.value)}
         {r.saved_by_tiebreaker && key === "current_ratio" && r.adjusted_value != null && (
           <span className="ml-1 text-zinc-500">→ {formatRatioValue(key, r.adjusted_value)}</span>
         )}
-      </td>
+      </TableCell>
       {showTier && (
-        <td className={`border-b border-zinc-900 py-2 text-right font-medium ${tierClass(r.label)}`}>
+        <TableCell className={`border-b border-zinc-900 py-2 text-right font-medium ${tierClass(r.label)}`}>
           {TIER_LABELS[r.label] ?? r.label}
-        </td>
+        </TableCell>
       )}
-    </tr>
+    </TableRow>
   ));
 }
 
@@ -154,30 +158,15 @@ export function Step5Card({ ticker }: Props) {
             Reasoning
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <table className="mt-3 w-full border-separate border-spacing-0 text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
-                  <th className="border-b border-zinc-800 py-2 pr-4 font-medium">Ratio</th>
-                  <th className="border-b border-zinc-800 py-2 pr-4 font-medium">Tier</th>
-                  <th className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">Weight</th>
-                  <th className="border-b border-zinc-800 py-2 text-right font-medium">Contribution</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reasoning.map((row) => (
-                  <tr key={row.key}>
-                    <td className="border-b border-zinc-900 py-2 pr-4 text-zinc-400">{row.label}</td>
-                    <td className={`border-b border-zinc-900 py-2 pr-4 font-medium ${tierClass(data.ratios[row.key]?.label ?? "")}`}>
-                      {row.tierLabel}
-                    </td>
-                    <td className="border-b border-zinc-900 py-2 pr-4 text-right text-zinc-400">
-                      {Math.round(row.weight * 100)}%
-                    </td>
-                    <td className="border-b border-zinc-900 py-2 text-right text-zinc-100">{row.contribution} pts</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="mt-3">
+              <ReasoningTable
+                labelHeader="Ratio"
+                rows={reasoning.map((row) => ({
+                  ...row,
+                  tierClassName: tierClass(data.ratios[row.key]?.label ?? ""),
+                }))}
+              />
+            </div>
             {icr && (
               <p className="mt-2 text-xs text-zinc-600">
                 Interest Coverage Ratio carries no weight of its own — it&apos;s the tiebreaker that can excuse a
@@ -195,16 +184,16 @@ export function Step5Card({ ticker }: Props) {
       {isBank ? (
         <>
           {data.ratios.npl_ratio ? (
-            <table className="w-full border-separate border-spacing-0 text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
-                  <th className="border-b border-zinc-800 py-2 pr-4 font-medium">Ratio</th>
-                  <th className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">Value</th>
-                  <th className="border-b border-zinc-800 py-2 text-right font-medium">Tier</th>
-                </tr>
-              </thead>
-              <tbody>{ratioRows(data.ratios, true)}</tbody>
-            </table>
+            <Table className="w-full border-separate border-spacing-0 text-sm">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="border-b border-zinc-800 py-2 pr-4 font-medium">Ratio</TableHead>
+                  <TableHead className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">Value</TableHead>
+                  <TableHead className="border-b border-zinc-800 py-2 text-right font-medium">Tier</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>{ratioRows(data.ratios, true)}</TableBody>
+            </Table>
           ) : (
             <p className="text-sm text-zinc-500">
               NPL ratio not available for {ticker} — the required loan-book figures weren&apos;t present in the
@@ -226,15 +215,15 @@ export function Step5Card({ ticker }: Props) {
         <p className="text-sm text-zinc-500">Required balance sheet/income statement figures were unavailable for {ticker}.</p>
       ) : (
         <>
-          <table className="w-full border-separate border-spacing-0 text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
-                <th className="border-b border-zinc-800 py-2 pr-4 font-medium">Ratio</th>
-                <th className="border-b border-zinc-800 py-2 text-right font-medium">Value</th>
-              </tr>
-            </thead>
-            <tbody>{ratioRows(data.ratios, false)}</tbody>
-          </table>
+          <Table className="w-full border-separate border-spacing-0 text-sm">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="border-b border-zinc-800 py-2 pr-4 font-medium">Ratio</TableHead>
+                <TableHead className="border-b border-zinc-800 py-2 text-right font-medium">Value</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>{ratioRows(data.ratios, false)}</TableBody>
+          </Table>
 
           {data.deferred_revenue_current != null && data.deferred_revenue_current > 0 && (
             <p className="text-xs text-zinc-600">
