@@ -97,19 +97,21 @@ function reasoningRows(data: Step5Out) {
   }).filter((row): row is NonNullable<typeof row> => row !== null);
 }
 
-function ratioRows(ratios: Record<string, Step5RatioResult>) {
+function ratioRows(ratios: Record<string, Step5RatioResult>, showTier: boolean) {
   return Object.entries(ratios).map(([key, r]) => (
     <tr key={key}>
       <td className="border-b border-zinc-900 py-2 pr-4 text-zinc-400">{RATIO_LABELS[key] ?? key}</td>
-      <td className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
+      <td className={`border-b border-zinc-900 py-2 ${showTier ? "pr-4" : ""} text-right font-mono tabular-nums text-zinc-100`}>
         {formatRatioValue(key, r.value)}
         {r.saved_by_tiebreaker && key === "current_ratio" && r.adjusted_value != null && (
           <span className="ml-1 text-zinc-500">→ {formatRatioValue(key, r.adjusted_value)}</span>
         )}
       </td>
-      <td className={`border-b border-zinc-900 py-2 text-right font-medium ${tierClass(r.label)}`}>
-        {TIER_LABELS[r.label] ?? r.label}
-      </td>
+      {showTier && (
+        <td className={`border-b border-zinc-900 py-2 text-right font-medium ${tierClass(r.label)}`}>
+          {TIER_LABELS[r.label] ?? r.label}
+        </td>
+      )}
     </tr>
   ));
 }
@@ -201,7 +203,7 @@ export function Step5Card({ ticker }: Props) {
                   <th className="border-b border-zinc-800 py-2 text-right font-medium">Tier</th>
                 </tr>
               </thead>
-              <tbody>{ratioRows(data.ratios)}</tbody>
+              <tbody>{ratioRows(data.ratios, true)}</tbody>
             </table>
           ) : (
             <p className="text-sm text-zinc-500">
@@ -228,11 +230,10 @@ export function Step5Card({ ticker }: Props) {
             <thead>
               <tr className="text-left text-xs uppercase tracking-widest text-zinc-500">
                 <th className="border-b border-zinc-800 py-2 pr-4 font-medium">Ratio</th>
-                <th className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">Value</th>
-                <th className="border-b border-zinc-800 py-2 text-right font-medium">Tier</th>
+                <th className="border-b border-zinc-800 py-2 text-right font-medium">Value</th>
               </tr>
             </thead>
-            <tbody>{ratioRows(data.ratios)}</tbody>
+            <tbody>{ratioRows(data.ratios, false)}</tbody>
           </table>
 
           {data.deferred_revenue_current != null && data.deferred_revenue_current > 0 && (
