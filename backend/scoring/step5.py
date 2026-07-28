@@ -26,6 +26,23 @@ DSR_SEVERE = 40.0
 # from every genuine Comfortable-zone sub-tier (70/85/100).
 BORDERLINE_SAVED_SCORE = 60
 
+# A "Pass with caution" ticker's BLENDED score is capped here, separate
+# from BORDERLINE_SAVED_SCORE above. Without this, a real breach can still
+# blend to a high score if the other ratios are excellent -- worse, Current
+# Ratio's deferred-revenue rescue re-scores off the adjusted ratio's own
+# Comfortable-zone tier (up to 100), unlike Debt/EBITDA's and DSR's ICR
+# rescue which is always capped at BORDERLINE_SAVED_SCORE regardless of how
+# comfortably ICR cleared the bar -- so a rescued Current Ratio can blend to
+# 95-100 (ADBE, AMP's real shape) despite a genuine breach elsewhere in the
+# picture. The verdict text already can't say "Strong Pass" for this case
+# (_verdict_for checks saved_by_tiebreaker first), but that only protects
+# the label -- a 95-100 NUMBER next to an amber "caution" color still reads
+# to a user as contradictory (a top performer flagged as risky). Capped at
+# the same ceiling as ScoreBadge's lowest "Pass" shade (70-74, see
+# frontend/lib/tierColor.ts) so a caution ticker reads as barely passing,
+# not as an excellent result that merely got an asterisk.
+PASS_WITH_CAUTION_SCORE_CAP = 74
+
 # --- Interest Coverage Ratio (EBIT / Interest Expense, TTM) -------------------
 # New tiebreaker for Debt/EBITDA and Debt Servicing Ratio's borderline zone
 # only -- never applies to Current Ratio (whose tiebreaker is deferred
@@ -200,6 +217,11 @@ def score_step5_standard(
     # clear the bar to save both at once, never just one.
     saved_by_tiebreaker = cr.saved_by_tiebreaker or de.saved_by_tiebreaker or ds.saved_by_tiebreaker
     score = round((cr.points + de.points + ds.points) / 3)
+    # See PASS_WITH_CAUTION_SCORE_CAP's comment -- a hard fail already
+    # forces "Fail" regardless of score, so this only ever lowers a
+    # genuine Pass-with-caution number, never a Fail's.
+    if not hard_fail and saved_by_tiebreaker:
+        score = min(score, PASS_WITH_CAUTION_SCORE_CAP)
     return {
         "score": score,
         "verdict": _verdict_for(score, hard_fail, saved_by_tiebreaker),

@@ -171,6 +171,24 @@ tweaks:
   revenue isn't a red flag) is shown as an informational note only, not
   auto-detected or auto-adjusted — same non-automated treatment as Step 1's
   one-off items.
+- **"Pass with caution" scores are capped at `PASS_WITH_CAUTION_SCORE_CAP`
+  (74)**, separate from the `BORDERLINE_SAVED_SCORE` (60) an individual
+  rescued ratio scores. Without this, the blended score could still land in
+  "excellent" territory (95-100) even though a real breach occurred,
+  because Current Ratio's deferred-revenue rescue re-scores off the
+  adjusted ratio's own Comfortable-zone tier (up to 100), unlike Debt/
+  EBITDA's and DSR's ICR rescue which is always flat-capped at
+  `BORDERLINE_SAVED_SCORE` regardless of how comfortably ICR cleared the
+  bar — ADBE (95) and AMP (100) were real cases of this before the cap.
+  The verdict text already couldn't say "Strong Pass" for a saved breach,
+  but that only protected the label; a 95-100 *number* next to an amber
+  "caution" badge/chip still read as contradictory (a top performer
+  flagged as risky) rather than as "barely passing," which a caution state
+  should read as. Capped at 74 to land in the same lowest-shade "Pass"
+  bucket the shared badge/chip already uses for a plain, unqualified
+  70-74 score (`frontend/lib/tierColor.ts`) — never raises an
+  already-lower natural blend, only lowers one that would otherwise land
+  above the cap.
 
 Step 4's source doc (`step4_profitability_efficiency_assessment_prompt.md`)
 gives ROE/ROIC tiers, an AR-outpacing-magnitude concept, and a qualitative

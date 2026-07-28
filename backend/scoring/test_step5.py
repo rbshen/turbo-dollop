@@ -345,6 +345,37 @@ def test_current_ratio_saved_by_deferred_revenue_becomes_pass_with_caution():
     assert result["hard_fail"] is False
     assert result["pass_with_caution"] is True
     assert result["verdict"] == "Pass with caution"
+    # Unblended average would be (85+100+100)/3 = 95 -- Current Ratio's
+    # deferred-revenue rescue lands "good" (85), not BORDERLINE_SAVED_SCORE,
+    # since it re-scores off the adjusted ratio's own Comfortable-zone tier.
+    # PASS_WITH_CAUTION_SCORE_CAP must bring this down to 74, or the number
+    # (95) contradicts the amber "caution" color a real breach earns.
+    assert result["score"] == 74
+
+
+def test_pass_with_caution_score_is_capped_even_when_natural_blend_is_100():
+    # Mirrors AMP's real shape: Current Ratio rescued all the way to
+    # "excellent" (100) while Debt/EBITDA and DSR are also excellent -- the
+    # unblended average would be a perfect 100, yet a real breach occurred.
+    result = score_step5_standard(
+        current_ratio=0.80, adjusted_current_ratio=2.5, debt_to_ebitda=0.5, debt_servicing_pct=2.0,
+        interest_coverage_ratio=20.0,
+    )
+    assert result["pass_with_caution"] is True
+    assert result["score"] == 74
+
+
+def test_pass_with_caution_cap_does_not_raise_an_already_low_score():
+    # If the natural blend is already below the cap (e.g. one ratio only
+    # just clears the deferred-revenue rescue at "acceptable"), the cap
+    # must not artificially inflate it back up to 74.
+    result = score_step5_standard(
+        current_ratio=0.9, adjusted_current_ratio=1.0, debt_to_ebitda=2.9, debt_servicing_pct=25.0,
+        interest_coverage_ratio=None,
+    )
+    assert result["pass_with_caution"] is True
+    # (70 acceptable + 70 acceptable + 60 approaching_limit) / 3 = 66.67 -> 67
+    assert result["score"] == 67
 
 
 def test_current_ratio_borderline_without_deferred_revenue_still_fails():
