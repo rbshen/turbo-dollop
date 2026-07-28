@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { SegmentedControl } from "@/components/shared/SegmentedControl";
 import { FinancialsStatementTable } from "@/components/ticker/FinancialsStatementTable";
 import type { FinancialsStatementOut } from "@/lib/api/types";
 import { useFinancials } from "@/lib/hooks/useFinancials";
@@ -13,6 +14,11 @@ const STATEMENT_TABS: { key: StatementKey; label: string }[] = [
   { key: "income", label: "Income Statement" },
   { key: "balanceSheet", label: "Balance Sheet" },
   { key: "cashFlow", label: "Cash Flow" },
+];
+
+const PERIOD_OPTIONS: { value: Period; label: string }[] = [
+  { value: "annual", label: "annual" },
+  { value: "quarterly", label: "quarterly" },
 ];
 
 interface Props {
@@ -66,20 +72,7 @@ export function FinancialsTab({ ticker }: Props) {
           })}
         </div>
 
-        <div className="inline-flex overflow-hidden rounded-md border border-zinc-700 text-xs">
-          {(["annual", "quarterly"] as const).map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => setPeriod(p)}
-              className={`px-2.5 py-1 capitalize transition-colors ${
-                period === p ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl value={period} onChange={setPeriod} options={PERIOD_OPTIONS} />
       </div>
 
       <p className="text-xs text-zinc-500">All numbers are in USD millions, except per-share data, ratios, and percentages.</p>

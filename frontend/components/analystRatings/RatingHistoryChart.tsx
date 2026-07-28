@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { type ChartSeries, RechartsGroupedChart } from "@/components/charts/RechartsGroupedChart";
+import { SegmentedControl } from "@/components/shared/SegmentedControl";
 import type { RatingHistoryPoint } from "@/lib/api/types";
 import { computeNiceTicks } from "@/lib/charts";
 import { fmtAxisMoney, pickAxisMoneyUnit } from "@/lib/format";
@@ -65,20 +66,11 @@ export function RatingHistoryChart({ history }: Props) {
 
   return (
     <div className="space-y-3">
-      <div className="inline-flex flex-wrap overflow-hidden rounded-md border border-zinc-700 text-xs">
-        {VIEW_TABS.map(({ key, label }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setMode(key)}
-            className={`px-2.5 py-1 transition-colors ${
-              mode === key ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        value={mode}
+        onChange={setMode}
+        options={VIEW_TABS.map(({ key, label }) => ({ value: key, label }))}
+      />
 
       {mode === "avgTarget" && !hasPriceTargetHistory ? (
         <p className="text-sm text-zinc-600">
