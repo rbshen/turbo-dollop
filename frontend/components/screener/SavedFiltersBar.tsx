@@ -17,11 +17,24 @@ interface Props {
 
 type SaveStep = "idle" | "naming" | "confirmOverwrite";
 
+// Same shape/labels as DiscountRateSettingsForm/MoatSettingsForm's own
+// save-status pattern -- reused here rather than inventing a separate one.
+type Status = "idle" | "saving" | "saved" | "error";
+
+const STATUS_LABELS: Record<Status, string> = {
+  idle: "Save",
+  saving: "Saving…",
+  saved: "Saved ✓",
+  error: "Save failed",
+};
+
 export function SavedFiltersBar({ universe, sortField, sortDirection, filters, onLoad }: Props) {
   const { data: saved } = useSavedFilters();
   const [listOpen, setListOpen] = useState(false);
   const [saveStep, setSaveStep] = useState<SaveStep>("idle");
   const [name, setName] = useState("");
+  const [status, setStatus] = useState<Status>("idle");
+  const [deleteState, setDeleteState] = useState<{ name: string; status: "deleting" | "error" } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -44,14 +57,22 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
   }
 
   async function doSave(trimmedName: string) {
-    await saveScreenerFilter(trimmedName, {
-      universe,
-      sort_field: sortField,
-      sort_direction: sortDirection,
-      filters,
-    });
-    setSaveStep("idle");
-    setName("");
+    setStatus("saving");
+    try {
+      await saveScreenerFilter(trimmedName, {
+        universe,
+        sort_field: sortField,
+        sort_direction: sortDirection,
+        filters,
+      });
+      setStatus("saved");
+      setSaveStep("idle");
+      setName("");
+    } catch {
+      setStatus("error");
+    } finally {
+      setTimeout(() => setStatus("idle"), 3000);
+    }
   }
 
   async function handleConfirm() {
@@ -97,10 +118,26 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
                     type="button"
                     onClick={async (e) => {
                       e.stopPropagation();
-                      await deleteScreenerFilter(s.name);
+                      setDeleteState({ name: s.name, status: "deleting" });
+                      try {
+                        await deleteScreenerFilter(s.name);
+                        setDeleteState(null);
+                      } catch {
+                        setDeleteState({ name: s.name, status: "error" });
+                        setTimeout(() => setDeleteState(null), 3000);
+                      }
                     }}
-                    className="shrink-0 text-zinc-600 hover:text-red-400"
-                    title={`Delete "${s.name}"`}
+                    disabled={deleteState?.name === s.name && deleteState.status === "deleting"}
+                    className={`shrink-0 disabled:opacity-50 ${
+                      deleteState?.name === s.name && deleteState.status === "error"
+                        ? "text-red-400"
+                        : "text-zinc-600 hover:text-red-400"
+                    }`}
+                    title={
+                      deleteState?.name === s.name && deleteState.status === "error"
+                        ? `Failed to delete "${s.name}" — try again`
+                        : `Delete "${s.name}"`
+                    }
                   >
                     <Trash size={14} />
                   </button>
@@ -138,10 +175,10 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={!name.trim()}
+            disabled={!name.trim() || status === "saving"}
             className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Save
+            {STATUS_LABELS[status]}
           </button>
           <button
             type="button"
@@ -159,9 +196,10 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
           <button
             type="button"
             onClick={handleConfirm}
-            className="rounded-md border border-amber-800/60 bg-zinc-900 px-2 py-1 text-xs text-amber-300 hover:border-amber-600"
+            disabled={status === "saving"}
+            className="rounded-md border border-amber-800/60 bg-zinc-900 px-2 py-1 text-xs text-amber-300 hover:border-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Overwrite
+            {status === "idle" ? "Overwrite" : STATUS_LABELS[status]}
           </button>
           <button
             type="button"
