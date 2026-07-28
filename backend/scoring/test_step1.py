@@ -315,6 +315,30 @@ def test_fcf_old_unrecovered_cash_burn_still_fails():
     assert score == 0
 
 
+def test_fcf_old_recovered_cash_burn_tolerates_minor_ttm_wobble():
+    # TSLA-style: an old run, then several years of robust, growing positive
+    # FCF, then a TTM dip (>5%, would trip classify_trend's blunt
+    # any-TTM-decline rule on its own) that's still nowhere near the burn
+    # level. Dropping TTM reads as durably recovered, and TTM itself is
+    # still well above the early post-burn baseline -- the wobble shouldn't
+    # re-flag an already-resolved cash-burn stretch as ongoing risk.
+    fcf = [10, -20, -30, 100, 200, 300, 700, 400, 350, 600, 550]
+    pattern, score = _classify_fcf(fcf)
+    assert pattern == "cash_burn_recovered"
+    assert score == 85
+
+
+def test_fcf_recurring_negative_years_since_the_run_still_fails():
+    # PEG-style: the LAST 2+-consecutive run ended long enough ago to clear
+    # the recency gate, but a further isolated negative year (and a
+    # negative TTM) since then shows the company hasn't actually been
+    # solidly positive since -- must not be waved through as a "wobble".
+    fcf = [100, -20, -30, 10, 15, 12, -40, 18, 20, -5]
+    pattern, score = _classify_fcf(fcf)
+    assert pattern == "sustained_cash_burn"
+    assert score == 0
+
+
 def test_fcf_insufficient_data_below_two_points():
     pattern, score = _classify_fcf([50])
     assert pattern == "insufficient_data"

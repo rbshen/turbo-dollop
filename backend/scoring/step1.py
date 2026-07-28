@@ -53,6 +53,9 @@ FCF_FAIL_SCORE = 0
 # matches the "3" recency convention already used throughout this app
 # (Step 3's NEGATIVE_VALUE_RECENCY_YEARS, Step 4's AR_RED_FLAG_RECENCY_WINDOW).
 FCF_CASH_BURN_RECENCY_YEARS = 3
+# Early-recovery baseline window for _fcf_durably_recovered, matching
+# MARGIN_TREND_WINDOW's sizing convention (see _series_recovered).
+FCF_RECOVERY_WINDOW = 3
 
 NET_INCOME_BACKUP_THRESHOLD = 40
 NET_INCOME_BACKUP_CAP = 80
@@ -176,17 +179,65 @@ def _classify_margins(gross_margin: list[float], net_margin: list[float], revenu
     return TrendResult("gradually_compressing", 60)
 
 
+def _fcf_durably_recovered(fcf: list[float], run_end: int) -> bool:
+    """Recovery check for a cash-burn run that classify_trend's full-series
+    read rejects SOLELY because of its own blunt "any TTM decline is
+    disqualifying" rule -- which doesn't distinguish an old, resolved burn
+    stretch followed by years of robust positive FCF from a genuinely fresh
+    decline (e.g. TSLA: an 8-year-old burn, 6 straight recovered years,
+    capped by a mere -7.4% TTM dip vs. last FY; GE: a -50% TTM pullback that
+    still lands well above its own early-recovery baseline). Three
+    conditions, all required:
+
+    1. Every year since the run ended -- including TTM -- must itself be
+       non-negative. This is what actually distinguishes "durable recovery,
+       one wobble year" from a company that's still periodically lurching
+       negative (e.g. PEG: a capex-heavy utility whose "post-burn" years
+       include a further -$1.25B year and a negative TTM -- superficially
+       past FCF_CASH_BURN_RECENCY_YEARS since its last 2+-consecutive run,
+       but nowhere near "solidly positive since"). Without this gate, a
+       negative value hiding in the post-burn window can also drag the
+       baseline in condition 3 negative, making an also-negative TTM look
+       like it clears the baseline.
+    2. Dropping the TTM period, does the series independently read as a
+       recovered classify_trend pattern? This confirms the run was already
+       durably resolved BEFORE this year's wobble, rather than merely
+       looking recovered because TTM's decline hasn't yet compounded into a
+       second bad year. A genuinely still-declining series (DE, AIG) fails
+       here too -- their unresolved dips sit in the recovery years
+       themselves (an interim peak TTM hasn't reclaimed), not just the
+       final wobble year, so dropping TTM alone doesn't fix their read.
+    3. Has TTM fallen back below the early post-burn recovery baseline?
+       Mirrors _series_recovered's early-window-baseline pattern (same
+       window size) -- a wobble that's merely off last year's number is
+       tolerable, but craters back toward the original burn level are not,
+       regardless of how the pre-TTM series reads on its own.
+    """
+    post_burn = fcf[run_end + 1 :]
+    if any(v < 0 for v in post_burn):
+        return False
+    pre_ttm_trend = classify_trend(fcf[:-1])
+    if pre_ttm_trend.pattern not in RECOVERY_PATTERNS:
+        return False
+    w = min(FCF_RECOVERY_WINDOW, len(post_burn))
+    baseline = float(np.mean(post_burn[:w]))
+    return fcf[-1] >= baseline
+
+
 def _classify_fcf(fcf: list[float]) -> TrendResult:
     """FCF tiering: all-positive -> Excellent; a single isolated negative
     year -> Good (a one-off blip, not a pattern); negative years present
     but never 2 in a row (e.g. two scattered, non-adjacent negative years)
     -> Marginal; a run of 2+ consecutive negative years -> Fail, UNLESS that
-    run ended more than FCF_CASH_BURN_RECENCY_YEARS ago AND classify_trend
-    confirms the series has since durably recovered (e.g. AMD's FY2017/2018,
-    since fully recovered to $8.57B TTM FCF) -- an old, resolved cash-burn
-    stretch shouldn't permanently read as an ongoing bankruptcy-risk signal.
-    A run too recent to trust as resolved still fails outright, same as
-    everywhere else in this app."""
+    run ended more than FCF_CASH_BURN_RECENCY_YEARS ago AND either
+    classify_trend confirms the full series has since durably recovered
+    (e.g. AMD's FY2017/2018, since fully recovered to $8.57B TTM FCF), or
+    _fcf_durably_recovered confirms it recovered before a since-tolerable
+    single-year TTM wobble (e.g. TSLA, TMUS, GE -- see that function) -- an
+    old, resolved cash-burn stretch shouldn't permanently read as an ongoing
+    bankruptcy-risk signal just because the latest year alone dipped. A run
+    too recent to trust as resolved still fails outright, same as everywhere
+    else in this app."""
     if len(fcf) < 2:
         return TrendResult("insufficient_data", 0)
 
@@ -210,11 +261,12 @@ def _classify_fcf(fcf: list[float]) -> TrendResult:
         run_end_indices.append(len(fcf) - 1)
 
     if run_end_indices:
-        years_since_run_end = (len(fcf) - 1) - max(run_end_indices)
+        run_end = max(run_end_indices)
+        years_since_run_end = (len(fcf) - 1) - run_end
         if years_since_run_end <= FCF_CASH_BURN_RECENCY_YEARS:
             return TrendResult("sustained_cash_burn", FCF_FAIL_SCORE)
         trend = classify_trend(fcf)
-        if trend.pattern in RECOVERY_PATTERNS:
+        if trend.pattern in RECOVERY_PATTERNS or _fcf_durably_recovered(fcf, run_end):
             return TrendResult("cash_burn_recovered", FCF_GOOD_SCORE)
         return TrendResult("sustained_cash_burn", FCF_FAIL_SCORE)
 
