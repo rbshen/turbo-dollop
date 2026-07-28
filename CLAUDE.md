@@ -46,6 +46,37 @@ the configurable staleness window — `Settings.cache_staleness_days` in
 `CACHE_STALENESS_DAYS` env var. Never hardcode the staleness window at a call
 site.
 
+### Ad-hoc reproduction scripts must not touch the real database
+
+`backend/fathom.db` is the one real database — `config.py`'s
+`database_path` has no environment-based split between "real" and "test."
+The only thing keeping test runs from polluting it is that every test in
+`backend/tests/` explicitly constructs its own fresh in-memory engine
+(`create_engine("sqlite://")`) and monkeypatches it onto every module's
+`engine` reference *before* calling any `get_stepN_data`/`get_summary`/
+`compute_ticker_score` function. `cache.py::get_or_fetch` has no way to
+tell "this is a controlled repro" from "this is real" — it will silently
+persist whatever `fmp_client` returns into whatever `engine` happens to be
+bound at that moment, indistinguishable later from genuine FMP data.
+
+Any one-off script that reproduces test-like behavior against real ticker
+data (monkeypatching `fmp_client` to return controlled/fixture responses)
+**must** follow the exact same convention: construct a fresh in-memory
+engine and monkeypatch it onto every module's `engine` reference first.
+Never monkeypatch `fmp_client` alone and call these functions against the
+default (real, file-backed) `db.engine`. Confirmed root cause of a real
+incident (2026-07-28): `backend/tests/test_debt_metrics.py`'s "Acme Corp"
+profile fixture — used correctly, with proper engine isolation, by the
+tests themselves — ended up cached under the real ticker **PEP** (and the
+inert placeholder ticker **ACME**) in `backend/fathom.db`, live in
+production (`/tickers/PEP` and its Screener card showed "Acme Corp") for
+several hours before being caught. Root-caused to an ad-hoc script that
+mirrored the test's fixture/monkeypatch setup but only patched
+`fmp_client`, not `engine`. Purged and re-fetched; see git history around
+that date for the remediation. `backend/audit_fixture_contamination.py`
+(read-only, safe to run anytime) scans `FundamentalsCache` for the same
+class of fingerprint and should be run if this is ever suspected again.
+
 ## Scoring rubric deviations
 
 Step 1's scoring rubric intentionally diverges from
