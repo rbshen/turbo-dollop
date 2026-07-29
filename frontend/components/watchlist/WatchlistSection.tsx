@@ -1,0 +1,178 @@
+"use client";
+
+import { useMemo } from "react";
+
+import { MoatPill } from "@/components/ticker/MoatPill";
+import { ValuationBadge } from "@/components/screener/ValuationBadge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import type { WatchlistOut, WatchlistRowOut, WatchlistSortField } from "@/lib/api/types";
+import { fmtCompactMoney, fmtMoney, fmtNumber, fmtPct, changeClass } from "@/lib/format";
+import type { SortDirection } from "@/lib/screenerFilters";
+import { chipClassFor } from "@/lib/tierColor";
+import { removeTickerFromWatchlist, updateWatchlist } from "@/lib/hooks/useWatchlists";
+import { useWatchlistRows } from "@/lib/hooks/useWatchlistRows";
+import { sortWatchlistRows } from "@/lib/watchlistSort";
+
+interface Props {
+  watchlist: WatchlistOut;
+}
+
+const SORT_FIELD_OPTIONS: { value: WatchlistSortField; label: string }[] = [
+  { value: "ticker", label: "Ticker" },
+  { value: "price", label: "Price" },
+  { value: "change_percent", label: "Change %" },
+  { value: "overall_score", label: "Overall" },
+  { value: "step1_score", label: "Step 1" },
+  { value: "step2_score", label: "Step 2" },
+  { value: "step4_score", label: "Step 4" },
+  { value: "step5_score", label: "Step 5" },
+];
+
+// Same F/G/D/P labels and order as ScreenerCard's STEP_CHIPS.
+const STEP_CHIPS: { key: keyof WatchlistRowOut; verdictKey: keyof WatchlistRowOut; label: string }[] = [
+  { key: "step1_score", verdictKey: "step1_verdict", label: "F" },
+  { key: "step2_score", verdictKey: "step2_verdict", label: "G" },
+  { key: "step5_score", verdictKey: "step5_verdict", label: "D" },
+  { key: "step4_score", verdictKey: "step4_verdict", label: "P" },
+];
+
+export function WatchlistSection({ watchlist }: Props) {
+  const { data: rows, error } = useWatchlistRows(watchlist.id);
+
+  const sorted = useMemo(
+    () => (rows ? sortWatchlistRows(rows, watchlist.sort_field as WatchlistSortField, watchlist.sort_direction as SortDirection) : []),
+    [rows, watchlist.sort_field, watchlist.sort_direction]
+  );
+
+  function handleSortFieldChange(field: WatchlistSortField) {
+    updateWatchlist(watchlist.id, { sort_field: field });
+  }
+
+  function handleSortDirectionChange(direction: SortDirection) {
+    updateWatchlist(watchlist.id, { sort_direction: direction });
+  }
+
+  function openTicker(ticker: string) {
+    window.open(`/tickers/${ticker}`, "_blank", "noopener,noreferrer");
+  }
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="text-lg font-semibold tracking-tight text-zinc-100">{watchlist.name}</h2>
+        <span className="text-xs text-zinc-600">
+          {watchlist.tickers.length} ticker{watchlist.tickers.length === 1 ? "" : "s"}
+        </span>
+        <div className="ml-auto flex items-center gap-1.5 text-xs">
+          <label className="text-zinc-500" htmlFor={`sort-field-${watchlist.id}`}>
+            Sort by
+          </label>
+          <select
+            id={`sort-field-${watchlist.id}`}
+            value={watchlist.sort_field}
+            onChange={(e) => handleSortFieldChange(e.target.value as WatchlistSortField)}
+            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-zinc-300 focus:border-zinc-500 focus:outline-none"
+          >
+            {SORT_FIELD_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={watchlist.sort_direction}
+            onChange={(e) => handleSortDirectionChange(e.target.value as SortDirection)}
+            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-zinc-300 focus:border-zinc-500 focus:outline-none"
+          >
+            <option value="asc">Asc</option>
+            <option value="desc">Desc</option>
+          </select>
+        </div>
+      </div>
+
+      {watchlist.tickers.length === 0 ? (
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6 text-center text-sm text-zinc-600">
+          No tickers in this watchlist yet — add one from its ticker page.
+        </div>
+      ) : error ? (
+        <p className="text-sm text-red-400">Couldn&apos;t load this watchlist — {error.message}</p>
+      ) : !rows ? (
+        <p className="text-sm text-zinc-600 animate-pulse">Loading…</p>
+      ) : (
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40">
+          <Table className="border-separate border-spacing-0">
+            <TableHeader>
+              <TableRow className="border-zinc-800">
+                <TableHead className="text-zinc-500">Ticker</TableHead>
+                <TableHead className="text-zinc-500">Price</TableHead>
+                <TableHead className="text-zinc-500">Change</TableHead>
+                <TableHead className="text-zinc-500">Moat</TableHead>
+                <TableHead className="text-zinc-500">Valuation</TableHead>
+                <TableHead className="text-zinc-500" colSpan={4}>
+                  Steps
+                </TableHead>
+                <TableHead className="text-zinc-500">Mkt Cap</TableHead>
+                <TableHead className="text-zinc-500">P/E</TableHead>
+                <TableHead className="text-zinc-500">Beta</TableHead>
+                <TableHead className="text-zinc-500">Rating</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sorted.map((row) => (
+                <TableRow
+                  key={row.ticker}
+                  onClick={() => openTicker(row.ticker)}
+                  className="cursor-pointer border-zinc-800"
+                >
+                  <TableCell className="font-mono font-bold text-zinc-100">{row.ticker}</TableCell>
+                  <TableCell className="font-mono tabular-nums text-zinc-300">
+                    {row.price != null ? fmtMoney(row.price) : "—"}
+                  </TableCell>
+                  <TableCell className={`font-mono tabular-nums ${row.change != null ? changeClass(row.change) : "text-zinc-500"}`}>
+                    {row.change_percent != null ? fmtPct(row.change_percent) : "—"}
+                  </TableCell>
+                  <TableCell>
+                    <MoatPill moat={row.moat} />
+                  </TableCell>
+                  <TableCell>
+                    <ValuationBadge verdict={row.valuation_verdict} />
+                  </TableCell>
+                  {STEP_CHIPS.map(({ key, verdictKey, label }) => {
+                    const score = row[key] as number | null;
+                    const verdict = row[verdictKey] as string | null;
+                    return (
+                      <TableCell key={label}>
+                        <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${chipClassFor(score, verdict)}`}>
+                          {label} · {score ?? "—"}
+                        </span>
+                      </TableCell>
+                    );
+                  })}
+                  <TableCell className="font-mono text-zinc-300">
+                    {row.market_cap != null ? fmtCompactMoney(row.market_cap) : "—"}
+                  </TableCell>
+                  <TableCell className="font-mono text-zinc-300">{row.pe_ratio != null ? fmtNumber(row.pe_ratio) : "—"}</TableCell>
+                  <TableCell className="font-mono text-zinc-300">{row.beta != null ? fmtNumber(row.beta) : "—"}</TableCell>
+                  <TableCell className="text-zinc-400">{row.consensus_rating}</TableCell>
+                  <TableCell>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeTickerFromWatchlist(watchlist.id, row.ticker);
+                      }}
+                      className="text-zinc-600 hover:text-red-400"
+                    >
+                      Remove
+                    </button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </section>
+  );
+}

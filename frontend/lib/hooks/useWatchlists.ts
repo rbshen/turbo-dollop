@@ -38,10 +38,13 @@ export async function deleteWatchlist(id: number): Promise<void> {
 
 export async function addTickerToWatchlist(id: number, ticker: string): Promise<void> {
   await apiPost(`${KEY}/${id}/tickers`, { ticker });
-  await mutate(KEY);
+  // Both the watchlist list (embeds each ticker's membership, used by
+  // AddToWatchlistButton) and this watchlist's own /rows (the Watchlist
+  // page's table data) need to reflect the new ticker.
+  await Promise.all([mutate(KEY), mutate(`${KEY}/${id}/rows`)]);
 }
 
 export async function removeTickerFromWatchlist(id: number, ticker: string): Promise<void> {
   await apiDelete(`${KEY}/${id}/tickers/${encodeURIComponent(ticker)}`);
-  await mutate(KEY);
+  await Promise.all([mutate(KEY), mutate(`${KEY}/${id}/rows`)]);
 }
