@@ -618,3 +618,59 @@ export interface AnalystRatingsOut {
   history: RatingHistoryPoint[];
   recommendation_details: RecommendationDetailsColumn[];
 }
+
+export interface WatchlistTickerOut {
+  ticker: string;
+  added_at: string;
+}
+
+export interface WatchlistOut {
+  id: number;
+  name: string;
+  sort_field: WatchlistSortField;
+  sort_direction: SortDirection;
+  created_at: string;
+  updated_at: string;
+  tickers: WatchlistTickerOut[];
+}
+
+export type WatchlistSortField =
+  | "ticker"
+  | "price"
+  | "change_percent"
+  | "overall_score"
+  | "step1_score"
+  | "step2_score"
+  | "step4_score"
+  | "step5_score";
+
+// Same field set as TickerScoreOut minus sector/industry/company_type/
+// growth_rate/computed_at (not shown on the Watchlist table), plus a live
+// price/change quote and the Analyst Ratings consensus banner -- see
+// backend/watchlist_data.py::_compose_row.
+export interface WatchlistRowOut {
+  ticker: string;
+  company_name: string | null;
+  price: number | null;
+  change: number | null;
+  change_percent: number | null;
+  moat: MoatValue | null;
+  valuation_verdict: string | null;
+  step1_score: number | null;
+  step1_verdict: string | null;
+  step2_score: number | null;
+  step2_verdict: string | null;
+  step4_score: number | null;
+  step4_verdict: string | null;
+  step5_score: number | null;
+  step5_verdict: string | null;
+  overall_score: number | null;
+  overall_verdict: string | null;
+  market_cap: number | null;
+  pe_ratio: number | null;
+  beta: number | null;
+  // FMP's live consensus label -- "N/A" (never null) when there's no cached
+  // analyst-ratings data for this ticker yet.
+  consensus_rating: string;
+  added_at: string;
+}

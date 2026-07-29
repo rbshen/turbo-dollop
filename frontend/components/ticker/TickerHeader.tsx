@@ -1,5 +1,6 @@
 "use client";
 
+import { AddToWatchlistButton } from "@/components/ticker/AddToWatchlistButton";
 import { ExchangeBadge } from "@/components/ticker/ExchangeBadge";
 import { FairValuePill } from "@/components/ticker/FairValuePill";
 import { MoatPill } from "@/components/ticker/MoatPill";
@@ -47,7 +48,8 @@ export function TickerHeader({ symbol }: Props) {
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">{data.company_name ?? data.ticker}</h1>
         <span className="font-mono text-sm text-zinc-500">{data.ticker}</span>
         {data.exchange && <ExchangeBadge exchange={data.exchange} />}
-        <span className="ml-auto">
+        <span className="ml-auto flex items-center gap-2">
+          <AddToWatchlistButton ticker={data.ticker} />
           <RefreshButton ticker={data.ticker} />
         </span>
       </div>
