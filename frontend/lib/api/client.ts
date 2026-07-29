@@ -6,7 +6,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   if (!res.ok) {
-    throw new Error(`${init?.method ?? "GET"} ${path} failed: ${res.status}`);
+    // Best-effort: surface the backend's own detail message (e.g. FastAPI's
+    // HTTPException body) so callers can show real validation feedback
+    // instead of a bare status code. Falls back to the plain message below
+    // if the body isn't JSON or has no `detail` -- the "failed: {status}"
+    // substring is always still present, so existing status-code checks
+    // elsewhere (e.g. `.includes("409")`) keep working unchanged.
+    let detail: string | undefined;
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      // Non-JSON or empty error body -- no detail to add.
+    }
+    throw new Error(`${init?.method ?? "GET"} ${path} failed: ${res.status}${detail ? ` - ${detail}` : ""}`);
   }
   if (res.status === 204) {
     return undefined as T;

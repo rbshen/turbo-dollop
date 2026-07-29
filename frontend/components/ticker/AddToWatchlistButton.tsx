@@ -7,6 +7,19 @@ import { addTickerToWatchlist, bulkAddTickersToWatchlist, createWatchlist, useWa
 interface Props {
   tickers: string[];
   label?: string;
+  // Overrides the bulk confirmation's default "{n} tickers" wording, e.g.
+  // "all 37 filtered tickers" for the Screener's whole-result-set case.
+  confirmDescription?: string;
+  disabled?: boolean;
+}
+
+// Extracts the backend's own detail text appended by lib/api/client.ts's
+// request() (" - <detail>" suffix) so a capacity/validation rejection shows
+// its real message instead of a bare "Failed" label.
+function errorDetail(e: unknown): string | undefined {
+  if (!(e instanceof Error)) return undefined;
+  const idx = e.message.indexOf(" - ");
+  return idx === -1 ? undefined : e.message.slice(idx + 3);
 }
 
 type Panel = "idle" | "picking";
@@ -28,7 +41,7 @@ const CREATE_STATUS_LABELS: Record<Status, string> = {
   error: "Failed",
 };
 
-export function AddToWatchlistButton({ tickers, label = "+ Watchlist" }: Props) {
+export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDescription, disabled }: Props) {
   const { data: watchlists } = useWatchlists();
   const isBulk = tickers.length > 1;
   const [panel, setPanel] = useState<Panel>("idle");
@@ -37,8 +50,11 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist" }: Props) 
   const [newListStatus, setNewListStatus] = useState<Status>("idle");
   const [newListError, setNewListError] = useState<string | null>(null);
   const [addStatus, setAddStatus] = useState<Record<number, Status>>({});
+  // Populated alongside an "error" addStatus with the backend's own detail
+  // text (e.g. a capacity-cap rejection's exact counts) when available.
+  const [addErrorMessage, setAddErrorMessage] = useState<Record<number, string>>({});
   // Bulk-only: which watchlist's "Add" click is pending an Okay/Cancel
-  // confirmation -- a stray click here would dump up to 50 tickers into
+  // confirmation -- a stray click here would dump the whole result set into
   // the wrong list, unlike the single-ticker path where that risk doesn't
   // exist, so only bulk gets this extra step.
   const [confirmTarget, setConfirmTarget] = useState<number | null>(null);
@@ -75,9 +91,10 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist" }: Props) 
     try {
       await addTickerToWatchlist(watchlistId, tickers[0]);
       setAddStatus((prev) => ({ ...prev, [watchlistId]: "saved" }));
-    } catch {
+    } catch (e) {
       setAddStatus((prev) => ({ ...prev, [watchlistId]: "error" }));
-      setTimeout(() => setAddStatus((prev) => ({ ...prev, [watchlistId]: "idle" })), 3000);
+      setAddErrorMessage((prev) => ({ ...prev, [watchlistId]: errorDetail(e) ?? "Something went wrong" }));
+      setTimeout(() => setAddStatus((prev) => ({ ...prev, [watchlistId]: "idle" })), 4000);
     }
   }
 
@@ -102,9 +119,10 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist" }: Props) 
           return next;
         });
       }, 4000);
-    } catch {
+    } catch (e) {
       setAddStatus((prev) => ({ ...prev, [watchlistId]: "error" }));
-      setTimeout(() => setAddStatus((prev) => ({ ...prev, [watchlistId]: "idle" })), 3000);
+      setAddErrorMessage((prev) => ({ ...prev, [watchlistId]: errorDetail(e) ?? "Something went wrong" }));
+      setTimeout(() => setAddStatus((prev) => ({ ...prev, [watchlistId]: "idle" })), 4000);
     }
   }
 
@@ -126,7 +144,11 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist" }: Props) 
       setTimeout(() => setNewListStatus("idle"), 3000);
     } catch (e) {
       setNewListStatus("error");
-      setNewListError(e instanceof Error && e.message.includes("409") ? `"${trimmedName}" already exists` : "Couldn't create watchlist");
+      if (e instanceof Error && e.message.includes("409")) {
+        setNewListError(`"${trimmedName}" already exists`);
+      } else {
+        setNewListError(errorDetail(e) ?? "Couldn't create watchlist");
+      }
     }
   }
 
@@ -135,7 +157,8 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist" }: Props) 
       <button
         type="button"
         onClick={() => setPanel((p) => (p === "idle" ? "picking" : "idle"))}
-        className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
+        disabled={disabled}
+        className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {label}
       </button>
@@ -153,7 +176,7 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist" }: Props) 
                   return (
                     <div key={w.id} className="space-y-1 rounded px-2 py-1.5 text-xs">
                       <p className="text-amber-400">
-                        Add {tickers.length} tickers to &quot;{w.name}&quot;?
+                        Add {confirmDescription ?? `${tickers.length} tickers`} to &quot;{w.name}&quot;?
                       </p>
                       <div className="flex items-center gap-1.5">
                         <button
@@ -179,21 +202,26 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist" }: Props) 
                 const resultMessage = isBulk ? bulkResult[w.id] : undefined;
 
                 return (
-                  <div key={w.id} className="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-xs text-zinc-300">
-                    <span className="truncate">{w.name}</span>
-                    {alreadyAdded ? (
-                      <span className="shrink-0 text-zinc-600">Already added</span>
-                    ) : status === "saved" && resultMessage ? (
-                      <span className="shrink-0 text-emerald-400">{resultMessage}</span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => (isBulk ? setConfirmTarget(w.id) : handleAddToExisting(w.id))}
-                        disabled={status === "saving" || status === "saved"}
-                        className="shrink-0 rounded border border-zinc-700 px-1.5 py-0.5 text-zinc-400 hover:border-zinc-500 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {ADD_STATUS_LABELS[status]}
-                      </button>
+                  <div key={w.id} className="space-y-0.5 rounded px-2 py-1.5">
+                    <div className="flex items-center justify-between gap-2 text-xs text-zinc-300">
+                      <span className="truncate">{w.name}</span>
+                      {alreadyAdded ? (
+                        <span className="shrink-0 text-zinc-600">Already added</span>
+                      ) : status === "saved" && resultMessage ? (
+                        <span className="shrink-0 text-emerald-400">{resultMessage}</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => (isBulk ? setConfirmTarget(w.id) : handleAddToExisting(w.id))}
+                          disabled={status === "saving" || status === "saved"}
+                          className="shrink-0 rounded border border-zinc-700 px-1.5 py-0.5 text-zinc-400 hover:border-zinc-500 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {ADD_STATUS_LABELS[status]}
+                        </button>
+                      )}
+                    </div>
+                    {status === "error" && addErrorMessage[w.id] && (
+                      <p className="text-xs text-red-400">{addErrorMessage[w.id]}</p>
                     )}
                   </div>
                 );
