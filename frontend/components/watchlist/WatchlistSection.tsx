@@ -37,6 +37,10 @@ const STEP_CHIPS: { key: keyof WatchlistRowOut; verdictKey: keyof WatchlistRowOu
   { key: "step4_score", verdictKey: "step4_verdict", label: "P" },
 ];
 
+function slugify(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "watchlist";
+}
+
 export function WatchlistSection({ watchlist }: Props) {
   const { data: rows, error } = useWatchlistRows(watchlist.id);
 
@@ -55,6 +59,22 @@ export function WatchlistSection({ watchlist }: Props) {
 
   function openTicker(ticker: string) {
     window.open(`/tickers/${ticker}`, "_blank", "noopener,noreferrer");
+  }
+
+  function handleExport() {
+    if (!rows) return;
+    // TradingView's "Upload list" import wants a .txt file of comma-
+    // separated EXCHANGE:SYMBOL pairs -- rows with no cached exchange yet
+    // (never-visited ticker) are skipped rather than written without a
+    // prefix, since a bare symbol isn't a valid line in that format.
+    const pairs = rows.filter((r) => r.exchange != null).map((r) => `${r.exchange}:${r.ticker}`);
+    const blob = new Blob([pairs.join(",")], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slugify(watchlist.name)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -88,6 +108,14 @@ export function WatchlistSection({ watchlist }: Props) {
             <option value="asc">Asc</option>
             <option value="desc">Desc</option>
           </select>
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={!rows || rows.length === 0}
+            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Export
+          </button>
         </div>
       </div>
 
