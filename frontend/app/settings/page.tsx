@@ -1,6 +1,7 @@
 import { PageContainer } from "@/components/layout/PageContainer";
 import { DiscountRateSettingsForm } from "@/components/settings/DiscountRateSettingsForm";
 import { MoatSettingsForm } from "@/components/settings/MoatSettingsForm";
+import { WatchlistSettingsForm } from "@/components/settings/WatchlistSettingsForm";
 
 export default function SettingsPage() {
   return (
@@ -8,6 +9,7 @@ export default function SettingsPage() {
       <h1 className="pt-6 text-2xl font-semibold tracking-tight text-zinc-100">Settings</h1>
       <DiscountRateSettingsForm />
       <MoatSettingsForm />
+      <WatchlistSettingsForm />
     </PageContainer>
   );
 }
