@@ -49,7 +49,8 @@ export function WatchlistSettingsForm() {
             return (
               <div key={w.id} className="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-sm text-zinc-300">
                 <span className="truncate">
-                  {w.name} <span className="text-xs text-zinc-600">({w.tickers.length})</span>
+                  {w.name} <span className="text-xs text-zinc-600">({w.tickers.length})</span>{" "}
+                  <span className="text-xs text-zinc-600">— Created {new Date(w.created_at).toLocaleString()}</span>
                 </span>
 
                 {state === "confirming" ? (
