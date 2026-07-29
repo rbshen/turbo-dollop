@@ -65,6 +65,7 @@ from watchlist_data import get_watchlist_rows
 from watchlists import (
     add_watchlist_ticker,
     bulk_add_watchlist_tickers,
+    count_net_new_tickers,
     create_watchlist,
     delete_watchlist,
     get_watchlist_by_name,
@@ -447,6 +448,20 @@ def watchlists_delete(watchlist_id: int) -> None:
         raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
 
 
+WATCHLIST_CAPACITY = 50
+
+
+def _capacity_error(existing_count: int, net_new_count: int) -> HTTPException:
+    total = existing_count + net_new_count
+    return HTTPException(
+        status_code=400,
+        detail=(
+            f"This watchlist has {existing_count}/{WATCHLIST_CAPACITY} tickers. Adding {net_new_count} new "
+            f"ticker{'s' if net_new_count != 1 else ''} would bring it to {total}, over the {WATCHLIST_CAPACITY} cap."
+        ),
+    )
+
+
 @app.post("/api/watchlists/{watchlist_id}/tickers", response_model=WatchlistTickerOut, status_code=201)
 def watchlist_add_ticker(watchlist_id: int, body: WatchlistTickerIn) -> WatchlistTickerOut:
     ticker = body.ticker.upper()
@@ -456,24 +471,31 @@ def watchlist_add_ticker(watchlist_id: int, body: WatchlistTickerIn) -> Watchlis
             raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
         if get_watchlist_ticker(session, watchlist_id, ticker) is not None:
             raise HTTPException(status_code=409, detail=f"{ticker} is already in this watchlist")
+        # A watchlist can never hold more than WATCHLIST_CAPACITY tickers,
+        # existing + incoming combined -- checked here too (not just the
+        # bulk endpoint) so a watchlist sitting at exactly the cap correctly
+        # refuses a single add as well.
+        existing_count, net_new_count = count_net_new_tickers(session, watchlist_id, [ticker])
+        if existing_count + net_new_count > WATCHLIST_CAPACITY:
+            raise _capacity_error(existing_count, net_new_count)
         row = add_watchlist_ticker(session, watchlist_id, ticker)
         return WatchlistTickerOut(ticker=row.ticker, added_at=row.added_at)
 
 
-MAX_BULK_WATCHLIST_TICKERS = 50
-
-
 @app.post("/api/watchlists/{watchlist_id}/tickers/bulk", response_model=WatchlistBulkAddOut)
 def watchlist_bulk_add_tickers(watchlist_id: int, body: WatchlistBulkAddIn) -> WatchlistBulkAddOut:
-    if len(body.tickers) > MAX_BULK_WATCHLIST_TICKERS:
-        raise HTTPException(
-            status_code=400, detail=f"Cannot add more than {MAX_BULK_WATCHLIST_TICKERS} tickers at once"
-        )
     tickers = [t.upper() for t in body.tickers]
     with Session(engine) as session:
         watchlist = session.get(Watchlist, watchlist_id)
         if watchlist is None:
             raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
+        # Whole-operation rejection, not a partial fill: the capacity check
+        # runs before any insert happens. Computed against net-new tickers
+        # only (see count_net_new_tickers) -- re-adding tickers already in
+        # the watchlist never counts against the cap.
+        existing_count, net_new_count = count_net_new_tickers(session, watchlist_id, tickers)
+        if existing_count + net_new_count > WATCHLIST_CAPACITY:
+            raise _capacity_error(existing_count, net_new_count)
         added, already_present = bulk_add_watchlist_tickers(session, watchlist_id, tickers)
     return WatchlistBulkAddOut(added=added, already_present=already_present)
 

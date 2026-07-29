@@ -67,6 +67,18 @@ def delete_watchlist(session: Session, watchlist_id: int) -> bool:
     return True
 
 
+def count_net_new_tickers(session: Session, watchlist_id: int, tickers: list[str]) -> tuple[int, int]:
+    """Returns (existing_count, net_new_count) -- net_new_count is how many
+    of `tickers` aren't already members (deduped against both current
+    membership and each other), which is what actually counts against a
+    watchlist's 50-ticker capacity. Shared by the single-add and bulk-add
+    endpoints so re-adding an already-present ticker never counts against
+    the cap, regardless of entry point."""
+    existing = {t.ticker for t in list_watchlist_tickers(session, watchlist_id)}
+    net_new = {t for t in tickers if t not in existing}
+    return len(existing), len(net_new)
+
+
 def add_watchlist_ticker(session: Session, watchlist_id: int, ticker: str) -> WatchlistTicker:
     row = WatchlistTicker(watchlist_id=watchlist_id, ticker=ticker, added_at=datetime.now())
     session.add(row)
