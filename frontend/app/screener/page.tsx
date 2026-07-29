@@ -98,7 +98,7 @@ export default function ScreenerPage() {
     <PageContainer className="space-y-6 pb-12 pt-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-100">Screener</h1>
+          <h1 className="font-heading text-xl font-semibold text-zinc-100">Screener</h1>
           <p className="text-xs text-zinc-500">
             {data.length} of {meta ? meta.total_constituents : "…"} {UNIVERSE_LABELS[universe]} tickers
             {sorted.length !== data.length && ` — ${sorted.length} match the current filters`}

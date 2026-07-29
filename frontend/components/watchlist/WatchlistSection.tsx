@@ -80,7 +80,7 @@ export function WatchlistSection({ watchlist }: Props) {
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-lg font-semibold tracking-tight text-zinc-100">{watchlist.name}</h2>
+        <h2 className="font-heading text-lg font-semibold tracking-tight text-zinc-100">{watchlist.name}</h2>
         <span className="text-xs text-zinc-600">
           {watchlist.tickers.length} ticker{watchlist.tickers.length === 1 ? "" : "s"}
         </span>

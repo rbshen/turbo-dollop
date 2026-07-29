@@ -6,7 +6,7 @@ import { WatchlistSettingsForm } from "@/components/settings/WatchlistSettingsFo
 export default function SettingsPage() {
   return (
     <PageContainer className="space-y-6 pb-12">
-      <h1 className="pt-6 text-2xl font-semibold tracking-tight text-zinc-100">Settings</h1>
+      <h1 className="font-heading pt-6 text-2xl font-semibold tracking-tight text-zinc-100">Settings</h1>
       <DiscountRateSettingsForm />
       <MoatSettingsForm />
       <WatchlistSettingsForm />

@@ -20,7 +20,7 @@ export function TopNav() {
   return (
     <nav className="sticky top-0 z-30 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur">
       <PageContainer className="flex h-12 items-center gap-4">
-        <Link href="/" className="shrink-0 text-sm font-semibold tracking-tight text-zinc-100">
+        <Link href="/" className="font-heading shrink-0 text-sm font-semibold tracking-tight text-zinc-100">
           Fathom
         </Link>
         <div className="flex min-w-0 items-center gap-0.5">

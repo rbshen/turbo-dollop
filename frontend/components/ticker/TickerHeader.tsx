@@ -45,7 +45,7 @@ export function TickerHeader({ symbol }: Props) {
       )}
 
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">{data.company_name ?? data.ticker}</h1>
+        <h1 className="font-heading text-2xl font-semibold tracking-tight text-zinc-100">{data.company_name ?? data.ticker}</h1>
         <span className="font-mono text-sm text-zinc-500">{data.ticker}</span>
         {data.exchange && <ExchangeBadge exchange={data.exchange} />}
         <span className="ml-auto flex items-center gap-2">

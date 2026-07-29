@@ -33,7 +33,7 @@ export default function WatchlistPage() {
 
   return (
     <PageContainer className="space-y-8 pb-12">
-      <h1 className="pt-6 text-2xl font-semibold tracking-tight text-zinc-100">Watchlist</h1>
+      <h1 className="font-heading pt-6 text-2xl font-semibold tracking-tight text-zinc-100">Watchlist</h1>
       {data.map((watchlist) => (
         <WatchlistSection key={watchlist.id} watchlist={watchlist} />
       ))}
