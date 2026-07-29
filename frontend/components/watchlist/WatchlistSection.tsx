@@ -63,12 +63,36 @@ export function WatchlistSection({ watchlist }: Props) {
 
   function handleExport() {
     if (!rows) return;
-    // TradingView's "Upload list" import wants a .txt file of comma-
-    // separated EXCHANGE:SYMBOL pairs -- rows with no cached exchange yet
-    // (never-visited ticker) are skipped rather than written without a
-    // prefix, since a bare symbol isn't a valid line in that format.
-    const pairs = rows.filter((r) => r.exchange != null).map((r) => `${r.exchange}:${r.ticker}`);
-    const blob = new Blob([pairs.join(",")], { type: "text/plain" });
+    // TradingView's own watchlist "sections" feature exports as ###SectionName
+    // inline in the same comma-separated list -- group by sector (falling
+    // back to a literal "Other" bucket, never dropping the ### marker for
+    // just those rows so the file's structure stays consistent throughout).
+    // One pass over `rows` (raw fetch order, not the on-screen sort)
+    // preserves each row's existing relative order within its own sector,
+    // and sections appear in first-encounter order.
+    const bySector = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const key = row.sector ?? "Other";
+      const bucket = bySector.get(key);
+      if (bucket) {
+        bucket.push(row);
+      } else {
+        bySector.set(key, [row]);
+      }
+    }
+
+    const parts: string[] = [];
+    for (const [sector, sectorRows] of bySector) {
+      // Rows with no cached exchange yet (never-visited ticker) can't form
+      // a valid EXCHANGE:SYMBOL pair -- skipped rather than written bare.
+      // A sector left with nothing exportable is skipped entirely too, so
+      // a ### marker never appears with zero tickers under it.
+      const pairs = sectorRows.filter((r) => r.exchange != null).map((r) => `${r.exchange}:${r.ticker}`);
+      if (pairs.length === 0) continue;
+      parts.push(`###${sector}`, ...pairs);
+    }
+
+    const blob = new Blob([parts.join(",")], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
