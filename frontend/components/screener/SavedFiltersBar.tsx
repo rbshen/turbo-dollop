@@ -13,6 +13,7 @@ interface Props {
   sortDirection: SortDirection;
   filters: ScreenerFilterState;
   onLoad: (saved: SavedScreenerFilter) => void;
+  onReset: () => void;
 }
 
 type SaveStep = "idle" | "naming" | "confirmOverwrite";
@@ -28,7 +29,7 @@ const STATUS_LABELS: Record<Status, string> = {
   error: "Save failed",
 };
 
-export function SavedFiltersBar({ universe, sortField, sortDirection, filters, onLoad }: Props) {
+export function SavedFiltersBar({ universe, sortField, sortDirection, filters, onLoad, onReset }: Props) {
   const { data: saved } = useSavedFilters();
   const [listOpen, setListOpen] = useState(false);
   const [saveStep, setSaveStep] = useState<SaveStep>("idle");
@@ -155,6 +156,16 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
           className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
         >
           Save current view
+        </button>
+      )}
+
+      {saveStep === "idle" && (
+        <button
+          type="button"
+          onClick={onReset}
+          className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
+        >
+          Reset
         </button>
       )}
 

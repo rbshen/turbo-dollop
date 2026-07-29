@@ -131,6 +131,9 @@ export function ScreenerFilters({ filters, onFiltersChange, sectors, companyType
     <div className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
       <div className="flex flex-wrap gap-x-6 gap-y-2">
         <RangeInput label="Overall" value={filters.overallScore} onChange={(r) => patch({ overallScore: r })} />
+      </div>
+
+      <div className="flex flex-wrap gap-x-6 gap-y-2">
         <RangeInput label="Financials" value={filters.step1Score} onChange={(r) => patch({ step1Score: r })} />
         <RangeInput label="Growth Rate" value={filters.step2Score} onChange={(r) => patch({ step2Score: r })} />
         <RangeInput label="Profitability" value={filters.step4Score} onChange={(r) => patch({ step4Score: r })} />

@@ -31,7 +31,7 @@ const UNIVERSE_LABELS: Record<ScreenerUniverse, string> = {
 };
 
 export default function ScreenerPage() {
-  const [universe, setUniverse] = useState<ScreenerUniverse>("sp500");
+  const [universe, setUniverse] = useState<ScreenerUniverse>("all");
   const { data, error } = useScreener(universe);
   const { data: meta } = useScreenerMeta(universe);
 
@@ -58,6 +58,10 @@ export default function ScreenerPage() {
   function handleFiltersChange(next: ScreenerFilterState) {
     setFilters(next);
     setPage(1);
+  }
+
+  function handleResetFilters() {
+    handleFiltersChange(DEFAULT_FILTER_STATE);
   }
 
   function handleSortChange(field: SortField, direction: SortDirection) {
@@ -112,6 +116,7 @@ export default function ScreenerPage() {
         sortDirection={sortDirection}
         filters={filters}
         onLoad={handleLoadSavedFilter}
+        onReset={handleResetFilters}
       />
 
       <ScreenerFilters
