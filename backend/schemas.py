@@ -605,6 +605,15 @@ class WatchlistTickerIn(BaseModel):
     ticker: str
 
 
+class WatchlistBulkAddIn(BaseModel):
+    tickers: list[str]
+
+
+class WatchlistBulkAddOut(BaseModel):
+    added: int
+    already_present: int
+
+
 class WatchlistRowOut(BaseModel):
     """One Watchlist row: compute_ticker_score's cache-only fields (same set
     as TickerScoreOut, minus company/sector/industry/growth_rate/computed_at

@@ -75,6 +75,28 @@ def add_watchlist_ticker(session: Session, watchlist_id: int, ticker: str) -> Wa
     return row
 
 
+def bulk_add_watchlist_tickers(session: Session, watchlist_id: int, tickers: list[str]) -> tuple[int, int]:
+    """Adds every ticker not already a member, in one session/commit.
+    Returns (added, already_present) so the caller can report e.g. "Added 47
+    (3 already in this watchlist)" rather than erroring on the overlap --
+    same dedupe the single-add endpoint already relies on via the unique
+    constraint, just checked up front instead of racing the DB for it.
+    Also naturally dedupes a caller-supplied list with repeats."""
+    existing = {t.ticker for t in list_watchlist_tickers(session, watchlist_id)}
+    now = datetime.now()
+    added = 0
+    already_present = 0
+    for ticker in tickers:
+        if ticker in existing:
+            already_present += 1
+            continue
+        session.add(WatchlistTicker(watchlist_id=watchlist_id, ticker=ticker, added_at=now))
+        existing.add(ticker)
+        added += 1
+    session.commit()
+    return added, already_present
+
+
 def get_watchlist_ticker(session: Session, watchlist_id: int, ticker: str) -> WatchlistTicker | None:
     return session.exec(
         select(WatchlistTicker).where(WatchlistTicker.watchlist_id == watchlist_id, WatchlistTicker.ticker == ticker)

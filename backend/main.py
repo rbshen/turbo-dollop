@@ -44,6 +44,8 @@ from schemas import (
     TickerScoreOut,
     TickerSummaryOut,
     Universe,
+    WatchlistBulkAddIn,
+    WatchlistBulkAddOut,
     WatchlistIn,
     WatchlistOut,
     WatchlistRowOut,
@@ -62,6 +64,7 @@ from ticker_summary import get_summary
 from watchlist_data import get_watchlist_rows
 from watchlists import (
     add_watchlist_ticker,
+    bulk_add_watchlist_tickers,
     create_watchlist,
     delete_watchlist,
     get_watchlist_by_name,
@@ -455,6 +458,24 @@ def watchlist_add_ticker(watchlist_id: int, body: WatchlistTickerIn) -> Watchlis
             raise HTTPException(status_code=409, detail=f"{ticker} is already in this watchlist")
         row = add_watchlist_ticker(session, watchlist_id, ticker)
         return WatchlistTickerOut(ticker=row.ticker, added_at=row.added_at)
+
+
+MAX_BULK_WATCHLIST_TICKERS = 50
+
+
+@app.post("/api/watchlists/{watchlist_id}/tickers/bulk", response_model=WatchlistBulkAddOut)
+def watchlist_bulk_add_tickers(watchlist_id: int, body: WatchlistBulkAddIn) -> WatchlistBulkAddOut:
+    if len(body.tickers) > MAX_BULK_WATCHLIST_TICKERS:
+        raise HTTPException(
+            status_code=400, detail=f"Cannot add more than {MAX_BULK_WATCHLIST_TICKERS} tickers at once"
+        )
+    tickers = [t.upper() for t in body.tickers]
+    with Session(engine) as session:
+        watchlist = session.get(Watchlist, watchlist_id)
+        if watchlist is None:
+            raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
+        added, already_present = bulk_add_watchlist_tickers(session, watchlist_id, tickers)
+    return WatchlistBulkAddOut(added=added, already_present=already_present)
 
 
 @app.delete("/api/watchlists/{watchlist_id}/tickers/{ticker}", status_code=204)
