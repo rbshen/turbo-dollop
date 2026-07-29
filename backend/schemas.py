@@ -574,6 +574,72 @@ class SavedScreenerFilterOut(BaseModel):
 Universe = Literal["sp500", "dow", "all"]
 
 
+class WatchlistTickerOut(BaseModel):
+    ticker: str
+    added_at: datetime
+
+
+class WatchlistOut(BaseModel):
+    id: int
+    name: str
+    sort_field: str
+    sort_direction: str
+    created_at: datetime
+    updated_at: datetime
+    tickers: list[WatchlistTickerOut]
+
+
+class WatchlistIn(BaseModel):
+    name: str
+
+
+class WatchlistUpdateIn(BaseModel):
+    # All optional -- PUT /api/watchlists/{id} is a partial update (rename
+    # and/or sort preference), not a full-replace.
+    name: str | None = None
+    sort_field: str | None = None
+    sort_direction: str | None = None
+
+
+class WatchlistTickerIn(BaseModel):
+    ticker: str
+
+
+class WatchlistRowOut(BaseModel):
+    """One Watchlist row: compute_ticker_score's cache-only fields (same set
+    as TickerScoreOut, minus company/sector/industry/growth_rate/computed_at
+    which the Watchlist table doesn't show) plus a live price/change quote
+    and the Analyst Ratings consensus banner (also cache-only) -- see
+    watchlist_data.py::_compose_row. Every score field is None for a ticker
+    that's never been visited/cached (compute_ticker_score returns None),
+    rather than erroring the whole row."""
+
+    ticker: str
+    company_name: str | None = None
+    price: float | None = None
+    change: float | None = None
+    change_percent: float | None = None
+    moat: str | None = None
+    valuation_verdict: str | None = None
+    step1_score: int | None = None
+    step1_verdict: str | None = None
+    step2_score: int | None = None
+    step2_verdict: str | None = None
+    step4_score: int | None = None
+    step4_verdict: str | None = None
+    step5_score: int | None = None
+    step5_verdict: str | None = None
+    overall_score: int | None = None
+    overall_verdict: str | None = None
+    market_cap: float | None = None
+    pe_ratio: float | None = None
+    beta: float | None = None
+    # FMP's live consensus label (ConsensusBanner.rating), "N/A" when there's
+    # no cached analyst-ratings data for this ticker yet -- never null.
+    consensus_rating: str
+    added_at: datetime
+
+
 class ScreenerMeta(BaseModel):
     universe: Universe
     # Total stored constituents for `universe` -- NOT the same as

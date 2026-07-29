@@ -10,7 +10,7 @@ from db import engine, init_db
 from discount_rate_config import get_discount_rate_config, update_discount_rate_config
 from logging_config import apply_redaction_filters
 from moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
-from models import IndexConstituent, SavedScreenerFilter, TickerScore
+from models import IndexConstituent, SavedScreenerFilter, TickerScore, Watchlist
 from recompute_ticker_scores import recompute_all
 from refresh import clear_ticker_cache
 from financials_data import get_financials_data
@@ -44,6 +44,12 @@ from schemas import (
     TickerScoreOut,
     TickerSummaryOut,
     Universe,
+    WatchlistIn,
+    WatchlistOut,
+    WatchlistRowOut,
+    WatchlistTickerIn,
+    WatchlistTickerOut,
+    WatchlistUpdateIn,
 )
 from step1_data import get_step1_data
 from step2_data import get_step2_data
@@ -53,6 +59,18 @@ from step4_data import get_step4_data
 from step5_data import get_step5_data
 from ticker_score import compute_ticker_score
 from ticker_summary import get_summary
+from watchlist_data import get_watchlist_rows
+from watchlists import (
+    add_watchlist_ticker,
+    create_watchlist,
+    delete_watchlist,
+    get_watchlist_by_name,
+    get_watchlist_ticker,
+    list_watchlist_tickers,
+    list_watchlists,
+    remove_watchlist_ticker,
+    update_watchlist,
+)
 
 apply_redaction_filters()
 
@@ -373,3 +391,85 @@ def screener_filters_delete(name: str) -> None:
         deleted = delete_saved_filter(session, name)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"No saved filter named '{name}'")
+
+
+def _watchlist_out(row: Watchlist, tickers: list) -> WatchlistOut:
+    return WatchlistOut(
+        id=row.id,
+        name=row.name,
+        sort_field=row.sort_field,
+        sort_direction=row.sort_direction,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        tickers=[WatchlistTickerOut(ticker=t.ticker, added_at=t.added_at) for t in tickers],
+    )
+
+
+@app.get("/api/watchlists", response_model=list[WatchlistOut])
+def watchlists_list() -> list[WatchlistOut]:
+    with Session(engine) as session:
+        watchlists = list_watchlists(session)
+        return [_watchlist_out(w, list_watchlist_tickers(session, w.id)) for w in watchlists]
+
+
+@app.post("/api/watchlists", response_model=WatchlistOut, status_code=201)
+def watchlists_create(body: WatchlistIn) -> WatchlistOut:
+    with Session(engine) as session:
+        if get_watchlist_by_name(session, body.name) is not None:
+            raise HTTPException(status_code=409, detail=f"A watchlist named '{body.name}' already exists")
+        row = create_watchlist(session, body.name)
+        return _watchlist_out(row, [])
+
+
+@app.put("/api/watchlists/{watchlist_id}", response_model=WatchlistOut)
+def watchlists_update(watchlist_id: int, body: WatchlistUpdateIn) -> WatchlistOut:
+    with Session(engine) as session:
+        if body.name is not None:
+            existing = get_watchlist_by_name(session, body.name)
+            if existing is not None and existing.id != watchlist_id:
+                raise HTTPException(status_code=409, detail=f"A watchlist named '{body.name}' already exists")
+        row = update_watchlist(
+            session, watchlist_id, name=body.name, sort_field=body.sort_field, sort_direction=body.sort_direction
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
+        return _watchlist_out(row, list_watchlist_tickers(session, watchlist_id))
+
+
+@app.delete("/api/watchlists/{watchlist_id}", status_code=204)
+def watchlists_delete(watchlist_id: int) -> None:
+    with Session(engine) as session:
+        deleted = delete_watchlist(session, watchlist_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
+
+
+@app.post("/api/watchlists/{watchlist_id}/tickers", response_model=WatchlistTickerOut, status_code=201)
+def watchlist_add_ticker(watchlist_id: int, body: WatchlistTickerIn) -> WatchlistTickerOut:
+    ticker = body.ticker.upper()
+    with Session(engine) as session:
+        watchlist = session.get(Watchlist, watchlist_id)
+        if watchlist is None:
+            raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
+        if get_watchlist_ticker(session, watchlist_id, ticker) is not None:
+            raise HTTPException(status_code=409, detail=f"{ticker} is already in this watchlist")
+        row = add_watchlist_ticker(session, watchlist_id, ticker)
+        return WatchlistTickerOut(ticker=row.ticker, added_at=row.added_at)
+
+
+@app.delete("/api/watchlists/{watchlist_id}/tickers/{ticker}", status_code=204)
+def watchlist_remove_ticker(watchlist_id: int, ticker: str) -> None:
+    with Session(engine) as session:
+        deleted = remove_watchlist_ticker(session, watchlist_id, ticker.upper())
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"{ticker.upper()} not found in watchlist {watchlist_id}")
+
+
+@app.get("/api/watchlists/{watchlist_id}/rows", response_model=list[WatchlistRowOut])
+async def watchlist_rows(watchlist_id: int) -> list[WatchlistRowOut]:
+    with Session(engine) as session:
+        watchlist = session.get(Watchlist, watchlist_id)
+        if watchlist is None:
+            raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
+        tickers = list_watchlist_tickers(session, watchlist_id)
+    return await get_watchlist_rows(tickers)
