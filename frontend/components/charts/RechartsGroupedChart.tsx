@@ -26,6 +26,11 @@ interface Props {
   // X-axis labels instead of overlapping them -- opt in per-caller rather
   // than changing the default for everyone.
   xAxisInterval?: number | "preserveStart" | "preserveEnd" | "preserveStartEnd";
+  // Every existing caller's categories are already display-ready (year/TTM
+  // labels), so this defaults to identity. Analyst Ratings' history is raw
+  // ISO dates (YYYY-MM-DD) and opts in to shorten them for the axis only --
+  // the tooltip's own date header is unaffected.
+  xAxisTickFormat?: (v: string) => string;
 }
 
 // Recharts/shadcn-based chart, replacing the old hand-rolled SVG
@@ -41,6 +46,7 @@ export function RechartsGroupedChart({
   yTickFormat,
   height = 216,
   xAxisInterval = 0,
+  xAxisTickFormat = (v) => v,
 }: Props) {
   const [hovered, setHovered] = useState<string | null>(null);
 
@@ -69,6 +75,7 @@ export function RechartsGroupedChart({
         <XAxis
           dataKey="category"
           interval={xAxisInterval}
+          tickFormatter={xAxisTickFormat}
           tickLine={false}
           axisLine={false}
           tick={{ fill: "#71717a", fontSize: 10 }}
