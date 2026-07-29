@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { addTickerToWatchlist, createWatchlist, useWatchlists } from "@/lib/hooks/useWatchlists";
+import { addTickerToWatchlist, bulkAddTickersToWatchlist, createWatchlist, useWatchlists } from "@/lib/hooks/useWatchlists";
 
 interface Props {
-  ticker: string;
+  tickers: string[];
+  label?: string;
 }
 
 type Panel = "idle" | "picking";
@@ -27,14 +28,21 @@ const CREATE_STATUS_LABELS: Record<Status, string> = {
   error: "Failed",
 };
 
-export function AddToWatchlistButton({ ticker }: Props) {
+export function AddToWatchlistButton({ tickers, label = "+ Watchlist" }: Props) {
   const { data: watchlists } = useWatchlists();
+  const isBulk = tickers.length > 1;
   const [panel, setPanel] = useState<Panel>("idle");
   const [newListStep, setNewListStep] = useState<NewListStep>("idle");
   const [newListName, setNewListName] = useState("");
   const [newListStatus, setNewListStatus] = useState<Status>("idle");
   const [newListError, setNewListError] = useState<string | null>(null);
   const [addStatus, setAddStatus] = useState<Record<number, Status>>({});
+  // Bulk-only: which watchlist's "Add" click is pending an Okay/Cancel
+  // confirmation -- a stray click here would dump up to 50 tickers into
+  // the wrong list, unlike the single-ticker path where that risk doesn't
+  // exist, so only bulk gets this extra step.
+  const [confirmTarget, setConfirmTarget] = useState<number | null>(null);
+  const [bulkResult, setBulkResult] = useState<Record<number, string>>({});
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -42,6 +50,7 @@ export function AddToWatchlistButton({ ticker }: Props) {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setPanel("idle");
         setNewListStep("idle");
+        setConfirmTarget(null);
       }
     }
     document.addEventListener("mousedown", onClickOutside);
@@ -64,8 +73,35 @@ export function AddToWatchlistButton({ ticker }: Props) {
   async function handleAddToExisting(watchlistId: number) {
     setAddStatus((prev) => ({ ...prev, [watchlistId]: "saving" }));
     try {
-      await addTickerToWatchlist(watchlistId, ticker);
+      await addTickerToWatchlist(watchlistId, tickers[0]);
       setAddStatus((prev) => ({ ...prev, [watchlistId]: "saved" }));
+    } catch {
+      setAddStatus((prev) => ({ ...prev, [watchlistId]: "error" }));
+      setTimeout(() => setAddStatus((prev) => ({ ...prev, [watchlistId]: "idle" })), 3000);
+    }
+  }
+
+  async function handleBulkAdd(watchlistId: number) {
+    setConfirmTarget(null);
+    setAddStatus((prev) => ({ ...prev, [watchlistId]: "saving" }));
+    try {
+      const result = await bulkAddTickersToWatchlist(watchlistId, tickers);
+      setBulkResult((prev) => ({
+        ...prev,
+        [watchlistId]:
+          result.already_present > 0
+            ? `Added ${result.added} (${result.already_present} already in this watchlist)`
+            : `Added ${result.added}`,
+      }));
+      setAddStatus((prev) => ({ ...prev, [watchlistId]: "saved" }));
+      setTimeout(() => {
+        setAddStatus((prev) => ({ ...prev, [watchlistId]: "idle" }));
+        setBulkResult((prev) => {
+          const next = { ...prev };
+          delete next[watchlistId];
+          return next;
+        });
+      }, 4000);
     } catch {
       setAddStatus((prev) => ({ ...prev, [watchlistId]: "error" }));
       setTimeout(() => setAddStatus((prev) => ({ ...prev, [watchlistId]: "idle" })), 3000);
@@ -79,7 +115,11 @@ export function AddToWatchlistButton({ ticker }: Props) {
     setNewListError(null);
     try {
       const watchlist = await createWatchlist(trimmedName);
-      await addTickerToWatchlist(watchlist.id, ticker);
+      if (isBulk) {
+        await bulkAddTickersToWatchlist(watchlist.id, tickers);
+      } else {
+        await addTickerToWatchlist(watchlist.id, tickers[0]);
+      }
       setNewListStatus("saved");
       setNewListStep("idle");
       setNewListName("");
@@ -97,7 +137,7 @@ export function AddToWatchlistButton({ ticker }: Props) {
         onClick={() => setPanel((p) => (p === "idle" ? "picking" : "idle"))}
         className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
       >
-        + Watchlist
+        {label}
       </button>
 
       {panel === "picking" && (
@@ -107,17 +147,48 @@ export function AddToWatchlistButton({ ticker }: Props) {
           ) : (
             <div className="max-h-56 overflow-y-auto">
               {watchlists.map((w) => {
-                const alreadyAdded = w.tickers.some((t) => t.ticker === ticker.toUpperCase());
                 const status = addStatus[w.id] ?? "idle";
+
+                if (isBulk && confirmTarget === w.id) {
+                  return (
+                    <div key={w.id} className="space-y-1 rounded px-2 py-1.5 text-xs">
+                      <p className="text-amber-400">
+                        Add {tickers.length} tickers to &quot;{w.name}&quot;?
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleBulkAdd(w.id)}
+                          className="rounded border border-amber-800/60 px-1.5 py-0.5 text-amber-300 hover:border-amber-600"
+                        >
+                          Okay
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmTarget(null)}
+                          className="rounded border border-zinc-700 px-1.5 py-0.5 text-zinc-500 hover:border-zinc-500 hover:text-zinc-300"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                const alreadyAdded = !isBulk && w.tickers.some((t) => t.ticker === tickers[0].toUpperCase());
+                const resultMessage = isBulk ? bulkResult[w.id] : undefined;
+
                 return (
                   <div key={w.id} className="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-xs text-zinc-300">
                     <span className="truncate">{w.name}</span>
                     {alreadyAdded ? (
                       <span className="shrink-0 text-zinc-600">Already added</span>
+                    ) : status === "saved" && resultMessage ? (
+                      <span className="shrink-0 text-emerald-400">{resultMessage}</span>
                     ) : (
                       <button
                         type="button"
-                        onClick={() => handleAddToExisting(w.id)}
+                        onClick={() => (isBulk ? setConfirmTarget(w.id) : handleAddToExisting(w.id))}
                         disabled={status === "saving" || status === "saved"}
                         className="shrink-0 rounded border border-zinc-700 px-1.5 py-0.5 text-zinc-400 hover:border-zinc-500 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
                       >

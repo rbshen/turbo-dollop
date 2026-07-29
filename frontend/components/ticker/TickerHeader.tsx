@@ -49,7 +49,7 @@ export function TickerHeader({ symbol }: Props) {
         <span className="font-mono text-sm text-zinc-500">{data.ticker}</span>
         {data.exchange && <ExchangeBadge exchange={data.exchange} />}
         <span className="ml-auto flex items-center gap-2">
-          <AddToWatchlistButton ticker={data.ticker} />
+          <AddToWatchlistButton tickers={[data.ticker]} />
           <RefreshButton ticker={data.ticker} />
         </span>
       </div>

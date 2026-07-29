@@ -15,6 +15,11 @@ export interface UpdateWatchlistBody {
   sort_direction?: SortDirection;
 }
 
+export interface BulkAddResult {
+  added: number;
+  already_present: number;
+}
+
 export function useWatchlists() {
   return useApiResource<WatchlistOut[]>(KEY);
 }
@@ -47,4 +52,10 @@ export async function addTickerToWatchlist(id: number, ticker: string): Promise<
 export async function removeTickerFromWatchlist(id: number, ticker: string): Promise<void> {
   await apiDelete(`${KEY}/${id}/tickers/${encodeURIComponent(ticker)}`);
   await Promise.all([mutate(KEY), mutate(`${KEY}/${id}/rows`)]);
+}
+
+export async function bulkAddTickersToWatchlist(id: number, tickers: string[]): Promise<BulkAddResult> {
+  const result = await apiPost<BulkAddResult>(`${KEY}/${id}/tickers/bulk`, { tickers });
+  await Promise.all([mutate(KEY), mutate(`${KEY}/${id}/rows`)]);
+  return result;
 }

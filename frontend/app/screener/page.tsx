@@ -9,6 +9,7 @@ import { SavedFiltersBar } from "@/components/screener/SavedFiltersBar";
 import { ScreenerCard } from "@/components/screener/ScreenerCard";
 import { ScreenerFilters } from "@/components/screener/ScreenerFilters";
 import { UniverseSelector } from "@/components/screener/UniverseSelector";
+import { AddToWatchlistButton } from "@/components/ticker/AddToWatchlistButton";
 import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
 import { useScreener, useScreenerMeta } from "@/lib/hooks/useScreener";
 import {
@@ -23,6 +24,7 @@ import {
 } from "@/lib/screenerFilters";
 
 const PAGE_SIZE = 24;
+const MAX_SELECTED = 50;
 
 const UNIVERSE_LABELS: Record<ScreenerUniverse, string> = {
   sp500: "S&P 500",
@@ -39,10 +41,23 @@ export default function ScreenerPage() {
   const [sortField, setSortField] = useState<SortField>("overall_score");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   function handleUniverseChange(next: ScreenerUniverse) {
     setUniverse(next);
     setPage(1);
+  }
+
+  function handleToggleSelected(ticker: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(ticker)) {
+        next.delete(ticker);
+      } else if (next.size < MAX_SELECTED) {
+        next.add(ticker);
+      }
+      return next;
+    });
   }
 
   const sectors = useMemo(() => extractSectors(data ?? []), [data]);
@@ -129,12 +144,39 @@ export default function ScreenerPage() {
         onSortChange={handleSortChange}
       />
 
+      {selected.size > 0 && (
+        <div className="sticky top-12 z-20 flex flex-wrap items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-sm shadow-lg">
+          <span className="font-medium text-zinc-200">{selected.size} selected</span>
+          {selected.size >= MAX_SELECTED && (
+            <span className="text-xs text-amber-400">
+              {MAX_SELECTED}/{MAX_SELECTED} selected — remove one to add another
+            </span>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+            >
+              Clear
+            </button>
+            <AddToWatchlistButton tickers={Array.from(selected)} label="Add to Watchlist" />
+          </div>
+        </div>
+      )}
+
       {sorted.length === 0 ? (
         <p className="py-12 text-center text-sm text-zinc-600">No tickers match the current filters.</p>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {pageRows.map((row) => (
-            <ScreenerCard key={row.ticker} data={row} />
+            <ScreenerCard
+              key={row.ticker}
+              data={row}
+              selected={selected.has(row.ticker)}
+              onToggle={handleToggleSelected}
+              selectionDisabled={selected.size >= MAX_SELECTED}
+            />
           ))}
         </div>
       )}
