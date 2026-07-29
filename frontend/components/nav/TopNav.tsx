@@ -11,7 +11,6 @@ const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/screener", label: "Screener" },
   { href: "/watchlist", label: "Watchlist" },
-  { href: "/reports", label: "Reports" },
   { href: "/settings", label: "Settings" },
 ];
 
