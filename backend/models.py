@@ -117,6 +117,38 @@ class SavedScreenerFilter(SQLModel, table=True):
     updated_at: datetime
 
 
+class Watchlist(SQLModel, table=True):
+    """A user-named list of tickers, browsable from the /watchlist page.
+    Global list, no per-user scoping (same as SavedScreenerFilter/TickerMoat
+    -- this app has no auth concept). sort_field/sort_direction persist the
+    table's last-chosen sort so it's remembered across visits, same role
+    SavedScreenerFilter's own sort_field/sort_direction play for a saved
+    Screener view."""
+
+    __table_args__ = (UniqueConstraint("name", name="uq_watchlist_name"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    sort_field: str = "ticker"
+    sort_direction: str = "asc"
+    created_at: datetime
+    updated_at: datetime
+
+
+class WatchlistTicker(SQLModel, table=True):
+    """One ticker's membership in a Watchlist. No SQLite-level ON DELETE
+    CASCADE (this app never enables PRAGMA foreign_keys) -- deleting a
+    Watchlist must explicitly delete its WatchlistTicker rows first, see
+    watchlists.py::delete_watchlist."""
+
+    __table_args__ = (UniqueConstraint("watchlist_id", "ticker", name="uq_watchlist_ticker"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    watchlist_id: int = Field(foreign_key="watchlist.id", index=True)
+    ticker: str
+    added_at: datetime
+
+
 class TickerScore(SQLModel, table=True):
     """Pre-computed Step 1/2/4/5 + Overall Assessment scores for the
     Screener page (see ticker_score.py) -- a denormalized read-model kept
