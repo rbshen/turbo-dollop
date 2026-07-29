@@ -3,10 +3,11 @@
 import { useMemo } from "react";
 
 import { MoatPill } from "@/components/ticker/MoatPill";
+import { PriceChange } from "@/components/ticker/PriceChange";
 import { ValuationBadge } from "@/components/screener/ValuationBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { WatchlistOut, WatchlistRowOut, WatchlistSortField } from "@/lib/api/types";
-import { fmtCompactMoney, fmtMoney, fmtNumber, fmtPct, changeClass } from "@/lib/format";
+import { fmtCompactMoney, fmtMoney, fmtNumber } from "@/lib/format";
 import type { SortDirection } from "@/lib/screenerFilters";
 import { chipClassFor } from "@/lib/tierColor";
 import { removeTickerFromWatchlist, updateWatchlist } from "@/lib/hooks/useWatchlists";
@@ -104,17 +105,18 @@ export function WatchlistSection({ watchlist }: Props) {
             <TableHeader>
               <TableRow className="border-zinc-800">
                 <TableHead className="text-zinc-500">Ticker</TableHead>
+                <TableHead className="text-zinc-500">Sector</TableHead>
                 <TableHead className="text-zinc-500">Price</TableHead>
                 <TableHead className="text-zinc-500">Change</TableHead>
                 <TableHead className="text-zinc-500">Moat</TableHead>
                 <TableHead className="text-zinc-500">Valuation</TableHead>
                 <TableHead className="text-zinc-500" colSpan={4}>
-                  Steps
+                  Analysis
                 </TableHead>
+                <TableHead className="text-zinc-500">Rating</TableHead>
                 <TableHead className="text-zinc-500">Mkt Cap</TableHead>
                 <TableHead className="text-zinc-500">P/E</TableHead>
                 <TableHead className="text-zinc-500">Beta</TableHead>
-                <TableHead className="text-zinc-500">Rating</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -126,11 +128,16 @@ export function WatchlistSection({ watchlist }: Props) {
                   className="cursor-pointer border-zinc-800"
                 >
                   <TableCell className="font-mono font-bold text-zinc-100">{row.ticker}</TableCell>
+                  <TableCell className="text-zinc-500">{row.sector ?? "—"}</TableCell>
                   <TableCell className="font-mono tabular-nums text-zinc-300">
                     {row.price != null ? fmtMoney(row.price) : "—"}
                   </TableCell>
-                  <TableCell className={`font-mono tabular-nums ${row.change != null ? changeClass(row.change) : "text-zinc-500"}`}>
-                    {row.change_percent != null ? fmtPct(row.change_percent) : "—"}
+                  <TableCell>
+                    {row.change != null && row.change_percent != null ? (
+                      <PriceChange change={row.change} changePercent={row.change_percent} />
+                    ) : (
+                      <span className="text-zinc-500">—</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <MoatPill moat={row.moat} />
@@ -149,12 +156,12 @@ export function WatchlistSection({ watchlist }: Props) {
                       </TableCell>
                     );
                   })}
+                  <TableCell className="text-zinc-400">{row.consensus_rating}</TableCell>
                   <TableCell className="font-mono text-zinc-300">
                     {row.market_cap != null ? fmtCompactMoney(row.market_cap) : "—"}
                   </TableCell>
                   <TableCell className="font-mono text-zinc-300">{row.pe_ratio != null ? fmtNumber(row.pe_ratio) : "—"}</TableCell>
                   <TableCell className="font-mono text-zinc-300">{row.beta != null ? fmtNumber(row.beta) : "—"}</TableCell>
-                  <TableCell className="text-zinc-400">{row.consensus_rating}</TableCell>
                   <TableCell>
                     <button
                       type="button"

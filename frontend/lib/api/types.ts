@@ -651,6 +651,10 @@ export type WatchlistSortField =
 export interface WatchlistRowOut {
   ticker: string;
   company_name: string | null;
+  sector: string | null;
+  // FMP's exchangeShortName (e.g. "NASDAQ", "NYSE") -- used to build the
+  // EXCHANGE:SYMBOL pairs the per-watchlist Export button writes out.
+  exchange: string | null;
   price: number | null;
   change: number | null;
   change_percent: number | null;
