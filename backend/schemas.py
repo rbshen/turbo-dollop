@@ -616,6 +616,12 @@ class WatchlistRowOut(BaseModel):
 
     ticker: str
     company_name: str | None = None
+    sector: str | None = None
+    # FMP's exchangeShortName (e.g. "NASDAQ", "NYSE") -- used to build the
+    # EXCHANGE:SYMBOL pairs the per-watchlist Export button writes out for
+    # TradingView's "Upload list" import. None whenever the profile cache
+    # entry isn't populated yet (never-visited ticker).
+    exchange: str | None = None
     price: float | None = None
     change: float | None = None
     change_percent: float | None = None

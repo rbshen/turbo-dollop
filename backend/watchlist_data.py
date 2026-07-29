@@ -3,13 +3,39 @@ import asyncio
 from sqlmodel import Session
 
 from analyst_ratings_data import get_analyst_ratings_data
-from cache import force_fetch, safe_fetch
+from cache import force_fetch, get_or_fetch, safe_fetch
+from config import settings
 from db import engine
 from first import _first
 from fmp_client import fmp_client
 from models import WatchlistTicker
 from schemas import WatchlistRowOut
 from ticker_score import compute_ticker_score
+
+
+async def _cached_exchange(ticker: str) -> str | None:
+    # Cache-only read of the same "profile"/"latest" cache entry get_summary
+    # already populates (compute_ticker_score's own get_summary(cache_only=
+    # True) call, run concurrently with this one) -- no new cache entry, no
+    # live FMP call, since get_or_fetch never invokes fetch_fn when
+    # cache_only=True. Only needed to build the Export button's
+    # EXCHANGE:SYMBOL pairs; TickerScore itself doesn't carry exchange.
+    with Session(engine) as session:
+        profile = _first(
+            await safe_fetch(
+                "profile",
+                get_or_fetch(
+                    session,
+                    ticker,
+                    "profile",
+                    "latest",
+                    lambda: fmp_client.get_profile(ticker),
+                    settings.cache_staleness_days,
+                    True,
+                ),
+            )
+        )
+    return profile.get("exchangeShortName") or profile.get("exchange")
 
 
 async def _live_quote(ticker: str) -> dict:
@@ -30,7 +56,7 @@ async def _live_quote(ticker: str) -> dict:
 
 async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
     ticker = watchlist_ticker.ticker.upper()
-    score, ratings, quote = await asyncio.gather(
+    score, ratings, quote, exchange = await asyncio.gather(
         # cache_only=True: opening the Watchlist page must not trigger a
         # live FMP refetch cascade across every ticker in the list, same
         # reasoning as the Screener page. Returns None for a ticker with no
@@ -39,11 +65,14 @@ async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
         compute_ticker_score(ticker, cache_only=True),
         get_analyst_ratings_data(ticker, cache_only=True),
         _live_quote(ticker),
+        _cached_exchange(ticker),
     )
 
     return WatchlistRowOut(
         ticker=ticker,
         company_name=score.company_name if score else None,
+        sector=score.sector if score else None,
+        exchange=exchange,
         price=quote.get("price"),
         change=quote.get("change"),
         change_percent=quote.get("changePercentage", quote.get("changesPercentage")),
