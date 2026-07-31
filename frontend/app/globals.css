@@ -177,10 +177,18 @@
   --fathom-text-body: oklch(86% 0.01 260);
   --fathom-brand: oklch(64% 0.17 260);
   --fathom-brand-hover: oklch(76% 0.16 260);
-  --fathom-positive: oklch(68% 0.15 155);
-  /* Deeper/more saturated than --fathom-positive, same hue (155) --
-     Strong Pass / Undervalued / Wide Moat, one tier up from a plain Pass. */
-  --fathom-positive-strong: oklch(58% 0.17 155);
+  /* Muted/faded on purpose, same hue (155) as positive-strong below -- a
+     plain Pass/Fair Valued/Narrow Moat must read as visibly less intense
+     than the "strong" tier, not just a slightly different shade of the
+     same vividness (previously 68% 0.15, too close to positive-strong to
+     tell apart at a glance -- confirmed via screenshot, "97 · Strong Pass"
+     and "90 · Pass" looked like the same green). */
+  --fathom-positive: oklch(62% 0.09 155);
+  /* Brighter AND more saturated than --fathom-positive (not darker -- on
+     this dark theme, a brighter/more saturated color is what pops, a
+     darker one recedes) -- Strong Pass / Undervalued / Wide Moat, the
+     clearly-more-pronounced tier above a plain Pass. */
+  --fathom-positive-strong: oklch(75% 0.2 155);
   --fathom-warn: oklch(76% 0.13 80);
   /* Deeper/more saturated than --fathom-warn, same hue (80) -- "Pass with
      caution" only. Must never read more alarming than --fathom-negative:
