@@ -22,7 +22,7 @@ export function TickerSearch() {
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder="Search ticker…"
-        className="w-40 rounded-full border border-border-input bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-tertiary outline-none focus:border-brand sm:w-56"
+        className="h-8 w-40 rounded-md border border-border-input bg-surface px-3 text-xs text-text-primary placeholder:text-text-tertiary outline-none focus:border-brand sm:w-56"
       />
     </form>
   );

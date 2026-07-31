@@ -44,7 +44,7 @@ export function RefreshButton({ ticker }: Props) {
       type="button"
       onClick={handleClick}
       disabled={status === "loading"}
-      className="rounded-full border border-border-input bg-surface px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+      className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
     >
       {LABELS[status]}
     </button>

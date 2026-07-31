@@ -11,9 +11,6 @@ interface Props {
   // "all 37 filtered tickers" for the Screener's whole-result-set case.
   confirmDescription?: string;
   disabled?: boolean;
-  // TickerHeader sits this next to the pill-shaped RefreshButton ("full");
-  // the Screener's action row sits it next to rounded-md controls ("md").
-  rounded?: "full" | "md";
 }
 
 // Extracts the backend's own detail text appended by lib/api/client.ts's
@@ -44,7 +41,7 @@ const CREATE_STATUS_LABELS: Record<Status, string> = {
   error: "Failed",
 };
 
-export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDescription, disabled, rounded = "full" }: Props) {
+export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDescription, disabled }: Props) {
   const { data: watchlists } = useWatchlists();
   const isBulk = tickers.length > 1;
   const [panel, setPanel] = useState<Panel>("idle");
@@ -161,7 +158,7 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
         type="button"
         onClick={() => setPanel((p) => (p === "idle" ? "picking" : "idle"))}
         disabled={disabled}
-        className={`inline-flex h-8 items-center ${rounded === "full" ? "rounded-full" : "rounded-md"} bg-brand px-3 text-xs font-medium text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50`}
+        className="inline-flex h-8 items-center rounded-md bg-brand px-3 text-xs font-medium text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
       >
         {label}
       </button>

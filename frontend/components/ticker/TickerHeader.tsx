@@ -9,18 +9,20 @@ import { useOverallAssessment } from "@/lib/hooks/useOverallAssessment";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
 import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
 import { fmtMoney } from "@/lib/format";
-import { chipClassFor } from "@/lib/tierColor";
+import { flatChipClassFor } from "@/lib/tierColor";
 
 interface Props {
   symbol: string;
 }
 
+// Flat (borderless) styling to match ScreenerCard/WatchlistTable's chip
+// row -- same treatment FairValuePill/MoatPill get below via variant="flat".
 function AssessmentChip({ symbol }: { symbol: string }) {
   const result = useOverallAssessment(symbol);
   if (result.status !== "complete" || result.score == null || result.verdict == null) return null;
 
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-semibold ${chipClassFor(result.score, result.verdict)}`}>
+    <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold ${flatChipClassFor(result.score, result.verdict)}`}>
       {result.verdict}
     </span>
   );
@@ -79,14 +81,16 @@ export function TickerHeader({ symbol }: Props) {
         )}
         <PriceChange change={data.change} changePercent={data.change_percent} />
         <AssessmentChip symbol={symbol} />
-        <FairValuePill verdict={data.fair_value_verdict} price={data.fair_value_price} method={data.fair_value_method} />
-        <MoatPill moat={moatData?.moat} />
+        <FairValuePill verdict={data.fair_value_verdict} price={data.fair_value_price} method={data.fair_value_method} variant="flat" />
+        <MoatPill moat={moatData?.moat} variant="flat" />
       </div>
 
-      {/* Row 3: next earnings */}
-      {data.next_earnings_date && (
-        <p className="text-xs text-text-tertiary">Next earnings: {data.next_earnings_date}</p>
-      )}
+      {/* Row 3: next earnings -- always shown so a null date reads as
+          "not yet announced" rather than a silently missing row. */}
+      <p className="text-xs text-text-tertiary">
+        Next earnings:{" "}
+        <span className="font-bold text-text-primary">{data.next_earnings_date ?? "Not yet announced"}</span>
+      </p>
     </div>
   );
 }

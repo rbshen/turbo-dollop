@@ -113,7 +113,6 @@ export default function ScreenerPage() {
             label="Add to Watchlist"
             confirmDescription={`all ${sorted.length} filtered tickers`}
             disabled={sorted.length === 0}
-            rounded="md"
           />
         </div>
       </div>

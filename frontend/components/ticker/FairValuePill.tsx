@@ -13,6 +13,15 @@ const VERDICT_LABELS: Record<string, string> = {
   fair: "Fair Valued",
 };
 
+// Same borderless colors ValuationBadge/MoatPill use for their "flat"
+// variant -- keeps TickerHeader's chip row visually identical to
+// ScreenerCard's pill row (no border, same height/rounding).
+const FLAT_VERDICT_STYLES: Record<string, string> = {
+  undervalued: "bg-positive/16 text-positive",
+  overvalued: "bg-negative/16 text-negative",
+  fair: "bg-warn/16 text-warn",
+};
+
 interface Props {
   verdict: string | null;
   price: number | null;
@@ -20,15 +29,24 @@ interface Props {
    * from, shown alongside the verdict so it never reads as a bare,
    * unexplained "Undervalued". */
   method?: string | null;
+  // "chip" (default): bordered pill. "flat": borderless, same height as
+  // ScreenerCard's other pills (MoatPill's "flat" variant, ValuationBadge).
+  variant?: "chip" | "flat";
 }
 
-export function FairValuePill({ verdict, price, method }: Props) {
+export function FairValuePill({ verdict, price, method, variant = "chip" }: Props) {
   if (!verdict || price == null) return null;
-  const cls = VERDICT_STYLES[verdict] ?? VERDICT_STYLES.fair;
+  const cls = variant === "chip" ? (VERDICT_STYLES[verdict] ?? VERDICT_STYLES.fair) : (FLAT_VERDICT_STYLES[verdict] ?? FLAT_VERDICT_STYLES.fair);
   const label = VERDICT_LABELS[verdict] ?? verdict;
 
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-semibold", cls)}>
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md text-xs font-semibold",
+        variant === "chip" ? "border px-2 py-0.5" : "px-2 py-1",
+        cls
+      )}
+    >
       {label} ·<span className="font-mono tabular-nums">{fmtMoney(price)}</span>
       {method && <span className="font-normal opacity-70">({method})</span>}
     </span>

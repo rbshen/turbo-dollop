@@ -3,7 +3,7 @@
 import { CircularScoreBadge } from "@/components/overall/CircularScoreBadge";
 import { useOverallAssessment } from "@/lib/hooks/useOverallAssessment";
 import type { StepBreakdownEntry } from "@/lib/overallScore";
-import { chipClassFor, textClassFor } from "@/lib/tierColor";
+import { flatChipClassFor, textClassFor } from "@/lib/tierColor";
 
 interface Props {
   ticker: string;
@@ -58,7 +58,7 @@ export function OverallAssessmentCard({ ticker }: Props) {
 
           <div className="flex flex-wrap gap-2">
             {result.breakdown.map((entry) => (
-              <span key={entry.key} className={`rounded-full border px-3 py-1 text-xs font-medium ${chipClassFor(entry.score, entry.verdict)}`}>
+              <span key={entry.key} className={`rounded-md px-2 py-1 text-xs font-medium ${flatChipClassFor(entry.score, entry.verdict)}`}>
                 {chipLabel(entry)}
               </span>
             ))}
