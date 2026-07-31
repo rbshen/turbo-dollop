@@ -94,21 +94,21 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
         <button
           type="button"
           onClick={() => setListOpen((o) => !o)}
-          className="flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
+          className="flex h-8 items-center gap-1.5 rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
         >
           Saved views {saved && saved.length > 0 ? `(${saved.length})` : ""}
-          <span className="text-zinc-500">▾</span>
+          <span className="text-text-tertiary">▾</span>
         </button>
 
         {listOpen && (
-          <div className="absolute z-20 mt-1 max-h-64 w-64 overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 p-1 shadow-lg">
+          <div className="absolute z-20 mt-1 max-h-64 w-64 overflow-y-auto rounded-md border border-border-input bg-surface p-1 shadow-lg">
             {!saved || saved.length === 0 ? (
-              <p className="px-2 py-1 text-xs text-zinc-600">No saved views yet</p>
+              <p className="px-2 py-1 text-xs text-text-tertiary">No saved views yet</p>
             ) : (
               saved.map((s) => (
                 <div
                   key={s.id}
-                  className="flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                  className="flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-2"
                   onClick={() => {
                     onLoad(s);
                     setListOpen(false);
@@ -131,8 +131,8 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
                     disabled={deleteState?.name === s.name && deleteState.status === "deleting"}
                     className={`shrink-0 disabled:opacity-50 ${
                       deleteState?.name === s.name && deleteState.status === "error"
-                        ? "text-red-400"
-                        : "text-zinc-600 hover:text-red-400"
+                        ? "text-negative"
+                        : "text-text-tertiary hover:text-negative"
                     }`}
                     title={
                       deleteState?.name === s.name && deleteState.status === "error"
@@ -153,7 +153,7 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
         <button
           type="button"
           onClick={openNaming}
-          className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
+          className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
         >
           Save current view
         </button>
@@ -163,7 +163,7 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
         <button
           type="button"
           onClick={onReset}
-          className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
+          className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
         >
           Reset
         </button>
@@ -181,20 +181,20 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
               if (e.key === "Enter") handleConfirm();
               if (e.key === "Escape") cancelSave();
             }}
-            className="w-40 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+            className="h-8 w-40 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
           />
           <button
             type="button"
             onClick={handleConfirm}
             disabled={!name.trim() || status === "saving"}
-            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-2 text-xs text-text-secondary hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
           >
             {STATUS_LABELS[status]}
           </button>
           <button
             type="button"
             onClick={cancelSave}
-            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-500 hover:border-zinc-500 hover:text-zinc-300"
+            className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-2 text-xs text-text-tertiary hover:border-brand hover:text-text-secondary"
           >
             Cancel
           </button>
@@ -203,19 +203,19 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
 
       {saveStep === "confirmOverwrite" && (
         <div className="flex items-center gap-1.5">
-          <span className="text-xs text-amber-400">A saved view named &quot;{name.trim()}&quot; already exists — overwrite?</span>
+          <span className="text-xs text-warn">A saved view named &quot;{name.trim()}&quot; already exists — overwrite?</span>
           <button
             type="button"
             onClick={handleConfirm}
             disabled={status === "saving"}
-            className="rounded-md border border-amber-800/60 bg-zinc-900 px-2 py-1 text-xs text-amber-300 hover:border-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-8 items-center rounded-md border border-warn/60 bg-surface px-2 text-xs text-warn hover:border-warn disabled:cursor-not-allowed disabled:opacity-50"
           >
             {status === "idle" ? "Overwrite" : STATUS_LABELS[status]}
           </button>
           <button
             type="button"
             onClick={cancelSave}
-            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-500 hover:border-zinc-500 hover:text-zinc-300"
+            className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-2 text-xs text-text-tertiary hover:border-brand hover:text-text-secondary"
           >
             Cancel
           </button>

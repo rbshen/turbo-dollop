@@ -115,10 +115,10 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Prop
         }}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
+        className="flex h-8 items-center gap-1.5 rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
       >
         {summary}
-        <span className="text-zinc-500">▾</span>
+        <span className="text-text-tertiary">▾</span>
       </button>
 
       {open && (
@@ -127,27 +127,27 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Prop
           aria-multiselectable="true"
           aria-label={label}
           onKeyDown={handlePanelKeyDown}
-          className="absolute z-20 mt-1 max-h-64 w-56 overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 p-1 shadow-lg"
+          className="absolute z-20 mt-1 max-h-64 w-56 overflow-y-auto rounded-md border border-border-input bg-surface p-1 shadow-lg"
         >
           {selected.length > 0 && (
             <button
               ref={clearRef}
               type="button"
               onClick={() => onChange([])}
-              className="mb-1 w-full rounded px-2 py-1 text-left text-xs text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+              className="mb-1 w-full rounded px-2 py-1 text-left text-xs text-text-tertiary hover:bg-surface-2 hover:text-text-secondary"
             >
               Clear
             </button>
           )}
           {options.length === 0 ? (
-            <p className="px-2 py-1 text-xs text-zinc-600">No options</p>
+            <p className="px-2 py-1 text-xs text-text-tertiary">No options</p>
           ) : (
             options.map((option, i) => (
               <label
                 key={option.value}
                 role="option"
                 aria-selected={selected.includes(option.value)}
-                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-2"
               >
                 <input
                   ref={(el) => {
@@ -156,7 +156,7 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Prop
                   type="checkbox"
                   checked={selected.includes(option.value)}
                   onChange={() => toggle(option.value)}
-                  className="size-3.5 rounded border-zinc-600 bg-zinc-800 accent-zinc-400"
+                  className="size-3.5 rounded border-border-input bg-surface-2 accent-brand"
                 />
                 {option.label}
               </label>

@@ -46,21 +46,21 @@ function RangeInput({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="w-24 shrink-0 text-xs text-zinc-500">{label}</span>
+      <span className="w-24 shrink-0 text-xs text-text-tertiary">{label}</span>
       <input
         type="number"
         placeholder="Min"
         value={value.min ?? ""}
         onChange={(e) => onChange({ ...value, min: e.target.value === "" ? null : Number(e.target.value) })}
-        className="w-20 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+        className="h-8 w-20 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
       />
-      <span className="text-zinc-700">–</span>
+      <span className="text-text-tertiary">–</span>
       <input
         type="number"
         placeholder="Max"
         value={value.max ?? ""}
         onChange={(e) => onChange({ ...value, max: e.target.value === "" ? null : Number(e.target.value) })}
-        className="w-20 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+        className="h-8 w-20 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
       />
     </div>
   );
@@ -102,11 +102,11 @@ function MarketCapSideInput({
         placeholder={placeholder}
         value={text}
         onChange={(e) => handleChange(e.target.value)}
-        className={`w-20 rounded-md border bg-zinc-900 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none ${
-          invalid ? "border-red-800/60 focus:border-red-600" : "border-zinc-700 focus:border-zinc-500"
+        className={`h-8 w-20 rounded-md border bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none ${
+          invalid ? "border-negative/60 focus:border-negative" : "border-border-input focus:border-brand"
         }`}
       />
-      {invalid && <span className="mt-0.5 text-[10px] text-red-400">e.g. 1B, 2 M, or 500000000</span>}
+      {invalid && <span className="mt-0.5 text-[10px] text-negative">e.g. 1B, 2 M, or 500000000</span>}
     </div>
   );
 }
@@ -114,9 +114,9 @@ function MarketCapSideInput({
 function MarketCapRangeInput({ value, onChange }: { value: RangeFilter; onChange: (range: RangeFilter) => void }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="w-24 shrink-0 text-xs text-zinc-500">Mkt Cap</span>
+      <span className="w-24 shrink-0 text-xs text-text-tertiary">Mkt Cap</span>
       <MarketCapSideInput placeholder="Min" value={value.min} onChange={(min) => onChange({ ...value, min })} />
-      <span className="text-zinc-700">–</span>
+      <span className="text-text-tertiary">–</span>
       <MarketCapSideInput placeholder="Max" value={value.max} onChange={(max) => onChange({ ...value, max })} />
     </div>
   );
@@ -128,26 +128,23 @@ export function ScreenerFilters({ filters, onFiltersChange, sectors, companyType
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
-      <div className="flex flex-wrap gap-x-6 gap-y-2">
+    <div className="space-y-4 rounded-lg border border-border-card bg-surface p-4">
+      {/* 9-item Min/Max range-filter grid, in the design handoff's exact
+          order: Overall, Financials, Growth Rate, Profitability, Debt, Mkt
+          Cap, P/E, Beta, Growth -- one flat grid, not grouped sub-rows. */}
+      <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
         <RangeInput label="Overall" value={filters.overallScore} onChange={(r) => patch({ overallScore: r })} />
-      </div>
-
-      <div className="flex flex-wrap gap-x-6 gap-y-2">
         <RangeInput label="Financials" value={filters.step1Score} onChange={(r) => patch({ step1Score: r })} />
         <RangeInput label="Growth Rate" value={filters.step2Score} onChange={(r) => patch({ step2Score: r })} />
         <RangeInput label="Profitability" value={filters.step4Score} onChange={(r) => patch({ step4Score: r })} />
         <RangeInput label="Debt" value={filters.step5Score} onChange={(r) => patch({ step5Score: r })} />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
         <MarketCapRangeInput value={filters.marketCap} onChange={(r) => patch({ marketCap: r })} />
         <RangeInput label="P/E" value={filters.peRatio} onChange={(r) => patch({ peRatio: r })} />
         <RangeInput label="Beta" value={filters.beta} onChange={(r) => patch({ beta: r })} />
         <RangeInput label="Growth" value={filters.growthRate} onChange={(r) => patch({ growthRate: r })} />
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3">
+      <div className="flex flex-wrap items-center gap-2 border-t border-border-subtle pt-3">
         <MultiSelectDropdown
           label="Sector"
           options={sectors.map((s) => ({ value: s, label: s }))}
@@ -169,11 +166,11 @@ export function ScreenerFilters({ filters, onFiltersChange, sectors, companyType
         />
 
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-zinc-500">Sort</span>
+          <span className="text-xs text-text-tertiary">Sort</span>
           <select
             value={sortField}
             onChange={(e) => onSortChange(e.target.value as SortField, sortDirection)}
-            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 focus:border-zinc-500 focus:outline-none"
+            className="h-8 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary focus:border-brand focus:outline-none"
           >
             {SORT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -184,7 +181,7 @@ export function ScreenerFilters({ filters, onFiltersChange, sectors, companyType
           <button
             type="button"
             onClick={() => onSortChange(sortField, sortDirection === "asc" ? "desc" : "asc")}
-            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
+            className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-2 text-xs text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
             title={sortDirection === "asc" ? "Ascending" : "Descending"}
           >
             {sortDirection === "asc" ? "↑ Asc" : "↓ Desc"}

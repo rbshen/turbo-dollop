@@ -82,7 +82,7 @@ export default function ScreenerPage() {
   if (error) {
     return (
       <PageContainer className="py-12">
-        <p className="text-sm text-red-400">Failed to load the Screener.</p>
+        <p className="text-sm text-negative">Failed to load the Screener.</p>
       </PageContainer>
     );
   }
@@ -90,7 +90,7 @@ export default function ScreenerPage() {
   if (!data) {
     return (
       <PageContainer className="py-12">
-        <p className="text-sm text-zinc-600 animate-pulse">Loading Screener…</p>
+        <p className="text-sm text-text-tertiary animate-pulse">Loading Screener…</p>
       </PageContainer>
     );
   }
@@ -99,8 +99,8 @@ export default function ScreenerPage() {
     <PageContainer className="space-y-6 pb-12 pt-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-heading text-xl font-semibold text-zinc-100">Screener</h1>
-          <p className="text-xs text-zinc-500">
+          <h1 className="font-heading text-xl font-semibold text-text-primary">Screener</h1>
+          <p className="text-xs text-text-tertiary">
             {data.length} of {meta ? meta.total_constituents : "…"} {UNIVERSE_LABELS[universe]} tickers
             {sorted.length !== data.length && ` — ${sorted.length} match the current filters`}
           </p>
@@ -113,6 +113,7 @@ export default function ScreenerPage() {
             label="Add to Watchlist"
             confirmDescription={`all ${sorted.length} filtered tickers`}
             disabled={sorted.length === 0}
+            rounded="md"
           />
         </div>
       </div>
@@ -137,7 +138,7 @@ export default function ScreenerPage() {
       />
 
       {sorted.length === 0 ? (
-        <p className="py-12 text-center text-sm text-zinc-600">No tickers match the current filters.</p>
+        <p className="py-12 text-center text-sm text-text-tertiary">No tickers match the current filters.</p>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {pageRows.map((row) => (

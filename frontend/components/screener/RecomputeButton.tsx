@@ -36,7 +36,7 @@ export function RecomputeButton() {
   return (
     <div className="flex items-center gap-2">
       {status === "success" && lastSummary && (
-        <span className="text-xs text-zinc-500">
+        <span className="text-xs text-text-tertiary">
           {lastSummary.processed} processed
           {lastSummary.failed > 0 ? `, ${lastSummary.failed} failed` : ""} in {lastSummary.duration_seconds.toFixed(1)}s
         </span>
@@ -45,7 +45,7 @@ export function RecomputeButton() {
         type="button"
         onClick={handleClick}
         disabled={status === "loading"}
-        className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
       >
         {LABELS[status]}
       </button>

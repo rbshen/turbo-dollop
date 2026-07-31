@@ -21,13 +21,13 @@ export function Pagination({ page, nPages, onPage }: Props) {
       <button
         onClick={() => onPage(page - 1)}
         disabled={page === 1}
-        className="rounded px-2 py-1 text-sm text-zinc-400 transition-colors hover:text-zinc-200 disabled:opacity-30"
+        className="rounded px-2 py-1 text-sm text-text-secondary transition-colors hover:text-text-primary disabled:opacity-30"
       >
         « Prev
       </button>
       {pages.map((p, i) =>
         p === null ? (
-          <span key={`ellipsis-${i}`} className="px-1 text-zinc-600">
+          <span key={`ellipsis-${i}`} className="px-1 text-text-tertiary">
             …
           </span>
         ) : (
@@ -35,7 +35,7 @@ export function Pagination({ page, nPages, onPage }: Props) {
             key={p}
             onClick={() => onPage(p)}
             className={`rounded px-2.5 py-1 text-sm transition-colors ${
-              p === page ? "bg-zinc-700 font-semibold text-zinc-100" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+              p === page ? "bg-brand font-semibold text-white" : "text-text-secondary hover:bg-surface-2 hover:text-text-primary"
             }`}
           >
             {p}
@@ -45,7 +45,7 @@ export function Pagination({ page, nPages, onPage }: Props) {
       <button
         onClick={() => onPage(page + 1)}
         disabled={page === nPages}
-        className="rounded px-2 py-1 text-sm text-zinc-400 transition-colors hover:text-zinc-200 disabled:opacity-30"
+        className="rounded px-2 py-1 text-sm text-text-secondary transition-colors hover:text-text-primary disabled:opacity-30"
       >
         Next »
       </button>
