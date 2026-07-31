@@ -30,18 +30,8 @@ const PB_BAND_LABELS: Record<keyof Step3PBBands, string> = {
 };
 
 // Card-title weight -- same class this app uses for every other card's own
-// title (Step1Card/Step4Card), now shared by "Auto Calculation" and "Manual
-// Calculation" since the page-level "VALUATION" title above them was
-// removed.
-export const SECTION_HEADING_CLASS = "text-sm font-semibold uppercase tracking-widest text-zinc-400";
-
-// Shared by Auto Calculation's (read-only) Method box and Manual
-// Calculation's (interactive) Method <select> -- a fixed height rather than
-// one derived from padding/line-height, since a <select> and a <p> render
-// their "same" padding at slightly different heights across browsers, which
-// was throwing off row alignment between the two columns even when their
-// padding/border classes matched.
-export const METHOD_FIELD_CLASS = "flex h-9 w-full items-center rounded-md border border-zinc-700 bg-zinc-900 px-2 text-sm text-zinc-200";
+// title, shared by "Model Valuation" and "Custom Valuation".
+export const SECTION_HEADING_CLASS = "font-heading text-sm font-semibold text-text-primary";
 
 export function pctText(fraction: number | null): string {
   return fraction == null ? "—" : fmtPct(fraction * 100, 1);
@@ -70,13 +60,13 @@ export function millionsText(n: number | null): string {
 // With no row-height variance left, top-aligning the value cell can no
 // longer drift row-to-row regardless of whether a given row has a real
 // sub-note or a blank one.
-export const FIELD_ROW_CLASS = "h-12 border-zinc-900 hover:bg-transparent";
+export const FIELD_ROW_CLASS = "h-12 border-border-subtle hover:bg-transparent";
 // whitespace-normal overrides TableCell's own default nowrap -- a long
 // label (e.g. "Free Cash Flow (Normalized, 5yr avg CapEx)") needs to still
 // be able to wrap to 2 lines within the fixed row height rather than
 // overflowing horizontally past the column.
-export const FIELD_LABEL_CELL_CLASS = "whitespace-normal p-0 pt-3 pr-4 align-top text-zinc-500";
-export const FIELD_VALUE_CELL_CLASS = "p-0 pt-3 text-right align-top font-mono text-sm text-zinc-200";
+export const FIELD_LABEL_CELL_CLASS = "whitespace-normal p-0 pt-3 pr-4 align-top text-text-tertiary";
+export const FIELD_VALUE_CELL_CLASS = "p-0 pt-3 text-right align-top font-mono text-sm text-text-primary";
 
 export function InputRow({ label, sublabel, value }: { label: string; sublabel?: string; value: React.ReactNode }) {
   return (
@@ -89,7 +79,7 @@ export function InputRow({ label, sublabel, value }: { label: string; sublabel?:
             identically tall. truncate/nowrap so a long real sub-note (e.g.
             the analyst-source string on Growth Yr 1-5) still can't wrap to
             a 3rd line and grow that one row past the others. */}
-        <div className="truncate text-[10px] text-zinc-600">{sublabel || " "}</div>
+        <div className="truncate text-[10px] text-text-tertiary">{sublabel || " "}</div>
       </TableCell>
       <TableCell className={FIELD_VALUE_CELL_CLASS}>{value}</TableCell>
     </TableRow>
@@ -102,16 +92,16 @@ export function PBBandsTable({ bands, lastClose }: { bands: Step3PBBands; lastCl
     <Table className="w-full border-separate border-spacing-0 text-sm">
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead className="border-b border-zinc-800 py-2 pr-4 font-medium">Band</TableHead>
-          <TableHead className="border-b border-zinc-800 py-2 text-right font-medium">Intrinsic Value</TableHead>
+          <TableHead className="border-b border-border-card py-2 pr-4 font-medium">Band</TableHead>
+          <TableHead className="border-b border-border-card py-2 text-right font-medium">Intrinsic Value</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {order.map((key) => (
           <TableRow key={key} className="hover:bg-transparent">
-            <TableCell className="border-b border-zinc-900 py-1.5 pr-4 text-zinc-400">{PB_BAND_LABELS[key]}</TableCell>
+            <TableCell className="border-b border-border-subtle py-1.5 pr-4 text-text-secondary">{PB_BAND_LABELS[key]}</TableCell>
             <TableCell
-              className={`border-b border-zinc-900 py-1.5 text-right font-mono ${key === "mean" ? "font-semibold text-zinc-100" : "text-zinc-300"}`}
+              className={`border-b border-border-subtle py-1.5 text-right font-mono ${key === "mean" ? "font-semibold text-text-primary" : "text-text-secondary"}`}
             >
               {fmtMoney(bands[key])}
             </TableCell>
@@ -119,8 +109,8 @@ export function PBBandsTable({ bands, lastClose }: { bands: Step3PBBands; lastCl
         ))}
         {lastClose != null && (
           <TableRow className="hover:bg-transparent">
-            <TableCell className="py-1.5 pr-4 text-zinc-500">Last Close</TableCell>
-            <TableCell className="py-1.5 text-right font-mono text-zinc-300">{fmtMoney(lastClose)}</TableCell>
+            <TableCell className="py-1.5 pr-4 text-text-tertiary">Last Close</TableCell>
+            <TableCell className="py-1.5 text-right font-mono text-text-secondary">{fmtMoney(lastClose)}</TableCell>
           </TableRow>
         )}
       </TableBody>
@@ -143,11 +133,11 @@ export function ValuationContextNotes({ data }: { data: Step3Out }) {
   }
 
   return (
-    <div className="space-y-1.5 text-xs text-zinc-500">
+    <div className="space-y-1.5 text-xs text-text-tertiary">
       {data.historical_pb_buy_signal != null && (
         <p>
           Historical P/B buy signal (price at/below −1 SD):{" "}
-          <span className={data.historical_pb_buy_signal ? "text-emerald-400" : "text-zinc-400"}>
+          <span className={data.historical_pb_buy_signal ? "text-positive" : "text-text-secondary"}>
             {data.historical_pb_buy_signal ? "Yes" : "No"}
           </span>
         </p>
@@ -178,16 +168,16 @@ export function Step3Card({ ticker }: Props) {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <p className="text-sm text-red-400">Couldn&apos;t load Valuation data — {error.message}</p>
+      <div className="rounded-lg border border-border-card bg-surface p-6">
+        <p className="text-sm text-negative">Couldn&apos;t load Valuation data — {error.message}</p>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <p className="text-sm text-zinc-600 animate-pulse">Loading Valuation…</p>
+      <div className="rounded-lg border border-border-card bg-surface p-6">
+        <p className="text-sm text-text-tertiary animate-pulse">Loading Valuation…</p>
       </div>
     );
   }
@@ -198,13 +188,13 @@ export function Step3Card({ ticker }: Props) {
   const isPass = data.selected_method === "PASS";
 
   return (
-    <div className="space-y-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
+    <div className="space-y-6">
       <details className="text-sm">
-        <summary className="cursor-pointer text-xs uppercase tracking-widest text-zinc-500">Method selection reasoning</summary>
-        <ul className="mt-2 space-y-1 text-xs text-zinc-500">
+        <summary className="cursor-pointer text-xs uppercase tracking-widest text-text-tertiary">Method selection reasoning</summary>
+        <ul className="mt-2 space-y-1 text-xs text-text-tertiary">
           {data.method_reasoning.map((step, i) => (
             <li key={i}>
-              <span className={step.passed === true ? "text-emerald-400" : step.passed === false ? "text-zinc-500" : "text-amber-400"}>
+              <span className={step.passed === true ? "text-positive" : step.passed === false ? "text-text-tertiary" : "text-warn"}>
                 [{step.step}] {step.check} → {step.passed === null ? "unknown" : String(step.passed)}
               </span>{" "}
               — {step.detail}
@@ -214,106 +204,84 @@ export function Step3Card({ ticker }: Props) {
       </details>
 
       {isPass ? (
-        <p className="text-sm text-zinc-400">
-          {data.insufficient_data
-            ? `Insufficient data was available to select a valuation method for ${ticker}.`
-            : data.pass_reason}
-        </p>
+        <div className="rounded-lg border border-border-card bg-surface p-6">
+          <p className="text-sm text-text-secondary">
+            {data.insufficient_data
+              ? `Insufficient data was available to select a valuation method for ${ticker}.`
+              : data.pass_reason}
+          </p>
+        </div>
       ) : (
-        <>
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <div className="space-y-6">
-              <h2 className={SECTION_HEADING_CLASS}>Auto Calculation</h2>
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <div className="space-y-6 rounded-lg border border-border-card bg-surface p-6">
+            <h2 className={SECTION_HEADING_CLASS}>Model Valuation · {METHOD_LABELS[data.selected_method] ?? data.selected_method}</h2>
 
-              <div>
-                <p className="text-xs uppercase tracking-widest text-zinc-500">Method</p>
-                {/* Not an interactive control -- METHOD_FIELD_CLASS visually
-                    matches Manual Calculation's <select> exactly (same fixed
-                    height, padding, font size) so the Intrinsic Value row
-                    below starts at the same vertical position in both
-                    columns. */}
-                <p className={`mt-1 ${METHOD_FIELD_CLASS}`}>{METHOD_LABELS[data.selected_method] ?? data.selected_method}</p>
-              </div>
+            <ValuationGauge discountPremiumPct={data.discount_premium_pct} intrinsicValuePerShare={data.intrinsic_value_per_share} lastClose={data.inputs.last_close} />
 
-              <div className="space-y-1">
-                <p className="text-xs uppercase tracking-widest text-zinc-500">Intrinsic Value {isPB && "(Mean)"}</p>
-                <p className="font-mono text-3xl font-bold tabular-nums text-zinc-100">
-                  {data.intrinsic_value_per_share != null ? fmtMoney(data.intrinsic_value_per_share) : "—"}
-                </p>
-              </div>
+            {/* Discount/Premium, growth rows, Current Value/Discount Rate/
+                Shares/Total Debt/Cash, and the PSG fields all share ONE
+                <Table> -- not split across several sibling <Table>s -- so
+                none of them pick up the parent's space-y-6 gap partway
+                through the row sequence. Mirrors ManualCalculationPanel's
+                merged table (see round-10 fix there): that gap, when it
+                existed only on one side, is what caused "Operating Cash
+                Flow" (nee "Current Value") to land at different heights
+                between the two columns. */}
+            <Table className="text-sm">
+              <TableBody>
+                <InputRow label="Discount/Premium" value={pctText(data.discount_premium_pct)} />
+                {isTwentyYearMethod && (
+                  <>
+                    <InputRow label="Growth Yr 1-5" value={pctText(data.inputs.growth_yr_1_5)} sublabel={data.inputs.growth_yr_1_5_source ?? "Unavailable"} />
+                    <InputRow label="Growth Yr 6-10" value={pctText(data.inputs.growth_yr_6_10)} />
+                    <InputRow label="Growth Yr 11-20 (terminal)" value={pctText(data.inputs.growth_yr_11_20)} />
+                    <InputRow label={data.inputs.current_value_label ?? "Current Value"} sublabel="(in millions)" value={millionsText(data.inputs.current_value)} />
+                    <InputRow
+                      label="Discount Rate (CAPM)"
+                      value={
+                        data.inputs.discount_rate != null ? (
+                          <span>
+                            {pctText(data.inputs.discount_rate)}
+                            {data.inputs.capm?.beta_outside_reference_range && <span className="ml-1 text-warn">†</span>}
+                          </span>
+                        ) : (
+                          "—"
+                        )
+                      }
+                    />
+                    <InputRow
+                      label="Shares Outstanding"
+                      value={data.inputs.shares_outstanding != null ? data.inputs.shares_outstanding.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "—"}
+                    />
+                    <InputRow label="Total Debt" sublabel="(in millions)" value={millionsText(data.inputs.total_debt)} />
+                    <InputRow
+                      label={`Cash${data.inputs.cash_and_st_investments_includes_short_term_investments ? " + ST Investments" : ""}`}
+                      sublabel="(in millions)"
+                      value={millionsText(data.inputs.cash_and_st_investments)}
+                    />
+                  </>
+                )}
+                {isPSG && (
+                  <>
+                    <InputRow label="Sales Per Share" value={data.inputs.sales_per_share != null ? fmtMoney(data.inputs.sales_per_share) : "—"} />
+                    <InputRow label="Projected Growth Rate" value={pctText(data.inputs.projected_growth_rate)} />
+                    <InputRow label="Fair PSG Ratio" value={data.inputs.fair_psg_ratio != null ? fmtNumber(data.inputs.fair_psg_ratio) : "—"} />
+                  </>
+                )}
+              </TableBody>
+            </Table>
 
-              <div className="space-y-1">
-                <p className="text-xs uppercase tracking-widest text-zinc-500">Last Close</p>
-                <p className="font-mono text-lg text-zinc-200">{data.inputs.last_close != null ? fmtMoney(data.inputs.last_close) : "—"}</p>
-              </div>
+            {isPB && data.pb_bands && <PBBandsTable bands={data.pb_bands} lastClose={data.inputs.last_close} />}
 
-              <ValuationGauge discountPremiumPct={data.discount_premium_pct} intrinsicValuePerShare={data.intrinsic_value_per_share} lastClose={data.inputs.last_close} />
+            {isPB && <ValuationContextNotes data={data} />}
 
-              {/* Discount/Premium, growth rows, Current Value/Discount Rate/
-                  Shares/Total Debt/Cash, and the PSG fields all share ONE
-                  <Table> -- not split across several sibling <Table>s -- so
-                  none of them pick up the parent's space-y-6 gap partway
-                  through the row sequence. Mirrors ManualCalculationPanel's
-                  merged table (see round-10 fix there): that gap, when it
-                  existed only on one side, is what caused "Operating Cash
-                  Flow" (nee "Current Value") to land at different heights
-                  between the two columns. */}
-              <Table className="text-sm">
-                <TableBody>
-                  <InputRow label="Discount/Premium" value={pctText(data.discount_premium_pct)} />
-                  {isTwentyYearMethod && (
-                    <>
-                      <InputRow label="Growth Yr 1-5" value={pctText(data.inputs.growth_yr_1_5)} sublabel={data.inputs.growth_yr_1_5_source ?? "Unavailable"} />
-                      <InputRow label="Growth Yr 6-10" value={pctText(data.inputs.growth_yr_6_10)} />
-                      <InputRow label="Growth Yr 11-20 (terminal)" value={pctText(data.inputs.growth_yr_11_20)} />
-                      <InputRow label={data.inputs.current_value_label ?? "Current Value"} sublabel="(in millions)" value={millionsText(data.inputs.current_value)} />
-                      <InputRow
-                        label="Discount Rate (CAPM)"
-                        value={
-                          data.inputs.discount_rate != null ? (
-                            <span>
-                              {pctText(data.inputs.discount_rate)}
-                              {data.inputs.capm?.beta_outside_reference_range && <span className="ml-1 text-amber-400">†</span>}
-                            </span>
-                          ) : (
-                            "—"
-                          )
-                        }
-                      />
-                      <InputRow
-                        label="Shares Outstanding"
-                        value={data.inputs.shares_outstanding != null ? data.inputs.shares_outstanding.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "—"}
-                      />
-                      <InputRow label="Total Debt" sublabel="(in millions)" value={millionsText(data.inputs.total_debt)} />
-                      <InputRow
-                        label={`Cash${data.inputs.cash_and_st_investments_includes_short_term_investments ? " + ST Investments" : ""}`}
-                        sublabel="(in millions)"
-                        value={millionsText(data.inputs.cash_and_st_investments)}
-                      />
-                    </>
-                  )}
-                  {isPSG && (
-                    <>
-                      <InputRow label="Sales Per Share" value={data.inputs.sales_per_share != null ? fmtMoney(data.inputs.sales_per_share) : "—"} />
-                      <InputRow label="Projected Growth Rate" value={pctText(data.inputs.projected_growth_rate)} />
-                      <InputRow label="Fair PSG Ratio" value={data.inputs.fair_psg_ratio != null ? fmtNumber(data.inputs.fair_psg_ratio) : "—"} />
-                    </>
-                  )}
-                </TableBody>
-              </Table>
-
-              {isPB && data.pb_bands && <PBBandsTable bands={data.pb_bands} lastClose={data.inputs.last_close} />}
-
-              {isPB && <ValuationContextNotes data={data} />}
-
-              {isTwentyYearMethod && data.inputs.capm?.beta_outside_reference_range && (
-                <p className="text-xs text-amber-400">† Beta is below 0.8, outside the workbook&apos;s manual reference table range — CAPM is still applied directly.</p>
-              )}
-            </div>
-
-            <ManualCalculationPanel ticker={ticker} autoData={data} />
+            {isTwentyYearMethod && data.inputs.capm?.beta_outside_reference_range && (
+              <p className="text-xs text-warn">† Beta is below 0.8, outside the workbook&apos;s manual reference table range — CAPM is still applied directly.</p>
+            )}
           </div>
-        </>
+
+          <ManualCalculationPanel ticker={ticker} autoData={data} />
+        </div>
       )}
     </div>
   );

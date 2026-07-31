@@ -192,3 +192,55 @@
     @apply font-sans;
   }
 }
+
+@layer components {
+  /* Custom Valuation's growth/discount-rate sliders (ManualCalculationPanel).
+     Fully hand-styled rather than relying on the native control's default
+     appearance + accent-color: browser-default range inputs render at a
+     slightly different effective width than a plain div (ValuationGauge's
+     track), and accent-color visibly dims/greys out on window blur (OS-level
+     behavior, not something accent-color itself can override) -- appearance:
+     none plus explicit track/thumb rules sidesteps both, and lets the thumb
+     be a plain brand-colored circle with no border. */
+  .range-slider {
+    appearance: none;
+    -webkit-appearance: none;
+    height: 8px;
+    width: 100%;
+    border-radius: 9999px;
+    background: var(--color-surface-2);
+    cursor: pointer;
+  }
+  .range-slider:focus {
+    outline: none;
+  }
+  .range-slider::-webkit-slider-runnable-track {
+    height: 8px;
+    border-radius: 9999px;
+    background: var(--color-surface-2);
+  }
+  .range-slider::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    margin-top: -4px;
+    border: none;
+    border-radius: 9999px;
+    background: var(--color-brand);
+    cursor: pointer;
+  }
+  .range-slider::-moz-range-track {
+    height: 8px;
+    border-radius: 9999px;
+    background: var(--color-surface-2);
+  }
+  .range-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border: none;
+    border-radius: 9999px;
+    background: var(--color-brand);
+    cursor: pointer;
+  }
+}

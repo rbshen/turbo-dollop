@@ -1,151 +1,66 @@
-"use client";
-
-import { Cell, Customized, Pie, PieChart } from "recharts";
-
-import { fmtMoney } from "@/lib/format";
+import { fmtMoney, fmtPct } from "@/lib/format";
 
 interface Props {
-  /** Fraction, e.g. -0.218 for -21.8%. Drives the needle position. */
+  /** Fraction, e.g. -0.218 for -21.8%. Drives both the discount/premium
+   * readout and the marker position. */
   discountPremiumPct: number | null;
   intrinsicValuePerShare: number | null;
   lastClose: number | null;
 }
 
-// Fixed-size (non-responsive) chart -- a small embedded status widget, not
-// a data-dense chart that needs to reflow with its container.
-const WIDTH = 320;
-const HEIGHT = 196;
-const CX = WIDTH / 2;
-const CY = HEIGHT - 38;
-const INNER_RADIUS = 68;
-const OUTER_RADIUS = 100;
-
-// Clamped display domain -- real discount/premium values can run far wider
-// (e.g. a heavily-levered mature company's DNI result), but the gauge's job
-// is to show *which zone* the stock is in, not plot every possible value;
-// off-scale values pin to the arc's end.
-const DOMAIN_MIN = -0.5;
-const DOMAIN_MAX = 0.5;
-
-// 5 equal segments, left (most undervalued) -> right (most overvalued).
-const SEGMENT_COLORS = ["#059669", "#34d399", "#facc15", "#fb923c", "#f87171"];
-const SEGMENT_WIDTH = (DOMAIN_MAX - DOMAIN_MIN) / SEGMENT_COLORS.length;
-const BANDS = SEGMENT_COLORS.map((color, i) => ({
-  key: `seg-${i}`,
-  from: DOMAIN_MIN + i * SEGMENT_WIDTH,
-  to: DOMAIN_MIN + (i + 1) * SEGMENT_WIDTH,
-  color,
-}));
-
 function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v));
 }
 
-// Maps a domain value to a gauge angle: 180deg (arc's left end, most
-// negative) sweeping down to 0deg (right end, most positive) -- matches the
-// Pie's own startAngle=180/endAngle=0 below.
-function valueToAngleDeg(v: number): number {
-  const t = (clamp(v, DOMAIN_MIN, DOMAIN_MAX) - DOMAIN_MIN) / (DOMAIN_MAX - DOMAIN_MIN);
-  return 180 - t * 180;
-}
-
-function Needle({ angleDeg }: { angleDeg: number }) {
-  const rad = (angleDeg * Math.PI) / 180;
-  const len = OUTER_RADIUS * 0.8;
-  const x = CX + len * Math.cos(rad);
-  const y = CY - len * Math.sin(rad);
-  return (
-    <g>
-      <line x1={CX} y1={CY} x2={x} y2={y} stroke="#e4e4e7" strokeWidth={3} strokeLinecap="round" />
-      <circle cx={CX} cy={CY} r={6} fill="#e4e4e7" />
-    </g>
-  );
-}
-
-// Round 1/2 tried positioning the Stock Price callout "near the needle"
-// (first overlaid on the arc, then on a pill meant to paint on top of it) --
-// both still read as clipped/hidden under the arc in practice, since it
-// shared geometry with the colored band regardless of paint order. Fixed
-// here by giving both callouts a static position entirely outside the arc's
-// radius (the clear strip above it, split left/right), the same strip
-// "Intrinsic value" already occupied alone -- geometrically guaranteed to
-// never sit under any arc color, no z-index/paint-order reasoning required.
-function Callouts({ intrinsicValuePerShare, lastClose }: { intrinsicValuePerShare: number | null; lastClose: number | null }) {
-  const leftX = CX - 72;
-  const rightX = CX + 72;
-  return (
-    <>
-      <text x={leftX} y={14} textAnchor="middle" className="fill-zinc-500" style={{ fontSize: 10, letterSpacing: "0.03em" }}>
-        Intrinsic value
-      </text>
-      <text x={leftX} y={31} textAnchor="middle" className="fill-zinc-100" style={{ fontSize: 16, fontWeight: 700 }}>
-        {intrinsicValuePerShare != null ? fmtMoney(intrinsicValuePerShare) : "—"}
-      </text>
-      <text x={rightX} y={14} textAnchor="middle" className="fill-zinc-500" style={{ fontSize: 10, letterSpacing: "0.03em" }}>
-        Stock price
-      </text>
-      <text x={rightX} y={31} textAnchor="middle" className="fill-zinc-100" style={{ fontSize: 16, fontWeight: 700 }}>
-        {lastClose != null ? fmtMoney(lastClose) : "—"}
-      </text>
-    </>
-  );
-}
-
+// Horizontal gradient-track gauge per the design handoff's exact spec:
+// "8px-tall rounded track, linear-gradient(90deg, green, amber, red), a
+// 3x16px white marker with a box-shadow ring matching the card background,
+// positioned via left: calc(50% + discountPremium% * 0.7) clamped to
+// 3-97%." Replaces the previous circular/needle gauge. Also now owns the
+// intrinsic-value headline + discount/premium% + "vs last close" line
+// directly above it -- Auto and Manual used to each duplicate that block
+// separately; consolidating it here means both columns render identically
+// from one component instead of two hand-kept-in-sync copies.
 export function ValuationGauge({ discountPremiumPct, intrinsicValuePerShare, lastClose }: Props) {
-  const data = BANDS.map((b) => ({ ...b, value: b.to - b.from }));
-  const needleAngle = discountPremiumPct != null ? valueToAngleDeg(discountPremiumPct) : null;
-  const isOffScale = discountPremiumPct != null && (discountPremiumPct < DOMAIN_MIN || discountPremiumPct > DOMAIN_MAX);
+  // discountPremiumPct is a fraction (e.g. -0.218) -- the CSS formula in the
+  // handoff operates on the percentage number (-21.8), not the fraction.
+  const markerLeft = discountPremiumPct != null ? clamp(50 + discountPremiumPct * 100 * 0.7, 3, 97) : null;
+  // Negative (a "discount" -- price below intrinsic value) is undervalued,
+  // the good/green case; positive ("premium") is overvalued/red. Matches
+  // FairValuePill's own undervalued=positive/overvalued=negative mapping.
+  const pctClass = discountPremiumPct == null ? "text-text-tertiary" : discountPremiumPct < 0 ? "text-positive" : discountPremiumPct > 0 ? "text-negative" : "text-text-tertiary";
 
   return (
-    <div className="flex flex-col items-center" role="img" aria-label="Intrinsic value vs stock price gauge">
-      <PieChart width={WIDTH} height={HEIGHT}>
-        <Pie
-          data={data}
-          dataKey="value"
-          cx={CX}
-          cy={CY}
-          startAngle={180}
-          endAngle={0}
-          innerRadius={INNER_RADIUS}
-          outerRadius={OUTER_RADIUS}
-          stroke="none"
-          isAnimationActive={false}
-        >
-          {data.map((entry) => (
-            <Cell key={entry.key} fill={entry.color} />
-          ))}
-        </Pie>
-        <Customized component={() => <Callouts intrinsicValuePerShare={intrinsicValuePerShare} lastClose={lastClose} />} />
-        <Customized
-          component={() => (
-            <>
-              <text x={CX - OUTER_RADIUS} y={CY + 24} textAnchor="start" className="fill-zinc-500" style={{ fontSize: 11 }}>
-                Undervalued
-              </text>
-              <text x={CX + OUTER_RADIUS} y={CY + 24} textAnchor="end" className="fill-zinc-500" style={{ fontSize: 11 }}>
-                Overvalued
-              </text>
-            </>
-          )}
+    <div className="space-y-3" role="img" aria-label="Intrinsic value vs stock price gauge">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="font-mono text-3xl font-bold tabular-nums text-text-primary">
+          {intrinsicValuePerShare != null ? fmtMoney(intrinsicValuePerShare) : "—"}
+        </span>
+        {discountPremiumPct != null && (
+          <span className={`font-mono text-sm font-semibold ${pctClass}`}>
+            {discountPremiumPct >= 0 ? "+" : ""}
+            {fmtPct(discountPremiumPct * 100, 1)}
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-text-tertiary">vs last close {lastClose != null ? fmtMoney(lastClose) : "—"}</p>
+
+      <div className="relative pt-2">
+        <div
+          className="h-2 w-full rounded-full"
+          style={{ background: "linear-gradient(90deg, var(--color-positive), var(--color-warn), var(--color-negative))" }}
         />
-        {needleAngle != null && <Customized component={() => <Needle angleDeg={needleAngle} />} />}
-      </PieChart>
-      {/* Always rendered at a fixed height, even when neither message
-          applies (the normal in-scale case) -- same "blank placeholder"
-          convention Step3Card/ManualCalculationPanel use for row sublabels.
-          This component is shared by Auto and Manual, sitting directly
-          above their Discount/Premium row; letting this caption line
-          appear/disappear based on discountPremiumPct's value made the
-          gauge itself a variable-height element, which is what drifted
-          Discount/Premium (and every row below it) out of alignment
-          whenever only one side's value was null or off-scale. */}
-      <p className="h-4 text-xs text-zinc-600">
-        {discountPremiumPct == null
-          ? "No discount/premium available"
-          : isOffScale
-            ? "Off-scale, pinned to arc end"
-            : " "}
-      </p>
+        {markerLeft != null && (
+          <span
+            className="absolute top-2 h-4 w-[3px] -translate-x-1/2 rounded-full bg-white"
+            style={{ left: `${markerLeft}%`, boxShadow: "0 0 0 3px var(--color-surface)" }}
+          />
+        )}
+      </div>
+      <div className="flex justify-between text-[11px] text-text-tertiary">
+        <span>Undervalued</span>
+        <span>Overvalued</span>
+      </div>
     </div>
   );
 }
