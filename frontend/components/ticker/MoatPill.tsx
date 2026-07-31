@@ -1,15 +1,19 @@
 import { MOAT_LABELS, type MoatValue } from "@/lib/overallScore";
 import { cn } from "@/lib/utils";
 
+// Reuses the scoring system's own tokens directly (no separate Moat
+// palette) -- a 3-state good/mid/bad read, same as Valuation: No Moat is
+// the negative extreme, Wide Moat is the positive extreme (one tier
+// stronger than Narrow Moat), no caution/amber tier applies here.
 const MOAT_STYLES: Record<MoatValue, string> = {
-  wide_moat: "bg-positive/16 text-positive border-positive/40",
-  narrow_moat: "bg-warn/16 text-warn border-warn/40",
+  wide_moat: "bg-positive-strong/16 text-positive-strong border-positive-strong/40",
+  narrow_moat: "bg-positive/16 text-positive border-positive/40",
   no_moat: "bg-negative/16 text-negative border-negative/40",
 };
 
 const MOAT_STYLES_FLAT: Record<MoatValue, string> = {
-  wide_moat: "bg-positive/16 text-positive",
-  narrow_moat: "bg-warn/16 text-warn",
+  wide_moat: "bg-positive-strong/16 text-positive-strong",
+  narrow_moat: "bg-positive/16 text-positive",
   no_moat: "bg-negative/16 text-negative",
 };
 

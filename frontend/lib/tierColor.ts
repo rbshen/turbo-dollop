@@ -1,25 +1,25 @@
 // Shared score/verdict -> Tailwind color-class tiering, used by every card
 // that renders a step's score or verdict as a color. Two shapes, same
-// priority order (Fail -> Pass with caution -> score>90 -> else) so a step
-// never reads as a different severity between its full badge and its
-// summary chip:
-//  - classFor: ScoreBadge's own full-badge styling (splits the score-based
-//    tiers into Strong Pass / light-green Pass / neutral Pass).
-//  - chipClassFor: small summary-chip styling (ScreenerCard,
-//    OverallAssessmentCard) -- fewer visual tiers, no split within Pass.
+// priority order and same Fail/caution/91+/75+/else tiers, so a step never
+// reads as a different severity between its full badge and its summary
+// chip:
+//  - classFor: ScoreBadge's own full-badge styling (bg+border).
+//  - flatChipClassFor: borderless summary-chip styling (TickerHeader's
+//    Assessment chip, OverallAssessmentCard, WatchlistTable).
 
 export function classFor(score: number, verdict: string): string {
   if (verdict === "Fail") return "bg-negative/16 text-negative border-negative/40";
-  // Step 5's "Pass with caution" (a Borderline breach excused by its
-  // tiebreaker) must read as visually distinct from BOTH a clean Pass and
-  // a Fail -- checked before the score-based tiers, same priority as Fail,
-  // since a real breach occurred regardless of how high the blended score is.
-  if (verdict === "Pass with caution") return "bg-warn/16 text-warn border-warn/40";
-  // Strong Pass and Pass (75-90) share the design system's one "positive"
-  // token (the mockup's own Screener scale collapses both into the same
-  // green too) -- Pass (70-74) reuses "warn" so the amber/green split this
-  // app's rubric intentionally keeps within the Pass band (see CLAUDE.md)
-  // survives with only the 3 semantic tokens the v2 palette defines.
+  // "Pass with caution" (a Borderline breach excused by its tiebreaker, or
+  // that flag propagated up from a contributing step into Overall
+  // Assessment) must read as visually distinct from Fail, a plain Pass,
+  // AND Strong Pass -- checked before the score-based tiers, same priority
+  // as Fail, since a real breach occurred regardless of how high the
+  // blended score is.
+  if (verdict === "Pass with caution") return "bg-caution/16 text-caution border-caution/40";
+  // Strong Pass (91-100) gets a deeper shade than a plain Pass (75-90) --
+  // both used to share one "positive" token; positive-strong distinguishes
+  // score magnitude instead of collapsing them.
+  if (score > 90) return "bg-positive-strong/16 text-positive-strong border-positive-strong/40";
   if (score >= 75) return "bg-positive/16 text-positive border-positive/40";
   return "bg-warn/16 text-warn border-warn/40"; // Pass (neutral, 70-74)
 }
@@ -29,30 +29,21 @@ export function classFor(score: number, verdict: string): string {
 // like an unwanted highlight box around the text.
 export function textClassFor(score: number, verdict: string): string {
   if (verdict === "Fail") return "text-negative";
-  if (verdict === "Pass with caution") return "text-warn";
+  if (verdict === "Pass with caution") return "text-caution";
+  if (score > 90) return "text-positive-strong";
   if (score >= 75) return "text-positive";
   return "text-warn";
 }
 
 // score == null covers both "no score computed for this ticker/step" and
 // "structurally exempt" (e.g. Step 5 not_supported for Banks) -- callers
-// never have a real verdict to color without a score.
-export function chipClassFor(score: number | null, verdict: string | null): string {
-  if (score == null) return "border-border-input bg-surface-2 text-text-tertiary";
-  if (verdict === "Fail") return "border-negative/40 bg-negative/16 text-negative";
-  if (verdict === "Pass with caution") return "border-warn/40 bg-warn/16 text-warn";
-  if (score > 90) return "border-positive/40 bg-positive/16 text-positive";
-  return "border-border-input bg-surface-2 text-text-secondary";
-}
-
-// Borderless variant of chipClassFor -- same tiers, no border-color class.
-// Dense table rows (Watchlist) read as cluttered with a border on every
-// cell's chip, matching the design handoff's own chipStyle() (background +
-// text color only, no border) for its table pills.
+// never have a real verdict to color without a score. Same tiers as
+// classFor, borderless.
 export function flatChipClassFor(score: number | null, verdict: string | null): string {
   if (score == null) return "bg-surface-2 text-text-tertiary";
   if (verdict === "Fail") return "bg-negative/16 text-negative";
-  if (verdict === "Pass with caution") return "bg-warn/16 text-warn";
-  if (score > 90) return "bg-positive/16 text-positive";
-  return "bg-surface-2 text-text-secondary";
+  if (verdict === "Pass with caution") return "bg-caution/16 text-caution";
+  if (score > 90) return "bg-positive-strong/16 text-positive-strong";
+  if (score >= 75) return "bg-positive/16 text-positive";
+  return "bg-warn/16 text-warn"; // Pass (70-74)
 }

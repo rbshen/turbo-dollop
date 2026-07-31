@@ -72,7 +72,7 @@ export function OverallAssessmentCard({ ticker }: Props) {
           )}
 
           {result.cautionSteps.length > 0 && (
-            <p className="text-sm text-warn">
+            <p className="text-sm text-caution">
               ⚠️ {result.cautionSteps.join(", ")} passed with caution — a real breach was excused by its tiebreaker,
               reflected in the weighted score above, but worth reviewing directly.
             </p>

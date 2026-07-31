@@ -154,6 +154,37 @@ def test_score_of_69_is_fail():
     assert result.verdict == "Fail"
 
 
+def test_caution_step_forces_caution_verdict_even_when_blend_is_strong_pass():
+    # A step-level "Pass with caution" (e.g. Step 5's tiebreaker-saved
+    # breach) must override the blended score's own band -- previously the
+    # verdict was purely score-banded, so this real breach was invisible
+    # unless the user separately read the warning-text banner.
+    steps = [
+        snapshot("step1", "Step 1", 95, "Strong Pass"),
+        snapshot("step2", "Step 2", 95, "Strong Pass"),
+        snapshot("step4", "Step 4", 95, "Strong Pass"),
+        snapshot("step5", "Step 5", 74, "Pass with caution"),
+    ]
+    # 95*0.35 + 95*0.22 + 95*0.28 + 74*0.15 = 33.25+20.9+26.6+11.1 = 91.85 -> 92
+    result = compute_overall_assessment(steps)
+    assert result.score == 92  # the underlying blend is untouched
+    assert result.verdict == "Pass with caution"
+
+
+def test_caution_propagation_does_not_override_a_fail_blend():
+    # Fail must remain the strongest signal in the system -- a caution flag
+    # never softens an already-failing blend into "Pass with caution".
+    steps = [
+        snapshot("step1", "Step 1", 30, "Fail"),
+        snapshot("step2", "Step 2", 30, "Fail"),
+        snapshot("step4", "Step 4", 30, "Fail"),
+        snapshot("step5", "Step 5", 74, "Pass with caution"),
+    ]
+    result = compute_overall_assessment(steps)
+    assert result.score < 70
+    assert result.verdict == "Fail"
+
+
 def test_lists_every_failing_step_by_name_when_more_than_one_fails():
     steps = [
         snapshot("step1", "Step 1", 0, "Fail"),

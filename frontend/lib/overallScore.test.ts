@@ -131,11 +131,13 @@ describe("computeOverallAssessment", () => {
     expect(result.failingSteps).toEqual(["Step 1", "Step 5"]);
   });
 
-  it("flags a caution-warning when a step's verdict is Pass with caution", () => {
+  it("flags a caution-warning when a step's verdict is Pass with caution, and propagates it to the displayed verdict", () => {
     // Mirrors Step 5's real shape -- a Borderline breach excused by its
     // tiebreaker must surface here too, not just blend silently into the
     // weighted score (previously missing -- see OverallAssessmentCard's
-    // chip fix, same underlying gap).
+    // chip fix, same underlying gap). The propagated verdict overrides
+    // what would otherwise be a green Strong Pass display; the underlying
+    // blended `score` itself is untouched.
     const steps: StepSnapshot[] = [
       snapshot("step1", "Step 1", 90, "Pass"),
       snapshot("step2", "Step 2", 90, "Pass"),
@@ -145,11 +147,29 @@ describe("computeOverallAssessment", () => {
     const result = computeOverallAssessment(steps);
     expect(result.cautionSteps).toEqual(["Step 5"]);
     expect(result.failingSteps).toEqual([]);
+    // 90*0.35 + 90*0.22 + 90*0.28 + 95*0.15 = 31.5+19.8+25.2+14.25 = 90.75 -> 91
+    expect(result.score).toBe(91);
+    expect(result.verdict).toBe("Pass with caution");
   });
 
   it("stays silent (no cautionSteps) when nothing passed with caution", () => {
     const result = computeOverallAssessment(BASE);
     expect(result.cautionSteps).toEqual([]);
+    expect(result.verdict).toBe("Strong Pass");
+  });
+
+  it("caution propagation never overrides an already-failing blend", () => {
+    // Fail must remain the strongest signal in the system -- a caution
+    // flag never softens an already-failing blend into "Pass with caution".
+    const steps: StepSnapshot[] = [
+      snapshot("step1", "Step 1", 30, "Fail"),
+      snapshot("step2", "Step 2", 30, "Fail"),
+      snapshot("step4", "Step 4", 30, "Fail"),
+      snapshot("step5", "Step 5", 74, "Pass with caution"),
+    ];
+    const result = computeOverallAssessment(steps);
+    expect(result.score).toBeLessThan(70);
+    expect(result.verdict).toBe("Fail");
   });
 
   it("shows Fail, not Pass, when the score is under 70", () => {

@@ -80,7 +80,9 @@
   --color-brand: var(--fathom-brand);
   --color-brand-hover: var(--fathom-brand-hover);
   --color-positive: var(--fathom-positive);
+  --color-positive-strong: var(--fathom-positive-strong);
   --color-warn: var(--fathom-warn);
+  --color-caution: var(--fathom-caution);
   --color-negative: var(--fathom-negative);
   --color-chart-purple: var(--fathom-chart-purple);
   --radius-sm: calc(var(--radius) * 0.6);
@@ -176,7 +178,15 @@
   --fathom-brand: oklch(64% 0.17 260);
   --fathom-brand-hover: oklch(76% 0.16 260);
   --fathom-positive: oklch(68% 0.15 155);
+  /* Deeper/more saturated than --fathom-positive, same hue (155) --
+     Strong Pass / Undervalued / Wide Moat, one tier up from a plain Pass. */
+  --fathom-positive-strong: oklch(58% 0.17 155);
   --fathom-warn: oklch(76% 0.13 80);
+  /* Deeper/more saturated than --fathom-warn, same hue (80) -- "Pass with
+     caution" only. Must never read more alarming than --fathom-negative:
+     chroma (0.16) stays below negative's (0.19), lightness matches
+     negative's (66%) without exceeding its saturation. */
+  --fathom-caution: oklch(66% 0.16 80);
   --fathom-negative: oklch(66% 0.19 25);
   --fathom-chart-purple: oklch(66% 0.1 300);
 }

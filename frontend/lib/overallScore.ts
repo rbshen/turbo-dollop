@@ -72,7 +72,7 @@ export interface StepBreakdownEntry {
 export interface OverallAssessment {
   status: "loading" | "complete" | "incomplete";
   score: number | null;
-  verdict: "Strong Pass" | "Pass" | "Fail" | null;
+  verdict: "Strong Pass" | "Pass" | "Pass with caution" | "Fail" | null;
   breakdown: StepBreakdownEntry[];
   incompleteSteps: string[];
   failingSteps: string[];
@@ -194,19 +194,26 @@ export function computeOverallAssessment(
     });
   }
 
+  // No hard-fail override among the 4 computed steps themselves --
+  // deliberately a pure weighted average there; the failingSteps warning
+  // note is the separate, non-blocking signal for "worth reviewing
+  // directly". Moat is the one deliberate exception: since it's
+  // user-asserted, not computed, a No Moat score of 0 combined with the
+  // 69/31 split can cap the overall score below the 70 Pass threshold
+  // regardless of how the 4 steps blend -- that's intended, not a bug.
+  // The verdict BAND, though, must match the shared bands used everywhere
+  // else in the app -- a score under 70 showing "Pass" was a bug.
+  const scoreVerdict = score !== null ? verdictFor(score) : null;
+  // A step-level "Pass with caution" flag must win over the blended
+  // score's own band -- Fail stays Fail (already the strongest signal),
+  // but an otherwise-green Pass/Strong Pass displays as caution instead.
+  // This changes only the DISPLAYED verdict; `score` above is untouched.
+  const verdict = scoreVerdict !== null && scoreVerdict !== "Fail" && cautionSteps.length > 0 ? "Pass with caution" : scoreVerdict;
+
   return {
     status: canCompute ? "complete" : "incomplete",
     score,
-    // No hard-fail override among the 4 computed steps themselves --
-    // deliberately a pure weighted average there; the failingSteps warning
-    // note is the separate, non-blocking signal for "worth reviewing
-    // directly". Moat is the one deliberate exception: since it's
-    // user-asserted, not computed, a No Moat score of 0 combined with the
-    // 69/31 split can cap the overall score below the 70 Pass threshold
-    // regardless of how the 4 steps blend -- that's intended, not a bug.
-    // The verdict BAND, though, must match the shared bands used everywhere
-    // else in the app -- a score under 70 showing "Pass" was a bug.
-    verdict: score !== null ? verdictFor(score) : null,
+    verdict,
     breakdown,
     incompleteSteps: canCompute ? [] : incomplete.map((s) => s.label),
     failingSteps,

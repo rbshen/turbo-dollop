@@ -57,7 +57,7 @@ class StepBreakdownEntry(NamedTuple):
 class OverallAssessment(NamedTuple):
     status: str  # "complete" | "incomplete"
     score: int | None
-    verdict: str | None  # "Strong Pass" | "Pass" | "Fail" | None
+    verdict: str | None  # "Strong Pass" | "Pass" | "Pass with caution" | "Fail" | None
     breakdown: list[StepBreakdownEntry]
     incomplete_steps: list[str]
     failing_steps: list[str]
@@ -116,6 +116,7 @@ def compute_overall_assessment(steps: list[StepSnapshot], moat: MoatSnapshot | N
     steps_score = round(sum(STEP_WEIGHTS[s.key] * s.score for s, _ in ok) / total_weight) if can_compute else None
 
     failing_steps = [s.label for s, _ in ok if s.verdict == "Fail"]
+    caution_steps = [s.label for s, _ in ok if s.verdict == "Pass with caution"]
 
     if moat is None:
         score = steps_score
@@ -154,18 +155,25 @@ def compute_overall_assessment(steps: list[StepSnapshot], moat: MoatSnapshot | N
             )
         )
 
+    # No hard-fail override among the 4 computed steps themselves --
+    # deliberately a pure weighted average there. Moat is the one
+    # deliberate exception (see CLAUDE.md): since it's user-asserted,
+    # not computed, a No Moat score of 0 combined with the 69/31 split
+    # can cap the overall score below the 70 Pass threshold regardless
+    # of how the 4 steps blend -- that's intended, not a bug. The
+    # verdict BAND itself must match the shared 0-69/70-90/91-100 bands
+    # used everywhere else in the app (see CLAUDE.md).
+    score_verdict = _verdict_for(score) if score is not None else None
+    # A step-level "Pass with caution" flag must win over the blended
+    # score's own band -- Fail stays Fail (already the strongest signal),
+    # but an otherwise-green Pass/Strong Pass displays as caution instead.
+    # This changes only the DISPLAYED verdict; `score` above is untouched.
+    verdict = "Pass with caution" if score_verdict not in (None, "Fail") and caution_steps else score_verdict
+
     return OverallAssessment(
         status="complete" if can_compute else "incomplete",
         score=score,
-        # No hard-fail override among the 4 computed steps themselves --
-        # deliberately a pure weighted average there. Moat is the one
-        # deliberate exception (see CLAUDE.md): since it's user-asserted,
-        # not computed, a No Moat score of 0 combined with the 69/31 split
-        # can cap the overall score below the 70 Pass threshold regardless
-        # of how the 4 steps blend -- that's intended, not a bug. The
-        # verdict BAND itself must match the shared 0-69/70-90/91-100 bands
-        # used everywhere else in the app (see CLAUDE.md).
-        verdict=(_verdict_for(score) if score is not None else None),
+        verdict=verdict,
         breakdown=breakdown,
         incomplete_steps=[] if can_compute else [s.label for s, _ in incomplete],
         failing_steps=failing_steps,

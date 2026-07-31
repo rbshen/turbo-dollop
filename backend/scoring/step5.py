@@ -6,6 +6,11 @@ from scoring.classification import classify_company_type
 # shared badge tiers (>90 Strong Pass, else Pass when not a hard fail).
 STRONG_PASS_SCORE = 90
 
+# Same 70 floor "Pass" starts at everywhere else in the app (CLAUDE.md).
+# A tiebreaker-saved breach is a Pass variant -- it must never promote an
+# otherwise-failing blend into "Pass with caution" (see _verdict_for).
+PASS_SCORE_THRESHOLD = 70
+
 # --- Severity bands ----------------------------------------------------------
 # Current Ratio, Debt/EBITDA, and Debt Servicing Ratio each used a single
 # hard-fail threshold with no gradation beyond it. Replaced with a 3-zone
@@ -190,7 +195,12 @@ def _verdict_for(score: int, hard_fail: bool, saved_by_tiebreaker: bool) -> str:
     if hard_fail:
         return "Fail"
     if saved_by_tiebreaker:
-        return "Pass with caution"
+        # A rescued breach must not promote an otherwise-failing blend --
+        # e.g. a saved Debt/EBITDA breach (60 pts) alongside a separately
+        # weak, non-breaching DSR (60 pts, "approaching_limit") can blend
+        # under 70 with no hard_fail anywhere. The breach is redundant in
+        # that case: the ticker genuinely fails regardless of the rescue.
+        return "Pass with caution" if score >= PASS_SCORE_THRESHOLD else "Fail"
     if score > STRONG_PASS_SCORE:
         return "Strong Pass"
     return "Pass"
@@ -222,11 +232,15 @@ def score_step5_standard(
     # genuine Pass-with-caution number, never a Fail's.
     if not hard_fail and saved_by_tiebreaker:
         score = min(score, PASS_WITH_CAUTION_SCORE_CAP)
+    verdict = _verdict_for(score, hard_fail, saved_by_tiebreaker)
     return {
         "score": score,
-        "verdict": _verdict_for(score, hard_fail, saved_by_tiebreaker),
+        "verdict": verdict,
         "hard_fail": hard_fail,
-        "pass_with_caution": not hard_fail and saved_by_tiebreaker,
+        # Derived from the actual verdict, not re-tested independently --
+        # saved_by_tiebreaker alone would say True even for the sub-70
+        # fall-through-to-Fail case above (see _verdict_for).
+        "pass_with_caution": verdict == "Pass with caution",
         "weights": WEIGHTS_STANDARD,
         "ratios": {
             "current_ratio": {

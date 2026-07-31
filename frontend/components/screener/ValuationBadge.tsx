@@ -1,4 +1,4 @@
-import { VERDICT_STYLES } from "@/components/ticker/FairValuePill";
+import { FLAT_VERDICT_STYLES, VERDICT_STYLES } from "@/components/ticker/FairValuePill";
 import { cn } from "@/lib/utils";
 
 // Screener-card-specific labels -- deliberately category-only (no price or
@@ -9,12 +9,6 @@ export const VALUATION_LABELS: Record<string, string> = {
   undervalued: "Undervalued",
   overvalued: "Overvalued",
   fair: "Fair Valued",
-};
-
-const FLAT_VERDICT_STYLES: Record<string, string> = {
-  undervalued: "bg-positive/16 text-positive",
-  overvalued: "bg-negative/16 text-negative",
-  fair: "bg-warn/16 text-warn",
 };
 
 interface Props {

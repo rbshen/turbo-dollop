@@ -373,9 +373,32 @@ def test_pass_with_caution_cap_does_not_raise_an_already_low_score():
         current_ratio=0.9, adjusted_current_ratio=1.0, debt_to_ebitda=2.9, debt_servicing_pct=25.0,
         interest_coverage_ratio=None,
     )
-    assert result["pass_with_caution"] is True
     # (70 acceptable + 70 acceptable + 60 approaching_limit) / 3 = 66.67 -> 67
     assert result["score"] == 67
+    # 67 < 70 -- the rescue is redundant here (see
+    # test_tiebreaker_saved_breach_with_sub_70_blend_stays_fail below):
+    # this ticker genuinely fails regardless of Current Ratio's tiebreaker.
+    assert result["pass_with_caution"] is False
+    assert result["verdict"] == "Fail"
+
+
+def test_tiebreaker_saved_breach_with_sub_70_blend_stays_fail():
+    # Confirmed real bug (2026-07-31 investigation): a rescued breach is a
+    # Pass VARIANT -- it must never promote an otherwise-failing blend into
+    # a passing verdict. Debt/EBITDA's breach is saved by ICR (60 pts), but
+    # Debt Servicing Ratio is separately just weak -- not breaching, only
+    # "approaching_limit" (60 pts, non-breach) -- so no ratio here is
+    # hard_fail, yet the blend (70+60+60)/3 = 63.3 -> 63 is well under the
+    # 70 Pass floor. Previously this read "Pass with caution" at score 63.
+    result = score_step5_standard(
+        current_ratio=1.0, adjusted_current_ratio=1.0, debt_to_ebitda=3.5, debt_servicing_pct=25.0,
+        interest_coverage_ratio=5.0,
+    )
+    assert result["ratios"]["debt_to_ebitda"]["saved_by_tiebreaker"] is True
+    assert result["hard_fail"] is False
+    assert result["score"] == 63
+    assert result["pass_with_caution"] is False
+    assert result["verdict"] == "Fail"
 
 
 def test_current_ratio_borderline_without_deferred_revenue_still_fails():
@@ -391,14 +414,21 @@ def test_current_ratio_borderline_without_deferred_revenue_still_fails():
 
 def test_both_debt_to_ebitda_and_dsr_borderline_share_one_icr_signal():
     # If both are Borderline at once, ICR is one shared confidence check --
-    # a safe ICR saves both simultaneously, not independently.
+    # a safe ICR saves both simultaneously, not independently. Current Ratio
+    # is comfortably "excellent" (100, unsaved) here specifically so the
+    # blend clears 70 on its own -- a weaker Current Ratio would trip the
+    # separate sub-70 Fail-fallthrough rule this file also covers (see
+    # test_tiebreaker_saved_breach_with_sub_70_blend_stays_fail), which
+    # isn't what this test is about.
     result = score_step5_standard(
-        current_ratio=1.2, adjusted_current_ratio=1.2, debt_to_ebitda=3.5, debt_servicing_pct=35.0,
+        current_ratio=2.5, adjusted_current_ratio=2.5, debt_to_ebitda=3.5, debt_servicing_pct=35.0,
         interest_coverage_ratio=5.0,
     )
     assert result["ratios"]["debt_to_ebitda"]["saved_by_tiebreaker"] is True
     assert result["ratios"]["debt_servicing_ratio"]["saved_by_tiebreaker"] is True
     assert result["hard_fail"] is False
+    # (100 excellent + 60 saved + 60 saved) / 3 = 73.3 -> 73
+    assert result["score"] == 73
     assert result["verdict"] == "Pass with caution"
 
 

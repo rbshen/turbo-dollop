@@ -1,10 +1,14 @@
 import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+// Reuses the scoring system's own tokens directly (no separate Valuation
+// palette) -- a 3-state good/mid/bad read, same as Moat: Overvalued is the
+// negative extreme, Undervalued is the positive extreme (one tier stronger
+// than a plain Fair Valued), no caution/amber tier applies here.
 export const VERDICT_STYLES: Record<string, string> = {
-  undervalued: "bg-positive/16 text-positive border-positive/40",
+  undervalued: "bg-positive-strong/16 text-positive-strong border-positive-strong/40",
   overvalued: "bg-negative/16 text-negative border-negative/40",
-  fair: "bg-warn/16 text-warn border-warn/40",
+  fair: "bg-positive/16 text-positive border-positive/40",
 };
 
 const VERDICT_LABELS: Record<string, string> = {
@@ -15,11 +19,12 @@ const VERDICT_LABELS: Record<string, string> = {
 
 // Same borderless colors ValuationBadge/MoatPill use for their "flat"
 // variant -- keeps TickerHeader's chip row visually identical to
-// ScreenerCard's pill row (no border, same height/rounding).
-const FLAT_VERDICT_STYLES: Record<string, string> = {
-  undervalued: "bg-positive/16 text-positive",
+// ScreenerCard's pill row (no border, same height/rounding). Exported so
+// ValuationBadge shares this map instead of duplicating it.
+export const FLAT_VERDICT_STYLES: Record<string, string> = {
+  undervalued: "bg-positive-strong/16 text-positive-strong",
   overvalued: "bg-negative/16 text-negative",
-  fair: "bg-warn/16 text-warn",
+  fair: "bg-positive/16 text-positive",
 };
 
 interface Props {

@@ -21,6 +21,22 @@ interface Props {
 
 const HEAD_CLASS = "whitespace-nowrap text-xs font-semibold uppercase tracking-widest text-text-tertiary";
 
+// The Analysis column collapses the 4 individual step chips into one
+// overall_score/overall_verdict pill (see the column-order comment below) --
+// that collapse means a step-level "Pass with caution" flag (currently only
+// ever Step 5's) is otherwise invisible here even though it now drives the
+// Analysis pill's own caution color (see lib/tierColor.ts). This names
+// exactly which step(s) triggered it, surfaced as a small marker with a
+// tooltip, without re-adding the removed per-step columns.
+function cautionStepLabels(row: WatchlistRowOut): string[] {
+  const labels: string[] = [];
+  if (row.step1_verdict === "Pass with caution") labels.push("Financials");
+  if (row.step2_verdict === "Pass with caution") labels.push("Growth Rate");
+  if (row.step4_verdict === "Pass with caution") labels.push("Profitability");
+  if (row.step5_verdict === "Pass with caution") labels.push("Debt");
+  return labels;
+}
+
 // Column order per design_handoff_fathom_v2/README.md's Watchlist spec:
 // Ticker, Sector, Price, Chg, Moat, Valuation, Analysis, Rating, Mkt Cap,
 // Beta, P/E, then a trailing icon-only remove button. "Analysis" collapses
@@ -97,9 +113,12 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
               </TableCell>
               <TableCell className="text-center">
                 <span
-                  className={`rounded-md px-2 py-1 text-xs font-semibold ${flatChipClassFor(row.overall_score, row.overall_verdict)}`}
+                  className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ${flatChipClassFor(row.overall_score, row.overall_verdict)}`}
                 >
                   {row.overall_score ?? "—"}
+                  {row.overall_verdict === "Pass with caution" && (
+                    <span title={`Passed with caution: ${cautionStepLabels(row).join(", ")}`}>⚠</span>
+                  )}
                 </span>
               </TableCell>
               <TableCell className="text-text-secondary">{row.consensus_rating}</TableCell>

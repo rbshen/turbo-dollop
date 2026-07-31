@@ -147,7 +147,7 @@ export function Step5Card({ ticker }: Props) {
         </p>
       )}
       {!isBank && !isInsurance && data.pass_with_caution && (
-        <p className="text-sm text-warn">Pass with caution: {savedRatioSummary(data.ratios)}.</p>
+        <p className="text-sm text-caution">Pass with caution: {savedRatioSummary(data.ratios)}.</p>
       )}
     </>
   );
