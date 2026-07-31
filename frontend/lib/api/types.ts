@@ -634,10 +634,19 @@ export interface WatchlistOut {
   tickers: WatchlistTickerOut[];
 }
 
+// market_cap/pe_ratio/beta added for the v2 redesign's "Sort by" list
+// (design_handoff_fathom_v2/README.md) -- both fields already exist on
+// WatchlistRowOut (fetched from FMP profile data already cached for every
+// other Watchlist column), and the backend persists sort_field as an
+// opaque `str` (backend/schemas.py::WatchlistOut), so this is a
+// frontend-only type widening, not new data.
 export type WatchlistSortField =
   | "ticker"
   | "price"
   | "change_percent"
+  | "market_cap"
+  | "pe_ratio"
+  | "beta"
   | "overall_score"
   | "step1_score"
   | "step2_score"

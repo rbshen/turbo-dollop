@@ -44,3 +44,15 @@ export function chipClassFor(score: number | null, verdict: string | null): stri
   if (score > 90) return "border-positive/40 bg-positive/16 text-positive";
   return "border-border-input bg-surface-2 text-text-secondary";
 }
+
+// Borderless variant of chipClassFor -- same tiers, no border-color class.
+// Dense table rows (Watchlist) read as cluttered with a border on every
+// cell's chip, matching the design handoff's own chipStyle() (background +
+// text color only, no border) for its table pills.
+export function flatChipClassFor(score: number | null, verdict: string | null): string {
+  if (score == null) return "bg-surface-2 text-text-tertiary";
+  if (verdict === "Fail") return "bg-negative/16 text-negative";
+  if (verdict === "Pass with caution") return "bg-warn/16 text-warn";
+  if (score > 90) return "bg-positive/16 text-positive";
+  return "bg-surface-2 text-text-secondary";
+}
