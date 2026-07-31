@@ -7,6 +7,7 @@ import { AnalysisTab } from "@/components/ticker/AnalysisTab";
 import { AnalystRatingsTab } from "@/components/ticker/AnalystRatingsTab";
 import { EconomicMoatTab } from "@/components/ticker/EconomicMoatTab";
 import { FinancialsTab } from "@/components/ticker/FinancialsTab";
+import { NewsSentimentTab } from "@/components/ticker/NewsSentimentTab";
 import { RatiosTab } from "@/components/ticker/RatiosTab";
 import { SummaryTab } from "@/components/ticker/SummaryTab";
 import { TickerHeader } from "@/components/ticker/TickerHeader";
@@ -40,6 +41,7 @@ export function TickerTabsContainer({ ticker }: Props) {
         {tab === "analystRatings" && <AnalystRatingsTab ticker={ticker} />}
         {tab === "valuation" && <ValuationTab ticker={ticker} />}
         {tab === "moat" && <EconomicMoatTab ticker={ticker} />}
+        {tab === "newsSentiment" && <NewsSentimentTab />}
       </PageContainer>
     </div>
   );
