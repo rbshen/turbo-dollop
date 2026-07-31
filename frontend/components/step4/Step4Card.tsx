@@ -1,10 +1,6 @@
 "use client";
 
-import { ReasoningTable } from "@/components/shared/ReasoningTable";
-import { ScoreBadge } from "@/components/step1/ScoreBadge";
-import { CccSection } from "@/components/step4/CccSection";
-import { RevenueArSection } from "@/components/step4/RevenueArSection";
-import { RoeRoicSection } from "@/components/step4/RoeRoicSection";
+import { AnalysisSectionCard, type ReasoningBullet } from "@/components/shared/AnalysisSectionCard";
 import { useStep4 } from "@/lib/hooks/useStep4";
 
 interface Props {
@@ -37,9 +33,9 @@ const TIER_LABELS: Record<string, string> = {
 };
 
 function tierClass(points: number): string {
-  if (points === 0) return "text-red-400";
-  if (points < 70) return "text-amber-300";
-  return "text-zinc-100";
+  if (points === 0) return "text-negative";
+  if (points < 70) return "text-warn";
+  return "text-text-primary";
 }
 
 export function Step4Card({ ticker }: Props) {
@@ -47,27 +43,25 @@ export function Step4Card({ ticker }: Props) {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <p className="text-sm text-red-400">Couldn&apos;t load Profitability data — {error.message}</p>
+      <div className="rounded-lg border border-border-card bg-surface p-6">
+        <p className="text-sm text-negative">Couldn&apos;t load Profitability data — {error.message}</p>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <p className="text-sm text-zinc-600 animate-pulse">Loading Profitability…</p>
+      <div className="rounded-lg border border-border-card bg-surface p-6">
+        <p className="text-sm text-text-tertiary animate-pulse">Loading Profitability…</p>
       </div>
     );
   }
 
   if (data.verdict === "insufficient_data" || data.score == null) {
     return (
-      <div className="space-y-4 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">
-          Profitability
-        </h2>
-        <p className="text-sm text-zinc-500">Required figures were unavailable for {ticker}.</p>
+      <div className="space-y-2 rounded-lg border border-border-card bg-surface p-6">
+        <h2 className="font-heading text-sm font-semibold text-text-primary">Profitability</h2>
+        <p className="text-sm text-text-tertiary">Required figures were unavailable for {ticker}.</p>
       </div>
     );
   }
@@ -76,45 +70,33 @@ export function Step4Card({ ticker }: Props) {
     .filter((entry): entry is [string, { label?: string; pattern?: string; points: number }] => entry[1] != null)
     .map(([key, c]) => ({ key, points: c.points, tierKey: c.label ?? c.pattern ?? "" }));
 
+  const bullets: ReasoningBullet[] = componentRows.map((row) => ({
+    key: row.key,
+    text: `${METRIC_LABELS[row.key] ?? row.key}: ${TIER_LABELS[row.tierKey] ?? row.tierKey}`,
+    tierClassName: tierClass(row.points),
+  }));
+
+  const blurb = data.hard_fail
+    ? "ROE or ROIC landed in its Fail tier, so this fails regardless of the blended score."
+    : "Neither ROE nor ROIC breached its Fail tier.";
+
+  const notes = (
+    <>
+      {data.roic_exempt_reason && <p className="text-xs text-text-tertiary">{data.roic_exempt_reason}</p>}
+      {data.ccc_exempt_reason && <p className="text-xs text-text-tertiary">{data.ccc_exempt_reason}</p>}
+      {data.revenue_vs_ar_exempt_reason && <p className="text-xs text-text-tertiary">{data.revenue_vs_ar_exempt_reason}</p>}
+      {data.roe_roic_divergence_note && <p className="text-xs text-warn">{data.roe_roic_divergence_note}</p>}
+    </>
+  );
+
   return (
-    <div className="space-y-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">
-          Profitability
-        </h2>
-        <ScoreBadge score={data.score} verdict={data.verdict} />
-      </div>
-
-      <div className="space-y-1">
-        {data.roic_exempt_reason && <p className="text-xs text-zinc-600">{data.roic_exempt_reason}</p>}
-        {data.ccc_exempt_reason && <p className="text-xs text-zinc-600">{data.ccc_exempt_reason}</p>}
-        {data.revenue_vs_ar_exempt_reason && <p className="text-xs text-zinc-600">{data.revenue_vs_ar_exempt_reason}</p>}
-        {data.roe_roic_divergence_note && (
-          <p className="text-xs text-amber-400">{data.roe_roic_divergence_note}</p>
-        )}
-      </div>
-
-      <ReasoningTable
-        showWeightContribution={false}
-        rows={componentRows.map((row) => ({
-          key: row.key,
-          label: METRIC_LABELS[row.key] ?? row.key,
-          tierLabel: TIER_LABELS[row.tierKey] ?? row.tierKey,
-          tierClassName: tierClass(row.points),
-        }))}
-      />
-
-      <p className="text-sm text-zinc-400">
-        {data.hard_fail
-          ? "ROE or ROIC landed in its Fail tier, so this fails regardless of the blended score shown above."
-          : "Neither ROE nor ROIC breached its Fail tier."}
-      </p>
-
-      <div className="space-y-6">
-        <RoeRoicSection data={data} />
-        <RevenueArSection data={data} />
-        <CccSection data={data} />
-      </div>
-    </div>
+    <AnalysisSectionCard
+      title="Profitability"
+      score={data.score}
+      verdict={data.verdict}
+      blurb={blurb}
+      notes={notes}
+      bullets={bullets}
+    />
   );
 }

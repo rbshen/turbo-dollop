@@ -1,12 +1,6 @@
 "use client";
 
-import { CaretDown } from "@phosphor-icons/react";
-
-import { ReasoningTable } from "@/components/shared/ReasoningTable";
-import { FinancialsSection } from "@/components/step1/FinancialsSection";
-import { MarginSection } from "@/components/step1/MarginSection";
-import { ScoreBadge } from "@/components/step1/ScoreBadge";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { AnalysisSectionCard, type ReasoningBullet } from "@/components/shared/AnalysisSectionCard";
 import { useStep1 } from "@/lib/hooks/useStep1";
 import type { Step1Out } from "@/lib/api/types";
 
@@ -51,9 +45,9 @@ const TIER_LABELS: Record<string, string> = {
 };
 
 function tierClass(score: number): string {
-  if (score === 0) return "text-red-400";
-  if (score < 70) return "text-amber-300";
-  return "text-zinc-100";
+  if (score === 0) return "text-negative";
+  if (score < 70) return "text-warn";
+  return "text-text-primary";
 }
 
 function metricLabel(key: string, data: Step1Out): string {
@@ -66,27 +60,25 @@ export function Step1Card({ ticker }: Props) {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <p className="text-sm text-red-400">Couldn&apos;t load Financials data — {error.message}</p>
+      <div className="rounded-lg border border-border-card bg-surface p-6">
+        <p className="text-sm text-negative">Couldn&apos;t load Financials data — {error.message}</p>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <p className="text-sm text-zinc-600 animate-pulse">Loading Financials…</p>
+      <div className="rounded-lg border border-border-card bg-surface p-6">
+        <p className="text-sm text-text-tertiary animate-pulse">Loading Financials…</p>
       </div>
     );
   }
 
   if (data.verdict === "insufficient_data" || data.score == null) {
     return (
-      <div className="space-y-4 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">
-          Financials
-        </h2>
-        <p className="text-sm text-zinc-500">Required figures were unavailable for {ticker}.</p>
+      <div className="space-y-2 rounded-lg border border-border-card bg-surface p-6">
+        <h2 className="font-heading text-sm font-semibold text-text-primary">Financials</h2>
+        <p className="text-sm text-text-tertiary">Required figures were unavailable for {ticker}.</p>
       </div>
     );
   }
@@ -94,44 +86,22 @@ export function Step1Card({ ticker }: Props) {
   const componentRows = METRIC_ORDER.map((key) => {
     const component = data.components[key as keyof typeof data.components];
     if (!component) return null;
-    const weight = data.weights[key] ?? 0;
     return {
       key,
       label: metricLabel(key, data),
       tierLabel: TIER_LABELS[component.pattern] ?? component.pattern,
       score: component.score,
-      weight,
-      contribution: Math.round(weight * component.score),
     };
   }).filter((row): row is NonNullable<typeof row> => row !== null);
 
-  return (
-    <div className="space-y-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">
-          Financials
-        </h2>
-        <ScoreBadge score={data.score} verdict={data.verdict} />
-      </div>
+  const strongCount = componentRows.filter((r) => r.score >= 70).length;
+  const blurb = `${strongCount} of ${componentRows.length} components (revenue, income, cash flow, margins) score at Pass level or better.`;
 
-      <Collapsible>
-        <CollapsibleTrigger className="group flex items-center gap-1.5 text-xs uppercase tracking-widest text-zinc-500 hover:text-zinc-300">
-          <CaretDown size={12} className="transition-transform duration-200 group-data-[panel-open]:rotate-180" />
-          Reasoning
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <div className="mt-3">
-            <ReasoningTable
-              rows={componentRows.map((row) => ({ ...row, tierClassName: tierClass(row.score) }))}
-            />
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
+  const bullets: ReasoningBullet[] = componentRows.map((row) => ({
+    key: row.key,
+    text: `${row.label}: ${row.tierLabel}`,
+    tierClassName: tierClass(row.score),
+  }));
 
-      <div className="space-y-6">
-        <FinancialsSection data={data} />
-        <MarginSection data={data} />
-      </div>
-    </div>
-  );
+  return <AnalysisSectionCard title="Financials" score={data.score} verdict={data.verdict} blurb={blurb} bullets={bullets} />;
 }

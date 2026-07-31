@@ -24,6 +24,16 @@ export function classFor(score: number, verdict: string): string {
   return "bg-warn/16 text-warn border-warn/40"; // Pass (neutral, 70-74)
 }
 
+// Text-only variant of classFor's same tiering -- for a plain verdict
+// headline (Overall Assessment) where a full bg/border chip would look
+// like an unwanted highlight box around the text.
+export function textClassFor(score: number, verdict: string): string {
+  if (verdict === "Fail") return "text-negative";
+  if (verdict === "Pass with caution") return "text-warn";
+  if (score >= 75) return "text-positive";
+  return "text-warn";
+}
+
 // score == null covers both "no score computed for this ticker/step" and
 // "structurally exempt" (e.g. Step 5 not_supported for Banks) -- callers
 // never have a real verdict to color without a score.

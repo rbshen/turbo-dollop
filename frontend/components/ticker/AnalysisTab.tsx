@@ -8,18 +8,18 @@ interface Props {
   ticker: string;
 }
 
-// Exact relocation of the ticker page's prior full-page content -- no
-// logic or presentation changes, just moved under the Analysis tab.
+// Order matches the design handoff's card list: Financials, Growth Rate,
+// Profitability, Debt -- stacked single-column now that each card is a
+// compact badge+blurb+collapsible-reasoning shell rather than a full
+// chart/table card, so a 2-column grid no longer earns its keep.
 export function AnalysisTab({ ticker }: Props) {
   return (
-    <div className="space-y-6 py-6">
+    <div className="space-y-4 py-6">
       <OverallAssessmentCard ticker={ticker} />
       <Step1Card ticker={ticker} />
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <Step2Card ticker={ticker} />
-        <Step5Card ticker={ticker} />
-      </div>
+      <Step2Card ticker={ticker} />
       <Step4Card ticker={ticker} />
+      <Step5Card ticker={ticker} />
     </div>
   );
 }

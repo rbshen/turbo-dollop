@@ -38,10 +38,10 @@ function latestValue(years: string[], values: (number | null)[]): { value: numbe
 }
 
 // The 11-metric "Historical Trends" grid at the top of the Financials
-// tab -- sources straight from the same Step1/Step4 series that already
-// back the Analysis tab's own charts (see FinancialsSection/MarginSection/
-// RoeRoicSection/RevenueArSection/CccSection), just re-surfaced here as
-// small preview cards rather than full trend charts. No new data.
+// tab -- sources straight from the same raw Step1/Step4 series
+// (revenue/net income/CFO/FCF/margins, ROE/ROIC/AR/CCC) that back the
+// Analysis tab's own scoring, just re-surfaced here as small preview
+// cards. No new data.
 export function HistoricalTrendsGrid({ ticker }: Props) {
   const step1 = useStep1(ticker);
   const step4 = useStep4(ticker);
