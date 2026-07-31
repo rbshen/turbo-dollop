@@ -9,7 +9,7 @@ interface Props {
 
 export function TickerTabs({ active, onChange }: Props) {
   return (
-    <div className="flex gap-1 overflow-x-auto border-b border-zinc-800">
+    <div className="flex gap-1 overflow-x-auto border-b border-border-card">
       {TICKER_TABS.map(({ key, label }) => {
         const isActive = key === active;
         return (
@@ -19,8 +19,8 @@ export function TickerTabs({ active, onChange }: Props) {
             onClick={() => onChange(key)}
             className={`shrink-0 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
               isActive
-                ? "border-zinc-100 text-zinc-100"
-                : "border-transparent text-zinc-500 hover:text-zinc-300"
+                ? "border-brand text-brand"
+                : "border-transparent text-text-secondary hover:text-text-primary"
             }`}
           >
             {label}

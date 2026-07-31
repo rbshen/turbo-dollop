@@ -107,9 +107,9 @@ export function fmtDays(n: number, decimals = 1): string {
 
 /** Tailwind text class based on sign; near-zero is muted. */
 export function pnlClass(n: number): string {
-  if (n > 0.005) return "text-emerald-400";
-  if (n < -0.005) return "text-red-400";
-  return "text-zinc-500";
+  if (n > 0.005) return "text-positive";
+  if (n < -0.005) return "text-negative";
+  return "text-text-tertiary";
 }
 
 /** Same palette for underlying price/index changes. */

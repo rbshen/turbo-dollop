@@ -2,9 +2,9 @@ import { MOAT_LABELS, type MoatValue } from "@/lib/overallScore";
 import { cn } from "@/lib/utils";
 
 const MOAT_STYLES: Record<MoatValue, string> = {
-  wide_moat: "bg-emerald-900/40 text-emerald-300 border-emerald-700/40",
-  narrow_moat: "bg-amber-900/30 text-amber-300 border-amber-700/40",
-  no_moat: "bg-red-900/40 text-red-400 border-red-800/40",
+  wide_moat: "bg-positive/16 text-positive border-positive/40",
+  narrow_moat: "bg-warn/16 text-warn border-warn/40",
+  no_moat: "bg-negative/16 text-negative border-negative/40",
 };
 
 interface Props {

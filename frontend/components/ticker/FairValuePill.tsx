@@ -2,9 +2,9 @@ import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const VERDICT_STYLES: Record<string, string> = {
-  undervalued: "bg-emerald-900/40 text-emerald-300 border-emerald-700/40",
-  overvalued: "bg-red-900/40 text-red-400 border-red-800/40",
-  fair: "bg-zinc-800 text-zinc-400 border-zinc-700/40",
+  undervalued: "bg-positive/16 text-positive border-positive/40",
+  overvalued: "bg-negative/16 text-negative border-negative/40",
+  fair: "bg-warn/16 text-warn border-warn/40",
 };
 
 const VERDICT_LABELS: Record<string, string> = {

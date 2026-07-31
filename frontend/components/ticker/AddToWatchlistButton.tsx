@@ -158,15 +158,15 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
         type="button"
         onClick={() => setPanel((p) => (p === "idle" ? "picking" : "idle"))}
         disabled={disabled}
-        className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-full bg-brand px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
       >
         {label}
       </button>
 
       {panel === "picking" && (
-        <div className="absolute right-0 z-20 mt-1 w-64 rounded-md border border-zinc-700 bg-zinc-900 p-1 shadow-lg">
+        <div className="absolute right-0 z-20 mt-1 w-64 rounded-md border border-border-input bg-surface p-1 shadow-lg">
           {!watchlists || watchlists.length === 0 ? (
-            <p className="px-2 py-1.5 text-xs text-zinc-600">No watchlists yet</p>
+            <p className="px-2 py-1.5 text-xs text-text-tertiary">No watchlists yet</p>
           ) : (
             <div className="max-h-56 overflow-y-auto">
               {watchlists.map((w) => {
@@ -175,21 +175,21 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
                 if (isBulk && confirmTarget === w.id) {
                   return (
                     <div key={w.id} className="space-y-1 rounded px-2 py-1.5 text-xs">
-                      <p className="text-amber-400">
+                      <p className="text-warn">
                         Add {confirmDescription ?? `${tickers.length} tickers`} to &quot;{w.name}&quot;?
                       </p>
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => handleBulkAdd(w.id)}
-                          className="rounded border border-amber-800/60 px-1.5 py-0.5 text-amber-300 hover:border-amber-600"
+                          className="rounded border border-warn/50 px-1.5 py-0.5 text-warn hover:border-warn"
                         >
                           Okay
                         </button>
                         <button
                           type="button"
                           onClick={() => setConfirmTarget(null)}
-                          className="rounded border border-zinc-700 px-1.5 py-0.5 text-zinc-500 hover:border-zinc-500 hover:text-zinc-300"
+                          className="rounded border border-border-input px-1.5 py-0.5 text-text-tertiary hover:border-brand hover:text-text-secondary"
                         >
                           Cancel
                         </button>
@@ -203,25 +203,25 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
 
                 return (
                   <div key={w.id} className="space-y-0.5 rounded px-2 py-1.5">
-                    <div className="flex items-center justify-between gap-2 text-xs text-zinc-300">
+                    <div className="flex items-center justify-between gap-2 text-xs text-text-secondary">
                       <span className="truncate">{w.name}</span>
                       {alreadyAdded ? (
-                        <span className="shrink-0 text-zinc-600">Already added</span>
+                        <span className="shrink-0 text-text-tertiary">Already added</span>
                       ) : status === "saved" && resultMessage ? (
-                        <span className="shrink-0 text-emerald-400">{resultMessage}</span>
+                        <span className="shrink-0 text-positive">{resultMessage}</span>
                       ) : (
                         <button
                           type="button"
                           onClick={() => (isBulk ? setConfirmTarget(w.id) : handleAddToExisting(w.id))}
                           disabled={status === "saving" || status === "saved"}
-                          className="shrink-0 rounded border border-zinc-700 px-1.5 py-0.5 text-zinc-400 hover:border-zinc-500 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="shrink-0 rounded border border-border-input px-1.5 py-0.5 text-text-secondary hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {ADD_STATUS_LABELS[status]}
                         </button>
                       )}
                     </div>
                     {status === "error" && addErrorMessage[w.id] && (
-                      <p className="text-xs text-red-400">{addErrorMessage[w.id]}</p>
+                      <p className="text-xs text-negative">{addErrorMessage[w.id]}</p>
                     )}
                   </div>
                 );
@@ -229,12 +229,12 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
             </div>
           )}
 
-          <div className="mt-1 border-t border-zinc-800 pt-1">
+          <div className="mt-1 border-t border-border-subtle pt-1">
             {newListStep === "idle" ? (
               <button
                 type="button"
                 onClick={openNewList}
-                className="w-full rounded px-2 py-1.5 text-left text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                className="w-full rounded px-2 py-1.5 text-left text-xs text-text-secondary hover:bg-surface-2 hover:text-text-primary"
               >
                 + New watchlist
               </button>
@@ -251,7 +251,7 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
                       if (e.key === "Enter") handleCreateAndAdd();
                       if (e.key === "Escape") cancelNewList();
                     }}
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    className="w-full rounded-md border border-border-input bg-page px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
                   />
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -259,19 +259,19 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
                     type="button"
                     onClick={handleCreateAndAdd}
                     disabled={!newListName.trim() || newListStatus === "saving"}
-                    className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-md border border-border-input bg-surface px-2 py-1 text-xs text-text-secondary hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {CREATE_STATUS_LABELS[newListStatus]}
                   </button>
                   <button
                     type="button"
                     onClick={cancelNewList}
-                    className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-500 hover:border-zinc-500 hover:text-zinc-300"
+                    className="rounded-md border border-border-input bg-surface px-2 py-1 text-xs text-text-tertiary hover:border-brand hover:text-text-secondary"
                   >
                     Cancel
                   </button>
                 </div>
-                {newListError && <p className="text-xs text-red-400">{newListError}</p>}
+                {newListError && <p className="text-xs text-negative">{newListError}</p>}
               </div>
             )}
           </div>
