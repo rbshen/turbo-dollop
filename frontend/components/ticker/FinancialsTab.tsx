@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { SegmentedControl } from "@/components/shared/SegmentedControl";
 import { FinancialsStatementTable } from "@/components/ticker/FinancialsStatementTable";
+import { HistoricalTrendsGrid } from "@/components/ticker/HistoricalTrendsGrid";
 import type { FinancialsStatementOut } from "@/lib/api/types";
 import { useFinancials } from "@/lib/hooks/useFinancials";
 
@@ -33,7 +34,7 @@ export function FinancialsTab({ ticker }: Props) {
   if (error) {
     return (
       <div className="flex items-center justify-center py-20">
-        <span className="text-sm text-red-400">
+        <span className="text-sm text-negative">
           Couldn&apos;t load {ticker} — {error.message}
         </span>
       </div>
@@ -43,7 +44,7 @@ export function FinancialsTab({ ticker }: Props) {
   if (!data) {
     return (
       <div className="flex items-center justify-center py-20">
-        <span className="text-sm text-zinc-600 animate-pulse">Loading {ticker}…</span>
+        <span className="text-sm text-text-tertiary animate-pulse">Loading {ticker}…</span>
       </div>
     );
   }
@@ -52,9 +53,14 @@ export function FinancialsTab({ ticker }: Props) {
     statement === "income" ? data.income_statement : statement === "balanceSheet" ? data.balance_sheet : data.cash_flow;
 
   return (
-    <div className="space-y-4 py-6">
+    <div className="space-y-6 py-6">
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-widest text-text-secondary">Historical Trends</h2>
+        <HistoricalTrendsGrid ticker={ticker} />
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 overflow-x-auto border-b border-zinc-800">
+        <div className="flex gap-1 overflow-x-auto border-b border-border-card">
           {STATEMENT_TABS.map(({ key, label }) => {
             const isActive = key === statement;
             return (
@@ -63,7 +69,7 @@ export function FinancialsTab({ ticker }: Props) {
                 type="button"
                 onClick={() => setStatement(key)}
                 className={`shrink-0 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
-                  isActive ? "border-zinc-100 text-zinc-100" : "border-transparent text-zinc-500 hover:text-zinc-300"
+                  isActive ? "border-brand text-brand" : "border-transparent text-text-secondary hover:text-text-primary"
                 }`}
               >
                 {label}
@@ -75,7 +81,7 @@ export function FinancialsTab({ ticker }: Props) {
         <SegmentedControl value={period} onChange={setPeriod} options={PERIOD_OPTIONS} />
       </div>
 
-      <p className="text-xs text-zinc-500">All numbers are in USD millions, except per-share data, ratios, and percentages.</p>
+      <p className="text-xs text-text-tertiary">All numbers are in USD millions, except per-share data, ratios, and percentages.</p>
 
       <FinancialsStatementTable data={statementData[period]} />
     </div>

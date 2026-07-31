@@ -13,7 +13,7 @@ export function RatiosTab({ ticker }: Props) {
   if (error) {
     return (
       <div className="flex items-center justify-center py-20">
-        <span className="text-sm text-red-400">
+        <span className="text-sm text-negative">
           Couldn&apos;t load {ticker} — {error.message}
         </span>
       </div>
@@ -23,14 +23,14 @@ export function RatiosTab({ ticker }: Props) {
   if (!data) {
     return (
       <div className="flex items-center justify-center py-20">
-        <span className="text-sm text-zinc-600 animate-pulse">Loading {ticker}…</span>
+        <span className="text-sm text-text-tertiary animate-pulse">Loading {ticker}…</span>
       </div>
     );
   }
 
   return (
     <div className="space-y-4 py-6">
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-text-tertiary">
         Annual figures (oldest to newest) plus a trailing-twelve-month (TTM) column. Quarterly ratios aren&apos;t
         available on our current data plan.
       </p>
