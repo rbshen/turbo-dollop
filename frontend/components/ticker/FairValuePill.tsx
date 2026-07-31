@@ -10,7 +10,7 @@ export const VERDICT_STYLES: Record<string, string> = {
 const VERDICT_LABELS: Record<string, string> = {
   undervalued: "Undervalued",
   overvalued: "Overvalued",
-  fair: "Fair value",
+  fair: "Fair Valued",
 };
 
 interface Props {
@@ -29,8 +29,7 @@ export function FairValuePill({ verdict, price, method }: Props) {
 
   return (
     <span className={cn("inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-semibold", cls)}>
-      {label}
-      <span className="font-mono tabular-nums">{fmtMoney(price)}</span>
+      {label} ·<span className="font-mono tabular-nums">{fmtMoney(price)}</span>
       {method && <span className="font-normal opacity-70">({method})</span>}
     </span>
   );

@@ -37,16 +37,16 @@ function formatCell(key: RowKey, column: RecommendationDetailsColumn): string {
 // FMP-driven groups, so there's no group-header row to carry over.
 export function RecommendationDetailsTable({ columns }: Props) {
   return (
-    <Table className="border-separate border-spacing-0 text-sm">
+    <Table containerClassName="rounded-lg border border-border-card bg-surface" className="border-separate border-spacing-0 text-sm">
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead className="sticky left-0 z-10 whitespace-nowrap border-b border-zinc-800 bg-zinc-950 py-2 pr-8 text-xs font-medium uppercase tracking-widest text-zinc-500">
+          <TableHead className="sticky left-0 z-10 whitespace-nowrap border-b border-border-card bg-surface-2 py-2 pr-8 text-xs font-medium uppercase tracking-widest text-text-secondary">
             Metric
           </TableHead>
           {columns.map((column) => (
             <TableHead
               key={column.label}
-              className="whitespace-nowrap border-b border-zinc-800 py-2 pr-4 text-right text-xs font-medium uppercase tracking-widest text-zinc-500"
+              className="whitespace-nowrap border-b border-border-card bg-surface-2 py-2 pr-4 text-right text-xs font-medium uppercase tracking-widest text-text-secondary"
             >
               {column.label}
             </TableHead>
@@ -56,13 +56,13 @@ export function RecommendationDetailsTable({ columns }: Props) {
       <TableBody>
         {ROWS.map((row) => (
           <TableRow key={row.key} className="hover:bg-transparent">
-            <TableCell className="sticky left-0 z-10 whitespace-nowrap border-b border-zinc-900 bg-zinc-950 py-2 pr-8 text-zinc-400">
+            <TableCell className="sticky left-0 z-10 whitespace-nowrap border-b border-border-subtle bg-surface py-2 pr-8 text-text-secondary">
               {row.label}
             </TableCell>
             {columns.map((column) => (
               <TableCell
                 key={column.label}
-                className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-300"
+                className="border-b border-border-subtle py-2 pr-4 text-right font-mono tabular-nums text-text-primary"
               >
                 {formatCell(row.key, column)}
               </TableCell>

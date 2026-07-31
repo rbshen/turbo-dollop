@@ -1,7 +1,6 @@
 "use client";
 
 import { AddToWatchlistButton } from "@/components/ticker/AddToWatchlistButton";
-import { ExchangeBadge } from "@/components/ticker/ExchangeBadge";
 import { FairValuePill } from "@/components/ticker/FairValuePill";
 import { MoatPill } from "@/components/ticker/MoatPill";
 import { PriceChange } from "@/components/ticker/PriceChange";
@@ -61,8 +60,10 @@ export function TickerHeader({ symbol }: Props) {
           )}
           <div className="mt-1 flex flex-wrap items-baseline gap-3">
             <h1 className="font-heading text-2xl font-bold tracking-tight text-text-primary">{data.company_name ?? data.ticker}</h1>
-            <span className="font-mono text-sm text-text-secondary">{data.ticker}</span>
-            {data.exchange && <ExchangeBadge exchange={data.exchange} />}
+            <span className="font-mono text-sm text-text-secondary">
+              {data.ticker}
+              {data.exchange && <> · {data.exchange}</>}
+            </span>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">

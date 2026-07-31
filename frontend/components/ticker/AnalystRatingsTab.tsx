@@ -1,9 +1,9 @@
 "use client";
 
-import { AvgTargetCard } from "@/components/analystRatings/AvgTargetCard";
+import { AnalystDistributionBar } from "@/components/analystRatings/AnalystDistributionBar";
 import { ConsensusBanner } from "@/components/analystRatings/ConsensusBanner";
-import { PriceTargetRangeCard } from "@/components/analystRatings/PriceTargetRangeCard";
-import { RatingHistoryChart } from "@/components/analystRatings/RatingHistoryChart";
+import { PriceTargetsCard } from "@/components/analystRatings/PriceTargetsCard";
+import { PriceTargetTrendChart } from "@/components/analystRatings/PriceTargetTrendChart";
 import { RecommendationDetailsTable } from "@/components/analystRatings/RecommendationDetailsTable";
 import { useAnalystRatings } from "@/lib/hooks/useAnalystRatings";
 
@@ -17,7 +17,7 @@ export function AnalystRatingsTab({ ticker }: Props) {
   if (error) {
     return (
       <div className="flex items-center justify-center py-20">
-        <span className="text-sm text-red-400">
+        <span className="text-sm text-negative">
           Couldn&apos;t load {ticker} — {error.message}
         </span>
       </div>
@@ -27,29 +27,35 @@ export function AnalystRatingsTab({ ticker }: Props) {
   if (!data) {
     return (
       <div className="flex items-center justify-center py-20">
-        <span className="text-sm text-zinc-600 animate-pulse">Loading {ticker}…</span>
+        <span className="text-sm text-text-tertiary animate-pulse">Loading {ticker}…</span>
       </div>
     );
   }
 
+  const currentColumn = data.recommendation_details[0];
+
   return (
     <div className="space-y-6 py-6">
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <ConsensusBanner data={data.banner} />
-        <AvgTargetCard data={data.price_target} />
-        <PriceTargetRangeCard data={data.price_target} />
+        <PriceTargetsCard data={data.price_target} />
       </div>
 
-      <div className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Rating History</h2>
-        <RatingHistoryChart history={data.history} />
-      </div>
-
-      <div className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Recommendation Details</h2>
-        <div className="overflow-x-auto">
-          <RecommendationDetailsTable columns={data.recommendation_details} />
+      {currentColumn && (
+        <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
+          <h2 className="font-heading text-sm font-semibold text-text-primary">Analyst Distribution</h2>
+          <AnalystDistributionBar column={currentColumn} />
         </div>
+      )}
+
+      <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
+        <h2 className="font-heading text-sm font-semibold text-text-primary">Average Price Target Trend</h2>
+        <PriceTargetTrendChart history={data.history} />
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
+        <h2 className="font-heading text-sm font-semibold text-text-primary">Recommendation Details</h2>
+        <RecommendationDetailsTable columns={data.recommendation_details} />
       </div>
     </div>
   );

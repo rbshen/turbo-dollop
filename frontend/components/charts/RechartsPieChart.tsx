@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Cell, Pie, PieChart } from "recharts";
 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
-import type { ChartSeries } from "@/components/charts/RechartsGroupedChart";
+import type { ChartSeries } from "@/components/charts/RechartsStackedChart";
 
 interface Props {
   series: ChartSeries[];
@@ -13,10 +13,10 @@ interface Props {
   height?: number;
 }
 
-// Donut-chart sibling to RechartsStackedChart/RechartsGroupedChart, for the
-// Summary tab's latest-FY snapshot row -- a single period's part-of-whole
-// breakdown rather than a multi-year trend, so it doesn't fit either
-// sibling's categories/series/array-per-series values shape.
+// Donut-chart sibling to RechartsStackedChart, for the Summary tab's
+// latest-FY snapshot row -- a single period's part-of-whole breakdown
+// rather than a multi-year trend, so it doesn't fit that sibling's
+// categories/array-per-series values shape.
 export function RechartsPieChart({ series, values, valueFormat, height = 216 }: Props) {
   const [hovered, setHovered] = useState<string | null>(null);
 

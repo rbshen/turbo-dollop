@@ -9,18 +9,20 @@ interface Props<T extends string> {
   options: SegmentedControlOption<T>[];
 }
 
-// Shared pill-shaped button-group -- ModeToggle (chart bar/line switch),
-// FinancialsTab (Annual/Quarterly), and RatingHistoryChart (3-way series
-// picker) used to hand-roll this identical markup independently.
+// Shared pill toggle -- separate, individually-rounded buttons with no
+// border on an inactive option (a filled brand pill on the active one),
+// not a single fused-border bar. Used by FinancialsTab (Annual/Quarterly)
+// and EconomicMoatTab (No/Narrow/Wide Moat), which used to hand-roll this
+// independently (and briefly diverged in style before being unified here).
 export function SegmentedControl<T extends string>({ value, onChange, options }: Props<T>) {
   return (
-    <div className="inline-flex flex-wrap overflow-hidden rounded-md border border-border-input text-xs">
+    <div className="flex flex-wrap gap-2">
       {options.map((option) => (
         <button
           key={option.value}
           type="button"
           onClick={() => onChange(option.value)}
-          className={`px-2.5 py-1 capitalize transition-colors ${
+          className={`rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
             value === option.value ? "bg-brand text-white" : "text-text-secondary hover:text-text-primary"
           }`}
         >

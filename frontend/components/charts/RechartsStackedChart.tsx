@@ -4,12 +4,16 @@ import { useState } from "react";
 import { Bar, BarChart, XAxis, YAxis } from "recharts";
 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
-import type { ChartSeries } from "@/components/charts/RechartsGroupedChart";
 
-// Thicker bars with a small fixed gap between years, not the shared
-// lib/charts.ts BAR_WIDTH/BAR_GAP (tuned for the denser grouped-metric
-// charts elsewhere) -- this chart has only one bar per category (segments
-// stack into it), so it can afford to run wide.
+export interface ChartSeries {
+  key: string;
+  label: string;
+  color: string;
+}
+
+// Thicker bars with a small fixed gap between years -- this chart has only
+// one bar per category (segments stack into it), so it can afford to run
+// wide, unlike a denser multi-bar-per-category chart.
 const STACKED_BAR_SIZE = 44;
 
 interface Props {
@@ -21,8 +25,7 @@ interface Props {
   height?: number;
 }
 
-/** Stacked-bar sibling to RechartsGroupedChart -- same categories/series/
- * values prop shape, but every Bar shares one stackId instead of being
+/** Stacked-bar chart -- every Bar shares one stackId instead of being
  * grouped side by side. Used for the Summary tab's revenue-by-segment and
  * revenue-by-geography charts, where the segment list is dynamic
  * per-company free text rather than a fixed metric set. */

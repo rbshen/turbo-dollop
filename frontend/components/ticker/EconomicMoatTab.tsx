@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { mutate } from "swr";
 
+import { SegmentedControl } from "@/components/shared/SegmentedControl";
 import { apiPut } from "@/lib/api/client";
 import type { TickerMoatOut } from "@/lib/api/types";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
@@ -24,11 +25,11 @@ export function EconomicMoatTab({ ticker }: Props) {
   const { data, error, isLoading } = useTickerMoat(ticker);
 
   if (error) {
-    return <p className="py-6 text-sm text-red-400">Couldn&apos;t load Economic Moat — {error.message}</p>;
+    return <p className="py-6 text-sm text-negative">Couldn&apos;t load Economic Moat — {error.message}</p>;
   }
 
   if (isLoading || !data) {
-    return <p className="py-6 text-sm text-zinc-600 animate-pulse">Loading…</p>;
+    return <p className="py-6 text-sm text-text-tertiary animate-pulse">Loading…</p>;
   }
 
   return <MoatControls key={data.updated_at ?? "unset"} ticker={ticker} data={data} />;
@@ -60,26 +61,41 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
     }
   }
 
+  // Segmented control shows the pending selection immediately (a live
+  // preview), but nothing actually saves until Confirm -- this app changes
+  // Overall Assessment's scoring on save, unlike the design handoff's own
+  // prototype which has no such consequence to guard against.
+  const displayed = pending ?? data.moat;
+
   return (
     <div className="space-y-6 py-6">
-      <div className="space-y-4 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Economic Moat</h2>
-          <p className="mt-1 text-xs text-zinc-600">
-            A manually-set classification, not computed from data. Once set, Financials/Growth Rate/Profitability/Debt
-            combined occupy 69% of Overall Assessment and Moat occupies the other 31% — see the Overall Assessment
-            card for how this ticker is currently blended.
+      <div>
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Economic Moat</h2>
+        <p className="mt-1 text-sm text-text-secondary">
+          A manually-set classification, not computed from data. Once set, Financials / Growth Rate / Profitability /
+          Debt combined occupy 69% of Overall Assessment and Moat occupies the other 31% — see the Overall Assessment
+          card for how this ticker is currently blended.
+        </p>
+      </div>
+
+      <div className="space-y-4 rounded-lg border border-border-card bg-surface p-6">
+        <div className="space-y-3">
+          <p className="text-xs uppercase tracking-widest text-text-tertiary">Current Rating</p>
+          <SegmentedControl
+            value={displayed ?? "no_moat"}
+            onChange={(next) => {
+              if (next !== data.moat) setPending(next);
+            }}
+            options={MOAT_OPTIONS.map((option) => ({ value: option, label: MOAT_LABELS[option] }))}
+          />
+          <p className="text-sm text-text-secondary">
+            {displayed ? MOAT_DESCRIPTIONS[displayed] : "Not set — pick a rating above."}
           </p>
         </div>
 
-        <p className="text-sm text-zinc-300">
-          Current state:{" "}
-          <span className="font-semibold text-zinc-100">{data.moat ? MOAT_LABELS[data.moat] : "Not set"}</span>
-        </p>
-
-        {pending ? (
-          <div className="space-y-3 rounded-md border border-amber-800/40 bg-amber-950/20 p-4">
-            <p className="text-sm text-amber-200">
+        {pending && (
+          <div className="space-y-3 rounded-md border border-warn/40 bg-warn/10 p-4">
+            <p className="text-sm text-warn">
               Set Economic Moat to <span className="font-semibold">{MOAT_LABELS[pending]}</span>? This changes how
               Overall Assessment is scored for {ticker}.
             </p>
@@ -88,7 +104,7 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
                 type="button"
                 onClick={handleConfirm}
                 disabled={saving}
-                className="rounded-md border border-amber-700 bg-amber-900/40 px-4 py-1.5 text-sm font-medium text-amber-200 transition-colors hover:border-amber-500 hover:bg-amber-900/60 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-md border border-warn/60 bg-warn/15 px-4 py-1.5 text-sm font-medium text-warn transition-colors hover:border-warn disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? "Saving…" : "Confirm"}
               </button>
@@ -96,30 +112,12 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
                 type="button"
                 onClick={() => setPending(null)}
                 disabled={saving}
-                className="rounded-md border border-zinc-700 bg-zinc-900 px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-md border border-border-input bg-surface-2 px-4 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Cancel
               </button>
             </div>
-            {saveError && <p className="text-sm text-red-400">{saveError}</p>}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {MOAT_OPTIONS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setPending(option)}
-                disabled={data.moat === option}
-                className="rounded-md border border-zinc-700 bg-zinc-900 p-4 text-left transition-colors hover:border-zinc-500 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:border-zinc-600 disabled:bg-zinc-800/60"
-              >
-                <p className="text-sm font-semibold text-zinc-100">
-                  {MOAT_LABELS[option]}
-                  {data.moat === option && <span className="ml-2 text-xs font-normal text-zinc-500">(current)</span>}
-                </p>
-                <p className="mt-1 text-xs text-zinc-500">{MOAT_DESCRIPTIONS[option]}</p>
-              </button>
-            ))}
+            {saveError && <p className="text-sm text-negative">{saveError}</p>}
           </div>
         )}
       </div>

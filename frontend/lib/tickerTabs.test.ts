@@ -9,9 +9,9 @@ describe("tickerTabs", () => {
       "financials",
       "ratios",
       "analysis",
-      "analystRatings",
       "valuation",
       "moat",
+      "analystRatings",
     ]);
   });
 

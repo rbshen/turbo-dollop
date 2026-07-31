@@ -13,7 +13,7 @@ interface Props {
 type Status = "idle" | "loading" | "success" | "error";
 
 const LABELS: Record<Status, string> = {
-  idle: "Refresh data",
+  idle: "Refresh Data",
   loading: "Refreshing…",
   success: "Refreshed ✓",
   error: "Refresh failed",
