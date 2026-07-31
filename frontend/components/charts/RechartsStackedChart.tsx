@@ -1,11 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, XAxis, YAxis } from "recharts";
 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
-import { BAR_GAP, BAR_WIDTH } from "@/lib/charts";
 import type { ChartSeries } from "@/components/charts/RechartsGroupedChart";
+
+// Thicker bars with a small fixed gap between years, not the shared
+// lib/charts.ts BAR_WIDTH/BAR_GAP (tuned for the denser grouped-metric
+// charts elsewhere) -- this chart has only one bar per category (segments
+// stack into it), so it can afford to run wide.
+const STACKED_BAR_SIZE = 44;
 
 interface Props {
   categories: string[];
@@ -44,18 +49,12 @@ export function RechartsStackedChart({ categories, series, values, yTicks, yTick
       role="img"
       aria-label="Revenue breakdown chart"
     >
-      <BarChart data={chartData} barGap={BAR_GAP} barCategoryGap="20%">
-        <CartesianGrid vertical={false} stroke="#27272a" />
-        <XAxis dataKey="category" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 10 }} />
-        <YAxis
-          domain={domain}
-          ticks={yTicks}
-          tickFormatter={yTickFormat}
-          tickLine={false}
-          axisLine={false}
-          tick={{ fill: "#71717a", fontSize: 10 }}
-          width={56}
-        />
+      <BarChart data={chartData} barCategoryGap="12%">
+        <XAxis dataKey="category" tickLine={false} axisLine={false} tick={{ fill: "var(--color-text-tertiary)", fontSize: 10 }} />
+        {/* Y-axis kept mounted (for the same domain/headroom the tooltip's
+            yTickFormat relies on) but fully hidden -- no ticks, labels, or
+            gridlines. */}
+        <YAxis domain={domain} ticks={yTicks} hide />
         <ChartTooltip
           cursor={false}
           content={
@@ -84,7 +83,7 @@ export function RechartsStackedChart({ categories, series, values, yTicks, yTick
               stackId="segments"
               fill={s.color}
               fillOpacity={opacity}
-              barSize={BAR_WIDTH}
+              barSize={STACKED_BAR_SIZE}
               isAnimationActive={false}
               onMouseEnter={() => setHovered(s.key)}
               onMouseLeave={() => setHovered(null)}

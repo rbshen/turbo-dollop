@@ -1,6 +1,6 @@
+import { ChartLegend } from "@/components/charts/ChartLegend";
 import { RechartsPieChart } from "@/components/charts/RechartsPieChart";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fmtPlainPct, fmtTableMoney } from "@/lib/format";
+import { fmtTableMoney } from "@/lib/format";
 import { OTHER_COLOR, OTHER_LABEL, SEGMENT_COLORS } from "@/lib/segmentColors";
 
 interface Props {
@@ -24,9 +24,9 @@ interface Props {
 export function SegmentationSnapshotSection({ title, headerYear, year, segments, values, notDisclosedNote }: Props) {
   if (!segments || segments.length === 0 || year == null) {
     return (
-      <div className="space-y-3">
-        <h3 className="text-xs font-medium uppercase tracking-widest text-zinc-500">{title}</h3>
-        <p className="text-sm text-zinc-500">{notDisclosedNote}</p>
+      <div className="space-y-3 rounded-lg border border-border-card bg-surface p-5">
+        <h3 className="text-xs font-medium uppercase tracking-widest text-text-secondary">{title}</h3>
+        <p className="text-sm text-text-tertiary">{notDisclosedNote}</p>
       </div>
     );
   }
@@ -40,47 +40,27 @@ export function SegmentationSnapshotSection({ title, headerYear, year, segments,
   const total = segments.reduce((sum, name) => sum + (values[name] ?? 0), 0);
 
   return (
-    <div className="space-y-3">
-      <h3 className="text-xs font-medium uppercase tracking-widest text-zinc-500">
+    <div className="space-y-3 rounded-lg border border-border-card bg-surface p-5">
+      <h3 className="text-xs font-medium uppercase tracking-widest text-text-secondary">
         {title}
         {year !== headerYear && (
-          <span className="ml-2 normal-case tracking-normal text-zinc-600">(FY{year})</span>
+          <span className="ml-2 normal-case tracking-normal text-text-tertiary">(FY{year})</span>
         )}
       </h3>
 
-      <RechartsPieChart series={series} values={values} valueFormat={fmtTableMoney} />
-
-      <Table className="w-full border-separate border-spacing-0 text-sm">
-        <TableHeader>
-          <TableRow className="hover:bg-transparent">
-            <TableHead className="whitespace-nowrap border-b border-zinc-800 py-2 pr-8 font-medium">Segment</TableHead>
-            <TableHead className="border-b border-zinc-800 py-2 pr-4 text-right font-medium">Revenue</TableHead>
-            <TableHead className="border-b border-zinc-800 py-2 text-right font-medium">Share</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {series.map((s) => {
+      <div className="flex items-center gap-6">
+        <div className="w-[180px] shrink-0">
+          <RechartsPieChart series={series} values={values} valueFormat={fmtTableMoney} height={180} />
+        </div>
+        <ChartLegend
+          layout="column"
+          className="min-w-0 flex-1"
+          items={series.map((s) => {
             const v = values[s.key];
-            return (
-              <TableRow key={s.key} className="hover:bg-transparent">
-                <TableCell className="whitespace-nowrap border-b border-zinc-900 py-2 pr-8 text-zinc-400">
-                  <span
-                    className="mr-1.5 inline-block size-2 rounded-full align-middle"
-                    style={{ backgroundColor: s.color }}
-                  />
-                  {s.label}
-                </TableCell>
-                <TableCell className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
-                  {v != null ? fmtTableMoney(v) : "—"}
-                </TableCell>
-                <TableCell className="border-b border-zinc-900 py-2 text-right font-mono tabular-nums text-zinc-400">
-                  {v != null && total > 0 ? fmtPlainPct((v / total) * 100) : "—"}
-                </TableCell>
-              </TableRow>
-            );
+            return { ...s, percent: v != null && total > 0 ? (v / total) * 100 : undefined };
           })}
-        </TableBody>
-      </Table>
+        />
+      </div>
     </div>
   );
 }

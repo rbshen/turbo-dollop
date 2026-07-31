@@ -1,7 +1,7 @@
+import { ChartLegend } from "@/components/charts/ChartLegend";
 import { RechartsStackedChart } from "@/components/charts/RechartsStackedChart";
-import { SeriesTrendTable } from "@/components/shared/SeriesTrendTable";
 import { computeNiceTicks } from "@/lib/charts";
-import { fmtAxisMoney, fmtTableMoney, pickAxisMoneyUnit } from "@/lib/format";
+import { fmtAxisMoney, pickAxisMoneyUnit } from "@/lib/format";
 import { OTHER_COLOR, OTHER_LABEL, SEGMENT_COLORS } from "@/lib/segmentColors";
 
 interface Props {
@@ -15,9 +15,9 @@ interface Props {
 export function SegmentationSection({ title, years, segments, values, notDisclosedNote }: Props) {
   if (!segments || segments.length === 0) {
     return (
-      <div className="space-y-3">
-        <h3 className="text-xs font-medium uppercase tracking-widest text-zinc-500">{title}</h3>
-        <p className="text-sm text-zinc-500">{notDisclosedNote}</p>
+      <div className="space-y-3 rounded-lg border border-border-card bg-surface p-5">
+        <h3 className="text-xs font-medium uppercase tracking-widest text-text-secondary">{title}</h3>
+        <p className="text-sm text-text-tertiary">{notDisclosedNote}</p>
       </div>
     );
   }
@@ -36,8 +36,8 @@ export function SegmentationSection({ title, years, segments, values, notDisclos
   const unit = pickAxisMoneyUnit(yTicks[yTicks.length - 1] || 1);
 
   return (
-    <div className="space-y-3">
-      <h3 className="text-xs font-medium uppercase tracking-widest text-zinc-500">{title}</h3>
+    <div className="space-y-3 rounded-lg border border-border-card bg-surface p-5">
+      <h3 className="text-xs font-medium uppercase tracking-widest text-text-secondary">{title}</h3>
 
       <RechartsStackedChart
         categories={years}
@@ -47,7 +47,7 @@ export function SegmentationSection({ title, years, segments, values, notDisclos
         yTickFormat={(v) => fmtAxisMoney(v, unit)}
       />
 
-      <SeriesTrendTable labelHeader="Segment" years={years} series={series} values={values} formatValue={fmtTableMoney} />
+      <ChartLegend items={series} layout="row" />
     </div>
   );
 }

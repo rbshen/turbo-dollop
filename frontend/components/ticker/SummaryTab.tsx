@@ -27,7 +27,7 @@ export function SummaryTab({ ticker }: Props) {
   if (error) {
     return (
       <div className="flex items-center justify-center py-20">
-        <span className="text-sm text-red-400">Couldn&apos;t load {ticker} — {error.message}</span>
+        <span className="text-sm text-negative">Couldn&apos;t load {ticker} — {error.message}</span>
       </div>
     );
   }
@@ -35,29 +35,21 @@ export function SummaryTab({ ticker }: Props) {
   if (!data) {
     return (
       <div className="flex items-center justify-center py-20">
-        <span className="text-sm text-zinc-600 animate-pulse">Loading {ticker}…</span>
+        <span className="text-sm text-text-tertiary animate-pulse">Loading {ticker}…</span>
       </div>
     );
   }
 
   return (
     <div className="space-y-6 py-6">
-      {data.description && (
-        <div className="space-y-2">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Description</h2>
-          <p className="text-sm leading-relaxed text-zinc-300">{data.description}</p>
-        </div>
-      )}
+      {data.description && <p className="text-sm leading-relaxed text-text-body">{data.description}</p>}
 
-      <div className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Key Statistics</h2>
-        <MetricsGrid groups={METRIC_GROUPS} values={data} outlierWarnings={data.outlier_warnings} />
-      </div>
+      <MetricsGrid groups={METRIC_GROUPS} values={data} outlierWarnings={data.outlier_warnings} />
 
       {segmentation && (
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Historical Operating Revenue</h2>
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-text-secondary">Historical Operating Revenue</h2>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <SegmentationSection
               title="By Business Segment"
               years={segmentation.product_years}
@@ -78,8 +70,8 @@ export function SummaryTab({ ticker }: Props) {
 
       {segmentation && headerYear && (
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">FY{headerYear} Operating Revenue</h2>
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-text-secondary">FY{headerYear} Operating Revenue</h2>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <SegmentationSnapshotSection
               title="By Business Segment"
               headerYear={headerYear}

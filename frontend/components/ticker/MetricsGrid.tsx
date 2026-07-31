@@ -1,5 +1,3 @@
-import { Fragment } from "react";
-
 import { OutlierWarningNote } from "@/components/shared/OutlierWarningNote";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { fmtCompactMoney, fmtCompactNumber, fmtNumber, fmtPct, fmtRatio } from "@/lib/format";
@@ -31,42 +29,37 @@ interface StatColumnProps {
   flaggedKeys: Set<string>;
 }
 
-// Each group renders whole within its assigned column (see MetricGroup's
-// `column` field in lib/metrics/config.ts) -- groups are never split
-// across the two side-by-side tables.
+// Each group renders as its own card, stacked within its assigned column
+// (see MetricGroup's `column` field in lib/metrics/config.ts) -- groups
+// are never split across the two side-by-side columns.
 function StatColumn({ groups, values, flaggedKeys }: StatColumnProps) {
   return (
-    <Table className="border-separate border-spacing-0 text-sm">
-      <TableBody>
-        {groups.map((group) => (
-          <Fragment key={group.title}>
-            <TableRow className="hover:bg-transparent">
-              <TableCell
-                colSpan={2}
-                className="border-b border-zinc-900 pt-4 pb-1 text-xs font-semibold uppercase tracking-widest text-zinc-500"
-              >
-                {group.title}
-              </TableCell>
-            </TableRow>
-            {group.metrics.map((metric) => (
-              <TableRow key={metric.key} className="hover:bg-transparent">
-                <TableCell className="whitespace-nowrap border-b border-zinc-900 py-2 pr-8 text-xs font-medium uppercase tracking-widest text-zinc-500">
-                  {metric.label}
-                </TableCell>
-                <TableCell className="border-b border-zinc-900 py-2 text-right font-mono tabular-nums text-zinc-100">
-                  {formatValue(values[metric.key], metric.format)}
-                  {flaggedKeys.has(metric.key) && (
-                    <span className="ml-1.5 text-amber-400" title={FLAG_TITLE}>
-                      ⚠
-                    </span>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </Fragment>
-        ))}
-      </TableBody>
-    </Table>
+    <div className="space-y-4">
+      {groups.map((group) => (
+        <div key={group.title} className="rounded-lg border border-border-card bg-surface p-5">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-text-secondary">{group.title}</h3>
+          <Table className="border-separate border-spacing-0 text-sm">
+            <TableBody>
+              {group.metrics.map((metric) => (
+                <TableRow key={metric.key} className="hover:bg-transparent">
+                  <TableCell className="whitespace-nowrap border-b border-border-subtle py-2 pr-8 text-xs font-medium uppercase tracking-widest text-text-tertiary">
+                    {metric.label}
+                  </TableCell>
+                  <TableCell className="border-b border-border-subtle py-2 text-right font-mono tabular-nums text-text-primary">
+                    {formatValue(values[metric.key], metric.format)}
+                    {flaggedKeys.has(metric.key) && (
+                      <span className="ml-1.5 text-warn" title={FLAG_TITLE}>
+                        ⚠
+                      </span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -79,7 +72,7 @@ export function MetricsGrid({ groups, values, outlierWarnings = [] }: Props) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-1 gap-x-8 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <StatColumn groups={leftGroups} values={values} flaggedKeys={flaggedKeys} />
         <StatColumn groups={rightGroups} values={values} flaggedKeys={flaggedKeys} />
       </div>

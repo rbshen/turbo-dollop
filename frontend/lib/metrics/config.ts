@@ -18,7 +18,11 @@ export interface MetricGroup {
 
 /** Ticker header metrics grid, grouped by category -- each group is a
  * configurable list rather than a hardcoded set of tiles, so more metrics
- * can be added later without touching the grid component itself. */
+ * can be added later without touching the grid component itself.
+ *
+ * Column assignment per user direction (overrides the design handoff's own
+ * split): left = Classification, Size & Valuation, Growth; right =
+ * Liquidity, Performance. */
 export const METRIC_GROUPS: MetricGroup[] = [
   {
     title: "Classification",
@@ -50,7 +54,7 @@ export const METRIC_GROUPS: MetricGroup[] = [
     ],
   },
   {
-    title: "Liquidity & Trading",
+    title: "Liquidity",
     column: "right",
     metrics: [
       { key: "beta", label: "Beta", format: "number" },
@@ -60,7 +64,7 @@ export const METRIC_GROUPS: MetricGroup[] = [
     ],
   },
   {
-    title: "Price Performance",
+    title: "Performance",
     column: "right",
     metrics: [
       { key: "perf_1m", label: "1M Performance", format: "percent" },

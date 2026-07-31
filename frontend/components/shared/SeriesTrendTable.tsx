@@ -33,19 +33,19 @@ export function SeriesTrendTable({ labelHeader, years, series, values, formatVal
     <Table className="border-separate border-spacing-0 text-sm">
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead className="sticky left-0 z-10 whitespace-nowrap border-b border-zinc-800 bg-zinc-950 py-2 pr-8 text-xs font-medium uppercase tracking-widest text-zinc-500">
+          <TableHead className="sticky left-0 z-10 whitespace-nowrap border-b border-border-card bg-surface py-2 pr-8 text-xs font-medium uppercase tracking-widest text-text-secondary">
             {labelHeader}
           </TableHead>
           {years.map((year) => (
             <TableHead
               key={year}
-              className="whitespace-nowrap border-b border-zinc-800 py-2 pr-4 text-right text-xs font-medium uppercase tracking-widest text-zinc-500"
+              className="whitespace-nowrap border-b border-border-card py-2 pr-4 text-right text-xs font-medium uppercase tracking-widest text-text-secondary"
             >
               {year}
             </TableHead>
           ))}
           {showAverage && (
-            <TableHead className="whitespace-nowrap border-b border-zinc-800 py-2 pr-4 text-right text-xs font-medium uppercase tracking-widest text-zinc-500">
+            <TableHead className="whitespace-nowrap border-b border-border-card py-2 pr-4 text-right text-xs font-medium uppercase tracking-widest text-text-secondary">
               Avg
             </TableHead>
           )}
@@ -57,17 +57,17 @@ export function SeriesTrendTable({ labelHeader, years, series, values, formatVal
           const avg = showAverage ? average(seriesValues) : null;
           return (
             <TableRow key={s.key} className="hover:bg-transparent">
-              <TableCell className="sticky left-0 z-10 whitespace-nowrap border-b border-zinc-900 bg-zinc-950 py-2 pr-8 text-zinc-400">
+              <TableCell className="sticky left-0 z-10 whitespace-nowrap border-b border-border-subtle bg-surface py-2 pr-8 text-text-secondary">
                 <span className="mr-1.5 inline-block size-2 rounded-full align-middle" style={{ backgroundColor: s.color }} />
                 {s.label}
               </TableCell>
               {seriesValues.map((v, i) => (
-                <TableCell key={i} className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
+                <TableCell key={i} className="border-b border-border-subtle py-2 pr-4 text-right font-mono tabular-nums text-text-primary">
                   {v != null ? formatValue(v) : "—"}
                 </TableCell>
               ))}
               {showAverage && (
-                <TableCell className="border-b border-zinc-900 py-2 pr-4 text-right font-mono tabular-nums text-zinc-100">
+                <TableCell className="border-b border-border-subtle py-2 pr-4 text-right font-mono tabular-nums text-text-primary">
                   {avg != null ? formatValue(avg) : "—"}
                 </TableCell>
               )}
