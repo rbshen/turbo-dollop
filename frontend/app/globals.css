@@ -61,6 +61,28 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  /* Fathom v2 design tokens (design_handoff_fathom_v2/README.md) -- app is
+     dark-only, so these live directly in @theme rather than threading
+     through a light/dark pair. Tailwind v4 auto-generates utility classes
+     (bg-, text-, border-, etc) from any --color- custom property here. */
+  --color-page: var(--fathom-page);
+  --color-sidebar-bg: var(--fathom-sidebar);
+  --color-surface: var(--fathom-surface);
+  --color-surface-2: var(--fathom-surface-2);
+  --color-border-subtle: var(--fathom-border-subtle);
+  --color-border-card: var(--fathom-border-card);
+  --color-border-input: var(--fathom-border-input);
+  --color-text-primary: var(--fathom-text-primary);
+  --color-text-secondary: var(--fathom-text-secondary);
+  --color-text-tertiary: var(--fathom-text-tertiary);
+  --color-text-tertiary-2: var(--fathom-text-tertiary-2);
+  --color-text-body: var(--fathom-text-body);
+  --color-brand: var(--fathom-brand);
+  --color-brand-hover: var(--fathom-brand-hover);
+  --color-positive: var(--fathom-positive);
+  --color-warn: var(--fathom-warn);
+  --color-negative: var(--fathom-negative);
+  --color-chart-purple: var(--fathom-chart-purple);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -106,37 +128,57 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: oklch(15% 0.014 260);
+  --foreground: oklch(93% 0.006 260);
+  --card: oklch(20% 0.014 260);
+  --card-foreground: oklch(93% 0.006 260);
+  --popover: oklch(20% 0.014 260);
+  --popover-foreground: oklch(93% 0.006 260);
+  --primary: oklch(64% 0.17 260);
+  --primary-foreground: oklch(93% 0.006 260);
+  --secondary: oklch(24% 0.014 260);
+  --secondary-foreground: oklch(93% 0.006 260);
+  --muted: oklch(24% 0.014 260);
+  --muted-foreground: oklch(68% 0.012 260);
+  --accent: oklch(24% 0.014 260);
+  --accent-foreground: oklch(93% 0.006 260);
+  --destructive: oklch(66% 0.19 25);
+  --border: oklch(30% 0.016 260);
+  --input: oklch(32% 0.016 260);
+  --ring: oklch(64% 0.17 260);
+  --chart-1: oklch(68% 0.15 155);
+  --chart-2: oklch(76% 0.13 80);
+  --chart-3: oklch(66% 0.19 25);
+  --chart-4: oklch(64% 0.17 260);
+  --chart-5: oklch(66% 0.1 300);
+  --sidebar: oklch(11% 0.016 260);
+  --sidebar-foreground: oklch(92% 0.01 260);
+  --sidebar-primary: oklch(64% 0.17 260);
+  --sidebar-primary-foreground: oklch(93% 0.006 260);
+  --sidebar-accent: oklch(24% 0.014 260);
+  --sidebar-accent-foreground: oklch(93% 0.006 260);
+  --sidebar-border: oklch(30% 0.02 260);
+  --sidebar-ring: oklch(64% 0.17 260);
+
+  /* Fathom v2 raw tokens -- verbatim from design_handoff_fathom_v2/README.md */
+  --fathom-page: oklch(15% 0.014 260);
+  --fathom-sidebar: oklch(11% 0.016 260);
+  --fathom-surface: oklch(20% 0.014 260);
+  --fathom-surface-2: oklch(24% 0.014 260);
+  --fathom-border-subtle: oklch(26% 0.014 260);
+  --fathom-border-card: oklch(30% 0.016 260);
+  --fathom-border-input: oklch(32% 0.016 260);
+  --fathom-text-primary: oklch(93% 0.006 260);
+  --fathom-text-secondary: oklch(68% 0.012 260);
+  --fathom-text-tertiary: oklch(62% 0.012 260);
+  --fathom-text-tertiary-2: oklch(58% 0.012 260);
+  --fathom-text-body: oklch(86% 0.01 260);
+  --fathom-brand: oklch(64% 0.17 260);
+  --fathom-brand-hover: oklch(76% 0.16 260);
+  --fathom-positive: oklch(68% 0.15 155);
+  --fathom-warn: oklch(76% 0.13 80);
+  --fathom-negative: oklch(66% 0.19 25);
+  --fathom-chart-purple: oklch(66% 0.1 300);
 }
 
 @layer base {

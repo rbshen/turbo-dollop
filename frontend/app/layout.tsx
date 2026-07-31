@@ -1,17 +1,18 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { IBM_Plex_Mono, Public_Sans, Sora } from "next/font/google";
 import "./globals.css";
 import { TopNav } from "@/components/nav/TopNav";
 import { cn } from "@/lib/utils";
 
-const jetbrainsMono = JetBrains_Mono({subsets:['latin'],variable:'--font-mono'});
+const ibmPlexMono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-mono" });
 
-const inter = Inter({
+const publicSans = Public_Sans({
   variable: "--font-sans",
   subsets: ["latin"],
 });
 
-const spaceGrotesk = Space_Grotesk({
+const sora = Sora({
+  weight: ["500", "600", "700"],
   variable: "--font-heading",
   subsets: ["latin"],
 });
@@ -29,9 +30,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={cn("h-full", "dark", "antialiased", inter.variable, spaceGrotesk.variable, jetbrainsMono.variable)}
+      className={cn("h-full", "dark", "antialiased", publicSans.variable, sora.variable, ibmPlexMono.variable)}
     >
-      <body className="min-h-full flex flex-col bg-zinc-950">
+      <body className="min-h-full flex flex-col bg-page text-text-primary">
         <TopNav />
         <main className="flex flex-1 flex-col">{children}</main>
       </body>
