@@ -82,6 +82,21 @@ CCC_SUSTAINED_STEPS = 2
 CCC_SUSTAINED_DAYS = 5.0
 CCC_FLAT_DIRECTION_DAYS = 2.0
 CCC_STABLE_TOLERANCE_DAYS = -1.0
+# --- CCC sign-awareness (2026-08-01) ------------------------------------------
+# A negative CCC isn't a milder version of positive CCC -- it's the opposite
+# signal: the company collects from customers before paying its own
+# suppliers, so suppliers are effectively funding the business. The trend-only
+# classification above has no awareness of this and scores a company whose
+# CCC is deeply negative and drifting toward zero (AAPL: -84 to -54 days,
+# still elite) identically to one whose CCC is genuinely positive and rising
+# -- confirmed AAPL's Step 4 score was dragged to 50 (0/100 ROE, 0/100 ROIC,
+# but CCC read "sustained_upward", 0) purely from this blind spot. All three
+# constants below were derived from a real, cache-only sweep of all 318
+# CCC-scorable tickers in the universe, not guessed -- see CLAUDE.md's Step 4
+# deviations for the full threshold-selection writeup.
+CCC_SIGN_EPS_DAYS = 1.0  # tolerance for "effectively zero" (case 1/2 purity + settling materiality)
+CCC_NEAR_ZERO_AMPLITUDE_DAYS = 10.0  # near-zero-oscillation band (COST/TGT-shape)
+CCC_SPIKE_ISOLATION_RATIO = 3.0  # single-outlier-vs-typical-magnitude ratio to rescue back to case 1/2
 
 STRONG_PASS_SCORE = 90
 
@@ -314,14 +329,14 @@ def score_revenue_vs_ar(revenue: list[float], accounts_receivable: list[float]) 
     return RatioResult("outpacing_isolated", 70, False)
 
 
-def classify_ccc_trend(ccc: list[float]) -> TrendResult:
-    """CCC classification: reuses the exact early/late-direction +
-    dip-count + sustained-decline logic built for Step 1's margin
-    classifier, run on the negated series -- a declining CCC (faster cash
-    conversion) is the good direction here, the inverse of margins."""
-    if len(ccc) < 2:
-        return TrendResult("insufficient_data", 0)
-
+def _classify_positive_ccc_trend(ccc: list[float]) -> TrendResult:
+    """CCC classification for a consistently-positive series (case 2 of
+    classify_ccc_trend's sign-profile split): reuses the exact early/late-
+    direction + dip-count + sustained-decline logic built for Step 1's
+    margin classifier, run on the negated series -- a declining CCC (faster
+    cash conversion) is the good direction here, the inverse of margins.
+    Unchanged from before this module's sign-awareness split -- this is the
+    NVDA/IDXX path (real, genuinely positive-and-rising CCC)."""
     negated = -np.asarray(ccc, dtype=float)
     analysis = analyze_series_direction(
         negated, CCC_TREND_WINDOW, CCC_REAL_MOVE_DAYS, CCC_SUSTAINED_STEPS, CCC_SUSTAINED_DAYS
@@ -364,6 +379,118 @@ def classify_ccc_trend(ccc: list[float]) -> TrendResult:
     # Net worsening direction, not caught by the strict sustained check above
     # (e.g. a slow multi-year creep) -- still reads as an upward CCC trend.
     return TrendResult("sustained_upward", 0)
+
+
+def _window_direction(arr: np.ndarray, window: int) -> float:
+    """Late-window average minus early-window average on the RAW (non-
+    negated) series -- mirrors analyze_series_direction's own early/late
+    slice exactly, but that shared function's dip-count/sustained-decline
+    params aren't meaningful for case 1's simple strengthening/weakening
+    read, so a 2-line local duplicate is clearer than threading dummy
+    values through it."""
+    w = min(window, len(arr))
+    return float(arr[-w:].mean() - arr[:w].mean())
+
+
+def _consistently_negative_result(arr: np.ndarray) -> TrendResult:
+    """Case 1: CCC stays at/below zero (within CCC_SIGN_EPS_DAYS) for the
+    whole window -- suppliers are funding the business throughout. Both
+    getting-more-negative (strengthening) and getting-less-negative-but-
+    still-solidly-negative (weakening, e.g. AAPL) score top-tier -- see
+    CLAUDE.md's Step 4 deviations for why a still-deeply-negative CCC is
+    never treated as a red flag just because its own direction eased."""
+    direction = _window_direction(arr, CCC_TREND_WINDOW)
+    if direction < 0:
+        return TrendResult("consistently_negative_strengthening", 100)
+    return TrendResult("consistently_negative_weakening", 100)
+
+
+def _isolated_spike_index(arr: np.ndarray) -> int | None:
+    """Returns the index of a single point sitting alone on the minority
+    side of zero, if it's disproportionate (>= CCC_SPIKE_ISOLATION_RATIO x
+    the majority side's typical magnitude) -- confirmed real case: ABBV,
+    10yrs of 62-102 day positive CCC then one TTM value of -496.7 (an
+    evident one-time acquisition-related accounting event). Returns None
+    for genuine multi-point sign shifts (e.g. CDNS's 2 consecutive negative
+    years), which must fall through to the settling/amplitude checks below,
+    not be silently rescued."""
+    neg_idx = np.flatnonzero(arr < -CCC_SIGN_EPS_DAYS)
+    pos_idx = np.flatnonzero(arr > CCC_SIGN_EPS_DAYS)
+    if len(neg_idx) == 1 and len(pos_idx) >= 3:
+        typical = float(np.median(np.abs(arr[pos_idx])))
+        if typical > 0 and abs(arr[neg_idx[0]]) >= CCC_SPIKE_ISOLATION_RATIO * typical:
+            return int(neg_idx[0])
+    if len(pos_idx) == 1 and len(neg_idx) >= 3:
+        typical = float(np.median(np.abs(arr[neg_idx])))
+        if typical > 0 and abs(arr[pos_idx[0]]) >= CCC_SPIKE_ISOLATION_RATIO * typical:
+            return int(pos_idx[0])
+    return None
+
+
+def classify_ccc_trend(ccc: list[float]) -> TrendResult:
+    """CCC classification, sign-profile-aware: a negative CCC means
+    suppliers fund the business (the company collects from customers
+    before paying them) -- the opposite signal from a positive CCC, not a
+    milder version of it. Dispatches on the series' sign profile before
+    applying any trend logic:
+
+    1. Consistently negative throughout (within CCC_SIGN_EPS_DAYS) -- see
+       _consistently_negative_result.
+    2. Consistently positive throughout -- delegates to
+       _classify_positive_ccc_trend, today's entire pre-sign-awareness
+       logic, unchanged (the NVDA/IDXX path).
+    3. Mixed (crosses the sign boundary): a single isolated outlier point
+       is rescued back into case 1/2 first (see _isolated_spike_index),
+       then a genuine sign crossing is sub-classified by whether it
+       durably settled on one side (gained/lost bargaining power) or, if
+       not, by whether its overall amplitude is negligible (COST/TGT-
+       shape) or genuinely unclear (CCL-shape).
+
+    See CLAUDE.md's Step 4 deviations for the full threshold-derivation
+    writeup (all three CCC_SIGN_EPS_DAYS/CCC_NEAR_ZERO_AMPLITUDE_DAYS/
+    CCC_SPIKE_ISOLATION_RATIO constants were derived from a real,
+    cache-only sweep of the universe, not guessed).
+    """
+    if len(ccc) < 2:
+        return TrendResult("insufficient_data", 0)
+
+    arr = np.asarray(ccc, dtype=float)
+    mn, mx = float(arr.min()), float(arr.max())
+
+    if mx <= CCC_SIGN_EPS_DAYS:
+        return _consistently_negative_result(arr)
+    if mn >= -CCC_SIGN_EPS_DAYS:
+        return _classify_positive_ccc_trend(ccc)
+
+    spike_idx = _isolated_spike_index(arr)
+    if spike_idx is not None:
+        rescued = np.delete(arr, spike_idx)
+        # The rescued series (minority point excluded) is now pure-signed by
+        # construction -- but the classification itself still runs on the
+        # FULL original series (including the outlier), matching how
+        # _classify_positive_ccc_trend's own existing spike guard already
+        # handles a late-window outlier internally, rather than stripping
+        # real data out of what gets scored.
+        if float(rescued.max()) <= CCC_SIGN_EPS_DAYS:
+            return _consistently_negative_result(arr)
+        return _classify_positive_ccc_trend(ccc)
+
+    early = float(arr[: min(CCC_TREND_WINDOW, len(arr))].mean())
+    # Robust late-window average: reuses the existing robust_late_direction
+    # (already excludes the single most extreme late-window point vs. its
+    # own median) by adding back the early-window average it nets against --
+    # avoids duplicating that exclusion logic.
+    late = robust_late_direction(arr, CCC_TREND_WINDOW) + early
+
+    if early > CCC_SIGN_EPS_DAYS and late < -CCC_SIGN_EPS_DAYS:
+        return TrendResult("gained_bargaining_power", 100)
+    if early < -CCC_SIGN_EPS_DAYS and late > CCC_SIGN_EPS_DAYS:
+        return TrendResult("lost_bargaining_power", 0)
+
+    amplitude = max(abs(mn), abs(mx))
+    if amplitude <= CCC_NEAR_ZERO_AMPLITUDE_DAYS:
+        return TrendResult("negligible_working_capital", 85)
+    return TrendResult("mixed_unclear", 40)
 
 
 def _verdict_for(score: int, hard_fail: bool) -> str:

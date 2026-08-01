@@ -448,6 +448,55 @@ thresholds — deviations from a strict reading of the doc:
   majority line, the count-based "concerning" tier remains structurally
   subsumed by "majority" at every window size — a pre-existing property of
   the original design, not an artifact of this rescaling.
+- **CCC (Cash Conversion Cycle) classification is sign-aware (2026-08-01),**
+  not just trend-aware. The prior classifier ran every series through the
+  same early/late-direction logic regardless of sign, so a company whose
+  CCC is deeply negative and drifting toward zero (still elite) scored
+  identically to one whose CCC is genuinely positive and rising — a
+  negative CCC isn't a milder version of positive CCC, it's the opposite
+  signal (suppliers fund the business, since customers pay before
+  suppliers are paid). Confirmed real case: AAPL's CCC is negative the
+  entire 10yr window (-84 to -54 days) yet scored 0/"sustained_upward",
+  dragging an otherwise-100/100-ROE/ROIC company to a Step 4 score of 50.
+  `classify_ccc_trend` (`backend/scoring/step4.py`) now dispatches on sign
+  profile before applying any trend logic: **consistently negative**
+  throughout (`max <= CCC_SIGN_EPS_DAYS`) always scores 100, split only by
+  reasoning text into strengthening (getting more negative) vs. weakening
+  (getting less negative but still solidly negative, AAPL's case);
+  **consistently positive** throughout delegates to
+  `_classify_positive_ccc_trend`, today's entire pre-existing logic moved
+  verbatim and confirmed byte-for-byte unchanged (the NVDA/IDXX path —
+  both genuinely positive and rising, still score 0); a **mixed** series
+  (crosses the sign boundary) first passes an isolated-spike rescue (a
+  single point disproportionately far from the majority side —
+  `CCC_SPIKE_ISOLATION_RATIO = 3.0` — is treated as a one-off, not a real
+  crossing; confirmed real case: ABBV, 10yrs of 62-102 day positive CCC
+  then one TTM value of -496.7, an evident one-time acquisition-related
+  accounting event, rescued back to the unchanged positive-CCC path,
+  score unchanged at 70), then a genuine crossing is sub-classified by
+  whether it durably settled on one side using a robust (single-outlier-
+  excluded) late-window average — `"gained_bargaining_power", 100` if it
+  settled negative (KR-shape: starts ~+8 days, ends ~-7.6 days) or
+  `"lost_bargaining_power", 0` if it settled positive (the mirror,
+  genuinely losing supplier leverage) — or, absent a clear settle, by
+  overall amplitude: `"negligible_working_capital", 85` if the whole
+  series stays within `CCC_NEAR_ZERO_AMPLITUDE_DAYS` (10 days — COST,
+  CASY, TGT: oscillates near zero, structurally low capital intensity,
+  not noise to flag) vs. `"mixed_unclear", 40` otherwise (CCL-shape: real,
+  larger swings with no clear pattern — worth a manual look). All three
+  new constants (`CCC_SIGN_EPS_DAYS=1.0`, `CCC_NEAR_ZERO_AMPLITUDE_DAYS
+  =10.0`, `CCC_SPIKE_ISOLATION_RATIO=3.0`) were derived from a real,
+  cache-only sweep of all 318 CCC-scorable tickers in the universe (not
+  guessed) — confirmed via a full-universe recompute: 78/318 tickers' CCC
+  sub-score changed, propagating to 78 changed Step 4 blended scores, 3
+  verdict flips (AZO/FDS/ORLY, Pass 85 → Strong Pass 92), and 13 tickers
+  moving off a masked-Pass read (score <70, "Pass" shown anyway) to a
+  genuinely-earned ≥70 — including AAPL (50 → 75). 194 tickers remain
+  masked-Pass afterward, since this fix only addresses CCC's own
+  contribution — Revenue-vs-AR's separately-known majority-count
+  miscalibration (see the "score floor" investigation this fix followed
+  from) still drags many of these down independently, and remains
+  deferred, not yet scoped.
 
 Overall Assessment's step weighting (`backend/scoring/overall.py::STEP_WEIGHTS`
 / `frontend/lib/overallScore.ts::STEP_WEIGHTS` — must never drift from each

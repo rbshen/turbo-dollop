@@ -30,6 +30,12 @@ const TIER_LABELS: Record<string, string> = {
   volatile_but_net_declining: "Volatile, net declining",
   volatile_no_trend: "Volatile, no trend",
   sustained_upward: "Sustained upward",
+  consistently_negative_strengthening: "Negative & strengthening (suppliers fund the business)",
+  consistently_negative_weakening: "Negative, still strong (direction easing)",
+  gained_bargaining_power: "Turned negative (gained supplier leverage)",
+  lost_bargaining_power: "Turned positive (losing supplier leverage)",
+  negligible_working_capital: "Negligible (low working-capital need)",
+  mixed_unclear: "Mixed, no clear pattern — investigate",
 };
 
 function tierClass(points: number): string {

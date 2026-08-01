@@ -366,15 +366,19 @@ def test_ccc_insufficient_data():
 
 
 def test_ccc_old_resolved_dip_does_not_override_a_strongly_positive_trend():
-    # Mirrors MSFT's real shape: a small early rise (sustained_decline
-    # fires on the 2016-2018 uptick), followed by a much larger decline
-    # that leaves the overall direction strongly positive (improving).
-    # Before the recency gate, sustained_decline alone forced 0
-    # regardless of direction -- must not happen anymore.
+    # Mirrors MSFT's real shape: a small early rise, followed by a much
+    # larger decline that crosses into negative CCC territory and stays
+    # there (early window avg +25.3, robust late window avg -7.5) -- a
+    # genuine settle into negative CCC (suppliers funding the business),
+    # not just "improving positive CCC". Under sign-aware classification
+    # this is "gained_bargaining_power", 100 -- a more accurate read than
+    # the old flat 70, which had no way to represent "durably crossed into
+    # negative territory" as its own, stronger outcome. Still must not read
+    # as sustained_upward / 0.
     result = classify_ccc_trend([20, 26, 30, 15, 0, -15])
     assert result.pattern != "sustained_upward"
     assert result.score > 0
-    assert result == TrendResult("volatile_but_net_declining", 70)
+    assert result == TrendResult("gained_bargaining_power", 100)
 
 
 def test_ccc_recent_unresolved_decline_still_overrides_to_zero():
@@ -396,24 +400,108 @@ def test_ccc_direction_exactly_at_the_stable_tolerance_boundary_does_not_overrid
 
 
 def test_ccc_late_window_spike_does_not_forgive_a_genuinely_worsening_trend():
-    # Mirrors ABBV/CDNS's real shape: real CCC drifts upward (worsening)
-    # for 8 periods via alternating up/down moves (never 2 consecutive
-    # worsening periods, so sustained_decline never fires), then one wild
-    # anomalous TTM value (-300, an implausible one-off) that reads as a
-    # dramatic "improvement" on its own. Direction alone (raw) is positive
-    # only because of that single point -- must not read as improving.
+    # Mirrors ABBV's real shape: real CCC drifts upward (worsening) for 8
+    # periods via alternating up/down moves (never 2 consecutive worsening
+    # periods, so sustained_decline never fires), then one wild anomalous
+    # TTM value (-300, an implausible one-off) that reads as a dramatic
+    # "improvement" on its own. Since this crosses the sign boundary, it
+    # now first passes through the isolated-spike-rescue check (see
+    # test_ccc_isolated_spike_is_rescued_to_the_pure_positive_path below)
+    # before reaching this module's unchanged positive-CCC trend logic --
+    # same end result: must not read as improving.
     result = classify_ccc_trend([70, 68, 74, 72, 78, 76, 82, 80, -300])
     assert result == TrendResult("sustained_upward", 0)
 
 
 def test_ccc_spike_guard_does_not_touch_cases_already_resolved_by_the_recency_gate():
-    # Regression guard: the spike guard must never re-examine a ticker
-    # whose sustained_decline was already resolved by the recency gate
-    # above (e.g. MSFT/NEM's real shape) -- confirmed this must stay
-    # exactly as already fixed, not be re-capped by a second, unrelated
-    # check.
+    # Regression guard: this series genuinely settles negative (see
+    # test_ccc_old_resolved_dip_does_not_override_a_strongly_positive_trend
+    # above for the sign-aware reasoning) and must land on
+    # "gained_bargaining_power" via the mixed-series settling check, not be
+    # re-capped by an unrelated rule.
     result = classify_ccc_trend([20, 26, 30, 15, 0, -15])
+    assert result == TrendResult("gained_bargaining_power", 100)
+
+
+# --- CCC sign-awareness (2026-08-01) ------------------------------------------
+
+
+def test_ccc_consistently_negative_strengthening_scores_100():
+    # DAL-shaped: deeply negative throughout, getting MORE negative over
+    # time (early window avg -4.3, late window avg -8.4) -- suppliers
+    # increasingly funding the business, the strongest possible signal.
+    result = classify_ccc_trend([-3.5, -7.3, -2.0, 0.1, -6.0, -12.0, -11.2, -7.2, -7.0, -10.6, -7.7])
+    assert result == TrendResult("consistently_negative_strengthening", 100)
+
+
+def test_ccc_consistently_negative_weakening_still_scores_100():
+    # AAPL's real shape: deeply negative throughout (-84 to -54 days,
+    # still elite), but the direction is easing (early window avg -76.1,
+    # late window avg -66.9 -- less negative, not less negative enough to
+    # be a concern). Must NOT read as "sustained_upward" / 0 -- a still-
+    # deeply-negative CCC is never a red flag just because its own
+    # direction eased (see CLAUDE.md's Step 4 deviations).
+    result = classify_ccc_trend(
+        [-71.0, -73.5, -83.9, -62.9, -60.9, -56.4, -70.5, -67.8, -75.8, -71.1, -53.9]
+    )
+    assert result == TrendResult("consistently_negative_weakening", 100)
+
+
+def test_ccc_gained_bargaining_power_scores_100():
+    # KR-shaped: starts clearly positive (~7-8 days), durably settles
+    # negative by TTM (~-7.6 days) -- a real improvement, not noise.
+    result = classify_ccc_trend([8.2, 7.4, 7.8, 7.9, 6.3, 3.7, -2.7, -5.1, -4.5, -6.2, -7.6])
+    assert result == TrendResult("gained_bargaining_power", 100)
+
+
+def test_ccc_lost_bargaining_power_scores_0():
+    # Mirror of the gained-bargaining-power case: starts clearly negative,
+    # durably settles positive by TTM -- losing supplier leverage, a real
+    # warning worth flagging.
+    result = classify_ccc_trend([-8.2, -7.4, -7.8, -7.9, -6.3, -3.7, 2.7, 5.1, 4.5, 6.2, 7.6])
+    assert result == TrendResult("lost_bargaining_power", 0)
+
+
+def test_ccc_negligible_working_capital_scores_85():
+    # COST-shaped: oscillates within a narrow band around zero (-1.5 to
+    # +8.7), crossing zero repeatedly with no clear directional settling --
+    # a moderately positive "structurally low capital intensity" signal,
+    # not noise to flag as unclear.
+    result = classify_ccc_trend([8.7, 4.8, 3.7, 2.9, -1.5, -1.1, 3.7, 2.0, 2.6, 1.7, 0.5])
+    assert result == TrendResult("negligible_working_capital", 85)
+
+
+def test_ccc_mixed_unclear_scores_40():
+    # CCL-shaped: real, larger-magnitude swings across the sign boundary
+    # (-8.6 to +12.5) with no clear directional settling and no near-zero
+    # amplitude -- genuinely unclear, worth a manual look, not silently
+    # scored as either a strength or a weakness.
+    result = classify_ccc_trend([-8.6, -6.5, -2.3, -1.5, 5.0, 12.5, -7.5, -6.9, -6.0, -5.1, -5.7])
+    assert result == TrendResult("mixed_unclear", 40)
+
+
+def test_ccc_isolated_spike_is_rescued_to_the_pure_positive_path():
+    # ABBV's real shape: 10yrs of clean positive CCC (62-102 days) then one
+    # wildly anomalous TTM value (-496.7, a one-time acquisition-related
+    # accounting event, ratio ~6.2x the positive side's typical magnitude)
+    # -- must be rescued back to the pure-positive path (today's unchanged
+    # trend logic) rather than misrouted into the mixed-series settling/
+    # amplitude checks, which would otherwise misread a single anomalous
+    # point as a genuine sign-crossing story.
+    result = classify_ccc_trend([70.1, 72.6, 62.8, 77.3, 94.8, 69.9, 84.3, 82.3, 97.4, 102.4, -496.7])
     assert result == TrendResult("volatile_but_net_declining", 70)
+
+
+def test_ccc_two_point_sign_shift_is_not_rescued_as_an_isolated_spike():
+    # CDNS's real shape: 2 consecutive negative years (not a single
+    # isolated point) after 9 years of positive, rising CCC -- must NOT
+    # qualify for the isolated-spike rescue (len(neg_idx) == 2, not 1) and
+    # instead falls through to the genuine settling check, which correctly
+    # reads this as a durable improvement.
+    result = classify_ccc_trend(
+        [67.2, 66.1, 60.0, 104.5, 138.1, 179.6, 111.5, 119.6, 172.6, -214.5, -252.1]
+    )
+    assert result == TrendResult("gained_bargaining_power", 100)
 
 
 # --- score_step4: weight redistribution + hard-fail override ---
