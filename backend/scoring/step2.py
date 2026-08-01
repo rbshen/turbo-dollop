@@ -16,6 +16,12 @@ AGREEMENT_WEIGHT = 0.30
 # Score threshold for "Strong Pass" among Pass verdicts (see _verdict_for).
 STRONG_PASS_SCORE = 90
 
+# The blended score's floor whenever growth is non-negative (see
+# score_step2's own comment) -- matches the 70 "Pass" floor every other
+# step's shared color bands use, so a Pass verdict can no longer display a
+# Fail-range number.
+PASS_SCORE_FLOOR = 70
+
 
 class ScoreResult(NamedTuple):
     magnitude_score: int
@@ -73,6 +79,16 @@ def score_step2(growth_rate_pct: float, spread_pct: float) -> ScoreResult:
     agreement_score, agreement_tier = _score_agreement(spread_pct)
     weighted_sum = magnitude_score * MAGNITUDE_WEIGHT + agreement_score * AGREEMENT_WEIGHT
     score = max(0, min(100, round(weighted_sum)))
+    # Floors the BLENDED score, not magnitude_score itself (which stays the
+    # raw tier value the UI's own magnitude/agreement breakdown shows) --
+    # a weak-but-positive-growth ticker's Pass verdict must never display a
+    # 0-69 number, which every other step's shared color bands (and every
+    # other step's own verdict logic) treat as Fail-severity. Verdict logic
+    # is untouched: Fail is still gated purely on magnitude_score == 0 (see
+    # _verdict_for), and this can never cross the Strong Pass threshold
+    # (raises only scores already below 70, Strong Pass requires > 90).
+    if magnitude_score > 0 and score < PASS_SCORE_FLOOR:
+        score = PASS_SCORE_FLOOR
     return ScoreResult(
         magnitude_score=magnitude_score,
         magnitude_tier=magnitude_tier,

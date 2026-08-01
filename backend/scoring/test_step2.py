@@ -70,14 +70,17 @@ def test_score_clamped_to_valid_range():
     assert 0 <= result.score <= 100
 
 
-def test_positive_growth_with_low_score_still_passes():
+def test_positive_growth_with_low_natural_blend_is_floored_to_70():
     # Solid positive growth (magnitude 85) dragged under 70 by a wide
-    # analyst spread (agreement 20) -- score = 0.7*85 + 0.3*20 = 65.5 -> 66,
-    # but per the source doc, only negative growth is a fail condition:
-    # analyst disagreement alone must never turn this into a Fail. This is
-    # the exact AAPL/LRCX scenario that motivated the fix.
+    # analyst spread (agreement 20) -- natural blend = 0.7*85 + 0.3*20 =
+    # 65.5 -> 66, but per the source doc, only negative growth is a fail
+    # condition: analyst disagreement alone must never turn this into a
+    # Fail. This is the exact AAPL/LRCX scenario that originally motivated
+    # that fix -- PASS_SCORE_FLOOR now additionally guarantees the *score*
+    # itself can't display a Fail-range number (66) next to a "Pass" verdict
+    # (this was FTNT's real shape: score 58, "Pass").
     result = score_step2(growth_rate_pct=13.5, spread_pct=22.2)
-    assert result.score < 70
+    assert result.score == 70
     assert result.verdict == "Pass"
 
 
@@ -85,8 +88,11 @@ def test_negative_growth_still_fails_regardless_of_agreement():
     # Even a perfectly tight analyst spread (agreement 100) can't rescue
     # negative projected growth -- Fail is gated on the magnitude tier, not
     # the blended score. score = 0.7*0 + 0.3*100 = 30, well above 0, but
-    # still Fail.
+    # still Fail. PASS_SCORE_FLOOR must NOT apply here (its guard is
+    # `magnitude_score > 0`) -- a Fail must still be able to display its
+    # real sub-70 score, only a Pass gets floored.
     result = score_step2(growth_rate_pct=-1.0, spread_pct=2.0)
+    assert result.score == 30
     assert result.verdict == "Fail"
 
 
@@ -108,8 +114,25 @@ def test_pass_tier_pass_at_75_to_90():
     assert result.verdict == "Pass"
 
 
-def test_pass_tier_pass_below_70():
-    # magnitude 65 (5-10% growth), agreement 20 (wide) -> 0.7*65+0.3*20=51.5 -> 52
+def test_pass_tier_floored_to_70_not_left_below():
+    # magnitude 65 (5-10% growth), agreement 20 (wide) -> natural blend
+    # 0.7*65+0.3*20=51.5 -> 52, floored to 70 -- a Pass can no longer
+    # display a score this low (previously asserted `score < 70`, which
+    # was exactly the display-consistency problem PASS_SCORE_FLOOR fixes).
     result = score_step2(growth_rate_pct=7.0, spread_pct=25.0)
-    assert result.score < 70
+    assert result.score == 70
+    assert result.verdict == "Pass"
+
+
+def test_worst_case_weakest_growth_and_widest_spread_still_floors_to_70():
+    # The absolute floor of the "score = max(0, min(100, round(...)))"
+    # non-negative-growth space: magnitude 40 (the "weak" 0-5% tier, the
+    # lowest tier that isn't a Fail) combined with agreement 20 (the widest
+    # "wide" spread tier) -- natural blend = 0.7*40+0.3*20 = 34, the lowest
+    # a genuinely-positive-growth ticker's raw score can ever be. Confirms
+    # the floor catches this extreme, not just FTNT/AAPL's milder cases.
+    result = score_step2(growth_rate_pct=1.0, spread_pct=30.0)
+    assert result.magnitude_score == 40
+    assert result.agreement_score == 20
+    assert result.score == 70
     assert result.verdict == "Pass"
