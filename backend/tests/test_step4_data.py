@@ -223,7 +223,7 @@ def test_score_differs_between_5yr_only_and_full_10yr_scoring_data(monkeypatch):
     assert baseline.components["roe"]["label"] == "excellent"
     assert baseline.components["roic"]["label"] == "excellent"
 
-    assert extended.score == 80
+    assert extended.score == 76  # 60*0.25(roe) + 60*0.35(roic) + 100*0.20(ar) + 100*0.20(ccc)
     assert extended.verdict == "Pass"
     assert extended.components["roe"]["label"] == "marginal"
     assert extended.components["roic"]["label"] == "marginal"

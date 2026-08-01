@@ -133,6 +133,23 @@ CCC_SPIKE_ISOLATION_RATIO = 3.0  # single-outlier-vs-typical-magnitude ratio to 
 
 STRONG_PASS_SCORE = 90
 
+# --- Step 4 blend weighting (2026-08-01) --------------------------------------
+# ROE+ROIC are the headline profitability verdict; Revenue-vs-AR+CCC are
+# corroborating/contradicting supporting evidence for what ROE/ROIC already
+# say, not independent headline signals. Within the headline pair, ROIC is
+# weighted above ROE -- it's harder to game (unaffected by the leverage/
+# buyback effects that inflate ROE, see check_roe_roic_divergence's own
+# docstring) and reflects capital efficiency more directly. "Moderate tilt":
+# headline 60% (35/25) vs. supporting 40% (20/20) -- a deliberate user
+# design call, not a bug-driven fix like this module's other constants.
+# When a metric is exempt (company-type gate: REIT/Bank/Insurance/Utility),
+# its weight is redistributed proportionally across the remaining applicable
+# metrics (score_step4 divides each BASE_WEIGHTS entry by the sum of the
+# applicable ones), preserving their relative ratio rather than falling back
+# to an equal split -- e.g. ROIC+CCC exempt (Bank/Insurance/Utility) leaves
+# ROE at 25/45=55.6% and AR at 20/45=44.4%, not 50/50.
+BASE_WEIGHTS = {"roe": 0.25, "roic": 0.35, "ar": 0.20, "ccc": 0.20}
+
 
 class RatioResult(NamedTuple):
     label: str
@@ -589,16 +606,17 @@ def score_step4(
     roic: RatioResult | None,
     ccc: TrendResult | None,
 ) -> dict:
-    """Pure scoring function: equal-weight redistribution among whatever
-    metrics are applicable (all 4 -> 25% each; ROIC exempt -> remaining 3 at
-    33.3% each; ROIC+CCC both exempt -> remaining 2 at 50% each; AR also
-    exempt -- REIT -> remaining 1 at 100%), with a hard-fail override if
-    ROE or ROIC (when applicable) lands in its Fail tier -- mirrors
-    Step 2/Step 5's hard-fail override pattern. `ar=None` mirrors the
-    roic/ccc optional-exemption pattern -- Revenue-vs-Accounts-Receivable
-    isn't part of the REIT framework (a rental-income business model has no
-    comparable receivables-outpacing-revenue concept), so it's excluded the
-    same way CCC already is for REITs."""
+    """Pure scoring function: weighted blend (see BASE_WEIGHTS -- ROIC 35% /
+    ROE 25% / AR 20% / CCC 20% when all 4 apply) among whatever metrics are
+    applicable, proportionally renormalized to sum to 1.0 when a metric is
+    exempt (e.g. ROIC+CCC exempt -> ROE/AR renormalize to 55.6%/44.4%,
+    preserving their relative ratio rather than an equal split), with a
+    hard-fail override if ROE or ROIC (when applicable) lands in its Fail
+    tier -- mirrors Step 2/Step 5's hard-fail override pattern. `ar=None`
+    mirrors the roic/ccc optional-exemption pattern -- Revenue-vs-Accounts-
+    Receivable isn't part of the REIT framework (a rental-income business
+    model has no comparable receivables-outpacing-revenue concept), so it's
+    excluded the same way CCC already is for REITs."""
     applicable: list[tuple[str, int]] = [("roe", roe.points)]
     if ar is not None:
         applicable.append(("ar", ar.points))
@@ -607,8 +625,9 @@ def score_step4(
     if ccc is not None:
         applicable.append(("ccc", ccc.score))
 
-    weight = 1.0 / len(applicable)
-    weighted_sum = sum(points * weight for _, points in applicable)
+    base_total = sum(BASE_WEIGHTS[key] for key, _ in applicable)
+    weights = {key: BASE_WEIGHTS[key] / base_total for key, _ in applicable}
+    weighted_sum = sum(points * weights[key] for key, points in applicable)
     score = max(0, min(100, round(weighted_sum)))
 
     hard_fail = roe.hard_fail or (roic.hard_fail if roic is not None else False)
@@ -617,7 +636,7 @@ def score_step4(
         "score": score,
         "verdict": _verdict_for(score, hard_fail),
         "hard_fail": hard_fail,
-        "weight_per_metric": weight,
+        "weights": weights,
         "roe_roic_divergence_note": check_roe_roic_divergence(roe, roic),
         "components": {
             "roe": {"label": roe.label, "points": roe.points},

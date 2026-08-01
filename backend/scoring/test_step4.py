@@ -1,3 +1,5 @@
+import pytest
+
 from scoring.step4 import (
     AR_DSO_TREND_MATERIALITY_DAYS,
     check_roe_roic_divergence,
@@ -577,13 +579,13 @@ def _ratio(label, points, hard_fail=False):
     return RatioResult(label, points, hard_fail)
 
 
-def test_all_four_metrics_equal_weight_25_percent_each():
+def test_all_four_metrics_weighted_roic_highest():
     roe = _ratio("excellent", 100)
     ar = _ratio("healthy", 100)
     roic = _ratio("excellent", 100)
     ccc = TrendResult("declining_or_stable", 100)
     result = score_step4(roe, ar, roic, ccc)
-    assert result["weight_per_metric"] == 0.25
+    assert result["weights"] == {"roe": 0.25, "roic": 0.35, "ar": 0.20, "ccc": 0.20}
     assert result["score"] == 100
     assert result["verdict"] == "Strong Pass"
     assert result["hard_fail"] is False
@@ -593,7 +595,7 @@ def test_roic_exempt_redistributes_to_remaining_three():
     roe = _ratio("good", 90)
     ar = _ratio("healthy", 90)
     result = score_step4(roe, ar, None, TrendResult("declining_or_stable", 90))
-    assert abs(result["weight_per_metric"] - 1 / 3) < 1e-9
+    assert result["weights"] == pytest.approx({"roe": 25 / 65, "ar": 20 / 65, "ccc": 20 / 65})
     assert result["score"] == 90
     assert result["verdict"] == "Pass"  # 90 is not > 90, so not Strong Pass
 
@@ -602,7 +604,7 @@ def test_roic_and_ccc_both_exempt_redistributes_to_remaining_two():
     roe = _ratio("good", 90)
     ar = _ratio("healthy", 90)
     result = score_step4(roe, ar, None, None)
-    assert result["weight_per_metric"] == 0.5
+    assert result["weights"] == pytest.approx({"roe": 25 / 45, "ar": 20 / 45})
     assert result["score"] == 90
 
 
@@ -618,7 +620,7 @@ def test_ar_exempt_reit_redistributes_to_remaining_three():
     roic = _ratio("excellent", 100)
     ccc = TrendResult("declining_or_stable", 90)
     result = score_step4(roe, None, roic, ccc)
-    assert abs(result["weight_per_metric"] - 1 / 3) < 1e-9
+    assert result["weights"] == pytest.approx({"roe": 25 / 80, "roic": 35 / 80, "ccc": 20 / 80})
     assert result["components"]["revenue_vs_ar"] is None
 
 
@@ -627,7 +629,7 @@ def test_ar_roic_ccc_all_exempt_reit_shape_redistributes_to_roe_alone():
     # ROE is left, at 100% weight.
     roe = _ratio("good", 90)
     result = score_step4(roe, None, None, None)
-    assert result["weight_per_metric"] == 1.0
+    assert result["weights"] == {"roe": 1.0}
     assert result["score"] == 90
     assert result["components"]["revenue_vs_ar"] is None
     assert result["components"]["roic"] is None
@@ -640,7 +642,7 @@ def test_hard_fail_from_roe_overrides_verdict_despite_good_score():
     roic = _ratio("excellent", 100)
     ccc = TrendResult("declining_or_stable", 100)
     result = score_step4(roe, ar, roic, ccc)
-    assert result["score"] == 75  # (0 + 100 + 100 + 100) / 4
+    assert result["score"] == 75  # 0*0.25 + 100*0.20 + 100*0.35 + 100*0.20 (coincidentally unchanged from equal-weight)
     assert result["hard_fail"] is True
     assert result["verdict"] == "Fail"
 
@@ -661,7 +663,7 @@ def test_ar_or_ccc_landing_in_their_own_zero_tier_does_not_hard_fail():
     roic = _ratio("excellent", 100)
     ccc = TrendResult("sustained_upward", 0)
     result = score_step4(roe, ar, roic, ccc)
-    assert result["score"] == 50  # (100 + 0 + 100 + 0) / 4
+    assert result["score"] == 60  # 100*0.25 + 0*0.20 + 100*0.35 + 0*0.20
     assert result["hard_fail"] is False
     assert result["verdict"] == "Pass"
 
@@ -676,7 +678,7 @@ def test_score_step4_surfaces_roe_roic_divergence_note_without_changing_score():
     ccc = TrendResult("declining_or_stable", 100)
     result = score_step4(roe, ar, roic, ccc)
     assert result["roe_roic_divergence_note"] is not None
-    assert result["score"] == 90  # (100 + 100 + 60 + 100) / 4, unaffected by the note
+    assert result["score"] == 86  # 100*0.25 + 100*0.20 + 60*0.35 + 100*0.20, unaffected by the note
     assert result["verdict"] == "Pass"
 
 

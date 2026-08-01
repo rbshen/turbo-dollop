@@ -550,6 +550,39 @@ thresholds — deviations from a strict reading of the doc:
   OCF alongside rising Net Income is the real red flag for revenue being
   recognized before cash arrives) plus a static business-model-shift
   prompt that can't be answered from FMP's structured data.
+- **Step 4's internal blend is weighted, not equal-split (2026-08-01).**
+  Previously every applicable metric (ROE, ROIC, Revenue-vs-AR, CCC) split
+  the score evenly (`weight = 1.0 / len(applicable)`). `BASE_WEIGHTS`
+  (`backend/scoring/step4.py`) now sets ROIC 35% / ROE 25% / Revenue-vs-AR
+  20% / CCC 20% when all 4 apply — a deliberate user design call, not a
+  bug-driven fix like the rest of this section. Rationale: ROE and ROIC
+  are the headline profitability verdict, with ROIC weighted above ROE
+  since it's harder to game (unaffected by the leverage/buyback effects
+  that inflate ROE — see `check_roe_roic_divergence`'s own docstring) and
+  reflects capital efficiency more directly; Revenue-vs-AR and CCC are
+  corroborating/contradicting supporting evidence for what ROE/ROIC
+  already say, not independent headline signals, so they're weighted
+  lower and equal to each other. `score_step4` renormalizes proportionally
+  (not equally) when a metric is exempt via the company-type gates —
+  each remaining metric's `BASE_WEIGHTS` entry is divided by the sum of
+  the applicable entries, preserving relative ratio rather than falling
+  back to an equal split. Worked examples: ROIC+CCC exempt (Bank/
+  Insurance/Utility) → ROE 25/45=55.6%, AR 20/45=44.4% (not 50/50); REIT
+  (AR+ROIC+CCC all exempt) → ROE alone at 100%, unchanged from before
+  since there's only one metric either way. This is a pure re-weighting —
+  no individual metric's own tiering (`score_roe`, `score_roic`,
+  `score_revenue_vs_ar`, `classify_ccc_trend`) changed. Confirmed via
+  spot-check against real cached data: AAPL 85→88 (verdict unchanged,
+  Pass), MA 90→92 (**verdict flip Pass → Strong Pass** — MA's ROE/ROIC
+  were already both "excellent" at 100, so shifting weight toward them
+  pulls the blend above the >90 Strong Pass line), FICO 67→75 (verdict
+  unchanged — Step 4's `_verdict_for` has no low-score Fail gate the way
+  Step 5's does, only `hard_fail` and the >90 Strong Pass threshold, so a
+  score move within the 0-90 range never changes the verdict on its own).
+  A full-universe recompute has not been run for this change (unlike the
+  AR/CCC fixes above, which were bug fixes verified at that scale) — this
+  is a deliberate re-weighting, not a correctness fix, so no universe-wide
+  before/after audit was required before shipping it.
 
 Overall Assessment's step weighting (`backend/scoring/overall.py::STEP_WEIGHTS`
 / `frontend/lib/overallScore.ts::STEP_WEIGHTS` — must never drift from each
