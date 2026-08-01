@@ -1,4 +1,5 @@
 from scoring.step4 import (
+    AR_DSO_TREND_MATERIALITY_DAYS,
     check_roe_roic_divergence,
     classify_ccc_trend,
     score_revenue_vs_ar,
@@ -224,85 +225,141 @@ def _build(revenue_yoys: list[float], ar_yoys: list[float], revenue0: float = 10
     return revenue, ar
 
 
+def _label_points_hard_fail(result):
+    """Most AR tests only care about the tier outcome, not the DSO/count
+    fields ARResult now also carries for step4_data.py's reasoning-note
+    builder -- this keeps assertions readable instead of hardcoding
+    float DSO values that aren't the point of the test."""
+    return (result.label, result.points, result.hard_fail)
+
+
 def test_ar_zero_outpacing_years_scores_100():
     revenue, ar = _build([10, 10], [10, 10])
-    assert score_revenue_vs_ar(revenue, ar) == ("healthy", 100, False)
+    assert _label_points_hard_fail(score_revenue_vs_ar(revenue, ar)) == ("healthy", 100, False)
 
 
 def test_ar_one_isolated_small_gap_scores_100():
     revenue, ar = _build([10, 10], [10, 20])  # gap = 10pp on one of two transitions
-    assert score_revenue_vs_ar(revenue, ar) == ("healthy", 100, False)
+    assert _label_points_hard_fail(score_revenue_vs_ar(revenue, ar)) == ("healthy", 100, False)
 
 
 def test_ar_one_isolated_medium_gap_scores_70():
     revenue, ar = _build([10, 10], [10, 40])  # gap = 30pp (medium)
-    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_isolated", 70, False)
+    assert _label_points_hard_fail(score_revenue_vs_ar(revenue, ar)) == ("outpacing_isolated", 70, False)
 
 
-def test_ar_two_outpacing_years_not_majority_scores_70():
-    revenue, ar = _build([10, 10, 10, 10], [10, 10, 40, 22])  # gaps: 0, 0, 30, 12
-    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_isolated", 70, False)
+# --- AR noise floor + aggregate-trend fix (2026-08-01) -----------------------
+# The worst tier's trigger changed from "majority of individual years
+# outpacing" to "AR's Days Sales Outstanding rose materially in aggregate,
+# early-window vs a robust late window" (see this module's own comment
+# block on AR_DSO_TREND_MATERIALITY_DAYS for why). The tests below replace
+# the old majority-count-focused suite: a few use fixtures where a numeric
+# majority of individual years outpace but the aggregate DSO trend stays
+# mild (the AAPL-shaped bug this fix targets -- confirmed these no longer
+# force the worst tier), and others confirm a genuinely material aggregate
+# DSO increase still forces it even without a majority of individual years.
+# AR_CONCERNING_TRANSITION_RATIO's own count-based rescaling (the
+# "concerning" tier) is UNCHANGED by this fix -- these fixtures are built
+# to keep the aggregate trend mild specifically so that tier can be
+# exercised on its own, without the (now DSO-driven) worst tier
+# intercepting first.
 
 
-def test_ar_three_of_five_outpacing_years_hits_majority_not_concerning():
-    # 3 of 5 transitions (the doc's original 5yr+TTM window) also hits
-    # majority (3 > 5/2) before the count-based "concerning" check is ever
-    # reached -- this was true of the ORIGINAL fixed threshold too (3 was
-    # always the majority boundary at n=5), so the rescaled threshold
-    # (max(3, round(0.6*5)) == 3) doesn't change this outcome at all.
-    revenue, ar = _build([10] * 5, [10, 10, 40, 22, 30])  # gaps: 0,0,30,12,20 -> 3 outpacing
-    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_majority_or_red_flag", 0, False)
+def test_ar_numeric_majority_with_mild_aggregate_trend_no_longer_forces_zero():
+    # AAPL-shaped: 6 of 10 individual years show AR outpacing revenue by a
+    # real per-year gap (13% vs 10%, well past the noise floor) -- a
+    # numeric majority under the OLD rule, which would have forced 0
+    # regardless of the bigger picture. Interleaved with 4 slower-AR years
+    # so the aggregate DSO trend nets out mild (+0.3 days over the window)
+    # -- correctly no longer lands on the worst tier; the still-unchanged
+    # count-based "concerning" tier picks it up instead (6 hits the n=10
+    # concerning_threshold of 6).
+    ar_yoys = [13, 7, 13, 7, 13, 7, 13, 7, 13, 13]
+    revenue, ar = _build([10] * 10, ar_yoys)
+    result = score_revenue_vs_ar(revenue, ar)
+    assert result.num_outpacing == 6
+    assert result.dso_late_robust - result.dso_early < 15.0
+    assert _label_points_hard_fail(result) == ("outpacing_concerning", 40, False)
 
 
-def test_ar_three_of_six_outpacing_years_no_longer_concerning():
+def test_ar_few_outpacing_years_but_genuine_aggregate_drift_forces_zero():
+    # The mirror case: only 2 of 4 individual years show AR outpacing
+    # (never a numeric majority under the old rule), but those 2 gaps are
+    # large enough that they compound into a genuine, material aggregate
+    # DSO increase (+62 days) by the end of the window -- correctly still
+    # forces the worst tier under the new aggregate-trend rule, confirming
+    # this fix doesn't just loosen the worst tier across the board.
+    revenue, ar = _build([10, 10, 10, 10], [10, 10, 40, 22])
+    result = score_revenue_vs_ar(revenue, ar)
+    assert result.num_outpacing == 2
+    assert result.dso_late_robust - result.dso_early > AR_DSO_TREND_MATERIALITY_DAYS
+    assert _label_points_hard_fail(result) == ("outpacing_majority_or_red_flag", 0, False)
+
+
+def test_ar_small_persistent_gaps_can_still_compound_into_material_drift():
+    # 2 of 3 individual years outpace by a SMALL per-year gap (10pp each,
+    # not one dramatic year) -- still compounds to a real +17.6 day
+    # aggregate DSO increase, past the materiality floor. A couple of
+    # small-but-persistent gaps, not just one dramatic gap, can add up to
+    # a genuine aggregate problem.
+    revenue, ar = _build([10, 10, 10], [20, 20, 10])
+    result = score_revenue_vs_ar(revenue, ar)
+    assert result.dso_late_robust - result.dso_early > AR_DSO_TREND_MATERIALITY_DAYS
+    assert _label_points_hard_fail(result) == ("outpacing_majority_or_red_flag", 0, False)
+
+
+def test_ar_concerning_tier_rescaling_at_n5_still_reachable_with_mild_aggregate():
+    # 3 of 5 transitions outpace (the doc's original 5yr+TTM window,
+    # concerning_threshold = max(3, round(0.6*5)) = 3), aggregate DSO trend
+    # kept mild (+3.2 days, interleaved fast/slow years) so the worst tier
+    # doesn't intercept first -- confirms the concerning tier's own
+    # rescaling logic is unaffected by the worst tier's trigger change.
+    ar_yoys = [13, 7, 13, 7, 13]
+    revenue, ar = _build([10] * 5, ar_yoys)
+    result = score_revenue_vs_ar(revenue, ar)
+    assert result.num_outpacing == 3
+    assert result.dso_late_robust - result.dso_early < AR_DSO_TREND_MATERIALITY_DAYS
+    assert _label_points_hard_fail(result) == ("outpacing_concerning", 40, False)
+
+
+def test_ar_concerning_tier_rescaling_at_n6_below_threshold_reads_isolated():
     # Same 3-outpacing count as above, but over 6 transitions instead of 5
-    # (50% vs. the doc-calibrated 60% severity bar) -- proportional
-    # rescaling means this now reads as isolated noise, not concerning.
-    # (Also demonstrates why a fixed count of 3 was miscalibrated for any
-    # window wider than 5 transitions.)
-    revenue, ar = _build([10] * 6, [10, 10, 10, 40, 22, 30])  # gaps: 0,0,0,30,12,20 -> 3 outpacing
-    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_isolated", 70, False)
+    # (50% vs. the doc-calibrated 60% severity bar, concerning_threshold =
+    # max(3, round(0.6*6)) = 4) -- proportional rescaling means this reads
+    # as isolated noise, not concerning. Aggregate DSO trend stays mild.
+    ar_yoys = [13, 7, 13, 7, 13, 7]
+    revenue, ar = _build([10] * 6, ar_yoys)
+    result = score_revenue_vs_ar(revenue, ar)
+    assert result.num_outpacing == 3
+    assert _label_points_hard_fail(result) == ("outpacing_isolated", 70, False)
 
 
-def test_ar_five_of_ten_outpacing_years_not_yet_concerning():
-    # The exact rescaling this fix was built for: at n=10 (10yr+TTM), the
-    # threshold is 6 (round(0.6*10)), so 5 outpacing years -- which used to
-    # trip the old fixed "3+" rule -- now correctly reads as isolated.
-    revenue = [10] * 10
-    ar = [10, 10, 10, 10, 40, 30, 25, 22, 18, 10]  # 5 gaps > 2pp (indices 4-8)
-    revenue_vals, ar_vals = _build(revenue, ar)
-    assert score_revenue_vs_ar(revenue_vals, ar_vals) == ("outpacing_isolated", 70, False)
+def test_ar_concerning_tier_rescaling_at_n10_five_below_threshold():
+    # The exact rescaling AR_CONCERNING_TRANSITION_RATIO was built for: at
+    # n=10 (10yr+TTM), concerning_threshold is 6, so 5 outpacing years --
+    # which used to trip the old fixed "3+" rule -- reads as isolated.
+    ar_yoys = [13, 7, 13, 7, 13, 7, 13, 7, 13, 7]
+    revenue, ar = _build([10] * 10, ar_yoys)
+    result = score_revenue_vs_ar(revenue, ar)
+    assert result.num_outpacing == 5
+    assert _label_points_hard_fail(result) == ("outpacing_isolated", 70, False)
 
 
-def test_ar_six_of_ten_outpacing_years_hits_majority_not_concerning():
-    # One more outpacing transition than the case above (6 of 10 = 60%)
-    # crosses BOTH the rescaled concerning threshold (6) and the majority
-    # boundary (>5) at the same count -- majority is checked first, so
-    # this lands on the worst tier, not "concerning". This mirrors the
-    # original 5-transition design exactly: since the ratio (0.6) sits
-    # above the 50% majority line, "concerning via count alone" is always
-    # subsumed by majority at any window size, old or new -- not a new
-    # quirk this fix introduces.
-    revenue = [10] * 10
-    ar = [10, 10, 10, 40, 30, 25, 22, 18, 15, 10]  # 6 gaps > 2pp (indices 3-8)
-    revenue_vals, ar_vals = _build(revenue, ar)
-    assert score_revenue_vs_ar(revenue_vals, ar_vals) == ("outpacing_majority_or_red_flag", 0, False)
+def test_ar_strong_red_flag_noise_floored_trivial_move_no_longer_scores_0():
+    # CAT's real shape: revenue -3.4%, AR +0.14% -- both legs are trivial
+    # noise, well under AR_GAP_NOISE_FLOOR (2pp). Previously a bare sign
+    # check forced 0 regardless of magnitude; now correctly falls through.
+    revenue = [100.0, 96.6]
+    ar = [50.0, 50.07]
+    assert score_revenue_vs_ar(revenue, ar).label != "outpacing_majority_or_red_flag"
 
 
-def test_ar_single_large_gap_scores_40_even_if_isolated():
-    revenue, ar = _build([10, 10], [10, 80])  # gap = 70pp (large), only 1 outpacing year
-    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_concerning", 40, False)
-
-
-def test_ar_majority_outpacing_scores_0_even_with_small_gaps():
-    revenue, ar = _build([10, 10, 10], [20, 20, 10])  # 2 of 3 transitions outpace, gaps small
-    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_majority_or_red_flag", 0, False)
-
-
-def test_ar_strong_red_flag_revenue_declining_ar_growing_scores_0():
-    revenue = [100.0, 90.0]
-    ar = [50.0, 55.0]
-    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_majority_or_red_flag", 0, False)
+def test_ar_strong_red_flag_material_move_still_scores_0():
+    # BA-shape: revenue -24.3%, AR +217% -- both legs are clearly past the
+    # noise floor, a genuine red flag, must still force 0.
+    revenue = [100.0, 75.7]
+    ar = [50.0, 158.5]
+    assert _label_points_hard_fail(score_revenue_vs_ar(revenue, ar)) == ("outpacing_majority_or_red_flag", 0, False)
 
 
 def test_ar_old_red_flag_outside_the_recency_window_no_longer_forces_zero():
@@ -311,7 +368,7 @@ def test_ar_old_red_flag_outside_the_recency_window_no_longer_forces_zero():
     # AR_RED_FLAG_RECENCY_WINDOW transitions. A single old, resolved
     # occurrence must no longer permanently force the worst tier.
     revenue, ar = _build([-10, 5, 5, 5, 5, 5], [10, 5, 5, 5, 5, 5])
-    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_isolated", 70, False)
+    assert _label_points_hard_fail(score_revenue_vs_ar(revenue, ar)) == ("outpacing_isolated", 70, False)
 
 
 def test_ar_recent_red_flag_still_forces_zero():
@@ -319,18 +376,25 @@ def test_ar_recent_red_flag_still_forces_zero():
     # MOST RECENT one -- a genuinely current problem must still hard-fail
     # regardless of the recency gate.
     revenue, ar = _build([5, 5, 5, 5, 5, -10], [5, 5, 5, 5, 5, 10])
-    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_majority_or_red_flag", 0, False)
+    assert _label_points_hard_fail(score_revenue_vs_ar(revenue, ar)) == ("outpacing_majority_or_red_flag", 0, False)
 
 
 def test_ar_red_flag_at_the_recency_window_boundary_still_counts():
     # i == n - AR_RED_FLAG_RECENCY_WINDOW is the OLDEST transition still
     # inside the recency window (inclusive) -- must still force 0.
     revenue, ar = _build([5, 5, 5, -10, 5, 5], [5, 5, 5, 10, 5, 5])
-    assert score_revenue_vs_ar(revenue, ar) == ("outpacing_majority_or_red_flag", 0, False)
+    assert _label_points_hard_fail(score_revenue_vs_ar(revenue, ar)) == ("outpacing_majority_or_red_flag", 0, False)
+
+
+def test_ar_single_large_gap_scores_40_even_if_isolated():
+    revenue, ar = _build([10, 10], [10, 80])  # gap = 70pp (large), only 1 outpacing year
+    assert _label_points_hard_fail(score_revenue_vs_ar(revenue, ar)) == ("outpacing_concerning", 40, False)
 
 
 def test_ar_insufficient_data_with_fewer_than_two_periods():
-    assert score_revenue_vs_ar([100.0], [50.0]) == ("insufficient_data", 0, False)
+    result = score_revenue_vs_ar([100.0], [50.0])
+    assert _label_points_hard_fail(result) == ("insufficient_data", 0, False)
+    assert result.dso_early is None and result.dso_late_robust is None
 
 
 # --- Metric 4: Cash Conversion Cycle trend (inverted margin classifier) ---

@@ -497,6 +497,59 @@ thresholds — deviations from a strict reading of the doc:
   miscalibration (see the "score floor" investigation this fix followed
   from) still drags many of these down independently, and remains
   deferred, not yet scoped.
+- **Revenue-vs-AR's worst tier gained a noise floor and switched from an
+  individual-year count to an aggregate multi-year trend (2026-08-01).**
+  Two calibration bugs, both found via the same masked-Pass investigation
+  as CCC's fix above: (1) the `strong_red_flag` check (revenue declining
+  while AR grows) was a bare sign comparison with no materiality floor,
+  unlike every other check in `score_revenue_vs_ar` — confirmed CAT
+  (revenue -3.4%, AR +0.14%, both trivial) scored identically to BA
+  (revenue -24.3%, AR +217%, genuinely material). Now gated on
+  `AR_GAP_NOISE_FLOOR` (2pp) on both legs, matching the rest of the
+  function. (2) The worst tier's own trigger — "majority of individual
+  years outpacing" — mis-flagged companies whose year-to-year timing is
+  lumpy but whose aggregate multi-year trend is fine: AAPL outpaced in
+  6/10 individual years yet AR actually grew slower than revenue in
+  aggregate (93% vs 109% over the full window). A raw full-period
+  growth-% comparison was tried first but proved fragile whenever a base
+  year is small/near-zero — confirmed via **TER**, whose cached TTM
+  Accounts Receivable value is $1.1 trillion against $3.8B revenue
+  (almost certainly a raw FMP data-quality issue, not a scoring bug),
+  which alone produced a 576,425pp "gap" under a raw growth-%
+  comparison. Comparing **Days Sales Outstanding** (`AR/Revenue*365` —
+  the same DSO formula `_compute_ccc_series` already uses for CCC in this
+  file) between an early window and a **robust** late window (single
+  most-extreme point excluded, mirroring CCC's own spike guard —
+  `robust_late_direction`, reused with zero duplication) is scale-
+  invariant and far more robust to a single bad/anomalous year.
+  `AR_DSO_TREND_MATERIALITY_DAYS` (15.0) was derived from the real
+  distribution of DSO gaps among the 163 tickers in the worst tier at the
+  time: median gap was only +2.3 days (most of the old tier was noise,
+  not signal); 15.0 keeps the ~24% with a genuinely elevated multi-year
+  DSO increase while clearing the noise-dominated majority. Only the
+  worst tier's trigger changed — `outpacing_concerning`/
+  `outpacing_isolated`/`healthy` keep their existing individual-year-
+  count logic unchanged, matching the narrower scope of the bug report.
+  Confirmed via a full-universe recompute: 122/504 tickers' Step 4
+  blended score changed (0 verdict flips — Step 4's verdict is
+  hard_fail-gated, unaffected by AR's point contribution); the worst AR
+  tier dropped from 164 to 98 tickers (60% of the reduction from the
+  noise-floor fix alone, the rest from the aggregate-trend fix); AAPL,
+  ANET, ISRG, CVNA, IBKR, VRSN all confirmed moving off the worst tier;
+  PRU/TFC (genuine, current, material red flags) confirmed staying at 0.
+  TER stays flagged (real, if smaller, elevated DSO trend even robust-
+  late-window-adjusted) — its underlying $1.1T cached AR value is a
+  data-quality issue worth a manual check, flagged but not fixed here.
+  Whenever Revenue-vs-AR lands in any non-healthy tier, a dynamically-
+  computed manual-check note (`components.revenue_vs_ar.note`, built in
+  `step4_data.py::_build_ar_note` — deliberately not in the pure
+  `scoring/step4.py`, since it needs Operating Cash Flow, which isn't
+  part of the AR score itself) states which comparison actually drove the
+  flag (DSO trend vs individual-year count, with real numbers either way)
+  plus whether OCF is tracking Net Income over the same window (a lagging
+  OCF alongside rising Net Income is the real red flag for revenue being
+  recognized before cash arrives) plus a static business-model-shift
+  prompt that can't be answered from FMP's structured data.
 
 Overall Assessment's step weighting (`backend/scoring/overall.py::STEP_WEIGHTS`
 / `frontend/lib/overallScore.ts::STEP_WEIGHTS` — must never drift from each

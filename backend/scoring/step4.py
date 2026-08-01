@@ -71,6 +71,39 @@ AR_CONCERNING_TRANSITION_RATIO = 0.6
 # CCC_TREND_WINDOW/MARGIN_TREND_WINDOW already use elsewhere in the app,
 # rather than inventing a new convention.
 AR_RED_FLAG_RECENCY_WINDOW = 3
+# --- AR noise floor + aggregate-trend fix (2026-08-01) -----------------------
+# Two calibration bugs found via a masked-Pass investigation:
+#
+# 1. strong_red_flag was a bare `revenue_yoy < 0 and ar_yoy > 0` sign check
+#    with no materiality floor -- unlike every other check in this function.
+#    Confirmed real cases: CAT (-3.4%/+0.14%) scored identically to BA
+#    (-24.3%/+217%). Now gated on AR_GAP_NOISE_FLOOR on both legs.
+#
+# 2. The worst tier's own trigger (previously "majority of individual years
+#    outpacing") mis-flagged companies whose AGGREGATE multi-year trend is
+#    fine but whose year-to-year timing is lumpy -- confirmed real case:
+#    AAPL outpaced in 6/10 individual years yet AR grew slower than revenue
+#    in aggregate (93% vs 109% over the full window). A raw full-period
+#    growth-%% comparison was tried first but is fragile whenever the base
+#    year is small/near-zero (confirmed: TER's cached TTM AR value is $1.1T
+#    against $3.8B revenue -- almost certainly a raw data quality issue, not
+#    a scoring bug -- which alone produced a 576,425pp "gap" under a raw
+#    growth-%% comparison). Comparing Days Sales Outstanding (AR/Revenue*365
+#    -- the same DSO formula _compute_ccc_series already uses for CCC in
+#    this file) between an early window and a ROBUST late window (single
+#    most-extreme point excluded, mirroring the CCC fix's own spike guard --
+#    see classify_ccc_trend) is scale-invariant and far more robust to a
+#    single bad/anomalous year. AR_DSO_TREND_WINDOW reuses the CCC_TREND_
+#    WINDOW=3 convention. AR_DSO_TREND_MATERIALITY_DAYS was derived from the
+#    real distribution of DSO gaps among the 163 tickers in the worst tier
+#    at the time: median gap was only +2.3 days (most of the old tier was
+#    noise, not signal); 15.0 keeps the ~24% with a genuinely elevated
+#    multi-year DSO increase while clearing the noise-dominated majority.
+#    Only the worst tier's trigger changes -- outpacing_concerning/
+#    outpacing_isolated/healthy keep their existing individual-year-count
+#    logic unchanged, matching the narrower scope of the bug report.
+AR_DSO_TREND_WINDOW = 3
+AR_DSO_TREND_MATERIALITY_DAYS = 15.0
 
 # --- Cash Conversion Cycle ----------------------------------------------------
 # No doc-given numeric thresholds exist for CCC (unlike margins, which were
@@ -264,33 +297,73 @@ def _ar_gap_magnitude(gap: float) -> str:
     return "large"
 
 
-def score_revenue_vs_ar(revenue: list[float], accounts_receivable: list[float]) -> RatioResult:
+class ARResult(NamedTuple):
+    label: str
+    points: int
+    hard_fail: bool
+    # Extra context for step4_data.py's reasoning-note builder -- AR-specific,
+    # not part of the shared RatioResult (ROE/ROIC don't need this). None
+    # when not computable (e.g. a zero/negative base-year value).
+    dso_early: float | None
+    dso_late_robust: float | None
+    num_outpacing: int
+    num_transitions: int
+
+
+def _dso_series(revenue: list[float], accounts_receivable: list[float]) -> list[float]:
+    """Days Sales Outstanding per period -- the same AR/Revenue*365 formula
+    _compute_ccc_series already uses for CCC's own DSO component, reused
+    here as a scale-invariant stand-in for "AR growth vs Revenue growth"
+    (see this module's AR noise-floor/aggregate-trend comment block)."""
+    return [ar / rev * 365 for rev, ar in zip(revenue, accounts_receivable) if rev]
+
+
+def _dso_trend(revenue: list[float], accounts_receivable: list[float]) -> tuple[float | None, float | None]:
+    """Early-window DSO average vs a ROBUST late-window DSO average (single
+    most-extreme point excluded, mirroring classify_ccc_trend's own spike
+    guard) -- so one anomalous or bad-data year can't single-handedly flip
+    the aggregate read. None/None when there's too little data to form both
+    windows."""
+    dso = _dso_series(revenue, accounts_receivable)
+    if len(dso) < 2:
+        return None, None
+    arr = np.asarray(dso, dtype=float)
+    w = min(AR_DSO_TREND_WINDOW, len(arr))
+    early = float(arr[:w].mean())
+    late_robust = robust_late_direction(arr, AR_DSO_TREND_WINDOW) + early
+    return early, late_robust
+
+
+def score_revenue_vs_ar(revenue: list[float], accounts_receivable: list[float]) -> ARResult:
     """Metric 3: Revenue must grow at the same or faster rate than
     Accounts Receivable. Checked worst-first since the tiers below overlap
-    (e.g. the "concerning" count and "majority" can both be true at once):
+    (e.g. the "concerning" count and the worst tier's own trigger can both
+    be true at once):
 
-    1. Majority of transitions outpacing, OR revenue declining while AR
-       grows in the same year within the last AR_RED_FLAG_RECENCY_WINDOW
-       transitions -> 0 (auto-escalate regardless of count). An old,
-       resolved occurrence outside that window no longer counts on its own.
+    1. AR's Days Sales Outstanding rising materially from an early-window
+       average to a robust late-window average (aggregate multi-year trend
+       -- see AR_DSO_TREND_MATERIALITY_DAYS), OR revenue declining while AR
+       grows in the same year (both legs past AR_GAP_NOISE_FLOOR) within the
+       last AR_RED_FLAG_RECENCY_WINDOW transitions -> 0 (auto-escalate
+       regardless of individual-year count). An old, resolved occurrence
+       outside that window no longer counts on its own. Individual-year
+       count alone no longer drives this tier -- see this module's AR
+       noise-floor/aggregate-trend comment block for why (AAPL-style lumpy
+       timing vs. a fine aggregate trend).
     2. `concerning_threshold`+ transitions outpacing (proportional to the
        window size -- see AR_CONCERNING_TRANSITION_RATIO), OR any single
        large-magnitude (>50pp) gap -> 40. Same recency exemption as rule 1:
        if every qualifying transition (count- or large-gap-driving) falls
        outside the last AR_RED_FLAG_RECENCY_WINDOW transitions, this is an
        old, since-resolved pattern, not a live concern, and falls through
-       to rules 3/4 using the still-intact full-window gap list. In
-       practice the count-based trigger alone can never reach this rule
-       without also tripping rule 1's majority check first (concerning_
-       threshold sits at or above the 50% majority line at every window
-       size), so this exemption is only ever reachable via has_large.
+       to rules 3/4 using the still-intact full-window gap list.
     3. 0 outpacing transitions, or exactly 1 isolated year with a small
        (<=15pp) gap -> 100.
     4. Otherwise (1-2 outpacing transitions, not caught above) -> 70.
     """
     n = len(revenue) - 1
     if n < 1 or len(accounts_receivable) != len(revenue):
-        return RatioResult("insufficient_data", 0, False)
+        return ARResult("insufficient_data", 0, False, None, None, 0, 0)
 
     outpacing_gaps: list[tuple[int, float]] = []
     strong_red_flag = False
@@ -301,7 +374,11 @@ def score_revenue_vs_ar(revenue: list[float], accounts_receivable: list[float]) 
             continue
         revenue_yoy = (curr_rev - prev_rev) / abs(prev_rev) * 100
         ar_yoy = (curr_ar - prev_ar) / abs(prev_ar) * 100
-        if revenue_yoy < 0 and ar_yoy > 0 and i >= n - AR_RED_FLAG_RECENCY_WINDOW:
+        if (
+            revenue_yoy < -AR_GAP_NOISE_FLOOR
+            and ar_yoy > AR_GAP_NOISE_FLOOR
+            and i >= n - AR_RED_FLAG_RECENCY_WINDOW
+        ):
             strong_red_flag = True
         gap = ar_yoy - revenue_yoy
         if gap > AR_GAP_NOISE_FLOOR:
@@ -310,23 +387,28 @@ def score_revenue_vs_ar(revenue: list[float], accounts_receivable: list[float]) 
     all_gaps = [g for _, g in outpacing_gaps]
     num_outpacing = len(all_gaps)
     has_large = any(_ar_gap_magnitude(g) == "large" for g in all_gaps)
-    majority_outpacing = num_outpacing > n / 2
+    dso_early, dso_late_robust = _dso_trend(revenue, accounts_receivable)
+    aggregate_outpacing = (
+        dso_early is not None
+        and dso_late_robust is not None
+        and (dso_late_robust - dso_early) > AR_DSO_TREND_MATERIALITY_DAYS
+    )
     # floor of 3: below a 5-transition window, "3+" was never reachable via
     # count anyway (n=1-2 can't produce 3 outpacing transitions), so the
     # ratio must not round down below the original absolute floor.
     concerning_threshold = max(3, round(AR_CONCERNING_TRANSITION_RATIO * n))
 
-    if majority_outpacing or strong_red_flag:
-        return RatioResult("outpacing_majority_or_red_flag", 0, False)
+    if aggregate_outpacing or strong_red_flag:
+        return ARResult("outpacing_majority_or_red_flag", 0, False, dso_early, dso_late_robust, num_outpacing, n)
     if num_outpacing >= concerning_threshold or has_large:
         recent_gaps = [g for i, g in outpacing_gaps if i >= n - AR_RED_FLAG_RECENCY_WINDOW]
         if recent_gaps:
-            return RatioResult("outpacing_concerning", 40, False)
+            return ARResult("outpacing_concerning", 40, False, dso_early, dso_late_robust, num_outpacing, n)
     if num_outpacing == 0:
-        return RatioResult("healthy", 100, False)
+        return ARResult("healthy", 100, False, dso_early, dso_late_robust, num_outpacing, n)
     if num_outpacing == 1 and _ar_gap_magnitude(all_gaps[0]) == "small":
-        return RatioResult("healthy", 100, False)
-    return RatioResult("outpacing_isolated", 70, False)
+        return ARResult("healthy", 100, False, dso_early, dso_late_robust, num_outpacing, n)
+    return ARResult("outpacing_isolated", 70, False, dso_early, dso_late_robust, num_outpacing, n)
 
 
 def _classify_positive_ccc_trend(ccc: list[float]) -> TrendResult:
@@ -503,7 +585,7 @@ def _verdict_for(score: int, hard_fail: bool) -> str:
 
 def score_step4(
     roe: RatioResult,
-    ar: RatioResult | None,
+    ar: ARResult | None,
     roic: RatioResult | None,
     ccc: TrendResult | None,
 ) -> dict:

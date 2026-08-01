@@ -239,6 +239,12 @@ export interface Step5Out {
 export interface Step4RatioComponent {
   label: string;
   points: number;
+  // Manual-check reasoning note (OCF vs Net Income, business-model-shift
+  // prompt) -- only ever populated on revenue_vs_ar, only when it landed in
+  // a non-healthy tier (backend/step4_data.py::_build_ar_note). roe/roic
+  // never set this; kept optional on the shared type rather than a
+  // separate one since it's the only difference.
+  note?: string | null;
 }
 
 export interface Step4CccComponent {

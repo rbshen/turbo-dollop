@@ -73,14 +73,26 @@ export function Step4Card({ ticker }: Props) {
   }
 
   const componentRows = Object.entries(data.components)
-    .filter((entry): entry is [string, { label?: string; pattern?: string; points: number }] => entry[1] != null)
-    .map(([key, c]) => ({ key, points: c.points, tierKey: c.label ?? c.pattern ?? "" }));
+    .filter((entry): entry is [string, { label?: string; pattern?: string; points: number; note?: string | null }] => entry[1] != null)
+    .map(([key, c]) => ({ key, points: c.points, tierKey: c.label ?? c.pattern ?? "", note: c.note }));
 
-  const bullets: ReasoningBullet[] = componentRows.map((row) => ({
-    key: row.key,
-    text: `${METRIC_LABELS[row.key] ?? row.key}: ${TIER_LABELS[row.tierKey] ?? row.tierKey}`,
-    tierClassName: tierClass(row.points),
-  }));
+  const bullets: ReasoningBullet[] = componentRows.flatMap((row) => {
+    const bullet: ReasoningBullet = {
+      key: row.key,
+      text: `${METRIC_LABELS[row.key] ?? row.key}: ${TIER_LABELS[row.tierKey] ?? row.tierKey}`,
+      tierClassName: tierClass(row.points),
+    };
+    // Manual-check note (OCF vs Net Income, business-model-shift prompt) --
+    // only present on Revenue-vs-AR when it landed in a non-healthy tier
+    // (backend/step4_data.py::_build_ar_note). Nested directly under its
+    // own bullet, same "↳" sub-bullet convention Step5Card.tsx uses for
+    // breach-context detail text.
+    if (!row.note) return [bullet];
+    return [
+      bullet,
+      { key: `${row.key}-note`, text: `↳ ${row.note}`, tierClassName: "text-text-tertiary" },
+    ];
+  });
 
   const blurb = data.hard_fail
     ? "ROE or ROIC landed in its Fail tier, so this fails regardless of the blended score."

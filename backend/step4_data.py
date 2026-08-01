@@ -7,7 +7,16 @@ from first import _first
 from fmp_client import fmp_client
 from schemas import Step4Out
 from scoring.classification import classify_company_type
-from scoring.step4 import classify_ccc_trend, score_revenue_vs_ar, score_roe, score_roic, score_step4
+from scoring.step4 import (
+    AR_DSO_TREND_MATERIALITY_DAYS,
+    AR_GAP_NOISE_FLOOR,
+    ARResult,
+    classify_ccc_trend,
+    score_revenue_vs_ar,
+    score_roe,
+    score_roic,
+    score_step4,
+)
 from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 ROIC_EXEMPT_TYPES = {"Bank", "Insurance", "Utility", "REIT/Property Developer"}
@@ -81,6 +90,80 @@ def _compute_ccc_series(
         dpo = ap / cogs * 365
         ccc.append(dio + dso - dpo)
     return ccc
+
+
+# --- AR manual-check reasoning note (2026-08-01) ------------------------------
+# Whenever Revenue-vs-AR lands in any non-healthy tier, attach a note with
+# two dynamically-computed signals (which comparison actually drove the
+# flag; whether Operating Cash Flow is tracking Net Income over the same
+# window -- a lagging OCF alongside rising Net Income is the real red flag
+# for revenue being recognized before cash arrives) plus one static prompt
+# that can't be answered from FMP's structured data (a business-model shift
+# toward longer-payment-term customers). Lives here, not in scoring/step4.py,
+# since OCF isn't part of the AR score itself -- purely presentational
+# context computed at the orchestration layer where OCF is fetched.
+AR_NOTE_BUSINESS_SHIFT_TEXT = (
+    "Has the business shifted toward longer-payment-term customers (e.g. moved from retail to "
+    "enterprise/B2B, or entered new markets with different payment norms)? That can explain a "
+    "genuine AR increase without indicating a collection problem."
+)
+
+
+def _full_period_growth(series: list[float | None]) -> float | None:
+    """First-to-last % growth across the whole window -- None when there's
+    too little data or the base period isn't meaningfully positive (a
+    negative/near-zero OCF or Net Income base year makes a growth
+    percentage undefined/misleading, same class of issue AR's own DSO fix
+    was built to avoid -- see this module's docstring)."""
+    valid = [v for v in series if v is not None]
+    if len(valid) < 2 or not valid[0] or valid[0] <= 0:
+        return None
+    return (valid[-1] - valid[0]) / valid[0] * 100
+
+
+def _build_ar_note(ar_result: ARResult | None, net_income: list[float | None], ocf: list[float | None]) -> str | None:
+    if ar_result is None or ar_result.label in ("healthy", "insufficient_data"):
+        return None
+
+    dso_gap = None
+    if ar_result.dso_early is not None and ar_result.dso_late_robust is not None:
+        dso_gap = ar_result.dso_late_robust - ar_result.dso_early
+
+    if dso_gap is not None and dso_gap > AR_DSO_TREND_MATERIALITY_DAYS:
+        signal_sentence = (
+            f"Days Sales Outstanding rose from ~{ar_result.dso_early:.0f} to ~{ar_result.dso_late_robust:.0f} "
+            "days over the window -- Accounts Receivable has been growing faster than Revenue on a "
+            "multi-year basis."
+        )
+    else:
+        trend_clause = (
+            f", though the multi-year DSO trend (~{ar_result.dso_early:.0f} -> ~{ar_result.dso_late_robust:.0f} "
+            "days) is comparatively mild."
+            if dso_gap is not None
+            else "."
+        )
+        signal_sentence = (
+            f"Accounts Receivable outpaced Revenue in {ar_result.num_outpacing} of the last "
+            f"{ar_result.num_transitions} individual years{trend_clause}"
+        )
+
+    ocf_growth = _full_period_growth(ocf)
+    ni_growth = _full_period_growth(net_income)
+    if ocf_growth is None or ni_growth is None:
+        ocf_sentence = "Operating Cash Flow data wasn't available to cross-check against Net Income over this window."
+    elif ocf_growth < ni_growth - AR_GAP_NOISE_FLOOR:
+        ocf_sentence = (
+            f"Operating Cash Flow grew {ocf_growth:.0f}% over the same window while Net Income grew "
+            f"{ni_growth:.0f}% -- worth double-checking whether revenue is being recognized before cash "
+            "actually arrives."
+        )
+    else:
+        ocf_sentence = (
+            f"Operating Cash Flow grew {ocf_growth:.0f}% over the same window, roughly tracking Net "
+            f"Income's {ni_growth:.0f}% -- less likely a pure recognition-timing issue."
+        )
+
+    return f"{signal_sentence} {ocf_sentence} {AR_NOTE_BUSINESS_SHIFT_TEXT}"
 
 
 async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
@@ -184,11 +267,42 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
                 ),
             )
         )
+        # Same cache key + limit Step 1 already populates ("cash_flow_
+        # statement"/"annual" and "/quarterly") -- only used here for the
+        # AR manual-check note's OCF-vs-Net-Income cross-check, so for any
+        # ticker Step 1 has already scored this is a pure cache hit, zero
+        # new FMP calls.
+        cash_flow_annual = await safe_fetch(
+            "cash_flow_statement_annual",
+            get_or_fetch(
+                session,
+                ticker,
+                "cash_flow_statement",
+                "annual",
+                lambda: fmp_client.get_cash_flow_statement(ticker, "annual", 10),
+                staleness_days,
+                cache_only,
+            ),
+        )
+        cash_flow_quarterly = await safe_fetch(
+            "cash_flow_statement_quarterly",
+            get_or_fetch(
+                session,
+                ticker,
+                "cash_flow_statement",
+                "quarterly",
+                lambda: fmp_client.get_cash_flow_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
+                staleness_days,
+                cache_only,
+            ),
+        )
 
     income_annual = income_annual if isinstance(income_annual, list) else []
     income_quarterly = income_quarterly if isinstance(income_quarterly, list) else []
     balance_sheet_annual = balance_sheet_annual if isinstance(balance_sheet_annual, list) else []
     key_metrics_annual = key_metrics_annual if isinstance(key_metrics_annual, list) else []
+    cash_flow_annual = cash_flow_annual if isinstance(cash_flow_annual, list) else []
+    cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
     balance_sheet_latest = _first(balance_sheet_quarterly)
 
     years = _annual_years(income_annual, balance_sheet_annual, key_metrics_annual)
@@ -201,6 +315,7 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     accounts_payable = _annual_series(balance_sheet_annual, "accountPayables")
     roe = _annual_series(key_metrics_annual, "returnOnEquity")
     roic = _annual_series(key_metrics_annual, "returnOnInvestedCapital")
+    ocf = _annual_series(cash_flow_annual, "netCashProvidedByOperatingActivities")
     # FMP's returnOnEquity/returnOnInvestedCapital are fractions (e.g. 0.31
     # for 31%) -- convert to percent to match the doc's 8/12/15% thresholds.
     roe = [v * 100 if v is not None else None for v in roe]
@@ -210,6 +325,7 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     revenue = revenue + [sum_last_four_quarters(income_quarterly, "revenue").total]
     net_income = net_income + [sum_last_four_quarters(income_quarterly, "netIncome").total]
     cost_of_revenue = cost_of_revenue + [sum_last_four_quarters(income_quarterly, "costOfRevenue").total]
+    ocf = ocf + [sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities").total]
     equity = equity + [balance_sheet_latest.get("totalStockholdersEquity")]
     accounts_receivable = accounts_receivable + [balance_sheet_latest.get("accountsReceivables")]
     inventory = inventory + [balance_sheet_latest.get("inventory")]
@@ -304,6 +420,8 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
             ccc_result = classify_ccc_trend(ccc_series)
 
     result = score_step4(roe_result, ar_result, roic_result, ccc_result)
+    if result["components"]["revenue_vs_ar"] is not None:
+        result["components"]["revenue_vs_ar"]["note"] = _build_ar_note(ar_result, net_income, ocf)
 
     return Step4Out(
         ticker=ticker,

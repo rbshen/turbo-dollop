@@ -77,6 +77,30 @@ KEY_METRICS_ANNUAL = [
 
 KEY_METRICS_TTM = [{"returnOnEquityTTM": 0.20, "returnOnInvestedCapitalTTM": 0.18}]
 
+# Operating Cash Flow tracking Net Income closely (matches INCOME_ANNUAL's
+# netIncome column) -- only used by the AR manual-check note's OCF-vs-NI
+# cross-check, so tests that don't care about the note leave this at its
+# default (a plausible non-lagging shape) rather than needing to override it.
+CASH_FLOW_ANNUAL = [
+    {"fiscalYear": "2025", "netCashProvidedByOperatingActivities": 22.0},
+    {"fiscalYear": "2024", "netCashProvidedByOperatingActivities": 20.0},
+    {"fiscalYear": "2023", "netCashProvidedByOperatingActivities": 18.0},
+    {"fiscalYear": "2022", "netCashProvidedByOperatingActivities": 16.0},
+    {"fiscalYear": "2021", "netCashProvidedByOperatingActivities": 14.0},
+    {"fiscalYear": "2020", "netCashProvidedByOperatingActivities": -45.0},
+    {"fiscalYear": "2019", "netCashProvidedByOperatingActivities": -50.0},
+    {"fiscalYear": "2018", "netCashProvidedByOperatingActivities": -55.0},
+    {"fiscalYear": "2017", "netCashProvidedByOperatingActivities": -60.0},
+    {"fiscalYear": "2016", "netCashProvidedByOperatingActivities": -65.0},
+]
+
+CASH_FLOW_QUARTERLY = [
+    {"date": "2026-03-28", "netCashProvidedByOperatingActivities": 6.0},
+    {"date": "2025-12-27", "netCashProvidedByOperatingActivities": 6.0},
+    {"date": "2025-09-27", "netCashProvidedByOperatingActivities": 6.0},
+    {"date": "2025-06-28", "netCashProvidedByOperatingActivities": 6.0},
+]
+
 
 def _patch_fmp(
     monkeypatch,
@@ -85,6 +109,7 @@ def _patch_fmp(
     income_annual=None,
     balance_sheet_annual=None,
     key_metrics_annual=None,
+    cash_flow_annual=None,
 ):
     async def fake_profile(ticker):
         return [{"sector": sector, "industry": industry}]
@@ -105,11 +130,17 @@ def _patch_fmp(
     async def fake_key_metrics_ttm(ticker):
         return KEY_METRICS_TTM
 
+    async def fake_cash_flow_statement(ticker, period, limit):
+        if period == "annual":
+            return cash_flow_annual if cash_flow_annual is not None else CASH_FLOW_ANNUAL
+        return CASH_FLOW_QUARTERLY
+
     monkeypatch.setattr(step4_data.fmp_client, "get_profile", fake_profile)
     monkeypatch.setattr(step4_data.fmp_client, "get_income_statement", fake_income_statement)
     monkeypatch.setattr(step4_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
     monkeypatch.setattr(step4_data.fmp_client, "get_key_metrics", fake_key_metrics)
     monkeypatch.setattr(step4_data.fmp_client, "get_key_metrics_ttm", fake_key_metrics_ttm)
+    monkeypatch.setattr(step4_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
 
 
 def _fresh_engine(monkeypatch):
@@ -415,3 +446,163 @@ def test_insufficient_data_when_no_annual_history(monkeypatch):
 
     assert result.verdict == "insufficient_data"
     assert result.score is None
+
+
+# --- AR manual-check reasoning note (2026-08-01) ------------------------------
+# Purpose-built fixture (not the shared baseline above, whose revenue/AR
+# shape is tuned for the ROE-window tests) with a clean, easy-to-verify DSO
+# trajectory: revenue grows steadily ~5%/yr while AR's DSO ramps from ~100
+# days (2016-2018) to ~160 days (2024-2025-TTM) -- a genuine +62 day
+# aggregate gap, well past AR_DSO_TREND_MATERIALITY_DAYS (15).
+_AR_NOTE_YEARS = ["2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025"]
+_AR_NOTE_REVENUE = [100, 105, 110, 116, 122, 128, 135, 142, 149, 156]
+_AR_NOTE_DSO = [100, 100, 100, 120, 130, 140, 145, 150, 155, 160]
+
+
+def _ar_note_fixtures(ocf_lagging: bool):
+    # FMP returns annual rows MOST-RECENT-FIRST (step4_data._annual_series
+    # reverses internally to get chronological) -- build these fixtures in
+    # that same order, reversing our chronological source arrays.
+    years_desc = list(reversed(_AR_NOTE_YEARS))
+    revenue_desc = list(reversed(_AR_NOTE_REVENUE))
+    dso_desc = list(reversed(_AR_NOTE_DSO))
+    income_annual = [
+        {"fiscalYear": y, "revenue": rev, "netIncome": rev * 0.15, "costOfRevenue": rev * 0.6}
+        for y, rev in zip(years_desc, revenue_desc)
+    ]
+    balance_sheet_annual = [
+        {
+            "fiscalYear": y,
+            "totalStockholdersEquity": 100.0,
+            "accountsReceivables": rev * dso / 365,
+            "inventory": rev * 0.1,
+            "accountPayables": rev * 0.3,
+        }
+        for y, rev, dso in zip(years_desc, revenue_desc, dso_desc)
+    ]
+    # OCF flat (lagging a growing Net Income) vs. OCF scaling with revenue
+    # like Net Income does (tracking) -- isolates the note's OCF-vs-NI
+    # sentence branch independent of which AR signal drove the flag.
+    cash_flow_annual = [
+        {"fiscalYear": y, "netCashProvidedByOperatingActivities": 15.0 if ocf_lagging else rev * 0.15}
+        for y, rev in zip(years_desc, revenue_desc)
+    ]
+    return income_annual, balance_sheet_annual, cash_flow_annual
+
+
+def _ar_note_quarterly(revenue_ttm: float, ocf_ttm: float):
+    income_quarterly = [{"date": "2026-03-28", "revenue": revenue_ttm / 4, "netIncome": revenue_ttm / 4 * 0.15, "costOfRevenue": revenue_ttm / 4 * 0.6}] * 4
+    balance_sheet_quarterly = [
+        {
+            "date": "2026-03-28",
+            "totalStockholdersEquity": 100.0,
+            "accountsReceivables": revenue_ttm * 165 / 365,
+            "inventory": revenue_ttm * 0.1,
+            "accountPayables": revenue_ttm * 0.3,
+        }
+    ]
+    cash_flow_quarterly = [{"date": "2026-03-28", "netCashProvidedByOperatingActivities": ocf_ttm / 4}] * 4
+    return income_quarterly, balance_sheet_quarterly, cash_flow_quarterly
+
+
+def test_ar_note_dso_driven_signal_and_lagging_ocf(monkeypatch):
+    _fresh_engine(monkeypatch)
+    income_annual, balance_sheet_annual, cash_flow_annual = _ar_note_fixtures(ocf_lagging=True)
+    revenue_ttm = 164.0
+    income_quarterly, balance_sheet_quarterly, cash_flow_quarterly = _ar_note_quarterly(revenue_ttm, ocf_ttm=15.0)
+
+    async def fake_income_statement(ticker, period, limit):
+        return income_annual if period == "annual" else income_quarterly
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return balance_sheet_annual if period == "annual" else balance_sheet_quarterly
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return cash_flow_annual if period == "annual" else cash_flow_quarterly
+
+    _patch_fmp(monkeypatch, income_annual=income_annual, balance_sheet_annual=balance_sheet_annual, cash_flow_annual=cash_flow_annual)
+    monkeypatch.setattr(step4_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step4_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    monkeypatch.setattr(step4_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+    result = asyncio.run(get_step4_data("arnote1"))
+
+    ar = result.components["revenue_vs_ar"]
+    assert ar["label"] == "outpacing_majority_or_red_flag"
+    note = ar["note"]
+    assert note is not None
+    # The DSO-driven sentence, not the individual-year-count framing.
+    assert "Days Sales Outstanding rose from" in note
+    # OCF (flat at 15/yr) growing far slower than Net Income (scaling with
+    # revenue) over the same window -- the lagging-OCF sentence, with real
+    # computed numbers, not boilerplate.
+    assert "worth double-checking whether revenue is being recognized before cash actually arrives" in note
+    assert "Operating Cash Flow grew" in note and "Net Income grew" in note
+    assert "business-model" not in note.lower() or "shifted toward longer-payment-term" in note
+
+
+def test_ar_note_ocf_tracking_net_income_reads_less_concerning(monkeypatch):
+    _fresh_engine(monkeypatch)
+    income_annual, balance_sheet_annual, cash_flow_annual = _ar_note_fixtures(ocf_lagging=False)
+    revenue_ttm = 164.0
+    income_quarterly, balance_sheet_quarterly, cash_flow_quarterly = _ar_note_quarterly(revenue_ttm, ocf_ttm=164.0 * 0.15)
+
+    async def fake_income_statement(ticker, period, limit):
+        return income_annual if period == "annual" else income_quarterly
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return balance_sheet_annual if period == "annual" else balance_sheet_quarterly
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return cash_flow_annual if period == "annual" else cash_flow_quarterly
+
+    _patch_fmp(monkeypatch, income_annual=income_annual, balance_sheet_annual=balance_sheet_annual, cash_flow_annual=cash_flow_annual)
+    monkeypatch.setattr(step4_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step4_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    monkeypatch.setattr(step4_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+    result = asyncio.run(get_step4_data("arnote2"))
+
+    note = result.components["revenue_vs_ar"]["note"]
+    assert note is not None
+    assert "roughly tracking Net Income's" in note
+    assert "worth double-checking" not in note
+
+
+def test_ar_note_missing_ocf_data_says_so_explicitly(monkeypatch):
+    _fresh_engine(monkeypatch)
+    income_annual, balance_sheet_annual, _ = _ar_note_fixtures(ocf_lagging=True)
+    revenue_ttm = 164.0
+    income_quarterly, balance_sheet_quarterly, _ = _ar_note_quarterly(revenue_ttm, ocf_ttm=15.0)
+
+    async def fake_income_statement(ticker, period, limit):
+        return income_annual if period == "annual" else income_quarterly
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return balance_sheet_annual if period == "annual" else balance_sheet_quarterly
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return []  # simulates a cache/fetch gap -- no cash flow data at all
+
+    _patch_fmp(monkeypatch, income_annual=income_annual, balance_sheet_annual=balance_sheet_annual, cash_flow_annual=[])
+    monkeypatch.setattr(step4_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step4_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    monkeypatch.setattr(step4_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+    result = asyncio.run(get_step4_data("arnote3"))
+
+    note = result.components["revenue_vs_ar"]["note"]
+    assert note is not None
+    assert "Operating Cash Flow data wasn't available" in note
+
+
+def test_ar_note_absent_when_healthy(monkeypatch):
+    _fresh_engine(monkeypatch)
+    # Baseline fixture's recent-5yr AR/Revenue both compound at 10%/yr --
+    # "healthy" -- and the full-10yr aggregate stays within materiality too.
+    _patch_fmp(monkeypatch)
+
+    result = asyncio.run(get_step4_data("aapl"))
+
+    assert result.components["revenue_vs_ar"]["label"] == "healthy"
+    assert result.components["revenue_vs_ar"]["note"] is None
