@@ -849,3 +849,20 @@ class AnalystRatingsOut(BaseModel):
     price_target: PriceTargetSummary
     history: list[RatingHistoryPoint]
     recommendation_details: list[RecommendationDetailsColumn]
+
+
+class NewsArticle(BaseModel):
+    title: str
+    publisher: str
+    site: str
+    snippet: str
+    image: str | None = None
+    url: str
+    # FMP's raw "YYYY-MM-DD HH:MM:SS" string, passed through as-is -- no
+    # timezone is documented, so no UTC/local conversion is attempted here.
+    published_at: str
+
+
+class NewsOut(BaseModel):
+    ticker: str
+    articles: list[NewsArticle]

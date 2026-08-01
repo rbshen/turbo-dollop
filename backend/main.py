@@ -11,6 +11,7 @@ from discount_rate_config import get_discount_rate_config, update_discount_rate_
 from logging_config import apply_redaction_filters
 from moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from models import IndexConstituent, SavedScreenerFilter, TickerScore, Watchlist
+from news_data import get_news_data
 from recompute_ticker_scores import recompute_all
 from refresh import clear_ticker_cache
 from financials_data import get_financials_data
@@ -24,6 +25,7 @@ from schemas import (
     FinancialsOut,
     MoatScoreConfigIn,
     MoatScoreConfigOut,
+    NewsOut,
     RatiosOut,
     RecomputeSummary,
     RefreshResult,
@@ -279,6 +281,14 @@ async def ticker_segmentation(ticker: str) -> SegmentationOut:
 async def ticker_analyst_ratings(ticker: str) -> AnalystRatingsOut:
     try:
         return await get_analyst_ratings_data(ticker)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="FMP request failed") from exc
+
+
+@app.get("/api/tickers/{ticker}/news", response_model=NewsOut)
+async def ticker_news(ticker: str) -> NewsOut:
+    try:
+        return await get_news_data(ticker)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
 

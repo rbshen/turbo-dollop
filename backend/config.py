@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     fmp_base_url: str = "https://financialmodelingprep.com/stable"
     database_path: str = "fathom.db"
     cache_staleness_days: int = 7
+    # News is far more time-sensitive than fundamentals -- a short TTL
+    # (minutes, not days) so repeat tab views within a session don't each
+    # hit FMP, without pretending news is as static as financials. See
+    # news_data.py.
+    news_cache_ttl_minutes: int = 20
     # SEC EDGAR's fair-use policy requires a descriptive User-Agent
     # identifying the requester with real contact info (a bare/generic UA
     # gets 403'd) -- override via SEC_EDGAR_USER_AGENT in .env with a real

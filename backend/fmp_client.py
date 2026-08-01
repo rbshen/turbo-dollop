@@ -117,6 +117,9 @@ class FMPClient:
     async def get_revenue_geographic_segmentation(self, ticker: str) -> dict | list:
         return await self.get("/revenue-geographic-segmentation", {"symbol": ticker})
 
+    async def get_stock_news(self, ticker: str, limit: int = 30) -> dict | list:
+        return await self.get("/news/stock", {"symbols": ticker, "limit": limit})
+
     async def get_grades_consensus(self, ticker: str) -> dict | list:
         return await self.get("/grades-consensus", {"symbol": ticker})
 
