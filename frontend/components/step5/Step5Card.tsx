@@ -4,7 +4,7 @@ import { OutlierWarningNote } from "@/components/shared/OutlierWarningNote";
 import { AnalysisSectionCard, type ReasoningBullet } from "@/components/shared/AnalysisSectionCard";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { fmtNumber, fmtPct, fmtTableMoney } from "@/lib/format";
-import type { Step5Out, Step5RatioResult } from "@/lib/api/types";
+import type { BreachContextSignal, Step5Out, Step5RatioResult } from "@/lib/api/types";
 
 // Order mirrors scoring/step5.py's WEIGHTS_STANDARD / WEIGHTS_REIT -- the
 // ratios that actually carry weight/points. Interest Coverage Ratio and NPL
@@ -43,6 +43,11 @@ const TIER_LABELS: Record<string, string> = {
   fail: "Fail",
   // Severity-band tiers (Current Ratio, Debt/EBITDA, Debt Servicing Ratio).
   borderline_saved_by_icr: "Borderline (saved by Interest Coverage)",
+  // Debt/EBITDA's and Current Ratio's Borderline breach, downgraded by the
+  // richer breach-context framework (see breach_context below) -- the
+  // successor to borderline_saved_by_icr for these two ratios specifically
+  // (DSR keeps the older label; its own rescue is unchanged).
+  marginal_via_breach_context: "Marginal (context-adjusted)",
   borderline_fail: "Borderline — Fail",
   severe: "Severe — Fail",
   // Interest Coverage Ratio's own tiers (informational, no points of its own).
@@ -50,6 +55,20 @@ const TIER_LABELS: Record<string, string> = {
   tight: "Tight",
   dangerous: "Dangerous",
   not_applicable: "N/A",
+};
+
+// Signal keys from scoring/step5.py's breach-context framework -- short
+// labels for the nested reasoning sub-bullets below.
+const BREACH_CONTEXT_SIGNAL_LABELS: Record<string, string> = {
+  trend: "5yr trend",
+  fcf_vs_debt: "FCF vs Total Debt",
+  interest_coverage: "Interest Coverage",
+  cause_of_debt: "Cause of debt",
+  net_vs_gross_debt: "Net vs Gross Debt",
+  deferred_revenue: "Deferred revenue",
+  cash_position: "Cash position",
+  asset_quality: "Current asset quality",
+  undrawn_revolving_credit: "Undrawn revolving credit",
 };
 
 function formatRatioValue(key: string, value: number | null): string {
@@ -60,8 +79,28 @@ function formatRatioValue(key: string, value: number | null): string {
 
 function tierClass(label: string): string {
   if (label === "fail" || label === "borderline_fail" || label === "severe" || label === "dangerous") return "text-negative";
-  if (label === "approaching_limit" || label === "borderline_saved_by_icr" || label === "tight") return "text-warn";
+  if (label === "approaching_limit" || label === "borderline_saved_by_icr" || label === "marginal_via_breach_context" || label === "tight")
+    return "text-warn";
   return "text-text-primary";
+}
+
+// favorable/unfavorable reuse the same positive/negative tokens the rest of
+// the app's score coloring does; not_computable is muted + italicized so
+// the manual-check notes read as caveats, not as a real favorable/
+// unfavorable data point.
+function breachContextSignalClass(status: string): string {
+  if (status === "favorable") return "text-positive";
+  if (status === "unfavorable") return "text-negative";
+  return "text-text-tertiary italic";
+}
+
+function breachContextBullets(ratioKey: string, signals: BreachContextSignal[] | null): ReasoningBullet[] {
+  if (!signals) return [];
+  return signals.map((s) => ({
+    key: `${ratioKey}-context-${s.key}`,
+    text: `↳ ${BREACH_CONTEXT_SIGNAL_LABELS[s.key] ?? s.key}: ${s.detail ?? "—"}`,
+    tierClassName: breachContextSignalClass(s.status),
+  }));
 }
 
 const TIEBREAKER_FOR: Record<string, string> = {
@@ -78,17 +117,22 @@ function savedRatioSummary(ratios: Record<string, Step5RatioResult>): string {
 }
 
 function reasoningBullets(data: Step5Out): ReasoningBullet[] {
-  const bullets: (ReasoningBullet | null)[] = REASONING_ORDER.map((key) => {
+  const bullets: ReasoningBullet[] = [];
+  for (const key of REASONING_ORDER) {
     const weight = data.weights[key];
     const ratio = data.ratios[key];
-    if (weight == null || !ratio) return null;
-    return {
+    if (weight == null || !ratio) continue;
+    bullets.push({
       key,
       text: `${RATIO_LABELS[key] ?? key}: ${formatRatioValue(key, ratio.value)} (${TIER_LABELS[ratio.label] ?? ratio.label})`,
       tierClassName: tierClass(ratio.label),
-    };
-  });
-  return bullets.filter((b): b is ReasoningBullet => b !== null);
+    });
+    // Nested directly under the ratio's own bullet -- only present when
+    // that ratio actually reached Borderline and the breach-context
+    // framework evaluated it (see schemas.py::Step5RatioResult).
+    bullets.push(...breachContextBullets(key, ratio.breach_context));
+  }
+  return bullets;
 }
 
 export function Step5Card({ ticker }: Props) {

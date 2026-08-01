@@ -281,6 +281,73 @@ tweaks:
   70-74 score (`frontend/lib/tierColor.ts`) — never raises an
   already-lower natural blend, only lowers one that would otherwise land
   above the cap.
+- **Breach-context framework (2026-08-01)**: a Borderline breach (never
+  Severe — that stays an unconditional Fail, no exceptions, exactly as
+  before) on Debt/EBITDA or Current Ratio gets a second, richer look
+  before falling back to a flat Fail, replacing what used to be a single
+  narrow Interest-Coverage-Ratio-only check for Debt/EBITDA (Current
+  Ratio had no equivalent second chance at all beyond its existing
+  deferred-revenue-to-Comfortable rescue). Two primary gates (the OTHER
+  two ratios' literal raw values, not their own possibly-rescued
+  classification — `current_ratio >= 1.0` and `debt_servicing_pct < 30.0`
+  for Debt/EBITDA's breach; `debt_to_ebitda <= 3.0` and
+  `debt_servicing_pct < 30.0` for Current Ratio's) must both pass cleanly
+  before a strict majority of secondary signals (5yr trend, FCF vs Total
+  Debt, Interest Coverage for Debt/EBITDA; deferred-revenue magnitude,
+  5yr trend, cash position, current-asset liquidity for Current Ratio) is
+  even considered — `backend/scoring/step5.py::evaluate_debt_to_ebitda_
+  breach_context` / `evaluate_current_ratio_breach_context`. A qualifying
+  breach reuses the existing `saved_by_tiebreaker`/"Pass with
+  caution"/`PASS_WITH_CAUTION_SCORE_CAP` machinery verbatim (no new
+  verdict state) under a new label, `marginal_via_breach_context` — but
+  the points awarded are now **graded** (40-60, `MARGINAL_SCORE_FLOOR` to
+  `BORDERLINE_SAVED_SCORE`) by the favorable-signal fraction, not a flat
+  60 regardless of how convincing the evidence is. Two signals (cause of
+  debt, undrawn revolving credit — plus Net-vs-Gross Debt as a third,
+  informational-only aside) are **never** scored, since neither is
+  reliably determinable from FMP's structured data; these always render
+  an explicit manual-check note in reasoning rather than being silently
+  omitted.
+  - Using the OTHER ratios' *raw* values (not their own rescued state) as
+    primary gates is a deliberate, real behavior change from the old
+    narrow mechanism: previously, DSR Borderline-but-ICR-rescued (e.g.
+    35%) would ALSO rescue a Borderline Debt/EBITDA off the exact same
+    ICR boolean, independently. Now it doesn't — a DSR that itself needed
+    rescuing isn't "clean" enough to vouch for a different ratio's
+    breach.
+  - Confirmed via a full-universe recompute (503 tickers): 42 tickers'
+    Debt score/verdict changed. Real examples: **ROL** and **DAL** newly
+    qualify — both are exactly the deferred-revenue-heavy business model
+    (prepaid pest-control contracts / advance ticket sales) the framework
+    was built to recognize, previously with no way to get partial credit
+    once the deferred-revenue-to-Comfortable rescue alone fell short.
+    **APD** and **AMGN** conversely lose their old rescue — Debt/EBITDA
+    has genuinely risen (+103% and +17% over 5 years) with weak FCF
+    coverage (6% and 15% of total debt), so a safe ICR alone no longer
+    overrides that. **AVB, EQR, GEHC, HON, HST, IFF, KIM, O, REG** flip
+    from an incorrect "Pass" to "Fail" at an unchanged score — the
+    residual fallback-floor fix below, not this framework.
+  - **MA and FICO (this framework's original motivating cases) were
+    checked directly against real cached data and BOTH remain unchanged**
+    — MA's Current Ratio breach reaches the framework (primary gates pass
+    cleanly) but 3 of 4 secondary signals are genuinely unfavorable (zero
+    deferred revenue, a real ~24% 5yr decline, cash covering only 34% of
+    current liabilities), so it correctly stays Fail rather than being
+    rescued just because the mechanism exists. FICO's Debt/EBITDA (4.81x)
+    is Severe, not Borderline, so it never reaches the framework at all —
+    confirms the framework doesn't quietly extend into Severe-breach
+    territory.
+- **Residual fallback-floor fix**: `_verdict_for`'s `hard_fail=False,
+  saved_by_tiebreaker=False` fallback previously had no score floor at
+  all (unlike the `saved_by_tiebreaker=True` branch, fixed earlier) — a
+  plain mediocre-but-non-breaching ratio combination could land under 70
+  and still read "Pass". Both checks are now one hoisted `score < 70 →
+  "Fail"` check ahead of the `saved_by_tiebreaker` branch. Because
+  `score_step5_reit` calls the same `_verdict_for`, this also fixes REIT
+  gearing's own "approaching_limit" tier (60pts, no rescue mechanism at
+  all) — confirmed via the recompute that AVB/EQR/HST/KIM/O/REG (REIT
+  gearing) and GEHC/HON/IFF (Standard-path fallback) all flip from
+  "Pass" to "Fail" at their unchanged score.
 
 Step 4's source doc (`step4_profitability_efficiency_assessment_prompt.md`)
 gives ROE/ROIC tiers, an AR-outpacing-magnitude concept, and a qualitative

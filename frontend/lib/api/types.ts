@@ -181,6 +181,18 @@ export interface Step2Out {
   weights: Record<string, number>;
 }
 
+export interface BreachContextSignal {
+  key: string;
+  status: "favorable" | "unfavorable" | "not_computable";
+  // Factual value string for favorable/unfavorable; the manual-check
+  // sentence itself, verbatim, when status is "not_computable" -- always
+  // render this as-is, never compose the not_computable copy client-side.
+  detail: string | null;
+  // False for informational-only signals (cause of debt, undrawn
+  // revolving credit, net-vs-gross debt) -- never gated the outcome.
+  counts_toward_gate: boolean;
+}
+
 export interface Step5RatioResult {
   // null only for interest_coverage_ratio when interest expense is
   // missing/non-positive.
@@ -188,9 +200,14 @@ export interface Step5RatioResult {
   // Current Ratio only: the deferred-revenue-adjusted value, once the raw
   // ratio itself isn't already comfortable.
   adjusted_value: number | null;
+  // Populated only for current_ratio/debt_to_ebitda when that ratio
+  // actually reached the Borderline zone and the breach-context framework
+  // evaluated it -- regardless of whether it qualified for a downgrade.
+  breach_context: BreachContextSignal[] | null;
   label: string;
   points: number;
-  // True when a Borderline breach was excused by its tiebreaker.
+  // True when a Borderline breach was excused by its tiebreaker (deferred
+  // revenue, Interest Coverage, or the breach-context framework).
   saved_by_tiebreaker: boolean;
 }
 

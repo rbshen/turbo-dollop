@@ -10,9 +10,19 @@ from debt_metrics import MetricOutlierFlags, compute_debt_metrics
 from first import _first
 from fmp_client import fmp_client
 from npl import compute_npl_ratio
-from schemas import OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
+from schemas import BreachContextSignal, OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
 from scoring.step5 import classify_company_type, score_npl, score_step5_reit, score_step5_standard
 from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
+
+# Same 10yr fetch window/cache key Step 4 already populates
+# ("balance_sheet_statement"/"annual", "income_statement"/"annual") -- for
+# any ticker Step 4 has already scored, this is a pure cache hit with zero
+# new FMP calls. Only the most recent TREND_WINDOW_YEARS get used for the
+# breach-context trend signal; fetching at the full 10 avoids ever caching
+# a truncated dataset under a cache key Step 4 also depends on (see
+# CLAUDE.md's caching policy).
+ANNUAL_WINDOW = 10
+TREND_WINDOW_YEARS = 5
 
 # The Debt Servicing Ratio's own two inputs -- an outlier flagged on either
 # of these triggers an on-demand SEC EDGAR cross-check (see sec_edgar.py).
@@ -25,13 +35,45 @@ def _ratio_out(raw: dict) -> Step5RatioResult:
     # interest_coverage_ratio is informational only -- it influences the
     # OTHER ratios' scoring (as the icr_is_safe signal) but has no points
     # of its own, so "points" is absent from its dict.
+    breach_context = raw.get("breach_context")
     return Step5RatioResult(
         value=raw["value"],
         adjusted_value=raw.get("adjusted_value"),
         label=raw["label"],
         points=raw.get("points", 0),
         saved_by_tiebreaker=raw.get("saved_by_tiebreaker", False),
+        breach_context=[BreachContextSignal(**s._asdict()) for s in breach_context] if breach_context else None,
     )
+
+
+def _annual_series(annual_rows: list[dict], field: str, count: int = ANNUAL_WINDOW) -> list[float | None]:
+    # FMP returns annual rows most-recent-first; take the most recent
+    # `count` and reverse to chronological (oldest fiscal year first),
+    # None-padded at the oldest end if fewer than `count` are available --
+    # same convention as step4_data.py's own private helper of this shape
+    # (not shared/exported; each step file keeps its own copy).
+    rows = list(reversed(annual_rows[:count]))
+    pad = count - len(rows)
+    return [None] * pad + [row.get(field) for row in rows]
+
+
+def _annual_years(annual_rows: list[dict], count: int = ANNUAL_WINDOW) -> list[str | None]:
+    rows = list(reversed(annual_rows[:count]))
+    pad = count - len(rows)
+    return [None] * pad + [row.get("fiscalYear", (row.get("date") or "")[:4]) or None for row in rows]
+
+
+def _oldest_in_trend_window(series: list[float | None], years: list[str | None]) -> tuple[float | None, str | None]:
+    """The oldest slot of the most-recent TREND_WINDOW_YEARS -- None
+    (rather than falling back to an older or more-recent real value) when
+    that specific slot is empty, so a ticker with under 5 years of annual
+    filings reads as not_computable instead of silently comparing against
+    a shorter, mislabeled window (see scoring/step5.py::_trend_signal)."""
+    window = series[-TREND_WINDOW_YEARS:]
+    window_years = years[-TREND_WINDOW_YEARS:]
+    if not window:
+        return None, None
+    return window[0], window_years[0]
 
 
 def _outlier_warnings(*flag_groups: MetricOutlierFlags) -> list[OutlierWarning]:
@@ -326,7 +368,85 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
             outlier_warnings=outlier_warnings,
         )
 
-    result = score_step5_standard(current_ratio, adjusted_current_ratio, debt_to_ebitda, debt_servicing_pct, interest_coverage_ratio)
+    # Breach-context inputs -- only fetched/computed once we know we're
+    # actually proceeding to score (the insufficient_data bailout above
+    # already ran). Annual fetches reuse Step 4's exact cache key/limit
+    # (see ANNUAL_WINDOW's own comment) -- a cache hit with zero new FMP
+    # calls for any ticker Step 4 has already scored.
+    with Session(engine) as session:
+        balance_sheet_annual = await safe_fetch(
+            "balance_sheet_statement_annual",
+            get_or_fetch(
+                session,
+                ticker,
+                "balance_sheet_statement",
+                "annual",
+                lambda: fmp_client.get_balance_sheet_statement(ticker, "annual", ANNUAL_WINDOW),
+                staleness_days,
+                cache_only,
+            ),
+        )
+        income_annual = await safe_fetch(
+            "income_statement_annual",
+            get_or_fetch(
+                session,
+                ticker,
+                "income_statement",
+                "annual",
+                lambda: fmp_client.get_income_statement(ticker, "annual", ANNUAL_WINDOW),
+                staleness_days,
+                cache_only,
+            ),
+        )
+    balance_sheet_annual = balance_sheet_annual if isinstance(balance_sheet_annual, list) else []
+    income_annual = income_annual if isinstance(income_annual, list) else []
+
+    years = _annual_years(balance_sheet_annual)
+    short_term_debt_series = _annual_series(balance_sheet_annual, "shortTermDebt")
+    long_term_debt_series = _annual_series(balance_sheet_annual, "longTermDebt")
+    ebitda_series = _annual_series(income_annual, "ebitda")
+    debt_to_ebitda_series = [
+        ((st or 0) + (lt or 0)) / e if (st is not None or lt is not None) and e else None
+        for st, lt, e in zip(short_term_debt_series, long_term_debt_series, ebitda_series)
+    ]
+    current_assets_series = _annual_series(balance_sheet_annual, "totalCurrentAssets")
+    current_liabilities_series = _annual_series(balance_sheet_annual, "totalCurrentLiabilities")
+    current_ratio_series = [
+        ca / cl if ca is not None and cl else None for ca, cl in zip(current_assets_series, current_liabilities_series)
+    ]
+    debt_to_ebitda_oldest, debt_to_ebitda_oldest_year = _oldest_in_trend_window(debt_to_ebitda_series, years)
+    current_ratio_oldest, current_ratio_oldest_year = _oldest_in_trend_window(current_ratio_series, years)
+
+    fcf_ttm = sum_last_four_quarters(cash_flow_quarterly, "freeCashFlow").total
+    cash_and_equivalents = balance_sheet_row.get("cashAndCashEquivalents")
+    net_debt = balance_sheet_row.get("netDebt")
+    receivables = balance_sheet_row.get("netReceivables")
+    if receivables is None:
+        receivables = balance_sheet_row.get("accountsReceivables")
+    liquid_current_assets = (
+        cash_and_equivalents + receivables if cash_and_equivalents is not None and receivables is not None else None
+    )
+
+    result = score_step5_standard(
+        current_ratio,
+        adjusted_current_ratio,
+        debt_to_ebitda,
+        debt_servicing_pct,
+        interest_coverage_ratio,
+        debt_to_ebitda_oldest=debt_to_ebitda_oldest,
+        debt_to_ebitda_oldest_year=debt_to_ebitda_oldest_year,
+        current_ratio_oldest=current_ratio_oldest,
+        current_ratio_oldest_year=current_ratio_oldest_year,
+        fcf_ttm=fcf_ttm,
+        total_debt=debt_metrics.total_debt,
+        net_debt=net_debt,
+        ebitda_ttm=ebitda_ttm,
+        deferred_revenue=deferred_revenue,
+        current_liabilities=current_liabilities,
+        cash_and_equivalents=cash_and_equivalents,
+        current_assets=current_assets,
+        liquid_current_assets=liquid_current_assets,
+    )
     return Step5Out(
         ticker=ticker,
         company_type=company_type,

@@ -194,6 +194,27 @@ class Step2Out(BaseModel):
     weights: dict[str, float]
 
 
+class BreachContextSignal(BaseModel):
+    """One secondary signal evaluated by Step 5's breach-context framework
+    (see scoring/step5.py's evaluate_debt_to_ebitda_breach_context /
+    evaluate_current_ratio_breach_context) -- surfaced individually so the
+    UI can explain exactly why a Borderline breach was (or wasn't)
+    downgraded to "marginal", not just the final outcome."""
+
+    key: str
+    status: str  # "favorable" | "unfavorable" | "not_computable"
+    # Factual value string for favorable/unfavorable (e.g. "4.81x now vs
+    # 7.02x 5yr ago"); the manual-check sentence itself, verbatim, when
+    # status is "not_computable" -- the backend supplies the full sentence
+    # so this never silently omits a signal the UI doesn't have a template
+    # for.
+    detail: str | None = None
+    # False for informational-only signals (cause of debt, undrawn
+    # revolving credit, net-vs-gross debt) -- shown to the user but never
+    # counted toward the majority-vote gate.
+    counts_toward_gate: bool = True
+
+
 class Step5RatioResult(BaseModel):
     # None only for interest_coverage_ratio when interest expense is
     # missing/non-positive -- never a fabricated number.
@@ -202,6 +223,10 @@ class Step5RatioResult(BaseModel):
     # tiering once the raw ratio itself isn't already comfortable. Equals
     # `value` (or omitted) whenever deferred revenue didn't change anything.
     adjusted_value: float | None = None
+    # Populated only for current_ratio/debt_to_ebitda when that ratio
+    # actually reached the Borderline zone and the breach-context framework
+    # evaluated it (None for Comfortable/Severe ratios, DSR, and ICR).
+    breach_context: list[BreachContextSignal] | None = None
     label: str
     points: int
     # True when a Borderline breach was excused by its tiebreaker (deferred

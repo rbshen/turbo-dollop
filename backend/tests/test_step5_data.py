@@ -251,8 +251,13 @@ def test_borderline_debt_to_ebitda_saved_by_icr_reads_pass_with_caution_end_to_e
 
     result = asyncio.run(get_step5_data("aapl"))
 
-    # debt_to_ebitda = 1050 / 340 = 3.088x -- Borderline (3.0-4.0).
-    assert result.ratios["debt_to_ebitda"].label == "borderline_saved_by_icr"
+    # debt_to_ebitda = 1050 / 340 = 3.088x -- Borderline (3.0-4.0). Current
+    # Ratio (1.25) and DSR (10%) are both comfortable, so the breach-context
+    # primary gates pass; with no annual history or FCF data in this
+    # fixture, ICR (safe, 13x) is the sole computable secondary signal --
+    # same net effect as the old narrow icr_is_safe-only rescue (still
+    # lands at BORDERLINE_SAVED_SCORE=60), just under the new label.
+    assert result.ratios["debt_to_ebitda"].label == "marginal_via_breach_context"
     assert result.ratios["debt_to_ebitda"].saved_by_tiebreaker is True
     # ICR = 260 / 20 = 13x -- safe.
     assert result.ratios["interest_coverage_ratio"].label == "safe"
