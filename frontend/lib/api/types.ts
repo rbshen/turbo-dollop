@@ -642,6 +642,23 @@ export interface AnalystRatingsOut {
   recommendation_details: RecommendationDetailsColumn[];
 }
 
+export interface NewsArticle {
+  title: string;
+  publisher: string;
+  site: string;
+  snippet: string;
+  image: string | null;
+  url: string;
+  // FMP's raw "YYYY-MM-DD HH:MM:SS" string, passed through as-is -- no
+  // timezone is documented.
+  published_at: string;
+}
+
+export interface NewsOut {
+  ticker: string;
+  articles: NewsArticle[];
+}
+
 export interface WatchlistTickerOut {
   ticker: string;
   added_at: string;

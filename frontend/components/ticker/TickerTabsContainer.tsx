@@ -41,7 +41,7 @@ export function TickerTabsContainer({ ticker }: Props) {
         {tab === "analystRatings" && <AnalystRatingsTab ticker={ticker} />}
         {tab === "valuation" && <ValuationTab ticker={ticker} />}
         {tab === "moat" && <EconomicMoatTab ticker={ticker} />}
-        {tab === "newsSentiment" && <NewsSentimentTab />}
+        {tab === "newsSentiment" && <NewsSentimentTab ticker={ticker} />}
       </PageContainer>
     </div>
   );
