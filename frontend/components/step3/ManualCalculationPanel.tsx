@@ -1,7 +1,7 @@
 "use client";
 
 import { CaretDown } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import useSWRMutation from "swr/mutation";
 
 import {
@@ -259,6 +259,8 @@ function SliderField({
   step: number;
 }) {
   const n = parseFloat(value);
+  const clamped = Number.isNaN(n) ? min : Math.min(max, Math.max(min, n));
+  const fillPct = ((clamped - min) / (max - min)) * 100;
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-3">
@@ -274,6 +276,7 @@ function SliderField({
         value={Number.isNaN(n) ? 0 : n}
         onChange={(e) => onChange(e.target.value)}
         className="range-slider"
+        style={{ "--range-fill": `${fillPct}%` } as CSSProperties}
       />
     </div>
   );
@@ -284,7 +287,7 @@ export function ManualCalculationPanel({ ticker, autoData }: Props) {
   const [method, setMethod] = useState<Step3Method>(initialMethod);
   const [form, setForm] = useState<FormState>(() => defaultsForMethod(initialMethod, autoData));
 
-  const { trigger, reset, data: result, error: mutationError, isMutating: loading } = useSWRMutation(`/tickers/${ticker}/step3/manual`, manualCalcFetcher, { throwOnError: false });
+  const { trigger, reset, data: result, error: mutationError } = useSWRMutation(`/tickers/${ticker}/step3/manual`, manualCalcFetcher, { throwOnError: false });
 
   function runCalculate(runMethod: Step3Method, values: FormState) {
     void trigger(buildRequest(runMethod, values, autoData.inputs.last_close));
@@ -310,9 +313,7 @@ export function ManualCalculationPanel({ ticker, autoData }: Props) {
   }
 
   // Every field recomputes live -- on every slider drag tick and every
-  // text-field keystroke, per the design handoff's interaction spec. The
-  // Calculate button below is no longer required for this; it's kept for
-  // a future "override the valuation" use, not today's recompute.
+  // text-field keystroke, per the design handoff's interaction spec.
   function updateField(key: keyof FormState, value: string) {
     const next = { ...form, [key]: value };
     setForm(next);
@@ -329,7 +330,7 @@ export function ManualCalculationPanel({ ticker, autoData }: Props) {
 
   return (
     <div className="space-y-6 rounded-lg border border-border-card bg-surface p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
         <h2 className={SECTION_HEADING_CLASS}>Custom Valuation</h2>
         {/* appearance-none strips the browser's native <select> chrome --
             CaretDown restores the dropdown affordance manually. Compact and
@@ -420,15 +421,6 @@ export function ManualCalculationPanel({ ticker, autoData }: Props) {
       </Table>
 
       {isPB && result?.pb_bands && <PBBandsTable bands={result.pb_bands} lastClose={autoData.inputs.last_close} />}
-
-      <button
-        type="button"
-        onClick={() => runCalculate(method, form)}
-        disabled={loading}
-        className="rounded-md border border-border-input bg-surface-2 px-4 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary disabled:opacity-50"
-      >
-        {loading ? "Calculating…" : "Calculate"}
-      </button>
 
       {mutationError && <p className="text-sm text-negative">{mutationError instanceof Error ? mutationError.message : "Calculation failed"}</p>}
       {result?.error && <p className="text-sm text-warn">{result.error}</p>}

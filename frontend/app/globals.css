@@ -226,7 +226,11 @@
     height: 8px;
     width: 100%;
     border-radius: 9999px;
-    background: var(--color-surface-2);
+    background: linear-gradient(
+      to right,
+      var(--color-brand) var(--range-fill, 0%),
+      var(--color-surface-2) var(--range-fill, 0%)
+    );
     cursor: pointer;
   }
   .range-slider:focus {
@@ -235,7 +239,7 @@
   .range-slider::-webkit-slider-runnable-track {
     height: 8px;
     border-radius: 9999px;
-    background: var(--color-surface-2);
+    background: transparent;
   }
   .range-slider::-webkit-slider-thumb {
     appearance: none;
@@ -251,7 +255,11 @@
   .range-slider::-moz-range-track {
     height: 8px;
     border-radius: 9999px;
-    background: var(--color-surface-2);
+    background: linear-gradient(
+      to right,
+      var(--color-brand) var(--range-fill, 0%),
+      var(--color-surface-2) var(--range-fill, 0%)
+    );
   }
   .range-slider::-moz-range-thumb {
     width: 16px;

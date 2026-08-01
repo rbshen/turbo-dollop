@@ -214,7 +214,13 @@ export function Step3Card({ ticker }: Props) {
       ) : (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           <div className="space-y-6 rounded-lg border border-border-card bg-surface p-6">
-            <h2 className={SECTION_HEADING_CLASS}>Model Valuation · {METHOD_LABELS[data.selected_method] ?? data.selected_method}</h2>
+            {/* min-h-8 matches Custom Valuation's title row, whose height is
+                set by its h-8 method <select> -- without it this row (a bare
+                h2, ~20px) renders shorter than the other column's, shifting
+                everything below (price, gauge, slider) up relative to it. */}
+            <div className="flex min-h-8 items-center">
+              <h2 className={SECTION_HEADING_CLASS}>Model Valuation · {METHOD_LABELS[data.selected_method] ?? data.selected_method}</h2>
+            </div>
 
             <ValuationGauge discountPremiumPct={data.discount_premium_pct} intrinsicValuePerShare={data.intrinsic_value_per_share} lastClose={data.inputs.last_close} />
 

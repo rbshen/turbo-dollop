@@ -37,10 +37,7 @@ export function ValuationGauge({ discountPremiumPct, intrinsicValuePerShare, las
           {intrinsicValuePerShare != null ? fmtMoney(intrinsicValuePerShare) : "—"}
         </span>
         {discountPremiumPct != null && (
-          <span className={`font-mono text-sm font-semibold ${pctClass}`}>
-            {discountPremiumPct >= 0 ? "+" : ""}
-            {fmtPct(discountPremiumPct * 100, 1)}
-          </span>
+          <span className={`font-mono text-sm font-semibold ${pctClass}`}>{fmtPct(discountPremiumPct * 100, 1)}</span>
         )}
       </div>
       <p className="text-xs text-text-tertiary">vs last close {lastClose != null ? fmtMoney(lastClose) : "—"}</p>
