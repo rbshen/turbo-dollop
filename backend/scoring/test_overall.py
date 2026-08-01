@@ -1,6 +1,6 @@
 import pytest
 
-from scoring.overall import MoatSnapshot, StepSnapshot, compute_overall_assessment
+from scoring.overall import STEP_WEIGHTS, MoatSnapshot, StepSnapshot, compute_overall_assessment
 
 
 def snapshot(key: str, label: str, score: int | None, verdict: str, has_error: bool = False) -> StepSnapshot:
@@ -22,10 +22,10 @@ def test_computes_a_standard_weighted_average_when_every_step_has_a_real_score()
         snapshot("step4", "Step 4", 70, "Pass"),
         snapshot("step5", "Step 5", 60, "Pass"),
     ]
-    # 90*0.35 + 80*0.22 + 70*0.28 + 60*0.15 = 31.5 + 17.6 + 19.6 + 9 = 77.7 -> 78
+    # 90*(24/69) + 80*(10/69) + 70*(20/69) + 60*(15/69) = 5260/69 = 76.23 -> 76
     result = compute_overall_assessment(steps)
     assert result.status == "complete"
-    assert result.score == 78
+    assert result.score == 76
     assert result.verdict == "Pass"
 
 
@@ -42,8 +42,8 @@ def test_renormalizes_weights_when_a_step_is_structurally_exempt():
         snapshot("step4", "Step 4", 90, "Pass"),
         snapshot("step5", "Step 5", None, "not_supported"),
     ]
-    # Step 5 excluded; remaining weights (0.35+0.22+0.28=0.85) renormalize
-    # to sum to 1 -- since all 3 remaining scores are equal (90), the
+    # Step 5 excluded; remaining weights (step1+step2+step4) renormalize to
+    # sum to 1 -- since all 3 remaining scores are equal (90), the
     # renormalized weighted average is still exactly 90 regardless of the
     # individual renormalized weights.
     result = compute_overall_assessment(steps)
@@ -53,7 +53,8 @@ def test_renormalizes_weights_when_a_step_is_structurally_exempt():
     assert step5_entry.status == "exempt"
     assert step5_entry.effective_weight is None
     step1_entry = next(b for b in result.breakdown if b.key == "step1")
-    assert step1_entry.effective_weight == pytest.approx(0.35 / 0.85, abs=1e-5)
+    remaining = STEP_WEIGHTS["step1"] + STEP_WEIGHTS["step2"] + STEP_WEIGHTS["step4"]
+    assert step1_entry.effective_weight == pytest.approx(STEP_WEIGHTS["step1"] / remaining, abs=1e-5)
 
 
 def test_renormalization_actually_shifts_the_score_when_remaining_scores_differ():
@@ -63,10 +64,10 @@ def test_renormalization_actually_shifts_the_score_when_remaining_scores_differ(
         snapshot("step4", "Step 4", 100, "Strong Pass"),
         snapshot("step5", "Step 5", None, "not_supported"),
     ]
-    # Without step5: (100*0.35 + 0*0.22 + 100*0.28) / (0.35+0.22+0.28)
-    # = 63 / 0.85 = 74.117... -> 74
+    # Without step5: (100*24/69 + 0*10/69 + 100*20/69) / (24/69+10/69+20/69)
+    # = 4400/69 / (54/69) = 4400/54 = 81.48 -> 81
     result = compute_overall_assessment(steps)
-    assert result.score == 74
+    assert result.score == 81
 
 
 def test_shows_incomplete_instead_of_a_partial_score_when_a_step_errors():
@@ -105,7 +106,7 @@ def test_flags_a_fail_warning_when_any_implemented_steps_verdict_is_fail():
     ]
     result = compute_overall_assessment(steps)
     # No hard-fail override -- the score is still a plain weighted average.
-    assert result.score == round(90 * 0.35 + 90 * 0.22 + 90 * 0.28 + 0 * 0.15)
+    assert result.score == round(90 * STEP_WEIGHTS["step1"] + 90 * STEP_WEIGHTS["step2"] + 90 * STEP_WEIGHTS["step4"] + 0 * STEP_WEIGHTS["step5"])
     assert result.failing_steps == ["Step 5"]
 
 
@@ -159,15 +160,18 @@ def test_caution_step_forces_caution_verdict_even_when_blend_is_strong_pass():
     # breach) must override the blended score's own band -- previously the
     # verdict was purely score-banded, so this real breach was invisible
     # unless the user separately read the warning-text banner.
+    # step1/2/4 at 100 (not 95) -- Debt's higher post-rebalance weight
+    # (15%, was 10%) pulls the blend down further than before, so 95s no
+    # longer clear the Strong Pass threshold on their own; 100s do.
     steps = [
-        snapshot("step1", "Step 1", 95, "Strong Pass"),
-        snapshot("step2", "Step 2", 95, "Strong Pass"),
-        snapshot("step4", "Step 4", 95, "Strong Pass"),
+        snapshot("step1", "Step 1", 100, "Strong Pass"),
+        snapshot("step2", "Step 2", 100, "Strong Pass"),
+        snapshot("step4", "Step 4", 100, "Strong Pass"),
         snapshot("step5", "Step 5", 74, "Pass with caution"),
     ]
-    # 95*0.35 + 95*0.22 + 95*0.28 + 74*0.15 = 33.25+20.9+26.6+11.1 = 91.85 -> 92
+    # 100*(54/69) + 74*(15/69) = (5400+1110)/69 = 94.3 -> 94
     result = compute_overall_assessment(steps)
-    assert result.score == 92  # the underlying blend is untouched
+    assert result.score == 94  # the underlying blend is untouched
     assert result.verdict == "Pass with caution"
 
 

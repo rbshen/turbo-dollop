@@ -112,8 +112,8 @@ def test_computes_and_upserts_a_full_row(monkeypatch):
     assert result.step2_score == 80
     assert result.step4_score == 70
     assert result.step5_score == 60
-    # 90*0.35 + 80*0.22 + 70*0.28 + 60*0.15 = 77.7 -> 78
-    assert result.overall_score == 78
+    # 90*(24/69) + 80*(10/69) + 70*(20/69) + 60*(15/69) = 5260/69 = 76.23 -> 76
+    assert result.overall_score == 76
     assert result.overall_verdict == "Pass"
     assert result.market_cap == 3_000_000_000_000.0
     assert result.pe_ratio == 30.0
@@ -124,7 +124,7 @@ def test_computes_and_upserts_a_full_row(monkeypatch):
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
     assert row is not None
-    assert row.overall_score == 78
+    assert row.overall_score == 76
 
 
 def test_upsert_updates_an_existing_row_rather_than_erroring(monkeypatch):
@@ -145,7 +145,7 @@ def test_upsert_updates_an_existing_row_rather_than_erroring(monkeypatch):
     result = asyncio.run(compute_ticker_score("AAPL"))
 
     assert result.company_name == "Apple Inc."
-    assert result.overall_score == 78
+    assert result.overall_score == 76
 
     with Session(engine) as session:
         rows = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).all()

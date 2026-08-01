@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { computeOverallAssessment, type MoatSnapshot, type StepSnapshot } from "@/lib/overallScore";
+import { computeOverallAssessment, STEP_WEIGHTS, type MoatSnapshot, type StepSnapshot } from "@/lib/overallScore";
 
 function snapshot(key: StepSnapshot["key"], label: string, score: number | null, verdict: string): StepSnapshot {
   return { key, label, hasError: false, data: { score, verdict } };
@@ -21,10 +21,10 @@ describe("computeOverallAssessment", () => {
       snapshot("step4", "Step 4", 70, "Pass"),
       snapshot("step5", "Step 5", 60, "Pass"),
     ];
-    // 90*0.35 + 80*0.22 + 70*0.28 + 60*0.15 = 31.5 + 17.6 + 19.6 + 9 = 77.7 -> 78
+    // 90*(24/69) + 80*(10/69) + 70*(20/69) + 60*(15/69) = 5260/69 = 76.23 -> 76
     const result = computeOverallAssessment(steps);
     expect(result.status).toBe("complete");
-    expect(result.score).toBe(78);
+    expect(result.score).toBe(76);
     expect(result.verdict).toBe("Pass");
   });
 
@@ -41,8 +41,8 @@ describe("computeOverallAssessment", () => {
       snapshot("step4", "Step 4", 90, "Pass"),
       snapshot("step5", "Step 5", null, "not_supported"),
     ];
-    // Step 5 excluded; remaining weights (0.35+0.22+0.28=0.85) renormalize
-    // to sum to 1 -- since all 3 remaining scores are equal (90), the
+    // Step 5 excluded; remaining weights (step1+step2+step4) renormalize to
+    // sum to 1 -- since all 3 remaining scores are equal (90), the
     // renormalized weighted average is still exactly 90 regardless of the
     // individual renormalized weights.
     const result = computeOverallAssessment(steps);
@@ -52,7 +52,8 @@ describe("computeOverallAssessment", () => {
     expect(step5Entry.status).toBe("exempt");
     expect(step5Entry.effectiveWeight).toBeNull();
     const step1Entry = result.breakdown.find((b) => b.key === "step1")!;
-    expect(step1Entry.effectiveWeight).toBeCloseTo(0.35 / 0.85, 5);
+    const remaining = STEP_WEIGHTS.step1 + STEP_WEIGHTS.step2 + STEP_WEIGHTS.step4;
+    expect(step1Entry.effectiveWeight).toBeCloseTo(STEP_WEIGHTS.step1 / remaining, 5);
   });
 
   it("renormalization actually shifts the score when remaining scores differ", () => {
@@ -62,10 +63,10 @@ describe("computeOverallAssessment", () => {
       snapshot("step4", "Step 4", 100, "Strong Pass"),
       snapshot("step5", "Step 5", null, "not_supported"),
     ];
-    // Without step5: (100*0.35 + 0*0.22 + 100*0.28) / (0.35+0.22+0.28)
-    // = 63 / 0.85 = 74.117... -> 74
+    // Without step5: (100*24/69 + 0*10/69 + 100*20/69) / (24/69+10/69+20/69)
+    // = 4400/69 / (54/69) = 4400/54 = 81.48 -> 81
     const result = computeOverallAssessment(steps);
-    expect(result.score).toBe(74);
+    expect(result.score).toBe(81);
   });
 
   it("shows an incomplete state instead of a partial score when a step errors", () => {
@@ -111,7 +112,7 @@ describe("computeOverallAssessment", () => {
     ];
     const result = computeOverallAssessment(steps);
     // No hard-fail override -- the score is still a plain weighted average.
-    expect(result.score).toBe(round(90 * 0.35 + 90 * 0.22 + 90 * 0.28 + 0 * 0.15));
+    expect(result.score).toBe(round(90 * STEP_WEIGHTS.step1 + 90 * STEP_WEIGHTS.step2 + 90 * STEP_WEIGHTS.step4 + 0 * STEP_WEIGHTS.step5));
     expect(result.failingSteps).toEqual(["Step 5"]);
   });
 
@@ -147,7 +148,8 @@ describe("computeOverallAssessment", () => {
     const result = computeOverallAssessment(steps);
     expect(result.cautionSteps).toEqual(["Step 5"]);
     expect(result.failingSteps).toEqual([]);
-    // 90*0.35 + 90*0.22 + 90*0.28 + 95*0.15 = 31.5+19.8+25.2+14.25 = 90.75 -> 91
+    // 90*(54/69) + 95*(15/69) = (4860+1425)/69 = 91.09 -> 91 (coincidentally
+    // unchanged from the pre-rebalance weights for this particular input)
     expect(result.score).toBe(91);
     expect(result.verdict).toBe("Pass with caution");
   });

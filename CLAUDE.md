@@ -164,6 +164,33 @@ avg/high/low per forward fiscal year:
   as such in the API/UI (`backend/schemas.py::Step2Out`,
   `frontend/components/step2/Step2Card.tsx`) so it's never mistaken for
   what the source doc actually describes.
+- **Verdict *logic* deliberately diverges from the shared 0-69 Fail /
+  70-90 Pass / 91-100 Strong Pass scale** every other step (Step 1, Step 4,
+  Step 5, Overall Assessment) uses. Fail is gated on the magnitude tier
+  alone (`growth_rate_pct < 0%`, i.e. `magnitude_score == 0`), not the
+  blended score (`scoring/step2.py::_verdict_for`) — the 30%-weighted
+  agreement component should never by itself drag a genuinely
+  positive-growth company under the Fail line, so a weak-but-positive
+  magnitude tier always reads "Pass", never "Fail", regardless of the
+  blended number. Strong Pass still requires `score > 90`. This is
+  intentional and unchanged.
+- **The *score number* is floored at 70 whenever growth is non-negative**
+  (`magnitude_score > 0`), via `PASS_SCORE_FLOOR` — a fix, not part of the
+  original verdict-logic deviation above. Before this fix, a weak-but-
+  positive-growth ticker's genuinely-computed blend could land anywhere
+  in 0-69 while still displaying "Pass" text — confirmed real case
+  (2026-07-31): FTNT's EPS CAGR of +1.16% ("weak" magnitude tier, 40/100)
+  with a tight analyst spread (6.85%, "tight" agreement tier, 100/100)
+  blended to `40*0.70 + 100*0.30 = 58`, a Fail-range number sitting next
+  to "Pass" text, colored amber by the shared color system
+  (`frontend/lib/tierColor.ts`) with no visibility into Step 2's
+  different verdict semantics. The floor raises only the *displayed
+  score* for a Pass (FTNT now shows 70, not 58) — it does not touch
+  `magnitude_score`/`agreement_score` (the UI's own breakdown still shows
+  the raw component tiers) and can never affect an already-≥70 blend or
+  cross into Strong Pass range (floor value 70 < the `> 90` threshold).
+  Fail-verdict tickers (negative growth) are untouched: the floor's guard
+  is `magnitude_score > 0`, so a Fail still displays its real sub-70 score.
 - **EPS estimates are preferred over revenue** when both are available;
   revenue is used as a fallback when EPS doesn't yield a usable CAGR (most
   commonly a negative base-year EPS, which makes a CAGR mathematically
@@ -199,8 +226,8 @@ avg/high/low per forward fiscal year:
   verdict: "insufficient_data"` — Step4Out/Step5Out's own convention —
   rather than a fabricated `score: 0, verdict: "Fail"`. A prior version of
   this code scored these identically to a genuinely weak/negative growth
-  projection, which fed a false Fail into Overall Assessment's 22%-weighted
-  blend and the Screener with no way to distinguish "no data" from "bad
+  projection, which fed a false Fail into Overall Assessment's Growth-Rate-
+  weighted blend and the Screener with no way to distinguish "no data" from "bad
   growth". `scoring/overall.py`'s `_status_for` already treated any
   null-score/non-`"not_supported"` step as `"incomplete"` (excluded from
   the blend, whole Overall Assessment marked incomplete rather than
@@ -354,6 +381,39 @@ thresholds — deviations from a strict reading of the doc:
   majority line, the count-based "concerning" tier remains structurally
   subsumed by "majority" at every window size — a pre-existing property of
   the original design, not an artifact of this rescaling.
+
+Overall Assessment's step weighting (`backend/scoring/overall.py::STEP_WEIGHTS`
+/ `frontend/lib/overallScore.ts::STEP_WEIGHTS` — must never drift from each
+other, see that constant's own comment) was rebalanced 2026-07-31, following
+an investigation into cases where Overall read "Pass"/"Strong Pass" while a
+contributing step genuinely scored below the shared 70 Pass floor:
+
+- **What actually lands in a ticker's full Overall blend** (i.e. `STEP_WEIGHTS`
+  values as fractions of the 69% non-Moat portion, times `1 - MOAT_WEIGHT`,
+  plus Moat's own 31%) is Financials 24% (unchanged), Growth Rate 10% (was
+  15%), Debt 15% (was 10%), Profitability 20% (was ~19%, itself a rounding
+  artifact of the old 0.28×0.69 — not a prior bug in the code, which always
+  summed to exactly 100%), Moat 31% (unchanged).
+- **Motivation**: Debt's previously-lowest weight (10%) let genuine
+  per-step Fails get fully absorbed by strong scores elsewhere — worked
+  examples: MA (Step 5 genuinely `Fail` at 67) blended to Overall 92
+  "Strong Pass" pre-rebalance, now 90 "Pass"; FICO (Step 5 `Fail` at 52)
+  blended to 89 "Pass" pre-rebalance, now 87 "Pass" (still Pass — see
+  below, reweighting alone is a limited lever).
+- **A universe-wide investigation found this contradiction pattern in
+  ~25% of tickers (125/493)**, split roughly evenly between two distinct
+  causes: about half (62) are genuine per-step Fails diluted by blend
+  weighting (what this rebalance targets), and about half (63) are cases
+  where *no* step says "Fail" at all — the sub-70 step's own verdict gate
+  (see Step 2's magnitude-tier gate above, and Step 4's equivalent
+  `hard_fail`-gated `_verdict_for`, which shows "Pass" for 206 tickers
+  scoring <70 — a bigger version of the same pattern) already masks it
+  before blending starts. **Reweighting cannot fix the masked half** —
+  confirmed via sensitivity testing (even a larger Debt-weight shift to
+  25% only flipped 4/111 complete-data FICO-type tickers to Fail). Step
+  2/4's own verdict gates are a separate, not-yet-addressed question.
+- **Not yet built**: Step 5's own breach-context/scoring nuance (Debt/EBITDA
+  and Current Ratio) is unchanged by this rebalance — a distinct follow-up.
 
 ## Company classification: non-lender ticker overrides
 

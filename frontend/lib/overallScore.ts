@@ -2,11 +2,23 @@
 // currently-implemented steps. These sum to 100% and intentionally have no
 // allocation for Step 3, which doesn't exist yet -- revisit once Step 3
 // ships (the whole set will need rebalancing, not just adding a slice).
+//
+// 2026-07-31 rebalance: mirrors backend/scoring/overall.py::STEP_WEIGHTS's
+// own comment exactly -- expressed as fractions of the 69% non-Moat
+// portion. What actually lands in a ticker's full Overall blend once
+// MOAT_WEIGHT's 31% is layered on top is Financials 24% (unchanged),
+// Growth Rate 10% (was 15%), Debt 15% (was 10%), Profitability 20% (was
+// 19% -- a rounding artifact of the old 0.28*0.69, not a real bug),
+// Moat 31% (unchanged) -- summing to exactly 100%. Growth Rate down /
+// Debt up specifically because Debt's previously-lowest weight was
+// letting genuine per-step Fails (e.g. FICO, MA) get fully absorbed by
+// strong scores elsewhere -- see the 2026-07-31 Overall-vs-per-step
+// contradiction investigation.
 export const STEP_WEIGHTS = {
-  step1: 0.35,
-  step2: 0.22,
-  step4: 0.28,
-  step5: 0.15,
+  step1: 24 / 69,
+  step2: 10 / 69,
+  step4: 20 / 69,
+  step5: 15 / 69,
 } as const;
 
 export type StepKey = keyof typeof STEP_WEIGHTS;

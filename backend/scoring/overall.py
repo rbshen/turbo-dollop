@@ -6,7 +6,21 @@ from typing import NamedTuple
 # (backend, this module) both need to produce the same Overall Assessment
 # for the same ticker. Sum to 100%, no allocation for Step 3 (not yet
 # implemented) -- revisit both together once Step 3 ships.
-STEP_WEIGHTS = {"step1": 0.35, "step2": 0.22, "step4": 0.28, "step5": 0.15}
+#
+# 2026-07-31 rebalance: expressed here as fractions of the 69% non-Moat
+# portion (this dict's own 4 values always sum to 1.0, renormalized further
+# still if a step is exempt/missing -- see compute_overall_assessment).
+# What actually lands in a ticker's full Overall blend once MOAT_WEIGHT's
+# 31% is layered on top (see below) is Financials 24% (unchanged), Growth
+# Rate 10% (was 15%), Debt 15% (was 10%), Profitability 20% (was 19% --
+# that 19% was itself a rounding artifact of the old 0.28*0.69, not a real
+# bug in the code; 20% is the actual intended target), Moat 31%
+# (unchanged) -- summing to exactly 100% (24+10+20+15 = 69, the exact
+# complement of Moat's 31%). Growth Rate down / Debt up specifically
+# because Debt's previously-lowest weight was letting genuine per-step
+# Fails (e.g. FICO, MA) get fully absorbed by strong scores elsewhere --
+# see the 2026-07-31 Overall-vs-per-step contradiction investigation.
+STEP_WEIGHTS = {"step1": 24 / 69, "step2": 10 / 69, "step4": 20 / 69, "step5": 15 / 69}
 
 IMPLEMENTED_STEPS = len(STEP_WEIGHTS)
 TOTAL_METHODOLOGY_STEPS = 5
