@@ -218,6 +218,20 @@ export interface Step5Out {
   company_type: string;
   classification_note: string;
   ratios: Record<string, Step5RatioResult>;
+  // Set only when ratios.npl_ratio is present -- labels which filing the
+  // NPL figure is actually as-of (e.g. "FY2025 annual filing" vs "Q2 2026").
+  npl_as_of: string | null;
+  // Bank only (non-excluded tickers) -- manually entered, no FMP source
+  // exists. null when not yet entered.
+  cet1_ratio_pct: number | null;
+  cet1_as_of: string | null;
+  // "manual" when a TickerBankCapitalMetricsOut.npl_ratio_pct override is
+  // set, "auto" when Step 5 fell back to the live auto-computed NPL value,
+  // null when neither is available. Bank only.
+  npl_source: "manual" | "auto" | null;
+  // True only for non-excluded Bank tickers (not IBKR/HOOD) -- whether to
+  // render the CET1/NPL input form at all vs. IBKR/HOOD's unchanged blurb.
+  bank_capital_metrics_editable: boolean;
   // Now wired into the Current Ratio verdict itself (see
   // ratios.current_ratio.adjusted_value) -- kept for display/context.
   deferred_revenue_current: number | null;
@@ -306,6 +320,25 @@ export interface TickerMoatOut {
   // explicitly sets one via the Economic Moat tab.
   moat: MoatValue | null;
   updated_at: string | null;
+}
+
+export interface TickerBankCapitalMetricsOut {
+  ticker: string;
+  // null means "not set" -- CET1 has no FMP source at all.
+  cet1_ratio_pct: number | null;
+  cet1_as_of: string | null;
+  // null means "no manual override" -- Step 5 defers to the live
+  // auto-computed NPL value in that case.
+  npl_ratio_pct: number | null;
+  npl_as_of: string | null;
+  updated_at: string | null;
+}
+
+export interface TickerBankCapitalMetricsIn {
+  cet1_ratio_pct: number | null;
+  cet1_as_of: string | null;
+  npl_ratio_pct: number | null;
+  npl_as_of: string | null;
 }
 
 export interface MoatScoreConfigOut {

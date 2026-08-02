@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException
 from sqlmodel import Session, func, select
 
 from analyst_ratings_data import get_analyst_ratings_data
+from bank_capital_metrics import get_ticker_bank_capital_metrics, set_ticker_bank_capital_metrics
 from db import engine, init_db
 from discount_rate_config import get_discount_rate_config, update_discount_rate_config
 from logging_config import apply_redaction_filters
@@ -41,6 +42,8 @@ from schemas import (
     Step3PBBands,
     Step4Out,
     Step5Out,
+    TickerBankCapitalMetricsIn,
+    TickerBankCapitalMetricsOut,
     TickerMoatIn,
     TickerMoatOut,
     TickerScoreOut,
@@ -320,6 +323,33 @@ async def update_ticker_moat(ticker: str, body: TickerMoatIn) -> TickerMoatOut:
     # been viewed and has no cached profile yet.
     await compute_ticker_score(ticker, cache_only=True)
     return TickerMoatOut(**row.model_dump())
+
+
+@app.get("/api/tickers/{ticker}/bank-capital-metrics", response_model=TickerBankCapitalMetricsOut)
+def ticker_bank_capital_metrics(ticker: str) -> TickerBankCapitalMetricsOut:
+    ticker = ticker.upper()
+    with Session(engine) as session:
+        row = get_ticker_bank_capital_metrics(session, ticker)
+    if row is None:
+        return TickerBankCapitalMetricsOut(
+            ticker=ticker, cet1_ratio_pct=None, cet1_as_of=None, npl_ratio_pct=None, npl_as_of=None, updated_at=None
+        )
+    return TickerBankCapitalMetricsOut(**row.model_dump())
+
+
+@app.put("/api/tickers/{ticker}/bank-capital-metrics", response_model=TickerBankCapitalMetricsOut)
+async def update_ticker_bank_capital_metrics(ticker: str, body: TickerBankCapitalMetricsIn) -> TickerBankCapitalMetricsOut:
+    ticker = ticker.upper()
+    with Session(engine) as session:
+        row = set_ticker_bank_capital_metrics(
+            session, ticker, body.cet1_ratio_pct, body.cet1_as_of, body.npl_ratio_pct, body.npl_as_of
+        )
+    # cache_only=True -- same reasoning as update_ticker_moat: a CET1/NPL
+    # change alone shouldn't trigger a surprise FMP fetch, just keep the
+    # Screener's TickerScore row from going stale after an explicit user
+    # action.
+    await compute_ticker_score(ticker, cache_only=True)
+    return TickerBankCapitalMetricsOut(**row.model_dump())
 
 
 @app.get("/api/screener", response_model=list[TickerScoreOut])

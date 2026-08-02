@@ -271,6 +271,7 @@ def evaluate_current_ratio_breach_context(
 # AGREEMENT_WEIGHT), rather than left implicit in the `/ 3` below.
 WEIGHTS_STANDARD = {"current_ratio": 1 / 3, "debt_to_ebitda": 1 / 3, "debt_servicing_ratio": 1 / 3}
 WEIGHTS_REIT = {"gearing_ratio": 1.0}
+WEIGHTS_BANK = {"cet1_ratio": 0.5, "npl_ratio": 0.5}
 
 __all__ = [
     "classify_company_type",
@@ -284,8 +285,10 @@ __all__ = [
     "score_debt_servicing",
     "score_gearing",
     "score_npl",
+    "score_cet1",
     "score_step5_standard",
     "score_step5_reit",
+    "score_step5_bank",
 ]
 
 
@@ -393,13 +396,33 @@ def score_npl(value_pct: float) -> RatioResult:
     threshold is <5% = pass, so >=5% is the hard-fail boundary; the
     sub-tiers above that are first-pass judgment calls, same status as
     Step 4's CCC thresholds (no doc-given numeric gradation exists).
-    This is a partial signal only -- CET1 is still unavailable for Banks,
-    so this ratio alone never produces a Bank verdict (see step5_data.py)."""
+    Also used, unchanged, as the NPL half of score_step5_bank's blend once
+    a CET1 value is available (see score_step5_bank) -- still a standalone
+    partial signal on its own otherwise (a Bank ticker with no CET1 entered
+    yet still shows this alone, see step5_data.py)."""
     if value_pct >= 5.0:
         return RatioResult("fail", 0, True)
     if value_pct >= 3.0:
         return RatioResult("acceptable", 70, False)
     if value_pct >= 1.0:
+        return RatioResult("good", 85, False)
+    return RatioResult("excellent", 100, False)
+
+
+# --- CET1 (Common Equity Tier 1) Ratio -- Bank, manual entry only -----------
+# No FMP source exists (confirmed -- see CLAUDE.md's Step 5 CET1 deviation
+# note), so this is always a user-entered value, never fetched. 8% is the
+# Basel III regulatory "well capitalized" floor (source-doc-given), so <8%
+# is the hard-fail boundary; 10%/12% sub-tier splits are first-pass
+# judgment calls, same status as Step 4's CCC thresholds and NPL's own
+# 1%/3% splits (no doc-given numeric gradation exists above the floor).
+def score_cet1(value_pct: float) -> RatioResult:
+    """Mirrors score_npl's excellent/good/acceptable/fail 4-tier shape."""
+    if value_pct < 8.0:
+        return RatioResult("fail", 0, True)
+    if value_pct < 10.0:
+        return RatioResult("acceptable", 70, False)
+    if value_pct < 12.0:
         return RatioResult("good", 85, False)
     return RatioResult("excellent", 100, False)
 
@@ -578,5 +601,30 @@ def score_step5_reit(gearing_pct: float) -> dict:
         "weights": WEIGHTS_REIT,
         "ratios": {
             "gearing_ratio": {"value": gearing_pct, "label": g.label, "points": g.points},
+        },
+    }
+
+
+def score_step5_bank(cet1_pct: float, npl_pct: float) -> dict:
+    """Pure scoring function for Step 5's Bank path, once both a manually-
+    entered CET1 ratio and a resolved NPL ratio (manual override or the
+    live compute_npl_ratio() result -- see step5_data.py) are available.
+    Blends 50/50 -- CET1 (capital adequacy) and NPL (asset quality) are
+    independent signals, neither doc-weighted over the other. Hard-fail
+    override reuses _verdict_for unchanged; saved_by_tiebreaker is always
+    False here -- no rescue mechanism exists for either ratio in v1."""
+    cet1 = score_cet1(cet1_pct)
+    npl = score_npl(npl_pct)
+    hard_fail = cet1.hard_fail or npl.hard_fail
+    score = round(cet1.points * WEIGHTS_BANK["cet1_ratio"] + npl.points * WEIGHTS_BANK["npl_ratio"])
+    verdict = _verdict_for(score, hard_fail, False)
+    return {
+        "score": score,
+        "verdict": verdict,
+        "hard_fail": hard_fail,
+        "weights": WEIGHTS_BANK,
+        "ratios": {
+            "cet1_ratio": {"value": cet1_pct, "label": cet1.label, "points": cet1.points},
+            "npl_ratio": {"value": npl_pct, "label": npl.label, "points": npl.points},
         },
     }

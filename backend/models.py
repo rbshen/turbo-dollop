@@ -106,6 +106,34 @@ class MoatScoreConfig(SQLModel, table=True):
     updated_at: datetime
 
 
+class TickerBankCapitalMetrics(SQLModel, table=True):
+    """Manually-entered CET1 (Common Equity Tier 1) ratio, plus an optional
+    manual override for the NPL (non-performing loan) ratio Step 5 already
+    computes automatically from raw XBRL tags for Bank tickers (see
+    npl.py). No FMP source exists for CET1 at all (confirmed -- see
+    CLAUDE.md's Step 5 CET1 deviation note), so it's manual-only, same
+    non-FundamentalsCache treatment as TickerMoat/GrowthCatalystNote.
+    npl_ratio_pct is an OVERRIDE only -- None means "no override, defer to
+    the live compute_npl_ratio() result" (see step5_data.py); npl.py's own
+    auto-compute path still runs every request regardless, to have a value
+    available for pre-fill/fallback. Scoped to Bank tickers only, and
+    further excluded for IBKR/HOOD (confirmed no customer deposit-taking
+    business -- see step5_data.py's BANK_CET1_NPL_EXCLUDED_TICKERS), though
+    nothing in this table's own schema enforces either restriction -- that's
+    step5_data.py's job. Editable via the ticker page's Debt (Step 5) card,
+    gated behind a confirm step in the UI, same pattern as TickerMoat's
+    Economic Moat tab."""
+
+    ticker: str = Field(primary_key=True)
+    cet1_ratio_pct: float | None = None
+    # Free-text filing-period label (e.g. "Q2 2026"), NOT a strict date --
+    # matches npl.py's own NplResult.as_of convention.
+    cet1_as_of: str | None = None
+    npl_ratio_pct: float | None = None
+    npl_as_of: str | None = None
+    updated_at: datetime
+
+
 class SavedScreenerFilter(SQLModel, table=True):
     """A user-named snapshot of the Screener page's full filter/sort/universe
     state (see frontend/lib/screenerFilters.ts's ScreenerFilterState), so a

@@ -248,6 +248,21 @@ class Step5Out(BaseModel):
     # presented as equally current as a ticker where the quarterly figure
     # was available.
     npl_as_of: str | None = None
+    # Bank only (non-excluded tickers) -- manually entered, no FMP source
+    # exists (see CLAUDE.md's Step 5 CET1 deviation note). None when not yet
+    # entered.
+    cet1_ratio_pct: float | None = None
+    cet1_as_of: str | None = None
+    # "manual" when a TickerBankCapitalMetrics.npl_ratio_pct override is
+    # set, "auto" when Step 5 fell back to the live compute_npl_ratio()
+    # result, None when neither is available. Bank only.
+    npl_source: str | None = None
+    # True only for non-excluded Bank tickers (not IBKR/HOOD, which have no
+    # customer deposit-taking business -- see step5_data.py's
+    # BANK_CET1_NPL_EXCLUDED_TICKERS) -- tells the frontend whether to
+    # render the CET1/NPL input form at all vs. IBKR/HOOD's unchanged
+    # static blurb.
+    bank_capital_metrics_editable: bool = False
     # Deferred revenue is now wired into the Current Ratio verdict itself
     # (see ratios["current_ratio"].adjusted_value) -- this raw figure is
     # kept for display/context, not just as an unused note.
@@ -519,6 +534,30 @@ class TickerMoatOut(BaseModel):
 
 class TickerMoatIn(BaseModel):
     moat: Literal["no_moat", "narrow_moat", "wide_moat"]
+
+
+class TickerBankCapitalMetricsOut(BaseModel):
+    ticker: str
+    # None means "not set" -- CET1 has no FMP source at all, so this is the
+    # default for every Bank ticker until a user explicitly enters one via
+    # the Debt (Step 5) card.
+    cet1_ratio_pct: float | None = None
+    cet1_as_of: str | None = None
+    # None means "no manual override" -- Step 5 defers to the live
+    # compute_npl_ratio() result in that case (see step5_data.py).
+    npl_ratio_pct: float | None = None
+    npl_as_of: str | None = None
+    updated_at: datetime | None = None
+
+
+class TickerBankCapitalMetricsIn(BaseModel):
+    # Full-replace PUT, same semantics as TickerMoatIn -- every field is
+    # optional (unlike TickerMoatIn's required `moat`) since a user may set
+    # only CET1 and leave NPL on auto, or only override NPL.
+    cet1_ratio_pct: float | None = None
+    cet1_as_of: str | None = None
+    npl_ratio_pct: float | None = None
+    npl_as_of: str | None = None
 
 
 class MoatScoreConfigOut(BaseModel):

@@ -2,16 +2,20 @@
 
 import { OutlierWarningNote } from "@/components/shared/OutlierWarningNote";
 import { AnalysisSectionCard, type ReasoningBullet } from "@/components/shared/AnalysisSectionCard";
+import { BankCapitalMetricsForm } from "@/components/step5/BankCapitalMetricsForm";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { fmtNumber, fmtPct, fmtTableMoney } from "@/lib/format";
 import type { BreachContextSignal, Step5Out, Step5RatioResult } from "@/lib/api/types";
 
-// Order mirrors scoring/step5.py's WEIGHTS_STANDARD / WEIGHTS_REIT -- the
-// ratios that actually carry weight/points. Interest Coverage Ratio and NPL
-// are excluded: ICR is a tiebreaker signal only, and NPL is a partial
-// signal with no composite score to explain (Bank verdict is always
-// "not_supported").
-const REASONING_ORDER = ["current_ratio", "debt_to_ebitda", "debt_servicing_ratio", "gearing_ratio"] as const;
+// Order mirrors scoring/step5.py's WEIGHTS_STANDARD / WEIGHTS_REIT /
+// WEIGHTS_BANK -- the ratios that actually carry weight/points. Interest
+// Coverage Ratio is excluded: it's a tiebreaker signal only, never
+// independently weighted. cet1_ratio/npl_ratio only appear here (via
+// data.weights) once a Bank ticker has both a CET1 value and a resolved
+// NPL value and produces a real score -- data.weights is empty otherwise,
+// so reasoningBullets's `weight == null` guard already skips them
+// naturally for every other Bank state.
+const REASONING_ORDER = ["current_ratio", "debt_to_ebitda", "debt_servicing_ratio", "gearing_ratio", "cet1_ratio", "npl_ratio"] as const;
 
 interface Props {
   ticker: string;
@@ -33,6 +37,7 @@ const RATIO_LABELS: Record<string, string> = {
   interest_coverage_ratio: "Interest Coverage Ratio",
   gearing_ratio: "Gearing Ratio",
   npl_ratio: "NPL Ratio",
+  cet1_ratio: "CET1 Ratio",
 };
 
 const TIER_LABELS: Record<string, string> = {
@@ -73,7 +78,7 @@ const BREACH_CONTEXT_SIGNAL_LABELS: Record<string, string> = {
 
 function formatRatioValue(key: string, value: number | null): string {
   if (value == null) return "N/A";
-  const PERCENT_RATIOS = new Set(["debt_servicing_ratio", "gearing_ratio", "npl_ratio"]);
+  const PERCENT_RATIOS = new Set(["debt_servicing_ratio", "gearing_ratio", "npl_ratio", "cet1_ratio"]);
   return PERCENT_RATIOS.has(key) ? fmtPct(value, 1) : `${fmtNumber(value, 2)}x`;
 }
 
@@ -160,7 +165,12 @@ export function Step5Card({ ticker }: Props) {
   const icr = data.ratios.interest_coverage_ratio;
 
   const blurb = isBank
-    ? "CET1 ratio still unavailable from FMP — Debt verdict incomplete for Banks."
+    ? data.bank_capital_metrics_editable
+      ? data.cet1_ratio_pct == null
+        ? "CET1 ratio not yet entered — enter it below to complete this ticker's Debt verdict."
+        : "Scored from manually-entered CET1 and NPL (see below)."
+      : // IBKR/HOOD -- no customer deposit-taking business, unchanged from today.
+        "CET1 ratio still unavailable from FMP — Debt verdict incomplete for Banks."
     : isInsurance
       ? "Standard debt ratios aren't meaningful for insurers -- no substitute capital-adequacy signal is currently available from FMP."
       : data.verdict === "insufficient_data"
@@ -197,6 +207,9 @@ export function Step5Card({ ticker }: Props) {
   );
 
   return (
-    <AnalysisSectionCard title="Debt" score={data.score} verdict={data.verdict} blurb={blurb} notes={notes} bullets={bullets} />
+    <div className="space-y-4">
+      <AnalysisSectionCard title="Debt" score={data.score} verdict={data.verdict} blurb={blurb} notes={notes} bullets={bullets} />
+      {isBank && data.bank_capital_metrics_editable && <BankCapitalMetricsForm ticker={ticker} step5={data} />}
+    </div>
   );
 }

@@ -3,6 +3,7 @@ from datetime import date as date_cls
 from sqlmodel import Session
 
 import sec_edgar
+from bank_capital_metrics import get_ticker_bank_capital_metrics
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
@@ -11,7 +12,7 @@ from first import _first
 from fmp_client import fmp_client
 from npl import compute_npl_ratio
 from schemas import BreachContextSignal, OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
-from scoring.step5 import classify_company_type, score_npl, score_step5_reit, score_step5_standard
+from scoring.step5 import classify_company_type, score_npl, score_step5_bank, score_step5_reit, score_step5_standard
 from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 # Same 10yr fetch window/cache key Step 4 already populates
@@ -29,6 +30,21 @@ TREND_WINDOW_YEARS = 5
 # Never triggered in bulk/nightly -- only when a specific quarter is
 # already flagged for a specific ticker being viewed.
 SEC_CROSS_CHECK_METRICS = {"net_interest_expense_ttm", "cfo_ttm"}
+
+# Of the tickers classify_company_type buckets as "Bank", these two are
+# confirmed (via cached FMP XBRL data -- the `deposits` tag is entirely
+# absent) to have no customer deposit-taking business, unlike SCHW/GS/MS
+# (confirmed present, 23-49% of total assets). CET1 is a regulatory
+# capital-adequacy ratio that only makes sense for a deposit-taking
+# institution, so these two never get the CET1/NPL manual-entry treatment
+# even though they stay classify_company_type == "Bank" everywhere else in
+# the app (Step 1's NII swap, Step 4's ROIC exemption). Deliberately a
+# separate constant from classify_company_type/NON_LENDER_TICKER_OVERRIDES
+# (scoring/classification.py) -- that mechanism answers a different
+# question (is this ticker a lender at all) and must not be touched by this
+# feature; this one only controls whether the CET1/NPL input UI/scoring
+# path applies to an already-Bank-classified ticker.
+BANK_CET1_NPL_EXCLUDED_TICKERS = {"IBKR", "HOOD"}
 
 
 def _ratio_out(raw: dict) -> Step5RatioResult:
@@ -153,12 +169,13 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
         balance_sheet_row = _first(balance_sheet)
 
         if company_type == "Bank":
-            # CET1 is still unavailable (confirmed: FMP has no field and no
-            # raw components to compute one) -- deferred, not approximated,
-            # so the overall verdict stays "not_supported" regardless of NPL.
-            # NPL is a partial signal, computed from FMP's raw XBRL-tag dump
-            # (not the standardized schema) -- see npl.py for why this is
-            # NOT trusted blindly across every bank ticker.
+            # CET1 is manual-entry only (no FMP source -- see CLAUDE.md);
+            # NPL is a partial signal computed from FMP's raw XBRL-tag dump
+            # (not the standardized schema) -- see npl.py for why this
+            # isn't trusted blindly across every bank ticker. Auto-NPL
+            # still runs unconditionally (even for excluded tickers, and
+            # even when a manual override exists) since it's needed as the
+            # pre-fill/fallback value regardless.
             full_as_reported_quarterly = await safe_fetch(
                 "financial_statement_full_as_reported_quarterly",
                 get_or_fetch(
@@ -188,22 +205,84 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
             )
             quarterly_row = _first(full_as_reported_quarterly)
             annual_row = _first(full_as_reported_annual)
-
             npl_result = compute_npl_ratio(quarterly_row, annual_row, balance_sheet_row.get("totalAssets"))
-            ratios = {}
-            if npl_result.ratio_pct is not None:
-                npl_score = score_npl(npl_result.ratio_pct)
-                ratios["npl_ratio"] = _ratio_out(
-                    {"value": npl_result.ratio_pct, "label": npl_score.label, "points": npl_score.points}
+
+            if ticker in BANK_CET1_NPL_EXCLUDED_TICKERS:
+                # Byte-for-byte today's behavior -- no deposit-taking
+                # business, so CET1 doesn't apply and no manual-entry UI is
+                # offered; IBKR/HOOD must be completely unaffected by this
+                # feature.
+                ratios = {}
+                if npl_result.ratio_pct is not None:
+                    npl_score = score_npl(npl_result.ratio_pct)
+                    ratios["npl_ratio"] = _ratio_out(
+                        {"value": npl_result.ratio_pct, "label": npl_score.label, "points": npl_score.points}
+                    )
+                return Step5Out(
+                    ticker=ticker,
+                    company_type=company_type,
+                    ratios=ratios,
+                    npl_as_of=npl_result.as_of,
+                    score=None,
+                    verdict="not_supported",
+                    bank_capital_metrics_editable=False,
                 )
 
+            metrics_row = get_ticker_bank_capital_metrics(session, ticker)
+            cet1_pct = metrics_row.cet1_ratio_pct if metrics_row else None
+            cet1_as_of = metrics_row.cet1_as_of if metrics_row else None
+            manual_npl_pct = metrics_row.npl_ratio_pct if metrics_row else None
+            manual_npl_as_of = metrics_row.npl_as_of if metrics_row else None
+
+            if manual_npl_pct is not None:
+                resolved_npl_pct, resolved_npl_as_of, npl_source = manual_npl_pct, manual_npl_as_of, "manual"
+            elif npl_result.ratio_pct is not None:
+                resolved_npl_pct, resolved_npl_as_of, npl_source = npl_result.ratio_pct, npl_result.as_of, "auto"
+            else:
+                resolved_npl_pct, resolved_npl_as_of, npl_source = None, None, None
+
+            ratios = {}
+            if resolved_npl_pct is not None:
+                npl_score = score_npl(resolved_npl_pct)
+                ratios["npl_ratio"] = _ratio_out(
+                    {"value": resolved_npl_pct, "label": npl_score.label, "points": npl_score.points}
+                )
+
+            if cet1_pct is None or resolved_npl_pct is None:
+                # Still "not_supported" -- but populate whatever's
+                # available (resolved NPL + its source/as-of, and the raw
+                # cet1_ratio_pct=None "not yet entered" signal) so the
+                # frontend can render the input form pre-filled correctly.
+                return Step5Out(
+                    ticker=ticker,
+                    company_type=company_type,
+                    ratios=ratios,
+                    npl_as_of=resolved_npl_as_of,
+                    npl_source=npl_source,
+                    cet1_ratio_pct=cet1_pct,
+                    cet1_as_of=cet1_as_of,
+                    score=None,
+                    verdict="not_supported",
+                    bank_capital_metrics_editable=True,
+                )
+
+            result = score_step5_bank(cet1_pct, resolved_npl_pct)
             return Step5Out(
                 ticker=ticker,
                 company_type=company_type,
-                ratios=ratios,
-                npl_as_of=npl_result.as_of,
-                score=None,
-                verdict="not_supported",
+                ratios={
+                    "cet1_ratio": _ratio_out(result["ratios"]["cet1_ratio"]),
+                    "npl_ratio": _ratio_out(result["ratios"]["npl_ratio"]),
+                },
+                npl_as_of=resolved_npl_as_of,
+                npl_source=npl_source,
+                cet1_ratio_pct=cet1_pct,
+                cet1_as_of=cet1_as_of,
+                score=result["score"],
+                verdict=result["verdict"],
+                hard_fail=result["hard_fail"],
+                weights=result["weights"],
+                bank_capital_metrics_editable=True,
             )
 
         if company_type == "Insurance":

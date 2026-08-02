@@ -5,11 +5,13 @@ from scoring.step5 import (
     classify_interest_coverage,
     evaluate_current_ratio_breach_context,
     evaluate_debt_to_ebitda_breach_context,
+    score_cet1,
     score_current_ratio,
     score_debt_servicing,
     score_debt_to_ebitda,
     score_gearing,
     score_npl,
+    score_step5_bank,
     score_step5_reit,
     score_step5_standard,
 )
@@ -277,6 +279,68 @@ def test_npl_boundary_at_3_is_acceptable_not_good():
 def test_npl_fail_at_or_above_5():
     assert score_npl(5.0) == ("fail", 0, True, False, ())
     assert score_npl(7.5) == ("fail", 0, True, False, ())
+
+
+# --- CET1 Ratio tiers (Bank, manual entry only) ---
+
+
+def test_cet1_excellent_at_or_above_12():
+    assert score_cet1(12.0) == ("excellent", 100, False, False, ())
+    assert score_cet1(15.0) == ("excellent", 100, False, False, ())
+
+
+def test_cet1_good():
+    assert score_cet1(11.0) == ("good", 85, False, False, ())
+
+
+def test_cet1_boundary_at_10_is_good_not_acceptable():
+    assert score_cet1(10.0) == ("good", 85, False, False, ())
+
+
+def test_cet1_acceptable():
+    assert score_cet1(9.0) == ("acceptable", 70, False, False, ())
+
+
+def test_cet1_boundary_at_8_is_acceptable_not_fail():
+    assert score_cet1(8.0) == ("acceptable", 70, False, False, ())
+
+
+def test_cet1_fail_below_8():
+    assert score_cet1(7.9) == ("fail", 0, True, False, ())
+    assert score_cet1(4.0) == ("fail", 0, True, False, ())
+
+
+# --- Bank path (CET1 + NPL, 50/50 blend) ---
+
+
+def test_bank_both_excellent_is_strong_pass():
+    result = score_step5_bank(cet1_pct=15.0, npl_pct=0.5)
+    assert result["score"] == 100
+    assert result["hard_fail"] is False
+    assert result["verdict"] == "Strong Pass"
+    assert result["weights"] == {"cet1_ratio": 0.5, "npl_ratio": 0.5}
+    assert result["ratios"]["cet1_ratio"]["label"] == "excellent"
+    assert result["ratios"]["npl_ratio"]["label"] == "excellent"
+
+
+def test_bank_blend_math_mixed_tiers():
+    # CET1 "good" (85) + NPL "acceptable" (70) -> (85*0.5 + 70*0.5) = 77.5 -> 78
+    result = score_step5_bank(cet1_pct=11.0, npl_pct=4.0)
+    assert result["score"] == 78
+    assert result["hard_fail"] is False
+    assert result["verdict"] == "Pass"
+
+
+def test_bank_cet1_hard_fail_overrides_even_with_excellent_npl():
+    result = score_step5_bank(cet1_pct=6.0, npl_pct=0.5)
+    assert result["hard_fail"] is True
+    assert result["verdict"] == "Fail"
+
+
+def test_bank_npl_hard_fail_overrides_even_with_excellent_cet1():
+    result = score_step5_bank(cet1_pct=15.0, npl_pct=6.0)
+    assert result["hard_fail"] is True
+    assert result["verdict"] == "Fail"
 
 
 # --- Gearing Ratio tiers (REIT) -- unchanged ---

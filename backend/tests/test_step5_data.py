@@ -167,6 +167,18 @@ def _fresh_engine(monkeypatch):
     monkeypatch.setattr(step5_data, "engine", test_engine)
 
 
+def _set_bank_capital_metrics(monkeypatch, ticker, cet1_ratio_pct=None, cet1_as_of=None, npl_ratio_pct=None, npl_as_of=None):
+    # Must be called AFTER _fresh_engine(monkeypatch) -- step5_data.engine
+    # is only pointed at the in-memory test engine once that runs, same
+    # ordering constraint every other fixture in this file already has.
+    from sqlmodel import Session
+
+    from bank_capital_metrics import set_ticker_bank_capital_metrics
+
+    with Session(step5_data.engine) as session:
+        set_ticker_bank_capital_metrics(session, ticker, cet1_ratio_pct, cet1_as_of, npl_ratio_pct, npl_as_of)
+
+
 def test_uses_quarterly_balance_sheet_not_annual(monkeypatch):
     _fresh_engine(monkeypatch)
     _patch_fmp(monkeypatch)
@@ -461,6 +473,109 @@ def test_bank_npl_annual_fallback_still_respects_plausibility_floor(monkeypatch)
 
     assert result.ratios == {}
     assert result.npl_as_of is None
+
+
+# --- CET1/NPL manual entry (Bank, non-excluded tickers) ---
+
+
+def test_bank_excluded_ticker_unaffected_even_with_a_stray_capital_metrics_row(monkeypatch):
+    # IBKR/HOOD-shaped: even if a CET1/NPL row somehow exists (e.g. leftover
+    # from before this ticker was added to the exclusion set), the excluded
+    # path must ignore it entirely and behave byte-for-byte like today.
+    _fresh_engine(monkeypatch)
+    _patch_fmp(
+        monkeypatch,
+        sector="Financial Services",
+        industry="Banks - Diversified",
+        full_as_reported_quarterly=FULL_AS_REPORTED_QUARTERLY_GOOD,
+    )
+    _set_bank_capital_metrics(monkeypatch, "IBKR", cet1_ratio_pct=20.0, cet1_as_of="Q2 2026")
+    monkeypatch.setattr(step5_data, "BANK_CET1_NPL_EXCLUDED_TICKERS", {"IBKR", "HOOD"})
+
+    result = asyncio.run(get_step5_data("ibkr"))
+
+    assert result.company_type == "Bank"
+    assert result.verdict == "not_supported"
+    assert result.score is None
+    assert result.bank_capital_metrics_editable is False
+    assert result.cet1_ratio_pct is None
+    assert result.ratios["npl_ratio"].value == 2.0
+
+
+def test_bank_non_excluded_no_cet1_row_still_not_supported_with_npl_populated(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(
+        monkeypatch,
+        sector="Financial Services",
+        industry="Banks - Diversified",
+        full_as_reported_quarterly=FULL_AS_REPORTED_QUARTERLY_GOOD,
+    )
+
+    result = asyncio.run(get_step5_data("jpm"))
+
+    assert result.company_type == "Bank"
+    assert result.verdict == "not_supported"
+    assert result.score is None
+    assert result.bank_capital_metrics_editable is True
+    assert result.cet1_ratio_pct is None
+    assert result.npl_source == "auto"
+    assert result.ratios["npl_ratio"].value == 2.0
+
+
+def test_bank_cet1_plus_auto_npl_produces_real_verdict(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(
+        monkeypatch,
+        sector="Financial Services",
+        industry="Banks - Diversified",
+        full_as_reported_quarterly=FULL_AS_REPORTED_QUARTERLY_GOOD,
+    )
+    _set_bank_capital_metrics(monkeypatch, "jpm", cet1_ratio_pct=15.0, cet1_as_of="Q2 2026")
+
+    result = asyncio.run(get_step5_data("jpm"))
+
+    assert result.verdict != "not_supported"
+    assert result.score is not None
+    assert result.npl_source == "auto"
+    assert result.cet1_ratio_pct == 15.0
+    assert result.ratios["cet1_ratio"].label == "excellent"
+    assert result.ratios["npl_ratio"].label == "good"
+
+
+def test_bank_manual_npl_override_takes_precedence_over_auto(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(
+        monkeypatch,
+        sector="Financial Services",
+        industry="Banks - Diversified",
+        full_as_reported_quarterly=FULL_AS_REPORTED_QUARTERLY_GOOD,  # auto would be 2.0% "good"
+    )
+    _set_bank_capital_metrics(
+        monkeypatch, "jpm", cet1_ratio_pct=15.0, cet1_as_of="Q2 2026", npl_ratio_pct=0.3, npl_as_of="Manual Q3 2026"
+    )
+
+    result = asyncio.run(get_step5_data("jpm"))
+
+    assert result.npl_source == "manual"
+    assert result.npl_as_of == "Manual Q3 2026"
+    assert result.ratios["npl_ratio"].value == 0.3
+    assert result.ratios["npl_ratio"].label == "excellent"
+
+
+def test_bank_hard_fail_cet1_forces_fail_despite_great_npl(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(
+        monkeypatch,
+        sector="Financial Services",
+        industry="Banks - Diversified",
+        full_as_reported_quarterly=FULL_AS_REPORTED_QUARTERLY_GOOD,
+    )
+    _set_bank_capital_metrics(monkeypatch, "jpm", cet1_ratio_pct=5.0, cet1_as_of="Q2 2026")
+
+    result = asyncio.run(get_step5_data("jpm"))
+
+    assert result.hard_fail is True
+    assert result.verdict == "Fail"
 
 
 # --- SEC EDGAR cross-check wiring (Debt Servicing Ratio's own two inputs) --
