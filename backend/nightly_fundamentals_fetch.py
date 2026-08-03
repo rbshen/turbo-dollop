@@ -3,12 +3,22 @@ stored S&P 500 + Dow constituent lists (see sp500_scraper.py /
 dow_scraper.py / IndexConstituent -- load_universe_tickers unions both),
 via the app's existing cache-aware fetch pipeline --
 get_step1_data / get_step2_data / get_step4_data / get_step5_data /
-get_summary. Nothing bespoke here: these are the exact same functions
-Step 1/2/4/5 and the ticker header already call, each already going through
+get_summary / get_segmentation_data. Nothing bespoke here: these are the
+exact same functions Step 1/2/4/5, the ticker header, and the Summary
+tab's segmentation charts already call, each already going through
 get_or_fetch's cache-freshness check internally. The first run against a
 cold cache does a full fetch (~7,000 calls, ~30 min at the paced rate
 below); every run after that is mostly cache hits, since get_or_fetch only
 calls FMP for a ticker/statement whose cache has actually gone stale.
+
+get_segmentation_data was added later (2026-08-03) than the other five --
+before this, a ticker could be fully warm on Step 1/2/4/5/Summary and still
+cold-fetch segmentation live the first time someone opened its Summary tab,
+since nothing else in this pipeline ever populated that cache key. It has
+no dependency on any other step's output, so its place in the sequence
+below is arbitrary -- grouped with the other per-ticker fetches, ahead of
+the cross-step get_summary/compute_ticker_score calls, purely for
+readability.
 
 After fetching each ticker's raw data, also computes and stores its
 Screener row (ticker_score.compute_ticker_score) -- cache_only=True since
@@ -42,6 +52,7 @@ from db import engine, init_db
 from fmp_client import fmp_client
 from logging_config import configure_logging
 from models import IndexConstituent
+from segmentation_data import get_segmentation_data
 from step1_data import get_step1_data
 from step2_data import get_step2_data
 from step4_data import get_step4_data
@@ -84,6 +95,7 @@ async def _refresh_one_ticker(ticker: str) -> None:
     await get_step2_data(ticker)
     await get_step4_data(ticker)
     await get_step5_data(ticker)
+    await get_segmentation_data(ticker)
     await get_summary(ticker)
     await compute_ticker_score(ticker, cache_only=True)
 

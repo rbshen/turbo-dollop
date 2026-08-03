@@ -39,6 +39,7 @@ def _patch_all_steps(monkeypatch, calls, fail_for: set[str] | None = None):
     monkeypatch.setattr(nightly, "get_step2_data", make_step("step2"))
     monkeypatch.setattr(nightly, "get_step4_data", make_step("step4"))
     monkeypatch.setattr(nightly, "get_step5_data", make_step("step5"))
+    monkeypatch.setattr(nightly, "get_segmentation_data", make_step("segmentation"))
     monkeypatch.setattr(nightly, "get_summary", make_step("summary"))
     monkeypatch.setattr(nightly, "compute_ticker_score", fake_compute_ticker_score)
 
@@ -88,7 +89,7 @@ def test_a_failing_ticker_does_not_abort_the_run(monkeypatch, tmp_path):
     assert summary["failures"] == [("BADCO", "simulated failure fetching step1 for BADCO")]
 
 
-def test_summary_reports_all_five_expected_fields(monkeypatch, tmp_path):
+def test_summary_reports_all_expected_fields(monkeypatch, tmp_path):
     _fresh_engine(monkeypatch, tmp_path)
     calls: list[tuple[str, str]] = []
     _patch_all_steps(monkeypatch, calls)
@@ -102,10 +103,10 @@ def test_summary_reports_all_five_expected_fields(monkeypatch, tmp_path):
     assert summary["failures"] == []
     assert "calls_made" in summary
     assert "duration_seconds" in summary
-    # All five existing get_*_data/get_summary functions must be called for
+    # All six existing get_*_data/get_summary functions must be called for
     # every ticker -- nothing bespoke, reusing the actual pipeline -- plus
     # the Screener score computation that now runs after them.
-    assert {c[1] for c in calls} == {"step1", "step2", "step4", "step5", "summary", "ticker_score"}
+    assert {c[1] for c in calls} == {"step1", "step2", "step4", "step5", "segmentation", "summary", "ticker_score"}
 
 
 def test_ticker_score_is_computed_cache_only_after_each_tickers_fetch(monkeypatch, tmp_path):
