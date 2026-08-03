@@ -1,9 +1,11 @@
 "use client";
 
 import { AnalystDistributionBar } from "@/components/analystRatings/AnalystDistributionBar";
+import { AvgRatingTrendChart } from "@/components/analystRatings/AvgRatingTrendChart";
 import { ConsensusBanner } from "@/components/analystRatings/ConsensusBanner";
 import { PriceTargetsCard } from "@/components/analystRatings/PriceTargetsCard";
 import { PriceTargetTrendChart } from "@/components/analystRatings/PriceTargetTrendChart";
+import { RatingDistributionTrendChart } from "@/components/analystRatings/RatingDistributionTrendChart";
 import { RecommendationDetailsTable } from "@/components/analystRatings/RecommendationDetailsTable";
 import { useAnalystRatings } from "@/lib/hooks/useAnalystRatings";
 
@@ -47,6 +49,16 @@ export function AnalystRatingsTab({ ticker }: Props) {
           <AnalystDistributionBar column={currentColumn} />
         </div>
       )}
+
+      <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
+        <h2 className="font-heading text-sm font-semibold text-text-primary">Recommendation Trend</h2>
+        <RatingDistributionTrendChart history={data.history} />
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
+        <h2 className="font-heading text-sm font-semibold text-text-primary">Average Rating Trend</h2>
+        <AvgRatingTrendChart history={data.history} />
+      </div>
 
       <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
         <h2 className="font-heading text-sm font-semibold text-text-primary">Average Price Target Trend</h2>
