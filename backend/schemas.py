@@ -681,11 +681,11 @@ class WatchlistBulkAddOut(BaseModel):
 class WatchlistRowOut(BaseModel):
     """One Watchlist row: compute_ticker_score's cache-only fields (same set
     as TickerScoreOut, minus company/sector/industry/growth_rate/computed_at
-    which the Watchlist table doesn't show) plus a live price/change quote
-    and the Analyst Ratings consensus banner (also cache-only) -- see
-    watchlist_data.py::_compose_row. Every score field is None for a ticker
-    that's never been visited/cached (compute_ticker_score returns None),
-    rather than erroring the whole row."""
+    which the Watchlist table doesn't show) plus Step 1's raw Revenue/Net
+    Income/CFO series and the Analyst Ratings consensus banner (also
+    cache-only) -- see watchlist_data.py::_compose_row. Every score field is
+    None for a ticker that's never been visited/cached (compute_ticker_score
+    returns None), rather than erroring the whole row."""
 
     ticker: str
     company_name: str | None = None
@@ -695,9 +695,16 @@ class WatchlistRowOut(BaseModel):
     # TradingView's "Upload list" import. None whenever the profile cache
     # entry isn't populated yet (never-visited ticker).
     exchange: str | None = None
-    price: float | None = None
-    change: float | None = None
-    change_percent: float | None = None
+    # Latest watchlist_data.LATEST_YEARS_SHOWN (5) periods of Step 1's
+    # years/revenue/net_income/cfo, for the table's per-row mini trend bar
+    # charts -- same series Step1Out itself exposes, just windowed down.
+    # cfo is None (the whole field, not a list of nulls) for a CFO-exempt
+    # ticker (Bank/Property Developer/Commodity), same convention as
+    # Step1Out.cfo.
+    years: list[str] = []
+    revenue: list[float | None] = []
+    net_income: list[float | None] = []
+    cfo: list[float | None] | None = None
     moat: str | None = None
     valuation_verdict: str | None = None
     step1_score: int | None = None

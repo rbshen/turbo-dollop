@@ -2,12 +2,12 @@
 
 import { useMemo } from "react";
 
+import { MiniBarChart } from "@/components/charts/MiniBarChart";
 import { MoatPill } from "@/components/ticker/MoatPill";
-import { PriceChange } from "@/components/ticker/PriceChange";
 import { ValuationBadge } from "@/components/screener/ValuationBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { WatchlistOut, WatchlistRowOut, WatchlistSortField } from "@/lib/api/types";
-import { fmtCompactMoney, fmtMoney, fmtNumber } from "@/lib/format";
+import { fmtCompactMoney, fmtNumber } from "@/lib/format";
 import type { SortDirection } from "@/lib/screenerFilters";
 import { flatChipClassFor } from "@/lib/tierColor";
 import { removeTickerFromWatchlist } from "@/lib/hooks/useWatchlists";
@@ -49,11 +49,30 @@ function ratingColorClass(rating: string): string {
   return "text-text-tertiary"; // "N/A"
 }
 
+// Trend cell: same MiniBarChart house style as the Financials tab's
+// Historical Trends grid (thick bars, no axis, hover tooltip w/ signed
+// 2-decimal value), just sized down for a table row. Not sortable -- these
+// are a 5-year preview, not a single comparable number, so they're
+// deliberately absent from WatchlistSortField/SORT_FIELD_OPTIONS.
+function TrendCell({ years, values }: { years: string[]; values: (number | null)[] | null }) {
+  if (!values || values.every((v) => v == null)) {
+    return <span className="flex h-8 w-24 items-center justify-center text-text-tertiary">—</span>;
+  }
+  return (
+    <div className="w-24">
+      <MiniBarChart categories={years} values={values} valueFormat={fmtCompactMoney} height={32} />
+    </div>
+  );
+}
+
 // Column order per design_handoff_fathom_v2/README.md's Watchlist spec:
 // Ticker, Sector, Price, Chg, Moat, Valuation, Analysis, Rating, Mkt Cap,
 // Beta, P/E, then a trailing icon-only remove button. "Analysis" collapses
 // the old F/G/D/P STEP_CHIPS into row.overall_score/overall_verdict, same
-// as ScreenerCard's own STEP_CHIPS removal.
+// as ScreenerCard's own STEP_CHIPS removal. Price/Chg replaced (2026-08-03)
+// with Revenue/Net Income/CFO 5yr mini trend charts -- the live quote they
+// required was the one thing on this cache-only page that always hit FMP
+// live; see watchlist_data.py's now-removed _live_quote.
 export function WatchlistTable({ watchlist, rows, error }: Props) {
   const sorted = useMemo(
     () => (rows ? sortWatchlistRows(rows, watchlist.sort_field as WatchlistSortField, watchlist.sort_direction as SortDirection) : []),
@@ -82,13 +101,14 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
 
   return (
     <div className="rounded-lg border border-border-card bg-surface">
-      <Table containerClassName="overflow-x-auto" className="min-w-[900px] border-separate border-spacing-0">
+      <Table containerClassName="overflow-x-auto" className="min-w-[1000px] border-separate border-spacing-0">
         <TableHeader>
           <TableRow className="border-border-card bg-surface-2 hover:bg-surface-2">
             <TableHead className={`${HEAD_CLASS} w-40`}>Ticker</TableHead>
-            <TableHead className={HEAD_CLASS}>Sector</TableHead>
-            <TableHead className={`${HEAD_CLASS} text-right`}>Price</TableHead>
-            <TableHead className={`${HEAD_CLASS} text-right`}>Chg</TableHead>
+            <TableHead className={`${HEAD_CLASS} w-24`}>Sector</TableHead>
+            <TableHead className={`${HEAD_CLASS} text-center`}>Revenue</TableHead>
+            <TableHead className={`${HEAD_CLASS} text-center`}>Net Income</TableHead>
+            <TableHead className={`${HEAD_CLASS} text-center`}>CFO</TableHead>
             <TableHead className={`${HEAD_CLASS} text-center`}>Moat</TableHead>
             <TableHead className={`${HEAD_CLASS} text-center`}>Valuation</TableHead>
             <TableHead className={`${HEAD_CLASS} text-center`}>Analysis</TableHead>
@@ -108,16 +128,17 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
                   {row.company_name ?? "—"}
                 </p>
               </TableCell>
-              <TableCell className="text-text-secondary">{row.sector ?? "—"}</TableCell>
-              <TableCell className="text-right font-mono tabular-nums text-text-secondary">
-                {row.price != null ? fmtMoney(row.price) : "—"}
+              <TableCell className="w-24 max-w-24 truncate text-text-secondary" title={row.sector ?? undefined}>
+                {row.sector ?? "—"}
               </TableCell>
-              <TableCell className="text-right">
-                {row.change != null && row.change_percent != null ? (
-                  <PriceChange change={row.change} changePercent={row.change_percent} />
-                ) : (
-                  <span className="text-text-tertiary">—</span>
-                )}
+              <TableCell className="text-center">
+                <TrendCell years={row.years} values={row.revenue} />
+              </TableCell>
+              <TableCell className="text-center">
+                <TrendCell years={row.years} values={row.net_income} />
+              </TableCell>
+              <TableCell className="text-center">
+                <TrendCell years={row.years} values={row.cfo} />
               </TableCell>
               <TableCell className="text-center">
                 <MoatPill moat={row.moat} variant="flat" />

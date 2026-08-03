@@ -31,7 +31,7 @@ export function MiniBarChart({ categories, values, valueFormat, color = "var(--c
 
   return (
     <ChartContainer config={chartConfig} className="aspect-auto w-full" style={{ height }} role="img" aria-label="Historical trend">
-      <BarChart data={chartData} barCategoryGap="20%">
+      <BarChart data={chartData} barCategoryGap="10%">
         {/* No dataKey on YAxis needed, but XAxis's dataKey is what lets
             Recharts resolve the tooltip's `label` to the period string --
             without it (chart previously had no XAxis at all), the tooltip

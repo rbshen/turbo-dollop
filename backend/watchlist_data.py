@@ -2,26 +2,31 @@ import asyncio
 
 from sqlmodel import Session
 
-from cache import force_fetch, get_or_fetch, safe_fetch
+from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
 from first import _first
 from fmp_client import fmp_client
 from models import WatchlistTicker
 from schemas import WatchlistRowOut
+from step1_data import get_step1_data
 from ticker_score import compute_ticker_score
 
-# _live_quote and _consensus_rating each hold a DB session open for the
-# duration of a live FMP call (get_or_fetch/force_fetch's own contract --
-# harmless for a single ticker page, but get_watchlist_rows fans this out
-# across every row via asyncio.gather). A watchlist with many tickers
-# needing a live fetch on both paths at once can hold more concurrent
-# sessions than the pool allows (pool_size=5 + max_overflow=10 = 15,
-# db.py::engine) and raise sqlalchemy.exc.TimeoutError instead of
-# responding -- confirmed via a real 29-ticker watchlist once
-# _consensus_rating started fetching live too. Capped well under the pool
-# limit, with headroom for the cache-only reads (_cached_exchange,
-# compute_ticker_score) running concurrently alongside these.
+# LATEST_YEARS_SHOWN of Step 1's Revenue/Net Income/CFO series back each
+# row's mini trend bar chart -- Step1Out's own `years` is 10yr+TTM, more
+# than a table cell has room for.
+LATEST_YEARS_SHOWN = 5
+
+# _consensus_rating holds a DB session open for the duration of a live FMP
+# call (get_or_fetch's own contract -- harmless for a single ticker page,
+# but get_watchlist_rows fans this out across every row via asyncio.gather).
+# A watchlist with many tickers needing a live consensus-rating fetch at
+# once can hold more concurrent sessions than the pool allows (pool_size=5
+# + max_overflow=10 = 15, db.py::engine) and raise sqlalchemy.exc.TimeoutError
+# instead of responding -- confirmed via a real 29-ticker watchlist. Capped
+# well under the pool limit, with headroom for the cache-only reads
+# (_cached_exchange, compute_ticker_score, get_step1_data) running
+# concurrently alongside these.
 _LIVE_FETCH_CONCURRENCY = asyncio.Semaphore(8)
 
 
@@ -48,23 +53,6 @@ async def _cached_exchange(ticker: str) -> str | None:
             )
         )
     return profile.get("exchangeShortName") or profile.get("exchange")
-
-
-async def _live_quote(ticker: str) -> dict:
-    # A targeted force_fetch on just the "quote" cache key -- NOT a full
-    # get_summary(ticker, cache_only=False) call, which would also
-    # re-trigger a live refetch cascade of every other stale-per-the-
-    # staleness-window field (profile, ratios, earnings, balance sheet,
-    # ...) bundled into that function. Same "quote"/"latest" cache key
-    # get_summary/get_analyst_ratings_data already share, so this doesn't
-    # add a new cache entry, just refreshes the shared one.
-    async with _LIVE_FETCH_CONCURRENCY:
-        with Session(engine) as session:
-            return _first(
-                await safe_fetch(
-                    "quote", force_fetch(session, ticker, "quote", "latest", lambda: fmp_client.get_quote(ticker))
-                )
-            )
 
 
 async def _consensus_rating(ticker: str) -> str:
@@ -99,7 +87,7 @@ async def _consensus_rating(ticker: str) -> str:
 
 async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
     ticker = watchlist_ticker.ticker.upper()
-    score, rating, quote, exchange = await asyncio.gather(
+    score, rating, exchange, step1 = await asyncio.gather(
         # cache_only=True: opening the Watchlist page must not trigger a
         # live FMP refetch cascade across every ticker in the list, same
         # reasoning as the Screener page. Returns None for a ticker with no
@@ -107,18 +95,30 @@ async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
         # null score fields (see below).
         compute_ticker_score(ticker, cache_only=True),
         _consensus_rating(ticker),
-        _live_quote(ticker),
         _cached_exchange(ticker),
+        # Same cache-only Step1Out compute_ticker_score already runs
+        # internally -- re-derived here rather than widening TickerScore's
+        # own return shape, since Revenue/Net Income/CFO's raw per-year
+        # series aren't otherwise needed by the Screener card TickerScore
+        # backs. No new cache entry or FMP call; get_step1_data(cache_only=
+        # True) only ever reads FundamentalsCache.
+        get_step1_data(ticker, cache_only=True),
     )
+
+    years = step1.years[-LATEST_YEARS_SHOWN:]
+    revenue = step1.revenue[-LATEST_YEARS_SHOWN:]
+    net_income = step1.net_income[-LATEST_YEARS_SHOWN:]
+    cfo = step1.cfo[-LATEST_YEARS_SHOWN:] if step1.cfo is not None else None
 
     return WatchlistRowOut(
         ticker=ticker,
         company_name=score.company_name if score else None,
         sector=score.sector if score else None,
         exchange=exchange,
-        price=quote.get("price"),
-        change=quote.get("change"),
-        change_percent=quote.get("changePercentage", quote.get("changesPercentage")),
+        years=years,
+        revenue=revenue,
+        net_income=net_income,
+        cfo=cfo,
         moat=score.moat if score else None,
         valuation_verdict=score.valuation_verdict if score else None,
         step1_score=score.step1_score if score else None,
@@ -141,10 +141,11 @@ async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
 
 async def get_watchlist_rows(tickers: list[WatchlistTicker]) -> list[WatchlistRowOut]:
     """Composes one row per ticker concurrently (asyncio.gather, both across
-    tickers and across the 4 sub-fetches per ticker). compute_ticker_score's
-    cache-only call does no network I/O; the live quote always does, and
-    _consensus_rating does whenever grades_consensus is stale/missing for
-    that ticker -- for a ~20-30 ticker watchlist gather() turns what could be
-    several sequential FMP round-trips per row into one parallel batch
-    rather than N times a single round-trip's latency."""
+    tickers and across the sub-fetches per ticker). compute_ticker_score,
+    _cached_exchange, and get_step1_data are all cache-only -- no network
+    I/O; _consensus_rating is the only one that ever calls FMP live, and
+    only when grades_consensus is stale/missing for that ticker -- for a
+    ~20-30 ticker watchlist gather() turns what could be several sequential
+    FMP round-trips into one parallel batch rather than N times a single
+    round-trip's latency."""
     return list(await asyncio.gather(*[_compose_row(t) for t in tickers]))

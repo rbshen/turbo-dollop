@@ -13,10 +13,10 @@ import { useWatchlistRows } from "@/lib/hooks/useWatchlistRows";
 // Cap/Beta/P-E) plus the app's existing score-based sort fields, which
 // predate this redesign and stay available -- restyling shouldn't drop
 // working functionality the mockup's sample data simply didn't exercise.
+// Price/Change % removed (2026-08-03) along with the columns themselves --
+// see WatchlistSortField's own comment.
 const SORT_FIELD_OPTIONS: { value: WatchlistSortField; label: string }[] = [
   { value: "ticker", label: "Ticker" },
-  { value: "price", label: "Price" },
-  { value: "change_percent", label: "Change %" },
   { value: "market_cap", label: "Market Cap" },
   { value: "beta", label: "Beta" },
   { value: "pe_ratio", label: "P/E" },

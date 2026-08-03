@@ -712,11 +712,12 @@ export interface WatchlistOut {
 // WatchlistRowOut (fetched from FMP profile data already cached for every
 // other Watchlist column), and the backend persists sort_field as an
 // opaque `str` (backend/schemas.py::WatchlistOut), so this is a
-// frontend-only type widening, not new data.
+// frontend-only type widening, not new data. price/change_percent removed
+// (2026-08-03) along with the Price/Chg columns -- the live quote fetch
+// they required was pure overhead on a page whose whole design is
+// cache-only. See watchlist_data.py's now-removed _live_quote.
 export type WatchlistSortField =
   | "ticker"
-  | "price"
-  | "change_percent"
   | "market_cap"
   | "pe_ratio"
   | "beta"
@@ -727,8 +728,9 @@ export type WatchlistSortField =
   | "step5_score";
 
 // Same field set as TickerScoreOut minus sector/industry/company_type/
-// growth_rate/computed_at (not shown on the Watchlist table), plus a live
-// price/change quote and the Analyst Ratings consensus banner -- see
+// growth_rate/computed_at (not shown on the Watchlist table), plus Step 1's
+// raw Revenue/Net Income/CFO series (for the table's per-row mini trend bar
+// charts) and the Analyst Ratings consensus banner -- see
 // backend/watchlist_data.py::_compose_row.
 export interface WatchlistRowOut {
   ticker: string;
@@ -737,9 +739,15 @@ export interface WatchlistRowOut {
   // FMP's exchangeShortName (e.g. "NASDAQ", "NYSE") -- used to build the
   // EXCHANGE:SYMBOL pairs the per-watchlist Export button writes out.
   exchange: string | null;
-  price: number | null;
-  change: number | null;
-  change_percent: number | null;
+  // Latest 5 periods only (see backend LATEST_YEARS_SHOWN) -- not
+  // sortable/filterable, purely a small trend preview, so no matching
+  // WatchlistSortField entries.
+  years: string[];
+  revenue: (number | null)[];
+  net_income: (number | null)[];
+  // Whole field is null (not a list of nulls) for a CFO-exempt ticker
+  // (Bank/Property Developer/Commodity) -- same convention as Step1Out.cfo.
+  cfo: (number | null)[] | null;
   moat: MoatValue | null;
   valuation_verdict: string | null;
   step1_score: number | null;
