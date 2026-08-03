@@ -169,8 +169,8 @@ class Watchlist(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True)
-    sort_field: str = "ticker"
-    sort_direction: str = "asc"
+    sort_field: str = "overall_score"
+    sort_direction: str = "desc"
     created_at: datetime
     updated_at: datetime
 

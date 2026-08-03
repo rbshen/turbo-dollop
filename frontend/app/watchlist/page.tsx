@@ -37,7 +37,10 @@ export default function WatchlistPage() {
   // below rather than needing an effect to sync it once data loads.
   const [manualActiveId, setManualActiveId] = useState<number | null>(null);
 
-  const activeId = manualActiveId ?? watchlists?.[0]?.id ?? null;
+  const mostRecentlyCreated = watchlists?.length
+    ? watchlists.reduce((latest, w) => (w.created_at > latest.created_at ? w : latest))
+    : null;
+  const activeId = manualActiveId ?? mostRecentlyCreated?.id ?? null;
   const active = watchlists?.find((w) => w.id === activeId) ?? null;
   const { data: rows, error: rowsError } = useWatchlistRows(active?.id ?? null);
 
