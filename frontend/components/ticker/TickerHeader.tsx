@@ -5,8 +5,8 @@ import { FairValuePill } from "@/components/ticker/FairValuePill";
 import { MoatPill } from "@/components/ticker/MoatPill";
 import { PriceChange } from "@/components/ticker/PriceChange";
 import { RefreshButton } from "@/components/ticker/RefreshButton";
-import { useOverallAssessment } from "@/lib/hooks/useOverallAssessment";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
+import { useTickerScore } from "@/lib/hooks/useTickerScore";
 import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
 import { fmtMoney } from "@/lib/format";
 import { flatChipClassFor } from "@/lib/tierColor";
@@ -17,13 +17,24 @@ interface Props {
 
 // Flat (borderless) styling to match ScreenerCard/WatchlistTable's chip
 // row -- same treatment FairValuePill/MoatPill get below via variant="flat".
+//
+// Reads the precomputed TickerScore row (same source as Screener/Watchlist)
+// instead of useOverallAssessment's live /step1,2,4,5 fetch + client-side
+// blend -- that hook stays as-is for OverallAssessmentCard (Analysis tab),
+// which needs the full live per-step breakdown this chip doesn't show.
+// `data === null` covers a ticker with no cached profile at all (even the
+// endpoint's own cache-only fallback couldn't produce a row) -- same
+// "nothing to show yet" case as the loading state below.
 function AssessmentChip({ symbol }: { symbol: string }) {
-  const result = useOverallAssessment(symbol);
-  if (result.status !== "complete" || result.score == null || result.verdict == null) return null;
+  const { data } = useTickerScore(symbol);
+  if (!data || data.overall_score == null || data.overall_verdict == null) return null;
 
   return (
-    <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold ${flatChipClassFor(result.score, result.verdict)}`}>
-      {result.verdict}
+    <span
+      title={`As of ${new Date(data.computed_at).toLocaleString()}`}
+      className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold ${flatChipClassFor(data.overall_score, data.overall_verdict)}`}
+    >
+      {data.overall_verdict}
     </span>
   );
 }

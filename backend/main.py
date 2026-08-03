@@ -312,6 +312,29 @@ async def ticker_refresh(ticker: str) -> RefreshResult:
     return result
 
 
+# The ticker header's Assessment chip's data source -- a cheap read of the
+# same precomputed row Screener/Watchlist use, instead of the chip fetching
+# /step1,2,4,5 individually and blending them client-side (the Analysis
+# tab's OverallAssessmentCard still does that in full, for its live
+# per-step breakdown; this endpoint is header-chip-only). No existing
+# single-ticker TickerScore read path existed to reuse: Screener only has a
+# universe-filtered list endpoint, and Watchlist doesn't read the stored
+# row at all (compute_ticker_score(cache_only=True) live per row instead).
+# Falls back to that same cache-only compute when no row exists yet
+# (nightly job only covers S&P 500 + Dow -- see load_universe_tickers) so
+# the chip still works on a ticker's very first view, mirroring Watchlist's
+# own fallback rather than leaving the chip blank until a refresh/nightly
+# run. Either path makes zero FMP calls.
+@app.get("/api/tickers/{ticker}/score", response_model=TickerScoreOut | None)
+async def ticker_score_out(ticker: str) -> TickerScoreOut | None:
+    ticker = ticker.upper()
+    with Session(engine) as session:
+        row = session.get(TickerScore, ticker)
+    if row is None:
+        row = await compute_ticker_score(ticker, cache_only=True)
+    return TickerScoreOut(**row.model_dump()) if row is not None else None
+
+
 @app.get("/api/tickers/{ticker}/moat", response_model=TickerMoatOut)
 def ticker_moat(ticker: str) -> TickerMoatOut:
     ticker = ticker.upper()
