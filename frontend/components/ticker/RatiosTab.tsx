@@ -1,6 +1,7 @@
 "use client";
 
 import { RatiosTable } from "@/components/ticker/RatiosTable";
+import { RatioTrendsGrid } from "@/components/ticker/RatioTrendsGrid";
 import { useRatios } from "@/lib/hooks/useRatios";
 
 interface Props {
@@ -29,12 +30,19 @@ export function RatiosTab({ ticker }: Props) {
   }
 
   return (
-    <div className="space-y-4 py-6">
-      <p className="text-xs text-text-tertiary">
-        Annual figures (oldest to newest) plus a trailing-twelve-month (TTM) column. Quarterly ratios aren&apos;t
-        available on our current data plan.
-      </p>
-      <RatiosTable data={data} />
+    <div className="space-y-6 py-6">
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-widest text-text-secondary">Historical Trends</h2>
+        <RatioTrendsGrid ticker={ticker} />
+      </div>
+
+      <div className="space-y-4">
+        <p className="text-xs text-text-tertiary">
+          Annual figures (oldest to newest) plus a trailing-twelve-month (TTM) column. Quarterly ratios aren&apos;t
+          available on our current data plan.
+        </p>
+        <RatiosTable data={data} />
+      </div>
     </div>
   );
 }
