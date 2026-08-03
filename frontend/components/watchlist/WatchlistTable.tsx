@@ -37,6 +37,18 @@ function cautionStepLabels(row: WatchlistRowOut): string[] {
   return labels;
 }
 
+// Same buy/hold/sell bucketing ConsensusBanner's distribution bar already
+// uses for this data (grades_consensus's "consensus" string, e.g. "Strong
+// Buy"/"Buy"/"Hold"/"Sell"/"Strong Sell") -- ConsensusBanner itself doesn't
+// color its own rating text, so this is a new mapping, not a shared import.
+function ratingColorClass(rating: string): string {
+  const normalized = rating.toLowerCase();
+  if (normalized.includes("buy")) return "text-positive";
+  if (normalized.includes("sell")) return "text-negative";
+  if (normalized.includes("hold")) return "text-warn";
+  return "text-text-tertiary"; // "N/A"
+}
+
 // Column order per design_handoff_fathom_v2/README.md's Watchlist spec:
 // Ticker, Sector, Price, Chg, Moat, Valuation, Analysis, Rating, Mkt Cap,
 // Beta, P/E, then a trailing icon-only remove button. "Analysis" collapses
@@ -73,7 +85,7 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
       <Table containerClassName="overflow-x-auto" className="min-w-[900px] border-separate border-spacing-0">
         <TableHeader>
           <TableRow className="border-border-card bg-surface-2 hover:bg-surface-2">
-            <TableHead className={HEAD_CLASS}>Ticker</TableHead>
+            <TableHead className={`${HEAD_CLASS} w-40`}>Ticker</TableHead>
             <TableHead className={HEAD_CLASS}>Sector</TableHead>
             <TableHead className={`${HEAD_CLASS} text-right`}>Price</TableHead>
             <TableHead className={`${HEAD_CLASS} text-right`}>Chg</TableHead>
@@ -90,9 +102,11 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
         <TableBody>
           {sorted.map((row) => (
             <TableRow key={row.ticker} onClick={() => openTicker(row.ticker)} className="cursor-pointer border-border-subtle">
-              <TableCell>
+              <TableCell className="w-40 max-w-40 overflow-hidden">
                 <p className="font-mono text-sm font-bold text-text-primary">{row.ticker}</p>
-                <p className="truncate text-xs text-text-tertiary">{row.company_name ?? "—"}</p>
+                <p className="truncate text-xs text-text-tertiary" title={row.company_name ?? undefined}>
+                  {row.company_name ?? "—"}
+                </p>
               </TableCell>
               <TableCell className="text-text-secondary">{row.sector ?? "—"}</TableCell>
               <TableCell className="text-right font-mono tabular-nums text-text-secondary">
@@ -121,7 +135,7 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
                   )}
                 </span>
               </TableCell>
-              <TableCell className="text-text-secondary">{row.consensus_rating}</TableCell>
+              <TableCell className={ratingColorClass(row.consensus_rating)}>{row.consensus_rating}</TableCell>
               <TableCell className="text-right font-mono text-text-secondary">
                 {row.market_cap != null ? fmtCompactMoney(row.market_cap) : "—"}
               </TableCell>
