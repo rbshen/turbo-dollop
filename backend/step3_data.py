@@ -7,7 +7,15 @@ from debt_metrics import compute_debt_metrics
 from discount_rate_config import get_discount_rate_config
 from first import _first
 from fmp_client import fmp_client
-from schemas import Step3CapmComponents, Step3CurrentValueCandidates, Step3Inputs, Step3MethodStep, Step3Out, Step3PBBands
+from schemas import (
+    Step2Out,
+    Step3CapmComponents,
+    Step3CurrentValueCandidates,
+    Step3Inputs,
+    Step3MethodStep,
+    Step3Out,
+    Step3PBBands,
+)
 from scoring.classification import classify_company_type
 from scoring.step3 import (
     classify_valuation_verdict,
@@ -55,10 +63,19 @@ def _annual_series(annual_rows: list[dict], field: str) -> tuple[list[str], list
 async def get_step3_data(
     ticker: str,
     cache_only: bool = False,
+    step2_out: Step2Out | None = None,
 ) -> Step3Out:
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
-    cache.get_or_fetch's own cache_only branch."""
+    cache.get_or_fetch's own cache_only branch.
+
+    `step2_out`: optional pre-computed Step2Out, so a caller that's already
+    run get_step2_data itself (get_summary, which needs Step 2's own
+    growth_rate directly) doesn't force this function to redundantly
+    recompute Step 2's cache read + full scoring a second time in the same
+    request. Defaults to None, in which case this function fetches Step 2
+    itself exactly as it always has -- every existing standalone caller
+    (the bare /step3 endpoint, tests, recompute scripts) is unaffected."""
     ticker = ticker.upper()
     staleness_days = settings.cache_staleness_days
 
@@ -263,7 +280,7 @@ async def get_step3_data(
             beta_outside_reference_range=capm_result["beta_outside_reference_range"],
         )
 
-    step2_out = await get_step2_data(ticker, cache_only)
+    step2_out = step2_out if step2_out is not None else await get_step2_data(ticker, cache_only)
     growth_yr_1_5 = step2_out.growth_rate / 100 if step2_out.growth_rate is not None else None
     growth_yr_1_5_source = (
         f"Step 2 analyst-estimate CAGR ({step2_out.basis} basis)" if step2_out.growth_rate is not None else None

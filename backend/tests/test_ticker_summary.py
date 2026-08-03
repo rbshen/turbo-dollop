@@ -163,7 +163,7 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
         call_count["historical_price_eod"] += 1
         return FAKE_DAILY_PRICES
 
-    async def fake_get_step3_data(ticker, cache_only=False):
+    async def fake_get_step3_data(ticker, cache_only=False, step2_out=None):
         return FAKE_STEP3_OUT
 
     monkeypatch.setattr(ticker_summary, "get_step3_data", fake_get_step3_data)

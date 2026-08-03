@@ -249,10 +249,13 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
     ]
 
     # Step 2/Step 3 each manage their own Session(engine) block, separate
-    # from this function's -- same non-conflicting pattern get_step3_data's
-    # internal get_step2_data call already proves out.
+    # from this function's. step2_out is passed into get_step3_data
+    # (rather than left for it to fetch on its own) since this function
+    # already needs it directly for eps_growth_3_5y below -- computing it
+    # twice (cache read + full Step 2 scoring) in one /summary request was
+    # pure redundant work, not a correctness issue.
     step2_out = await get_step2_data(ticker, cache_only)
-    step3_out = await get_step3_data(ticker, cache_only)
+    step3_out = await get_step3_data(ticker, cache_only, step2_out=step2_out)
     fair_value_method = (
         FAIR_VALUE_METHOD_LABELS.get(step3_out.selected_method) if step3_out.selected_method != "PASS" else None
     )
