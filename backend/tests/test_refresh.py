@@ -2,13 +2,18 @@ import asyncio
 from datetime import datetime
 
 import httpx
+from fastapi.testclient import TestClient
+from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
+import main
 import refresh
 import step5_data
+import ticker_score
 import ticker_summary
-from models import FundamentalsCache, GrowthCatalystNote
+from models import FundamentalsCache, GrowthCatalystNote, TickerScore
 from refresh import clear_ticker_cache
+from schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
 from step5_data import get_step5_data
 from ticker_summary import get_summary
 
@@ -133,3 +138,140 @@ def test_fmp_failure_right_after_refresh_degrades_gracefully_not_a_crash(monkeyp
     assert result.price is None
     assert result.total_debt is None
     assert result.outlier_warnings == []
+
+
+def _fresh_shared_engine(monkeypatch):
+    """Shared by the ticker_refresh endpoint tests below -- POST /refresh's
+    call chain touches three modules' own `engine` reference
+    (main/refresh/ticker_score, see CLAUDE.md's ad-hoc-script warning about
+    this exact pattern), all of which must point at the same in-memory DB
+    for a write in one to be visible to a read in another. StaticPool:
+    TestClient runs requests in a worker thread, and a plain "sqlite://"
+    in-memory DB is otherwise scoped per-connection."""
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(engine)
+    for mod in (main, refresh, ticker_score):
+        monkeypatch.setattr(mod, "engine", engine)
+    return engine
+
+
+def _step1(score=90, verdict="Pass"):
+    return Step1Out(
+        ticker="AAPL",
+        years=["TTM"],
+        revenue=[1.0],
+        net_income=[1.0],
+        operating_income=[1.0],
+        gross_margin=[1.0],
+        net_margin=[1.0],
+        score=score,
+        verdict=verdict,
+        components={},
+        weights={},
+    )
+
+
+def _step2(score=80, verdict="Pass", growth_rate=12.5):
+    return Step2Out(ticker="AAPL", score=score, verdict=verdict, growth_rate=growth_rate, components={}, weights={})
+
+
+def _step4(score=70, verdict="Pass", company_type="Standard"):
+    return Step4Out(
+        ticker="AAPL",
+        years=["TTM"],
+        company_type=company_type,
+        roe=[1.0],
+        revenue=[1.0],
+        accounts_receivable=[1.0],
+        score=score,
+        verdict=verdict,
+    )
+
+
+def _step5(score=60, verdict="Pass", company_type="Standard"):
+    return Step5Out(ticker="AAPL", company_type=company_type, score=score, verdict=verdict)
+
+
+def _summary(company_name="Apple Inc."):
+    return TickerSummaryOut(company_name=company_name, ticker="AAPL", market_cap=3_000_000_000_000.0)
+
+
+def _patch_score_steps(monkeypatch, raise_in=None):
+    """Stands in for the live FMP fetch chain ticker_refresh's
+    compute_ticker_score(cache_only=False) call would otherwise trigger --
+    same isolation approach as test_ticker_score.py's _patch_all, scoped
+    locally here since these tests care about the endpoint's own behavior
+    (does it call compute_ticker_score, does it survive a failing step),
+    not compute_ticker_score's internal blending (already covered there)."""
+
+    def make(name, value):
+        async def fn(ticker, cache_only=False):
+            if name == raise_in:
+                raise RuntimeError(f"simulated failure in {name}")
+            return value
+
+        return fn
+
+    monkeypatch.setattr(ticker_score, "get_step1_data", make("step1", _step1()))
+    monkeypatch.setattr(ticker_score, "get_step2_data", make("step2", _step2()))
+    monkeypatch.setattr(ticker_score, "get_step4_data", make("step4", _step4()))
+    monkeypatch.setattr(ticker_score, "get_step5_data", make("step5", _step5()))
+    monkeypatch.setattr(ticker_score, "get_summary", make("summary", _summary()))
+
+
+def test_ticker_refresh_writes_a_ticker_score_row_for_the_refreshed_ticker(monkeypatch):
+    engine = _fresh_shared_engine(monkeypatch)
+    _patch_score_steps(monkeypatch)
+
+    with TestClient(main.app) as client:
+        response = client.post("/api/tickers/AAPL/refresh")
+
+    assert response.status_code == 200
+    with Session(engine) as session:
+        row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
+    assert row is not None
+    assert row.overall_score is not None  # confirms compute_ticker_score actually ran, not a no-op
+
+
+def test_ticker_refresh_does_not_touch_a_different_tickers_score_row(monkeypatch):
+    engine = _fresh_shared_engine(monkeypatch)
+    _patch_score_steps(monkeypatch)
+
+    with Session(engine) as session:
+        session.add(
+            TickerScore(
+                ticker="NVDA",
+                company_name="NVIDIA Corporation",
+                overall_score=42,
+                overall_verdict="Fail",
+                computed_at=datetime(2020, 1, 1),
+            )
+        )
+        session.commit()
+
+    with TestClient(main.app) as client:
+        response = client.post("/api/tickers/AAPL/refresh")
+
+    assert response.status_code == 200
+    with Session(engine) as session:
+        nvda = session.exec(select(TickerScore).where(TickerScore.ticker == "NVDA")).first()
+    assert nvda is not None
+    assert nvda.overall_score == 42
+    assert nvda.overall_verdict == "Fail"
+    assert nvda.computed_at == datetime(2020, 1, 1)  # byte-identical, untouched by AAPL's refresh
+
+
+def test_ticker_refresh_survives_a_failing_step_during_the_post_clear_recompute(monkeypatch):
+    """compute_ticker_score's own _safe_step already isolates a single
+    step's failure (see test_ticker_score.py) -- this confirms that
+    robustness actually reaches the endpoint: a failure calling FMP right
+    after the cache-clear must not turn a refresh into a 500."""
+    _fresh_shared_engine(monkeypatch)
+    _patch_score_steps(monkeypatch, raise_in="step2")
+
+    with TestClient(main.app) as client:
+        response = client.post("/api/tickers/AAPL/refresh")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ticker"] == "AAPL"

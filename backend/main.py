@@ -298,7 +298,18 @@ async def ticker_news(ticker: str) -> NewsOut:
 
 @app.post("/api/tickers/{ticker}/refresh", response_model=RefreshResult)
 async def ticker_refresh(ticker: str) -> RefreshResult:
-    return clear_ticker_cache(ticker)
+    result = clear_ticker_cache(ticker)
+    # cache_only=False (not the moat/CET1 endpoints' pattern below): the
+    # cache was just cleared, so a cache_only read would see nothing and
+    # silently skip writing a row (compute_ticker_score's own summary-is-
+    # None early return). This forces the same live re-fetch the frontend's
+    # subsequent GETs would trigger anyway, just synchronously here, so
+    # TickerScore is never left stale after an explicit refresh the way it
+    # used to be -- same motivation as update_ticker_moat/
+    # update_ticker_bank_capital_metrics below, cache_only flipped because
+    # there's no pre-existing warm cache to read yet.
+    await compute_ticker_score(ticker, cache_only=False)
+    return result
 
 
 @app.get("/api/tickers/{ticker}/moat", response_model=TickerMoatOut)
