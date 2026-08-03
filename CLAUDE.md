@@ -147,6 +147,59 @@ at each deviation point. Current deviations:
   backup is unaffected too: NI only counts as a genuine gap if OI's
   `classify_trend` also reads `insufficient_data` — if OI has real data, the
   existing backup mechanism already produces a legitimate score.
+- **Revenue, Net Income, and CFO must clear a hard positivity gate on top
+  of `classify_trend`'s existing dip/recovery grading (2026-08-03)**, via
+  `scoring/step1.py::_classify_positive_trend`. `classify_trend` is purely
+  relative — it only asks whether a series has grown/recovered relative to
+  its own prior points, never whether the current value is actually
+  positive. Confirmed real case: SYM (Symbotic) has posted a net loss every
+  single year for 8 straight periods (-$104.4M FY19 → -$4.97M TTM, each
+  "dip" a relative worsening that later reverses) yet scored
+  `multiple_dips_resolved`/75 — indistinguishable from a company that had
+  actually turned the corner into real profitability. The gate is narrow
+  and additive, not a rewrite: if the current/TTM value is ≤0, the result
+  reads `not_yet_positive`/0 regardless of what the relative trend pattern
+  says; if TTM is positive, `classify_trend`'s own tiers (100/90/85/75/
+  40/20/0) are used unchanged — a historical dip, even one that went
+  negative mid-dip, is still tolerated as long as the series has since
+  recovered and the current value clears zero. Deliberately does **not**
+  tighten `classify_trend`'s own recovery math (e.g. to penalize a
+  volatile, sign-flipping history) — only the current value's sign is new;
+  a currently-positive-but-historically-choppy series (SYM's CFO: 3 full
+  sign-flips before settling positive the last 2 periods) still scores
+  `multiple_dips_resolved`/75, unchanged. `classify_trend` itself,
+  `RECOVERY_PATTERNS`, and every other consumer (Step 3's method-selection
+  tree, Step 4's ROE negative-equity substitute, `_classify_fcf`'s own
+  separate cash-burn-recovery logic) are untouched — this is a Step-1-local
+  wrapper, not a change to the shared primitive.
+  - **Net Income's Operating-Income fallback is now recency-gated**
+    (`NET_INCOME_BACKUP_RECENCY_YEARS = 2`, via the new
+    `scoring/trend.py::most_recent_real_dip_age`), replacing the old
+    threshold-only trigger (`net_income_raw.score <= 40` alone, regardless
+    of how long ago the disqualifying dip happened). The fallback exists
+    for a plausible one-off — a charge that hit 1-2 years ago — not a
+    chronic, long-unresolved Net Income problem; OI is only consulted when
+    NI's failing dip landed within the last 2 periods (inclusive of the
+    current/TTM period itself — the single most common one-off shape, a
+    charge that just hit the latest reported period). NI having too few
+    points to have any notion of "recency" (`insufficient_data`) still
+    unconditionally checks OI, unchanged from before.
+  - **Confirmed via a full-universe recompute** (503 S&P 500 + Dow
+    tickers, `recompute_ticker_scores.py`, cache-only/zero FMP calls): 29
+    tickers' Step 1 score changed, 6 flipped verdict (all Pass → Fail,
+    never the reverse — a stricter gate can only lower a score):
+    **AVB** (75→64), **C** (72→61), **CCL** (73→66), **CTSH** (73→66),
+    **GEN** (76→69), **PSKY** (75→58). 0 Overall Assessment verdicts
+    flipped — Step 1's ~24% weight in the Overall blend (see
+    `STEP_WEIGHTS` below) wasn't enough on its own to cross a Pass/Fail
+    boundary for any of these 29, though 22 tickers' Overall score moved.
+    Two failure shapes confirmed in the changed set: **MRNA** (Moderna) —
+    Net Income *and* CFO both currently negative, correctly reading
+    `not_yet_positive`/0 on both (a genuine, still-unresolved post-COVID
+    revenue/cash-burn problem, not a relative-recovery false positive);
+    **AVB/C/CCL/CTSH/GEN** — Net Income's old dip is real but more than 2
+    periods back, so the recency-gated OI fallback correctly stops
+    rescuing it (previously capped-rescued to 80 regardless of recency).
 
 Step 2's source doc (`step2_positive_growth_rate_assessment_prompt.md`)
 calls for 3-4 independent platforms (GuruFocus, Finviz, Zacks, etc.) with

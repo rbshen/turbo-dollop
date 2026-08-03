@@ -1,4 +1,4 @@
-from scoring.trend import classify_trend
+from scoring.trend import classify_trend, most_recent_real_dip_age
 
 
 def test_insufficient_data():
@@ -118,3 +118,24 @@ def test_noise_floor_ignores_tiny_moves():
 def test_negative_base_value_handled_without_crashing():
     pattern, score = classify_trend([-10, 5, 10, 15])
     assert score >= 0
+
+
+def test_most_recent_real_dip_age_no_dips():
+    assert most_recent_real_dip_age([100, 110, 121, 133, 146]) is None
+
+
+def test_most_recent_real_dip_age_dip_lands_in_ttm_transition():
+    assert most_recent_real_dip_age([100, 110, 90]) == 0
+
+
+def test_most_recent_real_dip_age_dip_several_years_back():
+    assert most_recent_real_dip_age([100, 40, 45, 50, 55]) == 3
+
+
+def test_most_recent_real_dip_age_insufficient_data():
+    assert most_recent_real_dip_age([]) is None
+    assert most_recent_real_dip_age([100]) is None
+
+
+def test_most_recent_real_dip_age_ignores_sub_noise_floor_wobbles():
+    assert most_recent_real_dip_age([100, 100.5, 99, 105]) is None

@@ -1,7 +1,7 @@
 import numpy as np
 
 from scoring.series_trend import analyze_series_direction, robust_late_direction
-from scoring.trend import RECOVERY_PATTERNS, TrendResult, classify_trend
+from scoring.trend import RECOVERY_PATTERNS, TrendResult, classify_trend, most_recent_real_dip_age
 
 # Revenue > CFO > Net Income priority hierarchy per a refined reading of
 # the methodology doc: Revenue is the foundation ("if revenue isn't
@@ -59,6 +59,37 @@ FCF_RECOVERY_WINDOW = 3
 
 NET_INCOME_BACKUP_THRESHOLD = 40
 NET_INCOME_BACKUP_CAP = 80
+# "1 or 2 years in the past" -- deliberately includes age 0 (the dip
+# landing in the TTM transition itself). Excluding age 0 would mean the
+# single most common one-off shape -- a charge that just hit the LATEST
+# reported period -- could never qualify for the Operating Income
+# fallback, which reads as an unintended gap rather than an intended
+# exclusion.
+NET_INCOME_BACKUP_RECENCY_YEARS = 2
+
+# classify_trend is purely relative/directional -- it only asks whether a
+# series has grown/recovered relative to its OWN prior points, never
+# whether the values themselves are positive. A company whose Net Income
+# has never once been profitable but is trending toward breakeven (e.g.
+# SYM: -104.4M(FY19) -> ... -> -4.97M TTM, each "dip" a relative
+# worsening that later reverses) reads as multiple_dips_resolved/75 --
+# indistinguishable from a company that actually turned the corner into
+# real profitability. Revenue, Net Income, and CFO must be positive AND
+# increasing: a historical dip is still tolerated (even one that went
+# negative mid-dip) as long as the series has since recovered per
+# classify_trend's OWN unchanged dip-tolerance tiers AND the current/TTM
+# value clears zero. This is a hard gate layered on top of classify_trend,
+# not a replacement for its tiers.
+NOT_YET_POSITIVE_SCORE = 0  # mirrors `declining`'s existing hard-fail-style 0
+
+
+def _classify_positive_trend(values: list[float]) -> TrendResult:
+    trend = classify_trend(values)
+    if trend.pattern == "insufficient_data":
+        return trend
+    if values[-1] <= 0:
+        return TrendResult("not_yet_positive", NOT_YET_POSITIVE_SCORE)
+    return trend
 
 # Margin classification thresholds, in percentage points. Deliberately
 # refined beyond step1_revenue_income_cfo_assessment_prompt.md's original
@@ -304,24 +335,35 @@ def score_step1(
     is actually Net Interest Income (see step1_data.py), but margins should
     still read against real revenue growth. Defaults to `revenue` itself,
     unchanged behavior for every other company type."""
-    revenue_result = classify_trend(revenue)
-    net_income_raw = classify_trend(net_income)
+    revenue_result = _classify_positive_trend(revenue)
+    net_income_pos_result = _classify_positive_trend(net_income)
 
-    net_income_result = net_income_raw
+    net_income_result = net_income_pos_result
     net_income_backup_used = False
-    oi_result = None
-    if net_income_raw.score <= NET_INCOME_BACKUP_THRESHOLD:
-        oi_result = classify_trend(operating_income)
-        backup_score = min(NET_INCOME_BACKUP_CAP, max(net_income_raw.score, oi_result.score))
-        net_income_backup_used = backup_score != net_income_raw.score
-        net_income_result = TrendResult(net_income_raw.pattern, backup_score)
+    oi_pos_result = None
+    ni_is_insufficient = net_income_pos_result.pattern == "insufficient_data"
+    # The OI fallback is recency-gated -- it exists for a genuine one-off
+    # dip 1-2 years back, not a chronic negative/declining Net Income
+    # history -- EXCEPT when NI has too few points to have any notion of
+    # "recency" at all, where today's unconditional "always check OI"
+    # behavior is preserved unchanged (see the insufficient_data comment
+    # below).
+    ni_dip_age = None if ni_is_insufficient else most_recent_real_dip_age(net_income)
+    ni_recent_enough = ni_is_insufficient or (
+        ni_dip_age is not None and ni_dip_age <= NET_INCOME_BACKUP_RECENCY_YEARS
+    )
+    if net_income_pos_result.score <= NET_INCOME_BACKUP_THRESHOLD and ni_recent_enough:
+        oi_pos_result = _classify_positive_trend(operating_income)
+        backup_score = min(NET_INCOME_BACKUP_CAP, max(net_income_pos_result.score, oi_pos_result.score))
+        net_income_backup_used = backup_score != net_income_pos_result.score
+        net_income_result = TrendResult(net_income_pos_result.pattern, backup_score)
 
     # Net Income only reads as a genuine data gap if BOTH it and its own
     # Operating-Income backup came up short -- if OI has real data, the
     # backup mechanism above already produced a legitimate (if low) score,
     # not a fabricated one.
-    net_income_insufficient = net_income_raw.pattern == "insufficient_data" and (
-        oi_result is None or oi_result.pattern == "insufficient_data"
+    net_income_insufficient = ni_is_insufficient and (
+        oi_pos_result is None or oi_pos_result.pattern == "insufficient_data"
     )
 
     growth_reference = margin_context_revenue if margin_context_revenue is not None else revenue
@@ -333,7 +375,7 @@ def score_step1(
         fcf_result = None
         weights = WEIGHTS_CFO_EXEMPT
     else:
-        cfo_result = classify_trend(cfo)
+        cfo_result = _classify_positive_trend(cfo)
         fcf_result = _classify_fcf(fcf) if fcf is not None else None
         weights = WEIGHTS_STANDARD
 

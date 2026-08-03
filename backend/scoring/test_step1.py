@@ -1,12 +1,21 @@
 import pytest
 
-from scoring.step1 import _classify_fcf, _classify_margins, score_step1
+from scoring.step1 import _classify_fcf, _classify_margins, _classify_positive_trend, score_step1
 
 GROWING = [100, 110, 121, 133, 146]
 DECLINING = [146, 133, 121, 110, 100]
 STABLE_MARGINS = [40, 41, 40, 42, 43]
 NET_MARGINS_STABLE = [20, 20.5, 20, 21, 21.5]
 FCF_ALL_POSITIVE = [50, 60, 55, 70, 65, 80]
+
+# SYM's real cached Net Income / Operating Income / CFO (millions,
+# FY2019-FY2025 + TTM) -- the case that motivated the positivity gate.
+# Net Income has never been positive; Operating Income hasn't either
+# (confirming the OI fallback correctly does NOT rescue it); CFO's TTM
+# value is genuinely positive despite a volatile history.
+SYM_NET_INCOME = [-104.361, -109.521, -122.314, -78.997, -23.866, -13.490, -16.937, -4.965]
+SYM_OPERATING_INCOME = [-105.793, -110.377, -122.381, -140.375, -223.230, -116.725, -92.133, -20.144]
+SYM_CFO = [17.185, -124.307, 109.567, -148.247, 230.794, -58.077, 866.939, 845.218]
 
 
 def test_strong_pass_all_growing():
@@ -113,6 +122,104 @@ def test_net_income_backup_not_used_when_score_above_threshold():
         cfo_exempt=False,
     )
     assert result["components"]["net_income"]["used_operating_income_backup"] is False
+
+
+# --- Positivity gate (Revenue / Net Income / CFO) --------------------------
+
+
+def test_positive_trend_gate_growing_series_unaffected():
+    pattern, score = _classify_positive_trend(GROWING)
+    assert pattern == "grows_every_year"
+    assert score == 100
+
+
+def test_net_income_never_profitable_scores_zero_even_with_relative_recovery():
+    # SYM's real shape: Net Income has been negative every single period
+    # (-104.4M FY19 -> -4.97M TTM) yet classify_trend alone reads this as
+    # multiple_dips_resolved/75 since each "dip" is a relative worsening
+    # that later reverses -- never checking whether the value itself is
+    # positive. Operating Income is also still negative at TTM, so the
+    # one-off/recency-gated OI fallback correctly does NOT rescue this --
+    # this is a genuinely unprofitable company, not a one-off charge.
+    result = score_step1(
+        revenue=GROWING,
+        net_income=SYM_NET_INCOME,
+        operating_income=SYM_OPERATING_INCOME,
+        cfo=SYM_CFO,
+        gross_margin=STABLE_MARGINS,
+        net_margin=NET_MARGINS_STABLE,
+        cfo_exempt=False,
+        fcf=FCF_ALL_POSITIVE,
+    )
+    assert result["components"]["net_income"]["score"] == 0
+    assert result["components"]["net_income"]["pattern"] == "not_yet_positive"
+    assert result["components"]["net_income"]["used_operating_income_backup"] is False
+
+
+def test_cfo_positive_ttm_keeps_existing_dip_tolerance_unchanged():
+    # SYM's real CFO shape: 3 full sign-flips (17M -> -124M -> 110M -> -148M
+    # -> 231M -> -58M) before finally settling positive the last 2 periods
+    # (867M, 845M TTM). The confirmed rule only gates the CURRENT value's
+    # sign -- it deliberately does not tighten classify_trend's own
+    # dip-tolerance/recovery math -- so this stays multiple_dips_resolved/75.
+    # Documents this is intended behavior, not a regression.
+    pattern, score = _classify_positive_trend(SYM_CFO)
+    assert pattern == "multiple_dips_resolved"
+    assert score == 75
+
+
+def test_net_income_oi_fallback_triggers_for_recent_one_off_dip():
+    # TTM itself drops sharply (a plausibly one-off charge landing in the
+    # latest reported period, age 0) while Operating Income stays clean --
+    # the recency gate is deliberately inclusive of age 0 (see
+    # NET_INCOME_BACKUP_RECENCY_YEARS's comment), so this qualifies.
+    recent_dip_net_income = [50, 60, 70, 80, 30]
+    result = score_step1(
+        revenue=GROWING,
+        net_income=recent_dip_net_income,
+        operating_income=GROWING,
+        cfo=GROWING,
+        gross_margin=STABLE_MARGINS,
+        net_margin=NET_MARGINS_STABLE,
+        cfo_exempt=False,
+    )
+    assert result["components"]["net_income"]["used_operating_income_backup"] is True
+    assert result["components"]["net_income"]["score"] == 80
+
+
+def test_net_income_oi_fallback_does_not_trigger_for_old_chronic_dip():
+    # The one real dip happened 6 periods before TTM -- well outside the
+    # "1 or 2 years in the past" one-off window -- so even though Operating
+    # Income is clean, this must NOT be rescued: a chronic, long-unresolved
+    # dip isn't the plausibly-one-off scenario the fallback exists for.
+    # (A behavior change from before this fix, where the old threshold-only
+    # trigger would have rescued this regardless of recency.)
+    old_dip_net_income = [100, 40, 45, 50, 55, 60, 65, 70]
+    result = score_step1(
+        revenue=GROWING,
+        net_income=old_dip_net_income,
+        operating_income=GROWING,
+        cfo=GROWING,
+        gross_margin=STABLE_MARGINS,
+        net_margin=NET_MARGINS_STABLE,
+        cfo_exempt=False,
+    )
+    assert result["components"]["net_income"]["used_operating_income_backup"] is False
+    assert result["components"]["net_income"]["score"] == 40
+
+
+def test_revenue_positive_gate_is_no_op_when_ttm_recovers():
+    dip_then_recovers = [10, 20, -5, 30, 40]
+    pattern, score = _classify_positive_trend(dip_then_recovers)
+    assert pattern == "significant_dip_recovers"
+    assert score == 85
+
+
+def test_revenue_positive_gate_applies_when_ttm_still_negative():
+    still_negative_ttm = [10, 20, -5]
+    pattern, score = _classify_positive_trend(still_negative_ttm)
+    assert pattern == "not_yet_positive"
+    assert score == 0
 
 
 def test_margins_single_big_dip_with_full_recovery_reads_as_stable():

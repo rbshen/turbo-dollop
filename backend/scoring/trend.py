@@ -63,6 +63,25 @@ def _effective_pre_dip_value(arr: np.ndarray, pct_changes: np.ndarray, dip_index
     return float(arr[dip_index])
 
 
+def most_recent_real_dip_age(values: list[float]) -> int | None:
+    """Periods before TTM that the most recent real (< -NOISE_FLOOR)
+    year-over-year decline landed -- 0 if it's the transition into TTM
+    itself, 1 if it's the transition before that, etc. None if there are
+    no real dips, or too few points to have any transition. Reuses
+    classify_trend's own "real dip" definition (same NOISE_FLOOR, same
+    _pct_changes) rather than a separately-tuned notion of recency, so a
+    caller gating a rescue on this checks the same thing classify_trend
+    itself already decided counts as "real"."""
+    if len(values) < 2:
+        return None
+    arr = np.asarray(values, dtype=float)
+    pct_changes = _pct_changes(arr)
+    real_dips = np.flatnonzero(pct_changes < -NOISE_FLOOR)
+    if real_dips.size == 0:
+        return None
+    return (len(pct_changes) - 1) - int(real_dips[-1])
+
+
 def classify_trend(values: list[float]) -> TrendResult:
     """Classify a chronological (oldest fiscal year -> TTM) metric series into
     one of the Step 1 methodology's 6 trend patterns.
