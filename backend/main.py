@@ -5,6 +5,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from sqlmodel import Session, func, select
 
+from alpha_vantage_client import AlphaVantageThrottled
 from analyst_ratings_data import get_analyst_ratings_data
 from bank_capital_metrics import get_ticker_bank_capital_metrics, set_ticker_bank_capital_metrics
 from db import engine, init_db
@@ -13,6 +14,7 @@ from logging_config import apply_redaction_filters
 from moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from models import IndexConstituent, SavedScreenerFilter, TickerScore, Watchlist
 from news_data import get_news_data
+from news_sentiment_data import get_news_sentiment_data
 from recompute_ticker_scores import recompute_all
 from refresh import clear_ticker_cache
 from financials_data import get_financials_data
@@ -27,6 +29,7 @@ from schemas import (
     MoatScoreConfigIn,
     MoatScoreConfigOut,
     NewsOut,
+    NewsSentimentOut,
     RatiosOut,
     RecomputeSummary,
     RefreshResult,
@@ -294,6 +297,20 @@ async def ticker_news(ticker: str) -> NewsOut:
         return await get_news_data(ticker)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
+
+
+@app.get("/api/tickers/{ticker}/news-sentiment", response_model=NewsSentimentOut)
+async def ticker_news_sentiment(ticker: str) -> NewsSentimentOut:
+    try:
+        return await get_news_sentiment_data(ticker)
+    except AlphaVantageThrottled as exc:
+        # Not str(exc): AV's throttle message doesn't embed the API key,
+        # but a static detail string keeps this consistent with the app's
+        # existing policy (see the Step1 endpoint's own comment) of never
+        # echoing a raw exception straight into a response body.
+        raise HTTPException(status_code=503, detail="Alpha Vantage rate limit reached -- try again later") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Alpha Vantage request failed") from exc
 
 
 @app.post("/api/tickers/{ticker}/refresh", response_model=RefreshResult)

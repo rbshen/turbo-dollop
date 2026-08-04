@@ -692,6 +692,36 @@ export interface NewsOut {
   articles: NewsArticle[];
 }
 
+export interface NewsSentimentArticle {
+  title: string;
+  url: string;
+  source: string;
+  // ISO 8601, converted server-side from Alpha Vantage's raw timestamp.
+  published_at: string;
+  summary: string;
+  overall_sentiment_score: number;
+  overall_sentiment_label: string;
+  // The ticker_sentiment[] entry matching the requested ticker, not the
+  // article's overall sentiment.
+  ticker_relevance_score: number;
+  ticker_sentiment_score: number;
+  ticker_sentiment_label: string; // "Bearish" | "Somewhat-Bearish" | "Neutral" | "Somewhat-Bullish" | "Bullish"
+}
+
+export interface SentimentDistribution {
+  bearish: number;
+  somewhat_bearish: number;
+  neutral: number;
+  somewhat_bullish: number;
+  bullish: number;
+}
+
+export interface NewsSentimentOut {
+  ticker: string;
+  articles: NewsSentimentArticle[];
+  distribution: SentimentDistribution;
+}
+
 export interface WatchlistTickerOut {
   ticker: string;
   added_at: string;

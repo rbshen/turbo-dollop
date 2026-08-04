@@ -1,60 +1,64 @@
 "use client";
 
-import { useNews } from "@/lib/hooks/useNews";
-import type { NewsArticle } from "@/lib/api/types";
+import { useNewsSentiment } from "@/lib/hooks/useNewsSentiment";
+import { SentimentDistributionBar } from "@/components/ticker/SentimentDistributionBar";
+import { sentimentBadgeClass, sentimentBadgeStyle } from "@/lib/sentimentColor";
+import type { NewsSentimentArticle } from "@/lib/api/types";
 
 interface Props {
   ticker: string;
 }
 
-function formatPublishedAt(raw: string): string {
-  // FMP's raw "YYYY-MM-DD HH:MM:SS" -- no documented timezone, so this is
-  // rendered as a plain local-format timestamp, not converted.
-  const parsed = new Date(raw.replace(" ", "T"));
-  if (Number.isNaN(parsed.getTime())) return raw;
-  return parsed.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+function formatRelativeTime(iso: string): string {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  const diffMs = Date.now() - parsed.getTime();
+  const diffMinutes = Math.round(diffMs / 60_000);
+  if (diffMinutes < 60) return `${Math.max(diffMinutes, 0)}m ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.round(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function ArticleCard({ article }: { article: NewsArticle }) {
+function SentimentBadge({ label, score }: { label: string; score: number }) {
+  return (
+    <span
+      className={`rounded-full px-2 py-0.5 text-xs font-medium ${sentimentBadgeClass(label)}`}
+      style={sentimentBadgeStyle(label)}
+    >
+      {label} <span className="font-mono tabular-nums">{score.toFixed(2)}</span>
+    </span>
+  );
+}
+
+function ArticleRow({ article }: { article: NewsSentimentArticle }) {
   return (
     <a
       href={article.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex gap-4 rounded-lg border border-border-card bg-surface p-4 transition-colors hover:border-brand"
+      className="flex flex-col gap-2 rounded-lg border border-border-card bg-surface p-4 transition-colors hover:border-brand"
     >
-      {article.image && (
-        // Arbitrary external publisher images, not a configured next/image domain.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={article.image}
-          alt=""
-          loading="lazy"
-          className="hidden h-20 w-28 shrink-0 rounded-md object-cover sm:block"
-        />
-      )}
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className="font-heading text-sm font-semibold text-text-primary">{article.title}</p>
-        <p className="line-clamp-2 text-xs text-text-tertiary">{article.snippet}</p>
-        <div className="flex flex-wrap items-center gap-1.5 text-xs text-text-secondary">
-          <span className="font-medium">{article.publisher}</span>
-          <span className="text-text-tertiary">·</span>
-          <span className="text-text-tertiary">{article.site}</span>
-          <span className="text-text-tertiary">·</span>
-          <span className="font-mono text-text-tertiary">{formatPublishedAt(article.published_at)}</span>
-        </div>
+      <p className="font-heading text-sm font-semibold text-text-primary">{article.title}</p>
+      {article.summary && <p className="line-clamp-2 text-xs text-text-tertiary">{article.summary}</p>}
+      <div className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+        <span className="font-medium">{article.source}</span>
+        <span className="text-text-tertiary">·</span>
+        <span className="font-mono text-text-tertiary">{formatRelativeTime(article.published_at)}</span>
+        <span className="text-text-tertiary">·</span>
+        <span className="font-mono tabular-nums text-text-tertiary">
+          relevance {article.ticker_relevance_score.toFixed(2)}
+        </span>
+        <SentimentBadge label={article.ticker_sentiment_label} score={article.ticker_sentiment_score} />
       </div>
     </a>
   );
 }
 
 export function NewsSentimentTab({ ticker }: Props) {
-  const { data, error } = useNews(ticker);
+  const { data, error } = useNewsSentiment(ticker);
 
   if (error) {
     return (
@@ -77,7 +81,7 @@ export function NewsSentimentTab({ ticker }: Props) {
   if (data.articles.length === 0) {
     return (
       <div className="flex items-center justify-center py-20">
-        <p className="text-sm text-text-tertiary">No recent news found for {ticker}.</p>
+        <p className="text-sm text-text-tertiary">No recent news/sentiment coverage found for {ticker}.</p>
       </div>
     );
   }
@@ -85,10 +89,14 @@ export function NewsSentimentTab({ ticker }: Props) {
   return (
     <div className="space-y-6 py-6">
       <div className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-widest text-text-secondary">Sentiment</h2>
+        <SentimentDistributionBar distribution={data.distribution} />
+      </div>
+      <div className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-widest text-text-secondary">News</h2>
         <div className="space-y-3">
           {data.articles.map((article) => (
-            <ArticleCard key={article.url} article={article} />
+            <ArticleRow key={article.url} article={article} />
           ))}
         </div>
       </div>
