@@ -16,11 +16,11 @@ logging setup on every request, so main.py deliberately imports the lower-
 level function instead.
 
 Run against the full stored list:
-    uv run python recompute_ticker_scores.py
+    uv run python -m pipeline.recompute_ticker_scores
 
 Run against a small subset first:
-    uv run python recompute_ticker_scores.py --limit 15
-    uv run python recompute_ticker_scores.py --tickers AAPL,MSFT,ZZZZINVALID
+    uv run python -m pipeline.recompute_ticker_scores --limit 15
+    uv run python -m pipeline.recompute_ticker_scores --tickers AAPL,MSFT,ZZZZINVALID
 """
 
 import argparse
@@ -33,10 +33,10 @@ from sqlmodel import Session
 
 from db import engine, init_db
 from logging_config import configure_logging
-from nightly_fundamentals_fetch import load_universe_tickers
+from pipeline.nightly_fundamentals_fetch import load_universe_tickers
 from ticker_score import compute_ticker_score
 
-LOG_PATH = Path(__file__).resolve().parent / "logs" / "recompute_ticker_scores.log"
+LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "recompute_ticker_scores.log"
 
 logger = logging.getLogger(__name__)
 

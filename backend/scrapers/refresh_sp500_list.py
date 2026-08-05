@@ -8,7 +8,7 @@ count), the existing stored list is left untouched -- see
 sp500_scraper.refresh_sp500_constituents for the failure handling itself.
 
 Run manually:
-    uv run python refresh_sp500_list.py
+    uv run python -m scrapers.refresh_sp500_list
 """
 
 import asyncio
@@ -19,9 +19,9 @@ from sqlmodel import Session
 
 from db import engine, init_db
 from logging_config import configure_logging
-from sp500_scraper import refresh_sp500_constituents
+from scrapers.sp500_scraper import refresh_sp500_constituents
 
-LOG_PATH = Path(__file__).resolve().parent / "logs" / "sp500_list_refresh.log"
+LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "sp500_list_refresh.log"
 
 
 async def main() -> None:

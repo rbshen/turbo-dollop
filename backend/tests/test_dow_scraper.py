@@ -5,9 +5,9 @@ import httpx
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
-import dow_scraper
+import scrapers.dow_scraper as dow_scraper
 from models import IndexConstituent
-from dow_scraper import (
+from scrapers.dow_scraper import (
     ConstituentRow,
     parse_dow_constituents,
     refresh_dow_constituents,

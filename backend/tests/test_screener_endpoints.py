@@ -198,7 +198,7 @@ def test_screener_recompute_never_calls_the_script_entry_point(monkeypatch):
         raise AssertionError("the endpoint must not call recompute_ticker_scores.main()")
 
     monkeypatch.setattr(main, "recompute_all", fake_recompute_all)
-    import recompute_ticker_scores
+    from pipeline import recompute_ticker_scores
 
     monkeypatch.setattr(recompute_ticker_scores, "main", fail_if_called)
 

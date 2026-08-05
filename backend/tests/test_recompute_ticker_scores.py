@@ -3,7 +3,7 @@ from datetime import datetime
 
 from sqlmodel import Session, SQLModel, create_engine
 
-import recompute_ticker_scores as recompute
+import pipeline.recompute_ticker_scores as recompute
 from models import IndexConstituent, TickerScore
 
 

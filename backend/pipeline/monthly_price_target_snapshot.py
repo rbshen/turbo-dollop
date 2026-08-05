@@ -17,12 +17,12 @@ Default schedule: 3am server time, first of the month (see crontab.txt in
 this directory).
 
 Run manually against the full stored list:
-    uv run python monthly_price_target_snapshot.py
+    uv run python -m pipeline.monthly_price_target_snapshot
 
 Run against a small subset first (recommended before ever doing a first
 full run):
-    uv run python monthly_price_target_snapshot.py --limit 15
-    uv run python monthly_price_target_snapshot.py --tickers AAPL,MSFT,ZZZZINVALID
+    uv run python -m pipeline.monthly_price_target_snapshot --limit 15
+    uv run python -m pipeline.monthly_price_target_snapshot --tickers AAPL,MSFT,ZZZZINVALID
 """
 
 import argparse
@@ -39,9 +39,9 @@ from first import _first
 from fmp_client import fmp_client
 from logging_config import configure_logging
 from models import PriceTargetSnapshot
-from nightly_fundamentals_fetch import load_universe_tickers
+from pipeline.nightly_fundamentals_fetch import load_universe_tickers
 
-LOG_PATH = Path(__file__).resolve().parent / "logs" / "monthly_price_target_snapshot.log"
+LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "monthly_price_target_snapshot.log"
 
 # Same empirically-derived pacing as nightly_fundamentals_fetch.py -- see
 # that module's comment for the underlying rate-limit investigation.

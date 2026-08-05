@@ -2,7 +2,7 @@ import logging
 
 from sqlmodel import Session
 
-from index_scraper import (
+from scrapers.index_scraper import (
     ConstituentRow,
     IndexTableConfig,
     SyncResult,

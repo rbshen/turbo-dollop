@@ -32,12 +32,12 @@ directory). To change the schedule, edit that one crontab line -- nothing
 in this script needs touching for a schedule change.
 
 Run manually against the full stored list:
-    uv run python nightly_fundamentals_fetch.py
+    uv run python -m pipeline.nightly_fundamentals_fetch
 
 Run against a small subset first (recommended before ever doing a first
 full cold-cache run):
-    uv run python nightly_fundamentals_fetch.py --limit 15
-    uv run python nightly_fundamentals_fetch.py --tickers AAPL,MSFT,ZZZZINVALID
+    uv run python -m pipeline.nightly_fundamentals_fetch --limit 15
+    uv run python -m pipeline.nightly_fundamentals_fetch --tickers AAPL,MSFT,ZZZZINVALID
 """
 
 import argparse
@@ -60,7 +60,7 @@ from step5_data import get_step5_data
 from ticker_score import compute_ticker_score
 from ticker_summary import get_summary
 
-LOG_PATH = Path(__file__).resolve().parent / "logs" / "nightly_fundamentals_fetch.log"
+LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_fundamentals_fetch.log"
 
 # Investigation found the empirical FMP rate limit sits around 300-600
 # requests/minute on a rolling window (300 concurrent requests succeeded,

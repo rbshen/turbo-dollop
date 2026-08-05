@@ -1,26 +1,26 @@
-"""One-time standalone script: force-refresh ONLY the balance_sheet_statement
-(annual) and key_metrics (annual) cache entries for every ticker in the
-stored S&P 500 list, ignoring the normal cache-staleness window.
+"""One-time standalone script: force-refresh the ratios/ttm cache entry for
+every ticker in the stored S&P 500 list.
 
-Why this exists: Step 4's annual balance-sheet/key-metrics fetch limit was
-bumped from 5 to 10 (see CLAUDE.md's Step 4 display-vs-scoring window
-deviation), but tickers already cached before that change stay stuck at the
-old 5-year data until their cache naturally goes stale (7 days) or someone
-hits "Refresh data" for that one ticker. This backfills all ~500 S&P 500
-tickers in one pass instead of waiting on either of those.
+Why this exists: the Ratios tab's TTM column needs FMP's /ratios-ttm
+endpoint, a fetch nothing in this app has ever made before (see CLAUDE.md's
+Ratios tab caching investigation) -- lazy get_or_fetch on page view would
+work too, but would mean the first ~500 individual ticker-page views each
+eat a cold-cache FMP round-trip. This backfills all ~500 S&P 500 tickers in
+one paced pass instead, same purpose as bulk_refresh_step4_annual.py served
+for its own cache keys.
 
-Deliberately narrower than nightly_fundamentals_fetch.py: only these two
-statement_type/period cache keys are touched, nothing else, and via
-cache.force_fetch (always overwrites) rather than get_or_fetch (which would
-skip tickers whose cache isn't stale yet -- the whole point here is to
-ignore staleness).
+Deliberately narrower than nightly_fundamentals_fetch.py: only this one
+statement_type/period cache key is touched, via cache.force_fetch (always
+overwrites) rather than get_or_fetch (which would skip tickers whose cache
+isn't stale yet -- the whole point here is to populate a key that has never
+been fetched at all).
 
 Run against a small subset first (recommended before the full list):
-    uv run python bulk_refresh_step4_annual.py --limit 15
-    uv run python bulk_refresh_step4_annual.py --tickers AAPL,MSFT,ZZZZINVALID
+    uv run python -m pipeline.backfills.bulk_refresh_ratios_ttm --limit 15
+    uv run python -m pipeline.backfills.bulk_refresh_ratios_ttm --tickers AAPL,MSFT,ZZZZINVALID
 
 Run against the full stored S&P 500 list:
-    uv run python bulk_refresh_step4_annual.py
+    uv run python -m pipeline.backfills.bulk_refresh_ratios_ttm
 """
 
 import argparse
@@ -35,32 +35,17 @@ from cache import force_fetch
 from db import engine, init_db
 from fmp_client import fmp_client
 from logging_config import configure_logging
-from nightly_fundamentals_fetch import load_sp500_tickers
+from pipeline.nightly_fundamentals_fetch import load_sp500_tickers
 
-LOG_PATH = Path(__file__).resolve().parent / "logs" / "bulk_refresh_step4_annual.log"
+LOG_PATH = Path(__file__).resolve().parent.parent.parent / "logs" / "bulk_refresh_ratios_ttm.log"
 
-DISPLAY_ANNUAL_WINDOW = 10
-
-# Same pacing approach as nightly_fundamentals_fetch.py, at the lower end of
+# Same pacing approach as bulk_refresh_step4_annual.py, at the lower end of
 # the requested 200-250 req/min range.
 TARGET_REQUESTS_PER_MINUTE = 220
 
 
 async def _refresh_one_ticker(session: Session, ticker: str) -> None:
-    await force_fetch(
-        session,
-        ticker,
-        "balance_sheet_statement",
-        "annual",
-        lambda: fmp_client.get_balance_sheet_statement(ticker, "annual", DISPLAY_ANNUAL_WINDOW),
-    )
-    await force_fetch(
-        session,
-        ticker,
-        "key_metrics",
-        "annual",
-        lambda: fmp_client.get_key_metrics(ticker, "annual", DISPLAY_ANNUAL_WINDOW),
-    )
+    await force_fetch(session, ticker, "ratios", "ttm", lambda: fmp_client.get_ratios_ttm(ticker))
 
 
 async def main(tickers: list[str] | None = None) -> dict:
@@ -82,8 +67,7 @@ async def main(tickers: list[str] | None = None) -> dict:
 
     fmp_client.min_request_interval = 60.0 / TARGET_REQUESTS_PER_MINUTE
     logger.info(
-        "Starting bulk balance_sheet_statement/key_metrics (annual) refresh for %d tickers "
-        "(pacing %.3fs/request, target %d req/min).",
+        "Starting bulk ratios/ttm refresh for %d tickers (pacing %.3fs/request, target %d req/min).",
         len(tickers),
         fmp_client.min_request_interval,
         TARGET_REQUESTS_PER_MINUTE,
@@ -126,9 +110,7 @@ async def main(tickers: list[str] | None = None) -> dict:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="One-time bulk refresh of balance_sheet_statement/key_metrics (annual) for stored S&P 500 tickers."
-    )
+    parser = argparse.ArgumentParser(description="One-time bulk refresh of ratios/ttm for stored S&P 500 tickers.")
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N stored tickers (for testing).")
     parser.add_argument(
         "--tickers", type=str, default=None, help="Comma-separated explicit ticker list, overrides the stored list (for testing)."

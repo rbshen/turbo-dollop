@@ -13,7 +13,7 @@ company genuinely named "Sample Inc" would false-positive on the name
 check), just a reason to look closer the way this investigation did.
 
 Run anytime, no FMP calls, no writes:
-    uv run python audit_fixture_contamination.py
+    uv run python -m pipeline.audit_fixture_contamination
 """
 
 import json

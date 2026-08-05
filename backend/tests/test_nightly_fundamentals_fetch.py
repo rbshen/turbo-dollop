@@ -3,7 +3,7 @@ from datetime import datetime
 
 from sqlmodel import Session, SQLModel, create_engine
 
-import nightly_fundamentals_fetch as nightly
+import pipeline.nightly_fundamentals_fetch as nightly
 from models import IndexConstituent
 
 

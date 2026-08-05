@@ -9,7 +9,7 @@ count), the existing stored list is left untouched -- see
 dow_scraper.refresh_dow_constituents for the failure handling itself.
 
 Run manually:
-    uv run python refresh_dow_list.py
+    uv run python -m scrapers.refresh_dow_list
 """
 
 import asyncio
@@ -19,10 +19,10 @@ from pathlib import Path
 from sqlmodel import Session
 
 from db import engine, init_db
-from dow_scraper import refresh_dow_constituents
+from scrapers.dow_scraper import refresh_dow_constituents
 from logging_config import configure_logging
 
-LOG_PATH = Path(__file__).resolve().parent / "logs" / "dow_list_refresh.log"
+LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "dow_list_refresh.log"
 
 
 async def main() -> None:

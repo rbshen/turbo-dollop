@@ -3,7 +3,7 @@ from datetime import datetime
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
-import bulk_refresh_ratios_ttm as bulk_refresh
+import pipeline.backfills.bulk_refresh_ratios_ttm as bulk_refresh
 from models import FundamentalsCache, IndexConstituent
 
 

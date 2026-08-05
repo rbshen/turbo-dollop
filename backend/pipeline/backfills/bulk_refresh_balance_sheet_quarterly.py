@@ -21,11 +21,11 @@ thin rows, not a general prefetch, so it should touch exactly the tickers
 affected by the bug and nothing else.
 
 Run against a small subset first (recommended before the full list):
-    uv run python bulk_refresh_balance_sheet_quarterly.py --limit 15
-    uv run python bulk_refresh_balance_sheet_quarterly.py --tickers AAPL,MSFT,ZZZZINVALID
+    uv run python -m pipeline.backfills.bulk_refresh_balance_sheet_quarterly --limit 15
+    uv run python -m pipeline.backfills.bulk_refresh_balance_sheet_quarterly --tickers AAPL,MSFT,ZZZZINVALID
 
 Run against every affected ticker:
-    uv run python bulk_refresh_balance_sheet_quarterly.py
+    uv run python -m pipeline.backfills.bulk_refresh_balance_sheet_quarterly
 """
 
 import argparse
@@ -43,7 +43,7 @@ from logging_config import configure_logging
 from models import FundamentalsCache
 from ttm import TOTAL_QUARTERS_NEEDED
 
-LOG_PATH = Path(__file__).resolve().parent / "logs" / "bulk_refresh_balance_sheet_quarterly.log"
+LOG_PATH = Path(__file__).resolve().parent.parent.parent / "logs" / "bulk_refresh_balance_sheet_quarterly.log"
 
 # Same pacing approach as nightly_fundamentals_fetch.py/bulk_refresh_step4_annual.py,
 # at the lower end of the requested 200-250 req/min range.
