@@ -4,8 +4,8 @@ from datetime import date, datetime
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
-import analyst_ratings_data
-from analyst_ratings_data import _months_ago, get_analyst_ratings_data
+import data.analyst_ratings_data as analyst_ratings_data
+from data.analyst_ratings_data import _months_ago, get_analyst_ratings_data
 from models import PriceTargetSnapshot
 
 TODAY = date.today()

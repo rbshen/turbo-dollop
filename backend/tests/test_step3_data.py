@@ -4,8 +4,8 @@ import httpx
 import pytest
 from sqlmodel import SQLModel, create_engine
 
-import step3_data
-from step3_data import get_step3_data
+import data.step3_data as step3_data
+from data.step3_data import get_step3_data
 
 PROFILE = [{"sector": "Technology", "industry": "Software - Application", "beta": 1.1}]
 QUOTE = [{"price": 100.0, "marketCap": 10_000_000_000}]
@@ -44,7 +44,7 @@ def _fresh_engine(monkeypatch):
     # get_step3_data also calls get_step2_data internally (for growth_yr_1_5)
     # -- it goes through its own module's engine, patch that too so it
     # doesn't touch a real DB file.
-    import step2_data
+    import data.step2_data as step2_data
 
     monkeypatch.setattr(step2_data, "engine", test_engine)
     return test_engine

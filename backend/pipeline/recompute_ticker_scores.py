@@ -34,7 +34,7 @@ from sqlmodel import Session
 from db import engine, init_db
 from logging_config import configure_logging
 from pipeline.nightly_fundamentals_fetch import load_universe_tickers
-from ticker_score import compute_ticker_score
+from data.ticker_score import compute_ticker_score
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "recompute_ticker_scores.log"
 

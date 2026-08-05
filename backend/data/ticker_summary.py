@@ -10,8 +10,8 @@ from first import _first
 from fmp_client import fmp_client
 from schemas import OutlierWarning, TickerSummaryOut
 from shares import compute_shares_outstanding
-from step2_data import get_step2_data
-from step3_data import get_step3_data
+from data.step2_data import get_step2_data
+from data.step3_data import get_step3_data
 from ttm import TOTAL_QUARTERS_NEEDED
 
 # Trailing window for the daily price/volume fetch backing the 30-day

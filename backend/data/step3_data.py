@@ -31,7 +31,7 @@ from scoring.step3 import (
     select_method,
 )
 from shares import compute_shares_outstanding
-from step2_data import get_step2_data
+from data.step2_data import get_step2_data
 from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 # Workbook default (step6_intrinsic_value_calculation_prompt.md §4.1) --

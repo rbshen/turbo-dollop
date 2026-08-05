@@ -3,10 +3,10 @@ from datetime import datetime, timedelta
 
 from sqlmodel import Session, SQLModel, create_engine
 
-import news_sentiment_data
+import data.news_sentiment_data as news_sentiment_data
 from alpha_vantage_client import AlphaVantageThrottled
 from models import NewsSentimentCache
-from news_sentiment_data import get_news_sentiment_data
+from data.news_sentiment_data import get_news_sentiment_data
 
 
 def _article(ticker: str = "AMZN", **overrides) -> dict:

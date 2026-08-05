@@ -5,7 +5,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import main
-import ticker_score
+import data.ticker_score as ticker_score
 from models import TickerScore
 from schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
 

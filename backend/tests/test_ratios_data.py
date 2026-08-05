@@ -2,8 +2,8 @@ import asyncio
 
 from sqlmodel import SQLModel, create_engine
 
-import ratios_data
-from ratios_data import (
+import data.ratios_data as ratios_data
+from data.ratios_data import (
     CATEGORIES,
     LEVERAGE_FIELDS,
     LIQUIDITY_FIELDS,

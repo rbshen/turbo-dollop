@@ -8,14 +8,14 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import main
 import pipeline.refresh as refresh
-import step5_data
-import ticker_score
-import ticker_summary
+import data.step5_data as step5_data
+import data.ticker_score as ticker_score
+import data.ticker_summary as ticker_summary
 from models import FundamentalsCache, GrowthCatalystNote, TickerScore
 from pipeline.refresh import clear_ticker_cache
 from schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
-from step5_data import get_step5_data
-from ticker_summary import get_summary
+from data.step5_data import get_step5_data
+from data.ticker_summary import get_summary
 
 
 def _seed(session, ticker, statement_type, period):

@@ -3,10 +3,10 @@ from datetime import datetime
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
-import ticker_score
+import data.ticker_score as ticker_score
 from models import TickerScore
 from schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
-from ticker_score import compute_ticker_score
+from data.ticker_score import compute_ticker_score
 
 
 def _fresh_engine(monkeypatch):

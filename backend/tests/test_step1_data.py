@@ -3,8 +3,8 @@ import asyncio
 import httpx
 from sqlmodel import SQLModel, create_engine
 
-import step1_data
-from step1_data import get_step1_data
+import data.step1_data as step1_data
+from data.step1_data import get_step1_data
 
 PROFILE = [{"sector": "Technology", "industry": "Consumer Electronics"}]
 

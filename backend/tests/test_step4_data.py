@@ -2,8 +2,8 @@ import asyncio
 
 from sqlmodel import SQLModel, create_engine
 
-import step4_data
-from step4_data import get_step4_data
+import data.step4_data as step4_data
+from data.step4_data import get_step4_data
 
 # 10 years total (2016-2025) -- the recent 5 (2021-2025) are the exact same
 # values this fixture had before the display/scoring window was extended to

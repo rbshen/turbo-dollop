@@ -9,8 +9,8 @@ from first import _first
 from fmp_client import fmp_client
 from models import WatchlistTicker
 from schemas import WatchlistRowOut
-from step1_data import get_step1_data
-from ticker_score import compute_ticker_score
+from data.step1_data import get_step1_data
+from data.ticker_score import compute_ticker_score
 
 # LATEST_YEARS_SHOWN of Step 1's Revenue/Net Income/CFO series back each
 # row's mini trend bar chart -- Step1Out's own `years` is 10yr+TTM, more

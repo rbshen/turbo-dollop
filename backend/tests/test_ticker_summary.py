@@ -3,10 +3,10 @@ from datetime import date, timedelta
 
 from sqlmodel import SQLModel, create_engine
 
-import step2_data
-import ticker_summary
+import data.step2_data as step2_data
+import data.ticker_summary as ticker_summary
 from schemas import Step3Inputs, Step3Out
-from ticker_summary import get_summary
+from data.ticker_summary import get_summary
 from ttm import TOTAL_QUARTERS_NEEDED
 
 # get_summary sources fair_value_price/verdict/method from Step 3's own

@@ -2,8 +2,8 @@ import asyncio
 
 from sqlmodel import SQLModel, create_engine
 
-import financials_data
-from financials_data import (
+import data.financials_data as financials_data
+from data.financials_data import (
     ANNUAL_WINDOW,
     BALANCE_SHEET_GROUPS,
     CASH_FLOW_GROUPS,

@@ -5,9 +5,9 @@ import httpx
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
-import step2_data
+import data.step2_data as step2_data
 from models import GrowthCatalystNote
-from step2_data import get_step2_data
+from data.step2_data import get_step2_data
 
 TODAY = date.today()
 BASE_YEAR = TODAY.year + 1  # nearest future fiscal year

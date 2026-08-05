@@ -6,21 +6,21 @@ from fastapi import FastAPI, HTTPException
 from sqlmodel import Session, func, select
 
 from alpha_vantage_client import AlphaVantageThrottled
-from analyst_ratings_data import get_analyst_ratings_data
+from data.analyst_ratings_data import get_analyst_ratings_data
 from bank_capital_metrics import get_ticker_bank_capital_metrics, set_ticker_bank_capital_metrics
 from db import engine, init_db
 from discount_rate_config import get_discount_rate_config, update_discount_rate_config
 from logging_config import apply_redaction_filters
-from moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
+from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from models import IndexConstituent, SavedScreenerFilter, TickerScore, Watchlist
-from news_data import get_news_data
-from news_sentiment_data import get_news_sentiment_data
+from data.news_data import get_news_data
+from data.news_sentiment_data import get_news_sentiment_data
 from pipeline.recompute_ticker_scores import recompute_all
 from pipeline.refresh import clear_ticker_cache
-from financials_data import get_financials_data
-from ratios_data import get_ratios_data
-from saved_screener_filters import delete_saved_filter, list_saved_filters, upsert_saved_filter
-from segmentation_data import get_segmentation_data
+from data.financials_data import get_financials_data
+from data.ratios_data import get_ratios_data
+from data.saved_screener_filters import delete_saved_filter, list_saved_filters, upsert_saved_filter
+from data.segmentation_data import get_segmentation_data
 from schemas import (
     AnalystRatingsOut,
     DiscountRateConfigIn,
@@ -61,16 +61,16 @@ from schemas import (
     WatchlistTickerOut,
     WatchlistUpdateIn,
 )
-from step1_data import get_step1_data
-from step2_data import get_step2_data
+from data.step1_data import get_step1_data
+from data.step2_data import get_step2_data
 from scoring.step3 import run_manual_calculation
-from step3_data import get_step3_data
-from step4_data import get_step4_data
-from step5_data import get_step5_data
-from ticker_score import compute_ticker_score
-from ticker_summary import get_summary
-from watchlist_data import get_watchlist_rows
-from watchlists import (
+from data.step3_data import get_step3_data
+from data.step4_data import get_step4_data
+from data.step5_data import get_step5_data
+from data.ticker_score import compute_ticker_score
+from data.ticker_summary import get_summary
+from data.watchlist_data import get_watchlist_rows
+from data.watchlists import (
     add_watchlist_ticker,
     bulk_add_watchlist_tickers,
     count_net_new_tickers,

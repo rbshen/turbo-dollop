@@ -52,13 +52,13 @@ from db import engine, init_db
 from fmp_client import fmp_client
 from logging_config import configure_logging
 from models import IndexConstituent
-from segmentation_data import get_segmentation_data
-from step1_data import get_step1_data
-from step2_data import get_step2_data
-from step4_data import get_step4_data
-from step5_data import get_step5_data
-from ticker_score import compute_ticker_score
-from ticker_summary import get_summary
+from data.segmentation_data import get_segmentation_data
+from data.step1_data import get_step1_data
+from data.step2_data import get_step2_data
+from data.step4_data import get_step4_data
+from data.step5_data import get_step5_data
+from data.ticker_score import compute_ticker_score
+from data.ticker_summary import get_summary
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_fundamentals_fetch.log"
 

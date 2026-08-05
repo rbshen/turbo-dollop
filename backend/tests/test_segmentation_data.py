@@ -2,8 +2,8 @@ import asyncio
 
 from sqlmodel import SQLModel, create_engine
 
-import segmentation_data
-from segmentation_data import MAX_SEGMENTS, OTHER_LABEL, _build_segment_series, get_segmentation_data
+import data.segmentation_data as segmentation_data
+from data.segmentation_data import MAX_SEGMENTS, OTHER_LABEL, _build_segment_series, get_segmentation_data
 
 # Newest-first, matching FMP's actual payload ordering (confirmed empirically).
 TWO_YEAR_ROWS = [

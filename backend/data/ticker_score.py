@@ -7,13 +7,13 @@ from sqlmodel import Session
 
 from db import engine
 from models import TickerScore
-from moat import get_moat_score_config, get_ticker_moat, resolve_moat_score
+from data.moat import get_moat_score_config, get_ticker_moat, resolve_moat_score
 from scoring.overall import MoatSnapshot, StepSnapshot, compute_overall_assessment
-from step1_data import get_step1_data
-from step2_data import get_step2_data
-from step4_data import get_step4_data
-from step5_data import get_step5_data
-from ticker_summary import get_summary
+from data.step1_data import get_step1_data
+from data.step2_data import get_step2_data
+from data.step4_data import get_step4_data
+from data.step5_data import get_step5_data
+from data.ticker_summary import get_summary
 
 logger = logging.getLogger(__name__)
 

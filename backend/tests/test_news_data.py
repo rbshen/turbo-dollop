@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 
 from sqlmodel import Session, SQLModel, create_engine
 
-import news_data
+import data.news_data as news_data
 from models import NewsCache
-from news_data import get_news_data
+from data.news_data import get_news_data
 
 RAW_ARTICLE = {
     "symbol": "AAPL",

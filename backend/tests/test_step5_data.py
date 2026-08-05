@@ -2,8 +2,8 @@ import asyncio
 
 from sqlmodel import SQLModel, create_engine
 
-import step5_data
-from step5_data import get_step5_data
+import data.step5_data as step5_data
+from data.step5_data import get_step5_data
 
 PROFILE = [{"sector": "Technology", "industry": "Consumer Electronics"}]
 
