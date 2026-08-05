@@ -2,6 +2,8 @@ import asyncio
 
 from sqlmodel import SQLModel, create_engine
 
+import data.step2_data as step2_data
+import data.step3_data as step3_data
 import data.step5_data as step5_data
 import data.ticker_summary as ticker_summary
 from helpers.debt_metrics import compute_debt_metrics
@@ -101,6 +103,15 @@ def test_ticker_summary_and_step5_agree_on_the_same_raw_figures(monkeypatch):
     SQLModel.metadata.create_all(test_engine)
     monkeypatch.setattr(step5_data, "engine", test_engine)
     monkeypatch.setattr(ticker_summary, "engine", test_engine)
+    # get_summary() also calls get_step2_data()/get_step3_data() (see
+    # ticker_summary.py), each of which manages its own independent
+    # Session(engine) bound to step2_data's/step3_data's own module-level
+    # import -- patching only step5_data/ticker_summary's engine leaves
+    # these two writing straight to the real core.db.engine. Confirmed
+    # root cause of the PEP/ACME fixture-contamination recurrence
+    # (2026-08-04, see CLAUDE.md) -- this is the exact fix.
+    monkeypatch.setattr(step2_data, "engine", test_engine)
+    monkeypatch.setattr(step3_data, "engine", test_engine)
 
     async def fake_profile(ticker):
         return PROFILE
@@ -167,6 +178,15 @@ def test_outlier_warning_propagates_through_step5_and_ticker_summary(monkeypatch
     SQLModel.metadata.create_all(test_engine)
     monkeypatch.setattr(step5_data, "engine", test_engine)
     monkeypatch.setattr(ticker_summary, "engine", test_engine)
+    # get_summary() also calls get_step2_data()/get_step3_data() (see
+    # ticker_summary.py), each of which manages its own independent
+    # Session(engine) bound to step2_data's/step3_data's own module-level
+    # import -- patching only step5_data/ticker_summary's engine leaves
+    # these two writing straight to the real core.db.engine. Confirmed
+    # root cause of the PEP/ACME fixture-contamination recurrence
+    # (2026-08-04, see CLAUDE.md) -- this is the exact fix.
+    monkeypatch.setattr(step2_data, "engine", test_engine)
+    monkeypatch.setattr(step3_data, "engine", test_engine)
 
     async def fake_profile(ticker):
         return PROFILE
