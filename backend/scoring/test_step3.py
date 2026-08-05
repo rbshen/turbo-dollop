@@ -199,8 +199,8 @@ def test_select_method_amzn_style_recency_boundary_changes_the_selected_method()
 
 
 # --- select_method: full decision-tree branch coverage -------------------
-# One test per terminal branch/node named in
-# step6_intrinsic_value_calculation_prompt.md's §1 decision tree. Genuine
+# One test per terminal branch/node named in valuation.md's §1 decision
+# tree. Genuine
 # PASS (insufficient_data=False) and both insufficient_data=True paths
 # (total/partial fetch failure) are already covered in
 # tests/test_step3_data.py from the recent Step 3 fix -- not duplicated

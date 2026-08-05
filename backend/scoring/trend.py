@@ -137,8 +137,8 @@ def classify_trend(values: list[float]) -> TrendResult:
     if abs(growth_before_last) < FLAT_WINDOW_THRESHOLD and last_jump > SPIKE_THRESHOLD:
         return TrendResult("flat_then_spike", 20)
 
-    # Deliberately refined beyond step1_revenue_income_cfo_assessment_prompt.md's
-    # original flat 40-for-any-2+-dips read -- see CLAUDE.md's "Scoring rubric
+    # Deliberately refined beyond financials.md's original flat
+    # 40-for-any-2+-dips read -- see CLAUDE.md's "Scoring rubric
     # deviations" section. Whether every dip recovered past its own pre-dip
     # peak by TTM matters; how recently it happened doesn't -- a dip that's
     # fully bounced back above where it started reads the same whether that

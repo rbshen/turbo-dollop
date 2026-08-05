@@ -34,8 +34,8 @@ from helpers.shares import compute_shares_outstanding
 from data.step2_data import get_step2_data
 from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
-# Workbook default (step6_intrinsic_value_calculation_prompt.md §4.1) --
-# never automated, matches the source spreadsheet's own fallback.
+# Workbook default (valuation.md §4.1) -- never automated, matches the
+# source spreadsheet's own fallback.
 FAIR_PSG_RATIO_DEFAULT = 0.2
 # Confirmed with the user: matches the spec's own worked example and
 # standard long-term/GDP-growth DCF convention. User-editable per ticker in

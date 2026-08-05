@@ -4,8 +4,8 @@ import numpy as np
 
 from scoring.trend import RECOVERY_PATTERNS, classify_trend
 
-# "5+ years" per step6_intrinsic_value_calculation_prompt.md §1 -- the
-# method-selection tree's own minimum window for every "consistently
+# "5+ years" per valuation.md §1 -- the method-selection tree's own
+# minimum window for every "consistently
 # increasing" check, distinct from the 20yr projection engine's own horizon.
 METHOD_SELECTION_MIN_YEARS = 5
 
@@ -182,8 +182,8 @@ def select_method(
     revenue_series: list[float] | None,
     fcf_period_labels: list[str] | None = None,
 ) -> MethodSelection:
-    """Pure implementation of step6_intrinsic_value_calculation_prompt.md
-    §1's method-selection tree. All series are chronological (oldest first,
+    """Pure implementation of valuation.md §1's method-selection tree. All
+    series are chronological (oldest first,
     ending TTM); *_ttm are the single "current" figures per spec §2.1.
     No I/O -- step3_data.py sources every input from FMP/Step 1/Step 2.
     `fcf_period_labels`, when supplied, must align 1:1 with both fcf_series

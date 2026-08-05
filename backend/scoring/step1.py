@@ -92,8 +92,8 @@ def _classify_positive_trend(values: list[float]) -> TrendResult:
     return trend
 
 # Margin classification thresholds, in percentage points. Deliberately
-# refined beyond step1_revenue_income_cfo_assessment_prompt.md's original
-# stdev-based volatility check -- see CLAUDE.md's "Scoring rubric
+# refined beyond financials.md's original stdev-based volatility check
+# -- see CLAUDE.md's "Scoring rubric
 # deviations" section for why. A single big dip-and-full-recovery year
 # (e.g. one synchronized -8pt drop followed by a +15pt rebound) produces a
 # high stdev but isn't the same risk profile as genuine directionless

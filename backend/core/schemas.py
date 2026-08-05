@@ -347,7 +347,7 @@ class Step3CapmComponents(BaseModel):
     market_risk_premium: float
     beta: float
     # True when beta < 0.8 -- outside the workbook's own manual reference
-    # table range (see step6_intrinsic_value_calculation_prompt.md §5).
+    # table range (see valuation.md §5).
     # CAPM is still applied directly, not floored; this is informational.
     beta_outside_reference_range: bool
 

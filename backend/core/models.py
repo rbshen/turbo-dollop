@@ -78,7 +78,7 @@ class GrowthCatalystNote(SQLModel, table=True):
 
 class DiscountRateConfig(SQLModel, table=True):
     """Manually-maintained CAPM inputs for Step 3's discount rate (see
-    step6_intrinsic_value_calculation_prompt.md §5) -- Risk-Free Rate and
+    valuation.md §5) -- Risk-Free Rate and
     Market Risk Premium are both 5-year trailing averages sourced from
     market-risk-premia.com, deliberately not auto-fetched (that source's
     terms only support citing the number, not automated re-fetching; see

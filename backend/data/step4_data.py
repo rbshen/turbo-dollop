@@ -36,9 +36,9 @@ CCC_EXEMPT_TYPES = {"Bank", "Insurance", "REIT/Property Developer", "Utility"}
 # direction.
 AR_EXEMPT_TYPES = {"REIT/Property Developer"}
 # Both display AND scoring now use the same 10yr+TTM window, matching Step
-# 1 -- a deliberate deviation beyond step4_profitability_efficiency_
-# assessment_prompt.md's explicit "5 years" language (see CLAUDE.md's Step
-# 4 deviations). There used to be a separate, narrower SCORING_ANNUAL_WINDOW
+# 1 -- a deliberate deviation beyond profitability.md's explicit "5 years"
+# language (see CLAUDE.md's Step 4 deviations). There used to be a
+# separate, narrower SCORING_ANNUAL_WINDOW
 # (5) feeding only the score while display used the full 10 -- that
 # decoupling has been removed; a single window now drives both.
 ANNUAL_WINDOW = 10
