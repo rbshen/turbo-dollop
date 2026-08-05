@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     fmp_base_url: str = "https://financialmodelingprep.com/stable"
     database_path: str = "fathom.db"
     cache_staleness_days: int = 7
+    # Distinct from cache_staleness_days above: staleness controls when a
+    # cached row is refetched from FMP, not when it's deleted. This bounds
+    # FundamentalsCache's actual row count, which only grows from tickers
+    # looked up once outside the nightly-refreshed S&P 500/Dow universe (a
+    # ticker inside that universe is upserted in place forever, never
+    # accumulating rows) -- see pipeline/prune_cache.py.
+    cache_retention_days: int = 180
     # News is far more time-sensitive than fundamentals -- a short TTL
     # (minutes, not days) so repeat tab views within a session don't each
     # hit FMP, without pretending news is as static as financials. See

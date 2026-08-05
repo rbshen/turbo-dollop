@@ -5,8 +5,11 @@ __pycache__/
 *.db
 backend/.env
 backend/logs/
+backend/backups/
 backend/analysis/ma_magnet/
 frontend/node_modules/
 frontend/.next/
+frontend/logs/
 frontend/.env*.local
 .env
+.run/
