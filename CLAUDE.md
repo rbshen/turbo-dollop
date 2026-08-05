@@ -121,18 +121,58 @@ data (monkeypatching `fmp_client` to return controlled/fixture responses)
 **must** follow the exact same convention: construct a fresh in-memory
 engine and monkeypatch it onto every module's `engine` reference first.
 Never monkeypatch `fmp_client` alone and call these functions against the
-default (real, file-backed) `db.engine`. Confirmed root cause of a real
-incident (2026-07-28): `backend/tests/test_debt_metrics.py`'s "Acme Corp"
-profile fixture — used correctly, with proper engine isolation, by the
-tests themselves — ended up cached under the real ticker **PEP** (and the
-inert placeholder ticker **ACME**) in `backend/fathom.db`, live in
-production (`/tickers/PEP` and its Screener card showed "Acme Corp") for
-several hours before being caught. Root-caused to an ad-hoc script that
-mirrored the test's fixture/monkeypatch setup but only patched
-`fmp_client`, not `engine`. Purged and re-fetched; see git history around
-that date for the remediation. `backend/audit_fixture_contamination.py`
-(read-only, safe to run anytime) scans `FundamentalsCache` for the same
-class of fingerprint and should be run if this is ever suspected again.
+default (real, file-backed) `db.engine`. Confirmed root cause of the
+original incident (2026-07-28): `backend/tests/test_debt_metrics.py`'s
+"Acme Corp" profile fixture — used correctly, with proper engine
+isolation, by the tests themselves at that time — ended up cached under
+the real ticker **PEP** (and the inert placeholder ticker **ACME**) in
+`backend/fathom.db`, live in production (`/tickers/PEP` and its Screener
+card showed "Acme Corp") for several hours before being caught.
+Root-caused to an ad-hoc script that mirrored the test's fixture/
+monkeypatch setup but only patched `fmp_client`, not `engine`. Purged and
+re-fetched 2026-07-28.
+
+**This recurred 2026-08-04, via a different mechanism — not an ad-hoc
+script this time, but the test suite itself.** `test_debt_metrics.py`'s
+own two tests call `get_summary(ticker)` (`ticker_summary.py`), which
+internally calls `get_step2_data()`/`get_step3_data()` — both of which
+manage their **own independent `Session(engine)` blocks**, bound to
+`data/step2_data.py`'s and `data/step3_data.py`'s own separate `engine`
+imports. The test only monkeypatches `step5_data.engine` and
+`ticker_summary.engine`, so `fmp_client`'s fakes (a true shared singleton,
+correctly patched) flow through step2/step3_data's calls, but their
+`get_or_fetch` cache **writes** land on the real, unpatched
+`core.db.engine` — silently persisting fixture data into production,
+exactly the same class of bug, just triggered by an ordinary `uv run
+pytest` run rather than a bespoke script. `test_ticker_summary.py`
+independently discovered and fixed the `step2_data.engine` half of this
+same trap (see its own comment there) but that fix was never propagated
+to `test_debt_metrics.py`, and neither test patches `step3_data.engine`.
+Confirmed via `fetched_at` timestamps that this fired twice, from two
+unrelated ordinary `pytest` runs, at 2026-08-04 05:28 and 21:31 — and was
+**not caught by `audit_fixture_contamination.py`** despite that script's
+existence, because the live installed crontab (`crontab -l`) was
+confirmed to be byte-for-byte the original 2026-07-20 version, never once
+reinstalled since (not after this incident's own original fix, not after
+the later backend package reorg, not after `audit_fixture_contamination`
+was finally added to `crontab.txt` on 2026-08-05) — so nothing in
+`crontab.txt`, including this scanner, has ever actually been running on
+schedule on this box. Purged and re-fetched again 2026-08-05 (PEP fully
+re-fetched via the same `pipeline.nightly_fundamentals_fetch` code path
+the nightly cron job uses per-ticker; `ACME`'s rows deleted outright, not
+re-fetched, since it isn't a real ticker); PEP's `TickerScore` recomputed.
+`test_debt_metrics.py`'s own isolation gap is a known, deferred follow-up
+— not yet fixed as of this writing. A structural fix (rather than relying
+on every test remembering to patch every transitively-touched module's
+`engine`) was proposed following this recurrence, pending review — not
+yet designed into code as of this writing.
+
+`backend/pipeline/audit_fixture_contamination.py` (read-only, safe to run
+anytime) scans `FundamentalsCache` for the same class of fingerprint and
+should be run if this is ever suspected again — but confirm the live
+crontab is actually installed (`crontab -l` vs `crontab.txt`) first,
+since that gap is exactly what let this recurrence go unnoticed for a
+full day.
 
 ## Scoring rubric notes
 
