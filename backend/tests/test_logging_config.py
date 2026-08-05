@@ -1,6 +1,6 @@
 import logging
 
-from logging_config import RedactApiKeyFilter, configure_logging
+from core.logging_config import RedactApiKeyFilter, configure_logging
 
 
 def _filtered_message(raw_message: str) -> str:

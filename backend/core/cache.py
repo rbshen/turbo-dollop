@@ -7,7 +7,7 @@ import httpx
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
-from models import FundamentalsCache
+from core.models import FundamentalsCache
 
 logger = logging.getLogger(__name__)
 

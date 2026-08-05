@@ -17,8 +17,8 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from db import engine, init_db
-from logging_config import configure_logging
+from core.db import engine, init_db
+from core.logging_config import configure_logging
 from scrapers.sp500_scraper import refresh_sp500_constituents
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "sp500_list_refresh.log"

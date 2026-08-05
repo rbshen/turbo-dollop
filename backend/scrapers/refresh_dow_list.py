@@ -18,9 +18,9 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from db import engine, init_db
+from core.db import engine, init_db
 from scrapers.dow_scraper import refresh_dow_constituents
-from logging_config import configure_logging
+from core.logging_config import configure_logging
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "dow_list_refresh.log"
 

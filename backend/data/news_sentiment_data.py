@@ -7,10 +7,10 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
 from clients.alpha_vantage_client import AlphaVantageThrottled, alpha_vantage_client
-from config import settings
-from db import engine
-from models import NewsSentimentCache
-from schemas import NewsSentimentArticle, NewsSentimentOut, SentimentDistribution
+from core.config import settings
+from core.db import engine
+from core.models import NewsSentimentCache
+from core.schemas import NewsSentimentArticle, NewsSentimentOut, SentimentDistribution
 
 logger = logging.getLogger(__name__)
 

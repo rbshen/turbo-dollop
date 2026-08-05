@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session
 
-from models import TickerBankCapitalMetrics
+from core.models import TickerBankCapitalMetrics
 
 
 def get_ticker_bank_capital_metrics(session: Session, ticker: str) -> TickerBankCapitalMetrics | None:

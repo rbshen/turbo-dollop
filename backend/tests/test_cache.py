@@ -3,8 +3,8 @@ from datetime import datetime, timedelta
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from cache import force_fetch, get_or_fetch
-from models import FundamentalsCache
+from core.cache import force_fetch, get_or_fetch
+from core.models import FundamentalsCache
 
 
 def test_concurrent_cache_miss_on_same_key_does_not_raise():

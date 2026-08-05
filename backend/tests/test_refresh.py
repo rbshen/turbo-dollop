@@ -6,14 +6,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
-import main
+import core.main as main
 import pipeline.refresh as refresh
 import data.step5_data as step5_data
 import data.ticker_score as ticker_score
 import data.ticker_summary as ticker_summary
-from models import FundamentalsCache, GrowthCatalystNote, TickerScore
+from core.models import FundamentalsCache, GrowthCatalystNote, TickerScore
 from pipeline.refresh import clear_ticker_cache
-from schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
+from core.schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
 from data.step5_data import get_step5_data
 from data.ticker_summary import get_summary
 

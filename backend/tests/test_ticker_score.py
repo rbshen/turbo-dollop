@@ -4,8 +4,8 @@ from datetime import datetime
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import data.ticker_score as ticker_score
-from models import TickerScore
-from schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
+from core.models import TickerScore
+from core.schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
 from data.ticker_score import compute_ticker_score
 
 

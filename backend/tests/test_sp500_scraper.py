@@ -6,7 +6,7 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import scrapers.sp500_scraper as sp500_scraper
-from models import IndexConstituent
+from core.models import IndexConstituent
 from scrapers.sp500_scraper import (
     ConstituentRow,
     parse_sp500_constituents,

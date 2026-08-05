@@ -2,7 +2,7 @@ from datetime import datetime
 
 from sqlmodel import Session, select
 
-from models import Watchlist, WatchlistTicker
+from core.models import Watchlist, WatchlistTicker
 
 
 def list_watchlists(session: Session) -> list[Watchlist]:

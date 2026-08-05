@@ -1,10 +1,10 @@
 from sqlmodel import Session
 
-from cache import get_or_fetch, safe_fetch
-from config import settings
-from db import engine
+from core.cache import get_or_fetch, safe_fetch
+from core.config import settings
+from core.db import engine
 from clients.fmp_client import fmp_client
-from schemas import FinancialsGroup, FinancialsLineItem, FinancialsOut, FinancialsPeriodOut, FinancialsStatementOut
+from core.schemas import FinancialsGroup, FinancialsLineItem, FinancialsOut, FinancialsPeriodOut, FinancialsStatementOut
 from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 # Same 10yr+TTM window as Step 1/Step 4 (see CLAUDE.md's Step 4 deviations)

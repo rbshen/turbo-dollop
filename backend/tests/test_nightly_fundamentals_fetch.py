@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlmodel import Session, SQLModel, create_engine
 
 import pipeline.nightly_fundamentals_fetch as nightly
-from models import IndexConstituent
+from core.models import IndexConstituent
 
 
 def _fresh_engine(monkeypatch, tmp_path):

@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
-from models import SavedScreenerFilter
+from core.models import SavedScreenerFilter
 
 
 def list_saved_filters(session: Session) -> list[SavedScreenerFilter]:

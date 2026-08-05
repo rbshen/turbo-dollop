@@ -2,7 +2,14 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-BASE_DIR = Path(__file__).resolve().parent
+# .parent.parent, not .parent -- this file now lives at backend/core/config.py,
+# one directory deeper than when BASE_DIR was first written relative to
+# backend/ itself. Both consumers below are load-bearing: env_file is how
+# the real FMP/Alpha Vantage keys get read from backend/.env, and db.py's
+# DB_PATH is built from this same BASE_DIR -- a stray .parent here would
+# silently point the running app at a fresh, empty backend/core/fathom.db
+# instead of the real ~800MB backend/fathom.db, with no error at startup.
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):

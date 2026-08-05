@@ -31,8 +31,8 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from db import engine, init_db
-from logging_config import configure_logging
+from core.db import engine, init_db
+from core.logging_config import configure_logging
 from pipeline.nightly_fundamentals_fetch import load_universe_tickers
 from data.ticker_score import compute_ticker_score
 

@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import pipeline.backfills.bulk_refresh_step4_annual as bulk_refresh
-from models import FundamentalsCache, IndexConstituent
+from core.models import FundamentalsCache, IndexConstituent
 
 
 def _fresh_engine(monkeypatch, tmp_path):

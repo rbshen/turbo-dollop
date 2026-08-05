@@ -6,7 +6,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 import data.analyst_ratings_data as analyst_ratings_data
 from data.analyst_ratings_data import _months_ago, get_analyst_ratings_data
-from models import PriceTargetSnapshot
+from core.models import PriceTargetSnapshot
 
 TODAY = date.today()
 

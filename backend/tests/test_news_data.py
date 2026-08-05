@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from sqlmodel import Session, SQLModel, create_engine
 
 import data.news_data as news_data
-from models import NewsCache
+from core.models import NewsCache
 from data.news_data import get_news_data
 
 RAW_ARTICLE = {

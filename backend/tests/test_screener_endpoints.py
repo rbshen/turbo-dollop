@@ -4,8 +4,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-import main
-from models import IndexConstituent, TickerScore
+import core.main as main
+from core.models import IndexConstituent, TickerScore
 
 
 def _fresh_engine(monkeypatch):

@@ -6,7 +6,7 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import scrapers.dow_scraper as dow_scraper
-from models import IndexConstituent
+from core.models import IndexConstituent
 from scrapers.dow_scraper import (
     ConstituentRow,
     parse_dow_constituents,

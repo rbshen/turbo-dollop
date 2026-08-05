@@ -1,10 +1,10 @@
 from sqlmodel import Session
 
-from cache import get_or_fetch, safe_fetch
-from config import settings
-from db import engine
+from core.cache import get_or_fetch, safe_fetch
+from core.config import settings
+from core.db import engine
 from clients.fmp_client import fmp_client
-from schemas import SegmentationOut
+from core.schemas import SegmentationOut
 
 # Same 10yr consistency convention as Step 1/Step 4/Ratios (see CLAUDE.md) --
 # annual-only on our FMP plan (period=quarter 402s on both segmentation

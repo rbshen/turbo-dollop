@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlmodel import Session, SQLModel, create_engine
 
 import pipeline.recompute_ticker_scores as recompute
-from models import IndexConstituent, TickerScore
+from core.models import IndexConstituent, TickerScore
 
 
 def _fresh_engine(monkeypatch, tmp_path):

@@ -2,7 +2,7 @@ from datetime import datetime
 
 from sqlmodel import Session
 
-from models import DiscountRateConfig
+from core.models import DiscountRateConfig
 
 # Confirmed current values (see CLAUDE.md / step6_intrinsic_value_calculation_
 # prompt.md §5) -- 5-year trailing averages from market-risk-premia.com,

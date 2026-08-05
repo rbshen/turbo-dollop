@@ -5,8 +5,8 @@ from typing import Callable, NamedTuple
 import httpx
 from sqlmodel import Session
 
-from cache import get_or_fetch
-from config import settings
+from core.cache import get_or_fetch
+from core.config import settings
 from clients.fmp_client import fmp_client
 
 logger = logging.getLogger(__name__)

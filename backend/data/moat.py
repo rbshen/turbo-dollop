@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session
 
-from models import MoatScoreConfig, TickerMoat
+from core.models import MoatScoreConfig, TickerMoat
 
 # Seeded only as the config row's initial value on first read (see
 # get_moat_score_config) -- from then on the DB row (editable via

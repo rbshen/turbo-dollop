@@ -4,10 +4,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
-import main
+import core.main as main
 import data.ticker_score as ticker_score
-from models import TickerScore
-from schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
+from core.models import TickerScore
+from core.schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
 
 
 def _fresh_shared_engine(monkeypatch):

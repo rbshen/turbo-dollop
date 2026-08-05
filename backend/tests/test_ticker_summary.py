@@ -5,7 +5,7 @@ from sqlmodel import SQLModel, create_engine
 
 import data.step2_data as step2_data
 import data.ticker_summary as ticker_summary
-from schemas import Step3Inputs, Step3Out
+from core.schemas import Step3Inputs, Step3Out
 from data.ticker_summary import get_summary
 from helpers.ttm import TOTAL_QUARTERS_NEEDED
 

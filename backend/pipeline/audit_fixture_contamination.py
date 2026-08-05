@@ -20,9 +20,9 @@ import json
 
 from sqlmodel import Session, select
 
-from db import engine, init_db
+from core.db import engine, init_db
 from helpers.first import _first
-from models import FundamentalsCache
+from core.models import FundamentalsCache
 
 # Case-insensitive substrings that showed up in the confirmed incident's
 # fixture data (backend/tests/test_debt_metrics.py::PROFILE) or are the

@@ -16,7 +16,7 @@ import httpx
 from bs4 import BeautifulSoup
 from sqlmodel import Session, select
 
-from models import IndexConstituent
+from core.models import IndexConstituent
 
 logger = logging.getLogger(__name__)
 

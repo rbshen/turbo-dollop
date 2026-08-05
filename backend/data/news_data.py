@@ -4,12 +4,12 @@ from datetime import datetime, timedelta
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
-from cache import safe_fetch
-from config import settings
-from db import engine
+from core.cache import safe_fetch
+from core.config import settings
+from core.db import engine
 from clients.fmp_client import fmp_client
-from models import NewsCache
-from schemas import NewsArticle, NewsOut
+from core.models import NewsCache
+from core.schemas import NewsArticle, NewsOut
 
 # Latest-N feed, not a paginated archive -- see CLAUDE.md's news feature
 # scoping (v1 is deliberately simple, no "load more").

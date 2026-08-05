@@ -5,8 +5,8 @@ from typing import Awaitable, TypeVar
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session
 
-from db import engine
-from models import TickerScore
+from core.db import engine
+from core.models import TickerScore
 from data.moat import get_moat_score_config, get_ticker_moat, resolve_moat_score
 from scoring.overall import MoatSnapshot, StepSnapshot, compute_overall_assessment
 from data.step1_data import get_step1_data
