@@ -43,6 +43,16 @@ def test_investment_banking_still_classifies_as_bank_via_existing_substring():
     assert classify_company_type("Financial Services", "Investment - Banking & Investment Services") == "Bank"
 
 
+def test_investment_banking_genuine_lender_stays_bank_bny():
+    # BNY (Bank of New York Mellon): shares IBKR's exact "Investment -
+    # Banking & Investment Services" industry string, but unlike IBKR is a
+    # genuine, chartered deposit-taking custody bank -- deposits are 70.3%
+    # of total assets (FY2025, SEC EDGAR), netInterestIncome 12.2% of
+    # revenue. Confirmed as Bank here explicitly rather than left implicit
+    # just because it shares IBKR's industry text.
+    assert classify_company_type("Financial Services", "Investment - Banking & Investment Services", "BNY") == "Bank"
+
+
 def test_asset_manager_with_ticker_omitted_defaults_to_bank():
     # No ticker supplied -- the non-lender override can't apply, so the
     # keyword match alone decides (matches pre-override behavior for any

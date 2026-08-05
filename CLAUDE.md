@@ -848,7 +848,9 @@ not from the intended CFO-de-emphasis effect.
 NII/revenue % below is each ticker's most recent annual FMP figure at the
 time of the 2026-07-28 investigation (`netInterestIncome / revenue`,
 cached in `backend/fathom.db`'s `fundamentalscache` table) — it will drift
-year to year and isn't re-verified automatically.
+year to year and isn't re-verified automatically. BNY's figures (added to
+the confirmed-lenders table below) are from a separate, later check
+(2026-08-05, FY2025 data), not the original 2026-07-28 pass.
 
 **Excluded from Bank → classified `"Standard"`:**
 
@@ -881,6 +883,7 @@ year to year and isn't re-verified automatically.
 | NTRS | 16.9% | Northern Trust — custody bank with real lending/deposit operations |
 | RJF | 13.5% | Raymond James — has Raymond James Bank subsidiary |
 | STT | 13.1% | State Street — custody bank (State Street Bank and Trust) with real lending |
+| BNY | 12.2% | The Bank of New York Mellon — chartered custody bank; deposits are 70.3% of total assets (FY2025, SEC EDGAR `Deposits`/`Assets` XBRL tags). Shares IBKR's exact "Investment - Banking & Investment Services" industry text, but unlike IBKR (whose `Deposits` tag was never filed — see `BANK_CET1_NPL_EXCLUDED_TICKERS` below) is a genuine, materially larger deposit-taking lender — confirmed explicitly here rather than left to be inferred from the shared industry string |
 | GS | 10.8% | Goldman Sachs — investment bank with real deposit-taking/lending and trading-book NII |
 | MS | 8.7% | Morgan Stanley — investment bank with Morgan Stanley Private Bank / wealth-management lending |
 
