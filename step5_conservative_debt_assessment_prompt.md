@@ -88,10 +88,10 @@ Banks use debt (deposits) as their core raw material to generate profit — high
 
 | CET1 Ratio | Assessment |
 |---|---|
-| > 13% | ✅ Excellent — very well capitalised |
-| 11 – 13% | ✅ Good — solidly above threshold |
-| 10 – 11% | ✅ Acceptable — meets minimum |
-| < 10% | ❌ Fail — undercapitalised, higher risk |
+| above 14% | ✅ Excellent — very well capitalised |
+| 12 – 14% | ✅ Good — solidly above threshold |
+| 10 – 12% | ✅ Acceptable — meets minimum |
+| below 10% | ❌ Fail — undercapitalised, higher risk |
 
 ### REITs / Property Developers
 

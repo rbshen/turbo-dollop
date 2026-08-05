@@ -411,18 +411,17 @@ def score_npl(value_pct: float) -> RatioResult:
 
 # --- CET1 (Common Equity Tier 1) Ratio -- Bank, manual entry only -----------
 # No FMP source exists (confirmed -- see CLAUDE.md's Step 5 CET1 deviation
-# note), so this is always a user-entered value, never fetched. 8% is the
-# Basel III regulatory "well capitalized" floor (source-doc-given), so <8%
-# is the hard-fail boundary; 10%/12% sub-tier splits are first-pass
-# judgment calls, same status as Step 4's CCC thresholds and NPL's own
-# 1%/3% splits (no doc-given numeric gradation exists above the floor).
+# note), so this is always a user-entered value, never fetched. Bands below
+# are the current agreed thresholds (2026-08-05), replacing both the
+# original source doc's numbers and an earlier code-only 8/10/12 version --
+# not a reversion to either prior set.
 def score_cet1(value_pct: float) -> RatioResult:
     """Mirrors score_npl's excellent/good/acceptable/fail 4-tier shape."""
-    if value_pct < 8.0:
-        return RatioResult("fail", 0, True)
     if value_pct < 10.0:
-        return RatioResult("acceptable", 70, False)
+        return RatioResult("fail", 0, True)
     if value_pct < 12.0:
+        return RatioResult("acceptable", 70, False)
+    if value_pct < 14.0:
         return RatioResult("good", 85, False)
     return RatioResult("excellent", 100, False)
 

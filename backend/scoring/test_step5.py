@@ -282,32 +282,38 @@ def test_npl_fail_at_or_above_5():
 
 
 # --- CET1 Ratio tiers (Bank, manual entry only) ---
+# 2026-08-05 bands: <10 fail / 10-12 acceptable / 12-14 good / >=14
+# excellent -- a fresh decision replacing both the original source doc's
+# 10/11/13 bands and an earlier code-only 8/10/12 version.
 
 
-def test_cet1_excellent_at_or_above_12():
-    assert score_cet1(12.0) == ("excellent", 100, False, False, ())
-    assert score_cet1(15.0) == ("excellent", 100, False, False, ())
-
-
-def test_cet1_good():
-    assert score_cet1(11.0) == ("good", 85, False, False, ())
-
-
-def test_cet1_boundary_at_10_is_good_not_acceptable():
-    assert score_cet1(10.0) == ("good", 85, False, False, ())
-
-
-def test_cet1_acceptable():
-    assert score_cet1(9.0) == ("acceptable", 70, False, False, ())
-
-
-def test_cet1_boundary_at_8_is_acceptable_not_fail():
-    assert score_cet1(8.0) == ("acceptable", 70, False, False, ())
-
-
-def test_cet1_fail_below_8():
-    assert score_cet1(7.9) == ("fail", 0, True, False, ())
+def test_cet1_fail_below_10():
+    assert score_cet1(9.9) == ("fail", 0, True, False, ())
     assert score_cet1(4.0) == ("fail", 0, True, False, ())
+
+
+def test_cet1_boundary_at_10_is_acceptable():
+    assert score_cet1(10.0) == ("acceptable", 70, False, False, ())
+
+
+def test_cet1_acceptable_at_11():
+    assert score_cet1(11.0) == ("acceptable", 70, False, False, ())
+
+
+def test_cet1_boundary_at_12_is_good():
+    assert score_cet1(12.0) == ("good", 85, False, False, ())
+
+
+def test_cet1_good_at_13():
+    assert score_cet1(13.0) == ("good", 85, False, False, ())
+
+
+def test_cet1_boundary_at_14_is_excellent():
+    assert score_cet1(14.0) == ("excellent", 100, False, False, ())
+
+
+def test_cet1_excellent_above_14():
+    assert score_cet1(15.0) == ("excellent", 100, False, False, ())
 
 
 # --- Bank path (CET1 + NPL, 50/50 blend) ---
@@ -325,7 +331,7 @@ def test_bank_both_excellent_is_strong_pass():
 
 def test_bank_blend_math_mixed_tiers():
     # CET1 "good" (85) + NPL "acceptable" (70) -> (85*0.5 + 70*0.5) = 77.5 -> 78
-    result = score_step5_bank(cet1_pct=11.0, npl_pct=4.0)
+    result = score_step5_bank(cet1_pct=13.0, npl_pct=4.0)
     assert result["score"] == 78
     assert result["hard_fail"] is False
     assert result["verdict"] == "Pass"
