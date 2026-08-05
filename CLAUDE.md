@@ -26,9 +26,19 @@ part of the Overall Assessment blend (no `step3` key exists in
   manipulation — favor vectorised operations over row-wise loops. Dependency
   management via `uv` (`uv run`, `uv sync`).
 
+## Running the app
+
+`./bin/start.sh` from the repo root brings up both servers (preflight
+checks, explicit `init_db()`, an FMP connectivity check, then backend +
+frontend, each in its own process group) — see `backend/OPS_RUNBOOK.md`'s
+"Starting / stopping the app" section for what success/failure look like.
+`./bin/stop.sh` stops both, safe to run anytime including when nothing is
+running.
+
 ## Folder layout
 
 ```
+bin/         start.sh / stop.sh / common.sh -- see "Running the app" above.
 frontend/    Next.js app (App Router)
 backend/     FastAPI app, organized into packages by role (2026-08-05
              reorg away from the previous fully-flat, feature-file
@@ -61,7 +71,10 @@ backend/     FastAPI app, organized into packages by role (2026-08-05
   pipeline/    Production cron/maintenance entrypoints that read/write the
                real DB: nightly_fundamentals_fetch.py,
                monthly_price_target_snapshot.py, recompute_ticker_scores.py,
-               audit_fixture_contamination.py, refresh.py.
+               audit_fixture_contamination.py, refresh.py, prune_cache.py,
+               backup_db.py, rotate_logs.py, stale_data_health_check.py --
+               see backend/OPS_RUNBOOK.md for what each of the latter four
+               does, its cadence, and what to check if it fails.
     backfills/   One-time historical cache backfill scripts (already run,
                  kept as documentation of how those migrations were done):
                  bulk_refresh_balance_sheet_quarterly.py,

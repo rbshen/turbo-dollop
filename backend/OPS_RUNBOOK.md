@@ -90,6 +90,68 @@ tail -50 backend/logs/nightly_fundamentals_fetch.log
 tail -50 backend/logs/audit_fixture_contamination_cron.log   # no plain .log for this one
 ```
 
+## Maintenance scripts (`backend/pipeline/`)
+
+All of the scripts below are wired into `crontab.txt`'s weekly maintenance
+window (Sundays 1:10–1:25 AM) or, for the daily backup, 3:30 AM. Each can
+also be run manually with `uv run python -m pipeline.<name>` from
+`backend/`.
+
+**`prune_cache`** — deletes `FundamentalsCache` rows older than
+`Settings.cache_retention_days` (180 days by default; distinct from the
+7-day staleness window, which only controls refetching, not deletion).
+Success: a log line `Pruned N FundamentalsCache row(s) older than 180
+days.` in `backend/logs/prune_cache.log`. `--dry-run` previews the count
+without deleting. If N is unexpectedly huge, check whether the S&P
+500/Dow constituent lists synced correctly recently (see the section
+below) — a broken sync can make otherwise-active tickers look
+"orphaned" and eligible for pruning.
+
+**`backup_db`** — writes a compressed, timestamped snapshot of
+`fathom.db` to `backend/backups/` (gitignored, not synced anywhere else
+— this is on-disk-only insurance, not an off-site backup) via SQLite's
+own `Connection.backup()` API, and prunes anything beyond the last 14.
+Success: `Backup created: .../backups/fathom_<timestamp>.db.gz (N MB).`
+in `backend/logs/backup_db.log`. If it fails, check disk space first
+(`df -h`) — a full disk is the most likely cause. To restore: `gunzip
+-k backend/backups/fathom_<timestamp>.db.gz` and copy the result over
+`backend/fathom.db` (stop the app first).
+
+**`rotate_logs`** — gzips any `backend/logs/*.log` file over 5MB to a
+timestamped `.gz` archive and truncates the original in place, keeping
+the last 8 archives per log name. No system `logrotate` involved
+(confirmed not installed here, and a project-wide config would need root
+this box doesn't have passwordless `sudo` for). Success: `Log rotation
+complete. N file(s) rotated.` — N is often 0, which is normal (most logs
+stay under 5MB between weekly runs). Safe even for a log a long-running
+process still has open (e.g. `uvicorn_dev.log` during an active
+`bin/start.sh` session): both `uvicorn`'s shell redirect and Python's
+`logging.FileHandler` write in append mode, which always seeks to the
+file's true end before writing, so the next write after a rotation lands
+cleanly rather than leaving a gap. The only real caveat (shared with
+`logrotate`'s own copytruncate mode) is a narrow race window where a
+line written by a live process exactly during the rotation is lost.
+
+**`stale_data_health_check`** — reports how many S&P 500/Dow universe
+tickers haven't had their `profile` cache row refreshed within 10 days
+(a 3-day buffer past the 7-day staleness window, to tolerate one missed
+nightly run without a false alarm). Prints a readable report (fresh /
+stale / never-fetched counts, plus the actual stale ticker list) to both
+stdout and `backend/logs/stale_data_health_check.log` — never silent. A
+large "stale" count is the first place to check the nightly fetch job
+(`nightly_fundamentals_fetch_cron.log`) for a crash or an FMP outage; a
+large "never fetched" count usually means the S&P 500/Dow constituent
+sync hasn't run successfully (see below).
+
+**`audit_fixture_contamination`** — see the incident this script was
+built for in `CLAUDE.md`'s "Ad-hoc reproduction scripts must not touch
+the real database". Read-only, promoted from manual-only to a weekly
+scheduled job since it's cheap and safe. Success: `No fixture-
+contamination fingerprints found.` A hit doesn't prove contamination on
+its own (e.g. a real company genuinely named "Sample Inc" would
+false-positive) — review the flagged ticker/statement/reason manually,
+the same way the original incident was investigated.
+
 ## Weekly index constituent refresh (S&P 500 / Dow)
 
 Cron: `crontab.txt`, Sundays 1:00 AM (S&P 500) and 1:05 AM (Dow). Scripts:
