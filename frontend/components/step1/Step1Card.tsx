@@ -21,6 +21,17 @@ const STATIC_METRIC_LABELS: Record<string, string> = {
   fcf: "Free Cash Flow",
 };
 
+// Short, lowercase forms for the blurb's parenthetical component list --
+// distinct from STATIC_METRIC_LABELS (used for the bullet rows/headings),
+// which are full Title Case labels too long to read naturally inline.
+const BLURB_METRIC_LABELS: Record<string, string> = {
+  revenue: "revenue",
+  net_income: "income",
+  cfo: "cash flow",
+  margins: "margins",
+  fcf: "free cash flow",
+};
+
 const TIER_LABELS: Record<string, string> = {
   insufficient_data: "Insufficient data",
   // classify_trend (revenue / net income / CFO)
@@ -95,7 +106,8 @@ export function Step1Card({ ticker }: Props) {
   }).filter((row): row is NonNullable<typeof row> => row !== null);
 
   const strongCount = componentRows.filter((r) => r.score >= 70).length;
-  const blurb = `${strongCount} of ${componentRows.length} components (revenue, income, cash flow, margins) score at Pass level or better.`;
+  const scoredComponents = componentRows.map((r) => BLURB_METRIC_LABELS[r.key] ?? r.key).join(", ");
+  const blurb = `${strongCount} of ${componentRows.length} components (${scoredComponents}) score at Pass level or better.`;
 
   const bullets: ReasoningBullet[] = componentRows.map((row) => ({
     key: row.key,
@@ -103,5 +115,20 @@ export function Step1Card({ ticker }: Props) {
     tierClassName: tierClass(row.score),
   }));
 
-  return <AnalysisSectionCard title="Financials" score={data.score} verdict={data.verdict} blurb={blurb} bullets={bullets} />;
+  const notes = data.cfo_exempt_reason ? (
+    <p className="text-xs text-text-tertiary">
+      Cash Flow and Free Cash Flow aren&apos;t scored for this company — classified as a {data.cfo_exempt_reason}.
+    </p>
+  ) : null;
+
+  return (
+    <AnalysisSectionCard
+      title="Financials"
+      score={data.score}
+      verdict={data.verdict}
+      blurb={blurb}
+      notes={notes}
+      bullets={bullets}
+    />
+  );
 }

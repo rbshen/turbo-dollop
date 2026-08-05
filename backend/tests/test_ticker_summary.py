@@ -1,4 +1,5 @@
 import asyncio
+from datetime import date, timedelta
 
 from sqlmodel import SQLModel, create_engine
 
@@ -59,10 +60,18 @@ FAKE_ESTIMATES = [
     {"date": "2026-09-27", "epsAvg": 8.31},
 ]
 
+# Dates are relative to today, not hardcoded -- a fixed future date
+# eventually becomes today's past and silently breaks these tests on a
+# schedule (confirmed real: "2026-07-30" as the expected next-earnings
+# date broke once the clock passed it). NEXT_EARNINGS_DATE is shared with
+# the assertions below so the fixture and the expectation can never drift
+# from each other.
+_TODAY = date.today()
+NEXT_EARNINGS_DATE = _TODAY + timedelta(days=25)
 FAKE_EARNINGS = [
-    {"date": "2026-07-30", "epsActual": None, "epsEstimated": 1.88},
-    {"date": "2026-04-30", "epsActual": 2.01, "epsEstimated": 1.95},
-    {"date": "2026-01-29", "epsActual": 2.85, "epsEstimated": 2.67},
+    {"date": NEXT_EARNINGS_DATE.isoformat(), "epsActual": None, "epsEstimated": 1.88},
+    {"date": (_TODAY - timedelta(days=65)).isoformat(), "epsActual": 2.01, "epsEstimated": 1.95},
+    {"date": (_TODAY - timedelta(days=155)).isoformat(), "epsActual": 2.85, "epsEstimated": 2.67},
 ]
 
 FAKE_BALANCE_SHEET_QUARTERLY = [{"shortTermDebt": 5_000_000_000, "longTermDebt": 95_000_000_000}]
@@ -77,6 +86,8 @@ FAKE_INCOME_QUARTERLY = [
 FAKE_ENTERPRISE_VALUES = [{"date": "2026-03-28", "enterpriseValue": 3_900_000_000_000}]
 
 FAKE_RATIOS_TTM = [{"priceToEarningsGrowthRatioTTM": 1.39, "forwardPriceToEarningsGrowthRatioTTM": 3.86}]
+
+FAKE_FINANCIAL_GROWTH = [{"revenueGrowth": 0.08, "netIncomeGrowth": 0.12}]
 
 # Newest-first, matching FMP's actual /historical-price-eod/full ordering
 # (confirmed empirically) -- only 3 rows, enough to exercise both the
@@ -110,6 +121,7 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
         "enterprise_values": 0,
         "ratios_ttm": 0,
         "historical_price_eod": 0,
+        "financial_growth": 0,
     }
 
     async def fake_profile(ticker):
@@ -163,6 +175,10 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
         call_count["historical_price_eod"] += 1
         return FAKE_DAILY_PRICES
 
+    async def fake_financial_growth(ticker, period, limit):
+        call_count["financial_growth"] += 1
+        return FAKE_FINANCIAL_GROWTH
+
     async def fake_get_step3_data(ticker, cache_only=False, step2_out=None):
         return FAKE_STEP3_OUT
 
@@ -178,6 +194,7 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     monkeypatch.setattr(ticker_summary.fmp_client, "get_enterprise_values", fake_enterprise_values)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios_ttm", fake_ratios_ttm)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_historical_price_eod", fake_historical_price_eod)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_financial_growth", fake_financial_growth)
 
     summary = asyncio.run(get_summary("aapl"))
 
@@ -213,7 +230,7 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     assert summary.week52_high == 199.62
     assert summary.week52_low == 164.08
     assert summary.pe_ratio == 30.1
-    assert summary.next_earnings_date is not None and summary.next_earnings_date.isoformat() == "2026-07-30"
+    assert summary.next_earnings_date is not None and summary.next_earnings_date == NEXT_EARNINGS_DATE
     # Must equal Step 2's own growth_rate exactly (same _project computation,
     # same base year 2026 / target year 2030 four-years-out window) -- this
     # is the regression guard for the bug where a near-duplicate calculation
@@ -242,6 +259,7 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
         "enterprise_values": 1,
         "ratios_ttm": 1,
         "historical_price_eod": 1,
+        "financial_growth": 1,
     }
     assert call_count == expected_call_count
 
@@ -261,7 +279,7 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
 
 
 def test_next_earnings_date_picks_nearest_unreported():
-    assert ticker_summary._next_earnings_date(FAKE_EARNINGS).isoformat() == "2026-07-30"
+    assert ticker_summary._next_earnings_date(FAKE_EARNINGS) == NEXT_EARNINGS_DATE
     assert ticker_summary._next_earnings_date([]) is None
 
 
@@ -282,10 +300,12 @@ def test_next_earnings_date_returns_none_for_etf_shaped_data():
 def test_next_earnings_date_still_finds_a_genuine_future_date_among_null_rows():
     # Regression guard: a normal ticker with a real upcoming earnings date
     # (also epsActual=None, since it hasn't been reported yet) must still
-    # be found correctly -- the fix only excludes PAST null rows.
+    # be found correctly -- the fix only excludes PAST null rows. Dates are
+    # relative to today for the same reason as FAKE_EARNINGS above.
+    future_date = _TODAY + timedelta(days=10)
     normal = [
-        {"date": "2025-01-30", "epsActual": 2.4},
-        {"date": "2025-04-30", "epsActual": 2.1},
-        {"date": "2026-08-15", "epsActual": None},
+        {"date": (_TODAY - timedelta(days=185)).isoformat(), "epsActual": 2.4},
+        {"date": (_TODAY - timedelta(days=95)).isoformat(), "epsActual": 2.1},
+        {"date": future_date.isoformat(), "epsActual": None},
     ]
-    assert ticker_summary._next_earnings_date(normal).isoformat() == "2026-08-15"
+    assert ticker_summary._next_earnings_date(normal) == future_date
