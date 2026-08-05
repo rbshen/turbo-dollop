@@ -81,6 +81,42 @@ def test_sync_replaces_existing_constituents():
         assert stored[0].ticker == "NEW"
 
 
+def test_sync_replaces_existing_constituents_when_tickers_overlap():
+    # Regression test: unlike test_sync_replaces_existing_constituents
+    # above (an OLD ticker fully swapped for a different NEW one), index
+    # membership normally changes by only a handful of tickers -- most
+    # rows in `rows` share a ticker with a row already stored. A prior bug
+    # here let SQLAlchemy flush the new rows' INSERTs before the old rows'
+    # DELETEs, tripping uq_index_constituent(index_name, ticker) on every
+    # overlapping ticker and rolling back the whole sync.
+    engine = _fresh_engine()
+    with Session(engine) as session:
+        session.add(
+            IndexConstituent(
+                index_name="dow", ticker="MMM", company_name="3M", last_synced_at=__import__("datetime").datetime.now()
+            )
+        )
+        session.add(
+            IndexConstituent(
+                index_name="dow", ticker="GOOGL", company_name="Alphabet", last_synced_at=__import__("datetime").datetime.now()
+            )
+        )
+        session.commit()
+
+        rows = [
+            ConstituentRow(ticker="MMM", company_name="3M", sector="Industrials", sub_industry=None, date_added="1976-08-09"),
+            ConstituentRow(ticker="GOOGL", company_name="Alphabet Inc.", sector="Technology", sub_industry=None, date_added="2024-02-26"),
+        ]
+        result = sync_dow_constituents(session, rows)
+
+        assert result.success is True
+        assert result.constituent_count == 2
+
+        stored = session.exec(select(IndexConstituent).where(IndexConstituent.index_name == "dow")).all()
+        assert {s.ticker for s in stored} == {"MMM", "GOOGL"}
+        assert next(s for s in stored if s.ticker == "GOOGL").company_name == "Alphabet Inc."
+
+
 def test_refresh_keeps_old_list_when_fetch_fails(monkeypatch):
     engine = _fresh_engine()
     with Session(engine) as session:

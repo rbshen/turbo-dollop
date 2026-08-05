@@ -77,6 +77,42 @@ def test_sync_replaces_existing_constituents():
         assert stored[0].ticker == "NEW"
 
 
+def test_sync_replaces_existing_constituents_when_tickers_overlap():
+    # Regression test: unlike test_sync_replaces_existing_constituents
+    # above (an OLD ticker fully swapped for a different NEW one), index
+    # membership normally changes by only a handful of tickers -- most
+    # rows in `rows` share a ticker with a row already stored. A prior bug
+    # here let SQLAlchemy flush the new rows' INSERTs before the old rows'
+    # DELETEs, tripping uq_index_constituent(index_name, ticker) on every
+    # overlapping ticker and rolling back the whole sync.
+    engine = _fresh_engine()
+    with Session(engine) as session:
+        session.add(
+            IndexConstituent(
+                index_name="sp500", ticker="MMM", company_name="3M", last_synced_at=__import__("datetime").datetime.now()
+            )
+        )
+        session.add(
+            IndexConstituent(
+                index_name="sp500", ticker="AOS", company_name="A O Smith", last_synced_at=__import__("datetime").datetime.now()
+            )
+        )
+        session.commit()
+
+        rows = [
+            ConstituentRow(ticker="MMM", company_name="3M", sector="Industrials", sub_industry="Industrial Conglomerates", date_added="1957-03-04"),
+            ConstituentRow(ticker="AOS", company_name="A. O. Smith", sector="Industrials", sub_industry="Building Products", date_added="2017-07-26"),
+        ]
+        result = sync_sp500_constituents(session, rows)
+
+        assert result.success is True
+        assert result.constituent_count == 2
+
+        stored = session.exec(select(IndexConstituent).where(IndexConstituent.index_name == "sp500")).all()
+        assert {s.ticker for s in stored} == {"MMM", "AOS"}
+        assert next(s for s in stored if s.ticker == "AOS").company_name == "A. O. Smith"
+
+
 def test_refresh_keeps_old_list_when_fetch_fails(monkeypatch):
     # Simulated scrape failure: the network fetch itself raises. The
     # existing stored list must survive untouched, and the failure must be

@@ -126,6 +126,11 @@ def sync_index_constituents(session: Session, index_name: str, rows: list[Consti
     existing = session.exec(select(IndexConstituent).where(IndexConstituent.index_name == index_name)).all()
     for row in existing:
         session.delete(row)
+    # Without this, SQLAlchemy's flush ordering issues INSERTs for the new
+    # rows before the DELETEs above are actually sent, tripping
+    # uq_index_constituent whenever a ticker (the common case -- index
+    # membership rarely changes) appears in both the old and new lists.
+    session.flush()
 
     for row in rows:
         session.add(
