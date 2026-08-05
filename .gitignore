@@ -2,9 +2,10 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
-backend/*.db
+*.db
 backend/.env
 backend/logs/
+backend/analysis/ma_magnet/
 frontend/node_modules/
 frontend/.next/
 frontend/.env*.local
