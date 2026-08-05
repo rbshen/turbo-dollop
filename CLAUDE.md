@@ -3,11 +3,17 @@
 ## What this is
 
 Fathom is a company fundamentals valuation web app. It runs a multi-step
-fundamental screen on any US-listed ticker. There are 5 steps total in the
-methodology; **Step 1 (Revenue, income and cash flow)**, **Step 2 (Positive
-growth rate)**, **Step 4 (Profitable and operationally efficient)**, and
-**Step 5 (Conservative debt)** are implemented so far. Step 3 follows the
-same chart/table/score pattern and is added in a later phase.
+fundamental screen on any US-listed ticker. The automated Analysis
+framework has 4 steps -- **Step 1 (Revenue, income and cash flow)**,
+**Step 2 (Positive growth rate)**, **Step 4 (Profitable and operationally
+efficient)**, and **Step 5 (Conservative debt)** -- plus a manually-set
+Economic Moat rating, together forming the Overall Assessment score (see
+`STEP_WEIGHTS`/`MOAT_WEIGHT` in "Overall Assessment's step weighting"
+below). **Step 3 (Valuation)**, internally `backend/step3_data.py` /
+`backend/scoring/step3.py`, is a separate, fully-implemented "Valuation"
+tab with its own DCF/DDM/P-B/PSG method-selection logic -- it is **not**
+part of the Overall Assessment blend (no `step3` key exists in
+`STEP_WEIGHTS`).
 
 ## Tech stack
 
@@ -294,10 +300,22 @@ Step 5's source doc (`step5_conservative_debt_assessment_prompt.md`) calls
 for a CET1 ratio check for Banks. An investigation confirmed FMP has no
 CET1 field and no raw components to compute one (checked ratios,
 ratios-ttm, key-metrics, balance sheet, and speculative bank-specific
-endpoints — all absent or 404). This is **deferred, not approximated**:
-Bank tickers get `verdict: "not_supported"` and `score: null`
-(`backend/step5_data.py`, `frontend/components/step5/Step5Card.tsx`), never
-a fabricated or estimated capital ratio.
+endpoints — all absent or 404). CET1 is therefore **manual-entry only,
+never fabricated or estimated** (`backend/bank_capital_metrics.py`,
+`frontend/components/step5/BankCapitalMetricsForm.tsx`) — but as of
+`4a4fe26` ("Add manual CET1/NPL entry to unblock Step 5 Bank verdicts",
+2026-08-02) this is **no longer a permanent block**. A Bank ticker reads
+`verdict: "not_supported"` / `score: null` only until a CET1 value is
+entered; once it is, `score_step5_bank` blends it 50/50 with an NPL
+(Non-Performing Loan) ratio — auto-computed from FMP's raw XBRL tag dump
+via `backend/npl.py` where available, manually overridable otherwise — into
+a real score and verdict (`backend/scoring/step5.py::score_step5_bank`,
+`WEIGHTS_BANK`). NPL itself is a metric the source doc never mentions at
+all. `BANK_CET1_NPL_EXCLUDED_TICKERS` (`IBKR`, `HOOD` — confirmed no
+customer deposit-taking business via FMP's `deposits` XBRL tag) are
+carved out of this entirely: no manual-entry UI is offered and they stay
+permanently `not_supported`, same as every Bank ticker before this
+feature shipped.
 
 Step 5 is a hard pass/fail bankruptcy filter, not a continuous score, so
 its "Scoring rubric deviations" are structural rather than threshold
