@@ -7,7 +7,7 @@ import data.step2_data as step2_data
 import data.ticker_summary as ticker_summary
 from schemas import Step3Inputs, Step3Out
 from data.ticker_summary import get_summary
-from ttm import TOTAL_QUARTERS_NEEDED
+from helpers.ttm import TOTAL_QUARTERS_NEEDED
 
 # get_summary sources fair_value_price/verdict/method from Step 3's own
 # result (see ticker_summary.py::get_summary). Step 3's own fetch pipeline

@@ -38,10 +38,10 @@ from sqlmodel import Session, select
 
 from cache import force_fetch
 from db import engine, init_db
-from fmp_client import fmp_client
+from clients.fmp_client import fmp_client
 from logging_config import configure_logging
 from models import FundamentalsCache
-from ttm import TOTAL_QUARTERS_NEEDED
+from helpers.ttm import TOTAL_QUARTERS_NEEDED
 
 LOG_PATH = Path(__file__).resolve().parent.parent.parent / "logs" / "bulk_refresh_balance_sheet_quarterly.log"
 

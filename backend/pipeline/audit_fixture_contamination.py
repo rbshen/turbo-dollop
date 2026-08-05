@@ -21,7 +21,7 @@ import json
 from sqlmodel import Session, select
 
 from db import engine, init_db
-from first import _first
+from helpers.first import _first
 from models import FundamentalsCache
 
 # Case-insensitive substrings that showed up in the confirmed incident's

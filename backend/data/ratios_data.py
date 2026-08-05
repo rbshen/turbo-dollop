@@ -3,10 +3,10 @@ from sqlmodel import Session
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
-from first import _first
-from fmp_client import fmp_client
+from helpers.first import _first
+from clients.fmp_client import fmp_client
 from schemas import FinancialsGroup, FinancialsLineItem, RatiosOut
-from ttm import TOTAL_QUARTERS_NEEDED
+from helpers.ttm import TOTAL_QUARTERS_NEEDED
 
 # Same 10yr+TTM window as Step 1/Step 4/Financials -- a raw-metrics viewer,
 # not a scored metric, but reuses the same window for consistency.

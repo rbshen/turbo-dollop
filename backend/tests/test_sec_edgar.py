@@ -6,8 +6,8 @@ from pathlib import Path
 import httpx
 from sqlmodel import Session, SQLModel, create_engine
 
-import sec_edgar
-from sec_edgar import (
+import clients.sec_edgar as sec_edgar
+from clients.sec_edgar import (
     cross_check_cfo,
     cross_check_interest_expense,
     find_discrete_cfo_value,

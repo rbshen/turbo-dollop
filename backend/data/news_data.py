@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 from cache import safe_fetch
 from config import settings
 from db import engine
-from fmp_client import fmp_client
+from clients.fmp_client import fmp_client
 from models import NewsCache
 from schemas import NewsArticle, NewsOut
 

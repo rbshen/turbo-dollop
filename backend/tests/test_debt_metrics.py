@@ -4,7 +4,7 @@ from sqlmodel import SQLModel, create_engine
 
 import data.step5_data as step5_data
 import data.ticker_summary as ticker_summary
-from debt_metrics import compute_debt_metrics
+from helpers.debt_metrics import compute_debt_metrics
 from data.step5_data import get_step5_data
 from data.ticker_summary import get_summary
 

@@ -6,7 +6,7 @@ import httpx
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
-from alpha_vantage_client import AlphaVantageThrottled, alpha_vantage_client
+from clients.alpha_vantage_client import AlphaVantageThrottled, alpha_vantage_client
 from config import settings
 from db import engine
 from models import NewsSentimentCache

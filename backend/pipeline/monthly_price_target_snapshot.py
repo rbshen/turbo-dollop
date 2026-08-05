@@ -35,8 +35,8 @@ from pathlib import Path
 from sqlmodel import Session
 
 from db import engine, init_db
-from first import _first
-from fmp_client import fmp_client
+from helpers.first import _first
+from clients.fmp_client import fmp_client
 from logging_config import configure_logging
 from models import PriceTargetSnapshot
 from pipeline.nightly_fundamentals_fetch import load_universe_tickers

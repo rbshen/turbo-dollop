@@ -10,7 +10,7 @@ from data.financials_data import (
     INCOME_STATEMENT_FIELDS,
     get_financials_data,
 )
-from ttm import TOTAL_QUARTERS_NEEDED
+from helpers.ttm import TOTAL_QUARTERS_NEEDED
 
 FAKE_INCOME_ANNUAL = [
     {

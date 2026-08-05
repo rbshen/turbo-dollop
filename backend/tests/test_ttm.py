@@ -1,4 +1,4 @@
-from ttm import FlaggedQuarter, sum_last_four_quarters
+from helpers.ttm import FlaggedQuarter, sum_last_four_quarters
 
 # 8 stable baseline quarters (all $100M) followed by the 4 "recent" quarters
 # under test -- most-recent-first, matching FMP's own ordering.

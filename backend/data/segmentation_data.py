@@ -3,7 +3,7 @@ from sqlmodel import Session
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
-from fmp_client import fmp_client
+from clients.fmp_client import fmp_client
 from schemas import SegmentationOut
 
 # Same 10yr consistency convention as Step 1/Step 4/Ratios (see CLAUDE.md) --

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from sqlmodel import Session, SQLModel, create_engine
 
 import data.news_sentiment_data as news_sentiment_data
-from alpha_vantage_client import AlphaVantageThrottled
+from clients.alpha_vantage_client import AlphaVantageThrottled
 from models import NewsSentimentCache
 from data.news_sentiment_data import get_news_sentiment_data
 

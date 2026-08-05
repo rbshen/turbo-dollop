@@ -33,7 +33,7 @@ from sqlmodel import Session
 
 from cache import force_fetch
 from db import engine, init_db
-from fmp_client import fmp_client
+from clients.fmp_client import fmp_client
 from logging_config import configure_logging
 from pipeline.nightly_fundamentals_fetch import load_sp500_tickers
 

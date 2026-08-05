@@ -4,8 +4,8 @@ import time
 import httpx
 import pytest
 
-import fmp_client as fmp_client_module
-from fmp_client import FMPClient
+import clients.fmp_client as fmp_client_module
+from clients.fmp_client import FMPClient
 
 
 def _install_mock_transport(monkeypatch, handler):

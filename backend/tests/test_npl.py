@@ -1,4 +1,4 @@
-from npl import compute_npl_ratio
+from helpers.npl import compute_npl_ratio
 
 NONACCRUAL_TAG = "financingreceivableexcludingaccruedinterestnonaccrual"
 TOTAL_LOANS_TAG = "financingreceivableexcludingaccruedinterestbeforeallowanceforcreditloss"

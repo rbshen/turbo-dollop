@@ -3,8 +3,8 @@ from sqlmodel import Session
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
-from first import _first
-from fmp_client import fmp_client
+from helpers.first import _first
+from clients.fmp_client import fmp_client
 from schemas import Step4Out
 from scoring.classification import classify_company_type
 from scoring.step4 import (
@@ -17,7 +17,7 @@ from scoring.step4 import (
     score_roic,
     score_step4,
 )
-from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
+from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 ROIC_EXEMPT_TYPES = {"Bank", "Insurance", "Utility", "REIT/Property Developer"}
 # CCC (Cash Conversion Cycle) has no comparable inventory/receivables cash-

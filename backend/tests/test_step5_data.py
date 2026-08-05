@@ -173,7 +173,7 @@ def _set_bank_capital_metrics(monkeypatch, ticker, cet1_ratio_pct=None, cet1_as_
     # ordering constraint every other fixture in this file already has.
     from sqlmodel import Session
 
-    from bank_capital_metrics import set_ticker_bank_capital_metrics
+    from helpers.bank_capital_metrics import set_ticker_bank_capital_metrics
 
     with Session(step5_data.engine) as session:
         set_ticker_bank_capital_metrics(session, ticker, cet1_ratio_pct, cet1_as_of, npl_ratio_pct, npl_as_of)

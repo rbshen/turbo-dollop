@@ -7,7 +7,7 @@ from sqlmodel import Session
 
 from cache import get_or_fetch
 from config import settings
-from fmp_client import fmp_client
+from clients.fmp_client import fmp_client
 
 logger = logging.getLogger(__name__)
 

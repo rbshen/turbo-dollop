@@ -3,10 +3,10 @@ from sqlmodel import Session
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
-from debt_metrics import compute_debt_metrics
-from discount_rate_config import get_discount_rate_config
-from first import _first
-from fmp_client import fmp_client
+from helpers.debt_metrics import compute_debt_metrics
+from helpers.discount_rate_config import get_discount_rate_config
+from helpers.first import _first
+from clients.fmp_client import fmp_client
 from schemas import (
     Step2Out,
     Step3CapmComponents,
@@ -30,9 +30,9 @@ from scoring.step3 import (
     run_psg,
     select_method,
 )
-from shares import compute_shares_outstanding
+from helpers.shares import compute_shares_outstanding
 from data.step2_data import get_step2_data
-from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
+from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 # Workbook default (step6_intrinsic_value_calculation_prompt.md §4.1) --
 # never automated, matches the source spreadsheet's own fallback.

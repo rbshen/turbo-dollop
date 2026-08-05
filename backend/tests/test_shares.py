@@ -1,4 +1,4 @@
-from shares import compute_shares_outstanding
+from helpers.shares import compute_shares_outstanding
 
 
 def test_prefers_market_cap_over_price():

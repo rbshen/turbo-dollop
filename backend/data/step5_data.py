@@ -2,18 +2,18 @@ from datetime import date as date_cls
 
 from sqlmodel import Session
 
-import sec_edgar
-from bank_capital_metrics import get_ticker_bank_capital_metrics
+import clients.sec_edgar as sec_edgar
+from helpers.bank_capital_metrics import get_ticker_bank_capital_metrics
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
-from debt_metrics import MetricOutlierFlags, compute_debt_metrics
-from first import _first
-from fmp_client import fmp_client
-from npl import compute_npl_ratio
+from helpers.debt_metrics import MetricOutlierFlags, compute_debt_metrics
+from helpers.first import _first
+from clients.fmp_client import fmp_client
+from helpers.npl import compute_npl_ratio
 from schemas import BreachContextSignal, OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
 from scoring.step5 import classify_company_type, score_npl, score_step5_bank, score_step5_reit, score_step5_standard
-from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
+from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 # Same 10yr fetch window/cache key Step 4 already populates
 # ("balance_sheet_statement"/"annual", "income_statement"/"annual") -- for

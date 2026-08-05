@@ -6,8 +6,8 @@ from sqlmodel import Session, select
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
-from first import _first
-from fmp_client import fmp_client
+from helpers.first import _first
+from clients.fmp_client import fmp_client
 from models import PriceTargetSnapshot
 from schemas import AnalystRatingsOut, ConsensusBanner, PriceTargetSummary, RatingHistoryPoint, RecommendationDetailsColumn
 

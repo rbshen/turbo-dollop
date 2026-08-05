@@ -1,6 +1,6 @@
 from typing import NamedTuple
 
-from ttm import FlaggedQuarter, sum_last_four_quarters
+from helpers.ttm import FlaggedQuarter, sum_last_four_quarters
 
 
 class MetricOutlierFlags(NamedTuple):

@@ -3,12 +3,12 @@ from sqlmodel import Session
 from cache import get_or_fetch, safe_fetch
 from config import settings
 from db import engine
-from first import _first
-from fmp_client import fmp_client
+from helpers.first import _first
+from clients.fmp_client import fmp_client
 from schemas import Step1Out
 from scoring.classification import classify_company_type
 from scoring.step1 import score_step1
-from ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
+from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 
 def _detect_exemption(sector: str | None, industry: str | None, ticker: str | None = None) -> str | None:
