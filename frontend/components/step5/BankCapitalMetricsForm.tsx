@@ -157,7 +157,7 @@ function BankCapitalMetricsControls({ ticker, data, step5 }: { ticker: string; d
       {dirty && (
         <div className="space-y-3 rounded-md border border-warn/40 bg-warn/10 p-4">
           <p className="text-sm text-warn">
-            Save these CET1/NPL values? This recomputes Debt (Step 5) and Overall Assessment for {ticker}.
+            Save these CET1/NPL values? This recomputes Debt and Overall Assessment for {ticker}.
           </p>
           <div className="flex items-center gap-3">
             <button

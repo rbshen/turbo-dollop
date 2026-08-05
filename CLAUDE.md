@@ -134,18 +134,16 @@ that date for the remediation. `backend/audit_fixture_contamination.py`
 (read-only, safe to run anytime) scans `FundamentalsCache` for the same
 class of fingerprint and should be run if this is ever suspected again.
 
-## Scoring rubric deviations
+## Scoring rubric notes
 
-Step 1's scoring rubric intentionally diverges from
-`step1_revenue_income_cfo_assessment_prompt.md` in a few specific,
-deliberate ways — these are refinements made after live testing against
-real tickers, not implementation drift. The doc describes the tiers
-qualitatively; `backend/scoring/trend.py` and `backend/scoring/step1.py`
-are the source of truth for the exact thresholds and logic, with comments
-at each deviation point. Current deviations:
+Financials' scoring rubric has been refined several times after live
+testing against real tickers — these are deliberate tuning decisions, not
+implementation drift. `financials.md` is the technical reference for the
+exact current thresholds and formulas; `backend/scoring/trend.py` and
+`backend/scoring/step1.py` are the source of truth in code, with comments
+at each point below. Notable design decisions and fixes:
 
-- **Verdict bands** are 0-69 Fail / 70-90 Pass / 91-100 Strong Pass (not
-  the doc's original 4-band scale). The score badge further splits the
+- **Verdict bands** are 0-69 Fail / 70-90 Pass / 91-100 Strong Pass. The score badge further splits the
   70-90 "Pass" band into two color shades (70-74 amber, 75-90 light green)
   without a text distinction — see `frontend/components/step1/ScoreBadge.tsx`.
   Step 2 uses the same bands and badge.
@@ -258,22 +256,23 @@ at each deviation point. Current deviations:
     periods back, so the recency-gated OI fallback correctly stops
     rescuing it (previously capped-rescued to 80 regardless of recency).
 
-Step 2's source doc (`step2_positive_growth_rate_assessment_prompt.md`)
-calls for 3-4 independent platforms (GuruFocus, Finviz, Zacks, etc.) with
-projections averaged and compared for cross-platform agreement. FMP is our
-sole data source, so this is substituted with FMP's `/analyst-estimates`
-endpoint, which aggregates multiple analysts (not multiple platforms) into
-avg/high/low per forward fiscal year:
+Growth Rate's original methodology called for averaging projections
+across 3-4 independent platforms (GuruFocus, Finviz, Zacks, etc.) and
+comparing them for cross-platform agreement. FMP is Fathom's sole data
+source, so this is substituted with FMP's `/analyst-estimates` endpoint,
+which aggregates multiple analysts (not multiple platforms) into
+avg/high/low per forward fiscal year — see `growth.md` for the exact
+current formulas. Notable design decisions:
 
 - The average projected growth rate (CAGR from the nearest forward
   estimate to the forward estimate closest to 4 years out) stands in for
-  the doc's cross-platform average.
+  what a cross-platform average would have been.
 - The high/low spread as a % of the average, for that same target year,
-  stands in for the doc's cross-platform "source agreement" check. This is
-  **analyst estimate range**, not cross-platform consensus, and is labeled
-  as such in the API/UI (`backend/schemas.py::Step2Out`,
+  stands in for what a cross-platform "source agreement" check would have
+  been. This is **analyst estimate range**, not cross-platform consensus,
+  and is labeled as such in the API/UI (`backend/schemas.py::Step2Out`,
   `frontend/components/step2/Step2Card.tsx`) so it's never mistaken for
-  what the source doc actually describes.
+  genuine cross-platform consensus.
 - **Verdict *logic* deliberately diverges from the shared 0-69 Fail /
   70-90 Pass / 91-100 Strong Pass scale** every other step (Step 1, Step 4,
   Step 5, Overall Assessment) uses. Fail is gated on the magnitude tier
@@ -325,10 +324,11 @@ avg/high/low per forward fiscal year:
   years even when a nearer in-window year has a real EPS estimate, which
   would otherwise misread as "insufficient data" for names that do have a
   usable projection.
-- Growth catalysts (the doc's Step 3/4 qualitative research) are a
-  manually-curated free-text field (`models.py::GrowthCatalystNote`), not
-  factored into the score — same scoping as Step 1's manually-flagged
-  one-off booleans. No edit UI exists yet; it's backend-settable only.
+- Growth catalysts (originally envisioned as qualitative research into
+  why a company is expected to grow) are a manually-curated free-text
+  field (`models.py::GrowthCatalystNote`), not factored into the score —
+  same scoping as Step 1's manually-flagged one-off booleans. No edit UI
+  exists yet; it's backend-settable only.
 - **When neither EPS nor Revenue yields a usable CAGR** (too few/no future
   analyst estimate rows — including the case where `cache.py::safe_fetch`
   swallowed a genuine FMP fetch failure to `{}`, indistinguishable
@@ -347,11 +347,11 @@ avg/high/low per forward fiscal year:
   `analyst_estimates` response (e.g. ECHO, HONA, L) — every other ticker's
   score/verdict is unaffected.
 
-Step 5's source doc (`step5_conservative_debt_assessment_prompt.md`) calls
-for a CET1 ratio check for Banks. An investigation confirmed FMP has no
-CET1 field and no raw components to compute one (checked ratios,
-ratios-ttm, key-metrics, balance sheet, and speculative bank-specific
-endpoints — all absent or 404). CET1 is therefore **manual-entry only,
+Debt's original methodology calls for a CET1 ratio check for Banks. An
+investigation confirmed FMP has no CET1 field and no raw components to
+compute one (checked ratios, ratios-ttm, key-metrics, balance sheet, and
+speculative bank-specific endpoints — all absent or 404). CET1 is
+therefore **manual-entry only,
 never fabricated or estimated** (`backend/bank_capital_metrics.py`,
 `frontend/components/step5/BankCapitalMetricsForm.tsx`) — but as of
 `4a4fe26` ("Add manual CET1/NPL entry to unblock Step 5 Bank verdicts",
@@ -361,16 +361,16 @@ entered; once it is, `score_step5_bank` blends it 50/50 with an NPL
 (Non-Performing Loan) ratio — auto-computed from FMP's raw XBRL tag dump
 via `backend/npl.py` where available, manually overridable otherwise — into
 a real score and verdict (`backend/scoring/step5.py::score_step5_bank`,
-`WEIGHTS_BANK`). NPL itself is a metric the source doc never mentions at
-all. `BANK_CET1_NPL_EXCLUDED_TICKERS` (`IBKR`, `HOOD` — confirmed no
+`WEIGHTS_BANK`). NPL itself is a metric the original methodology never
+specified at all. `BANK_CET1_NPL_EXCLUDED_TICKERS` (`IBKR`, `HOOD` — confirmed no
 customer deposit-taking business via FMP's `deposits` XBRL tag) are
 carved out of this entirely: no manual-entry UI is offered and they stay
 permanently `not_supported`, same as every Bank ticker before this
 feature shipped.
 
-Step 5 is a hard pass/fail bankruptcy filter, not a continuous score, so
-its "Scoring rubric deviations" are structural rather than threshold
-tweaks:
+Debt is a hard pass/fail bankruptcy filter, not a continuous score, so
+these notes are structural rather than threshold tweaks — see `debt.md`
+for the exact current formulas and severity bands:
 
 - **Hard-fail override**: if any ratio breaches its hard limit (Current
   Ratio <1.0, Debt/EBITDA >3.0, Debt Servicing Ratio ≥30%, or Gearing >45%
@@ -471,18 +471,17 @@ tweaks:
   gearing) and GEHC/HON/IFF (Standard-path fallback) all flip from
   "Pass" to "Fail" at their unchanged score.
 
-Step 4's source doc (`step4_profitability_efficiency_assessment_prompt.md`)
-gives ROE/ROIC tiers, an AR-outpacing-magnitude concept, and a qualitative
-CCC pattern table without committing to exact scoring formulas for any of
-them. `backend/scoring/step4.py` operationalizes each into concrete
-thresholds — deviations from a strict reading of the doc:
+Profitability's original methodology gives ROE/ROIC tiers, an
+AR-outpacing-magnitude concept, and a qualitative CCC pattern table
+without committing to exact scoring formulas for any of them.
+`profitability.md` is the technical reference for the exact current
+formulas; `backend/scoring/step4.py` operationalizes each into concrete
+thresholds. Notable design decisions and fixes:
 
-- **Both the display and scoring window are 10yr+TTM**, matching Step 1.
-  The doc specifies "5 years" explicitly for ROE, ROIC, Revenue-vs-AR, and
-  CCC (unlike Step 1's doc, which gives a "5-10 year" range) — this is a
-  deliberate deviation beyond that explicit language, for consistency with
-  Step 1 across the whole app. `backend/step4_data.py`'s `ANNUAL_WINDOW`
-  (10) controls both what's fetched/shown and what feeds the score — there
+- **Both the display and scoring window are 10yr+TTM**, matching
+  Financials, for consistency across the whole app.
+  `backend/step4_data.py`'s `ANNUAL_WINDOW` (10) controls both what's
+  fetched/shown and what feeds the score — there
   used to be a separate, narrower `SCORING_ANNUAL_WINDOW` (5) sliced out via
   a `_scoring_window()` helper so the chart could show more history than
   the score was based on; that decoupling has been removed, so a ticker's
@@ -490,30 +489,31 @@ thresholds — deviations from a strict reading of the doc:
   This means scores can shift versus the earlier 5yr-scoring behavior for
   tickers with a materially different pattern in years 6-10 versus the
   most recent 5 — an intentional tradeoff for a longer, more complete read
-  on ROE/ROIC/AR/CCC trends, at the cost of the doc's own "5 years" framing.
+  on ROE/ROIC/AR/CCC trends.
 - **Company classification** extends the same shared classifier Step 5
   uses (`classify_company_type`, now in `backend/scoring/classification.py`
   rather than duplicated) with Insurance and Utility. Insurance is checked
   **before** Bank since both share the "Financial Services" sector — an
   insurer whose industry text doesn't also match "bank" would otherwise be
-  misclassified. Step 5 is unaffected: its code already branches
-  `if Bank / if REIT / else standard-path`, so Insurance/Utility tickers
-  fall through to Step 5's standard ratio path exactly as before.
+  misclassified. Debt's own branching is `if Bank / if Insurance / if REIT
+  / else standard-path` — Insurance always reads `not_supported` (no
+  ratios attempted at all; see `debt.md`), while Utility tickers fall
+  through to the standard ratio path unaffected.
 - **ROE/ROIC tiering** uses both the average across the 10yr+TTM window
   *and* the minimum single-year value as a consistency check (a high
   average diluted by one very weak year lands in the "marginal" tier, not
-  "excellent") — the doc doesn't specify this, but a straight average alone
-  would let one bad year hide behind several good ones.
-- **Negative-equity substitute signal**: per the doc's own exception, if
-  shareholders' equity is ≤0 in any period, raw ROE is ignored entirely for
-  the whole metric (not just that period) and replaced by a check for
-  positive-and-non-declining Net Income across the window (net income
-  positive throughout, last period ≥ first) — a simple "last ≥ first" bar,
-  deliberately not a full trend classifier, since the doc's own language
-  ("consistently maintained/growing") is qualitative.
-- **Revenue vs. Accounts Receivable** tiers are checked worst-first since
-  the doc's bullets overlap: majority-outpacing or revenue-declining-
-  while-AR-grows (0) takes priority over 3+-years-or-large-gap (40), which
+  "excellent") — a straight average alone would let one bad year hide
+  behind several good ones.
+- **Negative-equity substitute signal**: if shareholders' equity is ≤0 in
+  any period, raw ROE is ignored entirely for the whole metric (not just
+  that period) and replaced by a check for positive-and-non-declining Net
+  Income across the window (net income positive throughout, last period ≥
+  first) — a simple "last ≥ first" bar, deliberately not a full trend
+  classifier, since "consistently maintained/growing" is inherently a
+  qualitative judgment.
+- **Revenue vs. Accounts Receivable** tiers are checked worst-first, since
+  the qualifying conditions overlap: majority-outpacing or revenue-
+  declining-while-AR-grows (0) takes priority over 3+-years-or-large-gap (40), which
   takes priority over 0-or-one-small-gap (100), with 1-2 isolated years
   otherwise landing at 70. A YoY gap under 2 percentage points is treated
   as noise, not real outpacing (same noise-floor convention as Step 1's
@@ -522,8 +522,9 @@ thresholds — deviations from a strict reading of the doc:
   (early/late-window direction + dip-count + sustained-decline, now shared
   via `backend/scoring/series_trend.py`) run on the *negated* series, since
   a declining CCC is the desirable direction (faster cash conversion) while
-  a declining margin is not. The doc gives no numeric CCC thresholds (unlike
-  margins, which were tuned after live testing) — the window/dip/sustained-
+  a declining margin is not. No numeric CCC thresholds were specified
+  upfront (unlike margins, which were tuned after live testing) — the
+  window/dip/sustained-
   decline constants in `scoring/step4.py` are first-pass judgment calls, not
   values validated against a prior baseline.
 - **CCC exemption (no physical inventory)** is data-driven — inventory
@@ -543,9 +544,9 @@ thresholds — deviations from a strict reading of the doc:
   if ROE lands in its Fail tier (avg <8%), or ROIC does (when applicable) —
   mirrors Step 2/Step 5's hard-fail pattern. Revenue-vs-AR and CCC landing
   in their own worst tier (0 points) drag the score down but do **not**
-  force a Fail verdict — the doc treats a Receivables/CCC red flag as
-  "investigate before proceeding," not an automatic disqualifier the way
-  persistently poor ROE/ROIC is.
+  force a Fail verdict — a Receivables/CCC red flag is treated as worth
+  investigating, not an automatic disqualifier the way persistently poor
+  ROE/ROIC is.
 - **CCC's `sustained_decline` override is gated on `direction` sign.** The
   10yr+TTM window extension exposed a contradiction: `sustained_decline`
   scans the *entire* window for a qualifying multi-period rise in real CCC
@@ -560,7 +561,7 @@ thresholds — deviations from a strict reading of the doc:
   shared function) are untouched by this.
 - **Revenue-vs-AR's "concerning" tier threshold is proportional, not a
   fixed count.** It was originally "3 of 5" transitions (60% severity,
-  matching the doc's 5yr window) but was never rescaled when the window
+  matching the original 5yr window) but was never rescaled when the window
   extended to 10yr+TTM (10 transitions), so it fired at just 30% severity
   instead — inflating false positives. `AR_CONCERNING_TRANSITION_RATIO`
   (0.6) now generalizes this to `max(3, round(0.6 * n))` transitions,
