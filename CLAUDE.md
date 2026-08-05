@@ -161,18 +161,44 @@ schedule on this box. Purged and re-fetched again 2026-08-05 (PEP fully
 re-fetched via the same `pipeline.nightly_fundamentals_fetch` code path
 the nightly cron job uses per-ticker; `ACME`'s rows deleted outright, not
 re-fetched, since it isn't a real ticker); PEP's `TickerScore` recomputed.
-`test_debt_metrics.py`'s own isolation gap is a known, deferred follow-up
-— not yet fixed as of this writing. A structural fix (rather than relying
-on every test remembering to patch every transitively-touched module's
-`engine`) was proposed following this recurrence, pending review — not
-yet designed into code as of this writing.
+**Fully resolved 2026-08-05, three parts:**
+
+1. `test_debt_metrics.py` now also monkeypatches `step2_data.engine` and
+   `step3_data.engine` (matching `step5_data`/`ticker_summary`) — the
+   actual fix, not just a symptom purge. Confirmed: this test now creates
+   zero rows in the real DB, where every prior run had created 9 fake
+   `ACME` rows without fail.
+2. **The live crontab was reinstalled** (`crontab crontab.txt`) and
+   confirmed byte-for-byte identical to `backend/crontab.txt` — it had
+   been stuck on the original 2026-07-20 schedule the entire time,
+   through the backend reorg and every job added since, including
+   `audit_fixture_contamination` itself. (A prior release-readiness
+   report had characterized the nightly fetch as "actively running,"
+   inferred from the log file's recent mtime rather than a direct
+   `crontab -l` vs `crontab.txt` diff — accurate at the moment it was
+   checked, since neither had changed since 2026-07-20 either, but it
+   couldn't have caught the reorg breaking the schedule hours later
+   without anyone reinstalling it.)
+3. **A session-scoped write-guard** (`backend/tests/conftest.py`, new)
+   hooks SQLAlchemy's `before_cursor_execute` on the real `core.db.engine`
+   for the whole pytest session and raises immediately on any write —
+   catching every write path, not just `get_or_fetch`, so a future
+   missing `engine` monkeypatch fails loudly in CI instead of silently
+   reaching production. `test_write_guard.py` is a permanent regression
+   test confirming the guard itself actually fires. Never active outside
+   a pytest session (a real interactive/cron run never imports `pytest`).
+
+Purged and re-fetched PEP 2026-08-05 (via the same
+`pipeline.nightly_fundamentals_fetch` code path the nightly cron job uses
+per-ticker); `ACME`'s rows deleted outright, not re-fetched, since it
+isn't a real ticker; PEP's `TickerScore` recomputed.
+`audit_fixture_contamination.py` confirmed clean after all three fixes,
+with the full suite (589 tests) passing.
 
 `backend/pipeline/audit_fixture_contamination.py` (read-only, safe to run
 anytime) scans `FundamentalsCache` for the same class of fingerprint and
-should be run if this is ever suspected again — but confirm the live
-crontab is actually installed (`crontab -l` vs `crontab.txt`) first,
-since that gap is exactly what let this recurrence go unnoticed for a
-full day.
+should be run if this is ever suspected again — now genuinely running
+weekly via cron (Sundays 1:20 AM), not just documented as if it were.
 
 ## Scoring rubric notes
 
