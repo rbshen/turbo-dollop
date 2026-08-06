@@ -15,6 +15,14 @@ function chipLabel(entry: StepBreakdownEntry): string {
   return `${entry.label} · ${pct} · ${entry.score ?? "—"}`;
 }
 
+// "N/A" alone reads ambiguously (temporary gap vs. deliberate exemption) --
+// a tooltip on hover makes clear this step's weight was deliberately
+// redistributed among the rest, not just missing.
+function chipTitle(entry: StepBreakdownEntry): string | undefined {
+  if (entry.status !== "exempt") return undefined;
+  return `${entry.label} doesn't apply to this company and isn't scored — its weight is redistributed across the other steps below.`;
+}
+
 // One-line rollup summary, generated from the same breakdown data the
 // chips below already show -- not a fabricated blurb, just a plain-English
 // count of the real weighted components.
@@ -58,7 +66,11 @@ export function OverallAssessmentCard({ ticker }: Props) {
 
           <div className="flex flex-wrap gap-2">
             {result.breakdown.map((entry) => (
-              <span key={entry.key} className={`rounded-md px-2 py-1 text-xs font-medium ${flatChipClassFor(entry.score, entry.verdict)}`}>
+              <span
+                key={entry.key}
+                className={`rounded-md px-2 py-1 text-xs font-medium ${flatChipClassFor(entry.score, entry.verdict)}`}
+                title={chipTitle(entry)}
+              >
                 {chipLabel(entry)}
               </span>
             ))}

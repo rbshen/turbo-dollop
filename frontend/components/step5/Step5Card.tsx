@@ -169,8 +169,11 @@ export function Step5Card({ ticker }: Props) {
       ? data.cet1_ratio_pct == null
         ? "CET1 ratio not yet entered — enter it below to complete this ticker's Debt verdict."
         : "Scored from manually-entered CET1 and NPL (see below)."
-      : // IBKR/HOOD -- no customer deposit-taking business, unchanged from today.
-        "CET1 ratio still unavailable from FMP — Debt verdict incomplete for Banks."
+      : // IBKR/HOOD -- no customer deposit-taking business. This is a
+        // permanent, deliberate exemption, not a temporary data gap --
+        // unlike the "not yet entered" case above, no CET1/NPL form is ever
+        // offered for these tickers (see bank_capital_metrics_editable).
+        "Debt isn't assessed for this company. It isn't a traditional deposit-taking, lending bank, so the standard debt ratios and the CET1/NPL capital-adequacy check don't apply here."
     : isInsurance
       ? "Standard debt ratios aren't meaningful for insurers -- no substitute capital-adequacy signal is currently available from FMP."
       : data.verdict === "insufficient_data"
@@ -184,6 +187,9 @@ export function Step5Card({ ticker }: Props) {
   const notes = (
     <>
       <OutlierWarningNote warnings={data.outlier_warnings} labels={OUTLIER_METRIC_LABELS} />
+      {isBank && !data.bank_capital_metrics_editable && (
+        <p className="text-xs text-text-tertiary">{data.classification_note}</p>
+      )}
       {icr && bullets.length > 0 && (
         <p className="text-xs text-text-tertiary">
           Interest Coverage Ratio carries no weight of its own — it&apos;s the tiebreaker that can excuse a Borderline

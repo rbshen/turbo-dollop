@@ -500,6 +500,7 @@ def test_bank_excluded_ticker_unaffected_even_with_a_stray_capital_metrics_row(m
     assert result.bank_capital_metrics_editable is False
     assert result.cet1_ratio_pct is None
     assert result.ratios["npl_ratio"].value == 2.0
+    assert result.classification_note == step5_data.BANK_CET1_NPL_EXCLUDED_CLASSIFICATION_NOTE
 
 
 def test_bank_non_excluded_no_cet1_row_still_not_supported_with_npl_populated(monkeypatch):

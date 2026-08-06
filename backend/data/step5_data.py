@@ -46,6 +46,15 @@ SEC_CROSS_CHECK_METRICS = {"net_interest_expense_ttm", "cfo_ttm"}
 # path applies to an already-Bank-classified ticker.
 BANK_CET1_NPL_EXCLUDED_TICKERS = {"IBKR", "HOOD"}
 
+# Overrides Step5Out's generic classification_note default for exactly this
+# branch -- surfaced in the frontend (Step5Card.tsx) alongside the blurb, so
+# a viewer sees both *why* company_type is "Bank" here (the generic caveat)
+# and *why* that doesn't lead to a CET1/NPL check for this specific ticker.
+BANK_CET1_NPL_EXCLUDED_CLASSIFICATION_NOTE = (
+    "Classified as Bank by sector/industry text, but confirmed as a broker-dealer with no customer "
+    "deposit-taking business (FMP's Deposits data is entirely absent) -- CET1/NPL doesn't apply."
+)
+
 
 def _ratio_out(raw: dict) -> Step5RatioResult:
     # interest_coverage_ratio is informational only -- it influences the
@@ -221,6 +230,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
                 return Step5Out(
                     ticker=ticker,
                     company_type=company_type,
+                    classification_note=BANK_CET1_NPL_EXCLUDED_CLASSIFICATION_NOTE,
                     ratios=ratios,
                     npl_as_of=npl_result.as_of,
                     score=None,
