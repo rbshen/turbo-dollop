@@ -209,6 +209,9 @@ export interface Step5RatioResult {
   // True when a Borderline breach was excused by its tiebreaker (deferred
   // revenue, Interest Coverage, or the breach-context framework).
   saved_by_tiebreaker: boolean;
+  // Full sentence explaining an unusual result -- populated only for
+  // Debt/EBITDA's negative-EBITDA Fail so far.
+  note?: string | null;
 }
 
 export interface Step5Out {

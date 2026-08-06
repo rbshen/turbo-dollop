@@ -206,7 +206,7 @@ def evaluate_debt_to_ebitda_breach_context(
 
 
 def evaluate_current_ratio_breach_context(
-    debt_to_ebitda: float,
+    debt_to_ebitda: float | None,
     debt_servicing_pct: float,
     current_ratio_current: float,
     current_ratio_oldest: float | None,
@@ -220,8 +220,11 @@ def evaluate_current_ratio_breach_context(
     """Evaluated only when Current Ratio is STILL Borderline after the
     existing deferred-revenue adjustment already failed to rescue it fully
     to Comfortable (that existing full-rescue path is unchanged and runs
-    first -- see score_current_ratio)."""
-    primary_gates_pass = debt_to_ebitda <= DEBT_EBITDA_COMFORTABLE and debt_servicing_pct < DSR_COMFORTABLE
+    first -- see score_current_ratio). `debt_to_ebitda=None` (negative-
+    EBITDA Fail, 2026-08-06 -- see score_step5_standard) fails the gate
+    outright, same treatment as a real breach: an undefined ratio can't
+    vouch for a rescue any more than a bad one can."""
+    primary_gates_pass = debt_to_ebitda is not None and debt_to_ebitda <= DEBT_EBITDA_COMFORTABLE and debt_servicing_pct < DSR_COMFORTABLE
 
     if deferred_revenue is None or not current_liabilities:
         deferred_revenue_signal = BreachContextSignal("deferred_revenue", "not_computable", "Deferred revenue or current liabilities unavailable.")
@@ -306,6 +309,10 @@ class RatioResult(NamedTuple):
     # whether it qualified for a downgrade, so the UI can explain either
     # outcome. See score_step5_standard.
     breach_context: tuple[BreachContextSignal, ...] = ()
+    # Full sentence explaining an unusual result -- populated only for
+    # Debt/EBITDA's negative-EBITDA Fail so far (see score_step5_standard).
+    # None for every ordinary tier.
+    note: str | None = None
 
 
 def classify_interest_coverage(icr: float | None) -> str:
@@ -461,7 +468,7 @@ def _verdict_for(score: int, hard_fail: bool, saved_by_tiebreaker: bool) -> str:
 def score_step5_standard(
     current_ratio: float,
     adjusted_current_ratio: float,
-    debt_to_ebitda: float,
+    debt_to_ebitda: float | None,
     debt_servicing_pct: float,
     interest_coverage_ratio: float | None,
     *,
@@ -478,6 +485,14 @@ def score_step5_standard(
     fcf_ttm: float | None = None,
     total_debt: float | None = None,
     net_debt: float | None = None,
+    # `debt_to_ebitda=None` and `ebitda_ttm` together disambiguate WHY
+    # Debt/EBITDA is unavailable: the caller (step5_data.py) guarantees
+    # `debt_to_ebitda` is None here ONLY because `ebitda_ttm` itself is
+    # <=0 (2026-08-06 fix) -- a genuinely-missing total_debt/ebitda_ttm
+    # never reaches this function at all (that's still `insufficient_data`,
+    # filtered out by step5_data.py's own gate before calling this). So
+    # `ebitda_ttm` is required (not just decorative) whenever
+    # `debt_to_ebitda` is None.
     ebitda_ttm: float | None = None,
     deferred_revenue: float | None = None,
     current_liabilities: float | None = None,
@@ -488,10 +503,29 @@ def score_step5_standard(
     """Pure scoring function for Step 5's Standard-company path. No I/O, no
     FMP/DB dependency -- mirrors score_step1/score_step2's shape.
     `adjusted_current_ratio` and `interest_coverage_ratio` are precomputed
-    by the caller (step5_data.py has the raw balance sheet/income figures)."""
+    by the caller (step5_data.py has the raw balance sheet/income figures).
+
+    Debt/EBITDA's "ratio undefined" case (2026-08-06 fix) is deliberately
+    NOT treated as a neutral exemption the way e.g. IBKR/HOOD's Bank
+    exclusion is: negative EBITDA means the company isn't generating
+    positive operating earnings at all -- a real weakness -- so it fails
+    outright (0 points, hard_fail) and stays IN the blend like any other
+    Fail, rather than being excluded/reweighted."""
     icr_is_safe = interest_coverage_ratio is not None and interest_coverage_ratio > ICR_SAFE
     cr = score_current_ratio(current_ratio, adjusted_current_ratio)
-    de = score_debt_to_ebitda(debt_to_ebitda)
+    if debt_to_ebitda is not None:
+        de = score_debt_to_ebitda(debt_to_ebitda)
+    else:
+        de = RatioResult(
+            "negative_ebitda",
+            0,
+            True,
+            note=(
+                f"Debt/EBITDA cannot be meaningfully calculated because EBITDA is negative "
+                f"(TTM EBITDA is ${ebitda_ttm:,.0f}) -- the company is not generating positive "
+                f"operating earnings. This is treated as a failing result, not a data gap."
+            ),
+        )
     # DSR keeps its own existing, unchanged ICR-only Borderline rescue --
     # it's a primary-gate INPUT to the other two frameworks below, never a
     # breach-context subject itself.
@@ -575,6 +609,7 @@ def score_step5_standard(
                 "points": de.points,
                 "saved_by_tiebreaker": de.saved_by_tiebreaker,
                 "breach_context": de.breach_context or None,
+                "note": de.note,
             },
             "debt_servicing_ratio": {
                 "value": debt_servicing_pct,

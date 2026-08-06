@@ -68,6 +68,7 @@ def _ratio_out(raw: dict) -> Step5RatioResult:
         points=raw.get("points", 0),
         saved_by_tiebreaker=raw.get("saved_by_tiebreaker", False),
         breach_context=[BreachContextSignal(**s._asdict()) for s in breach_context] if breach_context else None,
+        note=raw.get("note"),
     )
 
 
@@ -424,10 +425,15 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
         if current_assets is not None and adjusted_liabilities is not None and adjusted_liabilities > 0
         else current_ratio
     )
+    # total_debt/ebitda_ttm genuinely missing (a real data gap) is a
+    # different situation from ebitda_ttm being present but <=0 (2026-08-06
+    # fix: a real weakness, not a gap -- see score_step5_standard) -- only
+    # the former blocks the whole check below as insufficient_data; the
+    # latter reaches score_step5_standard as debt_to_ebitda=None,
+    # ebitda_ttm=<=0 and comes back a Fail instead.
+    debt_to_ebitda_data_missing = debt_metrics.total_debt is None or ebitda_ttm is None
     debt_to_ebitda = (
-        debt_metrics.total_debt / ebitda_ttm
-        if debt_metrics.total_debt is not None and ebitda_ttm is not None and ebitda_ttm > 0
-        else None
+        debt_metrics.total_debt / ebitda_ttm if not debt_to_ebitda_data_missing and ebitda_ttm > 0 else None
     )
     # CFO <= 0 makes the ratio meaningless (or sign-flipped) rather than
     # just large -- treated as unavailable, not computed.
@@ -448,7 +454,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
         else None
     )
 
-    if current_ratio is None or debt_to_ebitda is None or debt_servicing_pct is None:
+    if current_ratio is None or debt_to_ebitda_data_missing or debt_servicing_pct is None:
         return Step5Out(
             ticker=ticker,
             company_type=company_type,

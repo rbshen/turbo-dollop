@@ -232,6 +232,10 @@ class Step5RatioResult(BaseModel):
     # True when a Borderline breach was excused by its tiebreaker (deferred
     # revenue for Current Ratio, Interest Coverage for the other two).
     saved_by_tiebreaker: bool = False
+    # Full sentence explaining an unusual result -- populated only for
+    # Debt/EBITDA's negative-EBITDA Fail so far (see
+    # scoring/step5.py::score_step5_standard). None otherwise.
+    note: str | None = None
 
 
 class Step5Out(BaseModel):

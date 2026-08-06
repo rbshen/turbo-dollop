@@ -331,6 +331,37 @@ def test_insufficient_data_when_fewer_than_four_quarters_available(monkeypatch):
     assert result.ratios == {}
 
 
+# 2026-08-06 fix: negative EBITDA is a real Fail (not insufficient_data) --
+# all 4 quarters present and real, just negative, so this must NOT hit the
+# fewer-than-4-quarters path above.
+INCOME_QUARTERLY_NEGATIVE_EBITDA = [
+    {"date": "2026-03-28", "ebitda": -100, "operatingIncome": -80, "interestExpense": 10, "netInterestIncome": -10},
+    {"date": "2025-12-27", "ebitda": -90, "operatingIncome": -70, "interestExpense": 10, "netInterestIncome": -10},
+    {"date": "2025-09-27", "ebitda": -80, "operatingIncome": -60, "interestExpense": 10, "netInterestIncome": -10},
+    {"date": "2025-06-28", "ebitda": -70, "operatingIncome": -50, "interestExpense": 10, "netInterestIncome": -10},
+]
+
+
+def test_negative_ebitda_end_to_end_is_a_real_fail_not_insufficient_data(monkeypatch):
+    _fresh_engine(monkeypatch)
+    # BALANCE_SHEET_QUARTERLY/CASH_FLOW_QUARTERLY are both otherwise
+    # comfortable -- isolates the negative-EBITDA path specifically, rather
+    # than a ticker that's also failing for unrelated reasons.
+    _patch_fmp(monkeypatch, income_quarterly=INCOME_QUARTERLY_NEGATIVE_EBITDA)
+
+    result = asyncio.run(get_step5_data("aapl"))
+
+    assert result.verdict == "Fail"
+    assert result.hard_fail is True
+    assert result.score is not None
+    assert result.ratios["debt_to_ebitda"].label == "negative_ebitda"
+    assert result.ratios["debt_to_ebitda"].value is None
+    assert result.ratios["debt_to_ebitda"].note is not None
+    assert "EBITDA is negative" in result.ratios["debt_to_ebitda"].note
+    # Still blended, all 3 ratios weighted.
+    assert result.weights == {"current_ratio": 1 / 3, "debt_to_ebitda": 1 / 3, "debt_servicing_ratio": 1 / 3}
+
+
 def test_bank_overall_verdict_stays_not_supported_regardless_of_npl(monkeypatch):
     # CET1 is still unavailable -- NPL is a partial signal only, must never
     # by itself produce a scored Bank verdict.

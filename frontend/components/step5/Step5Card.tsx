@@ -55,6 +55,11 @@ const TIER_LABELS: Record<string, string> = {
   marginal_via_breach_context: "Marginal (context-adjusted)",
   borderline_fail: "Borderline — Fail",
   severe: "Severe — Fail",
+  // Debt/EBITDA only: EBITDA itself is <=0, so the ratio can't be
+  // meaningfully calculated -- treated as a real Fail (0 points, counts
+  // toward the blend), not insufficient_data (2026-08-06 fix). See the
+  // ratio's own `note` for the full explanation, rendered separately below.
+  negative_ebitda: "Negative EBITDA — Fail",
   // Interest Coverage Ratio's own tiers (informational, no points of its own).
   safe: "Safe",
   tight: "Tight",
@@ -83,7 +88,7 @@ function formatRatioValue(key: string, value: number | null): string {
 }
 
 function tierClass(label: string): string {
-  if (label === "fail" || label === "borderline_fail" || label === "severe" || label === "dangerous") return "text-negative";
+  if (label === "fail" || label === "borderline_fail" || label === "severe" || label === "dangerous" || label === "negative_ebitda") return "text-negative";
   if (label === "approaching_limit" || label === "borderline_saved_by_icr" || label === "marginal_via_breach_context" || label === "tight")
     return "text-warn";
   return "text-text-primary";
@@ -189,6 +194,9 @@ export function Step5Card({ ticker }: Props) {
       <OutlierWarningNote warnings={data.outlier_warnings} labels={OUTLIER_METRIC_LABELS} />
       {isBank && !data.bank_capital_metrics_editable && (
         <p className="text-xs text-text-tertiary">{data.classification_note}</p>
+      )}
+      {!isBank && !isInsurance && data.ratios.debt_to_ebitda?.note && (
+        <p className="text-sm text-negative">{data.ratios.debt_to_ebitda.note}</p>
       )}
       {icr && bullets.length > 0 && (
         <p className="text-xs text-text-tertiary">
