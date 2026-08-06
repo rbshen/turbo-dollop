@@ -79,6 +79,40 @@ def test_429_retries_then_succeeds(monkeypatch):
     assert client.request_count == 3
 
 
+def test_dot_notation_symbol_remapped_to_hyphen_on_outbound_request(monkeypatch):
+    # BRK.B/BF.B: confirmed live that FMP rejects the dot form (402) but
+    # accepts the hyphen form on every endpoint -- the fix remaps the
+    # outbound `symbol` param only, so the request FMP actually receives
+    # must be the hyphen form even though the caller passed the dot form.
+    captured = {}
+
+    def handler(request):
+        captured["symbol"] = httpx.QueryParams(request.url.query).get("symbol")
+        return httpx.Response(200, json={"ok": True})
+
+    _install_mock_transport(monkeypatch, handler)
+    client = FMPClient(api_key="x")
+
+    asyncio.run(client.get("/profile", {"symbol": "BRK.B"}))
+
+    assert captured["symbol"] == "BRK-B"
+
+
+def test_unmapped_symbol_passes_through_unchanged(monkeypatch):
+    captured = {}
+
+    def handler(request):
+        captured["symbol"] = httpx.QueryParams(request.url.query).get("symbol")
+        return httpx.Response(200, json={"ok": True})
+
+    _install_mock_transport(monkeypatch, handler)
+    client = FMPClient(api_key="x")
+
+    asyncio.run(client.get("/profile", {"symbol": "AAPL"}))
+
+    assert captured["symbol"] == "AAPL"
+
+
 def test_429_exhausts_retries_and_raises(monkeypatch):
     monkeypatch.setattr(fmp_client_module, "RATE_LIMIT_RETRY_BACKOFF_SECONDS", 0.01)
     calls = {"n": 0}

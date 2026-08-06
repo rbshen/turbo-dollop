@@ -16,6 +16,27 @@ logger = logging.getLogger(__name__)
 RATE_LIMIT_MAX_RETRIES = 2
 RATE_LIMIT_RETRY_BACKOFF_SECONDS = 65.0
 
+# Dot-notation dual-class share tickers (BRK.B, BF.B) -- confirmed live
+# against every ticker-taking endpoint this client exposes: FMP's own
+# symbol for these is hyphen-notation, not dot-notation. The dot form gets
+# a 402 Payment Required from nearly every endpoint (quote, ratios, all
+# three financial statements, key-metrics, analyst-estimates, grades,
+# price-target, financial-growth, historical-price-eod -- 18 of 22
+# endpoints checked) and a silently-empty 200 from the rest (profile,
+# segmentation, news, financial-statement-full-as-reported) -- never real
+# data either way. The hyphen form returns real data on all 22. These are
+# the only two dot-notation tickers in Fathom's tracked S&P 500 + Dow
+# universe (checked: no others exist).
+#
+# Applied once here, in `get` -- the single choke point every ticker-taking
+# method funnels through via `{"symbol": ticker, ...}` -- rather than at
+# each call site or each data/stepN_data.py caller, so no current or future
+# endpoint method can reintroduce this gap, and so it never touches the
+# cache key itself: FundamentalsCache stays keyed by Fathom's own canonical
+# ticker ("BRK.B", matching indexconstituent/the URL/every other table),
+# only the outbound HTTP request's `symbol` param is remapped.
+FMP_SYMBOL_OVERRIDES = {"BRK.B": "BRK-B", "BF.B": "BF-B"}
+
 
 class FMPClient:
     """Thin wrapper around the Financial Modeling Prep REST API.
@@ -50,6 +71,8 @@ class FMPClient:
 
     async def get(self, endpoint: str, params: dict | None = None) -> dict | list:
         query = {**(params or {}), "apikey": self.api_key}
+        if "symbol" in query and query["symbol"] in FMP_SYMBOL_OVERRIDES:
+            query["symbol"] = FMP_SYMBOL_OVERRIDES[query["symbol"]]
         for attempt in range(RATE_LIMIT_MAX_RETRIES + 1):
             await self._pace()
             self.request_count += 1
