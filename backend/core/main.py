@@ -539,7 +539,7 @@ def watchlists_delete(watchlist_id: int) -> None:
         raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
 
 
-WATCHLIST_CAPACITY = 50
+WATCHLIST_CAPACITY = 100
 
 
 def _capacity_error(existing_count: int, net_new_count: int) -> HTTPException:

@@ -71,7 +71,7 @@ def count_net_new_tickers(session: Session, watchlist_id: int, tickers: list[str
     """Returns (existing_count, net_new_count) -- net_new_count is how many
     of `tickers` aren't already members (deduped against both current
     membership and each other), which is what actually counts against a
-    watchlist's 50-ticker capacity. Shared by the single-add and bulk-add
+    watchlist's 100-ticker capacity. Shared by the single-add and bulk-add
     endpoints so re-adding an already-present ticker never counts against
     the cap, regardless of entry point."""
     existing = {t.ticker for t in list_watchlist_tickers(session, watchlist_id)}
