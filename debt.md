@@ -101,6 +101,37 @@ counts as a fourth ratio in the blend below.
 | < 1.0× | dangerous |
 | unavailable | not_applicable |
 
+### When Debt/EBITDA or Debt Servicing Ratio is undefined
+
+- **EBITDA (TTM) ≤ 0** — Debt/EBITDA is not scored as a ratio at all; the
+  result is `negative_ebitda`, 0 points, hard-fail, with an explanatory
+  note attached, and it stays IN the blend below as a genuine Fail — a
+  company not generating positive operating earnings at all is a real
+  weakness, not a neutral "can't measure this." This never enters the
+  Borderline breach-context framework (it isn't a Borderline breach, it's
+  an unconditional Fail), and it also fails Current Ratio's own
+  breach-context primary gate (Debt/EBITDA is one of its two gates) — an
+  undefined Debt/EBITDA can't vouch for a different ratio's rescue any
+  more than a bad one could.
+- **CFO (TTM) ≤ 0 or unavailable** — Debt Servicing Ratio's denominator
+  is non-positive, so it can't be meaningfully calculated either. Unlike
+  negative EBITDA, this is treated as a genuine, neutral exclusion
+  (`excluded_negative_cfo`, with an explanatory note attached) rather
+  than a Fail — a temporary/seasonal CFO swing isn't evidence Debt
+  Servicing Ratio itself is unhealthy. It drops out of the blend
+  entirely; see "Blend and verdict" below for how its weight is
+  redistributed. It also fails both breach-context frameworks' primary
+  gates the same way an undefined Debt/EBITDA does above (Debt Servicing
+  Ratio is a gate input for both Debt/EBITDA's and Current Ratio's
+  frameworks).
+
+Total Debt or EBITDA (TTM) being genuinely missing (not merely
+non-positive) still gates the whole Standard path to `insufficient_data`
+before any ratio is scored — only a *present-but-non-positive* EBITDA
+reaches the negative-EBITDA Fail path above. Current Ratio and
+Debt/EBITDA are never subject to the exclusion treatment Debt Servicing
+Ratio gets — a real Fail on either always counts fully toward the blend.
+
 ## Breach-context framework (Debt/EBITDA and Current Ratio, Borderline only)
 
 A **Borderline** breach on Debt/EBITDA, or a Current Ratio still
@@ -172,14 +203,24 @@ hard-fail result (0 points).
 ## Blend and verdict (Standard path)
 
 ```
-score = round((current_ratio_points + debt_to_ebitda_points + debt_servicing_points) / 3)
+applicable = {current_ratio, debt_to_ebitda, debt_servicing_ratio} minus
+             whichever of them is excluded this period (only
+             debt_servicing_ratio can be excluded -- see above)
+weight[r]  = (1/3) / sum(1/3 for r in applicable)
+score      = round(sum(points[r] * weight[r] for r in applicable))
 ```
 
-Always an equal 1/3 split — Debt has no company-type exemption/
-renormalization mechanism the way Financials and Profitability do.
+An equal 1/3 split when all three ratios are computable — unchanged from
+before this exclusion mechanism existed. When Debt Servicing Ratio is
+excluded (CFO ≤ 0, EBITDA still positive), Current Ratio and Debt/EBITDA
+each take 50% instead, mirroring Profitability's own equal-weight
+redistribution for its exempt metrics. Current Ratio and Debt/EBITDA
+themselves are never excluded from the blend this way — a negative-EBITDA
+Fail still counts fully as a 0-point result rather than being dropped out.
 
 ```
 hard_fail          = any of the 3 ratios' own hard-fail flag is true
+                      (negative-EBITDA's Fail counts here too)
 saved_by_tiebreaker = any of the 3 ratios was rescued (deferred revenue,
                        ICR-on-DSR, or either breach-context downgrade)
 ```
@@ -205,8 +246,11 @@ already uses for a plain, unrescued 70–74 score.
 4. `score > 90` → **Strong Pass**.
 5. Otherwise → **Pass**.
 
-Missing Current Ratio, Debt/EBITDA, or Debt Servicing Ratio inputs at all
-→ `score: null, verdict: "insufficient_data"`.
+Missing Current Ratio outright, or missing Total Debt/EBITDA data outright
+(not merely EBITDA being present but non-positive — see above) →
+`score: null, verdict: "insufficient_data"`. Debt Servicing Ratio's inputs
+being missing or non-positive never triggers this — it's excluded from
+the blend instead (see above).
 
 ## REIT / Property Developer path
 

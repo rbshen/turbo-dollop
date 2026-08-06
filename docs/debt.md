@@ -49,6 +49,32 @@ been earned yet. Fathom checks for this and can rescue an apparently weak
 Current Ratio when a low ratio turns out to be explained by this pattern
 rather than genuine liquidity risk.
 
+## When a ratio can't be meaningfully calculated
+
+Occasionally one of the three ratios above can't actually be computed for
+a given period, and Fathom treats these two situations differently
+depending on what caused them:
+
+- **Negative earnings (Debt / EBITDA)** — if a company's trailing
+  operating earnings are negative, Debt/EBITDA doesn't make sense as a
+  ratio. Fathom doesn't treat this as missing data — not generating
+  positive operating earnings at all is itself a real weakness, so this
+  fails the check outright, the same as a genuine breach of one of the
+  ratios above.
+- **Negative operating cash flow (Debt Servicing Ratio)** — if a
+  company's trailing cash flow from operations is negative, the Debt
+  Servicing Ratio can't be meaningfully calculated either. Unlike
+  negative earnings, though, this is often a temporary, seasonal swing
+  (working through an inventory buildup, for example) rather than a sign
+  the company can't service its debt. So instead of failing on it,
+  Fathom sets the Debt Servicing Ratio aside for that period and lets
+  Current Ratio and Debt/EBITDA carry the full weight of the score
+  instead.
+
+In short: a company can still fail Debt on genuinely weak earnings, while
+a temporary dip in operating cash flow alone won't drag the verdict
+down — it's set aside rather than counted as either a pass or a fail.
+
 ## Banks, Insurance companies, and REITs are judged differently
 
 The three ratios above assume a typical operating company's balance
@@ -77,6 +103,12 @@ so each is judged on different, more appropriate criteria:
 
   </details>
 
+  A small number of tickers classified as Banks by sector/industry text
+  aren't actually deposit-taking lenders (a broker-dealer, for example).
+  For these, Debt isn't assessed at all — neither the standard ratios nor
+  the CET1/NPL check meaningfully apply, and no manual-entry option is
+  ever offered. This is a permanent, deliberate exemption, not a
+  temporary data gap.
 - **Insurance companies** aren't judged on these ratios at all — their
   balance sheets are dominated by loss reserves and unearned premiums,
   which don't map cleanly onto a short-term liquidity or leverage read the
@@ -99,6 +131,7 @@ so each is judged on different, more appropriate criteria:
 - **Strong Pass** — every ratio is comfortably within safe territory.
 - **Not supported** — this company type doesn't have a reliable way to
   compute this check with the data currently available (Insurance always;
-  Banks until a CET1 value is entered).
+  Banks until a CET1 value is entered, or permanently for the small number
+  of Bank-classified tickers that aren't actually deposit-taking lenders).
 
 See the [Glossary](glossary.md) for how every verdict label is defined.

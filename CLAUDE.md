@@ -549,6 +549,51 @@ for the exact current formulas and severity bands:
   all) — confirmed via the recompute that AVB/EQR/HST/KIM/O/REG (REIT
   gearing) and GEHC/HON/IFF (Standard-path fallback) all flip from
   "Pass" to "Fail" at their unchanged score.
+- **Negative EBITDA is a real Fail, not `insufficient_data`; a negative-
+  CFO-only Debt Servicing Ratio is a genuine exemption, not a Fail
+  (2026-08-06).** Previously, any Standard-path ticker with EBITDA ≤0
+  (Debt/EBITDA undefined) or CFO ≤0 (Debt Servicing Ratio undefined) hit
+  an all-or-nothing gate straight to `insufficient_data` — which, unlike
+  a real exemption (IBKR/HOOD's `not_supported`, which reweights), sets
+  `can_compute = False` and silently blanks the ENTIRE Overall Assessment,
+  not just Debt. Two distinct fixes, shipped as two commits:
+  1. **Negative EBITDA → Fail.** A company not generating positive
+     operating earnings at all is a real weakness, not a neutral data gap
+     the way a Bank/Insurance/broker-dealer exemption is —
+     `score_step5_standard` now returns a `negative_ebitda` result (0
+     points, hard-fail, with an explicit reasoning note) whenever EBITDA
+     is ≤0, and this stays IN the blend as a genuine Fail rather than
+     blocking the whole check. `step5_data.py`'s gate now only reads
+     `insufficient_data` when `total_debt`/`ebitda_ttm` is genuinely
+     missing, not when `ebitda_ttm` is present but non-positive.
+     Confirmed real cases (all previously `insufficient_data`/Overall
+     blanked entirely, now genuine Fails): **CNC** (57/Fail, Overall
+     56/Fail), **COIN** (62/Fail, Overall 32/Fail), **F** (57/Fail,
+     Overall 46/Fail), **IP** (57/Fail, Overall 46/Fail), **KHC**
+     (52/Fail, Overall 41/Fail), **MRNA** (50/Fail — also has negative
+     CFO, see below), **PSKY** (23/Fail, Overall 45/Fail), **TAP**
+     (28/Fail, Overall 44/Fail), **ECHO** (50/Fail — also has negative
+     CFO; Overall stays `None`, unaffected by this fix — a pre-existing,
+     unrelated Growth Rate `insufficient_data` gap).
+  2. **DSR excluded (not failed) when CFO is negative but EBITDA is
+     positive.** CTVA (a seasonal working-capital cycle) and SMCI (an
+     inventory buildup) both have positive EBITDA — only Debt Servicing
+     Ratio's CFO input was undefined, while Current Ratio and Debt/EBITDA
+     were both real and computable. Unlike negative EBITDA, a temporary/
+     seasonal negative-CFO period isn't evidence DSR itself is unhealthy,
+     so this is a genuine exemption (`RatioResult.excluded=True`): DSR
+     drops out of the blend entirely and its weight is proportionally
+     redistributed across whichever of {Current Ratio, Debt/EBITDA}
+     remain (50/50, when both apply) — mirroring Profitability's own
+     equal-weight redistribution for its exempt metrics (`BASE_WEIGHTS`,
+     below). Confirmed: **CTVA** now 85/Pass (Overall 79/Pass); **SMCI**
+     now 50/Fail — a genuine Debt/EBITDA breach that, with DSR
+     unverifiable this period, can no longer be breach-context-rescued
+     using it as a primary-gate input (Overall 53/Fail).
+  Both breach-context frameworks (above) now guard against a `None`
+  `debt_to_ebitda`/`debt_servicing_pct` input, treating an undefined
+  ratio the same as a real breach for gating purposes — it can't vouch
+  for a different ratio's rescue any more than a bad one could.
 
 Profitability's original methodology gives ROE/ROIC tiers, an
 AR-outpacing-magnitude concept, and a qualitative CCC pattern table
