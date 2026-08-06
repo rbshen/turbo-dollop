@@ -436,7 +436,11 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
         debt_metrics.total_debt / ebitda_ttm if not debt_to_ebitda_data_missing and ebitda_ttm > 0 else None
     )
     # CFO <= 0 makes the ratio meaningless (or sign-flipped) rather than
-    # just large -- treated as unavailable, not computed.
+    # just large -- treated as unavailable, not computed. Unlike Debt/
+    # EBITDA above, this is always an exclusion (see score_step5_standard),
+    # never a Fail -- a temporary/seasonal negative-CFO period isn't
+    # evidence DSR itself is unhealthy the way negative EBITDA is a real
+    # weakness (2026-08-06 fix, Part 2: CTVA/SMCI's real shape).
     debt_servicing_pct = (
         debt_metrics.net_interest_expense_ttm / cfo_ttm * 100
         if debt_metrics.net_interest_expense_ttm is not None and cfo_ttm is not None and cfo_ttm > 0
@@ -454,7 +458,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
         else None
     )
 
-    if current_ratio is None or debt_to_ebitda_data_missing or debt_servicing_pct is None:
+    if current_ratio is None or debt_to_ebitda_data_missing:
         return Step5Out(
             ticker=ticker,
             company_type=company_type,
@@ -536,6 +540,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
         total_debt=debt_metrics.total_debt,
         net_debt=net_debt,
         ebitda_ttm=ebitda_ttm,
+        cfo_ttm=cfo_ttm,
         deferred_revenue=deferred_revenue,
         current_liabilities=current_liabilities,
         cash_and_equivalents=cash_and_equivalents,

@@ -362,6 +362,34 @@ def test_negative_ebitda_end_to_end_is_a_real_fail_not_insufficient_data(monkeyp
     assert result.weights == {"current_ratio": 1 / 3, "debt_to_ebitda": 1 / 3, "debt_servicing_ratio": 1 / 3}
 
 
+CASH_FLOW_QUARTERLY_NEGATIVE = [{"date": "2026-03-28", "netCashProvidedByOperatingActivities": -50} for _ in range(4)]
+
+
+def test_dsr_excluded_end_to_end_when_ebitda_positive_but_cfo_negative(monkeypatch):
+    _fresh_engine(monkeypatch)
+    # Default INCOME_QUARTERLY (ebitda sums to 340, positive) -- only CFO is
+    # overridden negative, mirroring CTVA/SMCI's real shape (Debt/EBITDA
+    # real and comfortable, only DSR blocked).
+    _patch_fmp(monkeypatch)
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return CASH_FLOW_QUARTERLY_NEGATIVE
+
+    monkeypatch.setattr(step5_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+    result = asyncio.run(get_step5_data("aapl"))
+
+    assert result.verdict != "insufficient_data"
+    assert result.score is not None
+    assert result.ratios["debt_to_ebitda"].label != "negative_ebitda"
+    assert result.ratios["debt_servicing_ratio"].label == "excluded_negative_cfo"
+    assert result.ratios["debt_servicing_ratio"].note is not None
+    # DSR's weight is gone, not just zeroed -- only current_ratio and
+    # debt_to_ebitda remain, redistributed to 50/50.
+    assert result.weights == {"current_ratio": 0.5, "debt_to_ebitda": 0.5}
+    assert result.hard_fail is False
+
+
 def test_bank_overall_verdict_stays_not_supported_regardless_of_npl(monkeypatch):
     # CET1 is still unavailable -- NPL is a partial signal only, must never
     # by itself produce a scored Bank verdict.

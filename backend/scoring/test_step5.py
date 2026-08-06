@@ -40,28 +40,29 @@ def test_classify_standard():
 # itself is UNCHANGED by the breach-context framework -- that's applied one
 # level up, by score_step5_standard, only when this function's own result is
 # still "borderline_fail" (see the score_step5_standard tests further down).
-# RatioResult grew a 5th field (breach_context, defaults to ()) and a 6th
-# (note, defaults to None) -- every expected tuple below has both appended. ---
+# RatioResult grew a 5th field (breach_context, defaults to ()), a 6th
+# (note, defaults to None), and a 7th (excluded, defaults to False) -- every
+# expected tuple below has all three appended. ---
 
 
 def test_current_ratio_excellent_above_2():
     result = score_current_ratio(raw_ratio=2.5, adjusted_ratio=2.5)
-    assert result == ("excellent", 100, False, False, (), None)
+    assert result == ("excellent", 100, False, False, (), None, False)
 
 
 def test_current_ratio_good_boundary_at_2_is_good_not_excellent():
     result = score_current_ratio(raw_ratio=2.0, adjusted_ratio=2.0)
-    assert result == ("good", 85, False, False, (), None)
+    assert result == ("good", 85, False, False, (), None, False)
 
 
 def test_current_ratio_good_boundary_at_1_5_is_good_not_acceptable():
     result = score_current_ratio(raw_ratio=1.5, adjusted_ratio=1.5)
-    assert result == ("good", 85, False, False, (), None)
+    assert result == ("good", 85, False, False, (), None, False)
 
 
 def test_current_ratio_boundary_at_1_is_acceptable_not_borderline():
     result = score_current_ratio(raw_ratio=1.0, adjusted_ratio=1.0)
-    assert result == ("acceptable", 70, False, False, (), None)
+    assert result == ("acceptable", 70, False, False, (), None, False)
 
 
 # --- Current Ratio: Borderline and Severe zones ---
@@ -73,17 +74,17 @@ def test_current_ratio_borderline_fails_with_no_deferred_revenue():
     # score_step5_standard's breach-context framework gets a separate,
     # later chance at it (see further down).
     result = score_current_ratio(raw_ratio=0.9, adjusted_ratio=0.9)
-    assert result == ("borderline_fail", 0, True, False, (), None)
+    assert result == ("borderline_fail", 0, True, False, (), None, False)
 
 
 def test_current_ratio_boundary_at_0_7_is_borderline_not_severe():
     result = score_current_ratio(raw_ratio=0.7, adjusted_ratio=0.7)
-    assert result == ("borderline_fail", 0, True, False, (), None)
+    assert result == ("borderline_fail", 0, True, False, (), None, False)
 
 
 def test_current_ratio_below_0_7_is_severe():
     result = score_current_ratio(raw_ratio=0.5, adjusted_ratio=0.5)
-    assert result == ("severe", 0, True, False, (), None)
+    assert result == ("severe", 0, True, False, (), None, False)
 
 
 def test_current_ratio_severe_raw_but_deferred_revenue_only_lifts_it_to_borderline():
@@ -96,7 +97,7 @@ def test_current_ratio_severe_raw_but_deferred_revenue_only_lifts_it_to_borderli
     # Severe, so it's excluded from breach-context entirely regardless of
     # the adjusted value landing in Borderline.
     result = score_current_ratio(raw_ratio=0.33, adjusted_ratio=0.90)
-    assert result == ("borderline_fail", 0, True, False, (), None)
+    assert result == ("borderline_fail", 0, True, False, (), None, False)
 
 
 # --- Current Ratio: deferred-revenue rescue (Comfortable via adjusted ratio) ---
@@ -107,12 +108,12 @@ def test_current_ratio_rescued_by_deferred_revenue_to_comfortable():
     # lifts the adjusted ratio to 1.84 (Comfortable) -- reads as a genuine
     # Pass-tier result, flagged as saved_by_tiebreaker.
     result = score_current_ratio(raw_ratio=0.75, adjusted_ratio=1.84)
-    assert result == ("good", 85, False, True, (), None)
+    assert result == ("good", 85, False, True, (), None, False)
 
 
 def test_current_ratio_rescue_boundary_at_exactly_1_0_counts_as_rescued():
     result = score_current_ratio(raw_ratio=0.9, adjusted_ratio=1.0)
-    assert result == ("acceptable", 70, False, True, (), None)
+    assert result == ("acceptable", 70, False, True, (), None, False)
 
 
 def test_current_ratio_deferred_revenue_present_but_raw_already_comfortable_is_unaffected():
@@ -123,7 +124,7 @@ def test_current_ratio_deferred_revenue_present_but_raw_already_comfortable_is_u
     # verification: MTD/MCO/PTC-style tickers silently gained points before
     # this guard was added).
     result = score_current_ratio(raw_ratio=1.3, adjusted_ratio=1.6)
-    assert result == ("acceptable", 70, False, False, (), None)
+    assert result == ("acceptable", 70, False, False, (), None, False)
 
 
 # --- Debt/EBITDA: Comfortable-zone sub-tiers (unchanged) ---
@@ -136,21 +137,21 @@ def test_current_ratio_deferred_revenue_present_but_raw_already_comfortable_is_u
 
 
 def test_debt_to_ebitda_excellent_at_or_below_1():
-    assert score_debt_to_ebitda(1.0) == ("excellent", 100, False, False, (), None)
+    assert score_debt_to_ebitda(1.0) == ("excellent", 100, False, False, (), None, False)
 
 
 def test_debt_to_ebitda_good():
-    assert score_debt_to_ebitda(1.5) == ("good", 85, False, False, (), None)
+    assert score_debt_to_ebitda(1.5) == ("good", 85, False, False, (), None, False)
 
 
 def test_debt_to_ebitda_acceptable_boundary_at_2():
-    assert score_debt_to_ebitda(2.0) == ("good", 85, False, False, (), None)
-    assert score_debt_to_ebitda(2.5) == ("acceptable", 70, False, False, (), None)
+    assert score_debt_to_ebitda(2.0) == ("good", 85, False, False, (), None, False)
+    assert score_debt_to_ebitda(2.5) == ("acceptable", 70, False, False, (), None, False)
 
 
 def test_debt_to_ebitda_boundary_at_3_is_acceptable_not_borderline():
     result = score_debt_to_ebitda(3.0)
-    assert result == ("acceptable", 70, False, False, (), None)
+    assert result == ("acceptable", 70, False, False, (), None, False)
 
 
 # --- Debt/EBITDA: Borderline and Severe zones (pure tier only here -- the
@@ -164,12 +165,12 @@ def test_debt_to_ebitda_borderline_unrescued_at_this_level():
     # decision (see the ABT-shaped end-to-end test further down for the
     # actual rescue scenario this replaces).
     result = score_debt_to_ebitda(3.42)
-    assert result == ("borderline_fail", 0, True, False, (), None)
+    assert result == ("borderline_fail", 0, True, False, (), None, False)
 
 
 def test_debt_to_ebitda_boundary_at_4_is_borderline_not_severe():
     result = score_debt_to_ebitda(4.0)
-    assert result == ("borderline_fail", 0, True, False, (), None)
+    assert result == ("borderline_fail", 0, True, False, (), None, False)
 
 
 def test_debt_to_ebitda_severe_above_4():
@@ -177,7 +178,7 @@ def test_debt_to_ebitda_severe_above_4():
     # reaches the breach-context framework at all (confirmed scope
     # decision) -- always an unconditional Fail, no exceptions.
     result = score_debt_to_ebitda(4.31)
-    assert result == ("severe", 0, True, False, (), None)
+    assert result == ("severe", 0, True, False, (), None, False)
 
 
 # --- Debt Servicing Ratio: Comfortable-zone sub-tiers (unchanged --
@@ -187,20 +188,20 @@ def test_debt_to_ebitda_severe_above_4():
 
 
 def test_debt_servicing_excellent_below_10():
-    assert score_debt_servicing(5.0, icr_is_safe=False) == ("excellent", 100, False, False, (), None)
+    assert score_debt_servicing(5.0, icr_is_safe=False) == ("excellent", 100, False, False, (), None, False)
 
 
 def test_debt_servicing_good():
-    assert score_debt_servicing(15.0, icr_is_safe=False) == ("good", 85, False, False, (), None)
+    assert score_debt_servicing(15.0, icr_is_safe=False) == ("good", 85, False, False, (), None, False)
 
 
 def test_debt_servicing_approaching_limit():
-    assert score_debt_servicing(25.0, icr_is_safe=False) == ("approaching_limit", 60, False, False, (), None)
+    assert score_debt_servicing(25.0, icr_is_safe=False) == ("approaching_limit", 60, False, False, (), None, False)
 
 
 def test_debt_servicing_boundary_at_30_is_borderline_not_comfortable():
     result = score_debt_servicing(30.0, icr_is_safe=False)
-    assert result == ("borderline_fail", 0, True, False, (), None)
+    assert result == ("borderline_fail", 0, True, False, (), None, False)
 
 
 # --- Debt Servicing Ratio: Borderline zone + Interest Coverage tiebreaker ---
@@ -208,22 +209,22 @@ def test_debt_servicing_boundary_at_30_is_borderline_not_comfortable():
 
 def test_debt_servicing_borderline_saved_by_safe_icr():
     result = score_debt_servicing(35.0, icr_is_safe=True)
-    assert result == ("borderline_saved_by_icr", 60, False, True, (), None)
+    assert result == ("borderline_saved_by_icr", 60, False, True, (), None, False)
 
 
 def test_debt_servicing_borderline_not_saved_by_unsafe_icr():
     result = score_debt_servicing(35.0, icr_is_safe=False)
-    assert result == ("borderline_fail", 0, True, False, (), None)
+    assert result == ("borderline_fail", 0, True, False, (), None, False)
 
 
 def test_debt_servicing_boundary_at_40_is_severe_not_borderline():
     result = score_debt_servicing(40.0, icr_is_safe=True)
-    assert result == ("severe", 0, True, False, (), None)
+    assert result == ("severe", 0, True, False, (), None, False)
 
 
 def test_debt_servicing_severe_above_40_never_saved_even_with_safe_icr():
     result = score_debt_servicing(45.0, icr_is_safe=True)
-    assert result == ("severe", 0, True, False, (), None)
+    assert result == ("severe", 0, True, False, (), None, False)
 
 
 # --- Interest Coverage Ratio classification ---
@@ -257,28 +258,28 @@ def test_icr_not_applicable_when_none():
 
 
 def test_npl_excellent_below_1():
-    assert score_npl(0.5) == ("excellent", 100, False, False, (), None)
+    assert score_npl(0.5) == ("excellent", 100, False, False, (), None, False)
 
 
 def test_npl_good():
-    assert score_npl(2.0) == ("good", 85, False, False, (), None)
+    assert score_npl(2.0) == ("good", 85, False, False, (), None, False)
 
 
 def test_npl_boundary_at_1_is_good_not_excellent():
-    assert score_npl(1.0) == ("good", 85, False, False, (), None)
+    assert score_npl(1.0) == ("good", 85, False, False, (), None, False)
 
 
 def test_npl_acceptable():
-    assert score_npl(4.0) == ("acceptable", 70, False, False, (), None)
+    assert score_npl(4.0) == ("acceptable", 70, False, False, (), None, False)
 
 
 def test_npl_boundary_at_3_is_acceptable_not_good():
-    assert score_npl(3.0) == ("acceptable", 70, False, False, (), None)
+    assert score_npl(3.0) == ("acceptable", 70, False, False, (), None, False)
 
 
 def test_npl_fail_at_or_above_5():
-    assert score_npl(5.0) == ("fail", 0, True, False, (), None)
-    assert score_npl(7.5) == ("fail", 0, True, False, (), None)
+    assert score_npl(5.0) == ("fail", 0, True, False, (), None, False)
+    assert score_npl(7.5) == ("fail", 0, True, False, (), None, False)
 
 
 # --- CET1 Ratio tiers (Bank, manual entry only) ---
@@ -288,32 +289,32 @@ def test_npl_fail_at_or_above_5():
 
 
 def test_cet1_fail_below_10():
-    assert score_cet1(9.9) == ("fail", 0, True, False, (), None)
-    assert score_cet1(4.0) == ("fail", 0, True, False, (), None)
+    assert score_cet1(9.9) == ("fail", 0, True, False, (), None, False)
+    assert score_cet1(4.0) == ("fail", 0, True, False, (), None, False)
 
 
 def test_cet1_boundary_at_10_is_acceptable():
-    assert score_cet1(10.0) == ("acceptable", 70, False, False, (), None)
+    assert score_cet1(10.0) == ("acceptable", 70, False, False, (), None, False)
 
 
 def test_cet1_acceptable_at_11():
-    assert score_cet1(11.0) == ("acceptable", 70, False, False, (), None)
+    assert score_cet1(11.0) == ("acceptable", 70, False, False, (), None, False)
 
 
 def test_cet1_boundary_at_12_is_good():
-    assert score_cet1(12.0) == ("good", 85, False, False, (), None)
+    assert score_cet1(12.0) == ("good", 85, False, False, (), None, False)
 
 
 def test_cet1_good_at_13():
-    assert score_cet1(13.0) == ("good", 85, False, False, (), None)
+    assert score_cet1(13.0) == ("good", 85, False, False, (), None, False)
 
 
 def test_cet1_boundary_at_14_is_excellent():
-    assert score_cet1(14.0) == ("excellent", 100, False, False, (), None)
+    assert score_cet1(14.0) == ("excellent", 100, False, False, (), None, False)
 
 
 def test_cet1_excellent_above_14():
-    assert score_cet1(15.0) == ("excellent", 100, False, False, (), None)
+    assert score_cet1(15.0) == ("excellent", 100, False, False, (), None, False)
 
 
 # --- Bank path (CET1 + NPL, 50/50 blend) ---
@@ -353,30 +354,30 @@ def test_bank_npl_hard_fail_overrides_even_with_excellent_cet1():
 
 
 def test_gearing_excellent_below_30():
-    assert score_gearing(25.0) == ("excellent", 100, False, False, (), None)
+    assert score_gearing(25.0) == ("excellent", 100, False, False, (), None, False)
 
 
 def test_gearing_good_boundary_at_30_is_good_not_excellent():
     result = score_gearing(30.0)
-    assert result == ("good", 85, False, False, (), None)
+    assert result == ("good", 85, False, False, (), None, False)
 
 
 def test_gearing_good():
-    assert score_gearing(35.0) == ("good", 85, False, False, (), None)
+    assert score_gearing(35.0) == ("good", 85, False, False, (), None, False)
 
 
 def test_gearing_approaching_limit():
-    assert score_gearing(42.0) == ("approaching_limit", 60, False, False, (), None)
+    assert score_gearing(42.0) == ("approaching_limit", 60, False, False, (), None, False)
 
 
 def test_gearing_fail_above_45():
     result = score_gearing(50.0)
-    assert result == ("fail", 0, True, False, (), None)
+    assert result == ("fail", 0, True, False, (), None, False)
 
 
 def test_gearing_boundary_at_45_is_approaching_limit_not_fail():
     result = score_gearing(45.0)
-    assert result == ("approaching_limit", 60, False, False, (), None)
+    assert result == ("approaching_limit", 60, False, False, (), None, False)
 
 
 # --- score_step5_standard: end-to-end, real-ticker-shaped cases ---
@@ -609,6 +610,75 @@ def test_breach_context_gate_fails_safely_when_debt_to_ebitda_is_negative_ebitda
     result = score_step5_standard(
         current_ratio=0.85, adjusted_current_ratio=0.85, debt_to_ebitda=None, debt_servicing_pct=5.0,
         interest_coverage_ratio=None, ebitda_ttm=-1.0,
+        current_ratio_oldest=1.2, current_ratio_oldest_year="FY2021",
+    )
+    assert result["ratios"]["current_ratio"]["label"] == "borderline_fail"
+    assert result["ratios"]["current_ratio"]["saved_by_tiebreaker"] is False
+
+
+# --- DSR excluded for negative CFO (EBITDA positive) -- 2026-08-06 fix,
+# Part 2. Mirrors CTVA/SMCI's real shape: Debt/EBITDA is real and
+# comfortable (EBITDA is positive), only DSR is undefined (CFO <=0 this
+# period) -- must read as an exemption (weight redistributed), never a
+# Fail, unlike negative_ebitda above. ---
+
+
+def test_dsr_excluded_for_negative_cfo_when_ebitda_positive_is_not_a_fail():
+    result = score_step5_standard(
+        current_ratio=1.5, adjusted_current_ratio=1.5, debt_to_ebitda=0.65, debt_servicing_pct=None,
+        interest_coverage_ratio=None, cfo_ttm=-1_680_000_000,
+    )
+    assert result["ratios"]["debt_servicing_ratio"]["label"] == "excluded_negative_cfo"
+    assert result["ratios"]["debt_servicing_ratio"]["points"] == 0
+    assert result["ratios"]["debt_servicing_ratio"]["note"] is not None
+    assert "$-1,680,000,000" in result["ratios"]["debt_servicing_ratio"]["note"]
+    assert result["hard_fail"] is False
+    # Only current_ratio and debt_to_ebitda count -- DSR's 1/3 weight is
+    # redistributed proportionally (1/3 / (2/3) = 1/2 each), mirroring
+    # Profitability's own equal-weight redistribution for exempt metrics.
+    assert result["weights"] == {"current_ratio": 0.5, "debt_to_ebitda": 0.5}
+    assert "debt_servicing_ratio" not in result["weights"]
+    # current_ratio=1.5 -> "good" (85), debt_to_ebitda=0.65 -> "excellent"
+    # (100) -> 92.5, rounds to 92, which is > the 90 Strong Pass threshold.
+    assert result["score"] == round((85 + 100) / 2)
+    assert result["verdict"] == "Strong Pass"
+
+
+def test_dsr_excluded_and_negative_ebitda_can_combine():
+    # Mirrors MRNA/ECHO's real shape: EBITDA AND CFO are both <=0. The two
+    # fixes are independent -- Debt/EBITDA still fails and still counts,
+    # DSR is still excluded and its weight still drops out -- so only two
+    # components remain, one of which is a 0-point Fail.
+    result = score_step5_standard(
+        current_ratio=1.2, adjusted_current_ratio=1.2, debt_to_ebitda=None, debt_servicing_pct=None,
+        interest_coverage_ratio=None, ebitda_ttm=-2_829_000_000, cfo_ttm=-1_052_000_000,
+    )
+    assert result["ratios"]["debt_to_ebitda"]["label"] == "negative_ebitda"
+    assert result["ratios"]["debt_servicing_ratio"]["label"] == "excluded_negative_cfo"
+    assert result["weights"] == {"current_ratio": 0.5, "debt_to_ebitda": 0.5}
+    assert result["hard_fail"] is True
+    assert result["verdict"] == "Fail"
+
+
+def test_dsr_exclusion_note_handles_missing_cfo_value_gracefully():
+    # cfo_ttm itself can be None (genuinely missing), not just non-positive
+    # -- the note must not crash trying to format a number that doesn't exist.
+    result = score_step5_standard(
+        current_ratio=1.5, adjusted_current_ratio=1.5, debt_to_ebitda=0.65, debt_servicing_pct=None,
+        interest_coverage_ratio=None, cfo_ttm=None,
+    )
+    assert result["ratios"]["debt_servicing_ratio"]["note"] is not None
+    assert "unavailable or non-positive" in result["ratios"]["debt_servicing_ratio"]["note"]
+
+
+def test_breach_context_gate_fails_safely_when_debt_servicing_pct_is_excluded():
+    # Current Ratio is Borderline (would normally be eligible for the
+    # breach-context rescue), but DSR is excluded (None) this period -- the
+    # primary gate must read as failed rather than crashing on `None <
+    # DSR_COMFORTABLE`, since an unverifiable DSR can't vouch for a rescue.
+    result = score_step5_standard(
+        current_ratio=0.85, adjusted_current_ratio=0.85, debt_to_ebitda=0.65, debt_servicing_pct=None,
+        interest_coverage_ratio=None, cfo_ttm=-500.0,
         current_ratio_oldest=1.2, current_ratio_oldest_year="FY2021",
     )
     assert result["ratios"]["current_ratio"]["label"] == "borderline_fail"

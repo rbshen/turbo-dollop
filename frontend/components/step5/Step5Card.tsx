@@ -60,6 +60,10 @@ const TIER_LABELS: Record<string, string> = {
   // toward the blend), not insufficient_data (2026-08-06 fix). See the
   // ratio's own `note` for the full explanation, rendered separately below.
   negative_ebitda: "Negative EBITDA — Fail",
+  // DSR only: TTM operating cash flow is <=0 this period (temporary/
+  // seasonal, e.g. CTVA/SMCI) -- excluded from the blend and its weight
+  // redistributed across the other ratios, not scored as a Fail.
+  excluded_negative_cfo: "Excluded (negative CFO)",
   // Interest Coverage Ratio's own tiers (informational, no points of its own).
   safe: "Safe",
   tight: "Tight",
@@ -197,6 +201,9 @@ export function Step5Card({ ticker }: Props) {
       )}
       {!isBank && !isInsurance && data.ratios.debt_to_ebitda?.note && (
         <p className="text-sm text-negative">{data.ratios.debt_to_ebitda.note}</p>
+      )}
+      {!isBank && !isInsurance && data.ratios.debt_servicing_ratio?.note && (
+        <p className="text-xs text-text-tertiary">{data.ratios.debt_servicing_ratio.note}</p>
       )}
       {icr && bullets.length > 0 && (
         <p className="text-xs text-text-tertiary">

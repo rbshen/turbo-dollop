@@ -139,7 +139,7 @@ def _trend_signal(key: str, oldest_value: float | None, oldest_year: str | None,
 
 def evaluate_debt_to_ebitda_breach_context(
     current_ratio: float,
-    debt_servicing_pct: float,
+    debt_servicing_pct: float | None,
     debt_to_ebitda_current: float,
     debt_to_ebitda_oldest: float | None,
     debt_to_ebitda_oldest_year: str | None,
@@ -152,8 +152,13 @@ def evaluate_debt_to_ebitda_breach_context(
     """Evaluated only when Debt/EBITDA is in the Borderline zone (3.0-4.0x).
     Primary gates are literal raw-threshold checks against the OTHER two
     ratios, not their own (possibly-rescued) classification -- matches the
-    exact wording of the design this implements."""
-    primary_gates_pass = current_ratio >= CURRENT_RATIO_COMFORTABLE and debt_servicing_pct < DSR_COMFORTABLE
+    exact wording of the design this implements. `debt_servicing_pct=None`
+    (DSR excluded this period, negative CFO -- see score_step5_standard)
+    fails the gate outright, same treatment as an actual breach: an
+    unverifiable DSR can't vouch for a rescue any more than a bad one can."""
+    primary_gates_pass = (
+        current_ratio >= CURRENT_RATIO_COMFORTABLE and debt_servicing_pct is not None and debt_servicing_pct < DSR_COMFORTABLE
+    )
 
     trend = _trend_signal("trend", debt_to_ebitda_oldest, debt_to_ebitda_oldest_year, debt_to_ebitda_current, favorable_if_declining=True)
 
@@ -207,7 +212,7 @@ def evaluate_debt_to_ebitda_breach_context(
 
 def evaluate_current_ratio_breach_context(
     debt_to_ebitda: float | None,
-    debt_servicing_pct: float,
+    debt_servicing_pct: float | None,
     current_ratio_current: float,
     current_ratio_oldest: float | None,
     current_ratio_oldest_year: str | None,
@@ -221,10 +226,15 @@ def evaluate_current_ratio_breach_context(
     existing deferred-revenue adjustment already failed to rescue it fully
     to Comfortable (that existing full-rescue path is unchanged and runs
     first -- see score_current_ratio). `debt_to_ebitda=None` (negative-
-    EBITDA Fail, 2026-08-06 -- see score_step5_standard) fails the gate
-    outright, same treatment as a real breach: an undefined ratio can't
-    vouch for a rescue any more than a bad one can."""
-    primary_gates_pass = debt_to_ebitda is not None and debt_to_ebitda <= DEBT_EBITDA_COMFORTABLE and debt_servicing_pct < DSR_COMFORTABLE
+    EBITDA Fail) and `debt_servicing_pct=None` (DSR excluded, negative CFO)
+    both fail the gate outright, same treatment as a real breach: an
+    undefined ratio can't vouch for a rescue any more than a bad one can."""
+    primary_gates_pass = (
+        debt_to_ebitda is not None
+        and debt_to_ebitda <= DEBT_EBITDA_COMFORTABLE
+        and debt_servicing_pct is not None
+        and debt_servicing_pct < DSR_COMFORTABLE
+    )
 
     if deferred_revenue is None or not current_liabilities:
         deferred_revenue_signal = BreachContextSignal("deferred_revenue", "not_computable", "Deferred revenue or current liabilities unavailable.")
@@ -309,10 +319,18 @@ class RatioResult(NamedTuple):
     # whether it qualified for a downgrade, so the UI can explain either
     # outcome. See score_step5_standard.
     breach_context: tuple[BreachContextSignal, ...] = ()
-    # Full sentence explaining an unusual result -- populated only for
-    # Debt/EBITDA's negative-EBITDA Fail so far (see score_step5_standard).
-    # None for every ordinary tier.
+    # Full sentence explaining an unusual result -- populated for Debt/
+    # EBITDA's negative-EBITDA Fail and DSR's negative-CFO exclusion (see
+    # score_step5_standard). None for every ordinary tier.
     note: str | None = None
+    # True only for DSR's negative-CFO case -- this ratio genuinely doesn't
+    # apply this period (a temporary/seasonal CFO swing, not a real
+    # breach), so it's excluded from the blend and its weight is
+    # redistributed across the remaining ratios, the same way Profitability
+    # redistributes weight across its own exempt metrics. Never true for
+    # negative_ebitda: that's a real weakness, not a neutral "doesn't
+    # apply," so it stays IN the blend as a 0-point Fail instead.
+    excluded: bool = False
 
 
 def classify_interest_coverage(icr: float | None) -> str:
@@ -469,7 +487,7 @@ def score_step5_standard(
     current_ratio: float,
     adjusted_current_ratio: float,
     debt_to_ebitda: float | None,
-    debt_servicing_pct: float,
+    debt_servicing_pct: float | None,
     interest_coverage_ratio: float | None,
     *,
     # Breach-context inputs -- all optional (default None), consulted only
@@ -494,6 +512,11 @@ def score_step5_standard(
     # `ebitda_ttm` is required (not just decorative) whenever
     # `debt_to_ebitda` is None.
     ebitda_ttm: float | None = None,
+    # Same disambiguation for DSR: `debt_servicing_pct=None` here always
+    # means TTM CFO is <=0 or unavailable -- `cfo_ttm` is only used to
+    # build the exclusion note's sentence (generic wording if it's None
+    # itself, rather than assuming a number is always available to quote).
+    cfo_ttm: float | None = None,
     deferred_revenue: float | None = None,
     current_liabilities: float | None = None,
     cash_and_equivalents: float | None = None,
@@ -505,12 +528,17 @@ def score_step5_standard(
     `adjusted_current_ratio` and `interest_coverage_ratio` are precomputed
     by the caller (step5_data.py has the raw balance sheet/income figures).
 
-    Debt/EBITDA's "ratio undefined" case (2026-08-06 fix) is deliberately
-    NOT treated as a neutral exemption the way e.g. IBKR/HOOD's Bank
-    exclusion is: negative EBITDA means the company isn't generating
-    positive operating earnings at all -- a real weakness -- so it fails
-    outright (0 points, hard_fail) and stays IN the blend like any other
-    Fail, rather than being excluded/reweighted."""
+    Debt/EBITDA and DSR each handle their own "ratio undefined" case, but
+    deliberately differently (2026-08-06 fix): negative EBITDA means the
+    company isn't generating positive operating earnings at all -- a real
+    weakness, not a neutral "doesn't apply" -- so it fails outright (0
+    points, hard_fail) and stays IN the blend, same as any other Fail.
+    Negative/non-positive CFO blocking DSR specifically is treated as a
+    genuine exemption instead (the CTVA/SMCI case -- a temporary/seasonal
+    CFO swing, not evidence DSR itself is unhealthy): DSR is excluded and
+    its weight redistributed proportionally across whatever of {current
+    ratio, Debt/EBITDA} remain, mirroring Profitability's own equal-
+    weight-redistribution pattern for its exempt metrics."""
     icr_is_safe = interest_coverage_ratio is not None and interest_coverage_ratio > ICR_SAFE
     cr = score_current_ratio(current_ratio, adjusted_current_ratio)
     if debt_to_ebitda is not None:
@@ -526,10 +554,24 @@ def score_step5_standard(
                 f"operating earnings. This is treated as a failing result, not a data gap."
             ),
         )
-    # DSR keeps its own existing, unchanged ICR-only Borderline rescue --
-    # it's a primary-gate INPUT to the other two frameworks below, never a
-    # breach-context subject itself.
-    ds = score_debt_servicing(debt_servicing_pct, icr_is_safe)
+    # DSR keeps its own existing, unchanged ICR-only Borderline rescue when
+    # it's actually computable -- it's a primary-gate INPUT to the other
+    # two frameworks below, never a breach-context subject itself.
+    if debt_servicing_pct is not None:
+        ds = score_debt_servicing(debt_servicing_pct, icr_is_safe)
+    else:
+        cfo_detail = f"${cfo_ttm:,.0f}" if cfo_ttm is not None else "unavailable or non-positive"
+        ds = RatioResult(
+            "excluded_negative_cfo",
+            0,
+            False,
+            note=(
+                f"Debt Servicing Ratio excluded this period -- TTM operating cash flow is "
+                f"{cfo_detail}, a temporary/seasonal swing rather than a sign this ratio "
+                f"itself is unhealthy. Its weight is redistributed across the other ratios below."
+            ),
+            excluded=True,
+        )
 
     if de.label == "borderline_fail":
         qualifies, marginal_score, signals = evaluate_debt_to_ebitda_breach_context(
@@ -578,7 +620,15 @@ def score_step5_standard(
     # framework above, independently of each other and of DSR's own
     # icr_is_safe-driven tiebreaker.
     saved_by_tiebreaker = cr.saved_by_tiebreaker or de.saved_by_tiebreaker or ds.saved_by_tiebreaker
-    score = round((cr.points + de.points + ds.points) / 3)
+    # current_ratio and debt_to_ebitda are never excluded (a real Fail
+    # still counts toward the blend) -- only DSR's negative-CFO exclusion
+    # drops a ratio out. Proportionally renormalizes the remaining
+    # weight(s), mirroring Profitability's own equal-weight redistribution
+    # for its exempt metrics (scoring/step4.py::score_step4).
+    applicable = [(key, result) for key, result in (("current_ratio", cr), ("debt_to_ebitda", de), ("debt_servicing_ratio", ds)) if not result.excluded]
+    base_total = sum(WEIGHTS_STANDARD[key] for key, _ in applicable)
+    weights = {key: WEIGHTS_STANDARD[key] / base_total for key, _ in applicable}
+    score = round(sum(result.points * weights[key] for key, result in applicable))
     # See PASS_WITH_CAUTION_SCORE_CAP's comment -- a hard fail already
     # forces "Fail" regardless of score, so this only ever lowers a
     # genuine Pass-with-caution number, never a Fail's.
@@ -593,7 +643,7 @@ def score_step5_standard(
         # saved_by_tiebreaker alone would say True even for the sub-70
         # fall-through-to-Fail case above (see _verdict_for).
         "pass_with_caution": verdict == "Pass with caution",
-        "weights": WEIGHTS_STANDARD,
+        "weights": weights,
         "ratios": {
             "current_ratio": {
                 "value": current_ratio,
@@ -611,11 +661,15 @@ def score_step5_standard(
                 "breach_context": de.breach_context or None,
                 "note": de.note,
             },
+            # Still always present (even when excluded) so the UI can show
+            # what DSR actually was/why it didn't count -- only `weights`
+            # above reflects whether it contributed to the score.
             "debt_servicing_ratio": {
                 "value": debt_servicing_pct,
                 "label": ds.label,
                 "points": ds.points,
                 "saved_by_tiebreaker": ds.saved_by_tiebreaker,
+                "note": ds.note,
             },
             "interest_coverage_ratio": {
                 "value": interest_coverage_ratio,
