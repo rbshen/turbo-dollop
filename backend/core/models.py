@@ -243,11 +243,41 @@ class TickerScore(SQLModel, table=True):
     # FairValuePill. Not a new Step 3 call: `compute_ticker_score` already
     # fetches summary for market_cap/pe_ratio/beta above.
     valuation_verdict: str | None = None
+    # "auto" / "custom" -- lifted straight from Step3Out.valuation_source via
+    # the same get_summary() call valuation_verdict above already comes
+    # from. None for any TickerScore row computed before this field existed
+    # (see _add_missing_columns) rather than a fetch/scoring gap.
+    valuation_source: str | None = None
     # Step 2's analyst-estimate CAGR % (EPS basis preferred, revenue
     # fallback -- see CLAUDE.md's Step 2 deviation note), lifted straight
     # from Step2Out.growth_rate. None when Step 2 has no usable projection.
     growth_rate: float | None = None
     computed_at: datetime
+
+
+class TickerCustomValuation(SQLModel, table=True):
+    """A user-saved, persistent override of Step 3's Auto Calculation --
+    method + full parameter set for scoring.step3.run_manual_calculation
+    (the same engine the stateless Manual Calculation panel already used).
+    One row per ticker, no history/versioning: `is_active` decides whether
+    this row or Auto Calculation is the ticker's current valuation source
+    everywhere (Valuation tab, ticker header pill, Screener, Watchlist) --
+    see data/step3_data.py::get_active_valuation, the single choke point
+    that resolves this. Same non-FundamentalsCache, no-auth,
+    manually-authored treatment as TickerMoat/TickerBankCapitalMetrics.
+
+    parameters_json stores the *full* Step3ManualParams shape (all 13
+    fields, nulls for whichever the chosen method doesn't use) rather than
+    a sparse per-method subset -- run_manual_calculation has no default
+    values on any parameter, so a sparse dict would raise TypeError on
+    every read. Editable via the ticker page's Valuation tab (Custom
+    Valuation panel)."""
+
+    ticker: str = Field(primary_key=True)
+    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | PRICE_TO_BOOK | PSG
+    parameters_json: str
+    is_active: bool = False
+    saved_at: datetime
 
 
 class PriceTargetSnapshot(SQLModel, table=True):
