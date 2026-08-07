@@ -111,6 +111,7 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         pe_ratio=summary.pe_ratio,
         beta=summary.beta,
         valuation_verdict=summary.fair_value_verdict,
+        valuation_source=summary.valuation_source,
         growth_rate=step2.growth_rate if step2 else None,
         computed_at=datetime.now(),
     )

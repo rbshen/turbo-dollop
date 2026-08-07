@@ -11,7 +11,7 @@ from clients.fmp_client import fmp_client
 from core.schemas import OutlierWarning, TickerSummaryOut
 from helpers.shares import compute_shares_outstanding
 from data.step2_data import get_step2_data
-from data.step3_data import get_step3_data
+from data.step3_data import get_active_valuation
 from helpers.ttm import TOTAL_QUARTERS_NEEDED
 
 # Trailing window for the daily price/volume fetch backing the 30-day
@@ -249,13 +249,15 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
     ]
 
     # Step 2/Step 3 each manage their own Session(engine) block, separate
-    # from this function's. step2_out is passed into get_step3_data
+    # from this function's. step2_out is passed into get_active_valuation
     # (rather than left for it to fetch on its own) since this function
     # already needs it directly for eps_growth_3_5y below -- computing it
     # twice (cache read + full Step 2 scoring) in one /summary request was
-    # pure redundant work, not a correctness issue.
+    # pure redundant work, not a correctness issue. get_active_valuation
+    # (not get_step3_data directly) so the header's FairValuePill reflects
+    # an active custom valuation the same way the Valuation tab does.
     step2_out = await get_step2_data(ticker, cache_only)
-    step3_out = await get_step3_data(ticker, cache_only, step2_out=step2_out)
+    step3_out = await get_active_valuation(ticker, cache_only, step2_out=step2_out)
     fair_value_method = (
         FAIR_VALUE_METHOD_LABELS.get(step3_out.selected_method) if step3_out.selected_method != "PASS" else None
     )
@@ -307,4 +309,5 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         fair_value_price=step3_out.intrinsic_value_per_share,
         fair_value_verdict=step3_out.verdict,
         fair_value_method=fair_value_method,
+        valuation_source=step3_out.valuation_source,
     )

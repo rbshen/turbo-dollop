@@ -1,11 +1,13 @@
 import asyncio
+import json
 
 import httpx
 import pytest
-from sqlmodel import SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine
 
 import data.step3_data as step3_data
-from data.step3_data import get_step3_data
+from data.custom_valuation_data import activate_ticker_custom_valuation, set_ticker_custom_valuation
+from data.step3_data import get_active_valuation, get_step3_data
 
 PROFILE = [{"sector": "Technology", "industry": "Software - Application", "beta": 1.1}]
 QUOTE = [{"price": 100.0, "marketCap": 10_000_000_000}]
@@ -288,4 +290,91 @@ def test_standard_company_has_no_benchmark_or_dividend_fields(monkeypatch):
     assert result.benchmark_pb_low is None
     assert result.benchmark_pb_high is None
     assert result.dividend_yield_pct is None
+
+
+# --- get_active_valuation: Auto vs. an active/inactive TickerCustomValuation ---
+
+_PSG_PARAMS = {
+    "current_value": None,
+    "growth_yr_1_5": None,
+    "growth_yr_6_10": None,
+    "growth_yr_11_20": None,
+    "discount_rate": None,
+    "shares_outstanding": None,
+    "total_debt": None,
+    "cash_and_st_investments": None,
+    "book_value_per_share": None,
+    "pb_mean_ratio": None,
+    "pb_sd_ratio": None,
+    "sales_per_share": 10.0,
+    "projected_growth_rate": 0.10,
+    "fair_psg_ratio": 0.2,
+}
+
+
+def test_get_active_valuation_falls_back_to_auto_when_nothing_saved(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    result = asyncio.run(get_active_valuation("TEST"))
+
+    assert result.valuation_source == "auto"
+    # Same result get_step3_data itself would have returned -- TEST's own
+    # fixture lands on PASS (see test_pass_with_real_data_is_not_flagged_as_
+    # insufficient above).
+    assert result.selected_method == "PASS"
+
+
+def test_get_active_valuation_ignores_a_saved_but_inactive_custom_valuation(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+    with Session(engine) as session:
+        set_ticker_custom_valuation(session, "TEST", "PSG", json.dumps(_PSG_PARAMS))
+        # Deliberately NOT activated.
+
+    result = asyncio.run(get_active_valuation("TEST"))
+
+    assert result.valuation_source == "auto"
+    assert result.selected_method == "PASS"
+
+
+def test_get_active_valuation_overrides_result_fields_only_when_active(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+    with Session(engine) as session:
+        set_ticker_custom_valuation(session, "TEST", "PSG", json.dumps(_PSG_PARAMS))
+        activate_ticker_custom_valuation(session, "TEST")
+
+    auto = asyncio.run(get_step3_data("TEST"))
+    result = asyncio.run(get_active_valuation("TEST"))
+
+    # PSG: 0.2 * 10.0 * 0.10 * 100 = 20.0; last_close is 100.0 (QUOTE
+    # fixture) -> discount_premium_pct = 100/20 - 1 = 4.0 -> overvalued.
+    # This is the required PASS-ticker-with-an-active-custom-valuation
+    # scenario: Auto genuinely can't value TEST at all, but the active
+    # custom valuation still produces a real, non-None verdict.
+    assert result.valuation_source == "custom"
+    assert result.selected_method == "PSG"
+    assert result.intrinsic_value_per_share == pytest.approx(20.0)
+    assert result.discount_premium_pct == pytest.approx(4.0)
+    assert result.verdict == "overvalued"
+    # inputs/method_reasoning/company_type/pass_reason must stay Auto's own,
+    # never overridden -- they still describe what Auto's tree actually did.
+    assert result.company_type == auto.company_type
+    assert result.method_reasoning == auto.method_reasoning
+    assert result.pass_reason == auto.pass_reason
+    assert result.inputs == auto.inputs
+
+
+def test_get_active_valuation_falls_back_to_auto_on_corrupt_saved_json(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+    with Session(engine) as session:
+        set_ticker_custom_valuation(session, "TEST", "PSG", "not valid json")
+        activate_ticker_custom_valuation(session, "TEST")
+
+    result = asyncio.run(get_active_valuation("TEST"))
+
+    assert result.valuation_source == "auto"
+    assert result.selected_method == "PASS"
     assert result.dpu_growth_note is None

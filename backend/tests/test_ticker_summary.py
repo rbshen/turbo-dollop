@@ -9,12 +9,14 @@ from core.schemas import Step3Inputs, Step3Out
 from data.ticker_summary import get_summary
 from helpers.ttm import TOTAL_QUARTERS_NEEDED
 
-# get_summary sources fair_value_price/verdict/method from Step 3's own
-# result (see ticker_summary.py::get_summary). Step 3's own fetch pipeline
-# (get_step3_data) has its own extensive mocking needs and deserves its own
-# dedicated test coverage -- this test's job is ticker_summary's field
-# mapping, so get_step3_data itself is monkeypatched wholesale rather than
-# reconstructed here, keeping this test isolated from Step 3's internals.
+# get_summary sources fair_value_price/verdict/method/valuation_source from
+# Step 3's own result (see ticker_summary.py::get_summary). Step 3's own
+# choke point (get_active_valuation, which itself wraps get_step3_data plus
+# an active-custom-valuation check) has its own extensive mocking needs and
+# deserves its own dedicated test coverage -- this test's job is
+# ticker_summary's field mapping, so get_active_valuation itself is
+# monkeypatched wholesale rather than reconstructed here, keeping this test
+# isolated from Step 3's internals.
 FAKE_STEP3_OUT = Step3Out(
     ticker="AAPL",
     company_type="Standard",
@@ -23,6 +25,7 @@ FAKE_STEP3_OUT = Step3Out(
     intrinsic_value_per_share=200.0,
     discount_premium_pct=-0.0475,
     verdict="undervalued",
+    valuation_source="custom",
 )
 
 FAKE_PROFILE = [
@@ -179,10 +182,10 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
         call_count["financial_growth"] += 1
         return FAKE_FINANCIAL_GROWTH
 
-    async def fake_get_step3_data(ticker, cache_only=False, step2_out=None):
+    async def fake_get_active_valuation(ticker, cache_only=False, step2_out=None):
         return FAKE_STEP3_OUT
 
-    monkeypatch.setattr(ticker_summary, "get_step3_data", fake_get_step3_data)
+    monkeypatch.setattr(ticker_summary, "get_active_valuation", fake_get_active_valuation)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", fake_profile)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_quote", fake_quote)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_price_change", fake_price_change)
@@ -240,6 +243,7 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     assert summary.fair_value_price == 200.0
     assert summary.fair_value_verdict == "undervalued"
     assert summary.fair_value_method == "DCF"
+    assert summary.valuation_source == "custom"
     # Same shared calculation Step 5's debt ratios use (backend/debt_metrics.py):
     # total_debt = 5B + 95B; ebitda_ttm = 30+29+28+27B; interest expense TTM
     # = 800M*4; interest income TTM = 50M*4.

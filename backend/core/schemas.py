@@ -114,6 +114,11 @@ class TickerSummaryOut(BaseModel):
     # None when Step 3 selected PASS. Shown on the header pill alongside the
     # verdict so it's never presented as a bare "Undervalued" with no method.
     fair_value_method: str | None = None
+    # "auto" / "custom" -- lifted straight from Step3Out.valuation_source
+    # (see step3_data.py::get_active_valuation). None only alongside a None
+    # fair_value_verdict (Step 3 selected PASS with no active custom
+    # valuation to fall back to).
+    valuation_source: str | None = None
 
 
 class Step1Out(BaseModel):
@@ -454,6 +459,15 @@ class Step3Out(BaseModel):
     discount_premium_pct: float | None = None
     # "undervalued" / "fair" / "overvalued" -- None until Phase 2.
     verdict: str | None = None
+    # "auto" (default) or "custom" -- "custom" only when this ticker has an
+    # active TickerCustomValuation row, in which case selected_method/
+    # intrinsic_value_per_share/pb_bands/discount_premium_pct/verdict above
+    # reflect the saved custom valuation instead of Auto Calculation's own
+    # pick (see step3_data.py::get_active_valuation). company_type/
+    # method_reasoning/pass_reason/inputs below are ALWAYS Auto's own --
+    # never overridden -- since they describe what Auto's method-selection
+    # tree did, which stays meaningful context regardless of what's active.
+    valuation_source: str = "auto"
 
     # --- Additive, informational-only fields (never change verdict above) --
     # The framework's own P/B buy signal for Bank/REIT ("price at/below -1SD
@@ -477,13 +491,16 @@ class Step3Out(BaseModel):
     dpu_growth_note: str | None = None
 
 
-class Step3ManualRequest(BaseModel):
-    """Manual Calculation's what-if request -- every field is optional since
-    only the fields relevant to `method` need be populated; scoring.step3's
-    run_manual_calculation reports which ones are missing for the chosen
-    method rather than this schema enforcing it up front."""
+class Step3ManualParams(BaseModel):
+    """The 13 method-specific input fields run_manual_calculation takes,
+    factored out of Step3ManualRequest so TickerCustomValuationIn/Out (the
+    persistent custom valuation's save/load schema) can reuse the exact
+    same shape rather than redeclaring these fields a second time. Every
+    field is optional since only the fields relevant to a given `method`
+    need be populated; scoring.step3's run_manual_calculation reports which
+    ones are missing for the chosen method rather than this schema
+    enforcing it up front."""
 
-    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | PRICE_TO_BOOK | PSG
     # 20yr engine inputs.
     current_value: float | None = None
     growth_yr_1_5: float | None = None
@@ -501,6 +518,13 @@ class Step3ManualRequest(BaseModel):
     sales_per_share: float | None = None
     projected_growth_rate: float | None = None
     fair_psg_ratio: float | None = None
+
+
+class Step3ManualRequest(Step3ManualParams):
+    """Manual Calculation's what-if request -- see Step3ManualParams for
+    the shared parameter fields."""
+
+    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | PRICE_TO_BOOK | PSG
     # Supplied by the caller (already available from the live Auto
     # Calculation fetch) rather than re-fetched server-side.
     last_close: float | None = None
@@ -609,6 +633,8 @@ class TickerScoreOut(BaseModel):
     # "undervalued" / "fair" / "overvalued" -- same Step 3 verdict as the
     # ticker header's FairValuePill (see models.py::TickerScore).
     valuation_verdict: str | None = None
+    # "auto" / "custom" -- see models.py::TickerScore.valuation_source.
+    valuation_source: str | None = None
     # Step 2's analyst-estimate CAGR % (see models.py::TickerScore).
     growth_rate: float | None = None
     computed_at: datetime
@@ -711,6 +737,8 @@ class WatchlistRowOut(BaseModel):
     cfo: list[float | None] | None = None
     moat: str | None = None
     valuation_verdict: str | None = None
+    # "auto" / "custom" -- see models.py::TickerScore.valuation_source.
+    valuation_source: str | None = None
     step1_score: int | None = None
     step1_verdict: str | None = None
     step2_score: int | None = None

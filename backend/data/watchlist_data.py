@@ -121,6 +121,7 @@ async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
         cfo=cfo,
         moat=score.moat if score else None,
         valuation_verdict=score.valuation_verdict if score else None,
+        valuation_source=score.valuation_source if score else None,
         step1_score=score.step1_score if score else None,
         step1_verdict=score.step1_verdict if score else None,
         step2_score=score.step2_score if score else None,

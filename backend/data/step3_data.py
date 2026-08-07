@@ -1,3 +1,5 @@
+import logging
+
 from sqlmodel import Session
 
 from core.cache import get_or_fetch, safe_fetch
@@ -12,6 +14,7 @@ from core.schemas import (
     Step3CapmComponents,
     Step3CurrentValueCandidates,
     Step3Inputs,
+    Step3ManualParams,
     Step3MethodStep,
     Step3Out,
     Step3PBBands,
@@ -26,13 +29,17 @@ from scoring.step3 import (
     normalize_fcf,
     pb_benchmark_for,
     run_20yr_engine,
+    run_manual_calculation,
     run_price_to_book,
     run_psg,
     select_method,
 )
 from helpers.shares import compute_shares_outstanding
+from data.custom_valuation_data import get_ticker_custom_valuation
 from data.step2_data import get_step2_data
 from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
+
+logger = logging.getLogger(__name__)
 
 # Workbook default (valuation.md §4.1) -- never automated, matches the
 # source spreadsheet's own fallback.
@@ -465,4 +472,74 @@ async def get_step3_data(
         dividend_yield_pct=dividend_yield_pct if is_reit else None,
         dividend_yield_meets_reit_threshold=dividend_yield_meets_reit_threshold(dividend_yield_pct) if is_reit else None,
         dpu_growth_note=dpu_growth_note(dpu_series) if is_reit else None,
+    )
+
+
+async def get_active_valuation(
+    ticker: str,
+    cache_only: bool = False,
+    step2_out: Step2Out | None = None,
+) -> Step3Out:
+    """The single choke point every consumer of Step 3's valuation
+    result/verdict should call instead of get_step3_data directly --
+    resolves whether this ticker's active source is Auto Calculation or a
+    saved, activated TickerCustomValuation row (see
+    custom_valuation_data.py), covering the Valuation tab, the ticker
+    header pill (via ticker_summary.py::get_summary), and Screener/
+    Watchlist (via compute_ticker_score, which calls get_summary
+    internally) with one swap each.
+
+    Auto Calculation is ALWAYS computed first and its own company_type/
+    method_reasoning/pass_reason/inputs are NEVER overridden -- they
+    describe what Auto's method-selection tree actually did, which stays
+    meaningful context regardless of what's active (and rebuilding an
+    equivalent Step3Inputs for an arbitrary user-chosen method would
+    duplicate this function's own current-value-label/P-B/PSG mapping
+    logic a second time, lossily). Only the result-facing fields
+    (selected_method/intrinsic_value_per_share/pb_bands/
+    discount_premium_pct/verdict) are overridden when a custom valuation is
+    active -- see Step3Out.valuation_source's own docstring."""
+    auto = await get_step3_data(ticker, cache_only, step2_out)
+
+    with Session(engine) as session:
+        custom = get_ticker_custom_valuation(session, ticker.upper())
+    if custom is None or not custom.is_active:
+        return auto.model_copy(update={"valuation_source": "auto"})
+
+    try:
+        params = Step3ManualParams.model_validate_json(custom.parameters_json)
+    except ValueError:
+        # A future field rename hitting an old saved row without a data
+        # migration must never 500 the whole ticker page -- fall back to
+        # Auto, same as "no custom valuation saved at all".
+        logger.warning("Failed to parse saved custom valuation parameters for %s -- falling back to Auto", ticker)
+        return auto.model_copy(update={"valuation_source": "auto"})
+
+    result = run_manual_calculation(
+        method=custom.method,
+        current_value=params.current_value,
+        growth_yr_1_5=params.growth_yr_1_5,
+        growth_yr_6_10=params.growth_yr_6_10,
+        growth_yr_11_20=params.growth_yr_11_20,
+        discount_rate=params.discount_rate,
+        shares_outstanding=params.shares_outstanding,
+        total_debt=params.total_debt,
+        cash_and_st_investments=params.cash_and_st_investments,
+        book_value_per_share=params.book_value_per_share,
+        pb_mean_ratio=params.pb_mean_ratio,
+        pb_sd_ratio=params.pb_sd_ratio,
+        sales_per_share=params.sales_per_share,
+        projected_growth_rate=params.projected_growth_rate,
+        fair_psg_ratio=params.fair_psg_ratio,
+        last_close=auto.inputs.last_close,
+    )
+    return auto.model_copy(
+        update={
+            "valuation_source": "custom",
+            "selected_method": custom.method,
+            "intrinsic_value_per_share": result.intrinsic_value_per_share,
+            "pb_bands": Step3PBBands(**result.pb_bands) if result.pb_bands else None,
+            "discount_premium_pct": result.discount_premium_pct,
+            "verdict": result.verdict,
+        }
     )

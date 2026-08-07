@@ -64,7 +64,7 @@ from core.schemas import (
 from data.step1_data import get_step1_data
 from data.step2_data import get_step2_data
 from scoring.step3 import run_manual_calculation
-from data.step3_data import get_step3_data
+from data.step3_data import get_active_valuation
 from data.step4_data import get_step4_data
 from data.step5_data import get_step5_data
 from data.ticker_score import compute_ticker_score
@@ -174,7 +174,7 @@ async def ticker_step2(ticker: str) -> Step2Out:
 @app.get("/api/tickers/{ticker}/step3", response_model=Step3Out)
 async def ticker_step3(ticker: str) -> Step3Out:
     try:
-        return await get_step3_data(ticker)
+        return await get_active_valuation(ticker)
     except httpx.HTTPError as exc:
         # Not f"...{exc}": httpx's exception message embeds the full request
         # URL, apikey included -- every FMP fetch site already goes through
