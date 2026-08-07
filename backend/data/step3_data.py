@@ -288,7 +288,7 @@ async def get_step3_data(
     step2_out = step2_out if step2_out is not None else await get_step2_data(ticker, cache_only)
     growth_yr_1_5 = step2_out.growth_rate / 100 if step2_out.growth_rate is not None else None
     growth_yr_1_5_source = (
-        f"Step 2 analyst-estimate CAGR ({step2_out.basis} basis)" if step2_out.growth_rate is not None else None
+        f"analyst-estimate CAGR ({step2_out.basis} basis)" if step2_out.growth_rate is not None else None
     )
     # Yr 6-10 defaults to Yr 1-5, but capped at 15% when Yr 1-5 itself runs
     # hotter than that -- an unmoderated 5yr analyst-estimate growth rate

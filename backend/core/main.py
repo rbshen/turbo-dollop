@@ -185,8 +185,16 @@ async def ticker_step2(ticker: str) -> Step2Out:
 
 @app.get("/api/tickers/{ticker}/step3", response_model=Step3Out)
 async def ticker_step3(ticker: str) -> Step3Out:
+    # Always Auto Calculation, deliberately NOT get_active_valuation -- the
+    # Valuation tab's "Model Valuation" card is a fixed Auto reference point
+    # to compare a custom valuation against, and must never itself switch to
+    # showing custom figures. The Custom Valuation panel gets the active
+    # source separately, from GET /custom-valuation's own active_verdict
+    # (which does go through get_active_valuation) -- see
+    # main.py::_custom_valuation_out. The ticker header pill/Screener/
+    # Watchlist still follow the active source via get_summary, unchanged.
     try:
-        return await get_active_valuation(ticker)
+        return await get_step3_data(ticker)
     except httpx.HTTPError as exc:
         # Not f"...{exc}": httpx's exception message embeds the full request
         # URL, apikey included -- every FMP fetch site already goes through
