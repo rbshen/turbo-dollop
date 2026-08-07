@@ -1,5 +1,3 @@
-import logging
-
 from sqlmodel import Session
 
 from core.cache import get_or_fetch, safe_fetch
@@ -14,7 +12,6 @@ from core.schemas import (
     Step3CapmComponents,
     Step3CurrentValueCandidates,
     Step3Inputs,
-    Step3ManualParams,
     Step3MethodStep,
     Step3Out,
     Step3PBBands,
@@ -29,17 +26,18 @@ from scoring.step3 import (
     normalize_fcf,
     pb_benchmark_for,
     run_20yr_engine,
-    run_manual_calculation,
     run_price_to_book,
     run_psg,
     select_method,
 )
 from helpers.shares import compute_shares_outstanding
-from data.custom_valuation_data import get_ticker_custom_valuation
+from data.custom_valuation_data import (
+    get_ticker_custom_valuation,
+    parse_custom_valuation_params,
+    run_manual_calculation_from_params,
+)
 from data.step2_data import get_step2_data
 from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
-
-logger = logging.getLogger(__name__)
 
 # Workbook default (valuation.md §4.1) -- never automated, matches the
 # source spreadsheet's own fallback.
@@ -506,33 +504,13 @@ async def get_active_valuation(
     if custom is None or not custom.is_active:
         return auto.model_copy(update={"valuation_source": "auto"})
 
-    try:
-        params = Step3ManualParams.model_validate_json(custom.parameters_json)
-    except ValueError:
-        # A future field rename hitting an old saved row without a data
-        # migration must never 500 the whole ticker page -- fall back to
-        # Auto, same as "no custom valuation saved at all".
-        logger.warning("Failed to parse saved custom valuation parameters for %s -- falling back to Auto", ticker)
+    params = parse_custom_valuation_params(custom.parameters_json)
+    if params is None:
+        # Corrupt parameters_json must never 500 the whole ticker page --
+        # fall back to Auto, same as "no custom valuation saved at all".
         return auto.model_copy(update={"valuation_source": "auto"})
 
-    result = run_manual_calculation(
-        method=custom.method,
-        current_value=params.current_value,
-        growth_yr_1_5=params.growth_yr_1_5,
-        growth_yr_6_10=params.growth_yr_6_10,
-        growth_yr_11_20=params.growth_yr_11_20,
-        discount_rate=params.discount_rate,
-        shares_outstanding=params.shares_outstanding,
-        total_debt=params.total_debt,
-        cash_and_st_investments=params.cash_and_st_investments,
-        book_value_per_share=params.book_value_per_share,
-        pb_mean_ratio=params.pb_mean_ratio,
-        pb_sd_ratio=params.pb_sd_ratio,
-        sales_per_share=params.sales_per_share,
-        projected_growth_rate=params.projected_growth_rate,
-        fair_psg_ratio=params.fair_psg_ratio,
-        last_close=auto.inputs.last_close,
-    )
+    result = run_manual_calculation_from_params(custom.method, params, auto.inputs.last_close)
     return auto.model_copy(
         update={
             "valuation_source": "custom",

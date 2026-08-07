@@ -1,10 +1,12 @@
 from sqlmodel import Session, SQLModel, create_engine
 
+from core.schemas import Step3ManualParams
 from data.custom_valuation_data import (
     activate_ticker_custom_valuation,
     deactivate_ticker_custom_valuation,
     delete_ticker_custom_valuation,
     get_ticker_custom_valuation,
+    parse_custom_valuation_params,
     set_ticker_custom_valuation,
 )
 
@@ -96,3 +98,13 @@ def test_delete_returns_false_when_no_row_saved():
     engine = _engine()
     with Session(engine) as session:
         assert delete_ticker_custom_valuation(session, "AAPL") is False
+
+
+def test_parse_custom_valuation_params_round_trips():
+    params = Step3ManualParams(sales_per_share=10.0, projected_growth_rate=0.1, fair_psg_ratio=0.2)
+    parsed = parse_custom_valuation_params(params.model_dump_json())
+    assert parsed == params
+
+
+def test_parse_custom_valuation_params_returns_none_on_corrupt_json():
+    assert parse_custom_valuation_params("not valid json") is None

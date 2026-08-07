@@ -12,7 +12,7 @@ from core.db import engine, init_db
 from helpers.discount_rate_config import get_discount_rate_config, update_discount_rate_config
 from core.logging_config import apply_redaction_filters
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
-from core.models import IndexConstituent, SavedScreenerFilter, TickerScore, Watchlist
+from core.models import IndexConstituent, SavedScreenerFilter, TickerCustomValuation, TickerScore, Watchlist
 from data.news_data import get_news_data
 from data.news_sentiment_data import get_news_sentiment_data
 from pipeline.recompute_ticker_scores import recompute_all
@@ -40,6 +40,7 @@ from core.schemas import (
     Step1Out,
     Step2Out,
     Step3ManualOut,
+    Step3ManualParams,
     Step3ManualRequest,
     Step3Out,
     Step3PBBands,
@@ -47,6 +48,8 @@ from core.schemas import (
     Step5Out,
     TickerBankCapitalMetricsIn,
     TickerBankCapitalMetricsOut,
+    TickerCustomValuationIn,
+    TickerCustomValuationOut,
     TickerMoatIn,
     TickerMoatOut,
     TickerScoreOut,
@@ -61,10 +64,19 @@ from core.schemas import (
     WatchlistTickerOut,
     WatchlistUpdateIn,
 )
+from data.custom_valuation_data import (
+    activate_ticker_custom_valuation,
+    deactivate_ticker_custom_valuation,
+    delete_ticker_custom_valuation,
+    get_ticker_custom_valuation,
+    parse_custom_valuation_params,
+    run_manual_calculation_from_params,
+    set_ticker_custom_valuation,
+)
 from data.step1_data import get_step1_data
 from data.step2_data import get_step2_data
 from scoring.step3 import run_manual_calculation
-from data.step3_data import get_active_valuation
+from data.step3_data import get_active_valuation, get_step3_data
 from data.step4_data import get_step4_data
 from data.step5_data import get_step5_data
 from data.ticker_score import compute_ticker_score
@@ -217,6 +229,105 @@ async def ticker_step3_manual(ticker: str, req: Step3ManualRequest) -> Step3Manu
         verdict=result.verdict,
         error=result.error,
     )
+
+
+async def _custom_valuation_out(ticker: str, row: TickerCustomValuation | None) -> TickerCustomValuationOut:
+    # cache_only=True throughout -- same philosophy as update_ticker_moat/
+    # update_ticker_bank_capital_metrics: a custom-valuation change must
+    # never trigger a surprise FMP fetch.
+    active = await get_active_valuation(ticker, cache_only=True)
+    active_verdict = Step3ManualOut(
+        intrinsic_value_per_share=active.intrinsic_value_per_share,
+        pb_bands=active.pb_bands,
+        discount_premium_pct=active.discount_premium_pct,
+        verdict=active.verdict,
+    )
+    if row is None:
+        return TickerCustomValuationOut(ticker=ticker, saved=False, active_verdict=active_verdict)
+    # A corrupt parameters_json still returns saved=True/is_active/saved_at
+    # (all real) with blank parameter fields, rather than 500ing the whole
+    # panel load -- same fallback-to-safe convention as
+    # get_active_valuation's own corrupt-JSON handling.
+    params = parse_custom_valuation_params(row.parameters_json) or Step3ManualParams()
+    return TickerCustomValuationOut(
+        ticker=ticker,
+        saved=True,
+        method=row.method,
+        is_active=row.is_active,
+        saved_at=row.saved_at,
+        active_verdict=active_verdict,
+        **params.model_dump(),
+    )
+
+
+@app.get("/api/tickers/{ticker}/custom-valuation", response_model=TickerCustomValuationOut)
+async def ticker_custom_valuation(ticker: str) -> TickerCustomValuationOut:
+    ticker = ticker.upper()
+    with Session(engine) as session:
+        row = get_ticker_custom_valuation(session, ticker)
+    return await _custom_valuation_out(ticker, row)
+
+
+@app.put("/api/tickers/{ticker}/custom-valuation", response_model=TickerCustomValuationOut)
+async def update_ticker_custom_valuation(ticker: str, body: TickerCustomValuationIn) -> TickerCustomValuationOut:
+    ticker = ticker.upper()
+    # Validate before persisting -- a user must never be able to save a
+    # custom valuation that can't actually produce a verdict for the chosen
+    # method (missing required inputs). cache_only=True: only last_close is
+    # needed here, not a live refetch of every Auto input.
+    auto = await get_step3_data(ticker, cache_only=True)
+    params = Step3ManualParams(**body.model_dump(exclude={"method"}))
+    validation = run_manual_calculation_from_params(body.method, params, auto.inputs.last_close)
+    if validation.error:
+        raise HTTPException(status_code=400, detail=validation.error)
+
+    with Session(engine) as session:
+        row = set_ticker_custom_valuation(session, ticker, body.method, params.model_dump_json())
+        was_active = row.is_active
+    # Never touches is_active (see set_ticker_custom_valuation's own
+    # docstring) -- but if the row was already active, its live values just
+    # changed, so the Screener/Watchlist's cached TickerScore row needs the
+    # same on-demand recompute update_ticker_moat/update_ticker_bank_
+    # capital_metrics already use. An inactive save has no live effect, so
+    # no recompute is needed.
+    if was_active:
+        await compute_ticker_score(ticker, cache_only=True)
+    return await _custom_valuation_out(ticker, row)
+
+
+@app.post("/api/tickers/{ticker}/custom-valuation/activate", response_model=TickerCustomValuationOut)
+async def activate_ticker_custom_valuation_endpoint(ticker: str) -> TickerCustomValuationOut:
+    ticker = ticker.upper()
+    with Session(engine) as session:
+        row = activate_ticker_custom_valuation(session, ticker)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"No custom valuation saved for {ticker} -- save one first")
+    await compute_ticker_score(ticker, cache_only=True)
+    return await _custom_valuation_out(ticker, row)
+
+
+@app.post("/api/tickers/{ticker}/custom-valuation/deactivate", response_model=TickerCustomValuationOut)
+async def deactivate_ticker_custom_valuation_endpoint(ticker: str) -> TickerCustomValuationOut:
+    ticker = ticker.upper()
+    with Session(engine) as session:
+        row = deactivate_ticker_custom_valuation(session, ticker)
+    # None means there was nothing to deactivate -- a no-op, nothing for
+    # the Screener/Watchlist to recompute.
+    if row is not None:
+        await compute_ticker_score(ticker, cache_only=True)
+    return await _custom_valuation_out(ticker, row)
+
+
+@app.delete("/api/tickers/{ticker}/custom-valuation", status_code=204)
+async def delete_ticker_custom_valuation_endpoint(ticker: str) -> None:
+    ticker = ticker.upper()
+    with Session(engine) as session:
+        deleted = delete_ticker_custom_valuation(session, ticker)
+    if deleted:
+        # Reverts the ticker to Auto (get_active_valuation finds no row) as
+        # a side effect of this same request -- Screener/Watchlist need the
+        # same on-demand recompute as every other mutating endpoint here.
+        await compute_ticker_score(ticker, cache_only=True)
 
 
 @app.get("/api/tickers/{ticker}/step4", response_model=Step4Out)

@@ -540,6 +540,31 @@ class Step3ManualOut(BaseModel):
     error: str | None = None
 
 
+class TickerCustomValuationIn(Step3ManualParams):
+    """Save/update request for a ticker's persistent custom valuation --
+    same parameter shape as Step3ManualRequest, minus `last_close` (always
+    live, never saved) plus `method`. See models.py::TickerCustomValuation
+    and data/custom_valuation_data.py."""
+
+    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | PRICE_TO_BOOK | PSG
+
+
+class TickerCustomValuationOut(Step3ManualParams):
+    """Full state of a ticker's custom valuation slot -- whether one is
+    saved, its method/parameters (all None when saved=False), whether it's
+    currently active, and active_verdict (whichever source -- Auto or this
+    custom valuation -- currently applies, via
+    step3_data.py::get_active_valuation), so the Custom Valuation panel can
+    render its entire state from one GET."""
+
+    ticker: str
+    saved: bool = False
+    method: str | None = None
+    is_active: bool = False
+    saved_at: datetime | None = None
+    active_verdict: Step3ManualOut
+
+
 class DiscountRateConfigOut(BaseModel):
     region: str
     risk_free_rate: float
