@@ -116,6 +116,28 @@ Neither outcome of this substitute path is a hard fail — a negative-equity
 company can only hard-fail through the normal (equity-positive) path's
 `< 8%` floor, never through this substitute.
 
+### Reasoning note (2026-08-07)
+
+Whenever this substitute path fires, a descriptive note is attached
+alongside the 100/60 result — purely explanatory, never a score/verdict
+input. It states which fiscal year(s) equity was negative and whether it's
+since recovered, names which of the five branches above actually drove the
+100/60 split (not just "equity was negative"), and cites Retained Earnings
+and cumulative share-buyback cash flow as *informational* context only —
+never as an asserted cause. This distinction matters in practice: a
+company that retires repurchased shares (rather than holding treasury
+stock) routes the buyback cost through Retained Earnings directly, which
+can push Retained Earnings deeply negative even in a highly profitable,
+serial-repurchasing company (confirmed real case: FTNT, 10 straight years
+of positive, growing Net Income with Retained Earnings negative in 8 of
+the last 9 years) — so Retained Earnings' sign alone can't distinguish
+accumulated losses from buyback accounting, and the note is written to
+never imply otherwise. If ROIC has a real result for this ticker, it's
+cited too, always with an explicit reliability caveat (ROIC has no guard
+against a near-zero/negative invested-capital denominator today). The note
+closes by pointing at concrete further research — the 10-K equity note for
+a positive result, one-time income-statement items for a negative one.
+
 ## ROE vs. ROIC divergence note
 
 An informational-only note (never affects score or verdict) is attached

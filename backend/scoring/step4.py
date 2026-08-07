@@ -225,7 +225,17 @@ def _demote_for_unrecovered_decline(values: list[float], label: str, points: int
     return label, points
 
 
-def _net_income_consistent_and_positive(net_income: list[float]) -> bool:
+class IncomeRecoveryDetail(NamedTuple):
+    consistent: bool
+    # Which of the 5 branches below produced `consistent` -- exists purely
+    # so callers that need to explain *why* (e.g. step4_data.py's ROE
+    # reasoning-text builder) don't have to re-derive this same
+    # recency/recovery branching a second time and risk it drifting from
+    # the real scoring logic.
+    shape: str
+
+
+def income_recovery_detail(net_income: list[float]) -> IncomeRecoveryDetail:
     """Substitute signal for ROE when equity is negative anywhere in the
     window: positive throughout (or an old, since-recovered loss year --
     same recency-gate + classify_trend fallback used elsewhere in this
@@ -234,15 +244,23 @@ def _net_income_consistent_and_positive(net_income: list[float]) -> bool:
     revenue_growing, not a full trend classifier, since the doc's own
     language ("consistently maintained/growing") is qualitative)."""
     if not net_income:
-        return False
+        return IncomeRecoveryDetail(False, "no_data")
     negative_indices = [i for i, v in enumerate(net_income) if v <= 0]
     if not negative_indices:
-        return net_income[-1] >= net_income[0]
+        if net_income[-1] >= net_income[0]:
+            return IncomeRecoveryDetail(True, "always_positive_growing")
+        return IncomeRecoveryDetail(False, "always_positive_but_declined")
     years_since_negative = (len(net_income) - 1) - max(negative_indices)
     if years_since_negative <= DIP_RECOVERY_RECENCY_YEARS:
-        return False
+        return IncomeRecoveryDetail(False, "recent_dip")
     trend = classify_trend(net_income)
-    return trend.pattern in RECOVERY_PATTERNS
+    if trend.pattern in RECOVERY_PATTERNS:
+        return IncomeRecoveryDetail(True, "old_dip_recovered")
+    return IncomeRecoveryDetail(False, "old_dip_not_recovered")
+
+
+def _net_income_consistent_and_positive(net_income: list[float]) -> bool:
+    return income_recovery_detail(net_income).consistent
 
 
 def score_roe(roe: list[float], equity: list[float | None], net_income: list[float]) -> RatioResult:

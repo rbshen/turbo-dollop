@@ -606,3 +606,194 @@ def test_ar_note_absent_when_healthy(monkeypatch):
 
     assert result.components["revenue_vs_ar"]["label"] == "healthy"
     assert result.components["revenue_vs_ar"]["note"] is None
+
+
+# --- ROE negative-equity reasoning note ---------------------------------------
+# Equity negative in FY2022-FY2023 only, recovered by TTM -- Net Income
+# always positive and growing throughout (annual + TTM), Retained Earnings
+# negative every year, buybacks recorded in 5 of 6 annual periods plus TTM.
+# FMP-style rows are most-recent-first, matching this file's existing
+# top-level fixtures (_annual_series reverses internally to chronological).
+_NEG_EQ_INCOME_ANNUAL = [
+    {"fiscalYear": "2025", "revenue": 150.0, "netIncome": 20.0, "costOfRevenue": 90.0},
+    {"fiscalYear": "2024", "revenue": 140.0, "netIncome": 18.0, "costOfRevenue": 84.0},
+    {"fiscalYear": "2023", "revenue": 130.0, "netIncome": 16.0, "costOfRevenue": 78.0},
+    {"fiscalYear": "2022", "revenue": 120.0, "netIncome": 14.0, "costOfRevenue": 72.0},
+    {"fiscalYear": "2021", "revenue": 110.0, "netIncome": 12.0, "costOfRevenue": 66.0},
+    {"fiscalYear": "2020", "revenue": 100.0, "netIncome": 10.0, "costOfRevenue": 60.0},
+]
+
+_NEG_EQ_BALANCE_SHEET_ANNUAL = [
+    {"fiscalYear": "2025", "totalStockholdersEquity": 100.0, "accountsReceivables": 50.0, "inventory": 20.0, "accountPayables": 30.0, "retainedEarnings": -40.0},
+    {"fiscalYear": "2024", "totalStockholdersEquity": 100.0, "accountsReceivables": 45.0, "inventory": 18.0, "accountPayables": 27.0, "retainedEarnings": -45.0},
+    {"fiscalYear": "2023", "totalStockholdersEquity": -30.0, "accountsReceivables": 40.0, "inventory": 16.0, "accountPayables": 24.0, "retainedEarnings": -50.0},
+    {"fiscalYear": "2022", "totalStockholdersEquity": -20.0, "accountsReceivables": 35.0, "inventory": 14.0, "accountPayables": 21.0, "retainedEarnings": -55.0},
+    {"fiscalYear": "2021", "totalStockholdersEquity": 100.0, "accountsReceivables": 30.0, "inventory": 12.0, "accountPayables": 18.0, "retainedEarnings": -30.0},
+    {"fiscalYear": "2020", "totalStockholdersEquity": 100.0, "accountsReceivables": 25.0, "inventory": 10.0, "accountPayables": 15.0, "retainedEarnings": -20.0},
+]
+
+_NEG_EQ_CASH_FLOW_ANNUAL = [
+    {"fiscalYear": "2025", "netCashProvidedByOperatingActivities": 22.0, "commonStockRepurchased": -30.0},
+    {"fiscalYear": "2024", "netCashProvidedByOperatingActivities": 20.0, "commonStockRepurchased": -25.0},
+    {"fiscalYear": "2023", "netCashProvidedByOperatingActivities": 18.0, "commonStockRepurchased": -20.0},
+    {"fiscalYear": "2022", "netCashProvidedByOperatingActivities": 16.0, "commonStockRepurchased": -15.0},
+    {"fiscalYear": "2021", "netCashProvidedByOperatingActivities": 14.0, "commonStockRepurchased": -10.0},
+    {"fiscalYear": "2020", "netCashProvidedByOperatingActivities": 12.0, "commonStockRepurchased": 0.0},
+]
+
+_NEG_EQ_KEY_METRICS_ANNUAL = [
+    {"fiscalYear": y, "returnOnEquity": 0.20, "returnOnInvestedCapital": 0.15}
+    for y in ("2025", "2024", "2023", "2022", "2021", "2020")
+]
+
+# TTM: equity recovered to positive, Net Income keeps growing (22 > 20).
+_NEG_EQ_INCOME_QUARTERLY = [{"date": "2026-03-28", "revenue": 40.0, "netIncome": 5.5, "costOfRevenue": 24.0}] * 4
+_NEG_EQ_BALANCE_SHEET_QUARTERLY = [
+    {
+        "date": "2026-03-28",
+        "totalStockholdersEquity": 110.0,
+        "accountsReceivables": 52.0,
+        "inventory": 21.0,
+        "accountPayables": 31.0,
+        "retainedEarnings": -35.0,
+    }
+]
+_NEG_EQ_CASH_FLOW_QUARTERLY = [
+    {"date": "2026-03-28", "netCashProvidedByOperatingActivities": 5.75, "commonStockRepurchased": -8.0}
+] * 4
+_NEG_EQ_KEY_METRICS_TTM = [{"returnOnEquityTTM": 0.20, "returnOnInvestedCapitalTTM": 0.15}]
+
+
+def _patch_neg_equity_fmp(
+    monkeypatch,
+    sector="Technology",
+    industry="Consumer Electronics",
+    income_annual=None,
+    balance_sheet_annual=None,
+    cash_flow_annual=None,
+    income_quarterly=None,
+    cash_flow_quarterly=None,
+):
+    """Full quarterly control (unlike _patch_fmp's annual-only overrides) --
+    every ROE-note test below needs a specific TTM shape (recovered equity,
+    a specific Net Income shape, buybacks on/off), same reason the AR note
+    tests layer custom quarterly fakes on top of _patch_fmp."""
+    income_annual = income_annual if income_annual is not None else _NEG_EQ_INCOME_ANNUAL
+    balance_sheet_annual = balance_sheet_annual if balance_sheet_annual is not None else _NEG_EQ_BALANCE_SHEET_ANNUAL
+    cash_flow_annual = cash_flow_annual if cash_flow_annual is not None else _NEG_EQ_CASH_FLOW_ANNUAL
+    income_quarterly = income_quarterly if income_quarterly is not None else _NEG_EQ_INCOME_QUARTERLY
+    cash_flow_quarterly = cash_flow_quarterly if cash_flow_quarterly is not None else _NEG_EQ_CASH_FLOW_QUARTERLY
+
+    async def fake_profile(ticker):
+        return [{"sector": sector, "industry": industry}]
+
+    async def fake_income_statement(ticker, period, limit):
+        return income_annual if period == "annual" else income_quarterly
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return balance_sheet_annual if period == "annual" else _NEG_EQ_BALANCE_SHEET_QUARTERLY
+
+    async def fake_key_metrics(ticker, period, limit):
+        return _NEG_EQ_KEY_METRICS_ANNUAL
+
+    async def fake_key_metrics_ttm(ticker):
+        return _NEG_EQ_KEY_METRICS_TTM
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return cash_flow_annual if period == "annual" else cash_flow_quarterly
+
+    monkeypatch.setattr(step4_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step4_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step4_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    monkeypatch.setattr(step4_data.fmp_client, "get_key_metrics", fake_key_metrics)
+    monkeypatch.setattr(step4_data.fmp_client, "get_key_metrics_ttm", fake_key_metrics_ttm)
+    monkeypatch.setattr(step4_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+
+def test_roe_note_positive_case_cites_equity_history_income_shape_and_buybacks(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_neg_equity_fmp(monkeypatch)
+
+    result = asyncio.run(get_step4_data("negeq1"))
+
+    roe = result.components["roe"]
+    assert roe["label"] == "positive_despite_negative_equity"
+    note = roe["note"]
+    assert note is not None
+    # Equity history: negative in FY2022-FY2023 (contiguous run), recovered
+    # by TTM.
+    assert "negative in 2022–2023" in note
+    assert "recovered to positive" in note
+    # Income shape: positive throughout and growing -- names the actual
+    # driver, not just "equity was negative."
+    assert "Net Income has been positive throughout the window and grew from" in note
+    # Retained Earnings cited as informational context, not a cause.
+    assert "Retained Earnings is currently negative" in note
+    assert "doesn't indicate whether the negative equity above reflects accumulated losses" in note
+    # Buybacks recorded in 5 of 6 annual periods + TTM = 6 of 7 reported
+    # periods, framed as "consistent with," never "caused by."
+    assert "share repurchases in 6 of the last 7 reported periods" in note
+    assert "consistent with an active repurchase program" in note
+    assert "caused by" not in note
+    # 100pt research pointer.
+    assert "shareholders'-equity note in the most recent 10-K" in note
+
+
+def test_roe_note_60pt_case_flags_recovery_recency_and_alternate_pointer(monkeypatch):
+    _fresh_engine(monkeypatch)
+    # Same equity/RE/buyback shape as the 100pt case, but TTM Net Income is
+    # a fresh loss -- a "recent_dip" shape (within DIP_RECOVERY_RECENCY_YEARS)
+    # rather than "always_positive_growing".
+    income_quarterly = [{"date": "2026-03-28", "revenue": 40.0, "netIncome": -5.0, "costOfRevenue": 24.0}] * 4
+    _patch_neg_equity_fmp(monkeypatch, income_quarterly=income_quarterly)
+
+    result = asyncio.run(get_step4_data("negeq2"))
+
+    roe = result.components["roe"]
+    assert roe["label"] == "negative_equity_inconsistent_income"
+    note = roe["note"]
+    assert note is not None
+    assert "hasn't had time to clear the recovery-recency check yet" in note
+    # 60pt research pointer, not the 100pt one.
+    assert "structural/recurring" in note
+    assert "shareholders'-equity note in the most recent 10-K" not in note
+
+
+def test_roe_note_no_buybacks_states_so_explicitly(monkeypatch):
+    _fresh_engine(monkeypatch)
+    no_buyback_cash_flow = [{**row, "commonStockRepurchased": 0.0} for row in _NEG_EQ_CASH_FLOW_ANNUAL]
+    no_buyback_quarterly = [{"date": "2026-03-28", "netCashProvidedByOperatingActivities": 5.75, "commonStockRepurchased": 0.0}] * 4
+    _patch_neg_equity_fmp(monkeypatch, cash_flow_annual=no_buyback_cash_flow, cash_flow_quarterly=no_buyback_quarterly)
+
+    result = asyncio.run(get_step4_data("negeq3"))
+
+    note = result.components["roe"]["note"]
+    assert note is not None
+    assert "No material share repurchases were recorded over this window." in note
+    assert "consistent with an active repurchase program" not in note
+
+
+def test_roe_note_roic_exempt_company_type_states_plainly_not_silently(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_neg_equity_fmp(monkeypatch, sector="Financial Services", industry="Insurance - Life")
+
+    result = asyncio.run(get_step4_data("negeq4"))
+
+    assert result.company_type == "Insurance"
+    assert result.components["roic"] is None
+    note = result.components["roe"]["note"]
+    assert note is not None
+    assert "ROIC isn't computed for Insurance companies, so it isn't available as a cross-check here." in note
+
+
+def test_roe_note_absent_when_equity_never_negative(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch)  # baseline fixture -- equity is always 100.0
+
+    result = asyncio.run(get_step4_data("aapl"))
+
+    assert result.components["roe"]["label"] not in (
+        "positive_despite_negative_equity",
+        "negative_equity_inconsistent_income",
+    )
+    assert result.components["roe"]["note"] is None

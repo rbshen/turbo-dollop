@@ -4,6 +4,7 @@ from scoring.step4 import (
     AR_DSO_TREND_MATERIALITY_DAYS,
     check_roe_roic_divergence,
     classify_ccc_trend,
+    income_recovery_detail,
     score_revenue_vs_ar,
     score_roe,
     score_roic,
@@ -150,6 +151,49 @@ def test_negative_equity_with_declining_income_scores_60():
     net_income = [20.0, 18.0, 16.0, 14.0, 12.0, 10.0]  # positive but net declining
     result = score_roe([-999.0] * 6, equity, net_income)
     assert result == ("negative_equity_inconsistent_income", 60, False)
+
+
+# --- income_recovery_detail's shape labels ------------------------------------
+# score_roe()'s own outcome (100/60/hard_fail) is unchanged by any of this --
+# these tests exist because step4_data.py's ROE reasoning-text builder needs
+# to know WHICH of the 5 branches produced a given consistent/inconsistent
+# read, not just the bool. Reuses the exact same fixtures as the
+# score_roe() negative-equity tests above (same shape, different assertion)
+# plus one new fixture for the shape no existing score_roe() test exercises.
+
+
+def test_shape_always_positive_growing():
+    net_income = [10.0, 12.0, 14.0, 16.0, 18.0, 20.0]
+    assert income_recovery_detail(net_income) == (True, "always_positive_growing")
+
+
+def test_shape_always_positive_but_declined():
+    net_income = [20.0, 18.0, 16.0, 14.0, 12.0, 10.0]
+    assert income_recovery_detail(net_income) == (False, "always_positive_but_declined")
+
+
+def test_shape_recent_dip():
+    net_income = [10.0, 10.0, 10.0, 10.0, 10.0, -5.0]
+    assert income_recovery_detail(net_income) == (False, "recent_dip")
+
+
+def test_shape_old_dip_recovered():
+    net_income = [10.0, -5.0, 10.0, 10.0, 10.0, 10.0]
+    assert income_recovery_detail(net_income) == (True, "old_dip_recovered")
+
+
+def test_shape_old_dip_not_recovered():
+    # The loss (index 1) is 4 periods before TTM, same as the
+    # old_dip_recovered fixture -- clears the recency gate -- but net
+    # income keeps declining afterward (10 -> 8 -> 6 -> 4) so the final
+    # transition is itself a real decline, and classify_trend reads the
+    # whole series as "declining" (0), not a recovery pattern.
+    net_income = [10.0, -5.0, 10.0, 8.0, 6.0, 4.0]
+    assert income_recovery_detail(net_income) == (False, "old_dip_not_recovered")
+
+
+def test_shape_no_data():
+    assert income_recovery_detail([]) == (False, "no_data")
 
 
 # --- ROIC uses the same tiering, independently ---

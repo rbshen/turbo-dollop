@@ -12,6 +12,9 @@ from scoring.step4 import (
     AR_GAP_NOISE_FLOOR,
     ARResult,
     classify_ccc_trend,
+    DIP_RECOVERY_RECENCY_YEARS,
+    income_recovery_detail,
+    RatioResult,
     score_revenue_vs_ar,
     score_roe,
     score_roic,
@@ -166,6 +169,205 @@ def _build_ar_note(ar_result: ARResult | None, net_income: list[float | None], o
     return f"{signal_sentence} {ocf_sentence} {AR_NOTE_BUSINESS_SHIFT_TEXT}"
 
 
+# --- ROE negative-equity reasoning note (2026-08-07) ---------------------------
+# score_roe()'s negative-equity substitute stays a binary 100/60 -- a 3-tier
+# redesign (buyback-driven vs. accumulated-deficit vs. unreliable-both) was
+# investigated and rejected: a Retained-Earnings sign check alone
+# misclassifies ~40-55% of real cases, since a company that retires
+# repurchased shares (rather than holding treasury stock) routes the
+# repurchase cost through Retained Earnings directly, making a healthy
+# serial-repurchaser (e.g. FTNT: 10 straight years of positive, growing Net
+# Income) read identically to a real accumulated-deficit company under a
+# naive sign check. Instead, this note explains what actually happened --
+# purely descriptive, never changes score/verdict -- and points the user at
+# their own further research (the 10-K equity note, one-time items) rather
+# than asserting a cause Fathom can't reliably determine. Lives here, not in
+# scoring/step4.py, for the same reason _build_ar_note does: it needs data
+# (Retained Earnings, buyback cash flow, ROIC's own result) that isn't part
+# of score_roe()'s own scoring inputs.
+NEGATIVE_EQUITY_LABELS = {"positive_despite_negative_equity", "negative_equity_inconsistent_income"}
+
+
+def _fmt_money(value: float | None) -> str:
+    """Compact, sign-preserving $ formatting for reasoning text, scaled to
+    billions/millions -- callers never need to guard for None separately."""
+    if value is None:
+        return "not available"
+    sign = "-" if value < 0 else ""
+    abs_value = abs(value)
+    if abs_value >= 1_000_000_000:
+        return f"{sign}${abs_value / 1_000_000_000:.1f}B"
+    if abs_value >= 1_000_000:
+        return f"{sign}${abs_value / 1_000_000:.1f}M"
+    return f"{sign}${abs_value:,.0f}"
+
+
+def _equity_history_sentence(years: list[str], equity: list[float | None]) -> str:
+    """Which fiscal year(s) equity was <=0, and whether it's since
+    recovered -- from the same raw, 1:1 index-aligned years/equity arrays
+    get_step4_data already builds (TTM included), so no realignment
+    against the scoring-only _clean_aligned series is needed."""
+    negative_idx = [i for i, e in enumerate(equity) if e is not None and e <= 0]
+    if not negative_idx:
+        return ""
+    runs: list[list[int]] = []
+    for i in negative_idx:
+        if runs and i == runs[-1][-1] + 1:
+            runs[-1].append(i)
+        else:
+            runs.append([i])
+    period_text = ", ".join(years[run[0]] if len(run) == 1 else f"{years[run[0]]}–{years[run[-1]]}" for run in runs)
+    latest_equity = _fmt_money(equity[-1])
+    if negative_idx[-1] == len(equity) - 1:
+        return f"Shareholders' equity was negative in {period_text} and remains negative as of the latest period (TTM: {latest_equity})."
+    return f"Shareholders' equity was negative in {period_text} and has since recovered to positive (TTM: {latest_equity})."
+
+
+def _income_shape_sentence(shape: str, first: str, last: str) -> str:
+    """Names the actual driver of the 100/60 split (one of
+    income_recovery_detail's 5 shapes) rather than just restating "equity
+    was negative" -- built as a function, not a static dict, since some
+    branches need DIP_RECOVERY_RECENCY_YEARS interpolated and others need
+    first/last Net Income, and mixing f-string/`.format()` placeholders in
+    one template invites exactly the kind of brace-escaping bug this
+    avoids."""
+    if shape == "always_positive_growing":
+        return (
+            f"Net Income has been positive throughout the window and grew from {first} to {last}, which is why "
+            "this reads as a positive result despite the equity picture above."
+        )
+    if shape == "always_positive_but_declined":
+        return (
+            f"Net Income was positive throughout the window but declined from {first} to {last} rather than "
+            "growing, which is why this doesn't clear the substitute check despite never posting a loss."
+        )
+    if shape == "recent_dip":
+        return (
+            f"Net Income posted a loss within the last {DIP_RECOVERY_RECENCY_YEARS} reported periods, so this "
+            "hasn't had time to clear the recovery-recency check yet -- worth checking whether it was a one-off "
+            "or the start of a pattern."
+        )
+    if shape == "old_dip_not_recovered":
+        return (
+            f"Net Income posted a loss more than {DIP_RECOVERY_RECENCY_YEARS} periods ago, but the trend since "
+            f"then hasn't read as a durable recovery -- current (TTM) Net Income is {last}."
+        )
+    if shape == "old_dip_recovered":
+        return (
+            f"Net Income posted a loss more than {DIP_RECOVERY_RECENCY_YEARS} periods ago but has since shown a "
+            f"durable recovery (TTM Net Income: {last}), which is why this reads as a positive result despite "
+            "the equity picture above."
+        )
+    return ""
+
+
+def _retained_earnings_and_buyback_sentence(
+    retained_earnings: list[float | None], buybacks: list[float | None]
+) -> str:
+    """Informational only, never causal -- Retained Earnings' sign alone
+    can't distinguish accumulated losses from buyback accounting (a
+    company that retires repurchased shares routes the cost through
+    Retained Earnings directly, confirmed via live data in the feasibility
+    investigation this note's design followed from), so this states RE's
+    level as context and the buyback cash-flow fact (reliable: 70/70
+    tickers checked had this field populated for every period) as
+    "consistent with," never "caused by.\""""
+    clauses = []
+    re_valid = [v for v in retained_earnings if v is not None]
+    if re_valid:
+        latest_re = re_valid[-1]
+        re_state = "positive" if latest_re > 0 else "negative"
+        clauses.append(
+            f"Retained Earnings is currently {re_state} ({_fmt_money(latest_re)}) -- on its own this doesn't "
+            "indicate whether the negative equity above reflects accumulated losses or an accounting effect of "
+            "share buybacks (a company that retires repurchased shares routes the repurchase cost through "
+            "Retained Earnings directly, which can push it negative even when the company is solidly profitable)."
+        )
+    # Only negative values are a real repurchase outflow -- a positive
+    # value (rare; one such ticker-year was found in a live-data check,
+    # likely a reissuance/ESPP-driven net figure) isn't a repurchase and
+    # is deliberately excluded rather than misread as one.
+    repurchase_periods = [v for v in buybacks if v is not None and v < 0]
+    reported_periods = sum(1 for v in buybacks if v is not None)
+    if repurchase_periods:
+        clauses.append(
+            f"The company recorded share repurchases in {len(repurchase_periods)} of the last {reported_periods} "
+            f"reported periods, spending a cumulative {_fmt_money(sum(repurchase_periods))} -- consistent with an "
+            "active repurchase program."
+        )
+    else:
+        clauses.append("No material share repurchases were recorded over this window.")
+    return " ".join(clauses)
+
+
+def _roic_citation_sentence(
+    roic_result: RatioResult | None, roic_exempt_reason: str | None, company_type: str
+) -> str:
+    """ROIC has no reliability guards today (per the feasibility
+    investigation -- FMP's underlying invested-capital figure can be
+    near-zero/negative, producing nonsensical ROIC values Fathom doesn't
+    currently filter), so a real ROIC result is always cited with an
+    explicit caveat, never silently. Company-type exemption is stated
+    plainly instead of citing a number. Omitted entirely when ROIC is
+    neither exempt nor scoreable (insufficient data) -- nothing to cite."""
+    if roic_exempt_reason:
+        return f"ROIC isn't computed for {company_type} companies, so it isn't available as a cross-check here."
+    if roic_result is not None:
+        return (
+            f'For additional context, ROIC over the same window currently reads "{roic_result.label}" -- Fathom '
+            "doesn't yet validate the reliability of FMP's underlying invested-capital figure, so treat this as "
+            "a secondary data point, not confirmation."
+        )
+    return ""
+
+
+def _roe_research_pointer(positive_outcome: bool) -> str:
+    if positive_outcome:
+        return (
+            "See the shareholders'-equity note in the most recent 10-K for the specific mechanics behind the "
+            "figure above."
+        )
+    return (
+        "Worth reviewing whether the losses are structural/recurring versus a specific one-time item -- check "
+        "the income statement's non-operating/one-time line items and the equity note's own explanation for the "
+        "deficit."
+    )
+
+
+def _build_roe_note(
+    roe_result: RatioResult,
+    years: list[str],
+    equity: list[float | None],
+    retained_earnings: list[float | None],
+    buybacks: list[float | None],
+    net_income_clean: list[float],
+    roic_result: RatioResult | None,
+    roic_exempt_reason: str | None,
+    company_type: str,
+) -> str | None:
+    """Only attaches when the negative-equity substitute actually fired
+    (mirrors _build_ar_note's "only when there's something to explain"
+    gating) -- applies to every company type that reaches this path,
+    including REIT (REIT was only carved out of the *scoring* redesign
+    investigated and rejected above, not this display-only change; REIT
+    tickers still run through score_roe() unconditionally today, and this
+    text makes no company-type-specific claims, so it's safe here)."""
+    if roe_result.label not in NEGATIVE_EQUITY_LABELS:
+        return None
+
+    detail = income_recovery_detail(net_income_clean)
+    first_ni, last_ni = _fmt_money(net_income_clean[0]), _fmt_money(net_income_clean[-1])
+
+    sentences = [
+        _equity_history_sentence(years, equity),
+        _income_shape_sentence(detail.shape, first_ni, last_ni),
+        _retained_earnings_and_buyback_sentence(retained_earnings, buybacks),
+        _roic_citation_sentence(roic_result, roic_exempt_reason, company_type),
+        _roe_research_pointer(roe_result.label == "positive_despite_negative_equity"),
+    ]
+    return " ".join(s for s in sentences if s)
+
+
 async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
@@ -316,6 +518,13 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     roe = _annual_series(key_metrics_annual, "returnOnEquity")
     roic = _annual_series(key_metrics_annual, "returnOnInvestedCapital")
     ocf = _annual_series(cash_flow_annual, "netCashProvidedByOperatingActivities")
+    # Both feed the ROE reasoning-text builder (_build_roe_note) only --
+    # neither is part of score_roe()'s own scoring inputs. Already on
+    # statements this function fetches in full for other reasons (balance
+    # sheet for equity, cash flow for the AR note's OCF cross-check), so
+    # this is a field-read, not a new fetch.
+    retained_earnings = _annual_series(balance_sheet_annual, "retainedEarnings")
+    buybacks = _annual_series(cash_flow_annual, "commonStockRepurchased")
     # FMP's returnOnEquity/returnOnInvestedCapital are fractions (e.g. 0.31
     # for 31%) -- convert to percent to match the doc's 8/12/15% thresholds.
     roe = [v * 100 if v is not None else None for v in roe]
@@ -330,6 +539,8 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     accounts_receivable = accounts_receivable + [balance_sheet_latest.get("accountsReceivables")]
     inventory = inventory + [balance_sheet_latest.get("inventory")]
     accounts_payable = accounts_payable + [balance_sheet_latest.get("accountPayables")]
+    retained_earnings = retained_earnings + [balance_sheet_latest.get("retainedEarnings")]
+    buybacks = buybacks + [sum_last_four_quarters(cash_flow_quarterly, "commonStockRepurchased").total]
     roe_ttm = key_metrics_ttm.get("returnOnEquityTTM")
     roic_ttm = key_metrics_ttm.get("returnOnInvestedCapitalTTM")
     roe = roe + [roe_ttm * 100 if roe_ttm is not None else None]
@@ -422,6 +633,17 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     result = score_step4(roe_result, ar_result, roic_result, ccc_result)
     if result["components"]["revenue_vs_ar"] is not None:
         result["components"]["revenue_vs_ar"]["note"] = _build_ar_note(ar_result, net_income, ocf)
+    result["components"]["roe"]["note"] = _build_roe_note(
+        roe_result,
+        years,
+        equity,
+        retained_earnings,
+        buybacks,
+        net_income_clean,
+        roic_result,
+        roic_exempt_reason,
+        company_type,
+    )
 
     return Step4Out(
         ticker=ticker,
