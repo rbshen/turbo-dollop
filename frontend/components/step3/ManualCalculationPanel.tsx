@@ -2,6 +2,7 @@
 
 import { CaretDown } from "@phosphor-icons/react";
 import { useEffect, useState, type CSSProperties } from "react";
+import { mutate } from "swr";
 import useSWRMutation from "swr/mutation";
 
 import {
@@ -15,9 +16,19 @@ import {
 } from "@/components/step3/Step3Card";
 import { ValuationGauge } from "@/components/step3/ValuationGauge";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
-import { apiPost } from "@/lib/api/client";
+import { apiDelete, apiPost, apiPut } from "@/lib/api/client";
 import { fmtMoney, fmtNumber, fmtPct } from "@/lib/format";
-import type { Step3CurrentValueCandidates, Step3ManualOut, Step3ManualRequest, Step3Method, Step3Out } from "@/lib/api/types";
+import { useTickerCustomValuation } from "@/lib/hooks/useTickerCustomValuation";
+import type {
+  Step3CurrentValueCandidates,
+  Step3ManualOut,
+  Step3ManualParams,
+  Step3ManualRequest,
+  Step3Method,
+  Step3Out,
+  TickerCustomValuationIn,
+  TickerCustomValuationOut,
+} from "@/lib/api/types";
 
 interface Props {
   ticker: string;
@@ -75,15 +86,15 @@ interface FormState {
   fairPsgRatio: string;
 }
 
-function toPlainText(n: number | null): string {
+function toPlainText(n: number | null | undefined): string {
   return n == null ? "" : String(n);
 }
 
-function toPctText(n: number | null): string {
+function toPctText(n: number | null | undefined): string {
   return n == null ? "" : String(n * 100);
 }
 
-function toMillionsText(n: number | null): string {
+function toMillionsText(n: number | null | undefined): string {
   return n == null ? "" : String(n / 1_000_000);
 }
 
@@ -130,9 +141,31 @@ function defaultsForMethod(method: Step3Method, autoData: Step3Out): FormState {
   };
 }
 
-function buildRequest(method: Step3Method, form: FormState, lastClose: number | null): Step3ManualRequest {
+// Pre-fills every field from a previously-saved custom valuation instead of
+// Auto's own numbers -- used on first mount whenever one exists, active or
+// not (a saved-but-inactive valuation's inputs are still what the user last
+// typed, and should still greet them on return).
+function defaultsFromSaved(saved: TickerCustomValuationOut): FormState {
   return {
-    method,
+    currentValue: toMillionsText(saved.current_value),
+    growthYr15: toPctText(saved.growth_yr_1_5),
+    growthYr610: toPctText(saved.growth_yr_6_10),
+    growthYr1120: toPctText(saved.growth_yr_11_20),
+    discountRate: toPctText(saved.discount_rate),
+    sharesOutstanding: toMillionsText(saved.shares_outstanding),
+    totalDebt: toMillionsText(saved.total_debt),
+    cashAndSt: toMillionsText(saved.cash_and_st_investments),
+    bookValuePerShare: toPlainText(saved.book_value_per_share),
+    pbMeanRatio: toPlainText(saved.pb_mean_ratio),
+    pbSdRatio: toPlainText(saved.pb_sd_ratio),
+    salesPerShare: toPlainText(saved.sales_per_share),
+    projectedGrowthRate: toPctText(saved.projected_growth_rate),
+    fairPsgRatio: toPlainText(saved.fair_psg_ratio),
+  };
+}
+
+function buildParams(form: FormState): Step3ManualParams {
+  return {
     current_value: parseMillions(form.currentValue),
     growth_yr_1_5: parsePct(form.growthYr15),
     growth_yr_6_10: parsePct(form.growthYr610),
@@ -147,8 +180,11 @@ function buildRequest(method: Step3Method, form: FormState, lastClose: number | 
     sales_per_share: parseNum(form.salesPerShare),
     projected_growth_rate: parsePct(form.projectedGrowthRate),
     fair_psg_ratio: parseNum(form.fairPsgRatio),
-    last_close: lastClose,
   };
+}
+
+function buildRequest(method: Step3Method, form: FormState, lastClose: number | null): Step3ManualRequest {
+  return { method, ...buildParams(form), last_close: lastClose };
 }
 
 // swr/mutation, not a raw useEffect+setState -- the mount-time "recompute
@@ -282,12 +318,84 @@ function SliderField({
   );
 }
 
+// Every hook on the ticker page keys off "/tickers/{ticker}/..." -- one
+// sweep refreshes this panel, the Model Valuation section, and the header
+// pill together. Watchlist rows are keyed by watchlist id, not by ticker
+// ("/watchlists/{id}/rows"), so they need their own separate sweep; the
+// Screener list is a third, independent key. Same pattern as
+// BankCapitalMetricsForm.tsx/EconomicMoatTab.tsx, extended to cover
+// Watchlist since an activated custom valuation can now change what a
+// Watchlist row shows too (see CLAUDE.md's Fork B scope decision).
+async function revalidateEverywhere(ticker: string) {
+  await mutate((key) => typeof key === "string" && key.startsWith(`/tickers/${ticker}`));
+  await mutate((key) => typeof key === "string" && key.startsWith("/watchlists"));
+  await mutate("/screener");
+}
+
+function errorMessage(err: unknown, fallback: string): string {
+  if (!(err instanceof Error)) return fallback;
+  // client.ts's request() embeds the backend's own HTTPException detail
+  // after " - " (e.g. "PUT ... failed: 400 - Missing required inputs for
+  // PSG") -- surface just that part when present, since it's genuinely
+  // actionable ("which field is missing"), not just "it failed".
+  const marker = " - ";
+  const idx = err.message.indexOf(marker);
+  return idx === -1 ? fallback : err.message.slice(idx + marker.length);
+}
+
 export function ManualCalculationPanel({ ticker, autoData }: Props) {
-  const initialMethod: Step3Method = autoData.selected_method === "PASS" ? "DCF" : autoData.selected_method;
+  const { data: saved, error, isLoading } = useTickerCustomValuation(ticker);
+
+  if (error) {
+    return (
+      <div className="rounded-lg border border-border-card bg-surface p-6">
+        <p className="text-sm text-negative">Couldn&apos;t load Custom Valuation — {error.message}</p>
+      </div>
+    );
+  }
+  if (isLoading || !saved) {
+    return (
+      <div className="rounded-lg border border-border-card bg-surface p-6">
+        <p className="text-sm text-text-tertiary animate-pulse">Loading…</p>
+      </div>
+    );
+  }
+  // Keyed on ticker + saved_at -- saved_at only changes on a real Save (not
+  // activate/deactivate/delete, which don't touch the stored parameters),
+  // so the form only resets to the freshly-saved values exactly when they
+  // actually changed. Including ticker guards against two different
+  // tickers coincidentally sharing the same saved_at (or both "unset").
+  return (
+    <ManualCalculationControls
+      key={`${ticker}-${saved.saved_at ?? "unset"}`}
+      ticker={ticker}
+      autoData={autoData}
+      saved={saved}
+    />
+  );
+}
+
+function ManualCalculationControls({
+  ticker,
+  autoData,
+  saved,
+}: {
+  ticker: string;
+  autoData: Step3Out;
+  saved: TickerCustomValuationOut;
+}) {
+  const initialMethod: Step3Method =
+    saved.saved && saved.method ? saved.method : autoData.selected_method === "PASS" ? "DCF" : autoData.selected_method;
   const [method, setMethod] = useState<Step3Method>(initialMethod);
-  const [form, setForm] = useState<FormState>(() => defaultsForMethod(initialMethod, autoData));
+  const [form, setForm] = useState<FormState>(() =>
+    saved.saved ? defaultsFromSaved(saved) : defaultsForMethod(initialMethod, autoData)
+  );
 
   const { trigger, reset, data: result, error: mutationError } = useSWRMutation(`/tickers/${ticker}/step3/manual`, manualCalcFetcher, { throwOnError: false });
+
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionPending, setActionPending] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   function runCalculate(runMethod: Step3Method, values: FormState) {
     void trigger(buildRequest(runMethod, values, autoData.inputs.last_close));
@@ -324,6 +432,37 @@ export function ManualCalculationPanel({ ticker, autoData }: Props) {
     return (v: string) => updateField(key, v);
   }
 
+  async function runAction(action: () => Promise<unknown>, fallback: string) {
+    setActionPending(true);
+    setActionError(null);
+    try {
+      await action();
+      await revalidateEverywhere(ticker);
+      setConfirmingDelete(false);
+    } catch (err) {
+      setActionError(errorMessage(err, fallback));
+    } finally {
+      setActionPending(false);
+    }
+  }
+
+  function handleSave() {
+    const body: TickerCustomValuationIn = { method, ...buildParams(form) };
+    void runAction(() => apiPut<TickerCustomValuationOut>(`/tickers/${ticker}/custom-valuation`, body), "Failed to save — please try again.");
+  }
+
+  function handleActivate() {
+    void runAction(() => apiPost(`/tickers/${ticker}/custom-valuation/activate`), "Failed to activate — please try again.");
+  }
+
+  function handleDeactivate() {
+    void runAction(() => apiPost(`/tickers/${ticker}/custom-valuation/deactivate`), "Failed to revert to Auto — please try again.");
+  }
+
+  function handleDelete() {
+    void runAction(() => apiDelete(`/tickers/${ticker}/custom-valuation`), "Failed to delete — please try again.");
+  }
+
   const isTwentyYearMethod = method === "DCF" || method === "DFCF" || method === "DNI" || method === "DNI_NORMALIZED";
   const isPB = method === "PRICE_TO_BOOK";
   const isPSG = method === "PSG";
@@ -352,6 +491,83 @@ export function ManualCalculationPanel({ ticker, autoData }: Props) {
           <CaretDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary" />
         </div>
       </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border-card bg-surface-2 px-3 py-2 text-xs">
+        <span className="text-text-tertiary">
+          Active:{" "}
+          <span className="font-semibold text-text-primary">{saved.is_active ? "Custom" : "Auto"}</span>
+          {saved.saved && saved.saved_at && <> — saved {new Date(saved.saved_at).toLocaleString()}</>}
+        </span>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={actionPending}
+            className="rounded-md border border-border-input bg-surface px-3 py-1 font-medium text-text-primary transition-colors hover:border-brand disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {actionPending ? "Working…" : "Save"}
+          </button>
+          {saved.saved && !saved.is_active && (
+            <button
+              type="button"
+              onClick={handleActivate}
+              disabled={actionPending}
+              className="rounded-md border border-positive/40 bg-positive/10 px-3 py-1 font-medium text-positive transition-colors hover:border-positive disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Activate
+            </button>
+          )}
+          {saved.saved && saved.is_active && (
+            <button
+              type="button"
+              onClick={handleDeactivate}
+              disabled={actionPending}
+              className="rounded-md border border-border-input bg-surface px-3 py-1 font-medium text-text-primary transition-colors hover:border-brand disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Revert to Auto
+            </button>
+          )}
+          {saved.saved && !confirmingDelete && (
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              disabled={actionPending}
+              className="rounded-md border border-negative/40 bg-negative/10 px-3 py-1 font-medium text-negative transition-colors hover:border-negative disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      </div>
+
+      {confirmingDelete && (
+        <div className="space-y-3 rounded-md border border-negative/40 bg-negative/10 p-4">
+          <p className="text-sm text-negative">
+            Delete this saved custom valuation for {ticker}?
+            {saved.is_active && " This will also revert the ticker to Auto Calculation everywhere it's shown."}
+          </p>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={actionPending}
+              className="rounded-md border border-negative/60 bg-negative/15 px-4 py-1.5 text-sm font-medium text-negative transition-colors hover:border-negative disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {actionPending ? "Deleting…" : "Confirm Delete"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(false)}
+              disabled={actionPending}
+              className="rounded-md border border-border-input bg-surface-2 px-4 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {actionError && <p className="text-sm text-negative">{actionError}</p>}
 
       <ValuationGauge
         discountPremiumPct={result?.discount_premium_pct ?? null}

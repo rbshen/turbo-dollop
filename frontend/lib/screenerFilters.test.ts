@@ -34,6 +34,7 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     pe_ratio: 30,
     beta: 1.2,
     valuation_verdict: null,
+    valuation_source: null,
     growth_rate: 12.5,
     computed_at: "2026-01-01T00:00:00",
     ...overrides,

@@ -87,6 +87,8 @@ export interface TickerSummaryOut {
   // e.g. "DCF" / "DFCF" / "DNI" / "DNI (Normalized)" / "P/B" / "PSG" -- null
   // when Step 3 selected PASS (no valuation method applies).
   fair_value_method: string | null;
+  // "auto" / "custom" -- which source fair_value_* above came from.
+  valuation_source: ValuationSource | null;
 }
 
 export interface Step1TrendComponent {
@@ -378,6 +380,8 @@ export interface TickerScoreOut {
   // "undervalued" / "fair" / "overvalued" -- same Step 3 verdict as the
   // ticker header's FairValuePill. null when Step 3 has no usable verdict.
   valuation_verdict: string | null;
+  // "auto" / "custom" -- which source valuation_verdict above came from.
+  valuation_source: ValuationSource | null;
   // Step 2's analyst-estimate CAGR %, EPS basis preferred (see CLAUDE.md's
   // Step 2 deviation note). null when Step 2 has no usable projection.
   growth_rate: number | null;
@@ -470,6 +474,11 @@ export interface FinancialsOut {
 }
 
 export type Step3Method = "DCF" | "DFCF" | "DNI" | "DNI_NORMALIZED" | "PRICE_TO_BOOK" | "PSG" | "PASS";
+
+// "auto": Auto Calculation's own method-selection pick. "custom": an
+// active, user-saved TickerCustomValuation row -- see
+// backend/data/step3_data.py::get_active_valuation.
+export type ValuationSource = "auto" | "custom";
 
 export interface Step3MethodStep {
   step: string;
@@ -568,6 +577,13 @@ export interface Step3Out {
   pb_bands: Step3PBBands | null;
   discount_premium_pct: number | null;
   verdict: "undervalued" | "overvalued" | "fair" | null;
+  // "auto" (default) or "custom" -- "custom" only when this ticker has an
+  // active TickerCustomValuation row, in which case selected_method/
+  // intrinsic_value_per_share/pb_bands/discount_premium_pct/verdict above
+  // reflect the saved custom valuation instead of Auto Calculation's own
+  // pick. company_type/method_reasoning/pass_reason/inputs are ALWAYS
+  // Auto's own -- never overridden.
+  valuation_source: ValuationSource;
 
   // --- Additive, informational-only fields (never change verdict above) --
   // The framework's own P/B buy signal ("price at/below -1SD of historical
@@ -587,12 +603,14 @@ export interface Step3Out {
   dpu_growth_note: string | null;
 }
 
-// Manual Calculation's what-if request/response -- every request field is
+// The 13 method-specific input fields run_manual_calculation takes --
+// shared by Step3ManualRequest (the stateless what-if request) and
+// TickerCustomValuationIn/Out (the persistent custom valuation's
+// save/load shape) so both reuse the exact same field set. Every field is
 // optional since only the fields relevant to `method` need be populated;
 // the backend reports which ones are missing for the chosen method via
 // `error` rather than this type enforcing it up front.
-export interface Step3ManualRequest {
-  method: Step3Method;
+export interface Step3ManualParams {
   current_value?: number | null;
   growth_yr_1_5?: number | null;
   growth_yr_6_10?: number | null;
@@ -607,6 +625,11 @@ export interface Step3ManualRequest {
   sales_per_share?: number | null;
   projected_growth_rate?: number | null;
   fair_psg_ratio?: number | null;
+}
+
+// Manual Calculation's what-if request/response.
+export interface Step3ManualRequest extends Step3ManualParams {
+  method: Step3Method;
   last_close?: number | null;
 }
 
@@ -616,6 +639,27 @@ export interface Step3ManualOut {
   discount_premium_pct: number | null;
   verdict: "undervalued" | "overvalued" | "fair" | null;
   error: string | null;
+}
+
+// Save/update request for a ticker's persistent custom valuation -- same
+// parameter shape as Step3ManualRequest, minus last_close (always live,
+// never saved) plus method.
+export interface TickerCustomValuationIn extends Step3ManualParams {
+  method: Step3Method;
+}
+
+// Full state of a ticker's custom valuation slot -- whether one is saved,
+// its method/parameters (all null when saved is false), whether it's
+// currently active, and active_verdict (whichever source currently
+// applies), so the Custom Valuation panel can render its entire state
+// from one GET.
+export interface TickerCustomValuationOut extends Step3ManualParams {
+  ticker: string;
+  saved: boolean;
+  method: Step3Method | null;
+  is_active: boolean;
+  saved_at: string | null;
+  active_verdict: Step3ManualOut;
 }
 
 export interface ConsensusBanner {
@@ -783,6 +827,8 @@ export interface WatchlistRowOut {
   cfo: (number | null)[] | null;
   moat: MoatValue | null;
   valuation_verdict: string | null;
+  // "auto" / "custom" -- which source valuation_verdict above came from.
+  valuation_source: ValuationSource | null;
   step1_score: number | null;
   step1_verdict: string | null;
   step2_score: number | null;
