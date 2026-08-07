@@ -40,7 +40,7 @@ export function ScreenerCard({ data }: Props) {
       {(data.moat != null || data.valuation_verdict != null) && (
         <div className="flex flex-wrap items-center gap-1.5">
           <MoatPill moat={data.moat} variant="flat" />
-          <ValuationBadge verdict={data.valuation_verdict} variant="flat" />
+          <ValuationBadge verdict={data.valuation_verdict} source={data.valuation_source} variant="flat" />
         </div>
       )}
 

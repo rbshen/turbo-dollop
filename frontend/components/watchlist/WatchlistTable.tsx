@@ -144,7 +144,7 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
                 <MoatPill moat={row.moat} variant="flat" />
               </TableCell>
               <TableCell className="text-center">
-                <ValuationBadge verdict={row.valuation_verdict} variant="flat" />
+                <ValuationBadge verdict={row.valuation_verdict} source={row.valuation_source} variant="flat" />
               </TableCell>
               <TableCell className="text-center">
                 <span

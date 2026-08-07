@@ -1,5 +1,6 @@
 import { FLAT_VERDICT_STYLES, VERDICT_STYLES } from "@/components/ticker/FairValuePill";
 import { cn } from "@/lib/utils";
+import type { ValuationSource } from "@/lib/api/types";
 
 // Screener-card-specific labels -- deliberately category-only (no price or
 // discount/premium %, which stay on the ticker page's Valuation tab). Same
@@ -13,12 +14,18 @@ export const VALUATION_LABELS: Record<string, string> = {
 
 interface Props {
   verdict: string | null;
+  /** "custom" marks that this ticker's verdict came from an active,
+   * user-saved custom valuation rather than Auto Calculation -- shown so a
+   * Screener/Watchlist comparison across tickers doesn't silently mix an
+   * Auto-derived verdict with a user's own override (see CLAUDE.md's Fork
+   * B scope decision). Undefined/"auto"/null all render nothing extra. */
+  source?: ValuationSource | null;
   // "chip" (default): bordered pill. "flat": borderless, same height as
   // ScreenerCard's other pills (company type, MoatPill's "flat" variant).
   variant?: "chip" | "flat";
 }
 
-export function ValuationBadge({ verdict, variant = "chip" }: Props) {
+export function ValuationBadge({ verdict, source, variant = "chip" }: Props) {
   if (!verdict) return null;
   const cls = variant === "chip" ? (VERDICT_STYLES[verdict] ?? VERDICT_STYLES.fair) : (FLAT_VERDICT_STYLES[verdict] ?? FLAT_VERDICT_STYLES.fair);
   const label = VALUATION_LABELS[verdict] ?? verdict;
@@ -26,12 +33,13 @@ export function ValuationBadge({ verdict, variant = "chip" }: Props) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-md text-xs font-semibold",
+        "inline-flex items-center gap-1 rounded-md text-xs font-semibold",
         variant === "chip" ? "border px-2 py-0.5" : "px-2 py-1",
         cls
       )}
     >
       {label}
+      {source === "custom" && <span className="font-normal opacity-70">· Custom</span>}
     </span>
   );
 }

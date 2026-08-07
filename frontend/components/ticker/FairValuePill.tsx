@@ -1,5 +1,6 @@
 import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import type { ValuationSource } from "@/lib/api/types";
 
 // Reuses the scoring system's own tokens directly (no separate Valuation
 // palette) -- a 3-state good/mid/bad read, same as Moat: Overvalued is the
@@ -34,12 +35,18 @@ interface Props {
    * from, shown alongside the verdict so it never reads as a bare,
    * unexplained "Undervalued". */
   method?: string | null;
+  /** "custom" marks that this verdict came from an active, user-saved
+   * TickerCustomValuation rather than Auto Calculation -- surfaced so a
+   * Screener/Watchlist comparison across tickers doesn't silently mix an
+   * Auto-derived verdict with a user's own override (see CLAUDE.md's Fork
+   * B scope decision). Undefined/"auto"/null all render nothing extra. */
+  source?: ValuationSource | null;
   // "chip" (default): bordered pill. "flat": borderless, same height as
   // ScreenerCard's other pills (MoatPill's "flat" variant, ValuationBadge).
   variant?: "chip" | "flat";
 }
 
-export function FairValuePill({ verdict, price, method, variant = "chip" }: Props) {
+export function FairValuePill({ verdict, price, method, source, variant = "chip" }: Props) {
   if (!verdict || price == null) return null;
   const cls = variant === "chip" ? (VERDICT_STYLES[verdict] ?? VERDICT_STYLES.fair) : (FLAT_VERDICT_STYLES[verdict] ?? FLAT_VERDICT_STYLES.fair);
   const label = VERDICT_LABELS[verdict] ?? verdict;
@@ -54,6 +61,7 @@ export function FairValuePill({ verdict, price, method, variant = "chip" }: Prop
     >
       {label} ·<span className="font-mono tabular-nums">{fmtMoney(price)}</span>
       {method && <span className="font-normal opacity-70">({method})</span>}
+      {source === "custom" && <span className="font-normal opacity-70">· Custom</span>}
     </span>
   );
 }

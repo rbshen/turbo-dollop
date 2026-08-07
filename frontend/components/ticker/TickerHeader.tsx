@@ -92,7 +92,13 @@ export function TickerHeader({ symbol }: Props) {
         )}
         <PriceChange change={data.change} changePercent={data.change_percent} />
         <AssessmentChip symbol={symbol} />
-        <FairValuePill verdict={data.fair_value_verdict} price={data.fair_value_price} method={data.fair_value_method} variant="flat" />
+        <FairValuePill
+          verdict={data.fair_value_verdict}
+          price={data.fair_value_price}
+          method={data.fair_value_method}
+          source={data.valuation_source}
+          variant="flat"
+        />
         <MoatPill moat={moatData?.moat} variant="flat" />
       </div>
 
