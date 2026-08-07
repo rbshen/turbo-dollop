@@ -185,22 +185,18 @@ export function Step3Card({ ticker }: Props) {
   const isTwentyYearMethod = data.selected_method === "DCF" || data.selected_method === "DFCF" || data.selected_method === "DNI" || data.selected_method === "DNI_NORMALIZED";
   const isPB = data.selected_method === "PRICE_TO_BOOK";
   const isPSG = data.selected_method === "PSG";
-  // Can only be true when valuation_source is "auto" -- an active custom
-  // valuation always has a real method (DCF/DFCF/DNI/DNI_NORMALIZED/
-  // PRICE_TO_BOOK/PSG), never "PASS" (see get_active_valuation).
   const isPass = data.selected_method === "PASS";
-  const isCustom = data.valuation_source === "custom";
 
+  // `data` is always Auto Calculation (the /step3 endpoint deliberately
+  // never routes through get_active_valuation) -- this whole card is a
+  // fixed reference point to compare a custom valuation against, and must
+  // never itself switch to showing custom figures. "Active: Custom" is
+  // communicated entirely from the Custom Valuation panel's own status bar
+  // on the right, sourced from its own saved-row fetch, not from here.
   return (
     <div className="space-y-6">
       <details className="text-sm">
         <summary className="cursor-pointer text-xs uppercase tracking-widest text-text-tertiary">Method selection reasoning</summary>
-        {isCustom && (
-          <p className="mt-2 text-xs text-text-tertiary">
-            Describes what Auto Calculation would have picked for {ticker} -- not necessarily the method shown below,
-            which reflects the active custom valuation.
-          </p>
-        )}
         <ul className="mt-2 space-y-1 text-xs text-text-tertiary">
           {data.method_reasoning.map((step, i) => (
             <li key={i}>
@@ -218,22 +214,15 @@ export function Step3Card({ ticker }: Props) {
           value it) is the single most valuable case for a saved manual
           override, and there'd otherwise be no way to even open the panel
           to create one. Only the left "Model Valuation" column's content
-          is conditional on isPass/isCustom. */}
+          is conditional on isPass. */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <div className="space-y-6 rounded-lg border border-border-card bg-surface p-6">
           {/* min-h-8 matches Custom Valuation's title row, whose height is
               set by its h-8 method <select> -- without it this row (a bare
               h2, ~20px) renders shorter than the other column's, shifting
               everything below (price, gauge, slider) up relative to it. */}
-          <div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
-            <h2 className={SECTION_HEADING_CLASS}>
-              Model Valuation{!isPass && <> · {METHOD_LABELS[data.selected_method] ?? data.selected_method}</>}
-            </h2>
-            {isCustom && (
-              <span className="rounded-md bg-brand/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
-                Active: Custom
-              </span>
-            )}
+          <div className="flex min-h-8 items-center">
+            <h2 className={SECTION_HEADING_CLASS}>Model Valuation · {METHOD_LABELS[data.selected_method] ?? data.selected_method}</h2>
           </div>
 
           {isPass ? (
@@ -246,81 +235,66 @@ export function Step3Card({ ticker }: Props) {
             <>
               <ValuationGauge discountPremiumPct={data.discount_premium_pct} intrinsicValuePerShare={data.intrinsic_value_per_share} lastClose={data.inputs.last_close} />
 
-              {isCustom ? (
-                <p className="text-sm text-text-tertiary">
-                  Showing the active custom valuation — see the Custom Valuation panel for its inputs.
-                </p>
-              ) : (
-                <>
-                  {/* Discount/Premium, growth rows, Current Value/Discount
-                      Rate/Shares/Total Debt/Cash, and the PSG fields all
-                      share ONE <Table> -- not split across several sibling
-                      <Table>s -- so none of them pick up the parent's
-                      space-y-6 gap partway through the row sequence.
-                      Mirrors ManualCalculationPanel's merged table (see
-                      round-10 fix there): that gap, when it existed only on
-                      one side, is what caused "Operating Cash Flow" (nee
-                      "Current Value") to land at different heights between
-                      the two columns. */}
-                  <Table className="text-sm">
-                    <TableBody>
-                      <InputRow label="Discount/Premium" value={pctText(data.discount_premium_pct)} />
-                      {isTwentyYearMethod && (
-                        <>
-                          <InputRow label="Growth Yr 1-5" value={pctText(data.inputs.growth_yr_1_5)} sublabel={data.inputs.growth_yr_1_5_source ?? "Unavailable"} />
-                          <InputRow label="Growth Yr 6-10" value={pctText(data.inputs.growth_yr_6_10)} />
-                          <InputRow label="Growth Yr 11-20 (terminal)" value={pctText(data.inputs.growth_yr_11_20)} />
-                          <InputRow label={data.inputs.current_value_label ?? "Current Value"} sublabel="(in millions)" value={millionsText(data.inputs.current_value)} />
-                          <InputRow
-                            label="Discount Rate (CAPM)"
-                            value={
-                              data.inputs.discount_rate != null ? (
-                                <span>
-                                  {pctText(data.inputs.discount_rate)}
-                                  {data.inputs.capm?.beta_outside_reference_range && <span className="ml-1 text-warn">†</span>}
-                                </span>
-                              ) : (
-                                "—"
-                              )
-                            }
-                          />
-                          <InputRow
-                            label="Shares Outstanding"
-                            value={data.inputs.shares_outstanding != null ? data.inputs.shares_outstanding.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "—"}
-                          />
-                          <InputRow label="Total Debt" sublabel="(in millions)" value={millionsText(data.inputs.total_debt)} />
-                          <InputRow
-                            label={`Cash${data.inputs.cash_and_st_investments_includes_short_term_investments ? " + ST Investments" : ""}`}
-                            sublabel="(in millions)"
-                            value={millionsText(data.inputs.cash_and_st_investments)}
-                          />
-                        </>
-                      )}
-                      {isPSG && (
-                        <>
-                          <InputRow label="Sales Per Share" value={data.inputs.sales_per_share != null ? fmtMoney(data.inputs.sales_per_share) : "—"} />
-                          <InputRow label="Projected Growth Rate" value={pctText(data.inputs.projected_growth_rate)} />
-                          <InputRow label="Fair PSG Ratio" value={data.inputs.fair_psg_ratio != null ? fmtNumber(data.inputs.fair_psg_ratio) : "—"} />
-                        </>
-                      )}
-                    </TableBody>
-                  </Table>
-
-                  {isTwentyYearMethod && data.inputs.capm?.beta_outside_reference_range && (
-                    <p className="text-xs text-warn">† Beta is below 0.8, outside the workbook&apos;s manual reference table range — CAPM is still applied directly.</p>
+              {/* Discount/Premium, growth rows, Current Value/Discount
+                  Rate/Shares/Total Debt/Cash, and the PSG fields all share
+                  ONE <Table> -- not split across several sibling <Table>s
+                  -- so none of them pick up the parent's space-y-6 gap
+                  partway through the row sequence. Mirrors
+                  ManualCalculationPanel's merged table (see round-10 fix
+                  there): that gap, when it existed only on one side, is
+                  what caused "Operating Cash Flow" (nee "Current Value")
+                  to land at different heights between the two columns. */}
+              <Table className="text-sm">
+                <TableBody>
+                  <InputRow label="Discount/Premium" value={pctText(data.discount_premium_pct)} />
+                  {isTwentyYearMethod && (
+                    <>
+                      <InputRow label="Growth Yr 1-5" value={pctText(data.inputs.growth_yr_1_5)} sublabel={data.inputs.growth_yr_1_5_source ?? "Unavailable"} />
+                      <InputRow label="Growth Yr 6-10" value={pctText(data.inputs.growth_yr_6_10)} />
+                      <InputRow label="Growth Yr 11-20 (terminal)" value={pctText(data.inputs.growth_yr_11_20)} />
+                      <InputRow label={data.inputs.current_value_label ?? "Current Value"} sublabel="(in millions)" value={millionsText(data.inputs.current_value)} />
+                      <InputRow
+                        label="Discount Rate (CAPM)"
+                        value={
+                          data.inputs.discount_rate != null ? (
+                            <span>
+                              {pctText(data.inputs.discount_rate)}
+                              {data.inputs.capm?.beta_outside_reference_range && <span className="ml-1 text-warn">†</span>}
+                            </span>
+                          ) : (
+                            "—"
+                          )
+                        }
+                      />
+                      <InputRow
+                        label="Shares Outstanding"
+                        value={data.inputs.shares_outstanding != null ? data.inputs.shares_outstanding.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "—"}
+                      />
+                      <InputRow label="Total Debt" sublabel="(in millions)" value={millionsText(data.inputs.total_debt)} />
+                      <InputRow
+                        label={`Cash${data.inputs.cash_and_st_investments_includes_short_term_investments ? " + ST Investments" : ""}`}
+                        sublabel="(in millions)"
+                        value={millionsText(data.inputs.cash_and_st_investments)}
+                      />
+                    </>
                   )}
-                </>
-              )}
+                  {isPSG && (
+                    <>
+                      <InputRow label="Sales Per Share" value={data.inputs.sales_per_share != null ? fmtMoney(data.inputs.sales_per_share) : "—"} />
+                      <InputRow label="Projected Growth Rate" value={pctText(data.inputs.projected_growth_rate)} />
+                      <InputRow label="Fair PSG Ratio" value={data.inputs.fair_psg_ratio != null ? fmtNumber(data.inputs.fair_psg_ratio) : "—"} />
+                    </>
+                  )}
+                </TableBody>
+              </Table>
 
-              {/* pb_bands stays correct even under a custom valuation (the
-                  choke point recomputes it from the saved P/B inputs), so
-                  it's shown regardless of source -- unlike
-                  ValuationContextNotes below, whose signals (historical
-                  buy signal, benchmarks) are never recomputed and would be
-                  stale/mismatched next to a custom headline number. */}
               {isPB && data.pb_bands && <PBBandsTable bands={data.pb_bands} lastClose={data.inputs.last_close} />}
 
-              {isPB && !isCustom && <ValuationContextNotes data={data} />}
+              {isPB && <ValuationContextNotes data={data} />}
+
+              {isTwentyYearMethod && data.inputs.capm?.beta_outside_reference_range && (
+                <p className="text-xs text-warn">† Beta is below 0.8, outside the workbook&apos;s manual reference table range — CAPM is still applied directly.</p>
+              )}
             </>
           )}
         </div>

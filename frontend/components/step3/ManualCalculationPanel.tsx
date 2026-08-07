@@ -37,6 +37,22 @@ interface Props {
 
 const METHOD_OPTIONS: Exclude<Step3Method, "PASS">[] = ["DCF", "DFCF", "DNI", "DNI_NORMALIZED", "PRICE_TO_BOOK", "PSG"];
 
+// The dropdown's own selectable values: the 6 plain methods (always live,
+// editable-from-Auto-defaults, as before) plus one extra entry --
+// "SAVED_CUSTOM" -- that only exists once a custom valuation has been
+// saved, labeled after whichever method it was saved under (e.g.
+// "Discounted Free Cash Flow · Custom"). There's exactly one saved row per
+// ticker (no versioning), so there's exactly one such entry, never more.
+type MethodSelection = Step3Method | "SAVED_CUSTOM";
+
+// "SAVED_CUSTOM" is only ever a reachable selection when saved.saved is
+// true (the option itself isn't rendered otherwise), so savedMethod is
+// never actually null when this branch runs -- the DCF fallback is
+// unreachable in practice, just satisfying the type.
+function realMethodFor(selection: MethodSelection, savedMethod: Step3Method | null): Step3Method {
+  return selection === "SAVED_CUSTOM" ? (savedMethod ?? "DCF") : selection;
+}
+
 // Presentation-only mirror of step3_data.py's own current_value_labels dict
 // -- Manual Calculation picks its "Current Value" label/default purely from
 // the method the user selects here, independent of whichever method Auto
@@ -384,12 +400,17 @@ function ManualCalculationControls({
   autoData: Step3Out;
   saved: TickerCustomValuationOut;
 }) {
-  const initialMethod: Step3Method =
-    saved.saved && saved.method ? saved.method : autoData.selected_method === "PASS" ? "DCF" : autoData.selected_method;
-  const [method, setMethod] = useState<Step3Method>(initialMethod);
-  const [form, setForm] = useState<FormState>(() =>
-    saved.saved ? defaultsFromSaved(saved) : defaultsForMethod(initialMethod, autoData)
-  );
+  const initialSelection: MethodSelection =
+    saved.saved && saved.method ? "SAVED_CUSTOM" : autoData.selected_method === "PASS" ? "DCF" : autoData.selected_method;
+  const [selection, setSelection] = useState<MethodSelection>(initialSelection);
+  // The real method behind whatever's selected -- "SAVED_CUSTOM" isn't
+  // itself a Step3Method, it's this panel's own dropdown entry for "the one
+  // saved row" (see MethodSelection's own comment), so every place that
+  // needs an actual method (isTwentyYearMethod/isPB/isPSG below, the
+  // preview POST, the Save request body) reads this instead of `selection`
+  // directly.
+  const method: Step3Method = realMethodFor(selection, saved.method);
+  const [form, setForm] = useState<FormState>(() => (saved.saved ? defaultsFromSaved(saved) : defaultsForMethod(method, autoData)));
 
   const { trigger, reset, data: result, error: mutationError } = useSWRMutation(`/tickers/${ticker}/step3/manual`, manualCalcFetcher, { throwOnError: false });
 
@@ -402,22 +423,22 @@ function ManualCalculationControls({
   }
 
   useEffect(() => {
-    runCalculate(initialMethod, form);
-    // Run once on mount, using the initial method/defaults -- `trigger` is
-    // swr/mutation's own stable function reference, not component state.
+    runCalculate(method, form);
+    // Run once on mount, using the initial selection/defaults -- `trigger`
+    // is swr/mutation's own stable function reference, not component state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handleMethodChange(next: Step3Method) {
-    const defaults = defaultsForMethod(next, autoData);
-    setMethod(next);
+  function handleSelectionChange(next: MethodSelection) {
+    setSelection(next);
+    const defaults = next === "SAVED_CUSTOM" ? defaultsFromSaved(saved) : defaultsForMethod(next, autoData);
     setForm(defaults);
-    // Clear the previous method's result immediately -- otherwise
+    // Clear the previous selection's result immediately -- otherwise
     // useSWRMutation keeps showing its last resolved `data` (the old
-    // method's numbers) under the new method's label/rows until the new
-    // POST resolves.
+    // selection's numbers) under the new selection's label/rows until the
+    // new POST resolves.
     reset();
-    runCalculate(next, defaults);
+    runCalculate(realMethodFor(next, saved.method), defaults);
   }
 
   // Every field recomputes live -- on every slider drag tick and every
@@ -478,10 +499,13 @@ function ManualCalculationControls({
         <div className="relative">
           <select
             id="manual-method"
-            value={method}
-            onChange={(e) => handleMethodChange(e.target.value as Step3Method)}
+            value={selection}
+            onChange={(e) => handleSelectionChange(e.target.value as MethodSelection)}
             className="h-8 max-w-[220px] appearance-none truncate rounded-md border border-border-input bg-surface-2 py-1 pl-2.5 pr-7 text-xs text-text-primary focus:border-brand focus:outline-none"
           >
+            {/* Only rendered once a custom valuation is saved -- there's
+                exactly one (no versioning), so at most one such entry. */}
+            {saved.saved && saved.method && <option value="SAVED_CUSTOM">{METHOD_LABELS[saved.method]} · Custom</option>}
             {METHOD_OPTIONS.map((m) => (
               <option key={m} value={m}>
                 {METHOD_LABELS[m]}
@@ -492,6 +516,84 @@ function ManualCalculationControls({
         </div>
       </div>
 
+      <ValuationGauge
+        discountPremiumPct={result?.discount_premium_pct ?? null}
+        intrinsicValuePerShare={result?.intrinsic_value_per_share ?? null}
+        lastClose={autoData.inputs.last_close}
+      />
+
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-text-tertiary">Discount/Premium</span>
+        <span className="font-mono text-text-primary">{pctText(result?.discount_premium_pct ?? null)}</span>
+      </div>
+
+      {isTwentyYearMethod && (
+        <div className="space-y-5">
+          <SliderField
+            label="Growth Yr 1-5"
+            sublabel={autoData.inputs.growth_yr_1_5_source ?? "% per year"}
+            value={form.growthYr15}
+            onChange={field("growthYr15")}
+            {...GROWTH_SLIDER}
+          />
+          <SliderField label="Growth Yr 6-10" value={form.growthYr610} onChange={field("growthYr610")} {...GROWTH_SLIDER} />
+          <SliderField label="Growth Yr 11-20 (terminal)" value={form.growthYr1120} onChange={field("growthYr1120")} {...GROWTH_SLIDER} />
+          <SliderField label="Discount Rate (CAPM)" value={form.discountRate} onChange={field("discountRate")} {...DISCOUNT_RATE_SLIDER} />
+        </div>
+      )}
+
+      <Table className="text-sm">
+        <TableBody>
+          {isTwentyYearMethod && (
+            <>
+              <ManualInputRow label={CURRENT_VALUE_LABELS[method]} sublabel="(in millions)" value={form.currentValue} onChange={field("currentValue")} kind="millions" />
+              <ManualInputRow
+                label="Shares Outstanding"
+                sublabel="(in millions)"
+                value={form.sharesOutstanding}
+                onChange={field("sharesOutstanding")}
+                kind="sharesMillions"
+              />
+              <ManualInputRow label="Total Debt" sublabel="(in millions)" value={form.totalDebt} onChange={field("totalDebt")} kind="millions" />
+              <ManualInputRow
+                label={`Cash${autoData.inputs.cash_and_st_investments_includes_short_term_investments ? " + ST Investments" : ""}`}
+                sublabel="(in millions)"
+                value={form.cashAndSt}
+                onChange={field("cashAndSt")}
+                kind="millions"
+              />
+            </>
+          )}
+
+          {isPB && (
+            <>
+              <ManualInputRow label="Book Value Per Share" value={form.bookValuePerShare} onChange={field("bookValuePerShare")} kind="currency" />
+              <ManualInputRow label="Mean P/B" value={form.pbMeanRatio} onChange={field("pbMeanRatio")} kind="ratio" />
+              <ManualInputRow label="SD P/B" value={form.pbSdRatio} onChange={field("pbSdRatio")} kind="ratio" />
+            </>
+          )}
+
+          {isPSG && (
+            <>
+              <ManualInputRow label="Sales Per Share" value={form.salesPerShare} onChange={field("salesPerShare")} kind="currency" />
+              <ManualInputRow label="Projected Growth Rate" value={form.projectedGrowthRate} onChange={field("projectedGrowthRate")} kind="pct" />
+              <ManualInputRow label="Fair PSG Ratio" value={form.fairPsgRatio} onChange={field("fairPsgRatio")} kind="ratio" />
+            </>
+          )}
+        </TableBody>
+      </Table>
+
+      {isPB && result?.pb_bands && <PBBandsTable bands={result.pb_bands} lastClose={autoData.inputs.last_close} />}
+
+      {mutationError && <p className="text-sm text-negative">{mutationError instanceof Error ? mutationError.message : "Calculation failed"}</p>}
+      {result?.error && <p className="text-sm text-warn">{result.error}</p>}
+
+      {/* Status/action bar lives at the BOTTOM of this column, below every
+          parameter row -- placing it under the title (as a first pass did)
+          pushed this column's numbers down relative to Model Valuation's,
+          breaking row-for-row alignment between the two cards. The left
+          column has no equivalent bar interrupting its own flow, so this
+          one shouldn't either. */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border-card bg-surface-2 px-3 py-2 text-xs">
         <span className="text-text-tertiary">
           Active:{" "}
@@ -568,78 +670,6 @@ function ManualCalculationControls({
       )}
 
       {actionError && <p className="text-sm text-negative">{actionError}</p>}
-
-      <ValuationGauge
-        discountPremiumPct={result?.discount_premium_pct ?? null}
-        intrinsicValuePerShare={result?.intrinsic_value_per_share ?? null}
-        lastClose={autoData.inputs.last_close}
-      />
-
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-text-tertiary">Discount/Premium</span>
-        <span className="font-mono text-text-primary">{pctText(result?.discount_premium_pct ?? null)}</span>
-      </div>
-
-      {isTwentyYearMethod && (
-        <div className="space-y-5">
-          <SliderField
-            label="Growth Yr 1-5"
-            sublabel={autoData.inputs.growth_yr_1_5_source ?? "% per year"}
-            value={form.growthYr15}
-            onChange={field("growthYr15")}
-            {...GROWTH_SLIDER}
-          />
-          <SliderField label="Growth Yr 6-10" value={form.growthYr610} onChange={field("growthYr610")} {...GROWTH_SLIDER} />
-          <SliderField label="Growth Yr 11-20 (terminal)" value={form.growthYr1120} onChange={field("growthYr1120")} {...GROWTH_SLIDER} />
-          <SliderField label="Discount Rate (CAPM)" value={form.discountRate} onChange={field("discountRate")} {...DISCOUNT_RATE_SLIDER} />
-        </div>
-      )}
-
-      <Table className="text-sm">
-        <TableBody>
-          {isTwentyYearMethod && (
-            <>
-              <ManualInputRow label={CURRENT_VALUE_LABELS[method]} sublabel="(in millions)" value={form.currentValue} onChange={field("currentValue")} kind="millions" />
-              <ManualInputRow
-                label="Shares Outstanding"
-                sublabel="(in millions)"
-                value={form.sharesOutstanding}
-                onChange={field("sharesOutstanding")}
-                kind="sharesMillions"
-              />
-              <ManualInputRow label="Total Debt" sublabel="(in millions)" value={form.totalDebt} onChange={field("totalDebt")} kind="millions" />
-              <ManualInputRow
-                label={`Cash${autoData.inputs.cash_and_st_investments_includes_short_term_investments ? " + ST Investments" : ""}`}
-                sublabel="(in millions)"
-                value={form.cashAndSt}
-                onChange={field("cashAndSt")}
-                kind="millions"
-              />
-            </>
-          )}
-
-          {isPB && (
-            <>
-              <ManualInputRow label="Book Value Per Share" value={form.bookValuePerShare} onChange={field("bookValuePerShare")} kind="currency" />
-              <ManualInputRow label="Mean P/B" value={form.pbMeanRatio} onChange={field("pbMeanRatio")} kind="ratio" />
-              <ManualInputRow label="SD P/B" value={form.pbSdRatio} onChange={field("pbSdRatio")} kind="ratio" />
-            </>
-          )}
-
-          {isPSG && (
-            <>
-              <ManualInputRow label="Sales Per Share" value={form.salesPerShare} onChange={field("salesPerShare")} kind="currency" />
-              <ManualInputRow label="Projected Growth Rate" value={form.projectedGrowthRate} onChange={field("projectedGrowthRate")} kind="pct" />
-              <ManualInputRow label="Fair PSG Ratio" value={form.fairPsgRatio} onChange={field("fairPsgRatio")} kind="ratio" />
-            </>
-          )}
-        </TableBody>
-      </Table>
-
-      {isPB && result?.pb_bands && <PBBandsTable bands={result.pb_bands} lastClose={autoData.inputs.last_close} />}
-
-      {mutationError && <p className="text-sm text-negative">{mutationError instanceof Error ? mutationError.message : "Calculation failed"}</p>}
-      {result?.error && <p className="text-sm text-warn">{result.error}</p>}
     </div>
   );
 }
