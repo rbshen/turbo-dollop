@@ -3,6 +3,7 @@ from sqlmodel import Session
 from core.cache import get_or_fetch, safe_fetch
 from core.config import settings
 from core.db import engine
+from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.schemas import FinancialsGroup, FinancialsLineItem, FinancialsOut, FinancialsPeriodOut, FinancialsStatementOut
 from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
@@ -376,9 +377,18 @@ async def get_financials_data(ticker: str, cache_only: bool = False) -> Financia
     balance_sheet_quarterly = balance_sheet_quarterly if isinstance(balance_sheet_quarterly, list) else []
 
     income_fields = [(None, INCOME_STATEMENT_FIELDS)]
+    # Cosmetic-only label (CLAUDE.md's non-USD currency investigation,
+    # decided scope #1) -- every figure above stays the company's raw
+    # reported number, un-converted; this just tells the frontend which
+    # currency that raw number actually is. income_annual's own row is as
+    # good a source as balance_sheet/cash_flow's -- reportedCurrency is the
+    # same value across all three for a given ticker/period (confirmed
+    # during the investigation).
+    reported_currency = _first(income_annual).get("reportedCurrency")
 
     return FinancialsOut(
         ticker=ticker,
+        reported_currency=reported_currency,
         income_statement=FinancialsStatementOut(
             annual=_annual_period(income_annual, income_quarterly, income_fields, ttm_mode="sum"),
             quarterly=_quarterly_period(income_quarterly, income_fields),

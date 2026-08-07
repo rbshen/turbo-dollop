@@ -183,3 +183,32 @@ def test_full_pipeline_missing_source_degrades_to_none_not_crash(monkeypatch):
     pe_row = next(item for item in result.groups[0].items if item.label == "P/E")
     assert pe_row.values[-1] is None or pe_row.values[-1] == 40.2  # annual is None, TTM still comes from ratios_ttm
     assert pe_row.values[-3:-1] == [None, None]
+
+
+def test_reported_currency_is_cosmetic_label_only_not_converted(monkeypatch):
+    # CLAUDE.md's non-USD currency investigation, decided scope #1: Ratios
+    # gets a cosmetic label only, the figures themselves stay raw/un-converted.
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch)
+
+    async def fake_ratios(ticker, period, limit):
+        return [{**row, "reportedCurrency": "EUR"} for row in RATIOS_ANNUAL]
+
+    monkeypatch.setattr(ratios_data.fmp_client, "get_ratios", fake_ratios)
+
+    result = asyncio.run(get_ratios_data("asml"))
+
+    assert result.reported_currency == "EUR"
+    # Raw priceToEarningsRatio, un-converted -- same values RATIOS_ANNUAL
+    # itself declares.
+    pe_row = next(item for item in result.groups[0].items if item.label == "P/E")
+    assert pe_row.values[-3:-1] == [37.3, 34.1]
+
+
+def test_reported_currency_none_for_usd_reporter(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch)
+
+    result = asyncio.run(get_ratios_data("aapl"))
+
+    assert result.reported_currency is None

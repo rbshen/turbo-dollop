@@ -258,3 +258,57 @@ def test_get_financials_data_end_to_end(monkeypatch):
     # Second call within the staleness window should hit the cache, not FMP again.
     asyncio.run(get_financials_data("aapl"))
     assert call_count == {"income": 2, "cash_flow": 2, "balance_sheet": 2}
+
+
+def test_reported_currency_is_cosmetic_label_only_not_converted(monkeypatch):
+    # CLAUDE.md's non-USD currency investigation, decided scope #1: Financials
+    # gets a cosmetic label only, the figures themselves stay raw/un-converted
+    # -- unlike Step 3's Valuation tab, which does convert.
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(financials_data, "engine", test_engine)
+
+    async def fake_income_statement(ticker, period, limit):
+        rows = FAKE_INCOME_QUARTERLY if period == "quarter" else FAKE_INCOME_ANNUAL
+        return [{**row, "reportedCurrency": "TWD"} for row in rows]
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return FAKE_CASH_FLOW_QUARTERLY if period == "quarter" else FAKE_CASH_FLOW_ANNUAL
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return FAKE_BALANCE_SHEET_QUARTERLY if period == "quarter" else FAKE_BALANCE_SHEET_ANNUAL
+
+    monkeypatch.setattr(financials_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(financials_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+    monkeypatch.setattr(financials_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+
+    result = asyncio.run(get_financials_data("tsm"))
+
+    assert result.reported_currency == "TWD"
+    # Raw revenue figure, un-converted -- same value FAKE_INCOME_ANNUAL[0]
+    # ("revenue") declares, not multiplied by any FX rate.
+    revenue_row = next(item for item in result.income_statement.annual.groups[0].items if item.label == "Revenue")
+    assert revenue_row.values[-2] == 400_000_000_000
+
+
+def test_reported_currency_none_for_usd_reporter(monkeypatch):
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(financials_data, "engine", test_engine)
+
+    async def fake_income_statement(ticker, period, limit):
+        return FAKE_INCOME_QUARTERLY if period == "quarter" else FAKE_INCOME_ANNUAL
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return FAKE_CASH_FLOW_QUARTERLY if period == "quarter" else FAKE_CASH_FLOW_ANNUAL
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return FAKE_BALANCE_SHEET_QUARTERLY if period == "quarter" else FAKE_BALANCE_SHEET_ANNUAL
+
+    monkeypatch.setattr(financials_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(financials_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+    monkeypatch.setattr(financials_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+
+    result = asyncio.run(get_financials_data("aapl"))
+
+    assert result.reported_currency is None

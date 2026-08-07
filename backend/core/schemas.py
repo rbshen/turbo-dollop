@@ -859,6 +859,13 @@ class FinancialsOut(BaseModel):
     income_statement: FinancialsStatementOut
     balance_sheet: FinancialsStatementOut
     cash_flow: FinancialsStatementOut
+    # FMP's `reportedCurrency` (e.g. "TWD"), None for USD reporters --
+    # cosmetic label only (see CLAUDE.md's non-USD currency investigation,
+    # decided scope #1). Every figure in this schema stays the company's
+    # raw reported number, deliberately never converted -- this field exists
+    # purely so the frontend can caption the table with which currency
+    # that raw number actually is.
+    reported_currency: str | None = None
 
 
 class RatiosOut(BaseModel):
@@ -871,6 +878,10 @@ class RatiosOut(BaseModel):
     ticker: str
     periods: list[str]
     groups: list[FinancialsGroup]
+    # Same cosmetic-only label as FinancialsOut.reported_currency above --
+    # per-share/money rows here stay raw/un-converted; ratio/percent rows
+    # are dimensionless and the label doesn't apply to them at all.
+    reported_currency: str | None = None
 
 
 class SegmentationOut(BaseModel):

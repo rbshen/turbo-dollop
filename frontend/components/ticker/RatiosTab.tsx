@@ -40,6 +40,13 @@ export function RatiosTab({ ticker }: Props) {
         <p className="text-xs text-text-tertiary">
           Annual figures (oldest to newest) plus a trailing-twelve-month (TTM) column. Quarterly ratios aren&apos;t
           available on our current data plan.
+          {data.reported_currency && data.reported_currency !== "USD" && (
+            <>
+              {" "}
+              Per-share/money rows are in {data.reported_currency}, as reported by {ticker}, not converted to USD
+              (unlike the Valuation tab).
+            </>
+          )}
         </p>
         <RatiosTable data={data} />
       </div>

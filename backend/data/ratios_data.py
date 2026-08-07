@@ -271,5 +271,11 @@ async def get_ratios_data(ticker: str, cache_only: bool = False) -> RatiosOut:
     periods = years + [f"TTM ({ttm_date})" if ttm_date else "TTM"]
 
     groups = _build_groups(key_metrics_annual, ratios_annual, key_metrics_ttm, ratios_ttm)
+    # Cosmetic-only label (CLAUDE.md's non-USD currency investigation,
+    # decided scope #1) -- per-share/money rows above stay raw/un-converted;
+    # this just tells the frontend which currency those rows actually are.
+    # ratios_annual over key_metrics_annual since money/per_share fields in
+    # this schema all come from the "ratios" source (see PER_SHARE_FIELDS).
+    reported_currency = _first(ratios_annual).get("reportedCurrency")
 
-    return RatiosOut(ticker=ticker, periods=periods, groups=groups)
+    return RatiosOut(ticker=ticker, periods=periods, groups=groups, reported_currency=reported_currency)

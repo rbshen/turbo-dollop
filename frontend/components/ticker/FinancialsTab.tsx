@@ -81,7 +81,12 @@ export function FinancialsTab({ ticker }: Props) {
         <SegmentedControl value={period} onChange={setPeriod} options={PERIOD_OPTIONS} />
       </div>
 
-      <p className="text-xs text-text-tertiary">All numbers are in USD millions, except per-share data, ratios, and percentages.</p>
+      <p className="text-xs text-text-tertiary">
+        All numbers are in {data.reported_currency ?? "USD"} millions, except per-share data, ratios, and percentages.
+        {data.reported_currency && data.reported_currency !== "USD" && (
+          <> Figures are as reported by {ticker}, not converted to USD (unlike the Valuation tab).</>
+        )}
+      </p>
 
       <FinancialsStatementTable data={statementData[period]} />
     </div>

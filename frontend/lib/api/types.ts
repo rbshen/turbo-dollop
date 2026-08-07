@@ -456,6 +456,9 @@ export interface RatiosOut {
   ticker: string;
   periods: string[];
   groups: FinancialsGroup[];
+  // FMP's reportedCurrency (e.g. "TWD"), null for a USD reporter --
+  // cosmetic label only, every row above stays raw/un-converted.
+  reported_currency: string | null;
 }
 
 export interface SegmentationOut {
@@ -475,6 +478,9 @@ export interface FinancialsOut {
   income_statement: FinancialsStatementOut;
   balance_sheet: FinancialsStatementOut;
   cash_flow: FinancialsStatementOut;
+  // FMP's reportedCurrency (e.g. "TWD"), null for a USD reporter --
+  // cosmetic label only, every figure above stays raw/un-converted.
+  reported_currency: string | null;
 }
 
 export type Step3Method = "DCF" | "DFCF" | "DNI" | "DNI_NORMALIZED" | "PRICE_TO_BOOK" | "PSG" | "PASS";
