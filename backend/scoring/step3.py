@@ -573,11 +573,18 @@ def run_manual_calculation(
     caller-supplied inputs (the Manual Calculation UI panel, pre-filled
     from live Auto Calculation data and then user-edited), reusing the same
     engines `get_step3_data` uses for the automatic answer rather than
-    duplicating any of this math a third time. `fx_rate` fixed at 1.0,
-    matching the rest of this app (see CLAUDE.md -- S&P 500/Dow, US-listed
-    USD-only tickers). No I/O: `last_close` is supplied by the caller
-    (already available from the live Auto Calculation fetch) rather than
-    re-fetched here."""
+    duplicating any of this math a third time. `fx_rate` fixed at 1.0 --
+    not because this app is USD-only (it isn't -- see CLAUDE.md's non-USD
+    currency conversion investigation), but because every monetary figure
+    reaching this function is already USD by construction: `get_step3_data`
+    converts each raw figure to USD once, upfront, right after pulling it
+    from FMP, before it ever lands in `Step3Inputs` (Manual Calculation's
+    pre-fill source) or a saved `TickerCustomValuation`'s parameters. A
+    user editing a pre-filled value in the UI is always editing a USD
+    number, never a local-currency one, so there's nothing left for this
+    function itself to convert. No I/O: `last_close` is supplied by the
+    caller (already available from the live Auto Calculation fetch) rather
+    than re-fetched here."""
     fx_rate = 1.0
 
     if method in _TWENTY_YEAR_METHODS:

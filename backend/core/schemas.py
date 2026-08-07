@@ -119,6 +119,12 @@ class TickerSummaryOut(BaseModel):
     # fair_value_verdict (Step 3 selected PASS with no active custom
     # valuation to fall back to).
     valuation_source: str | None = None
+    # Lifted from Step3Out.inputs.reported_currency -- None for a USD
+    # reporter. fair_value_price above is already USD either way; this is
+    # display-only, driving the header pill's compact currency badge (see
+    # FairValuePill.tsx) so a converted figure is never shown as if it were
+    # a native, un-converted number with no indication otherwise.
+    fair_value_reported_currency: str | None = None
 
 
 class Step1Out(BaseModel):
@@ -401,10 +407,29 @@ class Step3Inputs(BaseModel):
     discount_rate: float | None = None
     capm: Step3CapmComponents | None = None
     current_fiscal_year: str | None = None
-    # Hardcoded 1.0 for now -- this app's screener is S&P 500 (US-listed,
-    # USD-denominated) only, so the spec's HK/China cross-currency branch
-    # isn't built. Revisit if non-US tickers are ever added.
-    fx_rate: float = 1.0
+    # reported_currency: the ticker's FMP `reportedCurrency` (e.g. "TWD"),
+    # None for USD reporters (the vast majority) -- display-only, so the
+    # Valuation tab can caption "Converted from TWD @ ...". Every monetary
+    # field elsewhere in this schema (current_value, total_debt,
+    # cash_and_st_investments, book_value_per_share, sales_per_share, and
+    # current_value_candidates' own fields) is ALREADY converted to USD by
+    # the time it lands here -- step3_data.py converts each raw figure once,
+    # upfront, right after it's pulled from FMP, rather than deferring
+    # conversion to a later multiply -- so Manual Calculation's pre-fill and
+    # a saved Custom Valuation's parameters are always plain USD, never a
+    # local-currency figure the user would have to know to convert
+    # themselves. fx_rate below is therefore pure display metadata past
+    # this point, not something downstream math still needs to apply.
+    reported_currency: str | None = None
+    # The resolved reported_currency -> USD spot rate actually used for the
+    # conversion above (e.g. 0.0311 for TWD), None when no real conversion
+    # was needed (USD reporter) or when a non-USD conversion couldn't be
+    # resolved at all (Valuation reads as insufficient_data instead -- see
+    # step3_data.py's fx-resolution short-circuit). 1.0 for a USD reporter.
+    fx_rate: float | None = 1.0
+    # fetched_at of the cached forex_rate row this fx_rate came from --
+    # None for a USD reporter (no forex fetch ever attempted for one).
+    fx_rate_as_of: datetime | None = None
     last_close: float | None = None
 
     # --- Price-to-Book inputs ---

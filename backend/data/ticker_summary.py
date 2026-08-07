@@ -310,4 +310,5 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         fair_value_verdict=step3_out.verdict,
         fair_value_method=fair_value_method,
         valuation_source=step3_out.valuation_source,
+        fair_value_reported_currency=step3_out.inputs.reported_currency,
     )

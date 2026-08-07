@@ -292,6 +292,141 @@ def test_standard_company_has_no_benchmark_or_dividend_fields(monkeypatch):
     assert result.dividend_yield_pct is None
 
 
+# --- Non-USD reportedCurrency conversion -------------------------------------
+
+
+def test_usd_reporter_never_fetches_fx_and_stays_1_0(monkeypatch):
+    # INCOME_ANNUAL/etc. (the shared _patch_real_data fixture) never sets
+    # reportedCurrency at all -- same as a genuine USD-reporting ticker's
+    # real FMP payload. Must resolve fx_rate=1.0 with zero forex fetches,
+    # not just a coincidentally-correct fx_rate.
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fail_if_called(from_currency):
+        raise AssertionError(f"get_forex_quote should never be called for a USD reporter (got {from_currency!r})")
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_forex_quote", fail_if_called)
+
+    result = asyncio.run(get_step3_data("TEST"))
+
+    assert result.inputs.reported_currency is None
+    assert result.inputs.fx_rate == 1.0
+    assert result.inputs.fx_rate_as_of is None
+
+
+def test_non_usd_reporter_converts_every_monetary_input_to_usd(monkeypatch):
+    # Bank/P-B fixture (same shape as test_bank_gets_pb_benchmark_and_buy_
+    # signal) -- picked because P/B's math is the easiest to hand-verify:
+    # mean_pb(1.0) * book_value_per_share(50.0 TWD) * fx_rate(0.05) == 2.5
+    # USD, with no engine/discount-rate machinery involved.
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_profile(ticker):
+        return [{"sector": "Financial Services", "industry": "Banks - Diversified", "beta": 1.1}]
+
+    async def fake_income_statement(ticker, period, limit):
+        rows = INCOME_ANNUAL if period == "annual" else INCOME_QUARTERLY
+        return [{**row, "reportedCurrency": "TWD"} for row in rows]
+
+    async def fake_ratios(ticker, period, limit):
+        return [{"fiscalYear": str(2025 - i), "priceToBookRatio": 1.0, "bookValuePerShare": 50.0} for i in range(10)]
+
+    async def fake_forex_quote(from_currency):
+        assert from_currency == "TWD"
+        return [{"symbol": "TWDUSD", "price": 0.05}]
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step3_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step3_data.fmp_client, "get_ratios", fake_ratios)
+    monkeypatch.setattr(step3_data.fmp_client, "get_forex_quote", fake_forex_quote)
+
+    result = asyncio.run(get_step3_data("jpm"))
+
+    assert result.company_type == "Bank"
+    assert result.selected_method == "PRICE_TO_BOOK"
+    assert result.inputs.reported_currency == "TWD"
+    assert result.inputs.fx_rate == pytest.approx(0.05)
+    assert result.inputs.fx_rate_as_of is not None
+    # book_value_per_share converted (50.0 TWD * 0.05 == 2.5 USD) -- the
+    # displayed/pre-fill-able raw input, not just the final band.
+    assert result.inputs.book_value_per_share == pytest.approx(2.5)
+    assert result.pb_bands is not None
+    assert result.pb_bands.mean == pytest.approx(2.5)
+    assert result.intrinsic_value_per_share == pytest.approx(2.5)
+
+
+def test_non_usd_reporter_with_no_fx_rate_available_is_insufficient_data(monkeypatch):
+    # FX fetch fails AND no cached rate (fresh or stale) exists at all --
+    # must never silently fall back to fx_rate=1.0 (which would render a
+    # raw-TWD-scale number as if it were USD). Must read insufficient_data,
+    # same shape as a genuine total-fetch-failure case elsewhere in this
+    # file, never a fabricated numeric valuation.
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_income_statement(ticker, period, limit):
+        rows = INCOME_ANNUAL if period == "annual" else INCOME_QUARTERLY
+        return [{**row, "reportedCurrency": "TWD"} for row in rows]
+
+    async def fake_forex_quote(from_currency):
+        raise httpx.ConnectError("boom")
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step3_data.fmp_client, "get_forex_quote", fake_forex_quote)
+
+    result = asyncio.run(get_step3_data("TEST"))
+
+    assert result.selected_method == "PASS"
+    assert result.insufficient_data is True
+    assert result.intrinsic_value_per_share is None
+    assert result.inputs.reported_currency == "TWD"
+    assert result.inputs.fx_rate is None
+    assert "TWD" in result.pass_reason
+    assert "→USD" in result.pass_reason
+
+
+def test_non_usd_reporter_falls_back_to_stale_cached_fx_rate_on_fetch_failure(monkeypatch):
+    # A real rate was cached previously (now past the 1-day staleness
+    # window) and the live refetch fails -- must reuse the stale rate
+    # rather than treating this the same as "no rate ever available."
+    from datetime import datetime, timedelta
+
+    from core.models import FundamentalsCache
+
+    test_engine = _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    with Session(test_engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="TWDUSD",
+                statement_type="forex_rate",
+                period="latest",
+                fetched_at=datetime.now() - timedelta(days=30),
+                raw_json=json.dumps([{"symbol": "TWDUSD", "price": 0.031}]),
+            )
+        )
+        session.commit()
+
+    async def fake_income_statement(ticker, period, limit):
+        rows = INCOME_ANNUAL if period == "annual" else INCOME_QUARTERLY
+        return [{**row, "reportedCurrency": "TWD"} for row in rows]
+
+    async def fake_forex_quote(from_currency):
+        raise httpx.ConnectError("boom")
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step3_data.fmp_client, "get_forex_quote", fake_forex_quote)
+
+    result = asyncio.run(get_step3_data("TEST"))
+
+    assert result.inputs.reported_currency == "TWD"
+    assert result.inputs.fx_rate == pytest.approx(0.031)
+    assert result.insufficient_data is False
+
+
 # --- get_active_valuation: Auto vs. an active/inactive TickerCustomValuation ---
 
 _PSG_PARAMS = {

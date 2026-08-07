@@ -1,8 +1,12 @@
-from sqlmodel import Session
+import json
+from datetime import datetime
+
+from sqlmodel import Session, select
 
 from core.cache import get_or_fetch, safe_fetch
 from core.config import settings
 from core.db import engine
+from core.models import FundamentalsCache
 from helpers.debt_metrics import compute_debt_metrics
 from helpers.discount_rate_config import get_discount_rate_config
 from helpers.first import _first
@@ -54,6 +58,74 @@ GROWTH_YR_6_10_CAP = 0.15
 # 10yr+TTM convention elsewhere -- see CLAUDE.md's Step 1/4 deviations).
 PB_LOOKBACK_LONG = 10
 PB_LOOKBACK_SHORT = 5
+
+
+async def _resolve_fx_rate(
+    session: Session,
+    reported_currency: str | None,
+    staleness_days: int,
+    cache_only: bool,
+) -> tuple[float | None, datetime | None]:
+    """Resolves a ticker's reportedCurrency -> USD spot rate, cached the
+    same way fundamentals are (FundamentalsCache, via the shared
+    get_or_fetch/staleness machinery) rather than fetched fresh on every
+    request -- see CLAUDE.md's non-USD currency conversion investigation.
+    None/"USD" short-circuits to (1.0, None) with zero FMP calls -- every
+    USD-reporting ticker (the vast majority) keeps today's exact behavior.
+
+    Returns (None, None) -- never (1.0, None) -- when a real non-USD
+    conversion is needed but no rate, fresh or stale, could be resolved at
+    all. Silently defaulting to 1.0 here would render a wildly-wrong
+    Fair Value at the ticker's raw local-currency scale; the caller must
+    treat this as insufficient_data instead.
+
+    A stale-but-real cached row is queried up front so a live fetch failure
+    below (FMP outage/rate limit) can still fall back to it: get_or_fetch's
+    own "prefer stale over nothing" behavior is normally exclusive to the
+    cache_only=True path (nightly cron/recompute) -- a live request whose
+    refetch throws would otherwise lose an otherwise-perfectly-usable stale
+    rate to safe_fetch's {} convention. This local fallback stays scoped to
+    this one call site rather than changing get_or_fetch's own shared
+    contract, which dozens of other call sites also depend on."""
+    if not reported_currency or reported_currency == "USD":
+        return 1.0, None
+
+    fx_symbol = f"{reported_currency}USD"
+
+    def _cached_row() -> FundamentalsCache | None:
+        return session.exec(
+            select(FundamentalsCache).where(
+                FundamentalsCache.ticker == fx_symbol,
+                FundamentalsCache.statement_type == "forex_rate",
+                FundamentalsCache.period == "latest",
+            )
+        ).first()
+
+    existing_row = _cached_row()
+
+    fx_quote = await safe_fetch(
+        "forex_rate",
+        get_or_fetch(
+            session,
+            fx_symbol,
+            "forex_rate",
+            "latest",
+            lambda: fmp_client.get_forex_quote(reported_currency),
+            staleness_days,
+            cache_only,
+        ),
+    )
+    fx_rate = _first(fx_quote).get("price")
+    if fx_rate is not None:
+        fx_row = _cached_row()
+        return fx_rate, fx_row.fetched_at if fx_row else None
+
+    if existing_row is not None:
+        stale_rate = _first(json.loads(existing_row.raw_json)).get("price")
+        if stale_rate is not None:
+            return stale_rate, existing_row.fetched_at
+
+    return None, None
 
 
 def _annual_series(annual_rows: list[dict], field: str) -> tuple[list[str], list[float | None]]:
@@ -183,6 +255,23 @@ async def get_step3_data(
                 cache_only,
             ),
         )
+        # income_annual is still its raw safe_fetch result here (list, {},
+        # or a genuinely malformed payload) -- _first handles all three the
+        # same way _annual_series/etc. below do, so reading reportedCurrency
+        # ahead of the list-coercion line below is safe. Resolved inside
+        # this session block since _resolve_fx_rate needs it (get_or_fetch's
+        # own cache read/write) -- and deliberately BEFORE
+        # get_discount_rate_config below: get_or_fetch's own write path can
+        # commit() this session (a live forex fetch caching its result),
+        # which -- with SQLAlchemy's default expire_on_commit=True --
+        # expires every ORM object already read from this session,
+        # including discount_rate_row. get_discount_rate_config must stay
+        # the session block's true last statement so nothing after it can
+        # commit and expire it before its attributes are read outside the
+        # `with` block below.
+        reported_currency = _first(income_annual).get("reportedCurrency")
+        fx_rate, fx_rate_as_of = await _resolve_fx_rate(session, reported_currency, staleness_days, cache_only)
+
         # Risk-Free Rate and Market Risk Premium are both manual, human-
         # maintained settings (see /settings and CLAUDE.md) -- read inside
         # this session block since discount_rate_config.py's helper takes a
@@ -199,6 +288,32 @@ async def get_step3_data(
 
     company_type = classify_company_type(profile.get("sector"), profile.get("industry"), ticker)
 
+    if reported_currency and reported_currency != "USD" and fx_rate is None:
+        # A genuine non-USD ticker whose FX rate couldn't be resolved at
+        # all (FMP outage/rate-limit AND no cached rate, fresh or stale, to
+        # fall back to) -- every monetary figure below would need this rate
+        # to become a meaningful USD value, so there's no partial result
+        # worth computing. Mirrors the total-fetch-failure PASS/
+        # insufficient_data shape the rest of this function already uses
+        # for other missing-data cases, rather than inventing a new state.
+        return Step3Out(
+            ticker=ticker,
+            company_type=company_type,
+            selected_method="PASS",
+            pass_reason=(
+                f"Could not resolve a {reported_currency}→USD exchange rate "
+                "(FMP fetch failed and no cached rate was available) -- "
+                "Valuation is unavailable until FX data can be fetched."
+            ),
+            insufficient_data=True,
+            inputs=Step3Inputs(
+                growth_yr_11_20=TERMINAL_GROWTH_RATE_DEFAULT,
+                reported_currency=reported_currency,
+                fx_rate=None,
+                last_close=quote.get("price"),
+            ),
+        )
+
     years, revenue_annual = _annual_series(income_annual, "revenue")
     _, net_income_annual = _annual_series(income_annual, "netIncome")
 
@@ -214,6 +329,31 @@ async def get_step3_data(
     cfo_ttm = sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities").total
     capex_ttm = sum_last_four_quarters(cash_flow_quarterly, "capitalExpenditure").total
     fcf_ttm = cfo_ttm + capex_ttm if cfo_ttm is not None and capex_ttm is not None else None
+
+    # Convert every monetary figure to USD once, immediately after it's
+    # pulled from FMP -- rather than deferring conversion to a final
+    # multiply inside run_20yr_engine/run_price_to_book/run_psg -- so every
+    # downstream consumer of these raw figures (the Model Valuation panel's
+    # own displayed inputs, Manual Calculation's pre-fill, a saved Custom
+    # Valuation's parameters) sees genuine USD, never a local-currency
+    # number masquerading as one. fx_rate is guaranteed non-None here (the
+    # short-circuit above already returned for the one case it wouldn't
+    # be) and is exactly 1.0 for the ~546 USD-reporting tickers in the
+    # tracked universe -- multiplying by 1.0 is an exact IEEE754 no-op, so
+    # this is a byte-for-byte no-change for them. select_method below is
+    # unaffected either way: every check it runs (CFO/NI ratio, CAGR,
+    # trend shape) is scale-invariant, so converting before or after
+    # method selection can never change which method gets picked.
+    revenue_annual = [v * fx_rate if v is not None else None for v in revenue_annual]
+    net_income_annual = [v * fx_rate if v is not None else None for v in net_income_annual]
+    cfo_annual = [v * fx_rate if v is not None else None for v in cfo_annual]
+    capex_annual = [v * fx_rate if v is not None else None for v in capex_annual]
+    fcf_annual = [v * fx_rate if v is not None else None for v in fcf_annual]
+    revenue_ttm = revenue_ttm * fx_rate if revenue_ttm is not None else None
+    net_income_ttm = net_income_ttm * fx_rate if net_income_ttm is not None else None
+    cfo_ttm = cfo_ttm * fx_rate if cfo_ttm is not None else None
+    capex_ttm = capex_ttm * fx_rate if capex_ttm is not None else None
+    fcf_ttm = fcf_ttm * fx_rate if fcf_ttm is not None else None
 
     # Clean (no-None), chronological series for the method-selection tree --
     # trend classification needs a gap-free run, same convention step1_data.py
@@ -258,6 +398,7 @@ async def get_step3_data(
     # (spec gotcha #6) -- compute_debt_metrics already implements exactly
     # this rule, shared with Step 5 and the ticker header.
     debt_metrics = compute_debt_metrics(balance_sheet_latest, income_quarterly)
+    total_debt = debt_metrics.total_debt * fx_rate if debt_metrics.total_debt is not None else None
 
     cash_only = balance_sheet_latest.get("cashAndCashEquivalents")
     cash_incl_st_investments = balance_sheet_latest.get("cashAndShortTermInvestments")
@@ -267,8 +408,11 @@ async def get_step3_data(
     # approximated as "cash only" vs "cash + all short-term investments"
     # (which may include equity positions, undifferentiated). Defaults to
     # the combined figure; Phase 3 exposes both for the user-visible toggle
-    # the spec explicitly asks for.
+    # the spec explicitly asks for. cash_incl_st_investments itself (not the
+    # converted figure) still drives the includes-short-term-investments
+    # flag below, unaffected by currency.
     cash_and_st_investments = cash_incl_st_investments if cash_incl_st_investments is not None else cash_only
+    cash_and_st_investments = cash_and_st_investments * fx_rate if cash_and_st_investments is not None else None
 
     shares_outstanding, shares_source = compute_shares_outstanding(quote, income_quarterly)
 
@@ -337,11 +481,21 @@ async def get_step3_data(
         pb_lookback = f"{PB_LOOKBACK_LONG} years"
     elif len(pb_history) >= PB_LOOKBACK_SHORT:
         pb_lookback = f"{PB_LOOKBACK_SHORT} years"
+    # pb_history (priceToBookRatio) is a dimensionless multiple -- FMP's own
+    # ratio, computed against whichever price basis FMP used internally,
+    # self-consistent with bookValuePerShare from that same row either way
+    # -- never itself converted. book_value_per_share (a real per-share
+    # monetary figure) is.
     book_value_per_share = _first(ratios_annual).get("bookValuePerShare")
+    book_value_per_share = book_value_per_share * fx_rate if book_value_per_share is not None else None
 
     # Computed unconditionally (not just when PRICE_TO_BOOK is the
     # auto-selected method) so Manual Calculation can pre-fill a real
     # mean/SD P/B pair regardless of which method the user selects there.
+    # fx_rate=1.0 here is deliberate, not a leftover -- book_value_per_share
+    # is already USD by this point (converted above), so run_price_to_book
+    # must not convert it a second time. See Step3Inputs.fx_rate's own
+    # docstring for why every engine call in this function passes 1.0.
     pb_result = None
     if book_value_per_share is not None and pb_lookback is not None:
         pb_result = run_price_to_book(
@@ -354,6 +508,7 @@ async def get_step3_data(
 
     # PSG inputs.
     sales_per_share = _first(ratios_annual).get("revenuePerShare")
+    sales_per_share = sales_per_share * fx_rate if sales_per_share is not None else None
 
     # Additive, informational-only fields (CLAUDE.md's Bank/REIT/Insurance
     # investigation) -- never change intrinsic_value_per_share/
@@ -375,6 +530,11 @@ async def get_step3_data(
     # already uses for the TTM equivalent from /ratios-ttm).
     dividend_yield_raw = _first(ratios_annual).get("dividendYield")
     dividend_yield_pct = dividend_yield_raw * 100 if dividend_yield_raw is not None else None
+    # Known gap, deliberately deferred: dividendPerShare (a real per-share
+    # monetary figure) is left un-converted here -- dpu_growth_note is
+    # informational text only (never feeds verdict/score), and no
+    # currently-tracked non-USD ticker is a REIT, so this is low-stakes for
+    # now. Convert (dpu * fx_rate) if a non-USD REIT is ever added.
     dpu_series = list(reversed([row.get("dividendPerShare") for row in ratios_annual]))
     is_reit = company_type == "REIT/Property Developer"
 
@@ -382,7 +542,7 @@ async def get_step3_data(
         current_value=current_value,
         current_value_label=current_value_label,
         current_value_candidates=current_value_candidates,
-        total_debt=debt_metrics.total_debt,
+        total_debt=total_debt,
         cash_and_st_investments=cash_and_st_investments,
         cash_and_st_investments_includes_short_term_investments=cash_incl_st_investments is not None,
         growth_yr_1_5=growth_yr_1_5,
@@ -394,7 +554,9 @@ async def get_step3_data(
         discount_rate=discount_rate,
         capm=capm,
         current_fiscal_year=current_fiscal_year,
-        fx_rate=1.0,
+        reported_currency=reported_currency,
+        fx_rate=fx_rate,
+        fx_rate_as_of=fx_rate_as_of,
         last_close=quote.get("price"),
         book_value_per_share=book_value_per_share,
         historical_pb_ratios=pb_history or None,
@@ -429,7 +591,11 @@ async def get_step3_data(
                 shares_outstanding=inputs.shares_outstanding,
                 total_debt=inputs.total_debt,
                 cash_and_st_investments=inputs.cash_and_st_investments,
-                fx_rate=inputs.fx_rate,
+                # 1.0, not inputs.fx_rate -- current_value/total_debt/
+                # cash_and_st_investments above are already USD (converted
+                # upfront, see the comment where revenue_ttm/etc. are
+                # converted); using inputs.fx_rate here would convert twice.
+                fx_rate=1.0,
                 last_close=inputs.last_close,
             )
             intrinsic_value_per_share = engine_result.intrinsic_value_per_share
@@ -445,7 +611,10 @@ async def get_step3_data(
                 sales_per_share=inputs.sales_per_share,
                 projected_growth_rate=inputs.projected_growth_rate,
                 fair_psg_ratio=inputs.fair_psg_ratio,
-                fx_rate=inputs.fx_rate,
+                # 1.0, not inputs.fx_rate -- sales_per_share is already USD
+                # (converted upfront); see the 20yr-engine call above for
+                # the same reasoning.
+                fx_rate=1.0,
                 last_close=inputs.last_close,
             )
             intrinsic_value_per_share = psg_result.intrinsic_value_per_share

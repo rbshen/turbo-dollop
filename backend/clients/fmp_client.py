@@ -98,6 +98,21 @@ class FMPClient:
     async def get_quote(self, ticker: str) -> dict | list:
         return await self.get("/quote", {"symbol": ticker})
 
+    async def get_forex_quote(self, from_currency: str) -> dict | list:
+        """Spot rate for `from_currency` -> USD, via the same `/quote`
+        endpoint every stock ticker uses -- FMP serves forex pairs there
+        too. Confirmed live: querying "<CCY>USD" (e.g. "TWDUSD", "EURUSD")
+        always returns `price` as USD per 1 unit of `from_currency`
+        directly, regardless of which side of the pair is conventionally
+        quoted as the base in interbank FX (EUR/GBP-style pairs are
+        normally quoted EUR-as-base against USD, unlike TWD/CAD/CNY/SGD/DKK)
+        -- FMP supports both directions for every pair, so always picking
+        the "<CCY>USD" direction avoids needing a per-currency lookup table
+        for which side is "normal." Used by step3_data.py's non-USD
+        reported-currency conversion; never called for a USD-reporting
+        ticker."""
+        return await self.get("/quote", {"symbol": f"{from_currency}USD"})
+
     async def get_price_change(self, ticker: str) -> dict | list:
         return await self.get("/stock-price-change", {"symbol": ticker})
 
