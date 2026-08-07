@@ -1,4 +1,4 @@
-import { fmtMoney, fmtPct } from "@/lib/format";
+import { fmtMoney, fmtNumber, fmtPct } from "@/lib/format";
 
 interface Props {
   /** Fraction, e.g. -0.218 for -21.8%. Drives both the discount/premium
@@ -6,6 +6,21 @@ interface Props {
   discountPremiumPct: number | null;
   intrinsicValuePerShare: number | null;
   lastClose: number | null;
+  /** FMP's reportedCurrency (e.g. "TWD") -- null for a USD reporter, in
+   * which case no FX caption renders at all. See CLAUDE.md's non-USD
+   * currency conversion investigation. */
+  reportedCurrency?: string | null;
+  /** The reportedCurrency -> USD spot rate actually applied. */
+  fxRate?: number | null;
+  /** ISO timestamp of when fxRate was fetched. */
+  fxRateAsOf?: string | null;
+}
+
+function fxCaption(reportedCurrency: string | null | undefined, fxRate: number | null | undefined, fxRateAsOf: string | null | undefined): string | null {
+  if (!reportedCurrency || reportedCurrency === "USD") return null;
+  if (fxRate == null) return `${reportedCurrency} → USD rate unavailable — Valuation may be incomplete.`;
+  const asOf = fxRateAsOf ? new Date(fxRateAsOf).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : null;
+  return `Converted from ${reportedCurrency} @ ${fmtNumber(fxRate, 4)}${asOf ? ` (as of ${asOf})` : ""}`;
 }
 
 function clamp(v: number, min: number, max: number): number {
@@ -21,7 +36,7 @@ function clamp(v: number, min: number, max: number): number {
 // directly above it -- Auto and Manual used to each duplicate that block
 // separately; consolidating it here means both columns render identically
 // from one component instead of two hand-kept-in-sync copies.
-export function ValuationGauge({ discountPremiumPct, intrinsicValuePerShare, lastClose }: Props) {
+export function ValuationGauge({ discountPremiumPct, intrinsicValuePerShare, lastClose, reportedCurrency, fxRate, fxRateAsOf }: Props) {
   // discountPremiumPct is a fraction (e.g. -0.218) -- the CSS formula in the
   // handoff operates on the percentage number (-21.8), not the fraction.
   const markerLeft = discountPremiumPct != null ? clamp(50 + discountPremiumPct * 100 * 0.7, 3, 97) : null;
@@ -29,6 +44,7 @@ export function ValuationGauge({ discountPremiumPct, intrinsicValuePerShare, las
   // the good/green case; positive ("premium") is overvalued/red. Matches
   // FairValuePill's own undervalued=positive/overvalued=negative mapping.
   const pctClass = discountPremiumPct == null ? "text-text-tertiary" : discountPremiumPct < 0 ? "text-positive" : discountPremiumPct > 0 ? "text-negative" : "text-text-tertiary";
+  const caption = fxCaption(reportedCurrency, fxRate, fxRateAsOf);
 
   return (
     <div className="space-y-3" role="img" aria-label="Intrinsic value vs stock price gauge">
@@ -41,6 +57,7 @@ export function ValuationGauge({ discountPremiumPct, intrinsicValuePerShare, las
         )}
       </div>
       <p className="text-xs text-text-tertiary">vs last close {lastClose != null ? fmtMoney(lastClose) : "—"}</p>
+      {caption && <p className="text-xs text-text-tertiary">{caption}</p>}
 
       <div className="relative pt-2">
         <div

@@ -97,6 +97,7 @@ export function TickerHeader({ symbol }: Props) {
           price={data.fair_value_price}
           method={data.fair_value_method}
           source={data.valuation_source}
+          reportedCurrency={data.fair_value_reported_currency}
           variant="flat"
         />
         <MoatPill moat={moatData?.moat} variant="flat" />

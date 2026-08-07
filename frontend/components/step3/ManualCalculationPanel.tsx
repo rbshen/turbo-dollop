@@ -520,6 +520,9 @@ function ManualCalculationControls({
         discountPremiumPct={result?.discount_premium_pct ?? null}
         intrinsicValuePerShare={result?.intrinsic_value_per_share ?? null}
         lastClose={autoData.inputs.last_close}
+        reportedCurrency={autoData.inputs.reported_currency}
+        fxRate={autoData.inputs.fx_rate}
+        fxRateAsOf={autoData.inputs.fx_rate_as_of}
       />
 
       <div className="flex items-center justify-between text-sm">

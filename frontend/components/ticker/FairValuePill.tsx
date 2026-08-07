@@ -41,12 +41,18 @@ interface Props {
    * Auto-derived verdict with a user's own override (see CLAUDE.md's Fork
    * B scope decision). Undefined/"auto"/null all render nothing extra. */
   source?: ValuationSource | null;
+  /** FMP's reportedCurrency (e.g. "TWD") -- undefined/null/"USD" all render
+   * nothing extra. `price` is already USD either way (converted
+   * server-side); this is a compact "converted from X" indicator only --
+   * no rate/timestamp here, that detail lives on the Valuation tab's own
+   * caption (see ValuationGauge). */
+  reportedCurrency?: string | null;
   // "chip" (default): bordered pill. "flat": borderless, same height as
   // ScreenerCard's other pills (MoatPill's "flat" variant, ValuationBadge).
   variant?: "chip" | "flat";
 }
 
-export function FairValuePill({ verdict, price, method, source, variant = "chip" }: Props) {
+export function FairValuePill({ verdict, price, method, source, reportedCurrency, variant = "chip" }: Props) {
   if (!verdict || price == null) return null;
   const cls = variant === "chip" ? (VERDICT_STYLES[verdict] ?? VERDICT_STYLES.fair) : (FLAT_VERDICT_STYLES[verdict] ?? FLAT_VERDICT_STYLES.fair);
   const label = VERDICT_LABELS[verdict] ?? verdict;
@@ -62,6 +68,11 @@ export function FairValuePill({ verdict, price, method, source, variant = "chip"
       {label} ·<span className="font-mono tabular-nums">{fmtMoney(price)}</span>
       {method && <span className="font-normal opacity-70">({method})</span>}
       {source === "custom" && <span className="font-normal opacity-70">· Custom</span>}
+      {reportedCurrency && reportedCurrency !== "USD" && (
+        <span className="font-normal opacity-70" title={`Converted from ${reportedCurrency}`}>
+          · {reportedCurrency}
+        </span>
+      )}
     </span>
   );
 }

@@ -233,7 +233,14 @@ export function Step3Card({ ticker }: Props) {
             </p>
           ) : (
             <>
-              <ValuationGauge discountPremiumPct={data.discount_premium_pct} intrinsicValuePerShare={data.intrinsic_value_per_share} lastClose={data.inputs.last_close} />
+              <ValuationGauge
+                discountPremiumPct={data.discount_premium_pct}
+                intrinsicValuePerShare={data.intrinsic_value_per_share}
+                lastClose={data.inputs.last_close}
+                reportedCurrency={data.inputs.reported_currency}
+                fxRate={data.inputs.fx_rate}
+                fxRateAsOf={data.inputs.fx_rate_as_of}
+              />
 
               {/* Discount/Premium, growth rows, Current Value/Discount
                   Rate/Shares/Total Debt/Cash, and the PSG fields all share

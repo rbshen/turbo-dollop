@@ -89,6 +89,10 @@ export interface TickerSummaryOut {
   fair_value_method: string | null;
   // "auto" / "custom" -- which source fair_value_* above came from.
   valuation_source: ValuationSource | null;
+  // FMP's reportedCurrency (e.g. "TWD"), null for a USD reporter --
+  // display-only, drives FairValuePill's compact currency badge.
+  // fair_value_price above is already USD either way.
+  fair_value_reported_currency: string | null;
 }
 
 export interface Step1TrendComponent {
@@ -527,7 +531,21 @@ export interface Step3Inputs {
   discount_rate: number | null;
   capm: Step3CapmComponents | null;
   current_fiscal_year: string | null;
-  fx_rate: number;
+  // FMP's reportedCurrency (e.g. "TWD"), null for a USD reporter --
+  // display-only. Every monetary field on this interface (current_value,
+  // total_debt, cash_and_st_investments, book_value_per_share,
+  // sales_per_share, current_value_candidates' own fields) is already
+  // converted to USD, whether or not this is set.
+  reported_currency: string | null;
+  // The resolved reported_currency -> USD spot rate actually used, null
+  // when no conversion was needed (USD reporter) OR when a non-USD
+  // conversion couldn't be resolved at all (selected_method reads PASS
+  // with insufficient_data=true instead of a fabricated 1.0-rate value).
+  // 1.0 for a USD reporter.
+  fx_rate: number | null;
+  // fetched_at of the cached forex rate this fx_rate came from -- null for
+  // a USD reporter (no forex fetch ever attempted for one).
+  fx_rate_as_of: string | null;
   last_close: number | null;
   // Price-to-Book inputs.
   book_value_per_share: number | null;
