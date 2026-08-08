@@ -1114,23 +1114,27 @@ these are the design decisions and fixes behind them.
   `<rate>` (as of `<date>`)"). `docs/valuation.md` was checked too (per
   this fix's own instructions) but has no FX-related content at all, stale
   or otherwise — no change needed there.
-  - **Found, not fixed (docs-only task, no code changes made):**
-    `backend/core/config.py` defines `fx_rate_staleness_days = 1`, with a
-    comment explaining it's deliberately tighter than
+  - **Found, then resolved (2026-08-08, follow-up cleanup):**
+    `backend/core/config.py` defined `fx_rate_staleness_days = 1`, with a
+    comment explaining it was intended to be tighter than
     `cache_staleness_days` (7 days) since "a forex spot rate moves daily"
-    — and `dd5045f`'s own commit message claims the FX cache uses this
-    1-day setting. It doesn't: `data/step3_data.py::get_step3_data` passes
-    the general `cache_staleness_days` (not `fx_rate_staleness_days`) into
-    `_resolve_fx_rate` at its only call site. `fx_rate_staleness_days` is
-    otherwise unreferenced anywhere in the codebase — confirmed via
-    project-wide grep. Net effect: a non-USD ticker's FX rate is
-    genuinely refetched only every 7 days, not daily as intended/
-    documented in the setting's own comment and the original commit
-    message. `valuation.md` §2.1b now documents the *actual* (7-day)
-    behavior, not the aspirational 1-day one. Not fixed here since this
-    pass was scoped docs-only; a real follow-up would either wire
-    `fx_rate_staleness_days` into that call site or delete the unused
-    setting.
+    — and `dd5045f`'s own commit message claimed the FX cache used this
+    1-day setting. It never did: `data/step3_data.py::get_step3_data`
+    always passed the general `cache_staleness_days` (not
+    `fx_rate_staleness_days`) into `_resolve_fx_rate` at its only call
+    site, and `fx_rate_staleness_days` was otherwise unreferenced anywhere
+    in the codebase — confirmed via project-wide grep. Rather than wire
+    the unused setting in (which would have changed live FX-refresh
+    behavior from 7 days to 1), the user's call was to keep FX rate
+    refresh aligned with the same `cache_staleness_days` window as
+    fundamentals — this is a genuine choice, not just accepting the
+    accidental status quo: a spot rate moving daily doesn't necessarily
+    need a tighter cache than fundamentals if the intrinsic-value
+    calculation it feeds is itself only meaningfully updated on a similar
+    cadence. `fx_rate_staleness_days` was deleted (not wired in) as a
+    result; `valuation.md` §2.1b no longer mentions a separate FX
+    staleness setting at all, describing the single shared 7-day window
+    only.
 
 ## Workflow rules
 

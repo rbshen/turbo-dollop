@@ -211,13 +211,10 @@ of this document claimed.
   endpoint), cached the same way fundamentals are — via the same
   `FundamentalsCache` table and `get_or_fetch`/staleness machinery every
   other fetch in this app uses, keyed as its own `forex_rate`/`latest`
-  cache row per currency pair. Refetched once the cached row exceeds the
-  configured staleness window: `Settings.cache_staleness_days`, default 7
-  days — the same window every other fundamentals fetch in this app uses,
-  **not** a separate, tighter FX-specific window, despite a
-  `fx_rate_staleness_days = 1` setting existing in `backend/core/config.py`
-  — that setting is currently unused/dead code, not wired into the actual
-  fetch call. See CLAUDE.md's Item 4 doc-fix note.
+  cache row per currency pair, on the same `Settings.cache_staleness_days`
+  window (default 7 days) as every other fundamentals fetch in this app —
+  a deliberate choice to keep FX refresh aligned with fundamentals rather
+  than running its own separate cadence.
 - **Never a silent fallback to 1.0.** If a live forex fetch fails and no
   cached rate (fresh or stale) exists at all, the whole ticker reads
   `selected_method = "PASS"` / `insufficient_data = true` with an explicit

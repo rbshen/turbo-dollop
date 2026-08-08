@@ -26,12 +26,6 @@ class Settings(BaseSettings):
     # ticker inside that universe is upserted in place forever, never
     # accumulating rows) -- see pipeline/prune_cache.py.
     cache_retention_days: int = 180
-    # Deliberately much tighter than cache_staleness_days -- fundamentals
-    # (revenue, balance sheet) only change a few times a year, but a forex
-    # spot rate moves daily. 1 day balances "not a week-stale rate" against
-    # "not refetching on every request" -- see the non-USD currency
-    # conversion investigation in CLAUDE.md-adjacent notes / step3_data.py.
-    fx_rate_staleness_days: int = 1
     # News is far more time-sensitive than fundamentals -- a short TTL
     # (minutes, not days) so repeat tab views within a session don't each
     # hit FMP, without pretending news is as static as financials. See
