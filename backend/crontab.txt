@@ -25,6 +25,18 @@
 # ModuleNotFoundError. Confirmed by actually running both forms.
 0 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_fundamentals_fetch >> /home/shen/fathom/backend/logs/nightly_fundamentals_fetch_cron.log 2>&1
 
+# Nightly full-universe TickerScore recompute, 2:50 AM server time -- after
+# the nightly fetch above (which usually finishes well under 30 min on a
+# warm cache, and already recomputes scores for its own S&P 500/Dow
+# tickers at the end of its per-ticker loop). This sweep's real value is
+# every OTHER tracked ticker (any ticker ever viewed ad hoc, outside the
+# index universe) -- built after the IREN/SEZL/POOL investigation found
+# those tickers' TickerScore rows could go stale/incomplete (e.g. computed
+# before all step inputs finished caching) with nothing ever revisiting
+# them. Cache-only -- zero FMP calls, no rate-limit pacing needed, safe to
+# run anytime. See pipeline/nightly_score_recompute.py.
+50 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_score_recompute >> /home/shen/fathom/backend/logs/nightly_score_recompute_cron.log 2>&1
+
 # Weekly S&P 500 constituent list refresh (Wikipedia scrape), Sundays at
 # 1:00 AM server time -- runs before the nightly fetch above so a freshly
 # added/removed ticker is reflected the same night. Index membership only
@@ -60,6 +72,16 @@
 # Stale-data health check: reports (not silently) how many universe tickers
 # haven't had a fresh nightly refresh recently. See pipeline/stale_data_health_check.py.
 25 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.stale_data_health_check >> /home/shen/fathom/backend/logs/stale_data_health_check_cron.log 2>&1
+
+# Invalid-ticker purge: deletes FundamentalsCache (and any TickerScore) rows
+# for tickers with a confirmed-empty FMP profile fetch (FMP responded, but
+# with no companyName at all -- its actual "no such symbol" shape), never a
+# real index member. Built after the IREN/SEZL/POOL investigation found a
+# handful of these (typos, stale test-fixture placeholders) sitting as
+# permanent dead weight. See pipeline/purge_invalid_tickers.py for the exact
+# criteria and why a real-but-temporarily-unreachable ticker (an FMP outage,
+# a real access-tier gap like BRK.B's known 402) is never a match.
+30 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.purge_invalid_tickers >> /home/shen/fathom/backend/logs/purge_invalid_tickers_cron.log 2>&1
 
 # Monthly price-target-consensus snapshot, 3:00 AM server time on the 1st of
 # each month -- FMP has no historical price-target series of its own (unlike

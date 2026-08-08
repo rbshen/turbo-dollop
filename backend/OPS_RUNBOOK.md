@@ -76,12 +76,14 @@ configured):
 | Job | Log files |
 |---|---|
 | Nightly fundamentals fetch | `nightly_fundamentals_fetch.log` / `_cron.log` |
+| Nightly full-universe score recompute | `nightly_score_recompute.log` / `_cron.log` |
 | Weekly S&P 500 list refresh | `sp500_list_refresh.log` / `_cron.log` |
 | Weekly Dow list refresh | `dow_list_refresh.log` / `_cron.log` |
 | Cache pruning | `prune_cache.log` / `_cron.log` |
 | Log rotation | `rotate_logs.log` / `_cron.log` |
 | Fixture-contamination audit | `_cron.log` only — the script itself prints to stdout rather than calling `configure_logging()`, so there's no separate plain `.log` file, just the cron redirect |
 | Stale-data health check | `stale_data_health_check.log` / `_cron.log` |
+| Invalid-ticker purge | `purge_invalid_tickers.log` / `_cron.log` |
 | Monthly price-target snapshot | `monthly_price_target_snapshot.log` / `_cron.log` |
 | Daily SQLite backup | `backup_db.log` / `_cron.log` |
 
@@ -93,9 +95,23 @@ tail -50 backend/logs/audit_fixture_contamination_cron.log   # no plain .log for
 ## Maintenance scripts (`backend/pipeline/`)
 
 All of the scripts below are wired into `crontab.txt`'s weekly maintenance
-window (Sundays 1:10–1:25 AM) or, for the daily backup, 3:30 AM. Each can
-also be run manually with `uv run python -m pipeline.<name>` from
-`backend/`.
+window (Sundays 1:10–1:25 AM), the daily backup at 3:30 AM, or the daily
+2:50 AM full-universe score recompute. Each can also be run manually with
+`uv run python -m pipeline.<name>` from `backend/`.
+
+**`nightly_score_recompute`** — cache-only `TickerScore` recompute
+(`compute_ticker_score(cache_only=True)`) across every ticker with any
+cached FMP data or an existing score row, not just the S&P 500/Dow
+constituent list the nightly fetch job's own end-of-loop recompute
+covers. Zero FMP calls, so it runs daily rather than weekly, and is safe
+to run anytime. Success: a log line `Recompute complete. Processed: N.
+... Failed: 0.` in `backend/logs/nightly_score_recompute.log`. Built
+after an investigation found tickers viewed ad hoc (outside the index
+universe) could get a stale/incomplete `TickerScore` row — e.g. computed
+before all its step inputs finished caching — with nothing ever
+revisiting it; `GET /api/tickers/{ticker}/score` also now self-heals a
+row like that on its next view (`core/main.py::ticker_score_out`), but
+this sweep is the backstop for a ticker that's never viewed again.
 
 **`prune_cache`** — deletes `FundamentalsCache` rows older than
 `Settings.cache_retention_days` (180 days by default; distinct from the
@@ -151,6 +167,20 @@ contamination fingerprints found.` A hit doesn't prove contamination on
 its own (e.g. a real company genuinely named "Sample Inc" would
 false-positive) — review the flagged ticker/statement/reason manually,
 the same way the original incident was investigated.
+
+**`purge_invalid_tickers`** — deletes every `FundamentalsCache` row (all
+statement types, not just `profile`) and any `TickerScore` row for a
+ticker whose cached `profile` fetch definitively came back with no
+`companyName` at all, and that isn't a real `IndexConstituent`. A ticker
+with no `profile` row at all is left alone (ambiguous — never attempted,
+or a real access-tier gap like BRK.B's known 402, not confirmed
+invalid). Success: `Purged N invalid ticker(s): TICKER1, TICKER2, ...`
+in `backend/logs/purge_invalid_tickers.log` (or `No invalid ticker rows
+found.`). `--dry-run` previews the list without deleting. Low blast
+radius even for a rare false positive — unlike the fabricated-data
+"Acme Corp" incident above, this only removes an already-empty cache
+footprint; a wrongly-purged real ticker simply re-fetches from FMP on
+its next view.
 
 ## Weekly index constituent refresh (S&P 500 / Dow)
 
