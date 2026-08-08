@@ -26,6 +26,12 @@ NEGATIVE_VALUE_RECENCY_YEARS = 3
 
 CAPEX_NORMALIZATION_YEARS = 5
 
+# Trailing-average window for trailing_smoothed_average (DNI_NORMALIZED's
+# net_income_smoothed, and CF_NORMALIZED/FCF_NORMALIZED's cfo_smoothed/
+# fcf_smoothed) -- matches CAPEX_NORMALIZATION_YEARS/METHOD_SELECTION_MIN_
+# YEARS' existing "5" convention.
+SMOOTHING_WINDOW_YEARS = 5
+
 
 class MethodStep(NamedTuple):
     step: str
@@ -144,6 +150,39 @@ def normalize_fcf(cfo_series: list[float], capex_series: list[float]) -> list[fl
     window = capex_series[-CAPEX_NORMALIZATION_YEARS:]
     avg_capex = sum(window) / len(window)
     return [cfo + avg_capex for cfo in cfo_series]
+
+
+def trailing_smoothed_average(
+    clean_series: list[float], ttm_period_duplicates_last_fy: bool, window: int = SMOOTHING_WINDOW_YEARS
+) -> float | None:
+    """Multi-year trailing average behind DNI_NORMALIZED's net_income_smoothed
+    and CF_NORMALIZED/FCF_NORMALIZED's cfo_smoothed/fcf_smoothed. `clean_series`
+    is chronological, no gaps, TTM appended last -- the same net_income_clean/
+    cfo_clean/fcf_clean shape step3_data.py already builds for the
+    method-selection tree.
+
+    When `ttm_period_duplicates_last_fy` is True (see
+    helpers.ttm.is_ttm_period_duplicate_of_last_fy), TTM and the last annual
+    point describe the identical underlying period -- averaging both,
+    unadjusted, counts that one period twice in a `window`-point average
+    while every other period counts once. Dropping TTM in this case and
+    averaging the prior `window` distinct fiscal years instead keeps the
+    window at a true `window` points, not `window - 1`. Confirmed real case
+    (2026-08-08 investigation): SNDK's FY2026 memory-supercycle Net Income
+    ($11.4B, more than the prior 4 years combined) was being counted at 2/5
+    weight instead of the intended 1/5 -- see CLAUDE.md.
+
+    Falls back to including TTM (the un-deduplicated `window`-point average)
+    if dropping it would leave fewer than 2 points to average -- same "never
+    make a metric less scoreable" guard step4.py's own
+    recovery_excluded_prefix_length uses for its dip-recovery exclusion; not
+    currently reachable (every ticker hitting the duplicate condition today
+    has 5+ years of history) but cheap insurance for a thin-history ticker."""
+    if not clean_series:
+        return None
+    series = clean_series[:-1] if ttm_period_duplicates_last_fy and len(clean_series) - 1 >= 2 else clean_series
+    window_slice = series[-window:]
+    return sum(window_slice) / len(window_slice)
 
 
 def _revenue_growing_aggressively(revenue_series: list[float] | None) -> tuple[bool | None, str]:
@@ -540,7 +579,14 @@ def run_psg(
     )
 
 
-_TWENTY_YEAR_METHODS = {"DCF", "DFCF", "DNI", "DNI_NORMALIZED"}
+# CF_NORMALIZED/FCF_NORMALIZED share the exact same 20yr-engine math as
+# DCF/DFCF -- only current_value's source differs (cfo_smoothed/
+# fcf_smoothed instead of cfo_ttm/fcf_ttm, computed by step3_data.py).
+# select_method never returns either -- they're Manual Calculation/Custom
+# Valuation-only method choices (see CLAUDE.md's Item 3 note), included
+# here so run_manual_calculation/run_manual_calculation_from_params accept
+# them.
+_TWENTY_YEAR_METHODS = {"DCF", "DFCF", "DNI", "DNI_NORMALIZED", "CF_NORMALIZED", "FCF_NORMALIZED"}
 
 
 class ManualCalculationResult(NamedTuple):

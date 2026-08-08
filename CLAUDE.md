@@ -984,6 +984,122 @@ NII/revenue check before being added to either side of this list — there
 is no automated signal that would catch a new non-lender or a new lender
 on its own.
 
+## Valuation (Step 3) scoring notes
+
+Three fixes shipped together 2026-08-08, all originating from an
+investigation into what Discounted Net Income (Normalized) actually
+computes — see `valuation.md` for the exact current formulas/mechanism;
+these are the design decisions and fixes behind them.
+
+- **`RECOVERY_PATTERNS` (`scoring/trend.py`) was missing
+  `dip_durably_resolved`**, the age-aware recovery pattern added earlier
+  the same day (see the Financials section above) — scored identically to
+  `multiple_dips_resolved` in `classify_trend` (both 75) and documented
+  there as meant to be treated the same by any caller, but the set itself
+  was never updated. Three call sites gate on `pattern in
+  RECOVERY_PATTERNS`: `scoring/step1.py`'s FCF cash-burn-recovery check
+  (Revenue/NI/OI/CFO's own Step 1 scores read `classify_trend`'s score
+  directly, not this set, so they already benefited immediately — only
+  FCF's own recovery check had the gap), Step 3's method-selection tree
+  (`_positive_and_increasing`/`_fcf_positive_and_consistent`), and Step
+  4's ROE/ROIC min-year-consistency gate and negative-equity Net Income
+  substitute. Fixed by adding the pattern to the set — one line, every
+  call site already treats the set as the single source of truth.
+  Confirmed via a full 503-ticker before/after scan: 0 Step 1 changes (no
+  cached ticker happened to hit the FCF-specific gap), 17 Step 3
+  method-selection changes, 1 Step 4 verdict flip. Every Step 3 change is
+  an upgrade to a more direct method, never a regression: **AWK, CMS,
+  EXC, LVS, PNR, PRU, TROW** (DNI_NORMALIZED → DNI); **DAL, MDT, NWS,
+  NWSA, PFG** (DNI_NORMALIZED → DFCF); **IQV, T** (DNI → DFCF); **TER**
+  (DNI → DCF); **KHC, SJM** (PASS → DFCF — Valuation was previously
+  unavailable for these two entirely). **MCK**'s Step 4 ROE negative-
+  equity substitute flips from `negative_equity_inconsistent_income` (60
+  pts) to `positive_despite_negative_equity` (100 pts), score 90 → 100,
+  Pass → Strong Pass.
+
+- **DNI_NORMALIZED's 5-period smoothed average double-counted TTM when a
+  fiscal year had just closed with no newer quarter reported since.** TTM
+  is a genuine sum of the 4 most recent quarterly filings
+  (`helpers/ttm.py::sum_last_four_quarters`), never a copy of the annual
+  figure — but the smoothing average (`net_income_clean[-5:]`, all annual
+  values + TTM appended unconditionally) has no way to tell "TTM is a
+  distinct, more-current period" from "TTM's 4 quarters ARE the latest
+  annual filing's own Q1–Q4, describing the identical period." In the
+  latter case that one period counted twice in a 5-point average (2/5
+  weight instead of the intended 1/5) while every other period counted
+  once. Confirmed real case: **SNDK**'s FY2026 (a memory-pricing
+  supercycle year, $11.4B Net Income — more than the prior 4 years
+  combined) was being counted twice, inflating `net_income_smoothed` from
+  a corrected $1.61B to $3.68B — directly undermining the metric's own
+  purpose, since normalization exists specifically to dilute an anomalous
+  year, not double-weight it.
+  - **Detection is period-identity, not value-equality**
+    (`helpers/ttm.py::is_ttm_period_duplicate_of_last_fy`): compares the 4
+    most recent quarters' own `fiscalYear`/`period` labels against the
+    latest annual filing's, not the resulting sums — a coincidental value
+    match isn't the same condition (would false-clear on genuinely
+    distinct periods), and a genuine period match can differ slightly in
+    value after a restatement (would false-miss under a value check).
+    Confirmed via a full-universe scan that both checks currently agree
+    100% of the time on real cached data (30/503 tickers hit the NI
+    condition, 28/503 the CFO condition) — but the period-based check is
+    the structurally correct one regardless.
+  - **Fix (Option B): when detected, TTM is excluded and the average is
+    taken over the prior 5 *distinct* fiscal years instead of 4** — not
+    just dropping to a 4-point average, which would work but shrink the
+    window. `scoring/step3.py::trailing_smoothed_average` (shared by all
+    three normalized methods — see below) falls back to including TTM if
+    excluding it would leave fewer than 2 points, mirroring
+    `step4.py::recovery_excluded_prefix_length`'s own "never make it less
+    scoreable" guard — not reachable for any currently-tracked ticker
+    (every ticker hitting the duplicate condition has 5+ years of
+    history) but cheap insurance for a future thin-history ticker.
+  - Of the 30 NI-affected tickers, 10 auto-selected DNI_NORMALIZED at the
+    time of the fix (**CLX, FDX, MCHP, MDT, NKE, NWS, NWSA, SNDK, SYY,
+    WDC**) — though after the `RECOVERY_PATTERNS` fix above lands first,
+    **MDT/NWS/NWSA no longer auto-select DNI_NORMALIZED at all** (they
+    flip to DFCF), leaving **CLX, FDX, MCHP, NKE, SNDK, SYY, WDC** as the
+    tickers whose live Auto Calculation value this fix actually changes;
+    the rest only affect what Manual Calculation's DNI_NORMALIZED
+    pre-fill would show if a user switched to it. Confirmed real
+    before/after (Option B, post-`RECOVERY_PATTERNS`-fix): SNDK
+    $3.68B → $1.61B (−56%), WDC $3.65B → $2.07B (−43%), MCHP $0.91B →
+    $1.13B (+24%), NKE $4.04B → $4.63B (+15%).
+
+- **New `CF_NORMALIZED`/`FCF_NORMALIZED` methods — Manual Calculation /
+  Custom Valuation-only, never auto-selected.** Motivated by a real gap:
+  CFO/FCF growing very fast in the last 2-3 years, where the raw TTM
+  figure would overstate a sustainable run-rate the way DNI_NORMALIZED
+  already protects against for Net Income. Two candidate auto-trigger
+  designs were tested against the live universe and both rejected in
+  favor of a manual-only method: a 3-year CAGR threshold flagged 40-70+
+  tickers even at 25%, essentially "most growth stocks"; a spike-ratio
+  threshold (TTM ÷ avg of prior 3 years, reusing the
+  `ROE_SPIKE_RATIO_THRESHOLD`/`DIP_BASELINE_SPIKE_RATIO` convention)
+  still flagged NVDA/MU/PLTR/AMD even at 2.5x. Computed smoothed values
+  for a sample of both groups show why: **NVDA** CFO $125.6B raw vs.
+  $41.9B smoothed (+200%), **AMD** FCF $8.6B vs. $3.3B (+158%), **DASH**
+  FCF $2.3B vs. $1.16B (+97%) — all durable, still-accelerating
+  structural growth that a smoothing trigger would systematically
+  under-value — statistically indistinguishable, on CFO/FCF magnitude
+  alone, from **SNDK** CFO $11.7B vs. $2.4B (+391%) and **WDC** FCF
+  $3.5B vs. $0.7B (+392%) — a genuine cyclical memory-pricing supercycle
+  where smoothing is the right call. FMP has no industry-cyclicality
+  signal that could tell these apart (the existing
+  `NON_LENDER_TICKER_OVERRIDES` table above required manual per-ticker
+  verification for a much narrower classification problem). Rather than
+  risk auto-suppressing exactly the highest-quality compounders in the
+  tracked universe, `select_method`'s tree is unchanged — CF_NORMALIZED/
+  FCF_NORMALIZED exist purely as method choices a user can pick in Manual
+  Calculation/Custom Valuation, pre-filled from `cfo_smoothed`/
+  `fcf_smoothed` (computed unconditionally, same pattern as
+  `net_income_smoothed`/`pb_mean_ratio`, and reusing the TTM-duplicate
+  fix above), and behave identically to DNI_NORMALIZED once selected —
+  same 20yr engine, same Custom Valuation pre-fill/freeze semantics, same
+  FX handling (already-USD by the time smoothing runs, since every raw
+  figure is converted immediately after each FMP pull, before any
+  smoothing math).
+
 ## Workflow rules
 
 - **Plan Mode by default.** Propose a plan and wait for confirmation before

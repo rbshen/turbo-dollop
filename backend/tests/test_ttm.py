@@ -1,4 +1,4 @@
-from helpers.ttm import FlaggedQuarter, sum_last_four_quarters
+from helpers.ttm import FlaggedQuarter, is_ttm_period_duplicate_of_last_fy, sum_last_four_quarters
 
 # 8 stable baseline quarters (all $100M) followed by the 4 "recent" quarters
 # under test -- most-recent-first, matching FMP's own ordering.
@@ -152,3 +152,86 @@ def test_total_is_none_when_fewer_than_four_recent_quarters_have_values():
     result = sum_last_four_quarters(recent + STABLE_BASELINE, "value")
     assert result.total is None
     assert result.flagged == []
+
+
+# --- is_ttm_period_duplicate_of_last_fy -----------------------------------
+
+
+def test_ttm_period_duplicate_when_no_quarter_reported_since_fy_close():
+    # SNDK-shaped: fiscal year just closed, no newer quarter posted yet --
+    # the 4 most recent quarters ARE that fiscal year's own Q1-Q4.
+    annual = [
+        {"fiscalYear": "2025", "netIncome": -1641},
+        {"fiscalYear": "2026", "netIncome": 11433},
+    ]
+    quarterly = [
+        {"fiscalYear": "2026", "period": "Q4", "netIncome": 6903},
+        {"fiscalYear": "2026", "period": "Q3", "netIncome": 3615},
+        {"fiscalYear": "2026", "period": "Q2", "netIncome": 803},
+        {"fiscalYear": "2026", "period": "Q1", "netIncome": 112},
+        {"fiscalYear": "2025", "period": "Q4", "netIncome": -23},
+    ]
+    assert is_ttm_period_duplicate_of_last_fy(annual, quarterly) is True
+
+
+def test_ttm_not_duplicate_when_mid_fiscal_year_aapl_style():
+    # AAPL-shaped: TTM window spans 3 quarters of the new FY plus the last
+    # quarter of the closed FY -- not a period match.
+    annual = [
+        {"fiscalYear": "2024", "netIncome": 93736},
+        {"fiscalYear": "2025", "netIncome": 112010},
+    ]
+    quarterly = [
+        {"fiscalYear": "2026", "period": "Q3", "netIncome": 29789},
+        {"fiscalYear": "2026", "period": "Q2", "netIncome": 29578},
+        {"fiscalYear": "2026", "period": "Q1", "netIncome": 42097},
+        {"fiscalYear": "2025", "period": "Q4", "netIncome": 27466},
+    ]
+    assert is_ttm_period_duplicate_of_last_fy(annual, quarterly) is False
+
+
+def test_ttm_period_duplicate_uses_period_identity_not_value_equality():
+    # A genuine period match whose value differs slightly (a post-annual-
+    # filing restatement) must still read as a duplicate -- value equality
+    # would false-miss this.
+    annual = [{"fiscalYear": "2025", "netIncome": 1000}, {"fiscalYear": "2026", "netIncome": 500}]
+    quarterly = [
+        {"fiscalYear": "2026", "period": "Q4", "netIncome": 120},
+        {"fiscalYear": "2026", "period": "Q3", "netIncome": 130},
+        {"fiscalYear": "2026", "period": "Q2", "netIncome": 140},
+        {"fiscalYear": "2026", "period": "Q1", "netIncome": 111},  # sums to 501, not 500 -- restated
+    ]
+    assert is_ttm_period_duplicate_of_last_fy(annual, quarterly) is True
+
+
+def test_ttm_period_duplicate_annual_rows_order_agnostic():
+    # annual_rows given most-recent-first (FMP's own order) instead of
+    # chronological -- the latest fiscalYear must still be resolved
+    # correctly (by label, not position).
+    annual = [{"fiscalYear": "2026", "netIncome": 500}, {"fiscalYear": "2025", "netIncome": 1000}]
+    quarterly = [
+        {"fiscalYear": "2026", "period": "Q4", "netIncome": 125},
+        {"fiscalYear": "2026", "period": "Q3", "netIncome": 125},
+        {"fiscalYear": "2026", "period": "Q2", "netIncome": 125},
+        {"fiscalYear": "2026", "period": "Q1", "netIncome": 125},
+    ]
+    assert is_ttm_period_duplicate_of_last_fy(annual, quarterly) is True
+
+
+def test_ttm_period_duplicate_false_with_fewer_than_four_quarters():
+    annual = [{"fiscalYear": "2026", "netIncome": 500}]
+    quarterly = [
+        {"fiscalYear": "2026", "period": "Q4", "netIncome": 500},
+        {"fiscalYear": "2026", "period": "Q3", "netIncome": 0},
+    ]
+    assert is_ttm_period_duplicate_of_last_fy(annual, quarterly) is False
+
+
+def test_ttm_period_duplicate_false_with_no_annual_rows():
+    quarterly = [
+        {"fiscalYear": "2026", "period": "Q4", "netIncome": 1},
+        {"fiscalYear": "2026", "period": "Q3", "netIncome": 1},
+        {"fiscalYear": "2026", "period": "Q2", "netIncome": 1},
+        {"fiscalYear": "2026", "period": "Q1", "netIncome": 1},
+    ]
+    assert is_ttm_period_duplicate_of_last_fy([], quarterly) is False

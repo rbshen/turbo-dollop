@@ -8,6 +8,7 @@ from sqlmodel import Session, SQLModel, create_engine
 import data.step3_data as step3_data
 from data.custom_valuation_data import activate_ticker_custom_valuation, set_ticker_custom_valuation
 from data.step3_data import get_active_valuation, get_step3_data
+from scoring.step3 import run_20yr_engine
 
 PROFILE = [{"sector": "Technology", "industry": "Software - Application", "beta": 1.1}]
 QUOTE = [{"price": 100.0, "marketCap": 10_000_000_000}]
@@ -357,6 +358,77 @@ def test_non_usd_reporter_converts_every_monetary_input_to_usd(monkeypatch):
     assert result.intrinsic_value_per_share == pytest.approx(2.5)
 
 
+# --- TTM-period-duplicate exclusion (net_income_smoothed/cfo_smoothed/
+# fcf_smoothed) -- end-to-end wiring, not just the pure-function unit tests
+# in scoring/test_step3.py and tests/test_ttm.py ---------------------------
+
+# 6 annual years (most-recent-first, FMP's own order); FY2026's netIncome
+# (900) is also exactly what the 4 quarterly rows below sum to -- no
+# quarter has posted since FY2026 closed, so TTM duplicates FY2026.
+INCOME_ANNUAL_TTM_DUP = [
+    {"fiscalYear": "2026", "revenue": 300, "netIncome": 900},
+    {"fiscalYear": "2025", "revenue": 300, "netIncome": 100},
+    {"fiscalYear": "2024", "revenue": 300, "netIncome": 100},
+    {"fiscalYear": "2023", "revenue": 300, "netIncome": 100},
+    {"fiscalYear": "2022", "revenue": 300, "netIncome": 100},
+    {"fiscalYear": "2021", "revenue": 300, "netIncome": 500},
+]
+INCOME_QUARTERLY_TTM_DUP = [
+    {"fiscalYear": "2026", "period": "Q4", "revenue": 75, "netIncome": 225},
+    {"fiscalYear": "2026", "period": "Q3", "revenue": 75, "netIncome": 225},
+    {"fiscalYear": "2026", "period": "Q2", "revenue": 75, "netIncome": 225},
+    {"fiscalYear": "2026", "period": "Q1", "revenue": 75, "netIncome": 225},
+]
+CASH_FLOW_ANNUAL_TTM_DUP = [
+    {"fiscalYear": "2026", "netCashProvidedByOperatingActivities": 900, "capitalExpenditure": -50},
+    {"fiscalYear": "2025", "netCashProvidedByOperatingActivities": 100, "capitalExpenditure": -50},
+    {"fiscalYear": "2024", "netCashProvidedByOperatingActivities": 100, "capitalExpenditure": -50},
+    {"fiscalYear": "2023", "netCashProvidedByOperatingActivities": 100, "capitalExpenditure": -50},
+    {"fiscalYear": "2022", "netCashProvidedByOperatingActivities": 100, "capitalExpenditure": -50},
+    {"fiscalYear": "2021", "netCashProvidedByOperatingActivities": 500, "capitalExpenditure": -50},
+]
+CASH_FLOW_QUARTERLY_TTM_DUP = [
+    {"fiscalYear": "2026", "period": "Q4", "netCashProvidedByOperatingActivities": 225, "capitalExpenditure": -12.5},
+    {"fiscalYear": "2026", "period": "Q3", "netCashProvidedByOperatingActivities": 225, "capitalExpenditure": -12.5},
+    {"fiscalYear": "2026", "period": "Q2", "netCashProvidedByOperatingActivities": 225, "capitalExpenditure": -12.5},
+    {"fiscalYear": "2026", "period": "Q1", "netCashProvidedByOperatingActivities": 225, "capitalExpenditure": -12.5},
+]
+
+
+def test_smoothed_candidates_exclude_duplicate_ttm_and_use_prior_5_distinct_years(monkeypatch):
+    # SNDK-shaped fixture (see CLAUDE.md's Item 2 note): without the fix,
+    # net_income_smoothed would average the last 5 elements of [500, 100,
+    # 100, 100, 100, 900, 900] (annual + duplicated TTM) = (100+100+100+900
+    # +900)/5 = 440, double-weighting the 900 spike year at 2/5 instead of
+    # the intended 1/5. With the fix, TTM is dropped and the prior 5
+    # DISTINCT fiscal years are averaged instead: (100+100+100+100+900)/5
+    # = 260.
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_income_statement(ticker, period, limit):
+        return INCOME_ANNUAL_TTM_DUP if period == "annual" else INCOME_QUARTERLY_TTM_DUP
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return CASH_FLOW_ANNUAL_TTM_DUP if period == "annual" else CASH_FLOW_QUARTERLY_TTM_DUP
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step3_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+    result = asyncio.run(get_step3_data("TEST"))
+
+    candidates = result.inputs.current_value_candidates
+    assert candidates.net_income_ttm == pytest.approx(900.0)
+    assert candidates.net_income_smoothed == pytest.approx((100 + 100 + 100 + 100 + 900) / 5)
+    assert candidates.cfo_ttm == pytest.approx(900.0)
+    assert candidates.cfo_smoothed == pytest.approx((100 + 100 + 100 + 100 + 900) / 5)
+    # FCF = CFO + CapEx (CapEx already negative): annual FCF is [450, 50,
+    # 50, 50, 50, 850] chronologically, TTM FCF = 900 + (-50) = 850 (a
+    # duplicate of FY2026's own FCF the same way NI/CFO are).
+    assert candidates.fcf_ttm == pytest.approx(850.0)
+    assert candidates.fcf_smoothed == pytest.approx((50 + 50 + 50 + 50 + 850) / 5)
+
+
 def test_non_usd_reporter_with_no_fx_rate_available_is_insufficient_data(monkeypatch):
     # FX fetch fails AND no cached rate (fresh or stale) exists at all --
     # must never silently fall back to fx_rate=1.0 (which would render a
@@ -499,6 +571,57 @@ def test_get_active_valuation_overrides_result_fields_only_when_active(monkeypat
     assert result.method_reasoning == auto.method_reasoning
     assert result.pass_reason == auto.pass_reason
     assert result.inputs == auto.inputs
+
+
+_CF_NORMALIZED_PARAMS = {
+    "current_value": 1000.0,
+    "growth_yr_1_5": 0.05,
+    "growth_yr_6_10": 0.04,
+    "growth_yr_11_20": 0.04,
+    "discount_rate": 0.08,
+    "shares_outstanding": 100.0,
+    "total_debt": 200.0,
+    "cash_and_st_investments": 50.0,
+    "book_value_per_share": None,
+    "pb_mean_ratio": None,
+    "pb_sd_ratio": None,
+    "sales_per_share": None,
+    "projected_growth_rate": None,
+    "fair_psg_ratio": None,
+}
+
+
+def test_get_active_valuation_supports_cf_normalized_manual_only_method(monkeypatch):
+    # CF_NORMALIZED/FCF_NORMALIZED are Manual Calculation/Custom
+    # Valuation-only method choices (see CLAUDE.md's Item 3 note) --
+    # select_method's own tree never produces either, but a saved, activated
+    # Custom Valuation using one must still resolve to a real computed value
+    # via the same 20yr engine DCF/DFCF/DNI/DNI_NORMALIZED already share.
+    engine = _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+    with Session(engine) as session:
+        set_ticker_custom_valuation(session, "TEST", "CF_NORMALIZED", json.dumps(_CF_NORMALIZED_PARAMS))
+        activate_ticker_custom_valuation(session, "TEST")
+
+    result = asyncio.run(get_active_valuation("TEST"))
+
+    expected = run_20yr_engine(
+        current_value=1000.0,
+        growth_yr_1_5=0.05,
+        growth_yr_6_10=0.04,
+        growth_yr_11_20=0.04,
+        discount_rate=0.08,
+        shares_outstanding=100.0,
+        total_debt=200.0,
+        cash_and_st_investments=50.0,
+        fx_rate=1.0,
+        last_close=100.0,  # QUOTE fixture's price
+    )
+
+    assert result.valuation_source == "custom"
+    assert result.selected_method == "CF_NORMALIZED"
+    assert result.intrinsic_value_per_share == pytest.approx(expected.intrinsic_value_per_share)
+    assert result.discount_premium_pct == pytest.approx(expected.discount_premium_pct)
 
 
 def test_get_active_valuation_falls_back_to_auto_on_corrupt_saved_json(monkeypatch):

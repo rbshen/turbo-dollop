@@ -69,7 +69,9 @@ Evaluated in order; stops at the first match.
 4a. Profitable but inconsistent?
    Is TTM Net Income positive?
      → YES: is the average of the last 5 periods' Net Income also
-       positive?
+       positive? (see "Smoothed current-value averages" below for exactly
+       which 5 periods -- TTM is excluded, not just appended, whenever it
+       duplicates the latest annual filing's own period)
               → YES: use DNI_NORMALIZED, current value = that 5-period
                 average
               → NO: continue
@@ -105,15 +107,33 @@ classifier reads a recovery pattern.
 | `DFCF` | 20-year discounted model (§2) | Free Cash Flow (raw or normalized) |
 | `DNI` | 20-year discounted model (§2) | Net Income |
 | `DNI_NORMALIZED` | 20-year discounted model (§2) | 5-period-average (smoothed) Net Income |
+| `CF_NORMALIZED`¹ | 20-year discounted model (§2) | 5-period-average (smoothed) Operating Cash Flow |
+| `FCF_NORMALIZED`¹ | 20-year discounted model (§2) | 5-period-average (smoothed) Free Cash Flow |
 | `PRICE_TO_BOOK` | Mean/SD Price-to-Book (§3) | n/a |
 | `PSG` | Price-to-Sales-Growth (§4) | n/a |
 | `PASS` | none — no value computed | n/a |
 
+¹ `CF_NORMALIZED`/`FCF_NORMALIZED` are **Manual Calculation / Custom
+Valuation-only** method choices — the method-selection tree above never
+produces either. They exist for a case the tree doesn't otherwise handle:
+CFO/FCF growing so fast in the last 2-3 years that the raw TTM figure would
+overstate a sustainable run-rate, where a user judges the growth to be
+transient rather than durable (see the "growing very fast" investigation
+that motivated these two methods). A mechanical trigger for this — a CAGR
+or spike-ratio threshold — was tested against the live universe and
+rejected: it couldn't distinguish a genuine cyclical spike (e.g. a
+memory-pricing supercycle) from a durable structural ramp (e.g. an AI-
+buildout-driven CFO increase) using CFO/FCF figures alone, and risked
+auto-suppressing exactly the highest-quality compounders in the tracked
+universe. Selecting `CF_NORMALIZED`/`FCF_NORMALIZED` is therefore left to
+the user's own judgment via Manual Calculation/Custom Valuation, never
+auto-selected.
+
 ---
 
-## 2. The 20-Year Discounted Model (DCF / DFCF / DNI / DNI_NORMALIZED)
+## 2. The 20-Year Discounted Model (DCF / DFCF / DNI / DNI_NORMALIZED / CF_NORMALIZED / FCF_NORMALIZED)
 
-One calculation engine drives all four cash-flow/income-based methods.
+One calculation engine drives all six cash-flow/income-based methods.
 Only the **meaning of the "current value" input** changes — the growth,
 discounting, and terminal math are identical.
 
@@ -136,6 +156,44 @@ All of `growth_yr_1_5`, `growth_yr_6_10`, `growth_yr_11_20`, and
 `discount_rate` are pre-filled from the above and then freely user-editable
 in the Manual Calculation panel — see that panel's own note on
 persistence below.
+
+### 2.1a Smoothed current-value averages (DNI_NORMALIZED / CF_NORMALIZED / FCF_NORMALIZED)
+
+All three "smoothed" methods share one mechanism: a trailing average of
+the last 5 periods of the underlying figure (Net Income / Operating CF /
+Free Cash Flow respectively), each period's annual filing plus TTM
+appended as the most current period — the same convention every other
+TTM-inclusive series in this app uses.
+
+**TTM-duplicate exclusion.** TTM is computed as the sum of the 4 most
+recently reported quarters (see "Data sourcing notes" below), independent
+of the annual filings. When a fiscal year has just closed and no newer
+quarter has been reported since, those 4 quarters ARE the latest annual
+filing's own Q1–Q4 — TTM and the last annual figure describe the
+*identical* underlying period. Appending TTM after the annual series
+unconditionally, as a naive implementation would, counts that one period
+**twice** in a 5-point average (2/5 weight instead of the intended 1/5)
+while every other period counts once — the opposite of what "smoothed"
+is supposed to do, most visible for a company whose just-closed year was
+itself an outlier (a cyclical earnings spike, say) that normalization
+exists to dilute, not amplify.
+
+This is detected by comparing the 4 most recent quarters' own
+`fiscalYear`/`period` labels against the latest annual filing's — a
+period-identity check, not a value-equality check (a coincidental value
+match isn't the same condition; a genuine period match can differ
+slightly in value after a restatement). When detected, TTM is **excluded**
+and the average is taken over the prior **5 distinct fiscal years**
+instead (not 4 — the window stays a true 5 points either way). Falls back
+to including TTM if excluding it would leave fewer than 2 points to
+average (not reachable for any currently-tracked ticker, all of which
+have 5+ years of annual history, but guards a future thin-history ticker
+the same way the average is never allowed to shrink to nothing).
+
+Confirmed real case: SNDK's FY2026 (a memory-pricing supercycle year,
+$11.4B Net Income — more than the prior 4 years combined) was being
+counted at 2/5 weight in `net_income_smoothed` instead of the intended
+1/5, before this exclusion existed.
 
 ### 2.2 Projection (years 1–20)
 
@@ -294,13 +352,31 @@ a live-price-vs-fair-value read, unrelated to the Overall Assessment's
 Fail/Pass/Strong Pass verdict scale. `verdict` is `null` whenever no
 valuation method could be applied (`PASS`) or a required input is missing.
 
-## Manual Calculation panel
+## Manual Calculation panel / Custom Valuation
 
 Below the automatic result, every input above is editable in a what-if
-panel that re-runs the same formulas with user-supplied values. It is
-**not persisted anywhere** — edits live only in the browser session and
-reset the moment the page is left or reloaded; nothing here ever feeds
-back into the automatic calculation or any other part of the app.
+panel that re-runs the same formulas with user-supplied values. Every
+field pre-fills from Auto Calculation's own live figures — for
+DNI_NORMALIZED/CF_NORMALIZED/FCF_NORMALIZED specifically, "Current Value"
+pre-fills from the smoothed candidate described in §2.1a, computed fresh
+on every page load, regardless of which method Auto itself picked for
+this ticker.
+
+An edit here is a live what-if by default — recomputed against the panel's
+own inputs, never written anywhere, and gone on reload. **Saving it as a
+Custom Valuation** (one persistent row per ticker, no history/versioning)
+is a separate, explicit action: once saved and activated, the saved method
++ parameter set — including whatever "Current Value" was showing at save
+time — becomes this ticker's valuation everywhere (Valuation tab, ticker
+header pill, Screener, Watchlist), replacing Auto Calculation's own pick,
+until deactivated or resaved. A saved value is **frozen as of save time**,
+same convention this app uses elsewhere for saved/static data: reopening
+a saved Custom Valuation shows the number that was saved, not a
+freshly-recomputed smoothed figure, even if the underlying fundamentals
+have since changed. Only `last_close` (and, for Auto's own
+company_type/method_reasoning context shown alongside a saved custom
+value, Auto Calculation's own separately-live figures) stay live on every
+page load; the saved numeric inputs themselves do not re-derive.
 
 ---
 

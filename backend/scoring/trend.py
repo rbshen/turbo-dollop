@@ -65,11 +65,25 @@ class TrendResult(NamedTuple):
 # ROE/ROIC and negative-equity substitute). grows_every_year is included for
 # completeness even though callers only ever reach this set after a
 # disqualifying value has already occurred.
+#
+# dip_durably_resolved added 2026-08-08: it was introduced (89b1728) scored
+# identically to multiple_dips_resolved (both 75, see classify_trend below)
+# and documented there as "kept distinct only so the reasoning panel"
+# reads differently -- i.e. always meant to be treated the same by any
+# caller checking membership here, but this set wasn't updated at the time,
+# leaving every consumer above unable to recognize an age-resolved dip
+# (only classify_trend's own direct score, used by Step 1's Revenue/NI/OI/
+# CFO scoring, benefited immediately). Confirmed via a full 503-ticker scan:
+# 0 Step 1 changes (no ticker's cached data happened to hit the FCF-specific
+# gap), 17 Step 3 method-selection changes (all upgrades to a more direct
+# method, e.g. DAL DNI_NORMALIZED -> DFCF, KHC/SJM PASS -> DFCF), 1 Step 4
+# verdict flip (MCK Pass -> Strong Pass, ROE's negative-equity substitute).
 RECOVERY_PATTERNS = {
     "grows_every_year",
     "small_dip_recovers",
     "significant_dip_recovers",
     "multiple_dips_resolved",
+    "dip_durably_resolved",
 }
 
 

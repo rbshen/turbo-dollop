@@ -35,7 +35,16 @@ interface Props {
   autoData: Step3Out;
 }
 
-const METHOD_OPTIONS: Exclude<Step3Method, "PASS">[] = ["DCF", "DFCF", "DNI", "DNI_NORMALIZED", "PRICE_TO_BOOK", "PSG"];
+const METHOD_OPTIONS: Exclude<Step3Method, "PASS">[] = [
+  "DCF",
+  "DFCF",
+  "DNI",
+  "DNI_NORMALIZED",
+  "CF_NORMALIZED",
+  "FCF_NORMALIZED",
+  "PRICE_TO_BOOK",
+  "PSG",
+];
 
 // The dropdown's own selectable values: the 6 plain methods (always live,
 // editable-from-Auto-defaults, as before) plus one extra entry --
@@ -62,6 +71,8 @@ const CURRENT_VALUE_LABELS: Record<string, string> = {
   DFCF: "Free Cash Flow (Current)",
   DNI: "Net Income (Current)",
   DNI_NORMALIZED: "Net Income (Smoothed, 5yr avg)",
+  CF_NORMALIZED: "Operating Cash Flow (Smoothed, 5yr avg)",
+  FCF_NORMALIZED: "Free Cash Flow (Smoothed, 5yr avg)",
 };
 
 // Generous, not data-derived -- growth/discount rate sliders must never
@@ -80,6 +91,10 @@ function candidateForMethod(method: Step3Method, candidates: Step3CurrentValueCa
       return candidates.net_income_ttm;
     case "DNI_NORMALIZED":
       return candidates.net_income_smoothed;
+    case "CF_NORMALIZED":
+      return candidates.cfo_smoothed;
+    case "FCF_NORMALIZED":
+      return candidates.fcf_smoothed;
     default:
       return null;
   }
@@ -484,7 +499,13 @@ function ManualCalculationControls({
     void runAction(() => apiDelete(`/tickers/${ticker}/custom-valuation`), "Failed to delete — please try again.");
   }
 
-  const isTwentyYearMethod = method === "DCF" || method === "DFCF" || method === "DNI" || method === "DNI_NORMALIZED";
+  const isTwentyYearMethod =
+    method === "DCF" ||
+    method === "DFCF" ||
+    method === "DNI" ||
+    method === "DNI_NORMALIZED" ||
+    method === "CF_NORMALIZED" ||
+    method === "FCF_NORMALIZED";
   const isPB = method === "PRICE_TO_BOOK";
   const isPSG = method === "PSG";
 

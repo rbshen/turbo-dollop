@@ -12,6 +12,7 @@ from scoring.step3 import (
     run_20yr_engine,
     run_price_to_book,
     select_method,
+    trailing_smoothed_average,
 )
 
 # --- 20yr engine: MSFT DFCF worked example -------------------------------
@@ -372,6 +373,49 @@ def test_select_method_dfcf_via_normalized_fcf():
     step3b = next(s for s in result.decision_trail if s.step == "3b")
     assert step3a.passed is False
     assert step3b.passed is True
+
+
+# --- trailing_smoothed_average: DNI_NORMALIZED/CF_NORMALIZED/FCF_NORMALIZED's
+# shared TTM-duplicate-aware smoothing ------------------------------------
+
+
+def test_trailing_smoothed_average_no_duplicate_averages_last_5_points_as_is():
+    clean_series = [5.0, 10.0, 20.0, 30.0, 40.0, 50.0]  # 5yr annual + genuine TTM
+    result = trailing_smoothed_average(clean_series, ttm_period_duplicates_last_fy=False)
+    assert result == pytest.approx((10 + 20 + 30 + 40 + 50) / 5)
+
+
+def test_trailing_smoothed_average_duplicate_drops_ttm_and_uses_prior_5_distinct_years():
+    # SNDK-shaped: a memory-supercycle FY (11433) is both the latest annual
+    # figure AND (since no newer quarter has posted) TTM -- appended
+    # unadjusted, it would count twice in a 5-point average. Dropping the
+    # duplicate TTM and averaging the prior 5 distinct fiscal years instead
+    # (Option B) keeps a true 5-point window and doesn't double-weight the
+    # spike year. Real cached values, confirmed against the live app during
+    # this fix's investigation.
+    clean_series = [1064.0, -2143.0, -672.0, -1641.0, 11433.0, 11433.0]
+    result = trailing_smoothed_average(clean_series, ttm_period_duplicates_last_fy=True)
+    assert result == pytest.approx((1064 - 2143 - 672 - 1641 + 11433) / 5)
+
+
+def test_trailing_smoothed_average_duplicate_falls_back_when_too_few_points_remain():
+    # Dropping TTM would leave only 1 point (len(clean_series) - 1 == 1 <
+    # 2) -- the fallback guard keeps TTM rather than shrinking below 2
+    # points, same "never make it less scoreable" convention as
+    # step4.py::recovery_excluded_prefix_length.
+    clean_series = [4.0, 10.0]
+    result = trailing_smoothed_average(clean_series, ttm_period_duplicates_last_fy=True)
+    assert result == pytest.approx((4 + 10) / 2)
+
+
+def test_trailing_smoothed_average_respects_custom_window():
+    clean_series = [1.0, 2.0, 3.0, 4.0]
+    result = trailing_smoothed_average(clean_series, ttm_period_duplicates_last_fy=False, window=2)
+    assert result == pytest.approx((3 + 4) / 2)
+
+
+def test_trailing_smoothed_average_empty_series_is_none():
+    assert trailing_smoothed_average([], ttm_period_duplicates_last_fy=False) is None
 
 
 def test_select_method_falls_through_to_step4_when_current_cfo_or_ni_missing():

@@ -453,11 +453,19 @@ def test_fcf_old_recovered_cash_burn_scores_good_not_fail():
 
 
 def test_fcf_old_unrecovered_cash_burn_still_fails():
-    # Same old run position as above, but the series never durably
-    # recovers past the pre-dip level (classify_trend reads multiple_dips,
-    # not a resolved pattern) -- an old run alone isn't enough to excuse
-    # the tier; the recovery must actually be confirmed.
-    fcf = [100, -20, -30, 10, 15, 12, 18, 20, 22, 25]
+    # Same old run position as above, but the post-burn years plateau and
+    # then drift down (10 -> 12 -> 11 -> 10 -> 9 -> 8 -> 7) rather than
+    # durably improving -- classify_trend reads multiple_dips, not a
+    # resolved pattern (including the durable, non-literal dip_durably_
+    # resolved path -- see CLAUDE.md's Item 1 note -- which needs a
+    # genuinely non-negative robust late-window direction, absent here).
+    # An old run alone isn't enough to excuse the tier; the recovery must
+    # actually be confirmed. (A prior version of this fixture's post-burn
+    # years climbed steadily, which -- correctly, once dip_durably_resolved
+    # was added to RECOVERY_PATTERNS -- now reads as a genuine durable
+    # recovery instead; replaced here to keep testing the still-unrecovered
+    # case this test is named for.)
+    fcf = [100, -20, -30, 10, 12, 11, 10, 9, 8, 7]
     pattern, score = _classify_fcf(fcf)
     assert pattern == "sustained_cash_burn"
     assert score == 0

@@ -11,11 +11,17 @@ interface Props {
   ticker: string;
 }
 
+// CF_NORMALIZED/FCF_NORMALIZED never appear in the left "Model Valuation"
+// column (Auto Calculation's own selected_method) -- they're Manual
+// Calculation/Custom Valuation-only method choices, so these two entries
+// are only ever looked up from ManualCalculationPanel's method dropdown.
 export const METHOD_LABELS: Record<string, string> = {
   DCF: "Discounted Cash Flow (Operating CF)",
   DFCF: "Discounted Free Cash Flow",
   DNI: "Discounted Net Income",
   DNI_NORMALIZED: "Discounted Net Income (Normalized)",
+  CF_NORMALIZED: "Discounted Cash Flow (Normalized)",
+  FCF_NORMALIZED: "Discounted Free Cash Flow (Normalized)",
   PRICE_TO_BOOK: "Price to Book",
   PSG: "Price to Sales Growth",
   PASS: "No method applies",

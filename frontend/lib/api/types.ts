@@ -483,7 +483,20 @@ export interface FinancialsOut {
   reported_currency: string | null;
 }
 
-export type Step3Method = "DCF" | "DFCF" | "DNI" | "DNI_NORMALIZED" | "PRICE_TO_BOOK" | "PSG" | "PASS";
+// CF_NORMALIZED/FCF_NORMALIZED are Manual Calculation/Custom Valuation-only
+// method choices -- Auto Calculation's own method-selection tree never
+// picks either (see backend CLAUDE.md's Item 3 note), so selected_method
+// only shows one of these two when valuation_source === "custom".
+export type Step3Method =
+  | "DCF"
+  | "DFCF"
+  | "DNI"
+  | "DNI_NORMALIZED"
+  | "CF_NORMALIZED"
+  | "FCF_NORMALIZED"
+  | "PRICE_TO_BOOK"
+  | "PSG"
+  | "PASS";
 
 // "auto": Auto Calculation's own method-selection pick. "custom": an
 // active, user-saved TickerCustomValuation row -- see
@@ -514,6 +527,10 @@ export interface Step3CurrentValueCandidates {
   fcf_normalized: number | null;
   net_income_ttm: number | null;
   net_income_smoothed: number | null;
+  // Pre-fill sources for CF_NORMALIZED/FCF_NORMALIZED -- see Step3Method's
+  // own comment on why these are Manual Calculation/Custom Valuation-only.
+  cfo_smoothed: number | null;
+  fcf_smoothed: number | null;
 }
 
 export interface Step3Inputs {

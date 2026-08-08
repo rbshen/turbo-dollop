@@ -33,6 +33,7 @@ from scoring.step3 import (
     run_price_to_book,
     run_psg,
     select_method,
+    trailing_smoothed_average,
 )
 from helpers.shares import compute_shares_outstanding
 from data.custom_valuation_data import (
@@ -41,7 +42,7 @@ from data.custom_valuation_data import (
     run_manual_calculation_from_params,
 )
 from data.step2_data import get_step2_data
-from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
+from helpers.ttm import TOTAL_QUARTERS_NEEDED, is_ttm_period_duplicate_of_last_fy, sum_last_four_quarters
 
 # Workbook default (valuation.md §4.1) -- never automated, matches the
 # source spreadsheet's own fallback.
@@ -446,16 +447,27 @@ async def get_step3_data(
     # Computed unconditionally (not just for whichever source the
     # method-selection tree actually picked) so Manual Calculation can
     # pre-fill a sensible Current Value default no matter which method the
-    # user selects there -- see Step3CurrentValueCandidates.
+    # user selects there -- see Step3CurrentValueCandidates. cfo_smoothed/
+    # fcf_smoothed exist purely for this: CF_NORMALIZED/FCF_NORMALIZED are
+    # Manual Calculation/Custom Valuation-only method choices (see CLAUDE.md's
+    # Item 3 note) -- select_method's own tree never picks them, so nothing
+    # above (selection.current_value_source) ever reads these two keys.
     normalized_fcf_series = normalize_fcf(cfo_clean, capex_clean)
+    # income_statement and cash_flow_statement can independently be (or not
+    # be) "TTM's 4 quarters duplicate the latest annual filing" -- checked
+    # per-statement, not assumed shared, since one field can have a stray
+    # missing quarter the other doesn't (see cfo_capex_pairs' own joint-filter
+    # comment above for the same class of concern).
+    ni_ttm_duplicates_last_fy = is_ttm_period_duplicate_of_last_fy(income_annual, income_quarterly)
+    cf_ttm_duplicates_last_fy = is_ttm_period_duplicate_of_last_fy(cash_flow_annual, cash_flow_quarterly)
     current_value_by_source = {
         "cfo_ttm": cfo_ttm,
         "fcf_ttm": fcf_ttm,
         "fcf_normalized": normalized_fcf_series[-1] if normalized_fcf_series else None,
         "net_income_ttm": net_income_ttm,
-        "net_income_smoothed": (
-            sum(net_income_clean[-5:]) / len(net_income_clean[-5:]) if net_income_clean else None
-        ),
+        "net_income_smoothed": trailing_smoothed_average(net_income_clean, ni_ttm_duplicates_last_fy),
+        "cfo_smoothed": trailing_smoothed_average(cfo_clean, cf_ttm_duplicates_last_fy),
+        "fcf_smoothed": trailing_smoothed_average(fcf_clean, cf_ttm_duplicates_last_fy),
     }
     current_value = current_value_by_source.get(selection.current_value_source) if selection.current_value_source else None
     current_value_candidates = Step3CurrentValueCandidates(**current_value_by_source)
@@ -465,6 +477,8 @@ async def get_step3_data(
         "fcf_normalized": "Free Cash Flow (Normalized, 5yr avg CapEx)",
         "net_income_ttm": "Net Income (Current)",
         "net_income_smoothed": "Net Income (Smoothed, 5yr avg)",
+        "cfo_smoothed": "Operating Cash Flow (Smoothed, 5yr avg)",
+        "fcf_smoothed": "Free Cash Flow (Smoothed, 5yr avg)",
     }
     current_value_label = current_value_labels.get(selection.current_value_source) if selection.current_value_source else None
 

@@ -47,12 +47,19 @@ meaningfully below the calculated fair value (a potentially attractive
 entry point, by this measure); Overvalued means the reverse; Fair Valued
 means the price is roughly in line with the estimate.
 
-## The Manual Calculation panel doesn't save
+## The Manual Calculation panel — and saving it as a Custom Valuation
 
 Below the automatic result, a **Manual Calculation** panel lets you
 override the underlying inputs — growth rate assumptions, discount rate,
 and similar — to see how the fair value estimate changes under different
-assumptions. This is a what-if tool only: **any changes you make here are
-not saved anywhere and reset the moment you leave the page.** It's meant
-for exploring "what if growth were faster/slower" in the moment, not for
-recording an alternate valuation.
+assumptions. By default this is a what-if tool: changes you make reset
+the moment you leave the page and don't affect anything else.
+
+You can also **save** your inputs as a **Custom Valuation** for that
+ticker. Once saved and activated, it replaces the automatic result
+everywhere that ticker's valuation is shown (the Valuation tab, the
+ticker's header price tag, the Screener, your Watchlists) — until you
+deactivate it or save a new one. A saved Custom Valuation is a snapshot:
+it keeps showing the numbers you saved, not numbers that silently update
+themselves as the underlying business changes, so you always know exactly
+what assumptions produced the fair value you're looking at.

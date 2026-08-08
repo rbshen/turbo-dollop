@@ -368,17 +368,24 @@ class Step3CapmComponents(BaseModel):
 
 
 class Step3CurrentValueCandidates(BaseModel):
-    """All four candidate figures the method-selection tree can pick from as
-    `current_value`, not just the one matching the auto-selected method --
-    Manual Calculation needs the rest so switching its method dropdown to
-    something other than what Auto picked still pre-fills a sensible
-    starting value."""
+    """Every candidate figure a `current_value`-based method could use, not
+    just the one matching the auto-selected method -- Manual Calculation
+    needs the rest so switching its method dropdown to something other than
+    what Auto picked still pre-fills a sensible starting value.
+
+    cfo_smoothed/fcf_smoothed exist for CF_NORMALIZED/FCF_NORMALIZED, which
+    are Manual Calculation/Custom Valuation-only method choices -- Auto
+    Calculation's own select_method tree never picks either (see CLAUDE.md's
+    Item 3 note), so these two fields are always pre-fill-only, never the
+    source of selected_method/current_value on an "auto" Step3Out."""
 
     cfo_ttm: float | None = None
     fcf_ttm: float | None = None
     fcf_normalized: float | None = None
     net_income_ttm: float | None = None
     net_income_smoothed: float | None = None
+    cfo_smoothed: float | None = None
+    fcf_smoothed: float | None = None
 
 
 class Step3Inputs(BaseModel):
@@ -464,7 +471,11 @@ class Step3Out(BaseModel):
     # Step 4/Step 5 (see CLAUDE.md's "Scoring rubric deviations").
     company_type: str
     classification_note: str = "Best-effort classification from sector/industry text — not a certified determination."
-    # DCF | DFCF | DNI | DNI_NORMALIZED | PRICE_TO_BOOK | PSG | PASS
+    # DCF | DFCF | DNI | DNI_NORMALIZED | PRICE_TO_BOOK | PSG | PASS -- plus
+    # CF_NORMALIZED | FCF_NORMALIZED, but only when valuation_source ==
+    # "custom": select_method's own tree never produces either (Manual
+    # Calculation/Custom Valuation-only method choices, see CLAUDE.md's
+    # Item 3 note), so an "auto" Step3Out can never show one here.
     selected_method: str
     method_reasoning: list[Step3MethodStep] = []
     # Set only when selected_method == "PASS".
@@ -549,7 +560,7 @@ class Step3ManualRequest(Step3ManualParams):
     """Manual Calculation's what-if request -- see Step3ManualParams for
     the shared parameter fields."""
 
-    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | PRICE_TO_BOOK | PSG
+    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | CF_NORMALIZED | FCF_NORMALIZED | PRICE_TO_BOOK | PSG
     # Supplied by the caller (already available from the live Auto
     # Calculation fetch) rather than re-fetched server-side.
     last_close: float | None = None
@@ -571,7 +582,7 @@ class TickerCustomValuationIn(Step3ManualParams):
     live, never saved) plus `method`. See models.py::TickerCustomValuation
     and data/custom_valuation_data.py."""
 
-    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | PRICE_TO_BOOK | PSG
+    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | CF_NORMALIZED | FCF_NORMALIZED | PRICE_TO_BOOK | PSG
 
 
 class TickerCustomValuationOut(Step3ManualParams):

@@ -66,3 +66,30 @@ def sum_last_four_quarters(quarters: list[dict], field: str) -> TTMResult:
                     flagged.append(FlaggedQuarter(date=row.get("date"), value=value, trailing_median=median))
 
     return TTMResult(total=total, flagged=flagged)
+
+
+def is_ttm_period_duplicate_of_last_fy(annual_rows: list[dict], quarterly_rows: list[dict]) -> bool:
+    """True when the 4 quarters `sum_last_four_quarters` would sum for TTM
+    are exactly the latest annual filing's own Q1-Q4 -- i.e. no quarter has
+    been reported since that fiscal year closed, so TTM and the last annual
+    figure describe the identical underlying period. A multi-year-average
+    smoother (see scoring.step3.trailing_smoothed_average) that blindly
+    appends TTM after the annual series double-counts this period.
+
+    Checked by `fiscalYear`/`period` identity (FMP's own labels on each
+    row), not value equality -- a coincidental value match isn't the same
+    condition (would false-clear on real, distinct periods that happen to
+    net to the same total), and a genuine period match can differ slightly
+    in value after a restatement (would false-miss under a value check).
+
+    `quarterly_rows` must be most-recent-first (FMP's own ordering, same
+    convention `sum_last_four_quarters` requires). `annual_rows` order-
+    agnostic -- the latest fiscal year is resolved by comparing `fiscalYear`
+    labels directly, not by position."""
+    if not annual_rows or len(quarterly_rows) < 4:
+        return False
+    last_fy = max(annual_rows, key=lambda row: row.get("fiscalYear", "")).get("fiscalYear")
+    recent4 = quarterly_rows[:4]
+    quarter_fys = {q.get("fiscalYear") for q in recent4}
+    quarter_periods = {q.get("period") for q in recent4}
+    return quarter_fys == {last_fy} and quarter_periods == {"Q1", "Q2", "Q3", "Q4"}
