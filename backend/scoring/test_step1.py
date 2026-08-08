@@ -37,6 +37,13 @@ def test_strong_pass_all_growing():
 
 
 def test_fail_all_declining():
+    # DECLINING's final transition (-9.1%) sits inside the graduated TTM
+    # band (NOISE_FLOOR < decline < SEVERE_TTM_DECLINE), so it's no longer
+    # an unconditional 0 -- it flows through as an ordinary (merged,
+    # 4-transition) dip event that's too recent (age=0) to durably resolve,
+    # landing on "multiple_dips"/40 instead. Still a clear Fail overall --
+    # the graduated band softens an isolated mild wobble, not a company
+    # that's genuinely declined every single year across its whole window.
     result = score_step1(
         revenue=DECLINING,
         net_income=DECLINING,
@@ -48,8 +55,8 @@ def test_fail_all_declining():
     )
     assert result["score"] < 50
     assert result["verdict"] == "Fail"
-    assert result["components"]["revenue"]["score"] == 0
-    assert result["components"]["cfo"]["score"] == 0
+    assert result["components"]["revenue"] == {"score": 40, "pattern": "multiple_dips"}
+    assert result["components"]["cfo"] == {"score": 40, "pattern": "multiple_dips"}
 
 
 def test_cfo_exemption_redistributes_weights():
@@ -187,13 +194,17 @@ def test_net_income_oi_fallback_triggers_for_recent_one_off_dip():
     assert result["components"]["net_income"]["score"] == 80
 
 
-def test_net_income_oi_fallback_does_not_trigger_for_old_chronic_dip():
-    # The one real dip happened 6 periods before TTM -- well outside the
-    # "1 or 2 years in the past" one-off window -- so even though Operating
-    # Income is clean, this must NOT be rescued: a chronic, long-unresolved
-    # dip isn't the plausibly-one-off scenario the fallback exists for.
-    # (A behavior change from before this fix, where the old threshold-only
-    # trigger would have rescued this regardless of recency.)
+def test_net_income_oi_fallback_does_not_trigger_when_classify_trend_already_resolves_it():
+    # The one real dip happened 6 periods before TTM with 6 clean growth
+    # years since -- classify_trend's own age/recovery-run-aware resolution
+    # (see trend.py::_dip_durably_resolved) now recognizes this as durably
+    # resolved (75) on its own merits, so NI's score never drops to/below
+    # NET_INCOME_BACKUP_THRESHOLD in the first place and the OI fallback is
+    # never even considered. (Before that fix, this same fixture scored 40
+    # and this test existed to confirm the OI fallback still correctly
+    # declined to rescue an old, chronic-looking dip -- see
+    # test_net_income_oi_fallback_does_not_trigger_for_a_still_unresolved_old_dip
+    # below for that scenario, preserved with a fixture that still exercises it.)
     old_dip_net_income = [100, 40, 45, 50, 55, 60, 65, 70]
     result = score_step1(
         revenue=GROWING,
@@ -204,7 +215,37 @@ def test_net_income_oi_fallback_does_not_trigger_for_old_chronic_dip():
         net_margin=NET_MARGINS_STABLE,
         cfo_exempt=False,
     )
-    assert result["components"]["net_income"]["used_operating_income_backup"] is False
+    assert result["components"]["net_income"] == {
+        "score": 75,
+        "pattern": "dip_durably_resolved",
+        "used_operating_income_backup": False,
+    }
+
+
+def test_net_income_oi_fallback_does_not_trigger_for_a_still_unresolved_old_dip():
+    # A single real dip whose most recent (only) transition is 3 periods
+    # before TTM -- outside the OI fallback's own "1 or 2 years in the
+    # past" recency window (NET_INCOME_BACKUP_RECENCY_YEARS=2), AND outside
+    # the new durable-resolution path's own age floor (DIP_RESOLUTION_MIN_AGE
+    # =4) too, so NI's score stays at "multiple_dips"/40 on both counts.
+    # Confirms the OI fallback's recency gate still holds for a genuinely
+    # bad, not-yet-old-enough-to-excuse score -- not just for cases the new
+    # resolution path has since rescued to a good score on its own.
+    old_unresolved_net_income = [100, 110, 120, 60, 70, 80, 90]
+    result = score_step1(
+        revenue=GROWING,
+        net_income=old_unresolved_net_income,
+        operating_income=GROWING,
+        cfo=GROWING,
+        gross_margin=STABLE_MARGINS,
+        net_margin=NET_MARGINS_STABLE,
+        cfo_exempt=False,
+    )
+    assert result["components"]["net_income"] == {
+        "score": 40,
+        "pattern": "multiple_dips",
+        "used_operating_income_backup": False,
+    }
     assert result["components"]["net_income"]["score"] == 40
 
 
@@ -449,4 +490,46 @@ def test_fcf_recurring_negative_years_since_the_run_still_fails():
 def test_fcf_insufficient_data_below_two_points():
     pattern, score = _classify_fcf([50])
     assert pattern == "insufficient_data"
+    assert score == 0
+
+
+# --- FCF capex-driven softening (2026-08-08 fix) ---------------------------
+
+# AEP/DUK/ED/ES/FE/SO-shaped: a 3-year negative-FCF run ending at TTM (too
+# recent to clear FCF_CASH_BURN_RECENCY_YEARS on its own).
+_CAPEX_HEAVY_FCF = [50, 60, 70, -5, -8, -10]
+
+
+def test_fcf_capex_driven_burn_scores_good_when_cfo_positive_and_growing_throughout():
+    # CFO stayed positive and grew across the entire negative-FCF run --
+    # there was never a real cash crisis, just heavy capex outspending
+    # operating cash flow, so the recency gate doesn't apply.
+    pattern, score = _classify_fcf(_CAPEX_HEAVY_FCF, [400, 420, 450, 470, 485, 500])
+    assert pattern == "capex_driven_negative_fcf"
+    assert score == 85
+
+
+def test_fcf_capex_driven_check_requires_cfo_positive_throughout_not_just_endpoints():
+    # CFO dips negative in the MIDDLE of the run even though both endpoints
+    # are fine -- must not be softened just because CFO looks okay at a
+    # glance at the start/end of the window.
+    pattern, score = _classify_fcf(_CAPEX_HEAVY_FCF, [400, 420, 450, 470, -10, 500])
+    assert pattern == "sustained_cash_burn"
+    assert score == 0
+
+
+def test_fcf_capex_driven_check_requires_cfo_non_declining():
+    # CFO positive throughout the run, but declining (not growing) across
+    # it -- doesn't read as "strong operations funding an investment
+    # phase," so the softening doesn't apply.
+    pattern, score = _classify_fcf(_CAPEX_HEAVY_FCF, [400, 420, 450, 500, 490, 480])
+    assert pattern == "sustained_cash_burn"
+    assert score == 0
+
+
+def test_fcf_capex_driven_softening_requires_cfo_argument():
+    # No cfo passed (default None) -- unchanged legacy behavior, confirming
+    # backward compatibility for every existing caller of _classify_fcf.
+    pattern, score = _classify_fcf(_CAPEX_HEAVY_FCF)
+    assert pattern == "sustained_cash_burn"
     assert score == 0

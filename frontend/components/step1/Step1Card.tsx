@@ -42,6 +42,7 @@ const TIER_LABELS: Record<string, string> = {
   significant_dip_recovers: "Significant dip, recovered",
   flat_then_spike: "Flat, then sudden spike",
   multiple_dips_resolved: "Past dips, fully recovered",
+  dip_durably_resolved: "Durably improved, not yet a new high",
   // margins
   sharply_declining: "Sharply declining",
   gradually_compressing: "Gradually compressing",
@@ -51,6 +52,7 @@ const TIER_LABELS: Record<string, string> = {
   consistently_positive: "Consistently positive",
   sustained_cash_burn: "Sustained cash burn",
   cash_burn_recovered: "Cash burn, since recovered",
+  capex_driven_negative_fcf: "Negative FCF, funded by strong operating cash flow",
   isolated_dip: "Isolated negative year",
   scattered_negative_years: "Scattered negative years",
 };
@@ -105,9 +107,18 @@ export function Step1Card({ ticker }: Props) {
     };
   }).filter((row): row is NonNullable<typeof row> => row !== null);
 
-  const strongCount = componentRows.filter((r) => r.score >= 70).length;
-  const scoredComponents = componentRows.map((r) => BLURB_METRIC_LABELS[r.key] ?? r.key).join(", ");
-  const blurb = `${strongCount} of ${componentRows.length} components (${scoredComponents}) score at Pass level or better.`;
+  // Weighted blend, not a per-component pass/fail count -- avoids implying
+  // a discrete "N of 5 must pass" gate that doesn't exist in the scoring
+  // logic (score_step1 is a weighted average; see CLAUDE.md's Step 1
+  // deviations). Reads from data.weights rather than a static string so it
+  // stays correct for the CFO/FCF-exempt redistribution case too (Bank/
+  // Insurance/Property Developer/Commodity tickers).
+  const weightedComponents = componentRows
+    .map((row) => ({ label: BLURB_METRIC_LABELS[row.key] ?? row.key, weight: data.weights[row.key] ?? 0 }))
+    .filter((c) => c.weight > 0)
+    .sort((a, b) => b.weight - a.weight);
+  const weightSummary = weightedComponents.map((c) => `${c.label} (${Math.round(c.weight * 100)}%)`).join(", ");
+  const blurb = `Weighted blend of ${weightSummary} — not a per-component pass/fail count.`;
 
   const bullets: ReasoningBullet[] = componentRows.map((row) => ({
     key: row.key,

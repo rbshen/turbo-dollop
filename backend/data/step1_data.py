@@ -164,6 +164,14 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
     # business models" reasoning applies).
     clean_cfo = [v for v in cfo if v is not None] if not cfo_exempt else None
     clean_fcf = [v for v in fcf if v is not None] if not cfo_exempt else None
+    # NOT the same filter as clean_cfo above: fcf[i] is None whenever EITHER
+    # cfo[i] or capex[i] is missing, so clean_cfo's own independent
+    # None-filter can drop a different set of periods than clean_fcf did --
+    # passing clean_cfo alongside clean_fcf would silently desync indices.
+    # This filter instead walks fcf's own None-ness, guaranteeing fcf_cfo is
+    # None-free and positionally aligned with clean_fcf (fcf[i] is only
+    # non-None when cfo[i] is too).
+    fcf_cfo = [c for c, f in zip(cfo, fcf) if f is not None] if not cfo_exempt else None
 
     result = score_step1(
         revenue=[v for v in display_revenue if v is not None],
@@ -175,6 +183,7 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
         cfo_exempt=cfo_exempt,
         fcf=clean_fcf,
         margin_context_revenue=[v for v in revenue if v is not None],
+        fcf_cfo=fcf_cfo,
     )
 
     return Step1Out(

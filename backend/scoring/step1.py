@@ -255,7 +255,27 @@ def _fcf_durably_recovered(fcf: list[float], run_end: int) -> bool:
     return fcf[-1] >= baseline
 
 
-def _classify_fcf(fcf: list[float]) -> TrendResult:
+def _fcf_capex_driven(cfo: list[float] | None, run_start: int, run_end: int) -> bool:
+    """True if the negative-FCF run is fully explained by heavy, CFO-funded
+    capex rather than operational distress -- CFO stayed positive
+    THROUGHOUT the run (every value, not just the endpoints -- closes the
+    "genuinely distressed company with a temporarily-propped-up CFO" gap
+    explicitly) and non-declining (last >= first, the same simple bar
+    Step 4's negative-equity substitute already uses). Confirmed real shape
+    for regulated utilities (AEP, DUK, ED, ES, FE, SO): FCF negative for
+    years on heavy rate-base capex while CFO stayed comfortably positive and
+    growing the entire time -- there was never a cash crisis, so the
+    recency gate below (built for "was this ever a real crisis, and if so
+    how long ago did it end") doesn't apply."""
+    if cfo is None:
+        return False
+    window = cfo[run_start : run_end + 1]
+    if len(window) < 2 or any(v is None or v <= 0 for v in window):
+        return False
+    return window[-1] >= window[0]
+
+
+def _classify_fcf(fcf: list[float], cfo: list[float] | None = None) -> TrendResult:
     """FCF tiering: all-positive -> Excellent; a single isolated negative
     year -> Good (a one-off blip, not a pattern); negative years present
     but never 2 in a row (e.g. two scattered, non-adjacent negative years)
@@ -267,8 +287,10 @@ def _classify_fcf(fcf: list[float]) -> TrendResult:
     single-year TTM wobble (e.g. TSLA, TMUS, GE -- see that function) -- an
     old, resolved cash-burn stretch shouldn't permanently read as an ongoing
     bankruptcy-risk signal just because the latest year alone dipped. A run
-    too recent to trust as resolved still fails outright, same as everywhere
-    else in this app."""
+    too recent to trust as resolved still fails outright UNLESS `cfo` shows
+    it was capex-driven the whole time (see _fcf_capex_driven) -- a
+    strong-and-growing CFO throughout means there was never a real cash
+    crisis for the recency gate to be protecting against."""
     if len(fcf) < 2:
         return TrendResult("insufficient_data", 0)
 
@@ -276,9 +298,10 @@ def _classify_fcf(fcf: list[float]) -> TrendResult:
     if negative_years == 0:
         return TrendResult("consistently_positive", FCF_EXCELLENT_SCORE)
 
-    # Track where each qualifying 2+-consecutive-negative run ENDS, not just
-    # whether one exists -- recency is judged off the most recent such run.
-    run_end_indices: list[int] = []
+    # Track each qualifying 2+-consecutive-negative run's (start, end) span,
+    # not just whether one exists -- recency is judged off the most recent
+    # such run's end, and the capex-driven check needs the whole span.
+    run_spans: list[tuple[int, int]] = []
     run_start = None
     for i, v in enumerate(fcf):
         if v < 0:
@@ -286,15 +309,17 @@ def _classify_fcf(fcf: list[float]) -> TrendResult:
                 run_start = i
         else:
             if run_start is not None and i - run_start >= 2:
-                run_end_indices.append(i - 1)
+                run_spans.append((run_start, i - 1))
             run_start = None
     if run_start is not None and len(fcf) - run_start >= 2:
-        run_end_indices.append(len(fcf) - 1)
+        run_spans.append((run_start, len(fcf) - 1))
 
-    if run_end_indices:
-        run_end = max(run_end_indices)
+    if run_spans:
+        run_start, run_end = max(run_spans, key=lambda span: span[1])
         years_since_run_end = (len(fcf) - 1) - run_end
         if years_since_run_end <= FCF_CASH_BURN_RECENCY_YEARS:
+            if _fcf_capex_driven(cfo, run_start, run_end):
+                return TrendResult("capex_driven_negative_fcf", FCF_GOOD_SCORE)
             return TrendResult("sustained_cash_burn", FCF_FAIL_SCORE)
         trend = classify_trend(fcf)
         if trend.pattern in RECOVERY_PATTERNS or _fcf_durably_recovered(fcf, run_end):
@@ -324,6 +349,7 @@ def score_step1(
     cfo_exempt: bool,
     fcf: list[float] | None = None,
     margin_context_revenue: list[float] | None = None,
+    fcf_cfo: list[float] | None = None,
 ) -> dict:
     """Pure scoring function per CLAUDE.md's Step 1 spec: takes parsed metric
     series (chronological, oldest fiscal year -> TTM) and returns
@@ -334,7 +360,13 @@ def score_step1(
     trend-classified as "Revenue" -- used for Bank tickers, where `revenue`
     is actually Net Interest Income (see step1_data.py), but margins should
     still read against real revenue growth. Defaults to `revenue` itself,
-    unchanged behavior for every other company type."""
+    unchanged behavior for every other company type.
+
+    `fcf_cfo` is CFO filtered to exactly the periods `fcf` has a value for
+    (NOT the same filter as `cfo` above -- `fcf[i]` is None whenever either
+    CFO or CapEx is missing for period i, so a naive shared filter would
+    desync the two arrays' indices; see step1_data.py's own comment on this)
+    -- feeds _classify_fcf's capex-driven softening (see that function)."""
     revenue_result = _classify_positive_trend(revenue)
     net_income_pos_result = _classify_positive_trend(net_income)
 
@@ -376,7 +408,7 @@ def score_step1(
         weights = WEIGHTS_CFO_EXEMPT
     else:
         cfo_result = _classify_positive_trend(cfo)
-        fcf_result = _classify_fcf(fcf) if fcf is not None else None
+        fcf_result = _classify_fcf(fcf, fcf_cfo) if fcf is not None else None
         weights = WEIGHTS_STANDARD
 
     # A fetch failure (cache.py::safe_fetch swallows httpx.HTTPError to {})

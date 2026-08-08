@@ -139,3 +139,92 @@ def test_most_recent_real_dip_age_insufficient_data():
 
 def test_most_recent_real_dip_age_ignores_sub_noise_floor_wobbles():
     assert most_recent_real_dip_age([100, 100.5, 99, 105]) is None
+
+
+# --- Dip-event merging + age-aware durable resolution (2026-08-08 fix) -----
+
+
+def test_contiguous_dip_transitions_merge_into_one_event():
+    # HWM-shaped: a 3-transition decline (140 -> 120 -> 95 -> 50) is ONE
+    # real economic event, not three independent dips each needing its own
+    # recovery. Old enough (age=4) with a long enough clean recovery run
+    # (4 periods) and genuine improvement since the trough -- durably
+    # resolved even though TTM (90) never re-exceeds the pre-decline
+    # baseline (140).
+    pattern, score = classify_trend([140, 120, 95, 50, 60, 70, 80, 90])
+    assert pattern == "dip_durably_resolved"
+    assert score == 75
+
+
+def test_merged_dip_event_still_multiple_dips_when_too_recent():
+    # Same shape as above, one year short -- age=3 fails
+    # DIP_RESOLUTION_MIN_AGE, so it's too recent to durably resolve.
+    pattern, score = classify_trend([140, 120, 95, 50, 60, 70, 80])
+    assert pattern == "multiple_dips"
+    assert score == 40
+
+
+def test_merged_dip_event_still_multiple_dips_when_recovery_run_too_short():
+    # The original 2018-shaped decline is comfortably old, but a fresh,
+    # real (>5%) relapse lands right before TTM -- breaks the trailing
+    # clean-run requirement, so the old event can't be excused even though
+    # its own age would otherwise qualify.
+    pattern, score = classify_trend([140, 120, 95, 50, 60, 70, 80, 90, 100, 92])
+    assert pattern == "multiple_dips"
+    assert score == 40
+
+
+def test_merged_dip_event_literal_recovery_uses_aggregate_magnitude():
+    # A merged (start != end) event that DOES literally recover by TTM
+    # (150 >= the pre-decline baseline of 140) must grade its severity off
+    # the aggregate baseline-vs-trough magnitude (-64.3%), not any single
+    # transition within the run -- no single transition represents a
+    # merged, multi-leg decline.
+    pattern, score = classify_trend([140, 120, 95, 50, 60, 70, 80, 150])
+    assert pattern == "significant_dip_recovers"
+    assert score == 85
+
+
+def test_ttm_decline_within_graduated_band_flows_through_as_ordinary_dip():
+    # 4 clean growth years then a -7.5% TTM dip -- inside the graduated
+    # band (NOISE_FLOOR < decline < SEVERE_TTM_DECLINE) and too recent
+    # (age=0) to durably resolve, so it lands on the ordinary unrecovered-
+    # dip tier instead of the old flat, unconditional 0.
+    pattern, score = classify_trend([100, 110, 121, 133, 146, 135])
+    assert pattern == "multiple_dips"
+    assert score == 40
+
+
+def test_ttm_decline_inside_graduated_band_not_forced_to_zero():
+    # -14%, comfortably inside the graduated band -- must not hit the
+    # SEVERE_TTM_DECLINE hard override.
+    pattern, score = classify_trend([100, 110, 121, 133, 133 * 0.86])
+    assert pattern != "declining"
+
+
+def test_ttm_decline_beyond_severe_threshold_still_declining():
+    # -16%, beyond SEVERE_TTM_DECLINE -- the hard override still applies
+    # unconditionally, same as the pre-existing behavior for a severe drop.
+    pattern, score = classify_trend([100, 110, 121, 133, 133 * 0.84])
+    assert pattern == "declining"
+    assert score == 0
+
+
+def test_flat_then_spike_narrowed_by_robust_late_direction():
+    # HON-shaped: arr[0] vs arr[-2] reads flat (the old 2-point check would
+    # fire flat_then_spike), but the robust late-window average (single
+    # most extreme point excluded) is ~11% above the early window even
+    # setting the terminal jump aside -- genuine multi-year improvement the
+    # 2-point check can't see, so it falls through to ordinary dip-event
+    # resolution instead of the flat 20.
+    pattern, score = classify_trend([100, 40, 130, 90, 105, 95, 210])
+    assert pattern != "flat_then_spike"
+
+
+def test_flat_then_spike_still_fires_when_no_meaningful_prior_improvement():
+    # Existing fixture, unchanged: robust-late-vs-early is slightly
+    # NEGATIVE here even excluding the terminal spike, so the narrowing
+    # doesn't rescue it -- still genuinely "flat, then a lone spike".
+    pattern, score = classify_trend([100, 90, 106, 88, 103, 145])
+    assert pattern == "flat_then_spike"
+    assert score == 20
