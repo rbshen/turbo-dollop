@@ -461,12 +461,20 @@ async def ticker_refresh(ticker: str) -> RefreshResult:
 # the chip still works on a ticker's very first view, mirroring Watchlist's
 # own fallback rather than leaving the chip blank until a refresh/nightly
 # run. Either path makes zero FMP calls.
+#
+# Also recomputes when the stored row's overall_score is None -- a row
+# frozen mid-race (e.g. compute_ticker_score reading a partially-warm
+# cache while a concurrent request was still populating it) or computed
+# before its inputs were ever fully cached otherwise reads blank forever,
+# since nothing else revisits a ticker outside the nightly S&P 500/Dow
+# cron universe (see nightly_score_recompute.py for the periodic sweep
+# that now covers those). Still zero FMP calls either way.
 @app.get("/api/tickers/{ticker}/score", response_model=TickerScoreOut | None)
 async def ticker_score_out(ticker: str) -> TickerScoreOut | None:
     ticker = ticker.upper()
     with Session(engine) as session:
         row = session.get(TickerScore, ticker)
-    if row is None:
+    if row is None or row.overall_score is None:
         row = await compute_ticker_score(ticker, cache_only=True)
     return TickerScoreOut(**row.model_dump()) if row is not None else None
 

@@ -108,6 +108,38 @@ def test_returns_an_existing_row_unchanged_without_recomputing(monkeypatch):
     assert calls == []  # a stored row is read directly, never recomputed
 
 
+def test_recomputes_when_existing_row_has_no_overall_score(monkeypatch):
+    engine = _fresh_shared_engine(monkeypatch)
+    calls = _patch_score_steps(monkeypatch)
+
+    with Session(engine) as session:
+        session.add(
+            TickerScore(
+                ticker="AAPL",
+                company_name="Apple Inc.",
+                step4_verdict="insufficient_data",
+                overall_score=None,
+                overall_verdict=None,
+                computed_at=datetime(2026, 1, 1),
+            )
+        )
+        session.commit()
+
+    with TestClient(main.app) as client:
+        response = client.get("/api/tickers/AAPL/score")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ticker"] == "AAPL"
+    # the stale insufficient_data snapshot is gone -- replaced by a real,
+    # freshly-computed score using the same (now-complete) cached data.
+    assert body["overall_score"] is not None
+    assert body["overall_verdict"] is not None
+
+    assert len(calls) == 5
+    assert all(cache_only is True for _, cache_only in calls)
+
+
 def test_falls_back_to_cache_only_compute_when_no_row_exists(monkeypatch):
     engine = _fresh_shared_engine(monkeypatch)
     calls = _patch_score_steps(monkeypatch)
