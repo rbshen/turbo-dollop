@@ -113,11 +113,20 @@ those two old years never stopped being counted.
 
 Before computing the average (spike-robust or otherwise — this runs
 *before* `_spike_robust_avg`, not instead of it), any **resolved dip
-event** is excluded from the series:
+event** is excluded from the series. This reuses (not duplicates) the
+dip-event/resolution machinery `financials.md`'s "Trend classification"
+section documents in full for Step 1's own use — see that doc for the
+complete mechanism and its own worked example (HWM's Revenue); summarized
+here only as far as Step 4's exclusion behavior needs it:
 
 1. Find every dip event in the series (`scoring/trend.py`'s `DipEvent` —
    the same contiguous-transition-merging machinery built for Step 1's
-   dip-recovery fix; a multi-year decline is one event, not several).
+   dip-recovery fix; a multi-year decline is one event, not several), then
+   keep only the ones that resolved (`resolved_dip_events`, also in
+   `scoring/trend.py` — unlike `classify_trend`, this doesn't give up at
+   the first *unresolved* event elsewhere in the same series; a resolved
+   dip's stale years still get excluded even if a different, unrelated
+   dip stays unresolved).
 2. An event counts as **resolved** if it recovered either **literally**
    (TTM ≥ the event's own pre-dip baseline) or **durably** — the same
    age/recovery-run/direction test `classify_trend` uses (≥4 periods old,
@@ -127,7 +136,10 @@ event** is excluded from the series:
    declining leg. A company whose only strong years sit before a resolved
    dip has, definitionally, already replaced that old high with a new,
    more current normal; the old high shouldn't get to anchor a tier the
-   recent numbers no longer support either direction.
+   recent numbers no longer support either direction. This count is what
+   `scoring/step4.py::recovery_excluded_prefix_length` computes — `0` if
+   nothing resolved, otherwise how many leading values to drop before
+   `score_roe`/`score_roic` average the rest.
 4. The exclusion never applies if it would leave fewer than 2 points to
    average — this mechanism should never make a metric *less* scoreable
    than before.
@@ -166,7 +178,10 @@ open-ended risk.
 Whenever exclusion fires, a descriptive note is attached to the ROE and/or
 ROIC component — purely explanatory, mechanical/neutral wording (not "this
 improved the score," since the mechanism applies unconditionally and
-sometimes makes things worse — see the LHX/LUV/MU tradeoff above). States
+sometimes makes things worse — see the LHX/LUV/MU tradeoff above). This is
+the first note ROIC has ever had: before this build, only ROE's
+negative-equity substitute (below) carried any explanatory text at all —
+`result["components"]["roic"]["note"]` didn't exist as a concept. States
 how many years were excluded and their fiscal-year span, e.g. *"5 early
 year(s) (2016–2020) excluded from this average — performance dipped during
 that stretch and has since durably recovered, so those years no longer

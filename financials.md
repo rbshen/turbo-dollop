@@ -55,38 +55,84 @@ of company type, including for Banks.
 
 ## Trend classification (Revenue, Net Income, CFO)
 
-Each of these three series is run through a shared trend classifier.
-Given a chronological series of at least 2 points:
+Each of these three series is run through a shared trend classifier
+(`scoring/trend.py::classify_trend`) — not local to this check: the same
+function backs Step 3's method-selection tree and Step 4's ROE/ROIC
+recovery-aware exclusion. Given a chronological series of at least 2
+points:
 
 1. Compute period-over-period percent changes. A decline steeper than
    **-5%** counts as a "real" dip; anything shallower is noise.
-2. If the **final** transition (into TTM) is a real decline (steeper than
-   -5%), the result is **`declining`, score 0**, unconditionally — this
-   overrides everything else in the series' history. TTM must confirm the
-   trend, not undermine it.
+2. **Severe TTM decline override**: if the final transition (into TTM) is
+   a decline steeper than **-15%**, the result is **`declining`, score
+   0**, unconditionally — this overrides everything else in the series'
+   history. A milder TTM decline (between -5% and -15%) no longer
+   triggers this override as of **2026-08-08** — it flows through as an
+   ordinary dip transition, subject to the same merge/resolution logic as
+   any other dip (steps 4-7 below), instead of a flat, age-blind cutoff.
+   Before this change, any real TTM decline forced `declining`/0
+   regardless of history; confirmed dragging ~12 tickers (APTV, PHM,
+   FISV, HCA, PCG, TSCO, etc.) from Pass to Fail on a single mild (5-15%)
+   TTM wobble after an otherwise long, clean growth run.
 3. **Zero real dips** → `grows_every_year`, **100**.
-4. **Exactly one real dip**: compare the current (TTM) value against the
-   dip's "effective pre-dip value" — normally the value immediately before
-   the dip, but if *that* value was itself produced by a single-year jump
-   of **100% or more**, it's treated as an unreliable spike rather than a
-   genuine baseline, and the value from before the spike is used instead.
-   - If TTM has not recovered to at least that baseline → `multiple_dips`,
+4. **Flat-then-spike check** (2+ real dips only, checked before dip-event
+   resolution): if the window before the final point is flat (the total
+   move from the first point to the second-to-last point is under 10%)
+   and the final transition is a jump greater than **25%**, this is
+   narrowed by one more condition as of **2026-08-08** — it only fires if
+   even the *robust* late-window average (the single most extreme point
+   excluded before averaging, same convention as Margins/CCC) shows no
+   more than **10%** improvement over the early window. If the robust
+   average shows more improvement than that, the series falls through to
+   ordinary dip-event resolution (steps 5-7) instead. Otherwise →
+   `flat_then_spike`, **20**. (Before this change, the flat-vs-spike test
+   was a bare 2-point comparison — `arr[0]` vs `arr[-2]` — that could miss
+   a genuine multi-year improvement sitting just behind a terminal spike.)
+5. **Contiguous real-dip transitions merge into one dip event** as of
+   **2026-08-08**. A multi-year decline (e.g. HWM's 2018→2021 Revenue
+   collapse — three consecutive declining transitions) is one real
+   economic event needing one recovery, not three independent dips each
+   needing their own. A non-declining (or sub-noise-floor) transition
+   between two declines still keeps them as separate events. Each event's
+   own baseline ("effective pre-dip value") is normally the value
+   immediately before it, but if *that* value was itself produced by a
+   single-year jump of **100% or more**, it's treated as an unreliable
+   spike, and the value from before the jump is used instead — unchanged
+   from before.
+6. **Each event resolves either**:
+   - **literally** — the current (TTM) value is at least as large as the
+     event's own baseline; or
+   - **durably**, as of **2026-08-08** — all three of: the event's trough
+     is at least **4 periods** old; the trailing run of consecutive
+     non-dip transitions counting back from TTM is at least **3
+     periods**; and the recovery segment (trough through TTM) shows a
+     non-negative robust late-window direction (same robust-average
+     convention as step 4 above). Before this, only literal recovery
+     counted, with no age-awareness at all — an old, since-recovered dip
+     could permanently cap a series at `multiple_dips`/40 even after 5+
+     clean recovery years, simply because TTM never re-cleared a
+     possibly-structural old peak. Motivating case: HWM's Revenue has a
+     2018 pre-Arconic-split peak of $14.02B, never re-cleared despite 6
+     clean growth years since the 2021 trough.
+   - If **any** event in the series resolves neither way → `multiple_dips`,
      **40**.
-   - If recovered, and the dip itself was **≤10%** → `small_dip_recovers`,
-     **90**.
-   - If recovered, and the dip was **>10%** → `significant_dip_recovers`,
+7. **Once every event has resolved**:
+   - **Exactly one event, resolved literally**: graded by severity — a
+     genuine single-transition event reads its severity directly off that
+     transition's own percent change; a merged (multi-transition) event
+     reads it off the aggregate baseline-vs-trough magnitude instead, since
+     no single transition represents the whole run. **≤10%** →
+     `small_dip_recovers`, **90**. **>10%** → `significant_dip_recovers`,
      **85**.
-5. **Two or more real dips**:
-   - Special case first: if the window before the final point is flat
-     (the total move from the first point to the second-to-last point is
-     under 10%) and the final transition is a jump greater than **25%** →
-     `flat_then_spike`, **20**.
-   - Otherwise, check every real dip's own effective pre-dip value (same
-     spike-aware baseline as step 4) against the current TTM value. If
-     **any** dip hasn't recovered past its own baseline → `multiple_dips`,
-     **40**. If **all** dips have recovered → `multiple_dips_resolved`,
-     **75** — regardless of how recently the most recent dip occurred.
-6. Fewer than 2 data points → `insufficient_data`, score 0 (see the
+   - **Two or more events, all resolved literally** → `multiple_dips_resolved`,
+     **75** — regardless of how recently the most recent one happened
+     (unchanged from before).
+   - **At least one event resolved only via the durable path** (new) →
+     `dip_durably_resolved`, **75** — same score as
+     `multiple_dips_resolved`, kept as a distinct pattern purely so the
+     reasoning panel can say "durably improved, not yet a new high"
+     rather than implying TTM reached a literal new peak.
+8. Fewer than 2 data points → `insufficient_data`, score 0 (see the
    insufficient-data section below for how this propagates).
 
 ## Positivity gate (Revenue, Net Income, CFO)
@@ -190,8 +236,19 @@ subtracting it).
 - **Zero negative years** → `consistently_positive`, **100**.
 - Otherwise, find every run of **2 or more consecutive** negative years
   and note where the most recent such run ends:
-  - If that run ended **within the last 3 periods** → `sustained_cash_burn`,
-    **0** — too recent to trust as resolved, fails outright.
+  - If that run ended **within the last 3 periods**, check first (as of
+    **2026-08-08**) whether it's **capex-driven, not distress**: CFO
+    stayed positive throughout the entire run (every value, not just the
+    endpoints) and non-declining (last ≥ first). If so →
+    `capex_driven_negative_fcf`, **85** — there was never a cash crisis
+    for the recency gate below to be protecting against. Confirmed real
+    shape for regulated utilities (AEP, DUK, ED, ES, FE, SO): FCF negative
+    for years on heavy rate-base capex while CFO stayed comfortably
+    positive and growing the entire time. Otherwise → `sustained_cash_burn`,
+    **0** — too recent to trust as resolved, fails outright. (This
+    capex-driven check only applies to a run ending within the last 3
+    periods — an older run that isn't capex-driven still falls through to
+    the recovery check below, unchanged.)
   - If it ended more than 3 periods ago, the run is excused as resolved
     if **either**:
     - the full series (including TTM) reads as one of the trend

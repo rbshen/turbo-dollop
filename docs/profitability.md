@@ -40,6 +40,16 @@ Profitability check fails outright, regardless of how the other two
 metrics look — a strong receivables or cash-cycle trend can't rescue a
 fundamentally weak return on capital.
 
+ROE and ROIC are judged on multiple years, not a single snapshot — but a
+rough patch that's genuinely behind the company (a real, multi-year rough
+stretch that's since given way to a sustained, durable recovery) doesn't
+keep dragging the reading down forever once it's clearly over, the same
+way a temporary dip is tolerated elsewhere in this app's checks. This cuts
+both ways: it's also possible for a company whose best years are behind
+it, with a real rough stretch still ongoing today, to read weaker once
+those old strong years stop counting — a currently-declining business
+isn't rescued just because it once performed well.
+
 ## Some checks don't apply to every company type
 
 - **ROIC** isn't meaningful for Banks, Insurance companies, Utilities, or

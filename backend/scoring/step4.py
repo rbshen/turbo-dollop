@@ -215,7 +215,20 @@ def _spike_robust_avg(values: list[float]) -> float:
     >=2x the median of the rest -- an anomalous high year (e.g. a one-time
     tax benefit) can't inflate the average into a higher tier on its own.
     Never excludes the minimum -- see this module's ROE/ROIC comment block
-    for why that would undo the min-year consistency floor."""
+    for why that would undo the min-year consistency floor.
+
+    NOT a guarantee that a bad year can never disappear from the average
+    by any means, though -- `score_roe`/`score_roic` call
+    `recovery_excluded_prefix_length` BEFORE this function ever runs, and
+    that mechanism can legitimately drop a real crash year (including the
+    series minimum) if it sits inside a dip that's since literally or
+    durably resolved. That's a deliberate, separate, dip-recovery-driven
+    exclusion (see profitability.md's "Recovery-aware exclusion"), not a
+    bug in either function -- `_spike_robust_avg` itself still never
+    excludes the minimum on its own initiative, regardless of what's
+    already been filtered out before it runs. Confirmed via
+    test_step4.py's `test_roe_low_outlier_inside_a_literally_resolved_
+    dip_can_be_excluded`, which pins this exact interaction."""
     arr = np.asarray(values, dtype=float)
     if len(arr) < 3:
         return float(arr.mean())

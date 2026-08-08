@@ -236,6 +236,31 @@ at each point below. Notable design decisions and fixes:
   has recovered past its own pre-dip peak, it scores 75 regardless of how
   recently the dip happened -- a fully resolved dip reads the same whether
   it was 5 years ago or last fiscal year.
+- **`classify_trend` (`scoring/trend.py`) made age-aware, and contiguous
+  dip transitions now merge into one event (2026-08-08)** -- the tier
+  above previously required LITERAL recovery only (TTM re-clearing a
+  dip's own pre-dip peak), with no age-awareness at all: an old,
+  durably-recovered dip could permanently cap a series at
+  `multiple_dips`/40 even after 5+ clean recovery years, simply because
+  TTM never re-cleared a possibly-structural old peak. Confirmed hitting
+  113/569 tracked tickers (20%), 96 currently "Fail" overall. A dip can
+  now also resolve via a secondary durable path (age >=4 periods, >=3
+  clean trailing periods, non-negative robust late-window direction) --
+  new pattern `dip_durably_resolved`, same 75 score, kept distinct only so
+  the reasoning panel says "durably improved, not yet a new high" rather
+  than implying a literal new peak. The flat TTM-decline-forces-0 override
+  is now graduated (only fires beyond a 15% decline, not any real
+  decline), and `flat_then_spike` is narrowed by the same robust-average
+  convention Margins/CCC use. Full mechanism, exact thresholds, and the
+  regulated-utilities FCF capex-driven softening this same build shipped
+  are documented in `financials.md`'s "Trend classification"/"Free Cash
+  Flow classification" sections, not duplicated here. Motivating case:
+  HWM's Revenue (a 2018 pre-Arconic-split peak never literally re-cleared
+  despite 6 clean growth years since) -- Financials score 66/Fail ->
+  80/Pass. Full-universe validation: 28 tickers flip Fail->Pass, 0
+  regress. Shared logic, not Step-1-local -- Step 3's method-selection
+  tree and Step 4's ROE/ROIC recovery-aware exclusion (`profitability.md`)
+  both reuse the same underlying machinery.
 - **Margins' `sustained_decline` override (Rule 1) is gated on durable
   reversal**, not unconditional. The 10yr+TTM window extension exposed the
   same class of bug fixed in Profitability's CCC classifier: a sustained decline
@@ -628,6 +653,26 @@ thresholds. Notable design decisions and fixes:
   average diluted by one very weak year lands in the "marginal" tier, not
   "excellent") — a straight average alone would let one bad year hide
   behind several good ones.
+- **Recovery-aware exclusion (2026-08-08)**: that average is now computed
+  on a *reduced* series when a real dip in it has since resolved (literally
+  or durably, reusing Step 1's `classify_trend`/`DipEvent` machinery) —
+  the whole prefix through the last resolved dip's own trough is dropped
+  before averaging, not just that dip's own declining leg. Fixes a
+  one-directional blind spot the unrecovered-decline demotion (below)
+  didn't cover: demotion can only ever lower a tier a good-average ticker
+  has since let slip, never raise one a bad-average ticker has since
+  durably fixed. Motivating case: HWM's ROE had two crash years
+  (2016-17) followed by 8 straight years of genuine improvement, yet
+  scored `marginal` because those two years never stopped counting —
+  fixed to `excellent`. Full-universe validation: 68 of 90 affected
+  hard-fails resolved, 13 known, accepted regressions (structural
+  decliners like LHX/LUV/MU, whose only strong years sit before a
+  resolved-by-age dip, can score *worse* once those years are excluded —
+  evaluated against two alternative designs, a narrower span-only
+  exclusion and a recency-weighted average, both prototyped and
+  rejected). Full mechanism and the regression tradeoff are documented in
+  `profitability.md`'s "Recovery-aware exclusion" section, not duplicated
+  here.
 - **Negative-equity substitute signal**: if shareholders' equity is ≤0 in
   any period, raw ROE is ignored entirely for the whole metric (not just
   that period) and replaced by a check for positive-and-non-declining Net
