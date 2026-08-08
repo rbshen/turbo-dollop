@@ -3,7 +3,7 @@ from typing import NamedTuple
 import numpy as np
 
 from scoring.series_trend import analyze_series_direction, robust_late_direction
-from scoring.trend import RECOVERY_PATTERNS, TrendResult, classify_trend
+from scoring.trend import RECOVERY_PATTERNS, TrendResult, classify_trend, resolved_dip_events
 
 # --- ROE / ROIC tiers (percent) ---------------------------------------------
 ROE_EXCELLENT_AVG = 15.0
@@ -176,6 +176,29 @@ def _min_year_consistency_satisfied(valid: list[float], min_year: float) -> bool
     return trend.pattern in RECOVERY_PATTERNS
 
 
+def recovery_excluded_prefix_length(values: list[float]) -> int:
+    """How many leading values to drop before averaging: 0 if no dip
+    resolved, otherwise everything through the LAST resolved dip's own
+    trough (broad exclusion -- deliberately not just the dip's own
+    declining leg). A company whose only strong years sit before a
+    resolved dip has, definitionally, already replaced that old high with
+    a new, more current normal; the old high shouldn't get to anchor a
+    tier the recent numbers no longer support either direction. Falls
+    back to 0 (no exclusion) if applying it would leave fewer than 2
+    points to average -- this mechanism should never make a metric LESS
+    scoreable than before. Prototyped and compared 2026-08-08 against a
+    narrower span-only exclusion and a recency-weighted average -- this
+    "broad" design had the best resolve-to-regression ratio of everything
+    tested (see CLAUDE.md's Step 4 deviations)."""
+    resolved = resolved_dip_events(values)
+    if not resolved:
+        return 0
+    cutoff = max(e.end for e in resolved) + 1  # value index of the last resolved dip's trough
+    if len(values) - (cutoff + 1) < 2:
+        return 0
+    return cutoff + 1
+
+
 def _score_avg_min_tier(valid: list[float], avg: float, min_year: float) -> tuple[str, int, bool]:
     consistent = _min_year_consistency_satisfied(valid, min_year)
     if avg > ROE_EXCELLENT_AVG and consistent:
@@ -276,10 +299,11 @@ def score_roe(roe: list[float], equity: list[float | None], net_income: list[flo
     valid = [v for v in roe if v is not None]
     if not valid:
         return RatioResult("insufficient_data", 0, False)
-    avg = _spike_robust_avg(valid)
-    min_year = min(valid)
-    label, points, hard_fail = _score_avg_min_tier(valid, avg, min_year)
-    label, points = _demote_for_unrecovered_decline(valid, label, points)
+    scoring_values = valid[recovery_excluded_prefix_length(valid):]
+    avg = _spike_robust_avg(scoring_values)
+    min_year = min(scoring_values)
+    label, points, hard_fail = _score_avg_min_tier(scoring_values, avg, min_year)
+    label, points = _demote_for_unrecovered_decline(scoring_values, label, points)
     return RatioResult(label, points, hard_fail)
 
 
@@ -287,10 +311,11 @@ def score_roic(roic: list[float]) -> RatioResult:
     valid = [v for v in roic if v is not None]
     if not valid:
         return RatioResult("insufficient_data", 0, False)
-    avg = _spike_robust_avg(valid)
-    min_year = min(valid)
-    label, points, hard_fail = _score_avg_min_tier(valid, avg, min_year)
-    label, points = _demote_for_unrecovered_decline(valid, label, points)
+    scoring_values = valid[recovery_excluded_prefix_length(valid):]
+    avg = _spike_robust_avg(scoring_values)
+    min_year = min(scoring_values)
+    label, points, hard_fail = _score_avg_min_tier(scoring_values, avg, min_year)
+    label, points = _demote_for_unrecovered_decline(scoring_values, label, points)
     return RatioResult(label, points, hard_fail)
 
 

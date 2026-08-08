@@ -186,6 +186,27 @@ def most_recent_real_dip_age(values: list[float]) -> int | None:
     return (len(pct_changes) - 1) - int(real_dips[-1])
 
 
+def resolved_dip_events(values: list[float]) -> list[DipEvent]:
+    """All dip events in `values` that resolved by TTM -- literally
+    (TTM >= event.baseline) or via the same durable-resolution path
+    classify_trend uses (_dip_durably_resolved). Unlike classify_trend,
+    which stops at the first UNRESOLVED event, this returns every event
+    that DID resolve regardless of whether some other, unresolved event
+    exists elsewhere in the series -- built for Step 4's ROE/ROIC
+    recovery-aware exclusion (see scoring/step4.py), where a resolved
+    dip's own stale years should stop dragging the average down even if
+    a different year is still a live problem."""
+    if len(values) < 2:
+        return []
+    arr = np.asarray(values, dtype=float)
+    pct_changes = _pct_changes(arr)
+    real_dips = np.flatnonzero(pct_changes < -NOISE_FLOOR)
+    if real_dips.size == 0:
+        return []
+    events = _dip_events(arr, pct_changes, real_dips)
+    return [e for e in events if arr[-1] >= e.baseline or _dip_durably_resolved(arr, pct_changes, e)]
+
+
 def classify_trend(values: list[float]) -> TrendResult:
     """Classify a chronological (oldest fiscal year -> TTM) metric series into
     one of the Step 1 methodology's trend patterns (grows_every_year,

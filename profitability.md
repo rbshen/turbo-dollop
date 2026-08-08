@@ -96,6 +96,86 @@ series (10yr+TTM):
    further — `fail` only ever comes from the absolute floor in step 3
    above, never manufactured by this trend check alone.
 
+## Recovery-aware exclusion (2026-08-08)
+
+The avg/min-year tiering above runs on the full 10yr+TTM window as a flat,
+unweighted average — this has a one-directional blind spot the
+unrecovered-decline demotion (step 4 above) doesn't cover: demotion can
+only ever *lower* a tier a good-average ticker has since let slip, never
+*raise* one a bad-average ticker has since durably fixed. An old,
+already-resolved dip (a real crash year, or a multi-year decline, that's
+since been fully worked through) permanently drags the average down even
+when every recent year is comfortably strong — confirmed real case: HWM's
+ROE had two crash years (2016: -18.3%, 2017: -1.5%) immediately followed by
+eight straight years of steady, genuine improvement (11.5% up to 34.4% by
+TTM), yet the flat 10yr average still landed at `marginal` purely because
+those two old years never stopped being counted.
+
+Before computing the average (spike-robust or otherwise — this runs
+*before* `_spike_robust_avg`, not instead of it), any **resolved dip
+event** is excluded from the series:
+
+1. Find every dip event in the series (`scoring/trend.py`'s `DipEvent` —
+   the same contiguous-transition-merging machinery built for Step 1's
+   dip-recovery fix; a multi-year decline is one event, not several).
+2. An event counts as **resolved** if it recovered either **literally**
+   (TTM ≥ the event's own pre-dip baseline) or **durably** — the same
+   age/recovery-run/direction test `classify_trend` uses (≥4 periods old,
+   ≥3 clean trailing periods, non-negative robust late-window direction).
+3. If any event resolved, exclude the **whole prefix** through the *last*
+   resolved event's own trough (inclusive) — not just that event's own
+   declining leg. A company whose only strong years sit before a resolved
+   dip has, definitionally, already replaced that old high with a new,
+   more current normal; the old high shouldn't get to anchor a tier the
+   recent numbers no longer support either direction.
+4. The exclusion never applies if it would leave fewer than 2 points to
+   average — this mechanism should never make a metric *less* scoreable
+   than before.
+
+Everything downstream (spike-robust averaging, min-year consistency,
+unrecovered-decline demotion) runs unchanged on the reduced series — this
+is purely a change to *which years* feed the existing tiering, not a new
+tiering rule. Applies identically to both ROE and ROIC; does not apply to
+ROE's negative-equity substitute path below (equity ≤ 0 bypasses the
+normal averaging entirely, so there's nothing for this mechanism to act
+on).
+
+**Known tradeoff, accepted deliberately**: because exclusion fires
+whenever a dip resolves — not gated on whether doing so actually helps —
+a company in genuine, still-ongoing **structural decline** whose only
+strong years sit years in the past can score *worse* once those years are
+excluded, even though the underlying business hasn't newly deteriorated.
+Confirmed real cases: **LHX** (strong ROE 7-10 years ago, weak and
+still-weak since — Marginal→Fail once the old strong years are excluded)
+and **MU**/**LVS** (similar shape on ROIC). This was evaluated directly
+against two alternative designs — a narrower exclusion (only the dip's own
+declining leg, not the whole prefix) and a recency-weighted average — both
+prototyped and compared on real cached data (2026-08-08): the narrower
+exclusion is safer but under-delivers (doesn't even fix HWM, since HWM's
+worst years were never inside a detected declining *transition* — the
+series was already rising through them); the recency-weighted average
+doesn't beat this design on either fix-rate or regression count. This
+"broad" design was chosen because it had the best resolve-to-regression
+ratio of everything tested: across the full tracked universe, it resolves
+**68 of 90** hard-fails in the affected set while only regressing **13
+of 894** ROE/ROIC rows — 13 tickers is a small, known, named list, not an
+open-ended risk.
+
+### Reasoning note
+
+Whenever exclusion fires, a descriptive note is attached to the ROE and/or
+ROIC component — purely explanatory, mechanical/neutral wording (not "this
+improved the score," since the mechanism applies unconditionally and
+sometimes makes things worse — see the LHX/LUV/MU tradeoff above). States
+how many years were excluded and their fiscal-year span, e.g. *"5 early
+year(s) (2016–2020) excluded from this average — performance dipped during
+that stretch and has since durably recovered, so those years no longer
+represent current performance."* Re-derives the same exclusion the score
+itself used (`recovery_excluded_prefix_length`, called independently by
+the note builder, same pattern as the negative-equity substitute's own
+note re-deriving `income_recovery_detail`) rather than threading it
+through the scoring result.
+
 ## ROE's negative-equity substitute
 
 If shareholders' equity is **≤ 0 in any period** of the window, raw ROE is

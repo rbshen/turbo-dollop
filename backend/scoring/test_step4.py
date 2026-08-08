@@ -5,6 +5,7 @@ from scoring.step4 import (
     check_roe_roic_divergence,
     classify_ccc_trend,
     income_recovery_detail,
+    recovery_excluded_prefix_length,
     score_revenue_vs_ar,
     score_roe,
     score_roic,
@@ -72,12 +73,34 @@ def test_roe_ordinary_variation_not_excluded_as_spike():
 
 def test_roe_low_outlier_year_is_never_excluded():
     # Mirrors DAL's real shape: a severe crash year (-40) must NEVER be
-    # treated as an "anomaly" to exclude -- only the series MAXIMUM is ever
-    # a candidate, since ROE_MIN_YEAR_CONSISTENCY already exists
-    # specifically to catch a single bad year; erasing it here would
-    # silently undo that protection and wrongly promote a real fail.
-    result = score_roe([16.0, 16.0, 16.0, -40.0, 16.0, 16.0], POSITIVE_EQUITY, [10.0] * 6)
+    # treated as an "anomaly" to exclude by _spike_robust_avg -- only the
+    # series MAXIMUM is ever a candidate, since ROE_MIN_YEAR_CONSISTENCY
+    # already exists specifically to catch a single bad year; erasing it
+    # here would silently undo that protection and wrongly promote a real
+    # fail. TTM (15.9) is deliberately kept just under the pre-crash
+    # baseline (16.0) so recovery_excluded_prefix_length's own exclusion
+    # (see the next test for the case where it DOES apply) never engages
+    # here -- this test is isolating _spike_robust_avg's own guarantee,
+    # not recovery-aware exclusion's interaction with it.
+    result = score_roe([16.0, 16.0, 16.0, -40.0, 16.0, 15.9], POSITIVE_EQUITY, [10.0] * 6)
     assert result == ("fail", 0, True)
+
+
+def test_roe_low_outlier_inside_a_literally_resolved_dip_can_be_excluded():
+    # A real, deliberate interaction between two independently-tuned
+    # mechanisms: unlike the test above, TTM here returns to EXACTLY the
+    # pre-crash baseline (16.0) -- a literal recovery, so
+    # recovery_excluded_prefix_length's broad exclusion (through the
+    # trough inclusive) now DOES apply and removes the crash year along
+    # with everything before it, leaving just [16.0, 16.0] to average.
+    # This is the same class of tradeoff already known and accepted for
+    # C-broad (LHX/LUV/MU-shaped structural-decline regressions, see
+    # profitability.md) -- a genuinely bad year that's since been fully
+    # recovered from no longer anchors the average, even though
+    # _spike_robust_avg's own max-only exclusion rule would never have
+    # touched it on its own.
+    result = score_roe([16.0, 16.0, 16.0, -40.0, 16.0, 16.0], POSITIVE_EQUITY, [10.0] * 6)
+    assert result == ("excellent", 100, False)
 
 
 # --- ROE/ROIC trend-awareness: decline-durability gate ---
@@ -112,6 +135,72 @@ def test_roe_unrecovered_decline_from_good_demotes_to_marginal_not_fail():
     # avg/min-year floor itself didn't already produce -- caps at
     # "marginal", the same floor a plain avg/min-year read would allow.
     result = score_roe([20.0, 18.0, 16.0, 7.0, 6.0, 7.0], POSITIVE_EQUITY, [10.0] * 6)
+    assert result == ("marginal", 60, False)
+
+
+# --- Recovery-aware exclusion (Candidate C-broad, 2026-08-08) ---
+# A resolved dip's own stale years (through and including its trough) are
+# excluded from the flat 10yr+TTM average before tiering -- see
+# recovery_excluded_prefix_length's own docstring for the exact rule
+# (broad: the whole prefix through the last resolved dip's trough, not
+# just its own declining leg) and profitability.md for the full writeup,
+# including the known LHX/LUV-shaped structural-decline tradeoff this
+# mechanism accepts.
+
+_HWM_ROE = [-18.3, -1.5, 11.5, 10.2, 5.9, 7.4, 13.0, 18.9, 25.4, 28.2, 34.4]
+_HWM_ROIC = [-18.0, -1.4, 6.4, 4.9, 8.3, 7.7, 9.1, 11.0, 15.5, 18.2, 18.6]
+
+
+def test_recovery_excluded_prefix_length_hwm_shaped():
+    # ROE: one merged event (transitions 2-3, trough at value-index 4) ->
+    # excludes indices 0-4 (5 values). ROIC: two single-transition events
+    # (troughs at value-index 3 and 5) -- the LAST resolved trough governs
+    # the broad cutoff -> excludes indices 0-5 (6 values).
+    assert recovery_excluded_prefix_length(_HWM_ROE) == 5
+    assert recovery_excluded_prefix_length(_HWM_ROIC) == 6
+
+
+def test_recovery_excluded_prefix_length_no_dip_returns_zero():
+    assert recovery_excluded_prefix_length([10.0, 11.0, 12.0, 13.0, 14.0]) == 0
+
+
+def test_recovery_excluded_prefix_length_falls_back_when_too_little_would_remain():
+    # A resolved dip (100 -> 20 -> literally back to 100 by TTM) whose
+    # trough sits at value-index 3 of a 5-point series -- excluding
+    # through it (broad) would leave only 1 point (index 4), below the
+    # 2-point floor _score_avg_min_tier needs, so exclusion must not
+    # apply at all despite the dip genuinely resolving.
+    assert recovery_excluded_prefix_length([50.0, 50.0, 100.0, 20.0, 100.0]) == 0
+
+
+def test_score_roe_hwm_shaped_lands_on_excellent_matching_the_prototype():
+    result = score_roe(_HWM_ROE, [100.0] * 11, [10.0] * 11)
+    assert result == ("excellent", 100, False)
+
+
+def test_score_roic_hwm_shaped_lands_on_good_matching_the_prototype():
+    result = score_roic(_HWM_ROIC)
+    assert result == ("good", 85, False)
+
+
+def test_score_roe_lhx_shaped_structural_decline_still_regresses_to_fail():
+    # Real, accepted tradeoff (not a bug): a genuine long-term decliner
+    # whose only strong years sit before a resolved dip loses those years
+    # to the same exclusion mechanism that helps HWM -- LHX's own real ROE
+    # shape (values from the candidate comparison), real=Marginal/60
+    # before this build, Fail/0 after. Confirms the exclusion is applied
+    # unconditionally on resolution, not gated on "does this help."
+    lhx_roe = [18.5, 23.3, 28.2, 0.0, 5.4, 9.6, 5.7, 6.5, 7.7, 8.2, 9.5]
+    result = score_roe(lhx_roe, [100.0] * 11, [10.0] * 11)
+    assert result == ("fail", 0, True)
+
+
+def test_score_roe_ball_shaped_no_dip_story_is_unaffected():
+    # BALL's real ROE shape -- no detected dip anywhere in the window, so
+    # recovery-aware exclusion must never engage; score is unchanged from
+    # the pre-build design (confirmed the same in both prototype rounds).
+    ball_roe = [7.7, 9.5, 13.1, 19.2, 17.9, 24.2, 20.8, 18.8, 68.4, 16.8, 17.0]
+    result = score_roe(ball_roe, [100.0] * 11, [10.0] * 11)
     assert result == ("marginal", 60, False)
 
 

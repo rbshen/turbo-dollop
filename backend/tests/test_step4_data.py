@@ -797,3 +797,52 @@ def test_roe_note_absent_when_equity_never_negative(monkeypatch):
         "negative_equity_inconsistent_income",
     )
     assert result.components["roe"]["note"] is None
+
+
+# HWM's real ROE/ROIC shape (as percentages -> converted to FMP's fractional
+# convention below): an early crash (2016-2017) that durably recovers,
+# with recent (2021-2025+TTM) performance comfortably strong on its own --
+# this is the exact motivating case for recovery-aware exclusion (Candidate
+# C-broad). Equity stays flat/positive throughout so the negative-equity
+# substitute never engages, isolating the exclusion mechanism's own note.
+_HWM_SHAPED_KEY_METRICS_ANNUAL = [
+    {"fiscalYear": "2025", "returnOnEquity": 0.282, "returnOnInvestedCapital": 0.182},
+    {"fiscalYear": "2024", "returnOnEquity": 0.254, "returnOnInvestedCapital": 0.155},
+    {"fiscalYear": "2023", "returnOnEquity": 0.189, "returnOnInvestedCapital": 0.110},
+    {"fiscalYear": "2022", "returnOnEquity": 0.130, "returnOnInvestedCapital": 0.091},
+    {"fiscalYear": "2021", "returnOnEquity": 0.074, "returnOnInvestedCapital": 0.077},
+    {"fiscalYear": "2020", "returnOnEquity": 0.059, "returnOnInvestedCapital": 0.083},
+    {"fiscalYear": "2019", "returnOnEquity": 0.102, "returnOnInvestedCapital": 0.049},
+    {"fiscalYear": "2018", "returnOnEquity": 0.115, "returnOnInvestedCapital": 0.064},
+    {"fiscalYear": "2017", "returnOnEquity": -0.015, "returnOnInvestedCapital": -0.014},
+    {"fiscalYear": "2016", "returnOnEquity": -0.183, "returnOnInvestedCapital": -0.180},
+]
+_HWM_SHAPED_KEY_METRICS_TTM = [{"returnOnEquityTTM": 0.344, "returnOnInvestedCapitalTTM": 0.186}]
+
+
+def test_recovery_exclusion_note_on_hwm_shaped_roe_and_roic(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, key_metrics_annual=_HWM_SHAPED_KEY_METRICS_ANNUAL)
+
+    async def fake_key_metrics_ttm(ticker):
+        return _HWM_SHAPED_KEY_METRICS_TTM
+
+    monkeypatch.setattr(step4_data.fmp_client, "get_key_metrics_ttm", fake_key_metrics_ttm)
+
+    result = asyncio.run(get_step4_data("hwm"))
+
+    roe = result.components["roe"]
+    assert roe["label"] == "excellent"
+    assert roe["note"] is not None
+    assert "5 early year(s) (2016–2020) excluded from this average" in roe["note"]
+    assert "durably recovered" in roe["note"]
+
+    roic = result.components["roic"]
+    assert roic["label"] == "good"
+    assert roic["note"] is not None
+    assert "6 early year(s) (2016–2021) excluded from this average" in roic["note"]
+
+    # Neither note should read as if the exclusion made things better --
+    # the wording is mechanism-only, never a claimed improvement.
+    assert "improve" not in roe["note"]
+    assert "improve" not in roic["note"]

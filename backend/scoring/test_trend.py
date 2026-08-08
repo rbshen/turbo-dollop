@@ -1,4 +1,4 @@
-from scoring.trend import classify_trend, most_recent_real_dip_age
+from scoring.trend import classify_trend, most_recent_real_dip_age, resolved_dip_events
 
 
 def test_insufficient_data():
@@ -228,3 +228,40 @@ def test_flat_then_spike_still_fires_when_no_meaningful_prior_improvement():
     pattern, score = classify_trend([100, 90, 106, 88, 103, 145])
     assert pattern == "flat_then_spike"
     assert score == 20
+
+
+def test_resolved_dip_events_hwm_shaped_merged_event():
+    # Same fixture as test_contiguous_dip_transitions_merge_into_one_event
+    # -- classify_trend reads this whole series as one durably-resolved
+    # merged event; resolved_dip_events should return that exact event.
+    events = resolved_dip_events([140, 120, 95, 50, 60, 70, 80, 90])
+    assert len(events) == 1
+    assert events[0].start == 0 and events[0].end == 2
+    assert events[0].baseline == 140.0
+    assert events[0].trough == 50.0
+
+
+def test_resolved_dip_events_returns_only_the_resolved_event_not_all_events():
+    # Two independent, non-contiguous dip events: an early, deep dip off a
+    # small baseline (TTM comfortably clears it -- literally resolved) and
+    # a recent, shallow dip off a much higher baseline (age=1, far too
+    # recent to durably resolve, and TTM never comes close to clearing it
+    # literally either). classify_trend gives up entirely on this series
+    # (multiple_dips/40, since it early-exits at the first unresolved
+    # event) -- resolved_dip_events must NOT share that early-exit: it
+    # should still surface the one event that genuinely did resolve.
+    series = [10, 4, 50, 48, 46, 44, 42, 40, 20, 21]
+    assert classify_trend(series).pattern == "multiple_dips"
+    events = resolved_dip_events(series)
+    assert len(events) == 1
+    assert events[0].start == 0 and events[0].end == 0
+    assert events[0].baseline == 10.0
+
+
+def test_resolved_dip_events_no_dips_returns_empty():
+    assert resolved_dip_events([100, 110, 120, 130]) == []
+
+
+def test_resolved_dip_events_insufficient_data_returns_empty():
+    assert resolved_dip_events([100]) == []
+    assert resolved_dip_events([]) == []

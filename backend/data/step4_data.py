@@ -15,6 +15,7 @@ from scoring.step4 import (
     DIP_RECOVERY_RECENCY_YEARS,
     income_recovery_detail,
     RatioResult,
+    recovery_excluded_prefix_length,
     score_revenue_vs_ar,
     score_roe,
     score_roic,
@@ -334,6 +335,25 @@ def _roe_research_pointer(positive_outcome: bool) -> str:
     )
 
 
+def _recovery_exclusion_sentence(years_excluded: list[str]) -> str | None:
+    """Descriptive-only, never causal -- fires whenever
+    recovery_excluded_prefix_length() finds a resolved dip to exclude,
+    regardless of whether the exclusion actually helped this ticker's
+    score (it doesn't always -- a genuine long-term decliner whose only
+    strong years sit before a resolved-by-age dip can score WORSE once
+    those years are excluded, see profitability.md's documented
+    LHX/LUV-shaped tradeoff). Deliberately mechanical/neutral wording, not
+    "this improved the score," so the note reads honestly either way."""
+    if not years_excluded:
+        return None
+    span = years_excluded[0] if len(years_excluded) == 1 else f"{years_excluded[0]}–{years_excluded[-1]}"
+    return (
+        f"{len(years_excluded)} early year(s) ({span}) excluded from this average — performance dipped "
+        "during that stretch and has since durably recovered, so those years no longer represent current "
+        "performance."
+    )
+
+
 def _build_roe_note(
     roe_result: RatioResult,
     years: list[str],
@@ -344,6 +364,8 @@ def _build_roe_note(
     roic_result: RatioResult | None,
     roic_exempt_reason: str | None,
     company_type: str,
+    roe_clean: list[float],
+    years_for_roe: list[str],
 ) -> str | None:
     """Only attaches when the negative-equity substitute actually fired
     (mirrors _build_ar_note's "only when there's something to explain"
@@ -351,21 +373,39 @@ def _build_roe_note(
     including REIT (REIT was only carved out of the *scoring* redesign
     investigated and rejected above, not this display-only change; REIT
     tickers still run through score_roe() unconditionally today, and this
-    text makes no company-type-specific claims, so it's safe here)."""
-    if roe_result.label not in NEGATIVE_EQUITY_LABELS:
-        return None
+    text makes no company-type-specific claims, so it's safe here).
 
-    detail = income_recovery_detail(net_income_clean)
-    first_ni, last_ni = _fmt_money(net_income_clean[0]), _fmt_money(net_income_clean[-1])
+    The negative-equity substitute takes priority: if it fired, ROE never
+    reached the normal avg/min-year path at all, so recovery-aware
+    exclusion is irrelevant and isn't checked. Otherwise, checks whether
+    recovery_excluded_prefix_length() found a resolved dip to exclude --
+    the same function score_roe() itself already called internally,
+    re-derived here purely for the note text (mirrors how
+    income_recovery_detail() is called independently by both score_roe()
+    and this function, never threaded through RatioResult)."""
+    if roe_result.label in NEGATIVE_EQUITY_LABELS:
+        detail = income_recovery_detail(net_income_clean)
+        first_ni, last_ni = _fmt_money(net_income_clean[0]), _fmt_money(net_income_clean[-1])
 
-    sentences = [
-        _equity_history_sentence(years, equity),
-        _income_shape_sentence(detail.shape, first_ni, last_ni),
-        _retained_earnings_and_buyback_sentence(retained_earnings, buybacks),
-        _roic_citation_sentence(roic_result, roic_exempt_reason, company_type),
-        _roe_research_pointer(roe_result.label == "positive_despite_negative_equity"),
-    ]
-    return " ".join(s for s in sentences if s)
+        sentences = [
+            _equity_history_sentence(years, equity),
+            _income_shape_sentence(detail.shape, first_ni, last_ni),
+            _retained_earnings_and_buyback_sentence(retained_earnings, buybacks),
+            _roic_citation_sentence(roic_result, roic_exempt_reason, company_type),
+            _roe_research_pointer(roe_result.label == "positive_despite_negative_equity"),
+        ]
+        return " ".join(s for s in sentences if s)
+
+    excluded = recovery_excluded_prefix_length(roe_clean)
+    return _recovery_exclusion_sentence(years_for_roe[:excluded])
+
+
+def _build_roic_note(roic_result: RatioResult, roic_clean: list[float], years_for_roic: list[str]) -> str | None:
+    """ROIC has no negative-equity-substitute-equivalent path -- the only
+    note-worthy mechanism today is recovery-aware exclusion, re-derived
+    here the same way _build_roe_note re-derives it for ROE."""
+    excluded = recovery_excluded_prefix_length(roic_clean)
+    return _recovery_exclusion_sentence(years_for_roic[:excluded])
 
 
 async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
@@ -589,7 +629,7 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
         else None
     )
 
-    roe_clean, equity_clean, net_income_clean = _clean_aligned(roe, equity, net_income)
+    roe_clean, equity_clean, net_income_clean, years_for_roe = _clean_aligned(roe, equity, net_income, years)
     revenue_clean, ar_clean = _clean_aligned(revenue, accounts_receivable)
 
     # revenue_clean/ar_clean only feed the AR check -- when it's exempt
@@ -616,8 +656,10 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     ar_result = None if ar_exempt else score_revenue_vs_ar(revenue_clean, ar_clean)
 
     roic_result = None
+    roic_clean: list[float] = []
+    years_for_roic: list[str] = []
     if not roic_exempt:
-        roic_clean = [v for v in roic if v is not None]
+        roic_clean, years_for_roic = _clean_aligned(roic, years)
         roic_result = score_roic(roic_clean) if len(roic_clean) >= 2 else None
 
     # ccc_series now feeds both display (Step4Out.ccc) and scoring directly
@@ -643,7 +685,11 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
         roic_result,
         roic_exempt_reason,
         company_type,
+        roe_clean,
+        years_for_roe,
     )
+    if result["components"]["roic"] is not None:
+        result["components"]["roic"]["note"] = _build_roic_note(roic_result, roic_clean, years_for_roic)
 
     return Step4Out(
         ticker=ticker,
