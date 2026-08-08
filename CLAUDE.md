@@ -1100,6 +1100,38 @@ these are the design decisions and fixes behind them.
   figure is converted immediately after each FMP pull, before any
   smoothing math).
 
+- **Item 4 (2026-08-08, docs-only): `valuation.md`'s `fx_rate` section was
+  stale**, still describing it as "always 1.0, no conversion performed" —
+  true before non-USD reported-currency conversion shipped (`dd5045f`),
+  false since. Rewrote `valuation.md` §2.1 (inputs table) and added a new
+  §2.1b covering the real mechanism: per-ticker `reportedCurrency` →
+  `<CCY>USD` spot-rate resolution, cached via the same
+  `FundamentalsCache`/`get_or_fetch` machinery every other fetch uses,
+  applied once upfront to every monetary figure before any scoring/
+  smoothing math runs, never silently falling back to 1.0 (an
+  unresolvable rate reads `insufficient_data`/PASS instead), and shown in
+  the UI as a caption under Fair Value ("Converted from `<CCY>` @
+  `<rate>` (as of `<date>`)"). `docs/valuation.md` was checked too (per
+  this fix's own instructions) but has no FX-related content at all, stale
+  or otherwise — no change needed there.
+  - **Found, not fixed (docs-only task, no code changes made):**
+    `backend/core/config.py` defines `fx_rate_staleness_days = 1`, with a
+    comment explaining it's deliberately tighter than
+    `cache_staleness_days` (7 days) since "a forex spot rate moves daily"
+    — and `dd5045f`'s own commit message claims the FX cache uses this
+    1-day setting. It doesn't: `data/step3_data.py::get_step3_data` passes
+    the general `cache_staleness_days` (not `fx_rate_staleness_days`) into
+    `_resolve_fx_rate` at its only call site. `fx_rate_staleness_days` is
+    otherwise unreferenced anywhere in the codebase — confirmed via
+    project-wide grep. Net effect: a non-USD ticker's FX rate is
+    genuinely refetched only every 7 days, not daily as intended/
+    documented in the setting's own comment and the original commit
+    message. `valuation.md` §2.1b now documents the *actual* (7-day)
+    behavior, not the aspirational 1-day one. Not fixed here since this
+    pass was scoped docs-only; a real follow-up would either wire
+    `fx_rate_staleness_days` into that call site or delete the unused
+    setting.
+
 ## Workflow rules
 
 - **Plan Mode by default.** Propose a plan and wait for confirmation before

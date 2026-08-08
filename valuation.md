@@ -149,7 +149,7 @@ discounting, and terminal math are identical.
 | `growth_yr_11_20` | Annual growth rate, years 11–20 | fixed terminal default of **4%** |
 | `shares_outstanding` | Diluted shares outstanding | |
 | `discount_rate` | see §5 (CAPM) | |
-| `fx_rate` | statement → listing currency | **always 1.0** in the live app — every supported ticker is US-listed and USD-only; no currency conversion is actually performed despite the field's presence |
+| `fx_rate` | statement (`reportedCurrency`) → USD spot rate | **1.0 for a USD reporter** (the vast majority of tickers); resolved per-ticker for a non-USD reporter — see §2.1b |
 | `last_close` | current market price | |
 
 All of `growth_yr_1_5`, `growth_yr_6_10`, `growth_yr_11_20`, and
@@ -194,6 +194,62 @@ Confirmed real case: SNDK's FY2026 (a memory-pricing supercycle year,
 $11.4B Net Income — more than the prior 4 years combined) was being
 counted at 2/5 weight in `net_income_smoothed` instead of the intended
 1/5, before this exclusion existed.
+
+### 2.1b Non-USD reported-currency conversion
+
+A ticker's fundamentals aren't always reported in USD (e.g. TSM/ASML/BABA
+report in TWD/EUR/CNY) — the stock's own last-close price is always USD
+regardless, so a non-USD reporter's raw monetary figures must be converted
+before they're compared against it. This is genuinely implemented, not a
+theoretical `fx_rate` field left at a permanent 1.0 as an earlier version
+of this document claimed.
+
+- **Resolution**: `reportedCurrency` is read directly off the ticker's own
+  income-statement filing (FMP's own field). A USD reporter short-circuits
+  to `fx_rate = 1.0` with **zero** forex API calls. A non-USD reporter
+  resolves a `<reportedCurrency>USD` spot rate (FMP's own forex-quote
+  endpoint), cached the same way fundamentals are — via the same
+  `FundamentalsCache` table and `get_or_fetch`/staleness machinery every
+  other fetch in this app uses, keyed as its own `forex_rate`/`latest`
+  cache row per currency pair. Refetched once the cached row exceeds the
+  configured staleness window: `Settings.cache_staleness_days`, default 7
+  days — the same window every other fundamentals fetch in this app uses,
+  **not** a separate, tighter FX-specific window, despite a
+  `fx_rate_staleness_days = 1` setting existing in `backend/core/config.py`
+  — that setting is currently unused/dead code, not wired into the actual
+  fetch call. See CLAUDE.md's Item 4 doc-fix note.
+- **Never a silent fallback to 1.0.** If a live forex fetch fails and no
+  cached rate (fresh or stale) exists at all, the whole ticker reads
+  `selected_method = "PASS"` / `insufficient_data = true` with an explicit
+  reason — rendering a wildly-wrong Fair Value at the raw local-currency
+  scale would be worse than showing nothing. A live fetch failure with a
+  *stale* cached rate still available falls back to that stale rate rather
+  than failing outright — a several-day-old spot rate is still far more
+  useful than blocking the whole calculation.
+- **Applied once, upfront.** Every raw monetary figure (Net Income, CFO,
+  FCF, Revenue, debt, cash, book value per share, sales per share — every
+  field that ultimately feeds Auto Calculation's `current_value_candidates`
+  and the `§2.1`/`§3.1`/`§4.1` inputs above) is converted to USD
+  immediately after being pulled from FMP, before `select_method`'s own
+  tree runs and before any of the smoothing math in §2.1a. `select_method`
+  itself is scale-invariant (every check it runs — CFO/NI ratio, CAGR,
+  trend shape — is a ratio or a relative comparison), so converting before
+  or after method selection can never change which method gets picked;
+  doing it upfront just means every downstream consumer (Auto's own
+  displayed inputs, Manual Calculation's pre-fill, a saved Custom
+  Valuation's parameters) always sees genuine USD, never a raw
+  local-currency number silently masquerading as one that some later step
+  forgot to convert. `fx_rate` is therefore pure display metadata by the
+  time it reaches the 20-year engine (§2.2–2.4) or the P/B formula (§3.2)
+  — multiplying an already-USD figure by `fx_rate = 1.0` again is a
+  deliberate, harmless no-op at every one of those call sites, not a
+  double-conversion bug.
+- **Shown in the UI** as a caption directly under the Fair Value headline
+  (both Auto Calculation and the Manual Calculation panel) — "Converted
+  from `<CCY>` @ `<rate>` (as of `<date>`)" — for a non-USD reporter only;
+  nothing renders for a USD reporter. If `reportedCurrency` is set but no
+  rate could be resolved, the caption instead reads "`<CCY>` → USD rate
+  unavailable — Valuation may be incomplete."
 
 ### 2.2 Projection (years 1–20)
 
@@ -322,12 +378,15 @@ discount_rate = risk_free_rate + beta * market_risk_premium
   risk-free rate, ~2.73% market risk premium) sourced from
   market-risk-premia.com at the time they were entered, and drift out of
   date until manually refreshed.
-- **US-only in the live app.** The original workbook spec describes a
-  parallel China/HK rate series; the underlying data model has a `region`
-  key that could hold one, but no HK/China region, rate pair, or any
+- **CAPM itself is US-only in the live app** — a narrower claim than it
+  may sound: this is about the risk-free-rate/market-risk-premium pair
+  specifically, not about currency conversion (§2.1b), which does handle
+  non-USD reporters. The original workbook spec describes a parallel
+  China/HK rate series; the underlying data model has a `region` key that
+  could hold one, but no HK/China region, rate pair, or any
   region-selection UI is actually implemented — every valuation currently
   runs on the single US risk-free-rate/market-risk-premium pair regardless
-  of the company's own listing.
+  of the company's own listing or reporting currency.
 - `beta` is the company's equity beta from the data provider's company
   profile.
 - CAPM is applied directly to the actual beta value — **not** bucketed to
