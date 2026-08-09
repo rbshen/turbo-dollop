@@ -9,6 +9,7 @@ from clients.alpha_vantage_client import AlphaVantageThrottled
 from data.analyst_ratings_data import get_analyst_ratings_data
 from helpers.bank_capital_metrics import get_ticker_bank_capital_metrics, set_ticker_bank_capital_metrics
 from core.db import engine, init_db
+from core.exceptions import TickerNotFoundError
 from helpers.discount_rate_config import get_discount_rate_config, update_discount_rate_config
 from core.logging_config import apply_redaction_filters
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
@@ -145,6 +146,8 @@ def update_moat_score(body: MoatScoreConfigIn) -> MoatScoreConfigOut:
 async def ticker_summary(ticker: str) -> TickerSummaryOut:
     try:
         return await get_summary(ticker)
+    except TickerNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Ticker '{exc.ticker}' not found") from exc
     except httpx.HTTPError as exc:
         # Not f"...{exc}": httpx's exception message embeds the full request
         # URL, apikey included -- every FMP fetch site already goes through

@@ -1,10 +1,13 @@
+import logging
 from datetime import date, timedelta
 
+import httpx
 from sqlmodel import Session
 
 from core.cache import force_fetch, get_or_fetch, safe_fetch
 from core.config import settings
 from core.db import engine
+from core.exceptions import TickerNotFoundError
 from helpers.debt_metrics import compute_debt_metrics
 from helpers.first import _first
 from clients.fmp_client import fmp_client
@@ -13,6 +16,8 @@ from helpers.shares import compute_shares_outstanding
 from data.step2_data import get_step2_data
 from data.step3_data import get_active_valuation
 from helpers.ttm import TOTAL_QUARTERS_NEEDED
+
+logger = logging.getLogger(__name__)
 
 # Trailing window for the daily price/volume fetch backing the 30-day
 # average-volume and 20-day average-dollar-volume tiles -- comfortably
@@ -83,14 +88,46 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:
-        profile = _first(
-            await safe_fetch(
-                "profile",
-                get_or_fetch(
-                    session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days, cache_only
-                ),
+        if cache_only:
+            profile = _first(
+                await safe_fetch(
+                    "profile",
+                    get_or_fetch(
+                        session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days, cache_only
+                    ),
+                )
             )
-        )
+        else:
+            # Deliberately the very first fetch in this function, and
+            # deliberately NOT routed through the usual safe_fetch(...) one-
+            # liner: a genuine 200-with-empty-list ("this ticker doesn't
+            # exist") and a transient httpx.HTTPError ("FMP is down right
+            # now") need different outcomes, not the same {} fallback --
+            # see CLAUDE.md's ticker-search UX investigation. An empty
+            # result raises TickerNotFoundError (main.py turns this into a
+            # 404). A real fetch failure degrades to {} exactly like
+            # safe_fetch always has -- this endpoint has never 502'd on a
+            # transient FMP outage (see
+            # test_refresh.py::test_fmp_failure_right_after_refresh_degrades_gracefully_not_a_crash)
+            # and a bad ticker vs. an unreachable FMP must not be
+            # conflated in the other direction either: an outage must never
+            # display as "ticker not found". Checking this before any of
+            # the other ~10 FMP calls below (and before
+            # get_step2_data/get_active_valuation, which make several more
+            # of their own) means a genuinely bad ticker short-circuits
+            # here instead of paying for the full cascade just to end up
+            # blank anyway.
+            try:
+                profile_raw = await get_or_fetch(
+                    session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days, cache_only
+                )
+            except httpx.HTTPError as exc:
+                logger.warning("FMP fetch failed for profile: %s", exc)
+                profile_raw = {}
+            else:
+                if isinstance(profile_raw, list) and not profile_raw:
+                    raise TickerNotFoundError(ticker)
+            profile = _first(profile_raw)
         # Price is fetched fresh on every live ticker-page view rather than
         # riding the fundamentals staleness window -- quote is its own cache
         # key, independent of profile/ratios/etc., so this doesn't force a

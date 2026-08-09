@@ -1,10 +1,13 @@
 import asyncio
 from datetime import date, timedelta
 
+import httpx
+import pytest
 from sqlmodel import SQLModel, create_engine
 
 import data.step2_data as step2_data
 import data.ticker_summary as ticker_summary
+from core.exceptions import TickerNotFoundError
 from core.schemas import Step3Inputs, Step3Out
 from data.ticker_summary import get_summary
 from helpers.ttm import TOTAL_QUARTERS_NEEDED
@@ -280,6 +283,80 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     # live (cache_only=False) path.
     asyncio.run(get_summary("aapl", cache_only=True))
     assert call_count == {**expected_call_count, "quote": 2}
+
+
+def test_get_summary_raises_ticker_not_found_on_empty_profile(monkeypatch):
+    # A genuinely nonexistent/invalid ticker: FMP's /profile returns a real
+    # 200 with an empty list, not an error -- this must short-circuit here,
+    # before any of the other ~10 FMP calls this function makes and before
+    # get_step2_data/get_active_valuation (each of which make several more
+    # of their own) ever run.
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(ticker_summary, "engine", test_engine)
+    monkeypatch.setattr(step2_data, "engine", test_engine)
+
+    async def fake_profile(ticker):
+        return []
+
+    async def fail_if_called(*args, **kwargs):
+        raise AssertionError("should not be reached: get_summary must short-circuit on empty profile")
+
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_quote", fail_if_called)
+    monkeypatch.setattr(ticker_summary, "get_active_valuation", fail_if_called)
+
+    with pytest.raises(TickerNotFoundError):
+        asyncio.run(get_summary("INVALIDXYZ"))
+
+
+def test_get_summary_degrades_gracefully_on_transient_profile_error(monkeypatch):
+    # A transient FMP outage (timeout/5xx) on /profile must degrade to a
+    # mostly-null summary exactly like every other safe_fetch call site in
+    # this function -- NOT raise TickerNotFoundError (an outage is not the
+    # same as "this ticker doesn't exist", see CLAUDE.md's ticker-search UX
+    # investigation) and NOT propagate as a 502 either (this endpoint has
+    # never crashed on a transient FMP failure -- see
+    # test_refresh.py::test_fmp_failure_right_after_refresh_degrades_gracefully_not_a_crash,
+    # an existing, deliberate contract this fix must not regress).
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(ticker_summary, "engine", test_engine)
+    monkeypatch.setattr(step2_data, "engine", test_engine)
+
+    async def failing_profile(ticker):
+        raise httpx.ConnectTimeout("connect timed out")
+
+    async def fake_get_active_valuation(ticker, cache_only=False, step2_out=None):
+        return FAKE_STEP3_OUT
+
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", failing_profile)
+    monkeypatch.setattr(ticker_summary, "get_active_valuation", fake_get_active_valuation)
+
+    result = asyncio.run(get_summary("AAPL"))
+    assert result.ticker == "AAPL"
+    assert result.company_name is None
+
+
+def test_get_summary_cache_only_never_raises_ticker_not_found(monkeypatch):
+    # cache_only=True (the Screener/nightly-recompute path) must keep its
+    # existing behavior of reading whatever's cached (even nothing) without
+    # raising -- TickerNotFoundError is only for the live path, where an
+    # empty result is a confirmed fresh FMP answer, not just "not cached
+    # yet".
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(ticker_summary, "engine", test_engine)
+    monkeypatch.setattr(step2_data, "engine", test_engine)
+
+    async def fail_if_called(*args, **kwargs):
+        raise AssertionError("cache_only=True must make zero FMP calls")
+
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", fail_if_called)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_quote", fail_if_called)
+
+    summary = asyncio.run(get_summary("NEVERCACHED", cache_only=True))
+    assert summary.company_name is None
 
 
 def test_next_earnings_date_picks_nearest_unreported():
