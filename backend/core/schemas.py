@@ -39,6 +39,12 @@ class RefreshResult(BaseModel):
     statement_types: list[str]
 
 
+class TickerSearchResult(BaseModel):
+    symbol: str
+    name: str | None = None
+    exchange: str | None = None
+
+
 class TickerSummaryOut(BaseModel):
     company_name: str | None = None
     ticker: str

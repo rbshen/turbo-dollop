@@ -173,6 +173,20 @@ class FMPClient:
     async def get_financial_growth(self, ticker: str, period: str = "annual", limit: int = 1) -> dict | list:
         return await self.get("/financial-growth", {"symbol": ticker, "period": period, "limit": limit})
 
+    async def search_symbol(self, query: str, limit: int = 10) -> dict | list:
+        """Prefix-matches the ticker SYMBOL only -- confirmed empirically
+        that a company-name query (e.g. "Apple") returns []. See
+        search_name below for the complementary name-matching endpoint."""
+        return await self.get("/search-symbol", {"query": query, "limit": limit})
+
+    async def search_name(self, query: str, limit: int = 10) -> dict | list:
+        """Substring-matches the company NAME -- confirmed empirically that
+        this does not reliably prefix-match a ticker symbol the way
+        search_symbol does, so the two are queried together, never as a
+        fallback pair, to cover both "typed a ticker" and "typed a company
+        name" (see backend/core/main.py's search endpoint)."""
+        return await self.get("/search-name", {"query": query, "limit": limit})
+
     async def get_financial_statement_full_as_reported(self, ticker: str, period: str, limit: int) -> dict | list:
         # Raw SEC-XBRL-tag dump, NOT the standardized schema the other
         # methods above use -- field names are the filer's own XBRL tags, so
