@@ -329,6 +329,12 @@ class Step4Out(BaseModel):
     roic_exempt_reason: str | None = None
     revenue: list[float | None]
     accounts_receivable: list[float | None]
+    # Additive display-only fields for the Financials tab's Historical
+    # Trends debt bar chart -- not consumed by Step 4's own scoring (which
+    # has no debt concept) or by Step 5/Valuation's separate `total_debt`
+    # input (backend/helpers/debt_metrics.py), which stays untouched.
+    long_term_debt: list[float | None] = []
+    short_term_debt: list[float | None] = []
     # None (the whole field) when no physical inventory was detected across
     # the reporting window.
     ccc: list[float | None] | None = None

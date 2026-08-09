@@ -1,10 +1,18 @@
-import { MiniBarChart } from "@/components/charts/MiniBarChart";
+import { MiniBarChart, type StackedBarSegment } from "@/components/charts/MiniBarChart";
 
 export interface TrendCard {
   key: string;
   label: string;
   years: string[];
+  /** Single-series bar values, or (when `segments` is set) the combined
+   * per-period total -- drives the headline number and the "has any real
+   * data" visibility filter in both modes. */
   values: (number | null)[];
+  /** When set, the card renders a stacked bar (e.g. long-term + short-term
+   * debt) instead of a single-series bar -- see MiniBarChart's own
+   * `segments` prop. `values` above must still be the segments' combined
+   * total for this card. */
+  segments?: StackedBarSegment[];
   /** Card headline number -- unsigned, table-style (matches every other
    * figure shown elsewhere in the app for this metric). */
   format: (v: number) => string;
@@ -53,7 +61,7 @@ export function TrendCardsGrid({ cards }: Props) {
               </p>
             );
           })()}
-          <MiniBarChart categories={card.years} values={card.values} valueFormat={card.tooltipFormat} />
+          <MiniBarChart categories={card.years} values={card.values} segments={card.segments} valueFormat={card.tooltipFormat} />
         </div>
       ))}
     </div>

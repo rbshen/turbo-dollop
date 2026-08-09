@@ -85,6 +85,7 @@
   --color-caution: var(--fathom-caution);
   --color-negative: var(--fathom-negative);
   --color-chart-purple: var(--fathom-chart-purple);
+  --color-chart-orange: var(--fathom-chart-orange);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -197,6 +198,11 @@
   --fathom-caution: oklch(66% 0.16 80);
   --fathom-negative: oklch(66% 0.19 25);
   --fathom-chart-purple: oklch(66% 0.1 300);
+  /* Distinct hue (55) from --fathom-warn/--fathom-caution (80, amber) and
+     --fathom-negative (25, red) -- a true orange, not reused from either,
+     since short-term debt isn't itself a warning/negative signal, just the
+     other half of a stacked total. Debt Historical Trends chart only. */
+  --fathom-chart-orange: oklch(70% 0.15 55);
 }
 
 @layer base {

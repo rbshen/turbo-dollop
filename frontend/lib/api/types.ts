@@ -309,6 +309,10 @@ export interface Step4Out {
   roic_exempt_reason: string | null;
   revenue: (number | null)[];
   accounts_receivable: (number | null)[];
+  // Additive display-only fields for the Financials tab's Historical
+  // Trends debt bar chart -- not part of Step 4's scoring.
+  long_term_debt: (number | null)[];
+  short_term_debt: (number | null)[];
   // null (the whole field) when no physical inventory was detected.
   ccc: (number | null)[] | null;
   ccc_exempt_reason: string | null;

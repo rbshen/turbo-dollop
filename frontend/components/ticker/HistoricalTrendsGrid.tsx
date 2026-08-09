@@ -28,6 +28,17 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
 
   const ccc2 = (v: number) => fmtDays(v, 2);
 
+  // Long-term + short-term combined into one stacked bar per period --
+  // null only when BOTH sides are null for that period (a genuine data
+  // gap), otherwise a missing side is treated as 0 so the other side still
+  // renders as a normal (non-stacked-looking) full bar.
+  const totalDebt = s4.years.map((_, i) => {
+    const lt = s4.long_term_debt[i] ?? null;
+    const st = s4.short_term_debt[i] ?? null;
+    if (lt == null && st == null) return null;
+    return (lt ?? 0) + (st ?? 0);
+  });
+
   const cards: (TrendCard | null)[] = [
     { key: "cfo", label: "Net Operating Cash Flow", years: s1.years, values: s1.cfo ?? [], format: fmtTableMoney, tooltipFormat: fmtCompactMoney },
     { key: "net_income", label: "Net Income", years: s1.years, values: s1.net_income, format: fmtTableMoney, tooltipFormat: fmtCompactMoney },
@@ -36,6 +47,18 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
     { key: "fcf", label: "Free Cash Flow", years: s1.years, values: s1.fcf ?? [], format: fmtTableMoney, tooltipFormat: fmtCompactMoney },
     { key: "accounts_receivable", label: "Accounts Receivable", years: s4.years, values: s4.accounts_receivable, format: fmtTableMoney, tooltipFormat: fmtCompactMoney },
     { key: "ccc", label: "Cash Conversion Cycle", years: s4.years, values: s4.ccc ?? [], format: (v: number) => fmtDays(v, 0), tooltipFormat: ccc2 },
+    {
+      key: "total_debt",
+      label: "Total Debt",
+      years: s4.years,
+      values: totalDebt,
+      segments: [
+        { key: "long_term_debt", label: "Long-Term Debt", color: "var(--color-brand)", values: s4.long_term_debt },
+        { key: "short_term_debt", label: "Short-Term Debt", color: "var(--color-chart-orange)", values: s4.short_term_debt },
+      ],
+      format: fmtTableMoney,
+      tooltipFormat: fmtCompactMoney,
+    },
   ];
 
   return <TrendCardsGrid cards={cards} />;
