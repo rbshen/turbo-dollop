@@ -7,13 +7,9 @@ import { PriceChange } from "@/components/ticker/PriceChange";
 import { RefreshButton } from "@/components/ticker/RefreshButton";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
 import { useTickerScore } from "@/lib/hooks/useTickerScore";
-import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
 import { fmtMoney } from "@/lib/format";
 import { flatChipClassFor } from "@/lib/tierColor";
-
-interface Props {
-  symbol: string;
-}
+import type { TickerSummaryOut } from "@/lib/api/types";
 
 // Flat (borderless) styling to match ScreenerCard/WatchlistTable's chip
 // row -- same treatment FairValuePill/MoatPill get below via variant="flat".
@@ -39,25 +35,13 @@ function AssessmentChip({ symbol }: { symbol: string }) {
   );
 }
 
-export function TickerHeader({ symbol }: Props) {
-  const { data, error } = useTickerSummary(symbol);
+interface Props {
+  symbol: string;
+  data: TickerSummaryOut;
+}
+
+export function TickerHeader({ symbol, data }: Props) {
   const { data: moatData } = useTickerMoat(symbol);
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <span className="text-sm text-negative">Couldn&apos;t load {symbol} — {error.message}</span>
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <span className="text-sm text-text-tertiary animate-pulse">Loading {symbol}…</span>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-3 pt-4">
