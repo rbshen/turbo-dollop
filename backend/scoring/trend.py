@@ -178,7 +178,7 @@ def _dip_durably_resolved(arr: np.ndarray, pct_changes: np.ndarray, event: DipEv
         return False
 
     recovery_segment = arr[event.end + 1 :]
-    return robust_late_direction(recovery_segment, TREND_RECOVERY_WINDOW) >= 0
+    return robust_late_direction(recovery_segment, TREND_RECOVERY_WINDOW, protect_terminal=True) >= 0
 
 
 def most_recent_real_dip_age(values: list[float]) -> int | None:
