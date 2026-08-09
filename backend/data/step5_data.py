@@ -562,5 +562,6 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
         hard_fail=result["hard_fail"],
         pass_with_caution=result["pass_with_caution"],
         weights=result["weights"],
+        debt_ratios_evaluated=True,
         outlier_warnings=outlier_warnings,
     )

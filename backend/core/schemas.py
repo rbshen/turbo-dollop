@@ -305,6 +305,18 @@ class Step5Out(BaseModel):
     # for Bank (no composite score exists to weight).
     weights: dict[str, float] = {}
     outlier_warnings: list[OutlierWarning] = []
+    # True only when this ticker actually reached score_step5_standard (the
+    # Current Ratio / Debt-to-EBITDA / Debt Servicing Ratio path) and scored
+    # -- i.e. Standard or Utility company_type with none of the 3 ratios'
+    # required inputs missing. False for every other path: Bank (CET1/NPL
+    # blend, not these ratios, whether or not CET1 has been entered),
+    # Insurance (not_supported, no ratios at all), REIT/Property Developer
+    # (Gearing ratio, a different metric entirely), and Standard/Utility's
+    # own "insufficient_data" early return. Lets other consumers (e.g. the
+    # Financials tab's Historical Trends debt chart) gate on "was debt
+    # actually evaluated via the 3 ratios" without re-deriving Step 5's own
+    # classification/data-availability branching.
+    debt_ratios_evaluated: bool = False
 
 
 class Step4Out(BaseModel):

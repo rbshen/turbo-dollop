@@ -263,6 +263,12 @@ export interface Step5Out {
   // Empty for Bank (no composite score exists to weight).
   weights: Record<string, number>;
   outlier_warnings: OutlierWarning[];
+  // True only when this ticker was scored via the Current Ratio / Debt-to-
+  // EBITDA / Debt Servicing Ratio path (Standard/Utility company_type with
+  // none of those 3 ratios' inputs missing) -- false for Bank (CET1/NPL,
+  // scored or not), Insurance (not_supported), REIT/Property Developer
+  // (Gearing ratio), and Standard/Utility's own insufficient_data case.
+  debt_ratios_evaluated: boolean;
 }
 
 export interface Step4RatioComponent {
