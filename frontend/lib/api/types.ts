@@ -28,6 +28,12 @@ export interface RefreshResult {
   statement_types: string[];
 }
 
+export interface TickerSearchResult {
+  symbol: string;
+  name: string | null;
+  exchange: string | null;
+}
+
 export interface TickerSummaryOut {
   company_name: string | null;
   ticker: string;
