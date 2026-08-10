@@ -61,7 +61,10 @@ function TrendCell({ years, values }: { years: string[]; values: (number | null)
   }
   return (
     <div className="w-24">
-      <MiniBarChart categories={years} values={values} valueFormat={fmtCompactMoney} height={32} />
+      {/* barCategoryGap="12%" (default is 10%) -- bars go from 90% to 88% of
+          their category band, a ~2% width trim for this dense table only;
+          every other MiniBarChart caller (Financials tab) keeps the default. */}
+      <MiniBarChart categories={years} values={values} valueFormat={fmtCompactMoney} height={32} barCategoryGap="12%" />
     </div>
   );
 }
@@ -110,9 +113,9 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
             <TableHead className={`${HEAD_CLASS} text-center`}>Revenue</TableHead>
             <TableHead className={`${HEAD_CLASS} text-center`}>Net Income</TableHead>
             <TableHead className={`${HEAD_CLASS} text-center`}>CFO</TableHead>
-            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Moat</TableHead>
-            <TableHead className={`${HEAD_CLASS} text-center`}>Valuation</TableHead>
-            <TableHead className={`${HEAD_CLASS} text-center`}>vs SPY</TableHead>
+            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>M</TableHead>
+            <TableHead className={`${HEAD_CLASS} text-center`}>V</TableHead>
+            <TableHead className={`${HEAD_CLASS} text-center`}>SPY</TableHead>
             <TableHead className={`${HEAD_CLASS} text-center`}>Analysis</TableHead>
             <TableHead className={HEAD_CLASS}>Rating</TableHead>
             <TableHead className={`${HEAD_CLASS} text-right`}>Mkt Cap</TableHead>

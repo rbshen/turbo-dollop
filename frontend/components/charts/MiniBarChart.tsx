@@ -27,6 +27,12 @@ interface Props {
   valueFormat?: (v: number) => string;
   color?: string;
   height?: number;
+  /** Percentage of each category band reserved as gap between bars, passed
+   * straight through to Recharts' BarChart -- higher gap means narrower
+   * bars. Defaults to "10%" (unchanged from before this prop existed), so
+   * every caller besides WatchlistTable's TrendCell (which passes a
+   * slightly wider gap for a small width trim) is unaffected. */
+  barCategoryGap?: string;
 }
 
 interface StackedTooltipContentProps {
@@ -88,7 +94,15 @@ function StackedTooltipContent({ active, payload, segments, valueFormat }: Stack
 // charts elsewhere in the app. A hover tooltip (period + formatted value,
 // or one row per segment + total in stacked mode) is the only way to read
 // an exact figure off a given bar, since there's no axis.
-export function MiniBarChart({ categories, values, segments, valueFormat, color = "var(--color-brand)", height = 64 }: Props) {
+export function MiniBarChart({
+  categories,
+  values,
+  segments,
+  valueFormat,
+  color = "var(--color-brand)",
+  height = 64,
+  barCategoryGap = "10%",
+}: Props) {
   const isStacked = !!segments && segments.length > 0;
 
   const chartData = categories.map((cat, i) => {
@@ -112,7 +126,7 @@ export function MiniBarChart({ categories, values, segments, valueFormat, color 
 
   return (
     <ChartContainer config={chartConfig} className="aspect-auto w-full" style={{ height }} role="img" aria-label="Historical trend">
-      <BarChart data={chartData} barCategoryGap="10%">
+      <BarChart data={chartData} barCategoryGap={barCategoryGap}>
         {/* No dataKey on YAxis needed, but XAxis's dataKey is what lets
             Recharts resolve the tooltip's `label` to the period string --
             without it (chart previously had no XAxis at all), the tooltip
