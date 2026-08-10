@@ -17,6 +17,14 @@ const MOAT_STYLES_FLAT: Record<MoatValue, string> = {
   no_moat: "bg-negative/16 text-negative",
 };
 
+// Abbreviated labels for space-constrained placements (WatchlistTable's
+// Moat column) -- color logic is unaffected by which label set is used.
+const MOAT_LABELS_SHORT: Record<MoatValue, string> = {
+  wide_moat: "Wide",
+  narrow_moat: "Narrow",
+  no_moat: "None",
+};
+
 interface Props {
   // null (or undefined while loading) renders nothing -- only shown once a
   // moat is actually set (see CLAUDE.md's Economic Moat deviation note),
@@ -25,9 +33,12 @@ interface Props {
   // "chip" (default): bordered pill, used in TickerHeader's chip row.
   // "flat": borderless, same height as ScreenerCard's other pills.
   variant?: "chip" | "flat";
+  // Use MOAT_LABELS_SHORT ("Wide"/"Narrow"/"None") instead of the full
+  // "Wide Moat"/"Narrow Moat"/"No Moat" labels -- WatchlistTable only.
+  short?: boolean;
 }
 
-export function MoatPill({ moat, variant = "chip" }: Props) {
+export function MoatPill({ moat, variant = "chip", short = false }: Props) {
   if (!moat) return null;
 
   return (
@@ -38,7 +49,7 @@ export function MoatPill({ moat, variant = "chip" }: Props) {
         variant === "chip" ? MOAT_STYLES[moat] : MOAT_STYLES_FLAT[moat]
       )}
     >
-      {MOAT_LABELS[moat]}
+      {short ? MOAT_LABELS_SHORT[moat] : MOAT_LABELS[moat]}
     </span>
   );
 }

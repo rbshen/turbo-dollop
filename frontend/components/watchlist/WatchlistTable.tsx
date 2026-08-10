@@ -4,6 +4,7 @@ import { useMemo } from "react";
 
 import { MiniBarChart } from "@/components/charts/MiniBarChart";
 import { MoatPill } from "@/components/ticker/MoatPill";
+import { PerfVsSpyPill } from "@/components/ticker/PerfVsSpyPill";
 import { ValuationBadge } from "@/components/screener/ValuationBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { WatchlistOut, WatchlistRowOut, WatchlistSortField } from "@/lib/api/types";
@@ -109,8 +110,9 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
             <TableHead className={`${HEAD_CLASS} text-center`}>Revenue</TableHead>
             <TableHead className={`${HEAD_CLASS} text-center`}>Net Income</TableHead>
             <TableHead className={`${HEAD_CLASS} text-center`}>CFO</TableHead>
-            <TableHead className={`${HEAD_CLASS} text-center`}>Moat</TableHead>
+            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Moat</TableHead>
             <TableHead className={`${HEAD_CLASS} text-center`}>Valuation</TableHead>
+            <TableHead className={`${HEAD_CLASS} text-center`}>vs SPY</TableHead>
             <TableHead className={`${HEAD_CLASS} text-center`}>Analysis</TableHead>
             <TableHead className={HEAD_CLASS}>Rating</TableHead>
             <TableHead className={`${HEAD_CLASS} text-right`}>Mkt Cap</TableHead>
@@ -141,10 +143,13 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
                 <TrendCell years={row.years} values={row.cfo} />
               </TableCell>
               <TableCell className="text-center">
-                <MoatPill moat={row.moat} variant="flat" />
+                <MoatPill moat={row.moat} variant="flat" short />
               </TableCell>
               <TableCell className="text-center">
                 <ValuationBadge verdict={row.valuation_verdict} source={row.valuation_source} variant="flat" />
+              </TableCell>
+              <TableCell className="text-center">
+                <PerfVsSpyPill status={row.perf_5y_vs_spy_status} variant="flat" />
               </TableCell>
               <TableCell className="text-center">
                 <span

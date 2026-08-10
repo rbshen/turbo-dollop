@@ -25,6 +25,7 @@ const SORT_FIELD_OPTIONS: { value: WatchlistSortField; label: string }[] = [
   { value: "step2_score", label: "Growth Rate score" },
   { value: "step4_score", label: "Profitability score" },
   { value: "step5_score", label: "Debt score" },
+  { value: "perf_5y_vs_spy_pct", label: "5Y vs SPY" },
 ];
 
 function slugify(name: string): string {
