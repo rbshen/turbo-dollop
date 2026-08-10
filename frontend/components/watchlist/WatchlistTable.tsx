@@ -146,7 +146,10 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
                 <MoatPill moat={row.moat} variant="flat" short />
               </TableCell>
               <TableCell className="text-center">
-                <ValuationBadge verdict={row.valuation_verdict} source={row.valuation_source} variant="flat" labelSet="watchlist" />
+                {/* No `source` prop here -- suppresses ValuationBadge's "· Custom"
+                    marker on this dense, abbreviated column specifically; the
+                    ticker header and Screener card still show it. */}
+                <ValuationBadge verdict={row.valuation_verdict} variant="flat" labelSet="watchlist" />
               </TableCell>
               <TableCell className="text-center">
                 {row.perf_5y_vs_spy_status && row.perf_5y_vs_spy_status !== "no_data" ? (
