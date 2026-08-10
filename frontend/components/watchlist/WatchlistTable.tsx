@@ -143,7 +143,7 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
                 <TrendCell years={row.years} values={row.cfo} />
               </TableCell>
               <TableCell className="text-center">
-                <MoatPill moat={row.moat} variant="flat" short />
+                <MoatPill moat={row.moat} variant="flat" labelSet="watchlist" />
               </TableCell>
               <TableCell className="text-center">
                 {/* No `source` prop here -- suppresses ValuationBadge's "· Custom"

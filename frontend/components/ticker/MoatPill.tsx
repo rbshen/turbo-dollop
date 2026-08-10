@@ -19,10 +19,25 @@ const MOAT_STYLES_FLAT: Record<MoatValue, string> = {
 
 // Abbreviated labels for space-constrained placements (WatchlistTable's
 // Moat column) -- color logic is unaffected by which label set is used.
-const MOAT_LABELS_SHORT: Record<MoatValue, string> = {
+const LABELS_WATCHLIST: Record<MoatValue, string> = {
   wide_moat: "Wide",
   narrow_moat: "Narrow",
   no_moat: "None",
+};
+
+// Screener card: state is conveyed by color alone (same pattern as the
+// vs-SPY pill's own "screener" tier) -- every status renders the same
+// literal text here.
+const LABELS_SCREENER: Record<MoatValue, string> = {
+  wide_moat: "Moat",
+  narrow_moat: "Moat",
+  no_moat: "Moat",
+};
+
+const LABEL_SETS: Record<"full" | "watchlist" | "screener", Record<MoatValue, string>> = {
+  full: MOAT_LABELS,
+  watchlist: LABELS_WATCHLIST,
+  screener: LABELS_SCREENER,
 };
 
 interface Props {
@@ -33,12 +48,12 @@ interface Props {
   // "chip" (default): bordered pill, used in TickerHeader's chip row.
   // "flat": borderless, same height as ScreenerCard's other pills.
   variant?: "chip" | "flat";
-  // Use MOAT_LABELS_SHORT ("Wide"/"Narrow"/"None") instead of the full
-  // "Wide Moat"/"Narrow Moat"/"No Moat" labels -- WatchlistTable only.
-  short?: boolean;
+  // Which label wording tier to use -- see LABEL_SETS above. Defaults to
+  // the full "Wide Moat"/"Narrow Moat"/"No Moat" wording.
+  labelSet?: "full" | "watchlist" | "screener";
 }
 
-export function MoatPill({ moat, variant = "chip", short = false }: Props) {
+export function MoatPill({ moat, variant = "chip", labelSet = "full" }: Props) {
   if (!moat) return null;
 
   return (
@@ -49,7 +64,7 @@ export function MoatPill({ moat, variant = "chip", short = false }: Props) {
         variant === "chip" ? MOAT_STYLES[moat] : MOAT_STYLES_FLAT[moat]
       )}
     >
-      {short ? MOAT_LABELS_SHORT[moat] : MOAT_LABELS[moat]}
+      {LABEL_SETS[labelSet][moat]}
     </span>
   );
 }
