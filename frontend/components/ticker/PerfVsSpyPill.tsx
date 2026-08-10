@@ -1,3 +1,4 @@
+import { FLAT_VERDICT_STYLES, VERDICT_STYLES } from "@/components/ticker/FairValuePill";
 import type { PerfVsSpyStatus } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
@@ -36,23 +37,17 @@ const LABEL_SETS: Record<"full" | "watchlist" | "screener", Record<RenderableSta
   screener: LABELS_SCREENER,
 };
 
-// outperform/underperform reuse the shared positive/negative tokens (same
-// pattern as MoatPill). match reuses the "warn" (amber) token -- this app's
-// color system already uses it for "neutral middle result" (see
-// tierColor.ts's Pass/70-74 tier), not just literal warnings, so it reads as
-// a real third outcome rather than an alert. Neither STYLES record needs a
-// "no_data" entry -- the render guard below returns null before ever
-// indexing into either one for that status.
-const STYLES: Record<RenderableStatus, string> = {
-  outperform: "bg-positive/16 text-positive border-positive/40",
-  underperform: "bg-negative/16 text-negative border-negative/40",
-  match: "bg-warn/16 text-warn border-warn/40",
-};
-
-const STYLES_FLAT: Record<RenderableStatus, string> = {
-  outperform: "bg-positive/16 text-positive",
-  underperform: "bg-negative/16 text-negative",
-  match: "bg-warn/16 text-warn",
+// Reuses Valuation's own 3-state palette directly (VERDICT_STYLES/
+// FLAT_VERDICT_STYLES, exported by FairValuePill.tsx) rather than matching
+// copies of the same values -- vs-SPY and Valuation share one visual
+// vocabulary this way and can't drift independently if that palette ever
+// changes. Outperform maps to Undervalued's stronger green, Underperform to
+// Overvalued's red, Match to Fairvalued's lighter green (not a neutral/gray
+// tone -- Valuation's 3-state palette has no gray tier at all).
+const STATUS_TO_VERDICT: Record<RenderableStatus, string> = {
+  outperform: "undervalued",
+  underperform: "overvalued",
+  match: "fair",
 };
 
 const INSUFFICIENT_HISTORY_NOTE =
@@ -83,7 +78,7 @@ export function PerfVsSpyPill({ status, insufficientHistory = false, variant = "
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md text-xs font-semibold",
         variant === "chip" ? "border px-2 py-0.5" : "px-2 py-1",
-        variant === "chip" ? STYLES[status] : STYLES_FLAT[status]
+        variant === "chip" ? VERDICT_STYLES[STATUS_TO_VERDICT[status]] : FLAT_VERDICT_STYLES[STATUS_TO_VERDICT[status]]
       )}
       title={insufficientHistory ? INSUFFICIENT_HISTORY_NOTE : undefined}
     >
