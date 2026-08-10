@@ -3,6 +3,7 @@
 import { AddToWatchlistButton } from "@/components/ticker/AddToWatchlistButton";
 import { FairValuePill } from "@/components/ticker/FairValuePill";
 import { MoatPill } from "@/components/ticker/MoatPill";
+import { PerfVsSpyPill } from "@/components/ticker/PerfVsSpyPill";
 import { PriceChange } from "@/components/ticker/PriceChange";
 import { RefreshButton } from "@/components/ticker/RefreshButton";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
@@ -85,6 +86,11 @@ export function TickerHeader({ symbol, data }: Props) {
           variant="flat"
         />
         <MoatPill moat={moatData?.moat} variant="flat" />
+        <PerfVsSpyPill
+          status={data.perf_5y_vs_spy_status}
+          insufficientHistory={data.perf_5y_insufficient_history}
+          variant="flat"
+        />
       </div>
 
       {/* Row 3: next earnings -- always shown so a null date reads as

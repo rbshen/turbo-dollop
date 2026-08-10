@@ -34,6 +34,8 @@ export interface TickerSearchResult {
   exchange: string | null;
 }
 
+export type PerfVsSpyStatus = "outperform" | "underperform" | "no_data";
+
 export interface TickerSummaryOut {
   company_name: string | null;
   ticker: string;
@@ -70,6 +72,17 @@ export interface TickerSummaryOut {
   perf_1y: number | null;
   perf_5y: number | null;
   perf_10y: number | null;
+  // Ticker's own 5Y return minus SPY's -- null only for SPY's own page
+  // (self-comparison isn't meaningful) or when perf_5y_vs_spy_status is
+  // "no_data" (this ticker's own "5Y" figure couldn't be fetched at all).
+  perf_5y_vs_spy_pct: number | null;
+  // null only for SPY's own page (pill/number hidden entirely there).
+  perf_5y_vs_spy_status: PerfVsSpyStatus | null;
+  // True when FMP's "5Y" figure is really a shorter-than-5-year
+  // return-since-listing silently standing in for it (confirmed live: a
+  // recent IPO's 3Y/5Y/10Y/max all report the identical value) -- still a
+  // real perf_5y_vs_spy_pct/status above, just worth a caveat.
+  perf_5y_insufficient_history: boolean;
   week52_high: number | null;
   week52_low: number | null;
   eps_growth_3_5y: number | null;
@@ -406,6 +419,9 @@ export interface TickerScoreOut {
   // Step 2 deviation note). null when Step 2 has no usable projection.
   growth_rate: number | null;
   computed_at: string;
+  // See TickerSummaryOut.perf_5y_vs_spy_pct/_status above.
+  perf_5y_vs_spy_pct: number | null;
+  perf_5y_vs_spy_status: PerfVsSpyStatus | null;
 }
 
 export type ScreenerUniverse = "sp500" | "dow" | "all";
@@ -859,7 +875,8 @@ export type WatchlistSortField =
   | "step1_score"
   | "step2_score"
   | "step4_score"
-  | "step5_score";
+  | "step5_score"
+  | "perf_5y_vs_spy_pct";
 
 // Same field set as TickerScoreOut minus sector/industry/company_type/
 // growth_rate/computed_at (not shown on the Watchlist table), plus Step 1's
@@ -899,6 +916,10 @@ export interface WatchlistRowOut {
   market_cap: number | null;
   pe_ratio: number | null;
   beta: number | null;
+  // See TickerSummaryOut.perf_5y_vs_spy_pct/_status above. Sortable via
+  // WatchlistSortField's "perf_5y_vs_spy_pct" entry.
+  perf_5y_vs_spy_pct: number | null;
+  perf_5y_vs_spy_status: PerfVsSpyStatus | null;
   // FMP's live consensus label -- "N/A" (never null) when there's no cached
   // analyst-ratings data for this ticker yet.
   consensus_rating: string;
