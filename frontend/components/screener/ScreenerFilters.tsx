@@ -7,6 +7,7 @@ import {
   MOAT_FILTER_OPTIONS,
   parseMarketCapInput,
   VALUATION_FILTER_OPTIONS,
+  VS_SPY_FILTER_OPTIONS,
   type RangeFilter,
   type ScreenerFilterState,
   type SortDirection,
@@ -163,6 +164,12 @@ export function ScreenerFilters({ filters, onFiltersChange, sectors, companyType
           options={VALUATION_FILTER_OPTIONS}
           selected={filters.valuationVerdict}
           onChange={(s) => patch({ valuationVerdict: s })}
+        />
+        <MultiSelectDropdown
+          label="vs SPY"
+          options={VS_SPY_FILTER_OPTIONS}
+          selected={filters.vsSpy}
+          onChange={(s) => patch({ vsSpy: s })}
         />
 
         <div className="ml-auto flex items-center gap-2">

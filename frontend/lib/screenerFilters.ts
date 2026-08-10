@@ -1,4 +1,5 @@
 import type { MultiSelectOption } from "@/components/screener/MultiSelectDropdown";
+import { PERF_VS_SPY_LABELS } from "@/components/ticker/PerfVsSpyPill";
 import { VALUATION_LABELS } from "@/components/screener/ValuationBadge";
 import { MOAT_LABELS } from "@/lib/overallScore";
 import type { TickerScoreOut } from "@/lib/api/types";
@@ -64,6 +65,16 @@ export const VALUATION_FILTER_OPTIONS: MultiSelectOption[] = [
   { value: "overvalued", label: VALUATION_LABELS.overvalued },
 ];
 
+// "no_data" doubles as the fallback bucket for a null status (a TickerScore
+// row computed before this field existed, or a row for a ticker with no
+// FMP "5Y" figure at all) -- same null-coalescing convention as Moat's
+// MOAT_NOT_SET below, not a distinct 4th value.
+export const VS_SPY_FILTER_OPTIONS: MultiSelectOption[] = [
+  { value: "outperform", label: PERF_VS_SPY_LABELS.outperform },
+  { value: "underperform", label: PERF_VS_SPY_LABELS.underperform },
+  { value: "no_data", label: PERF_VS_SPY_LABELS.no_data },
+];
+
 export interface ScreenerFilterState {
   overallScore: RangeFilter;
   step1Score: RangeFilter;
@@ -80,6 +91,7 @@ export interface ScreenerFilterState {
   companyTypes: string[];
   moat: string[];
   valuationVerdict: string[];
+  vsSpy: string[];
 }
 
 export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
@@ -96,6 +108,7 @@ export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
   companyTypes: [],
   moat: [],
   valuationVerdict: [],
+  vsSpy: [],
 };
 
 // A range filter is only "active" if min or max is actually set -- an
@@ -129,6 +142,7 @@ export function filterTickerScores(rows: TickerScoreOut[], filters: ScreenerFilt
     if (filters.valuationVerdict.length > 0 && (!row.valuation_verdict || !filters.valuationVerdict.includes(row.valuation_verdict))) {
       return false;
     }
+    if (filters.vsSpy.length > 0 && !filters.vsSpy.includes(row.perf_5y_vs_spy_status ?? "no_data")) return false;
     return true;
   });
 }

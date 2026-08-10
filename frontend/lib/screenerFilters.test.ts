@@ -37,6 +37,8 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     valuation_source: null,
     growth_rate: 12.5,
     computed_at: "2026-01-01T00:00:00",
+    perf_5y_vs_spy_pct: null,
+    perf_5y_vs_spy_status: null,
     ...overrides,
   };
 }
@@ -161,6 +163,29 @@ describe("filterTickerScores", () => {
     const rows = [row({ ticker: "NOGROWTH", growth_rate: null })];
     const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, growthRate: { min: 10, max: null } };
     expect(filterTickerScores(rows, filters)).toHaveLength(0);
+  });
+
+  it("filters by vs-SPY status multi-select", () => {
+    const rows = [
+      row({ ticker: "BEATS", perf_5y_vs_spy_status: "outperform" }),
+      row({ ticker: "LAGS", perf_5y_vs_spy_status: "underperform" }),
+      row({ ticker: "UNKNOWN", perf_5y_vs_spy_status: "no_data" }),
+    ];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, vsSpy: ["outperform"] };
+    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["BEATS"]);
+  });
+
+  it('treats a null vs-SPY status as the "no_data" filter value', () => {
+    // A TickerScore row computed before this field existed (see
+    // _add_missing_columns) reads null, same bucket as a genuine no_data.
+    const rows = [row({ ticker: "PREDATES_FIELD", perf_5y_vs_spy_status: null }), row({ ticker: "BEATS", perf_5y_vs_spy_status: "outperform" })];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, vsSpy: ["no_data"] };
+    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["PREDATES_FIELD"]);
+  });
+
+  it("does not exclude a null vs-SPY ticker when no vs-SPY filter is active", () => {
+    const rows = [row({ ticker: "PREDATES_FIELD", perf_5y_vs_spy_status: null })];
+    expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(1);
   });
 });
 
