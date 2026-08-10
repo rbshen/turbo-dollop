@@ -9,7 +9,20 @@ import type { ValuationSource } from "@/lib/api/types";
 export const VALUATION_LABELS: Record<string, string> = {
   undervalued: "Undervalued",
   overvalued: "Overvalued",
-  fair: "Fair Valued",
+  fair: "Fairvalued",
+};
+
+// Watchlist column only -- reclaims table width. Screener card and the
+// filter dropdown keep the full VALUATION_LABELS wording above.
+const VALUATION_LABELS_WATCHLIST: Record<string, string> = {
+  undervalued: "Under",
+  overvalued: "Over",
+  fair: "Fair",
+};
+
+const LABEL_SETS: Record<"full" | "watchlist", Record<string, string>> = {
+  full: VALUATION_LABELS,
+  watchlist: VALUATION_LABELS_WATCHLIST,
 };
 
 interface Props {
@@ -23,12 +36,15 @@ interface Props {
   // "chip" (default): bordered pill. "flat": borderless, same height as
   // ScreenerCard's other pills (company type, MoatPill's "flat" variant).
   variant?: "chip" | "flat";
+  // Which label wording tier to use -- see LABEL_SETS above. Defaults to
+  // the full "Overvalued"/"Fairvalued"/"Undervalued" wording.
+  labelSet?: "full" | "watchlist";
 }
 
-export function ValuationBadge({ verdict, source, variant = "chip" }: Props) {
+export function ValuationBadge({ verdict, source, variant = "chip", labelSet = "full" }: Props) {
   if (!verdict) return null;
   const cls = variant === "chip" ? (VERDICT_STYLES[verdict] ?? VERDICT_STYLES.fair) : (FLAT_VERDICT_STYLES[verdict] ?? FLAT_VERDICT_STYLES.fair);
-  const label = VALUATION_LABELS[verdict] ?? verdict;
+  const label = LABEL_SETS[labelSet][verdict] ?? verdict;
 
   return (
     <span
