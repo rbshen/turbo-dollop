@@ -57,7 +57,9 @@ function ratingColorClass(rating: string): string {
 // deliberately absent from WatchlistSortField/SORT_FIELD_OPTIONS.
 function TrendCell({ years, values }: { years: string[]; values: (number | null)[] | null }) {
   if (!values || values.every((v) => v == null)) {
-    return <span className="flex h-8 w-24 items-center justify-center text-text-tertiary">—</span>;
+    // Empty box, not a dash -- keeps this cell the same size as a populated
+    // one so row height/alignment doesn't shift.
+    return <span className="flex h-8 w-24 items-center justify-center" />;
   }
   return (
     <div className="w-24">
@@ -130,11 +132,11 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
               <TableCell className="w-40 max-w-40 overflow-hidden">
                 <p className="font-mono text-sm font-bold text-text-primary">{row.ticker}</p>
                 <p className="truncate text-xs text-text-tertiary" title={row.company_name ?? undefined}>
-                  {row.company_name ?? "—"}
+                  {row.company_name}
                 </p>
               </TableCell>
               <TableCell className="w-24 max-w-24 truncate text-text-secondary" title={row.sector ?? undefined}>
-                {row.sector ?? "—"}
+                {row.sector}
               </TableCell>
               <TableCell className="text-center">
                 <TrendCell years={row.years} values={row.revenue} />
@@ -155,17 +157,15 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
                 <ValuationBadge verdict={row.valuation_verdict} variant="flat" labelSet="watchlist" />
               </TableCell>
               <TableCell className="text-center">
-                {row.perf_5y_vs_spy_status && row.perf_5y_vs_spy_status !== "no_data" ? (
+                {row.perf_5y_vs_spy_status && row.perf_5y_vs_spy_status !== "no_data" && (
                   <PerfVsSpyPill status={row.perf_5y_vs_spy_status} variant="flat" labelSet="watchlist" />
-                ) : (
-                  <span className="text-text-tertiary">-</span>
                 )}
               </TableCell>
               <TableCell className="text-center">
                 <span
                   className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ${flatChipClassFor(row.overall_score, row.overall_verdict)}`}
                 >
-                  {row.overall_score ?? "—"}
+                  {row.overall_score}
                   {row.overall_verdict === "Pass with caution" && (
                     <span title={`Passed with caution: ${cautionStepLabels(row).join(", ")}`}>⚠</span>
                   )}
@@ -173,11 +173,11 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
               </TableCell>
               <TableCell className={ratingColorClass(row.consensus_rating)}>{row.consensus_rating}</TableCell>
               <TableCell className="text-right font-mono text-text-secondary">
-                {row.market_cap != null ? fmtCompactMoney(row.market_cap) : "—"}
+                {row.market_cap != null && fmtCompactMoney(row.market_cap)}
               </TableCell>
-              <TableCell className="text-right font-mono text-text-secondary">{row.beta != null ? fmtNumber(row.beta) : "—"}</TableCell>
+              <TableCell className="text-right font-mono text-text-secondary">{row.beta != null && fmtNumber(row.beta)}</TableCell>
               <TableCell className="text-right font-mono text-text-secondary">
-                {row.pe_ratio != null ? fmtNumber(row.pe_ratio) : "—"}
+                {row.pe_ratio != null && fmtNumber(row.pe_ratio)}
               </TableCell>
               <TableCell className="text-center">
                 <button
