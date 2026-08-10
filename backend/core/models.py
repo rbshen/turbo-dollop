@@ -253,6 +253,14 @@ class TickerScore(SQLModel, table=True):
     # from Step2Out.growth_rate. None when Step 2 has no usable projection.
     growth_rate: float | None = None
     computed_at: datetime
+    # Ticker's own 5yr price return minus SPY's -- lifted straight from the
+    # same get_summary() call market_cap/pe_ratio/beta above already come
+    # from (see ticker_summary.py::_resolve_perf_vs_spy). status is
+    # "outperform" / "underperform" / "no_data" / None (None only for SPY's
+    # own row, or a row computed before this field existed -- see
+    # _add_missing_columns).
+    perf_5y_vs_spy_pct: float | None = None
+    perf_5y_vs_spy_status: str | None = None
 
 
 class TickerCustomValuation(SQLModel, table=True):

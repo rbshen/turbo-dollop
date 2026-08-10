@@ -114,6 +114,8 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         valuation_source=summary.valuation_source,
         growth_rate=step2.growth_rate if step2 else None,
         computed_at=datetime.now(),
+        perf_5y_vs_spy_pct=summary.perf_5y_vs_spy_pct,
+        perf_5y_vs_spy_status=summary.perf_5y_vs_spy_status,
     )
 
     values = row.model_dump()

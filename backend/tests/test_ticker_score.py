@@ -59,6 +59,8 @@ def _summary(
     industry="Consumer Electronics",
     fair_value_verdict="undervalued",
     valuation_source="auto",
+    perf_5y_vs_spy_pct=None,
+    perf_5y_vs_spy_status=None,
 ):
     return TickerSummaryOut(
         company_name=company_name,
@@ -70,6 +72,8 @@ def _summary(
         beta=1.2,
         fair_value_verdict=fair_value_verdict,
         valuation_source=valuation_source,
+        perf_5y_vs_spy_pct=perf_5y_vs_spy_pct,
+        perf_5y_vs_spy_status=perf_5y_vs_spy_status,
     )
 
 
@@ -128,11 +132,31 @@ def test_computes_and_upserts_a_full_row(monkeypatch):
     assert result.valuation_verdict == "undervalued"
     assert result.valuation_source == "auto"
     assert result.growth_rate == 12.5
+    # _summary()'s defaults leave these unset -- confirms the fields are
+    # wired through (None, not missing/erroring) even when get_summary has
+    # nothing to report, same as every other optional field here.
+    assert result.perf_5y_vs_spy_pct is None
+    assert result.perf_5y_vs_spy_status is None
 
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
     assert row is not None
     assert row.overall_score == 76
+
+
+def test_perf_5y_vs_spy_fields_are_copied_from_summary(monkeypatch):
+    # Lifted straight from the same get_summary() call market_cap/pe_ratio/
+    # beta already come from (see ticker_score.py) -- no separate fetch of
+    # its own, so this is a pure field-mapping test, same shape as
+    # valuation_verdict/growth_rate above.
+    engine = _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch, summary=_summary(perf_5y_vs_spy_pct=18.4, perf_5y_vs_spy_status="outperform"))
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None
+    assert result.perf_5y_vs_spy_pct == 18.4
+    assert result.perf_5y_vs_spy_status == "outperform"
 
 
 def test_upsert_updates_an_existing_row_rather_than_erroring(monkeypatch):
