@@ -171,7 +171,7 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
                   )}
                 </span>
               </TableCell>
-              <TableCell className={ratingColorClass(row.consensus_rating)}>{row.consensus_rating}</TableCell>
+              <TableCell className={ratingColorClass(row.consensus_rating)}>{row.consensus_rating.toUpperCase()}</TableCell>
               <TableCell className="text-right font-mono text-text-secondary">
                 {row.market_cap != null && fmtCompactMoney(row.market_cap)}
               </TableCell>
