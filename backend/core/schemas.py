@@ -90,6 +90,19 @@ class TickerSummaryOut(BaseModel):
     perf_1y: float | None = None
     perf_5y: float | None = None
     perf_10y: float | None = None
+    # ticker's own 5Y return minus SPY's -- None only for SPY's own page
+    # (self-comparison isn't meaningful) or when this ticker's own "5Y"
+    # figure couldn't be fetched at all (perf_5y_vs_spy_status == "no_data"
+    # in that case). See ticker_summary.py::_resolve_perf_vs_spy.
+    perf_5y_vs_spy_pct: float | None = None
+    # "outperform" / "underperform" / "no_data" / None (SPY's own page).
+    perf_5y_vs_spy_status: str | None = None
+    # True when FMP's "5Y" figure is actually a shorter-than-5-year
+    # return-since-listing silently clamped to the 5Y slot (confirmed live:
+    # a recent IPO's 3Y/5Y/10Y/max all report the identical value) -- still
+    # feeds a real perf_5y_vs_spy_pct/status above, just flagged so the UI
+    # can attach a caveat rather than presenting it as a true 5yr comparison.
+    perf_5y_insufficient_history: bool = False
     week52_high: float | None = None
     week52_low: float | None = None
     eps_growth_3_5y: float | None = None
@@ -723,6 +736,9 @@ class TickerScoreOut(BaseModel):
     # Step 2's analyst-estimate CAGR % (see models.py::TickerScore).
     growth_rate: float | None = None
     computed_at: datetime
+    # See models.py::TickerScore.perf_5y_vs_spy_pct/_status.
+    perf_5y_vs_spy_pct: float | None = None
+    perf_5y_vs_spy_status: str | None = None
 
 
 class RecomputeSummary(BaseModel):
@@ -837,6 +853,9 @@ class WatchlistRowOut(BaseModel):
     market_cap: float | None = None
     pe_ratio: float | None = None
     beta: float | None = None
+    # See models.py::TickerScore.perf_5y_vs_spy_pct/_status.
+    perf_5y_vs_spy_pct: float | None = None
+    perf_5y_vs_spy_status: str | None = None
     # FMP's live consensus label (ConsensusBanner.rating), "N/A" when there's
     # no cached analyst-ratings data for this ticker yet -- never null.
     consensus_rating: str

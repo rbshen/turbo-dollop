@@ -233,6 +233,14 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     assert summary.perf_1y == 22.4
     assert summary.perf_5y == 123.5
     assert summary.perf_10y == 1277.8
+    # fake_price_change ignores its ticker arg, so SPY's own fetch returns
+    # the identical fixture -- pct is exactly 0.0 (underperform per
+    # _resolve_perf_vs_spy's <=0 tie-break), not itself the point of this
+    # wiring test (see test_resolve_perf_vs_spy_* below for the real sign/
+    # clamp/no-data logic on the pure helper).
+    assert summary.perf_5y_vs_spy_pct == 0.0
+    assert summary.perf_5y_vs_spy_status == "underperform"
+    assert summary.perf_5y_insufficient_history is False
     assert summary.week52_high == 199.62
     assert summary.week52_low == 164.08
     assert summary.pe_ratio == 30.1
@@ -257,7 +265,11 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     expected_call_count = {
         "profile": 1,
         "quote": 1,
-        "price_change": 1,
+        # 2, not 1: AAPL's own "5Y" plus SPY's own separately-cached fetch
+        # (see ticker_summary.py's spy_price_change block) -- the fake
+        # ignores its ticker arg, so both calls happen to return the same
+        # fixture, but both calls still occur.
+        "price_change": 2,
         "ratios": 1,
         "analyst_estimates": 1,
         "earnings": 1,
@@ -390,3 +402,76 @@ def test_next_earnings_date_still_finds_a_genuine_future_date_among_null_rows():
         {"date": future_date.isoformat(), "epsActual": None},
     ]
     assert ticker_summary._next_earnings_date(normal) == future_date
+
+
+def test_resolve_perf_vs_spy_outperform():
+    pct, status, insufficient = ticker_summary._resolve_perf_vs_spy(
+        "AAPL", {"5Y": 150.0, "10Y": 300.0, "max": 400.0}, {"5Y": 75.0}
+    )
+    assert pct == 75.0
+    assert status == "outperform"
+    assert insufficient is False
+
+
+def test_resolve_perf_vs_spy_underperform():
+    pct, status, insufficient = ticker_summary._resolve_perf_vs_spy(
+        "XYZ", {"5Y": 40.0, "10Y": 200.0, "max": 250.0}, {"5Y": 75.0}
+    )
+    assert pct == -35.0
+    assert status == "underperform"
+    assert insufficient is False
+
+
+def test_resolve_perf_vs_spy_self_comparison_returns_none():
+    # "SPY vs SPY" isn't a meaningful comparison -- status None means the
+    # pill/number is hidden entirely (see PerfVsSpyPill's null-renders-
+    # nothing convention), distinct from a genuine "no_data" case below.
+    pct, status, insufficient = ticker_summary._resolve_perf_vs_spy("SPY", {"5Y": 75.0}, {"5Y": 75.0})
+    assert pct is None
+    assert status is None
+    assert insufficient is False
+
+
+def test_resolve_perf_vs_spy_no_data_when_tickers_own_5y_missing():
+    pct, status, insufficient = ticker_summary._resolve_perf_vs_spy("XYZ", {}, {"5Y": 75.0})
+    assert pct is None
+    assert status == "no_data"
+    assert insufficient is False
+
+
+def test_resolve_perf_vs_spy_no_data_when_spy_5y_missing():
+    pct, status, insufficient = ticker_summary._resolve_perf_vs_spy("XYZ", {"5Y": 40.0}, {})
+    assert pct is None
+    assert status == "no_data"
+
+
+def test_resolve_perf_vs_spy_insufficient_history_detected_via_max_clamp():
+    # Real confirmed FMP behavior: a recent IPO (e.g. CRWV, ~1.4yrs of
+    # trading at investigation time) reports identical 3Y/5Y/10Y/max --
+    # FMP silently clamps every window longer than actual history to the
+    # same return-since-listing value. This still produces a real
+    # outperform/underperform read (decision: never suppress the number),
+    # just flagged via insufficient_history for a UI caveat.
+    pct, status, insufficient = ticker_summary._resolve_perf_vs_spy(
+        "CRWV", {"5Y": 126.675, "10Y": 126.675, "max": 126.675}, {"5Y": 75.0}
+    )
+    assert pct == pytest.approx(51.675)
+    assert status == "outperform"
+    assert insufficient is True
+
+
+def test_resolve_perf_vs_spy_insufficient_history_detected_via_10y_clamp_when_max_absent():
+    pct, status, insufficient = ticker_summary._resolve_perf_vs_spy(
+        "KVUE", {"5Y": -28.51301, "10Y": -28.51301}, {"5Y": 75.0}
+    )
+    assert insufficient is True
+    assert status == "underperform"
+
+
+def test_resolve_perf_vs_spy_sufficient_history_not_flagged():
+    # A ticker with a genuine 5+yr history: 5Y/10Y/max are all distinct
+    # (confirmed live for AAPL/SPY), so the clamp heuristic must not fire.
+    pct, status, insufficient = ticker_summary._resolve_perf_vs_spy(
+        "AAPL", {"5Y": 114.5, "10Y": 1050.0, "max": 240_000.0}, {"5Y": 74.9}
+    )
+    assert insufficient is False

@@ -80,6 +80,38 @@ def _avg_dollar_volume_20d(daily_prices: list[dict]) -> float | None:
     return sum(row["close"] * row["volume"] for row in window) / len(window)
 
 
+def _resolve_perf_vs_spy(
+    ticker: str, price_change: dict, spy_price_change: dict
+) -> tuple[float | None, str | None, bool]:
+    """Returns (perf_5y_vs_spy_pct, status, insufficient_history).
+
+    status is None (pill/number hidden entirely) only for SPY's own page --
+    "SPY vs SPY" isn't a meaningful comparison. Otherwise status is "no_data"
+    only when the spread genuinely can't be computed (this ticker's own "5Y"
+    figure is missing -- e.g. safe_fetch swallowed a fetch error to `{}`),
+    never merely because the ticker has under 5 years of trading history --
+    see insufficient_history below, which still gets a real outperform/
+    underperform read, just flagged for a caveat.
+
+    insufficient_history detects FMP's confirmed (live-tested) behavior of
+    silently clamping 3Y/5Y/10Y/max to the same value when a ticker's actual
+    trading history is shorter than the window -- e.g. a ticker IPO'd 18
+    months ago reports "5Y": <return since listing>, identical to its own
+    "10Y"/"max". Comparing against `max` catches the common case (5Y clamped
+    straight to lifetime return); comparing against `10Y` catches the same
+    clamp when `max` happens to differ slightly (e.g. after a restatement)."""
+    if ticker == "SPY":
+        return None, None, False
+    ticker_5y = price_change.get("5Y")
+    spy_5y = spy_price_change.get("5Y")
+    if ticker_5y is None or spy_5y is None:
+        return None, "no_data", False
+    insufficient_history = ticker_5y == price_change.get("max") or ticker_5y == price_change.get("10Y")
+    pct = ticker_5y - spy_5y
+    status = "outperform" if pct > 0 else "underperform"
+    return pct, status, insufficient_history
+
+
 async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut:
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
@@ -161,6 +193,25 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
                     staleness_days,
                     cache_only,
                 ),
+            )
+        )
+        # SPY's own 5Y return, for the "vs SPY" performance pill/metric below.
+        # Same cache key shape as `price_change` above, just under ticker="SPY"
+        # -- fetched/cached once and reused by every other ticker's request
+        # (get_or_fetch's cache key is (ticker, category, period), so this
+        # naturally namespaces to its own row). Reuse price_change directly
+        # when ticker IS "SPY", rather than issuing a second, redundant fetch
+        # for the identical cache row.
+        spy_price_change = (
+            price_change
+            if ticker == "SPY"
+            else _first(
+                await safe_fetch(
+                    "price_change_spy",
+                    get_or_fetch(
+                        session, "SPY", "price_change", "latest", lambda: fmp_client.get_price_change("SPY"), staleness_days, cache_only
+                    ),
+                )
             )
         )
         ratios = _first(
@@ -284,6 +335,9 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         for group in debt_metrics.outlier_flags
         for fq in group.flagged
     ]
+    perf_5y_vs_spy_pct, perf_5y_vs_spy_status, perf_5y_insufficient_history = _resolve_perf_vs_spy(
+        ticker, price_change, spy_price_change
+    )
 
     # Step 2/Step 3 each manage their own Session(engine) block, separate
     # from this function's. step2_out is passed into get_active_valuation
@@ -327,6 +381,9 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         perf_1y=price_change.get("1Y"),
         perf_5y=price_change.get("5Y"),
         perf_10y=price_change.get("10Y"),
+        perf_5y_vs_spy_pct=perf_5y_vs_spy_pct,
+        perf_5y_vs_spy_status=perf_5y_vs_spy_status,
+        perf_5y_insufficient_history=perf_5y_insufficient_history,
         week52_high=quote.get("yearHigh"),
         week52_low=quote.get("yearLow"),
         eps_growth_3_5y=step2_out.growth_rate,
