@@ -17,12 +17,13 @@ const MOAT_STYLES_FLAT: Record<MoatValue, string> = {
   no_moat: "bg-negative/16 text-negative",
 };
 
-// Abbreviated labels for space-constrained placements (WatchlistTable's
-// Moat column) -- color logic is unaffected by which label set is used.
+// Watchlist column: state is conveyed by color alone (same pattern as the
+// "screener" tier below) -- every status renders the same literal text
+// here, just a single letter for this especially dense column.
 const LABELS_WATCHLIST: Record<MoatValue, string> = {
-  wide_moat: "Wide",
-  narrow_moat: "Narrow",
-  no_moat: "None",
+  wide_moat: "M",
+  narrow_moat: "M",
+  no_moat: "M",
 };
 
 // Screener card: state is conveyed by color alone (same pattern as the

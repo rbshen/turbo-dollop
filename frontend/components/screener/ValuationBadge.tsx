@@ -12,12 +12,13 @@ export const VALUATION_LABELS: Record<string, string> = {
   fair: "Fairvalued",
 };
 
-// Watchlist column only -- reclaims table width. The filter dropdown keeps
-// the full VALUATION_LABELS wording above.
+// Watchlist column: state is conveyed by color alone (same pattern as the
+// "screener" tier below) -- every verdict renders the same literal text
+// here, just a single letter for this especially dense column.
 const VALUATION_LABELS_WATCHLIST: Record<string, string> = {
-  undervalued: "Under",
-  overvalued: "Over",
-  fair: "Fair",
+  undervalued: "V",
+  overvalued: "V",
+  fair: "V",
 };
 
 // Screener card: state is conveyed by color alone (same pattern as the

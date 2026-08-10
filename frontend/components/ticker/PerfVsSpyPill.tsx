@@ -16,12 +16,14 @@ export const PERF_VS_SPY_LABELS: Record<PerfVsSpyStatus, string> = {
   no_data: "No data",
 };
 
-// Watchlist column: drops the " SPY" suffix (the column header already
-// establishes the "vs SPY" context) but otherwise unabbreviated.
+// Watchlist column: state is conveyed by color alone (same pattern as the
+// "screener" tier below) -- every status renders the same literal text
+// here, just "SPY" for this especially dense column (the column header
+// already establishes the "vs SPY" context).
 const LABELS_WATCHLIST: Record<RenderableStatus, string> = {
-  outperform: "Outperform",
-  underperform: "Underperform",
-  match: "Match",
+  outperform: "SPY",
+  underperform: "SPY",
+  match: "SPY",
 };
 
 // Screener card: state is conveyed by color alone (see STATUS_TO_VERDICT
