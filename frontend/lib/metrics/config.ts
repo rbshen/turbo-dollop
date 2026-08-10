@@ -6,6 +6,10 @@ export interface MetricDef {
   key: keyof TickerSummaryOut;
   label: string;
   format: MetricFormat;
+  /** Optional caveat icon+tooltip, shown only when `values[when]` is truthy
+   * (see MetricsGrid.tsx). Distinct from the outlier-flag warning icon --
+   * this is a methodology caveat, not a data-quality flag. */
+  tooltip?: { when: keyof TickerSummaryOut; text: string };
 }
 
 export interface MetricGroup {
@@ -73,6 +77,15 @@ export const METRIC_GROUPS: MetricGroup[] = [
       { key: "perf_1y", label: "1Y Performance", format: "percent" },
       { key: "perf_5y", label: "5Y Performance", format: "percent" },
       { key: "perf_10y", label: "10Y Performance", format: "percent" },
+      {
+        key: "perf_5y_vs_spy_pct",
+        label: "5Y vs SPY",
+        format: "percent",
+        tooltip: {
+          when: "perf_5y_insufficient_history",
+          text: "Reflects return since listing, not a full 5-year window -- this ticker has under 5 years of trading history. The same limitation affects the 5Y/10Y Performance figures above.",
+        },
+      },
       { key: "week52_high", label: "52 Week High", format: "compactMoney" },
       { key: "week52_low", label: "52 Week Low", format: "compactMoney" },
     ],

@@ -5,6 +5,9 @@ import type { MetricDef, MetricGroup } from "@/lib/metrics/config";
 import type { OutlierWarning, TickerSummaryOut } from "@/lib/api/types";
 
 const FLAG_TITLE = "Looks anomalous compared to trailing history — verify independently before relying on this number";
+// Distinct icon from FLAG_TITLE's "⚠" -- a methodology caveat (this figure
+// means something slightly different than usual), not a data-quality flag.
+const TOOLTIP_ICON = "ⓘ";
 
 function formatValue(value: TickerSummaryOut[keyof TickerSummaryOut], format: MetricDef["format"]): string {
   if (value == null) return "—";
@@ -50,6 +53,11 @@ function StatColumn({ groups, values, flaggedKeys }: StatColumnProps) {
                     {flaggedKeys.has(metric.key) && (
                       <span className="ml-1.5 text-warn" title={FLAG_TITLE}>
                         ⚠
+                      </span>
+                    )}
+                    {metric.tooltip && values[metric.tooltip.when] && (
+                      <span className="ml-1.5 text-text-tertiary" title={metric.tooltip.text}>
+                        {TOOLTIP_ICON}
                       </span>
                     )}
                   </TableCell>
