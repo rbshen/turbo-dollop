@@ -34,7 +34,7 @@ export interface TickerSearchResult {
   exchange: string | null;
 }
 
-export type PerfVsSpyStatus = "outperform" | "underperform" | "no_data";
+export type PerfVsSpyStatus = "outperform" | "underperform" | "match" | "no_data";
 
 export interface TickerSummaryOut {
   company_name: string | null;

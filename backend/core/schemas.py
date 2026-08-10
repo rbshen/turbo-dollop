@@ -95,7 +95,7 @@ class TickerSummaryOut(BaseModel):
     # figure couldn't be fetched at all (perf_5y_vs_spy_status == "no_data"
     # in that case). See ticker_summary.py::_resolve_perf_vs_spy.
     perf_5y_vs_spy_pct: float | None = None
-    # "outperform" / "underperform" / "no_data" / None (SPY's own page).
+    # "outperform" / "underperform" / "match" / "no_data" / None (SPY's own page).
     perf_5y_vs_spy_status: str | None = None
     # True when FMP's "5Y" figure is actually a shorter-than-5-year
     # return-since-listing silently clamped to the 5Y slot (confirmed live:

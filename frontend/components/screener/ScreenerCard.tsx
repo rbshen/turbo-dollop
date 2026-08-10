@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { MoatPill } from "@/components/ticker/MoatPill";
+import { PerfVsSpyPill } from "@/components/ticker/PerfVsSpyPill";
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
 import { ValuationBadge } from "@/components/screener/ValuationBadge";
 import type { TickerScoreOut } from "@/lib/api/types";
@@ -37,10 +38,13 @@ export function ScreenerCard({ data }: Props) {
         <span className="truncate text-text-tertiary">{data.sector ?? "—"}</span>
       </div>
 
-      {(data.moat != null || data.valuation_verdict != null) && (
+      {(data.moat != null ||
+        data.valuation_verdict != null ||
+        (data.perf_5y_vs_spy_status != null && data.perf_5y_vs_spy_status !== "no_data")) && (
         <div className="flex flex-wrap items-center gap-1.5">
           <MoatPill moat={data.moat} variant="flat" />
           <ValuationBadge verdict={data.valuation_verdict} source={data.valuation_source} variant="flat" />
+          <PerfVsSpyPill status={data.perf_5y_vs_spy_status} variant="flat" labelSet="screener" />
         </div>
       )}
 

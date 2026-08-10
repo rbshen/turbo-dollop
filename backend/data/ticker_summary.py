@@ -86,12 +86,14 @@ def _resolve_perf_vs_spy(
     """Returns (perf_5y_vs_spy_pct, status, insufficient_history).
 
     status is None (pill/number hidden entirely) only for SPY's own page --
-    "SPY vs SPY" isn't a meaningful comparison. Otherwise status is "no_data"
-    only when the spread genuinely can't be computed (this ticker's own "5Y"
-    figure is missing -- e.g. safe_fetch swallowed a fetch error to `{}`),
-    never merely because the ticker has under 5 years of trading history --
-    see insufficient_history below, which still gets a real outperform/
-    underperform read, just flagged for a caveat.
+    "SPY vs SPY" isn't a meaningful comparison. Otherwise status is
+    "outperform" / "underperform" / "match" (pct exactly 0.0, a literal tie,
+    not a rounding band) / "no_data" -- "no_data" only when the spread
+    genuinely can't be computed (this ticker's own "5Y" figure is missing --
+    e.g. safe_fetch swallowed a fetch error to `{}`), never merely because
+    the ticker has under 5 years of trading history -- see
+    insufficient_history below, which still gets a real outperform/
+    underperform/match read, just flagged for a caveat.
 
     insufficient_history detects FMP's confirmed (live-tested) behavior of
     silently clamping 3Y/5Y/10Y/max to the same value when a ticker's actual
@@ -108,7 +110,12 @@ def _resolve_perf_vs_spy(
         return None, "no_data", False
     insufficient_history = ticker_5y == price_change.get("max") or ticker_5y == price_change.get("10Y")
     pct = ticker_5y - spy_5y
-    status = "outperform" if pct > 0 else "underperform"
+    if pct > 0:
+        status = "outperform"
+    elif pct < 0:
+        status = "underperform"
+    else:
+        status = "match"
     return pct, status, insufficient_history
 
 

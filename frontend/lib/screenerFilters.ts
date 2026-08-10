@@ -72,6 +72,7 @@ export const VALUATION_FILTER_OPTIONS: MultiSelectOption[] = [
 export const VS_SPY_FILTER_OPTIONS: MultiSelectOption[] = [
   { value: "outperform", label: PERF_VS_SPY_LABELS.outperform },
   { value: "underperform", label: PERF_VS_SPY_LABELS.underperform },
+  { value: "match", label: PERF_VS_SPY_LABELS.match },
   { value: "no_data", label: PERF_VS_SPY_LABELS.no_data },
 ];
 

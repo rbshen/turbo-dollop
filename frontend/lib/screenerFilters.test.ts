@@ -175,6 +175,15 @@ describe("filterTickerScores", () => {
     expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["BEATS"]);
   });
 
+  it('filters by vs-SPY "match" status', () => {
+    const rows = [
+      row({ ticker: "TIED", perf_5y_vs_spy_status: "match" }),
+      row({ ticker: "BEATS", perf_5y_vs_spy_status: "outperform" }),
+    ];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, vsSpy: ["match"] };
+    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["TIED"]);
+  });
+
   it('treats a null vs-SPY status as the "no_data" filter value', () => {
     // A TickerScore row computed before this field existed (see
     // _add_missing_columns) reads null, same bucket as a genuine no_data.

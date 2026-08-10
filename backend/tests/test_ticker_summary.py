@@ -234,12 +234,11 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     assert summary.perf_5y == 123.5
     assert summary.perf_10y == 1277.8
     # fake_price_change ignores its ticker arg, so SPY's own fetch returns
-    # the identical fixture -- pct is exactly 0.0 (underperform per
-    # _resolve_perf_vs_spy's <=0 tie-break), not itself the point of this
-    # wiring test (see test_resolve_perf_vs_spy_* below for the real sign/
-    # clamp/no-data logic on the pure helper).
+    # the identical fixture -- pct is exactly 0.0, i.e. "match", not itself
+    # the point of this wiring test (see test_resolve_perf_vs_spy_* below
+    # for the real sign/clamp/no-data/match logic on the pure helper).
     assert summary.perf_5y_vs_spy_pct == 0.0
-    assert summary.perf_5y_vs_spy_status == "underperform"
+    assert summary.perf_5y_vs_spy_status == "match"
     assert summary.perf_5y_insufficient_history is False
     assert summary.week52_high == 199.62
     assert summary.week52_low == 164.08
@@ -474,4 +473,16 @@ def test_resolve_perf_vs_spy_sufficient_history_not_flagged():
     pct, status, insufficient = ticker_summary._resolve_perf_vs_spy(
         "AAPL", {"5Y": 114.5, "10Y": 1050.0, "max": 240_000.0}, {"5Y": 74.9}
     )
+    assert insufficient is False
+
+
+def test_resolve_perf_vs_spy_exact_match_returns_match_status():
+    # A literal tie (pct == 0.0 exactly, not a rounding band) reads as its
+    # own "match" state -- distinct from both outperform and underperform,
+    # which the plain sign check would otherwise fold this into.
+    pct, status, insufficient = ticker_summary._resolve_perf_vs_spy(
+        "AAPL", {"5Y": 75.0, "10Y": 300.0, "max": 400.0}, {"5Y": 75.0}
+    )
+    assert pct == 0.0
+    assert status == "match"
     assert insufficient is False
