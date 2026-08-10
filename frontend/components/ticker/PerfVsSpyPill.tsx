@@ -24,11 +24,12 @@ const LABELS_WATCHLIST: Record<RenderableStatus, string> = {
   match: "Match",
 };
 
-// Screener card: space-constrained further still, next to the Valuation pill.
+// Screener card: state is conveyed by color alone (see STATUS_TO_VERDICT
+// below) -- every status renders the same literal text here.
 const LABELS_SCREENER: Record<RenderableStatus, string> = {
-  outperform: "Out",
-  underperform: "Under",
-  match: "Match",
+  outperform: "vs SPY",
+  underperform: "vs SPY",
+  match: "vs SPY",
 };
 
 const LABEL_SETS: Record<"full" | "watchlist" | "screener", Record<RenderableStatus, string>> = {
