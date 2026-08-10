@@ -15,7 +15,7 @@ export const VERDICT_STYLES: Record<string, string> = {
 const VERDICT_LABELS: Record<string, string> = {
   undervalued: "Undervalued",
   overvalued: "Overvalued",
-  fair: "Fair Valued",
+  fair: "Fairvalued",
 };
 
 // Same borderless colors ValuationBadge/MoatPill use for their "flat"
