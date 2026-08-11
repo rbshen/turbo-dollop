@@ -12,6 +12,7 @@ from helpers.debt_metrics import compute_debt_metrics
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.schemas import OutlierWarning, TickerSummaryOut
+from core.tickers import normalize_ticker
 from helpers.shares import compute_shares_outstanding
 from data.step2_data import get_step2_data
 from data.step3_data import get_active_valuation
@@ -123,7 +124,7 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
     cache.get_or_fetch's own cache_only branch."""
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:

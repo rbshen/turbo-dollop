@@ -5,6 +5,7 @@ from core.config import settings
 from core.db import engine
 from clients.fmp_client import fmp_client
 from core.schemas import SegmentationOut
+from core.tickers import normalize_ticker
 
 # Same 10yr consistency convention as Step 1/Step 4/Ratios (see CLAUDE.md) --
 # annual-only on our FMP plan (period=quarter 402s on both segmentation
@@ -70,7 +71,7 @@ def _build_segment_series(
 async def get_segmentation_data(ticker: str, cache_only: bool = False) -> SegmentationOut:
     """`cache_only=True` reads only whatever's already cached and never calls
     FMP -- same convention as get_step1_data/get_ratios_data."""
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:

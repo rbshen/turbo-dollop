@@ -32,6 +32,24 @@ def test_merges_and_dedupes_symbol_and_name_matches(monkeypatch):
     assert results[0].exchange == "NASDAQ"
 
 
+def test_normalizes_dot_notation_symbol_from_fmp_response(monkeypatch):
+    # FMP's own search endpoints already return the hyphen form for
+    # BRK-B/BF-B in practice, but a dot-notation symbol from any FMP
+    # response shape must still normalize -- this is the search-side half
+    # of the same choke point the Wikipedia scraper uses on the other side.
+    async def fake_search_symbol(query, limit):
+        return [{"symbol": "BRK.B", "name": "Berkshire Hathaway Inc.", "exchange": "NYSE"}]
+
+    async def fake_search_name(query, limit):
+        return []
+
+    monkeypatch.setattr(ticker_search.fmp_client, "search_symbol", fake_search_symbol)
+    monkeypatch.setattr(ticker_search.fmp_client, "search_name", fake_search_name)
+
+    results = asyncio.run(search_tickers("BRK"))
+    assert [r.symbol for r in results] == ["BRK-B"]
+
+
 def test_caps_at_search_result_limit(monkeypatch):
     async def fake_search_symbol(query, limit):
         return [{"symbol": f"SYM{i}", "name": f"Company {i}", "exchange": "NYSE"} for i in range(limit)]

@@ -6,6 +6,7 @@ from core.db import engine
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.schemas import Step1Out
+from core.tickers import normalize_ticker
 from scoring.classification import classify_company_type
 from scoring.step1 import score_step1
 from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
@@ -50,7 +51,7 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
     cache.get_or_fetch's own cache_only branch."""
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:

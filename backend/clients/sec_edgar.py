@@ -7,6 +7,7 @@ from sqlmodel import Session
 
 from core.cache import get_or_fetch
 from core.config import settings
+from core.tickers import normalize_ticker
 from clients.fmp_client import fmp_client
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,7 @@ async def get_cik(session: Session, ticker: str, staleness_days: int) -> int | N
     entirely. Cached under the same "profile"/"latest" key every other
     pipeline already populates, so this is very often a cache hit, not a
     new FMP call."""
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     profile = await get_or_fetch(session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days)
     row = profile[0] if isinstance(profile, list) and profile else profile
     if not isinstance(row, dict):

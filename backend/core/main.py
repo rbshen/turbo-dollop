@@ -14,6 +14,7 @@ from helpers.discount_rate_config import get_discount_rate_config, update_discou
 from core.logging_config import apply_redaction_filters
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from core.models import IndexConstituent, SavedScreenerFilter, TickerCustomValuation, TickerScore, Watchlist
+from core.tickers import normalize_ticker
 from data.news_data import get_news_data
 from data.news_sentiment_data import get_news_sentiment_data
 from pipeline.recompute_ticker_scores import recompute_all
@@ -287,7 +288,7 @@ async def _custom_valuation_out(ticker: str, row: TickerCustomValuation | None) 
 
 @app.get("/api/tickers/{ticker}/custom-valuation", response_model=TickerCustomValuationOut)
 async def ticker_custom_valuation(ticker: str) -> TickerCustomValuationOut:
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = get_ticker_custom_valuation(session, ticker)
     return await _custom_valuation_out(ticker, row)
@@ -295,7 +296,7 @@ async def ticker_custom_valuation(ticker: str) -> TickerCustomValuationOut:
 
 @app.put("/api/tickers/{ticker}/custom-valuation", response_model=TickerCustomValuationOut)
 async def update_ticker_custom_valuation(ticker: str, body: TickerCustomValuationIn) -> TickerCustomValuationOut:
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     # Validate before persisting -- a user must never be able to save a
     # custom valuation that can't actually produce a verdict for the chosen
     # method (missing required inputs). cache_only=True: only last_close is
@@ -322,7 +323,7 @@ async def update_ticker_custom_valuation(ticker: str, body: TickerCustomValuatio
 
 @app.post("/api/tickers/{ticker}/custom-valuation/activate", response_model=TickerCustomValuationOut)
 async def activate_ticker_custom_valuation_endpoint(ticker: str) -> TickerCustomValuationOut:
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = activate_ticker_custom_valuation(session, ticker)
     if row is None:
@@ -333,7 +334,7 @@ async def activate_ticker_custom_valuation_endpoint(ticker: str) -> TickerCustom
 
 @app.post("/api/tickers/{ticker}/custom-valuation/deactivate", response_model=TickerCustomValuationOut)
 async def deactivate_ticker_custom_valuation_endpoint(ticker: str) -> TickerCustomValuationOut:
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = deactivate_ticker_custom_valuation(session, ticker)
     # None means there was nothing to deactivate -- a no-op, nothing for
@@ -345,7 +346,7 @@ async def deactivate_ticker_custom_valuation_endpoint(ticker: str) -> TickerCust
 
 @app.delete("/api/tickers/{ticker}/custom-valuation", status_code=204)
 async def delete_ticker_custom_valuation_endpoint(ticker: str) -> None:
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         deleted = delete_ticker_custom_valuation(session, ticker)
     if deleted:
@@ -488,7 +489,7 @@ async def ticker_refresh(ticker: str) -> RefreshResult:
 # that now covers those). Still zero FMP calls either way.
 @app.get("/api/tickers/{ticker}/score", response_model=TickerScoreOut | None)
 async def ticker_score_out(ticker: str) -> TickerScoreOut | None:
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = session.get(TickerScore, ticker)
     if row is None or row.overall_score is None:
@@ -498,7 +499,7 @@ async def ticker_score_out(ticker: str) -> TickerScoreOut | None:
 
 @app.get("/api/tickers/{ticker}/moat", response_model=TickerMoatOut)
 def ticker_moat(ticker: str) -> TickerMoatOut:
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = get_ticker_moat(session, ticker)
     if row is None:
@@ -508,7 +509,7 @@ def ticker_moat(ticker: str) -> TickerMoatOut:
 
 @app.put("/api/tickers/{ticker}/moat", response_model=TickerMoatOut)
 async def update_ticker_moat(ticker: str, body: TickerMoatIn) -> TickerMoatOut:
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = set_ticker_moat(session, ticker, body.moat)
     # cache_only=True -- a moat change alone shouldn't trigger a surprise FMP
@@ -522,7 +523,7 @@ async def update_ticker_moat(ticker: str, body: TickerMoatIn) -> TickerMoatOut:
 
 @app.get("/api/tickers/{ticker}/bank-capital-metrics", response_model=TickerBankCapitalMetricsOut)
 def ticker_bank_capital_metrics(ticker: str) -> TickerBankCapitalMetricsOut:
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = get_ticker_bank_capital_metrics(session, ticker)
     if row is None:
@@ -534,7 +535,7 @@ def ticker_bank_capital_metrics(ticker: str) -> TickerBankCapitalMetricsOut:
 
 @app.put("/api/tickers/{ticker}/bank-capital-metrics", response_model=TickerBankCapitalMetricsOut)
 async def update_ticker_bank_capital_metrics(ticker: str, body: TickerBankCapitalMetricsIn) -> TickerBankCapitalMetricsOut:
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = set_ticker_bank_capital_metrics(
             session, ticker, body.cet1_ratio_pct, body.cet1_as_of, body.npl_ratio_pct, body.npl_as_of
@@ -699,7 +700,7 @@ def _capacity_error(existing_count: int, net_new_count: int) -> HTTPException:
 
 @app.post("/api/watchlists/{watchlist_id}/tickers", response_model=WatchlistTickerOut, status_code=201)
 def watchlist_add_ticker(watchlist_id: int, body: WatchlistTickerIn) -> WatchlistTickerOut:
-    ticker = body.ticker.upper()
+    ticker = normalize_ticker(body.ticker)
     with Session(engine) as session:
         watchlist = session.get(Watchlist, watchlist_id)
         if watchlist is None:
@@ -719,7 +720,7 @@ def watchlist_add_ticker(watchlist_id: int, body: WatchlistTickerIn) -> Watchlis
 
 @app.post("/api/watchlists/{watchlist_id}/tickers/bulk", response_model=WatchlistBulkAddOut)
 def watchlist_bulk_add_tickers(watchlist_id: int, body: WatchlistBulkAddIn) -> WatchlistBulkAddOut:
-    tickers = [t.upper() for t in body.tickers]
+    tickers = [normalize_ticker(t) for t in body.tickers]
     with Session(engine) as session:
         watchlist = session.get(Watchlist, watchlist_id)
         if watchlist is None:
@@ -738,9 +739,9 @@ def watchlist_bulk_add_tickers(watchlist_id: int, body: WatchlistBulkAddIn) -> W
 @app.delete("/api/watchlists/{watchlist_id}/tickers/{ticker}", status_code=204)
 def watchlist_remove_ticker(watchlist_id: int, ticker: str) -> None:
     with Session(engine) as session:
-        deleted = remove_watchlist_ticker(session, watchlist_id, ticker.upper())
+        deleted = remove_watchlist_ticker(session, watchlist_id, normalize_ticker(ticker))
     if not deleted:
-        raise HTTPException(status_code=404, detail=f"{ticker.upper()} not found in watchlist {watchlist_id}")
+        raise HTTPException(status_code=404, detail=f"{normalize_ticker(ticker)} not found in watchlist {watchlist_id}")
 
 
 @app.get("/api/watchlists/{watchlist_id}/rows", response_model=list[WatchlistRowOut])

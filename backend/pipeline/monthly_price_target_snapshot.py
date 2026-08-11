@@ -39,6 +39,7 @@ from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.logging_config import configure_logging
 from core.models import PriceTargetSnapshot
+from core.tickers import normalize_ticker
 from pipeline.nightly_fundamentals_fetch import load_universe_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "monthly_price_target_snapshot.log"
@@ -137,7 +138,7 @@ def _parse_args() -> argparse.Namespace:
 
 def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     if args.tickers:
-        return [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
+        return [normalize_ticker(t) for t in args.tickers.split(",") if t.strip()]
     if args.limit:
         init_db()
         with Session(engine) as session:

@@ -7,6 +7,7 @@ from sqlmodel import Session
 
 from core.db import engine
 from core.models import TickerScore
+from core.tickers import normalize_ticker
 from data.moat import get_moat_score_config, get_ticker_moat, resolve_moat_score
 from scoring.overall import MoatSnapshot, StepSnapshot, compute_overall_assessment
 from data.step1_data import get_step1_data
@@ -51,7 +52,7 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
     Overall Assessment weighting (scoring/overall.py). Returns None if
     there's no cached profile at all for this ticker (nothing to build a
     card from) -- callers should skip storing a row in that case."""
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
 
     step1, step1_error = await _safe_step(ticker, "step1", get_step1_data(ticker, cache_only=cache_only))
     step2, step2_error = await _safe_step(ticker, "step2", get_step2_data(ticker, cache_only=cache_only))

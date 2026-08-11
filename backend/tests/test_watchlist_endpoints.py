@@ -58,6 +58,20 @@ def test_watchlist_single_add_rejects_ticker_that_would_exceed_the_cap(monkeypat
     assert "100/100" in response.json()["detail"]
 
 
+def test_watchlist_add_normalizes_dot_notation_ticker(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    watchlist_id = _make_watchlist(engine, ticker_count=0)
+
+    with TestClient(main.app) as client:
+        response = client.post(f"/api/watchlists/{watchlist_id}/tickers", json={"ticker": "BRK.B"})
+
+    assert response.status_code == 201
+    assert response.json()["ticker"] == "BRK-B"
+    with Session(engine) as session:
+        stored = session.exec(select(WatchlistTicker).where(WatchlistTicker.watchlist_id == watchlist_id)).all()
+    assert [t.ticker for t in stored] == ["BRK-B"]
+
+
 def test_watchlist_bulk_add_succeeds_up_to_exactly_the_cap(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     watchlist_id = _make_watchlist(engine, ticker_count=0)

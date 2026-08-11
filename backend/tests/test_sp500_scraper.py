@@ -39,6 +39,22 @@ def test_parses_real_wikipedia_table_structure_from_fixture():
     assert all(r.ticker != "BADROW" for r in rows)
 
 
+def test_parses_dot_notation_ticker_as_hyphenated():
+    # Wikipedia's Symbol column uses dot notation for dual-class shares
+    # ("BRK.B") -- parse_sp500_constituents must normalize this to Fathom's
+    # canonical hyphen form (core.tickers.normalize_ticker) at parse time,
+    # not leave it for a downstream caller to catch.
+    html = """
+    <html><body><table id="constituents"><tbody>
+    <tr><th>Symbol</th><th>Security</th><th>GICS Sector</th><th>GICS Sub-Industry</th><th>Headquarters Location</th><th>Date added</th></tr>
+    <tr><td>BRK.B</td><td>Berkshire Hathaway</td><td>Financials</td><td>Multi-Sector Holdings</td><td>Omaha, NE</td><td>2010-02-01</td></tr>
+    </tbody></table></body></html>
+    """
+    rows = parse_sp500_constituents(html)
+    assert len(rows) == 1
+    assert rows[0].ticker == "BRK-B"
+
+
 def test_ignores_unrelated_tables_on_the_page():
     rows = parse_sp500_constituents(FIXTURE_HTML)
     assert all(r.ticker != "ignore me" for r in rows)

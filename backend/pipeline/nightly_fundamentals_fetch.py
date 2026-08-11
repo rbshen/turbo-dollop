@@ -52,6 +52,7 @@ from core.db import engine, init_db
 from clients.fmp_client import fmp_client
 from core.logging_config import configure_logging
 from core.models import IndexConstituent
+from core.tickers import normalize_ticker
 from data.segmentation_data import get_segmentation_data
 from data.step1_data import get_step1_data
 from data.step2_data import get_step2_data
@@ -171,7 +172,7 @@ def _parse_args() -> argparse.Namespace:
 
 def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     if args.tickers:
-        return [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
+        return [normalize_ticker(t) for t in args.tickers.split(",") if t.strip()]
     if args.limit:
         init_db()
         with Session(engine) as session:

@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlmodel import Session, select
 
 from core.models import Watchlist, WatchlistTicker
+from core.tickers import normalize_ticker
 
 
 def list_watchlists(session: Session) -> list[Watchlist]:
@@ -80,7 +81,7 @@ def count_net_new_tickers(session: Session, watchlist_id: int, tickers: list[str
 
 
 def add_watchlist_ticker(session: Session, watchlist_id: int, ticker: str) -> WatchlistTicker:
-    row = WatchlistTicker(watchlist_id=watchlist_id, ticker=ticker, added_at=datetime.now())
+    row = WatchlistTicker(watchlist_id=watchlist_id, ticker=normalize_ticker(ticker), added_at=datetime.now())
     session.add(row)
     session.commit()
     session.refresh(row)
@@ -98,7 +99,8 @@ def bulk_add_watchlist_tickers(session: Session, watchlist_id: int, tickers: lis
     now = datetime.now()
     added = 0
     already_present = 0
-    for ticker in tickers:
+    for raw_ticker in tickers:
+        ticker = normalize_ticker(raw_ticker)
         if ticker in existing:
             already_present += 1
             continue

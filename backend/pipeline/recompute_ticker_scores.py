@@ -33,6 +33,7 @@ from sqlmodel import Session
 
 from core.db import engine, init_db
 from core.logging_config import configure_logging
+from core.tickers import normalize_ticker
 from pipeline.nightly_fundamentals_fetch import load_universe_tickers
 from data.ticker_score import compute_ticker_score
 
@@ -116,7 +117,7 @@ def _parse_args() -> argparse.Namespace:
 
 def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     if args.tickers:
-        return [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
+        return [normalize_ticker(t) for t in args.tickers.split(",") if t.strip()]
     if args.limit:
         init_db()
         with Session(engine) as session:

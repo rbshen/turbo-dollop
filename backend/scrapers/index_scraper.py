@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup
 from sqlmodel import Session, select
 
 from core.models import IndexConstituent
+from core.tickers import normalize_ticker
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +102,7 @@ def parse_index_constituents(html: str, config: IndexTableConfig) -> list[Consti
         company_name = cells[config.company_name_col].get_text(strip=True)
         if not ticker or not company_name:
             continue
+        ticker = normalize_ticker(ticker)
         rows.append(
             ConstituentRow(
                 ticker=ticker,

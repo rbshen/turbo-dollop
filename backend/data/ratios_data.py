@@ -6,6 +6,7 @@ from core.db import engine
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.schemas import FinancialsGroup, FinancialsLineItem, RatiosOut
+from core.tickers import normalize_ticker
 from helpers.ttm import TOTAL_QUARTERS_NEEDED
 
 # Same 10yr+TTM window as Step 1/Step 4/Financials -- a raw-metrics viewer,
@@ -191,7 +192,7 @@ def _build_groups(
 async def get_ratios_data(ticker: str, cache_only: bool = False) -> RatiosOut:
     """`cache_only=True` reads only whatever's already cached and never
     calls FMP -- same convention as get_step1_data/get_step4_data."""
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:

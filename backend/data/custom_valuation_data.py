@@ -6,6 +6,7 @@ from sqlmodel import Session
 
 from core.models import TickerCustomValuation
 from core.schemas import Step3ManualParams
+from core.tickers import normalize_ticker
 from scoring.step3 import ManualCalculationResult, run_manual_calculation
 
 logger = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ def get_ticker_custom_valuation(session: Session, ticker: str) -> TickerCustomVa
     """None means "no custom valuation saved" -- the default for every
     ticker until a user explicitly saves one via the Custom Valuation
     panel. No get-or-create, same convention as moat.py::get_ticker_moat."""
-    return session.get(TickerCustomValuation, ticker.upper())
+    return session.get(TickerCustomValuation, normalize_ticker(ticker))
 
 
 def set_ticker_custom_valuation(session: Session, ticker: str, method: str, parameters_json: str) -> TickerCustomValuation:
@@ -26,7 +27,7 @@ def set_ticker_custom_valuation(session: Session, ticker: str, method: str, para
     active, so the new values take effect immediately (there's no
     draft/live split -- one row per ticker is the live row whenever
     is_active is True)."""
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     now = datetime.now()
     values = {"ticker": ticker, "method": method, "parameters_json": parameters_json, "is_active": False, "saved_at": now}
     stmt = sqlite_insert(TickerCustomValuation).values(**values)

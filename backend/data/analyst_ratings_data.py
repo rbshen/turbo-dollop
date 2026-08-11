@@ -10,6 +10,7 @@ from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.models import PriceTargetSnapshot
 from core.schemas import AnalystRatingsOut, ConsensusBanner, PriceTargetSummary, RatingHistoryPoint, RecommendationDetailsColumn
+from core.tickers import normalize_ticker
 
 # Weighted-score formula used to derive Mean/Consensus wherever FMP doesn't
 # already hand us a consensus label -- see schemas.py's
@@ -113,7 +114,7 @@ async def get_analyst_ratings_data(ticker: str, cache_only: bool = False) -> Ana
     """`cache_only=True` reads only whatever's already cached and never
     calls FMP -- see cache.get_or_fetch's own cache_only branch, same
     convention as every other get_stepN_data function."""
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     staleness_days = settings.cache_staleness_days
     today = date.today()
 

@@ -3,6 +3,7 @@ from sqlmodel import Session, select
 from core.db import engine
 from core.models import FundamentalsCache
 from core.schemas import RefreshResult
+from core.tickers import normalize_ticker
 
 
 def clear_ticker_cache(ticker: str) -> RefreshResult:
@@ -22,7 +23,7 @@ def clear_ticker_cache(ticker: str) -> RefreshResult:
     way, via the frontend's own GETs after this cache-clear. Either path
     reuses the same safe_fetch/get_or_fetch error handling every cold-start
     ticker already goes through -- no new FMP-failure path to handle here."""
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         rows = session.exec(select(FundamentalsCache).where(FundamentalsCache.ticker == ticker)).all()
         statement_types = sorted({row.statement_type for row in rows})

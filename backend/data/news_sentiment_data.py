@@ -11,6 +11,7 @@ from core.config import settings
 from core.db import engine
 from core.models import NewsSentimentCache
 from core.schemas import NewsSentimentArticle, NewsSentimentOut, SentimentDistribution
+from core.tickers import normalize_ticker
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ def _normalize(ticker: str, raw: dict) -> tuple[list[NewsSentimentArticle], Sent
 
 
 async def get_news_sentiment_data(ticker: str) -> NewsSentimentOut:
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     now = datetime.now()
 
     with Session(engine) as session:

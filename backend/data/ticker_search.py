@@ -2,6 +2,7 @@ import asyncio
 
 from clients.fmp_client import fmp_client
 from core.schemas import TickerSearchResult
+from core.tickers import normalize_ticker
 
 SEARCH_RESULT_LIMIT = 10
 
@@ -36,7 +37,10 @@ async def search_tickers(query: str) -> list[TickerSearchResult]:
         name_matches if isinstance(name_matches, list) else []
     ):
         symbol = raw.get("symbol")
-        if not symbol or symbol in seen:
+        if not symbol:
+            continue
+        symbol = normalize_ticker(symbol)
+        if symbol in seen:
             continue
         seen.add(symbol)
         results.append(

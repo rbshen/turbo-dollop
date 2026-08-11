@@ -9,6 +9,7 @@ from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.models import WatchlistTicker
 from core.schemas import WatchlistRowOut
+from core.tickers import normalize_ticker
 from data.step1_data import get_step1_data
 from data.ticker_score import compute_ticker_score
 
@@ -86,7 +87,7 @@ async def _consensus_rating(ticker: str) -> str:
 
 
 async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
-    ticker = watchlist_ticker.ticker.upper()
+    ticker = normalize_ticker(watchlist_ticker.ticker)
     score, rating, exchange, step1 = await asyncio.gather(
         # cache_only=True: opening the Watchlist page must not trigger a
         # live FMP refetch cascade across every ticker in the list, same

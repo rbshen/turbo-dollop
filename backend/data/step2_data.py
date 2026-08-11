@@ -8,6 +8,7 @@ from core.db import engine
 from clients.fmp_client import fmp_client
 from core.models import GrowthCatalystNote
 from core.schemas import Step2EstimateRow, Step2Out
+from core.tickers import normalize_ticker
 from scoring.step2 import AGREEMENT_WEIGHT, MAGNITUDE_WEIGHT, score_step2
 
 WEIGHTS = {"magnitude": MAGNITUDE_WEIGHT, "agreement": AGREEMENT_WEIGHT}
@@ -97,7 +98,7 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
     cache.get_or_fetch's own cache_only branch."""
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     staleness_days = settings.cache_staleness_days
     today = date.today()
 

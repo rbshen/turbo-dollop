@@ -4,6 +4,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session
 
 from core.models import MoatScoreConfig, TickerMoat
+from core.tickers import normalize_ticker
 
 # Seeded only as the config row's initial value on first read (see
 # get_moat_score_config) -- from then on the DB row (editable via
@@ -23,11 +24,11 @@ def get_ticker_moat(session: Session, ticker: str) -> TickerMoat | None:
     unlike get_moat_score_config: unlike the config's point values (which
     always need a concrete number to compute with), "not set" is itself a
     meaningful, valid state, not a placeholder waiting to be filled in."""
-    return session.get(TickerMoat, ticker.upper())
+    return session.get(TickerMoat, normalize_ticker(ticker))
 
 
 def set_ticker_moat(session: Session, ticker: str, moat: str) -> TickerMoat:
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     now = datetime.now()
     values = {"ticker": ticker, "moat": moat, "updated_at": now}
     stmt = sqlite_insert(TickerMoat).values(**values)

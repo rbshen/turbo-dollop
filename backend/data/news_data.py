@@ -10,6 +10,7 @@ from core.db import engine
 from clients.fmp_client import fmp_client
 from core.models import NewsCache
 from core.schemas import NewsArticle, NewsOut
+from core.tickers import normalize_ticker
 
 # Latest-N feed, not a paginated archive -- see CLAUDE.md's news feature
 # scoping (v1 is deliberately simple, no "load more").
@@ -37,7 +38,7 @@ async def get_news_data(ticker: str) -> NewsOut:
     is keyed on FundamentalsCache's (ticker, statement_type, period) shape
     and staleness measured in days; news uses its own NewsCache table keyed
     on ticker alone, staleness measured in minutes."""
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     now = datetime.now()
 
     with Session(engine) as session:

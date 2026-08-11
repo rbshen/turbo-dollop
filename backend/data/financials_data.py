@@ -6,6 +6,7 @@ from core.db import engine
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.schemas import FinancialsGroup, FinancialsLineItem, FinancialsOut, FinancialsPeriodOut, FinancialsStatementOut
+from core.tickers import normalize_ticker
 from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 # Same 10yr+TTM window as Step 1/Step 4 (see CLAUDE.md's Step 4 deviations)
@@ -287,7 +288,7 @@ def _quarterly_period(
 async def get_financials_data(ticker: str, cache_only: bool = False) -> FinancialsOut:
     """`cache_only=True` reads only whatever's already cached and never
     calls FMP -- same convention as get_step1_data/get_step4_data."""
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:

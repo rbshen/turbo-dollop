@@ -41,6 +41,7 @@ from core.db import engine, init_db
 from clients.fmp_client import fmp_client
 from core.logging_config import configure_logging
 from core.models import FundamentalsCache
+from core.tickers import normalize_ticker
 from helpers.ttm import TOTAL_QUARTERS_NEEDED
 
 LOG_PATH = Path(__file__).resolve().parent.parent.parent / "logs" / "bulk_refresh_balance_sheet_quarterly.log"
@@ -148,7 +149,7 @@ def _parse_args() -> argparse.Namespace:
 
 def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     if args.tickers:
-        return [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
+        return [normalize_ticker(t) for t in args.tickers.split(",") if t.strip()]
     if args.limit:
         init_db()
         with Session(engine) as session:

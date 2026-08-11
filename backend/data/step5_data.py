@@ -12,6 +12,7 @@ from helpers.first import _first
 from clients.fmp_client import fmp_client
 from helpers.npl import compute_npl_ratio
 from core.schemas import BreachContextSignal, OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
+from core.tickers import normalize_ticker
 from scoring.step5 import classify_company_type, score_npl, score_step5_bank, score_step5_reit, score_step5_standard
 from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
@@ -143,7 +144,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
     cross-check entirely regardless of whether an outlier is flagged: that
     cross-check is on-demand-only by design (SEC's rate-limit penalty is a
     10-minute lockout), and must never fire during a ~500-ticker sweep."""
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:

@@ -11,6 +11,7 @@ from helpers.debt_metrics import compute_debt_metrics
 from helpers.discount_rate_config import get_discount_rate_config
 from helpers.first import _first
 from clients.fmp_client import fmp_client
+from core.tickers import normalize_ticker
 from core.schemas import (
     Step2Out,
     Step3CapmComponents,
@@ -154,7 +155,7 @@ async def get_step3_data(
     request. Defaults to None, in which case this function fetches Step 2
     itself exactly as it always has -- every existing standalone caller
     (the bare /step3 endpoint, tests, recompute scripts) is unaffected."""
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:
@@ -683,7 +684,7 @@ async def get_active_valuation(
     auto = await get_step3_data(ticker, cache_only, step2_out)
 
     with Session(engine) as session:
-        custom = get_ticker_custom_valuation(session, ticker.upper())
+        custom = get_ticker_custom_valuation(session, normalize_ticker(ticker))
     if custom is None or not custom.is_active:
         return auto.model_copy(update={"valuation_source": "auto"})
 

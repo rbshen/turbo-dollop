@@ -4,6 +4,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session
 
 from core.models import TickerBankCapitalMetrics
+from core.tickers import normalize_ticker
 
 
 def get_ticker_bank_capital_metrics(session: Session, ticker: str) -> TickerBankCapitalMetrics | None:
@@ -11,7 +12,7 @@ def get_ticker_bank_capital_metrics(session: Session, ticker: str) -> TickerBank
     moat.py::get_ticker_moat: "not set" (CET1 not yet entered, no NPL
     override) is itself a meaningful, valid state for a Bank ticker, not a
     placeholder waiting to be filled in."""
-    return session.get(TickerBankCapitalMetrics, ticker.upper())
+    return session.get(TickerBankCapitalMetrics, normalize_ticker(ticker))
 
 
 def set_ticker_bank_capital_metrics(
@@ -26,7 +27,7 @@ def set_ticker_bank_capital_metrics(
     moat.py::set_ticker_moat -- every field is overwritten with whatever the
     caller passes, including None, so a PUT can also clear a previously-set
     CET1 value or NPL override, not just set one."""
-    ticker = ticker.upper()
+    ticker = normalize_ticker(ticker)
     now = datetime.now()
     values = {
         "ticker": ticker,
