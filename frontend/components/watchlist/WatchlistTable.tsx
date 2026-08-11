@@ -3,7 +3,8 @@
 import { useMemo } from "react";
 
 import { MiniBarChart } from "@/components/charts/MiniBarChart";
-import { MoatPill } from "@/components/ticker/MoatPill";
+import { SignalBars } from "@/components/watchlist/SignalBars";
+import { MOAT_SIGNAL_COLOR, MOAT_SIGNAL_LEVEL } from "@/components/ticker/MoatPill";
 import { PerfVsSpyPill } from "@/components/ticker/PerfVsSpyPill";
 import { ValuationBadge } from "@/components/screener/ValuationBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -148,7 +149,7 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
                 <TrendCell years={row.years} values={row.cfo} />
               </TableCell>
               <TableCell className="text-center">
-                <MoatPill moat={row.moat} variant="flat" labelSet="watchlist" />
+                {row.moat && <SignalBars level={MOAT_SIGNAL_LEVEL[row.moat]} color={MOAT_SIGNAL_COLOR[row.moat]} />}
               </TableCell>
               <TableCell className="text-center">
                 {/* No `source` prop here -- suppresses ValuationBadge's "· Custom"

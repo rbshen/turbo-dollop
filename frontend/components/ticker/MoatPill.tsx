@@ -17,6 +17,22 @@ const MOAT_STYLES_FLAT: Record<MoatValue, string> = {
   no_moat: "bg-negative/16 text-negative",
 };
 
+// For WatchlistTable's SignalBars trial -- same 3 named tokens as
+// MOAT_STYLES above, just solid full-opacity fills (not the /16
+// translucent badge background) since a small bar and a text-badge
+// background are different use cases drawing from the same token family.
+export const MOAT_SIGNAL_LEVEL: Record<MoatValue, 1 | 2 | 3> = {
+  no_moat: 1,
+  narrow_moat: 2,
+  wide_moat: 3,
+};
+
+export const MOAT_SIGNAL_COLOR: Record<MoatValue, string> = {
+  no_moat: "bg-negative",
+  narrow_moat: "bg-positive",
+  wide_moat: "bg-positive-strong",
+};
+
 // Watchlist column: state is conveyed by color alone (same pattern as the
 // "screener" tier below) -- every status renders the same literal text
 // here, just a single letter for this especially dense column.
