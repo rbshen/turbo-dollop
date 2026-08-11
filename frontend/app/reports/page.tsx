@@ -1,3 +1,7 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Reports" };
+
 export default function ReportsPage() {
   return (
     <div className="flex flex-1 items-center justify-center py-20">

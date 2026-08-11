@@ -1,7 +1,11 @@
+import type { Metadata } from "next";
+
 import { PageContainer } from "@/components/layout/PageContainer";
 import { DiscountRateSettingsForm } from "@/components/settings/DiscountRateSettingsForm";
 import { MoatSettingsForm } from "@/components/settings/MoatSettingsForm";
 import { WatchlistSettingsForm } from "@/components/settings/WatchlistSettingsForm";
+
+export const metadata: Metadata = { title: "Settings" };
 
 export default function SettingsPage() {
   return (

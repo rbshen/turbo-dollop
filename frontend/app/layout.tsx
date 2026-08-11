@@ -18,7 +18,10 @@ const sora = Sora({
 });
 
 export const metadata: Metadata = {
-  title: "Fathom",
+  title: {
+    default: "Fathom",
+    template: "Fathom %s",
+  },
   description: "Company fundamentals valuation",
 };
 

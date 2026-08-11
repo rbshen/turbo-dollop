@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { PageContainer } from "@/components/layout/PageContainer";
 import { SegmentedControl } from "@/components/shared/SegmentedControl";
@@ -44,6 +44,15 @@ export default function WatchlistPage() {
   const activeId = manualActiveId ?? mostRecentlyCreated?.id ?? null;
   const active = watchlists?.find((w) => w.id === activeId) ?? null;
   const { data: rows, error: rowsError } = useWatchlistRows(active?.id ?? null);
+
+  // Static "Fathom Watchlist" (set via layout.tsx metadata) covers the
+  // loading/empty/error states -- this only overrides it once a specific
+  // list is actually resolved, per the per-page title convention.
+  useEffect(() => {
+    if (active) {
+      document.title = `Fathom Watchlist ${active.name}`;
+    }
+  }, [active]);
 
   function handleExport() {
     if (!active || !rows) return;
