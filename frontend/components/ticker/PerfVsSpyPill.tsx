@@ -16,16 +16,6 @@ export const PERF_VS_SPY_LABELS: Record<PerfVsSpyStatus, string> = {
   no_data: "No data",
 };
 
-// Watchlist column: state is conveyed by color alone (same pattern as the
-// "screener" tier below) -- every status renders the same literal text
-// here, just "SPY" for this especially dense column (the column header
-// already establishes the "vs SPY" context).
-const LABELS_WATCHLIST: Record<RenderableStatus, string> = {
-  outperform: "SPY",
-  underperform: "SPY",
-  match: "SPY",
-};
-
 // Screener card: state is conveyed by color alone (see STATUS_TO_VERDICT
 // below) -- every status renders the same literal text here.
 const LABELS_SCREENER: Record<RenderableStatus, string> = {
@@ -34,9 +24,8 @@ const LABELS_SCREENER: Record<RenderableStatus, string> = {
   match: "vs SPY",
 };
 
-const LABEL_SETS: Record<"full" | "watchlist" | "screener", Record<RenderableStatus, string>> = {
+const LABEL_SETS: Record<"full" | "screener", Record<RenderableStatus, string>> = {
   full: PERF_VS_SPY_LABELS,
-  watchlist: LABELS_WATCHLIST,
   screener: LABELS_SCREENER,
 };
 
@@ -47,7 +36,10 @@ const LABEL_SETS: Record<"full" | "watchlist" | "screener", Record<RenderableSta
 // changes. Outperform maps to Undervalued's stronger green, Underperform to
 // Overvalued's red, Match to Fairvalued's lighter green (not a neutral/gray
 // tone -- Valuation's 3-state palette has no gray tier at all).
-const STATUS_TO_VERDICT: Record<RenderableStatus, string> = {
+// Exported so WatchlistTable's SignalBars cell can compose
+// VERDICT_SIGNAL_LEVEL/VERDICT_SIGNAL_COLOR[STATUS_TO_VERDICT[status]]
+// without duplicating this status->verdict mapping.
+export const STATUS_TO_VERDICT: Record<RenderableStatus, string> = {
   outperform: "undervalued",
   underperform: "overvalued",
   match: "fair",
@@ -70,7 +62,7 @@ interface Props {
   variant?: "chip" | "flat";
   // Which label wording tier to use -- see LABEL_SETS above. Defaults to the
   // full "Outperform SPY"/"Underperform SPY"/"Match" wording.
-  labelSet?: "full" | "watchlist" | "screener";
+  labelSet?: "full" | "screener";
 }
 
 export function PerfVsSpyPill({ status, insufficientHistory = false, variant = "chip", labelSet = "full" }: Props) {

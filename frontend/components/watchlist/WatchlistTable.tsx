@@ -5,8 +5,8 @@ import { useMemo } from "react";
 import { MiniBarChart } from "@/components/charts/MiniBarChart";
 import { SignalBars } from "@/components/watchlist/SignalBars";
 import { MOAT_SIGNAL_COLOR, MOAT_SIGNAL_LEVEL } from "@/components/ticker/MoatPill";
-import { PerfVsSpyPill } from "@/components/ticker/PerfVsSpyPill";
-import { ValuationBadge } from "@/components/screener/ValuationBadge";
+import { STATUS_TO_VERDICT } from "@/components/ticker/PerfVsSpyPill";
+import { VERDICT_SIGNAL_COLOR, VERDICT_SIGNAL_LEVEL } from "@/components/ticker/FairValuePill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { WatchlistOut, WatchlistRowOut, WatchlistSortField } from "@/lib/api/types";
 import { fmtCompactMoney, fmtNumber } from "@/lib/format";
@@ -152,14 +152,16 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
                 {row.moat && <SignalBars level={MOAT_SIGNAL_LEVEL[row.moat]} color={MOAT_SIGNAL_COLOR[row.moat]} />}
               </TableCell>
               <TableCell className="text-center">
-                {/* No `source` prop here -- suppresses ValuationBadge's "· Custom"
-                    marker on this dense, abbreviated column specifically; the
-                    ticker header and Screener card still show it. */}
-                <ValuationBadge verdict={row.valuation_verdict} variant="flat" labelSet="watchlist" />
+                {row.valuation_verdict && (
+                  <SignalBars level={VERDICT_SIGNAL_LEVEL[row.valuation_verdict]} color={VERDICT_SIGNAL_COLOR[row.valuation_verdict]} />
+                )}
               </TableCell>
               <TableCell className="text-center">
                 {row.perf_5y_vs_spy_status && row.perf_5y_vs_spy_status !== "no_data" && (
-                  <PerfVsSpyPill status={row.perf_5y_vs_spy_status} variant="flat" labelSet="watchlist" />
+                  <SignalBars
+                    level={VERDICT_SIGNAL_LEVEL[STATUS_TO_VERDICT[row.perf_5y_vs_spy_status]]}
+                    color={VERDICT_SIGNAL_COLOR[STATUS_TO_VERDICT[row.perf_5y_vs_spy_status]]}
+                  />
                 )}
               </TableCell>
               <TableCell className="text-center">

@@ -12,15 +12,6 @@ export const VALUATION_LABELS: Record<string, string> = {
   fair: "Fairvalued",
 };
 
-// Watchlist column: state is conveyed by color alone (same pattern as the
-// "screener" tier below) -- every verdict renders the same literal text
-// here, just a single letter for this especially dense column.
-const VALUATION_LABELS_WATCHLIST: Record<string, string> = {
-  undervalued: "V",
-  overvalued: "V",
-  fair: "V",
-};
-
 // Screener card: state is conveyed by color alone (same pattern as the
 // vs-SPY pill's own "screener" tier) -- every verdict renders the same
 // literal text here.
@@ -30,9 +21,8 @@ const VALUATION_LABELS_SCREENER: Record<string, string> = {
   fair: "Valuation",
 };
 
-const LABEL_SETS: Record<"full" | "watchlist" | "screener", Record<string, string>> = {
+const LABEL_SETS: Record<"full" | "screener", Record<string, string>> = {
   full: VALUATION_LABELS,
-  watchlist: VALUATION_LABELS_WATCHLIST,
   screener: VALUATION_LABELS_SCREENER,
 };
 
@@ -49,7 +39,7 @@ interface Props {
   variant?: "chip" | "flat";
   // Which label wording tier to use -- see LABEL_SETS above. Defaults to
   // the full "Overvalued"/"Fairvalued"/"Undervalued" wording.
-  labelSet?: "full" | "watchlist" | "screener";
+  labelSet?: "full" | "screener";
 }
 
 export function ValuationBadge({ verdict, source, variant = "chip", labelSet = "full" }: Props) {

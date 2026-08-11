@@ -28,6 +28,23 @@ export const FLAT_VERDICT_STYLES: Record<string, string> = {
   fair: "bg-positive/16 text-positive",
 };
 
+// For WatchlistTable's SignalBars cells (Valuation and vs-SPY, the latter
+// via PerfVsSpyPill's STATUS_TO_VERDICT map) -- same 3 named tokens as
+// VERDICT_STYLES above, just solid full-opacity fills (not the /16
+// translucent badge background), same rationale as MoatPill's own
+// MOAT_SIGNAL_LEVEL/MOAT_SIGNAL_COLOR.
+export const VERDICT_SIGNAL_LEVEL: Record<string, 1 | 2 | 3> = {
+  overvalued: 1,
+  fair: 2,
+  undervalued: 3,
+};
+
+export const VERDICT_SIGNAL_COLOR: Record<string, string> = {
+  overvalued: "bg-negative",
+  fair: "bg-positive",
+  undervalued: "bg-positive-strong",
+};
+
 interface Props {
   verdict: string | null;
   price: number | null;
