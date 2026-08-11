@@ -117,8 +117,8 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
             <TableHead className={`${HEAD_CLASS} text-center`}>Net Income</TableHead>
             <TableHead className={`${HEAD_CLASS} text-center`}>CFO</TableHead>
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Moat</TableHead>
-            <TableHead className={`${HEAD_CLASS} text-center`}>Valuation</TableHead>
-            <TableHead className={`${HEAD_CLASS} text-center`}>vs SPY</TableHead>
+            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Value</TableHead>
+            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>vs SPY</TableHead>
             <TableHead className={`${HEAD_CLASS} text-center`}>Analysis</TableHead>
             <TableHead className={HEAD_CLASS}>Rating</TableHead>
             <TableHead className={`${HEAD_CLASS} text-right`}>Mkt Cap</TableHead>
