@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlmodel import Session, SQLModel, create_engine
 
 import pipeline.nightly_fundamentals_fetch as nightly
-from core.models import IndexConstituent
+from core.models import FundamentalsCache, IndexConstituent, TickerScore, Watchlist, WatchlistTicker
 
 
 def _fresh_engine(monkeypatch, tmp_path):
@@ -70,6 +70,52 @@ def test_load_universe_tickers_unions_sp500_and_dow_without_duplicates(monkeypat
         tickers = nightly.load_universe_tickers(session)
 
     assert sorted(tickers) == ["AAPL", "AMGN", "MMM"]
+
+
+def test_load_full_tracked_universe_unions_index_score_cache_and_watchlist_tickers(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    with Session(engine) as session:
+        # AAPL: index member only.
+        session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime.now()))
+        # IREN: cached FMP data but never an index member and no TickerScore row.
+        session.add(FundamentalsCache(ticker="IREN", statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
+        # SEZL: has a TickerScore row but no cache rows.
+        session.add(TickerScore(ticker="SEZL", overall_score=66, overall_verdict="Fail", computed_at=datetime.now()))
+        # MSFT: appears in two of the sources above -- must not be double-counted.
+        session.add(IndexConstituent(index_name="sp500", ticker="MSFT", company_name="Microsoft", last_synced_at=datetime.now()))
+        session.add(FundamentalsCache(ticker="MSFT", statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
+        session.commit()
+
+        # ASML: watchlisted only -- not indexed, not cached, not scored. This is
+        # the exact 2026-08-06 "watchlisted" gap this function exists to close.
+        watchlist = Watchlist(name="Semis", created_at=datetime.now(), updated_at=datetime.now())
+        session.add(watchlist)
+        session.commit()
+        session.refresh(watchlist)
+        session.add(WatchlistTicker(watchlist_id=watchlist.id, ticker="ASML", added_at=datetime.now()))
+        session.commit()
+
+    with Session(engine) as session:
+        tickers = nightly.load_full_tracked_universe(session)
+
+    assert tickers == ["AAPL", "ASML", "IREN", "MSFT", "SEZL"]
+
+
+def test_load_full_tracked_universe_excludes_non_profile_cache_rows(monkeypatch, tmp_path):
+    # FundamentalsCache also stores non-ticker lookups under a ticker-shaped key --
+    # confirmed live via Valuation's FX spot-rate cache (statement_type="forex_rate",
+    # ticker="EURUSD"). A currency pair must never enter the universe this job runs
+    # the full live-fetch pipeline against.
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    with Session(engine) as session:
+        session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime.now()))
+        session.add(FundamentalsCache(ticker="EURUSD", statement_type="forex_rate", period="latest", fetched_at=datetime.now(), raw_json="{}"))
+        session.commit()
+
+    with Session(engine) as session:
+        tickers = nightly.load_full_tracked_universe(session)
+
+    assert tickers == ["AAPL"]
 
 
 def test_a_failing_ticker_does_not_abort_the_run(monkeypatch, tmp_path):

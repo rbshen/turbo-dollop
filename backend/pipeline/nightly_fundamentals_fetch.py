@@ -51,7 +51,7 @@ from sqlmodel import Session, select
 from core.db import engine, init_db
 from clients.fmp_client import fmp_client
 from core.logging_config import configure_logging
-from core.models import IndexConstituent
+from core.models import FundamentalsCache, IndexConstituent, TickerScore, WatchlistTicker
 from core.tickers import normalize_ticker
 from data.segmentation_data import get_segmentation_data
 from data.step1_data import get_step1_data
@@ -91,6 +91,39 @@ def load_universe_tickers(session: Session) -> list[str]:
     return sorted(set(load_sp500_tickers(session)) | set(load_dow_tickers(session)))
 
 
+def load_full_tracked_universe(session: Session) -> list[str]:
+    """Union of every ticker this app tracks: index constituents (S&P 500 + Dow),
+    any ticker with at least one cached FMP *profile* fetch, any ticker with a
+    TickerScore row, and any ticker on any Watchlist -- the 2026-08-06 "index +
+    ever-viewed + watchlisted" decision. Watchlisting a ticker doesn't itself
+    trigger a fetch or score (see watchlists.py/watchlist_data.py), so Watchlist
+    must be unioned explicitly rather than assumed to already be covered by the
+    scored/cached sets.
+
+    Deliberately filtered to statement_type=="profile" rather than every
+    FundamentalsCache.ticker: this table also caches non-ticker lookups under a
+    ticker-shaped key -- confirmed live via CADUSD/DKKUSD/EURUSD/TWDUSD, FX
+    spot-rate rows Valuation's currency-conversion step caches under
+    statement_type="forex_rate" (see CLAUDE.md's Valuation FX section). Unlike
+    nightly_score_recompute.py's cache_only sweep (harmless either way -- scoring
+    a currency pair just yields no TickerScore), this job makes live FMP calls
+    per ticker, so an unfiltered union would burn a wasted get_profile("EURUSD")
+    call every night, forever. "profile" is the same ground-truth signal
+    purge_invalid_tickers.py already uses to recognize a real ticker lookup.
+
+    Shared with nightly_score_recompute.py, which imports this rather than keeping
+    its own copy -- the "ever-viewed" half of this decision landed there first
+    (2026-08-09) without Watchlist, while this job never got either half; one
+    definition keeps both jobs' universes from drifting apart again."""
+    index_tickers = load_universe_tickers(session)
+    cached_tickers = session.exec(
+        select(FundamentalsCache.ticker).where(FundamentalsCache.statement_type == "profile").distinct()
+    ).all()
+    scored_tickers = session.exec(select(TickerScore.ticker)).all()
+    watchlist_tickers = session.exec(select(WatchlistTicker.ticker).distinct()).all()
+    return sorted(set(index_tickers) | set(cached_tickers) | set(scored_tickers) | set(watchlist_tickers))
+
+
 async def _refresh_one_ticker(ticker: str) -> None:
     await get_step1_data(ticker)
     await get_step2_data(ticker)
@@ -102,17 +135,18 @@ async def _refresh_one_ticker(ticker: str) -> None:
 
 
 async def main(tickers: list[str] | None = None) -> dict:
-    """`tickers=None` means "use the full stored S&P 500 + Dow list" --
-    passing an explicit list (used by the CLI's --limit/--tickers and by
-    tests) bypasses the DB lookup entirely. Returns the run summary dict so
-    tests can assert on it directly rather than scraping the log."""
+    """`tickers=None` means "use the full tracked universe" (index + ever-viewed +
+    watchlisted, see load_full_tracked_universe) -- passing an explicit list (used
+    by the CLI's --limit/--tickers and by tests) bypasses the DB lookup entirely.
+    Returns the run summary dict so tests can assert on it directly rather than
+    scraping the log."""
     configure_logging(LOG_PATH)
     logger = logging.getLogger(__name__)
     init_db()
 
     if tickers is None:
         with Session(engine) as session:
-            tickers = load_universe_tickers(session)
+            tickers = load_full_tracked_universe(session)
 
     if not tickers:
         logger.error("No tickers to process -- run refresh_sp500_list.py/refresh_dow_list.py first, or pass an explicit ticker list.")
@@ -176,7 +210,7 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     if args.limit:
         init_db()
         with Session(engine) as session:
-            all_tickers = load_universe_tickers(session)
+            all_tickers = load_full_tracked_universe(session)
         return all_tickers[: args.limit]
     return None
 

@@ -1,6 +1,8 @@
 """Standalone script: cache-only TickerScore recompute across the FULL
-tracked universe -- every ticker that has any cached FMP data or an
-existing TickerScore row, not just the S&P 500 + Dow constituent lists
+tracked universe -- index constituents, any ticker with cached FMP data, any
+ticker with an existing TickerScore row, and any watchlisted ticker (see
+nightly_fundamentals_fetch.py::load_full_tracked_universe, reused here rather
+than duplicated), not just the S&P 500 + Dow constituent lists
 recompute_ticker_scores.py's own default (load_universe_tickers) is scoped
 to. Reuses recompute_ticker_scores.py::recompute_all() verbatim for the
 actual per-ticker work (compute_ticker_score(cache_only=True), exception
@@ -33,31 +35,17 @@ import asyncio
 import logging
 from pathlib import Path
 
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from core.db import engine, init_db
 from core.logging_config import configure_logging
-from core.models import FundamentalsCache, IndexConstituent, TickerScore
 from core.tickers import normalize_ticker
-from pipeline.nightly_fundamentals_fetch import load_universe_tickers
+from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
 from pipeline.recompute_ticker_scores import recompute_all
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_score_recompute.log"
 
 logger = logging.getLogger(__name__)
-
-
-def load_full_tracked_universe(session: Session) -> list[str]:
-    """Union of every ticker this app has ever touched: index constituents
-    (S&P 500 + Dow), any ticker with at least one cached FMP fetch, and any
-    ticker that already has a TickerScore row -- the last two are almost
-    always a subset of each other (compute_ticker_score requires cached
-    data to produce a row at all), but unioned defensively rather than
-    assumed."""
-    index_tickers = load_universe_tickers(session)
-    cached_tickers = session.exec(select(FundamentalsCache.ticker).distinct()).all()
-    scored_tickers = session.exec(select(TickerScore.ticker)).all()
-    return sorted(set(index_tickers) | set(cached_tickers) | set(scored_tickers))
 
 
 async def main(tickers: list[str] | None = None) -> dict:

@@ -5,7 +5,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 import pipeline.nightly_score_recompute as nightly_recompute
 import pipeline.recompute_ticker_scores as recompute
-from core.models import FundamentalsCache, IndexConstituent, TickerScore
+from core.models import FundamentalsCache, IndexConstituent, TickerScore, Watchlist, WatchlistTicker
 
 
 def _fresh_engine(monkeypatch, tmp_path):
@@ -54,10 +54,21 @@ def test_load_full_tracked_universe_unions_index_cache_and_score_tickers(monkeyp
         session.add(FundamentalsCache(ticker="MSFT", statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
         session.commit()
 
+        # ASML: watchlisted only -- not indexed, not cached, not scored. This
+        # module reuses nightly_fundamentals_fetch.py::load_full_tracked_universe
+        # rather than keeping its own copy; this proves that reuse actually
+        # picks up the Watchlist union, not just index/cache/score.
+        watchlist = Watchlist(name="Semis", created_at=datetime.now(), updated_at=datetime.now())
+        session.add(watchlist)
+        session.commit()
+        session.refresh(watchlist)
+        session.add(WatchlistTicker(watchlist_id=watchlist.id, ticker="ASML", added_at=datetime.now()))
+        session.commit()
+
     with Session(engine) as session:
         tickers = nightly_recompute.load_full_tracked_universe(session)
 
-    assert tickers == ["AAPL", "IREN", "MSFT", "SEZL"]
+    assert tickers == ["AAPL", "ASML", "IREN", "MSFT", "SEZL"]
 
 
 def test_main_sweeps_the_full_tracked_universe_when_no_tickers_passed(monkeypatch, tmp_path):
