@@ -579,6 +579,16 @@ def test_loss_making_pb_reference_note_none_when_either_input_missing():
     assert loss_making_pb_reference_note(None, None) is None
 
 
+def test_loss_making_pb_reference_note_none_when_book_value_non_positive():
+    # GPN-shaped: heavily-leveraged/goodwill-heavy company whose tangible
+    # book value (post-Piece-1: totalAssets - goodwillAndIntangibleAssets -
+    # totalLiabilities) is negative. A negative-PB "bargain" reference
+    # would be nonsensical -- liquidation wouldn't even cover liabilities --
+    # so no note is shown at all, regardless of current_pb_ratio's sign.
+    assert loss_making_pb_reference_note(-0.95, -90.33) is None
+    assert loss_making_pb_reference_note(0.35, 0.0) is None
+
+
 def test_loss_making_pb_reference_note_text_shape():
     note = loss_making_pb_reference_note(0.35, 10.0)
     assert note is not None

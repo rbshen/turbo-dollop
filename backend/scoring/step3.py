@@ -456,6 +456,15 @@ LOSS_MAKING_PB_BARGAIN_THRESHOLD = 0.50
 def loss_making_pb_reference_note(current_pb_ratio: float | None, book_value_per_share: float | None) -> str | None:
     if current_pb_ratio is None or book_value_per_share is None:
         return None
+    if book_value_per_share <= 0:
+        # Negative tangible book value (post-Piece-1: totalAssets -
+        # goodwillAndIntangibleAssets - totalLiabilities can go negative for
+        # a heavily-leveraged or goodwill-heavy company, e.g. GPN) means
+        # liquidation wouldn't even cover liabilities -- the opposite of
+        # what this note is meant to convey ("cheap relative to a positive
+        # liquidation value"). No note is more honest than a nonsensical
+        # negative-PB "bargain" reference.
+        return None
     return (
         "This company has negative TTM earnings, so standard valuation methods (DCF/DNI) "
         "don't apply. As a rough reference: if this stock's Price-to-Book ratio is at or "
