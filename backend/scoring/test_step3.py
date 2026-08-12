@@ -8,6 +8,7 @@ from scoring.step3 import (
     dividend_yield_meets_reit_threshold,
     dpu_growth_note,
     historical_pb_buy_signal,
+    loss_making_pb_reference_note,
     pb_benchmark_for,
     run_20yr_engine,
     run_price_to_book,
@@ -570,3 +571,23 @@ def test_dpu_growth_note_none_when_insufficient_data():
     assert dpu_growth_note([]) is None
     assert dpu_growth_note([1.0]) is None
     assert dpu_growth_note([None, None]) is None
+
+
+def test_loss_making_pb_reference_note_none_when_either_input_missing():
+    assert loss_making_pb_reference_note(None, 50.0) is None
+    assert loss_making_pb_reference_note(0.4, None) is None
+    assert loss_making_pb_reference_note(None, None) is None
+
+
+def test_loss_making_pb_reference_note_text_shape():
+    note = loss_making_pb_reference_note(0.35, 10.0)
+    assert note is not None
+    assert "negative TTM earnings" in note
+    assert "liquidation value" in note
+    assert "0.50x" in note
+    assert "Current PB: 0.35x" in note
+    assert "Book Value/Share: $10.00" in note
+    assert "Manual Calculation" in note
+    # Not a fair-value estimate -- the spec is explicit this stays a
+    # reference point regardless of which side of 0.50 the ratio lands on.
+    assert "not a fair-value estimate" in note

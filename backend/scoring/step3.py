@@ -441,6 +441,31 @@ def dpu_growth_note(dpu_per_share: list[float]) -> str | None:
     return f"DPU/share declined from {first:.2f} to {last:.2f} over the reporting window."
 
 
+# Loss-making Standard company PB reference (spec's Method B, "Liquidation
+# Method") -- last resort, informational only, never a scored method
+# select_method's own tree can return. step3_data.py gates this to
+# company_type == "Standard" and selection.method == "PASS" and a genuinely
+# negative TTM Net Income -- see its own call site for why selection.method
+# == "PASS" specifically (not just "loss-making"): a Standard company can
+# have negative Net Income yet still resolve to a real method (DCF/DFCF via
+# the CFO-based branch, which never looks at Net Income at all), in which
+# case this reference would be actively misleading.
+LOSS_MAKING_PB_BARGAIN_THRESHOLD = 0.50
+
+
+def loss_making_pb_reference_note(current_pb_ratio: float | None, book_value_per_share: float | None) -> str | None:
+    if current_pb_ratio is None or book_value_per_share is None:
+        return None
+    return (
+        "This company has negative TTM earnings, so standard valuation methods (DCF/DNI) "
+        "don't apply. As a rough reference: if this stock's Price-to-Book ratio is at or "
+        f"below {LOSS_MAKING_PB_BARGAIN_THRESHOLD:.2f}x, it may represent a potential bargain "
+        "even at liquidation value — but this is not a fair-value estimate, just a reference "
+        f"point. Current PB: {current_pb_ratio:.2f}x (Book Value/Share: ${book_value_per_share:.2f}). "
+        "To value this ticker using the Price-to-Book method directly, use Manual Calculation."
+    )
+
+
 class TwentyYearEngineResult(NamedTuple):
     intrinsic_value_per_share: float
     discount_premium_pct: float | None

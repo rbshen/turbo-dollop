@@ -562,6 +562,12 @@ class Step3Out(BaseModel):
     dividend_yield_pct: float | None = None
     dividend_yield_meets_reit_threshold: bool | None = None
     dpu_growth_note: str | None = None
+    # Standard-company-only: a purely informational liquidation-value
+    # reference (spec's Method B) shown only when selected_method == "PASS"
+    # and TTM Net Income is genuinely negative -- see
+    # scoring.step3.loss_making_pb_reference_note. Never a scored method;
+    # select_method's own decision_trail/pass_reason above are unaffected.
+    loss_making_pb_note: str | None = None
 
 
 class Step3ManualParams(BaseModel):

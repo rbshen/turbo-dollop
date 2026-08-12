@@ -147,6 +147,24 @@ def test_pass_with_real_data_is_not_flagged_as_insufficient(monkeypatch):
     _fresh_engine(monkeypatch)
     _patch_real_data(monkeypatch)
 
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        # shares_outstanding = marketCap/price = 10_000_000_000/100.0 =
+        # 100_000_000 (module-level QUOTE); totalAssets -
+        # goodwillAndIntangibleAssets - totalLiabilities = 1_000_000_000,
+        # so book_value_per_share = 10.0 -- lets the loss-making PB note
+        # assertions below check real, non-None numbers.
+        return [
+            {
+                "cashAndCashEquivalents": 100,
+                "totalDebt": 0,
+                "totalAssets": 2_000_000_000,
+                "goodwillAndIntangibleAssets": 0,
+                "totalLiabilities": 1_000_000_000,
+            }
+        ]
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+
     result = asyncio.run(get_step3_data("TEST"))
 
     assert result.selected_method == "PASS"
@@ -159,6 +177,67 @@ def test_pass_with_real_data_is_not_flagged_as_insufficient(monkeypatch):
     assert steps_by_id["2"].passed is False
     assert steps_by_id["4"].passed is False
     assert steps_by_id["5"].passed is False
+
+    # TEST's fixture is a Standard company with genuinely negative TTM Net
+    # Income (INCOME_QUARTERLY: -5 x 4 = -20) reaching PASS -- the loss-
+    # making PB liquidation reference note must be populated, with real
+    # current-PB/book-value numbers (last_close 100.0 / book_value_per_share
+    # 10.0 == PB 10.00x).
+    assert result.loss_making_pb_note is not None
+    assert "liquidation value" in result.loss_making_pb_note
+    assert "Current PB: 10.00x" in result.loss_making_pb_note
+    assert "Book Value/Share: $10.00" in result.loss_making_pb_note
+
+
+def test_loss_making_pb_note_absent_when_a_real_method_is_selected_despite_negative_ni(monkeypatch):
+    # A Standard company can have negative TTM Net Income yet still resolve
+    # to a real valuation method -- the CFO-based branch (steps 2/3/3a) never
+    # looks at Net Income at all. Confirms loss_making_pb_note stays None in
+    # that case (the selection.method == "PASS" gate is doing real work, not
+    # dead code) even though book_value_per_share/current_pb_ratio are both
+    # genuinely computable.
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        if period == "annual":
+            # Chronological once reversed (2021 -> 2025): 40 -> 45 -> 50 ->
+            # 55 -> 60, cleanly increasing and always positive -- passes
+            # step 2's CFO positive-and-increasing check.
+            return [
+                {"fiscalYear": "2025", "netCashProvidedByOperatingActivities": 60, "capitalExpenditure": -10},
+                {"fiscalYear": "2024", "netCashProvidedByOperatingActivities": 55, "capitalExpenditure": -10},
+                {"fiscalYear": "2023", "netCashProvidedByOperatingActivities": 50, "capitalExpenditure": -10},
+                {"fiscalYear": "2022", "netCashProvidedByOperatingActivities": 45, "capitalExpenditure": -10},
+                {"fiscalYear": "2021", "netCashProvidedByOperatingActivities": 40, "capitalExpenditure": -10},
+            ]
+        # TTM CFO = 70 (continues the increasing trend above); TTM FCF = 60.
+        return [{"netCashProvidedByOperatingActivities": 17.5, "capitalExpenditure": -2.5} for _ in range(4)]
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return [
+            {
+                "cashAndCashEquivalents": 100,
+                "totalDebt": 0,
+                "totalAssets": 2_000_000_000,
+                "goodwillAndIntangibleAssets": 0,
+                "totalLiabilities": 1_000_000_000,
+            }
+        ]
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+    monkeypatch.setattr(step3_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+
+    result = asyncio.run(get_step3_data("TEST"))
+
+    # Sanity checks that this fixture actually reaches a real method (not
+    # PASS) with genuinely negative TTM Net Income -- otherwise the
+    # loss_making_pb_note assertion below wouldn't be proving anything.
+    assert result.company_type == "Standard"
+    assert result.selected_method in ("DCF", "DFCF")
+    assert result.inputs.book_value_per_share == pytest.approx(10.0)
+
+    assert result.loss_making_pb_note is None
 
 
 def test_insurance_never_lands_on_cfo_based_method_end_to_end(monkeypatch):

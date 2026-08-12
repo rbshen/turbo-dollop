@@ -128,13 +128,19 @@ export function PBBandsTable({ bands, lastClose }: { bands: Step3PBBands; lastCl
 // bands above -- never changes intrinsic_value_per_share/discount_premium_pct/
 // verdict, which keep their existing mean+-10% logic untouched. Framework
 // context: the -1SD buy signal, the fixed sanity-range benchmark (Bank
-// 1.2-1.4, REIT <=1.2/up to 1.5 with high DPU growth), and REIT's
-// Dividend/DPU Yield + DPU-growth notes.
+// 1.2-1.4, REIT <=1.2/up to 1.5 with high DPU growth), REIT's Dividend/DPU
+// Yield + DPU-growth notes, and (PASS-only) the loss-making Standard
+// company PB liquidation reference.
 export function ValuationContextNotes({ data }: { data: Step3Out }) {
   const hasBenchmark = data.benchmark_pb_low != null || data.benchmark_pb_high != null;
   const hasDividendInfo = data.dividend_yield_pct != null || data.dpu_growth_note != null;
 
-  if (data.historical_pb_buy_signal == null && !hasBenchmark && !hasDividendInfo) {
+  if (
+    data.historical_pb_buy_signal == null &&
+    !hasBenchmark &&
+    !hasDividendInfo &&
+    data.loss_making_pb_note == null
+  ) {
     return null;
   }
 
@@ -159,12 +165,16 @@ export function ValuationContextNotes({ data }: { data: Step3Out }) {
       {data.dividend_yield_pct != null && (
         <p>
           Dividend Yield: {fmtPct(data.dividend_yield_pct, 1)}
+          {/* The exact configured threshold isn't on this payload (only
+              whether it was met) -- see /settings for the live value,
+              editable there since Piece 4. */}
           {data.dividend_yield_meets_reit_threshold != null && (
-            <> ({data.dividend_yield_meets_reit_threshold ? "meets" : "below"} the 4% REIT threshold)</>
+            <> ({data.dividend_yield_meets_reit_threshold ? "meets" : "below"} the configured REIT threshold)</>
           )}
         </p>
       )}
       {data.dpu_growth_note && <p>{data.dpu_growth_note}</p>}
+      {data.loss_making_pb_note && <p>{data.loss_making_pb_note}</p>}
     </div>
   );
 }
@@ -232,11 +242,14 @@ export function Step3Card({ ticker }: Props) {
           </div>
 
           {isPass ? (
-            <p className="text-sm text-text-secondary">
-              {data.insufficient_data
-                ? `Insufficient data was available to select a valuation method for ${ticker}.`
-                : data.pass_reason}
-            </p>
+            <div className="space-y-3">
+              <p className="text-sm text-text-secondary">
+                {data.insufficient_data
+                  ? `Insufficient data was available to select a valuation method for ${ticker}.`
+                  : data.pass_reason}
+              </p>
+              <ValuationContextNotes data={data} />
+            </div>
           ) : (
             <>
               <ValuationGauge

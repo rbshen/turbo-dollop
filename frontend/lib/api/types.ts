@@ -676,11 +676,17 @@ export interface Step3Out {
   benchmark_pb_low: number | null;
   benchmark_pb_high: number | null;
   benchmark_pb_note: string | null;
-  // REIT-only: Dividend/DPU Yield check (>=4%) and a simple growing/
+  // REIT-only: Dividend/DPU Yield check (threshold is Settings-configurable,
+  // default 5% -- see ReitDividendYieldConfigOut) and a simple growing/
   // declining read on dividendPerShare. null for every other company type.
   dividend_yield_pct: number | null;
   dividend_yield_meets_reit_threshold: boolean | null;
   dpu_growth_note: string | null;
+  // Standard-company-only: a purely informational liquidation-value
+  // reference (spec's Method B) shown only when selected_method == "PASS"
+  // and TTM Net Income is genuinely negative. Never a scored method --
+  // method_reasoning/pass_reason above are unaffected.
+  loss_making_pb_note: string | null;
 }
 
 // The 13 method-specific input fields run_manual_calculation takes --

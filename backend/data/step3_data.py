@@ -29,6 +29,7 @@ from scoring.step3 import (
     dividend_yield_meets_reit_threshold,
     dpu_growth_note,
     historical_pb_buy_signal,
+    loss_making_pb_reference_note,
     normalize_fcf,
     pb_benchmark_for,
     run_20yr_engine,
@@ -674,6 +675,30 @@ async def get_step3_data(
             intrinsic_value_per_share = psg_result.intrinsic_value_per_share
             discount_premium_pct = psg_result.discount_premium_pct
 
+    # Loss-making Standard company PB reference (spec's Method B,
+    # "Liquidation Method") -- purely additive/informational, computed
+    # independently of select_method's own decision_trail/pass_reason
+    # (both stay exactly what Auto's tree actually produced). Gated on
+    # selection.method == "PASS" specifically, not just "loss-making": a
+    # Standard company with negative Net Income can still resolve to a
+    # real method (DCF/DFCF via the CFO-based branch, which never looks at
+    # Net Income), in which case this reference would be misleading rather
+    # than helpful. book_value_per_share/quote are already computed above
+    # for the unconditional P/B pre-fill -- no new fetches.
+    loss_making_pb_note = None
+    if (
+        company_type == "Standard"
+        and selection.method == "PASS"
+        and net_income_ttm is not None
+        and net_income_ttm <= 0
+    ):
+        current_pb_ratio = (
+            quote.get("price") / book_value_per_share
+            if quote.get("price") and book_value_per_share
+            else None
+        )
+        loss_making_pb_note = loss_making_pb_reference_note(current_pb_ratio, book_value_per_share)
+
     return Step3Out(
         ticker=ticker,
         company_type=company_type,
@@ -697,6 +722,7 @@ async def get_step3_data(
             else None
         ),
         dpu_growth_note=dpu_growth_note(dpu_series) if is_reit else None,
+        loss_making_pb_note=loss_making_pb_note,
     )
 
 
