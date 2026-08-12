@@ -799,6 +799,96 @@ def test_roe_note_absent_when_equity_never_negative(monkeypatch):
     assert result.components["roe"]["note"] is None
 
 
+# REIT-only ROA/Gearing leverage note (see data/step4_data.py::
+# _reit_leverage_note_sentence) -- reuses _NEG_EQ_BALANCE_SHEET_ANNUAL's
+# equity/retainedEarnings/AR/inventory/AP shape (still negative equity in
+# FY2022-2023, recovered by TTM) with totalAssets/totalDebt added. Chosen so
+# Gearing (totalDebt/totalAssets) rises monotonically 40% -> 90% in both
+# fixtures below, while Net Income (and therefore ROA) differs between them
+# -- proving the warning clause requires BOTH signals to diverge, not
+# gearing alone.
+_REIT_LEVERAGE_BALANCE_SHEET_ANNUAL = [
+    {**row, "totalAssets": assets, "totalDebt": debt}
+    for row, assets, debt in zip(
+        _NEG_EQ_BALANCE_SHEET_ANNUAL,
+        [1400.0, 1000.0, 700.0, 400.0, 200.0, 100.0],  # newest (2025) first
+        [1260.0, 800.0, 490.0, 240.0, 100.0, 40.0],
+    )
+]
+
+
+def test_reit_roe_note_flags_declining_roa_and_rising_gearing_divergence(monkeypatch):
+    # Net Income grows steadily (10 -> 20, same as _NEG_EQ_INCOME_ANNUAL) but
+    # Total Assets grows far faster (100 -> 1400) -- ROA genuinely declines
+    # (10% -> ~1.4%) even though Net Income itself looks fine, the exact IRM
+    # pattern the investigation found: the NI-only substitute reads "fine"
+    # while ROA quietly deteriorates and leverage climbs every year.
+    _fresh_engine(monkeypatch)
+    _patch_neg_equity_fmp(
+        monkeypatch,
+        sector="Real Estate",
+        industry="REIT - Specialty",
+        balance_sheet_annual=_REIT_LEVERAGE_BALANCE_SHEET_ANNUAL,
+    )
+
+    result = asyncio.run(get_step4_data("reitneg1"))
+
+    assert result.company_type == "REIT/Property Developer"
+    roe = result.components["roe"]
+    assert roe["label"] == "positive_despite_negative_equity"
+    note = roe["note"]
+    assert note is not None
+    assert "Return on Assets has declined" in note
+    assert "Gearing has risen" in note
+    assert "may warrant a closer look" in note
+
+
+def test_reit_roe_note_shows_context_without_warning_when_roa_improves(monkeypatch):
+    # Same Gearing trend (rising 40% -> 90%) as the declining case above, but
+    # Net Income grows much faster than Total Assets so ROA improves despite
+    # rising leverage -- the SBAC pattern. Proves the warning clause needs
+    # BOTH ROA declining AND Gearing rising, not gearing alone.
+    _fresh_engine(monkeypatch)
+    improving_roa_income_annual = [
+        {**row, "netIncome": ni}
+        for row, ni in zip(_NEG_EQ_INCOME_ANNUAL, [112.0, 50.0, 21.0, 4.0, 2.0, 1.0])  # newest (2025) first
+    ]
+    _patch_neg_equity_fmp(
+        monkeypatch,
+        sector="Real Estate",
+        industry="REIT - Specialty",
+        income_annual=improving_roa_income_annual,
+        balance_sheet_annual=_REIT_LEVERAGE_BALANCE_SHEET_ANNUAL,
+    )
+
+    result = asyncio.run(get_step4_data("reitneg2"))
+
+    assert result.company_type == "REIT/Property Developer"
+    roe = result.components["roe"]
+    assert roe["label"] == "positive_despite_negative_equity"
+    note = roe["note"]
+    assert note is not None
+    assert "Return on Assets has improved" in note
+    assert "Gearing has risen" in note
+    assert "may warrant a closer look" not in note
+
+
+def test_reit_leverage_note_absent_for_non_reit_even_with_the_same_data(monkeypatch):
+    # Same declining-ROA/rising-gearing balance sheet data as the divergence
+    # test above, but a Standard company type -- proves the sentence is
+    # gated on company_type, not just on data availability.
+    _fresh_engine(monkeypatch)
+    _patch_neg_equity_fmp(monkeypatch, balance_sheet_annual=_REIT_LEVERAGE_BALANCE_SHEET_ANNUAL)
+
+    result = asyncio.run(get_step4_data("stdneg1"))
+
+    assert result.company_type == "Standard"
+    note = result.components["roe"]["note"]
+    assert note is not None
+    assert "Return on Assets" not in note
+    assert "Gearing" not in note
+
+
 # HWM's real ROE/ROIC shape (as percentages -> converted to FMP's fractional
 # convention below): an early crash (2016-2017) that durably recovers,
 # with recent (2021-2025+TTM) performance comfortably strong on its own --

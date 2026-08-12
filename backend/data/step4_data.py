@@ -1,3 +1,4 @@
+import numpy as np
 from sqlmodel import Session
 
 from core.cache import get_or_fetch, safe_fetch
@@ -8,6 +9,7 @@ from clients.fmp_client import fmp_client
 from core.schemas import Step4Out
 from core.tickers import normalize_ticker
 from scoring.classification import classify_company_type
+from scoring.series_trend import robust_late_direction
 from scoring.step4 import (
     AR_DSO_TREND_MATERIALITY_DAYS,
     AR_GAP_NOISE_FLOOR,
@@ -189,6 +191,19 @@ def _build_ar_note(ar_result: ARResult | None, net_income: list[float | None], o
 # of score_roe()'s own scoring inputs.
 NEGATIVE_EQUITY_LABELS = {"positive_despite_negative_equity", "negative_equity_inconsistent_income"}
 
+# REIT-only addition to the negative-equity ROE note (see
+# _reit_leverage_note_sentence): early/late-window direction, matching the
+# same window Margins/CCC/AR already use (scoring/step1.py's
+# MARGIN_TREND_WINDOW, scoring/step4.py's CCC_TREND_WINDOW/
+# AR_DSO_TREND_WINDOW) rather than inventing a new default. First-pass,
+# informal signal based on only 3 REIT examples in the tracked universe
+# (SBAC/CCI/IRM as of the 2026-08 REIT framework investigation) -- not a
+# validated threshold-based check, so no epsilon/tolerance is applied
+# beyond a plain sign read; a tuned tolerance on n=3 would be fabricated
+# precision.
+REIT_LEVERAGE_TREND_WINDOW = 3
+REIT_LEVERAGE_MIN_POINTS = 4
+
 
 def _fmt_money(value: float | None) -> str:
     """Compact, sign-preserving $ formatting for reasoning text, scaled to
@@ -336,6 +351,83 @@ def _roe_research_pointer(positive_outcome: bool) -> str:
     )
 
 
+def _windowed_trend_average(values: list[float], window: int) -> tuple[float, float]:
+    """Early-window average and a robust late-window average (single
+    most-extreme point excluded) -- same convention scoring/step4.py's
+    _dso_trend already uses for AR's own DSO note. Displaying these
+    (rather than the raw first/last points) keeps the displayed numbers
+    consistent with the direction verb they're paired with: a naive raw
+    endpoint pair can read as declining even when the robust trend --
+    which the verb is actually based on -- is genuinely improving, whenever
+    a single anomalous year sits at either end."""
+    arr = np.asarray(values, dtype=float)
+    w = min(window, len(arr))
+    early = float(arr[:w].mean())
+    late_robust = robust_late_direction(arr, window) + early
+    return early, late_robust
+
+
+def _reit_leverage_note_sentence(
+    net_income: list[float | None],
+    total_assets: list[float | None],
+    total_debt: list[float | None],
+    years: list[str],
+    positive_outcome: bool,
+) -> str | None:
+    """REIT-only addition to the negative-equity ROE note: Return on Assets
+    and Gearing Ratio trends, since Total Assets stay positive even when
+    equity goes negative, making ROA a more stable REIT-appropriate
+    profitability proxy than the generic NI-consistency substitute above.
+    Gearing reuses the exact formula data/step5_data.py's own REIT gearing
+    check uses (total_debt/total_assets*100) -- not reimplemented
+    differently.
+
+    Purely informational, never touches score_roe()'s own output -- see
+    REIT_LEVERAGE_TREND_WINDOW's comment on why no numeric threshold beyond
+    a plain sign check is used. Motivating case: IRM's substitute reads
+    positive_despite_negative_equity (100) despite a genuinely declining
+    ROA and monotonically rising leverage over the same 10yr window -- a
+    real gap the NI-only check above can't see on its own.
+
+    Checked on the annual history only ([:-1], dropping the appended TTM
+    point) -- same precaution CCC's own inventory-exemption check already
+    takes for the same reason (see data_driven_ccc_exempt above): FMP's
+    latest-quarter snapshot has proven unreliable for balance-sheet fields
+    before (confirmed live for IRM's own totalDebt -- $3.9B in the latest
+    quarterly snapshot vs. $19.1B in the FY2025 annual filing it's meant to
+    roll forward from, an obvious data-provider artifact, not a real
+    single-quarter debt paydown of that size)."""
+    ni_aligned, assets_for_roa, _ = _clean_aligned(net_income[:-1], total_assets[:-1], years[:-1])
+    debt_aligned, assets_for_gearing, _ = _clean_aligned(total_debt[:-1], total_assets[:-1], years[:-1])
+
+    roa_series = [ni / a * 100 for ni, a in zip(ni_aligned, assets_for_roa) if a]
+    gearing_series = [d / a * 100 for d, a in zip(debt_aligned, assets_for_gearing) if a]
+
+    if len(roa_series) < REIT_LEVERAGE_MIN_POINTS or len(gearing_series) < REIT_LEVERAGE_MIN_POINTS:
+        return None
+
+    roa_early, roa_late = _windowed_trend_average(roa_series, REIT_LEVERAGE_TREND_WINDOW)
+    gearing_early, gearing_late = _windowed_trend_average(gearing_series, REIT_LEVERAGE_TREND_WINDOW)
+    roa_direction = roa_late - roa_early
+    gearing_direction = gearing_late - gearing_early
+
+    roa_verb = "improved" if roa_direction >= 0 else "declined"
+    gearing_verb = "risen" if gearing_direction >= 0 else "fallen"
+    sentence = (
+        f"Return on Assets has {roa_verb} from ~{roa_early:.1f}% to ~{roa_late:.1f}% and Gearing has "
+        f"{gearing_verb} from ~{gearing_early:.1f}% to ~{gearing_late:.1f}% over the trailing "
+        f"{len(roa_series)} fiscal years."
+    )
+
+    if positive_outcome and roa_direction < 0 and gearing_direction > 0:
+        sentence += (
+            " Note: despite the negative-equity substitute reading positive here, this declining-ROA/"
+            "rising-gearing combination may warrant a closer look -- an informal read based on a small "
+            "sample of REITs, not a validated threshold."
+        )
+    return sentence
+
+
 def _recovery_exclusion_sentence(years_excluded: list[str]) -> str | None:
     """Descriptive-only, never causal -- fires whenever
     recovery_excluded_prefix_length() finds a resolved dip to exclude,
@@ -367,6 +459,9 @@ def _build_roe_note(
     company_type: str,
     roe_clean: list[float],
     years_for_roe: list[str],
+    net_income: list[float | None],
+    total_assets: list[float | None],
+    total_debt: list[float | None],
 ) -> str | None:
     """Only attaches when the negative-equity substitute actually fired
     (mirrors _build_ar_note's "only when there's something to explain"
@@ -375,6 +470,11 @@ def _build_roe_note(
     investigated and rejected above, not this display-only change; REIT
     tickers still run through score_roe() unconditionally today, and this
     text makes no company-type-specific claims, so it's safe here).
+
+    `net_income`/`total_assets`/`total_debt` (the raw, un-cleaned series --
+    not net_income_clean) feed the REIT-only ROA/Gearing leverage sentence
+    (_reit_leverage_note_sentence) appended below when company_type is
+    REIT/Property Developer; unused otherwise.
 
     The negative-equity substitute takes priority: if it fired, ROE never
     reached the normal avg/min-year path at all, so recovery-aware
@@ -395,6 +495,16 @@ def _build_roe_note(
             _roic_citation_sentence(roic_result, roic_exempt_reason, company_type),
             _roe_research_pointer(roe_result.label == "positive_despite_negative_equity"),
         ]
+        if company_type == "REIT/Property Developer":
+            sentences.append(
+                _reit_leverage_note_sentence(
+                    net_income,
+                    total_assets,
+                    total_debt,
+                    years,
+                    roe_result.label == "positive_despite_negative_equity",
+                )
+            )
         return " ".join(s for s in sentences if s)
 
     excluded = recovery_excluded_prefix_length(roe_clean)
@@ -558,6 +668,12 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     accounts_payable = _annual_series(balance_sheet_annual, "accountPayables")
     long_term_debt = _annual_series(balance_sheet_annual, "longTermDebt")
     short_term_debt = _annual_series(balance_sheet_annual, "shortTermDebt")
+    # Both feed the REIT negative-equity ROE note only (_reit_leverage_note_
+    # sentence) -- same already-fetched balance_sheet_annual rows Step 5
+    # reads totalDebt/totalAssets from for its own gearing_ratio, so this is
+    # a field-read, not a new fetch.
+    total_assets = _annual_series(balance_sheet_annual, "totalAssets")
+    total_debt = _annual_series(balance_sheet_annual, "totalDebt")
     roe = _annual_series(key_metrics_annual, "returnOnEquity")
     roic = _annual_series(key_metrics_annual, "returnOnInvestedCapital")
     ocf = _annual_series(cash_flow_annual, "netCashProvidedByOperatingActivities")
@@ -584,6 +700,8 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     accounts_payable = accounts_payable + [balance_sheet_latest.get("accountPayables")]
     long_term_debt = long_term_debt + [balance_sheet_latest.get("longTermDebt")]
     short_term_debt = short_term_debt + [balance_sheet_latest.get("shortTermDebt")]
+    total_assets = total_assets + [balance_sheet_latest.get("totalAssets")]
+    total_debt = total_debt + [balance_sheet_latest.get("totalDebt")]
     retained_earnings = retained_earnings + [balance_sheet_latest.get("retainedEarnings")]
     buybacks = buybacks + [sum_last_four_quarters(cash_flow_quarterly, "commonStockRepurchased").total]
     roe_ttm = key_metrics_ttm.get("returnOnEquityTTM")
@@ -694,6 +812,9 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
         company_type,
         roe_clean,
         years_for_roe,
+        net_income,
+        total_assets,
+        total_debt,
     )
     if result["components"]["roic"] is not None:
         result["components"]["roic"]["note"] = _build_roic_note(roic_result, roic_clean, years_for_roic)
