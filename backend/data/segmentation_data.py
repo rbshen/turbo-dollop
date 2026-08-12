@@ -23,6 +23,23 @@ def _annual_year(row: dict) -> str:
     return str(row.get("fiscalYear") or row.get("date", "")[:4])
 
 
+def _coerce_numeric(value: object) -> float | None:
+    """FMP's segmentation endpoints sometimes serialize a segment's revenue as a
+    JSON string rather than a number (confirmed live: MCO/NOC's product
+    segmentation, several years each) -- inconsistently, even within the same
+    ticker's own series. int/float/numeric-string coerce to float; anything else
+    (None, an unparseable string) reads as "not disclosed" (None), same as a
+    genuinely missing value -- never fabricated as 0."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
 def _build_segment_series(
     rows: list[dict], window: int = ANNUAL_WINDOW, max_segments: int = MAX_SEGMENTS
 ) -> tuple[list[str], list[str] | None, dict[str, list[float | None]]]:
@@ -39,6 +56,10 @@ def _build_segment_series(
 
     windowed = list(reversed(rows[:window]))  # oldest-first, matches every other chart in the app
     years = [_annual_year(row) for row in windowed]
+    windowed = [
+        {**row, "data": {name: _coerce_numeric(value) for name, value in (row.get("data") or {}).items()}}
+        for row in windowed
+    ]
 
     totals: dict[str, float] = {}
     for row in windowed:

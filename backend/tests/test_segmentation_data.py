@@ -11,6 +11,13 @@ TWO_YEAR_ROWS = [
     {"fiscalYear": "2024", "date": "2024-09-28", "data": {"iPhone": 190.0, "Mac": 28.0}},  # Service not broken out
 ]
 
+# Shaped like MCO's real cached data: revenue serialized as a JSON string, not a
+# number -- confirmed live for MCO/NOC's product segmentation (see CLAUDE.md).
+STRING_VALUED_ROWS = [
+    {"fiscalYear": "2024", "date": "2024-12-31", "data": {"Moodys Analytics": 3400000000.0, "Moodys Investors Service": 2950000000.0}},
+    {"fiscalYear": "2023", "date": "2023-12-31", "data": {"Moodys Analytics": "3056000000", "Moodys Investors Service": "2860000000"}},
+]
+
 EIGHT_SEGMENT_ROW = [
     {
         "fiscalYear": "2025",
@@ -37,6 +44,28 @@ def test_missing_year_value_is_none_not_zero():
     # Service wasn't broken out in 2024 (oldest, index 0) -- must read as
     # None ("not disclosed that year"), never 0 ("no revenue").
     assert values["Service"] == [None, 100.0]
+
+
+def test_string_valued_revenue_is_coerced_to_float_not_raising():
+    years, segments, values = _build_segment_series(STRING_VALUED_ROWS)
+    assert years == ["2023", "2024"]
+    # Both segments' totals must be real numbers (crashed with a TypeError
+    # before the fix, mixing a string 2023 value with a float 2024 value).
+    assert values["Moodys Analytics"] == [3056000000.0, 3400000000.0]
+    assert values["Moodys Investors Service"] == [2860000000.0, 2950000000.0]
+    assert all(isinstance(v, float) for series in values.values() for v in series)
+
+
+def test_unparseable_string_revenue_reads_as_none_not_zero():
+    rows = [
+        {"fiscalYear": "2024", "date": "2024-12-31", "data": {"Segment A": 50.0, "Segment B": 120.0}},
+        {"fiscalYear": "2023", "date": "2023-12-31", "data": {"Segment A": "N/A", "Segment B": 100.0}},
+    ]
+    _, _, values = _build_segment_series(rows)
+    # Segment A's unparseable 2023 value reads as None ("not disclosed"), never 0
+    # ("no revenue") -- same convention as a genuinely missing value.
+    assert values["Segment A"] == [None, 50.0]
+    assert values["Segment B"] == [100.0, 120.0]
 
 
 def test_empty_rows_returns_not_disclosed_shape():
