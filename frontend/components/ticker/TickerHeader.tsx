@@ -1,7 +1,6 @@
 "use client";
 
 import { AddToWatchlistButton } from "@/components/ticker/AddToWatchlistButton";
-import { DebtVerdictChip } from "@/components/ticker/DebtVerdictChip";
 import { FairValuePill } from "@/components/ticker/FairValuePill";
 import { MoatPill } from "@/components/ticker/MoatPill";
 import { PerfVsSpyPill } from "@/components/ticker/PerfVsSpyPill";
@@ -78,7 +77,6 @@ export function TickerHeader({ symbol, data }: Props) {
         )}
         <PriceChange change={data.change} changePercent={data.change_percent} />
         <AssessmentChip symbol={symbol} />
-        <DebtVerdictChip ticker={symbol} />
         <FairValuePill
           verdict={data.fair_value_verdict}
           price={data.fair_value_price}
