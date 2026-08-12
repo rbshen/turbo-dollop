@@ -288,10 +288,35 @@ discount_premium_pct      = last_close / final_iv_per_share - 1
 
 | Field | Description |
 |---|---|
-| `book_value_per_share` | current Book Value per share |
+| `book_value_per_share` | current Book Value per share -- `(Total Assets − Intangible Assets − Total Liabilities) / Shares Outstanding`, computed from the **latest quarter's** balance sheet (2026-08-13 fix; see below) |
 | `historical_pb_ratios` | up to 10 most recent year-end P/B ratios, chronological |
 | `lookback` | **auto-selected**, not user-chosen at the Auto Calculation stage: `"10 years"` if at least 10 years of historical P/B data exist, else `"5 years"` if at least 5 exist, else no Price-to-Book result is produced at all |
 | `last_close` | current market price |
+
+**Book value formula/anchor fix (2026-08-13):** `book_value_per_share` previously came
+straight from FMP's own `bookValuePerShare` ratio field (raw stockholders' equity per share,
+i.e. **not** intangibles-stripped -- confirmed identical to FMP's own
+`shareholdersEquityPerShare` field) off the **latest annual** `ratios` row -- up to ~12
+months stale versus the quarterly balance-sheet data this same calculation already used for
+`total_debt`/`cash_and_st_investments`. It's now computed directly from the latest quarter's
+balance sheet (`totalAssets − goodwillAndIntangibleAssets − totalLiabilities`, divided by
+shares outstanding) -- matching this section's own formula above, and the same
+latest-quarter-instant convention used everywhere else in this calculation. Confirmed via
+real cached data: JPM's book value/share moved from $129.97 (FY2025 annual, raw equity) to
+$115.80 (Q2 2026 quarter, tangible); O's (Realty Income) moved from $44.35 (FY2025 annual,
+raw equity) to $39.52 (Q2 2026 quarter, tangible) -- both changes reflect the anchor moving
+forward by ~2 quarters *and* intangibles being stripped out, not either alone.
+
+**Known, accepted inconsistency:** `historical_pb_ratios` (used for the mean/SD bands in
+§3.2 below) still comes from FMP's own `priceToBookRatio` ratio series, which is itself
+computed against FMP's raw (non-tangible) `bookValuePerShare`, not the tangible figure above
+-- so the *historical* series and the *current* book value now sit on slightly different
+bases. Rebuilding the full 10-year historical series on a tangible/latest-quarter basis would
+require a new annual balance-sheet fetch this calculation doesn't otherwise need; the cheaper
+fix (align only the current book value, leave the historical series as FMP reports it) was
+chosen deliberately over that cost. Not expected to matter much in practice -- the two bases
+track closely for most companies -- but is a known, documented approximation, not an
+oversight.
 
 ### 3.2 Calculation
 

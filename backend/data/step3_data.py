@@ -497,11 +497,38 @@ async def get_step3_data(
     elif len(pb_history) >= PB_LOOKBACK_SHORT:
         pb_lookback = f"{PB_LOOKBACK_SHORT} years"
     # pb_history (priceToBookRatio) is a dimensionless multiple -- FMP's own
-    # ratio, computed against whichever price basis FMP used internally,
-    # self-consistent with bookValuePerShare from that same row either way
-    # -- never itself converted. book_value_per_share (a real per-share
-    # monetary figure) is.
-    book_value_per_share = _first(ratios_annual).get("bookValuePerShare")
+    # ratio, computed from FMP's own (non-tangible, annual-lagged)
+    # bookValuePerShare internally, NOT from book_value_per_share below --
+    # never itself converted. This is a deliberate, documented mismatch
+    # (see valuation.md ss3.1): rebuilding the full historical series on a
+    # tangible/quarterly basis would need a new annual balance-sheet fetch
+    # this function doesn't otherwise need; the mean/SD bands stay on
+    # FMP's raw ratio series while only the *current* book value below is
+    # corrected.
+    #
+    # book_value_per_share itself (valuation.md ss3.1's spec formula:
+    # Total Assets - Intangible Assets - Total Liabilities, latest
+    # quarter) is computed directly from balance_sheet_latest -- the same
+    # latest-quarter row already used above for debt_metrics/
+    # cash_and_st_investments -- rather than FMP's own bookValuePerShare
+    # ratio field (raw stockholders' equity per share, sourced from the
+    # latest *annual* filing, up to ~12 months stale). No new FMP fetch:
+    # totalAssets/goodwillAndIntangibleAssets/totalLiabilities are already
+    # on the balance_sheet_quarterly payload.
+    tangible_book_value = None
+    if None not in (
+        balance_sheet_latest.get("totalAssets"),
+        balance_sheet_latest.get("goodwillAndIntangibleAssets"),
+        balance_sheet_latest.get("totalLiabilities"),
+    ):
+        tangible_book_value = (
+            balance_sheet_latest["totalAssets"]
+            - balance_sheet_latest["goodwillAndIntangibleAssets"]
+            - balance_sheet_latest["totalLiabilities"]
+        )
+    book_value_per_share = (
+        tangible_book_value / shares_outstanding if tangible_book_value is not None and shares_outstanding else None
+    )
     book_value_per_share = book_value_per_share * fx_rate if book_value_per_share is not None else None
 
     # Computed unconditionally (not just when PRICE_TO_BOOK is the

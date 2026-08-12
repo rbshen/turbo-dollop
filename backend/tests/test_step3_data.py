@@ -261,9 +261,27 @@ def test_bank_gets_pb_benchmark_and_buy_signal(monkeypatch):
     async def fake_ratios(ticker, period, limit):
         return [{"fiscalYear": str(2025 - i), "priceToBookRatio": 1.0, "bookValuePerShare": 50.0} for i in range(10)]
 
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        # shares_outstanding = marketCap/price = 10_000_000_000/10.0 =
+        # 1_000_000_000 (see fake_quote above); totalAssets -
+        # goodwillAndIntangibleAssets - totalLiabilities = 50_000_000_000,
+        # so book_value_per_share = 50.0 -- same figure the old
+        # ratios_annual-based bookValuePerShare mock above used to supply
+        # directly, now sourced from the balance sheet per Piece 1.
+        return [
+            {
+                "cashAndCashEquivalents": 100,
+                "totalDebt": 0,
+                "totalAssets": 60_000_000_000,
+                "goodwillAndIntangibleAssets": 0,
+                "totalLiabilities": 10_000_000_000,
+            }
+        ]
+
     monkeypatch.setattr(step3_data.fmp_client, "get_profile", fake_profile)
     monkeypatch.setattr(step3_data.fmp_client, "get_quote", fake_quote)
     monkeypatch.setattr(step3_data.fmp_client, "get_ratios", fake_ratios)
+    monkeypatch.setattr(step3_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
 
     result = asyncio.run(get_step3_data("jpm"))
 
@@ -338,10 +356,27 @@ def test_non_usd_reporter_converts_every_monetary_input_to_usd(monkeypatch):
         assert from_currency == "TWD"
         return [{"symbol": "TWDUSD", "price": 0.05}]
 
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        # shares_outstanding = marketCap/price = 10_000_000_000/100.0 =
+        # 100_000_000 (module-level QUOTE, not overridden by this test);
+        # totalAssets - goodwillAndIntangibleAssets - totalLiabilities =
+        # 5_000_000_000 TWD, so book_value_per_share = 50.0 TWD pre-fx --
+        # matching the comment above (50.0 TWD * 0.05 == 2.5 USD).
+        return [
+            {
+                "cashAndCashEquivalents": 100,
+                "totalDebt": 0,
+                "totalAssets": 6_000_000_000,
+                "goodwillAndIntangibleAssets": 0,
+                "totalLiabilities": 1_000_000_000,
+            }
+        ]
+
     monkeypatch.setattr(step3_data.fmp_client, "get_profile", fake_profile)
     monkeypatch.setattr(step3_data.fmp_client, "get_income_statement", fake_income_statement)
     monkeypatch.setattr(step3_data.fmp_client, "get_ratios", fake_ratios)
     monkeypatch.setattr(step3_data.fmp_client, "get_forex_quote", fake_forex_quote)
+    monkeypatch.setattr(step3_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
 
     result = asyncio.run(get_step3_data("jpm"))
 

@@ -1136,6 +1136,26 @@ these are the design decisions and fixes behind them.
     staleness setting at all, describing the single shared 7-day window
     only.
 
+- **`book_value_per_share`'s formula and anchor fixed (2026-08-13)**, following a fuller
+  Price-to-Book methodology spec review. Previously sourced from FMP's own `bookValuePerShare`
+  ratio field (raw stockholders' equity per share -- confirmed identical to FMP's own
+  `shareholdersEquityPerShare`, i.e. **not** intangibles-stripped) off the **latest annual**
+  `ratios` row, up to ~12 months stale versus the quarterly balance-sheet data this same
+  calculation already used for `total_debt`/`cash_and_st_investments` (a self-inconsistency,
+  not just a spec mismatch -- a comment elsewhere in the same function already cites the
+  original source spec's own "latest instant, not FY-end" rule for those other two fields).
+  Now computed directly from the latest quarter's balance sheet
+  (`totalAssets − goodwillAndIntangibleAssets − totalLiabilities`, divided by shares
+  outstanding) -- no new FMP fetch, every field was already being pulled for `debt_metrics`.
+  Confirmed via real cached data: JPM $129.97 (FY2025 annual, raw equity) → $115.80 (Q2 2026
+  quarter, tangible); O (Realty Income) $44.35 → $39.52 -- both moves reflect the anchor
+  advancing ~2 quarters *and* intangibles being stripped, not either alone. The *historical*
+  P/B ratio series feeding the mean/SD bands (`valuation.md` §3.2) is **not** rebuilt on the
+  same tangible/quarterly basis -- still FMP's own `priceToBookRatio`, non-tangible and
+  annual-lagged -- a deliberate, documented approximation (see `valuation.md` §3.1), not an
+  oversight; rebuilding it would need a new annual balance-sheet fetch this calculation
+  doesn't otherwise require.
+
 ## Workflow rules
 
 - **Plan Mode by default.** Propose a plan and wait for confirmation before
