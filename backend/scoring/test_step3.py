@@ -545,10 +545,15 @@ def test_pb_benchmark_for_other_types_is_none():
 
 
 def test_dividend_yield_meets_reit_threshold():
-    assert dividend_yield_meets_reit_threshold(4.0) is True
-    assert dividend_yield_meets_reit_threshold(5.5) is True
-    assert dividend_yield_meets_reit_threshold(3.9) is False
-    assert dividend_yield_meets_reit_threshold(None) is None
+    assert dividend_yield_meets_reit_threshold(5.0, threshold_pct=5.0) is True
+    assert dividend_yield_meets_reit_threshold(5.5, threshold_pct=5.0) is True
+    assert dividend_yield_meets_reit_threshold(4.9, threshold_pct=5.0) is False
+    assert dividend_yield_meets_reit_threshold(None, threshold_pct=5.0) is None
+    # threshold_pct is a real parameter, not a vestigial one -- a
+    # differently-configured threshold changes the result for the same
+    # dividend_yield_pct.
+    assert dividend_yield_meets_reit_threshold(4.5, threshold_pct=4.0) is True
+    assert dividend_yield_meets_reit_threshold(4.5, threshold_pct=5.0) is False
 
 
 def test_dpu_growth_note_growing():

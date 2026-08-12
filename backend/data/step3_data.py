@@ -9,6 +9,7 @@ from core.db import engine
 from core.models import FundamentalsCache
 from helpers.debt_metrics import compute_debt_metrics
 from helpers.discount_rate_config import get_discount_rate_config
+from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.tickers import normalize_ticker
@@ -262,23 +263,34 @@ async def get_step3_data(
         # same way _annual_series/etc. below do, so reading reportedCurrency
         # ahead of the list-coercion line below is safe. Resolved inside
         # this session block since _resolve_fx_rate needs it (get_or_fetch's
-        # own cache read/write) -- and deliberately BEFORE
-        # get_discount_rate_config below: get_or_fetch's own write path can
-        # commit() this session (a live forex fetch caching its result),
-        # which -- with SQLAlchemy's default expire_on_commit=True --
-        # expires every ORM object already read from this session,
-        # including discount_rate_row. get_discount_rate_config must stay
-        # the session block's true last statement so nothing after it can
-        # commit and expire it before its attributes are read outside the
-        # `with` block below.
+        # own cache read/write) -- and deliberately BEFORE the two
+        # get-or-create config reads below: get_or_fetch's own write path
+        # can commit() this session (a live forex fetch caching its
+        # result), which -- with SQLAlchemy's default expire_on_commit=True
+        # -- expires every ORM object already read from this session.
         reported_currency = _first(income_annual).get("reportedCurrency")
         fx_rate, fx_rate_as_of = await _resolve_fx_rate(session, reported_currency, staleness_days, cache_only)
 
-        # Risk-Free Rate and Market Risk Premium are both manual, human-
-        # maintained settings (see /settings and CLAUDE.md) -- read inside
-        # this session block since discount_rate_config.py's helper takes a
-        # Session, not fetched from FMP like everything else above.
-        discount_rate_row = get_discount_rate_config(session)
+        # Risk-Free Rate, Market Risk Premium, and the REIT dividend-yield
+        # bargain-reference threshold are all manual, human-maintained
+        # settings (see /settings and CLAUDE.md) -- read inside this
+        # session block since their get-or-create helpers take a Session,
+        # not fetched from FMP like everything else above. Each row's
+        # scalar fields are read out into plain local variables
+        # immediately, rather than holding onto the ORM row objects for use
+        # after the `with` block exits: a get-or-create's own first-run
+        # lazy-seed commit()s (see discount_rate_config.py/
+        # reit_dividend_yield_config.py) expire -- via
+        # expire_on_commit=True -- every ORM object already read from this
+        # session, not just the one just committed, so whichever
+        # get-or-create call ran earlier would otherwise raise
+        # DetachedInstanceError the moment its attributes are accessed
+        # after this block closes (confirmed: this broke for real once a
+        # second config fetch was added here, not a theoretical concern).
+        discount_rate_config = get_discount_rate_config(session)
+        risk_free_rate = discount_rate_config.risk_free_rate
+        market_risk_premium = discount_rate_config.market_risk_premium
+        reit_dividend_yield_threshold_pct = get_reit_dividend_yield_config(session).threshold_pct
 
     income_annual = income_annual if isinstance(income_annual, list) else []
     income_quarterly = income_quarterly if isinstance(income_quarterly, list) else []
@@ -422,7 +434,7 @@ async def get_step3_data(
     capm = None
     discount_rate = None
     if beta is not None:
-        capm_result = compute_capm(discount_rate_row.risk_free_rate, discount_rate_row.market_risk_premium, beta)
+        capm_result = compute_capm(risk_free_rate, market_risk_premium, beta)
         discount_rate = capm_result["discount_rate"]
         capm = Step3CapmComponents(
             risk_free_rate=capm_result["risk_free_rate"],
@@ -679,7 +691,11 @@ async def get_step3_data(
         benchmark_pb_high=pb_benchmark.high if pb_benchmark else None,
         benchmark_pb_note=pb_benchmark.note if pb_benchmark else None,
         dividend_yield_pct=dividend_yield_pct if is_reit else None,
-        dividend_yield_meets_reit_threshold=dividend_yield_meets_reit_threshold(dividend_yield_pct) if is_reit else None,
+        dividend_yield_meets_reit_threshold=(
+            dividend_yield_meets_reit_threshold(dividend_yield_pct, reit_dividend_yield_threshold_pct)
+            if is_reit
+            else None
+        ),
         dpu_growth_note=dpu_growth_note(dpu_series) if is_reit else None,
     )
 

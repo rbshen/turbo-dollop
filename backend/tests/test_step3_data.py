@@ -221,7 +221,7 @@ def test_reit_gets_dividend_dpu_fields_and_pb_benchmark(monkeypatch):
                 "priceToBookRatio": 1.3 + i * 0.02,
                 "bookValuePerShare": 50.0,
                 "revenuePerShare": 10.0,
-                "dividendYield": 0.045,
+                "dividendYield": 0.055,
                 "dividendPerShare": 2.0 + (9 - i) * 0.1,
             }
             for i in range(10)
@@ -234,8 +234,9 @@ def test_reit_gets_dividend_dpu_fields_and_pb_benchmark(monkeypatch):
 
     assert result.company_type == "REIT/Property Developer"
     assert result.selected_method == "PRICE_TO_BOOK"
-    # dividendYield 0.045 -> 4.5%, above the 4% REIT threshold.
-    assert result.dividend_yield_pct == pytest.approx(4.5)
+    # dividendYield 0.055 -> 5.5%, above the configured 5.0% default REIT
+    # threshold (helpers/reit_dividend_yield_config.py).
+    assert result.dividend_yield_pct == pytest.approx(5.5)
     assert result.dividend_yield_meets_reit_threshold is True
     assert result.dpu_growth_note is not None
     assert "grew" in result.dpu_growth_note
@@ -243,6 +244,38 @@ def test_reit_gets_dividend_dpu_fields_and_pb_benchmark(monkeypatch):
     assert result.benchmark_pb_low is None
     assert result.benchmark_pb_high == 1.2
     assert "1.5" in result.benchmark_pb_note
+
+
+def test_reit_dividend_yield_below_configured_default_threshold_reads_false(monkeypatch):
+    # Proves the new 5.0% default (helpers/reit_dividend_yield_config.py)
+    # is actually being honored end-to-end, not just passed through --
+    # 4.5% used to clear the old hardcoded 4.0% threshold and would have
+    # read True before this piece.
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_profile(ticker):
+        return [{"sector": "Real Estate", "industry": "REIT - Retail", "beta": 1.0}]
+
+    async def fake_ratios(ticker, period, limit):
+        return [
+            {
+                "fiscalYear": str(2025 - i),
+                "priceToBookRatio": 1.3 + i * 0.02,
+                "bookValuePerShare": 50.0,
+                "dividendYield": 0.045,
+                "dividendPerShare": 2.0,
+            }
+            for i in range(10)
+        ]
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step3_data.fmp_client, "get_ratios", fake_ratios)
+
+    result = asyncio.run(get_step3_data("o"))
+
+    assert result.dividend_yield_pct == pytest.approx(4.5)
+    assert result.dividend_yield_meets_reit_threshold is False
 
 
 def test_bank_gets_pb_benchmark_and_buy_signal(monkeypatch):

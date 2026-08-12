@@ -412,16 +412,17 @@ def pb_benchmark_for(company_type: str) -> PbBenchmark | None:
     return None
 
 
-# REIT Dividend/DPU Yield check -- >=4% per the framework. Sourced from
-# ratios_annual's dividendYield field, already fetched by step3_data.py for
-# the P/B lookback -- no new FMP call needed.
-REIT_DIVIDEND_YIELD_THRESHOLD_PCT = 4.0
+# REIT Dividend/DPU Yield check. Sourced from ratios_annual's dividendYield
+# field, already fetched by step3_data.py for the P/B lookback -- no new FMP
+# call needed. `threshold_pct` is now Settings-configurable (2026-08-13) --
+# see helpers/reit_dividend_yield_config.py for the default (5.0) and the
+# get-or-create DB row step3_data.py fetches and passes in here.
 
 
-def dividend_yield_meets_reit_threshold(dividend_yield_pct: float | None) -> bool | None:
+def dividend_yield_meets_reit_threshold(dividend_yield_pct: float | None, threshold_pct: float) -> bool | None:
     if dividend_yield_pct is None:
         return None
-    return dividend_yield_pct >= REIT_DIVIDEND_YIELD_THRESHOLD_PCT
+    return dividend_yield_pct >= threshold_pct
 
 
 def dpu_growth_note(dpu_per_share: list[float]) -> str | None:

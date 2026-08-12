@@ -699,6 +699,15 @@ class MoatScoreConfigIn(BaseModel):
     no_moat_score: float
 
 
+class ReitDividendYieldConfigOut(BaseModel):
+    threshold_pct: float
+    updated_at: datetime
+
+
+class ReitDividendYieldConfigIn(BaseModel):
+    threshold_pct: float
+
+
 class TickerScoreOut(BaseModel):
     """A pre-computed row for the Screener page (see ticker_score.py) --
     denormalized from the same 5 functions Step 1/2/4/5 and the ticker

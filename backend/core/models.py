@@ -123,6 +123,19 @@ class MoatScoreConfig(SQLModel, table=True):
     updated_at: datetime
 
 
+class ReitDividendYieldConfig(SQLModel, table=True):
+    """User-adjustable REIT dividend-yield bargain-reference threshold
+    (valuation.md §3.3) -- editable via /settings, same lazy-seed
+    get-or-create pattern as MoatScoreConfig (see
+    helpers/reit_dividend_yield_config.py). Singleton row, keyed on a
+    fixed `key` -- no region/per-ticker concept applies, just one global
+    threshold."""
+
+    key: str = Field(primary_key=True, default="default")
+    threshold_pct: float
+    updated_at: datetime
+
+
 class TickerBankCapitalMetrics(SQLModel, table=True):
     """Manually-entered CET1 (Common Equity Tier 1) ratio, plus an optional
     manual override for the NPL (non-performing loan) ratio Step 5 already

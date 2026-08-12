@@ -13,6 +13,7 @@ from core.exceptions import TickerNotFoundError
 from helpers.discount_rate_config import get_discount_rate_config, update_discount_rate_config
 from core.logging_config import apply_redaction_filters
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
+from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config, update_reit_dividend_yield_config
 from core.models import IndexConstituent, SavedScreenerFilter, TickerCustomValuation, TickerScore, Watchlist
 from core.tickers import normalize_ticker
 from data.news_data import get_news_data
@@ -36,6 +37,8 @@ from core.schemas import (
     RatiosOut,
     RecomputeSummary,
     RefreshResult,
+    ReitDividendYieldConfigIn,
+    ReitDividendYieldConfigOut,
     SavedScreenerFilterIn,
     SavedScreenerFilterOut,
     ScreenerMeta,
@@ -143,6 +146,20 @@ def update_moat_score(body: MoatScoreConfigIn) -> MoatScoreConfigOut:
     with Session(engine) as session:
         row = update_moat_score_config(session, body.wide_moat_score, body.narrow_moat_score, body.no_moat_score)
     return MoatScoreConfigOut(**row.model_dump())
+
+
+@app.get("/api/config/reit-dividend-yield", response_model=ReitDividendYieldConfigOut)
+def reit_dividend_yield_config() -> ReitDividendYieldConfigOut:
+    with Session(engine) as session:
+        row = get_reit_dividend_yield_config(session)
+    return ReitDividendYieldConfigOut(**row.model_dump())
+
+
+@app.put("/api/config/reit-dividend-yield", response_model=ReitDividendYieldConfigOut)
+def update_reit_dividend_yield(body: ReitDividendYieldConfigIn) -> ReitDividendYieldConfigOut:
+    with Session(engine) as session:
+        row = update_reit_dividend_yield_config(session, body.threshold_pct)
+    return ReitDividendYieldConfigOut(**row.model_dump())
 
 
 # Backs the nav search box's typeahead dropdown -- matches against FMP's

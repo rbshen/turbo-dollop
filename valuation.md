@@ -352,7 +352,10 @@ range; the **mean** band is what `discount_premium_pct` and the verdict
   qualifier is a judgment call for whoever reads the note, not a second
   automated numeric threshold.
 - **REIT dividend yield check** (REIT/Property Developer only): flags
-  whether trailing dividend yield is **≥ 4%**. Informational only.
+  whether trailing dividend yield is **≥ the configured threshold**
+  (default **5%**, editable via the /settings page — see
+  `helpers/reit_dividend_yield_config.py`; was a hardcoded 4% before
+  2026-08-13). Informational only.
 - **REIT DPU growth note** (REIT/Property Developer only): a simple
   last-vs-first comparison of the dividend-per-share series across the
   reporting window ("grew from X to Y" / "declined from X to Y") — not a

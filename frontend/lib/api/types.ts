@@ -386,6 +386,13 @@ export interface MoatScoreConfigOut {
   updated_at: string;
 }
 
+export interface ReitDividendYieldConfigOut {
+  // Percent (e.g. 5.0 for 5%), matching dividend_yield_pct's own scale --
+  // default 5.0 per valuation.md §3.3. Editable via /settings.
+  threshold_pct: number;
+  updated_at: string;
+}
+
 export interface TickerScoreOut {
   ticker: string;
   company_name: string | null;
