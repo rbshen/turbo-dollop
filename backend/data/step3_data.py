@@ -243,6 +243,23 @@ async def get_step3_data(
                 cache_only,
             ),
         )
+        # Same cache key Step 4/Step 5 already populate
+        # ("balance_sheet_statement"/"annual", limit 10) -- a cache hit with
+        # zero new FMP calls for any ticker Step 4/Step 5 has already
+        # scored. Feeds the historical P/B series's tangible-book-value
+        # recomputation below (2026-08-15) -- see pb_history's own comment.
+        balance_sheet_annual = await safe_fetch(
+            "balance_sheet_statement_annual",
+            get_or_fetch(
+                session,
+                ticker,
+                "balance_sheet_statement",
+                "annual",
+                lambda: fmp_client.get_balance_sheet_statement(ticker, "annual", 10),
+                staleness_days,
+                cache_only,
+            ),
+        )
         # New cache key: 10yr annual ratios history (P/B bands + latest
         # book/sales-per-share) -- distinct from ticker_summary.py's
         # "ratios"/"latest" key (limit=1), so the two never fight over the
@@ -298,6 +315,7 @@ async def get_step3_data(
     cash_flow_annual = cash_flow_annual if isinstance(cash_flow_annual, list) else []
     cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
     balance_sheet_quarterly = balance_sheet_quarterly if isinstance(balance_sheet_quarterly, list) else []
+    balance_sheet_annual = balance_sheet_annual if isinstance(balance_sheet_annual, list) else []
     ratios_annual = ratios_annual if isinstance(ratios_annual, list) else []
     balance_sheet_latest = _first(balance_sheet_quarterly)
 
@@ -501,23 +519,65 @@ async def get_step3_data(
     # "last N entries" convention means the N most recent, matching the
     # spec's own pseudocode -- also the natural left-to-right order for a
     # Phase 3 chart.
-    pb_history = list(
-        reversed([row.get("priceToBookRatio") for row in ratios_annual if row.get("priceToBookRatio") is not None])
-    )
+    #
+    # Rebuilt onto the same tangible/quarterly-consistent book-value
+    # definition as book_value_per_share below (2026-08-15), replacing the
+    # prior FMP-raw-priceToBookRatio series -- averaging a series computed
+    # on one book-value definition and multiplying it by a point value
+    # computed on a different one produced a number that wasn't internally
+    # consistent (previously documented here as a "deliberate" mismatch;
+    # confirmed via real data this was worth fixing, not leaving as-is).
+    # FMP's own priceToBookRatio = price / bookValuePerShare (its own
+    # non-tangible per-share figure) for that period -- rescaling by
+    # (totalStockholdersEquity / tangible_book_value) for the same fiscal
+    # year converts it to price / tangible_book_value_per_share exactly,
+    # since bookValuePerShare's own share-count denominator cancels out
+    # algebraically: priceToBookRatio * (equity / tangible_equity)
+    #   = (price / (equity/shares)) * (equity / tangible_equity)
+    #   = price * shares / tangible_equity
+    #   = price / (tangible_equity / shares)
+    #   = price / tangible_book_value_per_share.
+    # No new price-history fetch needed -- FMP's own priceToBookRatio
+    # already embeds that period's price implicitly. Confirmed via real
+    # cached data (JPM/BAC/WFC/O/AVB) that the resulting tangible-basis
+    # book value per share this implies lands within ~1% of FMP's own
+    # separately-reported tangibleBookValuePerShare field for the same
+    # period -- i.e. this reproduces the same tangible concept, just
+    # derived from data already fetched rather than trusting a second,
+    # independent FMP field.
+    balance_sheet_annual_by_fy = {row.get("fiscalYear"): row for row in balance_sheet_annual}
+    pb_history_desc = []
+    for row in ratios_annual:
+        pb_raw = row.get("priceToBookRatio")
+        bs_row = balance_sheet_annual_by_fy.get(row.get("fiscalYear"))
+        if pb_raw is None or bs_row is None:
+            continue
+        equity = bs_row.get("totalStockholdersEquity")
+        total_assets = bs_row.get("totalAssets")
+        goodwill_and_intangibles = bs_row.get("goodwillAndIntangibleAssets")
+        total_liabilities = bs_row.get("totalLiabilities")
+        if None in (equity, total_assets, goodwill_and_intangibles, total_liabilities):
+            continue
+        tangible_equity = total_assets - goodwill_and_intangibles - total_liabilities
+        if tangible_equity <= 0:
+            # Same guard as book_value_per_share below -- a non-positive
+            # tangible book value makes a P/B multiple for that period
+            # undefined/meaningless, not just small; skip rather than
+            # fabricate a negative or division-by-near-zero multiple.
+            continue
+        pb_history_desc.append(pb_raw * (equity / tangible_equity))
+    pb_history = list(reversed(pb_history_desc))
     pb_lookback = None
     if len(pb_history) >= PB_LOOKBACK_LONG:
         pb_lookback = f"{PB_LOOKBACK_LONG} years"
     elif len(pb_history) >= PB_LOOKBACK_SHORT:
         pb_lookback = f"{PB_LOOKBACK_SHORT} years"
-    # pb_history (priceToBookRatio) is a dimensionless multiple -- FMP's own
-    # ratio, computed from FMP's own (non-tangible, annual-lagged)
-    # bookValuePerShare internally, NOT from book_value_per_share below --
-    # never itself converted. This is a deliberate, documented mismatch
-    # (see valuation.md ss3.1): rebuilding the full historical series on a
-    # tangible/quarterly basis would need a new annual balance-sheet fetch
-    # this function doesn't otherwise need; the mean/SD bands stay on
-    # FMP's raw ratio series while only the *current* book value below is
-    # corrected.
+    # pb_history is a dimensionless multiple, never itself FX-converted --
+    # both the price and the tangible book value it implicitly compares are
+    # in the same (local) currency for any given period, so the ratio is
+    # currency-invariant regardless of reported_currency; only the *current*
+    # book_value_per_share below needs its own fx_rate multiply, since it's
+    # a real dollar-per-share figure, not a ratio.
     #
     # book_value_per_share itself (valuation.md ss3.1's spec formula:
     # Total Assets - Intangible Assets - Total Liabilities, latest

@@ -374,20 +374,38 @@ def test_bank_gets_pb_benchmark_and_buy_signal(monkeypatch):
         return [{"fiscalYear": str(2025 - i), "priceToBookRatio": 1.0, "bookValuePerShare": 50.0} for i in range(10)]
 
     async def fake_balance_sheet_statement(ticker, period, limit):
+        # Quarterly (current book_value_per_share/debt_metrics/cash):
         # shares_outstanding = marketCap/price = 10_000_000_000/10.0 =
         # 1_000_000_000 (see fake_quote above); totalAssets -
         # goodwillAndIntangibleAssets - totalLiabilities = 50_000_000_000,
         # so book_value_per_share = 50.0 -- same figure the old
         # ratios_annual-based bookValuePerShare mock above used to supply
         # directly, now sourced from the balance sheet per Piece 1.
+        if period != "annual":
+            return [
+                {
+                    "cashAndCashEquivalents": 100,
+                    "totalDebt": 0,
+                    "totalAssets": 60_000_000_000,
+                    "goodwillAndIntangibleAssets": 0,
+                    "totalLiabilities": 10_000_000_000,
+                }
+            ]
+        # Annual (historical P/B tangibility rescale, 2026-08-15): identical
+        # totalStockholdersEquity/tangible-equity every year (goodwill=0, so
+        # the two are equal) -- the rescale factor is exactly 1.0, keeping
+        # the flat priceToBookRatio=1.0 history from fake_ratios above
+        # unchanged, so this test's buy-signal assertions (mean=1.0, sd=0,
+        # minus_1sd=50.0) stay valid without re-deriving them by hand.
         return [
             {
-                "cashAndCashEquivalents": 100,
-                "totalDebt": 0,
+                "fiscalYear": str(2025 - i),
                 "totalAssets": 60_000_000_000,
                 "goodwillAndIntangibleAssets": 0,
                 "totalLiabilities": 10_000_000_000,
+                "totalStockholdersEquity": 50_000_000_000,
             }
+            for i in range(10)
         ]
 
     monkeypatch.setattr(step3_data.fmp_client, "get_profile", fake_profile)
@@ -469,19 +487,37 @@ def test_non_usd_reporter_converts_every_monetary_input_to_usd(monkeypatch):
         return [{"symbol": "TWDUSD", "price": 0.05}]
 
     async def fake_balance_sheet_statement(ticker, period, limit):
-        # shares_outstanding = marketCap/price = 10_000_000_000/100.0 =
-        # 100_000_000 (module-level QUOTE, not overridden by this test);
-        # totalAssets - goodwillAndIntangibleAssets - totalLiabilities =
-        # 5_000_000_000 TWD, so book_value_per_share = 50.0 TWD pre-fx --
-        # matching the comment above (50.0 TWD * 0.05 == 2.5 USD).
+        # Quarterly (current book_value_per_share): shares_outstanding =
+        # marketCap/price = 10_000_000_000/100.0 = 100_000_000 (module-level
+        # QUOTE, not overridden by this test); totalAssets -
+        # goodwillAndIntangibleAssets - totalLiabilities = 5_000_000_000
+        # TWD, so book_value_per_share = 50.0 TWD pre-fx -- matching the
+        # comment above (50.0 TWD * 0.05 == 2.5 USD).
+        if period != "annual":
+            return [
+                {
+                    "cashAndCashEquivalents": 100,
+                    "totalDebt": 0,
+                    "totalAssets": 6_000_000_000,
+                    "goodwillAndIntangibleAssets": 0,
+                    "totalLiabilities": 1_000_000_000,
+                }
+            ]
+        # Annual (historical P/B tangibility rescale, 2026-08-15): equity ==
+        # tangible equity every year (goodwill=0) -> rescale factor 1.0,
+        # keeping fake_ratios' flat priceToBookRatio=1.0 history unchanged
+        # so pb_bands.mean stays exactly 1.0 * 2.5 USD == 2.5, unaffected by
+        # the tangibility fix -- this test is about FX conversion, not the
+        # rescale itself.
         return [
             {
-                "cashAndCashEquivalents": 100,
-                "totalDebt": 0,
+                "fiscalYear": str(2025 - i),
                 "totalAssets": 6_000_000_000,
                 "goodwillAndIntangibleAssets": 0,
                 "totalLiabilities": 1_000_000_000,
+                "totalStockholdersEquity": 5_000_000_000,
             }
+            for i in range(10)
         ]
 
     monkeypatch.setattr(step3_data.fmp_client, "get_profile", fake_profile)

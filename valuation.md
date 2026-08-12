@@ -289,7 +289,7 @@ discount_premium_pct      = last_close / final_iv_per_share - 1
 | Field | Description |
 |---|---|
 | `book_value_per_share` | current Book Value per share -- `(Total Assets − Intangible Assets − Total Liabilities) / Shares Outstanding`, computed from the **latest quarter's** balance sheet (2026-08-13 fix; see below) |
-| `historical_pb_ratios` | up to 10 most recent year-end P/B ratios, chronological |
+| `historical_pb_ratios` | up to 10 most recent year-end P/B ratios, chronological, on the **same tangible book-value basis** as `book_value_per_share` above (2026-08-15 fix; see below) |
 | `lookback` | **auto-selected**, not user-chosen at the Auto Calculation stage: `"10 years"` if at least 10 years of historical P/B data exist, else `"5 years"` if at least 5 exist, else no Price-to-Book result is produced at all |
 | `last_close` | current market price |
 
@@ -307,16 +307,33 @@ $115.80 (Q2 2026 quarter, tangible); O's (Realty Income) moved from $44.35 (FY20
 raw equity) to $39.52 (Q2 2026 quarter, tangible) -- both changes reflect the anchor moving
 forward by ~2 quarters *and* intangibles being stripped out, not either alone.
 
-**Known, accepted inconsistency:** `historical_pb_ratios` (used for the mean/SD bands in
-§3.2 below) still comes from FMP's own `priceToBookRatio` ratio series, which is itself
-computed against FMP's raw (non-tangible) `bookValuePerShare`, not the tangible figure above
--- so the *historical* series and the *current* book value now sit on slightly different
-bases. Rebuilding the full 10-year historical series on a tangible/latest-quarter basis would
-require a new annual balance-sheet fetch this calculation doesn't otherwise need; the cheaper
-fix (align only the current book value, leave the historical series as FMP reports it) was
-chosen deliberately over that cost. Not expected to matter much in practice -- the two bases
-track closely for most companies -- but is a known, documented approximation, not an
-oversight.
+**Historical series rebuilt onto the same tangible basis (2026-08-15 fix):**
+`historical_pb_ratios` previously came straight from FMP's own `priceToBookRatio` ratio
+series, which is computed against FMP's raw (non-tangible) `bookValuePerShare` -- a different
+basis than the tangible `book_value_per_share` above, documented at the time as a "known,
+accepted inconsistency" rather than fixed, since rebuilding the series would need a new
+annual balance-sheet fetch. That fetch (`balance_sheet_statement`/`annual`, 10yr) is now made
+-- the same cache key Step 4/Step 5 already populate, so it's a cache hit with zero new FMP
+calls for any ticker already scored elsewhere in the app. Each year's ratio is rescaled onto
+the tangible basis algebraically, with no new price fetch needed: FMP's own
+`priceToBookRatio = price / bookValuePerShare` for that period, so multiplying by
+`(totalStockholdersEquity / tangible_book_value)` for the same fiscal year converts it to
+`price / tangible_book_value_per_share` exactly (the share-count term cancels out). A year is
+dropped from the series (not included as a zero or a fabricated value) if its balance sheet
+can't be matched by fiscal year, any required field is missing, or the resulting tangible
+book value is non-positive -- same "don't fabricate a meaningless multiple" convention
+`book_value_per_share` itself already uses. `lookback`'s 10yr/5yr threshold is based on the
+count of years that actually clear these guards, not the raw FMP series length.
+
+Confirmed via real cached data that averaging a mean computed on one book-value definition
+and multiplying it by a point value computed on a different one was producing a materially
+inconsistent intrinsic value, not just a cosmetically different one -- JPM's mean P/B moved
+1.61x → 2.01x and its intrinsic value moved $186.75 → $232.75 (+24.6%); BAC +33.5%; WFC
++23.3%; O (REIT) +25.2%, with its verdict flipping from *fair* to *undervalued*. AVB moved
+essentially not at all (−0.2%) -- its goodwill/intangibles load is small relative to its
+equity, so the tangible and raw bases were already nearly identical for that ticker, which is
+the expected shape of the fix: it corrects for how much goodwill/intangibles a company
+carries, not a uniform across-the-board shift.
 
 ### 3.2 Calculation
 

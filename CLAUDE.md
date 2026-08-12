@@ -1149,12 +1149,44 @@ these are the design decisions and fixes behind them.
   outstanding) -- no new FMP fetch, every field was already being pulled for `debt_metrics`.
   Confirmed via real cached data: JPM $129.97 (FY2025 annual, raw equity) → $115.80 (Q2 2026
   quarter, tangible); O (Realty Income) $44.35 → $39.52 -- both moves reflect the anchor
-  advancing ~2 quarters *and* intangibles being stripped, not either alone. The *historical*
-  P/B ratio series feeding the mean/SD bands (`valuation.md` §3.2) is **not** rebuilt on the
-  same tangible/quarterly basis -- still FMP's own `priceToBookRatio`, non-tangible and
-  annual-lagged -- a deliberate, documented approximation (see `valuation.md` §3.1), not an
-  oversight; rebuilding it would need a new annual balance-sheet fetch this calculation
-  doesn't otherwise require.
+  advancing ~2 quarters *and* intangibles being stripped, not either alone. At the time, the
+  *historical* P/B ratio series feeding the mean/SD bands (`valuation.md` §3.2) was left on
+  FMP's own `priceToBookRatio` (non-tangible, annual-lagged) -- documented as a deliberate,
+  accepted approximation rather than a fix, since rebuilding it would need a new annual
+  balance-sheet fetch this calculation didn't otherwise require. See the next entry for why
+  that approximation was revisited and fixed two days later.
+
+- **Historical P/B series rebuilt onto the same tangible/quarterly-consistent basis as the
+  point estimate above (2026-08-15)**, closing the gap the prior entry left open. Averaging a
+  series computed under one book-value definition (FMP's raw `priceToBookRatio`) and
+  multiplying it by a point value computed under a different one (the corrected tangible
+  `book_value_per_share`) produces a number that isn't internally consistent -- this was worth
+  fixing outright, not leaving as a documented approximation, once actually checked against
+  real data (see below). Implementation: `step3_data.py` now also fetches
+  `balance_sheet_statement`/`annual` (10yr) -- the same cache key Step 4/Step 5 already
+  populate, so a cache hit with zero new FMP calls for any ticker already scored elsewhere in
+  the app, not a new per-ticker cost. Each year's `historical_pb_ratios` entry is rescaled
+  algebraically rather than refetched from a separate price series: FMP's own
+  `priceToBookRatio = price / bookValuePerShare` for that fiscal year, so multiplying by
+  `(totalStockholdersEquity / tangible_book_value)` for the same year converts it to
+  `price / tangible_book_value_per_share` exactly -- the share-count term FMP's own
+  `bookValuePerShare` embeds cancels out of the algebra, so no separate historical price fetch
+  or reconstructed share count is needed. A year is dropped (not fabricated as zero) if its
+  balance sheet can't be matched by fiscal year, a required field is missing, or the resulting
+  tangible book value is non-positive -- the same "don't fabricate a meaningless multiple"
+  convention `book_value_per_share` itself already uses; `pb_lookback`'s 10yr/5yr threshold is
+  based on the count of years that clear these guards, not the raw FMP series length (confirmed
+  the 5yr fallback still engages correctly for a thinner-history ticker, HOOD, which had only 5
+  of its 7 raw years survive the guards).
+
+  Confirmed via real cached data this was a genuine, material inconsistency, not a rounding
+  concern: **JPM**'s mean P/B moved 1.61x → 2.01x, intrinsic value $186.75 → $232.75 (+24.6%,
+  verdict unchanged, still overvalued); **BAC** +33.5%; **WFC** +23.3%; **O** (REIT) +25.2%,
+  with its verdict flipping **fair → undervalued**; **AVB** moved essentially not at all
+  (−0.2%) -- its goodwill/intangibles load is small relative to its equity, so the tangible and
+  raw bases were already nearly identical for that specific ticker. This is the expected shape
+  of the fix (it corrects for how much goodwill/intangibles a company carries, not a uniform
+  shift applied to every ticker alike), not evidence the fix is inconsistent.
 
 ## Workflow rules
 
