@@ -10,6 +10,13 @@ It's built from two pieces:
   to revenue growth when EPS projections aren't usable (most often because
   the company's current earnings are negative, which makes an EPS growth
   rate mathematically meaningless).
+- **REITs are the one exception** — they're scored on revenue (effectively
+  rental income for this kind of company) rather than EPS, since REIT
+  earnings are heavily distorted by non-cash depreciation on real estate,
+  and the data source has no forward-looking dividend/distribution
+  estimate to use instead. A note on the card explains this whenever it
+  applies, alongside the company's historical dividend-per-share trend
+  shown for context only (it doesn't affect the score).
 - **Estimate agreement** — how tightly the individual analysts' estimates
   cluster around that average. If most analysts are projecting a similar
   number, that's read as higher-confidence; if the high and low estimates

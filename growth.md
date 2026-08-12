@@ -50,6 +50,41 @@ Revenue average estimates (`revenueAvg`) instead. Whichever field actually
 produced a usable value determines the `basis` (`"eps"` or `"revenue"`)
 reported alongside the score.
 
+### REIT / Property Developer override
+
+REIT tickers (`company_type == "REIT/Property Developer"`) skip the EPS
+attempt entirely and are always scored on Revenue — not just as a
+fallback, but as the sole basis. Two reasons drove this, confirmed via a
+2026-08 investigation:
+
+- **EPS is depreciation-heavy and doesn't reflect REIT economics.** REITs
+  carry large non-cash depreciation charges against real estate assets,
+  which can make EPS negative or erratic even for operationally healthy
+  companies — confirmed real case: 7 REITs (ARE, AVB, BXP, FRT, HST, INVH,
+  UDR) failed Growth Rate purely from EPS/depreciation noise while every
+  one of them passes cleanly on a Revenue basis, with no regressions among
+  REITs that already passed.
+- **DPU (distribution/dividend per share) growth — the metric this
+  methodology's own framework calls for — has no forward-looking
+  equivalent in the data source.** The `/analyst-estimates` endpoint only
+  carries `revenue`/`ebitda`/`ebit`/`netIncome`/`sgaExpense`/`eps` fields;
+  there is no forward DPU/dividend estimate field at all. A genuine
+  "projected DPU growth" figure can't be built from this data source.
+
+Revenue is used in its place rather than left as a gap, because REIT
+revenue is already effectively rental income for this universe (confirmed
+via segment-level revenue breakdowns on several REIT tickers, ~95-100%
+rental revenue with no other material business line) — so Revenue growth
+already reads as rental-income growth, the other half of the framework's
+own stated intent, without needing a new metric.
+
+A REIT-specific `growth_basis_note` explains this on the card; historical
+(trailing) DPU/share growth is also surfaced as a separate, purely
+informational note (`dpu_growth_note`, reusing the same helper Step 3's
+Valuation tab uses) — never scored, since a trailing actual figure has no
+analyst high/low spread to build an agreement component from the way the
+scored Revenue basis does.
+
 ## Estimate agreement (spread)
 
 For the same target year:
@@ -59,9 +94,9 @@ spread_pct = (high_estimate − low_estimate) / average_estimate × 100
 ```
 
 using the high/low/average fields matching whichever basis (EPS or
-Revenue) produced the growth rate. If the spread can't be computed, it
-defaults to 100% (read as maximally wide/uncertain) for scoring purposes
-only.
+Revenue — always Revenue for REITs, see above) produced the growth rate.
+If the spread can't be computed, it defaults to 100% (read as maximally
+wide/uncertain) for scoring purposes only.
 
 ## Scoring
 

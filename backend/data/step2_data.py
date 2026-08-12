@@ -9,9 +9,26 @@ from clients.fmp_client import fmp_client
 from core.models import GrowthCatalystNote
 from core.schemas import Step2EstimateRow, Step2Out
 from core.tickers import normalize_ticker
+from helpers.first import _first
+from scoring.classification import classify_company_type
 from scoring.step2 import AGREEMENT_WEIGHT, MAGNITUDE_WEIGHT, score_step2
+from scoring.step3 import dpu_growth_note
 
 WEIGHTS = {"magnitude": MAGNITUDE_WEIGHT, "agreement": AGREEMENT_WEIGHT}
+
+# REITs are routed straight to Revenue (rental income) growth, never EPS --
+# FMP has no forward-looking DPU/dividend estimate field at all (checked:
+# /analyst-estimates rows only carry revenue/ebitda/ebit/netIncome/
+# sgaExpense/eps fields), and REIT revenue is already ~95-100% rental income
+# across the tracked universe (confirmed via revenue_product_segmentation on
+# ARE/AVB/O) -- so Revenue growth IS rental-income growth for this company
+# type, not just a fallback proxy. See CLAUDE.md's REIT framework
+# investigation.
+REIT_GROWTH_BASIS_NOTE = (
+    "REITs are scored on revenue (rental income) growth rather than DPU, since forward DPU/dividend "
+    "estimates aren't available from the data provider -- REIT revenue is effectively rental income for "
+    "this universe."
+)
 
 # The 3-5yr horizon the source doc asks for, centered on 4 years out --
 # same window ticker_summary.py already uses for the header's EPS CAGR.
@@ -115,22 +132,67 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
                 cache_only,
             ),
         )
+        # Same cache key ("profile"/"latest") Step 1/4/5 already populate --
+        # a cache hit, not a new fetch, for any ticker already scored
+        # elsewhere in the app.
+        profile = _first(
+            await safe_fetch(
+                "profile",
+                get_or_fetch(
+                    session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days, cache_only
+                ),
+            )
+        )
+        company_type = classify_company_type(profile.get("sector"), profile.get("industry"), ticker)
+        is_reit = company_type == "REIT/Property Developer"
+
+        dpu_note = None
+        if is_reit:
+            # Only fetched for REITs -- same cache key ("ratios"/"annual_10y")
+            # step3_data.py already populates for the Valuation P/B lookback,
+            # so this is a cache hit whenever that tab's been viewed, and one
+            # new incremental fetch otherwise. Never fetched for the ~500
+            # non-REIT tickers.
+            ratios_annual = await safe_fetch(
+                "ratios_annual_10y",
+                get_or_fetch(
+                    session,
+                    ticker,
+                    "ratios",
+                    "annual_10y",
+                    lambda: fmp_client.get_ratios(ticker, "annual", 10),
+                    staleness_days,
+                    cache_only,
+                ),
+            )
+            ratios_annual = ratios_annual if isinstance(ratios_annual, list) else []
+            dpu_series = list(reversed([row.get("dividendPerShare") for row in ratios_annual]))
+            dpu_note = dpu_growth_note(dpu_series)
+
         growth_catalysts = _get_growth_catalysts(session, ticker)
 
     estimates = estimates_data if isinstance(estimates_data, list) else []
     rows = _future_rows(estimates, today)
 
-    # Prefer EPS estimates -- less exposed to the "insufficient data" gap
-    # revenue-only sourcing had, and the basis this app's methodology now
-    # standardizes on (see CLAUDE.md's Step 2 rationale). Fall back to
-    # revenue if EPS doesn't yield a usable CAGR for this ticker (most
-    # commonly a negative base-year EPS, which makes a CAGR mathematically
-    # undefined even when the field itself is populated).
-    projection = _project(rows, "epsAvg", "epsLow", "epsHigh", "numAnalystsEps")
-    basis = "eps"
-    if projection is None:
+    if is_reit:
+        # REITs skip the EPS attempt entirely, not just fall back past it --
+        # EPS is depreciation-heavy and doesn't reflect REIT economics (see
+        # CLAUDE.md's REIT framework investigation). Revenue is effectively
+        # rental income for this company type.
         projection = _project(rows, "revenueAvg", "revenueLow", "revenueHigh", "numAnalystsRevenue")
         basis = "revenue"
+    else:
+        # Prefer EPS estimates -- less exposed to the "insufficient data" gap
+        # revenue-only sourcing had, and the basis this app's methodology now
+        # standardizes on (see CLAUDE.md's Step 2 rationale). Fall back to
+        # revenue if EPS doesn't yield a usable CAGR for this ticker (most
+        # commonly a negative base-year EPS, which makes a CAGR mathematically
+        # undefined even when the field itself is populated).
+        projection = _project(rows, "epsAvg", "epsLow", "epsHigh", "numAnalystsEps")
+        basis = "eps"
+        if projection is None:
+            projection = _project(rows, "revenueAvg", "revenueLow", "revenueHigh", "numAnalystsRevenue")
+            basis = "revenue"
 
     if projection is None:
         # No real growth rate to score -- neither EPS nor Revenue yielded a
@@ -152,6 +214,8 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
             weights=WEIGHTS,
         )
 
+    growth_basis_note = REIT_GROWTH_BASIS_NOTE if is_reit else None
+
     result = score_step2(growth_rate_pct=projection["growth_rate"], spread_pct=projection["spread"] or 100.0)
 
     return Step2Out(
@@ -164,6 +228,8 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
         estimate_spread=projection["spread"],
         target_analyst_count=projection["analyst_count"],
         growth_catalysts=growth_catalysts,
+        growth_basis_note=growth_basis_note,
+        dpu_growth_note=dpu_note,
         score=result.score,
         verdict=result.verdict,
         components={

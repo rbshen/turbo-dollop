@@ -194,9 +194,11 @@ class Step2EstimateRow(BaseModel):
 
 class Step2Out(BaseModel):
     ticker: str
-    # Which FMP metric the projection is based on -- revenue is preferred,
-    # EPS is a fallback when revenue estimates are unavailable (see
-    # CLAUDE.md's "Scoring rubric deviations").
+    # Which FMP metric the projection is based on -- EPS is preferred, Revenue
+    # is a fallback when EPS estimates don't yield a usable CAGR (see
+    # CLAUDE.md's "Scoring rubric deviations"). REITs are the one exception:
+    # they're routed straight to Revenue, skipping the EPS attempt entirely
+    # (see growth_basis_note below).
     basis: str | None = None
     estimates: list[Step2EstimateRow] = []
     base_fiscal_year: str | None = None
@@ -212,6 +214,17 @@ class Step2Out(BaseModel):
     # Manually-curated free text; not factored into the score (see
     # CLAUDE.md). Null when nothing has been recorded yet.
     growth_catalysts: str | None = None
+    # REIT-only: explains why Revenue (rental income) is used as the basis
+    # instead of DPU/dividend growth -- FMP has no forward-looking DPU
+    # estimate field at all (see CLAUDE.md). Informational only, never
+    # affects score/verdict. None for every other company type.
+    growth_basis_note: str | None = None
+    # REIT-only: historical (trailing) DPU/share trend, reusing
+    # scoring/step3.py's dpu_growth_note verbatim -- purely informational,
+    # never scored (a trailing figure has no forward-looking analyst
+    # agreement spread the way the scored basis does). None for every other
+    # company type.
+    dpu_growth_note: str | None = None
     # None when no usable growth projection exists in either basis -- never
     # a fabricated number (same convention as Step4Out/Step5Out).
     score: int | None = None

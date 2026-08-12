@@ -16,15 +16,18 @@ shows you the detected type rather than hiding it.
 
 | Company type | Financials | Growth Rate | Profitability | Debt | Valuation |
 |---|---|---|---|---|---|
-| **Standard** (typical operating company) | All 5 metrics checked | Unaffected | All 4 metrics checked | Standard 3-ratio check | Cash-flow or profit-based method |
-| **Bank** | Cash-flow checks skipped | Unaffected | ROIC and Cash Conversion Cycle skipped | Judged on capital adequacy (CET1, manual entry) + loan quality (NPL) | Price-to-Book |
-| **Insurance** | Cash-flow checks skipped | Unaffected | ROIC and Cash Conversion Cycle skipped | Not supported — no reliable substitute available | Profit-based method (cash flow skipped) |
-| **REIT / Property Developer** | Cash-flow checks skipped | Unaffected | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped) | Judged on a Gearing ratio (debt vs. total assets) instead of the standard 3 ratios | Price-to-Book |
-| **Utility** | All 5 metrics checked (not exempted here) | Unaffected | ROIC and Cash Conversion Cycle skipped | Standard 3-ratio check (not exempted here) | Cash-flow or profit-based method |
-| **Commodity company** (e.g. mining, energy) | Cash-flow checks skipped | Unaffected | All 4 metrics checked (not exempted here) | Standard 3-ratio check (not exempted here) | Cash-flow or profit-based method |
+| **Standard** (typical operating company) | All 5 metrics checked | EPS preferred, revenue fallback | All 4 metrics checked | Standard 3-ratio check | Cash-flow or profit-based method |
+| **Bank** | Cash-flow checks skipped | EPS preferred, revenue fallback | ROIC and Cash Conversion Cycle skipped | Judged on capital adequacy (CET1, manual entry) + loan quality (NPL) | Price-to-Book |
+| **Insurance** | Cash-flow checks skipped | EPS preferred, revenue fallback | ROIC and Cash Conversion Cycle skipped | Not supported — no reliable substitute available | Profit-based method (cash flow skipped) |
+| **REIT / Property Developer** | Cash-flow checks skipped | Always revenue (rental income); EPS never used | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped) | Judged on a Gearing ratio (debt vs. total assets) instead of the standard 3 ratios | Price-to-Book |
+| **Utility** | All 5 metrics checked (not exempted here) | EPS preferred, revenue fallback | ROIC and Cash Conversion Cycle skipped | Standard 3-ratio check (not exempted here) | Cash-flow or profit-based method |
+| **Commodity company** (e.g. mining, energy) | Cash-flow checks skipped | EPS preferred, revenue fallback | All 4 metrics checked (not exempted here) | Standard 3-ratio check (not exempted here) | Cash-flow or profit-based method |
 
-Growth Rate is the one check that never varies by company type — forward
-analyst growth expectations are read the same way for every ticker.
+Growth Rate reads the same way for every company type except REITs, which
+are scored on revenue (rental income) growth instead of EPS — EPS is
+heavily distorted by non-cash real-estate depreciation, and the data
+source has no forward-looking dividend/distribution estimate to substitute
+instead. See [Growth Rate](growth-rate.md) for detail.
 
 ## Why cash-flow checks get skipped for some types
 

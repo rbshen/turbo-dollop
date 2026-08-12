@@ -25,11 +25,33 @@ def _fresh_engine(monkeypatch):
     return test_engine
 
 
-def _patch_estimates(monkeypatch, rows: list[dict]):
+def _patch_estimates(
+    monkeypatch,
+    rows: list[dict],
+    sector: str = "Technology",
+    industry: str = "Consumer Electronics",
+    ratios_annual: list[dict] | None = None,
+):
+    """Patches every fmp_client call step2_data.py can make -- analyst
+    estimates, profile (for company-type classification), and ratios (REIT
+    DPU note only, never actually called unless sector/industry resolve to
+    REIT) -- same all-in-one convention test_step4_data.py's own _patch_fmp
+    uses, so no test accidentally leaves an fmp_client method unmocked and
+    reaches a real network call. Defaults to a Standard-classifying
+    sector/industry, matching every existing test's assumed company type."""
+
     async def fake_get_analyst_estimates(ticker):
         return rows
 
+    async def fake_profile(ticker):
+        return [{"sector": sector, "industry": industry}]
+
+    async def fake_get_ratios(ticker, period, limit):
+        return ratios_annual if ratios_annual is not None else []
+
     monkeypatch.setattr(step2_data.fmp_client, "get_analyst_estimates", fake_get_analyst_estimates)
+    monkeypatch.setattr(step2_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step2_data.fmp_client, "get_ratios", fake_get_ratios)
 
 
 def test_target_year_picks_row_closest_to_four_years_out_within_window(monkeypatch):
@@ -194,10 +216,104 @@ def test_insufficient_data_when_fetch_fails(monkeypatch):
     async def fake_get_analyst_estimates(ticker):
         raise httpx.ConnectError("boom")
 
+    async def fake_profile(ticker):
+        return [{"sector": "Technology", "industry": "Consumer Electronics"}]
+
     monkeypatch.setattr(step2_data.fmp_client, "get_analyst_estimates", fake_get_analyst_estimates)
+    monkeypatch.setattr(step2_data.fmp_client, "get_profile", fake_profile)
 
     result = asyncio.run(get_step2_data("TEST"))
 
     assert result.basis is None
     assert result.score is None
     assert result.verdict == "insufficient_data"
+
+
+def test_reit_skips_eps_and_uses_revenue_basis_even_when_eps_is_favorable(monkeypatch):
+    # EPS growth here is deliberately much stronger than Revenue growth --
+    # if REITs still fell back to EPS-preferred-then-revenue like every
+    # other company type, this would score on the (higher) EPS figure. A
+    # REIT must use Revenue regardless, since EPS is depreciation-heavy and
+    # doesn't reflect REIT economics (see CLAUDE.md's REIT framework
+    # investigation).
+    _fresh_engine(monkeypatch)
+    rows = [
+        _row(0, revenueAvg=100, revenueLow=90, revenueHigh=110, epsAvg=1.0, epsLow=0.9, epsHigh=1.1),
+        _row(4, revenueAvg=120, revenueLow=110, revenueHigh=130, epsAvg=3.0, epsLow=2.8, epsHigh=3.2),
+    ]
+    _patch_estimates(monkeypatch, rows, sector="Real Estate", industry="REIT - Retail")
+
+    result = asyncio.run(get_step2_data("TEST"))
+
+    assert result.basis == "revenue"
+    expected_cagr = ((120 / 100) ** (1 / 4) - 1) * 100
+    assert result.growth_rate == pytest.approx(expected_cagr)
+
+
+def test_growth_basis_note_present_for_reit_and_absent_for_standard(monkeypatch):
+    _fresh_engine(monkeypatch)
+    rows = [
+        _row(0, revenueAvg=100, revenueLow=90, revenueHigh=110, epsAvg=1.0, epsLow=0.9, epsHigh=1.1),
+        _row(4, revenueAvg=160, revenueLow=140, revenueHigh=180, epsAvg=1.6, epsLow=1.4, epsHigh=1.8),
+    ]
+
+    # Different tickers -- same ticker would hit the cached "profile" row
+    # from the first call instead of re-fetching under the second mock.
+    _patch_estimates(monkeypatch, rows, sector="Real Estate", industry="REIT - Retail")
+    reit_result = asyncio.run(get_step2_data("REIT_TEST"))
+    assert reit_result.growth_basis_note is not None
+    assert "revenue (rental income)" in reit_result.growth_basis_note
+
+    _patch_estimates(monkeypatch, rows, sector="Technology", industry="Consumer Electronics")
+    standard_result = asyncio.run(get_step2_data("STANDARD_TEST"))
+    assert standard_result.growth_basis_note is None
+
+
+def test_dpu_growth_note_populated_for_reit_with_dividend_history(monkeypatch):
+    _fresh_engine(monkeypatch)
+    rows = [
+        _row(0, revenueAvg=100, revenueLow=90, revenueHigh=110),
+        _row(4, revenueAvg=160, revenueLow=140, revenueHigh=180),
+    ]
+    # ratios rows are newest-first (matching FMP's real ordering); step2_data
+    # reverses them to chronological before computing the note, same as
+    # step3_data.py's own dpu_series construction.
+    ratios_annual = [
+        {"dividendPerShare": 3.20},
+        {"dividendPerShare": 3.00},
+        {"dividendPerShare": 2.50},
+    ]
+    _patch_estimates(monkeypatch, rows, sector="Real Estate", industry="REIT - Retail", ratios_annual=ratios_annual)
+
+    result = asyncio.run(get_step2_data("TEST"))
+
+    assert result.dpu_growth_note is not None
+    assert "2.50" in result.dpu_growth_note
+    assert "3.20" in result.dpu_growth_note
+
+
+def test_dpu_growth_note_none_when_ratios_data_absent(monkeypatch):
+    _fresh_engine(monkeypatch)
+    rows = [
+        _row(0, revenueAvg=100, revenueLow=90, revenueHigh=110),
+        _row(4, revenueAvg=160, revenueLow=140, revenueHigh=180),
+    ]
+    _patch_estimates(monkeypatch, rows, sector="Real Estate", industry="REIT - Retail")
+
+    result = asyncio.run(get_step2_data("TEST"))
+
+    assert result.dpu_growth_note is None
+
+
+def test_dpu_growth_note_and_basis_note_are_none_for_non_reit(monkeypatch):
+    _fresh_engine(monkeypatch)
+    rows = [
+        _row(0, revenueAvg=100, revenueLow=90, revenueHigh=110, epsAvg=1.0, epsLow=0.9, epsHigh=1.1),
+        _row(4, revenueAvg=160, revenueLow=140, revenueHigh=180, epsAvg=1.6, epsLow=1.4, epsHigh=1.8),
+    ]
+    _patch_estimates(monkeypatch, rows, sector="Technology", industry="Consumer Electronics")
+
+    result = asyncio.run(get_step2_data("TEST"))
+
+    assert result.growth_basis_note is None
+    assert result.dpu_growth_note is None

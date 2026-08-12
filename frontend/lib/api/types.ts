@@ -180,8 +180,10 @@ export interface Step2Components {
 
 export interface Step2Out {
   ticker: string;
-  // Which FMP metric the projection is based on -- revenue preferred, EPS
-  // as a fallback (see CLAUDE.md's "Scoring rubric deviations").
+  // Which FMP metric the projection is based on -- EPS is preferred, Revenue
+  // is a fallback (see CLAUDE.md's "Scoring rubric deviations"). REITs are
+  // routed straight to Revenue instead, skipping EPS entirely -- see
+  // growth_basis_note below.
   basis: "revenue" | "eps" | null;
   estimates: Step2EstimateRow[];
   base_fiscal_year: string | null;
@@ -194,6 +196,13 @@ export interface Step2Out {
   // built on; doesn't affect the score.
   target_analyst_count: number | null;
   growth_catalysts: string | null;
+  // REIT-only: explains why Revenue (rental income) is used instead of DPU
+  // growth. Informational only, never affects score/verdict. Null for every
+  // other company type.
+  growth_basis_note: string | null;
+  // REIT-only: historical DPU/share trend, purely informational. Null for
+  // every other company type.
+  dpu_growth_note: string | null;
   // null when no usable growth projection exists in either basis (verdict
   // is "insufficient_data" then) -- never a fabricated number.
   score: number | null;

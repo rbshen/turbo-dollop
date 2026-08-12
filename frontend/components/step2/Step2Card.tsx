@@ -95,7 +95,24 @@ export function Step2Card({ ticker }: Props) {
     };
   });
 
+  // REIT-only notes (basis explanation + historical DPU trend) -- purely
+  // informational, never affect score/verdict/bullets above. Null for every
+  // other company type.
+  const notes = (
+    <>
+      {data.growth_basis_note && <p className="text-xs text-text-tertiary">{data.growth_basis_note}</p>}
+      {data.dpu_growth_note && <p className="text-xs text-text-tertiary">{data.dpu_growth_note}</p>}
+    </>
+  );
+
   return (
-    <AnalysisSectionCard title="Growth Rate" score={data.score} verdict={data.verdict} blurb={rationale(data)} bullets={bullets} />
+    <AnalysisSectionCard
+      title="Growth Rate"
+      score={data.score}
+      verdict={data.verdict}
+      blurb={rationale(data)}
+      notes={notes}
+      bullets={bullets}
+    />
   );
 }
