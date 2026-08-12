@@ -166,6 +166,14 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
                 ),
             )
             ratios_annual = ratios_annual if isinstance(ratios_annual, list) else []
+            # Known gap, deliberately deferred (same as step3_data.py's own
+            # dpu_growth_note call for the Valuation tab -- see its comment
+            # there): dividendPerShare is left un-converted here. This note
+            # is informational text only (never feeds Growth Rate's score/
+            # verdict), and no currently-tracked REIT reports in a non-USD
+            # currency (re-confirmed 2026-08-12, all 31 REIT-classified
+            # tickers in cache are USD), so this is low-stakes for now.
+            # Convert (dpu * fx_rate) if a non-USD REIT is ever added.
             dpu_series = list(reversed([row.get("dividendPerShare") for row in ratios_annual]))
             dpu_note = dpu_growth_note(dpu_series)
 
