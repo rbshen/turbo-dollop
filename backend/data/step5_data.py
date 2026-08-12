@@ -564,5 +564,12 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
         pass_with_caution=result["pass_with_caution"],
         weights=result["weights"],
         debt_ratios_evaluated=True,
+        # "—" placeholder for a short-history pad slot, matching Step4Out's
+        # own _annual_years convention -- this module's own `years` (used
+        # internally for the breach-context trend sentence) pads with None
+        # instead, which is fine for that string-interpolation use but not
+        # for a chart-facing `list[str]` field.
+        debt_to_ebitda_years=[y or "—" for y in years] + ["TTM"],
+        debt_to_ebitda_series=debt_to_ebitda_series + [debt_to_ebitda],
         outlier_warnings=outlier_warnings,
     )

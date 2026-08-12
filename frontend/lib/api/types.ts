@@ -282,6 +282,15 @@ export interface Step5Out {
   // scored or not), Insurance (not_supported), REIT/Property Developer
   // (Gearing ratio), and Standard/Utility's own insufficient_data case.
   debt_ratios_evaluated: boolean;
+  // 10yr annual + TTM, gross Debt/EBITDA -- (shortTermDebt + longTermDebt) /
+  // EBITDA, the exact figure scored above. Deliberately NOT the same as
+  // RatiosOut's "Net Debt/EBITDA" (FMP's netDebtToEBITDA), which nets
+  // against cash and uses FMP's own broader totalDebt (folds in capital
+  // lease obligations) -- confirmed via real data that the two can land in
+  // different Comfortable/Borderline bands for the same ticker. Only
+  // populated when debt_ratios_evaluated is true.
+  debt_to_ebitda_years: string[];
+  debt_to_ebitda_series: (number | null)[];
 }
 
 export interface Step4RatioComponent {

@@ -330,6 +330,23 @@ class Step5Out(BaseModel):
     # actually evaluated via the 3 ratios" without re-deriving Step 5's own
     # classification/data-availability branching.
     debt_ratios_evaluated: bool = False
+    # 10yr annual + TTM (matching Step1Out/Step4Out's own years+TTM
+    # convention), gross Debt/EBITDA -- (shortTermDebt + longTermDebt) /
+    # EBITDA, the exact figure score_step5_standard scores, not FMP's own
+    # `netDebtToEBITDA` (RatiosOut's "Net Debt/EBITDA" field). Those two
+    # are NOT the same ratio: FMP's field nets against cash *and* uses
+    # FMP's own broader `totalDebt` (which folds in capital lease
+    # obligations Step 5 deliberately excludes -- see helpers/debt_metrics.py)
+    # as its debt base. Confirmed via real cached data (2026-08-13
+    # investigation) that this compounds into a material, not just
+    # cosmetic, difference -- SBUX reads 2.26x gross (comfortably under the
+    # 3.0x hard-fail line) vs 3.23x under FMP's net figure (inside the
+    # Borderline zone) -- so this series is deliberately its own field
+    # rather than reusing RatiosOut's. Only populated when
+    # `debt_ratios_evaluated` is True (Standard path); `None`/empty
+    # otherwise, same gating as the Total Debt chart card.
+    debt_to_ebitda_years: list[str] = []
+    debt_to_ebitda_series: list[float | None] = []
 
 
 class Step4Out(BaseModel):
