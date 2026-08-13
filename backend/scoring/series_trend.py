@@ -46,9 +46,11 @@ def robust_late_direction(values: np.ndarray, window: int, protect_terminal: boo
     negative CCC quarter, or a spike-year margin) can otherwise single-
     handedly flip `direction` positive even when the rest of the window
     shows a flat or worsening trend. Deliberately touches ONLY the late
-    window, not the early one -- an early-window anomaly is a different,
-    less clearly motivated correction that risks conflicting with the
-    already-shipped dip-side gates (see CLAUDE.md's Step 1/4 deviations).
+    window, not the early one for every general caller here -- an early-
+    window anomaly is a different correction, with a different (asymmetric)
+    risk profile, and is handled separately by `robust_early_direction`
+    below for the one narrow case that needs it (see that function's own
+    docstring for why it isn't just this function mirrored blindly).
 
     `protect_terminal`: never let the excluded outlier be the series' own
     most recent point. Every other caller (margins/CCC/AR-DSO, and
@@ -75,3 +77,41 @@ def robust_late_direction(values: np.ndarray, window: int, protect_terminal: boo
         return float(late.mean()) - early_avg
     robust_late_avg = float(np.delete(late, idx).mean())
     return robust_late_avg - early_avg
+
+
+def robust_early_direction(values: np.ndarray, window: int) -> float:
+    """`direction`, but with the single most extreme point WITHIN the early
+    window (vs. that window's own median) excluded from its average --
+    exists for exactly one caller (Step 1's Margins `sharply_declining`
+    check) and is NOT a general-purpose mirror of `robust_late_direction`
+    the way it might look. The two functions solve different-shaped
+    problems: excluding the late window's outlier is safe to use
+    unconditionally, because a single good late point can only ever make
+    `direction` look BETTER than it should -- excluding it is conservative.
+    Excluding the early window's outlier is NOT safety-symmetric: the
+    excluded point can be either a high anomaly (raises `direction`, e.g. a
+    one-off gain inflating the early baseline -- GLW's 2016 39.35% net
+    margin) or a low anomaly (LOWERS `direction` by raising what's left of
+    the early average, e.g. a real oil-crash trough sitting in DVN's first
+    3 years) -- and only the first case is the false positive this exists
+    to catch. Confirmed via a full-universe check (2026-08-13): using this
+    function's raw output unconditionally regressed 16 tickers (DVN's
+    Margins score cratered from stable_or_expanding/100 to
+    sharply_declining/20 -- excluding its 2016 trough raised the early
+    average, which made `direction` MORE negative, the opposite of the
+    intended fix). Callers MUST take `max(direction, robust_early_direction(...))`,
+    never this function's return value alone -- that makes the correction
+    one-directional (only ever raises a reading that direction's own
+    unguarded average put too low), so a genuine low early anomaly can
+    never make a company look worse than the unadjusted average already
+    did. See CLAUDE.md's Step 1 deviations for the full investigation."""
+    arr = np.asarray(values, dtype=float)
+    w = min(window, len(arr))
+    late_avg = float(arr[-w:].mean())
+    early = arr[:w]
+    if len(early) < 3:
+        return late_avg - float(early.mean())
+    median = np.median(early)
+    idx = int(np.argmax(np.abs(early - median)))
+    robust_early_avg = float(np.delete(early, idx).mean())
+    return late_avg - robust_early_avg

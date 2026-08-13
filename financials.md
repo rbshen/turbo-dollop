@@ -88,6 +88,22 @@ points:
    `flat_then_spike`, **20**. (Before this change, the flat-vs-spike test
    was a bare 2-point comparison — `arr[0]` vs `arr[-2]` — that could miss
    a genuine multi-year improvement sitting just behind a terminal spike.)
+   **The robust-average computation itself is now jump-magnitude-gated as
+   of 2026-08-13**: TTM is only *protected* from being excluded as the late
+   window's own outlier (i.e. `protect_terminal=True`) when the jump into
+   it is **100% or less** — the same `DIP_BASELINE_SPIKE_RATIO` threshold
+   step 5 below already uses to flag an unreliable one-off jump. Without
+   this, the unprotected robust average always discarded TTM as noise
+   whenever it happened to be the late window's most extreme point —
+   throwing out the one number that's actual evidence of a genuine
+   recovery. Confirmed via a full-universe stress test: GLW's CFO (+45.3%
+   TTM jump, a literal new high 14.7% above its own 2021 peak) and YUM's
+   Net Income (+42.2%) are now correctly credited, while NBIS's CFO
+   (+682.9%, no precedent anywhere in 10 years of history) and VLO's Net
+   Income (+207.2%, a second single-year commodity-margin spike in a
+   business that already lived through one boom-bust cycle in this exact
+   window) stay conservatively unrescued — a jump beyond the 100% line
+   still gets the old, unprotected treatment.
 5. **Contiguous real-dip transitions merge into one dip event** as of
    **2026-08-08**. A multi-year decline (e.g. HWM's 2018→2021 Revenue
    collapse — three consecutive declining transitions) is one real
@@ -200,6 +216,31 @@ Classification (checked in this order):
       growing → `sharply_declining`, **20**. This check always runs
       first, regardless of recovery status — a currently sharply-negative
       net margin is never excused by an unrelated gross-margin recovery.
+      **As of 2026-08-13, "net margin's direction" here means
+      `max(direction, robust_early_direction)`**, not the raw windowed
+      direction alone: `robust_early_direction` mirrors the robust late-
+      window average used elsewhere in this doc, but applied to the
+      *early* window instead — the single most extreme early-window point
+      (vs. that window's own median) is excluded before averaging. This
+      exists because a single anomalous high year sitting in the early
+      window (e.g. GLW's 2016 net margin of 39.35%, an evident one-off
+      immediately followed by a -4.91% 2017) can inflate the early average
+      enough to make `direction` read sharply negative even when the
+      series has genuinely recovered in its most recent years. The `max()`
+      is load-bearing, not decorative: the exclusion is symmetric by
+      construction, so it can just as easily exclude a genuine LOW early
+      value (e.g. DVN's real 2016 oil-crash trough) — which *raises* the
+      early average and makes the reading *more* negative, the opposite of
+      the intended correction. `max()` makes the fix strictly one-
+      directional (only ever rescues a false `sharply_declining` read,
+      never manufactures one). Confirmed via a full-universe check: an
+      unguarded (non-`max()`) version of this fix regressed 16 tickers —
+      most dramatically DVN, whose Margins reading collapsed from
+      `stable_or_expanding`/100 to `sharply_declining`/20 — while the
+      `max()`-guarded version regresses none. Note this rescue only ever
+      affects *this* check (1a); it does not change `direction` anywhere
+      else in this document (1b/1c/2a/2c below all still use the raw,
+      unguarded direction).
    b. Otherwise, check whether the decline has durably reversed on
       **both** series: a series counts as "recovered" if it has no
       sustained decline at all, or if its direction is non-negative

@@ -359,6 +359,76 @@ at each point below. Notable design decisions and fixes:
     **AVB/C/CCL/CTSH/GEN** — Net Income's old dip is real but more than 2
     periods back, so the recency-gated OI fallback correctly stops
     rescuing it (previously capped-rescued to 80 regardless of recency).
+- **`flat_then_spike` (CFO/Revenue/NI/OI) and Margins' `sharply_declining`
+  check both fixed for a stale-baseline/stale-average distortion
+  (2026-08-13), following a GLW investigation.** Two independent bugs,
+  same root shape (an old anomalous value poisoning a reference average
+  or gate), found via a from-scratch trace of GLW's Step 1 score (58/Fail
+  despite recovering Revenue/CFO/FCF):
+  1. **CFO's `flat_then_spike` gate discarded TTM as noise even when TTM
+     was the actual evidence of a real recovery.** `robust_late_direction`
+     (used to confirm a terminal jump is backed by genuine multi-year
+     improvement, not just a lone spike) excludes the late window's single
+     most extreme point before averaging — but with no way to tell "TTM is
+     a plausible continuation of the trend" from "TTM is a fluke," it
+     always treated TTM as the excludable outlier whenever it happened to
+     be the late window's most extreme point, throwing out the one number
+     that mattered. Fixed by gating `protect_terminal=True` on the size of
+     the jump into TTM: only protected when the jump is **≤100%** (reusing
+     `DIP_BASELINE_SPIKE_RATIO`, the same threshold `_effective_pre_dip_
+     value` already uses to flag an unreliable one-off jump elsewhere in
+     this file) — a modest, plausible jump gets trusted; a jump with no
+     precedent anywhere in the series' history still doesn't. Stress-
+     tested against the full universe before shipping (not just GLW):
+     **NBIS** (CFO +682.9% YoY, no precedent in 10 years of history) and
+     **VLO** (Net Income +207.2%, a second single-year commodity-margin
+     spike in a business that already lived through one boom-bust cycle in
+     this exact window) both stay conservatively unrescued, confirming the
+     magnitude gate — not just "add `protect_terminal=True`" — was
+     necessary. Only 2 tickers in the tracked universe hit this exact gate
+     (GLW, CVS); of the wider 9-ticker `flat_then_spike` population, only
+     GLW/YUM (CFO/NI) actually flip to a materially better pattern.
+  2. **Margins' `sharply_declining` check had no equivalent to NI's
+     `_effective_pre_dip_value` spike guard for its own early-window
+     average.** `net.direction` (the early-vs-late-window average
+     difference that check gates on) has no protection against a single
+     anomalous point *inside* the early window — GLW's 2016 net margin
+     (39.35%, an evident one-off immediately followed by a -4.91% 2017)
+     inflated the 3-year early average enough that `direction` read -6.2pp
+     even though net margin has genuinely recovered the last 3 years
+     (4.62 → 3.86 → 10.21 → 11.2%). New `robust_early_direction`
+     (`scoring/series_trend.py`) mirrors the already-shipped
+     `robust_late_direction` — single most extreme point excluded before
+     averaging — but applied to the early window. **Deliberately not a
+     safe drop-in replacement for `direction`**: the exclusion is
+     symmetric by construction, so it can just as easily exclude a genuine
+     LOW early value (a real trough, not a spike) — which *raises* the
+     early average and makes the reading *more* negative, the opposite of
+     the intended fix. Confirmed via a full-universe check: an unguarded
+     version regressed 16 tickers, most dramatically **DVN** (whose 2016
+     oil-crash trough got excluded, collapsing Margins from
+     `stable_or_expanding`/100 to `sharply_declining`/20). Fixed by using
+     `max(direction, robust_early_direction(...))` at this one call site
+     only — never the robust value alone, and never touching `direction`
+     anywhere else in `_classify_margins` (`_series_recovered`,
+     `_stable_and_spike_robust`, Rule 2, and Rule 2's own separate
+     `sharply_declining` check at the bottom of the function are all
+     untouched) — the fix is scoped to exactly the one branch that was
+     wrong, not a general redefinition of "direction." With `max()`
+     guarding it, 0 tickers regress.
+  - **GLW's Financials score: 58/Fail → 78/Pass.** CFO: `flat_then_spike`/
+    20 → `multiple_dips_resolved`/75 (CFO's TTM, $3.915B, is a literal new
+    high 14.7% above its own 2021 peak). Margins: `sharply_declining`/20 →
+    `gradually_compressing`/60 (not a full `stable_or_expanding` rescue —
+    `_series_recovered`'s own gate is untouched by this fix, so GLW only
+    gets credit for no longer being falsely flagged as currently sharply
+    declining, not for a durable full recovery).
+  - **Confirmed via a full-universe recompute: 18 tickers changed, 5
+    verdict flips, 0 regressions.** Flips (all upward): **GLW** (58→78,
+    Fail→Pass), **CPT** (64→72, Fail→Pass), **WELL** (68→76, Fail→Pass),
+    **CSX** (67→71, Fail→Pass), **ICE** (87→91, Pass→Strong Pass). The
+    other 13 changed tickers move within their existing verdict band
+    (APD, EQR, WY, AXTI, CVS, CME, CNI, EBAY, GEHC, LITE, MO, NSC, VST).
 
 Growth Rate's original methodology called for averaging projections
 across 3-4 independent platforms (GuruFocus, Finviz, Zacks, etc.) and

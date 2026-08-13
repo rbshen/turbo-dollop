@@ -1,6 +1,6 @@
 import numpy as np
 
-from scoring.series_trend import analyze_series_direction, robust_late_direction
+from scoring.series_trend import analyze_series_direction, robust_early_direction, robust_late_direction
 from scoring.trend import RECOVERY_PATTERNS, TrendResult, classify_trend, most_recent_real_dip_age
 
 # Revenue > CFO > Net Income priority hierarchy per a refined reading of
@@ -175,7 +175,27 @@ def _classify_margins(gross_margin: list[float], net_margin: list[float], revenu
     # regardless of reversal status: a currently sharply-negative net
     # margin must never be excused by an unrelated gross-side recovery.
     if gross.sustained_decline or net.sustained_decline:
-        if net.direction < MARGIN_SHARP_DECLINE and revenue_growing:
+        # Rescue-only: use whichever of the raw early-vs-late direction or
+        # the robust (single-outlier-excluded) early-window direction is
+        # LESS negative, never the robust value alone. A stale one-off high
+        # year sitting in the early window (e.g. GLW's 2016 39.35% net
+        # margin, itself a one-time-item artifact) can drag `net.direction`
+        # sharply negative even when the current trend is a genuine
+        # multi-year recovery -- excluding that single point corrects for
+        # exactly that. But the exclusion is symmetric by construction (it
+        # always drops whichever early point sits furthest from the
+        # window's own median), so it can just as easily drop a genuine LOW
+        # early anomaly (e.g. DVN's oil-crash-year trough), which RAISES
+        # the early average and makes the reading MORE negative -- the
+        # opposite of what this correction is for. max() makes it strictly
+        # one-directional: only ever rescues a false "sharply_declining"
+        # read, never manufactures one. See robust_early_direction's own
+        # docstring and CLAUDE.md's Step 1 deviations for the full
+        # investigation (confirmed via a full-universe check: the
+        # unguarded/non-max version regressed 16 tickers, including DVN
+        # 100->20; the max()-guarded version regresses none).
+        net_direction_for_sharp_check = max(net.direction, robust_early_direction(net_arr, MARGIN_TREND_WINDOW))
+        if net_direction_for_sharp_check < MARGIN_SHARP_DECLINE and revenue_growing:
             return TrendResult("sharply_declining", 20)
         if not (_series_recovered(gross_arr, gross) and _series_recovered(net_arr, net)):
             return TrendResult("gradually_compressing", 60)

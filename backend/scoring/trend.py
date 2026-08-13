@@ -262,7 +262,24 @@ def classify_trend(values: list[float]) -> TrendResult:
         if abs(growth_before_last) < FLAT_WINDOW_THRESHOLD and last_jump > SPIKE_THRESHOLD:
             w = min(TREND_RECOVERY_WINDOW, len(arr))
             early_avg = float(arr[:w].mean())
-            delta = robust_late_direction(arr, TREND_RECOVERY_WINDOW)
+            # Only trust TTM as real evidence (protect it from the robust-
+            # average's own outlier exclusion) when the jump into it isn't
+            # itself spike-sized -- reuses DIP_BASELINE_SPIKE_RATIO, the
+            # same >=100% one-year-jump threshold this file already uses to
+            # flag an unreliable baseline elsewhere (_effective_pre_dip_
+            # value). Without this gate, TTM gets discarded as "the late
+            # window's own outlier" by robust_late_direction's unprotected
+            # default -- exactly the evidence a genuine recovery needs to
+            # clear this check. Confirmed via a full-universe stress test
+            # (2026-08-13): gating on jump size lets GLW (+45%) and YUM
+            # (+42%) -- both TTM figures that also clear their own prior
+            # multi-year peak -- pass, while NBIS (+683%, no precedent
+            # anywhere in 10 years of history) and VLO (+207%, a second
+            # single-year commodity-margin spike in a business that already
+            # lived through one boom-bust cycle in this exact window) stay
+            # conservatively unrescued. See CLAUDE.md's Step 1 deviations.
+            protect_terminal = last_jump <= DIP_BASELINE_SPIKE_RATIO
+            delta = robust_late_direction(arr, TREND_RECOVERY_WINDOW, protect_terminal=protect_terminal)
             meaningful_improvement = early_avg != 0 and (delta / abs(early_avg)) > FLAT_SPIKE_IMPROVEMENT_THRESHOLD
             if not meaningful_improvement:
                 return TrendResult("flat_then_spike", 20)

@@ -91,7 +91,15 @@ def test_multi_dip_path_also_uses_the_spike_aware_baseline():
 
 
 def test_flat_then_spike():
-    pattern, score = classify_trend([100, 90, 106, 88, 103, 145])
+    # Terminal jump (103 -> 210, +103.9%) is deliberately just past
+    # DIP_BASELINE_SPIKE_RATIO -- past the fix below, a jump this large gets
+    # NO protect_terminal benefit (still excluded as the late window's own
+    # outlier), so this keeps testing the original "flat, then an
+    # untrusted spike" shape unchanged. A more modest jump (<=100%) that
+    # also shows real underlying improvement is now handled differently --
+    # see test_flat_then_spike_protects_a_plausible_ttm_jump_that_clears_
+    # its_own_prior_peak (2026-08-13 fix).
+    pattern, score = classify_trend([100, 90, 106, 88, 103, 210])
     assert pattern == "flat_then_spike"
     assert score == 20
 
@@ -222,10 +230,39 @@ def test_flat_then_spike_narrowed_by_robust_late_direction():
 
 
 def test_flat_then_spike_still_fires_when_no_meaningful_prior_improvement():
-    # Existing fixture, unchanged: robust-late-vs-early is slightly
-    # NEGATIVE here even excluding the terminal spike, so the narrowing
-    # doesn't rescue it -- still genuinely "flat, then a lone spike".
-    pattern, score = classify_trend([100, 90, 106, 88, 103, 145])
+    # Same fixture as test_flat_then_spike (jump kept past
+    # DIP_BASELINE_SPIKE_RATIO so protect_terminal doesn't engage): robust-
+    # late-vs-early is slightly NEGATIVE here even excluding the terminal
+    # spike, so the narrowing doesn't rescue it -- still genuinely "flat,
+    # then a lone spike".
+    pattern, score = classify_trend([100, 90, 106, 88, 103, 210])
+    assert pattern == "flat_then_spike"
+    assert score == 20
+
+
+def test_flat_then_spike_protects_a_plausible_ttm_jump_that_clears_its_own_prior_peak():
+    # GLW's real CFO shape (2026-08-13 investigation): flat arr[0] vs
+    # arr[-2] (+7.8%) and a +45.3% TTM jump both trip the flat_then_spike
+    # entry gate, and the unprotected robust_late_direction check discards
+    # TTM as the late window's own outlier -- throwing out the one number
+    # that's actual evidence of recovery. TTM (3915) is a LITERAL new high
+    # above the 2021 peak (3412, +14.7%), and the jump into it (+45.3%)
+    # isn't itself spike-sized, so it should be protected and the series
+    # should fall through to ordinary dip-event resolution instead.
+    pattern, score = classify_trend([2500, 2004, 2919, 2031, 2180, 3412, 2615, 2005, 1939, 2695, 3915])
+    assert pattern != "flat_then_spike"
+    assert pattern == "multiple_dips_resolved"
+    assert score == 75
+
+
+def test_flat_then_spike_stays_unprotected_for_a_jump_with_no_precedent_in_the_series():
+    # NBIS's real CFO shape: TTM (3011.9) is a 682.9% jump over the prior
+    # year (384.8), itself a >=100% one-off-sized move with zero precedent
+    # anywhere in 10 years of history (prior range: 124.6-829.8) -- exactly
+    # the "spurious terminal spike" flat_then_spike exists to catch. The
+    # jump-size gate must NOT protect TTM here; must still read
+    # flat_then_spike/20, unchanged from before the fix.
+    pattern, score = classify_trend([412.958731, 412.206457, 405.970699, 715.833272, 438.197771, 124.619122, 697.0, 829.8, 245.6, 384.8, 3011.9])
     assert pattern == "flat_then_spike"
     assert score == 20
 

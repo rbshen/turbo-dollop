@@ -375,6 +375,39 @@ def test_margins_chaotic_net_alone_no_longer_vetoes_a_steadily_rising_gross():
     assert pattern != "wildly_inconsistent"
 
 
+def test_margins_sharp_decline_rescued_by_robust_early_direction_when_early_window_has_a_one_off_high_year():
+    # GLW's real shape (2026-08-13 investigation): 2016 net margin (39.35%)
+    # is an evident one-off (immediately followed by a -4.91% 2017), and
+    # sits inside the 3-year early window `net.direction` averages against
+    # -- inflating that average enough that direction reads -6.2pp even
+    # though net margin has genuinely recovered the last 3 years
+    # (4.62 -> 3.86 -> 10.21 -> 11.2). Excluding just that one point flips
+    # direction to +6.16pp. Must no longer read "sharply_declining" -- but
+    # _series_recovered is untouched by this fix, so it lands on
+    # "gradually_compressing", not a full "stable_or_expanding" rescue.
+    gross = [40.07, 39.74, 39.51, 35.08, 31.24, 35.95, 31.76, 31.23, 32.6, 35.28, 36.32]
+    net = [39.35, -4.91, 9.44, 8.35, 4.53, 13.54, 9.27, 4.62, 3.86, 10.21, 11.2]
+    pattern, score = _classify_margins(gross, net, revenue_growing=True)
+    assert pattern == "gradually_compressing"
+    assert score == 60
+
+
+def test_margins_robust_early_direction_never_manufactures_a_sharp_decline_from_a_low_outlier():
+    # Regression guard for the asymmetry found during the same investigation:
+    # DVN's early window is [-10.25, 13.81, 34.44] (a real 2016 oil-crash
+    # trough, not a spike) -- the median-distance exclusion picks the LOW
+    # point as "most extreme," and excluding it RAISES the early average,
+    # making a blind (non-max()) version of this rescue read direction as
+    # MORE negative (-7.4) than the raw average (+4.06) -- flipping a
+    # genuinely fine margin history (net margin ends at 15-17%, a real
+    # improvement) into a manufactured "sharply_declining". max() must keep
+    # this reading the raw (less negative) direction here.
+    gross = [8.46, 17.58, 24.66, 11.48, 8.12, 30.14, 43.66, 35.17, 29.55, 25.55, 34.04]
+    net = [-10.25, 13.81, 34.44, -5.71, -55.51, 23.05, 31.38, 24.56, 18.14, 15.37, 16.67]
+    pattern, score = _classify_margins(gross, net, revenue_growing=True)
+    assert pattern != "sharply_declining"
+
+
 def test_score_clamped_to_valid_range():
     result = score_step1(
         revenue=GROWING,
