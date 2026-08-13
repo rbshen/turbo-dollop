@@ -1058,6 +1058,70 @@ thresholds. Notable design decisions and fixes:
   AR/CCC fixes above, which were bug fixes verified at that scale) — this
   is a deliberate re-weighting, not a correctness fix, so no universe-wide
   before/after audit was required before shipping it.
+- **ROE/ROIC below-floor and CCC `sustained_upward` graduated (2026-08-13),
+  shipped together with a companion verdict floor** — the third and
+  largest fix in the same hard-fail-cliff investigation that produced
+  Step 1's/Step 2's/Step 5's own graduated-scale fixes (see their
+  respective entries), and the one that most directly motivated the
+  whole investigation (a from-scratch GLW trace: Step 4 scored 35/Fail
+  purely from ROIC/CCC both flattening to 0 despite GLW's ROIC never
+  once going negative in 11 years).
+  - **ROE/ROIC's `< 8%` tier** (`_score_avg_min_tier`) was a flat 0/
+    hard_fail regardless of sign or depth. Confirmed via a full-universe
+    scan: 142/170 (83.5%) of ROIC hard-fails and 61/86 (71%) of ROE
+    hard-fails never had a negative average at all. Now split by sign:
+    `avg ≥ 0` graduates 20→55 points (new `weak_but_positive` label, not
+    hard_fail); `avg < 0` unchanged (flat 0, hard_fail). See
+    `profitability.md`'s "ROE and ROIC tiering" section for the exact
+    formula and ceiling rationale.
+  - **CCC's `sustained_upward`** (all three return sites in
+    `_classify_positive_ccc_trend`) was likewise a flat 0. Confirmed via
+    a full-universe scan: median worsening 26.3 days, p75 51.8 — now
+    graduates 40→0 between 10 and 50 days (`CCC_UPWARD_MILD_DAYS`/
+    `CCC_UPWARD_SEVERE_DAYS`), using the robust late-window direction
+    (not the raw one) for the spike-guard branch specifically, since raw
+    direction is deceptively non-negative there. See `profitability.md`'s
+    "Cash Conversion Cycle" section.
+  - **Companion floor, non-negotiable, shipped in the same change**:
+    `_verdict_for` gained a `score < 70 → Fail` check (mirroring Debt's
+    own `PASS_SCORE_THRESHOLD`) — before this, `hard_fail` was the
+    *only* thing keeping a low-scoring, non-hard-fail ticker from
+    displaying "Pass" (the same pre-existing gap already noted in the
+    entry above via FICO). Stress-tested BEFORE shipping: without the
+    floor, graduating ROE/ROIC alone would have flipped 153 tickers to a
+    false Pass (146 of them, 95%, still scoring under 70).
+  - **The floor's blast radius turned out much larger than the graduated
+    fix's own direct effect, confirmed via a full-universe recompute
+    before shipping (not assumed) — 189 Step 4 verdict changes, not the
+    ~7 originally estimated from an isolated simulation.** Because
+    `hard_fail` was previously the *only* mechanism keeping any
+    non-hard-fail Step 4 ticker's verdict honest, adding a real,
+    permanent score floor to `_verdict_for` necessarily also corrects
+    every OTHER Step 4 ticker already below 70 for unrelated reasons
+    (mediocre-but-not-hard-fail ROE/ROIC, weak Revenue-vs-AR, weak CCC)
+    — not just the ones this specific fix touches. Breakdown: **7 flip to
+    a genuine Pass** (VZ, T, CFG, KR, EFX, WCN, CNSWF — the graduated
+    fix's own direct, originally-expected effect). **182 flip from a
+    previously-masked Pass to a correctly-computed Fail** — of those,
+    135 have an *unchanged* score (never touched by the graduated fix at
+    all, already below 70 before this build) and 47 have an improved
+    score that still lands under 70. This is the same class of discovery
+    Debt's own residual-floor fix already produced (AVB/EQR/GEHC/HON/
+    HST/IFF/KIM/O/REG flipping Pass → Fail at an unchanged score) — an
+    explicit, deliberate decision to accept the wider correction rather
+    than scope the floor artificially narrow, made mid-rollout after
+    surfacing the discrepancy between the isolated simulation and the
+    real, shared-function effect.
+  - **GLW itself: Step 4 score 35 → 58, verdict stays Fail** — correctly:
+    GLW's ROIC (avg 6.42%) and CCC (~18 days worse than its 2016-19
+    baseline) are genuinely weak, just not capital-destroying. The fix's
+    value is a truthful 58 instead of a misleading 35, not a rescue.
+  - **Overall Assessment ripple, also measured before shipping**: 27
+    tickers' Overall verdict flips, **all upward, 0 regressions** —
+    Profitability's ~20% weight in the Overall blend isn't enough on its
+    own to newly fail anything. GLW's own Overall Assessment flips
+    Fail(68) → Pass(72), even though its Step 4 verdict stays Fail — the
+    improved *number* alone is enough for the blend.
 
 Overall Assessment's step weighting (`backend/scoring/overall.py::STEP_WEIGHTS`
 / `frontend/lib/overallScore.ts::STEP_WEIGHTS` — must never drift from each

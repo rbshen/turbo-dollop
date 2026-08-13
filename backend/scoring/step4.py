@@ -49,6 +49,25 @@ ROE_SUSTAINED_DECLINE_POINTS = 15.0
 # the app-wide "3" recency convention (AR_RED_FLAG_RECENCY_WINDOW below,
 # Step 1's FCF_CASH_BURN_RECENCY_YEARS, Step 3's NEGATIVE_VALUE_RECENCY_YEARS).
 DIP_RECOVERY_RECENCY_YEARS = 3
+# --- Below-floor graduated scale (2026-08-13) --------------------------------
+# Below ROE_MARGINAL_AVG, avg/min-year tiering used to collapse to a flat
+# 0/hard_fail regardless of depth or sign -- a company chronically
+# mediocre-but-positive (GLW: ROIC averaging 6.42% for 11 straight years,
+# never once negative) scored identically to one actively destroying
+# capital (CRWD: -71.71% average, VRSN: -6101.72%). Confirmed via a
+# full-universe scan: of 170 ROIC hard-fails, 142/170 (83.5%) never had a
+# negative average at all; of 86 ROE hard-fails, 61/86 (71%) didn't either.
+#
+# Split by sign: avg >= 0 gets a graduated "weak_but_positive" score
+# between WEAK_FLOOR_SCORE (20) and WEAK_CEILING_SCORE (55 -- deliberately
+# below the "marginal" tier's 60, so a below-floor reading can never
+# outrank a real Comfortable-zone result) and is NOT hard_fail; avg < 0
+# stays exactly as before -- "fail", 0 points, hard_fail unconditionally
+# True. This is a genuine weakness/capital-destroying split, not a
+# threshold tweak: a company that has never gone negative isn't the same
+# risk profile as one that has, even though both average below 8%.
+WEAK_FLOOR_SCORE = 20
+WEAK_CEILING_SCORE = 55
 
 # --- Revenue vs Accounts Receivable ------------------------------------------
 # A YoY gap (AR growth % minus revenue growth %) smaller than this is noise,
@@ -130,8 +149,38 @@ CCC_STABLE_TOLERANCE_DAYS = -1.0
 CCC_SIGN_EPS_DAYS = 1.0  # tolerance for "effectively zero" (case 1/2 purity + settling materiality)
 CCC_NEAR_ZERO_AMPLITUDE_DAYS = 10.0  # near-zero-oscillation band (COST/TGT-shape)
 CCC_SPIKE_ISOLATION_RATIO = 3.0  # single-outlier-vs-typical-magnitude ratio to rescue back to case 1/2
+# --- `sustained_upward` graduated scale (2026-08-13) -------------------------
+# All three `sustained_upward` branches below used to return a flat 0
+# regardless of how far the series was actually worsening -- a company
+# barely creeping worse (a few days) scored identically to one blowing
+# out by 240+ days. CCC_UPWARD_MILD_DAYS/CCC_UPWARD_SEVERE_DAYS were
+# derived from the real tracked-universe distribution of `sustained_upward`
+# hits (confirmed via a full-universe scan, not guessed): median 26.3
+# days, p75 51.8 -- 10.0 (roughly 2x CCC_SUSTAINED_DAYS, "barely past the
+# real-move floor") and 50.0 (just past that p75, "unambiguously
+# structural") bound the graduated middle. CCC_UPWARD_MILD_SCORE (40)
+# matches `volatile_no_trend`'s existing score -- "worth a look, not
+# alarming" is the same read at the mild end of this range.
+CCC_UPWARD_MILD_DAYS = 10.0
+CCC_UPWARD_SEVERE_DAYS = 50.0
+CCC_UPWARD_MILD_SCORE = 40
+
+
+def _ccc_upward_graduated_points(worsening_days: float) -> int:
+    if worsening_days <= CCC_UPWARD_MILD_DAYS:
+        return CCC_UPWARD_MILD_SCORE
+    if worsening_days >= CCC_UPWARD_SEVERE_DAYS:
+        return 0
+    fraction = (worsening_days - CCC_UPWARD_MILD_DAYS) / (CCC_UPWARD_SEVERE_DAYS - CCC_UPWARD_MILD_DAYS)
+    return round(CCC_UPWARD_MILD_SCORE * (1 - fraction))
 
 STRONG_PASS_SCORE = 90
+# Same shared 70-point "Pass" floor every other step's verdict bands use
+# (Step 1's VERDICT_BANDS, Step 2's PASS_SCORE_FLOOR, Step 5's own
+# PASS_SCORE_THRESHOLD) -- added 2026-08-13 alongside the ROE/ROIC/CCC
+# graduated-scale fix, see _verdict_for's own comment for why this is a
+# required companion, not an independent change.
+PASS_SCORE_THRESHOLD = 70
 
 # --- Step 4 blend weighting (2026-08-01) --------------------------------------
 # ROE+ROIC are the headline profitability verdict; Revenue-vs-AR+CCC are
@@ -207,6 +256,10 @@ def _score_avg_min_tier(valid: list[float], avg: float, min_year: float) -> tupl
         return "good", 85, False
     if avg >= ROE_MARGINAL_AVG:
         return "marginal", 60, False
+    if avg >= 0:
+        fraction = avg / ROE_MARGINAL_AVG
+        points = round(WEAK_FLOOR_SCORE + (WEAK_CEILING_SCORE - WEAK_FLOOR_SCORE) * fraction)
+        return "weak_but_positive", points, False
     return "fail", 0, True
 
 
@@ -508,7 +561,7 @@ def _classify_positive_ccc_trend(ccc: list[float]) -> TrendResult:
     # gate reuses the same CCC_STABLE_TOLERANCE_DAYS boundary the "stable"
     # tier below already uses, rather than a new constant.
     if analysis.sustained_decline and analysis.direction < CCC_STABLE_TOLERANCE_DAYS:
-        return TrendResult("sustained_upward", 0)
+        return TrendResult("sustained_upward", _ccc_upward_graduated_points(-analysis.direction))
 
     # Rule 2: 2+ real swings netting out flat overall -- genuine volatility,
     # no clear trend (mirrors the margin classifier's chaotic gate).
@@ -525,15 +578,20 @@ def _classify_positive_ccc_trend(ccc: list[float]) -> TrendResult:
         # would also re-touch cases already resolved by Rule 1's own gate
         # (confirmed: NEM, one of the originally-fixed 17, would otherwise
         # flip back to 0), which must stay exactly as already fixed.
-        if not analysis.sustained_decline and robust_late_direction(negated, CCC_TREND_WINDOW) < CCC_STABLE_TOLERANCE_DAYS:
-            return TrendResult("sustained_upward", 0)
+        robust_late = robust_late_direction(negated, CCC_TREND_WINDOW)
+        if not analysis.sustained_decline and robust_late < CCC_STABLE_TOLERANCE_DAYS:
+            # The robust (spike-excluded) reading is what actually flagged
+            # this as worsening -- raw `analysis.direction` is deceptively
+            # non-negative here (that's exactly why this branch exists), so
+            # it's the wrong magnitude to graduate against.
+            return TrendResult("sustained_upward", _ccc_upward_graduated_points(-robust_late))
         if analysis.num_real_dips >= 1:
             return TrendResult("volatile_but_net_declining", 70)
         return TrendResult("declining_or_stable", 100)
 
     # Net worsening direction, not caught by the strict sustained check above
     # (e.g. a slow multi-year creep) -- still reads as an upward CCC trend.
-    return TrendResult("sustained_upward", 0)
+    return TrendResult("sustained_upward", _ccc_upward_graduated_points(-analysis.direction))
 
 
 def _window_direction(arr: np.ndarray, window: int) -> float:
@@ -650,6 +708,23 @@ def classify_ccc_trend(ccc: list[float]) -> TrendResult:
 
 def _verdict_for(score: int, hard_fail: bool) -> str:
     if hard_fail:
+        return "Fail"
+    # Companion floor to the ROE/ROIC/CCC graduated-scale fix above
+    # (2026-08-13) -- non-negotiable, shipped together, not a follow-up.
+    # Before this, _verdict_for had NO score-based floor at all: any
+    # non-hard_fail result read "Pass" regardless of how low the blended
+    # score was (already true before this change too, e.g. FICO 67 ->
+    # "Pass", unchanged verdict -- see CLAUDE.md). Graduating ROE/ROIC's
+    # below-floor zone off hard_fail without this would have silently
+    # promoted ~150 chronically-weak-but-not-destructive tickers to a
+    # false "Pass" the moment their score cleared 0 -- confirmed via a
+    # full-universe stress test BEFORE shipping: 153 tickers flipped to
+    # non-Fail, 146 of them (95%) still scoring under 70. With this floor,
+    # the same test found only 7 genuine flips, all landing at a real
+    # >=70 score (VZ, T, CFG, KR, EFX, WCN, CNSWF). Mirrors Debt's own
+    # PASS_SCORE_THRESHOLD (scoring/step5.py) -- the same class of gap,
+    # fixed there first.
+    if score < PASS_SCORE_THRESHOLD:
         return "Fail"
     if score > STRONG_PASS_SCORE:
         return "Strong Pass"

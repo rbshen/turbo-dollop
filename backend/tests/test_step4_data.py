@@ -422,13 +422,41 @@ def test_ccc_exemption_survives_a_noisy_latest_quarter_inventory_figure(monkeypa
     assert result.ccc_exempt_reason is not None
 
 
-def test_hard_fail_from_persistently_poor_roe(monkeypatch):
+def test_fail_from_persistently_poor_but_never_negative_roe(monkeypatch):
+    # 2026-08-13 graduated-scale fix: a persistently poor but never-once-
+    # negative ROE/ROIC (3% average) is no longer flattened into the same
+    # hard_fail as a company actively destroying capital -- both grade
+    # "weak_but_positive"/33. The verdict is still correctly Fail, though,
+    # via the companion PASS_SCORE_THRESHOLD floor (score 60 < 70) --
+    # confirming that fix's whole point: hard_fail is no longer the only
+    # thing keeping a chronically-weak ticker from a false Pass.
     _fresh_engine(monkeypatch)
     poor_roe_metrics = [{**row, "returnOnEquity": 0.03, "returnOnInvestedCapital": 0.03} for row in KEY_METRICS_ANNUAL]
     _patch_fmp(monkeypatch, key_metrics_annual=poor_roe_metrics)
 
     async def fake_key_metrics_ttm(ticker):
         return [{"returnOnEquityTTM": 0.03, "returnOnInvestedCapitalTTM": 0.03}]
+
+    monkeypatch.setattr(step4_data.fmp_client, "get_key_metrics_ttm", fake_key_metrics_ttm)
+
+    result = asyncio.run(get_step4_data("aapl"))
+
+    assert result.hard_fail is False
+    assert result.score == 60
+    assert result.verdict == "Fail"
+    assert result.components["roe"]["label"] == "weak_but_positive"
+    assert result.components["roic"]["label"] == "weak_but_positive"
+
+
+def test_hard_fail_from_negative_roe(monkeypatch):
+    # Companion regression guard: a genuinely negative ROE/ROIC average
+    # still hard_fails exactly as before this fix.
+    _fresh_engine(monkeypatch)
+    negative_roe_metrics = [{**row, "returnOnEquity": -0.03, "returnOnInvestedCapital": -0.03} for row in KEY_METRICS_ANNUAL]
+    _patch_fmp(monkeypatch, key_metrics_annual=negative_roe_metrics)
+
+    async def fake_key_metrics_ttm(ticker):
+        return [{"returnOnEquityTTM": -0.03, "returnOnInvestedCapitalTTM": -0.03}]
 
     monkeypatch.setattr(step4_data.fmp_client, "get_key_metrics_ttm", fake_key_metrics_ttm)
 

@@ -45,8 +45,19 @@ def test_roe_marginal_when_high_average_but_inconsistent_min_year():
     assert result == ("marginal", 60, False)
 
 
-def test_roe_fail_below_8_is_hard_fail():
+def test_roe_below_floor_but_never_negative_is_weak_but_positive_not_hard_fail():
+    # 2026-08-13 graduated-scale fix: a consistently positive-but-mediocre
+    # average (5.0%, never once negative) is no longer flattened into the
+    # same flat 0/hard_fail as a company actively destroying capital.
+    # points = round(20 + 35*(5.0/8.0)) = 42.
     result = score_roe([5.0] * 6, POSITIVE_EQUITY, [10.0] * 6)
+    assert result == ("weak_but_positive", 42, False)
+
+
+def test_roe_negative_average_still_hard_fails():
+    # The graduated scale only applies when avg >= 0 -- a genuinely
+    # negative average stays exactly as before: flat 0, hard_fail.
+    result = score_roe([-5.0] * 6, POSITIVE_EQUITY, [10.0] * 6)
     assert result == ("fail", 0, True)
 
 
@@ -76,14 +87,18 @@ def test_roe_low_outlier_year_is_never_excluded():
     # treated as an "anomaly" to exclude by _spike_robust_avg -- only the
     # series MAXIMUM is ever a candidate, since ROE_MIN_YEAR_CONSISTENCY
     # already exists specifically to catch a single bad year; erasing it
-    # here would silently undo that protection and wrongly promote a real
-    # fail. TTM (15.9) is deliberately kept just under the pre-crash
+    # here would silently undo that protection and wrongly promote this to
+    # "good" (if -40 were wrongly excluded, the remaining 5 values average
+    # 15.98). TTM (15.9) is deliberately kept just under the pre-crash
     # baseline (16.0) so recovery_excluded_prefix_length's own exclusion
     # (see the next test for the case where it DOES apply) never engages
     # here -- this test is isolating _spike_robust_avg's own guarantee,
-    # not recovery-aware exclusion's interaction with it.
+    # not recovery-aware exclusion's interaction with it. Correctly
+    # including -40 gives avg 6.65 -- positive, so this is graduated
+    # "weak_but_positive" (2026-08-13 fix), not "good", and nowhere near
+    # the wrongly-excluded outcome this test guards against.
     result = score_roe([16.0, 16.0, 16.0, -40.0, 16.0, 15.9], POSITIVE_EQUITY, [10.0] * 6)
-    assert result == ("fail", 0, True)
+    assert result == ("weak_but_positive", 49, False)
 
 
 def test_roe_low_outlier_inside_a_literally_resolved_dip_can_be_excluded():
@@ -183,16 +198,22 @@ def test_score_roic_hwm_shaped_lands_on_good_matching_the_prototype():
     assert result == ("good", 85, False)
 
 
-def test_score_roe_lhx_shaped_structural_decline_still_regresses_to_fail():
+def test_score_roe_lhx_shaped_structural_decline_still_regresses_below_marginal():
     # Real, accepted tradeoff (not a bug): a genuine long-term decliner
     # whose only strong years sit before a resolved dip loses those years
     # to the same exclusion mechanism that helps HWM -- LHX's own real ROE
     # shape (values from the candidate comparison), real=Marginal/60
-    # before this build, Fail/0 after. Confirms the exclusion is applied
-    # unconditionally on resolution, not gated on "does this help."
+    # before this build, below-marginal after. Confirms the exclusion is
+    # applied unconditionally on resolution, not gated on "does this
+    # help." The post-exclusion average is positive (never negative), so
+    # as of the 2026-08-13 graduated-scale fix this reads
+    # "weak_but_positive"/55 (near the graduated ceiling), not a flat
+    # 0/hard_fail -- still a real, meaningful demotion from its
+    # pre-exclusion Marginal/60 read, just an honest number instead of a
+    # manufactured hard fail.
     lhx_roe = [18.5, 23.3, 28.2, 0.0, 5.4, 9.6, 5.7, 6.5, 7.7, 8.2, 9.5]
     result = score_roe(lhx_roe, [100.0] * 11, [10.0] * 11)
-    assert result == ("fail", 0, True)
+    assert result == ("weak_but_positive", 55, False)
 
 
 def test_score_roe_ball_shaped_no_dip_story_is_unaffected():
@@ -292,8 +313,17 @@ def test_roic_excellent():
     assert score_roic([20.0] * 6) == ("excellent", 100, False)
 
 
-def test_roic_fail_is_hard_fail():
-    assert score_roic([2.0] * 6) == ("fail", 0, True)
+def test_roic_below_floor_but_positive_is_weak_but_positive_not_hard_fail():
+    # GLW's real shape (2026-08-13 investigation): consistently positive
+    # but chronically mediocre ROIC (avg 6.42% across 11 years, never
+    # negative) -- graduated, not a flat 0/hard_fail. Mirrors ROE's own
+    # fix (test above); confirms the graduated scale applies identically
+    # to ROIC via the same _score_avg_min_tier.
+    assert score_roic([2.0] * 6) == ("weak_but_positive", 29, False)
+
+
+def test_roic_negative_average_still_hard_fails():
+    assert score_roic([-2.0] * 6) == ("fail", 0, True)
 
 
 def test_roic_shares_the_same_spike_robust_and_decline_durability_gates():
@@ -550,14 +580,21 @@ def test_ccc_volatile_no_clear_trend_scores_40():
     assert result == TrendResult("volatile_no_trend", 40)
 
 
-def test_ccc_sharp_sustained_rise_scores_0():
+def test_ccc_sharp_sustained_rise_scores_graduated_not_flat_zero():
+    # 2026-08-13 fix: sustained_upward's points are graduated by how far
+    # CCC has actually worsened (early-vs-late direction, 22.7 days here),
+    # not a flat 0. Still deep in the low end of the graduated range.
     result = classify_ccc_trend([30, 32, 38, 44, 50, 56])
-    assert result == TrendResult("sustained_upward", 0)
+    assert result == TrendResult("sustained_upward", 33)
 
 
-def test_ccc_slow_net_worsening_still_scores_0():
+def test_ccc_slow_net_worsening_scores_at_the_graduated_mild_ceiling():
+    # 2026-08-13 fix: a slow creep (10 days early-vs-late) sits right at
+    # CCC_UPWARD_MILD_DAYS, the graduated range's ceiling (40, matching
+    # volatile_no_trend's own score) -- still the worst pattern, just an
+    # honest number for a genuinely mild move.
     result = classify_ccc_trend([30, 30, 30, 30, 30, 40])
-    assert result == TrendResult("sustained_upward", 0)
+    assert result == TrendResult("sustained_upward", 40)
 
 
 def test_ccc_insufficient_data():
@@ -580,12 +617,14 @@ def test_ccc_old_resolved_dip_does_not_override_a_strongly_positive_trend():
     assert result == TrendResult("gained_bargaining_power", 100)
 
 
-def test_ccc_recent_unresolved_decline_still_overrides_to_zero():
+def test_ccc_recent_unresolved_decline_still_overrides_to_negative():
     # Regression guard: a genuinely still-worsening series (direction
     # stays clearly negative, matching ANET/FTNT's real shape) must keep
-    # scoring 0 -- the recency gate must not soften real deterioration.
+    # scoring in the worst tier -- the recency gate must not soften real
+    # deterioration. Graduated as of 2026-08-13 (33, not a flat 0 -- same
+    # fixture as the test above, still deep in the low end of the range).
     result = classify_ccc_trend([30, 32, 38, 44, 50, 56])
-    assert result == TrendResult("sustained_upward", 0)
+    assert result == TrendResult("sustained_upward", 33)
 
 
 def test_ccc_direction_exactly_at_the_stable_tolerance_boundary_does_not_override():
@@ -607,9 +646,13 @@ def test_ccc_late_window_spike_does_not_forgive_a_genuinely_worsening_trend():
     # now first passes through the isolated-spike-rescue check (see
     # test_ccc_isolated_spike_is_rescued_to_the_pure_positive_path below)
     # before reaching this module's unchanged positive-CCC trend logic --
-    # same end result: must not read as improving.
+    # same end result: must not read as improving. Graduated as of
+    # 2026-08-13 (40, at the graduated mild ceiling -- the robust-late-
+    # direction magnitude that actually drove this classification, not
+    # the raw direction, which is what's used for the "worsening" score
+    # here since the raw reading is deceptively non-negative).
     result = classify_ccc_trend([70, 68, 74, 72, 78, 76, 82, 80, -300])
-    assert result == TrendResult("sustained_upward", 0)
+    assert result == TrendResult("sustained_upward", 40)
 
 
 def test_ccc_spike_guard_does_not_touch_cases_already_resolved_by_the_recency_gate():
@@ -790,7 +833,14 @@ def test_hard_fail_from_roic_overrides_verdict():
     assert result["verdict"] == "Fail"
 
 
-def test_ar_or_ccc_landing_in_their_own_zero_tier_does_not_hard_fail():
+def test_ar_or_ccc_landing_in_their_own_zero_tier_does_not_hard_fail_but_can_still_fail_on_score():
+    # AR/CCC's own worst tiers never set hard_fail (confirmed here --
+    # unlike ROE/ROIC's below-floor zone, they're not a hard_fail-style
+    # gate). But as of the 2026-08-13 companion-floor fix, a low BLENDED
+    # score still correctly reads "Fail" via PASS_SCORE_THRESHOLD -- this
+    # test previously asserted "Pass" at a score of 60, which was exactly
+    # the masked-Pass gap that fix closed (mirrors Step 5's own
+    # PASS_SCORE_THRESHOLD, fixed there first).
     roe = _ratio("excellent", 100)
     ar = _ratio("outpacing_majority_or_red_flag", 0)
     roic = _ratio("excellent", 100)
@@ -798,7 +848,7 @@ def test_ar_or_ccc_landing_in_their_own_zero_tier_does_not_hard_fail():
     result = score_step4(roe, ar, roic, ccc)
     assert result["score"] == 60  # 100*0.25 + 0*0.20 + 100*0.35 + 0*0.20
     assert result["hard_fail"] is False
-    assert result["verdict"] == "Pass"
+    assert result["verdict"] == "Fail"
 
 
 def test_score_step4_surfaces_roe_roic_divergence_note_without_changing_score():
@@ -822,3 +872,89 @@ def test_score_step4_no_divergence_note_when_not_applicable():
     ccc = TrendResult("declining_or_stable", 100)
     result = score_step4(roe, ar, roic, ccc)
     assert result["roe_roic_divergence_note"] is None
+
+
+# --- Below-floor graduated scale + companion floor (2026-08-13) -------------
+
+
+def test_roe_roic_graduated_scale_boundaries():
+    # At exactly avg=0 (WEAK_FLOOR_SCORE): floor of the graduated range.
+    at_zero = score_roe([0.0] * 6, POSITIVE_EQUITY, [10.0] * 6)
+    assert at_zero == ("weak_but_positive", 20, False)
+
+    # Just under avg=8.0 (ROE_MARGINAL_AVG): near the graduated ceiling
+    # (55, deliberately below "marginal"'s 60 -- never outranks a real
+    # Comfortable-zone result).
+    near_marginal = score_roe([7.99] * 6, POSITIVE_EQUITY, [10.0] * 6)
+    assert near_marginal.label == "weak_but_positive"
+    assert near_marginal.points == 55
+    assert near_marginal.hard_fail is False
+
+    # avg=8.0 itself is already the "marginal" tier, untouched by this fix.
+    at_marginal = score_roe([8.0] * 6, POSITIVE_EQUITY, [10.0] * 6)
+    assert at_marginal == ("marginal", 60, False)
+
+
+def test_ccc_upward_graduated_scale_boundaries():
+    # Within CCC_UPWARD_MILD_DAYS (10): flat at the mild ceiling (40).
+    mild = classify_ccc_trend([30, 30, 30, 30, 30, 35])  # ~4.2 days
+    assert mild.pattern == "sustained_upward"
+    assert mild.score == 40
+
+    # Beyond CCC_UPWARD_SEVERE_DAYS (50): flat 0, unchanged from before.
+    # (direction is the windowed early-vs-late average, not the raw
+    # endpoint jump, so this needs a larger/more sustained spike than it
+    # might look like to actually clear the 50-day floor.)
+    severe = classify_ccc_trend([30, 30, 30, 30, 30, 30, 200])
+    assert severe.pattern == "sustained_upward"
+    assert severe.score == 0
+
+
+def test_step4_companion_floor_fails_a_low_score_with_no_hard_fail_anywhere():
+    # The non-negotiable companion to the graduated scale above: a blend
+    # that's entirely non-hard_fail (every metric graduated, not a single
+    # real breach) can still be a real Fail if the number itself is low.
+    # ROE weak_but_positive/20 (the graduated floor), ROIC weak_but_
+    # positive/20, AR healthy/100, CCC sustained_upward/0 (still-severe) --
+    # blend = 20*0.25 + 20*0.35 + 100*0.20 + 0*0.20 = 5+7+20+0 = 32.
+    roe = _ratio("weak_but_positive", 20)
+    roic = _ratio("weak_but_positive", 20)
+    ar = _ratio("healthy", 100)
+    ccc = TrendResult("sustained_upward", 0)
+    result = score_step4(roe, ar, roic, ccc)
+    assert result["hard_fail"] is False
+    assert result["score"] == 32
+    assert result["verdict"] == "Fail"
+
+
+def test_step4_companion_floor_does_not_touch_a_genuine_pass():
+    # Sanity check: the floor only ever catches scores that were already
+    # going to be Fail-range -- a real, non-hard_fail Pass is unaffected.
+    roe = _ratio("good", 85)
+    roic = _ratio("marginal", 60)
+    ar = _ratio("healthy", 100)
+    ccc = TrendResult("declining_or_stable", 100)
+    result = score_step4(roe, ar, roic, ccc)
+    assert result["hard_fail"] is False
+    assert result["score"] == 82  # 85*0.25 + 60*0.35 + 100*0.20 + 100*0.20
+    assert result["verdict"] == "Pass"
+
+
+def test_glw_shaped_roic_and_ccc_stay_fail_with_the_companion_floor():
+    # GLW's real shape (the ticker that originally motivated this whole
+    # investigation): ROIC weak_but_positive/48 (avg 6.42%, never
+    # negative), ROE good/85 (unaffected), AR outpacing_isolated/70, CCC
+    # sustained_upward/32 (still ~18 days worse than baseline, not yet
+    # recovered). Blend = 85*0.25 + 70*0.20 + 48*0.35 + 32*0.20 = 21.25 +
+    # 14 + 16.8 + 6.4 = 58.45 -> 58. Confirms the graduated fix's actual
+    # point: an honest 58, not a misleading flat-0-driven 35 -- but still
+    # correctly Fail (58 < 70), since GLW's ROIC/CCC genuinely are weak,
+    # just not capital-destroying. This is NOT a rescue to Pass.
+    roe = _ratio("good", 85)
+    roic = _ratio("weak_but_positive", 48)
+    ar = _ratio("outpacing_isolated", 70)
+    ccc = TrendResult("sustained_upward", 32)
+    result = score_step4(roe, ar, roic, ccc)
+    assert result["score"] == 58
+    assert result["hard_fail"] is False
+    assert result["verdict"] == "Fail"

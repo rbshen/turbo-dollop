@@ -81,10 +81,28 @@ series (10yr+TTM):
    | > 15% | yes | excellent | 100 | no |
    | 12% – 15% | yes | good | 85 | no |
    | 8% – 12% | no | marginal | 60 | no |
-   | < 8% | — | fail | 0 | **yes** |
+   | 0% – 8% | no | weak_but_positive | graduated, 20–55 | no |
+   | < 0% | — | fail | 0 | **yes** |
 
    An average above 12% or 15% that fails the consistency check falls
    through to `marginal`, not straight to `fail`.
+
+   **Below-floor graduated scale (2026-08-13)**: `< 8%` used to be a
+   single flat tier (`fail`, 0 points, hard fail) regardless of depth or
+   sign — a company chronically mediocre-but-never-negative (e.g. GLW:
+   ROIC averaging 6.42% across 11 straight years, never once negative)
+   scored identically to one actively destroying capital (e.g. VRSN:
+   -6101.72% average). Confirmed via a full-universe scan before
+   shipping: of 170 ROIC hard-fails, 142 (83.5%) never had a negative
+   average at all; of 86 ROE hard-fails, 61 (71%) didn't either. Now
+   split by sign: `avg ≥ 0%` graduates linearly from **20** points (at
+   0%) to **55** points (just under 8% — deliberately below `marginal`'s
+   60, so a below-floor reading can never outrank a real Comfortable-zone
+   result) and is **not** a hard fail; `avg < 0%` is unchanged — flat 0,
+   hard fail, unconditionally. This is a genuine weakness/capital-
+   destroying split, not a threshold tweak: a company that's never gone
+   negative isn't the same risk profile as one that has, even though both
+   average below 8%.
 4. **Unrecovered-decline demotion**: independently of the tier above, a
    windowed direction analysis (3-period early/late window, a real
    period-over-period drop is one steeper than **5 percentage points**, a
@@ -347,7 +365,8 @@ direction) reads as improvement:
 - direction = (early-window average) − (late-window average); positive
   means CCC declined (improved) overall.
 - If sustained worsening occurred **and** the overall direction is still
-  net negative (worse than **-1 day**) → `sustained_upward`, **0**.
+  net negative (worse than **-1 day**) → `sustained_upward`, **graduated**
+  (see below).
 - Else if 2 or more real rises occurred **and** the overall direction is
   close to flat (within **2 days**) → `volatile_no_trend`, **40**.
 - Else if the overall direction is flat-or-improving (**≥ -1 day**):
@@ -355,12 +374,29 @@ direction) reads as improvement:
     version of the late-window average (single most extreme late point
     excluded) shows the direction was actually worse than -1 day, the
     apparent improvement is discounted as a single anomalous good point →
-    `sustained_upward`, **0**.
+    `sustained_upward`, **graduated** (see below).
   - Otherwise, if at least 1 real rise occurred anywhere →
     `volatile_but_net_declining`, **70**.
   - Otherwise (no real rises at all) → `declining_or_stable`, **100**.
 - Otherwise (net worsening direction, but not meeting the "sustained"
-  bar — e.g. a slow multi-year creep) → `sustained_upward`, **0**.
+  bar — e.g. a slow multi-year creep) → `sustained_upward`, **graduated**
+  (see below).
+
+**`sustained_upward` graduated scale (2026-08-13)**: all three branches
+above used to score a flat 0 regardless of how far CCC had actually
+worsened — a company barely creeping worse (a few days) scored
+identically to one blowing out by 240+ days. Now graduates linearly from
+**40** points (matching `volatile_no_trend`'s own score — "worth a look,
+not alarming") at **10 days** of worsening or less, down to **0** at
+**50 days** or more. Both thresholds were derived from the real
+tracked-universe distribution of `sustained_upward` hits (confirmed via a
+full-universe scan, not guessed): median 26.3 days, p75 51.8. The
+magnitude used is whichever one actually drove the classification in
+each branch — the raw early-vs-late direction for the first and third
+branches, but the *robust* late-window direction for the spike-guard
+branch (the raw direction there is deceptively non-negative, which is
+exactly why that branch exists — using it would graduate against the
+wrong number).
 
 Fewer than 2 usable periods → `insufficient_data`, score 0.
 
@@ -374,9 +410,42 @@ hard_fail = ROE hard-failed, OR (ROIC applicable AND ROIC hard-failed)
 - **Fail** if `hard_fail` is true — regardless of the blended score.
   Revenue-vs-AR and CCC landing in their own worst tier drag the score
   down but never force a Fail on their own.
+- **Fail** if the blended score is **< 70** (`PASS_SCORE_THRESHOLD`),
+  even when `hard_fail` is false — added **2026-08-13**, shipped as a
+  required companion to the ROE/ROIC/CCC graduated-scale fixes above, not
+  a follow-up. Before this, there was **no** blended-score floor at all
+  (unlike Debt's own verdict logic) — any non-hard-fail result displayed
+  "Pass" regardless of how low the score was, a pre-existing gap already
+  noted elsewhere (e.g. FICO scoring 67 and still showing "Pass"). Adding
+  the graduated ROE/ROIC scale without this floor would have been
+  actively harmful: it would have moved ~150 chronically-weak-but-not-
+  capital-destroying tickers off `hard_fail` with no other mechanism left
+  to keep their verdict honest, silently promoting them to a false Pass.
+  Confirmed via a full-universe stress test **before** shipping: without
+  the floor, 153 tickers flipped to non-Fail, 146 of them (95%) still
+  scoring under 70.
 - **Strong Pass** if the blended score is **> 90**.
 - **Pass** otherwise.
 
-Unlike Debt's verdict logic, there is **no** blended-score floor beneath
-which a non-hard-fail result is forced to Fail — a blended score under 70
-that isn't a hard fail still displays as "Pass."
+**This floor is global, not scoped to the graduated-scale fix** — since
+`hard_fail` was previously the *only* thing keeping a low-scoring,
+non-hard-fail ticker from a masked Pass, adding the floor necessarily
+also corrects every other Step 4 ticker that was already below 70 for
+unrelated reasons (mediocre-but-not-hard-fail ROE/ROIC, weak Revenue-vs-
+AR, weak CCC). Confirmed via a full-universe recompute: **189 Step 4
+verdict changes** — 7 flip to a genuine Pass (the graduated-scale fix's
+own direct effect: VZ, T, CFG, KR, EFX, WCN, CNSWF), and **182 flip from
+a previously-masked Pass to a correctly-computed Fail** (135 of those
+have an *unchanged* score — tickers the graduated-scale fix never
+touched at all, already below 70 before this build for other reasons;
+the remaining 47 do have an improved score from the graduated fix, just
+still under 70). GLW itself: Step 4 score 35 → 58, **verdict stays
+Fail** — the graduated fix's value here is an honest number, not a
+rescue. **Overall Assessment ripple, also confirmed via a full-universe
+recompute: 27 tickers' Overall verdict flips, all upward (0 → Fail
+regressions)** — Profitability's ~20% weight in the Overall blend isn't
+enough on its own to newly fail anything, only to newly (correctly) pass
+tickers whose Step 4 number was understating them (including GLW's own
+Overall Assessment, which flips Fail → Pass even though its own Step 4
+verdict stays Fail — the *number* improving enough is sufficient for the
+blend, independent of Step 4's own verdict label).

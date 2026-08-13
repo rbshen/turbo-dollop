@@ -18,6 +18,7 @@ const TIER_LABELS: Record<string, string> = {
   excellent: "Excellent",
   good: "Good",
   marginal: "Marginal",
+  weak_but_positive: "Weak (never negative)",
   fail: "Fail",
   positive_despite_negative_equity: "Positive (negative equity exception)",
   negative_equity_inconsistent_income: "Inconsistent (negative equity)",
