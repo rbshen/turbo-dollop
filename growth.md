@@ -109,7 +109,35 @@ exact boundary value falls in the lower-numbered tier):
 | 10% – 15% | solid | 85 |
 | 5% – 10% | modest | 65 |
 | 0% – 5% | weak | 40 |
-| < 0% | negative | 0 |
+| -10% – 0% | mildly_negative | graduated, 10–35 |
+| < -10% | negative | 0 |
+
+**Negative-magnitude graduated scale (2026-08-13)**: below 0%, the score
+is no longer a flat 0 down to any depth — a ticker projected at -0.03%
+growth (statistically indistinguishable from flat) used to score
+identically to one projected at -60% (a genuine collapse). Between 0% and
+`MAGNITUDE_SEVERE_NEGATIVE` (**-10%**, a first-pass round-number choice
+mirroring the `solid` tier's own magnitude — no doc-given guidance exists
+for the negative side), points scale linearly from **35** (near 0%) down
+to **10** (at -10%) — the ceiling is deliberately kept below the `weak`
+tier's 40, so a mildly-negative ticker can never outscore a genuinely-
+positive-but-weak one. Beyond -10%, the tier is still a flat **0**,
+unchanged — this only fixes the majority-mild population, not every
+negative case. Confirmed via a full-universe scan before shipping: of 27
+tickers hitting the negative branch, 20 sit at or above -9.0% (the
+graduated zone) and only 7 are genuinely severe (SNDK -60.0%, VLO -25.9%,
+CF -18.9%, INSW -14.5%, DOW -11.5%, LYB -11.0%, APA -10.8%) — those 7 stay
+exactly as before.
+
+This graduated score is display/blend-only — it does **not** change the
+Verdict section below. Fail is gated on `growth_rate_pct`'s sign directly
+(unchanged from before this fix), not on the magnitude score's value, and
+the Score floor below is likewise gated on `growth_rate_pct ≥ 0` directly
+— both deliberately decoupled from the magnitude score itself, so a
+mildly-negative ticker's now-nonzero magnitude score can never
+accidentally trip either mechanism into a false Pass. (This is the same
+class of companion-dependency risk Step 4's ROIC/ROE graduated-scale fix
+needed its own explicit floor fix for — see CLAUDE.md.)
 
 **Agreement tiers** (on `spread_pct`):
 

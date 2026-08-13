@@ -520,6 +520,40 @@ current formulas. Notable design decisions:
   universe that this only changes tickers with a genuinely empty/too-thin
   cached `analyst_estimates` response (e.g. ECHO, HONA, L) — every other ticker's
   score/verdict is unaffected.
+- **Negative-magnitude score graduated (2026-08-13)**, following the same
+  hard-fail-cliff investigation that produced Step 4's ROIC/ROE fix. Below
+  0% growth, `_score_magnitude` used to return a flat 0 regardless of
+  depth — a ticker projected at -0.03% (DVN, statistically indistinguishable
+  from flat) scored identically to one at -60% (SNDK, a genuine collapse).
+  Confirmed via a full-universe scan: of 27 tickers hitting this branch, 20
+  sit at or above -9.0% ("mildly negative") and only 7 are genuinely severe
+  (SNDK -60.0%, VLO -25.9%, CF -18.9%, INSW -14.5%, DOW -11.5%, LYB -11.0%,
+  APA -10.8%). New graduated scale: linear from 35pts (near 0%) down to
+  10pts (at `MAGNITUDE_SEVERE_NEGATIVE = -10.0%`, a first-pass round-number
+  choice mirroring the `solid` tier's own magnitude); beyond -10%, still a
+  flat 0, unchanged. Ceiling (35) deliberately kept below the `weak` tier's
+  40, so a mildly-negative ticker can never outscore a genuinely-positive-
+  but-weak one.
+  - **Companion dependency, found and fixed in the same change (not a
+    follow-up)**: `_verdict_for`'s Fail condition and `PASS_SCORE_FLOOR`'s
+    guard were both keyed on `magnitude_score == 0` / `magnitude_score >
+    0`. The moment a mildly-negative ticker's magnitude score became
+    nonzero, both would have silently misfired — the Fail gate would read
+    the verdict as Pass, and the floor would push the score to ≥70 — a
+    false Pass for a company with genuinely negative projected growth.
+    This is the exact same class of bug Step 4's ROIC/ROE fix needed an
+    explicit companion floor for (see below), just via a pre-existing
+    mechanism instead of a missing one. Fixed by keying both gates on
+    `growth_rate_pct`'s own sign directly instead of `magnitude_score` —
+    preserves the verdict boundary byte-for-byte (any negative growth
+    still fails, unconditionally, exactly as the source doc specifies)
+    while letting the score itself be an honest, graduated number.
+  - **Confirmed via a full-universe recompute: 20 tickers changed, 0
+    verdict flips** — every affected ticker stays Fail, just with a truer
+    score (e.g. DVN 6→30, NUE/INCY →42, PG →53 — the highest of the 20,
+    still well under both 70 and the `weak` tier's 40-point magnitude
+    equivalent). The 7 genuinely severe tickers are byte-identical to
+    before.
 
 Debt's original methodology calls for a CET1 ratio check for Banks. An
 investigation confirmed FMP has no CET1 field and no raw components to

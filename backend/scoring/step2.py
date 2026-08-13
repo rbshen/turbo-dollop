@@ -5,6 +5,45 @@ MAGNITUDE_HIGH = 15.0
 MAGNITUDE_SOLID = 10.0
 MAGNITUDE_MODEST = 5.0
 MAGNITUDE_BORDERLINE = 0.0
+# --- Negative-magnitude graduated scale (2026-08-13) -------------------------
+# The negative branch used to be a flat 0 regardless of magnitude -- a
+# ticker projected at -0.03% growth (DVN, statistically indistinguishable
+# from flat/breakeven) scored identically to one at -60.0% (SNDK, a genuine
+# projected collapse). Confirmed via a full-universe scan: of 27 tickers
+# hitting this branch, 13/27 were "mildly negative" (-5% to 0%) and only
+# 1/27 was severely negative (<-50%) -- the flat floor was hiding real
+# distinction in the majority of cases it applied to.
+#
+# MAGNITUDE_SEVERE_NEGATIVE (-10.0) mirrors MAGNITUDE_SOLID's own magnitude
+# on the negative side -- a first-pass, round-number judgment call (no
+# doc-given guidance exists for the negative side at all), chosen because it
+# already captures the bulk of the real distribution as "mild" (20/27
+# tickers, everything from ALL's -9.0% up through DVN's -0.0%) while leaving
+# the genuinely severe tail (SNDK -60.0%, VLO -25.9%, CF -18.9%, INSW
+# -14.5%, DOW -11.5%, LYB -11.0%, APA -10.8%) at a flat 0, unchanged.
+#
+# NEGATIVE_MAGNITUDE_FLOOR/CEILING graduate linearly between
+# MAGNITUDE_SEVERE_NEGATIVE (10 points) and 0% (35 points) -- CEILING is
+# deliberately kept below the "weak" tier's 40, so a mildly-negative-growth
+# ticker can never score as well as a genuinely-positive-but-weak one.
+#
+# Verdict is NOT gated on magnitude_score's own value here -- see
+# _verdict_for and PASS_SCORE_FLOOR's guard below, both keyed on
+# `growth_rate_pct < MAGNITUDE_BORDERLINE` directly instead. This is
+# load-bearing, not a style choice: `magnitude_score` becoming nonzero for a
+# mild negative would otherwise (a) auto-promote the verdict to "Pass" via
+# the old `magnitude_score == 0` Fail gate, and (b) trip PASS_SCORE_FLOOR,
+# pushing the score to >=70 -- silently reintroducing a false Pass for a
+# company with genuinely negative projected growth. Decoupling the gates
+# from magnitude_score preserves the doc's own explicit design intent ("Fail
+# is gated on the magnitude tier alone" -- any negative growth still fails,
+# unconditionally, exactly as before) while letting the graduated *score*
+# be an honest, non-zero number instead of a flat 0 -- mirrors how Step 5's
+# Debt/EBITDA Severe-zone fix graduates the displayed number while keeping
+# hard_fail unconditionally true.
+MAGNITUDE_SEVERE_NEGATIVE = -10.0
+NEGATIVE_MAGNITUDE_FLOOR = 10
+NEGATIVE_MAGNITUDE_CEILING = 35
 
 # Agreement thresholds: high/low spread as a % of the average estimate.
 AGREEMENT_TIGHT = 10.0
@@ -43,6 +82,10 @@ def _score_magnitude(growth_rate_pct: float) -> tuple[int, str]:
         return 65, "modest"
     if growth_rate_pct >= MAGNITUDE_BORDERLINE:
         return 40, "weak"
+    if growth_rate_pct >= MAGNITUDE_SEVERE_NEGATIVE:
+        fraction = (growth_rate_pct - MAGNITUDE_SEVERE_NEGATIVE) / abs(MAGNITUDE_SEVERE_NEGATIVE)
+        points = round(NEGATIVE_MAGNITUDE_FLOOR + (NEGATIVE_MAGNITUDE_CEILING - NEGATIVE_MAGNITUDE_FLOOR) * fraction)
+        return points, "mildly_negative"
     return 0, "negative"
 
 
@@ -54,7 +97,7 @@ def _score_agreement(spread_pct: float) -> tuple[int, str]:
     return 20, "wide"
 
 
-def _verdict_for(score: int, magnitude_score: int) -> str:
+def _verdict_for(score: int, growth_rate_pct: float) -> str:
     # Deliberately refined beyond step2_positive_growth_rate_assessment_
     # prompt.md's original score-band verdict -- see CLAUDE.md's "Scoring
     # rubric deviations". The doc's own scale only fails a company for
@@ -62,8 +105,17 @@ def _verdict_for(score: int, magnitude_score: int) -> str:
     # but acceptable", neither a fail condition. Analyst disagreement (the
     # agreement component, 30% weight) should never by itself drag a
     # genuinely positive-growth company under the Fail line, so Fail is
-    # gated on the magnitude tier alone, not the blended score.
-    if magnitude_score == 0:
+    # gated on the raw growth rate's sign alone, not the blended score.
+    #
+    # Gated on `growth_rate_pct` directly, NOT `magnitude_score == 0`
+    # (changed 2026-08-13, alongside the negative-magnitude graduated
+    # scale above) -- magnitude_score is no longer 0 for every negative
+    # growth rate (mildly-negative cases now get a nonzero, graduated
+    # score), so checking it here would silently promote a genuinely
+    # negative-growth ticker to "Pass" the moment its magnitude cleared 0.
+    # This keeps the verdict boundary byte-identical to before: any
+    # negative growth still fails, unconditionally.
+    if growth_rate_pct < MAGNITUDE_BORDERLINE:
         return "Fail"
     if score > STRONG_PASS_SCORE:
         return "Strong Pass"
@@ -84,10 +136,15 @@ def score_step2(growth_rate_pct: float, spread_pct: float) -> ScoreResult:
     # a weak-but-positive-growth ticker's Pass verdict must never display a
     # 0-69 number, which every other step's shared color bands (and every
     # other step's own verdict logic) treat as Fail-severity. Verdict logic
-    # is untouched: Fail is still gated purely on magnitude_score == 0 (see
-    # _verdict_for), and this can never cross the Strong Pass threshold
+    # is untouched: Fail is still gated purely on growth_rate_pct's sign
+    # (see _verdict_for), and this can never cross the Strong Pass threshold
     # (raises only scores already below 70, Strong Pass requires > 90).
-    if magnitude_score > 0 and score < PASS_SCORE_FLOOR:
+    #
+    # Gated on `growth_rate_pct >= MAGNITUDE_BORDERLINE`, NOT
+    # `magnitude_score > 0` (changed 2026-08-13) -- a mildly-negative-growth
+    # ticker now has a nonzero magnitude_score too, and flooring its score
+    # to 70 would silently make it indistinguishable from a genuine Pass.
+    if growth_rate_pct >= MAGNITUDE_BORDERLINE and score < PASS_SCORE_FLOOR:
         score = PASS_SCORE_FLOOR
     return ScoreResult(
         magnitude_score=magnitude_score,
@@ -95,5 +152,5 @@ def score_step2(growth_rate_pct: float, spread_pct: float) -> ScoreResult:
         agreement_score=agreement_score,
         agreement_tier=agreement_tier,
         score=score,
-        verdict=_verdict_for(score, magnitude_score),
+        verdict=_verdict_for(score, growth_rate_pct),
     )

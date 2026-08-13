@@ -22,7 +22,8 @@ const TIER_LABELS: Record<string, string> = {
   solid: "Solid (10–15%)",
   modest: "Modest (5–10%)",
   weak: "Weak (0–5%)",
-  negative: "Negative (<0%)",
+  mildly_negative: "Mildly Negative (-10–0%)",
+  negative: "Negative (<-10%)",
   // agreement (scoring/step2.py::_score_agreement)
   tight: "Tight (<10% spread)",
   moderate: "Moderate (10–20% spread)",
