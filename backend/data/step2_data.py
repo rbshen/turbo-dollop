@@ -2,13 +2,14 @@ from datetime import date
 
 from sqlmodel import Session, select
 
-from core.cache import get_or_fetch, safe_fetch
+from core.cache import get_or_fetch, get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
 from core.db import engine
 from clients.fmp_client import fmp_client
 from core.models import GrowthCatalystNote
 from core.schemas import Step2EstimateRow, Step2Out
 from core.tickers import normalize_ticker
+from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.first import _first
 from scoring.classification import classify_company_type
 from scoring.step2 import AGREEMENT_WEIGHT, MAGNITUDE_WEIGHT, score_step2
@@ -148,6 +149,12 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
 
         dpu_note = None
         if is_reit:
+            # most_recent_earnings_date is only resolved here, inside the
+            # REIT branch -- computing it unconditionally at function top
+            # would cost every non-REIT ticker (~470 of 503) an unused
+            # /earnings fetch/cache-read for a value nothing else in this
+            # function needs.
+            most_recent_earnings_date = await resolve_most_recent_earnings_date(session, ticker, staleness_days, cache_only)
             # Only fetched for REITs -- same cache key ("ratios"/"annual_10y")
             # step3_data.py already populates for the Valuation P/B lookback,
             # so this is a cache hit whenever that tab's been viewed, and one
@@ -155,13 +162,14 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
             # non-REIT tickers.
             ratios_annual = await safe_fetch(
                 "ratios_annual_10y",
-                get_or_fetch(
+                get_or_fetch_earnings_aware(
                     session,
                     ticker,
                     "ratios",
                     "annual_10y",
                     lambda: fmp_client.get_ratios(ticker, "annual", 10),
                     staleness_days,
+                    most_recent_earnings_date,
                     cache_only,
                 ),
             )

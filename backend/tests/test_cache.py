@@ -1,9 +1,9 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from core.cache import force_fetch, get_or_fetch
+from core.cache import force_fetch, get_or_fetch, get_or_fetch_earnings_aware
 from core.models import FundamentalsCache
 
 
@@ -153,3 +153,231 @@ def test_cache_only_returns_none_when_no_row_exists():
 
     result = asyncio.run(run())
     assert result is None
+
+
+def test_earnings_aware_not_stale_when_no_new_earnings_since_fetch():
+    """A row fetched recently, well after the ticker's most recent real
+    earnings date, must read as fresh even though it's outside the flat
+    7-day window -- the whole point of earnings-aware staleness: a ticker
+    that hasn't reported since stays a cache hit."""
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    last_earnings = date.today() - timedelta(days=45)
+    fetched_at = datetime.now() - timedelta(days=1)  # fetched well after that earnings date
+    with Session(engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="income_statement",
+                period="annual",
+                fetched_at=fetched_at,
+                raw_json='[{"old": true}]',
+            )
+        )
+        session.commit()
+
+    async def fetch_fn():
+        raise AssertionError("fetch_fn must not be called -- row is fresh under earnings-aware staleness")
+
+    async def run():
+        with Session(engine) as session:
+            return await get_or_fetch_earnings_aware(
+                session,
+                "AAPL",
+                "income_statement",
+                "annual",
+                fetch_fn,
+                fallback_staleness_days=7,
+                most_recent_earnings_date=last_earnings,
+            )
+
+    result = asyncio.run(run())
+    assert result == [{"old": True}]
+
+
+def test_earnings_aware_stale_once_new_earnings_plus_buffer_has_passed():
+    """A row fetched BEFORE the ticker's most recent earnings date (plus the
+    reporting-lag buffer) must be treated as stale and refetched."""
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    fetched_at = datetime.now() - timedelta(days=10)
+    last_earnings = date.today() - timedelta(days=5)  # reported AFTER the row was fetched
+    with Session(engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="income_statement",
+                period="annual",
+                fetched_at=fetched_at,
+                raw_json='[{"old": true}]',
+            )
+        )
+        session.commit()
+
+    call_count = {"n": 0}
+
+    async def fetch_fn():
+        call_count["n"] += 1
+        return [{"new": True}]
+
+    async def run():
+        with Session(engine) as session:
+            return await get_or_fetch_earnings_aware(
+                session,
+                "AAPL",
+                "income_statement",
+                "annual",
+                fetch_fn,
+                fallback_staleness_days=7,
+                most_recent_earnings_date=last_earnings,
+            )
+
+    result = asyncio.run(run())
+    assert result == [{"new": True}]
+    assert call_count["n"] == 1
+
+
+def test_earnings_aware_not_yet_stale_within_the_reporting_lag_buffer():
+    """A new earnings date has passed since the row was fetched, but we're
+    still inside EARNINGS_STALENESS_BUFFER_DAYS -- FMP may not have updated
+    its statement endpoints yet, so this must NOT refetch yet."""
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    last_earnings = date.today()  # reported today
+    fetched_at = datetime.now() - timedelta(hours=1)  # fetched just before "now", same calendar day
+    with Session(engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="income_statement",
+                period="annual",
+                fetched_at=fetched_at,
+                raw_json='[{"old": true}]',
+            )
+        )
+        session.commit()
+
+    async def fetch_fn():
+        raise AssertionError("fetch_fn must not be called -- still inside the reporting-lag buffer")
+
+    async def run():
+        with Session(engine) as session:
+            return await get_or_fetch_earnings_aware(
+                session,
+                "AAPL",
+                "income_statement",
+                "annual",
+                fetch_fn,
+                fallback_staleness_days=7,
+                most_recent_earnings_date=last_earnings,
+            )
+
+    result = asyncio.run(run())
+    assert result == [{"old": True}]
+
+
+def test_earnings_aware_falls_back_to_flat_window_when_no_earnings_signal():
+    """most_recent_earnings_date=None (no cached /earnings rows, a failed
+    fetch, or a ticker with no earnings history) must fail safe to the same
+    flat-window behavior get_or_fetch itself uses."""
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    stale_time = datetime.now() - timedelta(days=30)
+    with Session(engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="income_statement",
+                period="annual",
+                fetched_at=stale_time,
+                raw_json='[{"old": true}]',
+            )
+        )
+        session.commit()
+
+    call_count = {"n": 0}
+
+    async def fetch_fn():
+        call_count["n"] += 1
+        return [{"new": True}]
+
+    async def run():
+        with Session(engine) as session:
+            return await get_or_fetch_earnings_aware(
+                session,
+                "AAPL",
+                "income_statement",
+                "annual",
+                fetch_fn,
+                fallback_staleness_days=7,
+                most_recent_earnings_date=None,
+            )
+
+    result = asyncio.run(run())
+    assert result == [{"new": True}]  # refetched -- 30 days old exceeds the flat 7-day fallback
+    assert call_count["n"] == 1
+
+
+def test_earnings_aware_cache_only_never_calls_fetch_fn_even_when_stale():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    old_fetch = datetime.now() - timedelta(days=10)
+    last_earnings = date.today() - timedelta(days=5)
+    with Session(engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="income_statement",
+                period="annual",
+                fetched_at=old_fetch,
+                raw_json='[{"old": true}]',
+            )
+        )
+        session.commit()
+
+    async def fetch_fn():
+        raise AssertionError("fetch_fn must never be called in cache_only mode")
+
+    async def run():
+        with Session(engine) as session:
+            return await get_or_fetch_earnings_aware(
+                session,
+                "AAPL",
+                "income_statement",
+                "annual",
+                fetch_fn,
+                fallback_staleness_days=7,
+                most_recent_earnings_date=last_earnings,
+                cache_only=True,
+            )
+
+    result = asyncio.run(run())
+    assert result == [{"old": True}]  # stale data returned anyway -- still better than nothing
+
+
+def test_earnings_aware_fetches_when_no_row_exists():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    async def fetch_fn():
+        return [{"value": 1}]
+
+    async def run():
+        with Session(engine) as session:
+            return await get_or_fetch_earnings_aware(
+                session,
+                "MSFT",
+                "income_statement",
+                "annual",
+                fetch_fn,
+                fallback_staleness_days=7,
+                most_recent_earnings_date=date.today(),
+            )
+
+    result = asyncio.run(run())
+    assert result == [{"value": 1}]

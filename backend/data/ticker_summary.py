@@ -4,11 +4,12 @@ from datetime import date, timedelta
 import httpx
 from sqlmodel import Session
 
-from core.cache import force_fetch, get_or_fetch, safe_fetch
+from core.cache import force_fetch, get_or_fetch, get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
 from core.db import engine
 from core.exceptions import TickerNotFoundError
 from helpers.debt_metrics import compute_debt_metrics
+from helpers.earnings import most_recent_reported_earnings_date
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.schemas import OutlierWarning, TickerSummaryOut
@@ -236,6 +237,11 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
                 session, ticker, "earnings", "latest", lambda: fmp_client.get_earnings(ticker), staleness_days, cache_only
             ),
         )
+        # Reduced from the same /earnings fetch above, not a second fetch --
+        # get_summary already needs this data for next_earnings_date below.
+        most_recent_earnings_date = most_recent_reported_earnings_date(
+            earnings_data if isinstance(earnings_data, list) else []
+        )
         # Same cache key Step 4/Step 5/the Financials tab also populate
         # ("balance_sheet_statement"/"quarterly") -- limit is
         # TOTAL_QUARTERS_NEEDED to match them (bumped from 1 in the
@@ -249,25 +255,27 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         # inconsistent numbers for the same ticker.
         balance_sheet_data = await safe_fetch(
             "balance_sheet_statement_quarterly",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "balance_sheet_statement",
                 "quarterly",
                 lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
         income_quarterly_data = await safe_fetch(
             "income_statement_quarterly",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "income_statement",
                 "quarterly",
                 lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
@@ -289,21 +297,29 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         ratios_ttm = _first(
             await safe_fetch(
                 "ratios_ttm",
-                get_or_fetch(
-                    session, ticker, "ratios", "ttm", lambda: fmp_client.get_ratios_ttm(ticker), staleness_days, cache_only
+                get_or_fetch_earnings_aware(
+                    session,
+                    ticker,
+                    "ratios",
+                    "ttm",
+                    lambda: fmp_client.get_ratios_ttm(ticker),
+                    staleness_days,
+                    most_recent_earnings_date,
+                    cache_only,
                 ),
             )
         )
         financial_growth = _first(
             await safe_fetch(
                 "financial_growth",
-                get_or_fetch(
+                get_or_fetch_earnings_aware(
                     session,
                     ticker,
                     "financial_growth",
                     "annual",
                     lambda: fmp_client.get_financial_growth(ticker, "annual", 1),
                     staleness_days,
+                    most_recent_earnings_date,
                     cache_only,
                 ),
             )

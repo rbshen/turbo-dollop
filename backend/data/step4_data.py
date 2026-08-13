@@ -1,9 +1,10 @@
 import numpy as np
 from sqlmodel import Session
 
-from core.cache import get_or_fetch, safe_fetch
+from core.cache import get_or_fetch, get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
 from core.db import engine
+from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.schemas import Step4Out
@@ -527,6 +528,7 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:
+        most_recent_earnings_date = await resolve_most_recent_earnings_date(session, ticker, staleness_days, cache_only)
         profile = _first(
             await safe_fetch(
                 "profile",
@@ -542,37 +544,40 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
         # fight over the same cache row (see CLAUDE.md's caching policy).
         income_annual = await safe_fetch(
             "income_statement_annual",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "income_statement",
                 "annual",
                 lambda: fmp_client.get_income_statement(ticker, "annual", 10),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
         income_quarterly = await safe_fetch(
             "income_statement_quarterly",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "income_statement",
                 "quarterly",
                 lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
         balance_sheet_annual = await safe_fetch(
             "balance_sheet_statement_annual",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "balance_sheet_statement",
                 "annual",
                 lambda: fmp_client.get_balance_sheet_statement(ticker, "annual", ANNUAL_WINDOW),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
@@ -584,38 +589,41 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
         # fetch doesn't change anything here.
         balance_sheet_quarterly = await safe_fetch(
             "balance_sheet_statement_quarterly",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "balance_sheet_statement",
                 "quarterly",
                 lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
         key_metrics_annual = await safe_fetch(
             "key_metrics_annual",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "key_metrics",
                 "annual",
                 lambda: fmp_client.get_key_metrics(ticker, "annual", ANNUAL_WINDOW),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
         key_metrics_ttm = _first(
             await safe_fetch(
                 "key_metrics_ttm",
-                get_or_fetch(
+                get_or_fetch_earnings_aware(
                     session,
                     ticker,
                     "key_metrics",
                     "ttm",
                     lambda: fmp_client.get_key_metrics_ttm(ticker),
                     staleness_days,
+                    most_recent_earnings_date,
                     cache_only,
                 ),
             )
@@ -627,25 +635,27 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
         # new FMP calls.
         cash_flow_annual = await safe_fetch(
             "cash_flow_statement_annual",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "cash_flow_statement",
                 "annual",
                 lambda: fmp_client.get_cash_flow_statement(ticker, "annual", 10),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
         cash_flow_quarterly = await safe_fetch(
             "cash_flow_statement_quarterly",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "cash_flow_statement",
                 "quarterly",
                 lambda: fmp_client.get_cash_flow_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )

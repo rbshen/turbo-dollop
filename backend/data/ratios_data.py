@@ -1,8 +1,9 @@
 from sqlmodel import Session
 
-from core.cache import get_or_fetch, safe_fetch
+from core.cache import get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
 from core.db import engine
+from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.schemas import FinancialsGroup, FinancialsLineItem, RatiosOut
@@ -196,49 +197,60 @@ async def get_ratios_data(ticker: str, cache_only: bool = False) -> RatiosOut:
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:
+        most_recent_earnings_date = await resolve_most_recent_earnings_date(session, ticker, staleness_days, cache_only)
         key_metrics_annual = await safe_fetch(
             "key_metrics_annual",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "key_metrics",
                 "annual",
                 lambda: fmp_client.get_key_metrics(ticker, "annual", ANNUAL_WINDOW),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
         key_metrics_ttm = _first(
             await safe_fetch(
                 "key_metrics_ttm",
-                get_or_fetch(
+                get_or_fetch_earnings_aware(
                     session,
                     ticker,
                     "key_metrics",
                     "ttm",
                     lambda: fmp_client.get_key_metrics_ttm(ticker),
                     staleness_days,
+                    most_recent_earnings_date,
                     cache_only,
                 ),
             )
         )
         ratios_annual = await safe_fetch(
             "ratios_annual_10y",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "ratios",
                 "annual_10y",
                 lambda: fmp_client.get_ratios(ticker, "annual", ANNUAL_WINDOW),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
         ratios_ttm = _first(
             await safe_fetch(
                 "ratios_ttm",
-                get_or_fetch(
-                    session, ticker, "ratios", "ttm", lambda: fmp_client.get_ratios_ttm(ticker), staleness_days, cache_only
+                get_or_fetch_earnings_aware(
+                    session,
+                    ticker,
+                    "ratios",
+                    "ttm",
+                    lambda: fmp_client.get_ratios_ttm(ticker),
+                    staleness_days,
+                    most_recent_earnings_date,
+                    cache_only,
                 ),
             )
         )
@@ -250,13 +262,14 @@ async def get_ratios_data(ticker: str, cache_only: bool = False) -> RatiosOut:
         # FMP plan). Same cache key Step 4/5/Financials already populate.
         balance_sheet_quarterly = await safe_fetch(
             "balance_sheet_statement_quarterly",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "balance_sheet_statement",
                 "quarterly",
                 lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )

@@ -3,12 +3,13 @@ from datetime import datetime
 
 from sqlmodel import Session, select
 
-from core.cache import get_or_fetch, safe_fetch
+from core.cache import get_or_fetch, get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
 from core.db import engine
 from core.models import FundamentalsCache
 from helpers.debt_metrics import compute_debt_metrics
 from helpers.discount_rate_config import get_discount_rate_config
+from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config
 from helpers.first import _first
 from clients.fmp_client import fmp_client
@@ -161,6 +162,7 @@ async def get_step3_data(
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:
+        most_recent_earnings_date = await resolve_most_recent_earnings_date(session, ticker, staleness_days, cache_only)
         profile = _first(
             await safe_fetch(
                 "profile",
@@ -181,49 +183,53 @@ async def get_step3_data(
         # ("income_statement"/"annual", limit 10).
         income_annual = await safe_fetch(
             "income_statement_annual",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "income_statement",
                 "annual",
                 lambda: fmp_client.get_income_statement(ticker, "annual", 10),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
         income_quarterly = await safe_fetch(
             "income_statement_quarterly",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "income_statement",
                 "quarterly",
                 lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
         cash_flow_annual = await safe_fetch(
             "cash_flow_statement_annual",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "cash_flow_statement",
                 "annual",
                 lambda: fmp_client.get_cash_flow_statement(ticker, "annual", 10),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
         cash_flow_quarterly = await safe_fetch(
             "cash_flow_statement_quarterly",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "cash_flow_statement",
                 "quarterly",
                 lambda: fmp_client.get_cash_flow_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
@@ -233,13 +239,14 @@ async def get_step3_data(
         # gotcha #2 (latest instant, not FY-end).
         balance_sheet_quarterly = await safe_fetch(
             "balance_sheet_statement_quarterly",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "balance_sheet_statement",
                 "quarterly",
                 lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
@@ -250,13 +257,14 @@ async def get_step3_data(
         # recomputation below (2026-08-15) -- see pb_history's own comment.
         balance_sheet_annual = await safe_fetch(
             "balance_sheet_statement_annual",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "balance_sheet_statement",
                 "annual",
                 lambda: fmp_client.get_balance_sheet_statement(ticker, "annual", 10),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
@@ -266,13 +274,14 @@ async def get_step3_data(
         # same cache row despite both hitting /ratios.
         ratios_annual = await safe_fetch(
             "ratios_annual_10y",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "ratios",
                 "annual_10y",
                 lambda: fmp_client.get_ratios(ticker, "annual", 10),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )

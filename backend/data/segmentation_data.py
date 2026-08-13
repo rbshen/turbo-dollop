@@ -1,11 +1,12 @@
 from sqlmodel import Session
 
-from core.cache import get_or_fetch, safe_fetch
+from core.cache import get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
 from core.db import engine
 from clients.fmp_client import fmp_client
 from core.schemas import SegmentationOut
 from core.tickers import normalize_ticker
+from helpers.earnings import resolve_most_recent_earnings_date
 
 # Same 10yr consistency convention as Step 1/Step 4/Ratios (see CLAUDE.md) --
 # annual-only on our FMP plan (period=quarter 402s on both segmentation
@@ -96,27 +97,30 @@ async def get_segmentation_data(ticker: str, cache_only: bool = False) -> Segmen
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:
+        most_recent_earnings_date = await resolve_most_recent_earnings_date(session, ticker, staleness_days, cache_only)
         product_data = await safe_fetch(
             "revenue_product_segmentation",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "revenue_product_segmentation",
                 "annual",
                 lambda: fmp_client.get_revenue_product_segmentation(ticker),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
         geographic_data = await safe_fetch(
             "revenue_geographic_segmentation",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "revenue_geographic_segmentation",
                 "annual",
                 lambda: fmp_client.get_revenue_geographic_segmentation(ticker),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )

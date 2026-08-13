@@ -21,6 +21,7 @@ outside of a pytest session."""
 import pytest
 from sqlalchemy import event
 
+from clients.fmp_client import fmp_client
 from core.db import engine as real_engine
 
 _WRITE_PREFIXES = ("INSERT", "UPDATE", "DELETE", "REPLACE")
@@ -43,3 +44,28 @@ def _forbid_writes_to_real_db():
     event.listen(real_engine, "before_cursor_execute", _forbid_write)
     yield
     event.remove(real_engine, "before_cursor_execute", _forbid_write)
+
+
+@pytest.fixture(autouse=True)
+def _default_earnings_fetch(monkeypatch):
+    """Every statement-grain data module (step1-5_data.py, ratios_data.py,
+    segmentation_data.py, financials_data.py, ticker_summary.py) now resolves
+    each ticker's most recent reported earnings date
+    (helpers.earnings.resolve_most_recent_earnings_date) before deciding cache
+    freshness -- see core/cache.py::get_or_fetch_earnings_aware. fmp_client is
+    a true singleton (`clients/fmp_client.py::fmp_client = FMPClient()`), so
+    patching it once here applies across every module that imported it by
+    reference. Defaults get_earnings to an empty response so a test exercising
+    a live (non-cache_only) fetch path doesn't silently make a real network
+    call just because it doesn't itself care about earnings-date-aware
+    staleness -- an empty list makes most_recent_reported_earnings_date return
+    None, which falls back to the same flat-window behavior these tests'
+    existing call-count assertions were already written against. A test that
+    DOES care sets its own monkeypatch.setattr(fmp_client, "get_earnings", ...)
+    afterward, which simply overrides this default (same object, last write
+    wins) -- no conflict."""
+
+    async def _default_get_earnings(ticker):
+        return []
+
+    monkeypatch.setattr(fmp_client, "get_earnings", _default_get_earnings)
