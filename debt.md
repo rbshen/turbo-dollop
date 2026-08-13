@@ -47,6 +47,32 @@ before failing; a Severe breach never does.
 | Debt / EBITDA | ≤ 3.0 | 3.0 – 4.0 | > 4.0 |
 | Debt Servicing Ratio | < 30% | 30% – 40% | ≥ 40% |
 
+### Severe zone's graduated display (2026-08-13)
+
+Debt/EBITDA and Debt Servicing Ratio's Severe points are no longer a flat
+0 regardless of how far past the boundary a ratio sits — a company at
+4.04× Debt/EBITDA (barely past 4.0×, practically indistinguishable from a
+3.99× Borderline case that still gets the breach-context second look)
+used to score identically to one at 84.56×. Points now graduate linearly:
+
+| Ratio | Ceiling (at the boundary) | Floors to 0 at |
+|---|---|---|
+| Debt / EBITDA | 15 pts (at 4.0×) | 10.0× |
+| Debt Servicing Ratio | 15 pts (at 40%) | 120% |
+
+This is **display-only** — `label` stays `"severe"` and `hard_fail` stays
+unconditionally `True` for the entire zone, so the verdict is completely
+unaffected: a Severe breach is always a hard Fail regardless of the
+number shown (confirmed via a full-universe recompute: 86 tickers' points
+changed, 0 verdicts changed). The 15-point ceiling is deliberately kept
+below `MARGINAL_SCORE_FLOOR` (40, the floor of a genuinely-rescued
+Borderline breach's score) — even the least-bad Severe reading can never
+numerically outscore a real rescue. The floor ratios (10.0× / 120%) were
+chosen from the real tracked-universe distribution, not guessed: they
+cover 92% and 59% of actual Severe-zone tickers respectively, with only
+the most extreme outliers (e.g. Debt/EBITDA above 10×) floored to 0.
+Current Ratio's Severe zone is unchanged by this fix.
+
 ### Comfortable-zone sub-tiers
 
 | Current Ratio | Tier | Points |

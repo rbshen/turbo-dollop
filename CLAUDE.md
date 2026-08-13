@@ -723,6 +723,42 @@ for the exact current formulas and severity bands:
   `debt_to_ebitda`/`debt_servicing_pct` input, treating an undefined
   ratio the same as a real breach for gating purposes — it can't vouch
   for a different ratio's rescue any more than a bad one could.
+- **Debt/EBITDA and DSR's Severe-zone points graduated (2026-08-13)**,
+  following the same hard-fail-cliff investigation as Step 4's ROIC/ROE
+  fix and Step 2's negative-magnitude fix. The Severe zone was a flat 0
+  no matter how far beyond the boundary a ratio sat — confirmed via a
+  full-universe scan: Debt/EBITDA's Severe population spans 4.04× to
+  84.56× (NET), DSR's spans 42.68% to 478.91% (HUM). **Both FDXF
+  (current_ratio 0.00, flagged in the original investigation) and HUM
+  were spot-checked for a data-quality artifact before this shipped**:
+  FDXF's is confirmed a genuine FMP data gap (`totalCurrentAssets`
+  reports as a literal `0` against $993M of current liabilities for this
+  recently-spun-off FedEx Freight subsidiary — implausible for an
+  actively-trading company, not touched by this fix since Current Ratio's
+  Severe zone is out of scope here); HUM's 478.9% DSR is confirmed
+  **genuine, not an artifact** — a real, seasonally-lumpy $147M TTM CFO
+  (Humana's quarterly cash flow swings ±$400M-1.65B and happens to net to
+  a small residual this TTM window) divided into a normal ~$704M TTM
+  interest expense.
+  - Unlike Step 4/Step 2, this is **display-only** — `label` stays
+    `"severe"` and `hard_fail` stays unconditionally `True` for the whole
+    zone (Debt is deliberately "a hard pass/fail bankruptcy filter, not a
+    continuous score" — see above), so there is no companion-floor risk
+    to fix here the way the other two needed: the verdict is already
+    forced to Fail by `hard_fail` regardless of the displayed score, both
+    before and after this change. Confirmed via a full-universe recompute:
+    **86 tickers' points/score changed, 0 verdicts changed** — including
+    PCAR, whose blended score rises to 72 (nominally "Pass" range) while
+    still correctly reading Fail, since `hard_fail` is checked first and
+    unconditionally in `_verdict_for`.
+  - Points graduate linearly from 15 (at the Comfortable/Severe boundary)
+    to 0 (Debt/EBITDA: at 10.0×, `DEBT_EBITDA_SEVERE_FLOOR_RATIO`, 2.5x
+    the 4.0x boundary; DSR: at 120%, `DSR_SEVERE_FLOOR_PCT`, 3x the 40%
+    boundary) — both floor ratios chosen from the real Severe population
+    (covering 92%/59% of actual tracked-universe Severe tickers
+    respectively), not guessed. 15-point ceiling deliberately kept below
+    `MARGINAL_SCORE_FLOOR` (40) so even the least-bad Severe reading can
+    never numerically outscore a genuinely-rescued Borderline breach.
 
 Profitability's original methodology gives ROE/ROIC tiers, an
 AR-outpacing-magnitude concept, and a qualitative CCC pattern table

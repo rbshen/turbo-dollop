@@ -26,6 +26,51 @@ DEBT_EBITDA_COMFORTABLE = 3.0
 DEBT_EBITDA_SEVERE = 4.0
 DSR_COMFORTABLE = 30.0
 DSR_SEVERE = 40.0
+# --- Severe-zone graduated display (2026-08-13) ------------------------------
+# Debt/EBITDA and DSR's Severe zone was a flat 0 no matter how far beyond
+# the Severe boundary a ratio sat -- a company at 4.04x Debt/EBITDA
+# (barely past the 4.0x line, practically indistinguishable from a 3.99x
+# Borderline case that still gets a shot at the breach-context rescue)
+# scored identically to one at 84.56x. This graduates the DISPLAYED points
+# only -- `label` stays "severe" and `hard_fail` stays unconditionally
+# True for the whole zone, so the verdict (always a hard Fail here, per
+# CLAUDE.md's "Debt is a hard pass/fail bankruptcy filter, not a
+# continuous score") is completely untouched; only the number shown next
+# to it becomes honest instead of uniformly 0. Mirrors how Step 2's
+# negative-magnitude fix and Step 4's ROIC/ROE fix both graduate a value
+# while a separate mechanism (there, verdict gating; here, hard_fail)
+# still independently forces the correct outcome.
+#
+# Both ceilings are deliberately kept below MARGINAL_SCORE_FLOOR (40) --
+# even a "least-bad" Severe reading must never numerically outscore a
+# genuinely-rescued Borderline breach.
+#
+# Floor ratios (points reach 0) were chosen from the real Severe
+# population, not guessed: Debt/EBITDA's is 2.5x DEBT_EBITDA_SEVERE
+# (10.0x) -- covers 83/90 (92%) of the tracked universe's actual Severe
+# tickers, with only the most extreme outliers (NET 84.56x, CVNA 36.87x,
+# INTC 13.76x, APD/BAX/CRL/ZS in the 11-14x range) correctly floored to 0.
+# DSR's is 3x DSR_SEVERE (120.0%) -- covers 10/17 (59%), a smaller share
+# because DSR's own real Severe population is already deep (median 89.9%,
+# more than 2x the boundary) even before the extreme tail (HUM 478.9%,
+# confirmed genuine via a real, seasonally-lumpy $147M TTM CFO denominator
+# against a normal ~$704M TTM interest expense -- not a data artifact,
+# just an unusually sensitive ratio for this specific business).
+DEBT_EBITDA_SEVERE_FLOOR_RATIO = 10.0
+DEBT_EBITDA_SEVERE_DISPLAY_CEILING = 15
+DSR_SEVERE_FLOOR_PCT = 120.0
+DSR_SEVERE_DISPLAY_CEILING = 15
+
+
+def _graduated_severe_points(value: float, boundary: float, floor_value: float, ceiling: int) -> int:
+    """Linear ramp from `ceiling` (at `boundary`, the Borderline/Severe
+    line) down to 0 (at `floor_value`, beyond which it's all equally
+    "maximally bad"). Display-only -- never changes `label` or
+    `hard_fail`, see this module's Severe-zone comment above."""
+    if value >= floor_value:
+        return 0
+    fraction = (value - boundary) / (floor_value - boundary)
+    return round(ceiling * (1 - fraction))
 # A borderline breach saved by its tiebreaker still isn't a clean pass --
 # scored the same as the old "approaching_limit"/DSR mid-tier, distinct
 # from every genuine Comfortable-zone sub-tier (70/85/100).
@@ -388,7 +433,8 @@ def score_debt_to_ebitda(value: float) -> RatioResult:
         return RatioResult("excellent", 100, False)
     if value <= DEBT_EBITDA_SEVERE:
         return RatioResult("borderline_fail", 0, True)
-    return RatioResult("severe", 0, True)
+    points = _graduated_severe_points(value, DEBT_EBITDA_SEVERE, DEBT_EBITDA_SEVERE_FLOOR_RATIO, DEBT_EBITDA_SEVERE_DISPLAY_CEILING)
+    return RatioResult("severe", points, True)
 
 
 def score_debt_servicing(value_pct: float, icr_is_safe: bool) -> RatioResult:
@@ -402,7 +448,8 @@ def score_debt_servicing(value_pct: float, icr_is_safe: bool) -> RatioResult:
         if icr_is_safe:
             return RatioResult("borderline_saved_by_icr", BORDERLINE_SAVED_SCORE, False, saved_by_tiebreaker=True)
         return RatioResult("borderline_fail", 0, True)
-    return RatioResult("severe", 0, True)
+    points = _graduated_severe_points(value_pct, DSR_SEVERE, DSR_SEVERE_FLOOR_PCT, DSR_SEVERE_DISPLAY_CEILING)
+    return RatioResult("severe", points, True)
 
 
 def score_gearing(value_pct: float) -> RatioResult:

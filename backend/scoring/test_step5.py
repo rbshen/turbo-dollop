@@ -176,9 +176,33 @@ def test_debt_to_ebitda_boundary_at_4_is_borderline_not_severe():
 def test_debt_to_ebitda_severe_above_4():
     # Mirrors ABBV's real shape: 4.31 is Severe (>4.0). Severe never
     # reaches the breach-context framework at all (confirmed scope
-    # decision) -- always an unconditional Fail, no exceptions.
+    # decision) -- always an unconditional Fail, no exceptions. Points are
+    # graduated as of 2026-08-13 (14, not a flat 0 -- see the graduated-
+    # display tests below), but hard_fail/label stay unconditionally
+    # True/"severe".
     result = score_debt_to_ebitda(4.31)
-    assert result == ("severe", 0, True, False, (), None, False)
+    assert result == ("severe", 14, True, False, (), None, False)
+
+
+def test_debt_to_ebitda_severe_display_graduated_between_boundary_and_floor_ratio():
+    # 2026-08-13 fix: the Severe zone's displayed points are no longer a
+    # flat 0 -- graduated from DEBT_EBITDA_SEVERE_DISPLAY_CEILING (15) at
+    # the 4.0x boundary down to 0 at 10.0x (DEBT_EBITDA_SEVERE_FLOOR_RATIO).
+    # hard_fail and label are unconditionally unaffected -- this is a
+    # display-only change (see this module's own Severe-zone comment).
+    at_boundary = score_debt_to_ebitda(4.0 + 1e-9)
+    assert at_boundary.points == 15
+    assert at_boundary.hard_fail is True
+    assert at_boundary.label == "severe"
+
+    at_floor = score_debt_to_ebitda(10.0)
+    assert at_floor.points == 0
+    assert at_floor.hard_fail is True
+
+    beyond_floor = score_debt_to_ebitda(84.56)  # NET's real shape
+    assert beyond_floor.points == 0
+    assert beyond_floor.hard_fail is True
+    assert beyond_floor.label == "severe"
 
 
 # --- Debt Servicing Ratio: Comfortable-zone sub-tiers (unchanged --
@@ -218,13 +242,31 @@ def test_debt_servicing_borderline_not_saved_by_unsafe_icr():
 
 
 def test_debt_servicing_boundary_at_40_is_severe_not_borderline():
+    # Points are graduated as of 2026-08-13 -- 40.0 sits exactly at the
+    # Severe boundary, the ceiling of the graduated range (see the
+    # graduated-display tests below). hard_fail/label are unaffected.
     result = score_debt_servicing(40.0, icr_is_safe=True)
-    assert result == ("severe", 0, True, False, (), None, False)
+    assert result == ("severe", 15, True, False, (), None, False)
 
 
 def test_debt_servicing_severe_above_40_never_saved_even_with_safe_icr():
     result = score_debt_servicing(45.0, icr_is_safe=True)
-    assert result == ("severe", 0, True, False, (), None, False)
+    assert result == ("severe", 14, True, False, (), None, False)
+
+
+def test_debt_servicing_severe_display_graduated_between_boundary_and_floor_pct():
+    # 2026-08-13 fix: the Severe zone's displayed points are no longer a
+    # flat 0 -- graduated from DSR_SEVERE_DISPLAY_CEILING (15) at the 40%
+    # boundary down to 0 at 120% (DSR_SEVERE_FLOOR_PCT). hard_fail and
+    # label are unconditionally unaffected -- display-only.
+    at_floor = score_debt_servicing(120.0, icr_is_safe=False)
+    assert at_floor.points == 0
+    assert at_floor.hard_fail is True
+
+    beyond_floor = score_debt_servicing(478.91, icr_is_safe=False)  # HUM's real (confirmed genuine, not artifact) shape
+    assert beyond_floor.points == 0
+    assert beyond_floor.hard_fail is True
+    assert beyond_floor.label == "severe"
 
 
 # --- Interest Coverage Ratio classification ---
