@@ -52,6 +52,36 @@ TREND_RECOVERY_WINDOW = 3
 # even the robust late-window average (single most extreme point excluded)
 # shows no meaningful improvement over the early window.
 FLAT_SPIKE_IMPROVEMENT_THRESHOLD = 0.10
+# --- `declining` graduated display (2026-08-13) -----------------------------
+# The severe-TTM-decline override used to be a flat 0 no matter how far
+# past SEVERE_TTM_DECLINE (15%) the drop was -- a company down 15.2%
+# (barely past the line) scored identically to one down 92% or more.
+# Points now graduate from DECLINING_DISPLAY_CEILING (15 -- deliberately
+# below flat_then_spike's 20, the next-lowest classify_trend pattern score,
+# so a graduated "declining" reading can never outrank a different, milder
+# worst-tier pattern) at the 15% boundary down to 0 at
+# DECLINING_FLOOR_DECLINE (50%). This only ever changes the SCORE this
+# function returns for a currently-positive-but-severely-declining series
+# -- `declining` isn't in RECOVERY_PATTERNS and every other consumer of
+# this pattern (Step 3's method-selection tree, Step 4's ROE/ROIC recovery
+# checks) only tests `pattern in RECOVERY_PATTERNS`, never the score value,
+# so this is a Step 1-only behavior change despite living in a shared file
+# (confirmed via a project-wide grep of every classify_trend call site
+# before shipping). 50% was chosen from the real tracked-universe
+# distribution of `declining` hits, not guessed: it covers 101/141 (72%)
+# of actual hits, with only the genuinely severe tail (including several
+# near-zero-prior-year-base pct-change artifacts, e.g. INTC's -4128% --
+# these correctly floor to 0 regardless of how the raw percentage reads).
+DECLINING_DISPLAY_CEILING = 15
+DECLINING_FLOOR_DECLINE = 0.50
+
+
+def _graduated_declining_points(pct_change: float) -> int:
+    decline = -pct_change
+    if decline >= DECLINING_FLOOR_DECLINE:
+        return 0
+    fraction = (decline - SEVERE_TTM_DECLINE) / (DECLINING_FLOOR_DECLINE - SEVERE_TTM_DECLINE)
+    return round(DECLINING_DISPLAY_CEILING * (1 - fraction))
 
 
 class TrendResult(NamedTuple):
@@ -243,7 +273,7 @@ def classify_trend(values: list[float]) -> TrendResult:
     # transition below, subject to the same merge/resolution logic as any
     # other dip, rather than a flat, age-blind override.
     if pct_changes[-1] < -SEVERE_TTM_DECLINE:
-        return TrendResult("declining", 0)
+        return TrendResult("declining", _graduated_declining_points(pct_changes[-1]))
 
     if real_dips.size == 0:
         return TrendResult("grows_every_year", 100)

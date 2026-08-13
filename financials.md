@@ -64,8 +64,8 @@ points:
 1. Compute period-over-period percent changes. A decline steeper than
    **-5%** counts as a "real" dip; anything shallower is noise.
 2. **Severe TTM decline override**: if the final transition (into TTM) is
-   a decline steeper than **-15%**, the result is **`declining`, score
-   0**, unconditionally — this overrides everything else in the series'
+   a decline steeper than **-15%**, the result is **`declining`**,
+   unconditionally — this overrides everything else in the series'
    history. A milder TTM decline (between -5% and -15%) no longer
    triggers this override as of **2026-08-08** — it flows through as an
    ordinary dip transition, subject to the same merge/resolution logic as
@@ -74,6 +74,21 @@ points:
    regardless of history; confirmed dragging ~12 tickers (APTV, PHM,
    FISV, HCA, PCG, TSCO, etc.) from Pass to Fail on a single mild (5-15%)
    TTM wobble after an otherwise long, clean growth run.
+   **`declining`'s own score is graduated as of 2026-08-13**, no longer a
+   flat 0 for the entire zone beyond -15%: it scales linearly from **15**
+   points (just past -15%) down to **0** (at a **-50%** decline or worse)
+   — a company down 15.2% no longer reads identically to one down 92%.
+   This graduated score only affects Step 1's own Revenue/Net Income/
+   Operating Income/CFO scoring (via `_classify_positive_trend` below) —
+   every other consumer of this shared function (Step 3's method-selection
+   tree, Step 4's ROE/ROIC recovery checks) only tests pattern membership
+   in the recovery-patterns set, never the raw score, and `declining` was
+   never in that set either way. 50% was derived from the real tracked-
+   universe distribution of `declining` hits (confirmed via a full scan,
+   not guessed): it covers 101/141 (72%) of actual cases, leaving the
+   genuinely severe tail — including several near-zero-prior-year-base
+   percent-change artifacts that read as far worse than -50% on paper —
+   correctly floored to 0 either way.
 3. **Zero real dips** → `grows_every_year`, **100**.
 4. **Flat-then-spike check** (2+ real dips only, checked before dip-event
    resolution): if the window before the final point is flat (the total
@@ -161,8 +176,21 @@ Income, and CFO each require the **current (TTM) value to be positive**:
 - If the trend classifier already returned `insufficient_data`, this gate
   is skipped (the insufficient-data result passes through unchanged).
 - Otherwise, if the TTM value is **≤ 0**, the result is overridden to
-  `not_yet_positive`, **score 0**, regardless of what the relative trend
-  pattern says.
+  `not_yet_positive`, regardless of what the relative trend pattern says.
+  **The score is graduated as of 2026-08-13**, no longer a flat 0
+  regardless of depth: it's measured as a margin (`value ÷ real revenue ×
+  100`, using real revenue even for Banks — the same denominator Margins
+  itself is judged against, not the Net-Interest-Income substitute) and
+  scaled linearly from **15** points (at 0% margin) down to **0** (at
+  **-20%** margin or worse) — a company one dollar from breakeven no
+  longer reads identically to one in deep structural loss. Falls back to
+  the flat 0 if no revenue figure is available to normalize against (or
+  it's zero/negative). -20% was derived from the real tracked-universe
+  distribution of `not_yet_positive` hits (confirmed via a full scan, not
+  guessed): it covers 34/45 (76%) of actual cases, leaving the genuinely
+  severe tail (margins beyond -20%, e.g. a company with a structural,
+  ongoing multi-hundred-million-dollar loss) correctly floored to 0
+  either way.
 - Otherwise, the trend classifier's own tier (from the previous section)
   is used unchanged. A historical dip — even one that went negative
   mid-dip — is still tolerated as long as the series has since recovered

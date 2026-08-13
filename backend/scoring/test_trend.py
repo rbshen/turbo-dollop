@@ -105,16 +105,22 @@ def test_flat_then_spike():
 
 
 def test_declining_including_ttm():
+    # TTM decline is -24.8% -- within the graduated zone (2026-08-13 fix:
+    # 15%-50%), so no longer a flat 0. See the graduated-scale tests below
+    # for the boundary/floor behavior.
     pattern, score = classify_trend([100, 110, 121, 133, 100])
     assert pattern == "declining"
-    assert score == 0
+    assert score == 11
 
 
 def test_ttm_decline_overrides_otherwise_clean_growth():
-    # 4 clean growth years, then TTM drops -- disqualifying regardless of history.
+    # 4 clean growth years, then TTM drops -- disqualifying regardless of
+    # history. -17.3% is within the graduated zone (2026-08-13 fix), so no
+    # longer a flat 0 -- still the lowest tier available, just an honest
+    # near-boundary number.
     pattern, score = classify_trend([100, 110, 121, 133, 110])
     assert pattern == "declining"
-    assert score == 0
+    assert score == 14
 
 
 def test_noise_floor_ignores_tiny_moves():
@@ -211,11 +217,34 @@ def test_ttm_decline_inside_graduated_band_not_forced_to_zero():
 
 
 def test_ttm_decline_beyond_severe_threshold_still_declining():
-    # -16%, beyond SEVERE_TTM_DECLINE -- the hard override still applies
-    # unconditionally, same as the pre-existing behavior for a severe drop.
+    # -16%, beyond SEVERE_TTM_DECLINE -- the `declining` override still
+    # applies unconditionally (a milder decline flows through as an
+    # ordinary dip transition instead, see the graduated-band tests
+    # above). Points are graduated as of 2026-08-13 -- -16% sits just past
+    # the 15% boundary, near the graduated ceiling (15), not a flat 0.
     pattern, score = classify_trend([100, 110, 121, 133, 133 * 0.84])
     assert pattern == "declining"
-    assert score == 0
+    assert score == 15
+
+
+def test_declining_graduated_scale_boundaries():
+    # 2026-08-13 fix: `declining`'s points are no longer a flat 0. Just
+    # past SEVERE_TTM_DECLINE (-15.1%, since exactly -15.0% doesn't trigger
+    # `declining` at all -- the check is strictly-less-than): ceiling of
+    # the graduated range, 15 points. Beyond DECLINING_FLOOR_DECLINE
+    # (-50%): flat 0, unchanged -- a genuinely severe collapse must stay
+    # maximally bad.
+    at_boundary = classify_trend([100, 100, 100, 100, 84.9])
+    assert at_boundary.pattern == "declining"
+    assert at_boundary.score == 15
+
+    beyond_floor = classify_trend([100, 100, 100, 100, 40.0])  # -60%
+    assert beyond_floor.pattern == "declining"
+    assert beyond_floor.score == 0
+
+    at_floor = classify_trend([100, 100, 100, 100, 50.0])  # exactly -50%
+    assert at_floor.pattern == "declining"
+    assert at_floor.score == 0
 
 
 def test_flat_then_spike_narrowed_by_robust_late_direction():

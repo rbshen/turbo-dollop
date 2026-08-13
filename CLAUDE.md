@@ -429,6 +429,49 @@ at each point below. Notable design decisions and fixes:
     **CSX** (67→71, Fail→Pass), **ICE** (87→91, Pass→Strong Pass). The
     other 13 changed tickers move within their existing verdict band
     (APD, EQR, WY, AXTI, CVS, CME, CNI, EBAY, GEHC, LITE, MO, NSC, VST).
+- **`declining` and `not_yet_positive` graduated (2026-08-13)**, the
+  remaining two Step 1 hard-fail cliffs found in the same universe-wide
+  investigation that produced the CFO/Margins fix above and Step 2's/
+  Step 4's/Step 5's own graduated-scale fixes (see their respective
+  entries).
+  - **`declining`** (`scoring/trend.py`, the severe->15% TTM decline
+    override) was a flat 0 no matter how far past -15% the drop was.
+    Confirmed via a full-universe scan: 141 hits, ranging from 15.2%
+    (barely past the line) to absurd outliers driven by a near-zero
+    prior-year base (e.g. INTC net income read as a -4128% "decline").
+    Now graduates from 15 points (just past -15%) to 0 (at -50% or
+    worse) — 50% chosen because it covers 101/141 (72%) of real hits.
+    `classify_trend` is shared with Step 3's method-selection tree and
+    Step 4's ROE/ROIC recovery checks, but both only test pattern
+    membership in `RECOVERY_PATTERNS` (`declining` was never in that set
+    either way) — confirmed via a project-wide grep of every
+    `classify_trend` call site that this is a Step-1-only score change,
+    despite living in the shared file.
+  - **`not_yet_positive`** (`scoring/step1.py`, Revenue/Net Income/CFO's
+    positivity gate) was a flat 0 regardless of how close to breakeven
+    the current value was. Confirmed via a full-universe scan: 45 hits,
+    margin (value ÷ real revenue) ranging from -149.0% (MRNA operating
+    margin, a real structural loss) to -0.1% (ZETA net margin,
+    effectively breakeven) — 44% of hits sat under -5% margin. Now
+    graduates from 15 points (at 0% margin) to 0 (at -20% margin or
+    worse, covering 34/45 (76%) of real hits) — measured against real
+    revenue (the same denominator Margins itself uses, threaded through
+    as a new optional `revenue_for_scale` parameter on
+    `_classify_positive_trend`; falls back to the original flat 0 when no
+    revenue is available to normalize against). `_classify_positive_trend`
+    is Step-1-local (confirmed via grep — no other step calls it), so
+    this has no cross-step ripple.
+  - **No companion-floor risk, confirmed not just assumed**: Step 1's
+    `_verdict_for` (unlike Step 2's/Step 4's pre-fix versions) is purely
+    `VERDICT_BANDS` on the final blended score — no per-component gate on
+    any individual pattern or score exists to interact badly with a
+    graduated value, verified by reading the actual implementation before
+    shipping, not inferred from the band design alone.
+  - **Confirmed via a full-universe recompute: 71 tickers changed, 2
+    verdict flips, 0 regressions.** Both flips upward: **SNPS** (68→71,
+    Fail→Pass — Net Income `declining`/0→13, crossing the OI-backup
+    threshold and pulling the blend over 70) and **CNC** (68→70,
+    Fail→Pass — Net Income `not_yet_positive`/0→13).
 
 Growth Rate's original methodology called for averaging projections
 across 3-4 independent platforms (GuruFocus, Finviz, Zacks, etc.) and

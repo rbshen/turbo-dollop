@@ -140,7 +140,7 @@ def test_positive_trend_gate_growing_series_unaffected():
     assert score == 100
 
 
-def test_net_income_never_profitable_scores_zero_even_with_relative_recovery():
+def test_net_income_never_profitable_stays_not_yet_positive_even_with_relative_recovery():
     # SYM's real shape: Net Income has been negative every single period
     # (-104.4M FY19 -> -4.97M TTM) yet classify_trend alone reads this as
     # multiple_dips_resolved/75 since each "dip" is a relative worsening
@@ -148,6 +148,12 @@ def test_net_income_never_profitable_scores_zero_even_with_relative_recovery():
     # positive. Operating Income is also still negative at TTM, so the
     # one-off/recency-gated OI fallback correctly does NOT rescue this --
     # this is a genuinely unprofitable company, not a one-off charge.
+    # Score is graduated as of 2026-08-13 (12, not a flat 0) -- TTM Net
+    # Income (-4.965) is a small loss relative to GROWING's TTM revenue
+    # (146), landing within the graduated zone -- but the pattern staying
+    # "not_yet_positive" (not a positive-trend pattern) is the part that
+    # actually matters here: SYM is still genuinely unprofitable, just
+    # closer to breakeven than a deep structural loss would be.
     result = score_step1(
         revenue=GROWING,
         net_income=SYM_NET_INCOME,
@@ -158,7 +164,7 @@ def test_net_income_never_profitable_scores_zero_even_with_relative_recovery():
         cfo_exempt=False,
         fcf=FCF_ALL_POSITIVE,
     )
-    assert result["components"]["net_income"]["score"] == 0
+    assert result["components"]["net_income"]["score"] == 12
     assert result["components"]["net_income"]["pattern"] == "not_yet_positive"
     assert result["components"]["net_income"]["used_operating_income_backup"] is False
 
@@ -261,6 +267,51 @@ def test_revenue_positive_gate_applies_when_ttm_still_negative():
     pattern, score = _classify_positive_trend(still_negative_ttm)
     assert pattern == "not_yet_positive"
     assert score == 0
+
+
+def test_not_yet_positive_falls_back_to_flat_zero_without_a_revenue_scale():
+    # No revenue_for_scale passed (the default) -- nothing to normalize
+    # against, so this stays the original flat 0. Confirms the graduated
+    # scale is opt-in via the new parameter, not a behavior change for any
+    # existing caller that doesn't pass revenue.
+    pattern, score = _classify_positive_trend([10, 20, -5])
+    assert pattern == "not_yet_positive"
+    assert score == 0
+
+
+def test_not_yet_positive_graduated_scale_mild_loss_near_breakeven():
+    # ZETA's real shape: TTM Net Income margin of -0.1% (essentially
+    # breakeven) -- must read close to the graduated ceiling (15), not the
+    # old flat 0.
+    pattern, score = _classify_positive_trend([10, 20, -0.1], revenue_for_scale=[500, 600, 700])
+    assert pattern == "not_yet_positive"
+    assert score == 15  # margin = -0.1/700*100 = -0.014%, effectively at the ceiling
+
+
+def test_not_yet_positive_graduated_scale_boundaries():
+    # 2026-08-13 fix. At exactly NOT_YET_POSITIVE_FLOOR_MARGIN (-20%
+    # margin): floor of the graduated range, 0 points -- same as before
+    # the fix. A margin milder than that (here -10%, halfway to 0) lands
+    # mid-range.
+    at_floor = _classify_positive_trend([10, 20, -20.0], revenue_for_scale=[100, 100, 100])
+    assert at_floor.pattern == "not_yet_positive"
+    assert at_floor.score == 0
+
+    halfway = _classify_positive_trend([10, 20, -10.0], revenue_for_scale=[100, 100, 100])
+    assert halfway.pattern == "not_yet_positive"
+    assert halfway.score == 8  # round(15 * (10/20))
+
+    beyond_floor = _classify_positive_trend([10, 20, -50.0], revenue_for_scale=[100, 100, 100])  # MRNA-shaped
+    assert beyond_floor.pattern == "not_yet_positive"
+    assert beyond_floor.score == 0
+
+
+def test_not_yet_positive_zero_or_missing_revenue_scale_falls_back_to_flat_zero():
+    # A zero or missing revenue figure can't be divided into -- falls back
+    # to the flat 0 rather than raising or fabricating a margin.
+    result = _classify_positive_trend([10, 20, -5.0], revenue_for_scale=[100, 100, 0])
+    assert result.pattern == "not_yet_positive"
+    assert result.score == 0
 
 
 def test_margins_single_big_dip_with_full_recovery_reads_as_stable():

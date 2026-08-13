@@ -80,15 +80,47 @@ NET_INCOME_BACKUP_RECENCY_YEARS = 2
 # classify_trend's OWN unchanged dip-tolerance tiers AND the current/TTM
 # value clears zero. This is a hard gate layered on top of classify_trend,
 # not a replacement for its tiers.
-NOT_YET_POSITIVE_SCORE = 0  # mirrors `declining`'s existing hard-fail-style 0
+NOT_YET_POSITIVE_SCORE = 0  # kept as the fallback when no revenue scale is available (see below)
+# --- `not_yet_positive` graduated display (2026-08-13) ----------------------
+# A currently-non-positive value used to score a flat 0 regardless of
+# depth -- a company one dollar from breakeven (e.g. ZETA's TTM Net Income
+# margin of -0.1%) scored identically to one deep in genuine structural
+# loss (MRNA's Operating Income margin of -149.0%). Points now graduate
+# from NOT_YET_POSITIVE_CEILING_SCORE (15 -- deliberately below
+# flat_then_spike's 20, the next-lowest classify_trend pattern score, same
+# ceiling convention as `declining`'s graduated fix above, so this never
+# outranks a milder worst-tier pattern) at 0% margin down to 0 at
+# NOT_YET_POSITIVE_FLOOR_MARGIN (-20%). -20% was chosen from the real
+# tracked-universe distribution of `not_yet_positive` hits, not guessed:
+# it covers 34/45 (76%) of actual hits, leaving the genuinely severe tail
+# (MRNA, RIVN, NBIS, ARE, ECHO, SNOW -- all beyond -20% margin) at a flat
+# 0, unchanged. Margin is measured against REAL revenue (the same
+# `margin_context_revenue` Margins itself is judged against, not the
+# Bank-substituted Net-Interest-Income "revenue" -- see score_step1's own
+# comment on that distinction) -- passed in by the caller since this
+# function has no revenue context of its own. Revenue's own
+# not_yet_positive case (vanishingly rare) has nothing meaningful to
+# normalize against and stays a flat 0 (no `revenue_for_scale` passed).
+NOT_YET_POSITIVE_CEILING_SCORE = 15
+NOT_YET_POSITIVE_FLOOR_MARGIN = -20.0
 
 
-def _classify_positive_trend(values: list[float]) -> TrendResult:
+def _not_yet_positive_result(value: float, revenue_for_scale: float | None) -> TrendResult:
+    if not revenue_for_scale or revenue_for_scale <= 0:
+        return TrendResult("not_yet_positive", NOT_YET_POSITIVE_SCORE)
+    margin = value / revenue_for_scale * 100
+    if margin <= NOT_YET_POSITIVE_FLOOR_MARGIN:
+        return TrendResult("not_yet_positive", 0)
+    fraction = (margin - NOT_YET_POSITIVE_FLOOR_MARGIN) / abs(NOT_YET_POSITIVE_FLOOR_MARGIN)
+    return TrendResult("not_yet_positive", round(NOT_YET_POSITIVE_CEILING_SCORE * fraction))
+
+
+def _classify_positive_trend(values: list[float], revenue_for_scale: list[float] | None = None) -> TrendResult:
     trend = classify_trend(values)
     if trend.pattern == "insufficient_data":
         return trend
     if values[-1] <= 0:
-        return TrendResult("not_yet_positive", NOT_YET_POSITIVE_SCORE)
+        return _not_yet_positive_result(values[-1], revenue_for_scale[-1] if revenue_for_scale else None)
     return trend
 
 # Margin classification thresholds, in percentage points. Deliberately
@@ -387,8 +419,15 @@ def score_step1(
     CFO or CapEx is missing for period i, so a naive shared filter would
     desync the two arrays' indices; see step1_data.py's own comment on this)
     -- feeds _classify_fcf's capex-driven softening (see that function)."""
+    # Computed early (moved ahead of the Margins section below, where it
+    # originally lived) so it's available as the `not_yet_positive`
+    # graduated-score denominator for Net Income/Operating Income/CFO --
+    # this is real revenue even for Banks (see the docstring above), the
+    # same scale Margins itself is judged against.
+    growth_reference = margin_context_revenue if margin_context_revenue is not None else revenue
+
     revenue_result = _classify_positive_trend(revenue)
-    net_income_pos_result = _classify_positive_trend(net_income)
+    net_income_pos_result = _classify_positive_trend(net_income, growth_reference)
 
     net_income_result = net_income_pos_result
     net_income_backup_used = False
@@ -405,7 +444,7 @@ def score_step1(
         ni_dip_age is not None and ni_dip_age <= NET_INCOME_BACKUP_RECENCY_YEARS
     )
     if net_income_pos_result.score <= NET_INCOME_BACKUP_THRESHOLD and ni_recent_enough:
-        oi_pos_result = _classify_positive_trend(operating_income)
+        oi_pos_result = _classify_positive_trend(operating_income, growth_reference)
         backup_score = min(NET_INCOME_BACKUP_CAP, max(net_income_pos_result.score, oi_pos_result.score))
         net_income_backup_used = backup_score != net_income_pos_result.score
         net_income_result = TrendResult(net_income_pos_result.pattern, backup_score)
@@ -418,7 +457,6 @@ def score_step1(
         oi_pos_result is None or oi_pos_result.pattern == "insufficient_data"
     )
 
-    growth_reference = margin_context_revenue if margin_context_revenue is not None else revenue
     revenue_growing = growth_reference[-1] > growth_reference[0] if len(growth_reference) >= 2 else False
     margin_result = _classify_margins(gross_margin, net_margin, revenue_growing)
 
@@ -427,7 +465,7 @@ def score_step1(
         fcf_result = None
         weights = WEIGHTS_CFO_EXEMPT
     else:
-        cfo_result = _classify_positive_trend(cfo)
+        cfo_result = _classify_positive_trend(cfo, growth_reference)
         fcf_result = _classify_fcf(fcf, fcf_cfo) if fcf is not None else None
         weights = WEIGHTS_STANDARD
 
