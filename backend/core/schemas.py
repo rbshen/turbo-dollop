@@ -698,6 +698,49 @@ class TickerMoatIn(BaseModel):
     moat: Literal["no_moat", "narrow_moat", "wide_moat"]
 
 
+class SpeculativeGrowthOut(BaseModel):
+    """New, independent, read-only classification layered on top of the
+    existing 5-step framework -- never derived from or feeding back into
+    Step1-5/Overall Assessment. See CLAUDE.md's Speculative Growth
+    investigation/design notes and scoring/speculative_growth.py. Live
+    per-request read (like Step2Out/TickerMoatOut), not a stored/cached row
+    -- no computed_at field."""
+
+    ticker: str
+    # True only when company_type == "Standard" AND moat is Narrow/Wide AND
+    # Step2's forward growth rate clears the gate -- see
+    # scoring/speculative_growth.py::evaluate_speculative_growth. Everything
+    # below this is informational context, never a gate.
+    qualifies: bool
+    company_type: str
+    # Set only when the ticker is structurally out of scope (non-Standard
+    # company type) -- None for an in-scope ticker that simply didn't clear
+    # the moat/growth gate on the merits.
+    not_applicable_reason: str | None = None
+    moat: str | None = None
+    # Step2's forward EPS/Revenue CAGR -- the growth *gate* input. basis
+    # mirrors Step2Out.basis ("eps"/"revenue").
+    growth_rate_pct: float | None = None
+    growth_basis: str | None = None
+    # TTM-vs-last-full-FY revenue growth -- informational secondary growth
+    # signal, never a gate. See TRAILING_GROWTH_INFORMATIONAL_PCT.
+    trailing_revenue_growth_pct: float | None = None
+    gross_margin_ttm_pct: float | None = None
+    net_income_ttm: float | None = None
+    cfo_ttm: float | None = None
+    # "turning_positive" / "improving" / "worsening" / "mixed" / None -- see
+    # scoring/speculative_growth.py::cfo_recent_direction.
+    cfo_recent_direction: str | None = None
+    cash_and_st_investments: float | None = None
+    # Years of cash at the current TTM CFO burn rate -- display only, no
+    # cutoff. None whenever the company isn't burning cash (cfo_ttm >= 0).
+    cash_runway_years: float | None = None
+    price_to_sales_ttm: float | None = None
+    # Price/Sales ÷ trailing_revenue_growth_pct -- informational, PSG_REASONABLE_MAX
+    # (<=1) is a reference line shown in the UI, not a gate.
+    psg_ratio: float | None = None
+
+
 class TickerBankCapitalMetricsOut(BaseModel):
     ticker: str
     # None means "not set" -- CET1 has no FMP source at all, so this is the

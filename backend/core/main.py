@@ -24,6 +24,7 @@ from data.financials_data import get_financials_data
 from data.ratios_data import get_ratios_data
 from data.saved_screener_filters import delete_saved_filter, list_saved_filters, upsert_saved_filter
 from data.segmentation_data import get_segmentation_data
+from data.speculative_growth_data import get_speculative_growth_data
 from data.ticker_search import search_tickers
 from core.schemas import (
     AnalystRatingsOut,
@@ -43,6 +44,7 @@ from core.schemas import (
     SavedScreenerFilterOut,
     ScreenerMeta,
     SegmentationOut,
+    SpeculativeGrowthOut,
     Step1Out,
     Step2Out,
     Step3ManualOut,
@@ -536,6 +538,14 @@ async def update_ticker_moat(ticker: str, body: TickerMoatIn) -> TickerMoatOut:
     # been viewed and has no cached profile yet.
     await compute_ticker_score(ticker, cache_only=True)
     return TickerMoatOut(**row.model_dump())
+
+
+@app.get("/api/tickers/{ticker}/speculative-growth", response_model=SpeculativeGrowthOut)
+async def ticker_speculative_growth(ticker: str) -> SpeculativeGrowthOut:
+    try:
+        return await get_speculative_growth_data(ticker)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="FMP request failed") from exc
 
 
 @app.get("/api/tickers/{ticker}/bank-capital-metrics", response_model=TickerBankCapitalMetricsOut)
