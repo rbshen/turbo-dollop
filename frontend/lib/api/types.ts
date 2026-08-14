@@ -378,6 +378,43 @@ export interface TickerMoatOut {
   updated_at: string | null;
 }
 
+// New, independent, read-only classification layered on top of the existing
+// 5-step framework -- never derived from or feeding back into Step1-5/
+// Overall Assessment. A ticker can be Overall=Fail and qualifies=true at the
+// same time; that's the expected outcome, not a contradiction. Live
+// per-request read (like Step2Out/TickerMoatOut), no computed_at field.
+export interface SpeculativeGrowthOut {
+  ticker: string;
+  // True only when company_type === "Standard" AND moat is Narrow/Wide AND
+  // Step2's forward growth rate clears the gate. Everything below this is
+  // informational context, never a gate.
+  qualifies: boolean;
+  company_type: string;
+  // Set only when the ticker is structurally out of scope (non-Standard
+  // company type) -- null for an in-scope ticker that simply didn't clear
+  // the moat/growth gate on the merits.
+  not_applicable_reason: string | null;
+  moat: MoatValue | null;
+  // Step2's forward EPS/Revenue CAGR -- the growth *gate* input.
+  growth_rate_pct: number | null;
+  growth_basis: "revenue" | "eps" | null;
+  // TTM-vs-last-full-FY revenue growth -- informational secondary growth
+  // signal, never a gate.
+  trailing_revenue_growth_pct: number | null;
+  gross_margin_ttm_pct: number | null;
+  net_income_ttm: number | null;
+  cfo_ttm: number | null;
+  cfo_recent_direction: "turning_positive" | "improving" | "worsening" | "mixed" | null;
+  cash_and_st_investments: number | null;
+  // Years of cash at the current TTM CFO burn rate -- display only, no
+  // cutoff. null whenever the company isn't burning cash.
+  cash_runway_years: number | null;
+  price_to_sales_ttm: number | null;
+  // Price/Sales ÷ trailing_revenue_growth_pct -- informational, <=1 is a
+  // reference line shown in the UI, not a gate.
+  psg_ratio: number | null;
+}
+
 export interface TickerBankCapitalMetricsOut {
   ticker: string;
   // null means "not set" -- CET1 has no FMP source at all.

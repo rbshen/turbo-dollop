@@ -6,6 +6,8 @@ import { MoatPill } from "@/components/ticker/MoatPill";
 import { PerfVsSpyPill } from "@/components/ticker/PerfVsSpyPill";
 import { PriceChange } from "@/components/ticker/PriceChange";
 import { RefreshButton } from "@/components/ticker/RefreshButton";
+import { SpeculativeGrowthPill } from "@/components/ticker/SpeculativeGrowthPill";
+import { useSpeculativeGrowth } from "@/lib/hooks/useSpeculativeGrowth";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
 import { useTickerScore } from "@/lib/hooks/useTickerScore";
 import { fmtMoney } from "@/lib/format";
@@ -43,6 +45,7 @@ interface Props {
 
 export function TickerHeader({ symbol, data }: Props) {
   const { data: moatData } = useTickerMoat(symbol);
+  const { data: specGrowthData } = useSpeculativeGrowth(symbol);
 
   return (
     <div className="space-y-3 pt-4">
@@ -86,6 +89,7 @@ export function TickerHeader({ symbol, data }: Props) {
           variant="flat"
         />
         <MoatPill moat={moatData?.moat} variant="flat" />
+        <SpeculativeGrowthPill data={specGrowthData} variant="flat" />
         <PerfVsSpyPill
           status={data.perf_5y_vs_spy_status}
           insufficientHistory={data.perf_5y_insufficient_history}
