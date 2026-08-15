@@ -484,6 +484,11 @@ export interface TickerScoreOut {
   // See TickerSummaryOut.perf_5y_vs_spy_pct/_status above.
   perf_5y_vs_spy_pct: number | null;
   perf_5y_vs_spy_status: PerfVsSpyStatus | null;
+  // See SpeculativeGrowthOut.qualifies -- lifted straight through, same
+  // "extra classification bolted onto the same row" precedent as the
+  // vs-SPY fields above. null for a row computed before this field
+  // existed, same as every other backfilled TickerScore column.
+  speculative_growth_qualifies: boolean | null;
 }
 
 export type ScreenerUniverse = "sp500" | "dow" | "all";
@@ -988,6 +993,8 @@ export interface WatchlistRowOut {
   // WatchlistSortField's "perf_5y_vs_spy_pct" entry.
   perf_5y_vs_spy_pct: number | null;
   perf_5y_vs_spy_status: PerfVsSpyStatus | null;
+  // See TickerScoreOut.speculative_growth_qualifies above.
+  speculative_growth_qualifies: boolean | null;
   // FMP's live consensus label -- "N/A" (never null) when there's no cached
   // analyst-ratings data for this ticker yet.
   consensus_rating: string;

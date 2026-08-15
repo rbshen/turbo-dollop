@@ -7,11 +7,13 @@ import { SignalBars } from "@/components/watchlist/SignalBars";
 import { MOAT_SIGNAL_COLOR, MOAT_SIGNAL_LEVEL } from "@/components/ticker/MoatPill";
 import { STATUS_TO_VERDICT } from "@/components/ticker/PerfVsSpyPill";
 import { VERDICT_SIGNAL_COLOR, VERDICT_SIGNAL_LEVEL } from "@/components/ticker/FairValuePill";
+import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGrowthPill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { WatchlistOut, WatchlistRowOut, WatchlistSortField } from "@/lib/api/types";
 import { fmtCompactMoney, fmtNumber } from "@/lib/format";
 import type { SortDirection } from "@/lib/screenerFilters";
 import { flatChipClassFor } from "@/lib/tierColor";
+import { cn } from "@/lib/utils";
 import { removeTickerFromWatchlist } from "@/lib/hooks/useWatchlists";
 import { sortWatchlistRows } from "@/lib/watchlistSort";
 
@@ -131,8 +133,21 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
           {sorted.map((row) => (
             <TableRow key={row.ticker} onClick={() => openTicker(row.ticker)} className="cursor-pointer border-border-subtle">
               <TableCell className="w-40 max-w-40 overflow-hidden">
-                <p className="font-mono text-sm font-bold text-text-primary">{row.ticker}</p>
-                <p className="truncate text-xs text-text-tertiary" title={row.company_name ?? undefined}>
+                <p
+                  className={cn(
+                    "font-mono text-sm font-bold",
+                    row.speculative_growth_qualifies === true ? SPECULATIVE_GROWTH_TEXT_CLASS : "text-text-primary"
+                  )}
+                >
+                  {row.ticker}
+                </p>
+                <p
+                  className={cn(
+                    "truncate text-xs",
+                    row.speculative_growth_qualifies === true ? SPECULATIVE_GROWTH_TEXT_CLASS : "text-text-tertiary"
+                  )}
+                  title={row.company_name ?? undefined}
+                >
                   {row.company_name}
                 </p>
               </TableCell>

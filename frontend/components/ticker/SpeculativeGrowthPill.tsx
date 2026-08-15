@@ -8,8 +8,15 @@ import type { SpeculativeGrowthOut } from "@/lib/api/types";
 // Reuses the existing chart-purple design token (app/globals.css) rather
 // than inventing a new one -- already a violet hue, already used as a
 // distinct categorical color by AnalystDistributionBar.tsx.
-const STYLES = "bg-chart-purple/16 text-chart-purple border-chart-purple/40";
-const STYLES_FLAT = "bg-chart-purple/16 text-chart-purple";
+//
+// Exported so ScreenerCard/WatchlistTable can recolor a qualifying
+// ticker's symbol/name text without duplicating this class string --
+// single source of truth for "what color means Speculative Growth" across
+// the pill and both list views.
+export const SPECULATIVE_GROWTH_TEXT_CLASS = "text-chart-purple";
+
+const STYLES = `bg-chart-purple/16 ${SPECULATIVE_GROWTH_TEXT_CLASS} border-chart-purple/40`;
+const STYLES_FLAT = `bg-chart-purple/16 ${SPECULATIVE_GROWTH_TEXT_CLASS}`;
 
 const PSG_REASONABLE_MAX = 1.0;
 

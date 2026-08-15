@@ -171,6 +171,15 @@ export function ScreenerFilters({ filters, onFiltersChange, sectors, companyType
           selected={filters.vsSpy}
           onChange={(s) => patch({ vsSpy: s })}
         />
+        <label className="flex h-8 items-center gap-1.5 rounded-md border border-border-input px-2 text-xs font-medium text-text-secondary">
+          <input
+            type="checkbox"
+            checked={filters.speculativeGrowth}
+            onChange={(e) => patch({ speculativeGrowth: e.target.checked })}
+            className="size-3.5 rounded-sm border-border-input accent-chart-purple"
+          />
+          Speculative Growth
+        </label>
 
         <div className="ml-auto flex items-center gap-2">
           <span className="text-xs text-text-tertiary">Sort</span>

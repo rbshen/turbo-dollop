@@ -93,6 +93,10 @@ export interface ScreenerFilterState {
   moat: string[];
   valuationVerdict: string[];
   vsSpy: string[];
+  // Plain boolean, unlike the array filters above -- a checkbox, not a
+  // multi-select. false (default) means "no filtering by this criterion";
+  // true means "show only qualifies=true" (see filterTickerScores below).
+  speculativeGrowth: boolean;
 }
 
 export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
@@ -110,6 +114,7 @@ export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
   moat: [],
   valuationVerdict: [],
   vsSpy: [],
+  speculativeGrowth: false,
 };
 
 // A range filter is only "active" if min or max is actually set -- an
@@ -144,6 +149,7 @@ export function filterTickerScores(rows: TickerScoreOut[], filters: ScreenerFilt
       return false;
     }
     if (filters.vsSpy.length > 0 && !filters.vsSpy.includes(row.perf_5y_vs_spy_status ?? "no_data")) return false;
+    if (filters.speculativeGrowth && !row.speculative_growth_qualifies) return false;
     return true;
   });
 }

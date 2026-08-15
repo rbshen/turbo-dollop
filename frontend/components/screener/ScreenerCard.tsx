@@ -2,16 +2,20 @@ import Link from "next/link";
 
 import { MoatPill } from "@/components/ticker/MoatPill";
 import { PerfVsSpyPill } from "@/components/ticker/PerfVsSpyPill";
+import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGrowthPill";
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
 import { ValuationBadge } from "@/components/screener/ValuationBadge";
 import type { TickerScoreOut } from "@/lib/api/types";
 import { fmtCompactMoney, fmtNumber } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 interface Props {
   data: TickerScoreOut;
 }
 
 export function ScreenerCard({ data }: Props) {
+  const isSpeculativeGrowth = data.speculative_growth_qualifies === true;
+
   return (
     <Link
       href={`/tickers/${data.ticker}`}
@@ -21,8 +25,12 @@ export function ScreenerCard({ data }: Props) {
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate font-mono text-sm font-bold text-text-primary">{data.ticker}</p>
-          <p className="truncate text-xs text-text-tertiary">{data.company_name ?? "—"}</p>
+          <p className={cn("truncate font-mono text-sm font-bold", isSpeculativeGrowth ? SPECULATIVE_GROWTH_TEXT_CLASS : "text-text-primary")}>
+            {data.ticker}
+          </p>
+          <p className={cn("truncate text-xs", isSpeculativeGrowth ? SPECULATIVE_GROWTH_TEXT_CLASS : "text-text-tertiary")}>
+            {data.company_name ?? "—"}
+          </p>
         </div>
         {data.overall_score != null && data.overall_verdict != null ? (
           <ScoreBadge score={data.overall_score} verdict={data.overall_verdict} />

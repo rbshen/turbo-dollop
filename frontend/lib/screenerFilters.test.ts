@@ -39,6 +39,7 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     computed_at: "2026-01-01T00:00:00",
     perf_5y_vs_spy_pct: null,
     perf_5y_vs_spy_status: null,
+    speculative_growth_qualifies: null,
     ...overrides,
   };
 }
@@ -195,6 +196,25 @@ describe("filterTickerScores", () => {
   it("does not exclude a null vs-SPY ticker when no vs-SPY filter is active", () => {
     const rows = [row({ ticker: "PREDATES_FIELD", perf_5y_vs_spy_status: null })];
     expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(1);
+  });
+
+  it("does not filter by Speculative Growth when the checkbox is unchecked (default)", () => {
+    const rows = [
+      row({ ticker: "QUALIFIES", speculative_growth_qualifies: true }),
+      row({ ticker: "DOES_NOT", speculative_growth_qualifies: false }),
+      row({ ticker: "PREDATES_FIELD", speculative_growth_qualifies: null }),
+    ];
+    expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(3);
+  });
+
+  it("shows only qualifies=true tickers when the Speculative Growth checkbox is checked", () => {
+    const rows = [
+      row({ ticker: "QUALIFIES", speculative_growth_qualifies: true }),
+      row({ ticker: "DOES_NOT", speculative_growth_qualifies: false }),
+      row({ ticker: "PREDATES_FIELD", speculative_growth_qualifies: null }),
+    ];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, speculativeGrowth: true };
+    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["QUALIFIES"]);
   });
 });
 
