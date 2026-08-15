@@ -50,15 +50,14 @@ backend/     FastAPI app, organized into packages by role (2026-08-05
                (engine/init_db), schemas.py (API response models),
                config.py (Settings/BASE_DIR), cache.py (get_or_fetch/
                safe_fetch), logging_config.py.
-  clients/     Thin external API clients: fmp_client.py,
-               alpha_vantage_client.py, sec_edgar.py.
+  clients/     Thin external API clients: fmp_client.py, sec_edgar.py.
   helpers/     Shared calculation helpers consumed by data/: ttm.py,
                shares.py, debt_metrics.py, npl.py, bank_capital_metrics.py,
                discount_rate_config.py, first.py.
   data/        Per-tab data orchestration (the get_stepN_data pattern):
                step1_data.py .. step5_data.py, ticker_summary.py,
                financials_data.py, ratios_data.py, analyst_ratings_data.py,
-               news_data.py, news_sentiment_data.py, segmentation_data.py,
+               news_data.py, segmentation_data.py,
                moat.py, watchlist_data.py, watchlists.py,
                saved_screener_filters.py, ticker_score.py.
   scoring/     Pure scoring functions (classification.py, trend.py,

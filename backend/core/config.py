@@ -5,10 +5,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # .parent.parent, not .parent -- this file now lives at backend/core/config.py,
 # one directory deeper than when BASE_DIR was first written relative to
 # backend/ itself. Both consumers below are load-bearing: env_file is how
-# the real FMP/Alpha Vantage keys get read from backend/.env, and db.py's
-# DB_PATH is built from this same BASE_DIR -- a stray .parent here would
-# silently point the running app at a fresh, empty backend/core/fathom.db
-# instead of the real ~800MB backend/fathom.db, with no error at startup.
+# the real FMP API key gets read from backend/.env, and db.py's DB_PATH is
+# built from this same BASE_DIR -- a stray .parent here would silently
+# point the running app at a fresh, empty backend/core/fathom.db instead
+# of the real ~800MB backend/fathom.db, with no error at startup.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -42,13 +42,6 @@ class Settings(BaseSettings):
     # hit FMP, without pretending news is as static as financials. See
     # news_data.py.
     news_cache_ttl_minutes: int = 20
-    # Alpha Vantage NEWS_SENTIMENT -- free-tier key, 25 requests/day with a
-    # ~1 req/sec burst throttle (confirmed live 2026-08-04), far tighter
-    # than FMP's. 12hr (not FMP news's 20min) keeps real ticker-page-view
-    # traffic affordable against that cap -- see news_sentiment_data.py.
-    alpha_vantage_api_key: str = ""
-    alpha_vantage_base_url: str = "https://www.alphavantage.co/query"
-    news_sentiment_cache_ttl_minutes: int = 720
     # SEC EDGAR's fair-use policy requires a descriptive User-Agent
     # identifying the requester with real contact info (a bare/generic UA
     # gets 403'd) -- override via SEC_EDGAR_USER_AGENT in .env with a real

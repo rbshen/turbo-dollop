@@ -5,7 +5,6 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from sqlmodel import Session, func, select
 
-from clients.alpha_vantage_client import AlphaVantageThrottled
 from data.analyst_ratings_data import get_analyst_ratings_data
 from helpers.bank_capital_metrics import get_ticker_bank_capital_metrics, set_ticker_bank_capital_metrics
 from core.config import settings
@@ -18,7 +17,6 @@ from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config, u
 from core.models import IndexConstituent, SavedScreenerFilter, TickerCustomValuation, TickerScore, Watchlist
 from core.tickers import normalize_ticker
 from data.news_data import get_news_data
-from data.news_sentiment_data import get_news_sentiment_data
 from pipeline.recompute_ticker_scores import recompute_all
 from pipeline.refresh import clear_ticker_cache
 from data.financials_data import get_financials_data
@@ -36,7 +34,6 @@ from core.schemas import (
     MoatScoreConfigIn,
     MoatScoreConfigOut,
     NewsOut,
-    NewsSentimentOut,
     RatiosOut,
     RecomputeSummary,
     RefreshResult,
@@ -463,20 +460,6 @@ async def ticker_news(ticker: str) -> NewsOut:
         return await get_news_data(ticker)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
-
-
-@app.get("/api/tickers/{ticker}/news-sentiment", response_model=NewsSentimentOut)
-async def ticker_news_sentiment(ticker: str) -> NewsSentimentOut:
-    try:
-        return await get_news_sentiment_data(ticker)
-    except AlphaVantageThrottled as exc:
-        # Not str(exc): AV's throttle message doesn't embed the API key,
-        # but a static detail string keeps this consistent with the app's
-        # existing policy (see the Step1 endpoint's own comment) of never
-        # echoing a raw exception straight into a response body.
-        raise HTTPException(status_code=503, detail="Alpha Vantage rate limit reached -- try again later") from exc
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="Alpha Vantage request failed") from exc
 
 
 @app.post("/api/tickers/{ticker}/refresh", response_model=RefreshResult)

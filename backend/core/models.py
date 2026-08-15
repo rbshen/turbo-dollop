@@ -26,23 +26,6 @@ class NewsCache(SQLModel, table=True):
     raw_json: str
 
 
-class NewsSentimentCache(SQLModel, table=True):
-    """Short-TTL cache for Alpha Vantage's NEWS_SENTIMENT response per
-    ticker (see news_sentiment_data.py) -- sibling to NewsCache above, not
-    a shared row: the raw JSON shape is completely different (AV's
-    dict-with-`feed` vs FMP's bare list) and there's no discriminator
-    column to tell them apart in one table. TTL is
-    Settings.news_sentiment_cache_ttl_minutes (12hr), much longer than
-    NewsCache's 20min -- Alpha Vantage's free tier is 25 requests/day with
-    a ~1 req/sec burst throttle, far tighter than FMP's, so this table's
-    whole reason to exist is keeping real ticker-page-view traffic
-    affordable against that cap."""
-
-    ticker: str = Field(primary_key=True)
-    fetched_at: datetime
-    raw_json: str
-
-
 class IndexConstituent(SQLModel, table=True):
     """A ticker's membership in a named index (e.g. "sp500"), scraped from
     Wikipedia since FMP's own constituents endpoint is unavailable on this
