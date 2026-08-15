@@ -104,6 +104,12 @@ both forms during the reorg, not assumed.
 tier) is the **sole** data source. All fundamentals, prices, and company
 classification data come from FMP via `backend/fmp_client.py`.
 
+## Watchlists
+
+Each watchlist is capped at `WATCHLIST_CAPACITY` (100 tickers,
+`backend/core/main.py`) — adding tickers past the cap is rejected with an
+explanatory error rather than silently truncating.
+
 ## Caching policy
 
 Fundamentals change infrequently, so raw FMP pulls are cached in a local
