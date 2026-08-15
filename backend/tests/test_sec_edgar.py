@@ -149,6 +149,19 @@ def test_get_cik_returns_none_when_profile_fetch_is_empty(monkeypatch):
     assert cik is None
 
 
+def test_get_cik_cache_only_never_calls_fmp_and_serves_stale_row(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+
+    async def fail_if_called(ticker):
+        raise AssertionError("cache_only=True must never call FMP")
+
+    monkeypatch.setattr(sec_edgar.fmp_client, "get_profile", fail_if_called)
+
+    with Session(engine) as session:
+        cik = asyncio.run(get_cik(session, "PEP", 7, cache_only=True))
+    assert cik is None  # nothing cached yet, and cache_only must not fetch to find out
+
+
 def test_profile_is_cached_not_refetched_on_second_call_for_the_same_ticker(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     call_count = {"n": 0}

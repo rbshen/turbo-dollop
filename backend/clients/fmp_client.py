@@ -17,6 +17,18 @@ RATE_LIMIT_MAX_RETRIES = 2
 RATE_LIMIT_RETRY_BACKOFF_SECONDS = 65.0
 
 
+class FMPDisabledError(httpx.HTTPError):
+    """Raised by FMPClient.get instead of attempting a network call when
+    settings.fmp_enabled is False -- subclasses httpx.HTTPError so every
+    existing safe_fetch/except-httpx.HTTPError call site already treats
+    this exactly like any other fetch failure, no changes needed there.
+    core.cache's get_or_fetch/get_or_fetch_earnings_aware/force_fetch check
+    the same flag directly (see their own comments) so a stale cached row
+    is served instead of this ever needing to be caught in practice for
+    those call sites -- this exists as the literal single choke point that
+    guarantees zero network attempts regardless of caller."""
+
+
 class FMPClient:
     """Thin wrapper around the Financial Modeling Prep REST API.
 
@@ -49,6 +61,8 @@ class FMPClient:
             self._last_request_at = time.monotonic()
 
     async def get(self, endpoint: str, params: dict | None = None) -> dict | list:
+        if not settings.fmp_enabled:
+            raise FMPDisabledError(f"FMP_ENABLED is False -- refusing live call to {endpoint}")
         query = {**(params or {}), "apikey": self.api_key}
         for attempt in range(RATE_LIMIT_MAX_RETRIES + 1):
             await self._pace()

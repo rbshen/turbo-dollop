@@ -55,7 +55,7 @@ class CrossCheckResult(NamedTuple):
     note: str
 
 
-async def get_cik(session: Session, ticker: str, staleness_days: int) -> int | None:
+async def get_cik(session: Session, ticker: str, staleness_days: int, cache_only: bool = False) -> int | None:
     """Ticker -> CIK read from FMP's own /profile.cik field (already a
     zero-padded 10-digit string, e.g. "0000077476" for PEP -- confirmed live
     to match the real SEC CIK exactly) rather than SEC's own ticker->CIK map
@@ -64,9 +64,19 @@ async def get_cik(session: Session, ticker: str, staleness_days: int) -> int | N
     below) is unaffected, so this removes the www.sec.gov dependency
     entirely. Cached under the same "profile"/"latest" key every other
     pipeline already populates, so this is very often a cache hit, not a
-    new FMP call."""
+    new FMP call.
+
+    cache_only previously had no way to reach this call at all (silently
+    hardcoded to the get_or_fetch default of False) -- now threaded through
+    like every other FMP-backed fetch in this codebase, so a caller that
+    needs a cache-only read can actually get one. In practice this is
+    covered automatically whenever settings.fmp_enabled is False too, via
+    get_or_fetch's own check -- this parameter exists for the same explicit
+    per-call cache_only control every other module already has."""
     ticker = normalize_ticker(ticker)
-    profile = await get_or_fetch(session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days)
+    profile = await get_or_fetch(
+        session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days, cache_only
+    )
     row = profile[0] if isinstance(profile, list) and profile else profile
     if not isinstance(row, dict):
         return None

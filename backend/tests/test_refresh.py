@@ -261,6 +261,30 @@ def test_ticker_refresh_does_not_touch_a_different_tickers_score_row(monkeypatch
     assert nvda.computed_at == datetime(2020, 1, 1)  # byte-identical, untouched by AAPL's refresh
 
 
+def test_ticker_refresh_disabled_while_fmp_is_paused_leaves_cache_untouched(monkeypatch):
+    """The one genuinely destructive path this feature guards: refresh
+    clears the cache THEN re-fetches, so if FMP is paused it must be
+    blocked outright, not degraded -- otherwise a user clicking refresh
+    would wipe a ticker's real cache and never get it back until FMP
+    returns."""
+    engine = _fresh_shared_engine(monkeypatch)
+    monkeypatch.setattr(main.settings, "fmp_enabled", False)
+
+    with Session(engine) as session:
+        _seed(session, "AAPL", "profile", "latest")
+        session.commit()
+
+    with TestClient(main.app) as client:
+        response = client.post("/api/tickers/AAPL/refresh")
+
+    assert response.status_code == 503
+    assert "paused" in response.json()["detail"].lower()
+
+    with Session(engine) as session:
+        remaining = session.exec(select(FundamentalsCache).where(FundamentalsCache.ticker == "AAPL")).all()
+    assert len(remaining) == 1  # cache untouched -- clear_ticker_cache never ran
+
+
 def test_ticker_refresh_survives_a_failing_step_during_the_post_clear_recompute(monkeypatch):
     """compute_ticker_score's own _safe_step already isolates a single
     step's failure (see test_ticker_score.py) -- this confirms that

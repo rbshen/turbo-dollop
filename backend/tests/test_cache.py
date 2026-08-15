@@ -1,8 +1,11 @@
 import asyncio
 from datetime import date, datetime, timedelta
 
+import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
+import core.cache as cache_module
+from clients.fmp_client import FMPDisabledError
 from core.cache import force_fetch, get_or_fetch, get_or_fetch_earnings_aware
 from core.models import FundamentalsCache
 
@@ -358,6 +361,136 @@ def test_earnings_aware_cache_only_never_calls_fetch_fn_even_when_stale():
 
     result = asyncio.run(run())
     assert result == [{"old": True}]  # stale data returned anyway -- still better than nothing
+
+
+def test_fmp_disabled_serves_stale_row_without_calling_fetch_fn(monkeypatch):
+    monkeypatch.setattr(cache_module.settings, "fmp_enabled", False)
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    stale_time = datetime.now() - timedelta(days=30)
+    with Session(engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="profile",
+                period="latest",
+                fetched_at=stale_time,
+                raw_json='{"sector": "Technology"}',
+            )
+        )
+        session.commit()
+
+    async def fetch_fn():
+        raise AssertionError("fetch_fn must never be called while FMP_ENABLED is False")
+
+    async def run():
+        with Session(engine) as session:
+            return await get_or_fetch(session, "AAPL", "profile", "latest", fetch_fn, staleness_days=7)
+
+    # cache_only is left at its default False -- settings.fmp_enabled=False
+    # alone must be enough to force the same behavior, without every caller
+    # needing to pass cache_only=True itself.
+    result = asyncio.run(run())
+    assert result == {"sector": "Technology"}
+
+
+def test_fmp_disabled_returns_none_when_no_row_exists(monkeypatch):
+    monkeypatch.setattr(cache_module.settings, "fmp_enabled", False)
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    async def fetch_fn():
+        raise AssertionError("fetch_fn must never be called while FMP_ENABLED is False")
+
+    async def run():
+        with Session(engine) as session:
+            return await get_or_fetch(session, "ZZZZ", "profile", "latest", fetch_fn, staleness_days=7)
+
+    result = asyncio.run(run())
+    assert result is None
+
+
+def test_fmp_disabled_earnings_aware_serves_stale_row(monkeypatch):
+    monkeypatch.setattr(cache_module.settings, "fmp_enabled", False)
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    old_fetch = datetime.now() - timedelta(days=10)
+    last_earnings = date.today() - timedelta(days=5)  # would normally force a refetch
+    with Session(engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="income_statement",
+                period="annual",
+                fetched_at=old_fetch,
+                raw_json='[{"old": true}]',
+            )
+        )
+        session.commit()
+
+    async def fetch_fn():
+        raise AssertionError("fetch_fn must never be called while FMP_ENABLED is False")
+
+    async def run():
+        with Session(engine) as session:
+            return await get_or_fetch_earnings_aware(
+                session,
+                "AAPL",
+                "income_statement",
+                "annual",
+                fetch_fn,
+                fallback_staleness_days=7,
+                most_recent_earnings_date=last_earnings,
+            )
+
+    result = asyncio.run(run())
+    assert result == [{"old": True}]
+
+
+def test_fmp_disabled_force_fetch_serves_existing_row_instead_of_fetching(monkeypatch):
+    monkeypatch.setattr(cache_module.settings, "fmp_enabled", False)
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="quote",
+                period="latest",
+                fetched_at=datetime.now(),
+                raw_json='{"price": 100}',
+            )
+        )
+        session.commit()
+
+    async def fetch_fn():
+        raise AssertionError("fetch_fn must never be called while FMP_ENABLED is False")
+
+    async def run():
+        with Session(engine) as session:
+            return await force_fetch(session, "AAPL", "quote", "latest", fetch_fn)
+
+    result = asyncio.run(run())
+    assert result == {"price": 100}
+
+
+def test_fmp_disabled_force_fetch_raises_when_no_row_exists(monkeypatch):
+    monkeypatch.setattr(cache_module.settings, "fmp_enabled", False)
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    async def fetch_fn():
+        raise AssertionError("fetch_fn must never be called while FMP_ENABLED is False")
+
+    async def run():
+        with Session(engine) as session:
+            return await force_fetch(session, "ZZZZ", "quote", "latest", fetch_fn)
+
+    with pytest.raises(FMPDisabledError):
+        asyncio.run(run())
 
 
 def test_earnings_aware_fetches_when_no_row_exists():

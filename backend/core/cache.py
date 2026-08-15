@@ -7,6 +7,8 @@ import httpx
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
+from clients.fmp_client import FMPDisabledError
+from core.config import settings
 from core.models import FundamentalsCache
 
 logger = logging.getLogger(__name__)
@@ -69,14 +71,18 @@ async def get_or_fetch(
     if row and now - row.fetched_at < timedelta(days=staleness_days):
         return json.loads(row.raw_json)
 
-    if cache_only:
-        # Used by ticker_score.py's recompute path, which must make zero
-        # FMP calls -- returns whatever's cached (even if stale) rather
-        # than nothing, since a slightly-stale score is still far more
-        # useful than no score; a missing row returns None, which every
-        # existing call site already treats the same as a failed fetch
-        # (see safe_fetch's {} fallback and the `if isinstance(x, list)
-        # else []`/`_first` patterns throughout step*_data.py).
+    if cache_only or not settings.fmp_enabled:
+        # cache_only=True: used by ticker_score.py's recompute path, which
+        # must make zero FMP calls. settings.fmp_enabled=False: the FMP
+        # subscription is paused -- every caller must behave as if
+        # cache_only were forced True, without needing its own change (see
+        # CLAUDE.md's FMP-pause investigation). Either way, returns
+        # whatever's cached (even if stale) rather than nothing, since a
+        # slightly-stale value is still far more useful than none; a
+        # missing row returns None, which every existing call site already
+        # treats the same as a failed fetch (see safe_fetch's {} fallback
+        # and the `if isinstance(x, list) else []`/`_first` patterns
+        # throughout step*_data.py).
         return json.loads(row.raw_json) if row else None
 
     data = await fetch_fn()
@@ -133,7 +139,8 @@ async def get_or_fetch_earnings_aware(
     if row and not _is_earnings_aware_stale(row, most_recent_earnings_date, fallback_staleness_days):
         return json.loads(row.raw_json)
 
-    if cache_only:
+    if cache_only or not settings.fmp_enabled:
+        # See get_or_fetch's own comment on this same condition.
         return json.loads(row.raw_json) if row else None
 
     data = await fetch_fn()
@@ -151,8 +158,25 @@ async def force_fetch(
     """Like get_or_fetch, but always calls fetch_fn() and overwrites the
     cache row regardless of fetched_at -- for one-off targeted refreshes
     that must ignore the normal staleness window (e.g. backfilling a cache
-    key after a fetch-limit change, see bulk_refresh_step4_annual.py).
-    Not used by any live request path -- those all go through get_or_fetch."""
+    key after a fetch-limit change, see bulk_refresh_step4_annual.py; also
+    used by ticker_summary.py's live quote fetch, which deliberately wants
+    the freshest possible price on every interactive view rather than
+    respecting the flat staleness window).
+
+    When settings.fmp_enabled is False, "force a live fetch" has no meaning
+    -- falls back to serving the existing cached row instead (same
+    stale-is-better-than-nothing semantics as get_or_fetch's own cache_only
+    branch), or raises FMPDisabledError if nothing is cached yet, which
+    every caller already reaches through safe_fetch and treats like any
+    other fetch failure."""
+    if not settings.fmp_enabled:
+        row = _load_cache_row(session, ticker, statement_type, period)
+        if row:
+            return json.loads(row.raw_json)
+        raise FMPDisabledError(
+            f"FMP_ENABLED is False and no cached {statement_type}/{period} exists for {ticker}"
+        )
+
     data = await fetch_fn()
     raw_json = json.dumps(data)
     now = datetime.now()

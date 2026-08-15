@@ -8,6 +8,7 @@ from sqlmodel import Session, func, select
 from clients.alpha_vantage_client import AlphaVantageThrottled
 from data.analyst_ratings_data import get_analyst_ratings_data
 from helpers.bank_capital_metrics import get_ticker_bank_capital_metrics, set_ticker_bank_capital_metrics
+from core.config import settings
 from core.db import engine, init_db
 from core.exceptions import TickerNotFoundError
 from helpers.discount_rate_config import get_discount_rate_config, update_discount_rate_config
@@ -471,6 +472,14 @@ async def ticker_news_sentiment(ticker: str) -> NewsSentimentOut:
 
 @app.post("/api/tickers/{ticker}/refresh", response_model=RefreshResult)
 async def ticker_refresh(ticker: str) -> RefreshResult:
+    if not settings.fmp_enabled:
+        # Must not proceed to clear_ticker_cache below while FMP is paused:
+        # that would wipe the ticker's real cache and then be unable to
+        # repopulate it (the live re-fetch two lines down would just fail),
+        # leaving the ticker genuinely empty until FMP comes back -- the one
+        # destructive path in this whole feature, so it's blocked outright
+        # rather than just degraded.
+        raise HTTPException(status_code=503, detail="Refresh disabled while FMP is paused")
     result = clear_ticker_cache(ticker)
     # cache_only=False (not the moat/CET1 endpoints' pattern below): the
     # cache was just cleared, so a cache_only read would see nothing and

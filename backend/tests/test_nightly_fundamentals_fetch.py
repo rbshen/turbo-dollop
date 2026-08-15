@@ -191,3 +191,22 @@ def test_empty_ticker_list_is_handled_without_crashing(monkeypatch, tmp_path):
     summary = asyncio.run(nightly.main(tickers=[]))
 
     assert summary == {"processed": 0, "failed": 0, "calls_made": 0, "duration_seconds": 0.0, "failures": []}
+
+
+def test_fmp_disabled_skips_the_run_before_any_fetch_or_universe_lookup(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    monkeypatch.setattr(nightly.settings, "fmp_enabled", False)
+
+    calls: list[tuple[str, str]] = []
+    _patch_all_steps(monkeypatch, calls)
+
+    def fail_if_queried(*args, **kwargs):
+        raise AssertionError("must not resolve the ticker universe while FMP is paused")
+
+    monkeypatch.setattr(nightly, "load_full_tracked_universe", fail_if_queried)
+
+    summary = asyncio.run(nightly.main())  # tickers=None -- would normally resolve the full universe
+
+    assert summary["processed"] == 0
+    assert summary["skipped"] is True
+    assert calls == []  # no get_stepN_data/get_summary/compute_ticker_score call was ever made

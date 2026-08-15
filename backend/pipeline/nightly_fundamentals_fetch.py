@@ -51,6 +51,7 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
+from core.config import settings
 from core.db import engine, init_db
 from clients.fmp_client import fmp_client
 from core.logging_config import configure_logging
@@ -146,6 +147,16 @@ async def main(tickers: list[str] | None = None) -> dict:
     configure_logging(LOG_PATH)
     logger = logging.getLogger(__name__)
     init_db()
+
+    if not settings.fmp_enabled:
+        # Check first thing, before even resolving the ticker universe --
+        # every fetch this job makes is live (cache_only=False), so running
+        # it while FMP is paused would just loop the full universe
+        # attempting-then-catching a failure per statement per ticker for
+        # no benefit. nightly_score_recompute.py needs no equivalent check;
+        # it's already cache_only=True throughout, zero FMP calls.
+        logger.info("Nightly fundamentals fetch skipped: FMP paused (FMP_ENABLED=False).")
+        return {"processed": 0, "failed": 0, "calls_made": 0, "duration_seconds": 0.0, "failures": [], "skipped": True}
 
     if tickers is None:
         with Session(engine) as session:

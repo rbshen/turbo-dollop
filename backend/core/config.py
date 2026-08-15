@@ -17,6 +17,17 @@ class Settings(BaseSettings):
 
     fmp_api_key: str = ""
     fmp_base_url: str = "https://financialmodelingprep.com/stable"
+    # Global kill switch for pausing the FMP subscription -- when False, the
+    # app must run entirely cache-only, no live network attempts. Enforced
+    # at two layers: clients.fmp_client.FMPClient.get (the literal choke
+    # point every FMP call passes through, guaranteeing zero network
+    # attempts) and core.cache's get_or_fetch/get_or_fetch_earnings_aware/
+    # force_fetch (which additionally preserve stale-cache-serving
+    # semantics, rather than just failing like a genuine fetch error would).
+    # Read once at process start -- toggling the FMP_ENABLED env var
+    # requires a backend restart to take effect, same as every other
+    # Settings field.
+    fmp_enabled: bool = True
     database_path: str = "fathom.db"
     cache_staleness_days: int = 7
     # Distinct from cache_staleness_days above: staleness controls when a

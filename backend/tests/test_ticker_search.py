@@ -1,8 +1,11 @@
 import asyncio
+from datetime import datetime
 
 import pytest
+from sqlmodel import Session, SQLModel, create_engine
 
 import data.ticker_search as ticker_search
+from core.models import IndexConstituent
 from data.ticker_search import search_tickers
 
 
@@ -103,3 +106,41 @@ def test_propagates_fmp_http_errors(monkeypatch):
 
     with pytest.raises(httpx.HTTPError):
         asyncio.run(search_tickers("AAPL"))
+
+
+def test_fmp_disabled_falls_back_to_tracked_universe_without_calling_fmp(monkeypatch):
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime.now()))
+        session.add(IndexConstituent(index_name="sp500", ticker="AAPD", company_name="Direxion Daily AAPL Bear 1X ETF", last_synced_at=datetime.now()))
+        session.add(IndexConstituent(index_name="sp500", ticker="MSFT", company_name="Microsoft", last_synced_at=datetime.now()))
+        session.commit()
+
+    monkeypatch.setattr(ticker_search, "engine", engine)
+    monkeypatch.setattr(ticker_search.settings, "fmp_enabled", False)
+
+    async def fail_if_called(query, limit):
+        raise AssertionError("must not call FMP while FMP_ENABLED is False")
+
+    monkeypatch.setattr(ticker_search.fmp_client, "search_symbol", fail_if_called)
+    monkeypatch.setattr(ticker_search.fmp_client, "search_name", fail_if_called)
+
+    results = asyncio.run(search_tickers("aap"))
+
+    # load_full_tracked_universe returns a sorted list, so matches come back
+    # alphabetically (AAPD before AAPL) rather than any relevance ranking --
+    # MSFT correctly excluded (doesn't match the "AAP" prefix/substring).
+    assert [r.symbol for r in results] == ["AAPD", "AAPL"]
+    assert results[0].name is None  # no company-name data available locally
+
+
+def test_fmp_disabled_empty_query_returns_empty_without_touching_the_db(monkeypatch):
+    monkeypatch.setattr(ticker_search.settings, "fmp_enabled", False)
+
+    def fail_if_called(session):
+        raise AssertionError("should not reach the tracked-universe fallback for an empty query")
+
+    monkeypatch.setattr(ticker_search, "load_full_tracked_universe", fail_if_called)
+
+    assert asyncio.run(search_tickers("")) == []

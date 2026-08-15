@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 import clients.fmp_client as fmp_client_module
-from clients.fmp_client import FMPClient
+from clients.fmp_client import FMPClient, FMPDisabledError
 
 
 def _install_mock_transport(monkeypatch, handler):
@@ -77,6 +77,20 @@ def test_429_retries_then_succeeds(monkeypatch):
     assert result == {"symbol": "AAPL"}
     assert calls["n"] == 3
     assert client.request_count == 3
+
+
+def test_disabled_raises_without_ever_touching_the_network(monkeypatch):
+    def fail_if_called(request):
+        raise AssertionError("must not attempt a network call while FMP_ENABLED is False")
+
+    _install_mock_transport(monkeypatch, fail_if_called)
+    monkeypatch.setattr(fmp_client_module.settings, "fmp_enabled", False)
+    client = FMPClient(api_key="x")
+
+    with pytest.raises(FMPDisabledError):
+        asyncio.run(client.get("/profile", {"symbol": "AAPL"}))
+
+    assert client.request_count == 0
 
 
 def test_429_exhausts_retries_and_raises(monkeypatch):
