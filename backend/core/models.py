@@ -274,6 +274,13 @@ class TickerScore(SQLModel, table=True):
     # _add_missing_columns).
     perf_5y_vs_spy_pct: float | None = None
     perf_5y_vs_spy_status: str | None = None
+    # New, independent, read-only classification -- lifted straight from
+    # SpeculativeGrowthOut.qualifies (see data/speculative_growth_data.py).
+    # Never feeds Overall Assessment. None either for a ticker this gate
+    # doesn't apply to at all (non-Standard company type) as much as for a
+    # row computed before this field existed -- see _add_missing_columns --
+    # both read as "no signal" for Screener/Watchlist filtering purposes.
+    speculative_growth_qualifies: bool | None = None
 
 
 class TickerCustomValuation(SQLModel, table=True):

@@ -138,6 +138,7 @@ async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
         beta=score.beta if score else None,
         perf_5y_vs_spy_pct=score.perf_5y_vs_spy_pct if score else None,
         perf_5y_vs_spy_status=score.perf_5y_vs_spy_status if score else None,
+        speculative_growth_qualifies=score.speculative_growth_qualifies if score else None,
         consensus_rating=rating,
         added_at=watchlist_ticker.added_at,
     )

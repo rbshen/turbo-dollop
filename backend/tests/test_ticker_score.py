@@ -5,7 +5,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import data.ticker_score as ticker_score
 from core.models import TickerScore
-from core.schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
+from core.schemas import SpeculativeGrowthOut, Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
 from data.ticker_score import compute_ticker_score
 
 
@@ -77,6 +77,10 @@ def _summary(
     )
 
 
+def _speculative_growth(qualifies=True, company_type="Standard"):
+    return SpeculativeGrowthOut(ticker="AAPL", qualifies=qualifies, company_type=company_type)
+
+
 def _make_step(name, value, calls, raise_error=False):
     async def fn(ticker, cache_only=False):
         calls.append((name, ticker, cache_only))
@@ -87,7 +91,17 @@ def _make_step(name, value, calls, raise_error=False):
     return fn
 
 
-def _patch_all(monkeypatch, step1=None, step2=None, step4=None, step5=None, summary=None, calls=None, error_steps=()):
+def _patch_all(
+    monkeypatch,
+    step1=None,
+    step2=None,
+    step4=None,
+    step5=None,
+    summary=None,
+    speculative_growth=None,
+    calls=None,
+    error_steps=(),
+):
     calls = calls if calls is not None else []
 
     monkeypatch.setattr(
@@ -104,6 +118,16 @@ def _patch_all(monkeypatch, step1=None, step2=None, step4=None, step5=None, summ
     )
     monkeypatch.setattr(
         ticker_score, "get_summary", _make_step("summary", summary or _summary(), calls, "summary" in error_steps)
+    )
+    monkeypatch.setattr(
+        ticker_score,
+        "get_speculative_growth_data",
+        _make_step(
+            "speculative_growth",
+            speculative_growth or _speculative_growth(),
+            calls,
+            "speculative_growth" in error_steps,
+        ),
     )
     return calls
 
@@ -137,11 +161,14 @@ def test_computes_and_upserts_a_full_row(monkeypatch):
     # nothing to report, same as every other optional field here.
     assert result.perf_5y_vs_spy_pct is None
     assert result.perf_5y_vs_spy_status is None
+    # _speculative_growth()'s default (qualifies=True) is wired through.
+    assert result.speculative_growth_qualifies is True
 
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
     assert row is not None
     assert row.overall_score == 76
+    assert row.speculative_growth_qualifies is True
 
 
 def test_perf_5y_vs_spy_fields_are_copied_from_summary(monkeypatch):
@@ -157,6 +184,37 @@ def test_perf_5y_vs_spy_fields_are_copied_from_summary(monkeypatch):
     assert result is not None
     assert result.perf_5y_vs_spy_pct == 18.4
     assert result.perf_5y_vs_spy_status == "outperform"
+
+
+def test_speculative_growth_qualifies_false_is_copied_through(monkeypatch):
+    # Not just a truthy/falsy shortcut -- False must be preserved as False,
+    # not coalesced to None the way a missing/errored step is below.
+    _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch, speculative_growth=_speculative_growth(qualifies=False, company_type="Bank"))
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None
+    assert result.speculative_growth_qualifies is False
+
+
+def test_speculative_growth_error_leaves_the_field_none_without_aborting_the_row(monkeypatch):
+    # Same "one bad step doesn't kill the whole row" contract as Step 2's
+    # own error case below -- and unlike step1/2/4/5, a speculative-growth
+    # failure never touches overall_score/overall_verdict, since it isn't
+    # one of compute_overall_assessment's inputs.
+    engine = _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch, error_steps=("speculative_growth",))
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None
+    assert result.speculative_growth_qualifies is None
+    assert result.overall_score == 76  # unaffected -- not an Overall Assessment input
+
+    with Session(engine) as session:
+        row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
+    assert row.speculative_growth_qualifies is None
 
 
 def test_upsert_updates_an_existing_row_rather_than_erroring(monkeypatch):
@@ -191,7 +249,7 @@ def test_cache_only_is_passed_through_to_every_step_function(monkeypatch):
 
     asyncio.run(compute_ticker_score("AAPL", cache_only=True))
 
-    assert len(calls) == 5
+    assert len(calls) == 6
     assert all(cache_only is True for _, _, cache_only in calls)
 
 

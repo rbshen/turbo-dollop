@@ -12,6 +12,7 @@ from data.moat import get_moat_score_config, get_ticker_moat, resolve_moat_score
 from scoring.overall import MoatSnapshot, StepSnapshot, compute_overall_assessment
 from data.step1_data import get_step1_data
 from data.step2_data import get_step2_data
+from data.speculative_growth_data import get_speculative_growth_data
 from data.step4_data import get_step4_data
 from data.step5_data import get_step5_data
 from data.ticker_summary import get_summary
@@ -59,6 +60,15 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
     step4, step4_error = await _safe_step(ticker, "step4", get_step4_data(ticker, cache_only=cache_only))
     step5, step5_error = await _safe_step(ticker, "step5", get_step5_data(ticker, cache_only=cache_only))
     summary, summary_error = await _safe_step(ticker, "summary", get_summary(ticker, cache_only=cache_only))
+    # New, independent, read-only classification -- never feeds
+    # compute_overall_assessment below (only STEP_LABELS-style steps do), so
+    # this isn't wrapped in a _snapshot the way step1/2/4/5 are. Its own
+    # error flag is unused past _safe_step's warning-log side effect --
+    # unlike summary_error, a speculative-growth failure shouldn't block
+    # this ticker's whole row.
+    speculative_growth, _speculative_growth_error = await _safe_step(
+        ticker, "speculative_growth", get_speculative_growth_data(ticker, cache_only=cache_only)
+    )
 
     if summary_error or summary is None or summary.company_name is None:
         return None
@@ -117,6 +127,7 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         computed_at=datetime.now(),
         perf_5y_vs_spy_pct=summary.perf_5y_vs_spy_pct,
         perf_5y_vs_spy_status=summary.perf_5y_vs_spy_status,
+        speculative_growth_qualifies=speculative_growth.qualifies if speculative_growth else None,
     )
 
     values = row.model_dump()

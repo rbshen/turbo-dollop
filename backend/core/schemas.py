@@ -827,6 +827,8 @@ class TickerScoreOut(BaseModel):
     # See models.py::TickerScore.perf_5y_vs_spy_pct/_status.
     perf_5y_vs_spy_pct: float | None = None
     perf_5y_vs_spy_status: str | None = None
+    # See models.py::TickerScore.speculative_growth_qualifies.
+    speculative_growth_qualifies: bool | None = None
 
 
 class RecomputeSummary(BaseModel):
@@ -944,6 +946,8 @@ class WatchlistRowOut(BaseModel):
     # See models.py::TickerScore.perf_5y_vs_spy_pct/_status.
     perf_5y_vs_spy_pct: float | None = None
     perf_5y_vs_spy_status: str | None = None
+    # See models.py::TickerScore.speculative_growth_qualifies.
+    speculative_growth_qualifies: bool | None = None
     # FMP's live consensus label (ConsensusBanner.rating), "N/A" when there's
     # no cached analyst-ratings data for this ticker yet -- never null.
     consensus_rating: str
