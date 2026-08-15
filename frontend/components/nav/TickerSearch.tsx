@@ -37,9 +37,14 @@ export function TickerSearch() {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
-  useEffect(() => {
+  // Reset the highlighted index whenever the result set changes, adjusted
+  // during render (React's recommended pattern for derived state) rather
+  // than in an effect -- avoids an extra cascading render on every keystroke.
+  const [prevResults, setPrevResults] = useState(results);
+  if (results !== prevResults) {
+    setPrevResults(results);
     setHighlighted(-1);
-  }, [results]);
+  }
 
   function selectResult(result: TickerSearchResult) {
     // New tab, not a client-side route push -- the search box's own
