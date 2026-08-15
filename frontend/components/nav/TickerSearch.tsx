@@ -76,7 +76,7 @@ export function TickerSearch() {
         type="text"
         value={value}
         onChange={(e) => {
-          setValue(e.target.value);
+          setValue(e.target.value.toUpperCase());
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
