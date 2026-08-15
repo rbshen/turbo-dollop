@@ -1,7 +1,10 @@
 """Standalone script: nightly fundamentals refresh for every ticker in the
-stored S&P 500 + Dow constituent lists (see sp500_scraper.py /
-dow_scraper.py / IndexConstituent -- load_universe_tickers unions both),
-via the app's existing cache-aware fetch pipeline --
+full tracked universe -- index constituents (S&P 500 + Dow, see
+sp500_scraper.py / dow_scraper.py / IndexConstituent) UNION any ticker with
+cached FMP data, an existing TickerScore row, or a Watchlist entry (the
+2026-08-06 "index + ever-viewed + watchlisted" decision, see
+load_full_tracked_universe below) -- via the app's existing cache-aware
+fetch pipeline --
 get_step1_data / get_step2_data / get_step4_data / get_step5_data /
 get_summary / get_segmentation_data. Nothing bespoke here: these are the
 exact same functions Step 1/2/4/5, the ticker header, and the Summary

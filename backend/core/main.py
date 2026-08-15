@@ -493,19 +493,20 @@ async def ticker_refresh(ticker: str) -> RefreshResult:
 # single-ticker TickerScore read path existed to reuse: Screener only has a
 # universe-filtered list endpoint, and Watchlist doesn't read the stored
 # row at all (compute_ticker_score(cache_only=True) live per row instead).
-# Falls back to that same cache-only compute when no row exists yet
-# (nightly job only covers S&P 500 + Dow -- see load_universe_tickers) so
-# the chip still works on a ticker's very first view, mirroring Watchlist's
-# own fallback rather than leaving the chip blank until a refresh/nightly
-# run. Either path makes zero FMP calls.
+# Falls back to that same cache-only compute when no row exists yet (a
+# ticker outside the full tracked universe -- see
+# nightly_fundamentals_fetch.py::load_full_tracked_universe -- has never
+# been swept by any nightly job) so the chip still works on a ticker's very
+# first view, mirroring Watchlist's own fallback rather than leaving the
+# chip blank until a refresh/nightly run. Either path makes zero FMP calls.
 #
 # Also recomputes when the stored row's overall_score is None -- a row
 # frozen mid-race (e.g. compute_ticker_score reading a partially-warm
 # cache while a concurrent request was still populating it) or computed
 # before its inputs were ever fully cached otherwise reads blank forever,
-# since nothing else revisits a ticker outside the nightly S&P 500/Dow
-# cron universe (see nightly_score_recompute.py for the periodic sweep
-# that now covers those). Still zero FMP calls either way.
+# since nothing else revisits a ticker outside the full tracked universe
+# (see nightly_score_recompute.py for the periodic sweep that covers it).
+# Still zero FMP calls either way.
 @app.get("/api/tickers/{ticker}/score", response_model=TickerScoreOut | None)
 async def ticker_score_out(ticker: str) -> TickerScoreOut | None:
     ticker = normalize_ticker(ticker)

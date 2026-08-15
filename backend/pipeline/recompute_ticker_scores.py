@@ -1,11 +1,21 @@
-"""Standalone script: re-score every ticker already in the stored S&P 500 +
-Dow constituent lists (see sp500_scraper.py / dow_scraper.py /
-IndexConstituent -- load_universe_tickers unions both), reading ONLY
-already-cached raw data -- makes zero FMP calls. This exists specifically
-for when scoring logic changes (which has happened repeatedly in this
-project -- e.g. the Step 4 window extension) so all ~500 tickers' Screener
-scores can be refreshed immediately, without waiting for or triggering a
-full nightly data refetch.
+"""Standalone script: re-score every ticker in the full tracked universe --
+index constituents (S&P 500 + Dow) UNION any ticker with cached FMP data,
+an existing TickerScore row, or a Watchlist entry (see
+nightly_fundamentals_fetch.py::load_full_tracked_universe, reused here,
+not duplicated) -- reading ONLY already-cached raw data -- makes zero FMP
+calls. This exists specifically for when scoring logic changes (which has
+happened repeatedly in this project -- e.g. the Step 4 window extension)
+so every tracked ticker's Screener score can be refreshed immediately,
+without waiting for or triggering a full nightly data refetch.
+
+Widened from its original S&P 500 + Dow-only scope (2026-08-15) after a
+confirmed real staleness bug: TSM/ASML/MELI are watchlist-only (not index
+members), so a Speculative Growth scoring fix that shipped the same day
+never reached their TickerScore rows via this path -- see CLAUDE.md's
+Speculative Growth section. `load_universe_tickers` (S&P 500 + Dow only)
+is still used as-is by monthly_price_target_snapshot.py and
+stale_data_health_check.py, which have their own, deliberately narrower
+index-only scope -- this module no longer uses it.
 
 Pure computation, no network -- safe to run anytime, no pacing needed.
 Also runnable from the UI via POST /api/screener/recompute (main.py), which
@@ -34,7 +44,7 @@ from sqlmodel import Session
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from core.tickers import normalize_ticker
-from pipeline.nightly_fundamentals_fetch import load_universe_tickers
+from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
 from data.ticker_score import compute_ticker_score
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "recompute_ticker_scores.log"
@@ -43,16 +53,17 @@ logger = logging.getLogger(__name__)
 
 
 async def recompute_all(tickers: list[str] | None = None) -> dict:
-    """`tickers=None` means "use the full stored S&P 500 + Dow list" --
-    passing an explicit list (used by the CLI's --limit/--tickers, the API
-    endpoint, and tests) bypasses the DB lookup entirely. Returns the run
-    summary dict, same shape as nightly_fundamentals_fetch.main()'s (minus
-    calls_made, which is always 0 here by design -- this path never calls
-    FMP). Deliberately does NOT touch logging config or call init_db() --
-    see this module's docstring for why."""
+    """`tickers=None` means "use the full tracked universe"
+    (load_full_tracked_universe) -- passing an explicit list (used by the
+    CLI's --limit/--tickers, the API endpoint, and tests) bypasses the DB
+    lookup entirely. Returns the run summary dict, same shape as
+    nightly_fundamentals_fetch.main()'s (minus calls_made, which is always
+    0 here by design -- this path never calls FMP). Deliberately does NOT
+    touch logging config or call init_db() -- see this module's docstring
+    for why."""
     if tickers is None:
         with Session(engine) as session:
-            tickers = load_universe_tickers(session)
+            tickers = load_full_tracked_universe(session)
 
     if not tickers:
         logger.error("No tickers to process -- run refresh_sp500_list.py first, or pass an explicit ticker list.")
@@ -99,18 +110,19 @@ async def recompute_all(tickers: list[str] | None = None) -> dict:
 
 async def main(tickers: list[str] | None = None) -> dict:
     """Standalone-script entry point: sets up file+console logging and
-    ensures the DB schema exists, then delegates to recompute_all(). Not
-    used by the API endpoint -- see this module's docstring."""
+    ensures the DB schema exists, then delegates to recompute_all(), which
+    resolves the full tracked universe when tickers=None. Not used by the
+    API endpoint -- see this module's docstring."""
     configure_logging(LOG_PATH)
     init_db()
     return await recompute_all(tickers)
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Cache-only Screener score recompute for stored S&P 500 tickers.")
-    parser.add_argument("--limit", type=int, default=None, help="Only process the first N stored tickers (for testing).")
+    parser = argparse.ArgumentParser(description="Cache-only Screener score recompute for the full tracked ticker universe.")
+    parser.add_argument("--limit", type=int, default=None, help="Only process the first N tracked tickers (for testing).")
     parser.add_argument(
-        "--tickers", type=str, default=None, help="Comma-separated explicit ticker list, overrides the stored list (for testing)."
+        "--tickers", type=str, default=None, help="Comma-separated explicit ticker list, overrides the tracked universe (for testing)."
     )
     return parser.parse_args()
 
@@ -121,7 +133,7 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     if args.limit:
         init_db()
         with Session(engine) as session:
-            all_tickers = load_universe_tickers(session)
+            all_tickers = load_full_tracked_universe(session)
         return all_tickers[: args.limit]
     return None
 

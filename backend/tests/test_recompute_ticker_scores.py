@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlmodel import Session, SQLModel, create_engine
 
 import pipeline.recompute_ticker_scores as recompute
-from core.models import IndexConstituent, TickerScore
+from core.models import FundamentalsCache, IndexConstituent, TickerScore, Watchlist, WatchlistTicker
 
 
 def _fresh_engine(monkeypatch, tmp_path):
@@ -34,18 +34,38 @@ def _patch_compute(monkeypatch, calls, fail_for: set[str] | None = None, skip_fo
     monkeypatch.setattr(recompute, "compute_ticker_score", fake_compute)
 
 
-def test_load_sp500_tickers_reused_from_nightly_script(monkeypatch, tmp_path):
+def test_default_scope_sweeps_the_full_tracked_universe_not_just_indices(monkeypatch, tmp_path):
+    """Regression guard for the 2026-08-15 staleness bug (TSM/ASML/MELI --
+    watchlist-only, not index members -- missed a scoring fix that this
+    job's old S&P 500 + Dow-only default never reached). tickers=None must
+    now resolve via load_full_tracked_universe, matching
+    nightly_score_recompute.py's own scope exactly."""
     engine = _fresh_engine(monkeypatch, tmp_path)
     with Session(engine) as session:
+        # AAPL: index member only.
         session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime.now()))
         session.add(IndexConstituent(index_name="other-index", ticker="XYZ", company_name="Not S&P", last_synced_at=datetime.now()))
+        # IREN: cached FMP data only, never an index member or scored yet.
+        session.add(FundamentalsCache(ticker="IREN", statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
+        # SEZL: has a TickerScore row but no remaining cache/index/watchlist entry.
+        session.add(TickerScore(ticker="SEZL", overall_score=66, overall_verdict="Fail", computed_at=datetime.now()))
         session.commit()
+
+        # TSM: watchlisted only -- not indexed, not cached, not scored. The
+        # exact real-world shape of the confirmed staleness bug.
+        watchlist = Watchlist(name="Wide > SPY", created_at=datetime.now(), updated_at=datetime.now())
+        session.add(watchlist)
+        session.commit()
+        session.refresh(watchlist)
+        session.add(WatchlistTicker(watchlist_id=watchlist.id, ticker="TSM", added_at=datetime.now()))
+        session.commit()
+
     calls: list[tuple[str, bool]] = []
     _patch_compute(monkeypatch, calls)
 
     asyncio.run(recompute.main(tickers=None))
 
-    assert {c[0] for c in calls} == {"AAPL"}
+    assert {c[0] for c in calls} == {"AAPL", "IREN", "SEZL", "TSM"}
 
 
 def test_every_call_uses_cache_only_true(monkeypatch, tmp_path):
