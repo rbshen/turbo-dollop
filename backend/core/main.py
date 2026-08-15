@@ -32,6 +32,7 @@ from core.schemas import (
     DiscountRateConfigIn,
     DiscountRateConfigOut,
     FinancialsOut,
+    FmpStatusOut,
     MoatScoreConfigIn,
     MoatScoreConfigOut,
     NewsOut,
@@ -121,6 +122,14 @@ app = FastAPI(title="Fathom", lifespan=lifespan)
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+# Backs the site-wide paused banner (FmpPausedBanner) -- read once at
+# process start from settings.fmp_enabled, so the frontend doesn't need to
+# poll this beyond SWR's own default revalidate-on-focus behavior.
+@app.get("/api/config/fmp-status", response_model=FmpStatusOut)
+def fmp_status() -> FmpStatusOut:
+    return FmpStatusOut(enabled=settings.fmp_enabled)
 
 
 @app.get("/api/config/discount-rate", response_model=DiscountRateConfigOut)

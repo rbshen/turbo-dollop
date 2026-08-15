@@ -22,6 +22,10 @@ export interface OutlierWarning {
   sec_cross_check: SecCrossCheck | null;
 }
 
+export interface FmpStatusOut {
+  enabled: boolean;
+}
+
 export interface RefreshResult {
   ticker: string;
   cleared_entries: number;

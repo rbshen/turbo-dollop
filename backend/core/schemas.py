@@ -674,6 +674,14 @@ class TickerCustomValuationOut(Step3ManualParams):
     active_verdict: Step3ManualOut
 
 
+class FmpStatusOut(BaseModel):
+    # Read once at process start from settings.fmp_enabled -- toggling
+    # FMP_ENABLED requires a backend restart, so this never changes mid-
+    # session; the frontend banner (see FmpPausedBanner) that reads this
+    # doesn't poll for that reason.
+    enabled: bool
+
+
 class DiscountRateConfigOut(BaseModel):
     region: str
     risk_free_rate: float
