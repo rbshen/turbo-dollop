@@ -1,16 +1,19 @@
 import json
+import logging
 from datetime import datetime, timedelta
 
+import httpx
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
-from core.cache import safe_fetch
 from core.config import settings
 from core.db import engine
 from clients.fmp_client import fmp_client
 from core.models import NewsCache
 from core.schemas import NewsArticle, NewsOut
 from core.tickers import normalize_ticker
+
+logger = logging.getLogger(__name__)
 
 # Latest-N feed, not a paginated archive -- see CLAUDE.md's news feature
 # scoping (v1 is deliberately simple, no "load more").
@@ -47,7 +50,23 @@ async def get_news_data(ticker: str) -> NewsOut:
             raw = json.loads(row.raw_json)
             return NewsOut(ticker=ticker, articles=_normalize(raw))
 
-        data = await safe_fetch(f"{ticker} stock news", fmp_client.get_stock_news(ticker, ARTICLE_LIMIT))
+        try:
+            data = await fmp_client.get_stock_news(ticker, ARTICLE_LIMIT)
+        except httpx.HTTPError as exc:
+            # A failed fetch must never overwrite a good cached row with an
+            # empty result -- that would wipe real news and, by resetting
+            # fetched_at, make the empty result itself read as "fresh" for
+            # the next TTL window, repeating on every attempt while FMP is
+            # down. Serve whatever's cached (however stale) instead; if
+            # nothing is cached yet, fall through to an empty feed without
+            # writing anything, so the next request retries rather than
+            # being poisoned by this failure.
+            logger.warning("FMP fetch failed for %s stock news: %s", ticker, exc)
+            if row is not None:
+                raw = json.loads(row.raw_json)
+                return NewsOut(ticker=ticker, articles=_normalize(raw))
+            return NewsOut(ticker=ticker, articles=[])
+
         raw = data if isinstance(data, list) else []
         raw_json = json.dumps(raw)
 
