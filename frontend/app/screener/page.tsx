@@ -72,7 +72,11 @@ export default function ScreenerPage() {
   }
 
   function handleLoadSavedFilter(saved: SavedScreenerFilter) {
-    setFilters(saved.filters);
+    // saved.filters_json is stored verbatim and its shape grows over time
+    // (see SavedScreenerFilter's docstring) -- a filter saved before a new
+    // field (e.g. vsSpy, speculativeGrowth) existed won't have that key, so
+    // merge onto the defaults rather than trusting the saved object's shape.
+    setFilters({ ...DEFAULT_FILTER_STATE, ...saved.filters });
     setSortField(saved.sort_field);
     setSortDirection(saved.sort_direction);
     setUniverse(saved.universe);
