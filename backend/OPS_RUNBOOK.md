@@ -27,6 +27,12 @@ the failure message).
 "nothing to stop" per service, exits 0). Use this from a second shell, or
 after a `start.sh` session was disconnected without a clean Ctrl-C.
 
+**Pausing the FMP subscription**: set `FMP_ENABLED=false` in `backend/.env`
+and restart (`./bin/stop.sh` then `./bin/start.sh`) — the app runs entirely
+cache-only, and `start.sh`'s own FMP connectivity preflight check is
+skipped rather than blocking startup. See CLAUDE.md's "Pausing the FMP
+subscription" section for what degrades and what stays unaffected.
+
 ## Checking logs
 
 Quick copy-pasteable answers for "the app's running fine, let me see what's

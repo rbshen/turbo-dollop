@@ -87,6 +87,14 @@ from core.config import settings
 
 
 async def main() -> None:
+    if not settings.fmp_enabled:
+        # FMP is deliberately paused -- the app must still be startable
+        # cache-only (that is the whole point of FMP_ENABLED), so this
+        # check is skipped rather than blocking startup on a live call
+        # that would just be refused anyway. See the "Pausing the FMP
+        # subscription" section in CLAUDE.md.
+        print("FMP connectivity check skipped: FMP paused (FMP_ENABLED=false).")
+        return
     if not settings.fmp_api_key:
         print("FMP_API_KEY is empty in backend/.env", file=sys.stderr)
         sys.exit(1)

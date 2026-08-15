@@ -116,6 +116,44 @@ the configurable staleness window — `Settings.cache_staleness_days` in
 `CACHE_STALENESS_DAYS` env var. Never hardcode the staleness window at a call
 site.
 
+### Pausing the FMP subscription
+
+`Settings.fmp_enabled` (`FMP_ENABLED` in `.env`, default `true`) is a global
+kill switch for pausing the FMP subscription without hangs or unhandled
+errors. Read once at process start — toggling it requires a backend
+restart, not a live/runtime toggle. Enforced at two layers: `FMPClient.get`
+(`backend/clients/fmp_client.py`) is the literal single choke point every
+FMP call passes through, and raises immediately instead of attempting a
+network call when disabled; `core/cache.py`'s `get_or_fetch`/
+`get_or_fetch_earnings_aware`/`force_fetch` additionally check the same
+flag directly, so a stale cached row is served (matching `cache_only=True`
+semantics) rather than the read just failing. Together, no call site under
+`data/` needs any change for the common path.
+
+**What degrades while paused:**
+- Cold search for a ticker not yet in cache falls back to matching against
+  the app's own tracked-ticker universe (symbol only, no company name —
+  materially narrower than FMP's live search) instead of calling FMP.
+- `POST /api/tickers/{ticker}/refresh` returns 503 and does nothing else —
+  no cache clear, no live call. (Clearing the cache and then failing to
+  repopulate it would be the one genuinely destructive path this flag
+  guards against.)
+- News (`GET /.../news`) serves the last cached articles, however stale,
+  instead of refreshing — never wiped/replaced by a failed fetch attempt.
+- Price/quote falls back to the last cached value via the same
+  `force_fetch` gating as everything else — **not** a live alternate feed.
+  FMP is confirmed the sole price source in this app today; an earlier
+  project note referenced a planned Yahoo/Google Finance migration to
+  decouple price from the FMP subscription cycle, but a full git-history
+  audit (this repo and the sibling `options_tracker` project) found no
+  trace it was ever built, partially or otherwise — treat that migration
+  as undone, not as an existing fallback.
+
+**What stays unaffected:** `pipeline/nightly_score_recompute.py` (already
+`cache_only=True` throughout, zero FMP calls regardless of this flag), and
+any read whose cache is still within its normal staleness window — which,
+on a warm cache, is most of the app most of the time.
+
 ### Ad-hoc reproduction scripts must not touch the real database
 
 `backend/fathom.db` is the one real database — `config.py`'s
