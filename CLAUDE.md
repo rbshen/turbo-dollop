@@ -1435,6 +1435,49 @@ these are the design decisions and fixes behind them.
   of the fix (it corrects for how much goodwill/intangibles a company carries, not a uniform
   shift applied to every ticker alike), not evidence the fix is inconsistent.
 
+## Speculative Growth (new classification) scoring notes
+
+Speculative Growth is a new, independent, read-only lens layered on top of the existing 5-step
+framework (`scoring/speculative_growth.py`, `data/speculative_growth_data.py`) -- never touches
+Step1-5/Overall Assessment scoring. Gate: `company_type == "Standard"` AND Moat is Narrow/Wide AND
+Step2 forward growth clears `GROWTH_GATE_MIN_PCT` (15%). Trailing growth, gross margin, CFO
+sign/direction, cash runway, and PSG are informational only, never gates.
+
+- **Profitability gate added 2026-08-15**, following a false-positive investigation: mature,
+  thoroughly profitable, wide/narrow-moat companies (**MSFT, ABNB, APH, MA, TSM, AVGO, ANET** --
+  all user-reported) were qualifying purely on Moat + Growth, since profitability was originally
+  scoped as informational-only (to accommodate the spec's "can be negative, acceptable" framing for
+  NI/CFO) with the unintended side effect that a company didn't need to be unprofitable *at all* to
+  qualify. Confirmed via real cached data: all 7 named tickers pass Moat+Growth cleanly and are
+  durably profitable (0-1 of 10-11 tracked annual+TTM periods negative, except ABNB at 5/10 -- still
+  a tie, not a majority). Sized the actual false-positive rate before fixing: **73 of 77 (94.8%)**
+  currently-qualifying Standard-type tickers in the tracked universe (S&P500+Dow+Watchlist) were
+  NI-profitable; only 4 (CRWD, LITE, NET, TRMB) were genuinely NI-negative. Separately confirmed the
+  growth threshold itself is not the effective lever -- growth is roughly uniformly spread among the
+  73 profitable qualifiers (49% still clear 20%, 21% still clear 30%, ORCL/MRK/NKE-tier names still
+  clear 40%), so raising it can't selectively exclude mature blue-chips without also cutting
+  legitimate high-growth candidates.
+- **Gate shape: NI negative in a majority (>50%) of tracked annual+TTM periods**
+  (`scoring/speculative_growth.py::is_not_durably_profitable`), not a flat `NI TTM <= 0` check.
+  A flat TTM-only check was tried first and correctly excludes all 7 named false positives, but
+  leaves one edge case: **TRMB** (10 of 11 tracked periods profitable, only the latest TTM negative
+  off a one-off charge) is a mature, historically-profitable company having a rough year, not a
+  "not yet profitable" story -- yet a flat TTM check would still let it through, since it was
+  already qualifying under the old gate too (moat=narrow, growth=15.6%, just barely above the
+  threshold). Majority-of-periods correctly excludes TRMB while still including every genuine case
+  (CRWD 10/11, LITE 6/11, NET 11/11 negative) and leaving RKLB (8/8, the original design-phase
+  spot-check name) unaffected. Validated against all 5 original spot-check names (RKLB/IONQ/SOUN/
+  ACHR/JOBY): RKLB (the only one that already qualified on moat+growth) is unaffected by the new
+  gate; IONQ/SOUN/ACHR/JOBY were already excluded before this fix on moat/growth grounds unrelated
+  to profitability (no moat set, or SOUN's 4.8% growth), so the new gate changes nothing for them.
+  An empty/missing NI series fails closed (reads as durably profitable, i.e. doesn't qualify),
+  matching every other gate in this module.
+- **Confirmed real-world effect**: universe-wide qualifying count drops from 77 to 10. All 7 named
+  false positives excluded. The 10 remaining qualifiers split into 3 still NI-negative (CRWD, LITE,
+  NET) and 7 with a positive NI TTM but majority-negative history -- i.e. recently-turned-profitable
+  growth names (DASH, DDOG, DOCN, MRVL, PANW, PLTR, UBER) -- the intended "not yet *durably*
+  profitable" reading, not new false positives.
+
 ## Workflow rules
 
 - **Plan Mode by default.** Propose a plan and wait for confirmation before

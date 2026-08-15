@@ -5,13 +5,20 @@ Assessment). Never touches Step1-5 scoring or overall.py: a ticker can be
 Overall=Fail and Speculative Growth=Yes simultaneously, which is the
 expected, correct outcome, not a contradiction to reconcile.
 
-Gate model (all three must pass for `qualifies`), per the design/
+Gate model (all four must pass for `qualifies`), per the design/
 investigation phase's resolved criteria set:
   - company_type == "Standard" (reuses scoring/classification.py as-is)
   - Moat is Narrow or Wide (No Moat / unset excludes)
   - Step2's forward growth rate clears GROWTH_GATE_MIN_PCT
+  - NI was negative in a majority of tracked annual+TTM periods (see
+    `is_not_durably_profitable` below) -- added 2026-08-15 after a false-
+    positive investigation confirmed mature, thoroughly profitable
+    wide/narrow-moat names (MSFT, ABNB, APH, MA, TSM, AVGO, ANET) were
+    qualifying purely on Moat+Growth, with profitability never gating
+    anything. See CLAUDE.md's Speculative Growth section for the full
+    investigation and the numbers behind this gate's exact shape.
 
-Everything else (trailing growth, gross margin, NI/CFO sign, CFO direction,
+Everything else (trailing growth, gross margin, CFO sign, CFO direction,
 cash runway, PSG) is informational only and never affects `qualifies` -- a
 ticker can be Speculative Growth and expensive (PSG > 1) at the same time.
 """
@@ -45,15 +52,46 @@ _MOAT_QUALIFYING = {"narrow_moat", "wide_moat"}
 class SpecGrowthGateResult(NamedTuple):
     qualifies: bool
     # None when the ticker is a plain, in-scope Standard-type candidate that
-    # simply failed a gate on the merits (moat/growth) -- set only when the
-    # ticker is structurally out of scope for this classification (wrong
-    # company type), so the UI can distinguish "evaluated and didn't
-    # qualify" from "not evaluated at all".
+    # simply failed a gate on the merits (moat/growth/profitability) -- set
+    # only when the ticker is structurally out of scope for this
+    # classification (wrong company type), so the UI can distinguish
+    # "evaluated and didn't qualify" from "not evaluated at all".
     not_applicable_reason: str | None
 
 
+def is_not_durably_profitable(net_income_series: list[float | None] | None) -> bool:
+    """True when Net Income was negative in a majority (>50%) of tracked
+    annual+TTM periods -- the profitability gate's operational definition of
+    "not yet profitable," broad enough to also catch "inconsistent" per the
+    spec's original characteristics.
+
+    Deliberately majority-of-periods, not a flat `NI TTM <= 0` check: a flat
+    TTM-only check would still let a durably-profitable company through
+    after a single bad year -- confirmed real case, TRMB (10 of 11 tracked
+    periods profitable, only the latest TTM negative off a one-off charge)
+    -- which is a "mature company, rough year" story, not "not yet
+    profitable." Majority-of-periods correctly excludes TRMB while still
+    including every genuine case found in the same investigation (CRWD
+    10/11, LITE 6/11, NET 11/11 negative) and leaving RKLB (8/8) and the
+    original spot-check names unaffected.
+
+    None/empty series (no real NI history at all) reads as durably
+    profitable -- i.e. this gate is not cleared -- since a "not yet
+    profitable" story can't be confirmed without real NI history; failing
+    closed here matches every other gate in this module.
+    """
+    real_values = [v for v in (net_income_series or []) if v is not None]
+    if not real_values:
+        return False
+    negative_count = sum(1 for v in real_values if v < 0)
+    return negative_count > len(real_values) / 2
+
+
 def evaluate_speculative_growth(
-    company_type: str, moat: str | None, growth_rate_pct: float | None
+    company_type: str,
+    moat: str | None,
+    growth_rate_pct: float | None,
+    net_income_series: list[float | None] | None = None,
 ) -> SpecGrowthGateResult:
     if company_type != "Standard":
         return SpecGrowthGateResult(
@@ -67,7 +105,10 @@ def evaluate_speculative_growth(
 
     moat_pass = moat in _MOAT_QUALIFYING
     growth_pass = growth_rate_pct is not None and growth_rate_pct > GROWTH_GATE_MIN_PCT
-    return SpecGrowthGateResult(qualifies=moat_pass and growth_pass, not_applicable_reason=None)
+    profitability_pass = is_not_durably_profitable(net_income_series)
+    return SpecGrowthGateResult(
+        qualifies=moat_pass and growth_pass and profitability_pass, not_applicable_reason=None
+    )
 
 
 def cfo_recent_direction(latest_quarter_cfo: float | None, prior_quarter_cfo: float | None) -> str | None:

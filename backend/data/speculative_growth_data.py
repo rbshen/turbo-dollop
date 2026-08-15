@@ -152,7 +152,7 @@ async def get_speculative_growth_data(ticker: str, cache_only: bool = False) -> 
     price_to_sales_ttm = ratios.get("priceToSalesRatio")
     psg = psg_ratio(price_to_sales_ttm, trailing_growth)
 
-    gate = evaluate_speculative_growth(company_type, moat, step2_out.growth_rate)
+    gate = evaluate_speculative_growth(company_type, moat, step2_out.growth_rate, step1_out.net_income)
 
     return SpeculativeGrowthOut(
         ticker=ticker,
