@@ -5,6 +5,7 @@ from core.config import settings
 from core.db import engine
 from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.first import _first
+from helpers.shares import is_implausible_magnitude_shift
 from clients.fmp_client import fmp_client
 from core.schemas import FinancialsGroup, FinancialsLineItem, FinancialsOut, FinancialsPeriodOut, FinancialsStatementOut
 from core.tickers import normalize_ticker
@@ -232,6 +233,31 @@ def _build_groups(rows: list[dict], grouped_fields: list[tuple[str | None, list[
     return groups
 
 
+def _sanitize_shares_magnitude(
+    quarterly_rows: list[dict], grouped_fields: list[tuple[str | None, list[FieldSpec]]]
+) -> list[dict]:
+    """Null out any "shares"-unit field on the latest quarter whose value is
+    an implausible magnitude shift vs. the prior quarter (see
+    is_implausible_magnitude_shift) -- the signature of an FMP freshly-
+    filed-quarter units defect (confirmed: TEAM, FLY), not a real corporate
+    action. Never auto-corrects/rescales, only suppresses the untrustworthy
+    cell, since guessing the right scale risks misfiring on a genuine (if
+    rare) reverse split. Applied once, upstream of both the quarterly table
+    and the TTM column (_ttm_row_summed's "shares" branch reads
+    quarterly_rows[0] directly), so neither view can show the raw defect."""
+    if len(quarterly_rows) < 2:
+        return quarterly_rows
+    share_keys = {key for _, fields in grouped_fields for _, key, unit, _ in fields if unit == "shares"}
+    if not share_keys:
+        return quarterly_rows
+    latest, prior = quarterly_rows[0], quarterly_rows[1]
+    sanitized_latest = dict(latest)
+    for key in share_keys:
+        if is_implausible_magnitude_shift(latest.get(key), prior.get(key)):
+            sanitized_latest[key] = None
+    return [sanitized_latest, *quarterly_rows[1:]]
+
+
 def _ttm_row_summed(quarterly_rows: list[dict], grouped_fields: list[tuple[str | None, list[FieldSpec]]]) -> dict:
     """Flow-measure fields (income statement, cash flow): TTM = trailing 4
     quarters summed, same convention as Step 1's revenue/net income/CFO TTM
@@ -386,6 +412,7 @@ async def get_financials_data(ticker: str, cache_only: bool = False) -> Financia
     balance_sheet_quarterly = balance_sheet_quarterly if isinstance(balance_sheet_quarterly, list) else []
 
     income_fields = [(None, INCOME_STATEMENT_FIELDS)]
+    income_quarterly = _sanitize_shares_magnitude(income_quarterly, income_fields)
     # Cosmetic-only label (CLAUDE.md's non-USD currency investigation,
     # decided scope #1) -- every figure above stays the company's raw
     # reported number, un-converted; this just tells the frontend which

@@ -296,6 +296,82 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     assert call_count == {**expected_call_count, "quote": 2}
 
 
+def test_get_summary_suppresses_enterprise_value_team_shaped_magnitude_defect(monkeypatch):
+    # Real case (2026-08-16 investigation): TEAM's Q4 FY2026
+    # enterprise_values row has numberOfShares=260163 instead of
+    # ~260,163,000 (~1000x too small), dragging enterpriseValue down by the
+    # same factor (13,636,079 instead of ~$13.6B). shares_outstanding itself
+    # (from quote.marketCap/price) is unaffected and used as the reference
+    # that catches this.
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(ticker_summary, "engine", test_engine)
+    monkeypatch.setattr(step2_data, "engine", test_engine)
+
+    team_quote = [{"price": 162.22, "marketCap": 42_611_027_379}]
+    team_enterprise_values = [{"date": "2026-06-30", "numberOfShares": 260_163, "enterpriseValue": 13_636_079}]
+
+    async def fake_profile(ticker):
+        return FAKE_PROFILE
+
+    async def fake_quote(ticker):
+        return team_quote
+
+    async def fake_price_change(ticker):
+        return FAKE_PRICE_CHANGE
+
+    async def fake_ratios(ticker):
+        return FAKE_RATIOS
+
+    async def fake_estimates(ticker):
+        return FAKE_ESTIMATES
+
+    async def fake_earnings(ticker):
+        return FAKE_EARNINGS
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return FAKE_BALANCE_SHEET_QUARTERLY
+
+    async def fake_income_statement(ticker, period, limit):
+        return FAKE_INCOME_QUARTERLY
+
+    async def fake_enterprise_values(ticker, period, limit):
+        return team_enterprise_values
+
+    async def fake_ratios_ttm(ticker):
+        return FAKE_RATIOS_TTM
+
+    async def fake_historical_price_eod(ticker, from_date, to_date):
+        return FAKE_DAILY_PRICES
+
+    async def fake_financial_growth(ticker, period, limit):
+        return FAKE_FINANCIAL_GROWTH
+
+    async def fake_get_active_valuation(ticker, cache_only=False, step2_out=None):
+        return FAKE_STEP3_OUT
+
+    monkeypatch.setattr(ticker_summary, "get_active_valuation", fake_get_active_valuation)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_quote", fake_quote)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_price_change", fake_price_change)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios", fake_ratios)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_analyst_estimates", fake_estimates)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_earnings", fake_earnings)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_enterprise_values", fake_enterprise_values)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios_ttm", fake_ratios_ttm)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_historical_price_eod", fake_historical_price_eod)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_financial_growth", fake_financial_growth)
+
+    summary = asyncio.run(get_summary("team"))
+
+    assert summary.enterprise_value is None
+    # shares_outstanding itself is untouched -- it's computed from
+    # quote.marketCap/price, never from the corrupted enterprise_values row.
+    assert summary.shares_outstanding == 42_611_027_379 / 162.22
+
+
 def test_get_summary_raises_ticker_not_found_on_empty_profile(monkeypatch):
     # A genuinely nonexistent/invalid ticker: FMP's /profile returns a real
     # 200 with an empty list, not an error -- this must short-circuit here,

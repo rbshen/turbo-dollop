@@ -208,6 +208,104 @@ def test_duplicate_alias_fields_excluded():
     assert "capitalExpenditure" in cash_flow_keys
 
 
+# TEAM's actual Q4 FY2026 shape (2026-08-16 investigation): the latest
+# quarter's weightedAverageShsOut(Dil) reads ~1000x too small, while every
+# prior quarter is normal. FLY hits the identical shape independently, so
+# this is a general FMP-pipeline defect class, not a TEAM-only fixture.
+TEAM_SHAPED_INCOME_QUARTERLY = [
+    {
+        "period": "Q4",
+        "fiscalYear": "2026",
+        "revenue": 6_572_308_000,
+        "netIncome": -53_828_000,
+        "eps": -0.21,
+        "epsDiluted": -0.21,
+        "weightedAverageShsOut": 260_163,
+        "weightedAverageShsOutDil": 260_163,
+    },
+    {
+        "period": "Q3",
+        "fiscalYear": "2026",
+        "revenue": 1_786_971_000,
+        "netIncome": -98_389_000,
+        "eps": -0.38,
+        "epsDiluted": -0.38,
+        "weightedAverageShsOut": 260_964_999,
+        "weightedAverageShsOutDil": 260_964_999,
+    },
+    {
+        "period": "Q2",
+        "fiscalYear": "2026",
+        "revenue": 1_586_315_000,
+        "netIncome": -42_645_000,
+        "eps": -0.16,
+        "epsDiluted": -0.16,
+        "weightedAverageShsOut": 263_409_000,
+        "weightedAverageShsOutDil": 263_409_000,
+    },
+    {
+        "period": "Q1",
+        "fiscalYear": "2026",
+        "revenue": 1_432_553_000,
+        "netIncome": -51_870_000,
+        "eps": -0.20,
+        "epsDiluted": -0.20,
+        "weightedAverageShsOut": 262_991_000,
+        "weightedAverageShsOutDil": 262_991_000,
+    },
+]
+
+
+def test_implausible_shares_magnitude_shift_is_suppressed_team_shaped():
+    sanitized = financials_data._sanitize_shares_magnitude(
+        TEAM_SHAPED_INCOME_QUARTERLY, [(None, INCOME_STATEMENT_FIELDS)]
+    )
+    assert sanitized[0]["weightedAverageShsOut"] is None
+    assert sanitized[0]["weightedAverageShsOutDil"] is None
+    # Every other field on the latest quarter is untouched.
+    assert sanitized[0]["revenue"] == 6_572_308_000
+    # Prior quarters are untouched.
+    assert sanitized[1]["weightedAverageShsOutDil"] == 260_964_999
+
+
+def test_implausible_shares_magnitude_shift_suppressed_in_quarterly_view():
+    period = financials_data._quarterly_period(TEAM_SHAPED_INCOME_QUARTERLY, [(None, INCOME_STATEMENT_FIELDS)])
+    shares_row = next(
+        item for item in period.groups[0].items if item.label == "Weighted Avg Shares Outstanding (Diluted, millions)"
+    )
+    # _quarterly_period is called directly here (bypassing get_financials_data's
+    # own sanitize call), so this confirms _sanitize_shares_magnitude must be
+    # applied upstream for the quarterly table to actually be protected --
+    # get_financials_data's end-to-end test below confirms that wiring.
+    assert shares_row.values[-1] == 260_163
+
+
+def test_implausible_shares_magnitude_shift_suppressed_in_ttm_column():
+    sanitized = financials_data._sanitize_shares_magnitude(
+        TEAM_SHAPED_INCOME_QUARTERLY, [(None, INCOME_STATEMENT_FIELDS)]
+    )
+    period = financials_data._annual_period(
+        FAKE_INCOME_ANNUAL, sanitized, [(None, INCOME_STATEMENT_FIELDS)], ttm_mode="sum"
+    )
+    shares_row = next(
+        item for item in period.groups[0].items if item.label == "Weighted Avg Shares Outstanding (Diluted, millions)"
+    )
+    assert shares_row.values[-1] is None
+
+
+def test_normal_quarter_to_quarter_drift_is_not_sanitized():
+    # FAKE_INCOME_QUARTERLY's own shares drift (14.9B vs 15.0B) is ordinary
+    # -- must survive sanitization untouched.
+    sanitized = financials_data._sanitize_shares_magnitude(FAKE_INCOME_QUARTERLY, [(None, INCOME_STATEMENT_FIELDS)])
+    assert sanitized[0]["weightedAverageShsOut"] == 14_900_000_000
+
+
+def test_sanitize_shares_magnitude_noop_with_fewer_than_two_quarters():
+    single = [TEAM_SHAPED_INCOME_QUARTERLY[0]]
+    sanitized = financials_data._sanitize_shares_magnitude(single, [(None, INCOME_STATEMENT_FIELDS)])
+    assert sanitized == single
+
+
 def test_weighted_average_shares_ttm_is_latest_quarter_not_summed():
     period = financials_data._annual_period(
         FAKE_INCOME_ANNUAL, FAKE_INCOME_QUARTERLY, [(None, INCOME_STATEMENT_FIELDS)], ttm_mode="sum"
@@ -258,6 +356,50 @@ def test_get_financials_data_end_to_end(monkeypatch):
     # Second call within the staleness window should hit the cache, not FMP again.
     asyncio.run(get_financials_data("aapl"))
     assert call_count == {"income": 2, "cash_flow": 2, "balance_sheet": 2}
+
+
+def test_get_financials_data_end_to_end_team_shaped_magnitude_defect_suppressed(monkeypatch):
+    # Confirms get_financials_data actually wires _sanitize_shares_magnitude
+    # in -- both the quarterly table and the TTM column must be protected,
+    # not just the pure helper functions tested above in isolation.
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(financials_data, "engine", test_engine)
+
+    async def fake_income_statement(ticker, period, limit):
+        return TEAM_SHAPED_INCOME_QUARTERLY if period == "quarter" else FAKE_INCOME_ANNUAL
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return FAKE_CASH_FLOW_QUARTERLY if period == "quarter" else FAKE_CASH_FLOW_ANNUAL
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return FAKE_BALANCE_SHEET_QUARTERLY if period == "quarter" else FAKE_BALANCE_SHEET_ANNUAL
+
+    monkeypatch.setattr(financials_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(financials_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+    monkeypatch.setattr(financials_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+
+    result = asyncio.run(get_financials_data("team"))
+
+    quarterly_shares_row = next(
+        item
+        for item in result.income_statement.quarterly.groups[0].items
+        if item.label == "Weighted Avg Shares Outstanding (Diluted, millions)"
+    )
+    assert quarterly_shares_row.values[-1] is None
+
+    ttm_shares_row = next(
+        item
+        for item in result.income_statement.annual.groups[0].items
+        if item.label == "Weighted Avg Shares Outstanding (Diluted, millions)"
+    )
+    assert ttm_shares_row.values[-1] is None
+
+    # Revenue (a "money"-unit field) is untouched -- this guard is scoped
+    # to "shares"-unit fields only, Defect B (the duplicate-annual-revenue
+    # issue) is a separate fix.
+    revenue_row = next(item for item in result.income_statement.quarterly.groups[0].items if item.label == "Revenue")
+    assert revenue_row.values[-1] == 6_572_308_000
 
 
 def test_reported_currency_is_cosmetic_label_only_not_converted(monkeypatch):

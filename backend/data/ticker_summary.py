@@ -14,7 +14,7 @@ from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.schemas import OutlierWarning, TickerSummaryOut
 from core.tickers import normalize_ticker
-from helpers.shares import compute_shares_outstanding
+from helpers.shares import compute_shares_outstanding, is_implausible_magnitude_shift
 from data.step2_data import get_step2_data
 from data.step3_data import get_active_valuation
 from helpers.ttm import TOTAL_QUARTERS_NEEDED
@@ -349,8 +349,19 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
     price = quote.get("price")
     income_quarterly = income_quarterly_data if isinstance(income_quarterly_data, list) else []
     debt_metrics = compute_debt_metrics(_first(balance_sheet_data), income_quarterly)
-    enterprise_value = _first(enterprise_values_data).get("enterpriseValue")
     shares_outstanding, shares_outstanding_source = compute_shares_outstanding(quote, income_quarterly)
+    enterprise_values_row = _first(enterprise_values_data)
+    # Guards against FMP's freshly-filed-quarter units defect (confirmed:
+    # TEAM, FLY -- enterprise_values.numberOfShares off by ~1000x on the
+    # latest quarter, dragging marketCapitalization/enterpriseValue down by
+    # the same factor). shares_outstanding is already the reliable figure
+    # (compute_shares_outstanding prefers quote.marketCap/price), so it's
+    # reused here as the reference rather than fetching anything new.
+    enterprise_value = (
+        None
+        if is_implausible_magnitude_shift(enterprise_values_row.get("numberOfShares"), shares_outstanding)
+        else enterprise_values_row.get("enterpriseValue")
+    )
     daily_prices = daily_prices_data if isinstance(daily_prices_data, list) else []
     avg_volume_30d = _avg_volume_30d(daily_prices)
     avg_dollar_volume_20d = _avg_dollar_volume_20d(daily_prices)
