@@ -773,3 +773,64 @@ def test_sec_cross_check_never_attempted_when_nothing_is_flagged(monkeypatch):
 
     assert result.outlier_warnings == []
     assert calls == []
+
+
+def test_sec_cross_check_suppressed_when_allow_sec_cross_check_is_false(monkeypatch):
+    # 2026-08-16: pipeline/nightly_fundamentals_fetch.py's bulk sweep passes
+    # allow_sec_cross_check=False -- cache_only=False alone (needed for the
+    # rest of this call's live fetches) doesn't suppress the cross-check on
+    # its own, so a real outlier flag during the nightly sweep must still
+    # not reach SEC EDGAR when this flag is set.
+    _fresh_engine(monkeypatch)
+    _patch_fmp_with_outliers(monkeypatch)
+
+    calls = []
+
+    async def fake_cross_check_interest_expense(*args, **kwargs):
+        calls.append("interest_expense")
+        return step5_data.sec_edgar.CrossCheckResult(True, 0.0, "tag", True, "note")
+
+    async def fake_cross_check_cfo(*args, **kwargs):
+        calls.append("cfo")
+        return step5_data.sec_edgar.CrossCheckResult(True, 0.0, "tag", True, "note")
+
+    monkeypatch.setattr(step5_data.sec_edgar, "cross_check_interest_expense", fake_cross_check_interest_expense)
+    monkeypatch.setattr(step5_data.sec_edgar, "cross_check_cfo", fake_cross_check_cfo)
+
+    result = asyncio.run(get_step5_data("pep", allow_sec_cross_check=False))
+
+    warnings_by_metric = {w.metric: w for w in result.outlier_warnings}
+    # The outlier flags themselves are still computed/returned -- only the
+    # SEC cross-check attachment is suppressed.
+    assert set(warnings_by_metric) == {"interest_expense_ttm", "net_interest_expense_ttm", "cfo_ttm"}
+    assert warnings_by_metric["net_interest_expense_ttm"].sec_cross_check is None
+    assert warnings_by_metric["cfo_ttm"].sec_cross_check is None
+    assert calls == []
+
+
+def test_sec_cross_check_still_fires_by_default_with_outliers_present(monkeypatch):
+    # The default (allow_sec_cross_check=True, unchanged) must keep firing
+    # for on-demand single-ticker views (core/main.py's Step 5 endpoint) --
+    # confirms the new parameter didn't accidentally flip the default.
+    _fresh_engine(monkeypatch)
+    _patch_fmp_with_outliers(monkeypatch)
+
+    calls = []
+
+    async def fake_cross_check_interest_expense(*args, **kwargs):
+        calls.append("interest_expense")
+        return step5_data.sec_edgar.CrossCheckResult(True, 0.0, "tag", True, "note")
+
+    async def fake_cross_check_cfo(*args, **kwargs):
+        calls.append("cfo")
+        return step5_data.sec_edgar.CrossCheckResult(True, 0.0, "tag", True, "note")
+
+    monkeypatch.setattr(step5_data.sec_edgar, "cross_check_interest_expense", fake_cross_check_interest_expense)
+    monkeypatch.setattr(step5_data.sec_edgar, "cross_check_cfo", fake_cross_check_cfo)
+
+    result = asyncio.run(get_step5_data("pep"))
+
+    warnings_by_metric = {w.metric: w for w in result.outlier_warnings}
+    assert warnings_by_metric["net_interest_expense_ttm"].sec_cross_check is not None
+    assert warnings_by_metric["cfo_ttm"].sec_cross_check is not None
+    assert set(calls) == {"interest_expense", "cfo"}

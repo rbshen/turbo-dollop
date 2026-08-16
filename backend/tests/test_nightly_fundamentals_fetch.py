@@ -185,7 +185,7 @@ def test_refresh_one_ticker_calls_get_summary_with_live_quote_false(monkeypatch,
         live_quote_seen[ticker] = live_quote
         return None
 
-    async def noop(ticker):
+    async def noop(ticker, **kwargs):
         return None
 
     async def fake_compute_ticker_score(ticker, cache_only=False):
@@ -204,6 +204,40 @@ def test_refresh_one_ticker_calls_get_summary_with_live_quote_false(monkeypatch,
     asyncio.run(nightly.main(tickers=["AAPL"]))
 
     assert live_quote_seen == {"AAPL": False}
+
+
+def test_refresh_one_ticker_calls_get_step5_data_with_sec_cross_check_disabled(monkeypatch, tmp_path):
+    # 2026-08-16 SEC EDGAR nightly-sweep fix: the bulk sweep must never let
+    # get_step5_data's on-demand SEC cross-check fire (SEC's rate-limit
+    # penalty for exceeding 10 req/sec is a 10-minute lockout). A regression
+    # back to the default (allow_sec_cross_check=True, or omitting the
+    # kwarg entirely) would silently reintroduce that.
+    _fresh_engine(monkeypatch, tmp_path)
+    step5_kwargs_seen = {}
+
+    async def fake_get_step5_data(ticker, **kwargs):
+        step5_kwargs_seen[ticker] = kwargs
+        return None
+
+    async def noop(ticker, **kwargs):
+        return None
+
+    async def fake_compute_ticker_score(ticker, cache_only=False):
+        return None
+
+    monkeypatch.setattr(nightly, "get_step1_data", noop)
+    monkeypatch.setattr(nightly, "get_step2_data", noop)
+    monkeypatch.setattr(nightly, "get_step4_data", noop)
+    monkeypatch.setattr(nightly, "get_step5_data", fake_get_step5_data)
+    monkeypatch.setattr(nightly, "get_segmentation_data", noop)
+    monkeypatch.setattr(nightly, "get_summary", noop)
+    monkeypatch.setattr(nightly, "compute_ticker_score", fake_compute_ticker_score)
+    monkeypatch.setattr(nightly.fmp_client, "request_count", 0)
+    monkeypatch.setattr(nightly.fmp_client, "min_request_interval", 0.0)
+
+    asyncio.run(nightly.main(tickers=["AAPL"]))
+
+    assert step5_kwargs_seen == {"AAPL": {"allow_sec_cross_check": False}}
 
 
 def test_pacing_is_configured_before_the_run_starts(monkeypatch, tmp_path):

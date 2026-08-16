@@ -132,7 +132,14 @@ async def _refresh_one_ticker(ticker: str) -> None:
     await get_step1_data(ticker)
     await get_step2_data(ticker)
     await get_step4_data(ticker)
-    await get_step5_data(ticker)
+    # allow_sec_cross_check=False (2026-08-16): get_step5_data's own SEC
+    # EDGAR cross-check is on-demand-only by design (a 10-minute lockout
+    # penalty for exceeding SEC's rate limit), but cache_only=False alone
+    # (needed here for everything else this call fetches) doesn't suppress
+    # it -- confirmed 134 real sec_company_facts calls fired from this exact
+    # call site in one night (2026-08-14) whenever that night's outlier
+    # flags happened to trip. See get_step5_data's own docstring.
+    await get_step5_data(ticker, allow_sec_cross_check=False)
     await get_segmentation_data(ticker)
     # live_quote=False (2026-08-16): this batch write gets superseded the
     # moment anyone actually views the ticker (which force-fetches quote

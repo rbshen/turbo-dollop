@@ -138,13 +138,28 @@ async def _attach_sec_cross_checks(
     return result
 
 
-async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
+async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_check: bool = True) -> Step5Out:
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
     cache.get_or_fetch's own cache_only branch. It also skips the SEC EDGAR
     cross-check entirely regardless of whether an outlier is flagged: that
     cross-check is on-demand-only by design (SEC's rate-limit penalty is a
-    10-minute lockout), and must never fire during a ~500-ticker sweep."""
+    10-minute lockout), and must never fire during a ~500-ticker sweep.
+
+    `allow_sec_cross_check=False` (used by
+    pipeline/nightly_fundamentals_fetch.py, see its own call site) is a
+    *separate* guard for the same invariant -- cache_only alone doesn't
+    cover it, since the nightly bulk sweep calls this function with
+    cache_only=False (it needs live data for everything else this function
+    fetches) and would otherwise still fire a live cross-check for any
+    ticker whose outlier flags happen to trip that night. Confirmed via
+    fetched_at timestamps: 134 sec_company_facts calls landed in one night
+    (2026-08-14) despite this function's own docstring already claiming the
+    cross-check "must never fire during a ~500-ticker sweep" -- that claim
+    was only ever true for the cache_only=True recompute path, not the
+    nightly fetch's actual cache_only=False call. On-demand single-ticker
+    callers (core/main.py's Step 5 endpoint) don't pass this, so they keep
+    the default True and are unaffected."""
     ticker = normalize_ticker(ticker)
     staleness_days = settings.cache_staleness_days
 
@@ -418,11 +433,12 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
         *debt_metrics.outlier_flags, MetricOutlierFlags(metric="cfo_ttm", flagged=cfo_result.flagged)
     )
 
-    if outlier_warnings and not cache_only:
+    if outlier_warnings and not cache_only and allow_sec_cross_check:
         # Fresh, short-lived session scoped to just this on-demand
         # cross-check -- only opened when there's actually something
         # flagged, not on every Step 5 view, and never at all in
-        # cache_only mode (see this function's docstring).
+        # cache_only mode or when the caller has explicitly opted out via
+        # allow_sec_cross_check (see this function's docstring).
         with Session(engine) as sec_session:
             outlier_warnings = await _attach_sec_cross_checks(sec_session, ticker, outlier_warnings, staleness_days)
 
