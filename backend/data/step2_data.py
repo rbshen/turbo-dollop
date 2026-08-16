@@ -121,15 +121,26 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
     today = date.today()
 
     with Session(engine) as session:
+        # Resolved unconditionally (not just for REIT, as before 2026-08-16)
+        # since analyst_estimates below now needs it too -- analysts revise
+        # their models around actual results, so its real update cadence is
+        # earnings-tied, the same shape as the 8 statement types 4498c33
+        # already switched. Worst case (a ticker whose only in-scope fetch
+        # this run is Step 2, e.g. a standalone Step 2 API call) costs one
+        # incremental /earnings fetch; in every other real path (Step 1/4/5,
+        # the ticker header, or the nightly job's own sequencing) "earnings"
+        # is already warm under this exact shared cache key.
+        most_recent_earnings_date = await resolve_most_recent_earnings_date(session, ticker, staleness_days, cache_only)
         estimates_data = await safe_fetch(
             "analyst_estimates",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "analyst_estimates",
                 "latest",
                 lambda: fmp_client.get_analyst_estimates(ticker),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )
@@ -140,7 +151,13 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
             await safe_fetch(
                 "profile",
                 get_or_fetch(
-                    session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days, cache_only
+                    session,
+                    ticker,
+                    "profile",
+                    "latest",
+                    lambda: fmp_client.get_profile(ticker),
+                    settings.profile_staleness_days,
+                    cache_only,
                 ),
             )
         )
@@ -149,12 +166,8 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
 
         dpu_note = None
         if is_reit:
-            # most_recent_earnings_date is only resolved here, inside the
-            # REIT branch -- computing it unconditionally at function top
-            # would cost every non-REIT ticker (~470 of 503) an unused
-            # /earnings fetch/cache-read for a value nothing else in this
-            # function needs.
-            most_recent_earnings_date = await resolve_most_recent_earnings_date(session, ticker, staleness_days, cache_only)
+            # most_recent_earnings_date already resolved above -- shared
+            # with analyst_estimates' own gating, not re-fetched here.
             # Only fetched for REITs -- same cache key ("ratios"/"annual_10y")
             # step3_data.py already populates for the Valuation P/B lookback,
             # so this is a cache hit whenever that tab's been viewed, and one

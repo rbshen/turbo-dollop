@@ -134,7 +134,13 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
                 await safe_fetch(
                     "profile",
                     get_or_fetch(
-                        session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days, cache_only
+                        session,
+                        ticker,
+                        "profile",
+                        "latest",
+                        lambda: fmp_client.get_profile(ticker),
+                        settings.profile_staleness_days,
+                        cache_only,
                     ),
                 )
             )
@@ -160,7 +166,13 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
             # blank anyway.
             try:
                 profile_raw = await get_or_fetch(
-                    session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days, cache_only
+                    session,
+                    ticker,
+                    "profile",
+                    "latest",
+                    lambda: fmp_client.get_profile(ticker),
+                    settings.profile_staleness_days,
+                    cache_only,
                 )
             except httpx.HTTPError as exc:
                 logger.warning("FMP fetch failed for profile: %s", exc)
@@ -223,14 +235,6 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
                 )
             )
         )
-        ratios = _first(
-            await safe_fetch(
-                "ratios",
-                get_or_fetch(
-                    session, ticker, "ratios", "latest", lambda: fmp_client.get_ratios(ticker), staleness_days, cache_only
-                ),
-            )
-        )
         earnings_data = await safe_fetch(
             "earnings",
             get_or_fetch(
@@ -239,8 +243,27 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         )
         # Reduced from the same /earnings fetch above, not a second fetch --
         # get_summary already needs this data for next_earnings_date below.
+        # Moved ahead of `ratios`/`enterprise_values` (2026-08-16) so both
+        # can use it too -- both are computed from/snapshot the latest
+        # reported financials, the same earnings-tied update cadence as the
+        # 8 statement types 4498c33 already switched.
         most_recent_earnings_date = most_recent_reported_earnings_date(
             earnings_data if isinstance(earnings_data, list) else []
+        )
+        ratios = _first(
+            await safe_fetch(
+                "ratios",
+                get_or_fetch_earnings_aware(
+                    session,
+                    ticker,
+                    "ratios",
+                    "latest",
+                    lambda: fmp_client.get_ratios(ticker),
+                    staleness_days,
+                    most_recent_earnings_date,
+                    cache_only,
+                ),
+            )
         )
         # Same cache key Step 4/Step 5/the Financials tab also populate
         # ("balance_sheet_statement"/"quarterly") -- limit is
@@ -281,13 +304,14 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         )
         enterprise_values_data = await safe_fetch(
             "enterprise_values",
-            get_or_fetch(
+            get_or_fetch_earnings_aware(
                 session,
                 ticker,
                 "enterprise_values",
                 "quarter",
                 lambda: fmp_client.get_enterprise_values(ticker, "quarter", 1),
                 staleness_days,
+                most_recent_earnings_date,
                 cache_only,
             ),
         )

@@ -154,7 +154,13 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
             await safe_fetch(
                 "profile",
                 get_or_fetch(
-                    session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days, cache_only
+                    session,
+                    ticker,
+                    "profile",
+                    "latest",
+                    lambda: fmp_client.get_profile(ticker),
+                    settings.profile_staleness_days,
+                    cache_only,
                 ),
             )
         )

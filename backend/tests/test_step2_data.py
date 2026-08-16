@@ -1,12 +1,12 @@
 import asyncio
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import httpx
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
 import data.step2_data as step2_data
-from core.models import GrowthCatalystNote
+from core.models import FundamentalsCache, GrowthCatalystNote
 from data.step2_data import get_step2_data
 
 TODAY = date.today()
@@ -317,3 +317,100 @@ def test_dpu_growth_note_and_basis_note_are_none_for_non_reit(monkeypatch):
 
     assert result.growth_basis_note is None
     assert result.dpu_growth_note is None
+
+
+# --- analyst_estimates earnings-aware staleness (2026-08-16 cron thundering- --
+# --- herd follow-up) -----------------------------------------------------
+
+
+def test_analyst_estimates_not_stale_when_no_new_earnings_since_fetch(monkeypatch):
+    # analyst_estimates used to sit on the flat 7-day window (get_or_fetch)
+    # for every ticker, REIT or not -- same flat-window synchronization
+    # mechanism 4498c33 already fixed for income/balance/cash-flow/etc, just
+    # missed for this one. A row 20 days stale but fetched AFTER the
+    # ticker's last real earnings date must still read as a cache hit.
+    test_engine = _fresh_engine(monkeypatch)
+    rows = [
+        _row(0, revenueAvg=100, revenueLow=90, revenueHigh=110, epsAvg=1.0, epsLow=0.9, epsHigh=1.1),
+        _row(4, revenueAvg=160, revenueLow=140, revenueHigh=180, epsAvg=1.6, epsLow=1.4, epsHigh=1.8),
+    ]
+
+    fetched_at = datetime.now() - timedelta(days=20)
+    last_earnings_date = date.today() - timedelta(days=60)  # well before fetched_at -- no new report since
+    with Session(test_engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="TEST",
+                statement_type="analyst_estimates",
+                period="latest",
+                fetched_at=fetched_at,
+                raw_json='[{"stale": true}]',
+            )
+        )
+        session.commit()
+
+    async def fake_get_analyst_estimates(ticker):
+        raise AssertionError("get_analyst_estimates must not be called -- row is fresh under earnings-aware staleness")
+
+    async def fake_profile(ticker):
+        return [{"sector": "Technology", "industry": "Consumer Electronics"}]
+
+    async def fake_get_earnings(ticker):
+        return [{"date": last_earnings_date.isoformat(), "epsActual": 1.5, "epsEstimated": 1.4}]
+
+    monkeypatch.setattr(step2_data.fmp_client, "get_analyst_estimates", fake_get_analyst_estimates)
+    monkeypatch.setattr(step2_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step2_data.fmp_client, "get_earnings", fake_get_earnings)
+
+    result = asyncio.run(get_step2_data("TEST"))
+
+    # Falls back to insufficient_data since the stale fixture row isn't a
+    # real estimates shape -- the point of this test is that get_analyst_
+    # estimates was never called at all (the AssertionError above), not
+    # what the resulting score looks like.
+    assert result.verdict == "insufficient_data"
+
+
+def test_analyst_estimates_refetches_once_new_earnings_have_actually_passed(monkeypatch):
+    # Companion case: a real new earnings date HAS passed since the row was
+    # fetched -- must genuinely refetch, not just always skip.
+    test_engine = _fresh_engine(monkeypatch)
+    rows = [
+        _row(0, revenueAvg=100, revenueLow=90, revenueHigh=110, epsAvg=1.0, epsLow=0.9, epsHigh=1.1),
+        _row(4, revenueAvg=160, revenueLow=140, revenueHigh=180, epsAvg=1.6, epsLow=1.4, epsHigh=1.8),
+    ]
+
+    fetched_at = datetime.now() - timedelta(days=20)
+    new_earnings_date = date.today() - timedelta(days=5)  # reported AFTER the row was fetched
+    with Session(test_engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="TEST",
+                statement_type="analyst_estimates",
+                period="latest",
+                fetched_at=fetched_at,
+                raw_json='[{"stale": true}]',
+            )
+        )
+        session.commit()
+
+    call_count = {"n": 0}
+
+    async def fake_get_analyst_estimates(ticker):
+        call_count["n"] += 1
+        return rows
+
+    async def fake_profile(ticker):
+        return [{"sector": "Technology", "industry": "Consumer Electronics"}]
+
+    async def fake_get_earnings(ticker):
+        return [{"date": new_earnings_date.isoformat(), "epsActual": 1.5, "epsEstimated": 1.4}]
+
+    monkeypatch.setattr(step2_data.fmp_client, "get_analyst_estimates", fake_get_analyst_estimates)
+    monkeypatch.setattr(step2_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step2_data.fmp_client, "get_earnings", fake_get_earnings)
+
+    result = asyncio.run(get_step2_data("TEST"))
+
+    assert call_count["n"] == 1
+    assert result.basis == "eps"  # confirms the freshly-fetched rows were actually used

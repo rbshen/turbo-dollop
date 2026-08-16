@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     fmp_enabled: bool = True
     database_path: str = "fathom.db"
     cache_staleness_days: int = 7
+    # Company profile (name, sector, industry, description, exchange, beta)
+    # is near-static reference data -- it doesn't change because of an
+    # earnings report the way statement-grain data does (earnings-aware
+    # gating would be the wrong model, not just a longer version of the
+    # same one), and it essentially never changes week to week regardless.
+    # A much longer flat window than cache_staleness_days both cuts real
+    # waste and, as a side effect, stops profile rows fetched around the
+    # same historical date from all coming due together every 7 days
+    # (2026-08-16 cron thundering-herd follow-up -- see CLAUDE.md).
+    profile_staleness_days: int = 30
     # Distinct from cache_staleness_days above: staleness controls when a
     # cached row is refetched from FMP, not when it's deleted. This bounds
     # FundamentalsCache's actual row count, which only grows from tickers

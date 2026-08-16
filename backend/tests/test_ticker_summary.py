@@ -1,13 +1,14 @@
 import asyncio
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import httpx
 import pytest
-from sqlmodel import SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine
 
 import data.step2_data as step2_data
 import data.ticker_summary as ticker_summary
 from core.exceptions import TickerNotFoundError
+from core.models import FundamentalsCache
 from core.schemas import Step3Inputs, Step3Out
 from data.ticker_summary import get_summary
 from helpers.ttm import TOTAL_QUARTERS_NEEDED
@@ -370,6 +371,271 @@ def test_get_summary_suppresses_enterprise_value_team_shaped_magnitude_defect(mo
     # shares_outstanding itself is untouched -- it's computed from
     # quote.marketCap/price, never from the corrupted enterprise_values row.
     assert summary.shares_outstanding == 42_611_027_379 / 162.22
+
+
+def test_get_summary_ratios_and_enterprise_values_are_earnings_aware_not_flat(monkeypatch):
+    # 2026-08-16 cron thundering-herd follow-up: `ratios`/latest and
+    # `enterprise_values` used to sit on the flat 7-day window (get_or_fetch)
+    # -- same 8-in-1 flat-window synchronization mechanism 4498c33 already
+    # fixed for income/balance/cash-flow/etc, just missed for these two.
+    # Pre-seed both rows 20 days stale (past the flat window) but AFTER the
+    # ticker's last real reported earnings date -- under earnings-aware
+    # gating this must still read as a cache hit; fake_ratios/
+    # fake_enterprise_values raising proves get_ratios/get_enterprise_values
+    # were never called.
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(ticker_summary, "engine", test_engine)
+    monkeypatch.setattr(step2_data, "engine", test_engine)
+
+    fetched_at = datetime.now() - timedelta(days=20)
+    last_earnings_date = date.today() - timedelta(days=60)  # well before fetched_at -- no new report since
+    with Session(test_engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="ratios",
+                period="latest",
+                fetched_at=fetched_at,
+                raw_json='[{"priceToEarningsRatio": 25.0}]',
+            )
+        )
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="enterprise_values",
+                period="quarter",
+                fetched_at=fetched_at,
+                raw_json='[{"date": "2026-03-28", "enterpriseValue": 1000000000}]',
+            )
+        )
+        session.commit()
+
+    stale_earnings = [{"date": last_earnings_date.isoformat(), "epsActual": 1.5, "epsEstimated": 1.4}]
+
+    async def fake_profile(ticker):
+        return FAKE_PROFILE
+
+    async def fake_quote(ticker):
+        return FAKE_QUOTE
+
+    async def fake_price_change(ticker):
+        return FAKE_PRICE_CHANGE
+
+    async def fake_ratios(ticker):
+        raise AssertionError("get_ratios must not be called -- row is fresh under earnings-aware staleness")
+
+    async def fake_estimates(ticker):
+        return FAKE_ESTIMATES
+
+    async def fake_earnings(ticker):
+        return stale_earnings
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return FAKE_BALANCE_SHEET_QUARTERLY
+
+    async def fake_income_statement(ticker, period, limit):
+        return FAKE_INCOME_QUARTERLY
+
+    async def fake_enterprise_values(ticker, period, limit):
+        raise AssertionError("get_enterprise_values must not be called -- row is fresh under earnings-aware staleness")
+
+    async def fake_ratios_ttm(ticker):
+        return FAKE_RATIOS_TTM
+
+    async def fake_historical_price_eod(ticker, from_date, to_date):
+        return FAKE_DAILY_PRICES
+
+    async def fake_financial_growth(ticker, period, limit):
+        return FAKE_FINANCIAL_GROWTH
+
+    async def fake_get_active_valuation(ticker, cache_only=False, step2_out=None):
+        return FAKE_STEP3_OUT
+
+    monkeypatch.setattr(ticker_summary, "get_active_valuation", fake_get_active_valuation)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_quote", fake_quote)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_price_change", fake_price_change)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios", fake_ratios)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_analyst_estimates", fake_estimates)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_earnings", fake_earnings)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_enterprise_values", fake_enterprise_values)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios_ttm", fake_ratios_ttm)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_historical_price_eod", fake_historical_price_eod)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_financial_growth", fake_financial_growth)
+
+    summary = asyncio.run(get_summary("aapl"))
+
+    # The stale-but-not-earnings-stale cached values, not a fresh fetch.
+    assert summary.pe_ratio == 25.0
+    assert summary.enterprise_value == 1000000000
+
+
+def test_get_summary_ratios_refetches_once_new_earnings_have_actually_passed(monkeypatch):
+    # Companion case: a real new earnings date HAS passed since the row was
+    # fetched -- must genuinely refetch, not just always skip.
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(ticker_summary, "engine", test_engine)
+    monkeypatch.setattr(step2_data, "engine", test_engine)
+
+    fetched_at = datetime.now() - timedelta(days=20)
+    new_earnings_date = date.today() - timedelta(days=5)  # reported AFTER the row was fetched
+    with Session(test_engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="ratios",
+                period="latest",
+                fetched_at=fetched_at,
+                raw_json='[{"priceToEarningsRatio": 25.0}]',
+            )
+        )
+        session.commit()
+
+    fresh_earnings = [{"date": new_earnings_date.isoformat(), "epsActual": 1.5, "epsEstimated": 1.4}]
+    call_count = {"ratios": 0}
+
+    async def fake_profile(ticker):
+        return FAKE_PROFILE
+
+    async def fake_quote(ticker):
+        return FAKE_QUOTE
+
+    async def fake_price_change(ticker):
+        return FAKE_PRICE_CHANGE
+
+    async def fake_ratios(ticker):
+        call_count["ratios"] += 1
+        return FAKE_RATIOS
+
+    async def fake_estimates(ticker):
+        return FAKE_ESTIMATES
+
+    async def fake_earnings(ticker):
+        return fresh_earnings
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return FAKE_BALANCE_SHEET_QUARTERLY
+
+    async def fake_income_statement(ticker, period, limit):
+        return FAKE_INCOME_QUARTERLY
+
+    async def fake_enterprise_values(ticker, period, limit):
+        return FAKE_ENTERPRISE_VALUES
+
+    async def fake_ratios_ttm(ticker):
+        return FAKE_RATIOS_TTM
+
+    async def fake_historical_price_eod(ticker, from_date, to_date):
+        return FAKE_DAILY_PRICES
+
+    async def fake_financial_growth(ticker, period, limit):
+        return FAKE_FINANCIAL_GROWTH
+
+    async def fake_get_active_valuation(ticker, cache_only=False, step2_out=None):
+        return FAKE_STEP3_OUT
+
+    monkeypatch.setattr(ticker_summary, "get_active_valuation", fake_get_active_valuation)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_quote", fake_quote)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_price_change", fake_price_change)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios", fake_ratios)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_analyst_estimates", fake_estimates)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_earnings", fake_earnings)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_enterprise_values", fake_enterprise_values)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios_ttm", fake_ratios_ttm)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_historical_price_eod", fake_historical_price_eod)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_financial_growth", fake_financial_growth)
+
+    summary = asyncio.run(get_summary("aapl"))
+
+    assert summary.pe_ratio == 30.1  # FAKE_RATIOS's value, confirms the refetch actually happened
+    assert call_count["ratios"] == 1
+
+
+def test_get_summary_profile_survives_past_flat_window_under_longer_staleness(monkeypatch):
+    # profile now uses settings.profile_staleness_days (30 by default), not
+    # the shared 7-day cache_staleness_days -- a row 20 days stale (past the
+    # old flat window, within the new one) must still read as a cache hit.
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(ticker_summary, "engine", test_engine)
+    monkeypatch.setattr(step2_data, "engine", test_engine)
+
+    fetched_at = datetime.now() - timedelta(days=20)
+    with Session(test_engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="profile",
+                period="latest",
+                fetched_at=fetched_at,
+                raw_json='[{"companyName": "Apple Inc.", "sector": "Technology", "mktCap": 1}]',
+            )
+        )
+        session.commit()
+
+    async def fake_profile(ticker):
+        raise AssertionError("get_profile must not be called -- row is fresh under the longer profile window")
+
+    async def fake_quote(ticker):
+        return FAKE_QUOTE
+
+    async def fake_price_change(ticker):
+        return FAKE_PRICE_CHANGE
+
+    async def fake_ratios(ticker):
+        return FAKE_RATIOS
+
+    async def fake_estimates(ticker):
+        return FAKE_ESTIMATES
+
+    async def fake_earnings(ticker):
+        return FAKE_EARNINGS
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return FAKE_BALANCE_SHEET_QUARTERLY
+
+    async def fake_income_statement(ticker, period, limit):
+        return FAKE_INCOME_QUARTERLY
+
+    async def fake_enterprise_values(ticker, period, limit):
+        return FAKE_ENTERPRISE_VALUES
+
+    async def fake_ratios_ttm(ticker):
+        return FAKE_RATIOS_TTM
+
+    async def fake_historical_price_eod(ticker, from_date, to_date):
+        return FAKE_DAILY_PRICES
+
+    async def fake_financial_growth(ticker, period, limit):
+        return FAKE_FINANCIAL_GROWTH
+
+    async def fake_get_active_valuation(ticker, cache_only=False, step2_out=None):
+        return FAKE_STEP3_OUT
+
+    monkeypatch.setattr(ticker_summary, "get_active_valuation", fake_get_active_valuation)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_quote", fake_quote)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_price_change", fake_price_change)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios", fake_ratios)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_analyst_estimates", fake_estimates)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_earnings", fake_earnings)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_enterprise_values", fake_enterprise_values)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios_ttm", fake_ratios_ttm)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_historical_price_eod", fake_historical_price_eod)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_financial_growth", fake_financial_growth)
+
+    summary = asyncio.run(get_summary("aapl"))
+
+    assert summary.company_name == "Apple Inc."  # the stale cached profile, not a fresh fetch
 
 
 def test_get_summary_raises_ticker_not_found_on_empty_profile(monkeypatch):
