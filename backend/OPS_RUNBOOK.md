@@ -232,3 +232,138 @@ silently stopped updating, for over two weeks, with no alert.
 No automated alerting exists for this yet (out of scope for now) -- this
 is a manual check to run if a ticker's index membership looks stale or
 wrong in the app.
+
+## Known gaps / outstanding items (audited 2026-08-16)
+
+This section supersedes an earlier, uncommitted draft of the same content
+(dated 2026-08-15) that sat in the working tree for about a day before
+being reconciled into this version -- every item below has been
+re-verified against the current repo/commit history as of 2026-08-16, not
+carried forward blindly. If `git log`/`git blame` for this file doesn't
+match a differently-worded "Known gaps" section a reader remembers seeing,
+that draft is why; it was never committed.
+
+**Closed, already done -- do not re-investigate:**
+
+- **`shares_outstanding` data-quality issues (TEAM, FLY, PARA).** Two
+  distinct FMP defects, both fixed, plus one non-defect:
+  - TEAM Defect A -- FMP's freshly-filed-quarter units bug
+    (`weightedAverageShsOut(Dil)` reads ~1000x too small on the latest
+    quarter; confirmed on both TEAM and FLY). `37b5177` adds a
+    magnitude-sanity guard (`helpers/shares.py::is_implausible_magnitude_
+    shift`) that suppresses display rather than guessing a correction --
+    `compute_shares_outstanding` itself already preferred
+    `quote.marketCap/price` and was never affected.
+  - TEAM Defect B -- a just-closed fiscal year's Q4 quarterly row served
+    as a byte-identical duplicate of the annual total, silently
+    double-counted into TTM (confirmed: TEAM's Q4 FY2026 revenue/CFO/FCF/
+    net income). `628a6e2` adds `ttm.py::is_quarter_content_duplicate_of_
+    annual` and substitutes the true isolated quarter before summing.
+  - **PARA -- not a data defect at all.** FMP's `PARA` symbol was
+    reassigned away from Paramount to an unrelated company (the prior
+    draft's own working theory: a post-Skydance-merger delisting).
+    Confirmed live in `fathom.db`: `PARA`'s cached profile now reads
+    `"companyName": "Banzai International, Inc. Class A"` (NASDAQ,
+    "Software - Application"), and its `TickerScore` was recomputed
+    2026-08-16 (31/Fail) off Banzai's real fundamentals, not stale
+    Paramount data. Cache was purged and re-fetched under the correct
+    company as a data operation -- no commit, nothing to grep for.
+- **Cron thundering-herd, full scope.** `4498c33`'s original fix covered 8
+  statement-grain endpoints only, leaving the rest of
+  `nightly_fundamentals_fetch.py` on flat 7-day staleness. `e73b9b9`
+  extended earnings-date-aware refetching to `ratios`/latest,
+  `analyst_estimates`, and `enterprise_values`, and moved `profile` to a
+  30-day flat window instead (non-earnings-driven, near-static reference
+  data -- earnings-aware gating would be the wrong model there, not just a
+  longer version of the same one). `fbc6f8d` stopped force-fetching
+  `quote` in the nightly batch job specifically (`live_quote=False`),
+  falling back to normal staleness gating there instead. Verified via a
+  real-data replay (zero live FMP calls spent): the 4 newly-gated
+  endpoints drop from 569 guaranteed same-night fires each to 0-27; `quote`
+  drops from 568/night guaranteed to ~81/night average.
+- **SEC EDGAR cross-check firing during the nightly bulk sweep.**
+  `get_step5_data`'s on-demand cross-check was gated on `cache_only`
+  alone, which the nightly job never sets (it needs live data for
+  everything else that function fetches) -- confirmed 134 real
+  `sec_company_facts` calls fired from the nightly sweep in a single night
+  (2026-08-14), against the function's own "never in bulk" invariant.
+  `2461d7e` adds a separate `allow_sec_cross_check` flag, defaulting to
+  `True` (on-demand single-ticker views unaffected) with the nightly job
+  passing `False`.
+- **On-demand SEC lookup for zero-value Financials cells -- 2 fields
+  only.** `e6cb0c5` implements this for exactly `incomeTaxesPaid`/
+  `interestPaid`, the two fields `FinancialsStatementTable.tsx`'s own
+  `INCOMPLETE_COVERAGE_LABELS` already flags as having a confirmed FMP
+  gap -- XBRL tags verified live against MSFT's real SEC EDGAR filings
+  (`IncomeTaxesPaidNet` $28.7B, `InterestPaid` $1.6B for FY2025, both read
+  as a literal 0 in FMP's own cache). **Narrower than an earlier draft of
+  this section implied**: a generic "any cell" mechanism was investigated
+  and explicitly not built, since the XBRL tag-and-fallback research
+  doesn't generalize to arbitrary fields without the same kind of
+  per-field live-filing work -- see "Still genuinely open" below.
+- **`TickerSearch.tsx` ESLint error** (`react-hooks/set-state-in-effect`,
+  `setHighlighted(-1)` called synchronously inside a `useEffect`) --
+  fixed by `a7bf121`.
+- **Watchlist 100-cap undocumented** -- `0967210` added it to CLAUDE.md.
+- Carried forward unchanged from the prior draft (not independently
+  re-verified this pass -- see that draft's own evidence, now superseded
+  as a document but not contradicted):
+  - **Bank/Insurance/REIT Valuation-tab correctness** -- `949651e`: Bank/
+    REIT forced onto Price-to-Book, Insurance skips CFO-based methods
+    entirely. Covered by dedicated tests in `scoring/test_step3.py` and
+    `tests/test_step3_data.py`, documented in `docs/valuation.md` /
+    `docs/company-type-variations.md`.
+  - **Step3/Valuation test coverage** -- 55 tests across
+    `scoring/test_step3.py` (36) and `tests/test_step3_data.py` (19), all
+    passing. A narrow subset (`run_price_to_book`'s 10yr lookback branch,
+    `normalize_fcf` edge cases in isolation, data-layer/pipeline tests)
+    was explicitly deferred in `3d647ee`'s own commit message and remains
+    the only real gap, not the whole step.
+  - **Financials tables -> shadcn Table migration** -- fully done, zero
+    raw `<table>` elements outside `components/ui/table.tsx` itself.
+  - **Score-explanation feature** -- already shared cross-step via
+    `components/shared/AnalysisSectionCard.tsx` (Step1, Step2, Step4,
+    Step5 alike), not Financials-only.
+  - **`cache_staleness_days` dead-code suspicion** -- false alarm, 15 live
+    call sites across `data/`.
+
+**Still genuinely open:**
+
+- **NCI/dual-class DNI-valuation-method bug.** Flagged in a prior
+  investigation: Discounted Net Income as a Valuation method mishandles
+  companies with a non-controlling/minority interest or a dual (multi-
+  class) share structure. Reported against IBKR, BX, ARES, and SYM --
+  IBKR/BX/ARES were reviewed and closed with no code change, per an
+  explicit decision that the effect wasn't material enough to act on for
+  those three. **SYM (Symbotic) remains the one live-risk candidate** if
+  this fix family gets picked up later. A proposed fix design exists but
+  was never implemented -- confirmed via grep that `scoring/step3.py` /
+  `data/step3_data.py` have no minority-interest or dual-class handling
+  of any kind today.
+- **Generic/any-cell on-demand SEC lookup.** Deliberately not built -- see
+  the closed item above. Only `incomeTaxesPaid`/`interestPaid` have a
+  lookup path; any other zero/blank Financials or Ratios cell has none.
+- **Ticker-symbol-reassignment, as a general structural gap.** The
+  PARA/Banzai situation (above) was caught and fixed as a one-off, but
+  nothing in the codebase detects this class of issue generally -- a
+  delisted/merged/recycled ticker symbol silently getting reassigned to
+  an unrelated company by the data provider will recur for other tickers
+  with no automated signal to catch it, unlike (a different class of
+  data-integrity issue) `audit_fixture_contamination`'s weekly sweep --
+  see that script's own section above.
+
+**New since the last audit:**
+
+- **Speculative Growth Summary-tab pill: built, then reverted.** Added in
+  `c8b1b1b`, reverted in `401e786` -- judged redundant with the pill
+  already shown in the shared, sticky `TickerHeader` (visible on every
+  tab, Summary included). Not a bug or a regression, a deliberate
+  "not needed" call.
+
+Doc-drift sweep (CLAUDE.md, this file, `docs/*.md`) as of the 2026-08-15
+draft found no other discrepancies: no lingering Alpha Vantage/
+News-Sentiment references, `STEP_WEIGHTS`/`MOAT_WEIGHT` match byte-for-byte
+between `backend/scoring/overall.py` and `frontend/lib/overallScore.ts`,
+and the `FMP_ENABLED` pause mechanism (kill switch, cache gating, 503 on
+refresh, site-wide banner) is all in place as CLAUDE.md describes -- not
+re-run for this pass, carried forward as still current.
