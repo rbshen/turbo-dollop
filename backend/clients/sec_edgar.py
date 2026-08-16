@@ -38,6 +38,26 @@ CFO_CANDIDATE_TAGS = [
 DISCRETE_QUARTER_MIN_DAYS = 60
 DISCRETE_QUARTER_MAX_DAYS = 100
 
+# Full fiscal year -- same widening logic as the quarter window above, just
+# scaled to ~12 months instead of ~3.
+ANNUAL_DURATION_MIN_DAYS = 330
+ANNUAL_DURATION_MAX_DAYS = 380
+
+# Phase 3a (2026-08-16): supplemental cash-flow-statement disclosures,
+# confirmed to have a genuine FMP data gap (see CLAUDE.md /
+# FinancialsStatementTable.tsx's INCOMPLETE_COVERAGE_LABELS -- FMP reads a
+# literal 0 for every period for a meaningful slice of tickers, e.g. MSFT).
+# Tags confirmed live against MSFT's real SEC company-facts data (not
+# guessed): IncomeTaxesPaidNet is used for FY2025/FY2026 ($28.7B/$21.19B),
+# InterestPaid for the same years ($1.6B/$1.5B) -- both read as 0 in FMP's
+# cache for every cached period. The non-"Net" IncomeTaxesPaid and the
+# "Net" InterestPaidNet variants are kept as fallbacks for filers who tag
+# differently, mirroring INTEREST_EXPENSE_CANDIDATE_TAGS's own multi-tag
+# convention -- not verified against a second filer the way that list was,
+# since only these two fields were in scope for this pass.
+INCOME_TAXES_PAID_CANDIDATE_TAGS = ["IncomeTaxesPaidNet", "IncomeTaxesPaid"]
+INTEREST_PAID_CANDIDATE_TAGS = ["InterestPaid", "InterestPaidNet"]
+
 # FMP-vs-SEC relative tolerance for "this confirms FMP's figure" -- wider
 # than a strict equality check to absorb minor rounding/period-alignment
 # noise, tight enough that anything resembling PEP's real ~10x error is
@@ -138,6 +158,35 @@ def find_discrete_income_statement_value(
     return None
 
 
+def find_annual_value(facts: dict, tag_candidates: list[str], target_end: date) -> tuple[float, str] | None:
+    """Full-fiscal-year supplemental cash-flow disclosures (Income Taxes
+    Paid, Interest Paid): FMP's own annual cash-flow-statement figure for a
+    fiscal year IS the YTD-cumulative XBRL fact as of that fiscal year's own
+    end date -- unlike CFO's discrete-quarter reconciliation
+    (find_discrete_cfo_value), no subtraction is needed here, just a direct
+    end-date + full-year-duration match. Confirmed live against MSFT: FY2025
+    (2024-07-01..2025-06-30) IncomeTaxesPaidNet=$28.7B, InterestPaid=$1.6B --
+    both real, non-zero, and currently misread as a literal 0 in FMP's own
+    cached data for every period (see INCOME_TAXES_PAID_CANDIDATE_TAGS)."""
+    gaap = facts.get("facts", {}).get("us-gaap", {})
+    target_end_str = target_end.isoformat()
+    for tag in tag_candidates:
+        concept = gaap.get(tag)
+        if not concept:
+            continue
+        candidates = [
+            row
+            for row in concept.get("units", {}).get("USD", [])
+            if row.get("end") == target_end_str
+            and ANNUAL_DURATION_MIN_DAYS <= _duration_days(row) <= ANNUAL_DURATION_MAX_DAYS
+        ]
+        if not candidates:
+            continue
+        best = max(candidates, key=lambda r: r.get("filed", ""))  # most-recently-filed, in case of a later restatement
+        return best["val"], tag
+    return None
+
+
 def find_discrete_cfo_value(facts: dict, tag_candidates: list[str], target_end: date) -> tuple[float, str] | None:
     """CFO: cash-flow-statement concepts are only ever tagged YTD-cumulative
     (confirmed live for PEP -- no discrete-quarter duration exists beyond
@@ -229,4 +278,27 @@ async def cross_check_cfo(
 ) -> CrossCheckResult:
     return await _cross_check(
         session, ticker, target_end, fmp_value, staleness_days, CFO_CANDIDATE_TAGS, find_discrete_cfo_value, "CFO"
+    )
+
+
+async def cross_check_income_taxes_paid(
+    session: Session, ticker: str, target_end: date, fmp_value: float, staleness_days: int
+) -> CrossCheckResult:
+    return await _cross_check(
+        session,
+        ticker,
+        target_end,
+        fmp_value,
+        staleness_days,
+        INCOME_TAXES_PAID_CANDIDATE_TAGS,
+        find_annual_value,
+        "Income Taxes Paid",
+    )
+
+
+async def cross_check_interest_paid(
+    session: Session, ticker: str, target_end: date, fmp_value: float, staleness_days: int
+) -> CrossCheckResult:
+    return await _cross_check(
+        session, ticker, target_end, fmp_value, staleness_days, INTEREST_PAID_CANDIDATE_TAGS, find_annual_value, "Interest Paid"
     )

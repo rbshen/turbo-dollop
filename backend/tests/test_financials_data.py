@@ -2,12 +2,14 @@ import asyncio
 
 from sqlmodel import SQLModel, create_engine
 
+import clients.sec_edgar as sec_edgar
 import data.financials_data as financials_data
 from data.financials_data import (
     ANNUAL_WINDOW,
     BALANCE_SHEET_GROUPS,
     CASH_FLOW_GROUPS,
     INCOME_STATEMENT_FIELDS,
+    get_cash_flow_cell_sec_check,
     get_financials_data,
 )
 from helpers.ttm import TOTAL_QUARTERS_NEEDED
@@ -508,3 +510,104 @@ def test_reported_currency_none_for_usd_reporter(monkeypatch):
     result = asyncio.run(get_financials_data("aapl"))
 
     assert result.reported_currency is None
+
+
+# --- get_cash_flow_cell_sec_check (Phase 3a on-demand SEC lookup) ----------
+
+
+def test_get_cash_flow_cell_sec_check_success_wires_correct_period_and_value(monkeypatch):
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(financials_data, "engine", test_engine)
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return FAKE_CASH_FLOW_QUARTERLY if period == "quarter" else FAKE_CASH_FLOW_ANNUAL
+
+    monkeypatch.setattr(financials_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+    received = {}
+
+    async def fake_cross_check_income_taxes_paid(session, ticker, target_end, fmp_value, staleness_days):
+        received["ticker"] = ticker
+        received["target_end"] = target_end
+        received["fmp_value"] = fmp_value
+        return sec_edgar.CrossCheckResult(True, 28_700_000_000.0, "IncomeTaxesPaidNet", False, "FMP's figure appears to be a data error -- SEC EDGAR's filed value differs significantly.")
+
+    monkeypatch.setattr(sec_edgar, "cross_check_income_taxes_paid", fake_cross_check_income_taxes_paid)
+
+    result = asyncio.run(get_cash_flow_cell_sec_check("aapl", "incomeTaxesPaid", "2025-12-31"))
+
+    assert received["ticker"] == "AAPL"
+    assert received["target_end"].isoformat() == "2025-12-31"
+    # FAKE_CASH_FLOW_ANNUAL's row has no incomeTaxesPaid key at all -- must
+    # resolve to 0.0, matching FMP's own real-world behavior of reading a
+    # literal 0 for this gap rather than a missing key.
+    assert received["fmp_value"] == 0.0
+    assert result.available is True
+    assert result.sec_value == 28_700_000_000.0
+    assert result.matches_fmp is False
+
+
+def test_get_cash_flow_cell_sec_check_no_matching_period_never_calls_sec_edgar(monkeypatch):
+    # No cached annual row has this date -- must degrade to an explicit
+    # "unavailable" result without ever reaching SEC EDGAR (nothing to
+    # cross-check a nonexistent period against).
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(financials_data, "engine", test_engine)
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return FAKE_CASH_FLOW_QUARTERLY if period == "quarter" else FAKE_CASH_FLOW_ANNUAL
+
+    monkeypatch.setattr(financials_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+    calls = []
+
+    async def fail_if_called(*args, **kwargs):
+        calls.append(args)
+        raise AssertionError("must not reach SEC EDGAR for a period with no matching cached row")
+
+    monkeypatch.setattr(sec_edgar, "cross_check_income_taxes_paid", fail_if_called)
+
+    result = asyncio.run(get_cash_flow_cell_sec_check("aapl", "incomeTaxesPaid", "1999-01-01"))
+
+    assert result.available is False
+    assert "No cached annual filing found" in result.note
+    assert calls == []
+
+
+def test_get_cash_flow_cell_sec_check_rejects_unsupported_field_without_any_network_call(monkeypatch):
+    # Rate-limit-safety guard: this is a deliberately narrow, two-field-only
+    # feature (see SEC_CELL_CHECK_FIELDS's own docstring) -- an arbitrary
+    # field name must be rejected outright, before any FMP or SEC EDGAR call
+    # is even attempted, not silently fall through to a generic lookup.
+    calls = []
+
+    async def fail_if_called(*args, **kwargs):
+        calls.append(args)
+        raise AssertionError("must not attempt any cross-check for an unsupported field")
+
+    monkeypatch.setattr(sec_edgar, "cross_check_income_taxes_paid", fail_if_called)
+    monkeypatch.setattr(sec_edgar, "cross_check_interest_paid", fail_if_called)
+    monkeypatch.setattr(financials_data.fmp_client, "get_cash_flow_statement", fail_if_called)
+
+    try:
+        asyncio.run(get_cash_flow_cell_sec_check("aapl", "netIncome", "2025-12-31"))
+        raised = False
+    except ValueError as exc:
+        raised = True
+        assert "Unsupported field" in str(exc)
+
+    assert raised is True
+    assert calls == []
+
+
+def test_get_cash_flow_cell_sec_check_rejects_malformed_period_end(monkeypatch):
+    try:
+        asyncio.run(get_cash_flow_cell_sec_check("aapl", "incomeTaxesPaid", "not-a-date"))
+        raised = False
+    except ValueError as exc:
+        raised = True
+        assert "period_end must be an ISO date" in str(exc)
+
+    assert raised is True

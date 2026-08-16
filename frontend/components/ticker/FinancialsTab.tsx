@@ -88,7 +88,7 @@ export function FinancialsTab({ ticker }: Props) {
         )}
       </p>
 
-      <FinancialsStatementTable data={statementData[period]} />
+      <FinancialsStatementTable ticker={ticker} periodType={period} data={statementData[period]} />
     </div>
   );
 }

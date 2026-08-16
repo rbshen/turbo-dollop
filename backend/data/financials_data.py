@@ -1,5 +1,8 @@
+from datetime import date as date_cls
+
 from sqlmodel import Session
 
+import clients.sec_edgar as sec_edgar
 from core.cache import get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
 from core.db import engine
@@ -191,6 +194,85 @@ CASH_FLOW_GROUPS: list[tuple[str | None, list[FieldSpec]]] = [
         ],
     ),
 ]
+
+
+# Phase 3a (2026-08-16): on-demand SEC EDGAR cross-check, scoped to exactly
+# these two fields -- confirmed by investigation to be the only ones with a
+# real FMP data gap (see FinancialsStatementTable.tsx's
+# INCOMPLETE_COVERAGE_LABELS, same two labels). Deliberately not a generic
+# "any cell" lookup -- the candidate-XBRL-tag-and-fallback logic doesn't
+# generalize to arbitrary fields without the same kind of live-filing
+# research that produced these two (see sec_edgar.py).
+#
+# Field names, not bound function references: get_cash_flow_cell_sec_check
+# below looks up sec_edgar.cross_check_* by attribute name at call time, not
+# through a dict of pre-bound functions -- the latter would capture
+# sec_edgar's cross-check functions at import time, permanently pinned past
+# a test's monkeypatch of the live sec_edgar module attribute.
+SEC_CELL_CHECK_FIELDS = {
+    "incomeTaxesPaid": "cross_check_income_taxes_paid",
+    "interestPaid": "cross_check_interest_paid",
+}
+
+
+async def get_cash_flow_cell_sec_check(ticker: str, field: str, period_end: str) -> sec_edgar.CrossCheckResult:
+    """On-demand only: single ticker, single field, single annual period,
+    triggered by an explicit user click on a zero/blank Income Taxes Paid or
+    Interest Paid cell in the Financials tab's *annual* Cash Flow table --
+    never called from any batch/bulk context (Screener, Watchlist, nightly
+    jobs all reach get_financials_data, never this function; grep confirms
+    the only caller is core/main.py's dedicated endpoint). This is the same
+    on-demand-only discipline Step 5's own SEC cross-check enforces (see
+    step5_data.py / CLAUDE.md's 2026-08-16 nightly-sweep fix) -- SEC's
+    rate-limit penalty for exceeding ~10 req/sec is a 10-minute IP lockout.
+
+    Quarterly/TTM cells are out of scope: TTM's cash-flow figure here is a
+    derived sum of 4 quarters (_ttm_row_summed), not a single filed value,
+    so there's no single SEC fact to cross-check it against; the quarterly
+    table's own period labels ("Q2 2026") don't carry a raw end date at all
+    today. Only the annual table's periods double as real ISO dates, so
+    period_end must match one of cash_flow_annual's own `date` values
+    exactly -- no match returns an explicit "unavailable" result rather
+    than guessing the nearest period.
+
+    Raises ValueError for an unsupported field or a malformed period_end --
+    both are caller/input errors the API layer turns into a 400, not a
+    condition worth a CrossCheckResult's own "unavailable" shape."""
+    ticker = normalize_ticker(ticker)
+    cross_check_fn_name = SEC_CELL_CHECK_FIELDS.get(field)
+    if cross_check_fn_name is None:
+        raise ValueError(f"Unsupported field {field!r} -- only {sorted(SEC_CELL_CHECK_FIELDS)} are supported.")
+    cross_check_fn = getattr(sec_edgar, cross_check_fn_name)
+    try:
+        target_end = date_cls.fromisoformat(period_end)
+    except ValueError as exc:
+        raise ValueError("period_end must be an ISO date (YYYY-MM-DD).") from exc
+
+    staleness_days = settings.cache_staleness_days
+    with Session(engine) as session:
+        most_recent_earnings_date = await resolve_most_recent_earnings_date(session, ticker, staleness_days, False)
+        cash_flow_annual = await safe_fetch(
+            "cash_flow_statement_annual",
+            get_or_fetch_earnings_aware(
+                session,
+                ticker,
+                "cash_flow_statement",
+                "annual",
+                lambda: fmp_client.get_cash_flow_statement(ticker, "annual", ANNUAL_WINDOW),
+                staleness_days,
+                most_recent_earnings_date,
+                False,
+            ),
+        )
+        cash_flow_annual = cash_flow_annual if isinstance(cash_flow_annual, list) else []
+        row = next((r for r in cash_flow_annual if r.get("date") == period_end), None)
+        if row is None:
+            return sec_edgar.CrossCheckResult(
+                False, None, None, None, f"No cached annual filing found for {ticker} as of {period_end}."
+            )
+
+        fmp_value = row.get(field) or 0.0
+        return await cross_check_fn(session, ticker, target_end, fmp_value, staleness_days)
 
 
 def _trim_and_pad(rows: list[dict], count: int) -> list[dict]:

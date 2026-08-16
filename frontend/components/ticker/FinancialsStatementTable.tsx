@@ -3,11 +3,19 @@
 import { CaretDown, Info } from "@phosphor-icons/react";
 import { Fragment, useState } from "react";
 
+import { SecCellCheckButton, type SecCellCheckField } from "@/components/ticker/SecCellCheckButton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { FinancialsPeriodOut } from "@/lib/api/types";
 import { fmtNumber, fmtTableNumber } from "@/lib/format";
 
 interface Props {
+  ticker: string;
+  // Phase 3a's SEC cell-check trigger only applies to the annual table --
+  // TTM's cash-flow figure is a derived sum of 4 quarters (no single SEC
+  // fact to check it against), and the quarterly table's own period labels
+  // ("Q2 2026") aren't real dates the backend can look up. See
+  // SecCellCheckButton and the backend's get_cash_flow_cell_sec_check.
+  periodType: "annual" | "quarterly";
   data: FinancialsPeriodOut;
 }
 
@@ -21,6 +29,20 @@ interface Props {
 const INCOMPLETE_COVERAGE_LABELS = new Set(["Income Taxes Paid", "Interest Paid"]);
 const INCOMPLETE_COVERAGE_NOTE =
   "Data source coverage for this line is incomplete — a $0 here may mean no data was reported, not that the actual amount was zero.";
+
+// Same two rows as INCOMPLETE_COVERAGE_LABELS, mapped to the backend's own
+// field key -- kept as a separate map (not folded into a set-of-tuples)
+// since INCOMPLETE_COVERAGE_LABELS is also used standalone above for the
+// info-icon tooltip, which applies regardless of periodType.
+const CELL_CHECK_FIELDS: Record<string, SecCellCheckField> = {
+  "Income Taxes Paid": "incomeTaxesPaid",
+  "Interest Paid": "interestPaid",
+};
+
+// Annual periods are real ISO fiscal-year-end dates ("2025-06-30"); the TTM
+// column ("TTM (2026-06-30)") and padding rows ("—") are not -- only a
+// plain date can be sent to the backend as period_end.
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function formatValue(value: number | null, unit: string): string {
   if (value == null) return "—";
@@ -37,7 +59,7 @@ function formatValue(value: number | null, unit: string): string {
 // a row's content (e.g. an empty group-header cell) rendered at a different
 // height than its counterpart. One <tr> per line item can't drift out of
 // alignment with itself.
-export function FinancialsStatementTable({ data }: Props) {
+export function FinancialsStatementTable({ ticker, periodType, data }: Props) {
   const columnCount = data.periods.length + 1;
   // Every group starts expanded (matches the pre-collapse behavior) --
   // groups without a label (Income Statement's flat rows) never appear in
@@ -104,16 +126,31 @@ export function FinancialsStatementTable({ data }: Props) {
                         </span>
                       )}
                     </TableCell>
-                    {item.values.map((value, i) => (
-                      <TableCell
-                        key={i}
-                        className={`border-b border-border-subtle py-2 pr-4 text-right font-mono tabular-nums ${
-                          item.emphasis ? "font-medium text-text-primary" : "text-text-secondary"
-                        }`}
-                      >
-                        {formatValue(value, item.unit)}
-                      </TableCell>
-                    ))}
+                    {item.values.map((value, i) => {
+                      const cellCheckField = CELL_CHECK_FIELDS[item.label];
+                      const periodEnd = data.periods[i];
+                      // Only offer the trigger where it's meaningful: the
+                      // annual table, a genuine zero/blank cell, and a
+                      // column whose period is a real date the backend can
+                      // look up (excludes the TTM column and any padding).
+                      const showCellCheck =
+                        cellCheckField != null && periodType === "annual" && !value && ISO_DATE_RE.test(periodEnd);
+                      return (
+                        <TableCell
+                          key={i}
+                          className={`border-b border-border-subtle py-2 pr-4 text-right font-mono tabular-nums ${
+                            item.emphasis ? "font-medium text-text-primary" : "text-text-secondary"
+                          }`}
+                        >
+                          <span className="inline-flex items-center justify-end">
+                            {formatValue(value, item.unit)}
+                            {showCellCheck && (
+                              <SecCellCheckButton ticker={ticker} field={cellCheckField} periodEnd={periodEnd} />
+                            )}
+                          </span>
+                        </TableCell>
+                      );
+                    })}
                   </TableRow>
                 ))}
             </Fragment>

@@ -9,7 +9,10 @@ from sqlmodel import Session, SQLModel, create_engine
 import clients.sec_edgar as sec_edgar
 from clients.sec_edgar import (
     cross_check_cfo,
+    cross_check_income_taxes_paid,
     cross_check_interest_expense,
+    cross_check_interest_paid,
+    find_annual_value,
     find_discrete_cfo_value,
     find_discrete_income_statement_value,
     get_cik,
@@ -23,6 +26,41 @@ OXM_FACTS = json.loads((FIXTURES / "oxm_company_facts_sample.json").read_text())
 # same format FMP actually returns.
 PEP_PROFILE = [{"symbol": "PEP", "cik": "0000077476"}]
 OXM_PROFILE = [{"symbol": "OXM", "cik": "0000075288"}]
+MSFT_PROFILE = [{"symbol": "MSFT", "cik": "0000789019"}]
+
+# Real figures pulled live from SEC EDGAR's own companyfacts API for MSFT
+# during the Phase 3a investigation (2026-08-16) -- FY2025
+# (2024-07-01..2025-06-30) Income Taxes Paid $28.7B, Interest Paid $1.6B,
+# both real and non-zero despite FMP's own cached cash-flow-statement data
+# reading a literal 0 for every period. A duplicate FY2024 entry (also
+# filed later, in the FY2025 10-K's own comparative column) is included to
+# exercise the "most recently filed" tie-break; a Q1 FY2025 discrete-quarter
+# entry with the same tag proves the annual-duration window rejects it.
+MSFT_FACTS = {
+    "cik": 789019,
+    "entityName": "MICROSOFT CORP",
+    "facts": {
+        "us-gaap": {
+            "IncomeTaxesPaidNet": {
+                "units": {
+                    "USD": [
+                        {"start": "2023-07-01", "end": "2024-06-30", "val": 23_400_000_000, "form": "8-K", "filed": "2024-12-03"},
+                        {"start": "2023-07-01", "end": "2024-06-30", "val": 23_400_000_000, "form": "10-K", "filed": "2025-07-30"},
+                        {"start": "2024-07-01", "end": "2024-09-30", "val": 4_100_000_000, "form": "10-Q", "filed": "2024-10-30"},
+                        {"start": "2024-07-01", "end": "2025-06-30", "val": 28_700_000_000, "form": "10-K", "filed": "2025-07-30"},
+                    ]
+                }
+            },
+            "InterestPaid": {
+                "units": {
+                    "USD": [
+                        {"start": "2024-07-01", "end": "2025-06-30", "val": 1_600_000_000, "form": "10-K", "filed": "2025-07-30"},
+                    ]
+                }
+            },
+        }
+    },
+}
 
 
 def _fake_get_profile(profile_by_ticker: dict[str, list[dict]]):
@@ -108,6 +146,38 @@ def test_cfo_subtraction_uses_same_fiscal_year_start_not_just_second_most_recent
 
 def test_cfo_returns_none_when_target_period_not_present():
     result = find_discrete_cfo_value(PEP_FACTS, sec_edgar.CFO_CANDIDATE_TAGS, date(1999, 1, 1))
+    assert result is None
+
+
+# --- find_annual_value (Income Taxes Paid / Interest Paid, Phase 3a) --------
+
+
+def test_finds_full_fiscal_year_value_reproducing_the_known_msft_figure():
+    # The exact case this feature exists for: MSFT's real FY2025 Income
+    # Taxes Paid was $28.7B, not FMP's cached literal 0.
+    value, tag = find_annual_value(MSFT_FACTS, sec_edgar.INCOME_TAXES_PAID_CANDIDATE_TAGS, date(2025, 6, 30))
+    assert value == 28_700_000_000
+    assert tag == "IncomeTaxesPaidNet"
+
+
+def test_annual_value_picks_most_recently_filed_among_duplicate_entries():
+    # FY2024 appears twice (an 8-K filed 2024-12-03, then restated verbatim
+    # in the FY2025 10-K filed 2025-07-30) -- must pick the later filing,
+    # not just the first match in list order.
+    value, tag = find_annual_value(MSFT_FACTS, sec_edgar.INCOME_TAXES_PAID_CANDIDATE_TAGS, date(2024, 6, 30))
+    assert value == 23_400_000_000
+
+
+def test_annual_value_rejects_a_discrete_quarter_entry_with_the_same_tag():
+    # The Q1 FY2025 entry (2024-07-01..2024-09-30, ~92 days) is well outside
+    # the annual duration window and must never be mistaken for the FY
+    # total, even though it shares the same tag.
+    result = find_annual_value(MSFT_FACTS, sec_edgar.INCOME_TAXES_PAID_CANDIDATE_TAGS, date(2024, 9, 30))
+    assert result is None
+
+
+def test_annual_value_returns_none_when_no_candidate_tag_covers_the_target_period():
+    result = find_annual_value(MSFT_FACTS, sec_edgar.INCOME_TAXES_PAID_CANDIDATE_TAGS, date(1999, 1, 1))
     assert result is None
 
 
@@ -269,6 +339,62 @@ def test_cross_check_degrades_gracefully_when_no_matching_tag_or_period(monkeypa
 
     assert result.available is False
     assert "no matching interest expense figure" in result.note
+
+
+def test_cross_check_income_taxes_paid_reports_discrepancy_for_msft(monkeypatch):
+    # The exact case this feature exists for: FMP's cached figure is a
+    # literal 0, SEC EDGAR's real filed figure is $28.7B -- must be flagged
+    # as a data error, not silently confirmed.
+    engine = _fresh_engine(monkeypatch)
+    monkeypatch.setattr(sec_edgar.fmp_client, "get_profile", _fake_get_profile({"MSFT": MSFT_PROFILE}))
+
+    async def fake_company_facts(cik):
+        return MSFT_FACTS
+
+    monkeypatch.setattr(sec_edgar, "_fetch_company_facts", fake_company_facts)
+
+    with Session(engine) as session:
+        result = asyncio.run(cross_check_income_taxes_paid(session, "MSFT", date(2025, 6, 30), 0.0, 7))
+
+    assert result.available is True
+    assert result.sec_value == 28_700_000_000
+    assert result.tag_used == "IncomeTaxesPaidNet"
+    assert result.matches_fmp is False
+    assert "data error" in result.note
+
+
+def test_cross_check_interest_paid_reports_discrepancy_for_msft(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    monkeypatch.setattr(sec_edgar.fmp_client, "get_profile", _fake_get_profile({"MSFT": MSFT_PROFILE}))
+
+    async def fake_company_facts(cik):
+        return MSFT_FACTS
+
+    monkeypatch.setattr(sec_edgar, "_fetch_company_facts", fake_company_facts)
+
+    with Session(engine) as session:
+        result = asyncio.run(cross_check_interest_paid(session, "MSFT", date(2025, 6, 30), 0.0, 7))
+
+    assert result.available is True
+    assert result.sec_value == 1_600_000_000
+    assert result.tag_used == "InterestPaid"
+    assert result.matches_fmp is False
+
+
+def test_cross_check_income_taxes_paid_degrades_gracefully_when_no_matching_period(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    monkeypatch.setattr(sec_edgar.fmp_client, "get_profile", _fake_get_profile({"MSFT": MSFT_PROFILE}))
+
+    async def fake_company_facts(cik):
+        return MSFT_FACTS
+
+    monkeypatch.setattr(sec_edgar, "_fetch_company_facts", fake_company_facts)
+
+    with Session(engine) as session:
+        result = asyncio.run(cross_check_income_taxes_paid(session, "MSFT", date(1999, 1, 1), 0.0, 7))
+
+    assert result.available is False
+    assert "no matching Income Taxes Paid figure" in result.note
 
 
 def test_company_facts_cached_not_refetched_on_second_call(monkeypatch):
