@@ -23,7 +23,7 @@ def _patch_all_steps(monkeypatch, calls, fail_for: set[str] | None = None):
     fail_for = fail_for or set()
 
     def make_step(name):
-        async def fn(ticker):
+        async def fn(ticker, **kwargs):
             calls.append((ticker, name))
             if ticker in fail_for:
                 raise RuntimeError(f"simulated failure fetching {name} for {ticker}")
@@ -170,6 +170,40 @@ def test_ticker_score_is_computed_cache_only_after_each_tickers_fetch(monkeypatc
     # earlier in this same run, so recomputing scores must add zero extra
     # FMP calls.
     assert all(c[2] is True for c in score_calls)
+
+
+def test_refresh_one_ticker_calls_get_summary_with_live_quote_false(monkeypatch, tmp_path):
+    # 2026-08-16 cron thundering-herd follow-up: the nightly job must not
+    # force-fetch quote live for the whole tracked universe every night --
+    # see get_summary's own docstring for why. A regression back to the
+    # default (live_quote=True, or omitting the kwarg entirely) would
+    # silently reintroduce that.
+    _fresh_engine(monkeypatch, tmp_path)
+    live_quote_seen = {}
+
+    async def fake_get_summary(ticker, live_quote=True):
+        live_quote_seen[ticker] = live_quote
+        return None
+
+    async def noop(ticker):
+        return None
+
+    async def fake_compute_ticker_score(ticker, cache_only=False):
+        return None
+
+    monkeypatch.setattr(nightly, "get_step1_data", noop)
+    monkeypatch.setattr(nightly, "get_step2_data", noop)
+    monkeypatch.setattr(nightly, "get_step4_data", noop)
+    monkeypatch.setattr(nightly, "get_step5_data", noop)
+    monkeypatch.setattr(nightly, "get_segmentation_data", noop)
+    monkeypatch.setattr(nightly, "get_summary", fake_get_summary)
+    monkeypatch.setattr(nightly, "compute_ticker_score", fake_compute_ticker_score)
+    monkeypatch.setattr(nightly.fmp_client, "request_count", 0)
+    monkeypatch.setattr(nightly.fmp_client, "min_request_interval", 0.0)
+
+    asyncio.run(nightly.main(tickers=["AAPL"]))
+
+    assert live_quote_seen == {"AAPL": False}
 
 
 def test_pacing_is_configured_before_the_run_starts(monkeypatch, tmp_path):

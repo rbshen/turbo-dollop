@@ -121,10 +121,22 @@ def _resolve_perf_vs_spy(
     return pct, status, insufficient_history
 
 
-async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut:
+async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = True) -> TickerSummaryOut:
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
-    cache.get_or_fetch's own cache_only branch."""
+    cache.get_or_fetch's own cache_only branch.
+
+    `live_quote=False` (used by the nightly job, see
+    pipeline/nightly_fundamentals_fetch.py) skips force-fetching `quote`
+    live and falls back to the normal staleness-gated fetch instead --
+    added 2026-08-16, distinct from cache_only (which still allows other
+    fields to hit FMP). A batch run's own force-fetch of quote provided no
+    lasting freshness benefit: any real ticker-page view force-fetches
+    quote independently regardless of what the nightly job last wrote, so
+    forcing it there was pure waste -- confirmed via FundamentalsCache: quote
+    was being rewritten for essentially the entire ~570-ticker universe
+    every single night, unconditionally, the single largest and most
+    consistent contributor to nightly call volume of any endpoint checked."""
     ticker = normalize_ticker(ticker)
     staleness_days = settings.cache_staleness_days
 
@@ -186,7 +198,9 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
         # key, independent of profile/ratios/etc., so this doesn't force a
         # refetch of anything else bundled into this function. Skipped under
         # cache_only (the Screener recompute path), which must make zero FMP
-        # calls (see recompute_ticker_scores.py).
+        # calls (see recompute_ticker_scores.py), and under live_quote=False
+        # (the nightly job), which still allows other fields to hit FMP but
+        # doesn't need a real-time price for a background batch refresh.
         if cache_only:
             quote = _first(
                 await safe_fetch(
@@ -196,10 +210,19 @@ async def get_summary(ticker: str, cache_only: bool = False) -> TickerSummaryOut
                     ),
                 )
             )
-        else:
+        elif live_quote:
             quote = _first(
                 await safe_fetch(
                     "quote", force_fetch(session, ticker, "quote", "latest", lambda: fmp_client.get_quote(ticker))
+                )
+            )
+        else:
+            quote = _first(
+                await safe_fetch(
+                    "quote",
+                    get_or_fetch(
+                        session, ticker, "quote", "latest", lambda: fmp_client.get_quote(ticker), staleness_days, cache_only
+                    ),
                 )
             )
         price_change = _first(

@@ -638,6 +638,160 @@ def test_get_summary_profile_survives_past_flat_window_under_longer_staleness(mo
     assert summary.company_name == "Apple Inc."  # the stale cached profile, not a fresh fetch
 
 
+def _patch_all_but_quote(monkeypatch, fake_quote):
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_quote", fake_quote)
+
+    async def fake_get_active_valuation(ticker, cache_only=False, step2_out=None):
+        return FAKE_STEP3_OUT
+
+    monkeypatch.setattr(ticker_summary, "get_active_valuation", fake_get_active_valuation)
+
+    async def fake_profile(ticker):
+        return FAKE_PROFILE
+
+    async def fake_price_change(ticker):
+        return FAKE_PRICE_CHANGE
+
+    async def fake_ratios(ticker):
+        return FAKE_RATIOS
+
+    async def fake_estimates(ticker):
+        return FAKE_ESTIMATES
+
+    async def fake_earnings(ticker):
+        return FAKE_EARNINGS
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return FAKE_BALANCE_SHEET_QUARTERLY
+
+    async def fake_income_statement(ticker, period, limit):
+        return FAKE_INCOME_QUARTERLY
+
+    async def fake_enterprise_values(ticker, period, limit):
+        return FAKE_ENTERPRISE_VALUES
+
+    async def fake_ratios_ttm(ticker):
+        return FAKE_RATIOS_TTM
+
+    async def fake_historical_price_eod(ticker, from_date, to_date):
+        return FAKE_DAILY_PRICES
+
+    async def fake_financial_growth(ticker, period, limit):
+        return FAKE_FINANCIAL_GROWTH
+
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_price_change", fake_price_change)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios", fake_ratios)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_analyst_estimates", fake_estimates)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_earnings", fake_earnings)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_enterprise_values", fake_enterprise_values)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios_ttm", fake_ratios_ttm)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_historical_price_eod", fake_historical_price_eod)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_financial_growth", fake_financial_growth)
+
+
+def test_get_summary_live_quote_true_still_force_fetches_default_behavior(monkeypatch):
+    # live_quote's default (True) must be byte-for-byte today's existing
+    # behavior for the real live ticker-page endpoint (core/main.py) --
+    # force-fetches even a perfectly fresh row.
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(ticker_summary, "engine", test_engine)
+    monkeypatch.setattr(step2_data, "engine", test_engine)
+
+    with Session(test_engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="quote",
+                period="latest",
+                fetched_at=datetime.now(),  # perfectly fresh
+                raw_json='[{"price": 1.0, "marketCap": 1}]',
+            )
+        )
+        session.commit()
+
+    call_count = {"n": 0}
+
+    async def fake_quote(ticker):
+        call_count["n"] += 1
+        return FAKE_QUOTE
+
+    _patch_all_but_quote(monkeypatch, fake_quote)
+
+    summary = asyncio.run(get_summary("aapl"))
+
+    assert call_count["n"] == 1  # force-fetched despite the fresh row
+    assert summary.price == FAKE_QUOTE[0]["price"]
+
+
+def test_get_summary_live_quote_false_does_not_force_fetch_a_fresh_row(monkeypatch):
+    # The nightly job's own live_quote=False path -- a fresh quote row must
+    # NOT be force-refetched, unlike the default live_quote=True path above.
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(ticker_summary, "engine", test_engine)
+    monkeypatch.setattr(step2_data, "engine", test_engine)
+
+    with Session(test_engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="quote",
+                period="latest",
+                fetched_at=datetime.now(),  # perfectly fresh
+                raw_json='[{"price": 111.0, "marketCap": 222.0}]',
+            )
+        )
+        session.commit()
+
+    async def fake_quote(ticker):
+        raise AssertionError("get_quote must not be called -- live_quote=False must not force-refetch a fresh row")
+
+    _patch_all_but_quote(monkeypatch, fake_quote)
+
+    summary = asyncio.run(get_summary("aapl", live_quote=False))
+
+    assert summary.price == 111.0
+
+
+def test_get_summary_live_quote_false_still_refetches_a_stale_row(monkeypatch):
+    # live_quote=False falls back to the ordinary staleness-gated fetch, not
+    # "never refetch" -- a genuinely stale (past cache_staleness_days) row
+    # must still refresh.
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(ticker_summary, "engine", test_engine)
+    monkeypatch.setattr(step2_data, "engine", test_engine)
+
+    with Session(test_engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL",
+                statement_type="quote",
+                period="latest",
+                fetched_at=datetime.now() - timedelta(days=10),  # past the 7-day flat window
+                raw_json='[{"price": 111.0, "marketCap": 222.0}]',
+            )
+        )
+        session.commit()
+
+    call_count = {"n": 0}
+
+    async def fake_quote(ticker):
+        call_count["n"] += 1
+        return FAKE_QUOTE
+
+    _patch_all_but_quote(monkeypatch, fake_quote)
+
+    summary = asyncio.run(get_summary("aapl", live_quote=False))
+
+    assert call_count["n"] == 1
+    assert summary.price == FAKE_QUOTE[0]["price"]
+
+
 def test_get_summary_raises_ticker_not_found_on_empty_profile(monkeypatch):
     # A genuinely nonexistent/invalid ticker: FMP's /profile returns a real
     # 200 with an empty list, not an error -- this must short-circuit here,

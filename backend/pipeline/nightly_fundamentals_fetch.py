@@ -134,7 +134,14 @@ async def _refresh_one_ticker(ticker: str) -> None:
     await get_step4_data(ticker)
     await get_step5_data(ticker)
     await get_segmentation_data(ticker)
-    await get_summary(ticker)
+    # live_quote=False (2026-08-16): this batch write gets superseded the
+    # moment anyone actually views the ticker (which force-fetches quote
+    # live independently), so force-fetching it here every night for the
+    # whole tracked universe was pure waste -- confirmed the single largest,
+    # most consistent contributor to nightly call volume of any endpoint
+    # checked (essentially the full ~570-ticker universe, unconditionally,
+    # every night). Falls back to the normal staleness-gated fetch instead.
+    await get_summary(ticker, live_quote=False)
     await compute_ticker_score(ticker, cache_only=True)
 
 
