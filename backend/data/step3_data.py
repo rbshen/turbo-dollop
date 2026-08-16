@@ -15,6 +15,7 @@ from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.tickers import normalize_ticker
 from core.schemas import (
+    OutlierWarning,
     Step2Out,
     Step3CapmComponents,
     Step3CurrentValueCandidates,
@@ -366,11 +367,34 @@ async def get_step3_data(
     capex_annual = [cash_flow_by_year.get(year, {}).get("capitalExpenditure") for year in years]
     fcf_annual = [c + x if c is not None and x is not None else None for c, x in zip(cfo_annual, capex_annual)]
 
-    revenue_ttm = sum_last_four_quarters(income_quarterly, "revenue").total
-    net_income_ttm = sum_last_four_quarters(income_quarterly, "netIncome").total
-    cfo_ttm = sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities").total
-    capex_ttm = sum_last_four_quarters(cash_flow_quarterly, "capitalExpenditure").total
+    revenue_ttm_result = sum_last_four_quarters(income_quarterly, "revenue", income_annual)
+    net_income_ttm_result = sum_last_four_quarters(income_quarterly, "netIncome", income_annual)
+    cfo_ttm_result = sum_last_four_quarters(
+        cash_flow_quarterly, "netCashProvidedByOperatingActivities", cash_flow_annual
+    )
+    capex_ttm_result = sum_last_four_quarters(cash_flow_quarterly, "capitalExpenditure", cash_flow_annual)
+
+    revenue_ttm = revenue_ttm_result.total
+    net_income_ttm = net_income_ttm_result.total
+    cfo_ttm = cfo_ttm_result.total
+    capex_ttm = capex_ttm_result.total
     fcf_ttm = cfo_ttm + capex_ttm if cfo_ttm is not None and capex_ttm is not None else None
+
+    # Informational only -- never changes revenue_ttm/net_income_ttm/cfo_ttm/
+    # fcf_ttm or intrinsic_value_per_share/verdict below (see
+    # ttm.py::sum_last_four_quarters). Same convention as Step 1/Step 4/
+    # Step 5/the ticker header; Valuation previously computed these flags
+    # via sum_last_four_quarters and silently discarded them.
+    outlier_warnings = [
+        OutlierWarning(metric=metric, date=fq.date, value=fq.value, trailing_median=fq.trailing_median)
+        for metric, result in [
+            ("revenue_ttm", revenue_ttm_result),
+            ("net_income_ttm", net_income_ttm_result),
+            ("cfo_ttm", cfo_ttm_result),
+            ("capex_ttm", capex_ttm_result),
+        ]
+        for fq in result.flagged
+    ]
 
     # Convert every monetary figure to USD once, immediately after it's
     # pulled from FMP -- rather than deferring conversion to a final
@@ -792,6 +816,7 @@ async def get_step3_data(
         ),
         dpu_growth_note=dpu_growth_note(dpu_series) if is_reit else None,
         loss_making_pb_note=loss_making_pb_note,
+        outlier_warnings=outlier_warnings,
     )
 
 

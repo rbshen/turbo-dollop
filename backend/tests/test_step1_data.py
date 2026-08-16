@@ -100,6 +100,65 @@ def test_get_step1_data_builds_series_and_ttm_and_caches(monkeypatch):
     }
 
 
+# TEAM's actual FY2026/Q4 FY2026 shape (2026-08-16 investigation): the Q4
+# quarterly row is byte-identical to the annual row for revenue/netIncome/
+# CFO (but not for other fields like ebitda -- not modeled here, out of
+# scope for Step 1). Real values.
+TEAM_INCOME_ANNUAL = [{"fiscalYear": "2026", "revenue": 6_572_308_000, "netInterestIncome": 0, "grossProfit": 5_575_478_000, "operatingIncome": 11_366_000, "netIncome": -53_828_000}]
+
+TEAM_INCOME_QUARTERLY = [
+    {"date": "2026-06-30", "period": "Q4", "fiscalYear": "2026", "revenue": 6_572_308_000, "netInterestIncome": 20_260_000, "grossProfit": 5_575_478_000, "operatingIncome": 10_355_000, "netIncome": -53_828_000},
+    {"date": "2026-03-31", "period": "Q3", "fiscalYear": "2026", "revenue": 1_786_971_000, "netInterestIncome": 20_260_000, "grossProfit": 1_500_000_000, "operatingIncome": 2_000_000, "netIncome": -98_389_000},
+    {"date": "2025-12-31", "period": "Q2", "fiscalYear": "2026", "revenue": 1_586_315_000, "netInterestIncome": 20_260_000, "grossProfit": 1_300_000_000, "operatingIncome": 1_000_000, "netIncome": -42_645_000},
+    {"date": "2025-09-30", "period": "Q1", "fiscalYear": "2026", "revenue": 1_432_553_000, "netInterestIncome": 20_260_000, "grossProfit": 1_200_000_000, "operatingIncome": 500_000, "netIncome": -51_870_000},
+]
+
+TEAM_CASH_FLOW_ANNUAL = [{"fiscalYear": "2026", "netCashProvidedByOperatingActivities": 1_353_135_000, "capitalExpenditure": -34_060_000}]
+
+TEAM_CASH_FLOW_QUARTERLY = [
+    {"period": "Q4", "fiscalYear": "2026", "netCashProvidedByOperatingActivities": 1_353_135_000, "capitalExpenditure": -34_060_000},
+    {"period": "Q3", "fiscalYear": "2026", "netCashProvidedByOperatingActivities": 567_475_000, "capitalExpenditure": -6_211_000},
+    {"period": "Q2", "fiscalYear": "2026", "netCashProvidedByOperatingActivities": 177_805_000, "capitalExpenditure": -9_289_000},
+    {"period": "Q1", "fiscalYear": "2026", "netCashProvidedByOperatingActivities": 128_715_000, "capitalExpenditure": -14_112_000},
+]
+
+
+def test_get_step1_data_corrects_team_shaped_duplicate_annual_quarter(monkeypatch):
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(step1_data, "engine", test_engine)
+
+    async def fake_profile(ticker):
+        return PROFILE
+
+    async def fake_income_statement(ticker, period, limit):
+        return TEAM_INCOME_ANNUAL if period == "annual" else TEAM_INCOME_QUARTERLY
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return TEAM_CASH_FLOW_ANNUAL if period == "annual" else TEAM_CASH_FLOW_QUARTERLY
+
+    monkeypatch.setattr(step1_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step1_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step1_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+    result = asyncio.run(get_step1_data("team"))
+
+    # TTM revenue/net_income/cfo all resolve to the annual figure itself
+    # (the true isolated Q4 + the other 3 known-good quarters always sum
+    # back to it by construction) -- not the raw, ~1.7x-inflated double-count
+    # a pre-fix Fathom would have shown (revenue TTM would have read
+    # ~$11.38B against real cached TEAM data with this same shape).
+    assert result.revenue[-1] == 6_572_308_000
+    assert result.net_income[-1] == -53_828_000
+    assert result.cfo[-1] == 1_353_135_000
+    # No revenue/net_income/cfo outlier warning -- correctly resolved by the
+    # duplicate-annual correction, not just flagged as anomalous.
+    flagged_metrics = {w.metric for w in result.outlier_warnings}
+    assert "revenue" not in flagged_metrics
+    assert "net_income" not in flagged_metrics
+    assert "cfo" not in flagged_metrics
+
+
 def test_bank_is_cfo_exempt(monkeypatch):
     test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(test_engine)

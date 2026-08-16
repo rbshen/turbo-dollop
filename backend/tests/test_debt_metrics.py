@@ -94,6 +94,39 @@ def test_compute_debt_metrics_handles_missing_fields():
     assert result.net_interest_expense_ttm is None
 
 
+# Synthetic (not TEAM's own field-for-field data -- TEAM's real ebitda
+# quarter specifically was NOT a duplicate of its annual row, see
+# test_ttm.py's TEAM-shaped fixture for that distinction): the latest
+# quarter (a Q4) IS a content-duplicate of the annual row here, so this
+# exercises compute_debt_metrics's correction path directly.
+TEAM_SHAPED_INCOME_ANNUAL = [{"fiscalYear": "2026", "ebitda": 212_168_000}]
+
+TEAM_SHAPED_INCOME_QUARTERLY = [
+    {"date": "2026-06-30", "period": "Q4", "fiscalYear": "2026", "ebitda": 212_168_000},
+    {"date": "2026-03-31", "period": "Q3", "fiscalYear": "2026", "ebitda": 10_000_000},
+    {"date": "2025-12-31", "period": "Q2", "fiscalYear": "2026", "ebitda": 8_000_000},
+    {"date": "2025-09-30", "period": "Q1", "fiscalYear": "2026", "ebitda": 6_000_000},
+]
+
+
+def test_compute_debt_metrics_corrects_team_shaped_ebitda_when_annual_passed():
+    result = compute_debt_metrics(BALANCE_SHEET_QUARTERLY[0], TEAM_SHAPED_INCOME_QUARTERLY, TEAM_SHAPED_INCOME_ANNUAL)
+    # True isolated Q4 = 212,168,000 - (10,000,000+8,000,000+6,000,000) =
+    # 188,168,000; TTM = corrected_Q4 + other 3 = the annual figure itself,
+    # 212,168,000 -- not 236,168,000 (the raw, double-counted sum a pre-fix
+    # Fathom would have computed).
+    assert result.ebitda_ttm == 212_168_000
+    assert result.outlier_flags == []
+
+
+def test_compute_debt_metrics_unaffected_when_income_annual_omitted():
+    # Backward compatibility: ticker_summary.py doesn't fetch income_annual,
+    # so this call site's figures must stay exactly as before this
+    # parameter existed -- the raw, uncorrected sum.
+    result = compute_debt_metrics(BALANCE_SHEET_QUARTERLY[0], TEAM_SHAPED_INCOME_QUARTERLY)
+    assert result.ebitda_ttm == 212_168_000 + 10_000_000 + 8_000_000 + 6_000_000
+
+
 def test_ticker_summary_and_step5_agree_on_the_same_raw_figures(monkeypatch):
     """The header's raw metric tiles and Step 5's debt ratios must never
     diverge for the same ticker -- both call compute_debt_metrics with data
@@ -244,3 +277,56 @@ def test_outlier_warning_propagates_through_step5_and_ticker_summary(monkeypatch
     # Purely informational -- doesn't change Step 5's verdict/score/tiers.
     assert step5_result.verdict in {"Pass", "Strong Pass", "Fail"}
     assert step5_result.score is not None
+
+
+# TEAM's actual FY2026/Q4 FY2026 cash-flow shape (2026-08-16 investigation):
+# the Q4 quarterly row is byte-identical to the annual row for CFO --
+# get_step5_data now fetches cash_flow_statement/annual specifically to
+# correct this before summing (a fetch this test file didn't previously
+# need to cover, since it didn't exist before this fix).
+TEAM_ANNUAL_CASH_FLOW = [{"fiscalYear": "2026", "netCashProvidedByOperatingActivities": 1_353_135_000}]
+
+TEAM_QUARTERLY_CASH_FLOW = [
+    {"date": "2026-06-30", "period": "Q4", "fiscalYear": "2026", "netCashProvidedByOperatingActivities": 1_353_135_000},
+    {"date": "2026-03-31", "period": "Q3", "fiscalYear": "2026", "netCashProvidedByOperatingActivities": 567_475_000},
+    {"date": "2025-12-31", "period": "Q2", "fiscalYear": "2026", "netCashProvidedByOperatingActivities": 177_805_000},
+    {"date": "2025-09-30", "period": "Q1", "fiscalYear": "2026", "netCashProvidedByOperatingActivities": 128_715_000},
+]
+
+
+def test_step5_cfo_ttm_corrects_team_shaped_duplicate_annual_quarter(monkeypatch):
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(step5_data, "engine", test_engine)
+
+    async def fake_profile(ticker):
+        return PROFILE
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return BALANCE_SHEET_QUARTERLY
+
+    async def fake_income_statement(ticker, period, limit):
+        return INCOME_QUARTERLY
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return TEAM_QUARTERLY_CASH_FLOW if period == "quarter" else TEAM_ANNUAL_CASH_FLOW
+
+    monkeypatch.setattr(step5_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step5_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    monkeypatch.setattr(step5_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step5_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+    step5_result = asyncio.run(get_step5_data("team"))
+
+    # True isolated Q4 CFO = 1,353,135,000 - (567,475,000+177,805,000+
+    # 128,715,000) = 479,140,000; TTM = corrected_Q4 + other 3 = the annual
+    # figure itself, 1,353,135,000 -- not 2,227,130,000 (the raw, double-
+    # counted sum a pre-fix Fathom would have computed). Not directly
+    # exposed on Step5Out, so cross-checked via debt_servicing_ratio (=
+    # net_interest_expense_ttm / cfo_ttm * 100 -- see step5_data.py). Reused
+    # INCOME_QUARTERLY gives net_interest_expense_ttm = 750,000,000 * 4 =
+    # 3,000,000,000.
+    expected_dsr = 3_000_000_000 / 1_353_135_000 * 100
+    assert step5_result.ratios["debt_servicing_ratio"].value == expected_dsr
+    # No CFO-related outlier warning -- correctly resolved, not just flagged.
+    assert not any(w.metric == "cfo_ttm" for w in step5_result.outlier_warnings)

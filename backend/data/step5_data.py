@@ -361,15 +361,51 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
                 cache_only,
             ),
         )
+        # Fetched here (rather than only later, alongside the breach-context
+        # trend series' own income_annual/balance_sheet_annual fetch below)
+        # so debt_metrics/cfo_result can pass it into sum_last_four_quarters
+        # for TEAM Defect B's duplicate-annual-quarter correction (see
+        # ttm.py). Same cache key as that later fetch -- a harmless cache
+        # hit there, not a second FMP call.
+        income_annual_for_ttm = await safe_fetch(
+            "income_statement_annual",
+            get_or_fetch_earnings_aware(
+                session,
+                ticker,
+                "income_statement",
+                "annual",
+                lambda: fmp_client.get_income_statement(ticker, "annual", ANNUAL_WINDOW),
+                staleness_days,
+                most_recent_earnings_date,
+                cache_only,
+            ),
+        )
+        cash_flow_annual = await safe_fetch(
+            "cash_flow_statement_annual",
+            get_or_fetch_earnings_aware(
+                session,
+                ticker,
+                "cash_flow_statement",
+                "annual",
+                lambda: fmp_client.get_cash_flow_statement(ticker, "annual", ANNUAL_WINDOW),
+                staleness_days,
+                most_recent_earnings_date,
+                cache_only,
+            ),
+        )
 
     income_quarterly = income_quarterly if isinstance(income_quarterly, list) else []
     cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
+    income_annual_for_ttm = income_annual_for_ttm if isinstance(income_annual_for_ttm, list) else []
+    cash_flow_annual = cash_flow_annual if isinstance(cash_flow_annual, list) else []
 
     # Shared with the ticker header's raw metric tiles -- single source of
     # truth so the two views can never diverge for the same ticker.
-    debt_metrics = compute_debt_metrics(balance_sheet_row, income_quarterly)
+    debt_metrics = compute_debt_metrics(balance_sheet_row, income_quarterly, income_annual_for_ttm)
     ebitda_ttm = debt_metrics.ebitda_ttm
-    cfo_result = sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities")
+    cfo_result = sum_last_four_quarters(
+        cash_flow_quarterly, "netCashProvidedByOperatingActivities", cash_flow_annual
+    )
     cfo_ttm = cfo_result.total
 
     outlier_warnings = _outlier_warnings(
@@ -524,7 +560,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False) -> Step5Out:
     debt_to_ebitda_oldest, debt_to_ebitda_oldest_year = _oldest_in_trend_window(debt_to_ebitda_series, years)
     current_ratio_oldest, current_ratio_oldest_year = _oldest_in_trend_window(current_ratio_series, years)
 
-    fcf_ttm = sum_last_four_quarters(cash_flow_quarterly, "freeCashFlow").total
+    fcf_ttm = sum_last_four_quarters(cash_flow_quarterly, "freeCashFlow", cash_flow_annual).total
     cash_and_equivalents = balance_sheet_row.get("cashAndCashEquivalents")
     net_debt = balance_sheet_row.get("netDebt")
     receivables = balance_sheet_row.get("netReceivables")

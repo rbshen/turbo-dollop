@@ -1,4 +1,9 @@
-from helpers.ttm import FlaggedQuarter, is_ttm_period_duplicate_of_last_fy, sum_last_four_quarters
+from helpers.ttm import (
+    FlaggedQuarter,
+    is_quarter_content_duplicate_of_annual,
+    is_ttm_period_duplicate_of_last_fy,
+    sum_last_four_quarters,
+)
 
 # 8 stable baseline quarters (all $100M) followed by the 4 "recent" quarters
 # under test -- most-recent-first, matching FMP's own ordering.
@@ -235,3 +240,100 @@ def test_ttm_period_duplicate_false_with_no_annual_rows():
         {"fiscalYear": "2026", "period": "Q1", "netIncome": 1},
     ]
     assert is_ttm_period_duplicate_of_last_fy([], quarterly) is False
+
+
+# --- is_quarter_content_duplicate_of_annual / TEAM Defect B ---------------
+
+# TEAM's actual FY2026/Q4 FY2026 shape (2026-08-16 investigation): the
+# quarterly income_statement/cash_flow_statement rows for the just-closed
+# fiscal year's Q4 are byte-identical to the annual row for revenue/CFO/
+# FCF/netIncome, but NOT for ebitda -- confirming the defect is per-field,
+# not a blanket row-level copy.
+TEAM_ANNUAL_INCOME = [{"fiscalYear": "2026", "revenue": 6_572_308_000, "netIncome": -53_828_000, "ebitda": -323_037_000}]
+
+TEAM_QUARTERLY_INCOME = [
+    {
+        "date": "2026-06-30",
+        "period": "Q4",
+        "fiscalYear": "2026",
+        "revenue": 6_572_308_000,  # duplicate of annual
+        "netIncome": -53_828_000,  # duplicate of annual
+        "ebitda": 212_168_000,  # NOT a duplicate -- annual ebitda is -323,037,000
+    },
+    {"date": "2026-03-31", "period": "Q3", "fiscalYear": "2026", "revenue": 1_786_971_000, "netIncome": -98_389_000, "ebitda": 10_000_000},
+    {"date": "2025-12-31", "period": "Q2", "fiscalYear": "2026", "revenue": 1_586_315_000, "netIncome": -42_645_000, "ebitda": 8_000_000},
+    {"date": "2025-09-30", "period": "Q1", "fiscalYear": "2026", "revenue": 1_432_553_000, "netIncome": -51_870_000, "ebitda": 6_000_000},
+]
+
+
+def test_quarter_content_duplicate_detected_team_shaped_revenue():
+    assert is_quarter_content_duplicate_of_annual(TEAM_ANNUAL_INCOME, TEAM_QUARTERLY_INCOME, "revenue") is True
+
+
+def test_quarter_content_duplicate_detected_team_shaped_net_income():
+    assert is_quarter_content_duplicate_of_annual(TEAM_ANNUAL_INCOME, TEAM_QUARTERLY_INCOME, "netIncome") is True
+
+
+def test_quarter_content_duplicate_not_detected_for_non_duplicated_field():
+    # ebitda genuinely differs between the Q4 row and the annual row --
+    # must not false-positive just because OTHER fields on the same row
+    # are duplicated.
+    assert is_quarter_content_duplicate_of_annual(TEAM_ANNUAL_INCOME, TEAM_QUARTERLY_INCOME, "ebitda") is False
+
+
+def test_quarter_content_duplicate_false_when_latest_quarter_not_q4():
+    mid_year = [{**TEAM_QUARTERLY_INCOME[0], "period": "Q2"}, *TEAM_QUARTERLY_INCOME[1:]]
+    assert is_quarter_content_duplicate_of_annual(TEAM_ANNUAL_INCOME, mid_year, "revenue") is False
+
+
+def test_quarter_content_duplicate_false_with_no_matching_fiscal_year():
+    assert is_quarter_content_duplicate_of_annual([{"fiscalYear": "2025", "revenue": 1}], TEAM_QUARTERLY_INCOME, "revenue") is False
+
+
+def test_quarter_content_duplicate_false_with_empty_inputs():
+    assert is_quarter_content_duplicate_of_annual([], TEAM_QUARTERLY_INCOME, "revenue") is False
+    assert is_quarter_content_duplicate_of_annual(TEAM_ANNUAL_INCOME, [], "revenue") is False
+
+
+def test_sum_last_four_quarters_corrects_team_shaped_revenue_when_annual_rows_passed():
+    result = sum_last_four_quarters(TEAM_QUARTERLY_INCOME, "revenue", annual_rows=TEAM_ANNUAL_INCOME)
+    # True isolated Q4 = annual (6,572,308,000) - (Q1+Q2+Q3) = 1,766,469,000.
+    # TTM = corrected_Q4 + Q1+Q2+Q3 = the annual total itself, exactly --
+    # the isolated quarter and the other 3 always sum back to the annual
+    # figure by construction.
+    assert result.total == 6_572_308_000
+    # No longer an outlier once corrected -- it's a true, in-trend value now.
+    assert result.flagged == []
+
+
+def test_sum_last_four_quarters_corrects_team_shaped_net_income_when_annual_rows_passed():
+    result = sum_last_four_quarters(TEAM_QUARTERLY_INCOME, "netIncome", annual_rows=TEAM_ANNUAL_INCOME)
+    assert result.total == -53_828_000
+
+
+def test_sum_last_four_quarters_does_not_correct_non_duplicated_field():
+    # ebitda isn't duplicated -- summing proceeds on the raw, untouched values.
+    result = sum_last_four_quarters(TEAM_QUARTERLY_INCOME, "ebitda", annual_rows=TEAM_ANNUAL_INCOME)
+    assert result.total == 212_168_000 + 10_000_000 + 8_000_000 + 6_000_000
+
+
+def test_sum_last_four_quarters_unaffected_when_annual_rows_omitted():
+    # Backward compatibility: a call site that doesn't pass annual_rows
+    # (e.g. ticker_summary.py's header tiles) behaves exactly as before --
+    # the raw, uncorrected (and still-flagged-if-applicable) total.
+    result = sum_last_four_quarters(TEAM_QUARTERLY_INCOME, "revenue")
+    assert result.total == 6_572_308_000 + 1_786_971_000 + 1_586_315_000 + 1_432_553_000
+
+
+def test_sum_last_four_quarters_does_not_correct_normal_ticker_data():
+    # No duplicate-annual shape at all -- annual_rows being passed must
+    # never alter an otherwise-normal ticker's TTM sum.
+    quarterly = [
+        {"date": "2026-Q2", "period": "Q2", "fiscalYear": "2026", "value": 110_000_000},
+        {"date": "2026-Q1", "period": "Q1", "fiscalYear": "2026", "value": 95_000_000},
+        {"date": "2025-Q4", "period": "Q4", "fiscalYear": "2025", "value": 105_000_000},
+        {"date": "2025-Q3", "period": "Q3", "fiscalYear": "2025", "value": 90_000_000},
+    ]
+    annual = [{"fiscalYear": "2025", "value": 400_000_000}]
+    result = sum_last_four_quarters(_quarters(quarterly), "value", annual_rows=annual)
+    assert result.total == 110_000_000 + 95_000_000 + 105_000_000 + 90_000_000

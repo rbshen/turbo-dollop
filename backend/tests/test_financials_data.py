@@ -402,6 +402,60 @@ def test_get_financials_data_end_to_end_team_shaped_magnitude_defect_suppressed(
     assert revenue_row.values[-1] == 6_572_308_000
 
 
+# TEAM's real FY2026 annual row -- fiscalYear "2026" matches
+# TEAM_SHAPED_INCOME_QUARTERLY's Q4 above, so this actually exercises
+# Defect B's duplicate-annual-quarter correction (FAKE_INCOME_ANNUAL above
+# only goes up to fiscalYear "2025", so the earlier test's revenue_row
+# assertion never triggers this correction at all).
+TEAM_INCOME_ANNUAL_FY2026 = [
+    {"fiscalYear": "2026", "date": "2026-06-30", "revenue": 6_572_308_000, "netIncome": -53_828_000},
+]
+
+
+def test_get_financials_data_end_to_end_team_shaped_duplicate_annual_quarter_corrected(monkeypatch):
+    # Confirms get_financials_data wires the Defect B correction into the
+    # TTM column via _ttm_row_summed(..., annual_rows) -- the raw per-quarter
+    # columns stay untouched (see _ttm_row_summed's own docstring), only the
+    # derived TTM figure is corrected.
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(financials_data, "engine", test_engine)
+
+    async def fake_income_statement(ticker, period, limit):
+        return TEAM_SHAPED_INCOME_QUARTERLY if period == "quarter" else TEAM_INCOME_ANNUAL_FY2026
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return FAKE_CASH_FLOW_QUARTERLY if period == "quarter" else FAKE_CASH_FLOW_ANNUAL
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return FAKE_BALANCE_SHEET_QUARTERLY if period == "quarter" else FAKE_BALANCE_SHEET_ANNUAL
+
+    monkeypatch.setattr(financials_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(financials_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+    monkeypatch.setattr(financials_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+
+    result = asyncio.run(get_financials_data("team"))
+
+    ttm_revenue_row = next(item for item in result.income_statement.annual.groups[0].items if item.label == "Revenue")
+    # Resolves to the annual figure itself -- not 11,378,147,000 (the raw,
+    # double-counted TTM sum a pre-fix Fathom would have shown).
+    assert ttm_revenue_row.values[-1] == 6_572_308_000
+
+    # Raw per-quarter column is untouched -- still literally what FMP
+    # reported (this tab's "raw, un-converted" convention). Coincidentally
+    # the same number as the now-corrected TTM figure above, but for an
+    # entirely different reason: the TTM figure is genuinely correct (the
+    # annual total, mathematically the true TTM once Q4 closes the fiscal
+    # year), while this raw "Q4 2026" cell is still the uncorrected FMP
+    # defect -- the true isolated Q4 (annual minus Q1-Q3) would actually be
+    # ~$1.77B, not this. Never "corrected" here since the raw quarterly
+    # table's whole purpose is showing exactly what FMP reported.
+    quarterly_revenue_row = next(
+        item for item in result.income_statement.quarterly.groups[0].items if item.label == "Revenue"
+    )
+    assert quarterly_revenue_row.values[-1] == 6_572_308_000
+
+
 def test_reported_currency_is_cosmetic_label_only_not_converted(monkeypatch):
     # CLAUDE.md's non-USD currency investigation, decided scope #1: Financials
     # gets a cosmetic label only, the figures themselves stay raw/un-converted

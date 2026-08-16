@@ -183,6 +183,13 @@ class Step1Out(BaseModel):
     # Weight each component contributed to `score` -- WEIGHTS_STANDARD or
     # WEIGHTS_CFO_EXEMPT from scoring/step1.py, keyed the same as `components`.
     weights: dict[str, float]
+    # Same convention as Step5Out/TickerSummaryOut below -- informational
+    # only, never changes revenue/net_income/cfo/fcf or the score/verdict
+    # above (see ttm.py::sum_last_four_quarters). Previously computed but
+    # silently discarded here (2026-08-16 fix) -- Step 1 is exactly where a
+    # flagged TTM figure feeds a real score, so it belongs in the UI, not
+    # just Step 5's.
+    outlier_warnings: list[OutlierWarning] = []
 
 
 class Step2EstimateRow(BaseModel):
@@ -409,6 +416,11 @@ class Step4Out(BaseModel):
     # Step 4 deviations). None unless ROE is "excellent"/"good" while ROIC
     # is "marginal" (a "fail" ROIC already hard-fails on its own).
     roe_roic_divergence_note: str | None = None
+    # Same convention as Step5Out/TickerSummaryOut/Step1Out -- informational
+    # only, never changes revenue/net_income/ocf or the score/verdict above
+    # (see ttm.py::sum_last_four_quarters). Previously computed but silently
+    # discarded here (2026-08-16 fix).
+    outlier_warnings: list[OutlierWarning] = []
 
 
 class Step3MethodStep(BaseModel):
@@ -598,6 +610,14 @@ class Step3Out(BaseModel):
     # scoring.step3.loss_making_pb_reference_note. Never a scored method;
     # select_method's own decision_trail/pass_reason above are unaffected.
     loss_making_pb_note: str | None = None
+    # Same convention as Step5Out/TickerSummaryOut/Step1Out/Step4Out --
+    # informational only, never changes revenue_ttm/net_income_ttm/cfo_ttm/
+    # fcf_ttm or intrinsic_value_per_share/verdict above (see
+    # ttm.py::sum_last_four_quarters). Previously computed but silently
+    # discarded here (2026-08-16 fix) -- Valuation is exactly where a
+    # flagged TTM figure feeds a real fair-value number, so it belongs in
+    # the UI, not just Step 5's.
+    outlier_warnings: list[OutlierWarning] = []
 
 
 class Step3ManualParams(BaseModel):

@@ -258,11 +258,23 @@ def _sanitize_shares_magnitude(
     return [sanitized_latest, *quarterly_rows[1:]]
 
 
-def _ttm_row_summed(quarterly_rows: list[dict], grouped_fields: list[tuple[str | None, list[FieldSpec]]]) -> dict:
+def _ttm_row_summed(
+    quarterly_rows: list[dict],
+    grouped_fields: list[tuple[str | None, list[FieldSpec]]],
+    annual_rows: list[dict] | None = None,
+) -> dict:
     """Flow-measure fields (income statement, cash flow): TTM = trailing 4
     quarters summed, same convention as Step 1's revenue/net income/CFO TTM
     column. `quarterly_rows` must be most-recent-first (FMP's own
     ordering), matching sum_last_four_quarters' own requirement.
+
+    `annual_rows`, when passed, lets sum_last_four_quarters correct TEAM
+    Defect B (a just-closed fiscal year's Q4 quarterly row served as a
+    duplicate of the annual total) before summing -- this only ever
+    affects the TTM column here, never the raw per-quarter columns
+    _quarterly_period builds separately, since those are meant to show
+    exactly what FMP reported (same "raw, un-converted" convention this
+    tab's currency handling already follows), not a derived correction.
 
     Share-count fields ("shares" unit -- Weighted Avg Shares Outstanding)
     are the one exception within an otherwise-summed statement: a share
@@ -276,7 +288,7 @@ def _ttm_row_summed(quarterly_rows: list[dict], grouped_fields: list[tuple[str |
             if unit == "shares":
                 result[key] = quarterly_rows[0].get(key) if quarterly_rows else None
             else:
-                result[key] = sum_last_four_quarters(quarterly_rows, key).total
+                result[key] = sum_last_four_quarters(quarterly_rows, key, annual_rows).total
     return result
 
 
@@ -295,7 +307,11 @@ def _annual_period(
 ) -> FinancialsPeriodOut:
     rows = _trim_and_pad(annual_rows, ANNUAL_WINDOW)
     labels = _annual_labels(annual_rows, ANNUAL_WINDOW)
-    ttm_row = _ttm_row_summed(quarterly_rows, grouped_fields) if ttm_mode == "sum" else _ttm_row_latest(quarterly_rows)
+    ttm_row = (
+        _ttm_row_summed(quarterly_rows, grouped_fields, annual_rows)
+        if ttm_mode == "sum"
+        else _ttm_row_latest(quarterly_rows)
+    )
     rows = rows + [ttm_row]
     # TTM is the one annual column that keeps a full date -- "TTM" alone
     # doesn't say which date it's as-of, unlike a bare fiscal year.

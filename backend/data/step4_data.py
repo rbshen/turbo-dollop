@@ -7,7 +7,7 @@ from core.db import engine
 from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.first import _first
 from clients.fmp_client import fmp_client
-from core.schemas import Step4Out
+from core.schemas import OutlierWarning, Step4Out
 from core.tickers import normalize_ticker
 from scoring.classification import classify_company_type
 from scoring.series_trend import robust_late_direction
@@ -700,10 +700,16 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     roic = [v * 100 if v is not None else None for v in roic]
 
     years = years + ["TTM"]
-    revenue = revenue + [sum_last_four_quarters(income_quarterly, "revenue").total]
-    net_income = net_income + [sum_last_four_quarters(income_quarterly, "netIncome").total]
-    cost_of_revenue = cost_of_revenue + [sum_last_four_quarters(income_quarterly, "costOfRevenue").total]
-    ocf = ocf + [sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities").total]
+    revenue_result = sum_last_four_quarters(income_quarterly, "revenue", income_annual)
+    net_income_result = sum_last_four_quarters(income_quarterly, "netIncome", income_annual)
+    cost_of_revenue_result = sum_last_four_quarters(income_quarterly, "costOfRevenue", income_annual)
+    ocf_result = sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities", cash_flow_annual)
+    buybacks_result = sum_last_four_quarters(cash_flow_quarterly, "commonStockRepurchased", cash_flow_annual)
+
+    revenue = revenue + [revenue_result.total]
+    net_income = net_income + [net_income_result.total]
+    cost_of_revenue = cost_of_revenue + [cost_of_revenue_result.total]
+    ocf = ocf + [ocf_result.total]
     equity = equity + [balance_sheet_latest.get("totalStockholdersEquity")]
     accounts_receivable = accounts_receivable + [balance_sheet_latest.get("accountsReceivables")]
     inventory = inventory + [balance_sheet_latest.get("inventory")]
@@ -713,7 +719,25 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     total_assets = total_assets + [balance_sheet_latest.get("totalAssets")]
     total_debt = total_debt + [balance_sheet_latest.get("totalDebt")]
     retained_earnings = retained_earnings + [balance_sheet_latest.get("retainedEarnings")]
-    buybacks = buybacks + [sum_last_four_quarters(cash_flow_quarterly, "commonStockRepurchased").total]
+    buybacks = buybacks + [buybacks_result.total]
+
+    # Informational only -- never changes revenue/net_income/ocf or the
+    # score/verdict below (see ttm.py::sum_last_four_quarters). Same
+    # convention as Step 1/Step 5/the ticker header; Step 4 previously
+    # computed these flags via sum_last_four_quarters and silently
+    # discarded them.
+    outlier_warnings = [
+        OutlierWarning(metric=metric, date=fq.date, value=fq.value, trailing_median=fq.trailing_median)
+        for metric, result in [
+            ("revenue", revenue_result),
+            ("net_income", net_income_result),
+            ("cost_of_revenue", cost_of_revenue_result),
+            ("ocf", ocf_result),
+            ("buybacks", buybacks_result),
+        ]
+        for fq in result.flagged
+    ]
+
     roe_ttm = key_metrics_ttm.get("returnOnEquityTTM")
     roic_ttm = key_metrics_ttm.get("returnOnInvestedCapitalTTM")
     roe = roe + [roe_ttm * 100 if roe_ttm is not None else None]
@@ -785,6 +809,7 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
             revenue_vs_ar_exempt_reason=ar_exempt_reason,
             score=None,
             verdict="insufficient_data",
+            outlier_warnings=outlier_warnings,
         )
 
     roe_result = score_roe(roe_clean, equity_clean, net_income_clean)
@@ -848,4 +873,5 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
         hard_fail=result["hard_fail"],
         components=result["components"],
         roe_roic_divergence_note=result["roe_roic_divergence_note"],
+        outlier_warnings=outlier_warnings,
     )

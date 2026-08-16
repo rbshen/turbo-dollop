@@ -34,7 +34,9 @@ class DebtMetrics(NamedTuple):
     outlier_flags: list[MetricOutlierFlags]
 
 
-def compute_debt_metrics(balance_sheet_row: dict, income_quarterly: list[dict]) -> DebtMetrics:
+def compute_debt_metrics(
+    balance_sheet_row: dict, income_quarterly: list[dict], income_annual: list[dict] | None = None
+) -> DebtMetrics:
     """Latest-quarter total debt (short + long term) and TTM EBITDA / net
     interest expense -- pure calculation shared by Step 5's debt ratios
     (`step5_data.py`'s Standard path) and the ticker header's raw metric
@@ -46,6 +48,12 @@ def compute_debt_metrics(balance_sheet_row: dict, income_quarterly: list[dict]) 
     already populate (see CLAUDE.md's caching policy and the Step 5
     data-freshness fix in 2f3cc98).
 
+    `income_annual`, when passed, lets sum_last_four_quarters correct TEAM
+    Defect B (see ttm.py::is_quarter_content_duplicate_of_annual) before
+    summing -- optional since not every caller has annual data in scope
+    (ticker_summary.py's header tiles don't fetch it); omitting it leaves
+    that caller's figures exactly as before this parameter existed.
+
     Applies uniformly to every company type: these are raw figures, not
     Step 5's classified ratios, so there's no Bank/REIT exemption here."""
     short_term_debt = balance_sheet_row.get("shortTermDebt")
@@ -56,11 +64,11 @@ def compute_debt_metrics(balance_sheet_row: dict, income_quarterly: list[dict]) 
         else None
     )
 
-    ebitda_result = sum_last_four_quarters(income_quarterly, "ebitda")
-    ebit_result = sum_last_four_quarters(income_quarterly, "operatingIncome")
-    interest_expense_result = sum_last_four_quarters(income_quarterly, "interestExpense")
-    interest_income_result = sum_last_four_quarters(income_quarterly, "interestIncome")
-    net_interest_income_result = sum_last_four_quarters(income_quarterly, "netInterestIncome")
+    ebitda_result = sum_last_four_quarters(income_quarterly, "ebitda", income_annual)
+    ebit_result = sum_last_four_quarters(income_quarterly, "operatingIncome", income_annual)
+    interest_expense_result = sum_last_four_quarters(income_quarterly, "interestExpense", income_annual)
+    interest_income_result = sum_last_four_quarters(income_quarterly, "interestIncome", income_annual)
+    net_interest_income_result = sum_last_four_quarters(income_quarterly, "netInterestIncome", income_annual)
     # A company earning net interest income has no interest burden for this
     # purpose (clamped at 0, not left negative) -- same convention as
     # Step 5's Debt Servicing Ratio.

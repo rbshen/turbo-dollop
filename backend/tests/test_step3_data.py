@@ -189,6 +189,57 @@ def test_pass_with_real_data_is_not_flagged_as_insufficient(monkeypatch):
     assert "Book Value/Share: $10.00" in result.loss_making_pb_note
 
 
+# TEAM Defect B shape (2026-08-16 investigation): the latest quarter (a Q4
+# matching INCOME_ANNUAL/CASH_FLOW_ANNUAL's own most recent fiscal year,
+# "2025") is a content-duplicate of the annual row for revenue/netIncome/
+# CFO/capex -- get_step3_data must correct it via sum_last_four_quarters
+# before any of Valuation's TTM-based method-selection/inputs use it.
+INCOME_QUARTERLY_TEAM_SHAPED = [
+    {"date": "2026-03-31", "period": "Q4", "fiscalYear": "2025", "revenue": 300, "netIncome": 10},
+    {"date": "2025-12-31", "period": "Q3", "fiscalYear": "2025", "revenue": 70, "netIncome": 3},
+    {"date": "2025-09-30", "period": "Q2", "fiscalYear": "2025", "revenue": 65, "netIncome": 2.5},
+    {"date": "2025-06-30", "period": "Q1", "fiscalYear": "2025", "revenue": 60, "netIncome": 2},
+]
+
+CASH_FLOW_QUARTERLY_TEAM_SHAPED = [
+    {"date": "2026-03-31", "period": "Q4", "fiscalYear": "2025", "netCashProvidedByOperatingActivities": 40, "capitalExpenditure": -10},
+    {"date": "2025-12-31", "period": "Q3", "fiscalYear": "2025", "netCashProvidedByOperatingActivities": 9, "capitalExpenditure": -2},
+    {"date": "2025-09-30", "period": "Q2", "fiscalYear": "2025", "netCashProvidedByOperatingActivities": 8, "capitalExpenditure": -2},
+    {"date": "2025-06-30", "period": "Q1", "fiscalYear": "2025", "netCashProvidedByOperatingActivities": 7, "capitalExpenditure": -2},
+]
+
+
+def test_get_step3_data_corrects_team_shaped_duplicate_annual_quarter(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_income_statement(ticker, period, limit):
+        return INCOME_ANNUAL if period == "annual" else INCOME_QUARTERLY_TEAM_SHAPED
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return CASH_FLOW_ANNUAL if period == "annual" else CASH_FLOW_QUARTERLY_TEAM_SHAPED
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step3_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+    result = asyncio.run(get_step3_data("team"))
+
+    candidates = result.inputs.current_value_candidates
+    # Each resolves to the annual figure itself (fx_rate is 1.0 for this USD
+    # fixture) -- not the raw, double-counted sum a pre-fix Fathom would
+    # have computed (net_income_ttm would have read 17.5, cfo_ttm 64, fcf_ttm
+    # 48 instead).
+    assert candidates.net_income_ttm == 10
+    assert candidates.cfo_ttm == 40
+    assert candidates.fcf_ttm == 30  # cfo_ttm(40) + capex_ttm(-10)
+
+    flagged_metrics = {w.metric for w in result.outlier_warnings}
+    assert "revenue_ttm" not in flagged_metrics
+    assert "net_income_ttm" not in flagged_metrics
+    assert "cfo_ttm" not in flagged_metrics
+    assert "capex_ttm" not in flagged_metrics
+
+
 def test_loss_making_pb_note_absent_when_a_real_method_is_selected_despite_negative_ni(monkeypatch):
     # A Standard company can have negative TTM Net Income yet still resolve
     # to a real valuation method -- the CFO-based branch (steps 2/3/3a) never

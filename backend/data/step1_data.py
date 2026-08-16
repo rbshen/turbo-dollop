@@ -6,7 +6,7 @@ from core.db import engine
 from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.first import _first
 from clients.fmp_client import fmp_client
-from core.schemas import Step1Out
+from core.schemas import OutlierWarning, Step1Out
 from core.tickers import normalize_ticker
 from scoring.classification import classify_company_type
 from scoring.step1 import score_step1
@@ -137,13 +137,39 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
     capex = [cash_flow_by_year.get(year, {}).get("capitalExpenditure") for year in years]
 
     years = years + ["TTM"]
-    revenue = revenue + [sum_last_four_quarters(income_quarterly, "revenue").total]
-    net_interest_income = net_interest_income + [sum_last_four_quarters(income_quarterly, "netInterestIncome").total]
-    gross_profit = gross_profit + [sum_last_four_quarters(income_quarterly, "grossProfit").total]
-    operating_income = operating_income + [sum_last_four_quarters(income_quarterly, "operatingIncome").total]
-    net_income = net_income + [sum_last_four_quarters(income_quarterly, "netIncome").total]
-    cfo = cfo + [sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities").total]
-    capex = capex + [sum_last_four_quarters(cash_flow_quarterly, "capitalExpenditure").total]
+    revenue_result = sum_last_four_quarters(income_quarterly, "revenue", income_annual)
+    net_interest_income_result = sum_last_four_quarters(income_quarterly, "netInterestIncome", income_annual)
+    gross_profit_result = sum_last_four_quarters(income_quarterly, "grossProfit", income_annual)
+    operating_income_result = sum_last_four_quarters(income_quarterly, "operatingIncome", income_annual)
+    net_income_result = sum_last_four_quarters(income_quarterly, "netIncome", income_annual)
+    cfo_result = sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities", cash_flow_annual)
+    capex_result = sum_last_four_quarters(cash_flow_quarterly, "capitalExpenditure", cash_flow_annual)
+
+    revenue = revenue + [revenue_result.total]
+    net_interest_income = net_interest_income + [net_interest_income_result.total]
+    gross_profit = gross_profit + [gross_profit_result.total]
+    operating_income = operating_income + [operating_income_result.total]
+    net_income = net_income + [net_income_result.total]
+    cfo = cfo + [cfo_result.total]
+    capex = capex + [capex_result.total]
+
+    # Informational only -- never changes revenue/net_income/cfo/fcf or the
+    # score/verdict below (see ttm.py::sum_last_four_quarters). Same
+    # convention as Step 5/the ticker header; Step 1 previously computed
+    # these flags via sum_last_four_quarters and silently discarded them.
+    outlier_warnings = [
+        OutlierWarning(metric=metric, date=fq.date, value=fq.value, trailing_median=fq.trailing_median)
+        for metric, result in [
+            ("revenue", revenue_result),
+            ("net_interest_income", net_interest_income_result),
+            ("gross_profit", gross_profit_result),
+            ("operating_income", operating_income_result),
+            ("net_income", net_income_result),
+            ("cfo", cfo_result),
+            ("capex", capex_result),
+        ]
+        for fq in result.flagged
+    ]
 
     fcf = [c + x if c is not None and x is not None else None for c, x in zip(cfo, capex)]
 
@@ -209,4 +235,5 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
         verdict=result["verdict"],
         components=result["components"],
         weights=result["weights"],
+        outlier_warnings=outlier_warnings,
     )

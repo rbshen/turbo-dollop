@@ -176,6 +176,64 @@ def test_standard_company_full_pipeline(monkeypatch):
     assert result.components["roic"] is not None
 
 
+# TEAM Defect B shape (2026-08-16 investigation): the latest quarter (a Q4
+# matching the fixture's own most recent annual fiscal year, "2025") is a
+# content-duplicate of the annual row for revenue/netIncome/costOfRevenue --
+# get_step4_data must correct it via sum_last_four_quarters before TTM.
+INCOME_QUARTERLY_TEAM_SHAPED = [
+    {"date": "2026-03-28", "period": "Q4", "fiscalYear": "2025", "revenue": 146.41, "netIncome": 20.0, "costOfRevenue": 87.846},
+    {"date": "2025-12-27", "period": "Q3", "fiscalYear": "2025", "revenue": 35.0, "netIncome": 4.5, "costOfRevenue": 21.0},
+    {"date": "2025-09-27", "period": "Q2", "fiscalYear": "2025", "revenue": 32.0, "netIncome": 4.0, "costOfRevenue": 19.0},
+    {"date": "2025-06-28", "period": "Q1", "fiscalYear": "2025", "revenue": 30.0, "netIncome": 3.5, "costOfRevenue": 18.0},
+]
+
+CASH_FLOW_QUARTERLY_TEAM_SHAPED = [
+    {"date": "2026-03-28", "period": "Q4", "fiscalYear": "2025", "netCashProvidedByOperatingActivities": 22.0},
+    {"date": "2025-12-27", "period": "Q3", "fiscalYear": "2025", "netCashProvidedByOperatingActivities": 5.0},
+    {"date": "2025-09-27", "period": "Q2", "fiscalYear": "2025", "netCashProvidedByOperatingActivities": 4.5},
+    {"date": "2025-06-28", "period": "Q1", "fiscalYear": "2025", "netCashProvidedByOperatingActivities": 4.0},
+]
+
+
+def test_get_step4_data_corrects_team_shaped_duplicate_annual_quarter(monkeypatch):
+    _fresh_engine(monkeypatch)
+
+    async def fake_profile(ticker):
+        return [{"sector": "Technology", "industry": "Consumer Electronics"}]
+
+    async def fake_income_statement(ticker, period, limit):
+        return INCOME_ANNUAL if period == "annual" else INCOME_QUARTERLY_TEAM_SHAPED
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return BALANCE_SHEET_ANNUAL if period == "annual" else BALANCE_SHEET_QUARTERLY
+
+    async def fake_key_metrics(ticker, period, limit):
+        return KEY_METRICS_ANNUAL
+
+    async def fake_key_metrics_ttm(ticker):
+        return KEY_METRICS_TTM
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return CASH_FLOW_ANNUAL if period == "annual" else CASH_FLOW_QUARTERLY_TEAM_SHAPED
+
+    monkeypatch.setattr(step4_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step4_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step4_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    monkeypatch.setattr(step4_data.fmp_client, "get_key_metrics", fake_key_metrics)
+    monkeypatch.setattr(step4_data.fmp_client, "get_key_metrics_ttm", fake_key_metrics_ttm)
+    monkeypatch.setattr(step4_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+    result = asyncio.run(get_step4_data("team"))
+
+    # TTM revenue/net_income/ocf all resolve to the annual figure itself --
+    # not the raw, inflated double-count a pre-fix Fathom would have shown.
+    assert result.revenue[-1] == 146.41
+    flagged_metrics = {w.metric for w in result.outlier_warnings}
+    assert "revenue" not in flagged_metrics
+    assert "net_income" not in flagged_metrics
+    assert "ocf" not in flagged_metrics
+
+
 def test_scoring_now_uses_the_full_10yr_window_including_bad_older_years(monkeypatch):
     # The older 5 years (2016-2020) have deliberately terrible ROE/ROIC (2%)
     # blended in with the recent 5's excellent 20%/18%. Scoring now uses the
