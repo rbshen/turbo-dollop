@@ -3,7 +3,9 @@
 import { MetricsGrid } from "@/components/ticker/MetricsGrid";
 import { SegmentationSection } from "@/components/ticker/SegmentationSection";
 import { SegmentationSnapshotSection } from "@/components/ticker/SegmentationSnapshotSection";
+import { SpeculativeGrowthPill } from "@/components/ticker/SpeculativeGrowthPill";
 import { useSegmentation } from "@/lib/hooks/useSegmentation";
+import { useSpeculativeGrowth } from "@/lib/hooks/useSpeculativeGrowth";
 import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
 import { METRIC_GROUPS } from "@/lib/metrics/config";
 import { getLatestPeriod } from "@/lib/segmentation";
@@ -15,6 +17,7 @@ interface Props {
 export function SummaryTab({ ticker }: Props) {
   const { data, error } = useTickerSummary(ticker);
   const { data: segmentation } = useSegmentation(ticker);
+  const { data: specGrowthData } = useSpeculativeGrowth(ticker);
 
   const productLatest = segmentation
     ? getLatestPeriod(segmentation.product_years, segmentation.product_segments, segmentation.product_values)
@@ -42,6 +45,8 @@ export function SummaryTab({ ticker }: Props) {
 
   return (
     <div className="space-y-6 py-6">
+      {specGrowthData?.qualifies && <SpeculativeGrowthPill data={specGrowthData} variant="chip" />}
+
       {data.description && <p className="text-sm leading-relaxed text-text-body">{data.description}</p>}
 
       <MetricsGrid groups={METRIC_GROUPS} values={data} outlierWarnings={data.outlier_warnings} />
