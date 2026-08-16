@@ -238,6 +238,19 @@ async def _cross_check(
             return CrossCheckResult(False, None, None, None, f"SEC EDGAR cross-check unavailable: no CIK found for {ticker}.")
 
         facts = await get_company_facts(session, ticker, cik, staleness_days)
+        if facts is None:
+            # Only reachable when FMP_ENABLED is False and this ticker's
+            # sec_company_facts row has never been cached (get_or_fetch
+            # returns None rather than fetching live) -- degrade the same
+            # way a missing CIK does, don't let finder() below blow up on a
+            # None facts dict.
+            return CrossCheckResult(
+                False,
+                None,
+                None,
+                None,
+                f"SEC EDGAR cross-check unavailable: no cached company facts for {ticker} and live fetch is disabled.",
+            )
         found = finder(facts, tag_candidates, target_end)
         if found is None:
             return CrossCheckResult(

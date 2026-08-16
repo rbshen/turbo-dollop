@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import httpx
@@ -17,6 +17,7 @@ from clients.sec_edgar import (
     find_discrete_income_statement_value,
     get_cik,
 )
+from core.models import FundamentalsCache
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PEP_FACTS = json.loads((FIXTURES / "pep_company_facts_sample.json").read_text())
@@ -305,6 +306,43 @@ def test_cross_check_degrades_gracefully_when_cik_not_found(monkeypatch):
     assert result.sec_value is None
     assert result.matches_fmp is None
     assert "no CIK found" in result.note
+
+
+def test_cross_check_degrades_gracefully_when_fmp_paused_and_company_facts_never_cached(monkeypatch):
+    # Repro from the FMP_ENABLED verification pass (2026-08-16): FMP paused,
+    # a warm profile cache (so get_cik resolves a real CIK without a live
+    # call), but this ticker's sec_company_facts row has never been
+    # populated -- get_company_facts degrades to None (get_or_fetch's own
+    # FMP-paused behavior for a cold row) rather than raising. Must return a
+    # clean unavailable result, not blow up inside finder() on a None facts
+    # dict.
+    engine = _fresh_engine(monkeypatch)
+    monkeypatch.setattr(sec_edgar.settings, "fmp_enabled", False)
+
+    with Session(engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="MSFT",
+                statement_type="profile",
+                period="latest",
+                fetched_at=datetime.now(),
+                raw_json=json.dumps(MSFT_PROFILE),
+            )
+        )
+        session.commit()
+
+    async def fail_if_called(cik):
+        raise AssertionError("must not attempt a live SEC EDGAR fetch while FMP_ENABLED is False")
+
+    monkeypatch.setattr(sec_edgar, "_fetch_company_facts", fail_if_called)
+
+    with Session(engine) as session:
+        result = asyncio.run(cross_check_income_taxes_paid(session, "MSFT", date(2025, 6, 30), 0.0, 7))
+
+    assert result.available is False
+    assert result.sec_value is None
+    assert result.matches_fmp is None
+    assert "no cached company facts" in result.note
 
 
 def test_cross_check_degrades_gracefully_on_network_error(monkeypatch):
