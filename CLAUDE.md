@@ -277,6 +277,29 @@ case above) can never mask or alter the job's real outcome.
 site-wide `CronHealthBanner` (mounted next to `FmpPausedBanner`), visible
 only when at least one job isn't healthy.
 
+**`Settings.cron_health_enabled`** (`CRON_HEALTH_ENABLED` in `.env`,
+default `true`, same read-once-at-process-start convention as
+`fmp_enabled`) gates only this reporting/surfacing layer — when `false`,
+`get_cron_health()` short-circuits to `{enabled: false, jobs: []}` before
+touching the DB, and `CronHealthBanner` renders nothing, an explicit skip
+distinct from "checked and everything's ok". `cron_heartbeat()` itself is
+never gated by this flag — `CronRunLog` rows keep being written regardless,
+so history isn't lost and flipping the flag back on picks up right where
+it left off. Investigated (2026-08-17) whether the heartbeat itself needs
+a way to distinguish a job intentionally no-op'ing under `FMP_ENABLED=
+false` from a genuine failure: confirmed every FMP call site across the 11
+wired scripts already sits inside a per-ticker `try/except` that swallows
+`FMPDisabledError` before it reaches `cron_heartbeat`'s own exception
+handler, so no wired job currently produces a spurious `"failure"` row
+purely from an FMP pause — no heartbeat change was needed for this flag.
+(Separately found, not fixed here: `monthly_price_target_snapshot.py`
+lacks the explicit `if not settings.fmp_enabled: ...` early-return guard
+`nightly_fundamentals_fetch.py` has, so during an FMP pause it still loops
+the full ticker list and reports a misleading `"success"` with 0 tickers
+actually snapshotted, rather than skipping outright — a real but unrelated
+gap in that script's own logic, not something this display flag should
+paper over.)
+
 **`CRON_JOB_NAMES` in `core/cron_health.py` is the single source of truth
 for which cron jobs exist** — a new cron job added to `crontab.txt` needs
 a matching `CRON_JOB_NAMES` entry, an `_EXPECTED_CADENCE_HOURS` entry, and

@@ -230,6 +230,15 @@ which 11 jobs exist — `tests/test_cron_wiring.py` fails loudly if
 stops calling `cron_heartbeat(...)`, so a future 12th cron job can't ship
 unmonitored by accident.
 
+**`CRON_HEALTH_ENABLED=false`** (`.env`, default `true`, requires a
+backend restart — same convention as `FMP_ENABLED`) mutes the endpoint and
+banner without touching heartbeat writes: `GET /api/config/cron-health`
+returns `{"enabled": false, "jobs": []}` and `CronHealthBanner` renders
+nothing. `CronRunLog` rows keep accumulating normally the whole time — this
+is a display kill-switch, not a pause of the monitoring itself, useful for
+an extended `FMP_ENABLED=false` window where a second banner alongside
+`FmpPausedBanner` would just be noise the operator already knows about.
+
 ## Weekly index constituent refresh (S&P 500 / Dow)
 
 Cron: `crontab.txt`, Sundays 1:00 AM (S&P 500) and 1:05 AM (Dow). Scripts:
