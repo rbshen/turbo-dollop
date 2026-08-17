@@ -8,6 +8,15 @@ from pathlib import Path
 _APIKEY_PATTERN = re.compile(r'(apikey=)[^&\s"\']+', re.IGNORECASE)
 
 
+def redact_apikey(text: str) -> str:
+    """Strips the FMP apikey query parameter from arbitrary text. Shared by
+    RedactApiKeyFilter (log records) and core.cron_health (CronRunLog's
+    error_summary, which surfaces via the API/UI banner -- a destination
+    that needs the same protection a raw exception message embedding a
+    fetch URL could otherwise leak into)."""
+    return _APIKEY_PATTERN.sub(r"\1REDACTED", text)
+
+
 class RedactApiKeyFilter(logging.Filter):
     """Strips the FMP apikey query parameter from a log record's rendered
     message before it's written anywhere. httpx logs full request URLs
@@ -18,7 +27,7 @@ class RedactApiKeyFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
-        redacted = _APIKEY_PATTERN.sub(r"\1REDACTED", message)
+        redacted = redact_apikey(message)
         if redacted != message:
             record.msg = redacted
             record.args = ()

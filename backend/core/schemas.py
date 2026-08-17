@@ -702,6 +702,35 @@ class FmpStatusOut(BaseModel):
     enabled: bool
 
 
+class CronRunOut(BaseModel):
+    """Mirrors CronRunLog. `status` here is the raw per-run value
+    ("running"/"success"/"failure") -- see CronJobHealthOut.health_status
+    for the computed ok/overdue/failed/unknown state a job as a whole is in."""
+
+    job_name: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    status: str
+    error_summary: str | None = None
+
+
+class CronJobHealthOut(BaseModel):
+    # Named health_status, not status, to avoid colliding with
+    # CronRunOut.status's different vocabulary (running/success/failure vs.
+    # this field's ok/overdue/failed/unknown).
+    job_name: str
+    health_status: Literal["ok", "overdue", "failed", "unknown"]
+    message: str | None = None
+    last_run: CronRunOut | None = None
+    last_success_at: datetime | None = None
+
+
+class CronHealthOut(BaseModel):
+    # Unlike FmpStatusOut, this changes live every night with no backend
+    # restart -- the frontend hook (useCronHealth) polls it for that reason.
+    jobs: list[CronJobHealthOut]
+
+
 class DiscountRateConfigOut(BaseModel):
     region: str
     risk_free_rate: float
