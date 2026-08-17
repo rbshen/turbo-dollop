@@ -19,6 +19,7 @@ from typing import Iterator
 
 from sqlmodel import Session, SQLModel, select
 
+from core.config import settings
 from core.db import engine
 from core.logging_config import redact_apikey
 from core.models import CronRunLog
@@ -210,6 +211,12 @@ def _job_health(job_name: str, session: Session, now: datetime) -> CronJobHealth
 
 
 def get_cron_health() -> CronHealthOut:
+    # Gates reporting only -- cron_heartbeat() above writes CronRunLog rows
+    # unconditionally, regardless of this flag, so history is preserved and
+    # flipping it back on (requires a backend restart, same as every other
+    # Settings field) picks up right where it left off.
+    if not settings.cron_health_enabled:
+        return CronHealthOut(enabled=False, jobs=[])
     now = datetime.now()
     with Session(engine) as session:
-        return CronHealthOut(jobs=[_job_health(job_name, session, now) for job_name in CRON_JOB_NAMES])
+        return CronHealthOut(enabled=True, jobs=[_job_health(job_name, session, now) for job_name in CRON_JOB_NAMES])

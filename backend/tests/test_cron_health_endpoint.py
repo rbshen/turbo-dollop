@@ -5,6 +5,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 import core.cron_health as cron_health
+import core.main as main
 from core.main import app
 from core.models import CronRunLog
 
@@ -31,6 +32,7 @@ def test_cron_health_returns_all_known_jobs(monkeypatch):
         response = client.get("/api/config/cron-health")
     assert response.status_code == 200
     body = response.json()
+    assert body["enabled"] is True
     assert {j["job_name"] for j in body["jobs"]} == set(cron_health.CRON_JOB_NAMES)
 
 
@@ -130,3 +132,27 @@ def test_stuck_running_job_with_no_success_is_overdue(monkeypatch):
     job = _job(response.json(), "pipeline.backup_db")
     assert job["health_status"] == "overdue"
     assert "may be stuck" in job["message"]
+
+
+def test_cron_health_disabled_reports_enabled_false_and_no_jobs(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    # Even with a real failure row present, a disabled check must not leak
+    # any per-job data -- confirms this is a genuine short-circuit, not
+    # just an empty-database coincidence.
+    with Session(engine) as session:
+        session.add(
+            CronRunLog(
+                job_name="pipeline.backup_db",
+                started_at=datetime.now(),
+                finished_at=datetime.now(),
+                status="failure",
+                error_summary="disk is full",
+            )
+        )
+        session.commit()
+    monkeypatch.setattr(main.settings, "cron_health_enabled", False)
+
+    with TestClient(app) as client:
+        response = client.get("/api/config/cron-health")
+    assert response.status_code == 200
+    assert response.json() == {"enabled": False, "jobs": []}

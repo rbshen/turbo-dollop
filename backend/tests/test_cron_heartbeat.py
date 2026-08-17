@@ -96,6 +96,21 @@ def test_heartbeat_write_failure_does_not_mask_the_real_exception(monkeypatch):
     assert ran is True
 
 
+def test_heartbeat_still_writes_when_cron_health_reporting_is_disabled(monkeypatch):
+    """CRON_HEALTH_ENABLED gates GET /api/config/cron-health's reporting
+    only -- CronRunLog rows must keep being written regardless, so history
+    isn't lost while the flag is off."""
+    engine = _fresh_engine(monkeypatch)
+    monkeypatch.setattr(cron_health.settings, "cron_health_enabled", False)
+
+    with cron_health.cron_heartbeat("pipeline.prune_cache"):
+        pass
+
+    with Session(engine) as session:
+        row = session.exec(select(CronRunLog)).one()
+    assert row.status == "success"
+
+
 def test_get_cron_health_reports_unknown_for_a_job_with_no_rows(monkeypatch):
     _fresh_engine(monkeypatch)
 

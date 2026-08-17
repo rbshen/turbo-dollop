@@ -28,6 +28,15 @@ class Settings(BaseSettings):
     # requires a backend restart to take effect, same as every other
     # Settings field.
     fmp_enabled: bool = True
+    # Gates only GET /api/config/cron-health's reporting and the frontend
+    # banner -- CronRunLog rows keep being written regardless (see
+    # core/cron_health.py::cron_heartbeat), so history isn't lost and
+    # nothing needs to be gated at the write layer. Useful for muting
+    # cron-health surfacing during an extended FMP_ENABLED=false pause,
+    # where the operator already knows the situation and doesn't need a
+    # second banner competing with FmpPausedBanner. Read once at process
+    # start, same as every other Settings field.
+    cron_health_enabled: bool = True
     database_path: str = "fathom.db"
     cache_staleness_days: int = 7
     # Company profile (name, sector, industry, description, exchange, beta)

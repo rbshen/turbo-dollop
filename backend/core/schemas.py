@@ -726,8 +726,13 @@ class CronJobHealthOut(BaseModel):
 
 
 class CronHealthOut(BaseModel):
-    # Unlike FmpStatusOut, this changes live every night with no backend
+    # Unlike FmpStatusOut, jobs changes live every night with no backend
     # restart -- the frontend hook (useCronHealth) polls it for that reason.
+    # `enabled` mirrors FmpStatusOut.enabled -- False (with jobs always [])
+    # when Settings.cron_health_enabled is False, a distinct, explicit
+    # "not checking" state that must never be conflated with "checked and
+    # everything's ok" (enabled=True, every job's health_status == "ok").
+    enabled: bool
     jobs: list[CronJobHealthOut]
 
 
