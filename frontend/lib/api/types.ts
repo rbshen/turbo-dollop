@@ -26,6 +26,28 @@ export interface FmpStatusOut {
   enabled: boolean;
 }
 
+export interface CronRunOut {
+  // Raw per-run value -- see CronJobHealthOut.health_status for the
+  // computed ok/overdue/failed/unknown state a job as a whole is in.
+  job_name: string;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  error_summary: string | null;
+}
+
+export interface CronJobHealthOut {
+  job_name: string;
+  health_status: "ok" | "overdue" | "failed" | "unknown";
+  message: string | null;
+  last_run: CronRunOut | null;
+  last_success_at: string | null;
+}
+
+export interface CronHealthOut {
+  jobs: CronJobHealthOut[];
+}
+
 export interface RefreshResult {
   ticker: string;
   cleared_entries: number;
