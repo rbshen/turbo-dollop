@@ -34,6 +34,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
+from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from helpers.first import _first
 from clients.fmp_client import fmp_client
@@ -149,4 +150,5 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
 
 if __name__ == "__main__":
     cli_args = _parse_args()
-    asyncio.run(main(_resolve_cli_tickers(cli_args)))
+    with cron_heartbeat("pipeline.monthly_price_target_snapshot"):
+        asyncio.run(main(_resolve_cli_tickers(cli_args)))

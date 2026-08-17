@@ -18,6 +18,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
+from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from scrapers.dow_scraper import refresh_dow_constituents
 from core.logging_config import configure_logging
@@ -40,4 +41,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    with cron_heartbeat("scrapers.refresh_dow_list"):
+        asyncio.run(main())

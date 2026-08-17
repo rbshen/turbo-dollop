@@ -17,6 +17,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
+from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from scrapers.sp500_scraper import refresh_sp500_constituents
@@ -39,4 +40,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    with cron_heartbeat("scrapers.refresh_sp500_list"):
+        asyncio.run(main())

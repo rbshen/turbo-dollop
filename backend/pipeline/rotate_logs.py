@@ -34,6 +34,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+from core.cron_health import cron_heartbeat
 from core.logging_config import configure_logging
 
 LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
@@ -105,4 +106,5 @@ def _parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     cli_args = _parse_args()
-    main(cli_args.threshold_mb)
+    with cron_heartbeat("pipeline.rotate_logs"):
+        main(cli_args.threshold_mb)

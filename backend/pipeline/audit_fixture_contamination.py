@@ -20,6 +20,7 @@ import json
 
 from sqlmodel import Session, select
 
+from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from helpers.first import _first
 from core.models import FundamentalsCache
@@ -109,4 +110,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    with cron_heartbeat("pipeline.audit_fixture_contamination"):
+        main()

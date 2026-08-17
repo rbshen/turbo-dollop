@@ -20,6 +20,7 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
+from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from core.models import FundamentalsCache
@@ -95,4 +96,5 @@ def _parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     cli_args = _parse_args()
-    main(cli_args.days)
+    with cron_heartbeat("pipeline.stale_data_health_check"):
+        main(cli_args.days)

@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.config import BASE_DIR, settings
+from core.cron_health import cron_heartbeat
 from core.logging_config import configure_logging
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "backup_db.log"
@@ -82,4 +83,5 @@ def main() -> Path:
 
 
 if __name__ == "__main__":
-    main()
+    with cron_heartbeat("pipeline.backup_db"):
+        main()

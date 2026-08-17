@@ -26,6 +26,7 @@ from sqlalchemy import delete
 from sqlmodel import Session, func, select
 
 from core.config import settings
+from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from core.models import FundamentalsCache
@@ -72,4 +73,5 @@ def _parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     cli_args = _parse_args()
-    main(cli_args.retention_days, dry_run=cli_args.dry_run)
+    with cron_heartbeat("pipeline.prune_cache"):
+        main(cli_args.retention_days, dry_run=cli_args.dry_run)
