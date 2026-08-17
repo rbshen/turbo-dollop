@@ -292,13 +292,19 @@ wired scripts already sits inside a per-ticker `try/except` that swallows
 `FMPDisabledError` before it reaches `cron_heartbeat`'s own exception
 handler, so no wired job currently produces a spurious `"failure"` row
 purely from an FMP pause — no heartbeat change was needed for this flag.
-(Separately found, not fixed here: `monthly_price_target_snapshot.py`
-lacks the explicit `if not settings.fmp_enabled: ...` early-return guard
-`nightly_fundamentals_fetch.py` has, so during an FMP pause it still loops
-the full ticker list and reports a misleading `"success"` with 0 tickers
-actually snapshotted, rather than skipping outright — a real but unrelated
-gap in that script's own logic, not something this display flag should
-paper over.)
+(Separately found, and fixed the same day: `monthly_price_target_snapshot.py`
+was missing the equivalent `if not settings.fmp_enabled: ...` early-return
+guard `nightly_fundamentals_fetch.py` already had, so during an FMP pause
+it still looped the full ticker list and reported a misleading `"success"`
+with 0 tickers actually snapshotted, rather than skipping outright. Added
+the same guard, placed identically (right after `init_db()`, before
+resolving the ticker universe) — the comment there notes the one real
+difference from nightly's version: this script never goes through
+`cache.get_or_fetch` at all, so there's no `cache_only` distinction to
+carry over, just a direct always-live `fmp_client` call either way. Same
+`skipped: True` summary-dict convention, so a gated no-op still reads as a
+legitimate `cron_heartbeat` `"success"` while remaining distinguishable
+from "ran normally and genuinely snapshotted nothing" in the log.)
 
 **`CRON_JOB_NAMES` in `core/cron_health.py` is the single source of truth
 for which cron jobs exist** — a new cron job added to `crontab.txt` needs

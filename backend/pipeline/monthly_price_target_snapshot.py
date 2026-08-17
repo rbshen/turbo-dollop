@@ -34,6 +34,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
+from core.config import settings
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from helpers.first import _first
@@ -74,6 +75,24 @@ async def main(tickers: list[str] | None = None) -> dict:
     configure_logging(LOG_PATH)
     logger = logging.getLogger(__name__)
     init_db()
+
+    if not settings.fmp_enabled:
+        # Same rationale as nightly_fundamentals_fetch.py's equivalent guard
+        # (check first, before even resolving the ticker universe) -- but
+        # this script's own reason is slightly different: it doesn't go
+        # through cache.get_or_fetch at all (see the module docstring), so
+        # there's no cache_only distinction to make here -- every fetch this
+        # script makes is a direct, always-live fmp_client call, full stop.
+        # Without this guard the loop below still "completes successfully"
+        # (each per-ticker failure is caught individually, same as always),
+        # so cron_heartbeat correctly logs a "success" CronRunLog row either
+        # way -- gated no-op is a legitimate success. The `skipped: True`
+        # key exists so a human reading the log (or a future summary-dict
+        # consumer) can still tell "gated no-op, 0 processed by design"
+        # apart from "ran normally and genuinely snapshotted nothing" --
+        # same convention nightly_fundamentals_fetch.py already uses.
+        logger.info("Monthly price-target snapshot skipped: FMP paused (FMP_ENABLED=False).")
+        return {"processed": 0, "failed": 0, "calls_made": 0, "duration_seconds": 0.0, "failures": [], "skipped": True}
 
     if tickers is None:
         with Session(engine) as session:
