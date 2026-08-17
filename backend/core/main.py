@@ -8,6 +8,7 @@ from sqlmodel import Session, func, select
 from data.analyst_ratings_data import get_analyst_ratings_data
 from helpers.bank_capital_metrics import get_ticker_bank_capital_metrics, set_ticker_bank_capital_metrics
 from core.config import settings
+from core.cron_health import get_cron_health
 from core.db import engine, init_db
 from core.exceptions import TickerNotFoundError
 from helpers.discount_rate_config import get_discount_rate_config, update_discount_rate_config
@@ -27,6 +28,7 @@ from data.speculative_growth_data import get_speculative_growth_data
 from data.ticker_search import search_tickers
 from core.schemas import (
     AnalystRatingsOut,
+    CronHealthOut,
     DiscountRateConfigIn,
     DiscountRateConfigOut,
     FinancialsOut,
@@ -128,6 +130,16 @@ def health() -> dict:
 @app.get("/api/config/fmp-status", response_model=FmpStatusOut)
 def fmp_status() -> FmpStatusOut:
     return FmpStatusOut(enabled=settings.fmp_enabled)
+
+
+# Backs the site-wide CronHealthBanner. Unlike fmp_status above, this
+# changes live every night with no backend restart, so the frontend hook
+# (useCronHealth) polls it rather than relying on SWR's default
+# revalidate-on-focus alone -- see core/cron_health.py for the underlying
+# CronRunLog table and per-job status computation.
+@app.get("/api/config/cron-health", response_model=CronHealthOut)
+def cron_health() -> CronHealthOut:
+    return get_cron_health()
 
 
 @app.get("/api/config/discount-rate", response_model=DiscountRateConfigOut)
