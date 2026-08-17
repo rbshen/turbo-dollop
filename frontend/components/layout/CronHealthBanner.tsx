@@ -12,7 +12,12 @@ import { useCronHealth } from "@/lib/hooks/useCronHealth";
 export function CronHealthBanner() {
   const { data } = useCronHealth();
 
-  const problemJobs = data?.jobs.filter((job) => job.health_status !== "ok") ?? [];
+  // data.enabled is an explicit skip (CRON_HEALTH_ENABLED=false), distinct
+  // from "checked and every job came back ok" -- both render nothing, but
+  // only one of them means the backend actually looked.
+  if (!data || !data.enabled) return null;
+
+  const problemJobs = data.jobs.filter((job) => job.health_status !== "ok");
   if (problemJobs.length === 0) return null;
 
   return (

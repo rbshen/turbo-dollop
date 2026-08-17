@@ -45,6 +45,10 @@ export interface CronJobHealthOut {
 }
 
 export interface CronHealthOut {
+  // Mirrors FmpStatusOut.enabled. False (with jobs always []) when
+  // CRON_HEALTH_ENABLED is off -- a distinct, explicit "not checking"
+  // state, never conflated with "checked and everything's ok".
+  enabled: boolean;
   jobs: CronJobHealthOut[];
 }
 
