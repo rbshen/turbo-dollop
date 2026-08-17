@@ -314,3 +314,22 @@ class PriceTargetSnapshot(SQLModel, table=True):
     target_low: float | None = None
     target_median: float | None = None
     fetched_at: datetime
+
+
+class CronRunLog(SQLModel, table=True):
+    """One row per cron job invocation, written by core.cron_health.cron_heartbeat
+    -- deliberately append-only (no UniqueConstraint, no upsert), same
+    pattern as PriceTargetSnapshot above, since a run history is the whole
+    point: a "running" row with no finished_at past that job's expected
+    cadence is itself a useful stuck/crashed signal, not just noise to
+    overwrite. Built to close the blind spot where an uncaught exception in
+    a cron script bypasses the script's own logging.FileHandler entirely
+    and only ever reaches stderr/<job>_cron.log -- see
+    core/cron_health.py."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    job_name: str = Field(index=True)  # dotted module path, e.g. "pipeline.backup_db" -- matches crontab.txt's `-m` invocation exactly
+    started_at: datetime
+    finished_at: datetime | None = None
+    status: str  # "running" | "success" | "failure"
+    error_summary: str | None = None
