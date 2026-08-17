@@ -256,6 +256,38 @@ anytime) scans `FundamentalsCache` for the same class of fingerprint and
 should be run if this is ever suspected again — now genuinely running
 weekly via cron (Sundays 1:20 AM), not just documented as if it were.
 
+## Cron job heartbeat / health monitoring
+
+Built after a 2026-08-16 audit found an uncaught exception in a cron
+script (Python's default excepthook) bypasses `configure_logging()`'s
+handlers entirely, landing only in stderr/`<job>_cron.log` — invisible
+anywhere in the app itself (real incidents: `sp500_list_refresh`'s
+`sqlite3.IntegrityError` on 07-26/08-02, `backup_db`'s disk-full error on
+08-09). `backend/core/cron_health.py::cron_heartbeat("<job_name>")` wraps
+every one of the 11 real cron jobs' entry points (`if __name__ ==
+"__main__":`), writing a `CronRunLog` row regardless of how the job fails.
+Purely additive — on failure the original exception is always re-raised
+unchanged, so existing stderr/`_cron.log` capture and exit codes are
+untouched; the heartbeat's own DB writes are independently
+try/except-swallowed, so a heartbeat failure (e.g. the exact disk-full
+case above) can never mask or alter the job's real outcome.
+
+`GET /api/config/cron-health` computes each job's health from its
+`CronRunLog` history (`ok`/`overdue`/`failed`/`unknown`) and backs the
+site-wide `CronHealthBanner` (mounted next to `FmpPausedBanner`), visible
+only when at least one job isn't healthy.
+
+**`CRON_JOB_NAMES` in `core/cron_health.py` is the single source of truth
+for which cron jobs exist** — a new cron job added to `crontab.txt` needs
+a matching `CRON_JOB_NAMES` entry, an `_EXPECTED_CADENCE_HOURS` entry, and
+a `cron_heartbeat(...)` call at its own entry point, or it ships
+unmonitored. `backend/tests/test_cron_wiring.py` fails loudly if any of
+these three ever drift apart, so this isn't just a documentation
+convention to remember by hand. Full mechanism, exact cadence windows, and
+the two incidents this closed are documented in `backend/OPS_RUNBOOK.md`'s
+"Cron job heartbeat / health monitoring" section and its "Known gaps"
+entry, not duplicated here.
+
 ## Scoring rubric notes
 
 Financials' scoring rubric has been refined several times after live

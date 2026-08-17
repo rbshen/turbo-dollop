@@ -98,6 +98,17 @@ tail -50 backend/logs/nightly_fundamentals_fetch.log
 tail -50 backend/logs/audit_fixture_contamination_cron.log   # no plain .log for this one
 ```
 
+**Don't rely on tailing these files alone to catch a crash.** An
+**uncaught** exception (Python's default excepthook) prints straight to
+stderr — bypassing `configure_logging()`'s handlers entirely, landing only
+in the `_cron.log` half of the pair above, invisible in the plain `.log`
+and invisible anywhere in the app itself. This actually happened twice
+(`sp500_list_refresh` 07-26/08-02, `backup_db` 08-09 — see "Known gaps"
+below). `GET /api/config/cron-health` (surfaced as a site-wide banner when
+any job isn't healthy) exists specifically to catch this class of failure
+without anyone needing to tail a log at all — see "Cron job heartbeat /
+health monitoring" below.
+
 ## Maintenance scripts (`backend/pipeline/`)
 
 All of the scripts below are wired into `crontab.txt`'s weekly maintenance
@@ -187,6 +198,37 @@ radius even for a rare false positive — unlike the fabricated-data
 "Acme Corp" incident above, this only removes an already-empty cache
 footprint; a wrongly-purged real ticker simply re-fetches from FMP on
 its next view.
+
+### Cron job heartbeat / health monitoring
+
+Cross-cutting, not one specific script — `core/cron_health.py` wraps every
+one of the 11 jobs above (plus `nightly_score_recompute`, the weekly S&P
+500/Dow refreshes below, and `monthly_price_target_snapshot`) in a
+`cron_heartbeat("<job_name>")` context manager, added directly at each
+script's `if __name__ == "__main__":` block. It writes a `CronRunLog` row
+(`"running"` at start, `"success"`/`"failure"` at exit — one row per
+invocation, not an upsert, so a `"running"` row with no `finished_at` well
+past that job's expected cadence is itself a useful stuck/crashed signal)
+regardless of *how* the job fails, including an uncaught exception that
+would otherwise only ever reach stderr — see "Known gaps" above for the
+incident this was built to catch.
+
+`GET /api/config/cron-health` computes each job's `health_status` from its
+`CronRunLog` history: `"failed"` if the most recent row failed, `"unknown"`
+if no row exists yet, `"overdue"` if no successful run falls within that
+job's expected cadence (36h for the 3 daily jobs, ~8 days for the 7
+weekly-Sunday jobs, ~35 days for the monthly one — `core/cron_health.py`'s
+`_EXPECTED_CADENCE_HOURS`), else `"ok"`. The frontend's `CronHealthBanner`
+(site-wide, mounted next to `FmpPausedBanner`) renders nothing while every
+job is `"ok"`, and otherwise lists every non-ok job — so day to day, seeing
+no banner at all is the expected, healthy state; nobody needs to
+proactively check this endpoint or tail a log.
+
+`CRON_JOB_NAMES` in `core/cron_health.py` is the single source of truth for
+which 11 jobs exist — `tests/test_cron_wiring.py` fails loudly if
+`crontab.txt` and this list ever drift apart, or if a listed job's script
+stops calling `cron_heartbeat(...)`, so a future 12th cron job can't ship
+unmonitored by accident.
 
 ## Weekly index constituent refresh (S&P 500 / Dow)
 
@@ -281,6 +323,21 @@ that draft is why; it was never committed.
   real-data replay (zero live FMP calls spent): the 4 newly-gated
   endpoints drop from 569 guaranteed same-night fires each to 0-27; `quote`
   drops from 568/night guaranteed to ~81/night average.
+- **Cron silent-failure blind spot.** A 2026-08-16 audit of every
+  `<job>.log`/`<job>_cron.log` pair found two real, otherwise-invisible
+  incidents: `sp500_list_refresh` crashed with an uncaught
+  `sqlite3.IntegrityError` on 07-26 and 08-02, and `backup_db` crashed with
+  `sqlite3.OperationalError: database or disk is full` on 08-09 -- both
+  visible only in the raw `_cron.log` stderr capture, since an uncaught
+  exception bypasses `configure_logging()`'s handlers entirely. Closed by
+  the `CronRunLog` table + `cron_heartbeat()` wrapper (`core/cron_health.py`,
+  wired into all 11 scripts' entry points) + `GET /api/config/cron-health`
+  + the site-wide `CronHealthBanner` -- see "Cron job heartbeat / health
+  monitoring" below. Purely additive: the wrapper always re-raises the
+  original exception unchanged, so existing stderr/`_cron.log` capture and
+  exit codes are untouched; a heartbeat DB write failure (e.g. the exact
+  disk-full case above) is itself swallowed rather than masking the job's
+  real outcome.
 - **SEC EDGAR cross-check firing during the nightly bulk sweep.**
   `get_step5_data`'s on-demand cross-check was gated on `cache_only`
   alone, which the nightly job never sets (it needs live data for
