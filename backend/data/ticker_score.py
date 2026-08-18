@@ -100,10 +100,18 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
     # one is an equally valid source.
     company_type = (step4.company_type if step4 else None) or (step5.company_type if step5 else None)
 
+    # An ETF/fund product (e.g. SPY) has no single meaningful GICS sector --
+    # FMP's own profile sector for these is really "the fund sponsor's
+    # business," not the fund's -- so this is deliberately nulled rather
+    # than passed through, even though summary.sector (profile.get("sector"))
+    # itself is untouched (raw cache stays a faithful copy of what FMP
+    # returned; only this persisted/displayed field is suppressed).
+    sector = summary.sector if company_type != "ETF" else None
+
     row = TickerScore(
         ticker=ticker,
         company_name=summary.company_name,
-        sector=summary.sector,
+        sector=sector,
         industry=summary.industry,
         company_type=company_type,
         step1_score=step1.score if step1 else None,
