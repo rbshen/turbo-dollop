@@ -48,7 +48,9 @@ async def get_speculative_growth_data(ticker: str, cache_only: bool = False) -> 
                 ),
             )
         )
-        company_type = classify_company_type(profile.get("sector"), profile.get("industry"), ticker)
+        company_type = classify_company_type(
+            profile.get("sector"), profile.get("industry"), ticker, is_fund=bool(profile.get("isEtf") or profile.get("isFund"))
+        )
 
         if company_type != "Standard":
             gate = evaluate_speculative_growth(company_type, moat=None, growth_rate_pct=None)

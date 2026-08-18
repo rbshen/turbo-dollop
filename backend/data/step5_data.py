@@ -179,7 +179,9 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
                 ),
             )
         )
-        company_type = classify_company_type(profile.get("sector"), profile.get("industry"), ticker)
+        company_type = classify_company_type(
+            profile.get("sector"), profile.get("industry"), ticker, is_fund=bool(profile.get("isEtf") or profile.get("isFund"))
+        )
 
         # Balance sheet items are point-in-time snapshots -- the latest
         # available quarter is simply more current than the latest annual
@@ -339,6 +341,20 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
             # capital-adequacy ratio computable from FMP's data, the same
             # class of gap as Bank's own CET1), so this returns immediately
             # with no ratios at all rather than attempting one.
+            return Step5Out(
+                ticker=ticker,
+                company_type=company_type,
+                ratios={},
+                score=None,
+                verdict="not_supported",
+            )
+
+        if company_type == "ETF":
+            # An ETF/fund product has no independent operating balance sheet
+            # -- Current Ratio, Debt/EBITDA, DSR, and CET1 are all equally
+            # meaningless (there's no company-level debt or liquidity
+            # picture to assess), so this returns immediately with no
+            # ratios attempted, same shape as the Insurance branch above.
             return Step5Out(
                 ticker=ticker,
                 company_type=company_type,

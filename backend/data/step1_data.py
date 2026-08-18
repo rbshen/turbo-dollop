@@ -13,12 +13,14 @@ from scoring.step1 import score_step1
 from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 
-def _detect_exemption(sector: str | None, industry: str | None, ticker: str | None = None) -> str | None:
+def _detect_exemption(
+    sector: str | None, industry: str | None, ticker: str | None = None, is_fund: bool = False
+) -> str | None:
     """Heuristic sector/industry match for the Step 1 CFO exemption (Bank /
     Insurance / Property Developer / Commodity Company) — not exhaustive
     industry-code matching, a reasonable approximation for this phase.
 
-    Delegates Bank/Insurance/REIT detection to the shared
+    Delegates Bank/Insurance/REIT/ETF detection to the shared
     scoring.classification.classify_company_type -- the same classifier
     Step 4/5/Valuation use -- so Step 1 never drifts out of sync with them
     again (this used to be a fully standalone keyword match that only knew
@@ -27,9 +29,12 @@ def _detect_exemption(sector: str | None, industry: str | None, ticker: str | No
     reasoning -- claim timing, reserve movements, investment portfolio
     fluctuations making OCF noisy -- applies to them exactly as it does to
     Banks). Commodity Company has no equivalent in the shared classifier
-    (it's a Step 1-only exemption), so that check stays local."""
+    (it's a Step 1-only exemption), so that check stays local. ETF isn't a
+    Step 1 exemption either (falling through to `None` here is correct --
+    an ETF has no CFO to de-emphasize/swap, it just naturally scores
+    insufficient_data on real, non-Bank-shaped Revenue/CFO series)."""
     sector = (sector or "").strip()
-    shared_type = classify_company_type(sector, industry, ticker)
+    shared_type = classify_company_type(sector, industry, ticker, is_fund=is_fund)
     if shared_type in ("Bank", "Insurance"):
         return shared_type
     if shared_type == "REIT/Property Developer":
@@ -184,7 +189,9 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
     gross_margin = [(gp / rev * 100) if gp is not None and rev else None for gp, rev in zip(gross_profit, revenue)]
     net_margin = [(ni / rev * 100) if ni is not None and rev else None for ni, rev in zip(net_income, revenue)]
 
-    exemption = _detect_exemption(profile.get("sector"), profile.get("industry"), ticker)
+    exemption = _detect_exemption(
+        profile.get("sector"), profile.get("industry"), ticker, is_fund=bool(profile.get("isEtf") or profile.get("isFund"))
+    )
     cfo_exempt = exemption is not None
     is_bank = exemption == "Bank"
 

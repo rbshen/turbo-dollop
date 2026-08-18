@@ -112,6 +112,31 @@ def test_credit_services_non_lender_reverts_to_standard_examples():
         assert classify_company_type("Financial Services", "Financial - Credit Services", ticker) == "Standard"
 
 
+def test_etf_classified_before_bank_keyword_match_spy():
+    # SPY (SPDR S&P 500 ETF Trust): sector "Financial Services", industry
+    # "Asset Management" -- identical text to real asset-management
+    # companies (BLK, AMP), which the Bank keyword branch matches. Without
+    # is_fund=True, this ticker isn't on NON_LENDER_TICKER_OVERRIDES, so it
+    # would incorrectly fall through to "Bank" (confirmed real bug). The
+    # is_fund flag (from FMP's own isEtf profile field) must pre-empt the
+    # keyword match entirely, regardless of sector/industry text.
+    assert classify_company_type("Financial Services", "Asset Management", "SPY", is_fund=True) == "ETF"
+
+
+def test_fund_classified_before_bank_keyword_match_pty():
+    # PTY (PIMCO Corporate & Income Opportunity Fund): sector "Financial
+    # Services", industry "Asset Management - Income" -- same class of
+    # collision as SPY, via FMP's isFund flag instead of isEtf.
+    assert classify_company_type("Financial Services", "Asset Management - Income", "PTY", is_fund=True) == "ETF"
+
+
+def test_is_fund_default_false_preserves_existing_bank_behavior():
+    # Regression guard: omitting is_fund (the default) must reproduce
+    # today's behavior byte-for-byte -- a real asset manager without the
+    # fund flag set still classifies as Bank via the keyword match.
+    assert classify_company_type("Financial Services", "Asset Management") == "Bank"
+
+
 def test_capital_markets_no_overrides_needed():
     # Every "Financial - Capital Markets" ticker checked (GS 10.8%, MS 8.7%,
     # RJF 13.5%, HOOD 33.8%, SCHW 42.5%) turned out to be a genuine lender

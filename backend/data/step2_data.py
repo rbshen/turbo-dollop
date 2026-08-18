@@ -161,7 +161,9 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
                 ),
             )
         )
-        company_type = classify_company_type(profile.get("sector"), profile.get("industry"), ticker)
+        company_type = classify_company_type(
+            profile.get("sector"), profile.get("industry"), ticker, is_fund=bool(profile.get("isEtf") or profile.get("isFund"))
+        )
         is_reit = company_type == "REIT/Property Developer"
 
         dpu_note = None

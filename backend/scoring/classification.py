@@ -42,17 +42,32 @@ NON_LENDER_TICKER_OVERRIDES = {
 }
 
 
-def classify_company_type(sector: str | None, industry: str | None, ticker: str | None = None) -> str:
+def classify_company_type(sector: str | None, industry: str | None, ticker: str | None = None, is_fund: bool = False) -> str:
     """Best-effort sector/industry text match, shared by Step 1/3/4/5 --
     not a certified determination. A misclassified ticker would silently
     apply the wrong ratio/exemption set, so this is always surfaced in the
     UI/API, never hidden (see CLAUDE.md).
+
+    `is_fund` (FMP profile's `isEtf`/`isFund` flags) is checked before
+    anything else -- confirmed real case: SPY and PTY both report
+    sector "Financial Services" / industry "Asset Management" (and "Asset
+    Management - Income"), the identical text real asset-management
+    *companies* (BLK, AMP) report, so sector/industry keyword matching alone
+    can never reliably tell an ETF/fund product apart from the company that
+    manages it. Checking `is_fund` first means a fund can never collide with
+    ANY of the keyword branches below, regardless of what sector/industry
+    text FMP happens to attach to it -- unlike NON_LENDER_TICKER_OVERRIDES
+    (a hand-curated, ticker-level list that doesn't auto-generalize), this
+    is a structural fix that correctly classifies any future ETF/fund
+    without maintenance.
 
     Insurance is checked before Bank: both sit in the "Financial Services"
     sector, so checking Bank first would misclassify insurers whose industry
     text doesn't happen to also match "bank". `ticker` is optional (defaults
     to no override applying) since most of this function's logic doesn't
     need it -- only NON_LENDER_TICKER_OVERRIDES does."""
+    if is_fund:
+        return "ETF"
     sector = (sector or "").strip()
     industry_lower = (industry or "").strip().lower()
     if sector == "Financial Services" and "insurance" in industry_lower:

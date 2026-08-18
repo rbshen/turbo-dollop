@@ -329,7 +329,9 @@ async def get_step3_data(
     ratios_annual = ratios_annual if isinstance(ratios_annual, list) else []
     balance_sheet_latest = _first(balance_sheet_quarterly)
 
-    company_type = classify_company_type(profile.get("sector"), profile.get("industry"), ticker)
+    company_type = classify_company_type(
+        profile.get("sector"), profile.get("industry"), ticker, is_fund=bool(profile.get("isEtf") or profile.get("isFund"))
+    )
 
     if reported_currency and reported_currency != "USD" and fx_rate is None:
         # A genuine non-USD ticker whose FX rate couldn't be resolved at
