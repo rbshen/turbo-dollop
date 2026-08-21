@@ -999,4 +999,43 @@ export interface WatchlistRowOut {
   // analyst-ratings data for this ticker yet.
   consensus_rating: string;
   added_at: string;
+  // Minimum TrendAnalysisOut fields the Watchlist table's TREND column
+  // needs (see backend/data/trend_analysis_data.py::get_trend_analysis_data,
+  // cache_only=True) -- null until the nightly trend cron has computed a
+  // row for this ticker. bar_level is pre-computed backend-side (1-5); the
+  // frontend renders it directly via SignalBars, never re-deriving the band.
+  bar_level: 1 | 2 | 3 | 4 | 5 | null;
+  blended_score: number | null;
+  trend_state: "uptrend" | "downtrend" | null;
+}
+
+// A single classified swing's detail -- used for both last_confirmed_swing
+// and warning_swing below. See backend's SwingDetailOut/SwingDetail.
+export interface SwingDetailOut {
+  date: string;
+  price: number;
+  margin: number;
+  atr: number;
+  ratio: number;
+}
+
+// Latest trend-structure analysis for one ticker (swing/BOS/blended-score
+// engine) -- see backend/core/schemas.py::TrendAnalysisOut and
+// analysis/trend_structure/ for the full methodology. Designed to feed a
+// future ticker-page "Technical" tab (not built this round); the Watchlist
+// table itself only pulls the 3 fields folded into WatchlistRowOut above.
+export interface TrendAnalysisOut {
+  ticker: string;
+  computed_at: string;
+  trend_state: "uptrend" | "downtrend";
+  magnitude_tier: "weak" | "confirmed" | "strong" | null;
+  persistence_count: number;
+  bars_since_confirmation: number | null;
+  last_confirmed_swing: SwingDetailOut | null;
+  warning_flag: boolean;
+  warning_swing: SwingDetailOut | null;
+  efficiency_ratio: number | null;
+  regime: "trending" | "range-bound" | null;
+  blended_score: number;
+  bar_level: 1 | 2 | 3 | 4 | 5;
 }

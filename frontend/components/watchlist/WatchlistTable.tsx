@@ -13,6 +13,7 @@ import type { WatchlistOut, WatchlistRowOut, WatchlistSortField } from "@/lib/ap
 import { fmtCompactMoney, fmtNumber } from "@/lib/format";
 import type { SortDirection } from "@/lib/screenerFilters";
 import { flatChipClassFor } from "@/lib/tierColor";
+import { TREND_SIGNAL_COLOR } from "@/lib/trendSignal";
 import { cn } from "@/lib/utils";
 import { removeTickerFromWatchlist } from "@/lib/hooks/useWatchlists";
 import { sortWatchlistRows } from "@/lib/watchlistSort";
@@ -81,7 +82,11 @@ function TrendCell({ years, values }: { years: string[]; values: (number | null)
 // as ScreenerCard's own STEP_CHIPS removal. Price/Chg replaced (2026-08-03)
 // with Revenue/Net Income/CFO 5yr mini trend charts -- the live quote they
 // required was the one thing on this cache-only page that always hit FMP
-// live; see watchlist_data.py's now-removed _live_quote.
+// live; see watchlist_data.py's now-removed _live_quote. Trend (added
+// alongside the Yahoo-Finance-backed trend-structure feature) sits with the
+// other 5-bar-vs-3-bar signal-indicator columns, right after vs SPY -- a
+// 5-bar SignalBars reading row.bar_level (1-5) directly, no band mapping
+// re-derived on the frontend (see analysis/trend_structure/conviction.py).
 export function WatchlistTable({ watchlist, rows, error }: Props) {
   const sorted = useMemo(
     () => (rows ? sortWatchlistRows(rows, watchlist.sort_field as WatchlistSortField, watchlist.sort_direction as SortDirection) : []),
@@ -121,6 +126,7 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Moat</TableHead>
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Value</TableHead>
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>vs SPY</TableHead>
+            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Trend</TableHead>
             <TableHead className={`${HEAD_CLASS} text-center`}>Analysis</TableHead>
             <TableHead className={HEAD_CLASS}>Rating</TableHead>
             <TableHead className={`${HEAD_CLASS} text-right`}>Mkt Cap</TableHead>
@@ -178,6 +184,9 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
                     color={VERDICT_SIGNAL_COLOR[STATUS_TO_VERDICT[row.perf_5y_vs_spy_status]]}
                   />
                 )}
+              </TableCell>
+              <TableCell className="text-center">
+                {row.bar_level != null && <SignalBars level={row.bar_level} color={TREND_SIGNAL_COLOR[row.bar_level]} maxBars={5} />}
               </TableCell>
               <TableCell className="text-center">
                 <span
