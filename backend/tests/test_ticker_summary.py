@@ -982,3 +982,136 @@ def test_resolve_perf_vs_spy_exact_match_returns_match_status():
     assert pct == 0.0
     assert status == "match"
     assert insufficient is False
+
+
+class _FakeYahooRow:
+    def __init__(self, close: float):
+        self.close = close
+
+
+def _fresh_summary_engine(monkeypatch):
+    """Full engine isolation per CLAUDE.md's documented two-incident
+    convention: get_summary transitively reaches step2_data's own engine
+    (via the direct get_step2_data call) and, with this feature, the Yahoo
+    fallback's own get_or_fetch_price_history -- monkeypatched directly on
+    ticker_summary's imported reference below rather than needing a third
+    engine patch for clients.yahoo_cache."""
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(ticker_summary, "engine", test_engine)
+    monkeypatch.setattr(step2_data, "engine", test_engine)
+
+    async def fake_get_active_valuation(ticker, cache_only=False, step2_out=None):
+        return FAKE_STEP3_OUT
+
+    monkeypatch.setattr(ticker_summary, "get_active_valuation", fake_get_active_valuation)
+    return test_engine
+
+
+def test_get_summary_uses_yahoo_price_when_fmp_disabled(monkeypatch):
+    """FMP paused: every fmp_client call raises FMPDisabledError internally
+    (settings.fmp_enabled is a true shared singleton, so setting it False
+    here affects fmp_client.get() too, same as test_fmp_client.py's own
+    convention) -- safe_fetch degrades those to {}/empty defaults across
+    the board, EXCEPT price, which must come from a live Yahoo close
+    instead of staying null/stale."""
+    _fresh_summary_engine(monkeypatch)
+    monkeypatch.setattr(ticker_summary.settings, "fmp_enabled", False)
+
+    async def fake_get_or_fetch_price_history(ticker, period="2y", cache_only=False):
+        return [_FakeYahooRow(close=123.45)]
+
+    monkeypatch.setattr(ticker_summary, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+
+    summary = asyncio.run(get_summary("aapl"))
+
+    assert summary.price == 123.45
+
+
+def test_get_summary_yahoo_fallback_never_fires_when_fmp_enabled(monkeypatch):
+    """Regression guard: the FMP-enabled path must stay byte-for-byte
+    unchanged -- the Yahoo adapter is never consulted at all when FMP is
+    up, regardless of what fmp_client.get_quote returns. Every FMP call is
+    mocked (not just get_quote) so this test never attempts a real network
+    call -- this environment's own .env has FMP_ENABLED=false, so leaving
+    any fmp_client method unmocked while forcing fmp_enabled=True here would
+    otherwise fall through to a real, slow, flaky HTTP attempt."""
+    _fresh_summary_engine(monkeypatch)
+    monkeypatch.setattr(ticker_summary.settings, "fmp_enabled", True)
+
+    async def fake_quote(ticker):
+        return FAKE_QUOTE
+
+    async def fake_empty_list(*args, **kwargs):
+        return []
+
+    async def fake_empty_dict(*args, **kwargs):
+        return {}
+
+    async def fail_if_called(ticker, period="2y", cache_only=False):
+        raise AssertionError("Yahoo must never be consulted while FMP is enabled")
+
+    async def fake_profile(ticker):
+        return FAKE_PROFILE
+
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_quote", fake_quote)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_price_change", fake_empty_dict)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_analyst_estimates", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_earnings", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_balance_sheet_statement", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_income_statement", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_enterprise_values", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios_ttm", fake_empty_dict)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_historical_price_eod", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_financial_growth", fake_empty_dict)
+    monkeypatch.setattr(ticker_summary, "get_or_fetch_price_history", fail_if_called)
+
+    summary = asyncio.run(get_summary("aapl"))
+
+    assert summary.price == 190.5  # FAKE_QUOTE's own price, not a Yahoo value
+
+
+def test_get_summary_cache_only_never_consults_yahoo_even_when_fmp_disabled(monkeypatch):
+    """cache_only's whole contract is zero live calls of any kind, not just
+    FMP -- the Yahoo fallback must not fire under cache_only=True even
+    while FMP is paused."""
+    _fresh_summary_engine(monkeypatch)
+    monkeypatch.setattr(ticker_summary.settings, "fmp_enabled", False)
+
+    async def fail_if_called(ticker, period="2y", cache_only=False):
+        raise AssertionError("cache_only must never call Yahoo live")
+
+    monkeypatch.setattr(ticker_summary, "get_or_fetch_price_history", fail_if_called)
+
+    summary = asyncio.run(get_summary("aapl", cache_only=True))
+
+    assert summary.price is None  # no cached FMP quote, no Yahoo fallback either
+
+
+def test_get_summary_yahoo_fallback_keeps_stale_price_when_yahoo_has_no_data(monkeypatch):
+    """A Yahoo fetch returning nothing (delisted/typo'd symbol) must not
+    null out whatever price the (possibly stale) cached FMP quote already
+    had -- stale is still better than nothing, same convention used
+    throughout this codebase."""
+    _fresh_summary_engine(monkeypatch)
+
+    with Session(ticker_summary.engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker="AAPL", statement_type="quote", period="latest", fetched_at=datetime.now(), raw_json='[{"price": 111.0}]'
+            )
+        )
+        session.commit()
+
+    monkeypatch.setattr(ticker_summary.settings, "fmp_enabled", False)
+
+    async def fake_empty(ticker, period="2y", cache_only=False):
+        return []
+
+    monkeypatch.setattr(ticker_summary, "get_or_fetch_price_history", fake_empty)
+
+    summary = asyncio.run(get_summary("aapl"))
+
+    assert summary.price == 111.0  # served the stale cached FMP quote's price

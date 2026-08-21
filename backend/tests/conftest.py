@@ -21,6 +21,7 @@ outside of a pytest session."""
 import pytest
 from sqlalchemy import event
 
+import data.ticker_summary as ticker_summary
 from clients.fmp_client import fmp_client
 from core.db import engine as real_engine
 
@@ -69,3 +70,25 @@ def _default_earnings_fetch(monkeypatch):
         return []
 
     monkeypatch.setattr(fmp_client, "get_earnings", _default_get_earnings)
+
+
+@pytest.fixture(autouse=True)
+def _default_yahoo_price_history(monkeypatch):
+    """get_summary's FMP-disabled price fallback (data/ticker_summary.py)
+    calls clients.yahoo_cache.get_or_fetch_price_history whenever
+    settings.fmp_enabled is False and cache_only is False -- which is this
+    environment's own real default (.env has FMP_ENABLED=false), so any
+    test calling get_summary() non-cache_only would otherwise silently
+    reach the real Yahoo fetch / real core.db.engine (caught by
+    _forbid_writes_to_real_db above) purely because it doesn't itself care
+    about this feature. Defaults to an empty list (same "no Yahoo data,
+    fall back to whatever's already resolved" degradation
+    compute_and_store_trend_analysis's own callers already handle) so
+    existing tests are unaffected; a test that DOES care sets its own
+    monkeypatch.setattr(ticker_summary, "get_or_fetch_price_history", ...)
+    afterward, which simply overrides this default."""
+
+    async def _default_get_or_fetch_price_history(ticker, period="2y", cache_only=False):
+        return []
+
+    monkeypatch.setattr(ticker_summary, "get_or_fetch_price_history", _default_get_or_fetch_price_history)
