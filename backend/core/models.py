@@ -52,6 +52,39 @@ class YahooPriceCache(SQLModel, table=True):
     fetched_at: datetime
 
 
+class TrendAnalysis(SQLModel, table=True):
+    """Latest trend-structure analysis per ticker (swing/BOS/blended-score
+    engine, see analysis/trend_structure/ and data/trend_analysis_data.py)
+    -- sourced from Yahoo Finance (YahooPriceCache above), independent of
+    FMP entirely. Ticker-PK, no surrogate id, `computed_at` (not
+    `fetched_at`) naming -- same "this is a derived value" convention as
+    TickerScore, not a raw fetch cache. Upserted per run, latest-only (no
+    history needed), written by pipeline/nightly_trend_calculation.py.
+
+    last_confirmed_swing_json/warning_swing_json are plain `str`, manually
+    json.dumps/loads'd -- there is no native JSON column type anywhere in
+    this codebase (see FundamentalsCache.raw_json/SavedScreenerFilter.
+    filters_json/TickerCustomValuation.parameters_json for the established
+    convention this follows). Either can be None: last_confirmed_swing_json
+    is None only for a brand-new/too-thin swing history that's never
+    produced a weak-confirmed-or-stronger swing yet; warning_swing_json is
+    None whenever warning_flag is False."""
+
+    ticker: str = Field(primary_key=True)
+    computed_at: datetime
+    trend_state: str  # "uptrend" | "downtrend"
+    magnitude_tier: str | None = None  # "weak" | "confirmed" | "strong" | None
+    persistence_count: int
+    bars_since_confirmation: int | None = None
+    last_confirmed_swing_json: str | None = None
+    warning_flag: bool
+    warning_swing_json: str | None = None
+    efficiency_ratio: float | None = None
+    regime: str | None = None  # "trending" | "range-bound" | None
+    blended_score: float
+    bar_level: int  # 1-5, see analysis/trend_structure/conviction.py
+
+
 class IndexConstituent(SQLModel, table=True):
     """A ticker's membership in a named index (e.g. "sp500"), scraped from
     Wikipedia since FMP's own constituents endpoint is unavailable on this

@@ -948,6 +948,45 @@ class WatchlistUpdateIn(BaseModel):
     sort_direction: str | None = None
 
 
+class SwingDetailOut(BaseModel):
+    """A single classified swing's detail -- used for both
+    last_confirmed_swing and warning_swing below. See
+    analysis/trend_structure/types.py::SwingDetail."""
+
+    date: date
+    price: float
+    margin: float
+    atr: float
+    ratio: float
+
+
+class TrendAnalysisOut(BaseModel):
+    """Latest trend-structure analysis for one ticker -- see
+    analysis/trend_structure/ for the full swing/BOS/blended-score
+    methodology and models.py::TrendAnalysis for the persisted shape this
+    mirrors. None (the whole object, via the endpoint returning `| None`)
+    for a ticker with no computed row yet, rather than a fabricated
+    all-null result -- distinguishes "not computed yet" from "computed as
+    neutral." This is designed to feed a future ticker-page "Technical" tab
+    (not built this round) in addition to the Watchlist table's own TREND
+    column (which only pulls bar_level/blended_score/trend_state via the
+    bulk /watchlists/{id}/rows response, not this endpoint)."""
+
+    ticker: str
+    computed_at: datetime
+    trend_state: str  # "uptrend" | "downtrend"
+    magnitude_tier: str | None = None  # "weak" | "confirmed" | "strong" | None
+    persistence_count: int
+    bars_since_confirmation: int | None = None
+    last_confirmed_swing: SwingDetailOut | None = None
+    warning_flag: bool
+    warning_swing: SwingDetailOut | None = None
+    efficiency_ratio: float | None = None
+    regime: str | None = None  # "trending" | "range-bound" | None
+    blended_score: float
+    bar_level: int
+
+
 class WatchlistTickerIn(BaseModel):
     ticker: str
 
@@ -1014,6 +1053,16 @@ class WatchlistRowOut(BaseModel):
     # no cached analyst-ratings data for this ticker yet -- never null.
     consensus_rating: str
     added_at: datetime
+    # Minimum fields the Watchlist table's TREND column needs -- lifted from
+    # TrendAnalysis (see data/trend_analysis_data.py::get_trend_analysis_data,
+    # cache_only=True). None for a ticker with no TrendAnalysis row yet (cron
+    # hasn't run for it), same convention as every other None-able field
+    # above. The rest of TrendAnalysisOut's fields are available via the
+    # standalone GET /api/tickers/{ticker}/trend-analysis endpoint, not
+    # duplicated into every bulk Watchlist row.
+    bar_level: int | None = None
+    blended_score: float | None = None
+    trend_state: str | None = None
 
 
 class ScreenerMeta(BaseModel):

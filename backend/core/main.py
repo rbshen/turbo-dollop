@@ -65,6 +65,7 @@ from core.schemas import (
     TickerScoreOut,
     TickerSearchResult,
     TickerSummaryOut,
+    TrendAnalysisOut,
     Universe,
     WatchlistBulkAddIn,
     WatchlistBulkAddOut,
@@ -92,6 +93,7 @@ from data.step4_data import get_step4_data
 from data.step5_data import get_step5_data
 from data.ticker_score import compute_ticker_score
 from data.ticker_summary import get_summary
+from data.trend_analysis_data import get_trend_analysis_data
 from data.watchlist_data import get_watchlist_rows
 from data.watchlists import (
     add_watchlist_ticker,
@@ -421,6 +423,15 @@ async def ticker_step5(ticker: str) -> Step5Out:
         # would leak the key into the response body the moment that stops
         # being true for some future call site.
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
+
+
+@app.get("/api/tickers/{ticker}/trend-analysis", response_model=TrendAnalysisOut | None)
+async def ticker_trend_analysis(ticker: str) -> TrendAnalysisOut | None:
+    # No httpx.HTTPError handling needed here -- this never calls FMP.
+    # get_trend_analysis_data already swallows a Yahoo fetch failure
+    # (ValueError) internally, same "degrade to null/stale rather than
+    # error" convention as every other ticker-page data endpoint.
+    return await get_trend_analysis_data(ticker)
 
 
 @app.get("/api/tickers/{ticker}/financials", response_model=FinancialsOut)

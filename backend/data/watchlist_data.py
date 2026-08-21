@@ -12,6 +12,7 @@ from core.schemas import WatchlistRowOut
 from core.tickers import normalize_ticker
 from data.step1_data import get_step1_data
 from data.ticker_score import compute_ticker_score
+from data.trend_analysis_data import get_trend_analysis_data
 
 # LATEST_YEARS_SHOWN of Step 1's Revenue/Net Income/CFO series back each
 # row's mini trend bar chart -- Step1Out's own `years` is 10yr+TTM, more
@@ -88,7 +89,7 @@ async def _consensus_rating(ticker: str) -> str:
 
 async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
     ticker = normalize_ticker(watchlist_ticker.ticker)
-    score, rating, exchange, step1 = await asyncio.gather(
+    score, rating, exchange, step1, trend = await asyncio.gather(
         # cache_only=True: opening the Watchlist page must not trigger a
         # live FMP refetch cascade across every ticker in the list, same
         # reasoning as the Screener page. Returns None for a ticker with no
@@ -104,6 +105,11 @@ async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
         # backs. No new cache entry or FMP call; get_step1_data(cache_only=
         # True) only ever reads FundamentalsCache.
         get_step1_data(ticker, cache_only=True),
+        # cache_only=True: never triggers a live Yahoo fetch from opening
+        # the Watchlist page -- returns None until the nightly trend cron
+        # has computed a row for this ticker (see
+        # pipeline/nightly_trend_calculation.py).
+        get_trend_analysis_data(ticker, cache_only=True),
     )
 
     years = step1.years[-LATEST_YEARS_SHOWN:]
@@ -141,16 +147,19 @@ async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
         speculative_growth_qualifies=score.speculative_growth_qualifies if score else None,
         consensus_rating=rating,
         added_at=watchlist_ticker.added_at,
+        bar_level=trend.bar_level if trend else None,
+        blended_score=trend.blended_score if trend else None,
+        trend_state=trend.trend_state if trend else None,
     )
 
 
 async def get_watchlist_rows(tickers: list[WatchlistTicker]) -> list[WatchlistRowOut]:
     """Composes one row per ticker concurrently (asyncio.gather, both across
     tickers and across the sub-fetches per ticker). compute_ticker_score,
-    _cached_exchange, and get_step1_data are all cache-only -- no network
-    I/O; _consensus_rating is the only one that ever calls FMP live, and
-    only when grades_consensus is stale/missing for that ticker -- for a
-    ~20-30 ticker watchlist gather() turns what could be several sequential
-    FMP round-trips into one parallel batch rather than N times a single
-    round-trip's latency."""
+    _cached_exchange, get_step1_data, and get_trend_analysis_data are all
+    cache-only -- no network I/O; _consensus_rating is the only one that
+    ever calls FMP live, and only when grades_consensus is stale/missing for
+    that ticker -- for a ~20-30 ticker watchlist gather() turns what could
+    be several sequential FMP round-trips into one parallel batch rather
+    than N times a single round-trip's latency."""
     return list(await asyncio.gather(*[_compose_row(t) for t in tickers]))
