@@ -23,7 +23,7 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-testpaths = ["tests", "scoring"]
+testpaths = ["tests", "scoring", "analysis"]
 
 [tool.uv]
 package = false
