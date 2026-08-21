@@ -50,7 +50,13 @@ backend/     FastAPI app, organized into packages by role (2026-08-05
                (engine/init_db), schemas.py (API response models),
                config.py (Settings/BASE_DIR), cache.py (get_or_fetch/
                safe_fetch), logging_config.py.
-  clients/     Thin external API clients: fmp_client.py, sec_edgar.py.
+  clients/     Thin external API clients: fmp_client.py, sec_edgar.py,
+               yahoo_client.py (Yahoo Finance, the non-FMP data source
+               behind trend-structure analysis and the FMP-disabled price
+               fallback), yahoo_cache.py (YahooPriceCache's own bespoke
+               get-or-fetch helpers, separate from core/cache.py's
+               FundamentalsCache-shaped ones -- see YahooPriceCache's own
+               docstring in models.py).
   helpers/     Shared calculation helpers consumed by data/: ttm.py,
                shares.py, debt_metrics.py, npl.py, bank_capital_metrics.py,
                discount_rate_config.py, first.py.
@@ -59,16 +65,26 @@ backend/     FastAPI app, organized into packages by role (2026-08-05
                financials_data.py, ratios_data.py, analyst_ratings_data.py,
                news_data.py, segmentation_data.py,
                moat.py, watchlist_data.py, watchlists.py,
-               saved_screener_filters.py, ticker_score.py.
+               saved_screener_filters.py, ticker_score.py,
+               trend_analysis_data.py (see "Trend structure analysis
+               (Technical)" below).
   scoring/     Pure scoring functions (classification.py, trend.py,
                series_trend.py, step1.py..step5.py, overall.py) — this
                package predates the 2026-08-05 reorg and was always split
                out; unchanged by it.
+  analysis/    Standalone quantitative research modules, each its own
+               subpackage: ma_magnet/ (unwired research script, not part of
+               the production app -- see its own run.py docstring) and
+               trend_structure/ (production, wired end-to-end via
+               data/trend_analysis_data.py -- pure functions/dataclasses,
+               no DB/HTTP of its own, matching ma_magnet's calculation
+               style but NOT its unwired scope).
   scrapers/    Index/constituent Wikipedia scrapers: index_scraper.py,
                sp500_scraper.py, dow_scraper.py, refresh_sp500_list.py,
                refresh_dow_list.py.
   pipeline/    Production cron/maintenance entrypoints that read/write the
                real DB: nightly_fundamentals_fetch.py,
+               nightly_trend_calculation.py,
                monthly_price_target_snapshot.py, recompute_ticker_scores.py,
                audit_fixture_contamination.py, refresh.py, prune_cache.py,
                backup_db.py, rotate_logs.py, stale_data_health_check.py --
@@ -101,8 +117,16 @@ both forms during the reorg, not assumed.
 ## Data source
 
 [Financial Modeling Prep (FMP)](https://financialmodelingprep.com) (paid
-tier) is the **sole** data source. All fundamentals, prices, and company
-classification data come from FMP via `backend/fmp_client.py`.
+tier) is the **sole** data source for fundamentals, company classification,
+and Steps 1-5/Overall Assessment scoring, via `backend/clients/fmp_client.py`.
+As of the trend-structure feature (see "Trend structure analysis
+(Technical)" below), **price/OHLCV data alone** has a second, independent
+source: Yahoo Finance (`backend/clients/yahoo_client.py`, via the `yfinance`
+package), used for the swing/BOS trend engine (deliberately decoupled from
+the FMP subscription) and as a live fallback for the ticker header's
+current price when `FMP_ENABLED=false` (see "Pausing the FMP subscription"
+below). No other data on this app comes from Yahoo -- fundamentals,
+classification, and every score still come from FMP alone.
 
 ## Watchlists
 
@@ -145,14 +169,24 @@ semantics) rather than the read just failing. Together, no call site under
   guards against.)
 - News (`GET /.../news`) serves the last cached articles, however stale,
   instead of refreshing — never wiped/replaced by a failed fetch attempt.
-- Price/quote falls back to the last cached value via the same
-  `force_fetch` gating as everything else — **not** a live alternate feed.
-  FMP is confirmed the sole price source in this app today; an earlier
-  project note referenced a planned Yahoo/Google Finance migration to
-  decouple price from the FMP subscription cycle, but a full git-history
-  audit (this repo and the sibling `options_tracker` project) found no
-  trace it was ever built, partially or otherwise — treat that migration
-  as undone, not as an existing fallback.
+- Price/quote **now has a live alternate feed** (built as part of the
+  trend-structure feature — see "Trend structure analysis (Technical)"
+  below): `get_summary()`'s quote-fetch block still runs the same
+  `force_fetch`/`get_or_fetch` gating as everything else, but when
+  `not settings.fmp_enabled` (and not `cache_only`, whose own contract is
+  zero live calls of any kind), the resolved `price` field is overridden
+  with a live Yahoo Finance close (`data/ticker_summary.py::
+  _fetch_yahoo_latest_close`, via `clients/yahoo_client.py`/
+  `clients/yahoo_cache.py`) rather than staying pinned to the last cached
+  FMP value. Every other quote-derived field (`change`, `marketCap`,
+  `yearHigh`, `yearLow`) is untouched — Yahoo's OHLCV has no equivalent for
+  those, so they still degrade to the last cached FMP value exactly as
+  before. This corrects an earlier version of this note, which (accurately,
+  at the time) said no such feed existed and that an even-earlier project
+  note referencing a planned Yahoo/Google Finance migration had never
+  actually been built — that migration is what this entry now documents as
+  done, scoped specifically to price, not a general Yahoo takeover of every
+  quote field.
 
 **What stays unaffected:** `pipeline/nightly_score_recompute.py` (already
 `cache_only=True` throughout, zero FMP calls regardless of this flag), and
@@ -264,7 +298,7 @@ handlers entirely, landing only in stderr/`<job>_cron.log` — invisible
 anywhere in the app itself (real incidents: `sp500_list_refresh`'s
 `sqlite3.IntegrityError` on 07-26/08-02, `backup_db`'s disk-full error on
 08-09). `backend/core/cron_health.py::cron_heartbeat("<job_name>")` wraps
-every one of the 11 real cron jobs' entry points (`if __name__ ==
+every one of the 12 real cron jobs' entry points (`if __name__ ==
 "__main__":`), writing a `CronRunLog` row regardless of how the job fails.
 Purely additive — on failure the original exception is always re-raised
 unchanged, so existing stderr/`_cron.log` capture and exit codes are
@@ -288,10 +322,15 @@ so history isn't lost and flipping the flag back on picks up right where
 it left off. Investigated (2026-08-17) whether the heartbeat itself needs
 a way to distinguish a job intentionally no-op'ing under `FMP_ENABLED=
 false` from a genuine failure: confirmed every FMP call site across the 11
-wired scripts already sits inside a per-ticker `try/except` that swallows
-`FMPDisabledError` before it reaches `cron_heartbeat`'s own exception
-handler, so no wired job currently produces a spurious `"failure"` row
-purely from an FMP pause — no heartbeat change was needed for this flag.
+wired scripts existing at the time already sat inside a per-ticker
+`try/except` that swallows `FMPDisabledError` before it reaches
+`cron_heartbeat`'s own exception handler, so no wired job currently
+produces a spurious `"failure"` row purely from an FMP pause — no
+heartbeat change was needed for this flag. (The 12th job,
+`pipeline.nightly_trend_calculation`, added later for the trend-structure
+feature, needs no equivalent reasoning at all — it makes zero FMP calls,
+so `FMP_ENABLED` never affects it either way; see "Trend structure
+analysis (Technical)" below.)
 (Separately found, and fixed the same day: `monthly_price_target_snapshot.py`
 was missing the equivalent `if not settings.fmp_enabled: ...` early-return
 guard `nightly_fundamentals_fetch.py` already had, so during an FMP pause
@@ -1581,6 +1620,63 @@ sign/direction, cash runway, and PSG are informational only, never gates.
   NET) and 7 with a positive NI TTM but majority-negative history -- i.e. recently-turned-profitable
   growth names (DASH, DDOG, DOCN, MRVL, PANW, PLTR, UBER) -- the intended "not yet *durably*
   profitable" reading, not new false positives.
+
+## Trend structure analysis (Technical)
+
+A new, independent, read-only lens on price structure -- swing highs/lows, break-of-structure
+(BOS) flips, and a blended -10..+10 conviction score -- sourced from **Yahoo Finance**
+(`backend/clients/yahoo_client.py`, `yfinance`), not FMP, so it keeps working through an
+`FMP_ENABLED=false` pause. Never touches Step 1-5/Overall Assessment scoring or the existing
+`FundamentalsCache`/FMP pipeline in any way -- a second, parallel data path from ingestion through
+to display.
+
+- **Engine** (`backend/analysis/trend_structure/`, pure functions/dataclasses, no DB/HTTP):
+  fractal swing detection on daily CLOSE only (N=5 bars each side); each swing classified against
+  the highest/lowest of the **trailing 3** same-type swings (not just the single prior one) into
+  HH/HL ("bullish") or LH/LL ("bearish"); Wilder's ATR(14) from real OHLC gates confirmation via
+  `ratio = margin/ATR`. **Flip gate**: `trend_state` only flips to uptrend on a confirmed
+  (ratio≥1.0) HH, or to downtrend on a confirmed LL -- a confirmed LH/HL (regardless of ratio)
+  never flips state, only sets `warning_flag`+`warning_swing`, clearing on the next same-direction
+  confirmed (≥0.5) swing or converting into a real flip once the genuine opposite extreme
+  eventually confirms. `magnitude_tier` (weak/confirmed/strong) only updates on weak-confirmed+
+  (≥0.5) same-direction swings -- a tentative (<0.5) swing still bumps `persistence_count` but must
+  not change the tier. A 60-day Kaufman Efficiency Ratio (`regime`: "trending" if ER≥0.15 else
+  "range-bound") and the blended conviction score (tier/persistence/recency weighted 50/30/20%,
+  discounted 0.7x for a non-trending regime and 0.7x again under an active warning) round out the
+  output; `bar_level` (1-5, for the Watchlist's bar indicator) is a **continuous rescale** of the
+  blended score, computed backend-only and never re-derived on the frontend.
+  - **The original spec's bar_level formula and its own reference band table disagreed** (the
+    literal `(score+10)/20*4` produces width-5 bands, transitioning at -5/0/5, not the width-4
+    bands at -6/-2/2/6 the table itself documents) -- confirmed with the user that the table is
+    authoritative; the code uses `(score+10)/20*5` (equivalently `/4`), which reproduces the table
+    exactly. See `analysis/trend_structure/conviction.py`'s own comment for the full derivation.
+- **Data**: `YahooPriceCache` (ticker+date OHLCV, `backend/clients/yahoo_cache.py`'s own bespoke
+  get-or-fetch helpers -- deliberately not routed through `core/cache.py`, which is hard-wired to
+  `FundamentalsCache`'s different (ticker, statement_type, period)+raw_json shape) and
+  `TrendAnalysis` (ticker-PK, `computed_at`, latest-only, upserted per run -- same convention as
+  `TickerScore`; `last_confirmed_swing`/`warning_swing` stored as plain `str` JSON columns, this
+  codebase's established convention for a JSON-shaped field, not a native JSON column type, which
+  doesn't exist anywhere else in this codebase either).
+- **Nightly cron** (`pipeline/nightly_trend_calculation.py`, 3:10 AM, after the two FMP-dependent
+  nightly jobs and before the 3:30 AM backup): sweeps the full tracked universe
+  (`load_full_tracked_universe`, shared with the fundamentals/score-recompute jobs) via **one**
+  `yfinance` multi-ticker batch download (`clients.yahoo_cache.get_or_fetch_price_history_batch`),
+  then runs the engine and upserts per ticker -- never one live fetch per ticker. Makes zero FMP
+  calls, so unlike `nightly_fundamentals_fetch.py`/`monthly_price_target_snapshot.py` it needs no
+  `if not settings.fmp_enabled: ...` guard at all (there's no FMP-gated work to skip). Wired into
+  `core/cron_health.py`'s `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS` as the 12th job.
+- **API / Watchlist surfacing**: `GET /api/tickers/{ticker}/trend-analysis` (standalone endpoint,
+  `data/trend_analysis_data.py::get_trend_analysis_data`) is designed to feed a future ticker-page
+  "Technical" tab -- **not built this round**, UI-only future work. The Watchlist table's own new
+  "Trend" column instead reads `bar_level`/`blended_score`/`trend_state` off the existing bulk
+  `GET /watchlists/{id}/rows` response (`watchlist_data.py::_compose_row`, cache-only), consistent
+  with every other Watchlist column, rather than firing one extra per-row request just for this
+  column. `SignalBars` (`frontend/components/watchlist/SignalBars.tsx`) was generalized to a
+  `maxBars` prop (default 3, so the existing Moat/Value/vs-SPY 3-bar indicators are unaffected) to
+  support this new 5-bar indicator without a duplicate component.
+- **Price fallback**: `data/ticker_summary.py::get_summary()`'s quote-fetch block now overrides
+  just the `price` field with a live Yahoo close when `FMP_ENABLED=false` (and not `cache_only`) --
+  see "Pausing the FMP subscription" above for the full mechanism and what stays untouched.
 
 ## Workflow rules
 

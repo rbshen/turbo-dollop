@@ -83,6 +83,7 @@ configured):
 |---|---|
 | Nightly fundamentals fetch | `nightly_fundamentals_fetch.log` / `_cron.log` |
 | Nightly full-universe score recompute | `nightly_score_recompute.log` / `_cron.log` |
+| Nightly trend-structure calculation | `nightly_trend_calculation.log` / `_cron.log` |
 | Weekly S&P 500 list refresh | `sp500_list_refresh.log` / `_cron.log` |
 | Weekly Dow list refresh | `dow_list_refresh.log` / `_cron.log` |
 | Cache pruning | `prune_cache.log` / `_cron.log` |
@@ -129,6 +130,21 @@ before all its step inputs finished caching — with nothing ever
 revisiting it; `GET /api/tickers/{ticker}/score` also now self-heals a
 row like that on its next view (`core/main.py::ticker_score_out`), but
 this sweep is the backstop for a ticker that's never viewed again.
+
+**`nightly_trend_calculation`** — recomputes the swing/BOS/blended-score
+trend-structure engine (`backend/analysis/trend_structure/`) for the same
+full tracked universe `nightly_fundamentals_fetch`/`nightly_score_recompute`
+use, upserting one `TrendAnalysis` row per ticker
+(`data/trend_analysis_data.py`). Sourced entirely from Yahoo Finance, not
+FMP — makes zero FMP calls, unaffected by `FMP_ENABLED`. Fetches the whole
+universe's OHLCV in **one** `yfinance` multi-ticker batch download
+(`clients.yahoo_cache.get_or_fetch_price_history_batch`), not one call per
+ticker. Success: a log line `Nightly trend calculation complete.
+Processed: N. Failed: M.` in `backend/logs/nightly_trend_calculation.log`.
+A high failed count points at Yahoo Finance reachability/rate-limiting, not
+FMP — check `yfinance`'s own error messages in the log for the specific
+tickers that failed (most commonly a delisted/renamed symbol Yahoo no
+longer recognizes).
 
 **`prune_cache`** — deletes `FundamentalsCache` rows older than
 `Settings.cache_retention_days` (180 days by default; distinct from the
@@ -202,7 +218,7 @@ its next view.
 ### Cron job heartbeat / health monitoring
 
 Cross-cutting, not one specific script — `core/cron_health.py` wraps every
-one of the 11 jobs above (plus `nightly_score_recompute`, the weekly S&P
+one of the 12 jobs above (plus `nightly_score_recompute`, the weekly S&P
 500/Dow refreshes below, and `monthly_price_target_snapshot`) in a
 `cron_heartbeat("<job_name>")` context manager, added directly at each
 script's `if __name__ == "__main__":` block. It writes a `CronRunLog` row
@@ -216,7 +232,7 @@ incident this was built to catch.
 `GET /api/config/cron-health` computes each job's `health_status` from its
 `CronRunLog` history: `"failed"` if the most recent row failed, `"unknown"`
 if no row exists yet, `"overdue"` if no successful run falls within that
-job's expected cadence (36h for the 3 daily jobs, ~8 days for the 7
+job's expected cadence (36h for the 4 daily jobs, ~8 days for the 7
 weekly-Sunday jobs, ~35 days for the monthly one — `core/cron_health.py`'s
 `_EXPECTED_CADENCE_HOURS`), else `"ok"`. The frontend's `CronHealthBanner`
 (site-wide, mounted next to `FmpPausedBanner`) renders nothing while every
@@ -225,7 +241,7 @@ no banner at all is the expected, healthy state; nobody needs to
 proactively check this endpoint or tail a log.
 
 `CRON_JOB_NAMES` in `core/cron_health.py` is the single source of truth for
-which 11 jobs exist — `tests/test_cron_wiring.py` fails loudly if
+which 12 jobs exist — `tests/test_cron_wiring.py` fails loudly if
 `crontab.txt` and this list ever drift apart, or if a listed job's script
 stops calling `cron_heartbeat(...)`, so a future 12th cron job can't ship
 unmonitored by accident.
