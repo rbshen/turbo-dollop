@@ -63,14 +63,16 @@ function TrendCell({ years, values }: { years: string[]; values: (number | null)
   if (!values || values.every((v) => v == null)) {
     // Empty box, not a dash -- keeps this cell the same size as a populated
     // one so row height/alignment doesn't shift.
-    return <span className="flex h-8 w-24 items-center justify-center" />;
+    return <span className="flex h-8 w-16 items-center justify-center" />;
   }
   return (
-    <div className="w-24">
-      {/* barCategoryGap="12%" (default is 10%) -- bars go from 90% to 88% of
-          their category band, a ~2% width trim for this dense table only;
-          every other MiniBarChart caller (Financials tab) keeps the default. */}
-      <MiniBarChart categories={years} values={values} valueFormat={fmtCompactMoney} height={32} barCategoryGap="12%" />
+    <div className="w-16">
+      {/* barCategoryGap="24%" (default is 10%; was 12% before the REV/NI/CFO
+          column-width reduction that shipped alongside the new TREND column)
+          -- narrower w-16 cell needs a proportionally wider gap to keep bars
+          from looking like a single solid block; every other MiniBarChart
+          caller (Financials tab) keeps the default 10%. */}
+      <MiniBarChart categories={years} values={values} valueFormat={fmtCompactMoney} height={32} barCategoryGap="24%" />
     </div>
   );
 }
@@ -87,6 +89,10 @@ function TrendCell({ years, values }: { years: string[]; values: (number | null)
 // other 5-bar-vs-3-bar signal-indicator columns, right after vs SPY -- a
 // 5-bar SignalBars reading row.bar_level (1-5) directly, no band mapping
 // re-derived on the frontend (see analysis/trend_structure/conviction.py).
+// REV/NI/CFO headers shortened and their columns narrowed (w-24 -> w-16) to
+// make room for the new Trend column above without widening the table
+// further -- CFO's own 3-letter label was already short enough to leave
+// unchanged.
 export function WatchlistTable({ watchlist, rows, error }: Props) {
   const sorted = useMemo(
     () => (rows ? sortWatchlistRows(rows, watchlist.sort_field as WatchlistSortField, watchlist.sort_direction as SortDirection) : []),
@@ -120,9 +126,9 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
           <TableRow className="border-border-card bg-surface-2 hover:bg-surface-2">
             <TableHead className={`${HEAD_CLASS} w-40`}>Ticker</TableHead>
             <TableHead className={`${HEAD_CLASS} w-24`}>Sector</TableHead>
-            <TableHead className={`${HEAD_CLASS} text-center`}>Revenue</TableHead>
-            <TableHead className={`${HEAD_CLASS} text-center`}>Net Income</TableHead>
-            <TableHead className={`${HEAD_CLASS} text-center`}>CFO</TableHead>
+            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>REV</TableHead>
+            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>NI</TableHead>
+            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>CFO</TableHead>
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Moat</TableHead>
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Value</TableHead>
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>vs SPY</TableHead>
