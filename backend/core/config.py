@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     cron_health_enabled: bool = True
     database_path: str = "fathom.db"
     cache_staleness_days: int = 7
+    # Distinct from cache_staleness_days -- Yahoo Finance OHLCV bars
+    # (YahooPriceCache) are trading-day-grain data that gets a new bar every
+    # day the nightly trend job runs, unlike fundamentals which only change
+    # quarterly, so a much tighter staleness window applies here. See
+    # clients/yahoo_cache.py.
+    yahoo_price_cache_staleness_days: int = 1
     # Company profile (name, sector, industry, description, exchange, beta)
     # is near-static reference data -- it doesn't change because of an
     # earnings report the way statement-grain data does (earnings-aware

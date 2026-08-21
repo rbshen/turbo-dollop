@@ -26,6 +26,32 @@ class NewsCache(SQLModel, table=True):
     raw_json: str
 
 
+class YahooPriceCache(SQLModel, table=True):
+    """Daily OHLCV bars sourced from Yahoo Finance (see clients/yahoo_client.py,
+    clients/yahoo_cache.py) -- deliberately its own table, not a
+    FundamentalsCache row, for the same reason NewsCache is its own table
+    above: this is a different provider entirely (decoupled from the
+    FMP_ENABLED kill switch on purpose, so trend analysis keeps working
+    through an FMP pause) and a different shape (one row per ticker per
+    trading day, typed OHLCV columns, not a single raw_json blob per
+    statement-type/period). Refreshed on Settings.yahoo_price_cache_staleness_days
+    (default 1 day -- much tighter than FundamentalsCache's 7, since this is
+    trading-day-grain data that gets a new bar every day the nightly trend
+    job runs, unlike fundamentals which only change quarterly)."""
+
+    __table_args__ = (UniqueConstraint("ticker", "date", name="uq_yahoo_price_cache_key"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    ticker: str = Field(index=True)
+    date: date
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    fetched_at: datetime
+
+
 class IndexConstituent(SQLModel, table=True):
     """A ticker's membership in a named index (e.g. "sp500"), scraped from
     Wikipedia since FMP's own constituents endpoint is unavailable on this
