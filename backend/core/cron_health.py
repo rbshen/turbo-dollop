@@ -36,6 +36,7 @@ _ERROR_SUMMARY_MAX_CHARS = 500
 CRON_JOB_NAMES: list[str] = [
     "pipeline.nightly_fundamentals_fetch",
     "pipeline.nightly_score_recompute",
+    "pipeline.nightly_trend_calculation",
     "scrapers.refresh_sp500_list",
     "scrapers.refresh_dow_list",
     "pipeline.prune_cache",
@@ -60,6 +61,7 @@ _MONTHLY_HOURS = 24 * 35
 _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.nightly_fundamentals_fetch": _DAILY_HOURS,
     "pipeline.nightly_score_recompute": _DAILY_HOURS,
+    "pipeline.nightly_trend_calculation": _DAILY_HOURS,
     "pipeline.backup_db": _DAILY_HOURS,
     "scrapers.refresh_sp500_list": _WEEKLY_HOURS,
     "scrapers.refresh_dow_list": _WEEKLY_HOURS,
@@ -93,7 +95,7 @@ def cron_heartbeat(job_name: str) -> Iterator[None]:
 
     Creates the table defensively on every invocation (SQLModel's own
     create_all, idempotent) rather than relying on the calling script's own
-    init_db() -- two of the eleven wired scripts (rotate_logs, backup_db)
+    init_db() -- two of the twelve wired scripts (rotate_logs, backup_db)
     never call init_db() themselves today, so this is what guarantees the
     CronRunLog table exists for them regardless. Deliberately uses this
     module's own `engine` reference (not core.db.init_db(), which is bound

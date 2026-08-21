@@ -37,6 +37,14 @@
 # run anytime. See pipeline/nightly_score_recompute.py.
 50 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_score_recompute >> /home/shen/fathom/backend/logs/nightly_score_recompute_cron.log 2>&1
 
+# Nightly trend-structure (swing/BOS/blended-score) calculation, 3:10 AM
+# server time -- after the fundamentals fetch (2:00) and score recompute
+# (2:50) above, before the 3:30 backup. Runs entirely on Yahoo Finance, zero
+# FMP calls -- independent of the two FMP-dependent jobs above it, doesn't
+# need to wait on them, just staggered into a free slot. See
+# pipeline/nightly_trend_calculation.py.
+10 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_trend_calculation >> /home/shen/fathom/backend/logs/nightly_trend_calculation_cron.log 2>&1
+
 # Weekly S&P 500 constituent list refresh (Wikipedia scrape), Sundays at
 # 1:00 AM server time -- runs before the nightly fetch above so a freshly
 # added/removed ticker is reflected the same night. Index membership only

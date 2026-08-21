@@ -98,14 +98,19 @@ def _row_to_out(row: TrendAnalysis) -> TrendAnalysisOut:
     )
 
 
-async def compute_and_store_trend_analysis(ticker: str, period: str = "2y") -> TrendAnalysisOut:
-    """Fetches OHLCV via clients/yahoo_cache.py, runs the pure calculation
-    engine, upserts, and returns the fresh result. Raises ValueError if
-    Yahoo has no price data at all for this ticker (a delisted/typo'd
-    symbol) -- callers (the nightly job's per-ticker loop) treat this like
-    any other per-ticker failure, never aborting the whole batch."""
+def compute_and_store_from_rows(ticker: str, rows: list[YahooPriceCache]) -> TrendAnalysisOut:
+    """Runs the pure calculation engine against already-fetched OHLCV rows
+    and upserts -- no fetch of its own. Split out from
+    compute_and_store_trend_analysis so the nightly job (which fetches the
+    whole universe in one yfinance batch call via
+    clients.yahoo_cache.get_or_fetch_price_history_batch, per this
+    feature's explicit "batch download, not one call per ticker"
+    requirement) can reuse this same compute+upsert logic per ticker
+    without each ticker triggering its own separate live fetch. Raises
+    ValueError if `rows` is empty (no Yahoo data at all for this ticker) --
+    callers (the nightly job's per-ticker loop) treat this like any other
+    per-ticker failure, never aborting the whole batch."""
     ticker = normalize_ticker(ticker)
-    rows = await get_or_fetch_price_history(ticker, period=period)
     if not rows:
         raise ValueError(f"No Yahoo Finance price history available for {ticker}")
 
@@ -128,6 +133,16 @@ async def compute_and_store_trend_analysis(ticker: str, period: str = "2y") -> T
         blended_score=result.blended_score,
         bar_level=result.bar_level,
     )
+
+
+async def compute_and_store_trend_analysis(ticker: str, period: str = "2y") -> TrendAnalysisOut:
+    """Single-ticker fetch-then-compute-then-store -- used by the standalone
+    API endpoint (a one-off, on-demand request), where fetching just this
+    one ticker's history is the right cost, unlike the nightly job's
+    whole-universe batch (see compute_and_store_from_rows above)."""
+    ticker = normalize_ticker(ticker)
+    rows = await get_or_fetch_price_history(ticker, period=period)
+    return compute_and_store_from_rows(ticker, rows)
 
 
 async def get_trend_analysis_data(ticker: str, cache_only: bool = False, period: str = "2y") -> TrendAnalysisOut | None:
