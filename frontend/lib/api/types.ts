@@ -950,6 +950,16 @@ export type WatchlistSortField =
   | "step4_score"
   | "step5_score"
   | "perf_5y_vs_spy_pct"
+  // "Trend" sorts by blended_score (the continuous -10..+10 conviction
+  // score), not bar_level -- bar_level is only a 5-bucket display rescale
+  // of blended_score (see conviction.py's own comment), so sorting by it
+  // directly would leave most rows tied. "A/D Div." sorts by
+  // ad_divergence_swing_date (a string, null-last) rather than the
+  // ad_bullish_divergence boolean itself -- sortWatchlistRows's generic
+  // numeric branch (`av - bv`) doesn't handle booleans, and the date is
+  // exactly what the column itself displays anyway.
+  | "blended_score"
+  | "ad_divergence_swing_date"
   | "sma20_position_pct"
   | "sma50_position_pct"
   | "sma200_position_pct";

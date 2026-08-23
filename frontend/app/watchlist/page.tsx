@@ -26,6 +26,8 @@ const SORT_FIELD_OPTIONS: { value: WatchlistSortField; label: string }[] = [
   { value: "step4_score", label: "Profitability score" },
   { value: "step5_score", label: "Debt score" },
   { value: "perf_5y_vs_spy_pct", label: "5Y vs SPY" },
+  { value: "blended_score", label: "Trend" },
+  { value: "ad_divergence_swing_date", label: "A/D Div." },
   { value: "sma20_position_pct", label: "20SMA" },
   { value: "sma50_position_pct", label: "50SMA" },
   { value: "sma200_position_pct", label: "200SMA" },
