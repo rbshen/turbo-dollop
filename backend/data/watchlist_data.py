@@ -150,6 +150,7 @@ async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
         bar_level=trend.bar_level if trend else None,
         blended_score=trend.blended_score if trend else None,
         trend_state=trend.trend_state if trend else None,
+        ad_bullish_divergence=trend.ad_bullish_divergence if trend else None,
     )
 
 

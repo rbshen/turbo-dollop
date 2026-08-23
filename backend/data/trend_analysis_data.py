@@ -72,6 +72,8 @@ def _upsert(ticker: str, result: TrendStructureResult, computed_at: datetime) ->
         "regime": result.regime,
         "blended_score": result.blended_score,
         "bar_level": result.bar_level,
+        "ad_bullish_divergence": result.ad_bullish_divergence,
+        "ad_divergence_swing_date": result.ad_divergence_swing_date,
     }
     with Session(engine) as session:
         stmt = sqlite_insert(TrendAnalysis).values(ticker=ticker, **fields)
@@ -95,6 +97,8 @@ def _row_to_out(row: TrendAnalysis) -> TrendAnalysisOut:
         regime=row.regime,
         blended_score=row.blended_score,
         bar_level=row.bar_level,
+        ad_bullish_divergence=row.ad_bullish_divergence,
+        ad_divergence_swing_date=row.ad_divergence_swing_date,
     )
 
 
@@ -132,6 +136,8 @@ def compute_and_store_from_rows(ticker: str, rows: list[YahooPriceCache]) -> Tre
         regime=result.regime,
         blended_score=result.blended_score,
         bar_level=result.bar_level,
+        ad_bullish_divergence=result.ad_bullish_divergence,
+        ad_divergence_swing_date=result.ad_divergence_swing_date,
     )
 
 

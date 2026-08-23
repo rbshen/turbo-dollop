@@ -985,6 +985,8 @@ class TrendAnalysisOut(BaseModel):
     regime: str | None = None  # "trending" | "range-bound" | None
     blended_score: float
     bar_level: int
+    ad_bullish_divergence: bool | None = None
+    ad_divergence_swing_date: date | None = None
 
 
 class WatchlistTickerIn(BaseModel):
@@ -1063,6 +1065,7 @@ class WatchlistRowOut(BaseModel):
     bar_level: int | None = None
     blended_score: float | None = None
     trend_state: str | None = None
+    ad_bullish_divergence: bool | None = None
 
 
 class ScreenerMeta(BaseModel):

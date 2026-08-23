@@ -1677,6 +1677,77 @@ to display.
 - **Price fallback**: `data/ticker_summary.py::get_summary()`'s quote-fetch block now overrides
   just the `price` field with a live Yahoo close when `FMP_ENABLED=false` (and not `cache_only`) --
   see "Pausing the FMP subscription" above for the full mechanism and what stays untouched.
+- **A/D Bullish Divergence (2026-08-23)**: a validated (ticker-clustered p<0.01, replicated on two
+  separate backtest universes, ~+2pp hit rate / ~+2% mean-median return to the eventual confirmed
+  HH) minor conviction signal layered on top of the swing engine above -- never a standalone entry
+  trigger, never applied to bearish/HH-side swings (tested, no edge, intentionally excluded), and
+  a binary flag only, not a graduated/magnitude score (never validated at that granularity).
+  - **Signal**: `analysis/trend_structure/ad_line.py` adds the Accumulation/Distribution line
+    (Money Flow Multiplier * Volume, cumulative sum; MFM reads `0.0`, not NaN, on a zero-range
+    high==low bar) and the Chaikin Oscillator (`EMA(3) - EMA(10)` of the A/D line, standard/
+    non-Wilder EMA via `adjust=False` -- a deliberate, documented formula choice the same way
+    `atr.py` calls out its own Wilder smoothing).
+  - **Divergence rule, pinned down exactly after several rounds of clarification (worth recording
+    precisely -- easy to misremember or reimplement slightly wrong later):** at each LL swing
+    (any ratio), take the literal minimum Chaikin Oscillator value within a **positional
+    (trading-bar, not calendar-day) +/-10-bar window centered on that swing's own date** --
+    naturally truncated/asymmetric near either end of available history via plain slice bounds,
+    never waiting on a future bar that doesn't exist yet (a newly-confirmed LL with only 3-4
+    forward trading days gets evaluated on that truncated window immediately, not left pending).
+    Call this the swing's own "matched oscillator low." Bullish divergence fires when
+    **this matched low is strictly greater than the MIN (floor) of the matched lows of the
+    trailing 3 prior *CONFIRMED* (ratio >= `CONFIRMED_RATIO`, 1.0 -- the same threshold
+    `state_machine.py` already uses for a genuine trend_state flip) LL swings** -- an exact
+    equal value does not count. This deliberately mirrors `classification.py`'s own price-swing
+    convention (a new low that stays above the trailing-3 floor classifies as the non-confirming
+    "HL", not a new "LL"), just applied to the oscillator's values instead of price. A
+    non-confirmed LL still gets its own divergence flag computed against whatever floor already
+    exists, but is never itself added to the trailing-3 confirmed pool (`classification.py`'s
+    `test_non_confirmed_ll_is_evaluated_but_excluded_from_the_confirmed_pool` is the regression
+    test for this specific rule). Zero prior confirmed LLs to build a floor from reads as `False`
+    (no baseline), the same "not classifiable without trailing history" convention
+    `classify_swings` already uses for HH/HL/LH/LL itself.
+  - **Folded into the existing single swing-classification pass, not a second pass or a second
+    per-ticker fetch** (`classification.py::classify_swings` gained a third `chaikin_osc`
+    parameter; the divergence lookup/comparison happens inline exactly where a new "LL" is
+    classified, reusing the same in-memory OHLCV series `engine.py` already computes ATR from).
+    Confirmed via a real before/after nightly-job timing comparison (60 tickers, warm Yahoo
+    cache to isolate compute cost from network variance): 4.4s baseline vs. 3.6s with this
+    feature -- no measurable regression, as expected for one extra O(n) EMA pass plus O(1)-ish
+    per-LL-swing window lookups.
+  - **Fields**: `TrendAnalysis.ad_bullish_divergence` (bool, nullable) / `ad_divergence_swing_date`
+    (date, nullable) hold the ticker's **most recent confirmed LL's** own divergence result only
+    (`engine.py` selects it from the full classified list; `classification.py` computes the flag
+    for every LL inline as described above). Nullable -- unlike the pure engine's own always-real
+    `bool`/`date|None` output -- specifically because `core/db.py::_add_missing_columns` adds
+    columns via a raw `ALTER TABLE` with no backfill: existing rows read as `NULL` until the next
+    nightly run rewrites every field, and every consumer already treats `None` the same as
+    `False`, so this is a transient-read-safety concern only, not a modeling one.
+  - **`blended_score` integration**: a flat `1.15x` multiplier (`AD_BULLISH_DIVERGENCE_MULTIPLIER`,
+    `conviction.py`), applied as the literal last step -- multiplying the already-fully-computed
+    `-10..+10` score, strictly after the regime/warning_flag dampeners are baked in -- and gated
+    on `trend_state == "uptrend"`. This is deliberately retrospective, not a downtrend-name
+    trigger: it only boosts conviction on names where the divergence-flagged LL has already played
+    out into a confirmed uptrend. Can push `blended_score` slightly past the documented +/-10
+    ceiling for an already-near-ceiling score (e.g. `10.0 * 1.15 = 11.5`) -- left unclamped, since
+    clamping would silently zero out the boost for exactly the highest-conviction names, and
+    `compute_bar_level`'s own `min(4, floor(...))` clamp already tolerates it downstream.
+  - **UI**: a small `bg-chart-purple` dot badge next to the Watchlist TREND column's `SignalBars`
+    (`WatchlistTable.tsx`), rendered only when `ad_bullish_divergence === true` -- binary badge
+    only, no magnitude styling, same "only show when meaningful" convention as `MoatPill`/
+    `SpeculativeGrowthPill` elsewhere in that file.
+  - **Spot-checked against known backtest ticker/dates post-implementation**: **CMG (2018-12-24)
+    matches exactly** -- a genuine confirmed LL (ratio 1.71) at that literal date, `ad_bullish_
+    divergence=True`. This is the relevant confirmation for what actually shipped.
+    **GD (2021-02-24) was a mismatched test case, not a discrepancy**: that date is a genuine
+    swing **high** (149.39, HH) for GD, confirmed independently at the raw `find_swing_lows`/
+    `find_swing_highs` level -- correctly so, since it was the original *bearish* divergence
+    example (a swing-high case), a variant that was tested and explicitly excluded/dropped early
+    in the backtest process (see this section's own "NOT applicable to bearish divergence" scope
+    note above) and was never part of what shipped here. It has no bearing on the bullish-only LL
+    divergence logic in this build. The CMG match, plus classification.py's 12 unit tests covering
+    the exact algorithm above with hand-verified expected floors/matches, are the correctness
+    evidence for the divergence logic itself.
 
 ## Workflow rules
 

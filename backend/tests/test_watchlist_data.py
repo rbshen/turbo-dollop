@@ -107,6 +107,7 @@ def test_trend_fields_flow_into_the_row_from_trend_analysis(monkeypatch):
             warning_flag=False,
             blended_score=7.5,
             bar_level=5,
+            ad_bullish_divergence=True,
         )
 
     monkeypatch.setattr(watchlist_data, "get_trend_analysis_data", fake_get_trend_analysis_data)
@@ -117,6 +118,7 @@ def test_trend_fields_flow_into_the_row_from_trend_analysis(monkeypatch):
     assert rows[0].bar_level == 5
     assert rows[0].blended_score == 7.5
     assert rows[0].trend_state == "uptrend"
+    assert rows[0].ad_bullish_divergence is True
 
 
 def test_trend_fields_are_none_when_no_trend_analysis_row_yet(monkeypatch):
@@ -132,3 +134,4 @@ def test_trend_fields_are_none_when_no_trend_analysis_row_yet(monkeypatch):
     assert rows[0].bar_level is None
     assert rows[0].blended_score is None
     assert rows[0].trend_state is None
+    assert rows[0].ad_bullish_divergence is None

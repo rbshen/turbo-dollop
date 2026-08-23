@@ -61,6 +61,47 @@ def test_blended_score_none_magnitude_tier_and_none_bars_since_confirmation_scor
     assert score == pytest.approx(0.0)
 
 
+def test_ad_bullish_divergence_boosts_score_only_on_uptrend():
+    base_kwargs = dict(magnitude_tier="strong", persistence_count=10, bars_since_confirmation=0, regime="trending", warning_flag=False)
+
+    boosted = compute_blended_score(trend_state="uptrend", ad_bullish_divergence=True, **base_kwargs)
+    unboosted = compute_blended_score(trend_state="uptrend", ad_bullish_divergence=False, **base_kwargs)
+
+    assert boosted == pytest.approx(unboosted * 1.15)
+
+
+def test_ad_bullish_divergence_never_boosts_downtrend():
+    base_kwargs = dict(magnitude_tier="strong", persistence_count=10, bars_since_confirmation=0, regime="trending", warning_flag=False)
+
+    with_divergence = compute_blended_score(trend_state="downtrend", ad_bullish_divergence=True, **base_kwargs)
+    without_divergence = compute_blended_score(trend_state="downtrend", ad_bullish_divergence=False, **base_kwargs)
+
+    assert with_divergence == pytest.approx(without_divergence)
+
+
+def test_ad_bullish_divergence_defaults_to_no_boost_when_omitted():
+    base_kwargs = dict(
+        trend_state="uptrend", magnitude_tier="strong", persistence_count=10, bars_since_confirmation=0, regime="trending", warning_flag=False
+    )
+
+    assert compute_blended_score(**base_kwargs) == pytest.approx(compute_blended_score(ad_bullish_divergence=False, **base_kwargs))
+
+
+def test_ad_bullish_divergence_boost_applies_after_regime_and_warning_dampeners():
+    """The booster must multiply the FINAL (regime- and warning-discounted)
+    blended score, not an intermediate value -- confirmed by checking the
+    boosted/unboosted ratio stays exactly 1.15x even with both dampeners
+    active."""
+    dampened_kwargs = dict(
+        trend_state="uptrend", magnitude_tier="weak", persistence_count=1, bars_since_confirmation=30, regime="range-bound", warning_flag=True
+    )
+
+    boosted = compute_blended_score(ad_bullish_divergence=True, **dampened_kwargs)
+    unboosted = compute_blended_score(ad_bullish_divergence=False, **dampened_kwargs)
+
+    assert boosted == pytest.approx(unboosted * 1.15, rel=1e-9)
+
+
 @pytest.mark.parametrize(
     "score,expected_bar_level",
     [

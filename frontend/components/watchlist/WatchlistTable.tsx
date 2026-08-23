@@ -192,7 +192,18 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
                 )}
               </TableCell>
               <TableCell className="text-center">
-                {row.bar_level != null && <SignalBars level={row.bar_level} color={TREND_SIGNAL_COLOR[row.bar_level]} maxBars={5} />}
+                <div className="flex flex-col items-center gap-0.5">
+                  {row.bar_level != null && <SignalBars level={row.bar_level} color={TREND_SIGNAL_COLOR[row.bar_level]} maxBars={5} />}
+                  {/* A/D Bullish Divergence: simple boolean badge, no magnitude/graduated
+                      display (per this feature's own spec) -- only ever rendered for a
+                      true row, same "only show when meaningful" convention as MoatPill/
+                      SpeculativeGrowthPill elsewhere in this file. Distinct chart-purple
+                      accent (not the TREND_SIGNAL_COLOR green/red scale) since this is an
+                      orthogonal signal, not another trend-strength band. */}
+                  {row.ad_bullish_divergence === true && (
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-chart-purple" title="A/D Bullish Divergence" />
+                  )}
+                </div>
               </TableCell>
               <TableCell className="text-center">
                 <span

@@ -83,6 +83,15 @@ class TrendAnalysis(SQLModel, table=True):
     regime: str | None = None  # "trending" | "range-bound" | None
     blended_score: float
     bar_level: int  # 1-5, see analysis/trend_structure/conviction.py
+    # A/D Bullish Divergence (see analysis/trend_structure/classification.py)
+    # -- nullable, unlike the pure engine's own always-real bool/None-date
+    # output, specifically because core/db.py::_add_missing_columns adds
+    # columns via a raw ALTER TABLE with no backfill: existing rows read as
+    # NULL until the next nightly run rewrites every field. A nullable
+    # Python type avoids a validation error on that transient legacy read;
+    # every consumer already treats None the same as False.
+    ad_bullish_divergence: bool | None = None
+    ad_divergence_swing_date: date | None = None
 
 
 class IndexConstituent(SQLModel, table=True):

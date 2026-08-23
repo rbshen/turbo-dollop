@@ -1,3 +1,5 @@
+from datetime import date
+
 import numpy as np
 import pandas as pd
 
@@ -34,7 +36,12 @@ def test_compute_trend_structure_produces_a_fully_populated_result():
     assert result.regime in ("trending", "range-bound", None)
     assert 1 <= result.bar_level <= 5
     assert isinstance(result.blended_score, float)
-    assert -10.0 <= result.blended_score <= 10.0
+    # Not bounded at exactly +/-10.0 any more: the A/D Bullish Divergence
+    # booster (1.15x) can push an already-near-ceiling uptrend score
+    # slightly past +10.0 -- see conviction.py's own note on this.
+    assert -10.0 <= result.blended_score <= 11.5
+    assert isinstance(result.ad_bullish_divergence, bool)
+    assert result.ad_divergence_swing_date is None or isinstance(result.ad_divergence_swing_date, date)
 
 
 def test_compute_trend_structure_is_deterministic_for_the_same_input():
@@ -69,3 +76,77 @@ def test_compute_trend_structure_handles_too_short_a_history_gracefully():
     assert result.efficiency_ratio is None
     assert result.regime is None
     assert result.bar_level in (1, 2, 3, 4, 5)
+    assert result.ad_bullish_divergence is False
+    assert result.ad_divergence_swing_date is None
+
+
+def test_ad_bullish_divergence_selects_the_most_recent_confirmed_ll_and_boosts_blended_score(monkeypatch):
+    """Wiring test: with classify_swings/run_state_machine controlled
+    directly, confirms compute_trend_structure (a) picks the LAST confirmed
+    LL's divergence fields (not an earlier one, not a non-confirmed one),
+    and (b) that a True flag on an uptrend result actually boosts
+    blended_score vs. the identical setup without divergence -- the two
+    halves of the engine wiring that classification.py's and conviction.py's
+    own isolated unit tests can't cover on their own."""
+    import analysis.trend_structure.engine as engine_module
+    from analysis.trend_structure.classification import ClassifiedSwing
+    from analysis.trend_structure.state_machine import TrendMachineState
+    from analysis.trend_structure.types import SwingDetail, SwingPoint
+
+    d1, d2, d3 = date(2024, 1, 1), date(2024, 2, 1), date(2024, 3, 1)
+    non_confirmed_ll = ClassifiedSwing(
+        swing=SwingPoint(date=d1, price=90.0, kind="low"),
+        classification="LL",
+        margin=1.0,
+        atr=10.0,
+        ratio=0.1,  # below CONFIRMED_RATIO -- must be ignored by the selection
+        ad_bullish_divergence=True,
+        ad_divergence_swing_date=d1,
+    )
+    earlier_confirmed_ll_no_divergence = ClassifiedSwing(
+        swing=SwingPoint(date=d2, price=85.0, kind="low"),
+        classification="LL",
+        margin=5.0,
+        atr=1.0,
+        ratio=5.0,
+        ad_bullish_divergence=False,
+        ad_divergence_swing_date=None,
+    )
+    latest_confirmed_ll_with_divergence = ClassifiedSwing(
+        swing=SwingPoint(date=d3, price=95.0, kind="low"),
+        classification="LL",
+        margin=5.0,
+        atr=1.0,
+        ratio=5.0,
+        ad_bullish_divergence=True,
+        ad_divergence_swing_date=d3,
+    )
+    classified = [non_confirmed_ll, earlier_confirmed_ll_no_divergence, latest_confirmed_ll_with_divergence]
+
+    uptrend_state = TrendMachineState(
+        trend_state="uptrend",
+        magnitude_tier="strong",
+        persistence_count=10,
+        last_confirmed_swing=SwingDetail(date=d3, price=95.0, margin=5.0, atr=1.0, ratio=5.0),
+        warning_flag=False,
+        warning_swing=None,
+    )
+
+    ohlcv = _synthetic_ohlcv()
+    monkeypatch.setattr(engine_module, "classify_swings", lambda swings, atr_by_date, chaikin_osc: classified)
+    monkeypatch.setattr(engine_module, "run_state_machine", lambda classified_arg: uptrend_state)
+    monkeypatch.setattr(engine_module, "latest_regime", lambda close: (0.5, "trending"))
+
+    result = engine_module.compute_trend_structure(ohlcv)
+
+    assert result.ad_bullish_divergence is True
+    assert result.ad_divergence_swing_date == d3  # the LATEST confirmed LL, not the earlier or non-confirmed one
+
+    # Same setup, but the latest confirmed LL has no divergence -- must
+    # score strictly lower (no 1.15x boost).
+    classified_no_divergence = [non_confirmed_ll, earlier_confirmed_ll_no_divergence]
+    monkeypatch.setattr(engine_module, "classify_swings", lambda swings, atr_by_date, chaikin_osc: classified_no_divergence)
+    result_no_divergence = engine_module.compute_trend_structure(ohlcv)
+
+    assert result_no_divergence.ad_bullish_divergence is False
+    assert result.blended_score > result_no_divergence.blended_score

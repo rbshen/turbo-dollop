@@ -15,6 +15,13 @@ REGIME_TRENDING_MULTIPLIER = 1.0
 REGIME_RANGE_BOUND_MULTIPLIER = 0.7
 WARNING_MULTIPLIER = 0.7
 NO_WARNING_MULTIPLIER = 1.0
+# A/D Bullish Divergence conviction booster (see classification.py) --
+# retrospective only: only boosts a ticker whose divergence-flagged LL has
+# already played out into a confirmed uptrend, never a standalone trigger
+# on a still-downtrend name. Validated as a minor edge (~+2pp hit rate,
+# ~+2% mean/median return), not a magnitude/graduated signal -- a single
+# flat multiplier, not a scaled one.
+AD_BULLISH_DIVERGENCE_MULTIPLIER = 1.15
 
 
 def compute_blended_score(
@@ -24,6 +31,7 @@ def compute_blended_score(
     bars_since_confirmation: int | None,
     regime: Regime | None,
     warning_flag: bool,
+    ad_bullish_divergence: bool = False,
 ) -> float:
     # magnitude_tier/bars_since_confirmation can be None only when the
     # swing history is too thin to have produced a weak-confirmed-or-
@@ -39,7 +47,18 @@ def compute_blended_score(
     conviction *= WARNING_MULTIPLIER if warning_flag else NO_WARNING_MULTIPLIER
 
     sign = 1.0 if trend_state == "uptrend" else -1.0
-    return sign * conviction * 10.0
+    blended = sign * conviction * 10.0
+
+    # Applied LAST -- strictly after the regime/warning_flag dampeners
+    # already baked into `conviction` above, per this feature's own spec.
+    # Only ever boosts an already-confirmed uptrend name; can push
+    # blended_score slightly past the documented +/-10 range for a
+    # near-ceiling score, which compute_bar_level's own min(4, ...) clamp
+    # already tolerates.
+    if ad_bullish_divergence and trend_state == "uptrend":
+        blended *= AD_BULLISH_DIVERGENCE_MULTIPLIER
+
+    return blended
 
 
 def compute_bar_level(blended_score: float) -> int:

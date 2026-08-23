@@ -6,13 +6,14 @@ no HTTP), matching analysis/ma_magnet's calculation style.
 
 import pandas as pd
 
+from .ad_line import compute_ad_line, compute_chaikin_oscillator
 from .atr import compute_atr
 from .classification import classify_swings
 from .conviction import compute_bar_level, compute_blended_score
 from .regime import latest_regime
 from .state_machine import run_state_machine
 from .swings import extract_swing_points
-from .types import TrendStructureResult
+from .types import CONFIRMED_RATIO, TrendStructureResult
 
 
 def compute_trend_structure(ohlcv: pd.DataFrame) -> TrendStructureResult:
@@ -22,14 +23,22 @@ def compute_trend_structure(ohlcv: pd.DataFrame) -> TrendStructureResult:
     close = ohlcv["close"]
     high = ohlcv["high"]
     low = ohlcv["low"]
+    volume = ohlcv["volume"]
 
     atr_series = compute_atr(high, low, close)
     atr_by_date = {
         (idx.date() if hasattr(idx, "date") else idx): float(value) for idx, value in atr_series.items() if value == value
     }  # value == value excludes NaN without importing math/numpy just for this
 
+    # A/D Bullish Divergence's Chaikin Oscillator, computed inline from the
+    # same in-memory OHLCV frame already fetched for ATR/swings above -- no
+    # second fetch, no second pass over the ticker's price history, per this
+    # feature's own "fold into the existing loop" requirement.
+    ad_line = compute_ad_line(high, low, close, volume)
+    chaikin_osc = compute_chaikin_oscillator(ad_line)
+
     swings = extract_swing_points(close)
-    classified = classify_swings(swings, atr_by_date)
+    classified = classify_swings(swings, atr_by_date, chaikin_osc)
     state = run_state_machine(classified)
 
     dates = [idx.date() if hasattr(idx, "date") else idx for idx in close.index]
@@ -39,6 +48,20 @@ def compute_trend_structure(ohlcv: pd.DataFrame) -> TrendStructureResult:
 
     efficiency_ratio, regime = latest_regime(close)
 
+    # The ticker's MOST RECENT confirmed LL swing's own divergence fields --
+    # classify_swings already computed these per-swing inline; this just
+    # selects which one (if any) surfaces at the top level. False/None when
+    # no confirmed LL exists at all (never a flip has happened, or too thin
+    # a history).
+    confirmed_lls = [cs for cs in classified if cs.classification == "LL" and cs.ratio >= CONFIRMED_RATIO]
+    if confirmed_lls:
+        latest_ll = confirmed_lls[-1]
+        ad_bullish_divergence = latest_ll.ad_bullish_divergence
+        ad_divergence_swing_date = latest_ll.ad_divergence_swing_date
+    else:
+        ad_bullish_divergence = False
+        ad_divergence_swing_date = None
+
     blended_score = compute_blended_score(
         trend_state=state.trend_state,
         magnitude_tier=state.magnitude_tier,
@@ -46,6 +69,7 @@ def compute_trend_structure(ohlcv: pd.DataFrame) -> TrendStructureResult:
         bars_since_confirmation=bars_since_confirmation,
         regime=regime,
         warning_flag=state.warning_flag,
+        ad_bullish_divergence=ad_bullish_divergence,
     )
     bar_level = compute_bar_level(blended_score)
 
@@ -61,4 +85,6 @@ def compute_trend_structure(ohlcv: pd.DataFrame) -> TrendStructureResult:
         regime=regime,
         blended_score=blended_score,
         bar_level=bar_level,
+        ad_bullish_divergence=ad_bullish_divergence,
+        ad_divergence_swing_date=ad_divergence_swing_date,
     )

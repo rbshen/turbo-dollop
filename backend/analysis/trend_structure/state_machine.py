@@ -38,9 +38,8 @@ its direction against the current trend_state:
 from dataclasses import dataclass
 
 from .classification import ClassifiedSwing
-from .types import Classification, MagnitudeTier, SwingDetail, TrendState
+from .types import CONFIRMED_RATIO, Classification, MagnitudeTier, SwingDetail, TrendState
 
-CONFIRMED_RATIO = 1.0
 WEAK_RATIO = 0.5
 
 _BULLISH: set[Classification] = {"HH", "HL"}

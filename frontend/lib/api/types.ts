@@ -1007,6 +1007,11 @@ export interface WatchlistRowOut {
   bar_level: 1 | 2 | 3 | 4 | 5 | null;
   blended_score: number | null;
   trend_state: "uptrend" | "downtrend" | null;
+  // A/D Bullish Divergence -- true only for the ticker's MOST RECENT
+  // confirmed LL swing (backend/analysis/trend_structure/classification.py).
+  // Binary flag only, no magnitude -- see TREND_SIGNAL_COLOR's own comment
+  // for why bar_level needs no equivalent band mapping.
+  ad_bullish_divergence: boolean | null;
 }
 
 // A single classified swing's detail -- used for both last_confirmed_swing
@@ -1038,4 +1043,6 @@ export interface TrendAnalysisOut {
   regime: "trending" | "range-bound" | null;
   blended_score: number;
   bar_level: 1 | 2 | 3 | 4 | 5;
+  ad_bullish_divergence: boolean;
+  ad_divergence_swing_date: string | null;
 }

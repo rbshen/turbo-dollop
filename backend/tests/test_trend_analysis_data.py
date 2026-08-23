@@ -181,3 +181,57 @@ def test_swing_detail_json_round_trips_through_a_real_compute(monkeypatch):
 
     reread = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
     assert reread.last_confirmed_swing == result.last_confirmed_swing
+
+
+def test_ad_bullish_divergence_fields_round_trip_through_a_real_compute(monkeypatch):
+    engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+
+    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+        return _synthetic_rows()
+
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+
+    result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
+
+    assert isinstance(result.ad_bullish_divergence, bool)
+    if result.ad_bullish_divergence:
+        assert isinstance(result.ad_divergence_swing_date, date)
+    else:
+        assert result.ad_divergence_swing_date is None
+
+    reread = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
+    assert reread.ad_bullish_divergence == result.ad_bullish_divergence
+    assert reread.ad_divergence_swing_date == result.ad_divergence_swing_date
+
+
+def test_ad_bullish_divergence_reads_as_none_on_a_legacy_pre_migration_row():
+    """A row written before this feature's ALTER TABLE migration has NULL in
+    both new columns -- must read back as None (falsy), not raise a
+    validation error."""
+    engine = _fresh_engine()
+
+    with Session(engine) as session:
+        session.add(
+            TrendAnalysis(
+                ticker="AAPL",
+                computed_at=datetime.now(),
+                trend_state="uptrend",
+                magnitude_tier="strong",
+                persistence_count=4,
+                bars_since_confirmation=1,
+                warning_flag=False,
+                efficiency_ratio=0.5,
+                regime="trending",
+                blended_score=8.0,
+                bar_level=5,
+                # ad_bullish_divergence/ad_divergence_swing_date deliberately omitted
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        row = session.exec(select(TrendAnalysis).where(TrendAnalysis.ticker == "AAPL")).first()
+
+    assert row.ad_bullish_divergence is None
+    assert row.ad_divergence_swing_date is None
