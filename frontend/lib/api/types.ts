@@ -949,7 +949,10 @@ export type WatchlistSortField =
   | "step2_score"
   | "step4_score"
   | "step5_score"
-  | "perf_5y_vs_spy_pct";
+  | "perf_5y_vs_spy_pct"
+  | "sma20_position_pct"
+  | "sma50_position_pct"
+  | "sma200_position_pct";
 
 // Same field set as TickerScoreOut minus sector/industry/company_type/
 // growth_rate/computed_at (not shown on the Watchlist table), plus Step 1's
@@ -1016,6 +1019,18 @@ export interface WatchlistRowOut {
   // (already ISO "YYYY-MM-DD" from the backend's date serialization) --
   // null whenever ad_bullish_divergence is false/null.
   ad_divergence_swing_date: string | null;
+  // SMA (20/50/200) position tracking -- (close - SMA)/SMA*100 for the
+  // latest bar, null whenever fewer than the SMA's own window of bars
+  // exist yet (same None-until-nightly-cron convention as bar_level
+  // above). cross is null whenever there's no valid prior bar to compare
+  // against, or the position didn't cross today, even if position_pct
+  // itself is real. See backend/analysis/trend_structure/sma_position.py.
+  sma20_position_pct: number | null;
+  sma20_cross: "up" | "down" | null;
+  sma50_position_pct: number | null;
+  sma50_cross: "up" | "down" | null;
+  sma200_position_pct: number | null;
+  sma200_cross: "up" | "down" | null;
 }
 
 // A single classified swing's detail -- used for both last_confirmed_swing
