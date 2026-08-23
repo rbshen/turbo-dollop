@@ -1752,6 +1752,47 @@ to display.
     divergence logic in this build. The CMG match, plus classification.py's 12 unit tests covering
     the exact algorithm above with hand-verified expected floors/matches, are the correctness
     evidence for the divergence logic itself.
+- **SMA (20/50/200) position tracking (2026-08-23)**: a second, much simpler technical signal
+  layered on the same swing engine's data -- for each ticker, how far the latest close sits
+  above/below its 20/50/200-day SMA (`position_pct = (close - SMA)/SMA*100`), plus whether it
+  crossed the SMA today (`cross: "up" | "down" | None`). Folds into the exact same nightly batch
+  fetch the swing engine already uses -- no new fetch, no second pass over the universe, no
+  nightly-loop or cron change at all.
+  - **New `analysis/trend_structure/sma_position.py::compute_sma_position(close, period)`**, a
+    single pure function matching `atr.py`'s one-file-per-concern style (deliberately not a reuse
+    of `analysis/ma_magnet/indicators.py::compute_mas` -- `ma_magnet` is explicitly unwired
+    research code production never imports from). `position_pct` is `None` whenever fewer than
+    `period` bars of history exist yet (`rolling(window=period).mean()`'s own `min_periods ==
+    window` already produces NaN there -- a recent-IPO ticker degrades the same way the rest of
+    this engine already does for thin history).
+  - **Crossing compares the PRIOR bar's own SMA against the PRIOR close, not today's SMA reused
+    against yesterday's close** -- a deliberate choice, since `rolling().mean()` produces a
+    distinct SMA value per day: reusing today's SMA would false-positive or miss real crossings
+    whenever the SMA itself moved meaningfully day over day. `cross` is `None` whenever there's no
+    valid prior bar to compare against (a ticker's very first eligible bar, i.e. exactly `period`
+    bars of history), even when `position_pct` itself is real.
+  - **A single tri-state `cross` field per SMA**, not two separate booleans (`crossed_up`/
+    `crossed_down`) -- the two booleans could never both be true, so one field is simpler and maps
+    directly to the Watchlist cell's single background-tint decision.
+  - **`today_sma == 0` (and the prior day's SMA) is guarded, returns `None` rather than
+    dividing.** Effectively impossible for a real equity close, but a `0/0`/`x/0` division would
+    otherwise upsert `inf`/`nan` into SQLite, which Python's default JSON encoder serializes as
+    the literal tokens `Infinity`/`NaN` -- invalid strict JSON that would break the frontend's
+    `JSON.parse` on that one row.
+  - **Six new flat fields** (`sma20_position_pct`/`sma20_cross`, ×3 for 50/200) threaded through
+    `TrendStructureResult` -> `TrendAnalysis` (nullable, same `_add_missing_columns`-has-no-
+    backfill reasoning as `ad_bullish_divergence`) -> `TrendAnalysisOut` -> `WatchlistRowOut` ->
+    `_compose_row` -- the exact plumbing shape the A/D Bullish Divergence feature above already
+    established, matched file-for-file rather than inventing a new shape.
+  - **Watchlist**: three new columns (20SMA/50SMA/200SMA, `WatchlistTable.tsx`) show
+    `position_pct` as `"+X.X%"`/`"-X.X%"`, text colored green/red by sign (`text-positive`/
+    `text-negative`, the same tokens the Rating column's own sign-based coloring already uses),
+    cell background lightly tinted (`bg-positive/8`/`bg-negative/8` -- deliberately lighter than
+    `tierColor.ts`'s existing `/16` chip convention, so it reads as a subtle full-cell highlight
+    rather than a repeat of the chip style) on a same-day cross. Sortable via the existing
+    sort-field dropdown (`SORT_FIELD_OPTIONS` in `app/watchlist/page.tsx`) by `position_pct` --
+    this table has no click-to-sort column headers at all, so no per-column header wiring was
+    needed, only the three new `WatchlistSortField` entries.
 
 ## Workflow rules
 
