@@ -1012,6 +1012,10 @@ export interface WatchlistRowOut {
   // Binary flag only, no magnitude -- see TREND_SIGNAL_COLOR's own comment
   // for why bar_level needs no equivalent band mapping.
   ad_bullish_divergence: boolean | null;
+  // The matched confirmed-LL swing date the flag above is attached to
+  // (already ISO "YYYY-MM-DD" from the backend's date serialization) --
+  // null whenever ad_bullish_divergence is false/null.
+  ad_divergence_swing_date: string | null;
 }
 
 // A single classified swing's detail -- used for both last_confirmed_swing

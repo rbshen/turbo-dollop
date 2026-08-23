@@ -1066,6 +1066,7 @@ class WatchlistRowOut(BaseModel):
     blended_score: float | None = None
     trend_state: str | None = None
     ad_bullish_divergence: bool | None = None
+    ad_divergence_swing_date: date | None = None
 
 
 class ScreenerMeta(BaseModel):

@@ -133,6 +133,7 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Value</TableHead>
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>vs SPY</TableHead>
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Trend</TableHead>
+            <TableHead className={`${HEAD_CLASS} w-24 text-center`}>A/D Div.</TableHead>
             <TableHead className={`${HEAD_CLASS} text-center`}>Analysis</TableHead>
             <TableHead className={HEAD_CLASS}>Rating</TableHead>
             <TableHead className={`${HEAD_CLASS} text-right`}>Mkt Cap</TableHead>
@@ -192,18 +193,14 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
                 )}
               </TableCell>
               <TableCell className="text-center">
-                <div className="flex flex-col items-center gap-0.5">
-                  {row.bar_level != null && <SignalBars level={row.bar_level} color={TREND_SIGNAL_COLOR[row.bar_level]} maxBars={5} />}
-                  {/* A/D Bullish Divergence: simple boolean badge, no magnitude/graduated
-                      display (per this feature's own spec) -- only ever rendered for a
-                      true row, same "only show when meaningful" convention as MoatPill/
-                      SpeculativeGrowthPill elsewhere in this file. Distinct chart-purple
-                      accent (not the TREND_SIGNAL_COLOR green/red scale) since this is an
-                      orthogonal signal, not another trend-strength band. */}
-                  {row.ad_bullish_divergence === true && (
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-chart-purple" title="A/D Bullish Divergence" />
-                  )}
-                </div>
+                {row.bar_level != null && <SignalBars level={row.bar_level} color={TREND_SIGNAL_COLOR[row.bar_level]} maxBars={5} />}
+              </TableCell>
+              <TableCell className="text-center font-mono text-xs text-text-secondary">
+                {/* A/D Bullish Divergence: the matched confirmed-LL swing date when true,
+                    otherwise a fully empty cell (no dash/placeholder) -- per this feature's
+                    own spec. ad_divergence_swing_date is already "YYYY-MM-DD" as serialized
+                    by the backend, no reformatting needed. */}
+                {row.ad_bullish_divergence === true && row.ad_divergence_swing_date}
               </TableCell>
               <TableCell className="text-center">
                 <span

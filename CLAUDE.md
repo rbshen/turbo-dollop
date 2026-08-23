@@ -1732,10 +1732,14 @@ to display.
     ceiling for an already-near-ceiling score (e.g. `10.0 * 1.15 = 11.5`) -- left unclamped, since
     clamping would silently zero out the boost for exactly the highest-conviction names, and
     `compute_bar_level`'s own `min(4, floor(...))` clamp already tolerates it downstream.
-  - **UI**: a small `bg-chart-purple` dot badge next to the Watchlist TREND column's `SignalBars`
-    (`WatchlistTable.tsx`), rendered only when `ad_bullish_divergence === true` -- binary badge
-    only, no magnitude styling, same "only show when meaningful" convention as `MoatPill`/
-    `SpeculativeGrowthPill` elsewhere in that file.
+  - **UI**: a dedicated "A/D Div." column (`WatchlistTable.tsx`), sitting right after the TREND
+    column, showing the matched confirmed-LL swing date (`ad_divergence_swing_date`, already
+    "YYYY-MM-DD" as serialized by the backend) when `ad_bullish_divergence === true`, and a fully
+    empty cell (no dash/placeholder) otherwise. Superseded an initial small `bg-chart-purple` dot
+    badge next to TREND's own `SignalBars` (2026-08-23) -- replaced same-day per user request, in
+    favor of showing the actual date rather than a bare boolean marker. `WatchlistRowOut` (both
+    `core/schemas.py` and `data/watchlist_data.py::_compose_row`) carries
+    `ad_divergence_swing_date` alongside `ad_bullish_divergence` for this.
   - **Spot-checked against known backtest ticker/dates post-implementation**: **CMG (2018-12-24)
     matches exactly** -- a genuine confirmed LL (ratio 1.71) at that literal date, `ad_bullish_
     divergence=True`. This is the relevant confirmation for what actually shipped.
