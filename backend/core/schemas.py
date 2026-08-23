@@ -987,6 +987,12 @@ class TrendAnalysisOut(BaseModel):
     bar_level: int
     ad_bullish_divergence: bool | None = None
     ad_divergence_swing_date: date | None = None
+    sma20_position_pct: float | None = None
+    sma20_cross: Literal["up", "down"] | None = None
+    sma50_position_pct: float | None = None
+    sma50_cross: Literal["up", "down"] | None = None
+    sma200_position_pct: float | None = None
+    sma200_cross: Literal["up", "down"] | None = None
 
 
 class WatchlistTickerIn(BaseModel):
@@ -1067,6 +1073,16 @@ class WatchlistRowOut(BaseModel):
     trend_state: str | None = None
     ad_bullish_divergence: bool | None = None
     ad_divergence_swing_date: date | None = None
+    # SMA (20/50/200) position tracking -- same TrendAnalysis-sourced,
+    # None-until-nightly-cron convention as bar_level/trend_state above. See
+    # analysis/trend_structure/sma_position.py for the position_pct/cross
+    # definitions.
+    sma20_position_pct: float | None = None
+    sma20_cross: Literal["up", "down"] | None = None
+    sma50_position_pct: float | None = None
+    sma50_cross: Literal["up", "down"] | None = None
+    sma200_position_pct: float | None = None
+    sma200_cross: Literal["up", "down"] | None = None
 
 
 class ScreenerMeta(BaseModel):

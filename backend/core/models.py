@@ -92,6 +92,18 @@ class TrendAnalysis(SQLModel, table=True):
     # every consumer already treats None the same as False.
     ad_bullish_divergence: bool | None = None
     ad_divergence_swing_date: date | None = None
+    # SMA (20/50/200) position tracking (see
+    # analysis/trend_structure/sma_position.py) -- nullable for the same
+    # reason as ad_bullish_divergence above: _add_missing_columns's ALTER
+    # TABLE has no backfill, so existing rows read NULL until the next
+    # nightly run rewrites every field. cross is a plain str ("up"/"down"),
+    # same enum-like-string convention trend_state/regime already use.
+    sma20_position_pct: float | None = None
+    sma20_cross: str | None = None
+    sma50_position_pct: float | None = None
+    sma50_cross: str | None = None
+    sma200_position_pct: float | None = None
+    sma200_cross: str | None = None
 
 
 class IndexConstituent(SQLModel, table=True):

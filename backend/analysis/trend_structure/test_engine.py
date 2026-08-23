@@ -2,6 +2,7 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from analysis.trend_structure.engine import compute_trend_structure
 from analysis.trend_structure.types import TrendStructureResult
@@ -42,6 +43,14 @@ def test_compute_trend_structure_produces_a_fully_populated_result():
     assert -10.0 <= result.blended_score <= 11.5
     assert isinstance(result.ad_bullish_divergence, bool)
     assert result.ad_divergence_swing_date is None or isinstance(result.ad_divergence_swing_date, date)
+    # SMA position tracking -- 150 bars of history clears all three windows
+    # (20/50/200 would need 200, so 200's fields stay None here).
+    assert result.sma20_position_pct is not None
+    assert result.sma20_cross in ("up", "down", None)
+    assert result.sma50_position_pct is not None
+    assert result.sma50_cross in ("up", "down", None)
+    assert result.sma200_position_pct is None  # only 150 bars, fewer than the 200-day window
+    assert result.sma200_cross is None
 
 
 def test_compute_trend_structure_is_deterministic_for_the_same_input():
@@ -78,6 +87,42 @@ def test_compute_trend_structure_handles_too_short_a_history_gracefully():
     assert result.bar_level in (1, 2, 3, 4, 5)
     assert result.ad_bullish_divergence is False
     assert result.ad_divergence_swing_date is None
+    # 8 bars is fewer than even the smallest SMA window (20) -- all six
+    # SMA fields must degrade to None, not raise.
+    assert result.sma20_position_pct is None
+    assert result.sma20_cross is None
+    assert result.sma50_position_pct is None
+    assert result.sma50_cross is None
+    assert result.sma200_position_pct is None
+    assert result.sma200_cross is None
+
+
+def test_sma_position_fields_flow_through_a_real_up_cross():
+    """Wiring test: confirms compute_trend_structure actually threads
+    compute_sma_position's output through to the top-level result for a
+    genuine crossing, not just that the fields exist (test_sma_position.py
+    already covers the calculation itself in isolation)."""
+    # 21 bars -- exactly enough for SMA20 to have both a "today" and a
+    # "prior" value (period + 1). SMA(20) at t-1 (mean of 18x100 + 90 + 90
+    # = 99.0) sits above the prior close (90) -> prior_pos negative; SMA(20)
+    # at t (mean of 17x100 + 90 + 90 + 130 = 100.5) sits below today's
+    # close (130) -> today_pos positive. Same shape as
+    # test_sma_position.py's own up-cross case, scaled to the real 20-day
+    # window and wrapped in a full OHLCV frame.
+    close = [100.0] * 18 + [90.0, 90.0, 130.0]
+    n = len(close)
+    dates = pd.date_range("2024-01-01", periods=n, freq="B")
+    ohlcv = pd.DataFrame(
+        {"open": close, "high": [c + 1 for c in close], "low": [c - 1 for c in close], "close": close, "volume": [1000] * n},
+        index=dates,
+    )
+
+    result = compute_trend_structure(ohlcv)
+
+    assert result.sma20_position_pct == pytest.approx(29.35, abs=0.01)
+    assert result.sma20_cross == "up"
+    assert result.sma50_position_pct is None  # only 21 bars, fewer than 50
+    assert result.sma200_position_pct is None
 
 
 def test_ad_bullish_divergence_selects_the_most_recent_confirmed_ll_and_boosts_blended_score(monkeypatch):

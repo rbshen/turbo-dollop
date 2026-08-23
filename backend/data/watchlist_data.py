@@ -152,6 +152,12 @@ async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
         trend_state=trend.trend_state if trend else None,
         ad_bullish_divergence=trend.ad_bullish_divergence if trend else None,
         ad_divergence_swing_date=trend.ad_divergence_swing_date if trend else None,
+        sma20_position_pct=trend.sma20_position_pct if trend else None,
+        sma20_cross=trend.sma20_cross if trend else None,
+        sma50_position_pct=trend.sma50_position_pct if trend else None,
+        sma50_cross=trend.sma50_cross if trend else None,
+        sma200_position_pct=trend.sma200_position_pct if trend else None,
+        sma200_cross=trend.sma200_cross if trend else None,
     )
 
 

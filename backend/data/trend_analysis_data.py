@@ -74,6 +74,12 @@ def _upsert(ticker: str, result: TrendStructureResult, computed_at: datetime) ->
         "bar_level": result.bar_level,
         "ad_bullish_divergence": result.ad_bullish_divergence,
         "ad_divergence_swing_date": result.ad_divergence_swing_date,
+        "sma20_position_pct": result.sma20_position_pct,
+        "sma20_cross": result.sma20_cross,
+        "sma50_position_pct": result.sma50_position_pct,
+        "sma50_cross": result.sma50_cross,
+        "sma200_position_pct": result.sma200_position_pct,
+        "sma200_cross": result.sma200_cross,
     }
     with Session(engine) as session:
         stmt = sqlite_insert(TrendAnalysis).values(ticker=ticker, **fields)
@@ -99,6 +105,12 @@ def _row_to_out(row: TrendAnalysis) -> TrendAnalysisOut:
         bar_level=row.bar_level,
         ad_bullish_divergence=row.ad_bullish_divergence,
         ad_divergence_swing_date=row.ad_divergence_swing_date,
+        sma20_position_pct=row.sma20_position_pct,
+        sma20_cross=row.sma20_cross,
+        sma50_position_pct=row.sma50_position_pct,
+        sma50_cross=row.sma50_cross,
+        sma200_position_pct=row.sma200_position_pct,
+        sma200_cross=row.sma200_cross,
     )
 
 
@@ -138,6 +150,12 @@ def compute_and_store_from_rows(ticker: str, rows: list[YahooPriceCache]) -> Tre
         bar_level=result.bar_level,
         ad_bullish_divergence=result.ad_bullish_divergence,
         ad_divergence_swing_date=result.ad_divergence_swing_date,
+        sma20_position_pct=result.sma20_position_pct,
+        sma20_cross=result.sma20_cross,
+        sma50_position_pct=result.sma50_position_pct,
+        sma50_cross=result.sma50_cross,
+        sma200_position_pct=result.sma200_position_pct,
+        sma200_cross=result.sma200_cross,
     )
 
 

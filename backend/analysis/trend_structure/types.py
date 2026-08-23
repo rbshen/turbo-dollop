@@ -13,6 +13,7 @@ TrendState = Literal["uptrend", "downtrend"]
 MagnitudeTier = Literal["weak", "confirmed", "strong"]
 Regime = Literal["trending", "range-bound"]
 Classification = Literal["HH", "HL", "LH", "LL"]
+SmaCross = Literal["up", "down"]
 
 # The ratio (margin/ATR) threshold for a "confirmed" swing -- shared between
 # state_machine.py (a genuine trend_state flip) and classification.py (which
@@ -66,3 +67,16 @@ class TrendStructureResult:
     # Chaikin Oscillator low's own bar date (None whenever the flag is False).
     ad_bullish_divergence: bool
     ad_divergence_swing_date: date | None
+    # SMA (20/50/200) position tracking -- (close - SMA)/SMA*100 for the
+    # latest bar, plus a prior-day-vs-current-day cross flag. See
+    # sma_position.py::compute_sma_position for the full definition
+    # (including why crossing compares prior-day SMA, not today's SMA
+    # reused). None (both fields) whenever fewer than the SMA's own window
+    # of bars exist yet; cross alone is None whenever there's no valid prior
+    # bar to compare against, even if position_pct itself is real.
+    sma20_position_pct: float | None
+    sma20_cross: SmaCross | None
+    sma50_position_pct: float | None
+    sma50_cross: SmaCross | None
+    sma200_position_pct: float | None
+    sma200_cross: SmaCross | None

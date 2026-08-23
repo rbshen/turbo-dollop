@@ -205,6 +205,34 @@ def test_ad_bullish_divergence_fields_round_trip_through_a_real_compute(monkeypa
     assert reread.ad_divergence_swing_date == result.ad_divergence_swing_date
 
 
+def test_sma_position_fields_round_trip_through_a_real_compute(monkeypatch):
+    engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+
+    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+        return _synthetic_rows()
+
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+
+    result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
+
+    # _synthetic_rows() produces 150 bars -- enough for SMA20/50, not SMA200.
+    assert result.sma20_position_pct is not None
+    assert result.sma20_cross in ("up", "down", None)
+    assert result.sma50_position_pct is not None
+    assert result.sma50_cross in ("up", "down", None)
+    assert result.sma200_position_pct is None
+    assert result.sma200_cross is None
+
+    reread = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
+    assert reread.sma20_position_pct == result.sma20_position_pct
+    assert reread.sma20_cross == result.sma20_cross
+    assert reread.sma50_position_pct == result.sma50_position_pct
+    assert reread.sma50_cross == result.sma50_cross
+    assert reread.sma200_position_pct == result.sma200_position_pct
+    assert reread.sma200_cross == result.sma200_cross
+
+
 def test_ad_bullish_divergence_reads_as_none_on_a_legacy_pre_migration_row():
     """A row written before this feature's ALTER TABLE migration has NULL in
     both new columns -- must read back as None (falsy), not raise a
@@ -235,3 +263,9 @@ def test_ad_bullish_divergence_reads_as_none_on_a_legacy_pre_migration_row():
 
     assert row.ad_bullish_divergence is None
     assert row.ad_divergence_swing_date is None
+    assert row.sma20_position_pct is None
+    assert row.sma20_cross is None
+    assert row.sma50_position_pct is None
+    assert row.sma50_cross is None
+    assert row.sma200_position_pct is None
+    assert row.sma200_cross is None

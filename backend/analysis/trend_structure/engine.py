@@ -11,6 +11,7 @@ from .atr import compute_atr
 from .classification import classify_swings
 from .conviction import compute_bar_level, compute_blended_score
 from .regime import latest_regime
+from .sma_position import compute_sma_position
 from .state_machine import run_state_machine
 from .swings import extract_swing_points
 from .types import CONFIRMED_RATIO, TrendStructureResult
@@ -24,6 +25,12 @@ def compute_trend_structure(ohlcv: pd.DataFrame) -> TrendStructureResult:
     high = ohlcv["high"]
     low = ohlcv["low"]
     volume = ohlcv["volume"]
+
+    # SMA position tracking -- computed straight off `close`, no dependency
+    # on swings/ATR/regime, so it's placed right here rather than after them.
+    sma20 = compute_sma_position(close, 20)
+    sma50 = compute_sma_position(close, 50)
+    sma200 = compute_sma_position(close, 200)
 
     atr_series = compute_atr(high, low, close)
     atr_by_date = {
@@ -87,4 +94,10 @@ def compute_trend_structure(ohlcv: pd.DataFrame) -> TrendStructureResult:
         bar_level=bar_level,
         ad_bullish_divergence=ad_bullish_divergence,
         ad_divergence_swing_date=ad_divergence_swing_date,
+        sma20_position_pct=sma20.position_pct,
+        sma20_cross=sma20.cross,
+        sma50_position_pct=sma50.position_pct,
+        sma50_cross=sma50.cross,
+        sma200_position_pct=sma200.position_pct,
+        sma200_cross=sma200.cross,
     )

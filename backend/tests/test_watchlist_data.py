@@ -109,6 +109,12 @@ def test_trend_fields_flow_into_the_row_from_trend_analysis(monkeypatch):
             bar_level=5,
             ad_bullish_divergence=True,
             ad_divergence_swing_date=date(2026, 1, 15),
+            sma20_position_pct=12.5,
+            sma20_cross="up",
+            sma50_position_pct=-3.2,
+            sma50_cross=None,
+            sma200_position_pct=None,
+            sma200_cross=None,
         )
 
     monkeypatch.setattr(watchlist_data, "get_trend_analysis_data", fake_get_trend_analysis_data)
@@ -121,6 +127,12 @@ def test_trend_fields_flow_into_the_row_from_trend_analysis(monkeypatch):
     assert rows[0].trend_state == "uptrend"
     assert rows[0].ad_bullish_divergence is True
     assert rows[0].ad_divergence_swing_date == date(2026, 1, 15)
+    assert rows[0].sma20_position_pct == 12.5
+    assert rows[0].sma20_cross == "up"
+    assert rows[0].sma50_position_pct == -3.2
+    assert rows[0].sma50_cross is None
+    assert rows[0].sma200_position_pct is None
+    assert rows[0].sma200_cross is None
 
 
 def test_trend_fields_are_none_when_no_trend_analysis_row_yet(monkeypatch):
@@ -137,4 +149,10 @@ def test_trend_fields_are_none_when_no_trend_analysis_row_yet(monkeypatch):
     assert rows[0].blended_score is None
     assert rows[0].trend_state is None
     assert rows[0].ad_bullish_divergence is None
+    assert rows[0].sma20_position_pct is None
+    assert rows[0].sma20_cross is None
+    assert rows[0].sma50_position_pct is None
+    assert rows[0].sma50_cross is None
+    assert rows[0].sma200_position_pct is None
+    assert rows[0].sma200_cross is None
     assert rows[0].ad_divergence_swing_date is None
