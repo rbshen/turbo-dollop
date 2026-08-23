@@ -63,16 +63,17 @@ function TrendCell({ years, values }: { years: string[]; values: (number | null)
   if (!values || values.every((v) => v == null)) {
     // Empty box, not a dash -- keeps this cell the same size as a populated
     // one so row height/alignment doesn't shift.
-    return <span className="flex h-8 w-16 items-center justify-center" />;
+    return <span className="flex h-8 w-14 items-center justify-center" />;
   }
   return (
-    <div className="w-16">
-      {/* barCategoryGap="24%" (default is 10%; was 12% before the REV/NI/CFO
-          column-width reduction that shipped alongside the new TREND column)
-          -- narrower w-16 cell needs a proportionally wider gap to keep bars
-          from looking like a single solid block; every other MiniBarChart
-          caller (Financials tab) keeps the default 10%. */}
-      <MiniBarChart categories={years} values={values} valueFormat={fmtCompactMoney} height={32} barCategoryGap="24%" />
+    <div className="w-14">
+      {/* barCategoryGap="15%" -- close to the default 10% every other
+          MiniBarChart caller (Financials tab) uses, chosen over the wider
+          24%/32% gaps this cell used previously: at w-14's narrow width a
+          wide gap left each bar too thin to read, so this favors thicker
+          bars with just a small gap over the wider spacing the column's
+          two earlier narrowings had used. */}
+      <MiniBarChart categories={years} values={values} valueFormat={fmtCompactMoney} height={32} barCategoryGap="15%" />
     </div>
   );
 }
@@ -124,11 +125,11 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
       <Table containerClassName="overflow-x-auto" className="min-w-[1000px] border-separate border-spacing-0">
         <TableHeader>
           <TableRow className="border-border-card bg-surface-2 hover:bg-surface-2">
-            <TableHead className={`${HEAD_CLASS} w-40`}>Ticker</TableHead>
+            <TableHead className={`${HEAD_CLASS} w-32`}>Ticker</TableHead>
             <TableHead className={`${HEAD_CLASS} w-24`}>Sector</TableHead>
-            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>REV</TableHead>
-            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>NI</TableHead>
-            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>CFO</TableHead>
+            <TableHead className={`${HEAD_CLASS} w-14 text-center`}>REV</TableHead>
+            <TableHead className={`${HEAD_CLASS} w-14 text-center`}>NI</TableHead>
+            <TableHead className={`${HEAD_CLASS} w-14 text-center`}>CFO</TableHead>
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Moat</TableHead>
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Value</TableHead>
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>vs SPY</TableHead>
@@ -145,7 +146,7 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
         <TableBody>
           {sorted.map((row) => (
             <TableRow key={row.ticker} onClick={() => openTicker(row.ticker)} className="cursor-pointer border-border-subtle">
-              <TableCell className="w-40 max-w-40 overflow-hidden">
+              <TableCell className="w-32 max-w-32 overflow-hidden">
                 <p
                   className={cn(
                     "font-mono text-sm font-bold",
