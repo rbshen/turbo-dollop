@@ -70,6 +70,14 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
   // trend the app has never surfaced for these company types before.
   const cfoExempt = s1.cfo == null;
 
+  // Accounts Receivable stays suppressed for company types Step 4 exempts
+  // from the Revenue-vs-AR check (Bank/Insurance/Utility/REIT -- see
+  // Step4Out.revenue_vs_ar_exempt_reason) -- same "FinancialsOut has no
+  // notion of this exemption" reasoning as cfoExempt above: the raw balance
+  // sheet always has an Accounts Receivable line, but it isn't a trend
+  // worth showing for these business models.
+  const arExempt = s4.revenue_vs_ar_exempt_reason != null;
+
   const ccc2 = (v: number) => fmtDays(v, 2);
 
   // Total Debt is only meaningful alongside Step 5's own debt verdict, so
@@ -141,7 +149,7 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
       key: "accounts_receivable",
       label: "Accounts Receivable",
       years: bsYears,
-      values: financialsValues(fin.balance_sheet.annual, "Accounts Receivable"),
+      values: arExempt ? [] : financialsValues(fin.balance_sheet.annual, "Accounts Receivable"),
       format: fmtTableMoney,
       tooltipFormat: fmtCompactMoney,
     },
