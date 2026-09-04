@@ -1376,7 +1376,6 @@ the confirmed-lenders table below) are from a separate, later check
 | SYF | 96.6% | Private-label/co-brand credit-card issuer (Synchrony) with Synchrony Bank — pure consumer lending business |
 | COF | 61.9% | Credit-card issuer *and* retail bank (Capital One) — full consumer lending book |
 | SCHW | 42.5% | Broker with Charles Schwab Bank — real deposit-taking/lending balance sheet |
-| HOOD | 33.9% | Robinhood — margin lending and cash-sweep interest are real NII, not incidental |
 | AXP | 21.6% | Card network *with* a real cardmember loan book (American Express), unlike V/MA |
 | AMP | 17.2% | Ameriprise Financial — has Ameriprise Bank FSB subsidiary |
 | NTRS | 16.9% | Northern Trust — custody bank with real lending/deposit operations |
@@ -1386,12 +1385,120 @@ the confirmed-lenders table below) are from a separate, later check
 | GS | 10.8% | Goldman Sachs — investment bank with real deposit-taking/lending and trading-book NII |
 | MS | 8.7% | Morgan Stanley — investment bank with Morgan Stanley Private Bank / wealth-management lending |
 
+**HOOD was previously listed here (33.9% NII, "margin lending and
+cash-sweep interest are real NII, not incidental") and has been removed —
+NII-as-%-of-revenue answers "does this company lend?", not "does this
+company report under banking regulation?", and the latter is what Bank's
+CET1/NPL check actually requires. See "Bank classification requires
+genuine CET1/NPL-reporting capability, not just lending activity" below
+for the corrected standard and why HOOD (and three others) moved to
+`NON_LENDER_TICKER_OVERRIDES` on that basis instead.**
+
 **This list does not auto-generalize.** A new ticker that lands in the same
 sector/industry buckets (e.g. a newly-listed fintech IPO, a new asset
 manager) classifies as `"Bank"` by default and needs the same manual
 NII/revenue check before being added to either side of this list — there
 is no automated signal that would catch a new non-lender or a new lender
 on its own.
+
+### Bank classification requires genuine CET1/NPL-reporting capability, not just lending activity (2026-09-05)
+
+A 2026-09-04 investigation (documented above, in this same section, before
+this fix) asked the wrong question for IBKR: "does this company do real
+lending at meaningful scale?" — and concluded IBKR should stay `"Bank"`
+because it runs a large margin-lending book (gross `interestIncome`/
+`interestExpense` both ~41% of revenue, even though the *net* figure washes
+out near zero). The user corrected this framing: Fathom's `"Bank"`
+treatment exists specifically to run Step 5's CET1 (capital adequacy) and
+NPL (loan quality) checks (`data/step5_data.py`), both of which only make
+sense for an institution that actually reports under banking regulation —
+i.e., is a genuine deposit-taking institution. Lending *shape* (margin
+loans, credit-card loans, BNPL installment credit) is irrelevant to this
+specific question; regulatory reporting shape is what matters. A company
+classified `"Bank"` that doesn't report CET1/NPL shouldn't get Bank
+treatment *anywhere* (Step 1's NII swap, Step 4's ROIC exemption, Step 3's
+forced Price-to-Book) — not just have the CET1/NPL check itself skipped
+while everything else stays Bank-shaped, which is what
+`BANK_CET1_NPL_EXCLUDED_TICKERS` (`data/step5_data.py`) did for IBKR/HOOD
+before this fix.
+
+**Universe-wide scan, not just IBKR/HOOD.** Reused
+`pipeline.nightly_fundamentals_fetch.load_full_tracked_universe` (572
+tickers) rather than hand-rolling a new universe helper; 32 classify as
+`"Bank"` via `classify_company_type`. Evidence standard: the same one
+`BANK_CET1_NPL_EXCLUDED_TICKERS`'s original IBKR/HOOD entries were built
+on — presence/absence of a genuine deposit-liability figure in FMP's
+`financial_statement_full_as_reported` raw XBRL-tag dump (quarterly,
+falling back to annual — same fallback convention `helpers/npl.py::
+compute_npl_ratio` already uses), checked against total assets.
+
+A literal `deposits`-tag-only check (what the original IBKR/HOOD
+investigation used) turns out to produce two false positives at
+universe scale, both confirmed via the raw tag data before being ruled
+out:
+- **HSBC** files under IFRS-style tag names (`depositsfromcustomers` =
+  $1.79T, 52.0% of total assets) rather than the literal `deposits` tag
+  FMP's US-GAAP filers use — a tag-naming artifact of HSBC filing as a
+  foreign private issuer, not evidence of no deposit-taking.
+- **MTB** (M&T Bank)'s literal `deposits` tag is a mis-scoped, too-small
+  XBRL dimension member ($4.7B, 2.1% of assets) — the same class of issue
+  `npl.py`'s own comment already documents for `TOTAL_LOANS_TAG` on
+  BAC/WFC/C. Summing MTB's real deposit-liability tags
+  (`noninterestbearingdepositliabilitiesdomestic` +
+  `savingsandinterestcheckingdeposits` + `timedeposits`) gives ~$168.9B
+  (77% of assets) — a genuine, well-capitalized regional bank.
+
+Fixed by broadening the check: use the literal `deposits` tag if present
+and material, otherwise the largest plausible deposit-liability-shaped tag
+— excluding tag names containing `interest`, `fee`, `expense`, `income`,
+`increasedecrease`, `adjustmentsfor`, `paymentsfor`, `proceedsfrom`,
+`acquisition`, `premium`, `fairvaluedisclosure`, or `reserve`. That last
+exclusion is load-bearing, not incidental: IBKR's own largest
+`*deposit*`-named tag is `cashreservedepositrequiredandmade` (22.9% of
+assets) — an SEC Rule 15c3-3 customer segregated-cash reserve requirement
+(a broker-dealer customer-protection concept), not a deposit liability
+that funds the balance sheet the way a bank's does. Without excluding
+`reserve`, IBKR would have wrongly cleared this check.
+
+**Result: 26 of the 32 Bank-classified tickers are confirmed genuine
+deposit-taking institutions** (real deposits 15–81% of total assets,
+including HSBC/MTB once correctly measured): AMP, AXP, BAC, BNY, C, CFG,
+COF, FITB, GS, HBAN, JPM, KEY, MS, MTB, NBN, NTRS, PNC, RF, RJF, RY, SCHW,
+STT, SYF, TFC, TMP, USB, WFC, HSBC.
+
+**4 tickers have no genuine deposit-liability tag at any magnitude —
+added to `NON_LENDER_TICKER_OVERRIDES`:**
+
+| Ticker | Industry | Best deposit-shaped tag found | Business |
+|---|---|---|---|
+| IBKR | Investment - Banking & Investment Services | none (closest was the customer-reserve tag above, excluded as non-deposit) | Interactive Brokers — broker-dealer, large margin-lending book, no bank charter |
+| HOOD | Financial - Capital Markets | `depositswithclearingorganizationsandotherssecurities` = 0.7% of assets (immaterial) | Robinhood — broker-dealer; previously kept as Bank on NII grounds (see the removed table row above) — that was the wrong test |
+| SEIC | Asset Management | none | SEI Investments — confirmed via FMP profile description as a pure asset-management/investment-processing firm, no banking subsidiary |
+| SEZL | Financial - Credit Services | none | Sezzle — confirmed via FMP profile description as a BNPL/consumer-credit fintech, no bank charter |
+
+**Before/after impact, measured on real cached data before shipping (all
+four gain a real Step 5 verdict for the first time — previously
+permanently `not_supported`, since none of them can ever have CET1
+entered — this is the direct, intended payoff, not a side effect):**
+
+| Ticker | | Step 1 | Step 4 | Step 5 | Step 3 |
+|---|---|---|---|---|---|
+| IBKR | Before (Bank) | 85/Pass (NII) | 100/Strong Pass, ROIC exempt | not_supported | overvalued |
+| IBKR | After (Standard) | 90/Pass (Revenue) | 68/Fail, ROIC included | 71/Fail (hard-fail breach despite score ≥70) | undervalued |
+| HOOD | Before (Bank) | 53/Fail (NII) | 60/Fail | not_supported | overvalued |
+| HOOD | After (Standard) | 42/Fail (Revenue) | 28/Fail | 35/Fail | undervalued |
+| SEIC | Before (Bank) | 52/Fail (NII) | 100/Strong Pass | not_supported | overvalued |
+| SEIC | After (Standard) | 88/Pass (Revenue) | 85/Pass | 100/Strong Pass | undervalued |
+| SEZL | Before (Bank) | 49/Fail (NII) | 100/Strong Pass | not_supported | overvalued |
+| SEZL | After (Standard) | 84/Pass (Revenue) | 85/Pass | 100/Strong Pass | overvalued (unchanged) |
+
+`BANK_CET1_NPL_EXCLUDED_TICKERS` (`data/step5_data.py`) is now an empty
+set — IBKR/HOOD's presence there is redundant once they're
+`"Standard"` everywhere (a Standard-classified ticker never reaches the
+Bank branch that constant gates). The mechanism itself (constant + branch
++ classification note) is kept rather than deleted outright, since
+`tests/test_step5_data.py`'s own regression test for it exercises the
+behavior generically, independent of which real tickers populate the set.
 
 ## Valuation (Step 3) scoring notes
 
