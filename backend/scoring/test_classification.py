@@ -139,8 +139,51 @@ def test_is_fund_default_false_preserves_existing_bank_behavior():
 
 def test_capital_markets_no_overrides_needed():
     # Every "Financial - Capital Markets" ticker checked (GS 10.8%, MS 8.7%,
-    # RJF 13.5%, HOOD 33.8%, SCHW 42.5%) turned out to be a genuine lender
-    # with material net-interest income -- no override list needed for this
-    # keyword.
-    for ticker in ("GS", "MS", "RJF", "HOOD"):
+    # RJF 13.5%, SCHW 42.5%) turned out to be a genuine lender with material
+    # net-interest income -- no override list needed for this keyword. HOOD
+    # used to be here too (33.8% NII) but has since moved to the override
+    # list on a different, corrected basis -- see
+    # test_capital_markets_non_deposit_taking_reverts_to_standard_robinhood
+    # below.
+    for ticker in ("GS", "MS", "RJF"):
         assert classify_company_type("Financial Services", "Financial - Capital Markets", ticker) == "Bank"
+
+
+def test_investment_banking_non_deposit_taking_reverts_to_standard_ibkr():
+    # IBKR: shares BNY's exact "Investment - Banking & Investment Services"
+    # industry string, but confirmed via FMP's raw XBRL-tag dump to report
+    # no deposit-liability tag of any material magnitude (unlike BNY, whose
+    # deposits are 70.3% of total assets). Bank's CET1/NPL check exists
+    # specifically for deposit-taking institutions -- a company that doesn't
+    # report deposits can't be judged on it regardless of how much real
+    # lending (e.g. IBKR's substantial margin-lending book) it does
+    # elsewhere. See CLAUDE.md's "Bank classification requires genuine
+    # CET1/NPL-reporting capability, not just lending activity".
+    assert classify_company_type("Financial Services", "Investment - Banking & Investment Services", "IBKR") == "Standard"
+
+
+def test_capital_markets_non_deposit_taking_reverts_to_standard_robinhood():
+    # HOOD: previously kept as Bank on NII grounds (33.9% of revenue, real
+    # margin-lending/cash-sweep interest) -- but per the corrected standard
+    # (CET1/NPL regulatory-reporting capability, not lending activity of any
+    # shape), HOOD reports no deposit-liability tag at material magnitude
+    # either (its largest deposit-named tag is a securities-clearing
+    # deposit, 0.7% of assets), so it moves to Standard too.
+    assert classify_company_type("Financial Services", "Financial - Capital Markets", "HOOD") == "Standard"
+
+
+def test_asset_manager_non_deposit_taking_reverts_to_standard_sei():
+    # SEIC (SEI Investments): shares the "Asset Management" industry string
+    # with AMP/BLK above, but reports no deposit-liability tag at all in
+    # FMP's raw XBRL dump -- confirmed via its own profile description as a
+    # pure asset-management/investment-processing firm with no banking
+    # subsidiary.
+    assert classify_company_type("Financial Services", "Asset Management", "SEIC") == "Standard"
+
+
+def test_credit_services_non_deposit_taking_reverts_to_standard_sezzle():
+    # SEZL (Sezzle): shares the "Financial - Credit Services" industry
+    # string with AXP/COF above, but reports no deposit-liability tag at
+    # all -- confirmed via its own profile description as a BNPL/consumer-
+    # credit fintech with no bank charter.
+    assert classify_company_type("Financial Services", "Financial - Credit Services", "SEZL") == "Standard"

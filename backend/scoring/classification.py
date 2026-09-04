@@ -26,19 +26,33 @@ _BANK_INDUSTRY_KEYWORDS = ("bank", "capital markets", "asset management", "credi
 # (Step 1) and forced Price-to-Book valuation to a non-lender produces a
 # nonsensical, near-zero-or-negative "revenue" series -- confirmed for V/MA/
 # BLK, whose Step 1 scores dropped 30-50+ points purely from this swap, not
-# from the intended CFO-de-emphasis effect. This is a narrower, more
-# surgical exception than the keyword list itself and doesn't generalize
-# automatically to new tickers -- a newly-listed asset manager or
-# credit-services company will classify as Bank by default and needs this
-# list updated manually if it turns out to be a non-lender too (same
-# maintenance model as classify_company_type's whole best-effort approach,
-# just at ticker granularity instead of sector/industry granularity). See
-# CLAUDE.md ("Company classification: non-lender ticker overrides") for the
-# full per-ticker table -- every entry here and every confirmed-lender
-# ticker kept as Bank, with its NII/revenue % and one-line business-model
-# reason.
+# from the intended CFO-de-emphasis effect.
+#
+# A second, distinct evidentiary standard also feeds this same list
+# (2026-09-05): whether the ticker reports genuine deposit-liability data at
+# all, not whether it lends. Bank's treatment throughout this app exists
+# specifically to run Step 5's CET1/NPL checks, which only make sense for a
+# company reporting under banking regulation as a real deposit-taking
+# institution -- a company that lends via some other shape entirely (margin
+# loans, BNPL installment credit) but reports no deposit liability doesn't
+# fit Bank's treatment either, regardless of how much real lending activity
+# it has. IBKR/HOOD/SEIC/SEZL were added on this basis, confirmed via FMP's
+# raw XBRL-tag dump (no deposit-liability tag at any material magnitude for
+# any of the four) -- see CLAUDE.md's "Bank classification requires genuine
+# CET1/NPL-reporting capability, not just lending activity" for the
+# universe-wide scan this was confirmed against and the full evidence.
+#
+# Neither standard generalizes automatically to new tickers -- a newly-
+# listed asset manager, credit-services company, or broker-dealer will
+# classify as Bank by default and needs the same manual check (NII/revenue,
+# or a deposit-liability XBRL tag check) before being added to either side
+# of this list. See CLAUDE.md ("Company classification: non-lender ticker
+# overrides") for the full per-ticker table -- every entry here and every
+# confirmed-lender ticker kept as Bank, with its evidence and one-line
+# business-model reason.
 NON_LENDER_TICKER_OVERRIDES = {
-    "APO", "ARES", "BEN", "BLK", "BX", "GPN", "IVZ", "KKR", "MA", "PFG", "PYPL", "TROW", "V",
+    "APO", "ARES", "BEN", "BLK", "BX", "GPN", "HOOD", "IBKR", "IVZ", "KKR", "MA", "PFG", "PYPL",
+    "SEIC", "SEZL", "TROW", "V",
 }
 
 

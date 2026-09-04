@@ -538,9 +538,19 @@ def test_bank_npl_annual_fallback_still_respects_plausibility_floor(monkeypatch)
 
 
 def test_bank_excluded_ticker_unaffected_even_with_a_stray_capital_metrics_row(monkeypatch):
-    # IBKR/HOOD-shaped: even if a CET1/NPL row somehow exists (e.g. leftover
-    # from before this ticker was added to the exclusion set), the excluded
-    # path must ignore it entirely and behave byte-for-byte like today.
+    # IBKR/HOOD-shaped (this exclusion mechanism's original motivating
+    # cases, now both fully reclassified to "Standard" via
+    # NON_LENDER_TICKER_OVERRIDES instead -- see CLAUDE.md): even if a
+    # CET1/NPL row somehow exists (e.g. leftover from before this ticker was
+    # added to the exclusion set), the excluded path must ignore it entirely
+    # and behave byte-for-byte like today. Uses a fixture ticker distinct
+    # from the real "IBKR"/"HOOD" strings -- those are now in the real
+    # NON_LENDER_TICKER_OVERRIDES, so classify_company_type would reclassify
+    # them to "Standard" before this test's own monkeypatched
+    # BANK_CET1_NPL_EXCLUDED_TICKERS ever mattered, breaking the
+    # company_type == "Bank" assertion below; "ibkr9" tests the mechanism
+    # generically instead, same convention as this file's own jpm2/jpm3
+    # fixture tickers.
     _fresh_engine(monkeypatch)
     _patch_fmp(
         monkeypatch,
@@ -548,10 +558,10 @@ def test_bank_excluded_ticker_unaffected_even_with_a_stray_capital_metrics_row(m
         industry="Banks - Diversified",
         full_as_reported_quarterly=FULL_AS_REPORTED_QUARTERLY_GOOD,
     )
-    _set_bank_capital_metrics(monkeypatch, "IBKR", cet1_ratio_pct=20.0, cet1_as_of="Q2 2026")
-    monkeypatch.setattr(step5_data, "BANK_CET1_NPL_EXCLUDED_TICKERS", {"IBKR", "HOOD"})
+    _set_bank_capital_metrics(monkeypatch, "IBKR9", cet1_ratio_pct=20.0, cet1_as_of="Q2 2026")
+    monkeypatch.setattr(step5_data, "BANK_CET1_NPL_EXCLUDED_TICKERS", {"IBKR9", "HOOD9"})
 
-    result = asyncio.run(get_step5_data("ibkr"))
+    result = asyncio.run(get_step5_data("ibkr9"))
 
     assert result.company_type == "Bank"
     assert result.verdict == "not_supported"

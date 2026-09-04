@@ -33,20 +33,27 @@ TREND_WINDOW_YEARS = 5
 # already flagged for a specific ticker being viewed.
 SEC_CROSS_CHECK_METRICS = {"net_interest_expense_ttm", "cfo_ttm"}
 
-# Of the tickers classify_company_type buckets as "Bank", these two are
-# confirmed (via cached FMP XBRL data -- the `deposits` tag is entirely
-# absent) to have no customer deposit-taking business, unlike SCHW/GS/MS
-# (confirmed present, 23-49% of total assets). CET1 is a regulatory
-# capital-adequacy ratio that only makes sense for a deposit-taking
-# institution, so these two never get the CET1/NPL manual-entry treatment
-# even though they stay classify_company_type == "Bank" everywhere else in
-# the app (Step 1's NII swap, Step 4's ROIC exemption). Deliberately a
-# separate constant from classify_company_type/NON_LENDER_TICKER_OVERRIDES
-# (scoring/classification.py) -- that mechanism answers a different
-# question (is this ticker a lender at all) and must not be touched by this
-# feature; this one only controls whether the CET1/NPL input UI/scoring
-# path applies to an already-Bank-classified ticker.
-BANK_CET1_NPL_EXCLUDED_TICKERS = {"IBKR", "HOOD"}
+# Previously held IBKR/HOOD, confirmed (via cached FMP XBRL data -- no
+# deposit-liability tag at any material magnitude) to have no customer
+# deposit-taking business, unlike SCHW/GS/MS (confirmed present, 23-49% of
+# total assets). This mechanism was meant to let a ticker keep
+# classify_company_type == "Bank" everywhere else in the app (Step 1's NII
+# swap, Step 4's ROIC exemption) while only skipping the CET1/NPL check
+# itself -- but a 2026-09-05 universe-wide investigation corrected that
+# design: a company that doesn't report deposit-liability data can't be
+# judged on CET1/NPL, and the same absence means it shouldn't get Bank's
+# other treatment either, not just have this one check skipped. IBKR/HOOD
+# (plus SEIC/SEZL, found in the same universe-wide scan) now fully
+# reclassify to "Standard" via NON_LENDER_TICKER_OVERRIDES
+# (scoring/classification.py) instead, so they never reach this Bank branch
+# at all -- see CLAUDE.md's "Bank classification requires genuine
+# CET1/NPL-reporting capability, not just lending activity" for the full
+# investigation. Left as an empty set (mechanism kept, not deleted) rather
+# than removed outright -- tests/test_step5_data.py's own regression test
+# exercises this branch generically, and it's the right place a *future*
+# CET1/NPL-non-reporting Bank-classified ticker would need handling too,
+# via NON_LENDER_TICKER_OVERRIDES rather than this set going forward.
+BANK_CET1_NPL_EXCLUDED_TICKERS: set[str] = set()
 
 # Overrides Step5Out's generic classification_note default for exactly this
 # branch -- surfaced in the frontend (Step5Card.tsx) alongside the blurb, so
