@@ -38,11 +38,14 @@ ROIC_EXEMPT_TYPES = {"Bank", "Insurance", "Utility", "REIT/Property Developer"}
 # meaningless for a rental-income business, which previously let CCC score
 # 0 and drag Step 4 to a false Fail for a well-regarded REIT).
 CCC_EXEMPT_TYPES = {"Bank", "Insurance", "REIT/Property Developer", "Utility"}
-# Revenue-vs-Accounts-Receivable isn't part of the REIT framework (a rental-
-# income business model has no comparable "selling on credit" concept) --
-# exempted the same way CCC is for REITs, rather than scored either
-# direction.
-AR_EXEMPT_TYPES = {"REIT/Property Developer"}
+# Revenue-vs-Accounts-Receivable isn't a meaningful signal for these company
+# types -- a rental-income business (REIT) has no comparable "selling on
+# credit" concept, and Bank/Insurance/Utility's own revenue recognition
+# doesn't map onto ordinary trade receivables the way a Standard operating
+# company's does. Matches CCC_EXEMPT_TYPES exactly (2026-09-04 -- previously
+# REIT-only, a deliberate design decision to extend it to the same 4 types
+# ROIC/CCC already exempt; see CLAUDE.md's Step 4 deviations).
+AR_EXEMPT_TYPES = {"Bank", "Insurance", "REIT/Property Developer", "Utility"}
 # Both display AND scoring now use the same 10yr+TTM window, matching Step
 # 1 -- a deliberate deviation beyond profitability.md's explicit "5 years"
 # language (see CLAUDE.md's Step 4 deviations). There used to be a
@@ -789,7 +792,7 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     ar_exempt = company_type in AR_EXEMPT_TYPES
     ar_exempt_reason = (
         f"Revenue vs. Accounts Receivable not applicable for {company_type} — no comparable "
-        "\"selling on credit\" concept for a rental-income business model."
+        "\"selling on credit\" concept for this business model."
         if ar_exempt
         else None
     )

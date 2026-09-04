@@ -1265,6 +1265,25 @@ thresholds. Notable design decisions and fixes:
     own to newly fail anything. GLW's own Overall Assessment flips
     Fail(68) → Pass(72), even though its Step 4 verdict stays Fail — the
     improved *number* alone is enough for the blend.
+- **`AR_EXEMPT_TYPES` extended to Bank/Insurance/Utility/REIT (2026-09-04) —
+  a deliberate design decision, not a bug fix.** Previously REIT-only,
+  while `ROIC_EXEMPT_TYPES`/`CCC_EXEMPT_TYPES` already covered all four
+  types (see `data/step4_data.py`'s own constants). Revenue-vs-Accounts-
+  Receivable isn't a meaningful signal for Bank/Insurance/Utility either —
+  their revenue recognition doesn't map onto ordinary trade receivables the
+  way a Standard operating company's does, the same reasoning REIT's
+  existing exemption already rests on. `score_step4`'s weight
+  renormalization (`scoring/step4.py`) is fully generic over whatever
+  metrics are `applicable`, so this required no scoring-math change at
+  all — only the exemption gate itself — confirmed by running the change
+  against real cached data before shipping: Bank/Insurance/Utility become
+  100%-ROE-weighted, same as REIT already was. Before/after on real cached
+  tickers: **JPM** (Bank) 65/Fail → 85/Pass; **MET**/**PRU** (Insurance)
+  33/Fail → 60/Fail; **DUK** (Utility) 51/Fail → 60/Fail; **SO** (Utility)
+  64/Fail → 60/Fail (AR was pulling this one's blend *up*, not down before
+  this change — an expected consequence of the reweighting, not a
+  regression). REIT tickers (**O**, **PLD**) are unaffected, already
+  exempt before this change.
 
 Overall Assessment's step weighting (`backend/scoring/overall.py::STEP_WEIGHTS`
 / `frontend/lib/overallScore.ts::STEP_WEIGHTS` — must never drift from each

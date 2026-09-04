@@ -376,16 +376,25 @@ def test_ccc_hard_gate_applies_to_bank_insurance_utility_too(monkeypatch):
         assert expected_type in result.ccc_exempt_reason
 
 
-def test_revenue_vs_ar_not_exempt_for_bank_insurance_utility(monkeypatch):
-    # AR_EXEMPT_TYPES is REIT-only -- Bank/Insurance/Utility still score
-    # Revenue-vs-AR normally (only CCC/ROIC are exempt for them).
+def test_revenue_vs_ar_exempt_for_bank_insurance_utility(monkeypatch):
+    # AR_EXEMPT_TYPES now matches CCC_EXEMPT_TYPES/ROIC_EXEMPT_TYPES --
+    # Bank/Insurance/Utility are exempt from Revenue-vs-AR the same way
+    # REIT already is (2026-09-04 design change, see CLAUDE.md's Step 4
+    # deviations).
     _fresh_engine(monkeypatch)
-    _patch_fmp(monkeypatch, sector="Financial Services", industry="Banks - Diversified")
-
-    result = asyncio.run(get_step4_data("jpm"))
-
-    assert result.revenue_vs_ar_exempt_reason is None
-    assert result.components["revenue_vs_ar"] is not None
+    for ticker, sector, industry, expected_type in [
+        ("jpm3", "Financial Services", "Banks - Diversified", "Bank"),
+        ("met3", "Financial Services", "Insurance - Life", "Insurance"),
+        ("duk3", "Utilities", "Regulated Electric", "Utility"),
+    ]:
+        # Distinct tickers per iteration -- same cache key would otherwise
+        # serve the first iteration's fixture for every subsequent one.
+        _patch_fmp(monkeypatch, sector=sector, industry=industry)
+        result = asyncio.run(get_step4_data(ticker))
+        assert result.company_type == expected_type
+        assert result.revenue_vs_ar_exempt_reason is not None
+        assert expected_type in result.revenue_vs_ar_exempt_reason
+        assert result.components["revenue_vs_ar"] is None
 
 
 def test_roe_roic_divergence_note_surfaces_on_the_full_pipeline(monkeypatch):

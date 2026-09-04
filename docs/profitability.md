@@ -59,9 +59,11 @@ isn't rescued just because it once performed well.
   physical inventory at all (e.g. many software and services businesses),
   since the underlying concept doesn't apply cleanly to a business that
   doesn't stock goods.
-- **Accounts Receivable trend** isn't meaningful for REITs/Property
-  Developers, since a rental-income business doesn't have a comparable
-  concept of receivables outpacing revenue.
+- **Accounts Receivable trend** isn't meaningful for Banks, Insurance
+  companies, Utilities, or REITs/Property Developers either — REITs
+  (rental income) have no comparable concept of receivables outpacing
+  revenue, and Bank/Insurance/Utility revenue recognition doesn't map onto
+  ordinary trade receivables the way a Standard operating company's does.
 
 When a check is skipped, the remaining applicable checks are reweighted
 to make up the difference, rather than penalizing the company for a metric
