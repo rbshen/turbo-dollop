@@ -1319,6 +1319,67 @@ contributing step genuinely scored below the shared 70 Pass floor:
 - **Not yet built**: Debt's own breach-context/scoring nuance (Debt/EBITDA
   and Current Ratio) is unchanged by this rebalance — a distinct follow-up.
 
+### Analysis tab section-card reasoning (2026-09-05)
+
+Each of the 4 Analysis-tab section cards (`frontend/components/step{1,2,4,5}/
+Step{N}Card.tsx`, via the shared `AnalysisSectionCard`) now always shows a
+consistent 3-part reasoning block above the collapsible per-component
+bullets: a verdict sentence, a static one-line methodology summary, and
+`Score: <score>/100 · Weight: <weight>% of Overall Assessment`. This is a
+frontend-only change — `scoring/overall.py`/`overallScore.ts` never carried
+reasoning text, only score/verdict/weight numbers the cards already had
+access to (`data.score`, and `STEP_WEIGHTS`/`MOAT_WEIGHT` via the new
+`overallScore.ts::overallWeightPct(key)` helper, which reproduces the
+24/10/20/15% figures above rather than hardcoding them at each call site).
+The displayed weight is the static config value (assumes a moat is set,
+the common case), not the ticker-specific renormalized effective weight a
+`StepBreakdownEntry` carries — deliberate, to avoid coupling each
+independently-fetched section card to the full Overall Assessment
+computation (all 4 sibling steps + moat) just to render its own line.
+
+- **Financials' verdict sentence was wrong, not missing.** It showed a
+  description of its own internal component weighting (e.g. "Weighted
+  blend of revenue (35%), income (20%)... — not a per-component pass/fail
+  count.") where every other section showed a real verdict sentence (e.g.
+  Debt's "At least one ratio breached its hard limit."). Root cause (via
+  git blame, commit `89b1728`, 2026-08-08): a deliberate fix that
+  correctly removed an earlier, misleading "N of 5 components pass"
+  framing (Step 1 is a continuous weighted blend, not a discrete gate) —
+  but replaced it with pure methodology text and never restored an actual
+  verdict, rather than a stub or placeholder. Financials has no hard-fail
+  override at all (`score_step1` is a pure weighted blend against the
+  shared 0-69/70-90/91-100 bands, unlike Debt/Profitability's hard-fail
+  overrides), so the fix names whichever components actually scored below
+  70 instead (e.g. "Cash Flow from Operations, Margins, and Net Income
+  scored below the Pass threshold, pulling the blend down to a Fail.") —
+  the per-component weight percentages this verdict sentence used to carry
+  moved to the (already-existing) collapsible bullets instead, alongside
+  each component's own tier.
+- **The same class of bug, found via the same investigation, also existed
+  in Debt and Profitability**, just less visibly: both have a documented
+  score<70 verdict-floor fallback (`_verdict_for` in each's own
+  `scoring/step{4,5}.py`) that can produce a Fail verdict with
+  `hard_fail=false` — a mediocre blend with no actual ratio/ROE breach.
+  Before this fix, the card still displayed "No ratio breached its hard
+  limit." (Debt) / "Neither ROE nor ROIC breached its Fail tier." (Step 4)
+  next to a Fail badge — confirmed live on real cached data: **HON** (Debt,
+  score 67, `hard_fail=false`, verdict Fail) and **AVB** (Debt, score 60,
+  same) for the Debt case; **F** (Profitability, score 44, `hard_fail=
+  false`, verdict Fail) for the Profitability case. Both cards now have a
+  third branch naming the actual mechanism ("No individual ratio breached
+  its hard limit outright, but the blended score still fell short of the
+  Pass threshold." / "Neither ROE nor ROIC breached its Fail tier
+  outright, but {weak components} still pulled the blended score below the
+  Pass threshold.") — Bank/Insurance/`pass_with_caution`/hard-fail branches
+  are otherwise unchanged.
+- Growth Rate's existing verdict sentence (`rationale()` in Step2Card.tsx)
+  was already specific and accurate (states the actual growth %, basis,
+  and analyst-agreement tier) — only the methodology line and score/weight
+  line were added there, no verdict-text change.
+- Existing exemption notes (CFO-exempt, ROIC/CCC/Revenue-vs-AR-exempt,
+  Bank/Insurance blurbs) are unaffected — they render in the same `notes`
+  slot as before, underneath the new methodology/score/weight lines.
+
 ## Company classification: non-lender ticker overrides
 
 `classify_company_type` (`backend/scoring/classification.py`) broadens its

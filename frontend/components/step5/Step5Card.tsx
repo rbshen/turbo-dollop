@@ -5,7 +5,12 @@ import { AnalysisSectionCard, type ReasoningBullet } from "@/components/shared/A
 import { BankCapitalMetricsForm } from "@/components/step5/BankCapitalMetricsForm";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { fmtNumber, fmtPct, fmtTableMoney } from "@/lib/format";
+import { overallWeightPct } from "@/lib/overallScore";
 import type { BreachContextSignal, Step5Out, Step5RatioResult } from "@/lib/api/types";
+
+const METHODOLOGY =
+  "Current Ratio, Debt/EBITDA, and Debt Servicing Ratio (Gearing Ratio for REITs; CET1/NPL for Banks), each " +
+  "tiered against a hard limit; breaching any hard limit fails the section outright regardless of the blended score.";
 
 // Order mirrors scoring/step5.py's WEIGHTS_STANDARD / WEIGHTS_REIT /
 // WEIGHTS_BANK -- the ratios that actually carry weight/points. Interest
@@ -191,7 +196,15 @@ export function Step5Card({ ticker }: Props) {
           ? "At least one ratio breached its hard limit, so this fails regardless of the blended score."
           : data.pass_with_caution
             ? "No ratio breached its hard limit outright, but see the caution note below."
-            : "No ratio breached its hard limit.";
+            : // `hard_fail` only fires from a literal ratio breach -- a ticker can
+              // still land on a Fail verdict via the score<70 floor
+              // (`_verdict_for`, see CLAUDE.md's Debt deviations) with no ratio
+              // ever breaching its hard limit at all (e.g. a mediocre-but-legal
+              // REIT gearing tier). Naming that mechanism avoids stating "No
+              // ratio breached its hard limit" next to a Fail badge.
+              data.verdict === "Fail"
+              ? "No individual ratio breached its hard limit outright, but the blended score still fell short of the Pass threshold."
+              : "No ratio breached its hard limit.";
 
   const notes = (
     <>
@@ -229,7 +242,16 @@ export function Step5Card({ ticker }: Props) {
 
   return (
     <div className="space-y-4">
-      <AnalysisSectionCard title="Debt" score={data.score} verdict={data.verdict} blurb={blurb} notes={notes} bullets={bullets} />
+      <AnalysisSectionCard
+        title="Debt"
+        score={data.score}
+        verdict={data.verdict}
+        blurb={blurb}
+        methodology={METHODOLOGY}
+        weightPct={overallWeightPct("step5")}
+        notes={notes}
+        bullets={bullets}
+      />
       {isBank && data.bank_capital_metrics_editable && <BankCapitalMetricsForm ticker={ticker} step5={data} />}
     </div>
   );

@@ -19,6 +19,16 @@ interface Props {
   score: number | null;
   verdict: string;
   blurb: React.ReactNode;
+  /** One-line, static (non-ticker-dependent) description of how this
+   * section's score is actually calculated -- e.g. "A weighted blend of
+   * Revenue, Net Income, ... " Shown under `blurb` on every ticker, so it
+   * stays a fixed methodology summary rather than a per-ticker computation
+   * (the per-ticker detail already lives in `bullets`). */
+  methodology: React.ReactNode;
+  /** This section's own weight in the Overall Assessment blend, as a whole
+   * percent (e.g. 24) -- sourced from `lib/overallScore.ts::overallWeightPct`,
+   * never hardcoded at the call site. */
+  weightPct: number;
   /** Small secondary notes (exemption reasons, hard-fail caveats) -- text
    * only, never a chart/table (Analysis-tab cards are deliberately minimal
    * per the design handoff; the same series/ratios are shown in full on
@@ -34,7 +44,7 @@ interface Props {
 // own mockup screenshot: score+verdict as plain colored text on the left
 // (no pill/box), title+blurb stacked next to it, "Show reasoning" toggle
 // pinned to the right.
-export function AnalysisSectionCard({ title, score, verdict, blurb, notes, bullets }: Props) {
+export function AnalysisSectionCard({ title, score, verdict, blurb, methodology, weightPct, notes, bullets }: Props) {
   return (
     <div className="rounded-lg border border-border-card bg-surface p-6">
       <Collapsible>
@@ -57,6 +67,12 @@ export function AnalysisSectionCard({ title, score, verdict, blurb, notes, bulle
             <div className="min-w-0 space-y-1">
               <h2 className="font-heading text-sm font-semibold text-text-primary">{title}</h2>
               <p className="text-sm text-text-secondary">{blurb}</p>
+              <p className="text-xs text-text-tertiary">{methodology}</p>
+              {score != null && (
+                <p className="text-xs text-text-tertiary">
+                  Score: {score}/100 · Weight: {weightPct}% of Overall Assessment
+                </p>
+              )}
               {notes}
             </div>
           </div>

@@ -43,6 +43,20 @@ function verdictFor(score: number): "Strong Pass" | "Pass" | "Fail" {
 // never drift.
 export const MOAT_WEIGHT = 0.31;
 
+// The "24% / 10% / 20% / 15%" figures documented in CLAUDE.md and shown on
+// each Analysis-tab section card -- STEP_WEIGHTS's own values are fractions
+// of the 69% non-Moat pool, so this rescales to the step's actual share of
+// the FULL 100% blend (assuming a moat is set, the common case, matching
+// what CLAUDE.md's weighting section documents). Deliberately the static
+// config weight, not the ticker-specific renormalized `effectiveWeight` a
+// StepBreakdownEntry carries -- that value depends on which OTHER steps/
+// moat are present for a given ticker, which would couple each
+// independently-fetched section card to the full Overall Assessment
+// computation just to render its own reasoning line.
+export function overallWeightPct(key: StepKey): number {
+  return Math.round(STEP_WEIGHTS[key] * (1 - MOAT_WEIGHT) * 100);
+}
+
 export type MoatValue = "no_moat" | "narrow_moat" | "wide_moat";
 
 export const MOAT_LABELS: Record<MoatValue, string> = {

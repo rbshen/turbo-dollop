@@ -2,7 +2,13 @@
 
 import { AnalysisSectionCard, type ReasoningBullet } from "@/components/shared/AnalysisSectionCard";
 import { useStep1 } from "@/lib/hooks/useStep1";
+import { overallWeightPct } from "@/lib/overallScore";
 import type { Step1Out } from "@/lib/api/types";
+
+const METHODOLOGY =
+  "A weighted blend of Revenue, Net Income, Cash Flow from Operations, Margins, and Free Cash Flow trend " +
+  "classifications (Revenue, Net Income, and Margins alone when CFO/FCF don't apply), banded 0–69 Fail / " +
+  "70–90 Pass / 91–100 Strong Pass.";
 
 interface Props {
   ticker: string;
@@ -19,17 +25,6 @@ const STATIC_METRIC_LABELS: Record<string, string> = {
   cfo: "Cash Flow from Operations",
   margins: "Margins",
   fcf: "Free Cash Flow",
-};
-
-// Short, lowercase forms for the blurb's parenthetical component list --
-// distinct from STATIC_METRIC_LABELS (used for the bullet rows/headings),
-// which are full Title Case labels too long to read naturally inline.
-const BLURB_METRIC_LABELS: Record<string, string> = {
-  revenue: "revenue",
-  net_income: "income",
-  cfo: "cash flow",
-  margins: "margins",
-  fcf: "free cash flow",
 };
 
 const TIER_LABELS: Record<string, string> = {
@@ -66,6 +61,32 @@ function tierClass(score: number): string {
 function metricLabel(key: string, data: Step1Out): string {
   if (key === "revenue") return data.revenue_label;
   return STATIC_METRIC_LABELS[key] ?? key;
+}
+
+function joinWithAnd(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+// Financials has no hard-fail concept (score_step1 is a pure weighted
+// blend against the shared 0-69/70-90/91-100 bands, unlike Debt/
+// Profitability's hard-fail overrides) -- so the verdict sentence names
+// whichever components actually scored below the Pass threshold, using
+// data already computed for the bullets below, rather than restating the
+// weighting scheme (see git history: 89b1728 fixed a misleading "N of 5
+// must pass" framing but left the blurb as pure methodology text with no
+// verdict at all -- this restores a real verdict, worded from the actual
+// per-component scores instead).
+function verdictSentence(componentRows: { label: string; score: number }[], verdict: string): string {
+  const weak = componentRows.filter((row) => row.score < 70).map((row) => row.label);
+  if (weak.length === 0) {
+    return `All components (${joinWithAnd(componentRows.map((row) => row.label))}) cleared the Pass threshold — none pulled the blend down.`;
+  }
+  if (verdict === "Fail") {
+    return `${joinWithAnd(weak)} scored below the Pass threshold, pulling the blend down to a Fail.`;
+  }
+  return `${joinWithAnd(weak)} scored below the Pass threshold, but the rest of the blend was strong enough to still reach a ${verdict}.`;
 }
 
 export function Step1Card({ ticker }: Props) {
@@ -107,24 +128,21 @@ export function Step1Card({ ticker }: Props) {
     };
   }).filter((row): row is NonNullable<typeof row> => row !== null);
 
-  // Weighted blend, not a per-component pass/fail count -- avoids implying
-  // a discrete "N of 5 must pass" gate that doesn't exist in the scoring
-  // logic (score_step1 is a weighted average; see CLAUDE.md's Step 1
-  // deviations). Reads from data.weights rather than a static string so it
-  // stays correct for the CFO/FCF-exempt redistribution case too (Bank/
-  // Insurance/Property Developer/Commodity tickers).
-  const weightedComponents = componentRows
-    .map((row) => ({ label: BLURB_METRIC_LABELS[row.key] ?? row.key, weight: data.weights[row.key] ?? 0 }))
-    .filter((c) => c.weight > 0)
-    .sort((a, b) => b.weight - a.weight);
-  const weightSummary = weightedComponents.map((c) => `${c.label} (${Math.round(c.weight * 100)}%)`).join(", ");
-  const blurb = `Weighted blend of ${weightSummary} — not a per-component pass/fail count.`;
+  const blurb = verdictSentence(componentRows, data.verdict);
 
-  const bullets: ReasoningBullet[] = componentRows.map((row) => ({
-    key: row.key,
-    text: `${row.label}: ${row.tierLabel}`,
-    tierClassName: tierClass(row.score),
-  }));
+  // Weight shown per-bullet (not the top-line verdict sentence above) --
+  // stays correct for the CFO/FCF-exempt redistribution case too (Bank/
+  // Insurance/Property Developer/Commodity tickers), since it reads
+  // straight from data.weights rather than a static percentage.
+  const bullets: ReasoningBullet[] = componentRows.map((row) => {
+    const weight = data.weights[row.key];
+    const weightSuffix = weight ? ` (${Math.round(weight * 100)}%)` : "";
+    return {
+      key: row.key,
+      text: `${row.label}${weightSuffix}: ${row.tierLabel}`,
+      tierClassName: tierClass(row.score),
+    };
+  });
 
   const notes = data.cfo_exempt_reason ? (
     <p className="text-xs text-text-tertiary">
@@ -138,6 +156,8 @@ export function Step1Card({ ticker }: Props) {
       score={data.score}
       verdict={data.verdict}
       blurb={blurb}
+      methodology={METHODOLOGY}
+      weightPct={overallWeightPct("step1")}
       notes={notes}
       bullets={bullets}
     />

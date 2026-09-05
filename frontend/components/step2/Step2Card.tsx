@@ -3,6 +3,11 @@
 import { AnalysisSectionCard, type ReasoningBullet } from "@/components/shared/AnalysisSectionCard";
 import { useStep2 } from "@/lib/hooks/useStep2";
 import { fmtPct } from "@/lib/format";
+import { overallWeightPct } from "@/lib/overallScore";
+
+const METHODOLOGY =
+  "70% projected growth magnitude, 30% analyst estimate agreement (spread as a % of the average estimate); " +
+  "negative growth always fails regardless of the blended score.";
 
 interface Props {
   ticker: string;
@@ -112,6 +117,8 @@ export function Step2Card({ ticker }: Props) {
       score={data.score}
       verdict={data.verdict}
       blurb={rationale(data)}
+      methodology={METHODOLOGY}
+      weightPct={overallWeightPct("step2")}
       notes={notes}
       bullets={bullets}
     />

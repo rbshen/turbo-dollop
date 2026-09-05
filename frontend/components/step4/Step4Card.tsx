@@ -2,9 +2,21 @@
 
 import { AnalysisSectionCard, type ReasoningBullet } from "@/components/shared/AnalysisSectionCard";
 import { useStep4 } from "@/lib/hooks/useStep4";
+import { overallWeightPct } from "@/lib/overallScore";
 
 interface Props {
   ticker: string;
+}
+
+const METHODOLOGY =
+  "A weighted blend of Return on Equity, Return on Invested Capital, Revenue vs. Accounts Receivable, and Cash " +
+  "Conversion Cycle (ROIC/CCC/Revenue-vs-AR excluded and reweighted for Bank/Insurance/Utility/REIT); a Fail-tier " +
+  "ROE or ROIC forces a Fail regardless of the blended score.";
+
+function joinWithAnd(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
 }
 
 const METRIC_LABELS: Record<string, string> = {
@@ -95,9 +107,19 @@ export function Step4Card({ ticker }: Props) {
     ];
   });
 
+  // Profitability's `hard_fail` only fires from ROE/ROIC's own Fail tier
+  // (avg <8%) -- a ticker can still land on a Fail verdict via the
+  // companion score<70 floor (`_verdict_for`, see CLAUDE.md's Profitability
+  // deviations) with hard_fail=false, e.g. weak-but-positive ROE/ROIC
+  // dragging the blend down without either one outright failing. Naming
+  // the actual weak components (instead of restating "Neither ROE nor ROIC
+  // breached its Fail tier" next to a Fail badge) avoids that contradiction.
+  const weakComponents = componentRows.filter((row) => row.points < 70).map((row) => METRIC_LABELS[row.key] ?? row.key);
   const blurb = data.hard_fail
     ? "ROE or ROIC landed in its Fail tier, so this fails regardless of the blended score."
-    : "Neither ROE nor ROIC breached its Fail tier.";
+    : data.verdict === "Fail"
+      ? `Neither ROE nor ROIC breached its Fail tier outright, but ${joinWithAnd(weakComponents)} still pulled the blended score below the Pass threshold.`
+      : "Neither ROE nor ROIC breached its Fail tier.";
 
   const notes = (
     <>
@@ -114,6 +136,8 @@ export function Step4Card({ ticker }: Props) {
       score={data.score}
       verdict={data.verdict}
       blurb={blurb}
+      methodology={METHODOLOGY}
+      weightPct={overallWeightPct("step4")}
       notes={notes}
       bullets={bullets}
     />
