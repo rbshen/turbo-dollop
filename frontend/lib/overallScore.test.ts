@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { computeOverallAssessment, overallWeightPct, STEP_WEIGHTS, type MoatSnapshot, type StepSnapshot } from "@/lib/overallScore";
+import { computeOverallAssessment, STEP_WEIGHTS, type MoatSnapshot, type StepSnapshot } from "@/lib/overallScore";
 
 function snapshot(key: StepSnapshot["key"], label: string, score: number | null, verdict: string): StepSnapshot {
   return { key, label, hasError: false, data: { score, verdict } };
@@ -315,18 +315,5 @@ describe("computeOverallAssessment with moat", () => {
     const result = computeOverallAssessment(STEPS_BLENDING_TO_90, null, true);
     expect(result.status).toBe("loading");
     expect(result.score).toBeNull();
-  });
-});
-
-// Each Analysis-tab section card (Step1Card etc.) reads this to render its
-// "Weight: X% of Overall Assessment" reasoning line -- must reproduce the
-// documented CLAUDE.md figures (24/10/20/15%) rather than a hand-copied
-// literal at each call site.
-describe("overallWeightPct", () => {
-  it("matches CLAUDE.md's documented full-blend percentages", () => {
-    expect(overallWeightPct("step1")).toBe(24);
-    expect(overallWeightPct("step2")).toBe(10);
-    expect(overallWeightPct("step4")).toBe(20);
-    expect(overallWeightPct("step5")).toBe(15);
   });
 });

@@ -1,9 +1,8 @@
 "use client";
 
-import { AnalysisSectionCard, type ReasoningBullet } from "@/components/shared/AnalysisSectionCard";
+import { AnalysisSectionCard, type ReasoningBullet, weightScoreSuffix } from "@/components/shared/AnalysisSectionCard";
 import { useStep2 } from "@/lib/hooks/useStep2";
 import { fmtPct } from "@/lib/format";
-import { overallWeightPct } from "@/lib/overallScore";
 
 const METHODOLOGY =
   "70% projected growth magnitude, 30% analyst estimate agreement (spread as a % of the average estimate); " +
@@ -94,9 +93,10 @@ export function Step2Card({ ticker }: Props) {
 
   const bullets: ReasoningBullet[] = COMPONENT_ORDER.map((key) => {
     const component = data.components[key];
+    const suffix = weightScoreSuffix(data.weights[key], component.score);
     return {
       key,
-      text: `${METRIC_LABELS[key]}: ${TIER_LABELS[component.tier ?? ""] ?? component.tier}`,
+      text: `${METRIC_LABELS[key]}${suffix}: ${TIER_LABELS[component.tier ?? ""] ?? component.tier}`,
       tierClassName: tierClass(component.score),
     };
   });
@@ -118,7 +118,6 @@ export function Step2Card({ ticker }: Props) {
       verdict={data.verdict}
       blurb={rationale(data)}
       methodology={METHODOLOGY}
-      weightPct={overallWeightPct("step2")}
       notes={notes}
       bullets={bullets}
     />

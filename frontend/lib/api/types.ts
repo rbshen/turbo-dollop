@@ -393,6 +393,12 @@ export interface Step4Out {
   verdict: string;
   hard_fail: boolean;
   components: Step4Components;
+  // Weight each component contributed to `score`, renormalized across
+  // whichever metrics are applicable for this company type -- keyed the
+  // same as `components` ("revenue_vs_ar", not scoring/step4.py's internal
+  // "ar"; step4_data.py remaps it before this reaches the API). {} when
+  // score is null.
+  weights: Record<string, number>;
   // Informational only -- never changes score/verdict. Present when ROE is
   // "excellent"/"good" while ROIC is "marginal".
   roe_roic_divergence_note: string | null;

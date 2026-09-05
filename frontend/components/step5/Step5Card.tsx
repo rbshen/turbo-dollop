@@ -1,11 +1,10 @@
 "use client";
 
 import { OutlierWarningNote } from "@/components/shared/OutlierWarningNote";
-import { AnalysisSectionCard, type ReasoningBullet } from "@/components/shared/AnalysisSectionCard";
+import { AnalysisSectionCard, type ReasoningBullet, weightScoreSuffix } from "@/components/shared/AnalysisSectionCard";
 import { BankCapitalMetricsForm } from "@/components/step5/BankCapitalMetricsForm";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { fmtNumber, fmtPct, fmtTableMoney } from "@/lib/format";
-import { overallWeightPct } from "@/lib/overallScore";
 import type { BreachContextSignal, Step5Out, Step5RatioResult } from "@/lib/api/types";
 
 const METHODOLOGY =
@@ -143,7 +142,7 @@ function reasoningBullets(data: Step5Out): ReasoningBullet[] {
     if (weight == null || !ratio) continue;
     bullets.push({
       key,
-      text: `${RATIO_LABELS[key] ?? key}: ${formatRatioValue(key, ratio.value)} (${TIER_LABELS[ratio.label] ?? ratio.label})`,
+      text: `${RATIO_LABELS[key] ?? key}${weightScoreSuffix(weight, ratio.points)}: ${formatRatioValue(key, ratio.value)}, ${TIER_LABELS[ratio.label] ?? ratio.label}`,
       tierClassName: tierClass(ratio.label),
     });
     // Nested directly under the ratio's own bullet -- only present when
@@ -248,7 +247,6 @@ export function Step5Card({ ticker }: Props) {
         verdict={data.verdict}
         blurb={blurb}
         methodology={METHODOLOGY}
-        weightPct={overallWeightPct("step5")}
         notes={notes}
         bullets={bullets}
       />

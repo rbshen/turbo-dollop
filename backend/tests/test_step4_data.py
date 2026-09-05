@@ -174,6 +174,10 @@ def test_standard_company_full_pipeline(monkeypatch):
     assert result.score is not None
     assert result.hard_fail is False
     assert result.components["roic"] is not None
+    # Weights key set matches `components`' own key set ("revenue_vs_ar",
+    # not scoring/step4.py's internal "ar") and all 4 BASE_WEIGHTS apply
+    # unmodified since every metric is applicable for this Standard ticker.
+    assert result.weights == {"roe": 0.25, "roic": 0.35, "revenue_vs_ar": 0.20, "ccc": 0.20}
 
 
 # TEAM Defect B shape (2026-08-16 investigation): the latest quarter (a Q4
@@ -338,6 +342,11 @@ def test_roic_exempt_for_reit(monkeypatch):
     # credit" concept for a rental-income business model.
     assert result.revenue_vs_ar_exempt_reason is not None
     assert result.components["revenue_vs_ar"] is None
+
+    # ROIC/CCC/Revenue-vs-AR all exempt -> ROE alone renormalizes to 100% of
+    # the blend (proportional renormalization, not a fixed reassignment
+    # table -- see CLAUDE.md's Profitability deviations).
+    assert result.weights == {"roe": 1.0}
 
 
 def test_ccc_exempt_for_reit_regardless_of_inventory_data(monkeypatch):

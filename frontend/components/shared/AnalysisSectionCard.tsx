@@ -7,11 +7,28 @@ import { textClassFor } from "@/lib/tierColor";
 
 export interface ReasoningBullet {
   key: string;
-  /** e.g. "Revenue: Grows every year" -- the metric/ratio name + its tier,
-   * already composed since bullets read as one flowing sentence rather
-   * than a table's separate label/tier columns. */
+  /** e.g. "Revenue (35%, 88/100): Grows every year" -- the metric/ratio
+   * name + its weight/score/tier, already composed since bullets read as
+   * one flowing sentence rather than a table's separate label/tier
+   * columns. */
   text: string;
   tierClassName: string;
+}
+
+/** Formats the "(<weight%>, <score>/100)" suffix every Analysis-tab card's
+ * per-component bullets use to show that component's own contribution to
+ * its SECTION's blend -- e.g. Financials' own Revenue/Net Income/CFO/
+ * Margins/FCF split, or Debt's Current Ratio/Debt-to-EBITDA/DSR split --
+ * never the Overall Assessment step weight (Financials' 24% etc., which
+ * this component no longer surfaces at all). Centralized here (rather than
+ * duplicated per card) so the format stays identical across all 4 cards.
+ * `weight` is the fraction (0-1) contributed within the section; a `null`/
+ * `undefined` weight (a component with no defined weight of its own, e.g.
+ * Debt's Interest Coverage Ratio tiebreaker) omits the weight rather than
+ * fabricating one. */
+export function weightScoreSuffix(weight: number | null | undefined, score: number): string {
+  if (weight == null) return ` (${score}/100)`;
+  return ` (${Math.round(weight * 100)}%, ${score}/100)`;
 }
 
 interface Props {
@@ -23,12 +40,9 @@ interface Props {
    * section's score is actually calculated -- e.g. "A weighted blend of
    * Revenue, Net Income, ... " Shown under `blurb` on every ticker, so it
    * stays a fixed methodology summary rather than a per-ticker computation
-   * (the per-ticker detail already lives in `bullets`). */
+   * (the per-ticker detail -- each component's own weight/score -- lives in
+   * `bullets` instead). */
   methodology: React.ReactNode;
-  /** This section's own weight in the Overall Assessment blend, as a whole
-   * percent (e.g. 24) -- sourced from `lib/overallScore.ts::overallWeightPct`,
-   * never hardcoded at the call site. */
-  weightPct: number;
   /** Small secondary notes (exemption reasons, hard-fail caveats) -- text
    * only, never a chart/table (Analysis-tab cards are deliberately minimal
    * per the design handoff; the same series/ratios are shown in full on
@@ -44,7 +58,7 @@ interface Props {
 // own mockup screenshot: score+verdict as plain colored text on the left
 // (no pill/box), title+blurb stacked next to it, "Show reasoning" toggle
 // pinned to the right.
-export function AnalysisSectionCard({ title, score, verdict, blurb, methodology, weightPct, notes, bullets }: Props) {
+export function AnalysisSectionCard({ title, score, verdict, blurb, methodology, notes, bullets }: Props) {
   return (
     <div className="rounded-lg border border-border-card bg-surface p-6">
       <Collapsible>
@@ -68,11 +82,6 @@ export function AnalysisSectionCard({ title, score, verdict, blurb, methodology,
               <h2 className="font-heading text-sm font-semibold text-text-primary">{title}</h2>
               <p className="text-sm text-text-secondary">{blurb}</p>
               <p className="text-xs text-text-tertiary">{methodology}</p>
-              {score != null && (
-                <p className="text-xs text-text-tertiary">
-                  Score: {score}/100 · Weight: {weightPct}% of Overall Assessment
-                </p>
-              )}
               {notes}
             </div>
           </div>

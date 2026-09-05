@@ -865,6 +865,15 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     if result["components"]["roic"] is not None:
         result["components"]["roic"]["note"] = _build_roic_note(roic_result, roic_clean, years_for_roic)
 
+    # scoring/step4.py::score_step4 keys its weights dict "ar" (matching
+    # BASE_WEIGHTS), but `components` above uses "revenue_vs_ar" -- remapped
+    # here so Step4Out's weights/components dicts share one consistent key
+    # set for callers (the Analysis tab reads both by the same key per
+    # component).
+    weights = dict(result["weights"])
+    if "ar" in weights:
+        weights["revenue_vs_ar"] = weights.pop("ar")
+
     return Step4Out(
         ticker=ticker,
         years=years,
@@ -883,6 +892,7 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
         verdict=result["verdict"],
         hard_fail=result["hard_fail"],
         components=result["components"],
+        weights=weights,
         roe_roic_divergence_note=result["roe_roic_divergence_note"],
         outlier_warnings=outlier_warnings,
     )

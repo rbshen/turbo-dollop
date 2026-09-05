@@ -1322,20 +1322,66 @@ contributing step genuinely scored below the shared 70 Pass floor:
 ### Analysis tab section-card reasoning (2026-09-05)
 
 Each of the 4 Analysis-tab section cards (`frontend/components/step{1,2,4,5}/
-Step{N}Card.tsx`, via the shared `AnalysisSectionCard`) now always shows a
-consistent 3-part reasoning block above the collapsible per-component
-bullets: a verdict sentence, a static one-line methodology summary, and
-`Score: <score>/100 · Weight: <weight>% of Overall Assessment`. This is a
-frontend-only change — `scoring/overall.py`/`overallScore.ts` never carried
-reasoning text, only score/verdict/weight numbers the cards already had
-access to (`data.score`, and `STEP_WEIGHTS`/`MOAT_WEIGHT` via the new
-`overallScore.ts::overallWeightPct(key)` helper, which reproduces the
-24/10/20/15% figures above rather than hardcoding them at each call site).
-The displayed weight is the static config value (assumes a moat is set,
-the common case), not the ticker-specific renormalized effective weight a
-`StepBreakdownEntry` carries — deliberate, to avoid coupling each
-independently-fetched section card to the full Overall Assessment
-computation (all 4 sibling steps + moat) just to render its own line.
+Step{N}Card.tsx`, via the shared `AnalysisSectionCard`) always shows a
+consistent 2-part reasoning block above the collapsible per-component
+bullets: a verdict sentence and a static one-line methodology summary. This
+is a frontend-only change for the verdict/methodology lines themselves —
+`scoring/overall.py`/`overallScore.ts` never carried reasoning text, only
+the score/verdict numbers the cards already had access to.
+
+A section-level `Score: <score>/100 · Weight: <weight>% of Overall
+Assessment` trailing line (reading the weight from a since-removed
+`overallScore.ts::overallWeightPct(key)` helper) shipped in the same commit
+as the verdict/methodology fix above, then was removed the same day per
+follow-up review feedback — not wanted at the section level at all. In its
+place, **every per-component bullet across all 4 sections now shows that
+component's own weight and score inline** — e.g. "Revenue (35%, 100/100):
+Grows every year" — via a shared `AnalysisSectionCard.tsx::
+weightScoreSuffix(weight, score)` helper, so the format is identical across
+cards. This weight is the component's share of its OWN section's blend
+(e.g. Financials' Revenue/Net Income/CFO/Margins/FCF split), never the
+Overall Assessment step weight the removed line showed — a different
+number entirely, already available per-component in each step's own
+`weights` dict.
+
+- **Every component in all 4 sections already had a real 0-100 score
+  feeding its section's blend** — including every Debt ratio
+  (`Step5RatioResult.points`, e.g. Current Ratio/Debt-to-EBITDA/DSR/
+  Gearing/CET1/NPL all carry a real graduated point value that literally
+  feeds `score = sum(points * weight)` in `scoring/step5.py`), contrary to
+  an initial assumption that some might be pure pass/fail checks with no
+  natural numeric score. No fabricated/derived-for-display score was
+  needed anywhere.
+- **Step4Out was the one genuine gap**: `scoring/step4.py::score_step4`
+  already computed a `weights` dict (`BASE_WEIGHTS`, proportionally
+  renormalized across whichever of ROE/ROIC/Revenue-vs-AR/CCC apply for
+  the ticker's company type), but it was silently dropped rather than
+  reaching the API — `Step4Out` had no `weights` field at all before this
+  fix, unlike Step1Out/Step2Out/Step5Out. Added `Step4Out.weights` and
+  threaded `result["weights"]` through in `step4_data.py`.
+- **Key-naming mismatch, found and fixed in the same change**:
+  `score_step4`'s internal `weights` dict keys the Revenue-vs-AR entry
+  `"ar"` (matching `BASE_WEIGHTS`), but `components` keys the same metric
+  `"revenue_vs_ar"`. `step4_data.py` remaps `"ar"` → `"revenue_vs_ar"`
+  before constructing `Step4Out` so `weights`/`components` share one
+  consistent key set for API/UI consumers — `scoring/step4.py`'s own
+  internal naming and its existing tests (which assert `weights ==
+  {"roe": ..., "ar": ..., ...}`) are untouched.
+- **Company-type exemptions and Bank/Standard regime-switching needed no
+  new logic at all** — already handled correctly by each card's existing
+  null-filtering (a REIT's CFO/FCF/ROIC/CCC components are already omitted
+  entirely, not shown with a placeholder score) and by `weights`-keyed
+  lookups (a Standard ticker's `weights` dict simply has no
+  `cet1_ratio`/`gearing_ratio` keys, so those bullets never render; a
+  reclassified-to-Standard ticker like IBKR/HOOD/SEIC/SEZL — see below —
+  automatically shows ordinary Current-Ratio/Debt-to-EBITDA/DSR bullets
+  with real weight/score, not a skipped-Bank placeholder, with zero
+  Step5Card changes needed). Confirmed on real cached data: **JPM** (real
+  Bank, CET1 50%/100, NPL 50%/100), **O** (REIT, Profitability 100%-ROE-
+  weighted, Debt 100%-Gearing-weighted), **SEZL** (reclassified Standard,
+  ordinary 3-ratio Debt split), **F** and **HON** (Fail cases — F's
+  Debt/EBITDA correctly shows a real `negative_ebitda`/0-of-100 scored
+  bullet at its normal 33% weight, not hidden or faked).
 
 - **Financials' verdict sentence was wrong, not missing.** It showed a
   description of its own internal component weighting (e.g. "Weighted

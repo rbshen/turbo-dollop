@@ -1,8 +1,7 @@
 "use client";
 
-import { AnalysisSectionCard, type ReasoningBullet } from "@/components/shared/AnalysisSectionCard";
+import { AnalysisSectionCard, type ReasoningBullet, weightScoreSuffix } from "@/components/shared/AnalysisSectionCard";
 import { useStep4 } from "@/lib/hooks/useStep4";
-import { overallWeightPct } from "@/lib/overallScore";
 
 interface Props {
   ticker: string;
@@ -90,9 +89,10 @@ export function Step4Card({ ticker }: Props) {
     .map(([key, c]) => ({ key, points: c.points, tierKey: c.label ?? c.pattern ?? "", note: c.note }));
 
   const bullets: ReasoningBullet[] = componentRows.flatMap((row) => {
+    const suffix = weightScoreSuffix(data.weights[row.key], row.points);
     const bullet: ReasoningBullet = {
       key: row.key,
-      text: `${METRIC_LABELS[row.key] ?? row.key}: ${TIER_LABELS[row.tierKey] ?? row.tierKey}`,
+      text: `${METRIC_LABELS[row.key] ?? row.key}${suffix}: ${TIER_LABELS[row.tierKey] ?? row.tierKey}`,
       tierClassName: tierClass(row.points),
     };
     // Manual-check note (OCF vs Net Income, business-model-shift prompt) --
@@ -137,7 +137,6 @@ export function Step4Card({ ticker }: Props) {
       verdict={data.verdict}
       blurb={blurb}
       methodology={METHODOLOGY}
-      weightPct={overallWeightPct("step4")}
       notes={notes}
       bullets={bullets}
     />

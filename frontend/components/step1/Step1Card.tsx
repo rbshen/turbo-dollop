@@ -1,8 +1,7 @@
 "use client";
 
-import { AnalysisSectionCard, type ReasoningBullet } from "@/components/shared/AnalysisSectionCard";
+import { AnalysisSectionCard, type ReasoningBullet, weightScoreSuffix } from "@/components/shared/AnalysisSectionCard";
 import { useStep1 } from "@/lib/hooks/useStep1";
-import { overallWeightPct } from "@/lib/overallScore";
 import type { Step1Out } from "@/lib/api/types";
 
 const METHODOLOGY =
@@ -130,19 +129,15 @@ export function Step1Card({ ticker }: Props) {
 
   const blurb = verdictSentence(componentRows, data.verdict);
 
-  // Weight shown per-bullet (not the top-line verdict sentence above) --
-  // stays correct for the CFO/FCF-exempt redistribution case too (Bank/
-  // Insurance/Property Developer/Commodity tickers), since it reads
-  // straight from data.weights rather than a static percentage.
-  const bullets: ReasoningBullet[] = componentRows.map((row) => {
-    const weight = data.weights[row.key];
-    const weightSuffix = weight ? ` (${Math.round(weight * 100)}%)` : "";
-    return {
-      key: row.key,
-      text: `${row.label}${weightSuffix}: ${row.tierLabel}`,
-      tierClassName: tierClass(row.score),
-    };
-  });
+  // Weight + score shown per-bullet (not the top-line verdict sentence
+  // above) -- stays correct for the CFO/FCF-exempt redistribution case too
+  // (Bank/Insurance/Property Developer/Commodity tickers), since weight
+  // reads straight from data.weights rather than a static percentage.
+  const bullets: ReasoningBullet[] = componentRows.map((row) => ({
+    key: row.key,
+    text: `${row.label}${weightScoreSuffix(data.weights[row.key], row.score)}: ${row.tierLabel}`,
+    tierClassName: tierClass(row.score),
+  }));
 
   const notes = data.cfo_exempt_reason ? (
     <p className="text-xs text-text-tertiary">
@@ -157,7 +152,6 @@ export function Step1Card({ ticker }: Props) {
       verdict={data.verdict}
       blurb={blurb}
       methodology={METHODOLOGY}
-      weightPct={overallWeightPct("step1")}
       notes={notes}
       bullets={bullets}
     />

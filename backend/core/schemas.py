@@ -412,6 +412,15 @@ class Step4Out(BaseModel):
     verdict: str
     hard_fail: bool = False
     components: dict = {}
+    # Weight each component contributed to `score` -- BASE_WEIGHTS from
+    # scoring/step4.py, proportionally renormalized across whichever metrics
+    # are applicable for this company type, keyed the same as `components`
+    # (note: scoring/step4.py's own internal dict uses "ar", not
+    # "revenue_vs_ar", for this key -- step4_data.py remaps it before
+    # constructing this field, so API/UI consumers never see the mismatch).
+    # {} when score is None (insufficient_data) -- never a fabricated weight
+    # for a component that was never actually scored.
+    weights: dict[str, float] = {}
     # Informational only -- never changes score/verdict (see CLAUDE.md's
     # Step 4 deviations). None unless ROE is "excellent"/"good" while ROIC
     # is "marginal" (a "fail" ROIC already hard-fails on its own).
