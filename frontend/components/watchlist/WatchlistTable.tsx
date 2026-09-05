@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { CaretDown, CaretUp } from "@phosphor-icons/react";
 
 import { MiniBarChart } from "@/components/charts/MiniBarChart";
 import { SignalBars } from "@/components/watchlist/SignalBars";
@@ -8,19 +9,20 @@ import { MOAT_SIGNAL_COLOR, MOAT_SIGNAL_LEVEL } from "@/components/ticker/MoatPi
 import { VERDICT_SIGNAL_COLOR, VERDICT_SIGNAL_LEVEL } from "@/components/ticker/FairValuePill";
 import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGrowthPill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { WatchlistOut, WatchlistRowOut, WatchlistSortField } from "@/lib/api/types";
+import type { SortableField, WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
 import { fmtCompactMoney, fmtNumber, fmtPct } from "@/lib/format";
-import type { SortDirection } from "@/lib/screenerFilters";
 import { flatChipClassFor } from "@/lib/tierColor";
 import { TREND_SIGNAL_COLOR } from "@/lib/trendSignal";
 import { cn } from "@/lib/utils";
 import { removeTickerFromWatchlist } from "@/lib/hooks/useWatchlists";
-import { sortWatchlistRows } from "@/lib/watchlistSort";
+import { applyHeaderClick, sortWatchlistRows, type SortRule } from "@/lib/watchlistSort";
 
 interface Props {
   watchlist: WatchlistOut;
   rows: WatchlistRowOut[] | undefined;
   error?: Error;
+  sortRules: SortRule[];
+  onSortRulesChange: (rules: SortRule[]) => void;
 }
 
 const HEAD_CLASS = "whitespace-nowrap text-xs font-semibold uppercase tracking-widest text-text-tertiary";
@@ -71,8 +73,11 @@ function smaCellClass(positionPct: number | null, cross: "up" | "down" | null): 
 // Trend cell: same MiniBarChart house style as the Financials tab's
 // Historical Trends grid (thick bars, no axis, hover tooltip w/ signed
 // 2-decimal value), just sized down for a table row. Not sortable -- these
-// are a 5-year preview, not a single comparable number, so they're
-// deliberately absent from WatchlistSortField/SORT_FIELD_OPTIONS.
+// are a 5-year preview, not a single comparable number, and the TREND
+// column's header (below, still a plain, non-clickable TableHead) has no
+// SortableField of its own either -- see that type's own note in
+// lib/api/types.ts for why sorting by trend "slope" was flagged rather
+// than shipped this round.
 function TrendCell({ years, values }: { years: string[]; values: (number | null)[] | null }) {
   if (!values || values.every((v) => v == null)) {
     // Empty box, not a dash -- keeps this cell the same size as a populated
@@ -92,6 +97,51 @@ function TrendCell({ years, values }: { years: string[]; values: (number | null)
   );
 }
 
+// Click-to-sort column header (2026-09-05 redesign, replacing the old
+// page-level <select>/direction-toggle dropdown). Renders `children` as a
+// button spanning the header cell -- clicking cycles this column through
+// applyHeaderClick's append/flip/remove states (see watchlistSort.ts's own
+// comment for the exact rule). The active caret + priority numeral render
+// inline after the label; the numeral only appears once 2+ rules are
+// active, per spec (a lone active column has nothing to disambiguate).
+// Text styling is repeated here (matching HEAD_CLASS) rather than relied
+// on via CSS inheritance from the <th>, since a bare <button> element's
+// default UA color/text-transform isn't guaranteed to inherit consistently
+// across browsers.
+function SortableHead({
+  field,
+  rules,
+  onChange,
+  className,
+  children,
+}: {
+  field: SortableField;
+  rules: SortRule[];
+  onChange: (rules: SortRule[]) => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const priority = rules.findIndex((r) => r.field === field);
+  const active = priority !== -1;
+  const direction = active ? rules[priority].direction : null;
+  return (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => onChange(applyHeaderClick(rules, field))}
+        className={cn(
+          "inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-widest text-text-tertiary transition-colors hover:text-text-primary",
+          active && "text-text-primary"
+        )}
+      >
+        {children}
+        {active && (direction === "asc" ? <CaretUp size={12} /> : <CaretDown size={12} />)}
+        {active && rules.length > 1 && <sup className="text-[9px] font-bold">{priority + 1}</sup>}
+      </button>
+    </TableHead>
+  );
+}
+
 // Column order per design_handoff_fathom_v2/README.md's Watchlist spec:
 // Ticker, Sector, Price, Chg, Moat, Valuation, Analysis, Rating, Mkt Cap,
 // Beta, P/E, then a trailing icon-only remove button. "Analysis" collapses
@@ -105,19 +155,16 @@ function TrendCell({ years, values }: { years: string[]; values: (number | null)
 // row.bar_level (1-5) directly, no band mapping re-derived on the frontend
 // (see analysis/trend_structure/conviction.py). The "vs SPY" 3-bar column
 // that used to sit before it was removed (2026-09-05) -- perf_5y_vs_spy_pct/
-// _status are still fetched and sortable (see WatchlistSortField's "5Y vs
-// SPY" option), just no longer shown as a visible column.
+// _status are still fetched, just no longer shown or sortable at all (no
+// SortableField entry either, unlike before this redesign).
 // REV/NI/CFO headers shortened and their columns narrowed (w-24 -> w-16) to
 // make room for the new Trend column above without widening the table
 // further -- CFO's own 3-letter label was already short enough to leave
 // unchanged. 20SMA/50SMA/200SMA (SMA position tracking) sit right after
 // A/D Div., completing the technical-indicators cluster (Trend/A-D-Div/SMA)
 // before Analysis -- see smaCellClass above for the color/background rules.
-export function WatchlistTable({ watchlist, rows, error }: Props) {
-  const sorted = useMemo(
-    () => (rows ? sortWatchlistRows(rows, watchlist.sort_field as WatchlistSortField, watchlist.sort_direction as SortDirection) : []),
-    [rows, watchlist.sort_field, watchlist.sort_direction]
-  );
+export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesChange }: Props) {
+  const sorted = useMemo(() => (rows ? sortWatchlistRows(rows, sortRules) : []), [rows, sortRules]);
 
   function openTicker(ticker: string) {
     window.open(`/tickers/${ticker}`, "_blank", "noopener,noreferrer");
@@ -144,23 +191,75 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
       <Table containerClassName="overflow-x-auto" className="min-w-[1000px] border-separate border-spacing-0">
         <TableHeader>
           <TableRow className="border-border-card bg-surface-2 hover:bg-surface-2">
-            <TableHead className={`${HEAD_CLASS} w-32`}>Ticker</TableHead>
-            <TableHead className={`${HEAD_CLASS} w-24`}>Sector</TableHead>
+            <SortableHead field="ticker" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-32`}>
+              Ticker
+            </SortableHead>
+            <SortableHead field="sector" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-24`}>
+              Sector
+            </SortableHead>
             <TableHead className={`${HEAD_CLASS} w-14 text-center`}>REV</TableHead>
             <TableHead className={`${HEAD_CLASS} w-14 text-center`}>NI</TableHead>
             <TableHead className={`${HEAD_CLASS} w-14 text-center`}>CFO</TableHead>
-            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Moat</TableHead>
-            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Value</TableHead>
+            <SortableHead field="moat" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-16 text-center`}>
+              Moat
+            </SortableHead>
+            <SortableHead
+              field="valuation_verdict"
+              rules={sortRules}
+              onChange={onSortRulesChange}
+              className={`${HEAD_CLASS} w-16 text-center`}
+            >
+              Value
+            </SortableHead>
+            {/* Not sortable yet -- see the TrendCell/SortableField comments above. */}
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Trend</TableHead>
-            <TableHead className={`${HEAD_CLASS} w-24 text-center`}>A/D Div.</TableHead>
-            <TableHead className={`${HEAD_CLASS} w-16 text-right`}>20SMA</TableHead>
-            <TableHead className={`${HEAD_CLASS} w-16 text-right`}>50SMA</TableHead>
-            <TableHead className={`${HEAD_CLASS} w-16 text-right`}>200SMA</TableHead>
-            <TableHead className={`${HEAD_CLASS} text-center`}>Analysis</TableHead>
-            <TableHead className={HEAD_CLASS}>Rating</TableHead>
-            <TableHead className={`${HEAD_CLASS} text-right`}>Mkt Cap</TableHead>
-            <TableHead className={`${HEAD_CLASS} text-right`}>Beta</TableHead>
-            <TableHead className={`${HEAD_CLASS} text-right`}>P/E</TableHead>
+            <SortableHead
+              field="ad_divergence_swing_date"
+              rules={sortRules}
+              onChange={onSortRulesChange}
+              className={`${HEAD_CLASS} w-24 text-center`}
+            >
+              A/D Div.
+            </SortableHead>
+            <SortableHead
+              field="sma20_position_pct"
+              rules={sortRules}
+              onChange={onSortRulesChange}
+              className={`${HEAD_CLASS} w-16 text-right`}
+            >
+              20SMA
+            </SortableHead>
+            <SortableHead
+              field="sma50_position_pct"
+              rules={sortRules}
+              onChange={onSortRulesChange}
+              className={`${HEAD_CLASS} w-16 text-right`}
+            >
+              50SMA
+            </SortableHead>
+            <SortableHead
+              field="sma200_position_pct"
+              rules={sortRules}
+              onChange={onSortRulesChange}
+              className={`${HEAD_CLASS} w-16 text-right`}
+            >
+              200SMA
+            </SortableHead>
+            <SortableHead field="overall_score" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} text-center`}>
+              Analysis
+            </SortableHead>
+            <SortableHead field="consensus_rating" rules={sortRules} onChange={onSortRulesChange} className={HEAD_CLASS}>
+              Rating
+            </SortableHead>
+            <SortableHead field="market_cap" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} text-right`}>
+              Mkt Cap
+            </SortableHead>
+            <SortableHead field="beta" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} text-right`}>
+              Beta
+            </SortableHead>
+            <SortableHead field="pe_ratio" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} text-right`}>
+              P/E
+            </SortableHead>
             <TableHead className="w-9" />
           </TableRow>
         </TableHeader>

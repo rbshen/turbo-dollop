@@ -4,15 +4,17 @@ import { mutate } from "swr";
 
 import { apiDelete, apiPost, apiPut } from "@/lib/api/client";
 import { useApiResource } from "@/lib/hooks/useApiResource";
-import type { WatchlistOut, WatchlistSortField } from "@/lib/api/types";
-import type { SortDirection } from "@/lib/screenerFilters";
+import type { WatchlistOut } from "@/lib/api/types";
 
 const KEY = "/watchlists";
 
 export interface UpdateWatchlistBody {
   name?: string;
-  sort_field?: WatchlistSortField;
-  sort_direction?: SortDirection;
+  // sort_field/sort_direction deliberately absent (2026-09-05): sort state
+  // moved to localStorage (see app/watchlist/page.tsx) and is never written
+  // back to the watchlist row anymore -- the backend's own sort_field/
+  // sort_direction columns and PUT /api/watchlists/{id} still accept them
+  // (untouched, per instruction), they're just no longer sent from here.
 }
 
 export interface BulkAddResult {

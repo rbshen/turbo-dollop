@@ -5,49 +5,45 @@ import { useEffect, useState } from "react";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { SegmentedControl } from "@/components/shared/SegmentedControl";
 import { WatchlistTable } from "@/components/watchlist/WatchlistTable";
-import type { WatchlistSortField } from "@/lib/api/types";
-import { updateWatchlist, useWatchlists } from "@/lib/hooks/useWatchlists";
+import { useWatchlists } from "@/lib/hooks/useWatchlists";
 import { useWatchlistRows } from "@/lib/hooks/useWatchlistRows";
+import { DEFAULT_SORT_RULES, MAX_SORT_RULES, SORTABLE_FIELDS, type SortRule } from "@/lib/watchlistSort";
 
-// Design handoff's own 6-option list (Ticker/Price/Change %/Market
-// Cap/Beta/P-E) plus the app's existing score-based sort fields, which
-// predate this redesign and stay available -- restyling shouldn't drop
-// working functionality the mockup's sample data simply didn't exercise.
-// Price/Change % removed (2026-08-03) along with the columns themselves --
-// see WatchlistSortField's own comment. "5Y vs SPY" (perf_5y_vs_spy_pct)
-// removed (2026-09-05), alongside the same field's column removal in
-// WatchlistTable.tsx -- no longer a valid WatchlistSortField value at all
-// (see that type's own comment), not just hidden from this list.
-const SORT_FIELD_OPTIONS: { value: WatchlistSortField; label: string }[] = [
-  { value: "ticker", label: "Ticker" },
-  { value: "market_cap", label: "Market Cap" },
-  { value: "beta", label: "Beta" },
-  { value: "pe_ratio", label: "P/E" },
-  { value: "overall_score", label: "Overall score" },
-  { value: "step1_score", label: "Financials score" },
-  { value: "step2_score", label: "Growth Rate score" },
-  { value: "step4_score", label: "Profitability score" },
-  { value: "step5_score", label: "Debt score" },
-  { value: "blended_score", label: "Trend" },
-  { value: "ad_divergence_swing_date", label: "A/D Div." },
-  { value: "sma20_position_pct", label: "20SMA" },
-  { value: "sma50_position_pct", label: "50SMA" },
-  { value: "sma200_position_pct", label: "200SMA" },
-];
+// Sort state moved off the old page-level <select>/direction-toggle
+// dropdown entirely (2026-09-05) -- WatchlistTable's column headers are now
+// directly clickable (see SortableHead there). Persistence moved from the
+// backend's Watchlist.sort_field/sort_direction columns (a single
+// field+direction pair, which can't represent a SortRule[] anyway) to
+// localStorage, keyed per watchlist id -- the backend columns and
+// PUT /api/watchlists/{id} are left untouched and simply go unused by the
+// frontend from here on (see useWatchlists.ts's own comment).
+const SORT_STORAGE_KEY_PREFIX = "fathom-watchlist-sort-";
 
-const VALID_SORT_FIELDS = new Set(SORT_FIELD_OPTIONS.map((opt) => opt.value));
+function isSortRule(value: unknown): value is SortRule {
+  if (!value || typeof value !== "object") return false;
+  const r = value as Record<string, unknown>;
+  return (
+    typeof r.field === "string" &&
+    (SORTABLE_FIELDS as string[]).includes(r.field) &&
+    (r.direction === "asc" || r.direction === "desc")
+  );
+}
 
-// Matches the backend's own Watchlist.sort_field default (core/models.py) --
-// used as the fallback below for a watchlist whose persisted sort_field is
-// no longer a valid option (e.g. "perf_5y_vs_spy_pct", removed above): the
-// backend persists sort_field as an opaque string with no server-side
-// validation (see WatchlistSortField's own comment), so an old value simply
-// never becomes invalid there on its own. Without this fallback, the <select>
-// below would render with no option visibly selected and the table would
-// sort by a field with no live column or control for it -- this keeps both
-// sane until the user next picks a real sort field, at which point the
-// normal onChange persists a valid value again.
-const DEFAULT_SORT_FIELD: WatchlistSortField = "overall_score";
+function loadSortRules(watchlistId: number): SortRule[] {
+  if (typeof window === "undefined") return DEFAULT_SORT_RULES;
+  try {
+    const raw = window.localStorage.getItem(`${SORT_STORAGE_KEY_PREFIX}${watchlistId}`);
+    if (!raw) return DEFAULT_SORT_RULES;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > MAX_SORT_RULES) return DEFAULT_SORT_RULES;
+    return parsed.every(isSortRule) ? parsed : DEFAULT_SORT_RULES;
+  } catch {
+    // Malformed/corrupted JSON, or localStorage unavailable entirely
+    // (private window, blocked site data) -- fall back to the default
+    // rather than throwing during render.
+    return DEFAULT_SORT_RULES;
+  }
+}
 
 function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "watchlist";
@@ -65,6 +61,33 @@ export default function WatchlistPage() {
   const activeId = manualActiveId ?? mostRecentlyCreated?.id ?? null;
   const active = watchlists?.find((w) => w.id === activeId) ?? null;
   const { data: rows, error: rowsError } = useWatchlistRows(active?.id ?? null);
+
+  // Reloaded from localStorage whenever the active watchlist tab changes --
+  // each watchlist has its own independent sort state (see
+  // SORT_STORAGE_KEY_PREFIX above). Adjusted during render (React's
+  // "storing information from previous renders" pattern) rather than in a
+  // useEffect, the same reason manualActiveId's own comment above gives for
+  // not needing an effect to sync state off a prop/derived-value change.
+  const [sortState, setSortState] = useState<{ activeId: number | null; rules: SortRule[] }>({
+    activeId: null,
+    rules: DEFAULT_SORT_RULES,
+  });
+  if (activeId !== sortState.activeId) {
+    setSortState({ activeId, rules: activeId != null ? loadSortRules(activeId) : DEFAULT_SORT_RULES });
+  }
+  const sortRules = sortState.rules;
+
+  function handleSortRulesChange(rules: SortRule[]) {
+    setSortState({ activeId, rules });
+    if (activeId == null) return;
+    try {
+      window.localStorage.setItem(`${SORT_STORAGE_KEY_PREFIX}${activeId}`, JSON.stringify(rules));
+    } catch {
+      // localStorage unavailable (private window, blocked site data, quota) --
+      // the in-memory state above still updates for this session, it just
+      // won't survive a reload.
+    }
+  }
 
   // Static "Fathom Watchlist" (set via layout.tsx metadata) covers the
   // loading/empty/error states -- this only overrides it once a specific
@@ -139,15 +162,6 @@ export default function WatchlistPage() {
     );
   }
 
-  // Falls back to DEFAULT_SORT_FIELD when `active.sort_field` is a value no
-  // longer offered above (see that constant's own comment) -- drives both
-  // the <select>'s displayed value and what the table actually sorts by, so
-  // neither shows/uses a field with no corresponding option or column. Does
-  // NOT persist the fallback back to the watchlist itself -- the next real
-  // onChange below does that naturally.
-  const effectiveSortField = VALID_SORT_FIELDS.has(active.sort_field) ? active.sort_field : DEFAULT_SORT_FIELD;
-  const displayWatchlist = active.sort_field === effectiveSortField ? active : { ...active, sort_field: effectiveSortField };
-
   return (
     <PageContainer className="space-y-6 pb-12 pt-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -173,31 +187,9 @@ export default function WatchlistPage() {
           onChange={(v) => setManualActiveId(Number(v))}
           options={watchlists.map((w) => ({ value: String(w.id), label: w.name }))}
         />
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-text-tertiary">Sort by</span>
-          <select
-            value={effectiveSortField}
-            onChange={(e) => updateWatchlist(active.id, { sort_field: e.target.value as WatchlistSortField })}
-            className="h-8 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary focus:border-brand focus:outline-none"
-          >
-            {SORT_FIELD_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={() => updateWatchlist(active.id, { sort_direction: active.sort_direction === "asc" ? "desc" : "asc" })}
-            className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-2 text-xs text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
-            title={active.sort_direction === "asc" ? "Ascending" : "Descending"}
-          >
-            {active.sort_direction === "asc" ? "↑ Asc" : "↓ Desc"}
-          </button>
-        </div>
       </div>
 
-      <WatchlistTable watchlist={displayWatchlist} rows={rows} error={rowsError} />
+      <WatchlistTable watchlist={active} rows={rows} error={rowsError} sortRules={sortRules} onSortRulesChange={handleSortRulesChange} />
     </PageContainer>
   );
 }

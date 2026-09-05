@@ -929,50 +929,51 @@ export interface WatchlistTickerOut {
 export interface WatchlistOut {
   id: number;
   name: string;
-  sort_field: WatchlistSortField;
-  sort_direction: SortDirection;
+  // Dead fields as of the click-to-sort-headers redesign (2026-09-05): the
+  // frontend no longer reads or writes either -- sort state now lives in
+  // localStorage per watchlist id (see app/watchlist/page.tsx's
+  // SORT_STORAGE_KEY_PREFIX) as a SortRule[] (below), which these two
+  // opaque single-value strings can't represent anyway. Left as plain
+  // `string` (not WatchlistSortField, which no longer exists) and left on
+  // the backend model/schema/PUT endpoint untouched, per instruction --
+  // only the frontend's usage was retired, not the DB column.
+  sort_field: string;
+  sort_direction: string;
   created_at: string;
   updated_at: string;
   tickers: WatchlistTickerOut[];
 }
 
-// market_cap/pe_ratio/beta added for the v2 redesign's "Sort by" list
-// (design_handoff_fathom_v2/README.md) -- both fields already exist on
-// WatchlistRowOut (fetched from FMP profile data already cached for every
-// other Watchlist column), and the backend persists sort_field as an
-// opaque `str` (backend/schemas.py::WatchlistOut), so this is a
-// frontend-only type widening, not new data. price/change_percent removed
-// (2026-08-03) along with the Price/Chg columns -- the live quote fetch
-// they required was pure overhead on a page whose whole design is
-// cache-only. See watchlist_data.py's now-removed _live_quote.
-export type WatchlistSortField =
+// The Watchlist table's click-to-sort column headers (2026-09-05 redesign,
+// replacing the old <select>-driven WatchlistSortField dropdown). Every
+// field here has a real clickable header in WatchlistTable.tsx -- unlike
+// the old dropdown, which also offered step1-5 individual scores despite
+// those never having had their own columns (collapsed into the single
+// Analysis pill since the v2 redesign). Those are dropped here rather than
+// carried forward, since there's no header to click for them; overall_score
+// (the Analysis column) is the one blended score that stays sortable.
+// "Trend" (REV/NI/CFO) has no header entry at all yet -- no single
+// sortable trend-slope value exists anywhere in the scoring pipeline today
+// (see lib/watchlistSort.ts's own top-of-file note), so it's intentionally
+// excluded pending a follow-up design, not an oversight.
+export type SortableField =
   | "ticker"
-  | "market_cap"
-  | "pe_ratio"
-  | "beta"
-  | "overall_score"
-  | "step1_score"
-  | "step2_score"
-  | "step4_score"
-  | "step5_score"
-  // "perf_5y_vs_spy_pct" removed as a sort option (2026-09-05), alongside
-  // the "vs SPY" column removal -- see app/watchlist/page.tsx's
-  // DEFAULT_SORT_FIELD comment for the fallback this required. The field
-  // itself is untouched below (still returned by the API, still typed on
-  // WatchlistRowOut) -- it's just no longer a valid *sort* field.
-  // "Trend" sorts by blended_score (the continuous -10..+10 conviction
-  // score), not bar_level -- bar_level is only a 5-bucket display rescale
-  // of blended_score (see conviction.py's own comment), so sorting by it
-  // directly would leave most rows tied. "A/D Div." sorts by
-  // ad_divergence_swing_date (a string, null-last) rather than the
-  // ad_bullish_divergence boolean itself -- sortWatchlistRows's generic
-  // numeric branch (`av - bv`) doesn't handle booleans, and the date is
-  // exactly what the column itself displays anyway.
-  | "blended_score"
+  | "sector"
+  | "moat"
+  | "valuation_verdict"
+  | "consensus_rating"
+  // "A/D Div." sorts by ad_divergence_swing_date (a string, null-last)
+  // rather than the ad_bullish_divergence boolean itself -- the generic
+  // comparator has no boolean branch, and the date is exactly what the
+  // column itself displays anyway.
   | "ad_divergence_swing_date"
   | "sma20_position_pct"
   | "sma50_position_pct"
-  | "sma200_position_pct";
+  | "sma200_position_pct"
+  | "market_cap"
+  | "pe_ratio"
+  | "beta"
+  | "overall_score";
 
 // Same field set as TickerScoreOut minus sector/industry/company_type/
 // growth_rate/computed_at (not shown on the Watchlist table), plus Step 1's
@@ -988,7 +989,7 @@ export interface WatchlistRowOut {
   exchange: string | null;
   // Latest 5 periods only (see backend LATEST_YEARS_SHOWN) -- not
   // sortable/filterable, purely a small trend preview, so no matching
-  // WatchlistSortField entries.
+  // SortableField entry (see that type's own note on the Trend column).
   years: string[];
   revenue: (number | null)[];
   net_income: (number | null)[];
@@ -1014,8 +1015,8 @@ export interface WatchlistRowOut {
   beta: number | null;
   // See TickerSummaryOut.perf_5y_vs_spy_pct/_status above. No longer shown
   // as a column or sortable (both removed 2026-09-05, see WatchlistTable.tsx
-  // and WatchlistSortField's own comment) -- kept on this type since the API
-  // still returns it, just currently unused by any Watchlist UI.
+  // and the former WatchlistSortField's own comment) -- kept on this type
+  // since the API still returns it, just currently unused by any Watchlist UI.
   perf_5y_vs_spy_pct: number | null;
   perf_5y_vs_spy_status: PerfVsSpyStatus | null;
   // See TickerScoreOut.speculative_growth_qualifies above.
