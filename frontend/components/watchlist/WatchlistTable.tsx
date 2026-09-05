@@ -5,7 +5,6 @@ import { useMemo } from "react";
 import { MiniBarChart } from "@/components/charts/MiniBarChart";
 import { SignalBars } from "@/components/watchlist/SignalBars";
 import { MOAT_SIGNAL_COLOR, MOAT_SIGNAL_LEVEL } from "@/components/ticker/MoatPill";
-import { STATUS_TO_VERDICT } from "@/components/ticker/PerfVsSpyPill";
 import { VERDICT_SIGNAL_COLOR, VERDICT_SIGNAL_LEVEL } from "@/components/ticker/FairValuePill";
 import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGrowthPill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -102,9 +101,12 @@ function TrendCell({ years, values }: { years: string[]; values: (number | null)
 // required was the one thing on this cache-only page that always hit FMP
 // live; see watchlist_data.py's now-removed _live_quote. Trend (added
 // alongside the Yahoo-Finance-backed trend-structure feature) sits with the
-// other 5-bar-vs-3-bar signal-indicator columns, right after vs SPY -- a
-// 5-bar SignalBars reading row.bar_level (1-5) directly, no band mapping
-// re-derived on the frontend (see analysis/trend_structure/conviction.py).
+// other signal-indicator columns -- a 5-bar SignalBars reading
+// row.bar_level (1-5) directly, no band mapping re-derived on the frontend
+// (see analysis/trend_structure/conviction.py). The "vs SPY" 3-bar column
+// that used to sit before it was removed (2026-09-05) -- perf_5y_vs_spy_pct/
+// _status are still fetched and sortable (see WatchlistSortField's "5Y vs
+// SPY" option), just no longer shown as a visible column.
 // REV/NI/CFO headers shortened and their columns narrowed (w-24 -> w-16) to
 // make room for the new Trend column above without widening the table
 // further -- CFO's own 3-letter label was already short enough to leave
@@ -149,7 +151,6 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
             <TableHead className={`${HEAD_CLASS} w-14 text-center`}>CFO</TableHead>
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Moat</TableHead>
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Value</TableHead>
-            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>vs SPY</TableHead>
             <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Trend</TableHead>
             <TableHead className={`${HEAD_CLASS} w-24 text-center`}>A/D Div.</TableHead>
             <TableHead className={`${HEAD_CLASS} w-16 text-right`}>20SMA</TableHead>
@@ -203,14 +204,6 @@ export function WatchlistTable({ watchlist, rows, error }: Props) {
               <TableCell className="text-center">
                 {row.valuation_verdict && (
                   <SignalBars level={VERDICT_SIGNAL_LEVEL[row.valuation_verdict]} color={VERDICT_SIGNAL_COLOR[row.valuation_verdict]} />
-                )}
-              </TableCell>
-              <TableCell className="text-center">
-                {row.perf_5y_vs_spy_status && row.perf_5y_vs_spy_status !== "no_data" && (
-                  <SignalBars
-                    level={VERDICT_SIGNAL_LEVEL[STATUS_TO_VERDICT[row.perf_5y_vs_spy_status]]}
-                    color={VERDICT_SIGNAL_COLOR[STATUS_TO_VERDICT[row.perf_5y_vs_spy_status]]}
-                  />
                 )}
               </TableCell>
               <TableCell className="text-center">

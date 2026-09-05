@@ -19,9 +19,9 @@ export const PERF_VS_SPY_LABELS: Record<PerfVsSpyStatus, string> = {
 // Screener card: state is conveyed by color alone (see STATUS_TO_VERDICT
 // below) -- every status renders the same literal text here.
 const LABELS_SCREENER: Record<RenderableStatus, string> = {
-  outperform: "vs SPY",
-  underperform: "vs SPY",
-  match: "vs SPY",
+  outperform: "5Y vs SPY",
+  underperform: "5Y vs SPY",
+  match: "5Y vs SPY",
 };
 
 const LABEL_SETS: Record<"full" | "screener", Record<RenderableStatus, string>> = {

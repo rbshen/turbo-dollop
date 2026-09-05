@@ -166,7 +166,7 @@ export function ScreenerFilters({ filters, onFiltersChange, sectors, companyType
           onChange={(s) => patch({ valuationVerdict: s })}
         />
         <MultiSelectDropdown
-          label="vs SPY"
+          label="5Y vs SPY"
           options={VS_SPY_FILTER_OPTIONS}
           selected={filters.vsSpy}
           onChange={(s) => patch({ vsSpy: s })}

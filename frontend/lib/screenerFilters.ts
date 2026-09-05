@@ -69,9 +69,17 @@ export const VALUATION_FILTER_OPTIONS: MultiSelectOption[] = [
 // row computed before this field existed, or a row for a ticker with no
 // FMP "5Y" figure at all) -- same null-coalescing convention as Moat's
 // MOAT_NOT_SET below, not a distinct 4th value.
+//
+// "outperform"/"underperform" are labeled here directly ("Outperform"/
+// "Underperform") rather than via PERF_VS_SPY_LABELS -- this filter's own
+// group label already reads "5Y vs SPY" (ScreenerFilters.tsx), so repeating
+// "SPY" in each option is redundant here (2026-09-05). PERF_VS_SPY_LABELS
+// itself is left unchanged, since it also backs the ticker-page header
+// pill's "Outperform SPY"/"Underperform SPY" wording, which is out of scope
+// for this change.
 export const VS_SPY_FILTER_OPTIONS: MultiSelectOption[] = [
-  { value: "outperform", label: PERF_VS_SPY_LABELS.outperform },
-  { value: "underperform", label: PERF_VS_SPY_LABELS.underperform },
+  { value: "outperform", label: "Outperform" },
+  { value: "underperform", label: "Underperform" },
   { value: "match", label: PERF_VS_SPY_LABELS.match },
   { value: "no_data", label: PERF_VS_SPY_LABELS.no_data },
 ];
