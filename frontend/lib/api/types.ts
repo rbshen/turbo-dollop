@@ -955,7 +955,11 @@ export type WatchlistSortField =
   | "step2_score"
   | "step4_score"
   | "step5_score"
-  | "perf_5y_vs_spy_pct"
+  // "perf_5y_vs_spy_pct" removed as a sort option (2026-09-05), alongside
+  // the "vs SPY" column removal -- see app/watchlist/page.tsx's
+  // DEFAULT_SORT_FIELD comment for the fallback this required. The field
+  // itself is untouched below (still returned by the API, still typed on
+  // WatchlistRowOut) -- it's just no longer a valid *sort* field.
   // "Trend" sorts by blended_score (the continuous -10..+10 conviction
   // score), not bar_level -- bar_level is only a 5-bucket display rescale
   // of blended_score (see conviction.py's own comment), so sorting by it
@@ -1008,8 +1012,10 @@ export interface WatchlistRowOut {
   market_cap: number | null;
   pe_ratio: number | null;
   beta: number | null;
-  // See TickerSummaryOut.perf_5y_vs_spy_pct/_status above. Sortable via
-  // WatchlistSortField's "perf_5y_vs_spy_pct" entry.
+  // See TickerSummaryOut.perf_5y_vs_spy_pct/_status above. No longer shown
+  // as a column or sortable (both removed 2026-09-05, see WatchlistTable.tsx
+  // and WatchlistSortField's own comment) -- kept on this type since the API
+  // still returns it, just currently unused by any Watchlist UI.
   perf_5y_vs_spy_pct: number | null;
   perf_5y_vs_spy_status: PerfVsSpyStatus | null;
   // See TickerScoreOut.speculative_growth_qualifies above.

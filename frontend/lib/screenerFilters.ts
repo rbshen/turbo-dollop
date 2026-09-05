@@ -74,9 +74,11 @@ export const VALUATION_FILTER_OPTIONS: MultiSelectOption[] = [
 // "Underperform") rather than via PERF_VS_SPY_LABELS -- this filter's own
 // group label already reads "5Y vs SPY" (ScreenerFilters.tsx), so repeating
 // "SPY" in each option is redundant here (2026-09-05). PERF_VS_SPY_LABELS
-// itself is left unchanged, since it also backs the ticker-page header
-// pill's "Outperform SPY"/"Underperform SPY" wording, which is out of scope
-// for this change.
+// itself is left alone here regardless -- it backs the ticker-page header
+// pill (PerfVsSpyPill.tsx), out of scope for this filter dropdown, and
+// separately switched outperform/underperform to a shared static "5Y vs
+// SPY" label of its own (2026-09-05 follow-up) -- the two are unrelated
+// beyond having briefly shared the same source strings.
 export const VS_SPY_FILTER_OPTIONS: MultiSelectOption[] = [
   { value: "outperform", label: "Outperform" },
   { value: "underperform", label: "Underperform" },

@@ -9,9 +9,18 @@ type RenderableStatus = Exclude<PerfVsSpyStatus, "no_data">;
 // source, not duplicated between the pill and the filter dropdown. "no_data"
 // stays in this map (needed for the filter dropdown's own label) even though
 // the pill itself never renders it -- see the render guard below.
+//
+// outperform/underperform share one static label (2026-09-05) -- direction
+// is now conveyed by color alone (STATUS_TO_VERDICT's undervalued/overvalued
+// mapping below, via VERDICT_STYLES/FLAT_VERDICT_STYLES), not by distinct
+// wording, matching how ScreenerCard's own "screener" label set already
+// worked. match/no_data are untouched -- "Match" has no direction to convey
+// via color (STATUS_TO_VERDICT maps it to the neutral "fair" style), so it
+// keeps its own distinct word rather than reading as a false "5Y vs SPY"
+// outperform/underperform claim.
 export const PERF_VS_SPY_LABELS: Record<PerfVsSpyStatus, string> = {
-  outperform: "Outperform SPY",
-  underperform: "Underperform SPY",
+  outperform: "5Y vs SPY",
+  underperform: "5Y vs SPY",
   match: "Match",
   no_data: "No data",
 };
@@ -61,7 +70,8 @@ interface Props {
   // "flat": borderless, same height as ScreenerCard/WatchlistTable's other pills.
   variant?: "chip" | "flat";
   // Which label wording tier to use -- see LABEL_SETS above. Defaults to the
-  // full "Outperform SPY"/"Underperform SPY"/"Match" wording.
+  // full label set: static "5Y vs SPY" for outperform/underperform (color
+  // conveys direction), "Match" for a literal tie.
   labelSet?: "full" | "screener";
 }
 
