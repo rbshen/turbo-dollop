@@ -48,3 +48,17 @@ export const WEINSTEIN_STAGE_TEXT_CLASS: Record<WeinsteinStage, string> = {
 export function formatWeinsteinSince(sinceDate: string, isLowerBound: boolean, fmtDate: (iso: string) => string): string {
   return isLowerBound ? `Since at least ${fmtDate(sinceDate)}` : `Since ${fmtDate(sinceDate)}`;
 }
+
+// Distinguishes WHY weinstein_stage is null -- found necessary after a real
+// incident (CTAS/ABNB, 2026-09-06) where a stale, never-reprocessed row's
+// null stage was indistinguishable in the UI from a genuine data gap, even
+// though both tickers had years of real cached history. weinstein_weeks_available
+// is null ONLY when this row has never been touched by a Weinstein-aware
+// compute at all (a legacy/never-reprocessed row); a real (always sub-40)
+// number means a compute genuinely ran and found too little history --
+// see backend's models.py::TrendAnalysis for the full mechanism.
+export type WeinsteinUnavailableReason = "not_yet_computed" | "insufficient_history";
+
+export function weinsteinUnavailableReason(weeksAvailable: number | null): WeinsteinUnavailableReason {
+  return weeksAvailable == null ? "not_yet_computed" : "insufficient_history";
+}

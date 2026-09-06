@@ -1069,6 +1069,11 @@ export interface TrendAnalysisOut {
   weinstein_stage: "base" | "advance" | "top" | "decline" | null;
   weinstein_stage_since_date: string | null;
   weinstein_stage_since_is_lower_bound: boolean | null;
+  // null alongside a null weinstein_stage means "never computed under this
+  // feature yet" (a legacy/never-reprocessed row); a real (always sub-40)
+  // number means a compute genuinely ran and found too little history --
+  // see lib/weinsteinStage.ts::weinsteinUnavailableReason.
+  weinstein_weeks_available: number | null;
   weinstein_stage_changed: boolean | null;
   weinstein_ma_slope_pct: number | null;
   weinstein_vs_ma_pct: number | null;

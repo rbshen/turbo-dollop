@@ -1,5 +1,5 @@
 import { ChecklistCard, fmtSwingDate, type ChecklistItem } from "@/components/technical/ChecklistCard";
-import { formatWeinsteinSince, WEINSTEIN_STAGE_LABEL, WEINSTEIN_STAGE_STYLES_CHIP } from "@/lib/weinsteinStage";
+import { formatWeinsteinSince, weinsteinUnavailableReason, WEINSTEIN_STAGE_LABEL, WEINSTEIN_STAGE_STYLES_CHIP } from "@/lib/weinsteinStage";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
 interface Props {
@@ -9,6 +9,17 @@ interface Props {
 const DISCLAIMER =
   "Classic technical stage-analysis framework (Stan Weinstein); not backtested against Fathom's own criteria the way the Reversal/Trend Continuation checks above are. Informational only, not a trading signal.";
 
+// Two distinct null-stage messages, deliberately not conflated -- see
+// lib/weinsteinStage.ts::weinsteinUnavailableReason for the full mechanism.
+// "not_yet_computed" makes no claim about the ticker's own history (it may
+// well have years of it, just not yet reprocessed under this feature);
+// "insufficient_history" is the one case where the original wording is
+// actually accurate.
+const UNAVAILABLE_MESSAGE: Record<ReturnType<typeof weinsteinUnavailableReason>, string> = {
+  not_yet_computed: "Weinstein stage not yet available for this ticker — check back after the next update.",
+  insufficient_history: "Insufficient price history for a 30-week stage read yet.",
+};
+
 function fmtPct(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
@@ -17,14 +28,15 @@ export function WeinsteinStageCard({ data }: Props) {
   const stage = data.weinstein_stage;
 
   if (!stage) {
+    const reason = weinsteinUnavailableReason(data.weinstein_weeks_available);
     return (
       <ChecklistCard
         title="Weinstein Stage Analysis"
-        statusLabel="Insufficient history"
+        statusLabel={reason === "not_yet_computed" ? "Not yet computed" : "Insufficient history"}
         statusToneClass="border-border-card bg-surface-2 text-text-tertiary"
         blurb="30-week moving-average stage classification (Base/Advance/Top/Decline), plus supporting volume and relative-strength context."
         items={[]}
-        disclaimer="Insufficient price history for a 30-week stage read yet."
+        disclaimer={UNAVAILABLE_MESSAGE[reason]}
       />
     );
   }
