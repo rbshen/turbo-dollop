@@ -1007,6 +1007,19 @@ class TrendAnalysisOut(BaseModel):
     sma50_cross: Literal["up", "down"] | None = None
     sma200_position_pct: float | None = None
     sma200_cross: Literal["up", "down"] | None = None
+    # Weinstein Stage Analysis -- a fully independent second lens computed
+    # on weekly bars, see models.py::TrendAnalysis's own comment for field
+    # semantics (weinstein_stage_changed vs. weinstein_breakout_confirmed
+    # in particular -- different comparisons, computed at different layers).
+    weinstein_stage: Literal["base", "advance", "top", "decline"] | None = None
+    weinstein_stage_since_date: date | None = None
+    weinstein_stage_since_is_lower_bound: bool | None = None
+    weinstein_stage_changed: bool | None = None
+    weinstein_ma_slope_pct: float | None = None
+    weinstein_vs_ma_pct: float | None = None
+    weinstein_volume_ratio: float | None = None
+    weinstein_mansfield_rs: float | None = None
+    weinstein_breakout_confirmed: bool | None = None
 
 
 class WatchlistTickerIn(BaseModel):

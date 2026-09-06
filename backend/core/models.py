@@ -104,6 +104,36 @@ class TrendAnalysis(SQLModel, table=True):
     sma50_cross: str | None = None
     sma200_position_pct: float | None = None
     sma200_cross: str | None = None
+    # Weinstein Stage Analysis (see analysis/trend_structure/weinstein.py) --
+    # a fully independent second lens, computed on WEEKLY bars resampled
+    # from the same daily OHLCV history, not merged with the swing/BOS
+    # fields above. Nullable for the same _add_missing_columns-has-no-
+    # backfill reason as ad_bullish_divergence/sma20_cross: existing rows
+    # read NULL until the next nightly run rewrites every field.
+    # weinstein_stage: "base" | "advance" | "top" | "decline" | None, same
+    # plain-str enum convention as trend_state/regime.
+    weinstein_stage: str | None = None
+    # First week of the CURRENT stage (see WeinsteinStageResult's own
+    # docstring for the walk-back definition).
+    weinstein_stage_since_date: date | None = None
+    # True when the stage never differed anywhere in the available
+    # (post-bootstrap) weekly history -- the true start predates the fetch
+    # window, so weinstein_stage_since_date is a lower bound, not a
+    # precise transition date.
+    weinstein_stage_since_is_lower_bound: bool | None = None
+    # "Today's freshly computed stage differs from what was stored here
+    # BEFORE this write" -- an ACROSS-NIGHTLY-RUNS comparison, computed in
+    # data/trend_analysis_data.py's orchestration layer (needs to read the
+    # previous row), deliberately NOT the same concept as
+    # weinstein_breakout_confirmed below (a pure, single-run, week-over-
+    # week comparison from the engine itself). False (not None) whenever
+    # there's no previous stored stage to compare against yet.
+    weinstein_stage_changed: bool | None = None
+    weinstein_ma_slope_pct: float | None = None
+    weinstein_vs_ma_pct: float | None = None
+    weinstein_volume_ratio: float | None = None
+    weinstein_mansfield_rs: float | None = None
+    weinstein_breakout_confirmed: bool | None = None
 
 
 class IndexConstituent(SQLModel, table=True):

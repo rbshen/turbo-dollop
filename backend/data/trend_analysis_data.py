@@ -14,7 +14,8 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
 from analysis.trend_structure.engine import compute_trend_structure
-from analysis.trend_structure.types import SwingDetail, TrendStructureResult
+from analysis.trend_structure.types import SwingDetail, TrendStructureResult, WeinsteinStageResult
+from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER, compute_weinstein_stage
 from clients.yahoo_cache import get_or_fetch_price_history
 from core.config import settings
 from core.db import engine
@@ -69,34 +70,56 @@ def _ohlcv_frame(rows: list[YahooPriceCache]) -> pd.DataFrame:
     return pd.DataFrame(data, index=index)
 
 
-def _upsert(ticker: str, result: TrendStructureResult, computed_at: datetime) -> None:
-    fields = {
-        "computed_at": computed_at,
-        "trend_state": result.trend_state,
-        "magnitude_tier": result.magnitude_tier,
-        "persistence_count": result.persistence_count,
-        "bars_since_confirmation": result.bars_since_confirmation,
-        "last_confirmed_swing_json": _swing_detail_to_json(result.last_confirmed_swing),
-        "warning_flag": result.warning_flag,
-        "warning_swing_json": _swing_detail_to_json(result.warning_swing),
-        "efficiency_ratio": result.efficiency_ratio,
-        "regime": result.regime,
-        "blended_score": result.blended_score,
-        "bar_level": result.bar_level,
-        "ad_bullish_divergence": result.ad_bullish_divergence,
-        "ad_divergence_swing_date": result.ad_divergence_swing_date,
-        "sma20_position_pct": result.sma20_position_pct,
-        "sma20_cross": result.sma20_cross,
-        "sma50_position_pct": result.sma50_position_pct,
-        "sma50_cross": result.sma50_cross,
-        "sma200_position_pct": result.sma200_position_pct,
-        "sma200_cross": result.sma200_cross,
-    }
+def _upsert(ticker: str, result: TrendStructureResult, weinstein_result: WeinsteinStageResult, computed_at: datetime) -> bool:
+    """Returns weinstein_stage_changed -- computed HERE, not in the pure
+    engine, since it's an ACROSS-NIGHTLY-RUNS comparison (today's freshly
+    computed stage vs. whatever was stored before this write), requiring a
+    read of the previous row. Deliberately distinct from
+    weinstein_result.breakout_confirmed (a pure, single-run, week-over-week
+    comparison the engine already computed -- see WeinsteinStageResult's
+    own docstring). False, not an error, when there's no previous row yet
+    (a brand-new ticker's first-ever compute)."""
     with Session(engine) as session:
+        previous = session.get(TrendAnalysis, ticker)
+        weinstein_stage_changed = False if previous is None else previous.weinstein_stage != weinstein_result.stage
+
+        fields = {
+            "computed_at": computed_at,
+            "trend_state": result.trend_state,
+            "magnitude_tier": result.magnitude_tier,
+            "persistence_count": result.persistence_count,
+            "bars_since_confirmation": result.bars_since_confirmation,
+            "last_confirmed_swing_json": _swing_detail_to_json(result.last_confirmed_swing),
+            "warning_flag": result.warning_flag,
+            "warning_swing_json": _swing_detail_to_json(result.warning_swing),
+            "efficiency_ratio": result.efficiency_ratio,
+            "regime": result.regime,
+            "blended_score": result.blended_score,
+            "bar_level": result.bar_level,
+            "ad_bullish_divergence": result.ad_bullish_divergence,
+            "ad_divergence_swing_date": result.ad_divergence_swing_date,
+            "sma20_position_pct": result.sma20_position_pct,
+            "sma20_cross": result.sma20_cross,
+            "sma50_position_pct": result.sma50_position_pct,
+            "sma50_cross": result.sma50_cross,
+            "sma200_position_pct": result.sma200_position_pct,
+            "sma200_cross": result.sma200_cross,
+            "weinstein_stage": weinstein_result.stage,
+            "weinstein_stage_since_date": weinstein_result.stage_since_date,
+            "weinstein_stage_since_is_lower_bound": weinstein_result.stage_since_is_lower_bound,
+            "weinstein_stage_changed": weinstein_stage_changed,
+            "weinstein_ma_slope_pct": weinstein_result.ma_slope_pct,
+            "weinstein_vs_ma_pct": weinstein_result.vs_ma_pct,
+            "weinstein_volume_ratio": weinstein_result.volume_ratio,
+            "weinstein_mansfield_rs": weinstein_result.mansfield_rs,
+            "weinstein_breakout_confirmed": weinstein_result.breakout_confirmed,
+        }
         stmt = sqlite_insert(TrendAnalysis).values(ticker=ticker, **fields)
         stmt = stmt.on_conflict_do_update(index_elements=["ticker"], set_=fields)
         session.execute(stmt)
         session.commit()
+
+    return weinstein_stage_changed
 
 
 def _row_to_out(row: TrendAnalysis) -> TrendAnalysisOut:
@@ -122,10 +145,21 @@ def _row_to_out(row: TrendAnalysis) -> TrendAnalysisOut:
         sma50_cross=row.sma50_cross,
         sma200_position_pct=row.sma200_position_pct,
         sma200_cross=row.sma200_cross,
+        weinstein_stage=row.weinstein_stage,
+        weinstein_stage_since_date=row.weinstein_stage_since_date,
+        weinstein_stage_since_is_lower_bound=row.weinstein_stage_since_is_lower_bound,
+        weinstein_stage_changed=row.weinstein_stage_changed,
+        weinstein_ma_slope_pct=row.weinstein_ma_slope_pct,
+        weinstein_vs_ma_pct=row.weinstein_vs_ma_pct,
+        weinstein_volume_ratio=row.weinstein_volume_ratio,
+        weinstein_mansfield_rs=row.weinstein_mansfield_rs,
+        weinstein_breakout_confirmed=row.weinstein_breakout_confirmed,
     )
 
 
-def compute_and_store_from_rows(ticker: str, rows: list[YahooPriceCache]) -> TrendAnalysisOut:
+def compute_and_store_from_rows(
+    ticker: str, rows: list[YahooPriceCache], benchmark_rows: list[YahooPriceCache] | None = None
+) -> TrendAnalysisOut:
     """Runs the pure calculation engine against already-fetched OHLCV rows
     and upserts -- no fetch of its own. Split out from
     compute_and_store_trend_analysis so the nightly job (which fetches the
@@ -136,14 +170,21 @@ def compute_and_store_from_rows(ticker: str, rows: list[YahooPriceCache]) -> Tre
     without each ticker triggering its own separate live fetch. Raises
     ValueError if `rows` is empty (no Yahoo data at all for this ticker) --
     callers (the nightly job's per-ticker loop) treat this like any other
-    per-ticker failure, never aborting the whole batch."""
+    per-ticker failure, never aborting the whole batch. benchmark_rows
+    (^GSPC's own daily OHLCV rows) is optional -- absent/empty degrades
+    Weinstein's Mansfield RS/breakout fields to None/False rather than
+    raising (see compute_weinstein_stage's own na()-passes-through
+    handling), so this stays backward compatible with any caller that
+    doesn't pass it."""
     ticker = normalize_ticker(ticker)
     if not rows:
         raise ValueError(f"No Yahoo Finance price history available for {ticker}")
 
-    result = compute_trend_structure(_ohlcv_frame(rows))
+    ohlcv = _ohlcv_frame(rows)
+    result = compute_trend_structure(ohlcv)
+    weinstein_result = compute_weinstein_stage(ohlcv, _ohlcv_frame(benchmark_rows or []))
     computed_at = datetime.now()
-    _upsert(ticker, result, computed_at)
+    weinstein_stage_changed = _upsert(ticker, result, weinstein_result, computed_at)
 
     return TrendAnalysisOut(
         ticker=ticker,
@@ -167,6 +208,15 @@ def compute_and_store_from_rows(ticker: str, rows: list[YahooPriceCache]) -> Tre
         sma50_cross=result.sma50_cross,
         sma200_position_pct=result.sma200_position_pct,
         sma200_cross=result.sma200_cross,
+        weinstein_stage=weinstein_result.stage,
+        weinstein_stage_since_date=weinstein_result.stage_since_date,
+        weinstein_stage_since_is_lower_bound=weinstein_result.stage_since_is_lower_bound,
+        weinstein_stage_changed=weinstein_stage_changed,
+        weinstein_ma_slope_pct=weinstein_result.ma_slope_pct,
+        weinstein_vs_ma_pct=weinstein_result.vs_ma_pct,
+        weinstein_volume_ratio=weinstein_result.volume_ratio,
+        weinstein_mansfield_rs=weinstein_result.mansfield_rs,
+        weinstein_breakout_confirmed=weinstein_result.breakout_confirmed,
     )
 
 
@@ -174,10 +224,14 @@ async def compute_and_store_trend_analysis(ticker: str, period: str = "2y") -> T
     """Single-ticker fetch-then-compute-then-store -- used by the standalone
     API endpoint (a one-off, on-demand request), where fetching just this
     one ticker's history is the right cost, unlike the nightly job's
-    whole-universe batch (see compute_and_store_from_rows above)."""
+    whole-universe batch (see compute_and_store_from_rows above). Also
+    fetches ^GSPC for Weinstein's Mansfield RS -- cache-first, and the
+    nightly job keeps ^GSPC's cache warm, so this is a cache hit in the
+    overwhelming majority of on-demand calls, not a new live fetch."""
     ticker = normalize_ticker(ticker)
     rows = await get_or_fetch_price_history(ticker, period=period)
-    return compute_and_store_from_rows(ticker, rows)
+    benchmark_rows = await get_or_fetch_price_history(WEINSTEIN_BENCHMARK_TICKER, period=period)
+    return compute_and_store_from_rows(ticker, rows, benchmark_rows=benchmark_rows)
 
 
 async def get_trend_analysis_data(ticker: str, cache_only: bool = False, period: str = "2y") -> TrendAnalysisOut | None:

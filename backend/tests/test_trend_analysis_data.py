@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
+from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER
 import data.trend_analysis_data as trend_analysis_data_module
 from core.models import TrendAnalysis, YahooPriceCache
 from data.trend_analysis_data import compute_and_store_trend_analysis, get_trend_analysis_data
@@ -16,12 +17,16 @@ def _fresh_engine():
     return engine
 
 
-def _synthetic_rows(n: int = 150) -> list[YahooPriceCache]:
+def _synthetic_rows(n: int = 150, ticker: str = "AAPL", seed: int = 3) -> list[YahooPriceCache]:
     """A reproducible noisy uptrend -- enough real zigzag to produce genuine
     swings, ATR(14), and the 60-day efficiency ratio (never persisted to
     the DB directly -- returned in place of a real get_or_fetch_price_history
-    call)."""
-    rng = np.random.default_rng(3)
+    call). The default n=150 (~21 weeks) is deliberately well under
+    Weinstein's own MIN_WEEKS_REQUIRED (40) -- most existing tests here
+    predate that feature and never intended to exercise it; a real
+    Weinstein-stage test passes a longer n explicitly (see
+    test_weinstein_stage_fields_round_trip_through_a_real_compute)."""
+    rng = np.random.default_rng(seed)
     trend = np.linspace(0, 30, n)
     noise = rng.normal(0, 1.0, size=n).cumsum() * 0.2
     closes = 100 + trend + noise
@@ -29,7 +34,9 @@ def _synthetic_rows(n: int = 150) -> list[YahooPriceCache]:
     for i in range(n):
         d = date(2024, 1, 1) + timedelta(days=i)
         c = float(closes[i])
-        rows.append(YahooPriceCache(ticker="AAPL", date=d, open=c - 0.1, high=c + 0.5, low=c - 0.5, close=c, volume=1000, fetched_at=datetime.now()))
+        rows.append(
+            YahooPriceCache(ticker=ticker, date=d, open=c - 0.1, high=c + 0.5, low=c - 0.5, close=c, volume=1000, fetched_at=datetime.now())
+        )
     return rows
 
 
@@ -269,3 +276,89 @@ def test_ad_bullish_divergence_reads_as_none_on_a_legacy_pre_migration_row():
     assert row.sma50_cross is None
     assert row.sma200_position_pct is None
     assert row.sma200_cross is None
+    assert row.weinstein_stage is None
+    assert row.weinstein_stage_since_date is None
+    assert row.weinstein_stage_since_is_lower_bound is None
+    assert row.weinstein_stage_changed is None
+    assert row.weinstein_ma_slope_pct is None
+    assert row.weinstein_vs_ma_pct is None
+    assert row.weinstein_volume_ratio is None
+    assert row.weinstein_mansfield_rs is None
+    assert row.weinstein_breakout_confirmed is None
+
+
+def test_weinstein_stage_fields_round_trip_through_a_real_compute(monkeypatch):
+    engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+
+    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+        # 730 days (~104 weekly bars) clears Weinstein's MIN_WEEKS_REQUIRED
+        # with real margin -- ^GSPC returns empty here since this test is
+        # about the stage/breakout fields, not Mansfield RS specifically.
+        return [] if ticker == WEINSTEIN_BENCHMARK_TICKER else _synthetic_rows(n=730)
+
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+
+    result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
+
+    assert result.weinstein_stage in ("base", "advance", "top", "decline")
+    assert isinstance(result.weinstein_stage_since_is_lower_bound, bool)
+    assert isinstance(result.weinstein_breakout_confirmed, bool)
+    assert isinstance(result.weinstein_stage_changed, bool)
+    assert result.weinstein_mansfield_rs is None  # no benchmark data supplied in this test
+
+    reread = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
+    assert reread.weinstein_stage == result.weinstein_stage
+    assert reread.weinstein_stage_since_date == result.weinstein_stage_since_date
+    assert reread.weinstein_stage_since_is_lower_bound == result.weinstein_stage_since_is_lower_bound
+    assert reread.weinstein_ma_slope_pct == result.weinstein_ma_slope_pct
+    assert reread.weinstein_vs_ma_pct == result.weinstein_vs_ma_pct
+    assert reread.weinstein_volume_ratio == result.weinstein_volume_ratio
+    assert reread.weinstein_breakout_confirmed == result.weinstein_breakout_confirmed
+
+
+def test_weinstein_stage_reads_as_none_below_min_weeks_required(monkeypatch):
+    engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+
+    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+        # Default n=150 (~21 weeks), well under MIN_WEEKS_REQUIRED (40).
+        return [] if ticker == WEINSTEIN_BENCHMARK_TICKER else _synthetic_rows()
+
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+
+    result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
+
+    assert result.weinstein_stage is None
+    assert result.weinstein_stage_changed is False
+
+
+def test_weinstein_stage_changed_reflects_a_real_difference_from_the_prior_stored_value(monkeypatch):
+    """weinstein_stage_changed is an ACROSS-RUNS comparison against
+    whatever was stored BEFORE this write -- deliberately distinct from
+    weinstein_breakout_confirmed's own single-run, week-over-week
+    comparison (already covered by analysis/trend_structure/test_weinstein.py)."""
+    engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+
+    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+        return [] if ticker == WEINSTEIN_BENCHMARK_TICKER else _synthetic_rows(n=730)
+
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+
+    first = asyncio.run(compute_and_store_trend_analysis("AAPL"))
+    assert first.weinstein_stage_changed is False  # brand-new ticker, nothing to compare against yet
+
+    second = asyncio.run(compute_and_store_trend_analysis("AAPL"))
+    assert second.weinstein_stage == first.weinstein_stage  # same deterministic series recomputed
+    assert second.weinstein_stage_changed is False  # ...so no real change from last night
+
+    with Session(engine) as session:
+        row = session.exec(select(TrendAnalysis).where(TrendAnalysis.ticker == "AAPL")).first()
+        row.weinstein_stage = next(s for s in ("base", "advance", "top", "decline") if s != row.weinstein_stage)
+        session.add(row)
+        session.commit()
+
+    third = asyncio.run(compute_and_store_trend_analysis("AAPL"))
+    assert third.weinstein_stage == first.weinstein_stage  # deterministic recompute, same real answer
+    assert third.weinstein_stage_changed is True  # ...but it now differs from the mutated stored value
