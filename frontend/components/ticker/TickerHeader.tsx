@@ -7,9 +7,11 @@ import { PerfVsSpyPill } from "@/components/ticker/PerfVsSpyPill";
 import { PriceChange } from "@/components/ticker/PriceChange";
 import { RefreshButton } from "@/components/ticker/RefreshButton";
 import { SpeculativeGrowthPill } from "@/components/ticker/SpeculativeGrowthPill";
+import { WeinsteinStagePill } from "@/components/ticker/WeinsteinStagePill";
 import { useSpeculativeGrowth } from "@/lib/hooks/useSpeculativeGrowth";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
 import { useTickerScore } from "@/lib/hooks/useTickerScore";
+import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
 import { fmtMoney } from "@/lib/format";
 import { flatChipClassFor } from "@/lib/tierColor";
 import type { TickerSummaryOut } from "@/lib/api/types";
@@ -46,6 +48,7 @@ interface Props {
 export function TickerHeader({ symbol, data }: Props) {
   const { data: moatData } = useTickerMoat(symbol);
   const { data: specGrowthData } = useSpeculativeGrowth(symbol);
+  const { data: trendData } = useTrendAnalysis(symbol);
 
   return (
     <div className="space-y-3 pt-4">
@@ -90,6 +93,7 @@ export function TickerHeader({ symbol, data }: Props) {
         />
         <MoatPill moat={moatData?.moat} variant="flat" />
         <SpeculativeGrowthPill data={specGrowthData} variant="flat" />
+        <WeinsteinStagePill data={trendData} variant="flat" />
         <PerfVsSpyPill
           status={data.perf_5y_vs_spy_status}
           insufficientHistory={data.perf_5y_insufficient_history}

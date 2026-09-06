@@ -1,0 +1,50 @@
+import type { TrendAnalysisOut } from "@/lib/api/types";
+
+export type WeinsteinStage = NonNullable<TrendAnalysisOut["weinstein_stage"]>;
+
+// "Stage N" numbering follows Stan Weinstein's own convention (1=Base,
+// 2=Advance, 3=Top, 4=Decline) -- shown alongside the plain-English name
+// since that numbering is what most readers of the original methodology
+// will recognize first.
+export const WEINSTEIN_STAGE_LABEL: Record<WeinsteinStage, string> = {
+  base: "Stage 1 · Base",
+  advance: "Stage 2 · Advance",
+  top: "Stage 3 · Top",
+  decline: "Stage 4 · Decline",
+};
+
+// advance=positive(green)/decline=negative(red) are the two directional
+// extremes; top reuses the same amber `warn` token TrendContinuationCard's
+// "pullback pending" state already uses (a caution, not yet a reversal);
+// base is deliberately colorless -- reuses ReversalCard's exact "Not
+// present" neutral precedent, since a base isn't bullish OR bearish.
+export const WEINSTEIN_STAGE_STYLES_CHIP: Record<WeinsteinStage, string> = {
+  advance: "bg-positive/16 text-positive border-positive/40",
+  decline: "bg-negative/16 text-negative border-negative/40",
+  top: "border-warn/40 bg-warn/16 text-warn",
+  base: "border-border-card bg-surface-2 text-text-tertiary",
+};
+
+export const WEINSTEIN_STAGE_STYLES_FLAT: Record<WeinsteinStage, string> = {
+  advance: "bg-positive/16 text-positive",
+  decline: "bg-negative/16 text-negative",
+  top: "bg-warn/16 text-warn",
+  base: "bg-surface-2 text-text-tertiary",
+};
+
+// Plain text-color-only variant, for SummaryStrip's value text (no
+// background/pill chrome there, matching how the Trend stat is colored).
+export const WEINSTEIN_STAGE_TEXT_CLASS: Record<WeinsteinStage, string> = {
+  advance: "text-positive",
+  decline: "text-negative",
+  top: "text-warn",
+  base: "text-text-tertiary",
+};
+
+// "since [date]" vs "since at least [date]" -- the lower-bound flag means
+// the stage never changed anywhere in the available (post-bootstrap)
+// weekly history, so the true start predates the fetch window and this
+// date is a floor, not a precise transition date.
+export function formatWeinsteinSince(sinceDate: string, isLowerBound: boolean, fmtDate: (iso: string) => string): string {
+  return isLowerBound ? `Since at least ${fmtDate(sinceDate)}` : `Since ${fmtDate(sinceDate)}`;
+}

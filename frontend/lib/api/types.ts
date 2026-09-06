@@ -1062,4 +1062,17 @@ export interface TrendAnalysisOut {
   sma50_cross: "up" | "down" | null;
   sma200_position_pct: number | null;
   sma200_cross: "up" | "down" | null;
+  // Weinstein Stage Analysis -- a fully independent second lens computed
+  // on weekly bars. weinstein_stage_changed vs. weinstein_breakout_confirmed
+  // are DIFFERENT comparisons computed at different layers -- see backend's
+  // models.py::TrendAnalysis for the exact semantics of each.
+  weinstein_stage: "base" | "advance" | "top" | "decline" | null;
+  weinstein_stage_since_date: string | null;
+  weinstein_stage_since_is_lower_bound: boolean | null;
+  weinstein_stage_changed: boolean | null;
+  weinstein_ma_slope_pct: number | null;
+  weinstein_vs_ma_pct: number | null;
+  weinstein_volume_ratio: number | null;
+  weinstein_mansfield_rs: number | null;
+  weinstein_breakout_confirmed: boolean | null;
 }

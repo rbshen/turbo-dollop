@@ -3,7 +3,9 @@
 import { ReversalCard } from "@/components/technical/ReversalCard";
 import { fmtSwingDate } from "@/components/technical/ChecklistCard";
 import { TrendContinuationCard } from "@/components/technical/TrendContinuationCard";
+import { WeinsteinStageCard } from "@/components/technical/WeinsteinStageCard";
 import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
+import { formatWeinsteinSince, WEINSTEIN_STAGE_LABEL, WEINSTEIN_STAGE_TEXT_CLASS } from "@/lib/weinsteinStage";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
 interface Props {
@@ -41,6 +43,19 @@ function SummaryStrip({ data }: { data: TrendAnalysisOut }) {
       <SummaryStat label="Persistence" value={String(data.persistence_count)} />
       <SummaryStat label="Bars since confirmation" value={data.bars_since_confirmation != null ? String(data.bars_since_confirmation) : "—"} />
       <SummaryStat label="Regime" value={data.regime ? (REGIME_LABEL[data.regime] ?? data.regime) : "—"} />
+      <SummaryStat
+        label="Stage"
+        value={data.weinstein_stage ? WEINSTEIN_STAGE_LABEL[data.weinstein_stage] : "—"}
+        valueClassName={data.weinstein_stage ? WEINSTEIN_STAGE_TEXT_CLASS[data.weinstein_stage] : undefined}
+      />
+      <SummaryStat
+        label="Since"
+        value={
+          data.weinstein_stage && data.weinstein_stage_since_date
+            ? formatWeinsteinSince(data.weinstein_stage_since_date, data.weinstein_stage_since_is_lower_bound ?? false, fmtSwingDate)
+            : "—"
+        }
+      />
     </div>
   );
 }
@@ -81,6 +96,8 @@ export function TechnicalTab({ ticker }: Props) {
         <ReversalCard data={data} />
         <TrendContinuationCard data={data} />
       </div>
+
+      <WeinsteinStageCard data={data} />
     </div>
   );
 }
