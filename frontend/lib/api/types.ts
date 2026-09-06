@@ -1051,4 +1051,15 @@ export interface TrendAnalysisOut {
   bar_level: 1 | 2 | 3 | 4 | 5;
   ad_bullish_divergence: boolean;
   ad_divergence_swing_date: string | null;
+  // SMA (20/50/200) position tracking -- pre-existing backend fields that
+  // were never threaded through this interface until now (found while
+  // adding the Weinstein Stage fields below, which touch this exact
+  // interface). See backend's TrendAnalysisOut/sma_position.py for the
+  // full definition.
+  sma20_position_pct: number | null;
+  sma20_cross: "up" | "down" | null;
+  sma50_position_pct: number | null;
+  sma50_cross: "up" | "down" | null;
+  sma200_position_pct: number | null;
+  sma200_cross: "up" | "down" | null;
 }
