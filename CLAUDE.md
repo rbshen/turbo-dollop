@@ -2113,6 +2113,18 @@ to display.
     disclaimer is deliberately NOT phrased as "Backtested: X%" the way Reversal/Trend
     Continuation's own disclaimers are -- this has only been validated for state-machine
     correctness against its Pine source, not for predictive edge.
+  - **`weinstein_weeks_available` added the same day**, after CTAS and ABNB -- both with years of
+    real cached history -- were found showing "Insufficient price history for a 30-week stage read
+    yet" purely because their `TrendAnalysis` rows predated this feature's own deploy (last written
+    by that day's 3:10am cron run under the pre-Weinstein code), not because of any real data gap.
+    `compute_weinstein_stage` now always returns a real `weeks_available` count (unlike every other
+    `WeinsteinStageResult` field, which is `None` specifically to mean "couldn't compute") --
+    persisted as a new nullable column so the two states can finally be told apart: `NULL` alongside
+    a `NULL` `weinstein_stage` means never computed under this feature yet (a legacy/never-
+    reprocessed row); a real (always sub-40) int means a compute genuinely ran and found too little
+    history. `WeinsteinStageCard`'s null-state now shows one of two distinct messages accordingly
+    (`lib/weinsteinStage.ts::weinsteinUnavailableReason`) -- the original "Insufficient..." wording
+    is kept only for the genuinely-insufficient case, which is the one case it was ever accurate for.
 
 - **Watchlist UI columns removed entirely 2026-09-06** -- the TREND, A/D Div., and 20/50/
   200SMA columns above (and their click-to-sort headers) no longer render on the Watchlist
