@@ -952,29 +952,12 @@ export interface WatchlistOut {
 // Analysis pill since the v2 redesign). Those are dropped here rather than
 // carried forward, since there's no header to click for them; overall_score
 // (the Analysis column) is the one blended score that stays sortable.
-// "Trend" (the TREND column's 5-bar SignalBars indicator) sorts by
-// blended_score directly (2026-09-06) -- bar_level is only a 5-bucket
-// display rescale of it (see conviction.py's own comment), so sorting by
-// bar_level directly would leave most rows tied. This was initially
-// deferred (see git history) pending a persisted trend value, which
-// TrendAnalysis.blended_score already is -- unrelated to the still-
-// unsortable REV/NI/CFO mini trend-chart columns, which have no single
-// comparable value at all (see WatchlistRowOut.years's own comment).
 export type SortableField =
   | "ticker"
   | "sector"
   | "moat"
   | "valuation_verdict"
   | "consensus_rating"
-  | "blended_score"
-  // "A/D Div." sorts by ad_divergence_swing_date (a string, null-last)
-  // rather than the ad_bullish_divergence boolean itself -- the generic
-  // comparator has no boolean branch, and the date is exactly what the
-  // column itself displays anyway.
-  | "ad_divergence_swing_date"
-  | "sma20_position_pct"
-  | "sma50_position_pct"
-  | "sma200_position_pct"
   | "market_cap"
   | "pe_ratio"
   | "beta"
@@ -994,9 +977,7 @@ export interface WatchlistRowOut {
   exchange: string | null;
   // Latest 5 periods only (see backend LATEST_YEARS_SHOWN) -- not
   // sortable/filterable, purely a small trend preview with no single
-  // comparable value, so no matching SortableField entry (unlike the
-  // separate TREND column further down, which sorts by blended_score --
-  // see that type's own note).
+  // comparable value, so no matching SortableField entry.
   years: string[];
   revenue: (number | null)[];
   net_income: (number | null)[];
@@ -1032,35 +1013,6 @@ export interface WatchlistRowOut {
   // analyst-ratings data for this ticker yet.
   consensus_rating: string;
   added_at: string;
-  // Minimum TrendAnalysisOut fields the Watchlist table's TREND column
-  // needs (see backend/data/trend_analysis_data.py::get_trend_analysis_data,
-  // cache_only=True) -- null until the nightly trend cron has computed a
-  // row for this ticker. bar_level is pre-computed backend-side (1-5); the
-  // frontend renders it directly via SignalBars, never re-deriving the band.
-  bar_level: 1 | 2 | 3 | 4 | 5 | null;
-  blended_score: number | null;
-  trend_state: "uptrend" | "downtrend" | null;
-  // A/D Bullish Divergence -- true only for the ticker's MOST RECENT
-  // confirmed LL swing (backend/analysis/trend_structure/classification.py).
-  // Binary flag only, no magnitude -- see TREND_SIGNAL_COLOR's own comment
-  // for why bar_level needs no equivalent band mapping.
-  ad_bullish_divergence: boolean | null;
-  // The matched confirmed-LL swing date the flag above is attached to
-  // (already ISO "YYYY-MM-DD" from the backend's date serialization) --
-  // null whenever ad_bullish_divergence is false/null.
-  ad_divergence_swing_date: string | null;
-  // SMA (20/50/200) position tracking -- (close - SMA)/SMA*100 for the
-  // latest bar, null whenever fewer than the SMA's own window of bars
-  // exist yet (same None-until-nightly-cron convention as bar_level
-  // above). cross is null whenever there's no valid prior bar to compare
-  // against, or the position didn't cross today, even if position_pct
-  // itself is real. See backend/analysis/trend_structure/sma_position.py.
-  sma20_position_pct: number | null;
-  sma20_cross: "up" | "down" | null;
-  sma50_position_pct: number | null;
-  sma50_cross: "up" | "down" | null;
-  sma200_position_pct: number | null;
-  sma200_cross: "up" | "down" | null;
 }
 
 // A single classified swing's detail -- used for both last_confirmed_swing
@@ -1076,8 +1028,9 @@ export interface SwingDetailOut {
 // Latest trend-structure analysis for one ticker (swing/BOS/blended-score
 // engine) -- see backend/core/schemas.py::TrendAnalysisOut and
 // analysis/trend_structure/ for the full methodology. Designed to feed a
-// future ticker-page "Technical" tab (not built this round); the Watchlist
-// table itself only pulls the 3 fields folded into WatchlistRowOut above.
+// future ticker-page "Technical" tab (not built this round) -- the
+// Watchlist table no longer surfaces any of this data at all (removed
+// 2026-09-06, see WatchlistTable.tsx's own column-order comment).
 export interface TrendAnalysisOut {
   ticker: string;
   computed_at: string;

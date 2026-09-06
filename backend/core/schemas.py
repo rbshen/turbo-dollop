@@ -977,9 +977,9 @@ class TrendAnalysisOut(BaseModel):
     for a ticker with no computed row yet, rather than a fabricated
     all-null result -- distinguishes "not computed yet" from "computed as
     neutral." This is designed to feed a future ticker-page "Technical" tab
-    (not built this round) in addition to the Watchlist table's own TREND
-    column (which only pulls bar_level/blended_score/trend_state via the
-    bulk /watchlists/{id}/rows response, not this endpoint)."""
+    (not built this round) -- the Watchlist table no longer surfaces any of
+    this data at all (removed 2026-09-06, see CLAUDE.md's "Trend structure
+    analysis (Technical)" section)."""
 
     ticker: str
     computed_at: datetime
@@ -1070,28 +1070,6 @@ class WatchlistRowOut(BaseModel):
     # no cached analyst-ratings data for this ticker yet -- never null.
     consensus_rating: str
     added_at: datetime
-    # Minimum fields the Watchlist table's TREND column needs -- lifted from
-    # TrendAnalysis (see data/trend_analysis_data.py::get_trend_analysis_data,
-    # cache_only=True). None for a ticker with no TrendAnalysis row yet (cron
-    # hasn't run for it), same convention as every other None-able field
-    # above. The rest of TrendAnalysisOut's fields are available via the
-    # standalone GET /api/tickers/{ticker}/trend-analysis endpoint, not
-    # duplicated into every bulk Watchlist row.
-    bar_level: int | None = None
-    blended_score: float | None = None
-    trend_state: str | None = None
-    ad_bullish_divergence: bool | None = None
-    ad_divergence_swing_date: date | None = None
-    # SMA (20/50/200) position tracking -- same TrendAnalysis-sourced,
-    # None-until-nightly-cron convention as bar_level/trend_state above. See
-    # analysis/trend_structure/sma_position.py for the position_pct/cross
-    # definitions.
-    sma20_position_pct: float | None = None
-    sma20_cross: Literal["up", "down"] | None = None
-    sma50_position_pct: float | None = None
-    sma50_cross: Literal["up", "down"] | None = None
-    sma200_position_pct: float | None = None
-    sma200_cross: Literal["up", "down"] | None = None
 
 
 class ScreenerMeta(BaseModel):

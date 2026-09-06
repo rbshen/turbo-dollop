@@ -2027,6 +2027,19 @@ to display.
     this table has no click-to-sort column headers at all, so no per-column header wiring was
     needed, only the three new `WatchlistSortField` entries.
 
+- **Watchlist UI columns removed entirely 2026-09-06** -- the TREND, A/D Div., and 20/50/
+  200SMA columns above (and their click-to-sort headers) no longer render on the Watchlist
+  table at all, ahead of this data moving to a new per-ticker Technical tab instead (design
+  proposed, not yet built -- see the tab's own investigation notes for scope). Backend-only:
+  `WatchlistRowOut` (`core/schemas.py`) no longer carries `bar_level`/`blended_score`/
+  `trend_state`/`ad_bullish_divergence`/`ad_divergence_swing_date`/`sma20/50/200_position_pct`/
+  `_cross`, and `watchlist_data.py::_compose_row` no longer calls `get_trend_analysis_data` at
+  all (confirmed via grep it had no other consumer in that file). Nothing else changed: the
+  `TrendAnalysis` model, the nightly cron, the swing/BOS/A-D/SMA engine, and the standalone
+  `GET /api/tickers/{ticker}/trend-analysis` endpoint (`TrendAnalysisOut`, still carrying every
+  field above) are all untouched -- this was a display-layer removal on one page, not a data or
+  engine change.
+
 ## Workflow rules
 
 - **Plan Mode by default.** Propose a plan and wait for confirmation before

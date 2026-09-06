@@ -34,17 +34,6 @@ function row(overrides: Partial<WatchlistRowOut> = {}): WatchlistRowOut {
     speculative_growth_qualifies: null,
     consensus_rating: "N/A",
     added_at: "2026-01-01T00:00:00",
-    bar_level: null,
-    blended_score: null,
-    trend_state: null,
-    ad_bullish_divergence: null,
-    ad_divergence_swing_date: null,
-    sma20_position_pct: null,
-    sma20_cross: null,
-    sma50_position_pct: null,
-    sma50_cross: null,
-    sma200_position_pct: null,
-    sma200_cross: null,
     ...overrides,
   };
 }
@@ -117,34 +106,6 @@ describe("sortWatchlistRows", () => {
     const rows = [row({ ticker: "NA", consensus_rating: "N/A" }), row({ ticker: "BUY", consensus_rating: "Buy" })];
     expect(sortWatchlistRows(rows, [{ field: "consensus_rating", direction: "asc" }]).map((r) => r.ticker)).toEqual(["BUY", "NA"]);
     expect(sortWatchlistRows(rows, [{ field: "consensus_rating", direction: "desc" }]).map((r) => r.ticker)).toEqual(["BUY", "NA"]);
-  });
-
-  it("sorts ad_divergence_swing_date as a null-last string proxy for the boolean flag", () => {
-    const rows = [
-      row({ ticker: "OLD", ad_bullish_divergence: true, ad_divergence_swing_date: "2026-01-01" }),
-      row({ ticker: "NEW", ad_bullish_divergence: true, ad_divergence_swing_date: "2026-06-01" }),
-      row({ ticker: "NONE", ad_bullish_divergence: null, ad_divergence_swing_date: null }),
-    ];
-    const result = sortWatchlistRows(rows, [{ field: "ad_divergence_swing_date", direction: "desc" }]);
-    expect(result.map((r) => r.ticker)).toEqual(["NEW", "OLD", "NONE"]);
-  });
-
-  it("sorts Trend (blended_score) numerically, strongest uptrend first on desc, nulls last regardless of direction", () => {
-    const rows = [
-      row({ ticker: "WEAK", blended_score: -3.5 }),
-      row({ ticker: "STRONG", blended_score: 8.2 }),
-      row({ ticker: "NONE", blended_score: null }),
-    ];
-    expect(sortWatchlistRows(rows, [{ field: "blended_score", direction: "desc" }]).map((r) => r.ticker)).toEqual([
-      "STRONG",
-      "WEAK",
-      "NONE",
-    ]);
-    expect(sortWatchlistRows(rows, [{ field: "blended_score", direction: "asc" }]).map((r) => r.ticker)).toEqual([
-      "WEAK",
-      "STRONG",
-      "NONE",
-    ]);
   });
 
   it("returns rows in their original/natural order (a no-op) when sortRules is empty", () => {

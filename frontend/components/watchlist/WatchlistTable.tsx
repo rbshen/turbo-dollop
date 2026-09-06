@@ -10,9 +10,8 @@ import { VERDICT_SIGNAL_COLOR, VERDICT_SIGNAL_LEVEL } from "@/components/ticker/
 import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGrowthPill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { SortableField, WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
-import { fmtCompactMoney, fmtNumber, fmtPct } from "@/lib/format";
+import { fmtCompactMoney, fmtNumber } from "@/lib/format";
 import { flatChipClassFor } from "@/lib/tierColor";
-import { TREND_SIGNAL_COLOR } from "@/lib/trendSignal";
 import { cn } from "@/lib/utils";
 import { removeTickerFromWatchlist } from "@/lib/hooks/useWatchlists";
 import { applyHeaderClick, sortWatchlistRows, type SortRule } from "@/lib/watchlistSort";
@@ -55,28 +54,10 @@ function ratingColorClass(rating: string): string {
   return "text-text-tertiary"; // "N/A"
 }
 
-// SMA position cell: text color follows the sign convention every other
-// green/red Watchlist value uses (text-positive/text-negative, same tokens
-// ratingColorClass above reuses); cell background is a light tint of the
-// same tokens (deliberately lower opacity than tierColor.ts's /16 chip
-// convention -- /8 -- so it reads as a subtle full-cell highlight, not a
-// repeat of the chip style) when the SMA was crossed today.
-function smaCellClass(positionPct: number | null, cross: "up" | "down" | null): string {
-  return cn(
-    "text-right font-mono",
-    positionPct == null ? "text-text-secondary" : positionPct >= 0 ? "text-positive" : "text-negative",
-    cross === "up" && "bg-positive/8",
-    cross === "down" && "bg-negative/8"
-  );
-}
-
 // Trend cell: same MiniBarChart house style as the Financials tab's
 // Historical Trends grid (thick bars, no axis, hover tooltip w/ signed
 // 2-decimal value), just sized down for a table row. Not sortable -- these
-// are a 5-year preview, not a single comparable number. Not to be confused
-// with the separate TREND column further down (the 5-bar SignalBars
-// indicator), which IS sortable via blended_score -- see SortableField's
-// own note in lib/api/types.ts.
+// are a 5-year preview, not a single comparable number.
 function TrendCell({ years, values }: { years: string[]; values: (number | null)[] | null }) {
   if (!values || values.every((v) => v == null)) {
     // Empty box, not a dash -- keeps this cell the same size as a populated
@@ -148,20 +129,18 @@ function SortableHead({
 // as ScreenerCard's own STEP_CHIPS removal. Price/Chg replaced (2026-08-03)
 // with Revenue/Net Income/CFO 5yr mini trend charts -- the live quote they
 // required was the one thing on this cache-only page that always hit FMP
-// live; see watchlist_data.py's now-removed _live_quote. Trend (added
-// alongside the Yahoo-Finance-backed trend-structure feature) sits with the
-// other signal-indicator columns -- a 5-bar SignalBars reading
-// row.bar_level (1-5) directly, no band mapping re-derived on the frontend
-// (see analysis/trend_structure/conviction.py). The "vs SPY" 3-bar column
-// that used to sit before it was removed (2026-09-05) -- perf_5y_vs_spy_pct/
-// _status are still fetched, just no longer shown or sortable at all (no
-// SortableField entry either, unlike before this redesign).
-// REV/NI/CFO headers shortened and their columns narrowed (w-24 -> w-16) to
-// make room for the new Trend column above without widening the table
-// further -- CFO's own 3-letter label was already short enough to leave
-// unchanged. 20SMA/50SMA/200SMA (SMA position tracking) sit right after
-// A/D Div., completing the technical-indicators cluster (Trend/A-D-Div/SMA)
-// before Analysis -- see smaCellClass above for the color/background rules.
+// live; see watchlist_data.py's now-removed _live_quote. The "vs SPY" 3-bar
+// column that used to sit before Analysis was removed (2026-09-05) --
+// perf_5y_vs_spy_pct/_status are still fetched, just no longer shown or
+// sortable at all (no SortableField entry either, unlike before that
+// redesign). The Trend/A-D-Div/SMA technical-indicators cluster (added
+// alongside the Yahoo-Finance-backed trend-structure feature) was removed
+// from this table entirely on 2026-09-06 -- that data is moving to a
+// per-ticker Technical tab instead (see CLAUDE.md's "Trend structure
+// analysis (Technical)" section); the underlying TrendAnalysis engine/data
+// and GET /api/tickers/{ticker}/trend-analysis endpoint are untouched, only
+// this table's display of it is gone. REV/NI/CFO headers stay at their
+// narrowed width (w-16) from that build, unchanged.
 export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesChange }: Props) {
   const sorted = useMemo(() => (rows ? sortWatchlistRows(rows, sortRules) : []), [rows, sortRules]);
 
@@ -209,41 +188,6 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
               className={`${HEAD_CLASS} w-16 text-center`}
             >
               Value
-            </SortableHead>
-            <SortableHead field="blended_score" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-16 text-center`}>
-              Trend
-            </SortableHead>
-            <SortableHead
-              field="ad_divergence_swing_date"
-              rules={sortRules}
-              onChange={onSortRulesChange}
-              className={`${HEAD_CLASS} w-24 text-center`}
-            >
-              A/D Div.
-            </SortableHead>
-            <SortableHead
-              field="sma20_position_pct"
-              rules={sortRules}
-              onChange={onSortRulesChange}
-              className={`${HEAD_CLASS} w-16 text-right`}
-            >
-              20SMA
-            </SortableHead>
-            <SortableHead
-              field="sma50_position_pct"
-              rules={sortRules}
-              onChange={onSortRulesChange}
-              className={`${HEAD_CLASS} w-16 text-right`}
-            >
-              50SMA
-            </SortableHead>
-            <SortableHead
-              field="sma200_position_pct"
-              rules={sortRules}
-              onChange={onSortRulesChange}
-              className={`${HEAD_CLASS} w-16 text-right`}
-            >
-              200SMA
             </SortableHead>
             <SortableHead field="overall_score" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} text-center`}>
               Analysis
@@ -304,25 +248,6 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                 {row.valuation_verdict && (
                   <SignalBars level={VERDICT_SIGNAL_LEVEL[row.valuation_verdict]} color={VERDICT_SIGNAL_COLOR[row.valuation_verdict]} />
                 )}
-              </TableCell>
-              <TableCell className="text-center">
-                {row.bar_level != null && <SignalBars level={row.bar_level} color={TREND_SIGNAL_COLOR[row.bar_level]} maxBars={5} />}
-              </TableCell>
-              <TableCell className="text-center font-mono text-xs text-text-secondary">
-                {/* A/D Bullish Divergence: the matched confirmed-LL swing date when true,
-                    otherwise a fully empty cell (no dash/placeholder) -- per this feature's
-                    own spec. ad_divergence_swing_date is already "YYYY-MM-DD" as serialized
-                    by the backend, no reformatting needed. */}
-                {row.ad_bullish_divergence === true && row.ad_divergence_swing_date}
-              </TableCell>
-              <TableCell className={smaCellClass(row.sma20_position_pct, row.sma20_cross)}>
-                {row.sma20_position_pct != null && fmtPct(row.sma20_position_pct, 1)}
-              </TableCell>
-              <TableCell className={smaCellClass(row.sma50_position_pct, row.sma50_cross)}>
-                {row.sma50_position_pct != null && fmtPct(row.sma50_position_pct, 1)}
-              </TableCell>
-              <TableCell className={smaCellClass(row.sma200_position_pct, row.sma200_cross)}>
-                {row.sma200_position_pct != null && fmtPct(row.sma200_position_pct, 1)}
               </TableCell>
               <TableCell className="text-center">
                 <span

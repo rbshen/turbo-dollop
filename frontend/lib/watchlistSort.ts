@@ -15,13 +15,6 @@ export const DEFAULT_SORT_RULES: SortRule[] = [{ field: "overall_score", directi
 // Every field a header can currently be clicked to sort by -- used to
 // validate a rule loaded from localStorage (see app/watchlist/page.tsx)
 // and to look up each field's default first-click direction below.
-//
-// "Trend" sorts by blended_score, TrendAnalysis's own -10..+10 conviction
-// score (2026-09-06) -- higher/more positive is a stronger, more confirmed
-// uptrend, so it defaults desc like every other "bigger is better" numeric
-// column below. This was initially flagged and deferred (see git history)
-// pending a persisted trend value; blended_score already is one, so no new
-// computation was needed once identified.
 const DEFAULT_DIRECTION: Record<SortableField, SortDirection> = {
   ticker: "asc",
   sector: "asc",
@@ -32,11 +25,6 @@ const DEFAULT_DIRECTION: Record<SortableField, SortDirection> = {
   moat: "asc",
   valuation_verdict: "asc",
   consensus_rating: "asc",
-  blended_score: "desc",
-  ad_divergence_swing_date: "desc",
-  sma20_position_pct: "desc",
-  sma50_position_pct: "desc",
-  sma200_position_pct: "desc",
   market_cap: "desc",
   pe_ratio: "desc",
   beta: "desc",
@@ -82,7 +70,7 @@ function rank(map: Record<string, number>, value: string | null): number {
 }
 
 // Shared by every numeric SortableField (market_cap/pe_ratio/beta/
-// overall_score/sma*_position_pct) -- nulls always sort to the end
+// overall_score) -- nulls always sort to the end
 // regardless of direction, same convention screenerFilters.ts's
 // sortTickerScores uses for the same reason (an Incomplete/not-yet-computed
 // ticker shouldn't jump to the top just because "asc" was picked).
