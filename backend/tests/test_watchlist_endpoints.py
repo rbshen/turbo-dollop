@@ -19,9 +19,9 @@ def _fresh_engine(monkeypatch):
     return engine
 
 
-def _make_watchlist(engine, ticker_count: int = 0) -> int:
+def _make_watchlist(engine, ticker_count: int = 0, name: str = "Test") -> int:
     with Session(engine) as session:
-        watchlist = Watchlist(name="Test", created_at=datetime(2026, 1, 1), updated_at=datetime(2026, 1, 1))
+        watchlist = Watchlist(name=name, created_at=datetime(2026, 1, 1), updated_at=datetime(2026, 1, 1))
         session.add(watchlist)
         session.commit()
         session.refresh(watchlist)
@@ -101,3 +101,47 @@ def test_watchlist_bulk_add_rejects_whole_operation_when_over_the_cap(monkeypatc
         )
     # Whole-operation rejection: none of the 101 tickers were inserted.
     assert count == 0
+
+
+def test_thinkorswim_export_returns_csv_with_symbol_header_and_matching_tickers(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    watchlist_id = _make_watchlist(engine, ticker_count=3, name="My Watchlist")
+
+    with TestClient(main.app) as client:
+        response = client.get(f"/api/watchlists/{watchlist_id}/export/thinkorswim")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.headers["content-disposition"] == 'attachment; filename="my-watchlist_thinkorswim.csv"'
+
+    rows = response.text.splitlines()
+    assert rows[0] == "Symbol"
+    with Session(engine) as session:
+        expected = [
+            t.ticker
+            for t in session.exec(
+                select(WatchlistTicker).where(WatchlistTicker.watchlist_id == watchlist_id).order_by(WatchlistTicker.added_at)
+            ).all()
+        ]
+    assert rows[1:] == expected
+    assert len(rows) - 1 == 3
+
+
+def test_thinkorswim_export_empty_watchlist_returns_header_only(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    watchlist_id = _make_watchlist(engine, ticker_count=0)
+
+    with TestClient(main.app) as client:
+        response = client.get(f"/api/watchlists/{watchlist_id}/export/thinkorswim")
+
+    assert response.status_code == 200
+    assert response.text.splitlines() == ["Symbol"]
+
+
+def test_thinkorswim_export_404_for_missing_watchlist(monkeypatch):
+    _fresh_engine(monkeypatch)
+
+    with TestClient(main.app) as client:
+        response = client.get("/api/watchlists/999/export/thinkorswim")
+
+    assert response.status_code == 404
