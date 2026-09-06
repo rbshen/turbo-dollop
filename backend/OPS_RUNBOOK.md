@@ -146,6 +146,15 @@ FMP — check `yfinance`'s own error messages in the log for the specific
 tickers that failed (most commonly a delisted/renamed symbol Yahoo no
 longer recognizes).
 
+Since 2026-09-06, this same run also computes Weinstein Stage Analysis
+(`analysis/trend_structure/weinstein.py`) on weekly bars resampled from the
+same daily OHLCV batch — no second fetch. `^GSPC` (its Mansfield RS
+benchmark) rides along in the same one batch download as one more symbol,
+but is never counted toward `Processed`/`Failed` and never gets its own
+`TrendAnalysis` row — a `^GSPC` fetch failure that run just degrades every
+ticker's Weinstein RS/breakout fields to null/false for that run, it is not
+a reason to see it in the failure list.
+
 **`prune_cache`** — deletes `FundamentalsCache` rows older than
 `Settings.cache_retention_days` (180 days by default; distinct from the
 7-day staleness window, which only controls refetching, not deletion).

@@ -2027,6 +2027,93 @@ to display.
     this table has no click-to-sort column headers at all, so no per-column header wiring was
     needed, only the three new `WatchlistSortField` entries.
 
+- **Weinstein Stage Analysis (2026-09-06)**: a third, fully independent technical lens -- Stan
+  Weinstein's classic 4-stage (Base/Advance/Top/Decline) methodology, ported from a reviewed Pine
+  Script v6 reference implementation ("Weinstein Stage Screener") and computed on **weekly** bars,
+  not daily -- the only signal in this feature family that operates on a different timeframe than
+  the swing/BOS/A-D/SMA engine above.
+  - **Weekly bars are resampled from the SAME 2y daily `YahooPriceCache` history** the nightly job
+    already fetches -- no second Yahoo Finance fetch, no new interval dimension on
+    `YahooPriceCache` (which has no such dimension at all -- its unique key is `(ticker, date)`,
+    so writing native weekly bars into it directly would collide with daily rows on shared
+    calendar dates). Confirmed empirically bit-identical (mean/max diff ~0.0000% across 15 real
+    tickers, decades of history) to yfinance's own native `interval="1wk"` bars, **provided** weeks
+    are anchored correctly: yfinance labels each weekly bar by its Monday (week start); a naive
+    `resample("W-FRI")` labels by the week's Friday (week end) -- resampling `"W-FRI"` (which
+    correctly bins Mon-Fri trading days into one bucket) and then shifting the resulting index back
+    4 days reproduces yfinance's own label exactly. `"W-MON"` is the wrong rule entirely (bins
+    Tue-through-Mon). See `analysis/trend_structure/weinstein.py::resample_to_weekly`.
+  - **Engine choice: the Pine source's sticky `sState` state machine, not its own stateless
+    per-bar `sTS` quadrant read (`tsMode`'s actual default)** -- decided from real evidence, not
+    picked unilaterally. Both were implemented and run against 29 real tickers (uptrends,
+    downtrends, toppy and basing names): full-history agreement was only 77.7% (~28,500
+    ticker-weeks), `sTS` flipped 3-6x more often per year, and at the CURRENT/latest bar (what a
+    header pill shows today) the two disagreed on 9/29 tickers (31%). Qualitatively, `sTS` flagged
+    false "Top"/"Base" reclassifications on ordinary single-week volatility inside an established
+    trend (e.g. META's ongoing downtrend read "Top" three separate times on brief one-week bounces
+    that popped fractionally above its own still-falling 30-week MA, reverting the very next week
+    each time) -- `sState` requires clearing a +/-5% band AND genuine slope confirmation before it
+    will ever change its mind, much closer to what "stage analysis" is supposed to mean (a
+    multi-month/quarter regime read, not a bar-by-bar indicator).
+  - **Bootstrap convergence, empirically validated, not assumed**: `sState` has memory from bar
+    zero (`var int sState := ...`, starting at an arbitrary unseeded state), so a real question was
+    how much weekly history is needed before that bootstrap error washes out. Tested at ~245
+    historical anchor points across 15 tickers (up to 64 years of history): at 52 weeks (1y),
+    1.6% of anchors still mismatched the true full-history stage; at **104 weeks (2y) -- exactly
+    the daily cache's existing default fetch window -- 0/245 mismatched**. `MIN_WEEKS_REQUIRED`
+    (40 -- `MA_LEN`(30) + `SLOPE_LOOKBACK`(5) + a 5-week margin) is the bare structural floor below
+    which the engine returns a graceful `stage=None`/thin-history result rather than an unreliable
+    number; between 40-104 weeks (a newer ticker without a full 2y yet) a small residual
+    bootstrap-inaccuracy risk is an accepted, documented limitation, not something further
+    engineered around.
+  - **Data model**: 9 new nullable columns on the existing `TrendAnalysis` table (no new table --
+    same `_add_missing_columns`-has-no-backfill convention as `ad_bullish_divergence`/`sma20_cross`
+    above): `weinstein_stage` (`"base"|"advance"|"top"|"decline"`, same plain-str-enum convention
+    as `trend_state`/`regime`), `weinstein_stage_since_date`, `weinstein_stage_since_is_lower_bound`,
+    `weinstein_stage_changed`, `weinstein_ma_slope_pct`, `weinstein_vs_ma_pct`,
+    `weinstein_volume_ratio`, `weinstein_mansfield_rs`, `weinstein_breakout_confirmed`.
+  - **Two flags that sound similar but are computed at different layers, on purpose**:
+    `weinstein_breakout_confirmed` is a pure, single-run, week-over-week read straight off the
+    freshly computed weekly stage series (ported from the Pine source's own `breakout` plot: a
+    fresh transition into Stage 2/Advance, confirmed by >=2.0x the 30-week volume average AND
+    positive Mansfield RS, or RS unavailable -- the Pine source's own `na(mansfield)`-passes-through
+    rule) -- lives entirely in the pure engine, no DB access. `weinstein_stage_changed` means
+    "today's freshly computed stage differs from what was stored here **last night**" -- an
+    ACROSS-NIGHTLY-RUNS comparison that needs to read the previous row before overwriting it, so it
+    is computed in `data/trend_analysis_data.py`'s orchestration layer (`_upsert`), not the pure
+    engine. False (never an error) whenever there's no previous stored stage to compare against yet
+    (a brand-new ticker's first-ever compute).
+  - **`weinstein_stage_since_date`/`_is_lower_bound`**: walks the non-null (post-bootstrap) suffix
+    of the resampled weekly stage series backward from the latest week to the most recent week
+    whose stage differs from the current one; the since-date is the week right after that. If the
+    stage never differs anywhere in the available history, `stage_since_date` is set to the
+    earliest available week and `stage_since_is_lower_bound=True` instead of fabricating a precise
+    transition date the fetch window can't actually see.
+  - **Mansfield RS benchmark (`^GSPC`) rides along in the SAME nightly batch fetch**
+    (`clients.yahoo_cache.get_or_fetch_price_history_batch`) as one more symbol -- confirmed
+    `normalize_ticker("^GSPC")` passes through unchanged and `YahooPriceCache.ticker` is just a
+    plain string column, no schema conflict -- but is deliberately never added to the per-ticker
+    processing loop itself, so it never gets its own `TrendAnalysis` row and never counts toward
+    `nightly_trend_calculation.py`'s `processed`/`failed` totals. A `^GSPC`-fetch failure that run
+    degrades every ticker's Mansfield RS/breakout fields to null/false (same
+    na()-passes-through convention) rather than counting as a per-ticker failure.
+  - **Cron: folded into the existing `nightly_trend_calculation.py` run, no new cron job** --
+    verified against the real 572-ticker tracked universe + `^GSPC` before shipping: baseline batch
+    daily fetch 38.7s, added compute (resample-to-weekly + full state-machine replay + volume ratio
+    + Mansfield RS, all 571 successfully-fetched tickers) 6.06s, total 44.8s -- not a blocker for
+    the 3:10am->3:30am cron window this job already runs inside.
+  - **UI**: a new `WeinsteinStagePill` in the ticker header's chip row (same
+    `SpeculativeGrowthPill`/`MoatPill` flat-variant shape; renders nothing when
+    `weinstein_stage` is null, not a placeholder), Stage/Since additions to the Technical tab's
+    `SummaryStrip`, and a new full-width `WeinsteinStageCard` below the existing
+    Reversal/Trend-Continuation grid (same `ChecklistCard` shell). Colors: Stage 2/Advance =
+    positive (green), Stage 4/Decline = negative (red), Stage 3/Top = `warn` (amber, the same
+    token `TrendContinuationCard`'s "pullback pending" state already uses), Stage 1/Base = neutral
+    (reuses `ReversalCard`'s own "Not present" style rather than a fabricated new one). The card's
+    disclaimer is deliberately NOT phrased as "Backtested: X%" the way Reversal/Trend
+    Continuation's own disclaimers are -- this has only been validated for state-machine
+    correctness against its Pine source, not for predictive edge.
+
 - **Watchlist UI columns removed entirely 2026-09-06** -- the TREND, A/D Div., and 20/50/
   200SMA columns above (and their click-to-sort headers) no longer render on the Watchlist
   table at all, ahead of this data moving to a new per-ticker Technical tab instead (design
