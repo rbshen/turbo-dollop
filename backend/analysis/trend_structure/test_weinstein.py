@@ -133,6 +133,12 @@ def test_compute_weinstein_stage_degrades_gracefully_below_min_weeks():
     assert result.stage is None
     assert result.stage_since_date is None
     assert result.stage_since_is_lower_bound is False
+    # weeks_available is a real count even in the degraded path -- this is
+    # exactly what distinguishes "a real compute ran and genuinely found
+    # too little history" (this case) from "never computed at all" (a
+    # persisted row where this column itself reads NULL -- see
+    # models.py::TrendAnalysis's own comment).
+    assert result.weeks_available == MIN_WEEKS_REQUIRED - 1
     assert result.ma_slope_pct is None
     assert result.vs_ma_pct is None
     assert result.volume_ratio is None
@@ -163,6 +169,7 @@ def test_breakout_confirmed_true_with_high_volume_and_no_rs_data():
     result = compute_weinstein_stage(ohlcv, EMPTY_OHLCV)
 
     assert result.stage == "advance"
+    assert result.weeks_available == 47
     assert result.volume_ratio == 2.8125
     assert result.breakout_confirmed is True
 

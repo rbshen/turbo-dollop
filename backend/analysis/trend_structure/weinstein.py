@@ -167,7 +167,8 @@ def compute_weinstein_stage(ohlcv: pd.DataFrame, benchmark_ohlcv: pd.DataFrame) 
     na(mansfield)-passes-through convention.
     """
     ticker_weekly = resample_to_weekly(ohlcv)
-    if len(ticker_weekly) < MIN_WEEKS_REQUIRED:
+    weeks_available = len(ticker_weekly)
+    if weeks_available < MIN_WEEKS_REQUIRED:
         return WeinsteinStageResult(
             stage=None,
             stage_since_date=None,
@@ -177,6 +178,7 @@ def compute_weinstein_stage(ohlcv: pd.DataFrame, benchmark_ohlcv: pd.DataFrame) 
             volume_ratio=None,
             mansfield_rs=None,
             breakout_confirmed=False,
+            weeks_available=weeks_available,
         )
 
     stage_df = compute_stage_series(ticker_weekly["close"])
@@ -232,6 +234,7 @@ def compute_weinstein_stage(ohlcv: pd.DataFrame, benchmark_ohlcv: pd.DataFrame) 
         stage=current_stage,
         stage_since_date=stage_since_date,
         stage_since_is_lower_bound=stage_since_is_lower_bound,
+        weeks_available=weeks_available,
         ma_slope_pct=ma_slope_pct,
         vs_ma_pct=vs_ma_pct,
         volume_ratio=volume_ratio,

@@ -243,7 +243,12 @@ def test_sma_position_fields_round_trip_through_a_real_compute(monkeypatch):
 def test_ad_bullish_divergence_reads_as_none_on_a_legacy_pre_migration_row():
     """A row written before this feature's ALTER TABLE migration has NULL in
     both new columns -- must read back as None (falsy), not raise a
-    validation error."""
+    validation error. This is also the regression test for the
+    "NEVER COMPUTED" Weinstein state (weinstein_weeks_available is None
+    alongside weinstein_stage is None) -- distinct from
+    test_weinstein_stage_reads_as_none_below_min_weeks_required's
+    "genuinely insufficient" state, where a real compute ran and
+    weinstein_weeks_available holds a real (sub-40) count."""
     engine = _fresh_engine()
 
     with Session(engine) as session:
@@ -279,6 +284,7 @@ def test_ad_bullish_divergence_reads_as_none_on_a_legacy_pre_migration_row():
     assert row.weinstein_stage is None
     assert row.weinstein_stage_since_date is None
     assert row.weinstein_stage_since_is_lower_bound is None
+    assert row.weinstein_weeks_available is None
     assert row.weinstein_stage_changed is None
     assert row.weinstein_ma_slope_pct is None
     assert row.weinstein_vs_ma_pct is None
@@ -303,6 +309,7 @@ def test_weinstein_stage_fields_round_trip_through_a_real_compute(monkeypatch):
 
     assert result.weinstein_stage in ("base", "advance", "top", "decline")
     assert isinstance(result.weinstein_stage_since_is_lower_bound, bool)
+    assert result.weinstein_weeks_available is not None and result.weinstein_weeks_available >= 40
     assert isinstance(result.weinstein_breakout_confirmed, bool)
     assert isinstance(result.weinstein_stage_changed, bool)
     assert result.weinstein_mansfield_rs is None  # no benchmark data supplied in this test
@@ -311,6 +318,7 @@ def test_weinstein_stage_fields_round_trip_through_a_real_compute(monkeypatch):
     assert reread.weinstein_stage == result.weinstein_stage
     assert reread.weinstein_stage_since_date == result.weinstein_stage_since_date
     assert reread.weinstein_stage_since_is_lower_bound == result.weinstein_stage_since_is_lower_bound
+    assert reread.weinstein_weeks_available == result.weinstein_weeks_available
     assert reread.weinstein_ma_slope_pct == result.weinstein_ma_slope_pct
     assert reread.weinstein_vs_ma_pct == result.weinstein_vs_ma_pct
     assert reread.weinstein_volume_ratio == result.weinstein_volume_ratio
@@ -318,6 +326,11 @@ def test_weinstein_stage_fields_round_trip_through_a_real_compute(monkeypatch):
 
 
 def test_weinstein_stage_reads_as_none_below_min_weeks_required(monkeypatch):
+    """The GENUINELY-insufficient-history state: a real compute ran and
+    found real, but too-thin, weekly data -- weinstein_weeks_available
+    holds that real (sub-40) count. Distinct from a legacy/never-
+    reprocessed row, where the column itself is NULL (see
+    test_ad_bullish_divergence_reads_as_none_on_a_legacy_pre_migration_row)."""
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
@@ -330,6 +343,8 @@ def test_weinstein_stage_reads_as_none_below_min_weeks_required(monkeypatch):
     result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
 
     assert result.weinstein_stage is None
+    assert result.weinstein_weeks_available is not None
+    assert result.weinstein_weeks_available < 40
     assert result.weinstein_stage_changed is False
 
 

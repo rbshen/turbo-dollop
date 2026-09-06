@@ -121,6 +121,19 @@ class TrendAnalysis(SQLModel, table=True):
     # window, so weinstein_stage_since_date is a lower bound, not a
     # precise transition date.
     weinstein_stage_since_is_lower_bound: bool | None = None
+    # How many resampled weekly bars a compute actually found -- the pure
+    # engine (WeinsteinStageResult) always populates this with a real int,
+    # but it's nullable HERE for the usual _add_missing_columns reason,
+    # which is exactly what makes it useful: a NULL here (alongside a NULL
+    # weinstein_stage) means this row has never been touched by a
+    # Weinstein-aware compute at all (a legacy/never-reprocessed row),
+    # while a real sub-40 int means a compute genuinely ran and found too
+    # little history. Added 2026-09-06 after a real incident where CTAS/
+    # ABNB (both with years of real cached history) showed the same
+    # "insufficient history" UI state as a genuinely-thin ticker, purely
+    # because their rows predated this feature's own deploy -- this field
+    # is what lets the UI tell those two cases apart.
+    weinstein_weeks_available: int | None = None
     # "Today's freshly computed stage differs from what was stored here
     # BEFORE this write" -- an ACROSS-NIGHTLY-RUNS comparison, computed in
     # data/trend_analysis_data.py's orchestration layer (needs to read the

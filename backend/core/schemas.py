@@ -1014,6 +1014,12 @@ class TrendAnalysisOut(BaseModel):
     weinstein_stage: Literal["base", "advance", "top", "decline"] | None = None
     weinstein_stage_since_date: date | None = None
     weinstein_stage_since_is_lower_bound: bool | None = None
+    # NULL alongside a NULL weinstein_stage means "never computed under
+    # this feature yet" (a legacy/never-reprocessed row); a real (always
+    # sub-40) int alongside a NULL weinstein_stage means a compute genuinely
+    # ran and found too little history -- see models.py::TrendAnalysis's
+    # own comment for the full story.
+    weinstein_weeks_available: int | None = None
     weinstein_stage_changed: bool | None = None
     weinstein_ma_slope_pct: float | None = None
     weinstein_vs_ma_pct: float | None = None

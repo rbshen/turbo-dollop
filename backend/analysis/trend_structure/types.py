@@ -107,6 +107,17 @@ class WeinsteinStageResult:
     """
 
     stage: WeinsteinStage | None
+    # UNLIKE every other field on this dataclass, always a real int, even
+    # when stage is None -- "how many weekly bars WERE available" is exactly
+    # the point of this field, populated in both the thin-history
+    # early-return and the full-compute path. Lets a caller distinguish
+    # "never computed at all" (a persisted row where this column itself is
+    # NULL -- see models.py::TrendAnalysis's own comment) from "a real
+    # compute ran and genuinely found fewer than MIN_WEEKS_REQUIRED weeks"
+    # (this field holds that real, sub-threshold count) -- found necessary
+    # after a real incident where a stale, never-reprocessed row's NULL
+    # stage was indistinguishable in the UI from a genuine data gap.
+    weeks_available: int
     # The first week of the CURRENT stage, walked back from the latest
     # available week. stage_since_is_lower_bound=True means the stage never
     # differed anywhere in the available (post-bootstrap) history -- the
