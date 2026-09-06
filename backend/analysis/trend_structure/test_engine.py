@@ -172,7 +172,7 @@ def test_ad_bullish_divergence_selects_the_most_recent_confirmed_ll_and_boosts_b
         trend_state="uptrend",
         magnitude_tier="strong",
         persistence_count=10,
-        last_confirmed_swing=SwingDetail(date=d3, price=95.0, margin=5.0, atr=1.0, ratio=5.0),
+        last_confirmed_swing=SwingDetail(date=d3, price=95.0, margin=5.0, atr=1.0, ratio=5.0, classification="LL"),
         warning_flag=False,
         warning_swing=None,
     )

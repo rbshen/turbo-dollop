@@ -43,6 +43,14 @@ class SwingDetail:
     margin: float
     atr: float
     ratio: float
+    # HH/HL/LH/LL -- added for the Technical tab's Reversal/Trend
+    # Continuation checklists (2026-09-06), which need to know WHICH kind of
+    # swing last_confirmed_swing/warning_swing actually is, not just its
+    # ratio/magnitude. Always populated for a freshly computed swing (every
+    # ClassifiedSwing carries a classification); SwingDetailOut's own copy
+    # of this field is nullable purely for the pre-existing-row migration
+    # safety reason documented there.
+    classification: Classification
 
 
 @dataclass(frozen=True)

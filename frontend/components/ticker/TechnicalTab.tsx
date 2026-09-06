@@ -1,5 +1,8 @@
 "use client";
 
+import { ReversalCard } from "@/components/technical/ReversalCard";
+import { fmtSwingDate } from "@/components/technical/ChecklistCard";
+import { TrendContinuationCard } from "@/components/technical/TrendContinuationCard";
 import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
@@ -16,12 +19,6 @@ const REGIME_LABEL: Record<string, string> = {
   trending: "Trending",
   "range-bound": "Range-bound",
 };
-
-/** "Aug 12, 2026" -- mirrors ValuationGauge.tsx's own inline
- * toLocaleDateString convention (this app has no shared fmtDate helper). */
-function fmtSwingDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
 
 function SummaryStat({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
   return (
@@ -48,9 +45,6 @@ function SummaryStrip({ data }: { data: TrendAnalysisOut }) {
   );
 }
 
-// Tab shell + summary strip only for now -- the Reversal/Trend Continuation
-// checklist cards land in a follow-up commit (they need SwingDetailOut's
-// new `classification` field to render an honest checklist).
 export function TechnicalTab({ ticker }: Props) {
   const { data, error, isLoading } = useTrendAnalysis(ticker);
 
@@ -82,6 +76,11 @@ export function TechnicalTab({ ticker }: Props) {
       </div>
 
       <SummaryStrip data={data} />
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <ReversalCard data={data} />
+        <TrendContinuationCard data={data} />
+      </div>
     </div>
   );
 }

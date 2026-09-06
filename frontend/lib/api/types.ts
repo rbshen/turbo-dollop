@@ -1023,6 +1023,10 @@ export interface SwingDetailOut {
   margin: number;
   atr: number;
   ratio: number;
+  // null for a row computed before this field existed (migration-safety
+  // convention, see backend's SwingDetailOut) -- a fresh compute always
+  // populates it.
+  classification: "HH" | "HL" | "LH" | "LL" | null;
 }
 
 // Latest trend-structure analysis for one ticker (swing/BOS/blended-score

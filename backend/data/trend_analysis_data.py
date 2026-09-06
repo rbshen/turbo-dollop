@@ -36,14 +36,25 @@ def _swing_detail_from_json(raw: str | None) -> SwingDetailOut | None:
         return None
     payload = json.loads(raw)
     return SwingDetailOut(
-        date=date.fromisoformat(payload["date"]), price=payload["price"], margin=payload["margin"], atr=payload["atr"], ratio=payload["ratio"]
+        date=date.fromisoformat(payload["date"]),
+        price=payload["price"],
+        margin=payload["margin"],
+        atr=payload["atr"],
+        ratio=payload["ratio"],
+        # .get(), not [...]: a row computed before this field existed has no
+        # "classification" key in its stored JSON at all -- reads as None
+        # until the next nightly run rewrites it (see SwingDetailOut's own
+        # comment).
+        classification=payload.get("classification"),
     )
 
 
 def _swing_detail_out(detail: SwingDetail | None) -> SwingDetailOut | None:
     if detail is None:
         return None
-    return SwingDetailOut(date=detail.date, price=detail.price, margin=detail.margin, atr=detail.atr, ratio=detail.ratio)
+    return SwingDetailOut(
+        date=detail.date, price=detail.price, margin=detail.margin, atr=detail.atr, ratio=detail.ratio, classification=detail.classification
+    )
 
 
 def _ohlcv_frame(rows: list[YahooPriceCache]) -> pd.DataFrame:

@@ -61,7 +61,9 @@ def _magnitude_tier_for_ratio(ratio: float) -> MagnitudeTier:
 
 
 def _to_detail(cs: ClassifiedSwing) -> SwingDetail:
-    return SwingDetail(date=cs.swing.date, price=cs.swing.price, margin=cs.margin, atr=cs.atr, ratio=cs.ratio)
+    return SwingDetail(
+        date=cs.swing.date, price=cs.swing.price, margin=cs.margin, atr=cs.atr, ratio=cs.ratio, classification=cs.classification
+    )
 
 
 @dataclass

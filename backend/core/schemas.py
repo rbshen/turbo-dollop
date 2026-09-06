@@ -967,6 +967,11 @@ class SwingDetailOut(BaseModel):
     margin: float
     atr: float
     ratio: float
+    # HH/HL/LH/LL. Nullable purely for pre-existing cached rows computed
+    # before this field existed (_add_missing_columns-has-no-backfill
+    # convention, same as ad_bullish_divergence/sma*_position_pct above) --
+    # a fresh compute always populates it.
+    classification: Literal["HH", "HL", "LH", "LL"] | None = None
 
 
 class TrendAnalysisOut(BaseModel):
