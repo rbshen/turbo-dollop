@@ -1,8 +1,12 @@
+import csv
+import io
 import json
+import re
 from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response
 from sqlmodel import Session, func, select
 
 from data.analyst_ratings_data import get_analyst_ratings_data
@@ -828,3 +832,33 @@ async def watchlist_rows(watchlist_id: int) -> list[WatchlistRowOut]:
             raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
         tickers = list_watchlist_tickers(session, watchlist_id)
     return await get_watchlist_rows(tickers)
+
+
+def _slugify_watchlist_name(name: str) -> str:
+    # Mirrors the frontend's own slugify() (app/watchlist/page.tsx), used there
+    # for the TradingView .txt filename -- kept in sync so both export formats
+    # name their downloads the same way.
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return slug or "watchlist"
+
+
+@app.get("/api/watchlists/{watchlist_id}/export/thinkorswim")
+def watchlist_export_thinkorswim(watchlist_id: int) -> Response:
+    with Session(engine) as session:
+        watchlist = session.get(Watchlist, watchlist_id)
+        if watchlist is None:
+            raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
+        tickers = list_watchlist_tickers(session, watchlist_id)
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["Symbol"])
+    for t in tickers:
+        writer.writerow([t.ticker])
+
+    filename = f"{_slugify_watchlist_name(watchlist.name)}_thinkorswim.csv"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
