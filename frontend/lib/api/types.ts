@@ -952,16 +952,21 @@ export interface WatchlistOut {
 // Analysis pill since the v2 redesign). Those are dropped here rather than
 // carried forward, since there's no header to click for them; overall_score
 // (the Analysis column) is the one blended score that stays sortable.
-// "Trend" (REV/NI/CFO) has no header entry at all yet -- no single
-// sortable trend-slope value exists anywhere in the scoring pipeline today
-// (see lib/watchlistSort.ts's own top-of-file note), so it's intentionally
-// excluded pending a follow-up design, not an oversight.
+// "Trend" (the TREND column's 5-bar SignalBars indicator) sorts by
+// blended_score directly (2026-09-06) -- bar_level is only a 5-bucket
+// display rescale of it (see conviction.py's own comment), so sorting by
+// bar_level directly would leave most rows tied. This was initially
+// deferred (see git history) pending a persisted trend value, which
+// TrendAnalysis.blended_score already is -- unrelated to the still-
+// unsortable REV/NI/CFO mini trend-chart columns, which have no single
+// comparable value at all (see WatchlistRowOut.years's own comment).
 export type SortableField =
   | "ticker"
   | "sector"
   | "moat"
   | "valuation_verdict"
   | "consensus_rating"
+  | "blended_score"
   // "A/D Div." sorts by ad_divergence_swing_date (a string, null-last)
   // rather than the ad_bullish_divergence boolean itself -- the generic
   // comparator has no boolean branch, and the date is exactly what the
@@ -988,8 +993,10 @@ export interface WatchlistRowOut {
   // EXCHANGE:SYMBOL pairs the per-watchlist Export button writes out.
   exchange: string | null;
   // Latest 5 periods only (see backend LATEST_YEARS_SHOWN) -- not
-  // sortable/filterable, purely a small trend preview, so no matching
-  // SortableField entry (see that type's own note on the Trend column).
+  // sortable/filterable, purely a small trend preview with no single
+  // comparable value, so no matching SortableField entry (unlike the
+  // separate TREND column further down, which sorts by blended_score --
+  // see that type's own note).
   years: string[];
   revenue: (number | null)[];
   net_income: (number | null)[];

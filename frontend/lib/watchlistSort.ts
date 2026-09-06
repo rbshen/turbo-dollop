@@ -16,21 +16,12 @@ export const DEFAULT_SORT_RULES: SortRule[] = [{ field: "overall_score", directi
 // validate a rule loaded from localStorage (see app/watchlist/page.tsx)
 // and to look up each field's default first-click direction below.
 //
-// "Trend" (the REV/NI/CFO mini-chart cluster) is deliberately NOT a
-// SortableField yet. It was investigated for this redesign: the only
-// candidate for a single sortable "trend slope" value is
-// scoring/trend.py::classify_trend's own per-series (score: int) --
-// already computed live for Revenue/Net Income/CFO on the ticker page --
-// but that score is never persisted anywhere WatchlistRowOut/TickerScore
-// can read it from; it only exists transiently inside a live Step1Out
-// response. Sorting the Watchlist table by it would mean either a new
-// per-ticker live Step 1 computation on every /rows fetch (defeats the
-// page's cache-only design -- see watchlist_data.py's own docstring) or a
-// new persisted column threaded through TrendAnalysis/TickerScore/nightly
-// cron, and a decision about which of Revenue/Net Income/CFO (or what
-// combination) it should represent. Per instruction, this is flagged as a
-// follow-up rather than guessed at here -- every other column below ships
-// now.
+// "Trend" sorts by blended_score, TrendAnalysis's own -10..+10 conviction
+// score (2026-09-06) -- higher/more positive is a stronger, more confirmed
+// uptrend, so it defaults desc like every other "bigger is better" numeric
+// column below. This was initially flagged and deferred (see git history)
+// pending a persisted trend value; blended_score already is one, so no new
+// computation was needed once identified.
 const DEFAULT_DIRECTION: Record<SortableField, SortDirection> = {
   ticker: "asc",
   sector: "asc",
@@ -41,6 +32,7 @@ const DEFAULT_DIRECTION: Record<SortableField, SortDirection> = {
   moat: "asc",
   valuation_verdict: "asc",
   consensus_rating: "asc",
+  blended_score: "desc",
   ad_divergence_swing_date: "desc",
   sma20_position_pct: "desc",
   sma50_position_pct: "desc",
@@ -140,7 +132,14 @@ function compareByRule(a: WatchlistRowOut, b: WatchlistRowOut, rule: SortRule): 
 // tie -- a standard multi-key sort. Each rule's own null-handling is
 // unchanged from the old single-field sortWatchlistRows (see
 // compareNullable/rank above).
+//
+// An empty `rules` (2026-09-06: a user can now clear every active sort --
+// see applyHeaderClick's own comment) is a deliberate no-op, not "fall
+// back to the default rule" -- rows render in whatever order they arrived
+// from the API/cache (natural/original order), never silently re-sorted
+// by an implicit default the user just explicitly cleared.
 export function sortWatchlistRows(rows: WatchlistRowOut[], rules: SortRule[]): WatchlistRowOut[] {
+  if (rules.length === 0) return rows;
   return [...rows].sort((a, b) => {
     for (const rule of rules) {
       const cmp = compareByRule(a, b, rule);
@@ -157,13 +156,22 @@ export function sortWatchlistRows(rows: WatchlistRowOut[], rules: SortRule[]): W
 //     click) -> flip direction in place, priority position unchanged.
 //  3. Already in `rules` at the flipped (non-default) direction (i.e. the
 //     3rd click) -> remove it; remaining rules shift priority up.
-//  4. If removal empties `rules` -> reset to DEFAULT_SORT_RULES.
-//  5. Not in `rules` and `rules` is already at MAX_SORT_RULES -> no-op.
+//  4. Not in `rules` and `rules` is already at MAX_SORT_RULES -> no-op.
 // Distinguishing click 2 (flip) from click 3 (remove) by comparing the
 // rule's CURRENT direction against its own default -- rather than a
 // separate click counter -- means this is stateless and idempotent no
 // matter how sortRules got into its current shape (e.g. loaded fresh from
 // localStorage).
+//
+// Removal is allowed to empty `rules` entirely (2026-09-06 fix) -- there
+// used to be a guard here that fell back to DEFAULT_SORT_RULES whenever a
+// removal would leave the array empty, which had the effect of silently
+// blocking a 3rd click on whatever the LAST remaining active column was
+// (the click would compute an empty array, then get overridden back to the
+// default, so nothing appeared to happen). A fully-cleared sortState is a
+// real, distinct, user-chosen state now -- see sortWatchlistRows's own
+// comment for what it means for row order, and app/watchlist/page.tsx's
+// loadSortRules for how it's told apart from "never set" when persisted.
 export function applyHeaderClick(rules: SortRule[], field: SortableField): SortRule[] {
   const idx = rules.findIndex((r) => r.field === field);
   if (idx === -1) {
@@ -178,6 +186,45 @@ export function applyHeaderClick(rules: SortRule[], field: SortableField): SortR
     return next;
   }
 
-  const next = rules.filter((_, i) => i !== idx);
-  return next.length > 0 ? next : DEFAULT_SORT_RULES;
+  return rules.filter((_, i) => i !== idx);
+}
+
+function isSortRule(value: unknown): value is SortRule {
+  if (!value || typeof value !== "object") return false;
+  const r = value as Record<string, unknown>;
+  return (
+    typeof r.field === "string" &&
+    (SORTABLE_FIELDS as string[]).includes(r.field) &&
+    (r.direction === "asc" || r.direction === "desc")
+  );
+}
+
+// Parses a watchlist's persisted sort state (app/watchlist/page.tsx's
+// localStorage value, one raw string per watchlist id) back into a
+// SortRule[], distinguishing two different "nothing to sort by" cases:
+//
+//  - `raw === null` -- no key was ever written for this watchlist (a true
+//    first-ever visit) -- returns DEFAULT_SORT_RULES.
+//  - `raw === "[]"` -- the user explicitly clicked their way down to zero
+//    active sort rules and that was persisted verbatim (see
+//    applyHeaderClick's own comment) -- returns the empty array as-is,
+//    NOT the default. Reinterpreting a persisted empty array as "no
+//    preference saved yet" would silently undo the user's own choice on
+//    every subsequent visit/reload.
+//
+// Anything else that isn't a valid SortRule[] (corrupted JSON, a stale
+// shape from before this redesign, more than MAX_SORT_RULES entries) also
+// falls back to the default -- same as the "never set" case, since there's
+// no real prior preference to honor either way. Takes the raw string
+// directly (rather than reading localStorage itself) so it's a pure
+// function, testable without mocking `window`.
+export function parseSortRules(raw: string | null): SortRule[] {
+  if (raw == null) return DEFAULT_SORT_RULES;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length > MAX_SORT_RULES) return DEFAULT_SORT_RULES;
+    return parsed.every(isSortRule) ? parsed : DEFAULT_SORT_RULES;
+  } catch {
+    return DEFAULT_SORT_RULES;
+  }
 }

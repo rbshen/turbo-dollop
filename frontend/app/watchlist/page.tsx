@@ -7,7 +7,7 @@ import { SegmentedControl } from "@/components/shared/SegmentedControl";
 import { WatchlistTable } from "@/components/watchlist/WatchlistTable";
 import { useWatchlists } from "@/lib/hooks/useWatchlists";
 import { useWatchlistRows } from "@/lib/hooks/useWatchlistRows";
-import { DEFAULT_SORT_RULES, MAX_SORT_RULES, SORTABLE_FIELDS, type SortRule } from "@/lib/watchlistSort";
+import { DEFAULT_SORT_RULES, parseSortRules, type SortRule } from "@/lib/watchlistSort";
 
 // Sort state moved off the old page-level <select>/direction-toggle
 // dropdown entirely (2026-09-05) -- WatchlistTable's column headers are now
@@ -19,28 +19,16 @@ import { DEFAULT_SORT_RULES, MAX_SORT_RULES, SORTABLE_FIELDS, type SortRule } fr
 // frontend from here on (see useWatchlists.ts's own comment).
 const SORT_STORAGE_KEY_PREFIX = "fathom-watchlist-sort-";
 
-function isSortRule(value: unknown): value is SortRule {
-  if (!value || typeof value !== "object") return false;
-  const r = value as Record<string, unknown>;
-  return (
-    typeof r.field === "string" &&
-    (SORTABLE_FIELDS as string[]).includes(r.field) &&
-    (r.direction === "asc" || r.direction === "desc")
-  );
-}
-
 function loadSortRules(watchlistId: number): SortRule[] {
   if (typeof window === "undefined") return DEFAULT_SORT_RULES;
   try {
-    const raw = window.localStorage.getItem(`${SORT_STORAGE_KEY_PREFIX}${watchlistId}`);
-    if (!raw) return DEFAULT_SORT_RULES;
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > MAX_SORT_RULES) return DEFAULT_SORT_RULES;
-    return parsed.every(isSortRule) ? parsed : DEFAULT_SORT_RULES;
+    // parseSortRules (watchlistSort.ts) is the one place that knows how to
+    // tell "no key at all" apart from a persisted explicit empty array --
+    // see its own comment.
+    return parseSortRules(window.localStorage.getItem(`${SORT_STORAGE_KEY_PREFIX}${watchlistId}`));
   } catch {
-    // Malformed/corrupted JSON, or localStorage unavailable entirely
-    // (private window, blocked site data) -- fall back to the default
-    // rather than throwing during render.
+    // localStorage unavailable entirely (private window, blocked site
+    // data) -- fall back to the default rather than throwing during render.
     return DEFAULT_SORT_RULES;
   }
 }

@@ -73,11 +73,10 @@ function smaCellClass(positionPct: number | null, cross: "up" | "down" | null): 
 // Trend cell: same MiniBarChart house style as the Financials tab's
 // Historical Trends grid (thick bars, no axis, hover tooltip w/ signed
 // 2-decimal value), just sized down for a table row. Not sortable -- these
-// are a 5-year preview, not a single comparable number, and the TREND
-// column's header (below, still a plain, non-clickable TableHead) has no
-// SortableField of its own either -- see that type's own note in
-// lib/api/types.ts for why sorting by trend "slope" was flagged rather
-// than shipped this round.
+// are a 5-year preview, not a single comparable number. Not to be confused
+// with the separate TREND column further down (the 5-bar SignalBars
+// indicator), which IS sortable via blended_score -- see SortableField's
+// own note in lib/api/types.ts.
 function TrendCell({ years, values }: { years: string[]; values: (number | null)[] | null }) {
   if (!values || values.every((v) => v == null)) {
     // Empty box, not a dash -- keeps this cell the same size as a populated
@@ -211,8 +210,9 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
             >
               Value
             </SortableHead>
-            {/* Not sortable yet -- see the TrendCell/SortableField comments above. */}
-            <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Trend</TableHead>
+            <SortableHead field="blended_score" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-16 text-center`}>
+              Trend
+            </SortableHead>
             <SortableHead
               field="ad_divergence_swing_date"
               rules={sortRules}
