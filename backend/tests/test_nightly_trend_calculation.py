@@ -30,7 +30,7 @@ def _patch_store(monkeypatch, fail_for: set[str] | None = None):
     fail_for = fail_for or set()
     calls: list[tuple[str, list]] = []
 
-    def fake_store(ticker, rows):
+    def fake_store(ticker, rows, benchmark_rows=None):
         calls.append((ticker, rows))
         if ticker in fail_for:
             raise RuntimeError(f"simulated failure computing {ticker}")
@@ -52,7 +52,7 @@ def test_main_sweeps_the_full_tracked_universe_when_no_tickers_passed(monkeypatc
 
     summary = asyncio.run(nightly_trend.main(tickers=None))
 
-    assert set(batch_calls[0]) == {"IREN", "SEZL"}
+    assert set(batch_calls[0]) == {"IREN", "SEZL", nightly_trend.WEINSTEIN_BENCHMARK_TICKER}
     assert {t for t, _ in store_calls} == {"IREN", "SEZL"}
     assert summary["processed"] == 2
     assert summary["failed"] == 0
@@ -101,7 +101,7 @@ def test_ticker_missing_from_batch_result_is_still_attempted_with_empty_rows(mon
     _fresh_engine(monkeypatch, tmp_path)
     _patch_batch_fetch(monkeypatch, {"AAPL": [1]})  # BADCO entirely absent
 
-    def fake_store(ticker, rows):
+    def fake_store(ticker, rows, benchmark_rows=None):
         if not rows:
             raise ValueError(f"No Yahoo Finance price history available for {ticker}")
         return object()
@@ -123,3 +123,42 @@ def test_empty_universe_returns_zero_summary_without_calling_batch_fetch(monkeyp
 
     assert summary == {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": []}
     assert batch_calls == []
+
+
+def test_benchmark_ticker_rides_the_batch_fetch_but_is_never_processed_or_counted(monkeypatch, tmp_path):
+    """^GSPC (Weinstein's Mansfield RS benchmark) must appear in the ONE
+    batch-fetch call's ticker list, but must never get its own
+    compute_and_store_from_rows call and must never appear in
+    processed/failures -- even when it's entirely absent from the batch
+    result dict (e.g. a transient Yahoo failure for that one symbol)."""
+    _fresh_engine(monkeypatch, tmp_path)
+    # ^GSPC deliberately absent from the batch result, like any other
+    # ticker Yahoo returned nothing for this run.
+    batch_calls = _patch_batch_fetch(monkeypatch, {"AAPL": [1], "MSFT": [1]})
+    store_calls = _patch_store(monkeypatch)
+
+    summary = asyncio.run(nightly_trend.main(tickers=["AAPL", "MSFT"]))
+
+    assert nightly_trend.WEINSTEIN_BENCHMARK_TICKER in batch_calls[0]
+    assert {t for t, _ in store_calls} == {"AAPL", "MSFT"}
+    assert summary["processed"] == 2
+    assert summary["failed"] == 0
+    assert all(nightly_trend.WEINSTEIN_BENCHMARK_TICKER != t for t, _ in summary["failures"])
+
+
+def test_benchmark_rows_are_passed_through_to_every_ticker_compute(monkeypatch, tmp_path):
+    _fresh_engine(monkeypatch, tmp_path)
+    benchmark_rows = ["gspc-row"]
+    _patch_batch_fetch(monkeypatch, {"AAPL": [1], nightly_trend.WEINSTEIN_BENCHMARK_TICKER: benchmark_rows})
+
+    received: list = []
+
+    def fake_store(ticker, rows, benchmark_rows=None):
+        received.append(benchmark_rows)
+        return object()
+
+    monkeypatch.setattr(nightly_trend, "compute_and_store_from_rows", fake_store)
+
+    asyncio.run(nightly_trend.main(tickers=["AAPL"]))
+
+    assert received == [benchmark_rows]

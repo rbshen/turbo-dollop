@@ -18,6 +18,12 @@ explicit "use yfinance's multi-ticker download, not one call per ticker"
 requirement -- then runs the pure calculation engine and upserts per ticker
 (data.trend_analysis_data.compute_and_store_from_rows), rather than looping
 compute_and_store_trend_analysis (which would fetch one ticker at a time).
+^GSPC (Weinstein Stage Analysis's Mansfield RS benchmark, see
+analysis/trend_structure/weinstein.py) rides along in this SAME batch call
+-- one more symbol, not a second fetch -- but is never added to `tickers`
+itself, so it never gets its own TrendAnalysis row and a ^GSPC fetch
+failure degrades every ticker's Weinstein RS/breakout fields to
+null/false rather than counting as a per-ticker failure.
 
 Run against the full tracked universe:
     uv run python -m pipeline.nightly_trend_calculation
@@ -35,6 +41,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
+from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER
 from clients.yahoo_cache import get_or_fetch_price_history_batch
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
@@ -67,12 +74,17 @@ async def main(tickers: list[str] | None = None) -> dict:
     logger.info("Starting nightly trend-structure calculation for %d tickers.", len(tickers))
     start_time = time.monotonic()
 
-    rows_by_ticker = await get_or_fetch_price_history_batch(tickers)
+    # ^GSPC rides along in the SAME batch fetch (Weinstein Stage Analysis's
+    # Mansfield RS benchmark) -- never added to `tickers` itself, so it
+    # never gets its own TrendAnalysis row and never counts toward
+    # processed/failed below.
+    rows_by_ticker = await get_or_fetch_price_history_batch(tickers + [WEINSTEIN_BENCHMARK_TICKER])
+    benchmark_rows = rows_by_ticker.get(WEINSTEIN_BENCHMARK_TICKER, [])
 
     failures: list[tuple[str, str]] = []
     for i, ticker in enumerate(tickers, start=1):
         try:
-            compute_and_store_from_rows(ticker, rows_by_ticker.get(ticker, []))
+            compute_and_store_from_rows(ticker, rows_by_ticker.get(ticker, []), benchmark_rows=benchmark_rows)
             logger.info("[%d/%d] %s: ok", i, len(tickers), ticker)
         except Exception as exc:  # noqa: BLE001 -- a single bad ticker must never abort the whole run
             logger.error("[%d/%d] %s: FAILED - %s", i, len(tickers), ticker, exc)
