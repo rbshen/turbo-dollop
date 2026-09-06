@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { PageContainer } from "@/components/layout/PageContainer";
 import { SegmentedControl } from "@/components/shared/SegmentedControl";
+import { ExportMenu } from "@/components/watchlist/ExportMenu";
 import { WatchlistTable } from "@/components/watchlist/WatchlistTable";
 import { useWatchlists } from "@/lib/hooks/useWatchlists";
 import { useWatchlistRows } from "@/lib/hooks/useWatchlistRows";
@@ -86,7 +87,7 @@ export default function WatchlistPage() {
     }
   }, [active]);
 
-  function handleExport() {
+  function handleExportTradingView() {
     if (!active || !rows) return;
     // TradingView's own watchlist "sections" feature exports as ###SectionName
     // inline in the same comma-separated list -- group by sector (falling
@@ -126,6 +127,21 @@ export default function WatchlistPage() {
     URL.revokeObjectURL(url);
   }
 
+  async function handleExportThinkorswim() {
+    if (!active) return;
+    // Not routed through lib/api/client.ts's apiFetch -- that helper always
+    // parses the response as JSON, but this is a CSV file download.
+    const res = await fetch(`/api/watchlists/${active.id}/export/thinkorswim`);
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slugify(active.name)}_thinkorswim.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (error) {
     return (
       <PageContainer className="py-12">
@@ -159,14 +175,11 @@ export default function WatchlistPage() {
             {active.name} · {active.tickers.length} ticker{active.tickers.length === 1 ? "" : "s"}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleExport}
+        <ExportMenu
           disabled={!rows || rows.length === 0}
-          className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Export List · TradingView
-        </button>
+          onExportTradingView={handleExportTradingView}
+          onExportThinkorswim={handleExportThinkorswim}
+        />
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
