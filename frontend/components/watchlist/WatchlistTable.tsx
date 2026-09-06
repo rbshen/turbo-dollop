@@ -140,7 +140,12 @@ function SortableHead({
 // analysis (Technical)" section); the underlying TrendAnalysis engine/data
 // and GET /api/tickers/{ticker}/trend-analysis endpoint are untouched, only
 // this table's display of it is gone. REV/NI/CFO headers stay at their
-// narrowed width (w-16) from that build, unchanged.
+// narrowed width (w-14) from that build, unchanged. Ticker/Sector widened
+// the same day (w-32->w-80, w-24->w-60) to use the horizontal space that
+// cluster's removal freed up -- roughly proportional to their prior 4:3
+// ratio (the 88 freed Tailwind spacing units split ~50/38 by that ratio,
+// rounded down to the nearest whole scale step on each); every other
+// column (Moat/Value/Analysis/Rating/Mkt Cap/Beta/P/E) is unchanged.
 export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesChange }: Props) {
   const sorted = useMemo(() => (rows ? sortWatchlistRows(rows, sortRules) : []), [rows, sortRules]);
 
@@ -169,10 +174,10 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
       <Table containerClassName="overflow-x-auto" className="min-w-[1000px] border-separate border-spacing-0">
         <TableHeader>
           <TableRow className="border-border-card bg-surface-2 hover:bg-surface-2">
-            <SortableHead field="ticker" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-32`}>
+            <SortableHead field="ticker" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-80`}>
               Ticker
             </SortableHead>
-            <SortableHead field="sector" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-24`}>
+            <SortableHead field="sector" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-60`}>
               Sector
             </SortableHead>
             <TableHead className={`${HEAD_CLASS} w-14 text-center`}>REV</TableHead>
@@ -210,7 +215,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
         <TableBody>
           {sorted.map((row) => (
             <TableRow key={row.ticker} onClick={() => openTicker(row.ticker)} className="cursor-pointer border-border-subtle">
-              <TableCell className="w-32 max-w-32 overflow-hidden">
+              <TableCell className="w-80 max-w-80 overflow-hidden">
                 <p
                   className={cn(
                     "font-mono text-sm font-bold",
@@ -229,7 +234,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                   {row.company_name}
                 </p>
               </TableCell>
-              <TableCell className="w-24 max-w-24 truncate text-text-secondary" title={row.sector ?? undefined}>
+              <TableCell className="w-60 max-w-60 truncate text-text-secondary" title={row.sector ?? undefined}>
                 {row.sector}
               </TableCell>
               <TableCell className="text-center">
