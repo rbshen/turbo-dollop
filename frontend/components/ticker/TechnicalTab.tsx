@@ -22,11 +22,25 @@ const REGIME_LABEL: Record<string, string> = {
   "range-bound": "Range-bound",
 };
 
-function SummaryStat({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
+function SummaryStat({
+  label,
+  value,
+  valueClassName,
+  subValue,
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+  // Secondary muted line under the value -- e.g. Stage's own stage-since
+  // date, folded in here rather than a separate "Since" column so it never
+  // wraps to its own row once the strip runs out of horizontal space.
+  subValue?: string;
+}) {
   return (
     <div className="min-w-[7rem] space-y-1">
       <p className="text-xs uppercase tracking-widest text-text-tertiary">{label}</p>
       <p className={`font-mono text-sm font-semibold tabular-nums ${valueClassName ?? "text-text-primary"}`}>{value}</p>
+      {subValue && <p className="text-xs text-text-tertiary">{subValue}</p>}
     </div>
   );
 }
@@ -47,13 +61,10 @@ function SummaryStrip({ data }: { data: TrendAnalysisOut }) {
         label="Stage"
         value={data.weinstein_stage ? WEINSTEIN_STAGE_LABEL[data.weinstein_stage] : "—"}
         valueClassName={data.weinstein_stage ? WEINSTEIN_STAGE_TEXT_CLASS[data.weinstein_stage] : undefined}
-      />
-      <SummaryStat
-        label="Since"
-        value={
+        subValue={
           data.weinstein_stage && data.weinstein_stage_since_date
             ? formatWeinsteinSince(data.weinstein_stage_since_date, data.weinstein_stage_since_is_lower_bound ?? false, fmtSwingDate)
-            : "—"
+            : undefined
         }
       />
     </div>
@@ -85,8 +96,7 @@ export function TechnicalTab({ ticker }: Props) {
       <div>
         <h2 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Technical</h2>
         <p className="mt-1 text-sm text-text-secondary">
-          Price-structure analysis (swing highs/lows, break-of-structure, conviction) sourced from Yahoo Finance --
-          entirely independent of Steps 1-5 / Overall Assessment. Informational only.
+          Price-structure analysis (swing highs/lows, break-of-structure, conviction). Informational only.
         </p>
       </div>
 
