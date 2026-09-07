@@ -16,7 +16,24 @@ interface Props {
 // under.
 const DISCLAIMER = "Backtested: ~1-month directional edge only, not significant at 3-6 months. Informational, not a trading signal.";
 
-export function ReversalCard({ data }: Props) {
+export type ReversalStatus = "Confirmed" | "Not present";
+
+// Pulled out to a standalone pure function (mirroring TrendContinuationCard's
+// own resolutionStatus) so lib/technicalInterpretation.ts's sentence
+// generator can read this same status without duplicating the confirmed-LL/
+// divergence logic.
+//
+// Note on state-machine invariants: last_confirmed_swing's classification
+// direction always matches the CURRENT trend_state (every code path that
+// updates last_confirmed_swing -- a same-direction confirming swing or a
+// genuine flip -- only ever does so with a swing whose direction equals the
+// trend_state it's setting/confirming; see state_machine.py). So
+// classification === "LL" (a bearish-primary swing) can only ever be true
+// while trend_state === "downtrend" -- i.e. reversalStatus can only ever
+// read "Confirmed" when TrendContinuationCard's resolutionStatus reads
+// "Invalidated" (the only downtrend-reachable status). It's never reachable
+// alongside NoPullback/Pending/Recovered, which all require an uptrend.
+export function reversalStatus(data: TrendAnalysisOut): ReversalStatus {
   const swing = data.last_confirmed_swing;
   const confirmedLl = swing?.classification === "LL" && (data.magnitude_tier === "confirmed" || data.magnitude_tier === "strong");
 
@@ -32,6 +49,13 @@ export function ReversalCard({ data }: Props) {
   // an exact-equality gate would misread a genuine, current divergence as
   // "stale" in the large majority of real cases.
   const divergencePresent = confirmedLl && data.ad_bullish_divergence === true;
+  return divergencePresent ? "Confirmed" : "Not present";
+}
+
+export function ReversalCard({ data }: Props) {
+  const swing = data.last_confirmed_swing;
+  const confirmedLl = swing?.classification === "LL" && (data.magnitude_tier === "confirmed" || data.magnitude_tier === "strong");
+  const divergencePresent = reversalStatus(data) === "Confirmed";
 
   const items: ChecklistItem[] = [
     {
@@ -54,7 +78,7 @@ export function ReversalCard({ data }: Props) {
     },
   ];
 
-  const status = divergencePresent ? "Confirmed" : "Not present";
+  const status = reversalStatus(data);
   const statusToneClass = divergencePresent ? "border-positive/40 bg-positive/16 text-positive" : "border-border-card bg-surface-2 text-text-tertiary";
 
   return (

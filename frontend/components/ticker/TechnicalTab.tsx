@@ -1,10 +1,11 @@
 "use client";
 
-import { ReversalCard } from "@/components/technical/ReversalCard";
+import { ReversalCard, reversalStatus } from "@/components/technical/ReversalCard";
 import { fmtSwingDate } from "@/components/technical/ChecklistCard";
-import { TrendContinuationCard } from "@/components/technical/TrendContinuationCard";
+import { resolutionStatus, TrendContinuationCard } from "@/components/technical/TrendContinuationCard";
 import { WeinsteinStageCard } from "@/components/technical/WeinsteinStageCard";
 import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
+import { buildInterpretation } from "@/lib/technicalInterpretation";
 import { formatWeinsteinSince, WEINSTEIN_STAGE_LABEL, WEINSTEIN_STAGE_TEXT_CLASS } from "@/lib/weinsteinStage";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
@@ -91,6 +92,14 @@ export function TechnicalTab({ ticker }: Props) {
     return <p className="py-6 text-sm text-text-tertiary">No technical analysis available for {ticker} yet.</p>;
   }
 
+  const interpretation = buildInterpretation({
+    weinsteinStage: data.weinstein_stage,
+    trendState: data.trend_state,
+    regime: data.regime,
+    reversalStatus: reversalStatus(data),
+    continuationStatus: resolutionStatus(data),
+  });
+
   return (
     <div className="space-y-4 py-6">
       <div>
@@ -98,6 +107,7 @@ export function TechnicalTab({ ticker }: Props) {
         <p className="mt-1 text-sm text-text-secondary">
           Price-structure analysis (swing highs/lows, break-of-structure, conviction). Informational only.
         </p>
+        <p className="mt-3 text-sm text-text-primary">{interpretation.join(" ")}</p>
       </div>
 
       <SummaryStrip data={data} />
