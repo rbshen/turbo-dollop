@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { deleteScreenerFilter, saveScreenerFilter, useSavedFilters } from "@/lib/hooks/useSavedFilters";
 import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
 import type { ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
+import { cn } from "@/lib/utils";
 
 interface Props {
   universe: ScreenerUniverse;
@@ -14,6 +15,9 @@ interface Props {
   filters: ScreenerFilterState;
   onLoad: (saved: SavedScreenerFilter) => void;
   onReset: () => void;
+  // "horizontal" (default): the original full-width top-bar layout.
+  // "vertical": stacked full-width, for the sidebar's Saved-views group.
+  layout?: "horizontal" | "vertical";
 }
 
 type SaveStep = "idle" | "naming" | "confirmOverwrite";
@@ -29,7 +33,7 @@ const STATUS_LABELS: Record<Status, string> = {
   error: "Save failed",
 };
 
-export function SavedFiltersBar({ universe, sortField, sortDirection, filters, onLoad, onReset }: Props) {
+export function SavedFiltersBar({ universe, sortField, sortDirection, filters, onLoad, onReset, layout = "horizontal" }: Props) {
   const { data: saved } = useSavedFilters();
   const [listOpen, setListOpen] = useState(false);
   const [saveStep, setSaveStep] = useState<SaveStep>("idle");
@@ -89,7 +93,7 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className={cn("flex items-center gap-2", layout === "vertical" && "flex-col items-stretch")}>
       <div ref={listRef} className="relative">
         <button
           type="button"

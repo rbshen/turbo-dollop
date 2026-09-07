@@ -7,11 +7,8 @@ import {
   MOAT_FILTER_OPTIONS,
   parseMarketCapInput,
   VALUATION_FILTER_OPTIONS,
-  VS_SPY_FILTER_OPTIONS,
   type RangeFilter,
   type ScreenerFilterState,
-  type SortDirection,
-  type SortField,
 } from "@/lib/screenerFilters";
 
 interface Props {
@@ -19,22 +16,7 @@ interface Props {
   onFiltersChange: (filters: ScreenerFilterState) => void;
   sectors: string[];
   companyTypes: string[];
-  sortField: SortField;
-  sortDirection: SortDirection;
-  onSortChange: (field: SortField, direction: SortDirection) => void;
 }
-
-const SORT_OPTIONS: { value: SortField; label: string }[] = [
-  { value: "overall_score", label: "Overall score" },
-  { value: "step1_score", label: "Financials score" },
-  { value: "step2_score", label: "Growth Rate score" },
-  { value: "step4_score", label: "Profitability score" },
-  { value: "step5_score", label: "Debt score" },
-  { value: "market_cap", label: "Market cap" },
-  { value: "pe_ratio", label: "P/E" },
-  { value: "beta", label: "Beta" },
-  { value: "growth_rate", label: "Growth rate" },
-];
 
 function RangeInput({
   label,
@@ -123,17 +105,23 @@ function MarketCapRangeInput({ value, onChange }: { value: RangeFilter; onChange
   );
 }
 
-export function ScreenerFilters({ filters, onFiltersChange, sectors, companyTypes, sortField, sortDirection, onSortChange }: Props) {
+export function FundamentalFilters({ filters, onFiltersChange, sectors, companyTypes }: Props) {
   function patch(partial: Partial<ScreenerFilterState>) {
     onFiltersChange({ ...filters, ...partial });
   }
 
   return (
     <div className="space-y-4 rounded-lg border border-border-card bg-surface p-4">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">Fundamental</h2>
+
       {/* 9-item Min/Max range-filter grid, in the design handoff's exact
           order: Overall, Financials, Growth Rate, Profitability, Debt, Mkt
-          Cap, P/E, Beta, Growth -- one flat grid, not grouped sub-rows. */}
-      <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+          Cap, P/E, Beta, Growth -- one flat grid, not grouped sub-rows. A
+          single grid-cols-1 column (not the old sm/lg-scaling grid) -- this
+          now lives in a ~256px sidebar column, not a full-width bar, so
+          there's no width at which 2-3 range inputs would ever fit side by
+          side. */}
+      <div className="grid grid-cols-1 gap-y-3">
         <RangeInput label="Overall" value={filters.overallScore} onChange={(r) => patch({ overallScore: r })} />
         <RangeInput label="Financials" value={filters.step1Score} onChange={(r) => patch({ step1Score: r })} />
         <RangeInput label="Growth Rate" value={filters.step2Score} onChange={(r) => patch({ step2Score: r })} />
@@ -145,7 +133,7 @@ export function ScreenerFilters({ filters, onFiltersChange, sectors, companyType
         <RangeInput label="Growth" value={filters.growthRate} onChange={(r) => patch({ growthRate: r })} />
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-border-subtle pt-3">
+      <div className="flex flex-col items-stretch gap-2 border-t border-border-subtle pt-3">
         <MultiSelectDropdown
           label="Sector"
           options={sectors.map((s) => ({ value: s, label: s }))}
@@ -165,12 +153,6 @@ export function ScreenerFilters({ filters, onFiltersChange, sectors, companyType
           selected={filters.valuationVerdict}
           onChange={(s) => patch({ valuationVerdict: s })}
         />
-        <MultiSelectDropdown
-          label="5Y vs SPY"
-          options={VS_SPY_FILTER_OPTIONS}
-          selected={filters.vsSpy}
-          onChange={(s) => patch({ vsSpy: s })}
-        />
         <label className="flex h-8 items-center gap-1.5 rounded-md border border-border-input px-2 text-xs font-medium text-text-secondary">
           <input
             type="checkbox"
@@ -180,29 +162,6 @@ export function ScreenerFilters({ filters, onFiltersChange, sectors, companyType
           />
           Speculative Growth
         </label>
-
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-text-tertiary">Sort</span>
-          <select
-            value={sortField}
-            onChange={(e) => onSortChange(e.target.value as SortField, sortDirection)}
-            className="h-8 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary focus:border-brand focus:outline-none"
-          >
-            {SORT_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={() => onSortChange(sortField, sortDirection === "asc" ? "desc" : "asc")}
-            className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-2 text-xs text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
-            title={sortDirection === "asc" ? "Ascending" : "Descending"}
-          >
-            {sortDirection === "asc" ? "↑ Asc" : "↓ Desc"}
-          </button>
-        </div>
       </div>
     </div>
   );

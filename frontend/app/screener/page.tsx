@@ -7,7 +7,8 @@ import { Pagination } from "@/components/screener/Pagination";
 import { RecomputeButton } from "@/components/screener/RecomputeButton";
 import { SavedFiltersBar } from "@/components/screener/SavedFiltersBar";
 import { ScreenerCard } from "@/components/screener/ScreenerCard";
-import { ScreenerFilters } from "@/components/screener/ScreenerFilters";
+import { FundamentalFilters } from "@/components/screener/FundamentalFilters";
+import { TechnicalFilters } from "@/components/screener/TechnicalFilters";
 import { UniverseSelector } from "@/components/screener/UniverseSelector";
 import { AddToWatchlistButton } from "@/components/ticker/AddToWatchlistButton";
 import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
@@ -30,6 +31,18 @@ const UNIVERSE_LABELS: Record<ScreenerUniverse, string> = {
   dow: "Dow 30",
   all: "All",
 };
+
+const SORT_OPTIONS: { value: SortField; label: string }[] = [
+  { value: "overall_score", label: "Overall score" },
+  { value: "step1_score", label: "Financials score" },
+  { value: "step2_score", label: "Growth Rate score" },
+  { value: "step4_score", label: "Profitability score" },
+  { value: "step5_score", label: "Debt score" },
+  { value: "market_cap", label: "Market cap" },
+  { value: "pe_ratio", label: "P/E" },
+  { value: "beta", label: "Beta" },
+  { value: "growth_rate", label: "Growth rate" },
+];
 
 export default function ScreenerPage() {
   const [universe, setUniverse] = useState<ScreenerUniverse>("all");
@@ -121,36 +134,60 @@ export default function ScreenerPage() {
         </div>
       </div>
 
-      <SavedFiltersBar
-        universe={universe}
-        sortField={sortField}
-        sortDirection={sortDirection}
-        filters={filters}
-        onLoad={handleLoadSavedFilter}
-        onReset={handleResetFilters}
-      />
+      <div className="flex flex-col gap-6 lg:flex-row">
+        <aside className="w-full shrink-0 space-y-4 lg:w-64">
+          <FundamentalFilters filters={filters} onFiltersChange={handleFiltersChange} sectors={sectors} companyTypes={companyTypes} />
+          <TechnicalFilters filters={filters} onFiltersChange={handleFiltersChange} />
+          <SavedFiltersBar
+            layout="vertical"
+            universe={universe}
+            sortField={sortField}
+            sortDirection={sortDirection}
+            filters={filters}
+            onLoad={handleLoadSavedFilter}
+            onReset={handleResetFilters}
+          />
+        </aside>
 
-      <ScreenerFilters
-        filters={filters}
-        onFiltersChange={handleFiltersChange}
-        sectors={sectors}
-        companyTypes={companyTypes}
-        sortField={sortField}
-        sortDirection={sortDirection}
-        onSortChange={handleSortChange}
-      />
+        <div className="min-w-0 flex-1 space-y-4">
+          <div className="flex justify-end">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-text-tertiary">Sort</span>
+              <select
+                value={sortField}
+                onChange={(e) => handleSortChange(e.target.value as SortField, sortDirection)}
+                className="h-8 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary focus:border-brand focus:outline-none"
+              >
+                {SORT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => handleSortChange(sortField, sortDirection === "asc" ? "desc" : "asc")}
+                className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-2 text-xs text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
+                title={sortDirection === "asc" ? "Ascending" : "Descending"}
+              >
+                {sortDirection === "asc" ? "↑ Asc" : "↓ Desc"}
+              </button>
+            </div>
+          </div>
 
-      {sorted.length === 0 ? (
-        <p className="py-12 text-center text-sm text-text-tertiary">No tickers match the current filters.</p>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {pageRows.map((row) => (
-            <ScreenerCard key={row.ticker} data={row} />
-          ))}
+          {sorted.length === 0 ? (
+            <p className="py-12 text-center text-sm text-text-tertiary">No tickers match the current filters.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {pageRows.map((row) => (
+                <ScreenerCard key={row.ticker} data={row} />
+              ))}
+            </div>
+          )}
+
+          <Pagination page={currentPage} nPages={nPages} onPage={setPage} />
         </div>
-      )}
-
-      <Pagination page={currentPage} nPages={nPages} onPage={setPage} />
+      </div>
     </PageContainer>
   );
 }
