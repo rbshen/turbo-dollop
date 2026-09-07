@@ -2139,6 +2139,31 @@ to display.
   field above) are all untouched -- this was a display-layer removal on one page, not a data or
   engine change.
 
+- **Screener surfacing (2026-09-07)**: `weinstein_stage` (+ `weinstein_stage_since_date`/
+  `_since_is_lower_bound`/`_ma_slope_pct`/`_vs_ma_pct`, needed for the pill's own tooltip) are
+  denormalized onto `TickerScore` inside `compute_ticker_score()` via a plain
+  `session.get(TrendAnalysis, ticker)` read (same shape as the existing `TickerMoat` lookup in the
+  same session block, not a new fetch or a live recomputation of the weekly engine) -- filtered
+  100% client-side in `lib/screenerFilters.ts::filterTickerScores`, same as every other Screener
+  multi-select (Moat, Valuation, 5Y vs SPY), **not** a new backend query param. This was a
+  deliberate deviation from an initial ask to add a server-side filter param: investigation found
+  the Screener has never had server-side filtering for any criterion -- `GET /api/screener` takes
+  only `universe`, and every existing multi-select is filtered client-side over the full unfiltered
+  per-universe list, so a Weinstein-specific query param would have been a new, inconsistent
+  pattern rather than a mirror of `perf_5y_vs_spy_*`/`speculative_growth_qualifies`'s own precedent
+  (a value computed elsewhere, denormalized onto `TickerScore`, filtered client-side). Surfaced as a
+  compact "S1"/"S2"/"S3"/"S4" pill on the Screener card (`WeinsteinStagePill`'s new
+  `labelSet="screener"` tier, mirroring `MoatPill`/`PerfVsSpyPill`'s own full/screener label-tier
+  convention -- unlike theirs, which map every value to one repeated word since color alone conveys
+  state, each stage gets its own distinct short label here) alongside a "Weinstein Stage" filter
+  dropdown in the Screener sidebar's new Technical section. This same commit also relayouts the
+  Screener's filter panel from a full-width top bar into a left sidebar split into Fundamental (the
+  9 range filters + Sector/Company type/Moat/Valuation/Speculative Growth) and Technical (5Y vs SPY
+  + Weinstein Stage) sections, with Saved views/Save current view/Reset moved into the sidebar below
+  Technical (`SavedFiltersBar` gained a `layout="vertical"` variant) -- the universe toggle and
+  Recompute/Add-to-Watchlist buttons stay in their original top-bar location, and the result grid
+  drops from 4 to 3 cards per row to make room for the sidebar.
+
 ## Workflow rules
 
 - **Plan Mode by default.** Propose a plan and wait for confirmation before
