@@ -59,6 +59,32 @@ const STATUS_LABEL: Record<ResolutionStatus, string> = {
   Invalidated: "Invalidated",
 };
 
+// bars_since_confirmation always counts from last_confirmed_swing -- but
+// WHICH swing that is varies by status (state_machine.py): the latest
+// same-direction continuation with no pullback involved at all
+// (NoPullback), the last continuation BEFORE the current pullback started
+// (Pending -- last_confirmed_swing is untouched by a warning firing, only
+// warning_swing marks the pullback's own start), the swing that resolved a
+// pullback (Recovered), or the swing that flipped the trend (Invalidated,
+// handled separately below since it drops the progress-bar framing
+// entirely). Worded per status so the number is never misread as measuring
+// something it doesn't -- in particular, Pending's label deliberately does
+// NOT say "since pullback started," since that's warning_swing's date, not
+// this one.
+export const FRESHNESS_LABEL: Record<Exclude<ResolutionStatus, "Invalidated">, string> = {
+  NoPullback: "Bars since last confirming swing",
+  Pending: "Bars since uptrend last confirmed",
+  Recovered: "Bars since recovery confirmed",
+};
+
+// Invalidated has no progress bar/reference-window framing at all (see the
+// render below) -- this is the plain fact line shown instead. last_confirmed_swing
+// here IS the confirmed LL that flipped the trend, so this is an accurate,
+// simple "how long ago did this happen," not a staleness signal.
+export function invalidatedFreshnessText(bars: number | null): string {
+  return bars != null ? `Downtrend confirmed ${bars} bars ago.` : "Downtrend confirmation date unavailable.";
+}
+
 export function TrendContinuationCard({ data }: Props) {
   const status = resolutionStatus(data);
   const pullbackInProgress = data.trend_state === "uptrend" && data.warning_flag === true;
@@ -80,24 +106,33 @@ export function TrendContinuationCard({ data }: Props) {
     },
   ];
 
-  const freshnessBar = (
-    <div className="space-y-1.5">
-      <div className="flex items-baseline justify-between text-xs text-text-tertiary">
-        <span>Bars since last confirmation</span>
-        <span className="font-mono tabular-nums text-text-secondary">{freshnessBars ?? "—"}</span>
+  // Invalidated drops the progress-bar/reference-window framing entirely --
+  // that framing (an illustrative comparison against the ~1-month horizon
+  // the resolution backtest measured) only means something for an
+  // unresolved-or-just-resolved pullback. Once the trend has already
+  // flipped, the number isn't a staleness signal to compare against
+  // anything -- it's just a plain historical fact.
+  const freshnessBar =
+    status === "Invalidated" ? (
+      <p className="text-xs text-text-tertiary">{invalidatedFreshnessText(freshnessBars)}</p>
+    ) : (
+      <div className="space-y-1.5">
+        <div className="flex items-baseline justify-between text-xs text-text-tertiary">
+          <span>{FRESHNESS_LABEL[status]}</span>
+          <span className="font-mono tabular-nums text-text-secondary">{freshnessBars ?? "—"}</span>
+        </div>
+        <div className="h-1.5 w-full rounded-full bg-surface-2">
+          <div
+            className="h-1.5 rounded-full bg-brand transition-[width]"
+            style={{ width: `${freshnessPct ?? 0}%` }}
+          />
+        </div>
+        <p className="text-[11px] text-text-tertiary">
+          Illustrative only, against a {FRESHNESS_ILLUSTRATIVE_WINDOW_BARS}-trading-day (~1 month) reference window — not a validated
+          threshold.
+        </p>
       </div>
-      <div className="h-1.5 w-full rounded-full bg-surface-2">
-        <div
-          className="h-1.5 rounded-full bg-brand transition-[width]"
-          style={{ width: `${freshnessPct ?? 0}%` }}
-        />
-      </div>
-      <p className="text-[11px] text-text-tertiary">
-        Illustrative only, against a {FRESHNESS_ILLUSTRATIVE_WINDOW_BARS}-trading-day (~1 month) reference window — not a validated
-        threshold.
-      </p>
-    </div>
-  );
+    );
 
   return (
     <ChecklistCard

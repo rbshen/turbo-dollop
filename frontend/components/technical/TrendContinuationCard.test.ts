@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolutionStatus } from "@/components/technical/TrendContinuationCard";
+import { FRESHNESS_LABEL, invalidatedFreshnessText, resolutionStatus } from "@/components/technical/TrendContinuationCard";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
 // Only trend_state/warning_flag/pullback_occurred_since_flip vary across the
@@ -68,5 +68,31 @@ describe("resolutionStatus", () => {
   it("reads as Invalidated on a downtrend regardless of the pullback fields", () => {
     const data = trendAnalysis({ trend_state: "downtrend", warning_flag: false, pullback_occurred_since_flip: true });
     expect(resolutionStatus(data)).toBe("Invalidated");
+  });
+});
+
+describe("FRESHNESS_LABEL", () => {
+  it("is context-aware per status instead of a single generic label", () => {
+    expect(FRESHNESS_LABEL.NoPullback).toBe("Bars since last confirming swing");
+    expect(FRESHNESS_LABEL.Pending).toBe("Bars since uptrend last confirmed");
+    expect(FRESHNESS_LABEL.Recovered).toBe("Bars since recovery confirmed");
+  });
+
+  it("does not claim to measure the pullback's own start for Pending -- last_confirmed_swing is untouched by a warning firing", () => {
+    expect(FRESHNESS_LABEL.Pending).not.toMatch(/pullback started/i);
+  });
+});
+
+describe("invalidatedFreshnessText", () => {
+  it("states how many bars ago the downtrend was confirmed", () => {
+    expect(invalidatedFreshnessText(7)).toBe("Downtrend confirmed 7 bars ago.");
+  });
+
+  it("reads 0 bars ago distinctly from the unavailable case -- 0 is a real, meaningful count", () => {
+    expect(invalidatedFreshnessText(0)).toBe("Downtrend confirmed 0 bars ago.");
+  });
+
+  it("falls back to an explicit unavailable message when bars_since_confirmation is null", () => {
+    expect(invalidatedFreshnessText(null)).toBe("Downtrend confirmation date unavailable.");
   });
 });
