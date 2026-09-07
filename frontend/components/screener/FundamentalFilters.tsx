@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
 import { MultiSelectDropdown } from "@/components/screener/MultiSelectDropdown";
 import {
   MOAT_FILTER_OPTIONS,
@@ -120,58 +121,58 @@ export function FundamentalFilters({ filters, onFiltersChange, sectors, companyT
   }
 
   return (
-    <div className="space-y-4 rounded-lg border border-border-card bg-surface p-4">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">Fundamental</h2>
+    <CollapsibleFilterSection title="Fundamental">
+      <div className="space-y-4">
+        {/* 9-item Min/Max range-filter grid, in the design handoff's exact
+            order: Overall, Financials, Growth Rate, Profitability, Debt, Mkt
+            Cap, P/E, Beta, Growth -- one flat grid, not grouped sub-rows. A
+            single grid-cols-1 column (not the old sm/lg-scaling grid) -- this
+            now lives in a ~256px sidebar column, not a full-width bar, so
+            there's no width at which 2-3 range inputs would ever fit side by
+            side. */}
+        <div className="grid grid-cols-1 gap-y-3">
+          <RangeInput label="Overall" value={filters.overallScore} onChange={(r) => patch({ overallScore: r })} />
+          <RangeInput label="Financials" value={filters.step1Score} onChange={(r) => patch({ step1Score: r })} />
+          <RangeInput label="Growth Rate" value={filters.step2Score} onChange={(r) => patch({ step2Score: r })} />
+          <RangeInput label="Profitability" value={filters.step4Score} onChange={(r) => patch({ step4Score: r })} />
+          <RangeInput label="Debt" value={filters.step5Score} onChange={(r) => patch({ step5Score: r })} />
+          <MarketCapRangeInput value={filters.marketCap} onChange={(r) => patch({ marketCap: r })} />
+          <RangeInput label="P/E" value={filters.peRatio} onChange={(r) => patch({ peRatio: r })} />
+          <RangeInput label="Beta" value={filters.beta} onChange={(r) => patch({ beta: r })} />
+          <RangeInput label="Growth" value={filters.growthRate} onChange={(r) => patch({ growthRate: r })} />
+        </div>
 
-      {/* 9-item Min/Max range-filter grid, in the design handoff's exact
-          order: Overall, Financials, Growth Rate, Profitability, Debt, Mkt
-          Cap, P/E, Beta, Growth -- one flat grid, not grouped sub-rows. A
-          single grid-cols-1 column (not the old sm/lg-scaling grid) -- this
-          now lives in a ~256px sidebar column, not a full-width bar, so
-          there's no width at which 2-3 range inputs would ever fit side by
-          side. */}
-      <div className="grid grid-cols-1 gap-y-3">
-        <RangeInput label="Overall" value={filters.overallScore} onChange={(r) => patch({ overallScore: r })} />
-        <RangeInput label="Financials" value={filters.step1Score} onChange={(r) => patch({ step1Score: r })} />
-        <RangeInput label="Growth Rate" value={filters.step2Score} onChange={(r) => patch({ step2Score: r })} />
-        <RangeInput label="Profitability" value={filters.step4Score} onChange={(r) => patch({ step4Score: r })} />
-        <RangeInput label="Debt" value={filters.step5Score} onChange={(r) => patch({ step5Score: r })} />
-        <MarketCapRangeInput value={filters.marketCap} onChange={(r) => patch({ marketCap: r })} />
-        <RangeInput label="P/E" value={filters.peRatio} onChange={(r) => patch({ peRatio: r })} />
-        <RangeInput label="Beta" value={filters.beta} onChange={(r) => patch({ beta: r })} />
-        <RangeInput label="Growth" value={filters.growthRate} onChange={(r) => patch({ growthRate: r })} />
-      </div>
-
-      <div className="flex flex-col items-stretch gap-2 border-t border-border-subtle pt-3">
-        <MultiSelectDropdown
-          label="Sector"
-          options={sectors.map((s) => ({ value: s, label: s }))}
-          selected={filters.sectors}
-          onChange={(s) => patch({ sectors: s })}
-        />
-        <MultiSelectDropdown
-          label="Company type"
-          options={companyTypes.map((t) => ({ value: t, label: t }))}
-          selected={filters.companyTypes}
-          onChange={(s) => patch({ companyTypes: s })}
-        />
-        <MultiSelectDropdown label="Moat" options={MOAT_FILTER_OPTIONS} selected={filters.moat} onChange={(s) => patch({ moat: s })} />
-        <MultiSelectDropdown
-          label="Valuation"
-          options={VALUATION_FILTER_OPTIONS}
-          selected={filters.valuationVerdict}
-          onChange={(s) => patch({ valuationVerdict: s })}
-        />
-        <label className="flex h-8 items-center gap-1.5 rounded-md border border-border-input px-2 text-xs font-medium text-text-secondary">
-          <input
-            type="checkbox"
-            checked={filters.speculativeGrowth}
-            onChange={(e) => patch({ speculativeGrowth: e.target.checked })}
-            className="size-3.5 rounded-sm border-border-input accent-chart-purple"
+        <div className="flex flex-col items-stretch gap-2 border-t border-border-subtle pt-3">
+          <MultiSelectDropdown
+            label="Sector"
+            options={sectors.map((s) => ({ value: s, label: s }))}
+            selected={filters.sectors}
+            onChange={(s) => patch({ sectors: s })}
           />
-          Speculative Growth
-        </label>
+          <MultiSelectDropdown
+            label="Company type"
+            options={companyTypes.map((t) => ({ value: t, label: t }))}
+            selected={filters.companyTypes}
+            onChange={(s) => patch({ companyTypes: s })}
+          />
+          <MultiSelectDropdown label="Moat" options={MOAT_FILTER_OPTIONS} selected={filters.moat} onChange={(s) => patch({ moat: s })} />
+          <MultiSelectDropdown
+            label="Valuation"
+            options={VALUATION_FILTER_OPTIONS}
+            selected={filters.valuationVerdict}
+            onChange={(s) => patch({ valuationVerdict: s })}
+          />
+          <label className="flex h-8 items-center gap-1.5 rounded-md border border-border-input px-2 text-xs font-medium text-text-secondary">
+            <input
+              type="checkbox"
+              checked={filters.speculativeGrowth}
+              onChange={(e) => patch({ speculativeGrowth: e.target.checked })}
+              className="size-3.5 rounded-sm border-border-input accent-chart-purple"
+            />
+            Speculative Growth
+          </label>
+        </div>
       </div>
-    </div>
+    </CollapsibleFilterSection>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
 import { MultiSelectDropdown } from "@/components/screener/MultiSelectDropdown";
 import { VS_SPY_FILTER_OPTIONS, WEINSTEIN_STAGE_FILTER_OPTIONS, type ScreenerFilterState } from "@/lib/screenerFilters";
 
@@ -14,9 +15,7 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-border-card bg-surface p-4">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">Technical</h2>
-
+    <CollapsibleFilterSection title="Technical">
       <div className="flex flex-col items-stretch gap-2">
         <MultiSelectDropdown
           label="5Y vs SPY"
@@ -31,6 +30,6 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
           onChange={(s) => patch({ weinsteinStages: s })}
         />
       </div>
-    </div>
+    </CollapsibleFilterSection>
   );
 }
