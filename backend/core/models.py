@@ -387,6 +387,21 @@ class TickerScore(SQLModel, table=True):
     # row computed before this field existed -- see _add_missing_columns --
     # both read as "no signal" for Screener/Watchlist filtering purposes.
     speculative_growth_qualifies: bool | None = None
+    # Weinstein Stage Analysis, lifted straight from the matching
+    # TrendAnalysis row (same ticker PK) via a plain session.get() read in
+    # compute_ticker_score() -- not a live recomputation of the weekly
+    # engine. None whenever no TrendAnalysis row exists yet for this ticker
+    # (never computed, or computed before this field existed -- see
+    # _add_missing_columns), same "no signal" convention as
+    # speculative_growth_qualifies above. _since_date/_since_is_lower_bound/
+    # _ma_slope_pct/_vs_ma_pct are carried along purely so the Screener
+    # card's pill can show the same tooltip as the ticker-header pill
+    # without a second query.
+    weinstein_stage: str | None = None
+    weinstein_stage_since_date: date | None = None
+    weinstein_stage_since_is_lower_bound: bool | None = None
+    weinstein_ma_slope_pct: float | None = None
+    weinstein_vs_ma_pct: float | None = None
 
 
 class TickerCustomValuation(SQLModel, table=True):

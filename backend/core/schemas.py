@@ -900,6 +900,12 @@ class TickerScoreOut(BaseModel):
     perf_5y_vs_spy_status: str | None = None
     # See models.py::TickerScore.speculative_growth_qualifies.
     speculative_growth_qualifies: bool | None = None
+    # See models.py::TickerScore.weinstein_stage/_since_date/_since_is_lower_bound/_ma_slope_pct/_vs_ma_pct.
+    weinstein_stage: str | None = None
+    weinstein_stage_since_date: date | None = None
+    weinstein_stage_since_is_lower_bound: bool | None = None
+    weinstein_ma_slope_pct: float | None = None
+    weinstein_vs_ma_pct: float | None = None
 
 
 class RecomputeSummary(BaseModel):

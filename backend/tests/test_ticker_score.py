@@ -1,10 +1,10 @@
 import asyncio
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import data.ticker_score as ticker_score
-from core.models import TickerScore
+from core.models import TickerScore, TrendAnalysis
 from core.schemas import SpeculativeGrowthOut, Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
 from data.ticker_score import compute_ticker_score
 
@@ -215,6 +215,73 @@ def test_speculative_growth_error_leaves_the_field_none_without_aborting_the_row
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
     assert row.speculative_growth_qualifies is None
+
+
+def test_weinstein_stage_is_copied_from_trend_analysis(monkeypatch):
+    # Plain session.get(TrendAnalysis, ticker) read inside compute_ticker_score
+    # -- not a live recomputation of the weekly engine. Same-session sibling
+    # read as ticker_moat, so a pre-existing TrendAnalysis row is enough.
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(
+            TrendAnalysis(
+                ticker="AAPL",
+                computed_at=datetime(2026, 9, 6),
+                trend_state="uptrend",
+                persistence_count=5,
+                warning_flag=False,
+                blended_score=4.2,
+                bar_level=3,
+                weinstein_stage="advance",
+                weinstein_stage_since_date=date(2026, 1, 5),
+                weinstein_stage_since_is_lower_bound=False,
+                weinstein_ma_slope_pct=1.2,
+                weinstein_vs_ma_pct=8.5,
+            )
+        )
+        session.commit()
+    _patch_all(monkeypatch)
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None
+    assert result.weinstein_stage == "advance"
+    assert result.weinstein_stage_since_date == date(2026, 1, 5)
+    assert result.weinstein_stage_since_is_lower_bound is False
+    assert result.weinstein_ma_slope_pct == 1.2
+    assert result.weinstein_vs_ma_pct == 8.5
+
+    with Session(engine) as session:
+        row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
+    assert row is not None
+    assert row.weinstein_stage == "advance"
+    assert row.weinstein_stage_since_date == date(2026, 1, 5)
+    assert row.weinstein_stage_since_is_lower_bound is False
+    assert row.weinstein_ma_slope_pct == 1.2
+    assert row.weinstein_vs_ma_pct == 8.5
+
+
+def test_weinstein_stage_is_none_when_no_trend_analysis_row_exists(monkeypatch):
+    # A ticker never touched by the trend-structure pipeline (or one whose
+    # row predates this field -- see _add_missing_columns) reads as None,
+    # same "no signal" contract as speculative_growth_qualifies above, and
+    # never aborts the rest of the row.
+    engine = _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch)
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None
+    assert result.weinstein_stage is None
+    assert result.weinstein_stage_since_date is None
+    assert result.weinstein_stage_since_is_lower_bound is None
+    assert result.weinstein_ma_slope_pct is None
+    assert result.weinstein_vs_ma_pct is None
+    assert result.overall_score == 76  # unaffected -- not an Overall Assessment input
+
+    with Session(engine) as session:
+        row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
+    assert row.weinstein_stage is None
 
 
 def test_upsert_updates_an_existing_row_rather_than_erroring(monkeypatch):

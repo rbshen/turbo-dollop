@@ -6,7 +6,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session
 
 from core.db import engine
-from core.models import TickerScore
+from core.models import TickerScore, TrendAnalysis
 from core.tickers import normalize_ticker
 from data.moat import get_moat_score_config, get_ticker_moat, resolve_moat_score
 from scoring.overall import MoatSnapshot, StepSnapshot, compute_overall_assessment
@@ -83,6 +83,10 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
             if ticker_moat is not None
             else None
         )
+        # Plain same-session sibling read, same shape as ticker_moat above --
+        # not one of the FMP-backed _safe_step calls, so a missing row (a
+        # ticker Weinstein hasn't processed yet) is just None, never a raise.
+        trend_analysis = session.get(TrendAnalysis, ticker)
 
     overall = compute_overall_assessment(
         [
@@ -136,6 +140,11 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         perf_5y_vs_spy_pct=summary.perf_5y_vs_spy_pct,
         perf_5y_vs_spy_status=summary.perf_5y_vs_spy_status,
         speculative_growth_qualifies=speculative_growth.qualifies if speculative_growth else None,
+        weinstein_stage=trend_analysis.weinstein_stage if trend_analysis else None,
+        weinstein_stage_since_date=trend_analysis.weinstein_stage_since_date if trend_analysis else None,
+        weinstein_stage_since_is_lower_bound=trend_analysis.weinstein_stage_since_is_lower_bound if trend_analysis else None,
+        weinstein_ma_slope_pct=trend_analysis.weinstein_ma_slope_pct if trend_analysis else None,
+        weinstein_vs_ma_pct=trend_analysis.weinstein_vs_ma_pct if trend_analysis else None,
     )
 
     values = row.model_dump()
