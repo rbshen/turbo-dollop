@@ -40,6 +40,11 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     perf_5y_vs_spy_pct: null,
     perf_5y_vs_spy_status: null,
     speculative_growth_qualifies: null,
+    weinstein_stage: null,
+    weinstein_stage_since_date: null,
+    weinstein_stage_since_is_lower_bound: null,
+    weinstein_ma_slope_pct: null,
+    weinstein_vs_ma_pct: null,
     ...overrides,
   };
 }
@@ -195,6 +200,27 @@ describe("filterTickerScores", () => {
 
   it("does not exclude a null vs-SPY ticker when no vs-SPY filter is active", () => {
     const rows = [row({ ticker: "PREDATES_FIELD", perf_5y_vs_spy_status: null })];
+    expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(1);
+  });
+
+  it("filters by Weinstein stage multi-select", () => {
+    const rows = [
+      row({ ticker: "ADV", weinstein_stage: "advance" }),
+      row({ ticker: "DEC", weinstein_stage: "decline" }),
+      row({ ticker: "BASE", weinstein_stage: "base" }),
+    ];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, weinsteinStages: ["advance", "base"] };
+    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["ADV", "BASE"]);
+  });
+
+  it("excludes a ticker with no Weinstein stage once the filter is active", () => {
+    const rows = [row({ ticker: "PREDATES_FIELD", weinstein_stage: null })];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, weinsteinStages: ["advance"] };
+    expect(filterTickerScores(rows, filters)).toHaveLength(0);
+  });
+
+  it("does not exclude a null-Weinstein-stage ticker when no Weinstein filter is active", () => {
+    const rows = [row({ ticker: "PREDATES_FIELD", weinstein_stage: null })];
     expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(1);
   });
 

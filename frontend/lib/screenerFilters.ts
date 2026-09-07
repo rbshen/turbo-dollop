@@ -2,6 +2,7 @@ import type { MultiSelectOption } from "@/components/screener/MultiSelectDropdow
 import { PERF_VS_SPY_LABELS } from "@/components/ticker/PerfVsSpyPill";
 import { VALUATION_LABELS } from "@/components/screener/ValuationBadge";
 import { MOAT_LABELS } from "@/lib/overallScore";
+import { WEINSTEIN_STAGE_LABEL } from "@/lib/weinsteinStage";
 import type { TickerScoreOut } from "@/lib/api/types";
 
 export interface RangeFilter {
@@ -86,6 +87,21 @@ export const VS_SPY_FILTER_OPTIONS: MultiSelectOption[] = [
   { value: "no_data", label: PERF_VS_SPY_LABELS.no_data },
 ];
 
+// Fixed 4-value set, like Moat above -- every stage should always be
+// selectable regardless of what's present in the current universe. No
+// "not set" bucket like Moat's MOAT_NOT_SET -- a null weinstein_stage
+// (never computed, or a row predating this field) simply fails every
+// .includes() check in filterTickerScores below and is excluded once this
+// filter is active, same as the existing null-sector/null-valuation
+// convention -- there's no meaningful "no stage" grouping a user would
+// filter *for*.
+export const WEINSTEIN_STAGE_FILTER_OPTIONS: MultiSelectOption[] = [
+  { value: "base", label: WEINSTEIN_STAGE_LABEL.base },
+  { value: "advance", label: WEINSTEIN_STAGE_LABEL.advance },
+  { value: "top", label: WEINSTEIN_STAGE_LABEL.top },
+  { value: "decline", label: WEINSTEIN_STAGE_LABEL.decline },
+];
+
 export interface ScreenerFilterState {
   overallScore: RangeFilter;
   step1Score: RangeFilter;
@@ -103,6 +119,7 @@ export interface ScreenerFilterState {
   moat: string[];
   valuationVerdict: string[];
   vsSpy: string[];
+  weinsteinStages: string[];
   // Plain boolean, unlike the array filters above -- a checkbox, not a
   // multi-select. false (default) means "no filtering by this criterion";
   // true means "show only qualifies=true" (see filterTickerScores below).
@@ -124,6 +141,7 @@ export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
   moat: [],
   valuationVerdict: [],
   vsSpy: [],
+  weinsteinStages: [],
   speculativeGrowth: false,
 };
 
@@ -159,6 +177,7 @@ export function filterTickerScores(rows: TickerScoreOut[], filters: ScreenerFilt
       return false;
     }
     if (filters.vsSpy.length > 0 && !filters.vsSpy.includes(row.perf_5y_vs_spy_status ?? "no_data")) return false;
+    if (filters.weinsteinStages.length > 0 && !filters.weinsteinStages.includes(row.weinstein_stage ?? "")) return false;
     if (filters.speculativeGrowth && !row.speculative_growth_qualifies) return false;
     return true;
   });

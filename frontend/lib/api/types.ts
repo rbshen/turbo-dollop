@@ -525,6 +525,12 @@ export interface TickerScoreOut {
   // vs-SPY fields above. null for a row computed before this field
   // existed, same as every other backfilled TickerScore column.
   speculative_growth_qualifies: boolean | null;
+  // See TickerScore.weinstein_stage/_since_date/_since_is_lower_bound/_ma_slope_pct/_vs_ma_pct.
+  weinstein_stage: "base" | "advance" | "top" | "decline" | null;
+  weinstein_stage_since_date: string | null;
+  weinstein_stage_since_is_lower_bound: boolean | null;
+  weinstein_ma_slope_pct: number | null;
+  weinstein_vs_ma_pct: number | null;
 }
 
 export type ScreenerUniverse = "sp500" | "dow" | "all";
