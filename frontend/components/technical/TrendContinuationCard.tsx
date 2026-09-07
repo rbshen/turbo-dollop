@@ -45,13 +45,6 @@ export function resolutionStatus(data: TrendAnalysisOut): ResolutionStatus {
   return data.pullback_occurred_since_flip === true ? "Recovered" : "NoPullback";
 }
 
-const STATUS_TONE: Record<ResolutionStatus, string> = {
-  NoPullback: "text-text-tertiary",
-  Pending: "text-warn",
-  Recovered: "text-positive",
-  Invalidated: "text-negative",
-};
-
 const STATUS_PILL_CLASS: Record<ResolutionStatus, string> = {
   NoPullback: "border-border-card bg-surface-2 text-text-tertiary",
   Pending: "border-warn/40 bg-warn/16 text-warn",
@@ -84,20 +77,6 @@ export function TrendContinuationCard({ data }: Props) {
           : data.trend_state !== "uptrend"
             ? "Current trend state is downtrend."
             : "No pullback warning currently active.",
-    },
-    {
-      key: "resolution-status",
-      label: "Resolution status",
-      statusText: STATUS_LABEL[status],
-      toneClass: STATUS_TONE[status],
-      detail:
-        status === "Pending"
-          ? "Clears on the next confirmed higher low or higher high (current state machine behavior)."
-          : status === "Recovered"
-            ? "A pullback occurred and was resolved by a subsequent confirmed higher low or higher high."
-            : status === "NoPullback"
-              ? "No pullback has occurred since the last confirmed trend flip."
-              : "Trend flipped to downtrend -- any pending pullback is superseded.",
     },
   ];
 
