@@ -1,6 +1,6 @@
 "use client";
 
-import { Trash } from "@phosphor-icons/react";
+import { Check, Trash } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 
 import { deleteScreenerFilter, saveScreenerFilter, useSavedFilters } from "@/lib/hooks/useSavedFilters";
@@ -40,6 +40,12 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
   const [name, setName] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [deleteState, setDeleteState] = useState<{ name: string; status: "deleting" | "error" } | null>(null);
+  // Which saved view is currently loaded, if any -- purely "the last one you
+  // picked (or just saved over)", not a live diff against the current
+  // filters, so it stays highlighted even after further manual edits. Local
+  // to this component (not lifted to page.tsx) since only this component's
+  // own list/trigger need to render it.
+  const [activeName, setActiveName] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -73,6 +79,9 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
       setStatus("saved");
       setSaveStep("idle");
       setName("");
+      // The current view now IS this saved view -- reflect that immediately
+      // rather than waiting for a subsequent load to show it as active.
+      setActiveName(trimmedName);
     } catch {
       setStatus("error");
     } finally {
@@ -100,8 +109,10 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
           onClick={() => setListOpen((o) => !o)}
           className="flex h-8 items-center gap-1.5 rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
         >
-          Saved views {saved && saved.length > 0 ? `(${saved.length})` : ""}
-          <span className="text-text-tertiary">▾</span>
+          {/* Same "show the active selection instead of the generic label"
+              convention MultiSelectDropdown's trigger already uses. */}
+          <span className="truncate">{activeName ?? `Saved views${saved && saved.length > 0 ? ` (${saved.length})` : ""}`}</span>
+          <span className="shrink-0 text-text-tertiary">▾</span>
         </button>
 
         {listOpen && (
@@ -112,13 +123,22 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
               saved.map((s) => (
                 <div
                   key={s.id}
-                  className="flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-2"
+                  role="option"
+                  aria-selected={s.name === activeName}
+                  className={cn(
+                    "flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1 text-xs hover:bg-surface-2",
+                    s.name === activeName ? "bg-surface-2 font-medium text-text-primary" : "text-text-secondary"
+                  )}
                   onClick={() => {
                     onLoad(s);
+                    setActiveName(s.name);
                     setListOpen(false);
                   }}
                 >
-                  <span className="truncate">{s.name}</span>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    {s.name === activeName && <Check size={12} className="shrink-0 text-brand" />}
+                    <span className="truncate">{s.name}</span>
+                  </span>
                   <button
                     type="button"
                     onClick={async (e) => {
@@ -127,6 +147,7 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
                       try {
                         await deleteScreenerFilter(s.name);
                         setDeleteState(null);
+                        if (s.name === activeName) setActiveName(null);
                       } catch {
                         setDeleteState({ name: s.name, status: "error" });
                         setTimeout(() => setDeleteState(null), 3000);
@@ -166,7 +187,10 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
       {saveStep === "idle" && (
         <button
           type="button"
-          onClick={onReset}
+          onClick={() => {
+            onReset();
+            setActiveName(null);
+          }}
           className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
         >
           Reset
