@@ -3,6 +3,7 @@ import Link from "next/link";
 import { MoatPill } from "@/components/ticker/MoatPill";
 import { PerfVsSpyPill } from "@/components/ticker/PerfVsSpyPill";
 import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGrowthPill";
+import { WeinsteinStagePill } from "@/components/ticker/WeinsteinStagePill";
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
 import { ValuationBadge } from "@/components/screener/ValuationBadge";
 import type { TickerScoreOut } from "@/lib/api/types";
@@ -48,13 +49,15 @@ export function ScreenerCard({ data }: Props) {
 
       {(data.moat != null ||
         data.valuation_verdict != null ||
-        (data.perf_5y_vs_spy_status != null && data.perf_5y_vs_spy_status !== "no_data")) && (
+        (data.perf_5y_vs_spy_status != null && data.perf_5y_vs_spy_status !== "no_data") ||
+        data.weinstein_stage != null) && (
         <div className="flex flex-wrap items-center gap-1.5">
           <MoatPill moat={data.moat} variant="flat" labelSet="screener" />
           {/* No `source` prop here -- suppresses ValuationBadge's "· Custom"
               marker, matching the constant color-only "Valuation" label. */}
           <ValuationBadge verdict={data.valuation_verdict} variant="flat" labelSet="screener" />
           <PerfVsSpyPill status={data.perf_5y_vs_spy_status} variant="flat" labelSet="screener" />
+          <WeinsteinStagePill data={data} variant="flat" labelSet="screener" />
         </div>
       )}
 
