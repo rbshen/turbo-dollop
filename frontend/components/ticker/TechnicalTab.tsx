@@ -1,6 +1,7 @@
 "use client";
 
 import { CollapsedTechnicalCard } from "@/components/technical/CollapsedTechnicalCard";
+import { LongTermCard } from "@/components/technical/LongTermCard";
 import { NearTermCard } from "@/components/technical/NearTermCard";
 import { ReversalCard, reversalStatus } from "@/components/technical/ReversalCard";
 import { resolutionStatus, TrendContinuationCard } from "@/components/technical/TrendContinuationCard";
@@ -53,7 +54,10 @@ export function TechnicalTab({ ticker }: Props) {
         <p className="mt-3 text-sm text-text-primary">{interpretation.join(" ")}</p>
       </div>
 
-      <NearTermCard data={data} />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <LongTermCard data={data} />
+        <NearTermCard data={data} />
+      </div>
 
       <div className="space-y-2">
         {scope.fullCard === "reversal" ? <ReversalCard data={data} /> : <TrendContinuationCard data={data} />}
