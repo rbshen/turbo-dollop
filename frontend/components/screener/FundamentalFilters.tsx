@@ -18,6 +18,11 @@ interface Props {
   companyTypes: string[];
 }
 
+// Label stacked above a Min/Max row, each input sized via flex-1/min-w-0
+// rather than a fixed width -- a fixed w-24 label + 2x w-20 inputs (the old
+// single-row layout, sized for the full-width top bar this used to live in)
+// overflows a ~224px sidebar column's actual content width. Stacking keeps
+// this correct at any sidebar width instead of depending on a specific one.
 function RangeInput({
   label,
   value,
@@ -28,23 +33,25 @@ function RangeInput({
   onChange: (range: RangeFilter) => void;
 }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="w-24 shrink-0 text-xs text-text-tertiary">{label}</span>
-      <input
-        type="number"
-        placeholder="Min"
-        value={value.min ?? ""}
-        onChange={(e) => onChange({ ...value, min: e.target.value === "" ? null : Number(e.target.value) })}
-        className="h-8 w-20 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
-      />
-      <span className="text-text-tertiary">–</span>
-      <input
-        type="number"
-        placeholder="Max"
-        value={value.max ?? ""}
-        onChange={(e) => onChange({ ...value, max: e.target.value === "" ? null : Number(e.target.value) })}
-        className="h-8 w-20 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
-      />
+    <div className="space-y-1">
+      <span className="text-xs text-text-tertiary">{label}</span>
+      <div className="flex items-center gap-1.5">
+        <input
+          type="number"
+          placeholder="Min"
+          value={value.min ?? ""}
+          onChange={(e) => onChange({ ...value, min: e.target.value === "" ? null : Number(e.target.value) })}
+          className="h-8 w-0 min-w-0 flex-1 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
+        />
+        <span className="shrink-0 text-text-tertiary">–</span>
+        <input
+          type="number"
+          placeholder="Max"
+          value={value.max ?? ""}
+          onChange={(e) => onChange({ ...value, max: e.target.value === "" ? null : Number(e.target.value) })}
+          className="h-8 w-0 min-w-0 flex-1 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
+        />
+      </div>
     </div>
   );
 }
@@ -78,29 +85,31 @@ function MarketCapSideInput({
   }
 
   return (
-    <div className="flex flex-col">
+    <div className="min-w-0 flex-1">
       <input
         type="text"
         inputMode="decimal"
         placeholder={placeholder}
         value={text}
         onChange={(e) => handleChange(e.target.value)}
-        className={`h-8 w-20 rounded-md border bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none ${
+        className={`h-8 w-full rounded-md border bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none ${
           invalid ? "border-negative/60 focus:border-negative" : "border-border-input focus:border-brand"
         }`}
       />
-      {invalid && <span className="mt-0.5 text-[10px] text-negative">e.g. 1B, 2 M, or 500000000</span>}
+      {invalid && <span className="mt-0.5 block text-[10px] text-negative">e.g. 1B, 2 M, or 500000000</span>}
     </div>
   );
 }
 
 function MarketCapRangeInput({ value, onChange }: { value: RangeFilter; onChange: (range: RangeFilter) => void }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="w-24 shrink-0 text-xs text-text-tertiary">Mkt Cap</span>
-      <MarketCapSideInput placeholder="Min" value={value.min} onChange={(min) => onChange({ ...value, min })} />
-      <span className="text-text-tertiary">–</span>
-      <MarketCapSideInput placeholder="Max" value={value.max} onChange={(max) => onChange({ ...value, max })} />
+    <div className="space-y-1">
+      <span className="text-xs text-text-tertiary">Mkt Cap</span>
+      <div className="flex items-center gap-1.5">
+        <MarketCapSideInput placeholder="Min" value={value.min} onChange={(min) => onChange({ ...value, min })} />
+        <span className="shrink-0 text-text-tertiary">–</span>
+        <MarketCapSideInput placeholder="Max" value={value.max} onChange={(max) => onChange({ ...value, max })} />
+      </div>
     </div>
   );
 }
