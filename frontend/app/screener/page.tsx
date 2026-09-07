@@ -134,6 +134,36 @@ export default function ScreenerPage() {
         </div>
       </div>
 
+      <div className="flex justify-end">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-text-tertiary">Sort</span>
+          <select
+            value={sortField}
+            onChange={(e) => handleSortChange(e.target.value as SortField, sortDirection)}
+            className="h-8 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary focus:border-brand focus:outline-none"
+          >
+            {SORT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => handleSortChange(sortField, sortDirection === "asc" ? "desc" : "asc")}
+            className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-2 text-xs text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
+            title={sortDirection === "asc" ? "Ascending" : "Descending"}
+          >
+            {sortDirection === "asc" ? "↑ Asc" : "↓ Desc"}
+          </button>
+        </div>
+      </div>
+
+      {/* Sidebar and main content are siblings starting at the same
+          vertical position -- the sort control above is deliberately its
+          own full-width row (not nested inside the main column) so the
+          Fundamental card's top edge lines up with the ticker grid's top
+          edge, rather than sitting a row-height higher. */}
       <div className="flex flex-col gap-6 lg:flex-row">
         <aside className="w-full shrink-0 space-y-4 lg:w-64">
           <FundamentalFilters filters={filters} onFiltersChange={handleFiltersChange} sectors={sectors} companyTypes={companyTypes} />
@@ -150,31 +180,6 @@ export default function ScreenerPage() {
         </aside>
 
         <div className="min-w-0 flex-1 space-y-4">
-          <div className="flex justify-end">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-text-tertiary">Sort</span>
-              <select
-                value={sortField}
-                onChange={(e) => handleSortChange(e.target.value as SortField, sortDirection)}
-                className="h-8 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary focus:border-brand focus:outline-none"
-              >
-                {SORT_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => handleSortChange(sortField, sortDirection === "asc" ? "desc" : "asc")}
-                className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-2 text-xs text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
-                title={sortDirection === "asc" ? "Ascending" : "Descending"}
-              >
-                {sortDirection === "asc" ? "↑ Asc" : "↓ Desc"}
-              </button>
-            </div>
-          </div>
-
           {sorted.length === 0 ? (
             <p className="py-12 text-center text-sm text-text-tertiary">No tickers match the current filters.</p>
           ) : (
