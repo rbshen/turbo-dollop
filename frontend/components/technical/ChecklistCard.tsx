@@ -62,7 +62,7 @@ export function ChecklistCard({ title, statusLabel, statusToneClass, blurb, item
               item.met ? (
                 <CheckCircle size={16} weight="fill" className="mt-0.5 shrink-0 text-positive" />
               ) : (
-                <XCircle size={16} weight="fill" className="mt-0.5 shrink-0 text-text-tertiary" />
+                <XCircle size={20} weight="fill" className="mt-0.5 shrink-0 text-text-tertiary" />
               )
             ) : (
               <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-text-tertiary" />

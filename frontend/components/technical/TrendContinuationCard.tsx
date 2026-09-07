@@ -76,7 +76,7 @@ export function TrendContinuationCard({ data }: Props) {
   const items: ChecklistItem[] = [
     {
       key: "pullback-in-progress",
-      label: "Uptrend + warning_flag active (pullback in progress)",
+      label: "Uptrend pausing — price just missed a new high",
       met: pullbackInProgress,
       detail:
         pullbackInProgress && data.warning_swing
