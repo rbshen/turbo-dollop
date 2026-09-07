@@ -26,33 +26,43 @@ const DISCLAIMER =
 // caption below.
 const FRESHNESS_ILLUSTRATIVE_WINDOW_BARS = 21;
 
-type ResolutionStatus = "Pending" | "Resolved" | "Invalidated";
+export type ResolutionStatus = "NoPullback" | "Pending" | "Recovered" | "Invalidated";
 
-function resolutionStatus(data: TrendAnalysisOut): ResolutionStatus {
-  // A flip to downtrend also clears warning_flag (see state_machine.py),
-  // so "downtrend" is the only signal available from this latest-snapshot-
-  // only model to distinguish "the pullback resolved bullishly" from "the
-  // trend flipped and superseded it" -- there's no persisted history of
-  // the transition itself to check instead.
+export function resolutionStatus(data: TrendAnalysisOut): ResolutionStatus {
+  // A flip to downtrend also clears warning_flag (see state_machine.py), so
+  // "downtrend" is the only signal needed to distinguish "the pullback
+  // resolved bullishly" from "the trend flipped and superseded it."
   if (data.trend_state === "downtrend") return "Invalidated";
-  return data.warning_flag ? "Pending" : "Resolved";
+  if (data.warning_flag) return "Pending";
+  // warning_flag=false alone is ambiguous -- it reads the same whether no
+  // pullback has ever occurred since the last flip, or one occurred and was
+  // already resolved by a later confirming swing. pullback_occurred_since_flip
+  // (state_machine.py) is what actually distinguishes them: unlike
+  // warning_flag, it's never cleared by a resolving swing, only reset by a
+  // genuine flip. Null (a row computed before this field existed) reads the
+  // same as false until the next nightly recompute, same convention as
+  // ad_bullish_divergence elsewhere on this type.
+  return data.pullback_occurred_since_flip === true ? "Recovered" : "NoPullback";
 }
 
 const STATUS_TONE: Record<ResolutionStatus, string> = {
+  NoPullback: "text-text-tertiary",
   Pending: "text-warn",
-  Resolved: "text-positive",
+  Recovered: "text-positive",
   Invalidated: "text-negative",
 };
 
 const STATUS_PILL_CLASS: Record<ResolutionStatus, string> = {
+  NoPullback: "border-border-card bg-surface-2 text-text-tertiary",
   Pending: "border-warn/40 bg-warn/16 text-warn",
-  Resolved: "border-positive/40 bg-positive/16 text-positive",
+  Recovered: "border-positive/40 bg-positive/16 text-positive",
   Invalidated: "border-negative/40 bg-negative/16 text-negative",
 };
 
 const STATUS_LABEL: Record<ResolutionStatus, string> = {
+  NoPullback: "No pullback",
   Pending: "Pullback pending",
-  Resolved: "Resolved",
+  Recovered: "Recovered",
   Invalidated: "Invalidated",
 };
 
@@ -78,14 +88,16 @@ export function TrendContinuationCard({ data }: Props) {
     {
       key: "resolution-status",
       label: "Resolution status",
-      statusText: status,
+      statusText: STATUS_LABEL[status],
       toneClass: STATUS_TONE[status],
       detail:
         status === "Pending"
           ? "Clears on the next confirmed higher low or higher high (current state machine behavior)."
-          : status === "Resolved"
-            ? "Trend continuation confirmed, or no pullback has occurred since the last flip."
-            : "Trend flipped to downtrend -- any pending pullback is superseded.",
+          : status === "Recovered"
+            ? "A pullback occurred and was resolved by a subsequent confirmed higher low or higher high."
+            : status === "NoPullback"
+              ? "No pullback has occurred since the last confirmed trend flip."
+              : "Trend flipped to downtrend -- any pending pullback is superseded.",
     },
   ];
 

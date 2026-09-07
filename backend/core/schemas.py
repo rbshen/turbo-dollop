@@ -1001,6 +1001,10 @@ class TrendAnalysisOut(BaseModel):
     last_confirmed_swing: SwingDetailOut | None = None
     warning_flag: bool
     warning_swing: SwingDetailOut | None = None
+    # See models.py::TrendAnalysis.pullback_occurred_since_flip's own
+    # comment. Nullable for the same pre-existing-row reason as
+    # ad_bullish_divergence/sma*_cross above.
+    pullback_occurred_since_flip: bool | None = None
     efficiency_ratio: float | None = None
     regime: str | None = None  # "trending" | "range-bound" | None
     blended_score: float

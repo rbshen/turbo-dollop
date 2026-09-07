@@ -79,6 +79,14 @@ class TrendAnalysis(SQLModel, table=True):
     last_confirmed_swing_json: str | None = None
     warning_flag: bool
     warning_swing_json: str | None = None
+    # Whether ANY pullback warning has fired since trend_state's own most
+    # recent flip -- lets the Trend Continuation card distinguish "no
+    # pullback since the last flip" from "a pullback occurred and has since
+    # been resolved" (see analysis/trend_structure/types.py::
+    # TrendStructureResult.pullback_occurred_since_flip). Nullable for the
+    # usual _add_missing_columns-has-no-backfill reason: a pre-existing row
+    # reads NULL until the next nightly run rewrites it.
+    pullback_occurred_since_flip: bool | None = None
     efficiency_ratio: float | None = None
     regime: str | None = None  # "trending" | "range-bound" | None
     blended_score: float

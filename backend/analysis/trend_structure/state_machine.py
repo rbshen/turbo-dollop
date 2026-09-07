@@ -74,6 +74,12 @@ class TrendMachineState:
     last_confirmed_swing: SwingDetail | None
     warning_flag: bool
     warning_swing: SwingDetail | None
+    # See TrendStructureResult.pullback_occurred_since_flip's own docstring
+    # for the full rationale. Reset to False only on a genuine flip (or the
+    # initial bootstrap); a warning_flag clear (same-direction confirming
+    # swing) deliberately leaves this True -- that's a resolved pullback,
+    # not "none occurred."
+    pullback_occurred_since_flip: bool = False
 
 
 def run_state_machine(classified: list[ClassifiedSwing]) -> TrendMachineState:
@@ -124,19 +130,24 @@ def run_state_machine(classified: list[ClassifiedSwing]) -> TrendMachineState:
         # Direction opposes the current trend_state.
         is_primary = cs.classification == _PRIMARY_FOR_DIRECTION[direction]
         if is_primary and ratio >= CONFIRMED_RATIO:
-            # Genuine flip.
+            # Genuine flip -- the new trend starts with a clean slate, so any
+            # prior pullback is no longer relevant to it.
             state.trend_state = direction
             state.magnitude_tier = _magnitude_tier_for_ratio(ratio)
             state.persistence_count = 1
             state.last_confirmed_swing = _to_detail(cs)
             state.warning_flag = False
             state.warning_swing = None
+            state.pullback_occurred_since_flip = False
         elif not is_primary:
             # "A confirmed LH or HL -- regardless of ratio -- does NOT flip
             # trend_state; it only sets warning_flag=true with its own
-            # warning_swing detail."
+            # warning_swing detail." pullback_occurred_since_flip is set here
+            # too, but (unlike warning_flag) is never cleared by a later
+            # same-direction confirming swing -- see its own docstring.
             state.warning_flag = True
             state.warning_swing = _to_detail(cs)
+            state.pullback_occurred_since_flip = True
         # else: primary-for-opposite-direction but ratio<1.0 -- deliberate
         # no-op, see module docstring's last bullet.
 

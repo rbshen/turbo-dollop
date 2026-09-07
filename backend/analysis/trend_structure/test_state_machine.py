@@ -20,6 +20,7 @@ def test_empty_classified_list_returns_documented_bootstrap_default():
     assert state.magnitude_tier is None
     assert state.persistence_count == 0
     assert state.warning_flag is False
+    assert state.pullback_occurred_since_flip is False
 
 
 def test_confirmed_hh_flips_to_uptrend_from_downtrend():
@@ -113,6 +114,10 @@ def test_warning_clears_on_next_same_direction_confirmed_swing():
     assert state.warning_flag is False
     assert state.warning_swing is None
     assert state.trend_state == "uptrend"
+    # warning_flag clears, but the pullback still genuinely happened within
+    # this trend -- pullback_occurred_since_flip must stay True so a caller
+    # can tell "resolved" apart from "never occurred."
+    assert state.pullback_occurred_since_flip is True
 
 
 def test_warning_converts_into_real_flip_when_opposite_extreme_confirms():
@@ -128,3 +133,42 @@ def test_warning_converts_into_real_flip_when_opposite_extreme_confirms():
     assert state.warning_flag is False
     assert state.warning_swing is None
     assert state.persistence_count == 1
+    # The flip starts a brand-new trend -- the prior trend's pullback is no
+    # longer relevant to it.
+    assert state.pullback_occurred_since_flip is False
+
+
+def test_pullback_occurred_since_flip_is_false_immediately_after_establishing_a_trend():
+    """No warning has ever fired yet -- the "no pullback at all" case this
+    field exists to distinguish from a resolved one."""
+    classified = [_cs(0, "HH", 1.2), _cs(5, "HL", 0.8)]  # establish uptrend  # same-direction confirming swing, no warning involved
+
+    state = run_state_machine(classified)
+
+    assert state.warning_flag is False
+    assert state.pullback_occurred_since_flip is False
+
+
+def test_pullback_occurred_since_flip_set_by_warning_even_at_tentative_ratio():
+    """Mirrors warning_flag's own "regardless of ratio" rule -- a tentative
+    LH still counts as a real pullback having occurred."""
+    classified = [_cs(0, "HH", 1.2), _cs(5, "LH", 0.2)]
+
+    state = run_state_machine(classified)
+
+    assert state.warning_flag is True
+    assert state.pullback_occurred_since_flip is True
+
+
+def test_pullback_occurred_since_flip_persists_across_a_second_later_warning():
+    classified = [
+        _cs(0, "HH", 1.2),  # establish uptrend
+        _cs(5, "LH", 0.8),  # first warning
+        _cs(10, "HL", 0.6),  # clears warning_flag, pullback_occurred_since_flip stays True
+        _cs(15, "LH", 0.7),  # second warning, same trend
+    ]
+
+    state = run_state_machine(classified)
+
+    assert state.warning_flag is True
+    assert state.pullback_occurred_since_flip is True

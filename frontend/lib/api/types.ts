@@ -1051,6 +1051,14 @@ export interface TrendAnalysisOut {
   last_confirmed_swing: SwingDetailOut | null;
   warning_flag: boolean;
   warning_swing: SwingDetailOut | null;
+  // Whether ANY pullback warning has fired since trend_state's own most
+  // recent flip -- distinguishes "no pullback since the last flip" from "a
+  // pullback occurred and has since been resolved," both of which otherwise
+  // read identically as warning_flag=false. Null for a row computed before
+  // this field existed (same migration-safety convention as classification
+  // above) -- a fresh compute always populates it. See backend's
+  // models.py::TrendAnalysis for the full rationale.
+  pullback_occurred_since_flip: boolean | null;
   efficiency_ratio: number | null;
   regime: "trending" | "range-bound" | null;
   blended_score: number;

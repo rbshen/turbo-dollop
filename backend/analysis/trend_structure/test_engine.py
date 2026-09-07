@@ -41,6 +41,7 @@ def test_compute_trend_structure_produces_a_fully_populated_result():
     # booster (1.15x) can push an already-near-ceiling uptrend score
     # slightly past +10.0 -- see conviction.py's own note on this.
     assert -10.0 <= result.blended_score <= 11.5
+    assert isinstance(result.pullback_occurred_since_flip, bool)
     assert isinstance(result.ad_bullish_divergence, bool)
     assert result.ad_divergence_swing_date is None or isinstance(result.ad_divergence_swing_date, date)
     # SMA position tracking -- 150 bars of history clears all three windows
@@ -85,6 +86,7 @@ def test_compute_trend_structure_handles_too_short_a_history_gracefully():
     assert result.efficiency_ratio is None
     assert result.regime is None
     assert result.bar_level in (1, 2, 3, 4, 5)
+    assert result.pullback_occurred_since_flip is False
     assert result.ad_bullish_divergence is False
     assert result.ad_divergence_swing_date is None
     # 8 bars is fewer than even the smallest SMA window (20) -- all six

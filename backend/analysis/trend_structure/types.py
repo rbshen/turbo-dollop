@@ -66,6 +66,16 @@ class TrendStructureResult:
     last_confirmed_swing: SwingDetail | None
     warning_flag: bool
     warning_swing: SwingDetail | None
+    # True once ANY confirmed LH (uptrend) or HL (downtrend) warning has
+    # fired since the current trend_state's own most recent flip -- persists
+    # across a later warning_flag clear (a same-direction confirming swing),
+    # since that's a resolved pullback, not "no pullback ever happened."
+    # Reset to False only by a genuine flip (including the initial
+    # bootstrap). Lets a caller distinguish "no pullback has occurred since
+    # the last flip" from "a pullback occurred and has since been resolved"
+    # -- both of which otherwise read identically as warning_flag=False (see
+    # state_machine.py::run_state_machine).
+    pullback_occurred_since_flip: bool
     efficiency_ratio: float | None
     regime: Regime | None
     blended_score: float

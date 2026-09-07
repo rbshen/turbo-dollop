@@ -88,6 +88,7 @@ def compute_trend_structure(ohlcv: pd.DataFrame) -> TrendStructureResult:
         last_confirmed_swing=state.last_confirmed_swing,
         warning_flag=state.warning_flag,
         warning_swing=state.warning_swing,
+        pullback_occurred_since_flip=state.pullback_occurred_since_flip,
         efficiency_ratio=efficiency_ratio,
         regime=regime,
         blended_score=blended_score,
