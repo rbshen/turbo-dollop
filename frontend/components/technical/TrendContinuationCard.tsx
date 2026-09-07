@@ -136,10 +136,10 @@ export function TrendContinuationCard({ data }: Props) {
 
   return (
     <ChecklistCard
-      title="Trend Continuation"
+      title="Pullback recovery"
       statusLabel={STATUS_LABEL[status]}
       statusToneClass={STATUS_PILL_CLASS[status]}
-      blurb="Whether an established uptrend's pullback (a lower high against the prevailing trend) has resolved bullishly or been invalidated."
+      blurb="Checked because the stock is currently in an uptrend. Looks for whether a recent pullback has resolved bullishly or turned into a real breakdown."
       items={items}
       extra={freshnessBar}
       disclaimer={DISCLAIMER}

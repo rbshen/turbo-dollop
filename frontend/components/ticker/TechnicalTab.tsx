@@ -1,75 +1,16 @@
 "use client";
 
+import { CollapsedTechnicalCard } from "@/components/technical/CollapsedTechnicalCard";
+import { NearTermCard } from "@/components/technical/NearTermCard";
 import { ReversalCard, reversalStatus } from "@/components/technical/ReversalCard";
-import { fmtSwingDate } from "@/components/technical/ChecklistCard";
 import { resolutionStatus, TrendContinuationCard } from "@/components/technical/TrendContinuationCard";
 import { WeinsteinStageCard } from "@/components/technical/WeinsteinStageCard";
 import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
+import { technicalCardScope } from "@/lib/technicalCardScope";
 import { buildInterpretation } from "@/lib/technicalInterpretation";
-import { formatWeinsteinSince, WEINSTEIN_STAGE_LABEL, WEINSTEIN_STAGE_TEXT_CLASS } from "@/lib/weinsteinStage";
-import type { TrendAnalysisOut } from "@/lib/api/types";
 
 interface Props {
   ticker: string;
-}
-
-const TREND_STATE_LABEL: Record<TrendAnalysisOut["trend_state"], string> = {
-  uptrend: "Uptrend",
-  downtrend: "Downtrend",
-};
-
-const REGIME_LABEL: Record<string, string> = {
-  trending: "Trending",
-  "range-bound": "Range-bound",
-};
-
-function SummaryStat({
-  label,
-  value,
-  valueClassName,
-  subValue,
-}: {
-  label: string;
-  value: string;
-  valueClassName?: string;
-  // Secondary muted line under the value -- e.g. Stage's own stage-since
-  // date, folded in here rather than a separate "Since" column so it never
-  // wraps to its own row once the strip runs out of horizontal space.
-  subValue?: string;
-}) {
-  return (
-    <div className="min-w-[7rem] space-y-1">
-      <p className="text-xs uppercase tracking-widest text-text-tertiary">{label}</p>
-      <p className={`font-mono text-sm font-semibold tabular-nums ${valueClassName ?? "text-text-primary"}`}>{value}</p>
-      {subValue && <p className="text-xs text-text-tertiary">{subValue}</p>}
-    </div>
-  );
-}
-
-function SummaryStrip({ data }: { data: TrendAnalysisOut }) {
-  return (
-    <div className="flex flex-wrap gap-x-8 gap-y-4 rounded-lg border border-border-card bg-surface p-6">
-      <SummaryStat
-        label="Trend"
-        value={TREND_STATE_LABEL[data.trend_state]}
-        valueClassName={data.trend_state === "uptrend" ? "text-positive" : "text-negative"}
-      />
-      <SummaryStat label="Last confirmed swing" value={data.last_confirmed_swing ? fmtSwingDate(data.last_confirmed_swing.date) : "—"} />
-      <SummaryStat label="Persistence" value={String(data.persistence_count)} />
-      <SummaryStat label="Bars since confirmation" value={data.bars_since_confirmation != null ? String(data.bars_since_confirmation) : "—"} />
-      <SummaryStat label="Regime" value={data.regime ? (REGIME_LABEL[data.regime] ?? data.regime) : "—"} />
-      <SummaryStat
-        label="Stage"
-        value={data.weinstein_stage ? WEINSTEIN_STAGE_LABEL[data.weinstein_stage] : "—"}
-        valueClassName={data.weinstein_stage ? WEINSTEIN_STAGE_TEXT_CLASS[data.weinstein_stage] : undefined}
-        subValue={
-          data.weinstein_stage && data.weinstein_stage_since_date
-            ? formatWeinsteinSince(data.weinstein_stage_since_date, data.weinstein_stage_since_is_lower_bound ?? false, fmtSwingDate)
-            : undefined
-        }
-      />
-    </div>
-  );
 }
 
 export function TechnicalTab({ ticker }: Props) {
@@ -100,6 +41,8 @@ export function TechnicalTab({ ticker }: Props) {
     continuationStatus: resolutionStatus(data),
   });
 
+  const scope = technicalCardScope(data.trend_state);
+
   return (
     <div className="space-y-4 py-6">
       <div>
@@ -110,11 +53,11 @@ export function TechnicalTab({ ticker }: Props) {
         <p className="mt-3 text-sm text-text-primary">{interpretation.join(" ")}</p>
       </div>
 
-      <SummaryStrip data={data} />
+      <NearTermCard data={data} />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <ReversalCard data={data} />
-        <TrendContinuationCard data={data} />
+      <div className="space-y-2">
+        {scope.fullCard === "reversal" ? <ReversalCard data={data} /> : <TrendContinuationCard data={data} />}
+        <CollapsedTechnicalCard label={scope.collapsedLabel} subline={scope.collapsedSubline} />
       </div>
 
       <WeinsteinStageCard data={data} />

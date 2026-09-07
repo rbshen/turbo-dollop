@@ -60,21 +60,23 @@ export function ReversalCard({ data }: Props) {
   const items: ChecklistItem[] = [
     {
       key: "confirmed-ll",
-      label: "Confirmed LL (magnitude tier ≥ confirmed)",
+      label: "Solid new low reached",
       met: confirmedLl,
       detail: swing
-        ? `Most recent confirmed swing: ${swing.classification ?? "unknown"} on ${fmtSwingDate(swing.date)}, ${fmtNumber(swing.ratio, 2)}x ATR (${data.magnitude_tier ?? "—"})`
-        : "No confirmed swing yet.",
+        ? `Confirmed LL (magnitude tier ≥ confirmed) — Most recent confirmed swing: ${swing.classification ?? "unknown"} on ${fmtSwingDate(swing.date)}, ${fmtNumber(swing.ratio, 2)}x ATR (${data.magnitude_tier ?? "—"})`
+        : "Confirmed LL (magnitude tier ≥ confirmed) — No confirmed swing yet.",
     },
     {
       key: "ad-divergence",
-      label: "A/D bullish divergence present and current",
+      label: "Quiet buying pressure building",
       met: divergencePresent,
-      detail: !confirmedLl
-        ? "Only evaluated once a confirmed LL is in place."
-        : divergencePresent
-          ? "Chaikin Oscillator formed a higher low against the trailing-3 confirmed-LL floor at this swing."
-          : "No divergence at the current confirmed LL.",
+      detail: `A/D bullish divergence present and current — ${
+        !confirmedLl
+          ? "Only evaluated once a confirmed LL is in place."
+          : divergencePresent
+            ? "Chaikin Oscillator formed a higher low against the trailing-3 confirmed-LL floor at this swing."
+            : "No divergence at the current confirmed LL."
+      }`,
     },
   ];
 
@@ -83,10 +85,10 @@ export function ReversalCard({ data }: Props) {
 
   return (
     <ChecklistCard
-      title="Reversal"
+      title="Bullish reversal"
       statusLabel={status}
       statusToneClass={statusToneClass}
-      blurb="A confirmed swing low with a supporting Accumulation/Distribution divergence -- a candidate short-term reversal read, not a validated entry signal."
+      blurb="Checked because the stock is currently in a downtrend. Looks for a solid new low plus quiet buying pressure underneath."
       items={items}
       disclaimer={DISCLAIMER}
     />
