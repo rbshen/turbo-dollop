@@ -16,6 +16,18 @@ interface Props {
 // under.
 const DISCLAIMER = "Backtested: ~1-month directional edge only, not significant at 3-6 months. Informational, not a trading signal.";
 
+// Illustrative only -- matches THIS card's own backtested edge horizon (see
+// DISCLAIMER above: "~1-month directional edge"), not TrendContinuationCard's
+// FRESHNESS_ILLUSTRATIVE_WINDOW_BARS reused verbatim, even though the two
+// currently happen to share the same 21-trading-day value.
+const FRESHNESS_ILLUSTRATIVE_WINDOW_BARS = 21;
+
+// Past this point the backtest's own "not significant at 3-6 months" finding
+// is already in force, so the badge itself downgrades (see
+// reversalDisplayStatus below) rather than just fading a progress bar next
+// to an unchanged "Confirmed" pill.
+const STALE_THRESHOLD_BARS = 42;
+
 export type ReversalStatus = "Confirmed" | "Not present";
 
 // Pulled out to a standalone pure function (mirroring TrendContinuationCard's
@@ -52,6 +64,37 @@ export function reversalStatus(data: TrendAnalysisOut): ReversalStatus {
   return divergencePresent ? "Confirmed" : "Not present";
 }
 
+export type ReversalDisplayStatus = "Confirmed" | "Confirmed (stale)" | "Not present";
+
+// Staleness is purely a DISPLAY concern layered on top of reversalStatus,
+// not a redefinition of it -- reversalStatus (and the ReversalStatus type)
+// stay exactly as they were, since technicalInterpretation.ts's sentence
+// generator relies on that same two-value signal-presence reading
+// unchanged (see its own layer3 comment on reversalStatus's invariants).
+// This wraps it with bars_since_confirmation to decide whether the badge
+// itself should read as stale, without touching what "Confirmed" means
+// semantically anywhere else.
+export function reversalDisplayStatus(data: TrendAnalysisOut): ReversalDisplayStatus {
+  const status = reversalStatus(data);
+  if (status !== "Confirmed") return status;
+  const bars = data.bars_since_confirmation;
+  return bars != null && bars >= STALE_THRESHOLD_BARS ? "Confirmed (stale)" : "Confirmed";
+}
+
+// The freshness bar's caption, worded per the same three ranges the bar/
+// badge themselves key off of -- fresh (still inside the backtest's own
+// ~1-month edge window), aged (past that window but not yet past the
+// stale threshold), and stale (badge already downgraded).
+export function reversalFreshnessCaption(bars: number | null): string {
+  if (bars == null || bars < FRESHNESS_ILLUSTRATIVE_WINDOW_BARS) {
+    return `Illustrative only, against a ${FRESHNESS_ILLUSTRATIVE_WINDOW_BARS}-trading-day (~1 month) reference window — not a validated threshold.`;
+  }
+  if (bars < STALE_THRESHOLD_BARS) {
+    return "Past the ~1-month edge window this signal was backtested over — still within reporting range, but likely no longer fresh.";
+  }
+  return "Past 2 months since the confirming low — the backtest found no real edge this far out, so this reading is now flagged stale.";
+}
+
 export function ReversalCard({ data }: Props) {
   const swing = data.last_confirmed_swing;
   const confirmedLl = swing?.classification === "LL" && (data.magnitude_tier === "confirmed" || data.magnitude_tier === "strong");
@@ -80,16 +123,38 @@ export function ReversalCard({ data }: Props) {
     },
   ];
 
-  const status = reversalStatus(data);
-  const statusToneClass = divergencePresent ? "border-positive/40 bg-positive/16 text-positive" : "border-border-card bg-surface-2 text-text-tertiary";
+  const displayStatus = reversalDisplayStatus(data);
+  const statusToneClass =
+    displayStatus === "Confirmed" ? "border-positive/40 bg-positive/16 text-positive" : "border-border-card bg-surface-2 text-text-tertiary";
+
+  const bars = data.bars_since_confirmation;
+  const freshnessPct = bars != null ? Math.min(100, (bars / FRESHNESS_ILLUSTRATIVE_WINDOW_BARS) * 100) : null;
+
+  // Only rendered once there's a current confirmed reversal signal to
+  // measure the age of at all -- divergencePresent, not displayStatus,
+  // since the bar/caption are exactly what explain WHY the badge above may
+  // already read "(stale)", so they must still render in that case too.
+  const freshnessBar = divergencePresent ? (
+    <div className="space-y-1.5">
+      <div className="flex items-baseline justify-between text-xs text-text-tertiary">
+        <span>Bars since confirmed low</span>
+        <span className="font-mono tabular-nums text-text-secondary">{bars ?? "—"}</span>
+      </div>
+      <div className="h-1.5 w-full rounded-full bg-surface-2">
+        <div className="h-1.5 rounded-full bg-brand transition-[width]" style={{ width: `${freshnessPct ?? 0}%` }} />
+      </div>
+      <p className="text-[11px] text-text-tertiary">{reversalFreshnessCaption(bars)}</p>
+    </div>
+  ) : null;
 
   return (
     <ChecklistCard
       title="Bullish reversal"
-      statusLabel={status}
+      statusLabel={displayStatus}
       statusToneClass={statusToneClass}
       blurb="Checked because the stock is currently in a downtrend. Looks for a solid new low plus quiet buying pressure underneath."
       items={items}
+      extra={freshnessBar}
       disclaimer={DISCLAIMER}
     />
   );
