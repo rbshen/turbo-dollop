@@ -8,7 +8,8 @@ expected, correct outcome, not a contradiction to reconcile.
 Gate model (all four must pass for `qualifies`), per the design/
 investigation phase's resolved criteria set:
   - company_type == "Standard" (reuses scoring/classification.py as-is)
-  - Moat is Narrow or Wide (No Moat / unset excludes)
+  - Moat is Narrow, Wide, or a *confirmed* No Moat rating (unset/never-rated
+    still excludes) -- see `_MOAT_QUALIFYING` below.
   - Step2's forward growth rate clears GROWTH_GATE_MIN_PCT
   - NI was negative in a majority of tracked annual+TTM periods (see
     `is_not_durably_profitable` below) -- added 2026-08-15 after a false-
@@ -46,7 +47,17 @@ TRAILING_GROWTH_INFORMATIONAL_PCT = 20.0
 # (reasonable, pass).
 PSG_REASONABLE_MAX = 1.0
 
-_MOAT_QUALIFYING = {"narrow_moat", "wide_moat"}
+_MOAT_QUALIFYING = {"narrow_moat", "wide_moat", "no_moat"}
+# "no_moat" added 2026-09-08, following the no_moat-gate investigation (see
+# CLAUDE.md): the original spec described "narrow/no-moat-yet" as a defining
+# trait of the category, but the shipped gate only ever passed Narrow/Wide.
+# Deliberately only the *confirmed* rating -- a real TickerMoat row a human
+# has actually set to "no_moat" -- not an unset/never-rated ticker, which
+# still reads as `moat=None`, still fails this `in` check, and is untouched
+# by this change. Universe-wide validation (572 tickers) confirmed this adds
+# exactly 7 new qualifiers (AAOI, BE, CRWV, IREN, MRNA, SNOW, SYM) with the
+# existing 14 qualifiers unaffected -- MRNA is the one name among the 7 that
+# doesn't fit the category (see `is_potential_fake_growth` below).
 
 
 class SpecGrowthGateResult(NamedTuple):

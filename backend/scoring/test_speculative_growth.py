@@ -32,10 +32,14 @@ def test_wide_moat_also_qualifies():
     assert result.qualifies is True
 
 
-def test_no_moat_excludes_even_with_strong_growth():
+def test_confirmed_no_moat_qualifies_with_strong_growth():
+    # Added 2026-09-08, following the no_moat-gate investigation: a
+    # *confirmed* no_moat rating (a real TickerMoat row) now passes the
+    # moat gate, distinct from an unset rating (see test_unset_moat_excludes
+    # below, unchanged). See scoring/speculative_growth.py::_MOAT_QUALIFYING.
     result = evaluate_speculative_growth("Standard", "no_moat", GROWTH_GATE_MIN_PCT + 50, UNPROFITABLE_NI_SERIES)
-    assert result.qualifies is False
-    assert result.not_applicable_reason is None  # in-scope, just didn't clear the moat gate
+    assert result.qualifies is True
+    assert result.not_applicable_reason is None
 
 
 def test_unset_moat_excludes():

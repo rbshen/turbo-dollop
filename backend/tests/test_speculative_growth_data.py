@@ -182,6 +182,21 @@ def test_standard_ticker_with_moat_and_strong_growth_qualifies_end_to_end(monkey
     assert result.psg_ratio == pytest.approx(5.0 / 60.0)
 
 
+def test_standard_ticker_with_confirmed_no_moat_qualifies(monkeypatch):
+    """`no_moat` is a confirmed rating (a real TickerMoat row), distinct from
+    the unset case covered by test_standard_ticker_without_moat_does_not_
+    qualify below -- added 2026-09-08 following the no_moat-gate
+    investigation. See scoring/speculative_growth.py::_MOAT_QUALIFYING."""
+    engine = _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, PROFILE_STANDARD, estimates=ESTIMATES_STRONG_GROWTH)
+    _set_moat(engine, "TEST", "no_moat")
+
+    result = asyncio.run(get_speculative_growth_data("TEST"))
+
+    assert result.qualifies is True
+    assert result.moat == "no_moat"
+
+
 def test_bank_ticker_excluded_before_any_deep_fetch(monkeypatch):
     _fresh_engine(monkeypatch)
     _patch_fmp(monkeypatch, PROFILE_BANK, forbid_deep_fetches=True)
