@@ -41,9 +41,12 @@ describe("MomentumTable", () => {
     expect(screen.getByText("Narrow Moat")).toBeInTheDocument();
   });
 
-  it("links each ticker to its ticker page", () => {
+  it("links each ticker to its ticker page, opening in a new tab", () => {
     render(<MomentumTable rows={ROWS} />);
-    expect(screen.getByRole("link", { name: "SNDK" })).toHaveAttribute("href", "/tickers/SNDK");
+    const link = screen.getByRole("link", { name: "SNDK" });
+    expect(link).toHaveAttribute("href", "/tickers/SNDK");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });
 
   it("colors a negative return red and a positive return green", () => {

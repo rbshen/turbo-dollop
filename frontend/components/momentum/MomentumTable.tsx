@@ -38,7 +38,7 @@ export function MomentumTable({ rows }: Props) {
           <TableRow key={row.ticker}>
             <TableCell className="text-center font-mono text-text-secondary">{row.rank}</TableCell>
             <TableCell className="font-mono font-bold">
-              <Link href={`/tickers/${row.ticker}`} className="text-brand hover:underline">
+              <Link href={`/tickers/${row.ticker}`} target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">
                 {row.ticker}
               </Link>
             </TableCell>
