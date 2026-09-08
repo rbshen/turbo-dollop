@@ -45,6 +45,8 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     weinstein_stage_since_is_lower_bound: null,
     weinstein_ma_slope_pct: null,
     weinstein_vs_ma_pct: null,
+    reversal_status: null,
+    pullback_status: null,
     ...overrides,
   };
 }

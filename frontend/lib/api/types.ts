@@ -531,6 +531,13 @@ export interface TickerScoreOut {
   weinstein_stage_since_is_lower_bound: boolean | null;
   weinstein_ma_slope_pct: number | null;
   weinstein_vs_ma_pct: number | null;
+  // Reversal / Trend Continuation ("Pullback") status -- same values as
+  // ReversalCard.tsx's ReversalStatus / TrendContinuationCard.tsx's
+  // ResolutionStatus, just lower_snake_case (backend-computed, see
+  // analysis/trend_structure/technical_status.py), not a forced shared
+  // enum between the two. null when no TrendAnalysis row exists yet.
+  reversal_status: "not_present" | "confirmed" | "confirmed_stale" | null;
+  pullback_status: "no_pullback" | "pending" | "recovered" | "invalidated" | null;
 }
 
 export type ScreenerUniverse = "sp500" | "dow" | "all";
