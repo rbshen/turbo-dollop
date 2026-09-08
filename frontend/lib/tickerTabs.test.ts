@@ -11,8 +11,8 @@ describe("tickerTabs", () => {
       "analysis",
       "valuation",
       "moat",
-      "technical",
       "analystRatings",
+      "technical",
     ]);
   });
 
