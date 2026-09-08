@@ -83,6 +83,7 @@ export function TickerHeader({ symbol, data }: Props) {
         )}
         <PriceChange change={data.change} changePercent={data.change_percent} />
         <AssessmentChip symbol={symbol} />
+        <MoatPill moat={moatData?.moat} variant="flat" />
         <FairValuePill
           verdict={data.fair_value_verdict}
           price={data.fair_value_price}
@@ -91,14 +92,13 @@ export function TickerHeader({ symbol, data }: Props) {
           reportedCurrency={data.fair_value_reported_currency}
           variant="flat"
         />
-        <MoatPill moat={moatData?.moat} variant="flat" />
         <SpeculativeGrowthPill data={specGrowthData} variant="flat" />
-        <WeinsteinStagePill data={trendData} variant="flat" />
         <PerfVsSpyPill
           status={data.perf_5y_vs_spy_status}
           insufficientHistory={data.perf_5y_insufficient_history}
           variant="flat"
         />
+        <WeinsteinStagePill data={trendData} variant="flat" />
       </div>
 
       {/* Row 3: next earnings -- always shown so a null date reads as
