@@ -90,6 +90,7 @@ export function WeinsteinStageCard({ data }: Props) {
       blurb="30-week moving-average stage classification (Base/Advance/Top/Decline), plus supporting volume and relative-strength context."
       items={items}
       disclaimer={DISCLAIMER}
+      collapsible
     />
   );
 }

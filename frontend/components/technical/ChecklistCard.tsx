@@ -1,4 +1,6 @@
-import { CheckCircle, XCircle } from "@phosphor-icons/react";
+import { CaretDown, CheckCircle, XCircle } from "@phosphor-icons/react";
+
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 /** "Aug 12, 2026" -- shared by Reversal/Trend Continuation's swing-date
  * details, mirroring ValuationGauge.tsx's own inline toLocaleDateString
@@ -36,15 +38,47 @@ interface Props {
    * never hidden behind a collapsible the way AnalysisSectionCard's
    * reasoning bullets are. */
   disclaimer: string;
+  /** When true, the checklist items render inside a Collapsible (same
+   * primitive AnalysisSectionCard uses for its reasoning bullets),
+   * collapsed by default with a "Show details +"/"Hide details -" toggle.
+   * Defaults to false -- Reversal/Trend Continuation stay always-expanded,
+   * unchanged from their original design (see the removed comment this
+   * replaced: those two cards' own status pill is the at-a-glance signal,
+   * so their few items were always meant to be visible immediately).
+   * Weinstein Stage Analysis is the one consumer that opts in, since its
+   * checklist is longer and mostly supporting detail behind the stage
+   * pill itself. */
+  collapsible?: boolean;
 }
 
-// Deliberately NOT AnalysisSectionCard: that component's score/verdict
-// badge and collapsible reasoning imply a scored, validated signal --
-// exactly what this card must NOT look like (see this feature's own
-// "informational display only, explicitly not a validated trading signal"
-// scope). This is a plainer, always-expanded card with its own status pill
-// and a permanently visible backtest-caveat line.
-export function ChecklistCard({ title, statusLabel, statusToneClass, blurb, items, extra, disclaimer }: Props) {
+function ChecklistItems({ items }: { items: ChecklistItem[] }) {
+  return (
+    <ul className="space-y-2">
+      {items.map((item) => (
+        <li key={item.key} className="flex items-start gap-2 text-sm">
+          {item.met !== undefined ? (
+            item.met ? (
+              <CheckCircle size={16} weight="fill" className="mt-0.5 shrink-0 text-positive" />
+            ) : (
+              <XCircle size={20} weight="fill" className="mt-0.5 shrink-0 text-text-tertiary" />
+            )
+          ) : (
+            <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-text-tertiary" />
+          )}
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-baseline gap-x-1.5">
+              <span className="text-text-primary">{item.label}</span>
+              {item.statusText && <span className={`text-xs font-medium ${item.toneClass ?? "text-text-tertiary"}`}>{item.statusText}</span>}
+            </div>
+            {item.detail && <p className="text-xs text-text-tertiary">{item.detail}</p>}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function ChecklistCard({ title, statusLabel, statusToneClass, blurb, items, extra, disclaimer, collapsible = false }: Props) {
   return (
     <div className="space-y-4 rounded-lg border border-border-card bg-surface p-6">
       <div className="flex items-start justify-between gap-4">
@@ -55,28 +89,22 @@ export function ChecklistCard({ title, statusLabel, statusToneClass, blurb, item
         <span className={`shrink-0 rounded-full border px-3 py-1 text-xs font-semibold ${statusToneClass}`}>{statusLabel}</span>
       </div>
 
-      <ul className="space-y-2">
-        {items.map((item) => (
-          <li key={item.key} className="flex items-start gap-2 text-sm">
-            {item.met !== undefined ? (
-              item.met ? (
-                <CheckCircle size={16} weight="fill" className="mt-0.5 shrink-0 text-positive" />
-              ) : (
-                <XCircle size={20} weight="fill" className="mt-0.5 shrink-0 text-text-tertiary" />
-              )
-            ) : (
-              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-text-tertiary" />
-            )}
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-baseline gap-x-1.5">
-                <span className="text-text-primary">{item.label}</span>
-                {item.statusText && <span className={`text-xs font-medium ${item.toneClass ?? "text-text-tertiary"}`}>{item.statusText}</span>}
-              </div>
-              {item.detail && <p className="text-xs text-text-tertiary">{item.detail}</p>}
+      {collapsible ? (
+        <Collapsible>
+          <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-text-tertiary">
+            <span className="group-data-[panel-open]:hidden">Show details +</span>
+            <span className="hidden group-data-[panel-open]:inline">Hide details −</span>
+            <CaretDown size={12} className="transition-transform duration-200 group-data-[panel-open]:rotate-180" />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="mt-3">
+              <ChecklistItems items={items} />
             </div>
-          </li>
-        ))}
-      </ul>
+          </CollapsibleContent>
+        </Collapsible>
+      ) : (
+        <ChecklistItems items={items} />
+      )}
 
       {extra}
 
