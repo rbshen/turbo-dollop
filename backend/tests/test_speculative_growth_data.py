@@ -104,6 +104,8 @@ def _patch_fmp(
     profile: list[dict],
     estimates: list[dict] | None = None,
     forbid_deep_fetches: bool = False,
+    income_annual: list[dict] | None = None,
+    income_quarterly: list[dict] | None = None,
 ):
     async def fake_profile(ticker):
         return profile
@@ -112,7 +114,9 @@ def _patch_fmp(
         return []
 
     async def fake_income_statement(ticker, period, limit):
-        return INCOME_ANNUAL if period == "annual" else INCOME_QUARTERLY
+        if period == "annual":
+            return income_annual if income_annual is not None else INCOME_ANNUAL
+        return income_quarterly if income_quarterly is not None else INCOME_QUARTERLY
 
     async def fake_cash_flow_statement(ticker, period, limit):
         if forbid_deep_fetches:
@@ -180,6 +184,10 @@ def test_standard_ticker_with_moat_and_strong_growth_qualifies_end_to_end(monkey
     assert result.cash_runway_years == pytest.approx(10.0)
     assert result.price_to_sales_ttm == pytest.approx(5.0)
     assert result.psg_ratio == pytest.approx(5.0 / 60.0)
+    # Revenue only ever grows (60 -> 100 -> 160 TTM) -- never depressed
+    # relative to its own trailing peak, so this is genuine growth, not the
+    # fake-growth pattern.
+    assert result.potential_fake_growth is False
 
 
 def test_standard_ticker_with_confirmed_no_moat_qualifies(monkeypatch):
@@ -252,3 +260,72 @@ def test_commodity_company_excluded_even_though_shared_classifier_says_standard(
     assert result.qualifies is False
     assert result.company_type == "Commodity Company"
     assert result.not_applicable_reason is not None
+
+
+# MRNA-shaped fixture: revenue peaked 5 years back at 1000, has since
+# collapsed to 130 (last FY) with only a small TTM uptick to 140 -- a real
+# >30% decline from its own trailing-5yr peak (added 2026-09-08, following
+# the no_moat-gate investigation's MRNA finding). fiscalYear rows are
+# most-recent-first, matching FMP's own convention (see step1_data.py's
+# _annual_series comment).
+INCOME_ANNUAL_DEPRESSED_BASE = [
+    {"fiscalYear": "2025", "revenue": 130.0, "grossProfit": 50.0, "operatingIncome": -10.0, "netIncome": -20.0, "netInterestIncome": 0.0},
+    {"fiscalYear": "2024", "revenue": 140.0, "grossProfit": 55.0, "operatingIncome": -10.0, "netIncome": -20.0, "netInterestIncome": 0.0},
+    {"fiscalYear": "2023", "revenue": 150.0, "grossProfit": 60.0, "operatingIncome": -10.0, "netIncome": -20.0, "netInterestIncome": 0.0},
+    {"fiscalYear": "2022", "revenue": 200.0, "grossProfit": 80.0, "operatingIncome": 20.0, "netIncome": 10.0, "netInterestIncome": 0.0},
+    {"fiscalYear": "2021", "revenue": 1000.0, "grossProfit": 400.0, "operatingIncome": 200.0, "netIncome": 100.0, "netInterestIncome": 0.0},
+]
+
+# 4 quarters of 35 each -> TTM revenue 140, only +7.7% over the 130 last-FY
+# figure -- meaningfully below half of the ~18.9% forward CAGR
+# ESTIMATES_STRONG_GROWTH produces.
+INCOME_QUARTERLY_DEPRESSED_BASE = [
+    {"date": f"2026-{i + 1:02d}-01", "revenue": 35.0, "grossProfit": 14.0, "operatingIncome": -3.0, "netIncome": -5.0, "netInterestIncome": 0.0}
+    for i in range(12)
+]
+
+
+def test_potential_fake_growth_flagged_for_depressed_base_recovery(monkeypatch):
+    """MRNA-shaped case: clears the growth gate on forward CAGR alone while
+    current revenue is still far below its own trailing-5yr peak and
+    trailing YoY growth is a fraction of the forward figure. See
+    scoring/speculative_growth.py::is_potential_fake_growth."""
+    engine = _fresh_engine(monkeypatch)
+    _patch_fmp(
+        monkeypatch,
+        PROFILE_STANDARD,
+        estimates=ESTIMATES_STRONG_GROWTH,
+        income_annual=INCOME_ANNUAL_DEPRESSED_BASE,
+        income_quarterly=INCOME_QUARTERLY_DEPRESSED_BASE,
+    )
+    _set_moat(engine, "TEST", "narrow_moat")
+
+    result = asyncio.run(get_speculative_growth_data("TEST"))
+
+    assert result.growth_rate_pct is not None and result.growth_rate_pct > 15.0
+    # TTM 140 vs last FY 130 -> ~7.7%, well under half the ~18.9% forward CAGR.
+    assert result.trailing_revenue_growth_pct == pytest.approx(140.0 / 130.0 * 100 - 100)
+    assert result.potential_fake_growth is True
+    # Informational only -- doesn't gate qualifies (moat+growth still clear).
+    assert result.qualifies is True
+
+
+def test_potential_fake_growth_not_flagged_when_growth_gate_not_cleared(monkeypatch):
+    """Same depressed-revenue history as the case above, but weak forward
+    growth -- condition (b) requires the ticker to actually clear the growth
+    gate on the forward figure, so this must NOT flag even though condition
+    (a) (revenue well below its trailing peak) is still true."""
+    engine = _fresh_engine(monkeypatch)
+    _patch_fmp(
+        monkeypatch,
+        PROFILE_STANDARD,
+        estimates=ESTIMATES_WEAK_GROWTH,
+        income_annual=INCOME_ANNUAL_DEPRESSED_BASE,
+        income_quarterly=INCOME_QUARTERLY_DEPRESSED_BASE,
+    )
+    _set_moat(engine, "TEST", "narrow_moat")
+
+    result = asyncio.run(get_speculative_growth_data("TEST"))
+
+    assert result.growth_rate_pct is not None and result.growth_rate_pct <= 15.0
+    assert result.potential_fake_growth is False

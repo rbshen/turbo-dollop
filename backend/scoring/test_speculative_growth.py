@@ -6,6 +6,7 @@ from scoring.speculative_growth import (
     cfo_recent_direction,
     evaluate_speculative_growth,
     is_not_durably_profitable,
+    is_potential_fake_growth,
     psg_ratio,
     trailing_revenue_growth_pct,
 )
@@ -228,3 +229,82 @@ def test_trailing_revenue_growth_none_when_base_missing():
 def test_trailing_revenue_growth_none_when_base_non_positive():
     assert trailing_revenue_growth_pct(160.0, 0.0) is None
     assert trailing_revenue_growth_pct(160.0, -50.0) is None
+
+
+# --- is_potential_fake_growth ---------------------------------------------------
+# Revenue series are chronological (oldest -> newest annual, TTM last),
+# matching Step1Out.revenue's real shape.
+
+# MRNA-shaped: peaked at 1000 five years back, has since collapsed to 130
+# (last FY) with only a small TTM uptick to 140 -- current revenue is 86%
+# below its own trailing-5yr peak.
+DEPRESSED_BASE_REVENUE = [1000.0, 200.0, 150.0, 140.0, 130.0, 140.0]
+# BE/CRWV/IREN/SNOW/SYM-shaped: revenue only ever grows, TTM is itself the peak.
+GROWING_REVENUE = [100.0, 200.0, 400.0, 600.0, 800.0, 1000.0]
+
+
+def test_fake_growth_flagged_for_depressed_base_recovery():
+    # forward 34.4% clears the growth gate; trailing (140/130-1)*100=7.7% is
+    # under half of that -- the confirmed MRNA shape.
+    assert is_potential_fake_growth(DEPRESSED_BASE_REVENUE, 34.4, 7.7) is True
+
+
+def test_fake_growth_not_flagged_when_revenue_never_declined():
+    # SNOW-shaped: condition (b) alone (trailing far under half of forward)
+    # is true here, but condition (a) is false -- revenue never dipped, so
+    # this isn't a depressed-base recovery, just decelerating growth.
+    assert is_potential_fake_growth(GROWING_REVENUE, 32.5, 7.4) is False
+
+
+def test_fake_growth_not_flagged_when_growth_gate_not_cleared():
+    # Condition (a) alone (a real decline) isn't enough -- the ticker must
+    # also actually clear the growth gate on the forward figure.
+    assert is_potential_fake_growth(DEPRESSED_BASE_REVENUE, 10.0, 5.0) is False
+
+
+def test_fake_growth_not_flagged_when_trailing_growth_is_close_to_forward():
+    # A real decline, but trailing growth is NOT meaningfully lower than
+    # forward (>= half) -- e.g. a genuine, currently-accelerating recovery.
+    assert is_potential_fake_growth(DEPRESSED_BASE_REVENUE, 20.0, 15.0) is False
+
+
+def test_fake_growth_boundary_exactly_30pct_decline_does_not_trigger():
+    # "More than 30% below" is strict -- exactly at the boundary must not
+    # trigger. Peak 1000, current exactly 700 (30.0% decline).
+    revenue = [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 700.0]
+    assert is_potential_fake_growth(revenue, 34.4, 7.7) is False
+
+
+def test_fake_growth_boundary_just_past_30pct_decline_triggers():
+    # Same shape, current just below 700 (30.1% decline).
+    revenue = [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 699.0]
+    assert is_potential_fake_growth(revenue, 34.4, 7.7) is True
+
+
+def test_fake_growth_degrades_gracefully_with_thin_history():
+    # CRWV-shaped: only 3 annual years + TTM (fewer than the 5-period
+    # lookback window) -- uses whatever's available rather than erroring.
+    revenue = [15.0, 228.0, 1915.0, 5131.0]  # 3 annual years + TTM
+    # TTM (5131) is itself the peak -- no decline, so this must not trigger
+    # regardless of how the forward/trailing growth figures compare.
+    assert is_potential_fake_growth(revenue, 58.4, 10.0) is False
+
+
+def test_fake_growth_none_when_revenue_series_missing():
+    assert is_potential_fake_growth(None, 34.4, 7.7) is False
+    assert is_potential_fake_growth([], 34.4, 7.7) is False
+
+
+def test_fake_growth_none_when_forward_growth_missing():
+    assert is_potential_fake_growth(DEPRESSED_BASE_REVENUE, None, 7.7) is False
+
+
+def test_fake_growth_none_when_trailing_growth_missing():
+    assert is_potential_fake_growth(DEPRESSED_BASE_REVENUE, 34.4, None) is False
+
+
+def test_fake_growth_falls_back_to_latest_annual_when_ttm_is_none():
+    # TTM missing (e.g. a fetch gap) -- falls back to the latest annual
+    # figure as "current revenue" rather than treating it as unknown.
+    revenue = [1000.0, 200.0, 150.0, 140.0, 130.0, None]
+    assert is_potential_fake_growth(revenue, 34.4, 7.7) is True

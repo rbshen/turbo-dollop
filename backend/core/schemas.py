@@ -810,6 +810,14 @@ class SpeculativeGrowthOut(BaseModel):
     # Price/Sales ÷ trailing_revenue_growth_pct -- informational, PSG_REASONABLE_MAX
     # (<=1) is a reference line shown in the UI, not a gate.
     psg_ratio: float | None = None
+    # True when current revenue is well below the ticker's own recent peak
+    # AND it clears the growth gate mainly via forward CAGR rather than real
+    # trailing momentum -- informational only, never a gate. See
+    # scoring/speculative_growth.py::is_potential_fake_growth. Defaults False
+    # for the non-Standard/CFO-exempt early-return branches, same convention
+    # as every other informational field defaulting to its "nothing to flag"
+    # value there.
+    potential_fake_growth: bool = False
 
 
 class TickerBankCapitalMetricsOut(BaseModel):

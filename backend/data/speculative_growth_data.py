@@ -16,6 +16,7 @@ from scoring.speculative_growth import (
     cash_runway_years,
     cfo_recent_direction,
     evaluate_speculative_growth,
+    is_potential_fake_growth,
     psg_ratio,
     trailing_revenue_growth_pct,
 )
@@ -155,6 +156,7 @@ async def get_speculative_growth_data(ticker: str, cache_only: bool = False) -> 
     psg = psg_ratio(price_to_sales_ttm, trailing_growth)
 
     gate = evaluate_speculative_growth(company_type, moat, step2_out.growth_rate, step1_out.net_income)
+    fake_growth = is_potential_fake_growth(step1_out.revenue, step2_out.growth_rate, trailing_growth)
 
     return SpeculativeGrowthOut(
         ticker=ticker,
@@ -173,4 +175,5 @@ async def get_speculative_growth_data(ticker: str, cache_only: bool = False) -> 
         cash_runway_years=cash_runway_years(cash_and_st_investments, cfo_ttm),
         price_to_sales_ttm=price_to_sales_ttm,
         psg_ratio=psg,
+        potential_fake_growth=fake_growth,
     )

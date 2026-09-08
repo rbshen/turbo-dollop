@@ -449,6 +449,11 @@ export interface SpeculativeGrowthOut {
   // Price/Sales ÷ trailing_revenue_growth_pct -- informational, <=1 is a
   // reference line shown in the UI, not a gate.
   psg_ratio: number | null;
+  // True when current revenue is well below the ticker's own recent peak AND
+  // it clears the growth gate mainly via forward CAGR rather than real
+  // trailing momentum -- informational only, never a gate. See
+  // backend/scoring/speculative_growth.py::is_potential_fake_growth.
+  potential_fake_growth: boolean;
 }
 
 export interface TickerBankCapitalMetricsOut {

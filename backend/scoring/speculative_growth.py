@@ -20,8 +20,9 @@ investigation phase's resolved criteria set:
     investigation and the numbers behind this gate's exact shape.
 
 Everything else (trailing growth, gross margin, CFO sign, CFO direction,
-cash runway, PSG) is informational only and never affects `qualifies` -- a
-ticker can be Speculative Growth and expensive (PSG > 1) at the same time.
+cash runway, PSG, potential fake growth) is informational only and never
+affects `qualifies` -- a ticker can be Speculative Growth and expensive
+(PSG > 1) at the same time.
 """
 
 from typing import NamedTuple
@@ -176,3 +177,67 @@ def trailing_revenue_growth_pct(ttm_revenue: float | None, last_fy_revenue: floa
     if ttm_revenue is None or last_fy_revenue is None or last_fy_revenue <= 0:
         return None
     return (ttm_revenue / last_fy_revenue - 1) * 100
+
+
+# "Potential fake growth" -- informational only, never a gate (added
+# 2026-09-08, following the no_moat-gate investigation's MRNA finding).
+# A ticker can clear the growth gate on Step2's forward CAGR while its
+# growth is actually a recovery off a depressed prior-year base rather than
+# real momentum -- MRNA is the confirmed real case: forward CAGR 34.4% vs.
+# trailing YoY revenue growth of only 14.6%, with TTM revenue still 88.2%
+# below its 2022 (COVID-era) peak.
+#
+# Requires BOTH conditions, not either alone -- validated against all 21
+# post-no_moat-gate-change qualifiers: condition (b) alone (trailing growth
+# under half of forward CAGR) fires on 13/21 names, most of them genuine
+# decelerating-but-healthy growth stories (e.g. SNOW: forward 32.5% vs.
+# trailing 7.4%, a large/maturing company's growth naturally cooling, not a
+# depressed-base artifact -- its revenue has never declined at all). Adding
+# condition (a) (a real >30% revenue decline from a recent peak) narrows
+# this to MRNA alone among all 21 -- the AND is load-bearing, not a nicety.
+FAKE_GROWTH_REVENUE_DECLINE_THRESHOLD = 0.30
+FAKE_GROWTH_TRAILING_RATIO = 0.5
+# Trailing *annual* periods (excluding TTM itself) to search for the peak
+# over -- degrades gracefully for a thin-history ticker via plain slicing
+# (e.g. CRWV's 4 annual years all get used rather than erroring).
+FAKE_GROWTH_LOOKBACK_PERIODS = 5
+
+
+def is_potential_fake_growth(
+    revenue_series: list[float | None] | None,
+    growth_rate_pct: float | None,
+    trailing_growth_pct: float | None,
+) -> bool:
+    """True when a ticker's current revenue sits more than
+    FAKE_GROWTH_REVENUE_DECLINE_THRESHOLD below its own trailing-5yr peak
+    (a real, material decline -- not just decelerating growth) AND the
+    ticker clears the growth gate mainly via forward CAGR while trailing
+    YoY revenue growth sits under half of that forward figure -- i.e. the
+    forward number is doing the work a recovering-off-a-trough company's
+    number would do, not a genuinely fast-growing one's.
+
+    Fails closed (False) on any missing input, matching every other
+    gate/informational check in this module -- a missing revenue history,
+    forward growth, or trailing growth figure isn't itself evidence of
+    fake growth, just an unresolvable comparison.
+    """
+    revenue = revenue_series or []
+    if not revenue:
+        return False
+    current_revenue = revenue[-1] if revenue[-1] is not None else (revenue[-2] if len(revenue) >= 2 else None)
+    trailing_window = [v for v in revenue[-(FAKE_GROWTH_LOOKBACK_PERIODS + 1) : -1] if v is not None]
+    peak_revenue = max(trailing_window) if trailing_window else None
+
+    revenue_depressed = (
+        current_revenue is not None
+        and peak_revenue is not None
+        and peak_revenue > 0
+        and current_revenue < peak_revenue * (1 - FAKE_GROWTH_REVENUE_DECLINE_THRESHOLD)
+    )
+    forward_growth_outpaces_trailing = (
+        growth_rate_pct is not None
+        and growth_rate_pct > GROWTH_GATE_MIN_PCT
+        and trailing_growth_pct is not None
+        and trailing_growth_pct < growth_rate_pct * FAKE_GROWTH_TRAILING_RATIO
+    )
+    return revenue_depressed and forward_growth_outpaces_trailing
