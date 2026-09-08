@@ -23,6 +23,7 @@ from sqlalchemy import event
 
 import data.ticker_summary as ticker_summary
 from clients.fmp_client import fmp_client
+from core.config import settings
 from core.db import engine as real_engine
 
 _WRITE_PREFIXES = ("INSERT", "UPDATE", "DELETE", "REPLACE")
@@ -92,3 +93,47 @@ def _default_yahoo_price_history(monkeypatch):
         return []
 
     monkeypatch.setattr(ticker_summary, "get_or_fetch_price_history", _default_get_or_fetch_price_history)
+
+
+@pytest.fixture(autouse=True)
+def _default_flags_enabled(monkeypatch):
+    """Pins fmp_enabled/cron_health_enabled to their documented `True`
+    defaults for the whole test session, regardless of what this
+    developer's own local .env says. `settings` (core/config.py) is a true
+    module-level singleton -- every consumer across the codebase does
+    `from core.config import settings` and reads the attribute off this
+    exact same object, so patching it once here, on the shared object
+    itself, is visible everywhere, the same singleton-patching convention
+    _default_earnings_fetch above already relies on for fmp_client.
+
+    Root-caused 2026-09-08: this environment's real .env has had
+    FMP_ENABLED=false/CRON_HEALTH_ENABLED=false since 2026-08-18 (a
+    deliberate, correct operational choice -- the FMP subscription really
+    is paused), but ~155 of this suite's tests never accounted for that,
+    assuming the documented `True` defaults instead of monkeypatching them
+    explicitly. Confirmed via `git stash`-style bisection across multiple
+    sessions that this reads as "pre-existing, unrelated failures" every
+    time a feature branch's tests are checked against `main` -- true in
+    the narrow sense that no feature change caused it, but the real count
+    (159, not the "~7" once assumed) was never actually verified plain
+    until this investigation, because those still-passing local ~7-failure
+    baselines were themselves generated in dev sessions with these flags
+    overridden to True in the shell, not by an unmodified `uv run pytest`.
+
+    A test that specifically wants to exercise the disabled state already
+    sets its own monkeypatch.setattr(<module>.settings, "fmp_enabled"/
+    "cron_health_enabled", False) afterward (e.g. test_health.py's
+    test_fmp_status_reflects_the_flag_when_disabled, test_cron_health_
+    endpoint.py's test_cron_health_disabled_reports_enabled_false_and_
+    no_jobs) -- same object, last write wins, so this default never
+    conflicts with those, exactly like _default_earnings_fetch above.
+    Verified safe to flip broadly: every one of the ~155 previously-FMP-
+    affected tests already monkeypatches fmp_client at the function level
+    (or, for test_fmp_client.py, at the httpx transport level via
+    MockTransport) rather than depending on live FMP data -- confirmed
+    empirically by running the full suite with FMP_ENABLED=true and a
+    deliberately invalid FMP_API_KEY: identical result (0 failures) to a
+    real key, proving no test's outcome depends on a genuine FMP
+    response."""
+    monkeypatch.setattr(settings, "fmp_enabled", True)
+    monkeypatch.setattr(settings, "cron_health_enabled", True)
