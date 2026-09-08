@@ -6,6 +6,7 @@ import { MoatPill } from "@/components/ticker/MoatPill";
 import { PerfVsSpyPill } from "@/components/ticker/PerfVsSpyPill";
 import { PriceChange } from "@/components/ticker/PriceChange";
 import { RefreshButton } from "@/components/ticker/RefreshButton";
+import { SpeculativeGrowthInfoIcon } from "@/components/ticker/SpeculativeGrowthInfoIcon";
 import { SpeculativeGrowthPill } from "@/components/ticker/SpeculativeGrowthPill";
 import { WeinsteinStagePill } from "@/components/ticker/WeinsteinStagePill";
 import { useSpeculativeGrowth } from "@/lib/hooks/useSpeculativeGrowth";
@@ -92,7 +93,10 @@ export function TickerHeader({ symbol, data }: Props) {
           reportedCurrency={data.fair_value_reported_currency}
           variant="flat"
         />
-        <SpeculativeGrowthPill data={specGrowthData} variant="flat" />
+        <span className="inline-flex items-center gap-1">
+          <SpeculativeGrowthPill data={specGrowthData} variant="flat" />
+          {specGrowthData?.qualifies && <SpeculativeGrowthInfoIcon />}
+        </span>
         <PerfVsSpyPill
           status={data.perf_5y_vs_spy_status}
           insufficientHistory={data.perf_5y_insufficient_history}
