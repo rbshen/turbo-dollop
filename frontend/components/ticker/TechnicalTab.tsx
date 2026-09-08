@@ -59,12 +59,12 @@ export function TechnicalTab({ ticker }: Props) {
         <NearTermCard data={data} />
       </div>
 
+      <WeinsteinStageCard data={data} />
+
       <div className="space-y-2">
         {scope.fullCard === "reversal" ? <ReversalCard data={data} /> : <TrendContinuationCard data={data} />}
         <CollapsedTechnicalCard label={scope.collapsedLabel} subline={scope.collapsedSubline} />
       </div>
-
-      <WeinsteinStageCard data={data} />
     </div>
   );
 }
