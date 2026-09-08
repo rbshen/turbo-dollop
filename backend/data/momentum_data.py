@@ -8,7 +8,6 @@ scoring entirely.
 
 import logging
 from datetime import date, datetime
-from typing import Literal
 
 import pandas as pd
 from sqlalchemy import delete
@@ -17,7 +16,7 @@ from sqlmodel import Session, select
 from clients.yahoo_client import yahoo_client
 from core.db import engine
 from core.models import MomentumSnapshot, TickerScore
-from core.schemas import MomentumOut, MomentumSnapshotRowOut
+from core.schemas import MomentumOut, MomentumPeriod, MomentumSnapshotRowOut
 from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
 from scoring.momentum import compute_momentum_ranking
 
@@ -84,7 +83,7 @@ async def compute_and_store_momentum_snapshot(anchor_date: date) -> dict:
     return summary
 
 
-def get_momentum_snapshot(period: Literal["current", "previous"] = "current") -> MomentumOut:
+def get_momentum_snapshot(period: MomentumPeriod = "current") -> MomentumOut:
     """Reads a persisted snapshot -- never computes live. `current` is the
     most recent as_of_date on file; `previous` is the next one down. Either
     returns an empty MomentumOut (as_of_date/computed_at both None, rows

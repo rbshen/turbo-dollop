@@ -18,6 +18,7 @@ from core.exceptions import TickerNotFoundError
 from helpers.discount_rate_config import get_discount_rate_config, update_discount_rate_config
 from core.logging_config import apply_redaction_filters
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
+from data.momentum_data import get_momentum_snapshot
 from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config, update_reit_dividend_yield_config
 from core.models import IndexConstituent, SavedScreenerFilter, TickerCustomValuation, TickerScore, Watchlist
 from core.tickers import normalize_ticker
@@ -39,6 +40,8 @@ from core.schemas import (
     FmpStatusOut,
     MoatScoreConfigIn,
     MoatScoreConfigOut,
+    MomentumOut,
+    MomentumPeriod,
     NewsOut,
     RatiosOut,
     RecomputeSummary,
@@ -146,6 +149,11 @@ def fmp_status() -> FmpStatusOut:
 @app.get("/api/config/cron-health", response_model=CronHealthOut)
 def cron_health() -> CronHealthOut:
     return get_cron_health()
+
+
+@app.get("/api/momentum", response_model=MomentumOut)
+def momentum(period: MomentumPeriod = "current") -> MomentumOut:
+    return get_momentum_snapshot(period)
 
 
 @app.get("/api/config/discount-rate", response_model=DiscountRateConfigOut)

@@ -946,6 +946,8 @@ class SavedScreenerFilterOut(BaseModel):
 
 Universe = Literal["sp500", "dow", "all"]
 
+MomentumPeriod = Literal["current", "previous"]
+
 
 class WatchlistTickerOut(BaseModel):
     ticker: str
