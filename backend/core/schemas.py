@@ -1049,6 +1049,39 @@ class TrendAnalysisOut(BaseModel):
     weinstein_breakout_confirmed: bool | None = None
 
 
+class MomentumSnapshotRowOut(BaseModel):
+    """One ticker's row in a Momentum snapshot -- see models.py::
+    MomentumSnapshot. `company_name`/`overall_score` are joined live from
+    TickerScore at request time (data/momentum_data.py), not stored in the
+    snapshot itself, so `overall_score` always reflects today's Fathom
+    score -- shown for context only, never used in the ranking. `moat` IS
+    a stored snapshot (what the rating was at compute time), unlike those
+    two -- see MomentumSnapshot's own docstring for why."""
+
+    ticker: str
+    company_name: str | None = None
+    moat: Literal["wide_moat", "narrow_moat", "no_moat"]
+    return_3mo: float
+    return_6mo: float
+    return_12mo: float
+    composite_score: float
+    rank: int
+    overall_score: int | None = None
+
+
+class MomentumOut(BaseModel):
+    """A full ranked Momentum snapshot for one month. as_of_date/computed_at
+    are both None (with rows == []) when no snapshot exists yet at all --
+    the pre-first-cron-run empty state, and also what a `period="previous"`
+    request returns when only one month's snapshot has ever been computed
+    -- never a 404/error either way (see data/momentum_data.py::
+    get_momentum_snapshot)."""
+
+    as_of_date: date | None
+    computed_at: datetime | None
+    rows: list[MomentumSnapshotRowOut]
+
+
 class WatchlistTickerIn(BaseModel):
     ticker: str
 

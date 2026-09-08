@@ -473,6 +473,46 @@ class PriceTargetSnapshot(SQLModel, table=True):
     fetched_at: datetime
 
 
+class MomentumSnapshot(SQLModel, table=True):
+    """One row per ticker per monthly Momentum run (see
+    pipeline/monthly_momentum_snapshot.py, scoring/momentum.py) -- a 3-way
+    composite price-momentum lens (3mo/6mo/12mo trailing return average)
+    over Fathom's Moat-rated universe. Independent of Step 1-5/Overall
+    Assessment scoring entirely -- a pure price signal, never fed back into
+    it.
+
+    Deliberately append-only, same convention as PriceTargetSnapshot above
+    (not upserted-latest-only like TrendAnalysis/TickerScore): the whole
+    point is to preserve every past month's full ranked list so the
+    frontend's This month/Previous month toggle -- and any future
+    historical-rank view -- can read prior snapshots directly rather than
+    needing a recompute. `as_of_date` is the NYSE trading day the lookback
+    windows were actually anchored to (see
+    helpers/trading_calendar.py::resolve_month_end_anchor), not the
+    (usually few-days-later) day the cron happened to run -- `computed_at`
+    is that real run timestamp instead.
+
+    `moat` is a snapshot of the rating AT COMPUTE TIME, not a live
+    foreign-key read -- deliberately, so a since-changed Moat rating can
+    never retroactively alter what a past month's ranked list actually
+    showed. `company_name`/an Overall Assessment score are NOT stored here
+    at all -- the API layer (data/momentum_data.py::get_momentum_snapshot)
+    joins those live from TickerScore at request time instead, so the
+    "for context only" Overall score shown next to a historical snapshot
+    always reflects today's score, never a frozen one."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    ticker: str = Field(index=True)
+    as_of_date: date = Field(index=True)
+    computed_at: datetime
+    moat: str  # "wide_moat" | "narrow_moat" | "no_moat"
+    return_3mo: float
+    return_6mo: float
+    return_12mo: float
+    composite_score: float
+    rank: int
+
+
 class CronRunLog(SQLModel, table=True):
     """One row per cron job invocation, written by core.cron_health.cron_heartbeat
     -- deliberately append-only (no UniqueConstraint, no upsert), same
