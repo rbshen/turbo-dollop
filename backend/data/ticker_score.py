@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import datetime
 from typing import Awaitable, TypeVar
@@ -5,6 +6,7 @@ from typing import Awaitable, TypeVar
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session
 
+from analysis.trend_structure.technical_status import compute_pullback_status, compute_reversal_status
 from core.db import engine
 from core.models import TickerScore, TrendAnalysis
 from core.tickers import normalize_ticker
@@ -88,6 +90,29 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         # ticker Weinstein hasn't processed yet) is just None, never a raise.
         trend_analysis = session.get(TrendAnalysis, ticker)
 
+    reversal_status: str | None = None
+    pullback_status: str | None = None
+    if trend_analysis is not None:
+        # Only "classification" is needed here (not the full SwingDetailOut
+        # shape trend_analysis_data.py's own parser builds), so this is a
+        # minimal, tolerant parse rather than reusing that stricter parser.
+        last_confirmed_swing_classification = (
+            json.loads(trend_analysis.last_confirmed_swing_json).get("classification")
+            if trend_analysis.last_confirmed_swing_json
+            else None
+        )
+        reversal_status = compute_reversal_status(
+            trend_analysis.magnitude_tier,
+            last_confirmed_swing_classification,
+            trend_analysis.ad_bullish_divergence,
+            trend_analysis.bars_since_confirmation,
+        )
+        pullback_status = compute_pullback_status(
+            trend_analysis.trend_state,
+            trend_analysis.warning_flag,
+            trend_analysis.pullback_occurred_since_flip,
+        )
+
     overall = compute_overall_assessment(
         [
             _snapshot("step1", step1, step1_error),
@@ -145,6 +170,8 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         weinstein_stage_since_is_lower_bound=trend_analysis.weinstein_stage_since_is_lower_bound if trend_analysis else None,
         weinstein_ma_slope_pct=trend_analysis.weinstein_ma_slope_pct if trend_analysis else None,
         weinstein_vs_ma_pct=trend_analysis.weinstein_vs_ma_pct if trend_analysis else None,
+        reversal_status=reversal_status,
+        pullback_status=pullback_status,
     )
 
     values = row.model_dump()

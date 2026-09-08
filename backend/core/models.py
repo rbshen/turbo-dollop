@@ -410,6 +410,17 @@ class TickerScore(SQLModel, table=True):
     weinstein_stage_since_is_lower_bound: bool | None = None
     weinstein_ma_slope_pct: float | None = None
     weinstein_vs_ma_pct: float | None = None
+    # Reversal / Trend Continuation ("Pullback") status -- ported from the
+    # Technical tab's own ReversalCard.tsx::reversalStatus /
+    # TrendContinuationCard.tsx::resolutionStatus (see
+    # analysis/trend_structure/technical_status.py), kept in each card's own
+    # vocabulary rather than a forced shared enum. Computed in
+    # compute_ticker_score() from the same TrendAnalysis sibling read as the
+    # weinstein_* fields above, not a live recomputation of the swing/BOS
+    # engine. None whenever no TrendAnalysis row exists yet, same "no
+    # signal" convention as weinstein_stage.
+    reversal_status: str | None = None  # "not_present" | "confirmed" | "confirmed_stale"
+    pullback_status: str | None = None  # "no_pullback" | "pending" | "recovered" | "invalidated"
 
 
 class TickerCustomValuation(SQLModel, table=True):

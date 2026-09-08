@@ -284,6 +284,82 @@ def test_weinstein_stage_is_none_when_no_trend_analysis_row_exists(monkeypatch):
     assert row.weinstein_stage is None
 
 
+def test_reversal_and_pullback_status_are_computed_from_trend_analysis(monkeypatch):
+    # Ported from ReversalCard.tsx::reversalStatus / TrendContinuationCard.tsx
+    # ::resolutionStatus -- a confirmed LL + confirmed-tier + divergence
+    # reads "confirmed"; an uptrend with no warning_flag and a resolved
+    # prior pullback reads "recovered". Two separate rows (mutually
+    # exclusive trend_state, per the state-machine invariant) rather than
+    # one, since a single TrendAnalysis row can't be both.
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(
+            TrendAnalysis(
+                ticker="AAPL",
+                computed_at=datetime(2026, 9, 6),
+                trend_state="downtrend",
+                magnitude_tier="confirmed",
+                persistence_count=3,
+                bars_since_confirmation=5,
+                last_confirmed_swing_json='{"classification": "LL"}',
+                warning_flag=False,
+                pullback_occurred_since_flip=False,
+                blended_score=-4.2,
+                bar_level=1,
+                ad_bullish_divergence=True,
+            )
+        )
+        session.commit()
+    _patch_all(monkeypatch)
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None
+    assert result.reversal_status == "confirmed"
+    assert result.pullback_status == "invalidated"
+
+    with Session(engine) as session:
+        row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
+    assert row.reversal_status == "confirmed"
+    assert row.pullback_status == "invalidated"
+
+
+def test_pullback_recovered_when_uptrend_with_no_warning_and_prior_pullback(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(
+            TrendAnalysis(
+                ticker="AAPL",
+                computed_at=datetime(2026, 9, 6),
+                trend_state="uptrend",
+                persistence_count=5,
+                warning_flag=False,
+                pullback_occurred_since_flip=True,
+                blended_score=4.2,
+                bar_level=3,
+            )
+        )
+        session.commit()
+    _patch_all(monkeypatch)
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None
+    assert result.reversal_status == "not_present"
+    assert result.pullback_status == "recovered"
+
+
+def test_reversal_and_pullback_status_are_none_when_no_trend_analysis_row_exists(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch)
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None
+    assert result.reversal_status is None
+    assert result.pullback_status is None
+
+
 def test_upsert_updates_an_existing_row_rather_than_erroring(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     with Session(engine) as session:
