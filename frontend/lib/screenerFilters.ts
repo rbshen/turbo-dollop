@@ -102,6 +102,29 @@ export const WEINSTEIN_STAGE_FILTER_OPTIONS: MultiSelectOption[] = [
   { value: "decline", label: WEINSTEIN_STAGE_LABEL.decline },
 ];
 
+// No "not_present" option -- same reasoning as Weinstein Stage above: it's
+// the structural default/majority state (most tickers, and every
+// uptrending one, read this way -- see ReversalCard.tsx's own state-machine
+// invariant comment), not something a user filters *for*. Labels are local
+// to this dropdown ("Confirmed"/"Confirmed (stale)"), not re-exported from
+// ReversalPill.tsx -- this filter's own group label already reads
+// "Reversal", so repeating that word in each option would be redundant,
+// same rationale as VS_SPY_FILTER_OPTIONS above.
+export const REVERSAL_STATUS_FILTER_OPTIONS: MultiSelectOption[] = [
+  { value: "confirmed", label: "Confirmed" },
+  { value: "confirmed_stale", label: "Confirmed (stale)" },
+];
+
+// No "no_pullback" option -- same reasoning as Reversal above: it's the
+// default state for a healthy, uninterrupted uptrend, not a state worth
+// filtering for. Labels are local to this dropdown, not re-exported from
+// PullbackPill.tsx, for the same redundancy reason.
+export const PULLBACK_STATUS_FILTER_OPTIONS: MultiSelectOption[] = [
+  { value: "pending", label: "Pending" },
+  { value: "recovered", label: "Recovered" },
+  { value: "invalidated", label: "Invalidated" },
+];
+
 export interface ScreenerFilterState {
   overallScore: RangeFilter;
   step1Score: RangeFilter;
@@ -120,6 +143,8 @@ export interface ScreenerFilterState {
   valuationVerdict: string[];
   vsSpy: string[];
   weinsteinStages: string[];
+  reversalStatuses: string[];
+  pullbackStatuses: string[];
   // Plain boolean, unlike the array filters above -- a checkbox, not a
   // multi-select. false (default) means "no filtering by this criterion";
   // true means "show only qualifies=true" (see filterTickerScores below).
@@ -142,6 +167,8 @@ export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
   valuationVerdict: [],
   vsSpy: [],
   weinsteinStages: [],
+  reversalStatuses: [],
+  pullbackStatuses: [],
   speculativeGrowth: false,
 };
 
@@ -178,6 +205,12 @@ export function filterTickerScores(rows: TickerScoreOut[], filters: ScreenerFilt
     }
     if (filters.vsSpy.length > 0 && !filters.vsSpy.includes(row.perf_5y_vs_spy_status ?? "no_data")) return false;
     if (filters.weinsteinStages.length > 0 && !filters.weinsteinStages.includes(row.weinstein_stage ?? "")) return false;
+    if (filters.reversalStatuses.length > 0 && !filters.reversalStatuses.includes(row.reversal_status ?? "not_present")) {
+      return false;
+    }
+    if (filters.pullbackStatuses.length > 0 && !filters.pullbackStatuses.includes(row.pullback_status ?? "no_pullback")) {
+      return false;
+    }
     if (filters.speculativeGrowth && !row.speculative_growth_qualifies) return false;
     return true;
   });

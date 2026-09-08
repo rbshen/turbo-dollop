@@ -226,6 +226,49 @@ describe("filterTickerScores", () => {
     expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(1);
   });
 
+  it("filters by Reversal status multi-select", () => {
+    const rows = [
+      row({ ticker: "CONFIRMED", reversal_status: "confirmed" }),
+      row({ ticker: "STALE", reversal_status: "confirmed_stale" }),
+      row({ ticker: "NOT_PRESENT", reversal_status: "not_present" }),
+    ];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, reversalStatuses: ["confirmed"] };
+    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["CONFIRMED"]);
+  });
+
+  it("excludes a ticker with no reversal status once the filter is active", () => {
+    const rows = [row({ ticker: "PREDATES_FIELD", reversal_status: null })];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, reversalStatuses: ["confirmed"] };
+    expect(filterTickerScores(rows, filters)).toHaveLength(0);
+  });
+
+  it("does not exclude a null-reversal-status ticker when no Reversal filter is active", () => {
+    const rows = [row({ ticker: "PREDATES_FIELD", reversal_status: null })];
+    expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(1);
+  });
+
+  it("filters by Pullback status multi-select", () => {
+    const rows = [
+      row({ ticker: "PENDING", pullback_status: "pending" }),
+      row({ ticker: "RECOVERED", pullback_status: "recovered" }),
+      row({ ticker: "INVALIDATED", pullback_status: "invalidated" }),
+      row({ ticker: "NO_PULLBACK", pullback_status: "no_pullback" }),
+    ];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, pullbackStatuses: ["pending", "invalidated"] };
+    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["PENDING", "INVALIDATED"]);
+  });
+
+  it("excludes a ticker with no pullback status once the filter is active", () => {
+    const rows = [row({ ticker: "PREDATES_FIELD", pullback_status: null })];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, pullbackStatuses: ["recovered"] };
+    expect(filterTickerScores(rows, filters)).toHaveLength(0);
+  });
+
+  it("does not exclude a null-pullback-status ticker when no Pullback filter is active", () => {
+    const rows = [row({ ticker: "PREDATES_FIELD", pullback_status: null })];
+    expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(1);
+  });
+
   it("does not filter by Speculative Growth when the checkbox is unchecked (default)", () => {
     const rows = [
       row({ ticker: "QUALIFIES", speculative_growth_qualifies: true }),

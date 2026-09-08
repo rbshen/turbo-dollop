@@ -2,7 +2,13 @@
 
 import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
 import { MultiSelectDropdown } from "@/components/screener/MultiSelectDropdown";
-import { VS_SPY_FILTER_OPTIONS, WEINSTEIN_STAGE_FILTER_OPTIONS, type ScreenerFilterState } from "@/lib/screenerFilters";
+import {
+  PULLBACK_STATUS_FILTER_OPTIONS,
+  REVERSAL_STATUS_FILTER_OPTIONS,
+  VS_SPY_FILTER_OPTIONS,
+  WEINSTEIN_STAGE_FILTER_OPTIONS,
+  type ScreenerFilterState,
+} from "@/lib/screenerFilters";
 
 interface Props {
   filters: ScreenerFilterState;
@@ -28,6 +34,18 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
           options={WEINSTEIN_STAGE_FILTER_OPTIONS}
           selected={filters.weinsteinStages}
           onChange={(s) => patch({ weinsteinStages: s })}
+        />
+        <MultiSelectDropdown
+          label="Reversal"
+          options={REVERSAL_STATUS_FILTER_OPTIONS}
+          selected={filters.reversalStatuses}
+          onChange={(s) => patch({ reversalStatuses: s })}
+        />
+        <MultiSelectDropdown
+          label="Pullback"
+          options={PULLBACK_STATUS_FILTER_OPTIONS}
+          selected={filters.pullbackStatuses}
+          onChange={(s) => patch({ pullbackStatuses: s })}
         />
       </div>
     </CollapsibleFilterSection>
