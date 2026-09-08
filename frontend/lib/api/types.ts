@@ -1107,3 +1107,33 @@ export interface TrendAnalysisOut {
   weinstein_mansfield_rs: number | null;
   weinstein_breakout_confirmed: boolean | null;
 }
+
+export type MomentumPeriod = "current" | "previous";
+
+export interface MomentumSnapshotRowOut {
+  ticker: string;
+  // Joined live from TickerScore at request time -- not stored in the
+  // snapshot, so this always reflects today's data even for a past month.
+  company_name: string | null;
+  // A stored snapshot of the rating AT COMPUTE TIME (unlike company_name/
+  // overall_score above) -- a since-changed Moat rating never retroactively
+  // alters what a past month's ranked list actually showed.
+  moat: MoatValue;
+  return_3mo: number;
+  return_6mo: number;
+  return_12mo: number;
+  composite_score: number;
+  rank: number;
+  // Fathom's Overall Assessment score, for context only -- never used in
+  // this ranking. Joined live from TickerScore, same as company_name.
+  overall_score: number | null;
+}
+
+export interface MomentumOut {
+  // Both null (with rows == []) when no snapshot exists yet at all, or when
+  // period="previous" is requested but only one month has ever been
+  // computed -- never a 404/error either way.
+  as_of_date: string | null;
+  computed_at: string | null;
+  rows: MomentumSnapshotRowOut[];
+}

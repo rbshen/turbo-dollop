@@ -15,6 +15,7 @@ interface NavLink {
 const NAV_LINKS: NavLink[] = [
   { href: "/screener", label: "Screener" },
   { href: "/watchlist", label: "Watchlist" },
+  { href: "/momentum", label: "Momentum" },
   { href: "/settings", label: "Settings" },
 ];
 
