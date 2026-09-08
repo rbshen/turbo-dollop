@@ -49,7 +49,7 @@ export function TopNav() {
               <Link
                 key={href}
                 href={href}
-                {...(href === "/watchlist" ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                {...(["/watchlist", "/momentum", "/settings"].includes(href) ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                 className={cn(
                   "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
                   active ? "bg-brand/15 text-brand" : "text-text-secondary hover:bg-white/5 hover:text-text-primary"
