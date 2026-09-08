@@ -45,6 +45,7 @@ CRON_JOB_NAMES: list[str] = [
     "pipeline.stale_data_health_check",
     "pipeline.purge_invalid_tickers",
     "pipeline.monthly_price_target_snapshot",
+    "pipeline.monthly_momentum_snapshot",
     "pipeline.backup_db",
 ]
 
@@ -71,6 +72,7 @@ _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.stale_data_health_check": _WEEKLY_HOURS,
     "pipeline.purge_invalid_tickers": _WEEKLY_HOURS,
     "pipeline.monthly_price_target_snapshot": _MONTHLY_HOURS,
+    "pipeline.monthly_momentum_snapshot": _MONTHLY_HOURS,
 }
 
 

@@ -101,6 +101,18 @@
 # bounded.
 0 3 1 * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.monthly_price_target_snapshot >> /home/shen/fathom/backend/logs/monthly_price_target_snapshot_cron.log 2>&1
 
+# Monthly Momentum snapshot (3mo/6mo/12mo composite trailing-return ranking
+# over the Moat-rated universe), 3 AM server time -- tried daily across the
+# 1st-5th of each month rather than pinned to the 1st, since the lookback
+# windows must anchor to a completed month's FINAL close (running at 3am
+# on the calendar 1st would be before that day's own session even opens),
+# and a holiday can push the real first trading day of the month past the
+# 1st. The script itself (helpers/trading_calendar.py::
+# resolve_month_end_anchor) checks whether today is genuinely the first
+# NYSE trading day of the month and no-ops (still a "success" heartbeat)
+# on every other day in this window. See pipeline/monthly_momentum_snapshot.py.
+0 3 1-5 * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.monthly_momentum_snapshot >> /home/shen/fathom/backend/logs/monthly_momentum_snapshot_cron.log 2>&1
+
 # Daily SQLite backup, 3:30 AM server time -- after the 2 AM nightly fetch,
 # with a 1.5hr buffer even for a cold-cache run. Compressed, timestamped
 # copy of fathom.db to backend/backups/ (gitignored); keeps the last 14
