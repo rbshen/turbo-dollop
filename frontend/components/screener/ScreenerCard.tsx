@@ -49,25 +49,26 @@ export function ScreenerCard({ data }: Props) {
         <span className="truncate text-text-tertiary">{data.sector ?? "—"}</span>
       </div>
 
-      {(data.moat != null || data.valuation_verdict != null) && (
+      {(data.moat != null ||
+        data.valuation_verdict != null ||
+        (data.perf_5y_vs_spy_status != null && data.perf_5y_vs_spy_status !== "no_data")) && (
         <div className="flex flex-wrap items-center gap-1.5">
           <MoatPill moat={data.moat} variant="flat" labelSet="screener" />
           {/* No `source` prop here -- suppresses ValuationBadge's "· Custom"
               marker, matching the constant color-only "Valuation" label. */}
           <ValuationBadge verdict={data.valuation_verdict} variant="flat" labelSet="screener" />
+          <PerfVsSpyPill status={data.perf_5y_vs_spy_status} variant="flat" labelSet="screener" />
         </div>
       )}
 
-      {/* Technical row -- 5Y vs SPY, Weinstein Stage, Reversal, Pullback --
-          kept separate from the fundamental row above so the two families
-          of signal (fundamentals-driven vs. price-structure-driven) don't
+      {/* Technical row -- Weinstein Stage, Reversal, Pullback -- kept
+          separate from the fundamental row above so the two families of
+          signal (fundamentals-driven vs. price-structure-driven) don't
           visually blend together. */}
-      {((data.perf_5y_vs_spy_status != null && data.perf_5y_vs_spy_status !== "no_data") ||
-        data.weinstein_stage != null ||
+      {(data.weinstein_stage != null ||
         (data.reversal_status != null && data.reversal_status !== "not_present") ||
         (data.pullback_status != null && data.pullback_status !== "no_pullback")) && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <PerfVsSpyPill status={data.perf_5y_vs_spy_status} variant="flat" labelSet="screener" />
           <WeinsteinStagePill data={data} variant="flat" labelSet="screener" />
           <ReversalPill status={data.reversal_status} variant="flat" />
           <PullbackPill status={data.pullback_status} variant="flat" />
