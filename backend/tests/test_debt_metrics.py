@@ -172,6 +172,19 @@ def test_ticker_summary_and_step5_agree_on_the_same_raw_figures(monkeypatch):
     monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios", fake_empty_list)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_analyst_estimates", fake_empty_list)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_earnings", fake_empty_list)
+    # Previously unmocked -- get_summary() also fetches enterprise_values/
+    # ratios_ttm/financial_growth/historical_price_eod (ticker_summary.py),
+    # and with fmp_enabled pinned True for the test session (see
+    # conftest.py::_default_flags_enabled), an unmocked fmp_client method
+    # makes a REAL network call rather than raising FMPDisabledError the
+    # way it silently did before that pin landed. Found via a hang: a live
+    # 429 on one of these endpoints walked straight into two real 65s
+    # RATE_LIMIT_RETRY_BACKOFF_SECONDS sleeps (clients/fmp_client.py), not
+    # a fast local failure -- these four were the ones actually missing.
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_enterprise_values", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios_ttm", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_financial_growth", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_historical_price_eod", fake_empty_list)
 
     step5_result = asyncio.run(get_step5_data("acme"))
     summary_result = asyncio.run(get_summary("acme"))
@@ -247,6 +260,19 @@ def test_outlier_warning_propagates_through_step5_and_ticker_summary(monkeypatch
     monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios", fake_empty_list)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_analyst_estimates", fake_empty_list)
     monkeypatch.setattr(ticker_summary.fmp_client, "get_earnings", fake_empty_list)
+    # Previously unmocked -- get_summary() also fetches enterprise_values/
+    # ratios_ttm/financial_growth/historical_price_eod (ticker_summary.py),
+    # and with fmp_enabled pinned True for the test session (see
+    # conftest.py::_default_flags_enabled), an unmocked fmp_client method
+    # makes a REAL network call rather than raising FMPDisabledError the
+    # way it silently did before that pin landed. Found via a hang: a live
+    # 429 on one of these endpoints walked straight into two real 65s
+    # RATE_LIMIT_RETRY_BACKOFF_SECONDS sleeps (clients/fmp_client.py), not
+    # a fast local failure -- these four were the ones actually missing.
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_enterprise_values", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios_ttm", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_financial_growth", fake_empty_list)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_historical_price_eod", fake_empty_list)
 
     # This test predates the SEC EDGAR cross-check and isn't testing it --
     # short-circuit to "no CIK found" so it doesn't hit the real network
