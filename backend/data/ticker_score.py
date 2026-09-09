@@ -10,7 +10,7 @@ from analysis.trend_structure.technical_status import compute_pullback_status, c
 from core.db import engine
 from core.models import TechnicalEntrySignal, TickerScore, TrendAnalysis
 from core.tickers import normalize_ticker
-from data.entry_signal_data import DEFAULT_SIGNAL_TYPE, DEFAULT_TIMEFRAME
+from data.entry_signal_data import DEFAULT_SIGNAL_TYPE, DEFAULT_TIMEFRAME, is_entry_signal_active
 from data.moat import get_moat_score_config, get_ticker_moat, resolve_moat_score
 from scoring.overall import MoatSnapshot, StepSnapshot, compute_overall_assessment
 from data.step1_data import get_step1_data
@@ -174,7 +174,7 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         weinstein_vs_ma_pct=trend_analysis.weinstein_vs_ma_pct if trend_analysis else None,
         reversal_status=reversal_status,
         pullback_status=pullback_status,
-        bb_rsi_entry_signal=entry_signal.fired if entry_signal else None,
+        bb_rsi_entry_signal=is_entry_signal_active(entry_signal.fired_at) if entry_signal else None,
     )
 
     values = row.model_dump()

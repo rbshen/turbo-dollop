@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -284,10 +284,13 @@ def test_weinstein_stage_is_none_when_no_trend_analysis_row_exists(monkeypatch):
     assert row.weinstein_stage is None
 
 
-def test_bb_rsi_entry_signal_is_copied_from_technical_entry_signal(monkeypatch):
+def test_bb_rsi_entry_signal_is_true_for_a_recent_fire(monkeypatch):
     # Plain session.get(TechnicalEntrySignal, (ticker, "bb_rsi", "2h")) read
     # inside compute_ticker_score -- same same-session sibling-read pattern
-    # as weinstein_stage/TrendAnalysis above.
+    # as weinstein_stage/TrendAnalysis above. The stored value is DERIVED
+    # (is_entry_signal_active on fired_at), not a raw stored flag -- there
+    # is no such flag any more (see TechnicalEntrySignal.fired_at's own
+    # comment).
     engine = _fresh_engine(monkeypatch)
     with Session(engine) as session:
         session.add(
@@ -295,7 +298,7 @@ def test_bb_rsi_entry_signal_is_copied_from_technical_entry_signal(monkeypatch):
                 ticker="AAPL",
                 signal_type="bb_rsi",
                 timeframe="2h",
-                fired=True,
+                fired_at=datetime.now() - timedelta(days=1),
                 pct_b=0.02,
                 rsi=24.1,
                 close=210.5,
@@ -315,6 +318,29 @@ def test_bb_rsi_entry_signal_is_copied_from_technical_entry_signal(monkeypatch):
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
     assert row.bb_rsi_entry_signal is True
+
+
+def test_bb_rsi_entry_signal_is_false_for_a_fire_older_than_seven_days(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(
+            TechnicalEntrySignal(
+                ticker="AAPL",
+                signal_type="bb_rsi",
+                timeframe="2h",
+                fired_at=datetime.now() - timedelta(days=10),
+                source="yahoo",
+                as_of=datetime(2026, 9, 8, 15, 30),
+                computed_at=datetime(2026, 9, 9, 3, 20),
+            )
+        )
+        session.commit()
+    _patch_all(monkeypatch)
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None
+    assert result.bb_rsi_entry_signal is False
 
 
 def test_bb_rsi_entry_signal_is_none_when_ticker_is_not_in_the_watchlist(monkeypatch):
