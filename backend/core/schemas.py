@@ -1085,6 +1085,73 @@ class TechnicalEntrySignalOut(BaseModel):
     computed_at: datetime
 
 
+class ZoneOut(BaseModel):
+    """One clustered Liquidity Zone (LP) level -- see
+    analysis/liquidity_zones/types.py::Zone for the pure-engine shape this
+    mirrors. `distance_pct` is derived at read time from the price and the
+    timeframe's own last_price (never stored), same convention as
+    TechnicalEntrySignalOut.active."""
+
+    price: float
+    distance_pct: float  # (price - last_price) / last_price * 100
+    cluster_size: int
+    formed_at: date
+
+
+class LiquidityZoneOut(BaseModel):
+    """One timeframe's (Daily or Weekly) complete Liquidity Zone (LP) read
+    -- see models.py::LiquidityZoneAnalysis for the persisted shape this
+    mirrors. support_zones/resistance_zones are already the nearest-N,
+    correct-side-of-price, clustered zones (see analysis/liquidity_zones/
+    engine.py) -- an empty list means genuinely zero currently-valid zones
+    on that side (sparse history, or price has never pulled back far
+    enough to form one yet), not a data gap."""
+
+    timeframe: str  # "daily" | "weekly"
+    last_price: float
+    as_of: date
+    computed_at: datetime
+    source: str  # "fmp" | "yahoo"
+    support_zones: list[ZoneOut]
+    resistance_zones: list[ZoneOut]
+
+
+class LiquidityZonesOut(BaseModel):
+    """Both timeframes bundled into one response -- the ticker-page card
+    always shows Daily and Weekly together, so this avoids two round
+    trips (a deliberate deviation from TechnicalEntrySignalOut's
+    one-timeframe-per-call shape). None (the whole object, via the
+    endpoint returning `| None`) only when NEITHER timeframe has ever been
+    computed for this ticker -- either it isn't a member of the named
+    "Watchlist" watchlist the nightly job reads, or it hasn't been
+    processed yet. If only one timeframe has been computed (e.g. a
+    brand-new deploy), the other side is None rather than the whole
+    object being None."""
+
+    daily: LiquidityZoneOut | None = None
+    weekly: LiquidityZoneOut | None = None
+
+
+class LiquidityZoneConfigOut(BaseModel):
+    key: str
+    daily_swing_bars: int
+    daily_cluster_pct: float
+    daily_num_zones: int
+    weekly_swing_bars: int
+    weekly_cluster_pct: float
+    weekly_num_zones: int
+    updated_at: datetime
+
+
+class LiquidityZoneConfigIn(BaseModel):
+    daily_swing_bars: int
+    daily_cluster_pct: float
+    daily_num_zones: int
+    weekly_swing_bars: int
+    weekly_cluster_pct: float
+    weekly_num_zones: int
+
+
 class MomentumSnapshotRowOut(BaseModel):
     """One ticker's row in a Momentum snapshot -- see models.py::
     MomentumSnapshot. `company_name`/`overall_score` are joined live from

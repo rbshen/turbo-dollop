@@ -17,8 +17,10 @@ from core.db import engine, init_db
 from core.exceptions import TickerNotFoundError
 from helpers.discount_rate_config import get_discount_rate_config, update_discount_rate_config
 from core.logging_config import apply_redaction_filters
+from data.liquidity_zone_data import get_liquidity_zone_data
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from data.momentum_data import get_momentum_snapshot
+from helpers.liquidity_zone_config import get_liquidity_zone_config, update_liquidity_zone_config
 from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config, update_reit_dividend_yield_config
 from core.models import IndexConstituent, SavedScreenerFilter, TickerCustomValuation, TickerScore, Watchlist
 from core.tickers import normalize_ticker
@@ -38,6 +40,9 @@ from core.schemas import (
     DiscountRateConfigOut,
     FinancialsOut,
     FmpStatusOut,
+    LiquidityZoneConfigIn,
+    LiquidityZoneConfigOut,
+    LiquidityZonesOut,
     MoatScoreConfigIn,
     MoatScoreConfigOut,
     MomentumOut,
@@ -198,6 +203,28 @@ def update_reit_dividend_yield(body: ReitDividendYieldConfigIn) -> ReitDividendY
     with Session(engine) as session:
         row = update_reit_dividend_yield_config(session, body.threshold_pct)
     return ReitDividendYieldConfigOut(**row.model_dump())
+
+
+@app.get("/api/config/liquidity-zones", response_model=LiquidityZoneConfigOut)
+def liquidity_zone_config() -> LiquidityZoneConfigOut:
+    with Session(engine) as session:
+        row = get_liquidity_zone_config(session)
+    return LiquidityZoneConfigOut(**row.model_dump())
+
+
+@app.put("/api/config/liquidity-zones", response_model=LiquidityZoneConfigOut)
+def update_liquidity_zones(body: LiquidityZoneConfigIn) -> LiquidityZoneConfigOut:
+    with Session(engine) as session:
+        row = update_liquidity_zone_config(
+            session,
+            body.daily_swing_bars,
+            body.daily_cluster_pct,
+            body.daily_num_zones,
+            body.weekly_swing_bars,
+            body.weekly_cluster_pct,
+            body.weekly_num_zones,
+        )
+    return LiquidityZoneConfigOut(**row.model_dump())
 
 
 # Backs the nav search box's typeahead dropdown -- matches against FMP's
@@ -456,6 +483,16 @@ async def ticker_entry_signal(ticker: str) -> TechnicalEntrySignalOut | None:
     # ever exists for tickers in the named "Watchlist" watchlist, refreshed
     # by pipeline/nightly_entry_signal_calculation.py, not on demand.
     return await get_entry_signal_data(ticker)
+
+
+@app.get("/api/tickers/{ticker}/liquidity-zones", response_model=LiquidityZonesOut | None)
+def ticker_liquidity_zones(ticker: str) -> LiquidityZonesOut | None:
+    # Cache-only, same convention as ticker_entry_signal above -- no
+    # live-fetch fallback path at all (see data/liquidity_zone_data.py's
+    # own docstring): this only ever exists for tickers in the named
+    # "Watchlist" watchlist, refreshed by
+    # pipeline/nightly_liquidity_zone_calculation.py, not on demand.
+    return get_liquidity_zone_data(ticker)
 
 
 @app.get("/api/tickers/{ticker}/financials", response_model=FinancialsOut)
