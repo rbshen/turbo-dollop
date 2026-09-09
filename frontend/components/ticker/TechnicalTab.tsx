@@ -2,12 +2,14 @@
 
 import { BbRsiEntrySignalCard } from "@/components/technical/BbRsiEntrySignalCard";
 import { CollapsedTechnicalCard } from "@/components/technical/CollapsedTechnicalCard";
+import { LiquidityZonesCard } from "@/components/technical/LiquidityZonesCard";
 import { LongTermCard } from "@/components/technical/LongTermCard";
 import { NearTermCard } from "@/components/technical/NearTermCard";
 import { ReversalCard, reversalStatus } from "@/components/technical/ReversalCard";
 import { resolutionStatus, TrendContinuationCard } from "@/components/technical/TrendContinuationCard";
 import { WeinsteinStageCard } from "@/components/technical/WeinsteinStageCard";
 import { useEntrySignal } from "@/lib/hooks/useEntrySignal";
+import { useLiquidityZones } from "@/lib/hooks/useLiquidityZones";
 import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
 import { technicalCardScope } from "@/lib/technicalCardScope";
 import { buildInterpretation } from "@/lib/technicalInterpretation";
@@ -24,6 +26,10 @@ export function TechnicalTab({ ticker }: Props) {
   // available) to BbRsiEntrySignalCard, which has its own "not tracked"
   // empty state.
   const { data: entrySignalData } = useEntrySignal(ticker);
+  // Same independent-fetch convention as entrySignalData above -- a fully
+  // separate table/endpoint, undefined-while-loading reads the same as
+  // null to LiquidityZonesCard, which has its own "not tracked" state.
+  const { data: liquidityZonesData } = useLiquidityZones(ticker);
 
   if (error) {
     return <p className="py-6 text-sm text-negative">Couldn&apos;t load Technical — {error.message}</p>;
@@ -70,6 +76,8 @@ export function TechnicalTab({ ticker }: Props) {
       <WeinsteinStageCard data={data} />
 
       <BbRsiEntrySignalCard data={entrySignalData ?? null} />
+
+      <LiquidityZonesCard data={liquidityZonesData ?? null} />
 
       <div className="space-y-2">
         {scope.fullCard === "reversal" ? <ReversalCard data={data} /> : <TrendContinuationCard data={data} />}

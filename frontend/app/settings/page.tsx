@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { PageContainer } from "@/components/layout/PageContainer";
 import { DiscountRateSettingsForm } from "@/components/settings/DiscountRateSettingsForm";
+import { LiquidityZoneSettingsForm } from "@/components/settings/LiquidityZoneSettingsForm";
 import { MoatSettingsForm } from "@/components/settings/MoatSettingsForm";
 import { ReitDividendYieldSettingsForm } from "@/components/settings/ReitDividendYieldSettingsForm";
 import { WatchlistSettingsForm } from "@/components/settings/WatchlistSettingsForm";
@@ -15,6 +16,7 @@ export default function SettingsPage() {
       <DiscountRateSettingsForm />
       <MoatSettingsForm />
       <ReitDividendYieldSettingsForm />
+      <LiquidityZoneSettingsForm />
       <WatchlistSettingsForm />
     </PageContainer>
   );

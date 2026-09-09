@@ -1147,6 +1147,49 @@ export interface TechnicalEntrySignalOut {
   computed_at: string;
 }
 
+export interface ZoneOut {
+  price: number;
+  // (price - last_price) / last_price * 100, derived at read time --
+  // negative for a support zone below the current price, positive for a
+  // resistance zone above it.
+  distance_pct: number;
+  cluster_size: number;
+  formed_at: string;
+}
+
+export interface LiquidityZoneOut {
+  timeframe: string; // "daily" | "weekly"
+  last_price: number;
+  as_of: string;
+  computed_at: string;
+  source: string; // "fmp" | "yahoo"
+  // Already the nearest-N, correct-side-of-price, clustered zones -- an
+  // empty array means genuinely zero currently-valid zones on that side
+  // (sparse history, or price has never pulled back far enough to form
+  // one yet), not a data gap.
+  support_zones: ZoneOut[];
+  resistance_zones: ZoneOut[];
+}
+
+export interface LiquidityZonesOut {
+  // Both null only if NEITHER timeframe has ever been computed for this
+  // ticker. If only one has (e.g. a brand-new deploy), the other is null
+  // on its own rather than the whole object being null.
+  daily: LiquidityZoneOut | null;
+  weekly: LiquidityZoneOut | null;
+}
+
+export interface LiquidityZoneConfigOut {
+  key: string;
+  daily_swing_bars: number;
+  daily_cluster_pct: number;
+  daily_num_zones: number;
+  weekly_swing_bars: number;
+  weekly_cluster_pct: number;
+  weekly_num_zones: number;
+  updated_at: string;
+}
+
 export type MomentumPeriod = "current" | "previous";
 
 export interface MomentumSnapshotRowOut {
