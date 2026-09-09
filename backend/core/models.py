@@ -215,6 +215,36 @@ class TechnicalEntrySignal(SQLModel, table=True):
     computed_at: datetime  # when the nightly job produced this row
 
 
+class LiquidityZoneAnalysis(SQLModel, table=True):
+    """Latest Liquidity Zone (LP) detection read per (ticker, timeframe) --
+    unbreached swing-low support / swing-high resistance levels, clustered
+    into zones (see analysis/liquidity_zones/ and
+    data/liquidity_zone_data.py). Composite PK, not a ticker-only PK like
+    TrendAnalysis above, for the same reason TechnicalEntrySignal's own
+    docstring gives: Daily and Weekly need to coexist as independent rows
+    per ticker, not parallel daily_/weekly_-prefixed columns on one row.
+
+    Scoped to the single named Watchlist ("Watchlist") the nightly job
+    reads, same as TechnicalEntrySignal -- a ticker outside that watchlist
+    simply has no rows here.
+
+    support_zones_json/resistance_zones_json are plain-string JSON columns
+    (a list of {price, cluster_size, formed_at} objects) -- this
+    codebase's established convention for a JSON-shaped field (see
+    TrendAnalysis.last_confirmed_swing_json/warning_swing_json above), not
+    a native JSON column type, which doesn't exist anywhere else in this
+    codebase either."""
+
+    ticker: str = Field(primary_key=True)
+    timeframe: str = Field(primary_key=True)  # "daily" | "weekly"
+    last_price: float
+    as_of: date
+    support_zones_json: str
+    resistance_zones_json: str
+    source: str  # "fmp" | "yahoo"
+    computed_at: datetime  # when the nightly job produced this row
+
+
 class IndexConstituent(SQLModel, table=True):
     """A ticker's membership in a named index (e.g. "sp500"), scraped from
     Wikipedia since FMP's own constituents endpoint is unavailable on this
@@ -305,6 +335,28 @@ class ReitDividendYieldConfig(SQLModel, table=True):
 
     key: str = Field(primary_key=True, default="default")
     threshold_pct: float
+    updated_at: datetime
+
+
+class LiquidityZoneConfig(SQLModel, table=True):
+    """Per-timeframe Liquidity Zone (LP) detection settings -- editable via
+    /settings, same lazy-seed get-or-create pattern as MoatScoreConfig/
+    ReitDividendYieldConfig (see helpers/liquidity_zone_config.py).
+    Singleton row, keyed on a fixed `key`. Daily and Weekly each get their
+    own independent swing_bars/cluster_pct/num_zones -- deliberately not
+    shared, since the two timeframes' lookback windows and typical price
+    ranges call for different tuning. A change here only takes effect on
+    the next nightly run (pipeline/nightly_liquidity_zone_calculation.py),
+    not retroactively -- this feature has no live-recompute path the way
+    Step 3's discount rate does."""
+
+    key: str = Field(primary_key=True, default="default")
+    daily_swing_bars: int
+    daily_cluster_pct: float
+    daily_num_zones: int
+    weekly_swing_bars: int
+    weekly_cluster_pct: float
+    weekly_num_zones: int
     updated_at: datetime
 
 
