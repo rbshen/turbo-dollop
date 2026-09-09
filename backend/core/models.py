@@ -157,6 +157,37 @@ class TrendAnalysis(SQLModel, table=True):
     weinstein_breakout_confirmed: bool | None = None
 
 
+class TechnicalEntrySignal(SQLModel, table=True):
+    """Latest technical entry-signal read per (ticker, signal_type,
+    timeframe) -- the first of these is BB+RSI on a 2h timeframe (see
+    analysis/entry_signal/ and data/entry_signal_data.py), ported from a
+    reference trading bot's signal condition (execution/backtest/
+    notification logic discarded -- see CLAUDE.md). Composite PK, not a
+    ticker-only PK like TrendAnalysis above, because this is explicitly
+    designed to grow: future signal types (and daily-timeframe variants)
+    will coexist per ticker rather than replace this one row.
+
+    Unlike TrendAnalysis, this table is scoped to the single named
+    Watchlist ("Watchlist") the nightly job reads, not the full tracked
+    universe -- a ticker outside that watchlist simply has no row here,
+    which is the intended "this filter only ever matches Watchlist
+    tickers" behavior, not a gap to work around. Brand new table (no
+    pre-existing rows to leave NULL via core/db.py::_add_missing_columns),
+    so fields are non-nullable except where a genuine per-compute gap is
+    possible."""
+
+    ticker: str = Field(primary_key=True)
+    signal_type: str = Field(primary_key=True)  # "bb_rsi"
+    timeframe: str = Field(primary_key=True)  # "2h"
+    fired: bool
+    pct_b: float | None = None
+    rsi: float | None = None
+    close: float | None = None
+    source: str  # "yahoo" (or "fmp", once that adapter is ever wired in)
+    as_of: datetime  # timestamp of the 2h candle the signal was evaluated on
+    computed_at: datetime  # when the nightly job produced this row
+
+
 class IndexConstituent(SQLModel, table=True):
     """A ticker's membership in a named index (e.g. "sp500"), scraped from
     Wikipedia since FMP's own constituents endpoint is unavailable on this
