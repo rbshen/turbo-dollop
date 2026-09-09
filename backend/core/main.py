@@ -63,6 +63,7 @@ from core.schemas import (
     Step3PBBands,
     Step4Out,
     Step5Out,
+    TechnicalEntrySignalOut,
     TickerBankCapitalMetricsIn,
     TickerBankCapitalMetricsOut,
     TickerCustomValuationIn,
@@ -99,6 +100,7 @@ from data.step3_data import get_active_valuation, get_step3_data
 from data.step4_data import get_step4_data
 from data.step5_data import get_step5_data
 from data.ticker_score import compute_ticker_score
+from data.entry_signal_data import get_entry_signal_data
 from data.ticker_summary import get_summary
 from data.trend_analysis_data import get_trend_analysis_data
 from data.watchlist_data import get_watchlist_rows
@@ -444,6 +446,16 @@ async def ticker_trend_analysis(ticker: str) -> TrendAnalysisOut | None:
     # (ValueError) internally, same "degrade to null/stale rather than
     # error" convention as every other ticker-page data endpoint.
     return await get_trend_analysis_data(ticker)
+
+
+@app.get("/api/tickers/{ticker}/entry-signal", response_model=TechnicalEntrySignalOut | None)
+async def ticker_entry_signal(ticker: str) -> TechnicalEntrySignalOut | None:
+    # Cache-only, same as get_trend_analysis_data's degrade-to-null
+    # convention -- but there's no live-fetch fallback path here at all
+    # (see data/entry_signal_data.py's own docstring): this signal only
+    # ever exists for tickers in the named "Watchlist" watchlist, refreshed
+    # by pipeline/nightly_entry_signal_calculation.py, not on demand.
+    return await get_entry_signal_data(ticker)
 
 
 @app.get("/api/tickers/{ticker}/financials", response_model=FinancialsOut)
