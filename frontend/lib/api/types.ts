@@ -1123,11 +1123,26 @@ export interface TechnicalEntrySignalOut {
   ticker: string;
   signal_type: string; // "bb_rsi"
   timeframe: string; // "2h"
-  fired: boolean;
+  // Derived (fired_at within the last 7 days), not a raw stored flag --
+  // there is no raw stored flag any more (a `fired` column used to play
+  // that role). See backend's data/entry_signal_data.py::is_entry_signal_active.
+  active: boolean;
+  // Timestamp of the 2h bar where the check LAST evaluated true -- null
+  // if it never has. pct_b/rsi/close/stop_price below describe THIS bar,
+  // not "whatever the latest candle read" -- they're only non-null
+  // together with this.
+  fired_at: string | null;
   pct_b: number | null;
   rsi: number | null;
   close: number | null;
+  // close - ATR(14) x ATR_MULTIPLIER on the fired_at bar -- a single
+  // computed reference level, not a live/trailing stop (there's no
+  // position being tracked). Null whenever fired_at is null.
+  stop_price: number | null;
   source: string; // "yahoo" (or "fmp", once that adapter is ever wired in)
+  // Timestamp of the last candle actually evaluated, fired or not --
+  // updates every nightly run regardless of outcome, so this can
+  // legitimately be a more recent date than fired_at.
   as_of: string;
   computed_at: string;
 }
