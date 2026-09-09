@@ -544,8 +544,8 @@ export interface TickerScoreOut {
   reversal_status: "not_present" | "confirmed" | "confirmed_stale" | null;
   pullback_status: "no_pullback" | "pending" | "recovered" | "invalidated" | null;
   // See TickerScore.bb_rsi_entry_signal. null for the overwhelming
-  // majority of tickers -- this signal only ever exists for the named
-  // "Watchlist" watchlist's members.
+  // majority of tickers -- this signal only ever exists for the
+  // "Main"/"Secondary" named watchlists' members.
   bb_rsi_entry_signal: boolean | null;
 }
 
@@ -1114,7 +1114,7 @@ export interface TrendAnalysisOut {
 
 // Latest BB+RSI (2h) technical entry-signal read for one ticker -- see
 // backend's models.py::TechnicalEntrySignal. Only ever populated for
-// tickers in the named "Watchlist" watchlist (see
+// tickers in the "Main"/"Secondary" named watchlists (see
 // pipeline/nightly_entry_signal_calculation.py); GET
 // /api/tickers/{ticker}/entry-signal returns null for every other ticker,
 // same "not computed yet, not a fabricated neutral result" convention as

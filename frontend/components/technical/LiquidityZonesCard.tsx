@@ -5,10 +5,10 @@ interface Props {
 }
 
 const DISCLAIMER =
-  'Unbreached swing-low support / swing-high resistance levels, clustered by price -- only a LATER swing of the same kind invalidates an earlier one, an ordinary price move through a level does not. Computed nightly for tickers in the "Watchlist" watchlist only. Informational only, not a trading signal.';
+  'Unbreached swing-low support / swing-high resistance levels, clustered by price -- only a LATER swing of the same kind invalidates an earlier one, an ordinary price move through a level does not. Computed nightly for tickers in the "Main" or "Secondary" watchlists only. Informational only, not a trading signal.';
 
 const UNAVAILABLE_MESSAGE =
-  'No Liquidity Zone data tracked for this ticker -- this check only runs nightly for tickers in the "Watchlist" watchlist.';
+  'No Liquidity Zone data tracked for this ticker -- this check only runs nightly for tickers in the "Main" or "Secondary" watchlists.';
 
 function fmtPrice(price: number): string {
   return `$${price.toFixed(2)}`;
@@ -55,7 +55,9 @@ function TimeframeSection({ label, tf }: { label: string; tf: LiquidityZoneOut }
     <div className="space-y-3">
       <div className="flex items-baseline justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">{label}</h3>
-        <span className="text-xs text-text-tertiary">Last {fmtPrice(tf.last_price)}</span>
+        <span className="text-xs text-text-tertiary">
+          Last {fmtPrice(tf.last_price)} · Computed {fmtDate(tf.computed_at)}
+        </span>
       </div>
 
       <div className="space-y-1">

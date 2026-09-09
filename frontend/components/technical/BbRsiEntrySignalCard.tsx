@@ -9,7 +9,7 @@ const DISCLAIMER =
   "Bollinger Band %B + RSI oversold check on 2-hour candles, ported from a reference trading bot's entry condition. A fire stays \"active\" for 7 days after it happens. Stop price is a single computed reference level (close - ATR x 2 on the firing bar), not a live/trailing stop -- there's no position being tracked. Display-only -- Fathom does not execute trades. Informational only, not a trading signal.";
 
 const UNAVAILABLE_MESSAGE =
-  'No BB+RSI entry signal tracked for this ticker -- this check only runs nightly for tickers in the "Watchlist" watchlist.';
+  'No BB+RSI entry signal tracked for this ticker -- this check only runs nightly for tickers in the "Main" or "Secondary" watchlists.';
 
 const SOURCE_LABEL: Record<string, string> = {
   yahoo: "Yahoo Finance",
@@ -74,6 +74,12 @@ export function BbRsiEntrySignalCard({ data }: Props) {
       key: "last-checked",
       label: "Last checked",
       statusText: fmtDateTime(data.as_of),
+      toneClass: "text-text-tertiary",
+    },
+    {
+      key: "computed-at",
+      label: "Data computed",
+      statusText: fmtDateTime(data.computed_at),
       toneClass: "text-text-tertiary",
     },
     {
