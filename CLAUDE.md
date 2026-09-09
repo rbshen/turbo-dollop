@@ -2164,6 +2164,105 @@ to display.
   Recompute/Add-to-Watchlist buttons stay in their original top-bar location, and the result grid
   drops from 4 to 3 cards per row to make room for the sidebar.
 
+## Liquidity Zone (LP) detection (Technical)
+
+A fourth, fully independent technical-analysis lens on the ticker page's Technical tab --
+unbreached swing-low support and swing-high resistance levels, clustered into zones, on
+both Daily (1yr) and Weekly (4yr, resampled from the same fetched daily frame) timeframes.
+Like the swing/BOS engine, A/D Bullish Divergence, SMA position tracking, Weinstein Stage
+Analysis, and BB+RSI entry signals above, this never touches Step 1-5/Overall Assessment
+scoring or any other lens -- a second, parallel read on price structure.
+
+- **Engine** (`backend/analysis/liquidity_zones/`, pure functions/dataclasses, no DB/HTTP):
+  fractal swing-low/swing-high detection on Low/High (not Close -- unlike
+  `trend_structure/swings.py`, which is Close-only and hardcoded to N=5; this feature needs
+  Low/High with a caller-configurable window, so it's a small, independent implementation
+  using the same vectorized shift technique). **Breach semantics are LOCKED and deliberately
+  diverge from the Polygon-based reference script this was adapted from
+  (`lp_detector_polygon_clustered.py`, provided only to show the algorithm shape, never
+  wired in itself)**: a swing low becomes a support LP the moment it's confirmed and stays
+  valid until a **LATER SWING LOW's** Low trades below it -- an ordinary non-swing bar
+  breaching the level does NOT invalidate it. Symmetric for swing highs/resistance. The
+  reference script's own `annotate_swing_lows` actually checks every later BAR, not just
+  later swings -- this is the one specific place this build does NOT follow that reference
+  implementation, confirmed via a dedicated regression test
+  (`test_ordinary_bar_does_not_breach_a_level_only_a_later_swing_does`).
+- **Clustering representative direction, decided and documented (not left to mirror
+  "lowest" onto both sides without checking it)**: a cluster's representative is the price
+  at which the *whole zone* is genuinely broken. Support clusters collapse to their
+  **lowest** member -- price must sink below the deepest point before the zone is truly
+  gone, so the lowest price is the conservative "last line of defense." Resistance clusters
+  mirror this to their **highest** member -- price must clear the highest point before the
+  zone is truly broken through. `analysis/liquidity_zones/clustering.py::cluster_prices`
+  is one shared, direction-parameterized function (`representative: "min" | "max"`), not
+  two copies.
+- **Nearest-N filtering is a display refinement layered on top of the locked breach rule,
+  not a change to it**: a currently-valid (unbreached) swing can, in principle, sit on the
+  "wrong" side of the last price -- e.g. an old swing low that price has since fallen well
+  below without a later swing low ever confirming that breach. Such zones are filtered out
+  before taking the nearest `num_zones` per side, since a "support" level above today's
+  price (or a "resistance" level below it) isn't a meaningful nearest-support/resistance
+  reading for the card this feeds.
+- **Data source: the ordinary `fmp_enabled` toggle, not BB+RSI's hard-forced Yahoo.**
+  Investigated before assuming BB+RSI's pattern applied here: FMP's intraday endpoints
+  return HTTP 402 (a genuine plan restriction -- see BB+RSI's own section below), but
+  `FMPClient.get_historical_price_eod` (`/historical-price-eod/full`, already used in
+  production by `ticker_summary.py`/`analysis/ma_magnet/data.py`) is a working daily EOD
+  endpoint with no equivalent restriction. FMP has no native weekly endpoint (confirmed
+  404 on `/historical-chart/1week`), so Weekly bars are always derived by resampling
+  Daily -- reusing `analysis/trend_structure/weinstein.py::resample_to_weekly` directly
+  (confirmed genuinely data-source-agnostic, not Yahoo-coupled) rather than reimplementing
+  it. `backend/clients/daily_price_sources.py::get_daily_bar_source()` returns
+  `FMPDailyBarSource` when enabled, `YahooDailyBarSource` (one batch call, yfinance's
+  period enum has no "4y" so "5y" is fetched and trimmed) when FMP is paused -- the normal
+  degrade pattern every other FMP-backed feature in this app uses. A single ~4yr fetch per
+  ticker serves both timeframes: `data/liquidity_zone_data.py` slices the trailing 1yr for
+  Daily and resamples the full frame for Weekly.
+- **Data model**: `LiquidityZoneAnalysis`, composite PK `(ticker, timeframe)` -- the closer
+  precedent is `TechnicalEntrySignal`'s composite-PK table (Daily/Weekly need to coexist as
+  independent rows), not `TrendAnalysis`'s ticker-only-PK wide table, which would need
+  awkward parallel `daily_`/`weekly_`-prefixed columns for a feature with two full
+  timeframes rather than one extra lens. `support_zones_json`/`resistance_zones_json` are
+  plain-string JSON columns (a list of `{price, cluster_size, formed_at}` objects) -- this
+  codebase's established convention for a JSON-shaped field (see `TrendAnalysis.
+  last_confirmed_swing_json`), not a native JSON column type, which doesn't exist anywhere
+  else in this codebase either. `ZoneOut.distance_pct` is derived at read time from the
+  zone's price and the timeframe's own `last_price`, never stored.
+- **Settings: a genuinely runtime-editable, DB-backed config** (`LiquidityZoneConfig`,
+  singleton `key`-PK row, same lazy-seed get-or-create pattern as `DiscountRateConfig`/
+  `MoatScoreConfig`/`ReitDividendYieldConfig`) -- independent `swing_bars`/`cluster_pct`/
+  `num_zones` per timeframe, editable via a new `/settings` section
+  (`LiquidityZoneSettingsForm.tsx`). This is the first Technical-tab feature to get this
+  treatment -- BB+RSI's own thresholds (`RSI_LENGTH`, `BB_STD`, etc.) remain hardcoded
+  constants with no settings-page UI, a pre-existing gap this build does not retroactively
+  fix. A settings change only takes effect on the next nightly run, not retroactively --
+  this feature has no live-recompute path the way Step 3's discount rate does.
+- **Cron: a new dedicated job, not folded into `nightly_entry_signal_calculation.py`**,
+  despite both being Watchlist-scoped. Every existing pipeline script already maps 1:1 to
+  one feature (even the two other Watchlist-scoped/full-universe technical jobs are
+  already split despite similar shape); this job also needs a genuine `fmp_enabled`
+  FMP<->Yahoo branch that BB+RSI's script has no equivalent of, and separate
+  `cron_heartbeat` names keep failure attribution clean (an FMP outage affecting Liquidity
+  Zones shouldn't read as a BB+RSI health failure or vice versa). Scheduled at **3:25 AM**,
+  in the existing 3:20 (BB+RSI) -> 3:30 (backup_db) gap; `backup_db` was moved to **3:35
+  AM** to keep a full 10-minute buffer, since unlike BB+RSI's Yahoo-only fetch, this job
+  can make live FMP calls on a cold cache. Registered in `core/cron_health.py`'s
+  `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS` as the 13th job (`pipeline.nightly_
+  liquidity_zone_calculation`).
+- **UI**: a new `LiquidityZonesCard` (`frontend/components/technical/`) on the Technical
+  tab, fetched independently (`useLiquidityZones`, same "not gated on the trend-analysis
+  load state" convention as `useEntrySignal`) -- Daily and Weekly shown side by side, each
+  with its own nearest resistance zones (above price), a current-price divider, and
+  nearest support zones (below price); each zone row shows price, distance from last
+  price, cluster size ("N swings merged," omitted for a single-swing zone), and when it
+  formed. **Empty-zone behavior, explicitly decided rather than left undefined**: a side
+  with zero currently-valid zones for a timeframe (sparse/early history, or price simply
+  hasn't pulled back far enough to form one) shows a plain "No confirmed
+  support/resistance levels yet" line while the rest of the card renders normally; a
+  ticker never computed at all (not in the Watchlist, or not yet processed) renders the
+  same "Not tracked" shape `BbRsiEntrySignalCard` uses, explaining the Watchlist-only
+  scoping, rather than four empty sections.
+
 ## Workflow rules
 
 - **Plan Mode by default.** Propose a plan and wait for confirmation before
