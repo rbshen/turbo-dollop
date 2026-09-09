@@ -1063,15 +1063,23 @@ class TechnicalEntrySignalOut(BaseModel):
     member of the named "Watchlist" watchlist the nightly job reads (see
     pipeline/nightly_entry_signal_calculation.py), or it hasn't been
     processed yet, same "not computed yet, not a fabricated neutral result"
-    convention as TrendAnalysisOut above."""
+    convention as TrendAnalysisOut above.
+
+    `active` is derived (fired_at within the last
+    data/entry_signal_data.py::ACTIVE_WINDOW_DAYS), never the raw stored
+    value -- there is no longer a raw stored flag at all (a `fired` column
+    used to play that role; see models.py::TechnicalEntrySignal's own
+    comment on why it was replaced by fired_at instead)."""
 
     ticker: str
     signal_type: str  # "bb_rsi"
     timeframe: str  # "2h"
-    fired: bool
+    active: bool
+    fired_at: datetime | None = None
     pct_b: float | None = None
     rsi: float | None = None
     close: float | None = None
+    stop_price: float | None = None
     source: str  # "yahoo" (or "fmp", once that adapter is ever wired in)
     as_of: datetime
     computed_at: datetime

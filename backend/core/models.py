@@ -171,20 +171,44 @@ class TechnicalEntrySignal(SQLModel, table=True):
     Watchlist ("Watchlist") the nightly job reads, not the full tracked
     universe -- a ticker outside that watchlist simply has no row here,
     which is the intended "this filter only ever matches Watchlist
-    tickers" behavior, not a gap to work around. Brand new table (no
-    pre-existing rows to leave NULL via core/db.py::_add_missing_columns),
-    so fields are non-nullable except where a genuine per-compute gap is
-    possible."""
+    tickers" behavior, not a gap to work around.
+
+    Originally had a `fired: bool` column, replaced by `fired_at` below
+    (2026-09-09, see fired_at's own comment) -- this app has no
+    column-drop migration tooling (core/db.py::_add_missing_columns is
+    additive-only), so the physical `fired` column is simply left as an
+    unreferenced orphan in the SQLite file rather than dropped."""
 
     ticker: str = Field(primary_key=True)
     signal_type: str = Field(primary_key=True)  # "bb_rsi"
     timeframe: str = Field(primary_key=True)  # "2h"
-    fired: bool
+    # The timestamp of the 2h bar where check_buy_signal LAST evaluated
+    # true -- None if it never has. Unlike the removed `fired` boolean
+    # this used to be, updating this (and pct_b/rsi/close/stop_price
+    # below, which describe THIS bar, not "whatever the latest candle
+    # read this run") is conditional: the nightly job only advances these
+    # five fields together when a bar fires with a timestamp newer than
+    # what's already stored here (see data/entry_signal_data.py::_upsert)
+    # -- a quiet night leaves them untouched rather than erasing a still-
+    # relevant prior fire. "Active" (whether that fire is still within the
+    # 7-day confirmation window) is derived from this at read time
+    # (data/entry_signal_data.py::is_entry_signal_active), never stored.
+    fired_at: datetime | None = None
     pct_b: float | None = None
     rsi: float | None = None
     close: float | None = None
+    # close - ATR(14) x ATR_MULTIPLIER on the fired_at bar (ported from
+    # the reference bot's initial-stop calc, not its trailing/re-raise
+    # logic -- there's no open position here to trail a stop for). None
+    # whenever fired_at is None, and also whenever ATR itself is NaN on
+    # that bar (e.g. too little history for a 14-period ATR).
+    stop_price: float | None = None
     source: str  # "yahoo" (or "fmp", once that adapter is ever wired in)
-    as_of: datetime  # timestamp of the 2h candle the signal was evaluated on
+    # Timestamp of the last candle actually evaluated this run (fired or
+    # not) -- unlike fired_at above, this updates every nightly run
+    # regardless of outcome, so every Watchlist ticker still gets a
+    # heartbeat even on a quiet night.
+    as_of: datetime
     computed_at: datetime  # when the nightly job produced this row
 
 
@@ -452,11 +476,16 @@ class TickerScore(SQLModel, table=True):
     # signal" convention as weinstein_stage.
     reversal_status: str | None = None  # "not_present" | "confirmed" | "confirmed_stale"
     pullback_status: str | None = None  # "no_pullback" | "pending" | "recovered" | "invalidated"
-    # BB+RSI (2h) technical entry signal, lifted straight from the matching
-    # TechnicalEntrySignal row (same session.get() sibling-read pattern as
-    # weinstein_stage/trend_analysis above) -- None for the overwhelming
-    # majority of tickers, since this signal is only ever computed for the
-    # named "Watchlist" watchlist's members (see
+    # BB+RSI (2h) technical entry signal -- the DERIVED active state
+    # (data/entry_signal_data.py::is_entry_signal_active on the matching
+    # TechnicalEntrySignal row's fired_at, same session.get() sibling-read
+    # pattern as weinstein_stage/trend_analysis above), not a raw stored
+    # flag (there is no such flag -- see TechnicalEntrySignal.fired_at's
+    # own comment). Computed once at this row's own compute_at time, same
+    # nightly-snapshot staleness every other TickerScore field already has
+    # -- not re-derived live per Screener page view. None for the
+    # overwhelming majority of tickers, since this signal is only ever
+    # computed for the named "Watchlist" watchlist's members (see
     # pipeline/nightly_entry_signal_calculation.py), not the full tracked
     # universe. A universe ticker outside that watchlist reads None here
     # exactly the same way a row computed before this field existed would

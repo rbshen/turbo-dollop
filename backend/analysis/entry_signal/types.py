@@ -9,14 +9,26 @@ from datetime import datetime
 
 @dataclass(frozen=True)
 class EntrySignalResult:
-    """One signal check's outcome for the latest fully-formed candle.
-    pct_b/rsi/close are None only when there weren't enough resampled
-    candles yet to evaluate the check at all (see engine.py's own
-    warmup guard) -- `fired` is always False in that case, never
-    fabricated."""
+    """One nightly scan's outcome for a ticker -- NOT just "the latest
+    candle's own reading" (see engine.py::compute_entry_signal for why).
 
+    as_of: the last candle actually evaluated this run, fired or not --
+    always real once there's any history at all.
+
+    fired: whether ANY candle evaluated this run (today's session
+    candles) satisfied check_buy_signal.
+
+    fired_at/pct_b/rsi/close/stop_price: the LATEST firing candle's own
+    values -- all five are None together when `fired` is False. These are
+    NOT "the current candle's reading" the way they were before this type
+    grew fired_at/stop_price -- they describe whichever bar actually fired,
+    which may not be the same bar as-of.
+    """
+
+    as_of: datetime
     fired: bool
+    fired_at: datetime | None
     pct_b: float | None
     rsi: float | None
     close: float | None
-    as_of: datetime
+    stop_price: float | None

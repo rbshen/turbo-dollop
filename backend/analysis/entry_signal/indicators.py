@@ -16,6 +16,10 @@ BB_STD = 2.0
 BB_LOWER_PCT = 0.05  # bottom 5% of the band
 RSI_OVERSOLD = 30
 ATR_LENGTH = 14
+# The reference bot's own default for its initial-stop calc (close - ATR x
+# ATR_MULTIPLIER) -- not its trailing/re-raise logic, which has no place
+# here since there's no open position to trail a stop for.
+ATR_MULTIPLIER = 2
 
 
 def compute_rsi(close: pd.Series, length: int = RSI_LENGTH) -> pd.Series:
