@@ -1,11 +1,13 @@
 "use client";
 
+import { BbRsiEntrySignalCard } from "@/components/technical/BbRsiEntrySignalCard";
 import { CollapsedTechnicalCard } from "@/components/technical/CollapsedTechnicalCard";
 import { LongTermCard } from "@/components/technical/LongTermCard";
 import { NearTermCard } from "@/components/technical/NearTermCard";
 import { ReversalCard, reversalStatus } from "@/components/technical/ReversalCard";
 import { resolutionStatus, TrendContinuationCard } from "@/components/technical/TrendContinuationCard";
 import { WeinsteinStageCard } from "@/components/technical/WeinsteinStageCard";
+import { useEntrySignal } from "@/lib/hooks/useEntrySignal";
 import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
 import { technicalCardScope } from "@/lib/technicalCardScope";
 import { buildInterpretation } from "@/lib/technicalInterpretation";
@@ -16,6 +18,12 @@ interface Props {
 
 export function TechnicalTab({ ticker }: Props) {
   const { data, error, isLoading } = useTrendAnalysis(ticker);
+  // Independent fetch, independent table -- deliberately not gated on the
+  // trend-analysis load/error state above (see useEntrySignal's own
+  // comment). Undefined while loading reads the same as null (not yet
+  // available) to BbRsiEntrySignalCard, which has its own "not tracked"
+  // empty state.
+  const { data: entrySignalData } = useEntrySignal(ticker);
 
   if (error) {
     return <p className="py-6 text-sm text-negative">Couldn&apos;t load Technical — {error.message}</p>;
@@ -60,6 +68,8 @@ export function TechnicalTab({ ticker }: Props) {
       </div>
 
       <WeinsteinStageCard data={data} />
+
+      <BbRsiEntrySignalCard data={entrySignalData ?? null} />
 
       <div className="space-y-2">
         {scope.fullCard === "reversal" ? <ReversalCard data={data} /> : <TrendContinuationCard data={data} />}

@@ -1112,6 +1112,26 @@ export interface TrendAnalysisOut {
   weinstein_breakout_confirmed: boolean | null;
 }
 
+// Latest BB+RSI (2h) technical entry-signal read for one ticker -- see
+// backend's models.py::TechnicalEntrySignal. Only ever populated for
+// tickers in the named "Watchlist" watchlist (see
+// pipeline/nightly_entry_signal_calculation.py); GET
+// /api/tickers/{ticker}/entry-signal returns null for every other ticker,
+// same "not computed yet, not a fabricated neutral result" convention as
+// TrendAnalysisOut.
+export interface TechnicalEntrySignalOut {
+  ticker: string;
+  signal_type: string; // "bb_rsi"
+  timeframe: string; // "2h"
+  fired: boolean;
+  pct_b: number | null;
+  rsi: number | null;
+  close: number | null;
+  source: string; // "yahoo" (or "fmp", once that adapter is ever wired in)
+  as_of: string;
+  computed_at: string;
+}
+
 export type MomentumPeriod = "current" | "previous";
 
 export interface MomentumSnapshotRowOut {
