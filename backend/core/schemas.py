@@ -1051,6 +1051,28 @@ class TrendAnalysisOut(BaseModel):
     weinstein_breakout_confirmed: bool | None = None
 
 
+class TechnicalEntrySignalOut(BaseModel):
+    """Latest technical entry-signal read for one (ticker, signal_type,
+    timeframe) -- see models.py::TechnicalEntrySignal for the persisted
+    shape this mirrors. None (the whole object, via the endpoint returning
+    `| None`) when this ticker has no computed row yet -- either it isn't a
+    member of the named "Watchlist" watchlist the nightly job reads (see
+    pipeline/nightly_entry_signal_calculation.py), or it hasn't been
+    processed yet, same "not computed yet, not a fabricated neutral result"
+    convention as TrendAnalysisOut above."""
+
+    ticker: str
+    signal_type: str  # "bb_rsi"
+    timeframe: str  # "2h"
+    fired: bool
+    pct_b: float | None = None
+    rsi: float | None = None
+    close: float | None = None
+    source: str  # "yahoo" (or "fmp", once that adapter is ever wired in)
+    as_of: datetime
+    computed_at: datetime
+
+
 class MomentumSnapshotRowOut(BaseModel):
     """One ticker's row in a Momentum snapshot -- see models.py::
     MomentumSnapshot. `company_name`/`overall_score` are joined live from

@@ -45,6 +45,17 @@
 # pipeline/nightly_trend_calculation.py.
 10 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_trend_calculation >> /home/shen/fathom/backend/logs/nightly_trend_calculation_cron.log 2>&1
 
+# Nightly BB+RSI (2h) technical entry-signal calculation, 3:20 AM server
+# time -- after trend-structure (3:10) above, before the 3:30 backup.
+# Scoped to the single named "Watchlist" watchlist only (up to 100
+# tickers), not the full tracked universe -- much smaller than trend
+# calculation's universe-wide sweep, comfortably fits this window. Runs
+# entirely on Yahoo Finance, zero FMP calls -- FMP's intraday endpoints
+# return HTTP 402 under the current subscription plan (confirmed
+# 2026-09-09), not merely paused, so this needs no fmp_enabled guard either.
+# See pipeline/nightly_entry_signal_calculation.py.
+20 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_entry_signal_calculation >> /home/shen/fathom/backend/logs/nightly_entry_signal_calculation_cron.log 2>&1
+
 # Weekly S&P 500 constituent list refresh (Wikipedia scrape), Sundays at
 # 1:00 AM server time -- runs before the nightly fetch above so a freshly
 # added/removed ticker is reflected the same night. Index membership only
