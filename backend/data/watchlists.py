@@ -22,6 +22,32 @@ def list_watchlist_tickers(session: Session, watchlist_id: int) -> list[Watchlis
     )
 
 
+def list_tickers_across_watchlists(session: Session, names: list[str]) -> tuple[list[str], list[str]]:
+    """Union of tickers across the named watchlists, deduped (first-seen
+    order preserved) so a ticker present on more than one of `names` is
+    only returned once. Shared by nightly_entry_signal_calculation.py and
+    nightly_liquidity_zone_calculation.py, both scoped to the same
+    ["Main", "Secondary"] pair rather than a single hardcoded watchlist.
+
+    Returns (tickers, missing_names) rather than raising on a missing
+    watchlist -- callers log/handle a missing list themselves (e.g. warn
+    and continue with whichever list does exist) rather than this helper
+    deciding that's fatal."""
+    seen: set[str] = set()
+    tickers: list[str] = []
+    missing: list[str] = []
+    for name in names:
+        watchlist = get_watchlist_by_name(session, name)
+        if watchlist is None:
+            missing.append(name)
+            continue
+        for row in list_watchlist_tickers(session, watchlist.id):
+            if row.ticker not in seen:
+                seen.add(row.ticker)
+                tickers.append(row.ticker)
+    return tickers, missing
+
+
 def create_watchlist(session: Session, name: str) -> Watchlist:
     now = datetime.now()
     row = Watchlist(name=name, created_at=now, updated_at=now)
