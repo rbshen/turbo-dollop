@@ -47,6 +47,16 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
           selected={filters.pullbackStatuses}
           onChange={(s) => patch({ pullbackStatuses: s })}
         />
+        <label className="flex h-8 items-center gap-1.5 rounded-md border border-border-input px-2 text-xs font-medium text-text-secondary">
+          <input
+            type="checkbox"
+            checked={filters.bbRsiEntrySignal}
+            onChange={(e) => patch({ bbRsiEntrySignal: e.target.checked })}
+            className="size-3.5 rounded-sm border-border-input accent-chart-purple"
+          />
+          BB + RSI entry (2h)
+        </label>
+        <p className="text-xs text-text-tertiary">Only ever matches tickers in the &quot;Watchlist&quot; watchlist.</p>
       </div>
     </CollapsibleFilterSection>
   );

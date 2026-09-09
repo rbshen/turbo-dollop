@@ -452,6 +452,16 @@ class TickerScore(SQLModel, table=True):
     # signal" convention as weinstein_stage.
     reversal_status: str | None = None  # "not_present" | "confirmed" | "confirmed_stale"
     pullback_status: str | None = None  # "no_pullback" | "pending" | "recovered" | "invalidated"
+    # BB+RSI (2h) technical entry signal, lifted straight from the matching
+    # TechnicalEntrySignal row (same session.get() sibling-read pattern as
+    # weinstein_stage/trend_analysis above) -- None for the overwhelming
+    # majority of tickers, since this signal is only ever computed for the
+    # named "Watchlist" watchlist's members (see
+    # pipeline/nightly_entry_signal_calculation.py), not the full tracked
+    # universe. A universe ticker outside that watchlist reads None here
+    # exactly the same way a row computed before this field existed would
+    # (see _add_missing_columns) -- both mean "no signal," not an error.
+    bb_rsi_entry_signal: bool | None = None
 
 
 class TickerCustomValuation(SQLModel, table=True):

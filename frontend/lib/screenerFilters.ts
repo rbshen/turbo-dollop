@@ -149,6 +149,11 @@ export interface ScreenerFilterState {
   // multi-select. false (default) means "no filtering by this criterion";
   // true means "show only qualifies=true" (see filterTickerScores below).
   speculativeGrowth: boolean;
+  // Same boolean-checkbox shape as speculativeGrowth above -- but unlike
+  // every other Technical filter, this one only ever matches tickers in
+  // the named "Watchlist" watchlist (see TechnicalFilters.tsx's own
+  // caption), since bb_rsi_entry_signal is null for every other ticker.
+  bbRsiEntrySignal: boolean;
 }
 
 export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
@@ -170,6 +175,7 @@ export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
   reversalStatuses: [],
   pullbackStatuses: [],
   speculativeGrowth: false,
+  bbRsiEntrySignal: false,
 };
 
 // A range filter is only "active" if min or max is actually set -- an
@@ -212,6 +218,7 @@ export function filterTickerScores(rows: TickerScoreOut[], filters: ScreenerFilt
       return false;
     }
     if (filters.speculativeGrowth && !row.speculative_growth_qualifies) return false;
+    if (filters.bbRsiEntrySignal && !row.bb_rsi_entry_signal) return false;
     return true;
   });
 }

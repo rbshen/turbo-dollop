@@ -4,7 +4,7 @@ from datetime import date, datetime
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import data.ticker_score as ticker_score
-from core.models import TickerScore, TrendAnalysis
+from core.models import TechnicalEntrySignal, TickerScore, TrendAnalysis
 from core.schemas import SpeculativeGrowthOut, Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
 from data.ticker_score import compute_ticker_score
 
@@ -282,6 +282,58 @@ def test_weinstein_stage_is_none_when_no_trend_analysis_row_exists(monkeypatch):
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
     assert row.weinstein_stage is None
+
+
+def test_bb_rsi_entry_signal_is_copied_from_technical_entry_signal(monkeypatch):
+    # Plain session.get(TechnicalEntrySignal, (ticker, "bb_rsi", "2h")) read
+    # inside compute_ticker_score -- same same-session sibling-read pattern
+    # as weinstein_stage/TrendAnalysis above.
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(
+            TechnicalEntrySignal(
+                ticker="AAPL",
+                signal_type="bb_rsi",
+                timeframe="2h",
+                fired=True,
+                pct_b=0.02,
+                rsi=24.1,
+                close=210.5,
+                source="yahoo",
+                as_of=datetime(2026, 9, 8, 15, 30),
+                computed_at=datetime(2026, 9, 9, 3, 20),
+            )
+        )
+        session.commit()
+    _patch_all(monkeypatch)
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None
+    assert result.bb_rsi_entry_signal is True
+
+    with Session(engine) as session:
+        row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
+    assert row.bb_rsi_entry_signal is True
+
+
+def test_bb_rsi_entry_signal_is_none_when_ticker_is_not_in_the_watchlist(monkeypatch):
+    # A universe ticker outside the named "Watchlist" watchlist (the
+    # overwhelming majority) has no TechnicalEntrySignal row at all -- reads
+    # None, same "no signal" contract as speculative_growth_qualifies/
+    # weinstein_stage above, never aborts the rest of the row.
+    engine = _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch)
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None
+    assert result.bb_rsi_entry_signal is None
+    assert result.overall_score == 76  # unaffected -- not an Overall Assessment input
+
+    with Session(engine) as session:
+        row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
+    assert row.bb_rsi_entry_signal is None
 
 
 def test_reversal_and_pullback_status_are_computed_from_trend_analysis(monkeypatch):

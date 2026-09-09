@@ -8,8 +8,9 @@ from sqlmodel import Session
 
 from analysis.trend_structure.technical_status import compute_pullback_status, compute_reversal_status
 from core.db import engine
-from core.models import TickerScore, TrendAnalysis
+from core.models import TechnicalEntrySignal, TickerScore, TrendAnalysis
 from core.tickers import normalize_ticker
+from data.entry_signal_data import DEFAULT_SIGNAL_TYPE, DEFAULT_TIMEFRAME
 from data.moat import get_moat_score_config, get_ticker_moat, resolve_moat_score
 from scoring.overall import MoatSnapshot, StepSnapshot, compute_overall_assessment
 from data.step1_data import get_step1_data
@@ -89,6 +90,7 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         # not one of the FMP-backed _safe_step calls, so a missing row (a
         # ticker Weinstein hasn't processed yet) is just None, never a raise.
         trend_analysis = session.get(TrendAnalysis, ticker)
+        entry_signal = session.get(TechnicalEntrySignal, (ticker, DEFAULT_SIGNAL_TYPE, DEFAULT_TIMEFRAME))
 
     reversal_status: str | None = None
     pullback_status: str | None = None
@@ -172,6 +174,7 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         weinstein_vs_ma_pct=trend_analysis.weinstein_vs_ma_pct if trend_analysis else None,
         reversal_status=reversal_status,
         pullback_status=pullback_status,
+        bb_rsi_entry_signal=entry_signal.fired if entry_signal else None,
     )
 
     values = row.model_dump()

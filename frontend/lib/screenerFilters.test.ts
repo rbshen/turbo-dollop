@@ -47,6 +47,7 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     weinstein_vs_ma_pct: null,
     reversal_status: null,
     pullback_status: null,
+    bb_rsi_entry_signal: null,
     ...overrides,
   };
 }

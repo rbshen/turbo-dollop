@@ -917,6 +917,10 @@ class TickerScoreOut(BaseModel):
     # See models.py::TickerScore.reversal_status/pullback_status.
     reversal_status: str | None = None
     pullback_status: str | None = None
+    # See models.py::TickerScore.bb_rsi_entry_signal. None for the
+    # overwhelming majority of tickers -- this signal only ever exists for
+    # the named "Watchlist" watchlist's members.
+    bb_rsi_entry_signal: bool | None = None
 
 
 class RecomputeSummary(BaseModel):

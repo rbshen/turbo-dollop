@@ -543,6 +543,10 @@ export interface TickerScoreOut {
   // enum between the two. null when no TrendAnalysis row exists yet.
   reversal_status: "not_present" | "confirmed" | "confirmed_stale" | null;
   pullback_status: "no_pullback" | "pending" | "recovered" | "invalidated" | null;
+  // See TickerScore.bb_rsi_entry_signal. null for the overwhelming
+  // majority of tickers -- this signal only ever exists for the named
+  // "Watchlist" watchlist's members.
+  bb_rsi_entry_signal: boolean | null;
 }
 
 export type ScreenerUniverse = "sp500" | "dow" | "all";
