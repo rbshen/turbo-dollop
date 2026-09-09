@@ -480,8 +480,9 @@ async def ticker_entry_signal(ticker: str) -> TechnicalEntrySignalOut | None:
     # Cache-only, same as get_trend_analysis_data's degrade-to-null
     # convention -- but there's no live-fetch fallback path here at all
     # (see data/entry_signal_data.py's own docstring): this signal only
-    # ever exists for tickers in the named "Watchlist" watchlist, refreshed
-    # by pipeline/nightly_entry_signal_calculation.py, not on demand.
+    # ever exists for tickers in the "Main"/"Secondary" named watchlists,
+    # refreshed by pipeline/nightly_entry_signal_calculation.py, not on
+    # demand.
     return await get_entry_signal_data(ticker)
 
 
@@ -489,8 +490,8 @@ async def ticker_entry_signal(ticker: str) -> TechnicalEntrySignalOut | None:
 def ticker_liquidity_zones(ticker: str) -> LiquidityZonesOut | None:
     # Cache-only, same convention as ticker_entry_signal above -- no
     # live-fetch fallback path at all (see data/liquidity_zone_data.py's
-    # own docstring): this only ever exists for tickers in the named
-    # "Watchlist" watchlist, refreshed by
+    # own docstring): this only ever exists for tickers in the "Main"/
+    # "Secondary" named watchlists, refreshed by
     # pipeline/nightly_liquidity_zone_calculation.py, not on demand.
     return get_liquidity_zone_data(ticker)
 

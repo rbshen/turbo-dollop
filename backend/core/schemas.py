@@ -919,7 +919,7 @@ class TickerScoreOut(BaseModel):
     pullback_status: str | None = None
     # See models.py::TickerScore.bb_rsi_entry_signal. None for the
     # overwhelming majority of tickers -- this signal only ever exists for
-    # the named "Watchlist" watchlist's members.
+    # the "Main"/"Secondary" named watchlists' members.
     bb_rsi_entry_signal: bool | None = None
 
 
@@ -1060,10 +1060,10 @@ class TechnicalEntrySignalOut(BaseModel):
     timeframe) -- see models.py::TechnicalEntrySignal for the persisted
     shape this mirrors. None (the whole object, via the endpoint returning
     `| None`) when this ticker has no computed row yet -- either it isn't a
-    member of the named "Watchlist" watchlist the nightly job reads (see
-    pipeline/nightly_entry_signal_calculation.py), or it hasn't been
-    processed yet, same "not computed yet, not a fabricated neutral result"
-    convention as TrendAnalysisOut above.
+    member of the "Main"/"Secondary" named watchlists the nightly job
+    reads (see pipeline/nightly_entry_signal_calculation.py), or it hasn't
+    been processed yet, same "not computed yet, not a fabricated neutral
+    result" convention as TrendAnalysisOut above.
 
     `active` is derived (fired_at within the last
     data/entry_signal_data.py::ACTIVE_WINDOW_DAYS), never the raw stored
@@ -1122,8 +1122,8 @@ class LiquidityZonesOut(BaseModel):
     trips (a deliberate deviation from TechnicalEntrySignalOut's
     one-timeframe-per-call shape). None (the whole object, via the
     endpoint returning `| None`) only when NEITHER timeframe has ever been
-    computed for this ticker -- either it isn't a member of the named
-    "Watchlist" watchlist the nightly job reads, or it hasn't been
+    computed for this ticker -- either it isn't a member of the "Main"/
+    "Secondary" named watchlists the nightly job reads, or it hasn't been
     processed yet. If only one timeframe has been computed (e.g. a
     brand-new deploy), the other side is None rather than the whole
     object being None."""
