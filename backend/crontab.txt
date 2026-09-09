@@ -56,6 +56,19 @@
 # See pipeline/nightly_entry_signal_calculation.py.
 20 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_entry_signal_calculation >> /home/shen/fathom/backend/logs/nightly_entry_signal_calculation_cron.log 2>&1
 
+# Nightly Liquidity Zone (LP) detection recompute, 3:25 AM server time --
+# after BB+RSI (3:20) above, before the (now 3:35) backup. Scoped to the
+# single named "Watchlist" watchlist only (same scoping as BB+RSI), not
+# the full tracked universe. Unlike the two jobs above it, this one CAN
+# make live FMP calls (daily/weekly aggregates aren't plan-restricted the
+# way FMP's intraday endpoints are -- see clients/daily_price_sources.py),
+# falling back to Yahoo Finance only when FMP_ENABLED=false -- backup_db
+# below was moved from 3:30 to 3:35 to give this job a full 10-minute
+# window instead of 5, since a cold FMP cache could plausibly need more
+# time than BB+RSI's Yahoo-only fetch ever did. See
+# pipeline/nightly_liquidity_zone_calculation.py.
+25 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_liquidity_zone_calculation >> /home/shen/fathom/backend/logs/nightly_liquidity_zone_calculation_cron.log 2>&1
+
 # Weekly S&P 500 constituent list refresh (Wikipedia scrape), Sundays at
 # 1:00 AM server time -- runs before the nightly fetch above so a freshly
 # added/removed ticker is reflected the same night. Index membership only
@@ -124,8 +137,10 @@
 # on every other day in this window. See pipeline/monthly_momentum_snapshot.py.
 0 3 1-5 * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.monthly_momentum_snapshot >> /home/shen/fathom/backend/logs/monthly_momentum_snapshot_cron.log 2>&1
 
-# Daily SQLite backup, 3:30 AM server time -- after the 2 AM nightly fetch,
-# with a 1.5hr buffer even for a cold-cache run. Compressed, timestamped
-# copy of fathom.db to backend/backups/ (gitignored); keeps the last 14
-# (two weeks). See pipeline/backup_db.py.
-30 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.backup_db >> /home/shen/fathom/backend/logs/backup_db_cron.log 2>&1
+# Daily SQLite backup, 3:35 AM server time (moved from 3:30 when the
+# Liquidity Zone job above was added, to keep a full 10-minute buffer
+# ahead of it) -- after the 2 AM nightly fetch, with a comfortable margin
+# even for a cold-cache run. Compressed, timestamped copy of fathom.db to
+# backend/backups/ (gitignored); keeps the last 14 (two weeks). See
+# pipeline/backup_db.py.
+35 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.backup_db >> /home/shen/fathom/backend/logs/backup_db_cron.log 2>&1
