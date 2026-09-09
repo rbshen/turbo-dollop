@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { CaretDown, CaretUp } from "@phosphor-icons/react";
+import { useMemo, useState } from "react";
+import { CaretDown, CaretUp, Check, X } from "@phosphor-icons/react";
 
 import { MiniBarChart } from "@/components/charts/MiniBarChart";
 import { SignalBars } from "@/components/watchlist/SignalBars";
@@ -145,8 +145,39 @@ function SortableHead({
 // pick rather than a proportional split of the freed space) to use the
 // horizontal space that cluster's removal freed up; every other column
 // (Moat/Value/Analysis/Rating/Mkt Cap/Beta/P/E) is unchanged.
+// idle -> confirming (click −) -> removing (click check) -> idle (mutate()
+// flips the row out of `rows` entirely) or error (auto-reverts after 4s).
+// Same inline-confirm idiom as AddToWatchlistButton's remove flow and
+// WatchlistSettingsForm's delete-confirm, just rendered as two small
+// icon buttons instead of "Okay"/"Cancel" text -- this column has no room
+// for the full "Remove TICKER from WATCHLIST_NAME?" sentence, so the
+// question is carried in each icon's title/aria-label instead.
+type RemoveState = "idle" | "confirming" | "removing" | "error";
+
 export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesChange }: Props) {
   const sorted = useMemo(() => (rows ? sortWatchlistRows(rows, sortRules) : []), [rows, sortRules]);
+  const [removeState, setRemoveState] = useState<Record<string, RemoveState>>({});
+  // Keyed by ticker only (no watchlist id) -- reset on every tab switch so a
+  // lingering "confirming"/"error" state from a previous watchlist never
+  // bleeds onto a same-ticker row in a different one. Adjusted during render
+  // ("storing information from previous renders", same pattern
+  // app/watchlist/page.tsx's own sortState uses for the same activeId-change
+  // reason) rather than a useEffect, which would cause an extra render.
+  const [lastWatchlistId, setLastWatchlistId] = useState(watchlist.id);
+  if (watchlist.id !== lastWatchlistId) {
+    setLastWatchlistId(watchlist.id);
+    setRemoveState({});
+  }
+
+  async function handleRemoveConfirmed(ticker: string) {
+    setRemoveState((prev) => ({ ...prev, [ticker]: "removing" }));
+    try {
+      await removeTickerFromWatchlist(watchlist.id, ticker);
+    } catch {
+      setRemoveState((prev) => ({ ...prev, [ticker]: "error" }));
+      setTimeout(() => setRemoveState((prev) => ({ ...prev, [ticker]: "idle" })), 4000);
+    }
+  }
 
   function openTicker(ticker: string) {
     window.open(`/tickers/${ticker}`, "_blank", "noopener,noreferrer");
@@ -272,18 +303,53 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                 {row.pe_ratio != null && fmtNumber(row.pe_ratio)}
               </TableCell>
               <TableCell className="text-center">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeTickerFromWatchlist(watchlist.id, row.ticker);
-                  }}
-                  aria-label={`Remove ${row.ticker}`}
-                  title={`Remove ${row.ticker}`}
-                  className="inline-flex size-[22px] items-center justify-center rounded-md border border-border-input text-sm leading-none text-text-tertiary transition-colors hover:border-negative hover:text-negative"
-                >
-                  −
-                </button>
+                {(removeState[row.ticker] ?? "idle") === "confirming" ? (
+                  <div className="flex items-center justify-center gap-1">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveConfirmed(row.ticker);
+                      }}
+                      aria-label={`Confirm: remove ${row.ticker} from ${watchlist.name}`}
+                      title={`Remove ${row.ticker} from ${watchlist.name}?`}
+                      className="inline-flex size-[22px] items-center justify-center rounded-md border border-warn/50 text-warn transition-colors hover:border-warn"
+                    >
+                      <Check size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRemoveState((prev) => ({ ...prev, [row.ticker]: "idle" }));
+                      }}
+                      aria-label="Cancel"
+                      title="Cancel"
+                      className="inline-flex size-[22px] items-center justify-center rounded-md border border-border-input text-text-tertiary transition-colors hover:border-brand hover:text-text-secondary"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRemoveState((prev) => ({ ...prev, [row.ticker]: "confirming" }));
+                    }}
+                    disabled={removeState[row.ticker] === "removing"}
+                    aria-label={`Remove ${row.ticker}`}
+                    title={removeState[row.ticker] === "error" ? "Failed to remove — retry" : `Remove ${row.ticker}`}
+                    className={cn(
+                      "inline-flex size-[22px] items-center justify-center rounded-md border text-sm leading-none transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                      removeState[row.ticker] === "error"
+                        ? "border-negative text-negative"
+                        : "border-border-input text-text-tertiary hover:border-negative hover:text-negative"
+                    )}
+                  >
+                    −
+                  </button>
+                )}
               </TableCell>
             </TableRow>
           ))}
