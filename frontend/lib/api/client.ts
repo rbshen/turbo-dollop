@@ -46,3 +46,12 @@ export function apiPut<T>(path: string, body?: unknown): Promise<T> {
 export function apiDelete<T>(path: string): Promise<T> {
   return request<T>(path, { method: "DELETE" });
 }
+
+// Extracts the " - <detail>" suffix request() appends above, so a caller
+// can show the backend's own rejection message (e.g. a capacity cap or a
+// duplicate-name 409) instead of a bare "Failed" label.
+export function errorDetail(e: unknown): string | undefined {
+  if (!(e instanceof Error)) return undefined;
+  const idx = e.message.indexOf(" - ");
+  return idx === -1 ? undefined : e.message.slice(idx + 3);
+}

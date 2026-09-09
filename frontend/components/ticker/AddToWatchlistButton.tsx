@@ -2,7 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { addTickerToWatchlist, bulkAddTickersToWatchlist, createWatchlist, useWatchlists } from "@/lib/hooks/useWatchlists";
+import { errorDetail } from "@/lib/api/client";
+import {
+  addTickerToWatchlist,
+  bulkAddTickersToWatchlist,
+  createWatchlist,
+  removeTickerFromWatchlist,
+  useWatchlists,
+} from "@/lib/hooks/useWatchlists";
 
 interface Props {
   tickers: string[];
@@ -13,25 +20,26 @@ interface Props {
   disabled?: boolean;
 }
 
-// Extracts the backend's own detail text appended by lib/api/client.ts's
-// request() (" - <detail>" suffix) so a capacity/validation rejection shows
-// its real message instead of a bare "Failed" label.
-function errorDetail(e: unknown): string | undefined {
-  if (!(e instanceof Error)) return undefined;
-  const idx = e.message.indexOf(" - ");
-  return idx === -1 ? undefined : e.message.slice(idx + 3);
-}
-
 type Panel = "idle" | "picking";
 type NewListStep = "idle" | "naming";
 // Same shape as SavedFiltersBar/MoatSettingsForm's own save-status pattern.
 type Status = "idle" | "saving" | "saved" | "error";
+// Remove has no "saved" terminal state to display -- once the DELETE
+// resolves, useWatchlists.ts's own mutate(KEY) flips `alreadyAdded` to
+// false and the row switches to the "Add" branch below on its own.
+type RemoveStatus = "idle" | "removing" | "error";
 
 const ADD_STATUS_LABELS: Record<Status, string> = {
   idle: "Add",
   saving: "Adding…",
   saved: "Added ✓",
   error: "Failed",
+};
+
+const REMOVE_STATUS_LABELS: Record<RemoveStatus, string> = {
+  idle: "Remove",
+  removing: "Removing…",
+  error: "Failed — retry",
 };
 
 const CREATE_STATUS_LABELS: Record<Status, string> = {
@@ -59,6 +67,13 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
   // exist, so only bulk gets this extra step.
   const [confirmTarget, setConfirmTarget] = useState<number | null>(null);
   const [bulkResult, setBulkResult] = useState<Record<number, string>>({});
+  // Single-ticker-only mirror of confirmTarget above, for the "already
+  // added" -> Remove confirmation (see the alreadyAdded branch below) --
+  // kept separate since add and remove confirmation can never both be
+  // showing for the same watchlist row at once.
+  const [removeConfirmTarget, setRemoveConfirmTarget] = useState<number | null>(null);
+  const [removeStatus, setRemoveStatus] = useState<Record<number, RemoveStatus>>({});
+  const [removeErrorMessage, setRemoveErrorMessage] = useState<Record<number, string>>({});
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -67,6 +82,7 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
         setPanel("idle");
         setNewListStep("idle");
         setConfirmTarget(null);
+        setRemoveConfirmTarget(null);
       }
     }
     document.addEventListener("mousedown", onClickOutside);
@@ -95,6 +111,22 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
       setAddStatus((prev) => ({ ...prev, [watchlistId]: "error" }));
       setAddErrorMessage((prev) => ({ ...prev, [watchlistId]: errorDetail(e) ?? "Something went wrong" }));
       setTimeout(() => setAddStatus((prev) => ({ ...prev, [watchlistId]: "idle" })), 4000);
+    }
+  }
+
+  async function handleRemove(watchlistId: number) {
+    setRemoveConfirmTarget(null);
+    setRemoveStatus((prev) => ({ ...prev, [watchlistId]: "removing" }));
+    try {
+      await removeTickerFromWatchlist(watchlistId, tickers[0]);
+      // No "removed" terminal state needed -- the mutate() inside
+      // removeTickerFromWatchlist already flips alreadyAdded to false,
+      // which switches this row to the "Add" branch on its own.
+      setRemoveStatus((prev) => ({ ...prev, [watchlistId]: "idle" }));
+    } catch (e) {
+      setRemoveStatus((prev) => ({ ...prev, [watchlistId]: "error" }));
+      setRemoveErrorMessage((prev) => ({ ...prev, [watchlistId]: errorDetail(e) ?? "Something went wrong" }));
+      setTimeout(() => setRemoveStatus((prev) => ({ ...prev, [watchlistId]: "idle" })), 4000);
     }
   }
 
@@ -198,15 +230,49 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
                   );
                 }
 
+                if (!isBulk && removeConfirmTarget === w.id) {
+                  return (
+                    <div key={w.id} className="space-y-1 rounded px-2 py-1.5 text-xs">
+                      <p className="text-warn">
+                        Remove {tickers[0].toUpperCase()} from &quot;{w.name}&quot;?
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleRemove(w.id)}
+                          className="rounded border border-warn/50 px-1.5 py-0.5 text-warn hover:border-warn"
+                        >
+                          Okay
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRemoveConfirmTarget(null)}
+                          className="rounded border border-border-input px-1.5 py-0.5 text-text-tertiary hover:border-brand hover:text-text-secondary"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
                 const alreadyAdded = !isBulk && w.tickers.some((t) => t.ticker === tickers[0].toUpperCase());
                 const resultMessage = isBulk ? bulkResult[w.id] : undefined;
+                const removeState = removeStatus[w.id] ?? "idle";
 
                 return (
                   <div key={w.id} className="space-y-0.5 rounded px-2 py-1.5">
                     <div className="flex items-center justify-between gap-2 text-xs text-text-secondary">
                       <span className="truncate">{w.name}</span>
                       {alreadyAdded ? (
-                        <span className="shrink-0 text-text-tertiary">Already added</span>
+                        <button
+                          type="button"
+                          onClick={() => setRemoveConfirmTarget(w.id)}
+                          disabled={removeState === "removing"}
+                          className="shrink-0 rounded border border-border-input px-1.5 py-0.5 text-text-tertiary hover:border-negative hover:text-negative disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {REMOVE_STATUS_LABELS[removeState]}
+                        </button>
                       ) : status === "saved" && resultMessage ? (
                         <span className="shrink-0 text-positive">{resultMessage}</span>
                       ) : (
@@ -222,6 +288,9 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
                     </div>
                     {status === "error" && addErrorMessage[w.id] && (
                       <p className="text-xs text-negative">{addErrorMessage[w.id]}</p>
+                    )}
+                    {removeState === "error" && removeErrorMessage[w.id] && (
+                      <p className="text-xs text-negative">{removeErrorMessage[w.id]}</p>
                     )}
                   </div>
                 );
