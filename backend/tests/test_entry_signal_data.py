@@ -5,7 +5,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import data.entry_signal_data as entry_signal_data
 from core.models import TechnicalEntrySignal
-from data.entry_signal_data import compute_and_store_entry_signal, is_entry_signal_active
+from data.entry_signal_data import compute_and_store_entry_signal, is_entry_signal_active, sweep_stale_entry_signals
 
 
 def _fresh_engine(monkeypatch):
@@ -128,3 +128,91 @@ def test_is_entry_signal_active_respects_the_seven_day_window():
     assert is_entry_signal_active(now - timedelta(days=7), now=now) is False
     assert is_entry_signal_active(now - timedelta(days=8), now=now) is False
     assert is_entry_signal_active(None, now=now) is False
+
+
+def test_sweep_clears_a_stale_row_but_leaves_as_of_source_computed_at_alone(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    now = datetime(2026, 9, 9, 12, 0)
+    stale_computed_at = now - timedelta(days=8)
+    with Session(engine) as session:
+        session.add(
+            TechnicalEntrySignal(
+                ticker="AAPL",
+                signal_type="bb_rsi",
+                timeframe="2h",
+                fired_at=stale_computed_at,
+                pct_b=0.01,
+                rsi=25.0,
+                close=100.0,
+                stop_price=95.0,
+                source="yahoo",
+                as_of=stale_computed_at,
+                computed_at=stale_computed_at,
+            )
+        )
+        session.commit()
+
+    cleared = sweep_stale_entry_signals(now=now)
+
+    assert cleared == 1
+    with Session(engine) as session:
+        row = session.get(TechnicalEntrySignal, ("AAPL", "bb_rsi", "2h"))
+    assert row.fired_at is None
+    assert row.pct_b is None
+    assert row.rsi is None
+    assert row.close is None
+    assert row.stop_price is None
+    assert row.source == "yahoo"
+    assert row.as_of == stale_computed_at
+    assert row.computed_at == stale_computed_at
+
+
+def test_sweep_leaves_a_fresh_row_untouched(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    now = datetime(2026, 9, 9, 12, 0)
+    fresh_computed_at = now - timedelta(days=6)
+    with Session(engine) as session:
+        session.add(
+            TechnicalEntrySignal(
+                ticker="AAPL",
+                signal_type="bb_rsi",
+                timeframe="2h",
+                fired_at=fresh_computed_at,
+                pct_b=0.01,
+                rsi=25.0,
+                close=100.0,
+                stop_price=95.0,
+                source="yahoo",
+                as_of=fresh_computed_at,
+                computed_at=fresh_computed_at,
+            )
+        )
+        session.commit()
+
+    cleared = sweep_stale_entry_signals(now=now)
+
+    assert cleared == 0
+    with Session(engine) as session:
+        row = session.get(TechnicalEntrySignal, ("AAPL", "bb_rsi", "2h"))
+    assert row.fired_at == fresh_computed_at
+    assert row.pct_b == 0.01
+
+
+def test_sweep_is_idempotent_on_an_already_cleared_row(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    now = datetime(2026, 9, 9, 12, 0)
+    stale_computed_at = now - timedelta(days=8)
+    with Session(engine) as session:
+        session.add(
+            TechnicalEntrySignal(
+                ticker="AAPL",
+                signal_type="bb_rsi",
+                timeframe="2h",
+                source="yahoo",
+                as_of=stale_computed_at,
+                computed_at=stale_computed_at,
+            )
+        )
+        session.commit()
+
+    assert sweep_stale_entry_signals(now=now) == 0  # nothing to clear -- already all-None

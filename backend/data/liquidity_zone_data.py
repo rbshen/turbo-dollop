@@ -4,17 +4,18 @@ calculation engine (analysis/liquidity_zones/) and persists/reads the
 result (models.py::LiquidityZoneAnalysis).
 
 Unlike trend_analysis_data.py, there is no live-fetch path here: this
-feature is scoped to the single named "Watchlist" watchlist and refreshed
-only by the nightly cron job (pipeline/nightly_liquidity_zone_calculation.py)
--- get_liquidity_zone_data below is a plain cache-only read, returning
-None for a ticker that was never in that watchlist or hasn't been
-processed yet.
+feature is scoped to the union of the "Main"/"Secondary" named watchlists
+and refreshed only by the nightly cron job
+(pipeline/nightly_liquidity_zone_calculation.py) -- get_liquidity_zone_data
+below is a plain cache-only read, returning None for a ticker that was
+never on either watchlist or hasn't been processed yet.
 """
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pandas as pd
+from sqlalchemy import or_, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session
 
@@ -30,6 +31,17 @@ from core.tickers import normalize_ticker
 # full -- see clients/daily_price_sources.py's own LOOKBACK_YEARS comment
 # for why a single ~4yr fetch serves both timeframes.
 DAILY_LOOKBACK = pd.DateOffset(years=1)
+
+# How long a row can go un-recomputed (e.g. its ticker dropped off both
+# "Main" and "Secondary") before sweep_stale_liquidity_zones clears it.
+STALE_AFTER_DAYS = 7
+
+# support_zones_json/resistance_zones_json are NOT NULL columns, so
+# sweep_stale_liquidity_zones clears them to this rather than NULL --
+# semantically "no zones," already handled by _zones_from_json with zero
+# changes there, and avoids a SQLite table-recreate just to relax a
+# constraint.
+_EMPTY_ZONES_JSON = "[]"
 
 
 def _zones_to_json(zones: list[Zone]) -> str:
@@ -100,8 +112,8 @@ def compute_and_store_liquidity_zones(ticker: str, ohlcv: pd.DataFrame, source: 
 def get_liquidity_zone_data(ticker: str) -> LiquidityZonesOut | None:
     """Cache-only read -- never triggers a live fetch (see module
     docstring). Returns None only if NEITHER timeframe has ever been
-    computed for this ticker (not a Watchlist member, or the nightly job
-    hasn't reached it yet)."""
+    computed for this ticker (not a "Main"/"Secondary" member, or the
+    nightly job hasn't reached it yet)."""
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         daily_row = session.get(LiquidityZoneAnalysis, (ticker, "daily"))
@@ -114,3 +126,40 @@ def get_liquidity_zone_data(ticker: str) -> LiquidityZonesOut | None:
         daily=_row_to_out(daily_row) if daily_row else None,
         weekly=_row_to_out(weekly_row) if weekly_row else None,
     )
+
+
+def sweep_stale_liquidity_zones(now: datetime | None = None) -> int:
+    """Clears (never deletes) any row whose computed_at is more than
+    STALE_AFTER_DAYS old -- the case where a ticker has fallen off both
+    "Main" and "Secondary" and so is no longer reached by the nightly
+    job's per-ticker loop at all. Sets support_zones_json/
+    resistance_zones_json to _EMPTY_ZONES_JSON ("no zones") rather than
+    NULL, since both columns are NOT NULL and relaxing that would need a
+    SQLite table recreate. last_price/as_of/source/computed_at are
+    deliberately left untouched, standing as a "last known" breadcrumb
+    (computed_at in particular is what the ticker-page card uses to show
+    "computed on X, no longer tracked") rather than deleting the row
+    outright, which would lose that breadcrumb for no real storage-cost
+    benefit (this table is one row per ticker/timeframe, not an
+    accumulating time series).
+
+    Only rewrites rows that still have real zones to clear, so re-running
+    this against an already-swept row is a cheap no-op, not a repeated
+    write. Returns the number of rows cleared."""
+    now = now or datetime.now()
+    cutoff = now - timedelta(days=STALE_AFTER_DAYS)
+    with Session(engine) as session:
+        stmt = (
+            update(LiquidityZoneAnalysis)
+            .where(
+                LiquidityZoneAnalysis.computed_at < cutoff,
+                or_(
+                    LiquidityZoneAnalysis.support_zones_json != _EMPTY_ZONES_JSON,
+                    LiquidityZoneAnalysis.resistance_zones_json != _EMPTY_ZONES_JSON,
+                ),
+            )
+            .values(support_zones_json=_EMPTY_ZONES_JSON, resistance_zones_json=_EMPTY_ZONES_JSON)
+        )
+        result = session.execute(stmt)
+        session.commit()
+        return result.rowcount

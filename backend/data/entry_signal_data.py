@@ -4,15 +4,17 @@ calculation engine (analysis/entry_signal/) and persists/reads the result
 (models.py::TechnicalEntrySignal). Independent of FMP entirely.
 
 Unlike trend_analysis_data.py, there is no live-fetch path here: this
-signal is scoped to the single named "Watchlist" watchlist and refreshed
-only by the nightly cron job (pipeline/nightly_entry_signal_calculation.py)
--- get_entry_signal_data below is a plain cache-only read, returning None
-for a ticker that was never in that watchlist or hasn't been processed yet.
+signal is scoped to the union of the "Main"/"Secondary" named watchlists
+and refreshed only by the nightly cron job
+(pipeline/nightly_entry_signal_calculation.py) -- get_entry_signal_data
+below is a plain cache-only read, returning None for a ticker that was
+never on either watchlist or hasn't been processed yet.
 """
 
 from datetime import datetime, timedelta
 
 import pandas as pd
+from sqlalchemy import or_, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session
 
@@ -31,6 +33,10 @@ DEFAULT_TIMEFRAME = "2h"
 # is_entry_signal_active below and models.py::TechnicalEntrySignal.fired_at's
 # own comment).
 ACTIVE_WINDOW_DAYS = 7
+
+# How long a row can go un-recomputed (e.g. its ticker dropped off both
+# "Main" and "Secondary") before sweep_stale_entry_signals clears it.
+STALE_AFTER_DAYS = 7
 
 
 def is_entry_signal_active(fired_at: datetime | None, now: datetime | None = None) -> bool:
@@ -121,9 +127,49 @@ async def get_entry_signal_data(
 ) -> TechnicalEntrySignalOut | None:
     """Cache-only read -- never triggers a live fetch (see module
     docstring). Returns None if this ticker/signal_type/timeframe has never
-    been computed (not a Watchlist member, or the nightly job hasn't
-    reached it yet)."""
+    been computed (not a "Main"/"Secondary" member, or the nightly job
+    hasn't reached it yet)."""
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = session.get(TechnicalEntrySignal, (ticker, signal_type, timeframe))
     return _row_to_out(row) if row else None
+
+
+def sweep_stale_entry_signals(now: datetime | None = None) -> int:
+    """Clears (never deletes) any row whose computed_at is more than
+    STALE_AFTER_DAYS old -- the case where a ticker has fallen off both
+    "Main" and "Secondary" and so is no longer reached by the nightly
+    job's per-ticker loop at all. Nulls fired_at/pct_b/rsi/close/
+    stop_price (all already-Optional fields, so no schema change) so a
+    stale fire/reading is never displayed as if current -- `active` reads
+    False automatically once fired_at is None. source/as_of/computed_at
+    are deliberately left untouched, standing as a "last known" breadcrumb
+    (computed_at in particular is what the ticker-page card uses to show
+    "computed on X, no longer tracked") rather than deleting the row
+    outright, which would lose that breadcrumb for no real storage-cost
+    benefit (this table is one row per ticker/signal_type/timeframe, not
+    an accumulating time series).
+
+    Only rewrites rows that actually still have something to clear, so
+    re-running this against an already-swept row is a cheap no-op, not a
+    repeated write. Returns the number of rows cleared."""
+    now = now or datetime.now()
+    cutoff = now - timedelta(days=STALE_AFTER_DAYS)
+    with Session(engine) as session:
+        stmt = (
+            update(TechnicalEntrySignal)
+            .where(
+                TechnicalEntrySignal.computed_at < cutoff,
+                or_(
+                    TechnicalEntrySignal.fired_at.is_not(None),
+                    TechnicalEntrySignal.pct_b.is_not(None),
+                    TechnicalEntrySignal.rsi.is_not(None),
+                    TechnicalEntrySignal.close.is_not(None),
+                    TechnicalEntrySignal.stop_price.is_not(None),
+                ),
+            )
+            .values(fired_at=None, pct_b=None, rsi=None, close=None, stop_price=None)
+        )
+        result = session.execute(stmt)
+        session.commit()
+        return result.rowcount

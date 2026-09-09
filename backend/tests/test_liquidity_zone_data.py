@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 import pytest
@@ -6,7 +6,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import data.liquidity_zone_data as liquidity_zone_data
 from core.models import LiquidityZoneAnalysis, LiquidityZoneConfig
-from data.liquidity_zone_data import compute_and_store_liquidity_zones, get_liquidity_zone_data
+from data.liquidity_zone_data import compute_and_store_liquidity_zones, get_liquidity_zone_data, sweep_stale_liquidity_zones
 from helpers.liquidity_zone_config import DEFAULT_CLUSTER_PCT, DEFAULT_NUM_ZONES, DEFAULT_SWING_BARS
 
 
@@ -118,3 +118,67 @@ def test_only_one_timeframe_computed_still_returns_the_other_side_as_none(monkey
     assert out is not None
     assert out.daily is not None
     assert out.weekly is None
+
+
+def _seed_row(
+    engine,
+    computed_at: datetime,
+    support_json: str = '[{"price": 90.0, "cluster_size": 1, "formed_at": "2026-01-01"}]',
+    resistance_json: str = '[{"price": 130.0, "cluster_size": 1, "formed_at": "2026-01-01"}]',
+):
+    with Session(engine) as session:
+        session.add(
+            LiquidityZoneAnalysis(
+                ticker="AAPL",
+                timeframe="daily",
+                last_price=100.0,
+                as_of=computed_at.date(),
+                support_zones_json=support_json,
+                resistance_zones_json=resistance_json,
+                source="fmp",
+                computed_at=computed_at,
+            )
+        )
+        session.commit()
+
+
+def test_sweep_clears_a_stale_rows_zones_but_leaves_as_of_source_computed_at_alone(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    now = datetime(2026, 9, 9, 12, 0)
+    stale_computed_at = now - timedelta(days=8)
+    _seed_row(engine, stale_computed_at)
+
+    cleared = sweep_stale_liquidity_zones(now=now)
+
+    assert cleared == 1
+    with Session(engine) as session:
+        row = session.get(LiquidityZoneAnalysis, ("AAPL", "daily"))
+    assert row.support_zones_json == "[]"
+    assert row.resistance_zones_json == "[]"
+    assert row.last_price == 100.0
+    assert row.as_of == stale_computed_at.date()
+    assert row.source == "fmp"
+    assert row.computed_at == stale_computed_at
+
+
+def test_sweep_leaves_a_fresh_row_untouched(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    now = datetime(2026, 9, 9, 12, 0)
+    fresh_computed_at = now - timedelta(days=6)
+    _seed_row(engine, fresh_computed_at)
+
+    cleared = sweep_stale_liquidity_zones(now=now)
+
+    assert cleared == 0
+    with Session(engine) as session:
+        row = session.get(LiquidityZoneAnalysis, ("AAPL", "daily"))
+    assert row.support_zones_json != "[]"
+
+
+def test_sweep_is_idempotent_on_an_already_cleared_row(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    now = datetime(2026, 9, 9, 12, 0)
+    stale_computed_at = now - timedelta(days=8)
+    _seed_row(engine, stale_computed_at, support_json="[]", resistance_json="[]")
+
+    assert sweep_stale_liquidity_zones(now=now) == 0  # both already "[]" -- nothing left to clear
