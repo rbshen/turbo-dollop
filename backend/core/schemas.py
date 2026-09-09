@@ -1,7 +1,7 @@
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 
 
 class SecCrossCheck(BaseModel):
@@ -968,14 +968,20 @@ class WatchlistOut(BaseModel):
     tickers: list[WatchlistTickerOut]
 
 
+# Shared by create and rename -- strips surrounding whitespace before
+# length-checking, so a whitespace-only name (e.g. "   ") is rejected by
+# min_length=1 the same as a literal empty string, not silently accepted.
+WatchlistName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+
 class WatchlistIn(BaseModel):
-    name: str
+    name: WatchlistName
 
 
 class WatchlistUpdateIn(BaseModel):
     # All optional -- PUT /api/watchlists/{id} is a partial update (rename
     # and/or sort preference), not a full-replace.
-    name: str | None = None
+    name: WatchlistName | None = None
     sort_field: str | None = None
     sort_direction: str | None = None
 

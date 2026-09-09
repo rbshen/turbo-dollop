@@ -145,3 +145,120 @@ def test_thinkorswim_export_404_for_missing_watchlist(monkeypatch):
         response = client.get("/api/watchlists/999/export/thinkorswim")
 
     assert response.status_code == 404
+
+
+def test_watchlist_remove_ticker_succeeds(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    watchlist_id = _make_watchlist(engine, ticker_count=0)
+    with Session(engine) as session:
+        session.add(WatchlistTicker(watchlist_id=watchlist_id, ticker="AAPL", added_at=datetime(2026, 1, 1)))
+        session.commit()
+
+    with TestClient(main.app) as client:
+        response = client.delete(f"/api/watchlists/{watchlist_id}/tickers/AAPL")
+
+    assert response.status_code == 204
+    with Session(engine) as session:
+        remaining = session.exec(select(WatchlistTicker).where(WatchlistTicker.watchlist_id == watchlist_id)).all()
+    assert remaining == []
+
+
+def test_watchlist_remove_ticker_normalizes_dot_notation(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    watchlist_id = _make_watchlist(engine, ticker_count=0)
+    with Session(engine) as session:
+        session.add(WatchlistTicker(watchlist_id=watchlist_id, ticker="BRK-B", added_at=datetime(2026, 1, 1)))
+        session.commit()
+
+    with TestClient(main.app) as client:
+        response = client.delete(f"/api/watchlists/{watchlist_id}/tickers/BRK.B")
+
+    assert response.status_code == 204
+
+
+def test_watchlist_remove_ticker_404_for_ticker_not_in_watchlist(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    watchlist_id = _make_watchlist(engine, ticker_count=0)
+
+    with TestClient(main.app) as client:
+        response = client.delete(f"/api/watchlists/{watchlist_id}/tickers/AAPL")
+
+    assert response.status_code == 404
+
+
+def test_watchlist_rename_succeeds(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    watchlist_id = _make_watchlist(engine, name="Old Name")
+
+    with TestClient(main.app) as client:
+        response = client.put(f"/api/watchlists/{watchlist_id}", json={"name": "New Name"})
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "New Name"
+    with Session(engine) as session:
+        assert session.get(Watchlist, watchlist_id).name == "New Name"
+
+
+def test_watchlist_rename_trims_surrounding_whitespace(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    watchlist_id = _make_watchlist(engine, name="Old Name")
+
+    with TestClient(main.app) as client:
+        response = client.put(f"/api/watchlists/{watchlist_id}", json={"name": "  New Name  "})
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "New Name"
+
+
+def test_watchlist_rename_rejects_empty_name(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    watchlist_id = _make_watchlist(engine, name="Old Name")
+
+    with TestClient(main.app) as client:
+        response = client.put(f"/api/watchlists/{watchlist_id}", json={"name": "   "})
+
+    assert response.status_code == 422
+    with Session(engine) as session:
+        assert session.get(Watchlist, watchlist_id).name == "Old Name"
+
+
+def test_watchlist_rename_rejects_overlong_name(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    watchlist_id = _make_watchlist(engine, name="Old Name")
+
+    with TestClient(main.app) as client:
+        response = client.put(f"/api/watchlists/{watchlist_id}", json={"name": "x" * 101})
+
+    assert response.status_code == 422
+
+
+def test_watchlist_rename_rejects_duplicate_name(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    _make_watchlist(engine, name="Taken")
+    watchlist_id = _make_watchlist(engine, name="Old Name")
+
+    with TestClient(main.app) as client:
+        response = client.put(f"/api/watchlists/{watchlist_id}", json={"name": "Taken"})
+
+    assert response.status_code == 409
+    with Session(engine) as session:
+        assert session.get(Watchlist, watchlist_id).name == "Old Name"
+
+
+def test_watchlist_rename_allows_unchanged_name_on_self(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    watchlist_id = _make_watchlist(engine, name="Same Name")
+
+    with TestClient(main.app) as client:
+        response = client.put(f"/api/watchlists/{watchlist_id}", json={"name": "Same Name"})
+
+    assert response.status_code == 200
+
+
+def test_watchlist_create_rejects_empty_name(monkeypatch):
+    _fresh_engine(monkeypatch)
+
+    with TestClient(main.app) as client:
+        response = client.post("/api/watchlists", json={"name": "   "})
+
+    assert response.status_code == 422
