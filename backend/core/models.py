@@ -174,10 +174,13 @@ class TechnicalEntrySignal(SQLModel, table=True):
     tickers" behavior, not a gap to work around.
 
     Originally had a `fired: bool` column, replaced by `fired_at` below
-    (2026-09-09, see fired_at's own comment) -- this app has no
-    column-drop migration tooling (core/db.py::_add_missing_columns is
-    additive-only), so the physical `fired` column is simply left as an
-    unreferenced orphan in the SQLite file rather than dropped."""
+    (2026-09-09, see fired_at's own comment). Unlike core/db.py::
+    _add_missing_columns' additive-only sweep, this one genuinely had to
+    be DROPPED, not just left unreferenced: `fired` was NOT NULL with no
+    default, so once the model stopped supplying it, every future INSERT
+    would violate that constraint. See core/db.py::_drop_obsolete_columns
+    (a small, explicit registry, not a general migration framework --
+    matching _add_missing_columns' own minimalism)."""
 
     ticker: str = Field(primary_key=True)
     signal_type: str = Field(primary_key=True)  # "bb_rsi"
