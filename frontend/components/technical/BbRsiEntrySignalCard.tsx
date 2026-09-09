@@ -43,9 +43,15 @@ export function BbRsiEntrySignalCard({ data }: Props) {
     },
     {
       key: "rsi",
-      label: "RSI (prior candle)",
+      label: "RSI (current candle)",
       statusText: data.rsi != null ? data.rsi.toFixed(1) : "—",
       toneClass: data.rsi != null && data.rsi < 30 ? "text-positive" : "text-text-tertiary",
+      // The check itself requires the PRIOR candle's RSI to have been
+      // oversold, not this (current-candle) reading -- see
+      // analysis/entry_signal/indicators.py::check_buy_signal. Shown here
+      // as "where RSI stands right now," same current-candle framing as
+      // %B above.
+      detail: "The signal check uses the prior candle's RSI, not this current reading.",
     },
     {
       key: "close",
