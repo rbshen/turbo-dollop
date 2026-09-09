@@ -134,6 +134,14 @@ Each watchlist is capped at `WATCHLIST_CAPACITY` (100 tickers,
 `backend/core/main.py`) — adding tickers past the cap is rejected with an
 explanatory error rather than silently truncating.
 
+Two watchlists have a special, hardcoded role beyond ordinary user-created
+lists: **"Main"** and **"Secondary"** are the two named watchlists the
+BB+RSI entry-signal and Liquidity Zone (LP) nightly jobs read from (see
+"Liquidity Zone (LP) detection (Technical)" below for the full mechanism).
+Both jobs compute over the deduped union of the two — a ticker on both is
+only processed once, and a ticker on neither has no row in either
+feature's table at all.
+
 ## Caching policy
 
 Fundamentals change infrequently, so raw FMP pulls are cached in a local
@@ -2238,8 +2246,8 @@ scoring or any other lens -- a second, parallel read on price structure.
   fix. A settings change only takes effect on the next nightly run, not retroactively --
   this feature has no live-recompute path the way Step 3's discount rate does.
 - **Cron: a new dedicated job, not folded into `nightly_entry_signal_calculation.py`**,
-  despite both being Watchlist-scoped. Every existing pipeline script already maps 1:1 to
-  one feature (even the two other Watchlist-scoped/full-universe technical jobs are
+  despite both being Main/Secondary-scoped. Every existing pipeline script already maps 1:1
+  to one feature (even the two other Main/Secondary-scoped/full-universe technical jobs are
   already split despite similar shape); this job also needs a genuine `fmp_enabled`
   FMP<->Yahoo branch that BB+RSI's script has no equivalent of, and separate
   `cron_heartbeat` names keep failure attribution clean (an FMP outage affecting Liquidity
@@ -2259,9 +2267,58 @@ scoring or any other lens -- a second, parallel read on price structure.
   with zero currently-valid zones for a timeframe (sparse/early history, or price simply
   hasn't pulled back far enough to form one) shows a plain "No confirmed
   support/resistance levels yet" line while the rest of the card renders normally; a
-  ticker never computed at all (not in the Watchlist, or not yet processed) renders the
-  same "Not tracked" shape `BbRsiEntrySignalCard` uses, explaining the Watchlist-only
-  scoping, rather than four empty sections.
+  ticker never computed at all (on neither "Main" nor "Secondary", or not yet processed)
+  renders the same "Not tracked" shape `BbRsiEntrySignalCard` uses, explaining the
+  Main/Secondary-only scoping, rather than four empty sections.
+
+### Main/Secondary watchlist rename + computed_at staleness sweep (2026-09-09)
+
+Both the BB+RSI entry-signal and Liquidity Zone (LP) nightly jobs were originally scoped
+to a single hardcoded watchlist literally named `"Watchlist"`. Renamed to two named lists,
+`"Main"` and `"Secondary"` -- both jobs now compute over the deduped union of the two (a
+ticker on both lists is processed once, never twice) via the new
+`data/watchlists.py::list_tickers_across_watchlists(session, names)` helper, shared by both
+`pipeline/nightly_entry_signal_calculation.py` and `pipeline/nightly_liquidity_zone_calculation.py`.
+If one of the two named watchlists doesn't exist, the job logs a warning and continues with
+whichever does (a deliberate change from the old single-name behavior, where any missing
+watchlist was an unconditional no-op) -- only an empty union (neither list exists, or both
+exist with zero tickers combined) short-circuits to the existing "nothing to process"
+summary.
+
+**Real-DB note (2026-09-09):** at the time of this rename, no `"Watchlist"` row existed any
+more (already renamed/deleted by an earlier, unrelated change) and a `"Main"` row already
+existed (freshly created that same day, not a rename of the old row) -- kept as-is per
+explicit direction rather than assumed; `"Secondary"` was created fresh via
+`data/watchlists.py::create_watchlist`, the same helper the `/watchlist` UI itself uses.
+
+**`computed_at: datetime` already existed on both `TechnicalEntrySignal` and
+`LiquidityZoneAnalysis`** (set on every successful nightly compute, already threaded through
+`TechnicalEntrySignalOut`/`LiquidityZoneOut` and the frontend TS types) -- this build didn't
+add the field, only a staleness-sweep mechanism that uses it and card-level display that was
+previously missing (`BbRsiEntrySignalCard`'s new "Data computed" row,
+`LiquidityZonesCard`'s new per-timeframe "Computed [date]" caption).
+
+**Staleness sweep**: each nightly job, after its per-ticker loop, calls a new sweep function
+in its own data-layer module (`data/entry_signal_data.py::sweep_stale_entry_signals`,
+`data/liquidity_zone_data.py::sweep_stale_liquidity_zones`) that clears any row whose
+`computed_at` is more than `STALE_AFTER_DAYS` (7) old -- the case where a ticker has fallen
+off both "Main" and "Secondary" and so is no longer reached by the per-ticker loop at all.
+Folded into the existing jobs rather than a new cron entry/`cron_heartbeat` name, since it's
+maintenance of the same feature, not a new one.
+
+**Design decision: clear in place, never delete the row** (a deliberate choice between the
+two options, not a default) -- `fired_at`/`pct_b`/`rsi`/`close`/`stop_price` (entry-signal,
+all already-`Optional` fields, no schema change) and `support_zones_json`/
+`resistance_zones_json` (liquidity-zone, set to `"[]"` rather than `NULL` since both are
+`NOT NULL` columns and relaxing that would need a SQLite table recreate -- semantically "no
+zones" either way, handled by the existing JSON-parsing code unchanged) are nulled/emptied,
+while `source`/`as_of`/`computed_at` are left completely untouched as a "last known" marker.
+Deleting the row would lose that marker -- the exact thing the ticker-page cards need to
+show "computed as of X, no longer tracked" instead of the data just vanishing -- for no real
+storage-cost benefit, since both tables are one row per ticker(/timeframe), not an
+accumulating time series a delete would meaningfully shrink. Sweeping an already-cleared row
+is a cheap no-op (both sweep functions only rewrite rows that still have something to
+clear), so this runs safely every night indefinitely.
 
 ## Workflow rules
 
