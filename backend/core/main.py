@@ -3,6 +3,7 @@ import io
 import json
 import re
 from contextlib import asynccontextmanager
+from typing import Literal
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -35,6 +36,7 @@ from data.speculative_growth_data import get_speculative_growth_data
 from data.ticker_search import search_tickers
 from core.schemas import (
     AnalystRatingsOut,
+    ChartOut,
     CronHealthOut,
     DiscountRateConfigIn,
     DiscountRateConfigOut,
@@ -105,6 +107,7 @@ from data.step3_data import get_active_valuation, get_step3_data
 from data.step4_data import get_step4_data
 from data.step5_data import get_step5_data
 from data.ticker_score import compute_ticker_score
+from data.chart_data import get_chart_data
 from data.entry_signal_data import get_entry_signal_data
 from data.ticker_summary import get_summary
 from data.trend_analysis_data import get_trend_analysis_data
@@ -494,6 +497,21 @@ def ticker_liquidity_zones(ticker: str) -> LiquidityZonesOut | None:
     # "Secondary" named watchlists, refreshed by
     # pipeline/nightly_liquidity_zone_calculation.py, not on demand.
     return get_liquidity_zone_data(ticker)
+
+
+@app.get("/api/tickers/{ticker}/chart", response_model=ChartOut)
+async def ticker_chart(ticker: str, range: Literal["D_1Y", "D_2Y", "W_4Y"] = "D_1Y") -> ChartOut:
+    # Unlike every other ticker-page endpoint above, this one DOES make a
+    # live call on every request (no nightly precompute -- see
+    # data/chart_data.py's own docstring for why), so the httpx.HTTPError ->
+    # 502 conversion below is a live path here, not the mostly-dead
+    # safety net it is at ticker_financials and friends (see those
+    # endpoints' own comment on why raising the raw exception would leak
+    # the FMP apikey via httpx's own error message).
+    try:
+        return await get_chart_data(ticker, range)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="FMP request failed") from exc
 
 
 @app.get("/api/tickers/{ticker}/financials", response_model=FinancialsOut)

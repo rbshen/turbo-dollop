@@ -1138,6 +1138,76 @@ class LiquidityZonesOut(BaseModel):
     weekly: LiquidityZoneOut | None = None
 
 
+class ChartBarOut(BaseModel):
+    time: str  # "YYYY-MM-DD"
+    open: float
+    high: float
+    low: float
+    close: float
+
+
+class ChartLinePointOut(BaseModel):
+    """One point in a simple line series -- reused for sma20/sma50/sma200/rsi,
+    same shared-shape convention Options Tracker's own chart schema uses for
+    its equivalent EMA/SMA/RSI series."""
+
+    time: str
+    value: float
+
+
+class ChartBollingerPointOut(BaseModel):
+    time: str
+    upper: float
+    middle: float
+    lower: float
+
+
+class ChartStochasticPointOut(BaseModel):
+    time: str
+    k: float
+    d: float
+
+
+class ChartMarkerOut(BaseModel):
+    """A single point-in-time BB+RSI entry-signal marker -- at most one,
+    never a history of every past firing (TechnicalEntrySignal only stores
+    the latest fired_at per ticker, see models.py's own comment)."""
+
+    time: str
+    label: str  # "BB+RSI"
+
+
+class ChartOut(BaseModel):
+    """OHLC + indicators for one ticker-page Chart tab view -- see
+    data/chart_data.py for the fetch/compute mechanism. Computed fully
+    on-demand (no persisted table, no nightly job -- confirmed fast enough
+    for a page load in the Chart tab latency investigation), so this always
+    reflects a live-or-cached-FMP/Yahoo read, never a stale precomputed row.
+
+    No `zones` field yet (Liquidity Zone overlay isn't wired into this view
+    -- that feature hasn't shipped a Chart-tab integration yet); adding one
+    later is additive, not a breaking change to this shape."""
+
+    range: str  # "D_1Y" | "D_2Y" | "W_4Y"
+    timeframe: str  # "daily" | "weekly"
+    bars: list[ChartBarOut]
+    sma20: list[ChartLinePointOut]
+    sma50: list[ChartLinePointOut]
+    sma200: list[ChartLinePointOut]
+    bollinger: list[ChartBollingerPointOut]
+    stochastic: list[ChartStochasticPointOut]
+    rsi: list[ChartLinePointOut]
+    # None when there's no current marker to show -- either because
+    # entry_signal_available is False (not tracked at all), or because the
+    # ticker IS tracked but has no currently-active signal right now. The
+    # frontend distinguishes those two cases via entry_signal_available,
+    # not by inspecting this field alone.
+    entry_signal_marker: ChartMarkerOut | None = None
+    entry_signal_available: bool
+    source: str  # "fmp" | "yahoo"
+    chart_available: bool  # False only for a genuinely bad/delisted ticker with no bars at all
+
+
 class LiquidityZoneConfigOut(BaseModel):
     key: str
     daily_swing_bars: int
