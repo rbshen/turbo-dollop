@@ -5,6 +5,7 @@ import { useState } from "react";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { AnalysisTab } from "@/components/ticker/AnalysisTab";
 import { AnalystRatingsTab } from "@/components/ticker/AnalystRatingsTab";
+import { ChartTab } from "@/components/ticker/ChartTab";
 import { EconomicMoatTab } from "@/components/ticker/EconomicMoatTab";
 import { FinancialsTab } from "@/components/ticker/FinancialsTab";
 import { RatiosTab } from "@/components/ticker/RatiosTab";
@@ -71,6 +72,7 @@ export function TickerTabsContainer({ ticker }: Props) {
         {tab === "valuation" && <ValuationTab ticker={ticker} />}
         {tab === "moat" && <EconomicMoatTab ticker={ticker} />}
         {tab === "technical" && <TechnicalTab ticker={ticker} />}
+        {tab === "chart" && <ChartTab ticker={ticker} />}
       </PageContainer>
     </div>
   );
