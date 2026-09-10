@@ -52,6 +52,30 @@ const RSI_OVERSOLD = 30;
 const STOCH_OVERBOUGHT = 80;
 const STOCH_OVERSOLD = 20;
 
+// rightOffset (the empty right-edge margin) is a bar-COUNT, not a pixel
+// width -- lightweight-charts fits barSpacing to (bar count + rightOffset)
+// bars across the pane's fixed pixel width, so the same rightOffset=10
+// produces a visibly different pixel margin per range (D_6M's ~126 bars
+// stretch each bar wider than D_2Y's ~504 bars packed into the same
+// width). BASE_RIGHT_OFFSET (10) is D_1Y's own already-tuned margin;
+// REFERENCE_D1Y_BAR_COUNT (252, the standard trading-days-per-year
+// convention -- D_1Y's own 365-calendar-day visible window) is the bar
+// count that margin was tuned against. computeRightOffset scales it by
+// the CURRENTLY-rendered range's own real bar count, so every range ends
+// up with the same PIXEL margin D_1Y already had -- confirmed
+// algebraically (and via a standalone numerical simulation replicating
+// this library's own fitContent()/setVisibleRange() math) that pane
+// WIDTH cancels out of this ratio entirely: the corrected value is
+// correct at every window width without re-reading anything from the
+// live chart, so no resize-time recomputation is needed -- it's derived
+// once from data.bars.length, before the chart is even created.
+const BASE_RIGHT_OFFSET = 10;
+const REFERENCE_D1Y_BAR_COUNT = 252;
+
+function computeRightOffset(barCount: number): number {
+  return (BASE_RIGHT_OFFSET * barCount) / REFERENCE_D1Y_BAR_COUNT;
+}
+
 interface OhlcState {
   o: number;
   h: number;
@@ -59,7 +83,7 @@ interface OhlcState {
   c: number;
 }
 
-function makeChartOptions(height?: number) {
+function makeChartOptions(rightOffset: number, height?: number) {
   return {
     layout: {
       background: { color: CHART_THEME.background },
@@ -88,7 +112,7 @@ function makeChartOptions(height?: number) {
     // bars of real history were silently cropped off the left. Set false
     // here so a later setData() only ever changes what's drawn, never
     // the visible range itself.
-    timeScale: { borderColor: CHART_THEME.border, timeVisible: false, rightOffset: 10, shiftVisibleRangeOnNewBar: false },
+    timeScale: { borderColor: CHART_THEME.border, timeVisible: false, rightOffset, shiftVisibleRangeOnNewBar: false },
     crosshair: { mode: 1 },
     ...(height !== undefined ? { height } : {}),
   };
@@ -274,11 +298,23 @@ function extendZoneLinesToEdge(
 ) {
   const rightOffset = chart.timeScale().options().rightOffset;
   if (!rightOffset || rightOffset <= 0) return;
+  // rightOffset is now a per-range-calibrated value (see
+  // computeRightOffset) and can be fractional (e.g. W_4Y's ~8.29) --
+  // round UP the synthetic-point count. The compensation branch in
+  // updateTimeScale (shiftVisibleRangeOnNewBar: false) keeps the actual
+  // locked-in right edge (baseIndex + rightOffset) EXACTLY invariant no
+  // matter how many points are added, confirmed numerically: adding
+  // floor(rightOffset) points reaches only ~96% of the margin (still
+  // short), while ceil(rightOffset) reaches ~108% -- i.e. the last
+  // synthetic point lands just past the true edge, simply clipped/
+  // invisible there rather than falling short of it. Rounding up is the
+  // safe direction; rounding down never is.
+  const pointCount = Math.ceil(rightOffset);
   const incrementDays = timeframe === "weekly" ? 7 : 1;
   for (const { series, points } of zoneLines) {
     if (!points.length) continue;
     const last = points[points.length - 1];
-    const extension = futureDateStrings(last.time, rightOffset, incrementDays).map((time) => ({ time, value: last.value }));
+    const extension = futureDateStrings(last.time, pointCount, incrementDays).map((time) => ({ time, value: last.value }));
     series.setData([...points, ...extension]);
   }
 }
@@ -296,10 +332,10 @@ function addRefLine(series: ISeriesApi<"Line">, price: number) {
   });
 }
 
-function renderRsi(container: HTMLElement, data: ChartOut) {
+function renderRsi(container: HTMLElement, data: ChartOut, rightOffset: number) {
   const chart = createChart(container, {
-    ...makeChartOptions(120),
-    timeScale: { borderColor: CHART_THEME.border, visible: false, rightOffset: 10 },
+    ...makeChartOptions(rightOffset, 120),
+    timeScale: { borderColor: CHART_THEME.border, visible: false, rightOffset },
   });
   const series = chart.addSeries(LineSeries, {
     color: COLORS.rsi,
@@ -325,10 +361,10 @@ function renderRsi(container: HTMLElement, data: ChartOut) {
   return { chart, series };
 }
 
-function renderStochastic(container: HTMLElement, data: ChartOut) {
+function renderStochastic(container: HTMLElement, data: ChartOut, rightOffset: number) {
   const chart = createChart(container, {
-    ...makeChartOptions(120),
-    timeScale: { borderColor: CHART_THEME.border, visible: false, rightOffset: 10 },
+    ...makeChartOptions(rightOffset, 120),
+    timeScale: { borderColor: CHART_THEME.border, visible: false, rightOffset },
   });
   const kSeries = chart.addSeries(LineSeries, { color: COLORS.stochK, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
   const dSeries = chart.addSeries(LineSeries, { color: COLORS.stochD, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
@@ -361,7 +397,16 @@ export function TickerChart({ data }: Props) {
   useEffect(() => {
     if (!mainRef.current) return;
 
-    const main = createChart(mainRef.current, makeChartOptions());
+    // Computed once per data change, from the currently-rendered range's
+    // own real bar count -- see computeRightOffset's own comment for why
+    // this alone (no live pixel/barSpacing reading) is sufficient, and
+    // passed identically to all three chart instances so their margins
+    // stay visually aligned with each other (mirroring how a flat
+    // rightOffset: 10 was applied uniformly across all three panes in an
+    // earlier round).
+    const rightOffset = computeRightOffset(data.bars.length);
+
+    const main = createChart(mainRef.current, makeChartOptions(rightOffset));
     const { candle, zoneLines } = renderMain(main, data);
     main.timeScale().fitContent();
     extendZoneLinesToEdge(main, zoneLines, data.timeframe);
@@ -369,7 +414,7 @@ export function TickerChart({ data }: Props) {
     let rsiChart: IChartApi | null = null;
     let rsiSeries: ISeriesApi<"Line"> | null = null;
     if (data.rsi.length && rsiRef.current) {
-      const result = renderRsi(rsiRef.current, data);
+      const result = renderRsi(rsiRef.current, data, rightOffset);
       rsiChart = result.chart;
       rsiSeries = result.series;
       rsiChart.timeScale().fitContent();
@@ -378,7 +423,7 @@ export function TickerChart({ data }: Props) {
     let stochChart: IChartApi | null = null;
     let stochSeries: ISeriesApi<"Line"> | null = null;
     if (data.stochastic.length && stochRef.current) {
-      const result = renderStochastic(stochRef.current, data);
+      const result = renderStochastic(stochRef.current, data, rightOffset);
       stochChart = result.chart;
       stochSeries = result.series;
       stochChart.timeScale().fitContent();
@@ -441,6 +486,12 @@ export function TickerChart({ data }: Props) {
       });
     }
 
+    // rightOffset (computed once above, before any of this) never needs
+    // recomputing here on resize: the margin-equalization math is a pure
+    // ratio of bar counts (computeRightOffset), and pane width cancels
+    // out of that ratio algebraically -- confirmed numerically across a
+    // wide range of widths (600-2000px) -- so the same value stays
+    // correct at whatever width the container resizes to.
     const observer = new ResizeObserver(() => {
       const w = mainRef.current?.clientWidth;
       if (w) {
