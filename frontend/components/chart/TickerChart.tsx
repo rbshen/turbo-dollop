@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers } from "lightweight-charts";
+import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers, LineStyle } from "lightweight-charts";
 import type { IChartApi, ISeriesApi } from "lightweight-charts";
 import { fmtMoney } from "@/lib/format";
 import type { ChartOut } from "@/lib/api/types";
@@ -32,7 +32,16 @@ const COLORS = {
   // Reuses upCandle's green -- the only "up/bullish" green already defined
   // in this component, for a bullish entry-signal marker.
   marker: "#10b981",
+  // Same dark gray as the main pane's last-close price line -- distinct
+  // from the #808080 RSI/StochD data-line gray so the static 70/30 and
+  // 80/20 reference lines read as background guides, not data.
+  refLine: "#52525b",
 };
+
+const RSI_OVERBOUGHT = 70;
+const RSI_OVERSOLD = 30;
+const STOCH_OVERBOUGHT = 80;
+const STOCH_OVERSOLD = 20;
 
 interface OhlcState {
   o: number;
@@ -100,7 +109,12 @@ function renderMain(chart: IChartApi, data: ChartOut) {
   }
 
   if (data.bollinger.length) {
-    for (const key of ["upper", "middle", "lower"] as const) {
+    // Only the upper/lower bands are plotted -- the basis (middle) line is
+    // computed on the backend (bb_basis, EMA(20)) and still feeds the
+    // upper/lower math, but its own chart series is dropped: now that BB's
+    // basis is EMA(20) and the separate trend line above is EMA(21), the
+    // two read as visually near-redundant on the chart.
+    for (const key of ["upper", "lower"] as const) {
       const bb = chart.addSeries(LineSeries, {
         color: COLORS.bollinger,
         lineWidth: 1,
@@ -130,6 +144,19 @@ function renderMain(chart: IChartApi, data: ChartOut) {
   return candle;
 }
 
+function addRefLine(series: ISeriesApi<"Line">, price: number) {
+  // Static reference lines (not derived from data), drawn via
+  // createPriceLine rather than a plotted series.
+  series.createPriceLine({
+    price,
+    color: COLORS.refLine,
+    lineWidth: 1,
+    lineStyle: LineStyle.Solid,
+    axisLabelVisible: true,
+    title: "",
+  });
+}
+
 function renderRsi(container: HTMLElement, data: ChartOut) {
   const chart = createChart(container, {
     ...makeChartOptions(120),
@@ -141,7 +168,21 @@ function renderRsi(container: HTMLElement, data: ChartOut) {
     priceLineVisible: false,
     lastValueVisible: false,
   });
-  series.setData(data.rsi);
+  // Per-point color: lightweight-charts' LineData accepts an optional
+  // `color` per point (falls back to the series' own `color` option when
+  // omitted), which recolors the line segment ending at that point -- no
+  // need to split this into multiple overlapping series to get
+  // value-conditional coloring. Reuses downCandle's existing red rather
+  // than introducing a new color for "alert".
+  series.setData(
+    data.rsi.map((p) => ({
+      time: p.time,
+      value: p.value,
+      color: p.value > RSI_OVERBOUGHT || p.value < RSI_OVERSOLD ? COLORS.downCandle : COLORS.rsi,
+    }))
+  );
+  addRefLine(series, RSI_OVERBOUGHT);
+  addRefLine(series, RSI_OVERSOLD);
   return { chart, series };
 }
 
@@ -154,6 +195,8 @@ function renderStochastic(container: HTMLElement, data: ChartOut) {
   const dSeries = chart.addSeries(LineSeries, { color: COLORS.stochD, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
   kSeries.setData(data.stochastic.map((p) => ({ time: p.time, value: p.k })));
   dSeries.setData(data.stochastic.map((p) => ({ time: p.time, value: p.d })));
+  addRefLine(kSeries, STOCH_OVERBOUGHT);
+  addRefLine(kSeries, STOCH_OVERSOLD);
   return { chart, series: kSeries };
 }
 
