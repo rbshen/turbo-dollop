@@ -81,23 +81,26 @@ def test_multiple_dips_graduated_floors_at_the_old_flat_value_beyond_severe_cuto
     assert score == 40
 
 
-def test_multiple_dips_resolved_scores_75_when_both_dips_are_old_and_recovered():
+def test_multiple_dips_resolved_scores_below_ceiling_when_both_dips_are_old_and_recovered():
     # 2 real dips, both fully recovered by TTM, both several years before
     # the most recent 2 FYs -- a different risk profile than a dip still
     # resolving now, so this shouldn't collapse into the flat 40 tier.
+    # Worst dip depth (95->70, then 70 vs TTM 150) is graduated (2026-09-10)
+    # rather than a flat 75 -- see RESOLVED_CEILING's own comment.
     pattern, score = classify_trend([100, 80, 95, 70, 90, 120, 130, 140, 150])
     assert pattern == "multiple_dips_resolved"
-    assert score == 75
+    assert score == 73
 
 
-def test_multiple_dips_resolved_scores_75_even_when_the_recovered_dip_is_recent():
+def test_multiple_dips_resolved_recency_still_irrelevant_once_recovered():
     # 2 real dips, both fully recovered past their own pre-dip peak by TTM,
     # even though the second one is in the most recent 2 FYs before TTM --
-    # recency no longer matters once recovery is confirmed (see CLAUDE.md's
-    # Step 1 deviations); this used to score 60 for the recent dip.
+    # recency still doesn't matter once recovery is confirmed (see
+    # CLAUDE.md's Step 1 deviations); severity (not recency) is what's now
+    # graduated, as of 2026-09-10.
     pattern, score = classify_trend([100, 80, 110, 140, 170, 200, 160, 210, 230])
     assert pattern == "multiple_dips_resolved"
-    assert score == 75
+    assert score == 73
 
 
 def test_dip_recovery_measured_against_pre_spike_baseline_not_the_spike_itself():
@@ -127,9 +130,11 @@ def test_multi_dip_path_also_uses_the_spike_aware_baseline():
     # 2 real dips: the first (450 -> 150) follows a genuine >100% spike and
     # should be measured against the pre-spike value (150); the second
     # (300 -> 250) is an ordinary dip. Both recover under the fixed logic.
+    # Score graduated (2026-09-10) by whichever event's depth is worst
+    # relative to current (TTM) scale, rather than a flat 75.
     pattern, score = classify_trend([100, 150, 450, 150, 300, 250, 400])
     assert pattern == "multiple_dips_resolved"
-    assert score == 75
+    assert score == 74
 
 
 def test_flat_then_spike():
@@ -207,9 +212,12 @@ def test_contiguous_dip_transitions_merge_into_one_event():
     # (4 periods) and genuine improvement since the trough -- durably
     # resolved even though TTM (90) never re-exceeds the pre-decline
     # baseline (140).
+    # Worst (only) event's depth (140->50) equals TTM (90) itself -- a
+    # worst_frac of exactly 1.0, clipped at RESOLVED_SEVERE_FRAC, so this
+    # floors at RESOLVED_FLOOR (65) rather than the old flat 75.
     pattern, score = classify_trend([140, 120, 95, 50, 60, 70, 80, 90])
     assert pattern == "dip_durably_resolved"
-    assert score == 75
+    assert score == 65
 
 
 def test_merged_dip_event_still_multiple_dips_when_too_recent():
@@ -325,10 +333,43 @@ def test_flat_then_spike_protects_a_plausible_ttm_jump_that_clears_its_own_prior
     # above the 2021 peak (3412, +14.7%), and the jump into it (+45.3%)
     # isn't itself spike-sized, so it should be protected and the series
     # should fall through to ordinary dip-event resolution instead.
+    # Score graduated (2026-09-10) by dip-depth-vs-current-scale severity
+    # rather than a flat 75 -- see RESOLVED_CEILING's own comment.
     pattern, score = classify_trend([2500, 2004, 2919, 2031, 2180, 3412, 2615, 2005, 1939, 2695, 3915])
     assert pattern != "flat_then_spike"
     assert pattern == "multiple_dips_resolved"
-    assert score == 75
+    assert score == 71
+
+
+# --- Resolved-bucket (multiple_dips_resolved/dip_durably_resolved)
+# graduated severity (2026-09-10) --------------------------------------
+
+
+def test_resolved_graduated_near_ceiling_for_a_dip_trivial_relative_to_current_scale():
+    # Two non-contiguous, fully-recovered dips (worst depth 70, vs TTM
+    # 1000) -- a mild historical dip relative to today's scale, so this
+    # should land close to RESOLVED_CEILING (75), not far below it.
+    pattern, score = classify_trend([1000, 930, 970, 920, 999, 1000, 1010, 1000])
+    assert pattern == "multiple_dips_resolved"
+    assert score == 74  # worst_frac=7% -> 75 - 10*(0.07/1.0) = 74
+
+
+def test_resolved_graduated_mid_range_severity():
+    # Worst dip depth (100->50) is exactly 50% of TTM (100) -- halfway
+    # between RESOLVED_CEILING and RESOLVED_FLOOR.
+    pattern, score = classify_trend([100, 50, 60, 55, 70, 80, 100])
+    assert pattern == "multiple_dips_resolved"
+    assert score == 70  # worst_frac=50% -> 75 - 10*(0.50/1.0) = 70
+
+
+def test_resolved_graduated_floors_at_resolved_floor_for_abnb_bkr_shaped_severity():
+    # ABNB/BKR-shaped: a historical loss (trough -50) deeper than the
+    # company's own current (TTM) scale (100) -- worst_frac=150%, clipped
+    # to RESOLVED_SEVERE_FRAC (100%), so this floors at RESOLVED_FLOOR (65)
+    # -- the same floor a trivially-mild resolved dip would never reach.
+    pattern, score = classify_trend([100, -50, 80, 90, 70, 100])
+    assert pattern == "multiple_dips_resolved"
+    assert score == 65
 
 
 def test_flat_then_spike_stays_unprotected_for_a_jump_with_no_precedent_in_the_series():

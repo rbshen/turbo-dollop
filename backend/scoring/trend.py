@@ -307,6 +307,54 @@ def resolved_dip_events(values: list[float]) -> list[DipEvent]:
     return [e for e in events if arr[-1] >= e.baseline or _dip_durably_resolved(arr, pct_changes, e)]
 
 
+# --- `multiple_dips_resolved` / `dip_durably_resolved` graduated score -----
+# (2026-09-10) -- both patterns used to score a flat 75 no matter how severe
+# the historical dip(s) were, once recovered: a trivial, decade-old dip
+# scored identically to one whose trough was deeper than the company's
+# entire current annual earnings run-rate. Confirmed via the same
+# feasibility investigation as MULTIPLE_DIPS_CEILING above: PEP CFO's
+# mildest resolved hit (-7.0% peak-to-trough) scored the same flat 75 as
+# VRT NI's most severe (-25,650,370% peak-to-trough, a near-zero-baseline
+# artifact -- see below).
+#
+# Unlike the unresolved bucket, severity here is NOT measured relative to
+# the dip's own (baseline) peak -- DDOG's real NI dip event baselines are
+# tiny or even negative pre-revenue-scale numbers ($-2.57M, -$20.7M), so a
+# peak-relative % reads as mathematically enormous (-855%, +122%) for an
+# economically trivial blip. Severity is instead measured as dip DEPTH
+# relative to the series' CURRENT (TTM) scale -- |baseline - trough| /
+# |TTM| -- answering "how big was this historical dip relative to how big
+# the company is now," which stays well-behaved for a near-zero baseline
+# and correctly separates DDOG-shape cases (worst depth ~33% of current
+# scale) from ABNB/BKR-shape ones (a historical loss that dwarfed even
+# today's earnings, ~170%/~319% of current scale, clipped to the floor).
+#
+# RESOLVED_CEILING (75) matches the OLD flat value -- unlike
+# MULTIPLE_DIPS_CEILING, this bucket has no headroom to graduate UPWARD
+# (75 already represented "mild dip, resolved" in the old flat scheme), so
+# graduating it can only ever lower some tickers' scores, never raise one --
+# a structurally different, not-regression-free shape than the unresolved
+# fix, confirmed and accepted via the feasibility investigation's full-
+# universe simulation (16 Step1 / 2 Overall flips at these parameters, the
+# floor chosen as the best tradeoff point between meaningfully penalizing
+# genuine severity -- e.g. ABNB/BKR landing at the floor -- and avoiding the
+# multi-component "ADI-shape" regressions a lower floor produced). See
+# CLAUDE.md's Step 1 deviations for the full investigation.
+RESOLVED_CEILING = 75
+RESOLVED_FLOOR = 65
+RESOLVED_SEVERE_FRAC = 1.0
+
+
+def _graduated_resolved_score(events: list[DipEvent], ttm: float) -> int:
+    current_scale = abs(ttm)
+    if current_scale == 0 or not events:
+        return RESOLVED_FLOOR
+    worst_frac = max(abs(e.baseline - e.trough) / current_scale for e in events)
+    clipped = min(worst_frac, RESOLVED_SEVERE_FRAC)
+    fraction = clipped / RESOLVED_SEVERE_FRAC
+    return round(RESOLVED_CEILING - (RESOLVED_CEILING - RESOLVED_FLOOR) * fraction)
+
+
 def classify_trend(values: list[float]) -> TrendResult:
     """Classify a chronological (oldest fiscal year -> TTM) metric series into
     one of the Step 1 methodology's trend patterns (grows_every_year,
@@ -430,7 +478,8 @@ def classify_trend(values: list[float]) -> TrendResult:
         # path -- kept as a distinct pattern (same score as
         # multiple_dips_resolved) purely so the reasoning panel can say
         # "durably improved, not yet a new high" rather than implying a
-        # literal new peak was reached.
-        return TrendResult("dip_durably_resolved", 75)
+        # literal new peak was reached. Score graduated by historical
+        # severity -- see RESOLVED_CEILING's own comment above.
+        return TrendResult("dip_durably_resolved", _graduated_resolved_score(events, float(arr[-1])))
 
-    return TrendResult("multiple_dips_resolved", 75)
+    return TrendResult("multiple_dips_resolved", _graduated_resolved_score(events, float(arr[-1])))

@@ -9,8 +9,30 @@ from clients.fmp_client import fmp_client
 from core.schemas import OutlierWarning, Step1Out
 from core.tickers import normalize_ticker
 from scoring.classification import classify_company_type
-from scoring.step1 import score_step1
+from scoring.step1 import MARGINS_SEVERITY_CARVEOUT_TYPES, score_step1
 from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
+
+
+# Banks (2026-09-10): Margins is excluded from scoring entirely, on top of
+# the existing CFO/FCF exemption -- mirrors the AR_EXEMPT_TYPES/
+# ROIC_EXEMPT_TYPES company-type-set pattern (data/step4_data.py), just
+# scoped to Step 1's own Margins component. Confirmed via a full-universe
+# scan that grossProfit/revenue -- the raw GAAP line Margins is computed
+# from, unchanged by the Bank Net-Interest-Income substitution below --
+# shows the identical structural break for all 28 Bank-classified tickers
+# with margin data: at or above 100% (a mathematically impossible "gross
+# margin") around FY2021, then a permanent drop to a 42-77% plateau from
+# FY2022 on. An FMP data-methodology break specific to financial-services
+# reporting, not a real margin trend -- the same "this GAAP line doesn't
+# map onto this business model" reasoning that already justifies the CFO
+# exemption for Banks, just discovered later. Insurance/Property Developer/
+# Commodity Company are deliberately NOT included here -- the same
+# investigation found their margins are mostly a working signal (Insurance,
+# Commodity Company) or a real-but-differently-shaped, separately-scoped
+# data issue (REIT's own terminal-period collapse, not yet investigated)
+# rather than sharing Banks' universal root cause. See CLAUDE.md's Step 1
+# deviations for the full investigation.
+MARGINS_EXEMPT_TYPES = {"Bank"}
 
 
 def _detect_exemption(
@@ -189,11 +211,19 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
     gross_margin = [(gp / rev * 100) if gp is not None and rev else None for gp, rev in zip(gross_profit, revenue)]
     net_margin = [(ni / rev * 100) if ni is not None and rev else None for ni, rev in zip(net_income, revenue)]
 
-    exemption = _detect_exemption(
-        profile.get("sector"), profile.get("industry"), ticker, is_fund=bool(profile.get("isEtf") or profile.get("isFund"))
-    )
+    is_fund = bool(profile.get("isEtf") or profile.get("isFund"))
+    exemption = _detect_exemption(profile.get("sector"), profile.get("industry"), ticker, is_fund=is_fund)
     cfo_exempt = exemption is not None
     is_bank = exemption == "Bank"
+    margins_exempt = exemption in MARGINS_EXEMPT_TYPES
+    # Uses classify_company_type's own raw return value, not _detect_
+    # exemption's remapped one -- _detect_exemption never surfaces "Utility"
+    # at all (Step 1 doesn't CFO-exempt utilities), and renames "REIT/
+    # Property Developer" to "Property Developer" for Step 1's own display
+    # purposes, neither of which matches MARGINS_SEVERITY_CARVEOUT_TYPES's
+    # naming (which mirrors AR_EXEMPT_TYPES/ROIC_EXEMPT_TYPES exactly).
+    company_type = classify_company_type(profile.get("sector"), profile.get("industry"), ticker, is_fund=is_fund)
+    margins_severity_carveout = company_type in MARGINS_SEVERITY_CARVEOUT_TYPES
 
     # Banks: the Revenue check (score + Financials Trend chart) uses Net
     # Interest Income instead of Revenue -- FMP's netInterestIncome is a
@@ -230,6 +260,8 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
         fcf=clean_fcf,
         margin_context_revenue=[v for v in revenue if v is not None],
         fcf_cfo=fcf_cfo,
+        margins_exempt=margins_exempt,
+        margins_severity_carveout=margins_severity_carveout,
     )
 
     return Step1Out(

@@ -696,6 +696,138 @@ at each point below. Notable design decisions and fixes:
     `significant_dip_recovers` buckets. Severe-case tickers (SMCI, MRNA,
     PARA, ECHO, LITE, JOBY, ARE) are all byte-identical before/after,
     confirming the floor holds.
+- **Bank Margins exemption, resolved-dip severity graduation (bucket b),
+  and Margins-compression severity graduation (bucket c) all shipped
+  together (2026-09-10)**, following a dedicated feasibility investigation
+  into the two buckets `multiple_dips` graduation above deliberately held
+  back, plus a separate Bank-specific investigation that surfaced a third,
+  related issue in the same review. All three landed in one build since
+  bucket (c)'s carve-out design depends on bucket (a)'s Bank Margins
+  exemption already existing (a Bank ticker never reaches `_classify_
+  margins` at all once excluded, so it needs no carve-out there).
+  - **Bank Margins exemption.** A Bank's `gross_margin`/`net_margin` is
+    computed from the same raw `grossProfit`/`revenue` GAAP line already
+    swapped out for Net Interest Income everywhere else in Step 1 for
+    exactly this reason — it isn't a coherent concept for a lending
+    institution. Confirmed via a full-universe scan: **all 28 Bank-
+    classified tickers** with margin data show the identical artifact —
+    `grossProfit/revenue` at or above 100% (AXP 100.3%, COF 101.1%, JPM
+    102.9%, RF 105.4%, CFG 101.0%, NTRS 100.9%, WFC 100.3%, PNC 101.5%,
+    etc. — mathematically impossible as a real "gross margin") around
+    FY2021, then a permanent drop to a 42–77% plateau from FY2022 on — an
+    FMP data-methodology break specific to financial-services reporting
+    around that period, not a real margin trend, universal across the
+    whole Bank population rather than a GS/AIG coincidence. New
+    `MARGINS_EXEMPT_TYPES = {"Bank"}` (`data/step1_data.py`) — same
+    mechanism as the existing CFO/FCF exemption:
+    `Step1Out.components.margins = None`, and a new weight table
+    `WEIGHTS_CFO_MARGINS_EXEMPT` (`scoring/step1.py`) redistributes
+    Margins' `WEIGHTS_CFO_EXEMPT`-stage weight (13/60, ~21.67%)
+    **proportionally** across Revenue and Net Income — not a flat 50/50
+    split — preserving their existing 28:19 ratio: **Revenue 28/47
+    (~59.57%) / Net Income 19/47 (~40.43%)**. Deliberately scoped to Bank
+    only: the same investigation found Insurance's and Commodity Company's
+    margins mostly a working signal (excluding them would fix nothing —
+    0/3 of Insurance's own noisy exceptions, AFL/AIG/MFC, actually flip
+    verdict from exclusion), and REIT/Property Developer's margin noise a
+    real but *differently shaped* issue (a sudden terminal-period
+    collapse — O 89–95%→48.1% TTM, PSA 70–75%→25%→60.4%, VTR going
+    literally negative — rather than Banks' universal mid-history spike),
+    with a different root cause not investigated or fixed here.
+    Confirmed via a full-universe recompute: **7 of 28 Bank tickers flip
+    Fail→Pass** — BNY, CFG, KEY, NTRS, STT, USB (all as predicted by the
+    pre-shipping simulation); **WFC did NOT flip as the isolated
+    simulation predicted** (59→67, stays Fail, not 59→70/Pass) — the
+    isolated Bank-margins-only simulation assumed Net Income stayed at
+    the old flat 75, but bucket (b) below (shipped in the same build)
+    independently graduates WFC's own `multiple_dips_resolved` Net Income
+    down to 67, pulling the blend (67×0.5957 + 67×0.4043 = 67) just under
+    the Pass line — a genuine three-way interaction between the two
+    fixes, not a bug in either one alone. COF/TMP move down slightly
+    (Margins was propping up an otherwise-weaker NII/NI blend for both) —
+    expected and correct, not a regression to chase.
+  - **Bucket (b): `multiple_dips_resolved`/`dip_durably_resolved`
+    severity graduation.** Both patterns scored a flat 75 no matter how
+    severe the historical (now-recovered) dip was — PEP CFO's mildest
+    resolved hit (-7.0% peak-to-trough) scored the same as VRT NI's most
+    severe (-25,650,370% peak-to-trough, a near-zero-baseline artifact).
+    Unlike bucket (a), severity here is measured as dip DEPTH relative to
+    the series' CURRENT (TTM) scale — `|baseline - trough| / |TTM|` — not
+    peak-relative %, since DDOG-shape dip baselines are tiny/negative
+    pre-revenue-scale numbers that make a peak-relative % meaningless;
+    this correctly separates DDOG-shape cases (worst depth ~33% of
+    current scale) from ABNB/BKR-shape ones (~170%/~319% of current
+    scale, clipped to the floor). New `RESOLVED_CEILING = 75` (matches
+    the old flat value — unlike bucket (a), this bucket has no headroom
+    to graduate upward, so it can only ever lower some tickers' scores,
+    a structurally different, not-regression-free shape confirmed and
+    accepted via the feasibility investigation), `RESOLVED_FLOOR = 65`,
+    `RESOLVED_SEVERE_FRAC = 1.0` (100% of current scale) — the floor
+    chosen as the best tradeoff between meaningfully penalizing genuine
+    severity and avoiding the multi-component "ADI-shape" regressions a
+    lower floor produced (ADI's own resolved-bucket components alone
+    never flip it at this floor — see bucket (c) below for what
+    actually does). `RECOVERY_PATTERNS` membership checks (Step 1's own
+    FCF recovery check, Step 3's method-selection tree ×2, Step 4's
+    ROE/ROIC recovery checks ×2 — 6 call sites total) all test `.pattern`
+    only, confirmed unaffected by the score-value change.
+  - **Bucket (c): `gradually_compressing` severity graduation, WITH a
+    carve-out for the REMAINING `AR_EXEMPT_TYPES`.** Same shape as bucket
+    (b) — `MARGINS_CEILING = 60` (matches the old flat value, no upward
+    headroom), graduating down to `MARGINS_FLOOR = 45` as the worse of
+    gross/net `direction` passes `MARGINS_SEVERE_PP = 12.0` points beyond
+    `MARGIN_STABLE_TOLERANCE`. Deliberately gentle parameters — a more
+    aggressive version was found, during the feasibility investigation,
+    to regress ADI (a real, modest -5.85pp semiconductor-cycle margin
+    compression, genuine not an artifact) combined with its own
+    resolved-bucket components; these gentler parameters keep it Pass.
+    New `MARGINS_SEVERITY_CARVEOUT_TYPES = {"Insurance", "REIT/Property
+    Developer", "Utility"}` (`scoring/step1.py`) keeps `gradually_
+    compressing` at the flat 60 for these three types regardless of
+    severity — Bank is deliberately NOT in this set (it's excluded from
+    `_classify_margins` entirely by bucket (a) above, so it never reaches
+    this carve-out check; `carveout=True` is accepted as a defensive
+    no-op parameter, not expected to ever actually gate a Bank in
+    practice). Computed from `classify_company_type`'s own raw return
+    value in `data/step1_data.py` (NOT `_detect_exemption`'s remapped
+    one, which renames "REIT/Property Developer" to "Property Developer"
+    for Step 1's own display purposes and never surfaces "Utility" at all
+    — Utility was never CFO-exempt in Step 1, but does need this
+    Margins-only carve-out independently). Confirmed via a full-universe
+    scan the carve-out is genuinely load-bearing, not redundant: CBRE
+    (REIT, mild -5.61pp) and HST (REIT, severe -27.87pp) both stay at the
+    identical flat 60 regardless of their very different severity; AFL/
+    AIG (Insurance) and NEE (Utility) likewise unaffected.
+  - **Reasoning text (`frontend/components/step1/Step1Card.tsx`):
+    `verdictSentence` needed no change at all** — confirmed already fully
+    dynamic (filters `componentRows` off whichever keys are non-null in
+    `data.components`), so a Bank's blurb automatically stops mentioning
+    Margins once `components.margins` is `None`, the same way it already
+    handled CFO/FCF. The one genuinely hardcoded spot was the `notes`
+    exemption line ("Cash Flow and Free Cash Flow aren't scored..."),
+    fixed size regardless of company type — replaced with `exemptionNote()`,
+    built from whichever of `{cfo, fcf, margins}` are actually `null`
+    (in `METRIC_ORDER`'s order), with correct `isn't`/`aren't` agreement
+    for 1 vs. 2+ items. A Bank now reads "Cash Flow, Margins, and Free
+    Cash Flow aren't scored for this company — classified as a Bank.";
+    every other exempt type is byte-identical to before ("Cash Flow and
+    Free Cash Flow aren't scored...").
+  - **Confirmed via a full-universe recompute (572 tickers, cache-only):
+    22 Step 1 verdict flips (16 non-Bank — exactly matching the
+    pre-shipping bucket-(b)+(c) simulation's prediction — + 6 of the 7
+    predicted Bank flips, WFC's discrepancy explained above — confirmed
+    additive with zero overlap between the two populations), 5 Overall
+    Assessment flips (2 from bucket (b)/(c): ETSY/PSX Pass→Fail — both
+    wafer-thin boundary cases already sitting at exactly 70 pre-fix, +3
+    newly Bank-driven: FITB/MTB/PNC Fail→Pass — again confirmed additive,
+    zero overlap). 429 further score changes with no verdict flip, all
+    within a small, bounded magnitude (largest single-ticker decrease:
+    TMP -8; largest increases: the Bank beneficiaries, up to +14) — no
+    implausible outliers anywhere. UNH/DDOG/GS/CB/HCA/TXN/TMO and the
+    named severe-case tickers (SMCI, MRNA, PARA, ECHO, LITE, JOBY, ARE)
+    all move only slightly (≤4 points) and stay in their existing verdict
+    band, as expected — none of these were bucket-(a)-adjacent motivating
+    cases for buckets (b)/(c) specifically.
 
 Growth Rate's original methodology called for averaging projections
 across 3-4 independent platforms (GuruFocus, Finviz, Zacks, etc.) and

@@ -26,6 +26,16 @@ const STATIC_METRIC_LABELS: Record<string, string> = {
   fcf: "Free Cash Flow",
 };
 
+// Shorter labels for the "aren't scored" exemption note specifically --
+// deliberately not STATIC_METRIC_LABELS (that map's "Cash Flow from
+// Operations" reads fine as a per-bullet label but is more verbose than
+// this sentence needs).
+const EXEMPTION_NOTE_METRIC_LABELS: Record<string, string> = {
+  cfo: "Cash Flow",
+  fcf: "Free Cash Flow",
+  margins: "Margins",
+};
+
 const TIER_LABELS: Record<string, string> = {
   insufficient_data: "Insufficient data",
   // classify_trend (revenue / net income / CFO)
@@ -88,6 +98,22 @@ function verdictSentence(componentRows: { label: string; score: number }[], verd
   return `${joinWithAnd(weak)} scored below the Pass threshold, but the rest of the blend was strong enough to still reach a ${verdict}.`;
 }
 
+// Built from whichever of {cfo, fcf, margins} actually come back null in
+// `data.components`, rather than a fixed "Cash Flow and Free Cash Flow"
+// string -- Banks (2026-09-10) exclude Margins too, on top of CFO/FCF, so
+// this needs to read correctly for 2 items (every other exempt type:
+// Insurance, Property Developer, Commodity Company) and 3 (Banks) alike,
+// including the isn't/aren't agreement.
+export function exemptionNote(data: Step1Out): string | null {
+  if (!data.cfo_exempt_reason) return null;
+  const excluded = METRIC_ORDER.filter((key) => key in EXEMPTION_NOTE_METRIC_LABELS)
+    .filter((key) => !data.components[key as keyof typeof data.components])
+    .map((key) => EXEMPTION_NOTE_METRIC_LABELS[key]);
+  if (excluded.length === 0) return null;
+  const verb = excluded.length === 1 ? "isn't" : "aren't";
+  return `${joinWithAnd(excluded)} ${verb} scored for this company — classified as a ${data.cfo_exempt_reason}.`;
+}
+
 export function Step1Card({ ticker }: Props) {
   const { data, error } = useStep1(ticker);
 
@@ -139,11 +165,8 @@ export function Step1Card({ ticker }: Props) {
     tierClassName: tierClass(row.score),
   }));
 
-  const notes = data.cfo_exempt_reason ? (
-    <p className="text-xs text-text-tertiary">
-      Cash Flow and Free Cash Flow aren&apos;t scored for this company — classified as a {data.cfo_exempt_reason}.
-    </p>
-  ) : null;
+  const exemptionNoteText = exemptionNote(data);
+  const notes = exemptionNoteText ? <p className="text-xs text-text-tertiary">{exemptionNoteText}</p> : null;
 
   return (
     <AnalysisSectionCard

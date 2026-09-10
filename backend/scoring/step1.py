@@ -34,6 +34,36 @@ WEIGHTS_CFO_EXEMPT = {
     "margins": WEIGHTS_STANDARD["margins"] + _PER_TARGET_BONUS,
     "fcf": 0.0,
 }
+# Banks (2026-09-10): Margins is ALSO excluded, on top of CFO/FCF -- see
+# CLAUDE.md's Step 1 deviations. `grossProfit`/`revenue` isn't a coherent
+# concept for a lending institution any more than OCF is; confirmed via a
+# full-universe scan that all 28 Bank-classified tickers with margin data
+# show the identical artifact (grossProfit/revenue at or above 100% around
+# FY2021, then a permanent drop to a 42-77% plateau from FY2022 on -- an
+# FMP data-methodology break specific to financial-services reporting, not
+# a real margin trend). Insurance/Property Developer/Commodity Company stay
+# on WEIGHTS_CFO_EXEMPT unchanged -- the same investigation found their
+# margins are mostly a working signal (Insurance, Commodity Company) or a
+# real-but-differently-shaped, separately-scoped data issue (REIT's
+# terminal-period collapse) that doesn't share Banks' universal root cause.
+#
+# Margins' weight (13/60, i.e. WEIGHTS_CFO_EXEMPT["margins"]) is
+# redistributed PROPORTIONALLY across Revenue and Net Income -- dividing by
+# the sum of their own WEIGHTS_CFO_EXEMPT-stage weights, the same "divide
+# by sum of applicable weights" convention Step 4's BASE_WEIGHTS
+# renormalization already uses -- not a flat 50/50 split and not a
+# redistribution back to WEIGHTS_STANDARD's original 35:20 ratio (which
+# would ignore that CFO/FCF's weight is already baked into the CFO-exempt
+# revenue/net_income figures this is built from). Works out to Revenue
+# 28/47 (~59.57%) / Net Income 19/47 (~40.43%).
+_CFO_MARGINS_EXEMPT_BASE = WEIGHTS_CFO_EXEMPT["revenue"] + WEIGHTS_CFO_EXEMPT["net_income"]
+WEIGHTS_CFO_MARGINS_EXEMPT = {
+    "revenue": WEIGHTS_CFO_EXEMPT["revenue"] / _CFO_MARGINS_EXEMPT_BASE,
+    "net_income": WEIGHTS_CFO_EXEMPT["net_income"] / _CFO_MARGINS_EXEMPT_BASE,
+    "cfo": 0.0,
+    "margins": 0.0,
+    "fcf": 0.0,
+}
 
 # --- Free Cash Flow tiers -----------------------------------------------
 # FCF is "consistently positive," not a growth trend -- what matters per the
@@ -149,6 +179,50 @@ MARGIN_STABLE_TOLERANCE = -1.0
 MARGIN_SHARP_DECLINE = -5.0
 MARGIN_FLAT_DIRECTION = 1.0  # early-vs-late average move smaller than this counts as "no net direction"
 
+# --- `gradually_compressing` graduated score (2026-09-10) ------------------
+# Used to score a flat 60 no matter how far past MARGIN_STABLE_TOLERANCE
+# (-1.0pp) the worse of gross/net `direction` actually sat -- a company
+# barely past the tolerance line (e.g. -1.1pp) scored identically to one
+# with a much larger, genuinely compressing margin (e.g. -20pp). Confirmed
+# via the same feasibility investigation as MULTIPLE_DIPS_CEILING/
+# RESOLVED_CEILING above.
+#
+# MARGINS_CEILING (60) matches the OLD flat value -- like the resolved-dip
+# bucket (not the unresolved one), this has no headroom to graduate
+# UPWARD, so it can only ever lower some tickers' scores. Deliberately
+# GENTLE parameters (a 12pp band, not the full severity range some
+# tickers show) -- the same investigation found a more aggressive version
+# produces real regressions on names whose margin decline is genuine but
+# modest (e.g. ADI's -5.85pp real semiconductor-cycle compression,
+# combined with graduated resolved-dip scores elsewhere in its own blend,
+# tipped it Pass->Fail at more aggressive settings; these gentler
+# parameters keep it Pass).
+#
+# Deliberately does NOT apply to MARGINS_SEVERITY_CARVEOUT_TYPES (Insurance,
+# REIT/Property Developer, Utility -- Bank is excluded from this classifier
+# entirely as of Step 1's own margins exemption, see step1_data.py's
+# MARGINS_EXEMPT_TYPES, so it never reaches this carve-out check at all).
+# The same investigation found these three types' margins carry genuine,
+# structurally-noisier severity than a typical Standard company hitting
+# this pattern (median `direction` -12.88pp vs. -3.27pp) -- REIT
+# specifically via a distinct, separately-scoped terminal-period-collapse
+# artifact (O/PSA/VTR/DOC), not yet investigated or fixed here, just
+# protected from the graduated formula the same way it always was. See
+# CLAUDE.md's Step 1 deviations for the full investigation.
+MARGINS_CEILING = 60
+MARGINS_FLOOR = 45
+MARGINS_SEVERE_PP = 12.0
+MARGINS_SEVERITY_CARVEOUT_TYPES = {"Insurance", "REIT/Property Developer", "Utility"}
+
+
+def _graduated_margins_score(gross, net) -> int:
+    worst_direction = min(gross.direction, net.direction)
+    past = max(0.0, MARGIN_STABLE_TOLERANCE - worst_direction)
+    clipped = min(past, MARGINS_SEVERE_PP)
+    fraction = clipped / MARGINS_SEVERE_PP
+    return round(MARGINS_CEILING - (MARGINS_CEILING - MARGINS_FLOOR) * fraction)
+
+
 VERDICT_BANDS = [
     (91, 100, "Strong Pass"),
     (70, 90, "Pass"),
@@ -202,7 +276,16 @@ def _stable_and_spike_robust(gross_arr: np.ndarray, gross, net_arr: np.ndarray, 
     )
 
 
-def _classify_margins(gross_margin: list[float], net_margin: list[float], revenue_growing: bool) -> TrendResult:
+def _classify_margins(
+    gross_margin: list[float], net_margin: list[float], revenue_growing: bool, carveout: bool = False
+) -> TrendResult:
+    """`carveout` (Insurance / REIT-Property-Developer / Utility -- see
+    MARGINS_SEVERITY_CARVEOUT_TYPES) keeps `gradually_compressing` at the
+    old flat 60 instead of applying the graduated formula. Banks never
+    reach this function at all post-2026-09-10 (see step1_data.py's
+    MARGINS_EXEMPT_TYPES), so `carveout=True` should never actually be
+    needed for a Bank in practice -- it's a defensive parameter, not
+    Bank-specific."""
     if len(gross_margin) < 2 or len(net_margin) < 2:
         return TrendResult("insufficient_data", 0)
 
@@ -210,6 +293,7 @@ def _classify_margins(gross_margin: list[float], net_margin: list[float], revenu
     net_arr = np.asarray(net_margin, dtype=float)
     gross = _analyze_margin_series(gross_arr)
     net = _analyze_margin_series(net_arr)
+    gc_score = MARGINS_CEILING if carveout else _graduated_margins_score(gross, net)
 
     # Rule 1: a sustained multi-year decline anywhere must not be masked by
     # a later rebound -- UNLESS the decline has been durably reversed (see
@@ -240,7 +324,7 @@ def _classify_margins(gross_margin: list[float], net_margin: list[float], revenu
         if net_direction_for_sharp_check < MARGIN_SHARP_DECLINE and revenue_growing:
             return TrendResult("sharply_declining", 20)
         if not (_series_recovered(gross_arr, gross) and _series_recovered(net_arr, net)):
-            return TrendResult("gradually_compressing", 60)
+            return TrendResult("gradually_compressing", gc_score)
         # Exempted: durably reversed. Read straight off the stable/expanding
         # check below -- deliberately does NOT fall through to Rule 2,
         # whose per-series dip count has its own separately-known issues
@@ -248,7 +332,7 @@ def _classify_margins(gross_margin: list[float], net_margin: list[float], revenu
         # into the WORST tier for a near-flat-but-positive ticker.
         if _stable_and_spike_robust(gross_arr, gross, net_arr, net):
             return TrendResult("stable_or_expanding", 100)
-        return TrendResult("gradually_compressing", 60)
+        return TrendResult("gradually_compressing", gc_score)
 
     # Rule 2: 2+ real dips in a series that still nets out flat overall is
     # genuine directionless chaos -- reserved for the bottom tier. Requires
@@ -269,7 +353,7 @@ def _classify_margins(gross_margin: list[float], net_margin: list[float], revenu
     if net.direction < MARGIN_SHARP_DECLINE and revenue_growing:
         return TrendResult("sharply_declining", 20)
 
-    return TrendResult("gradually_compressing", 60)
+    return TrendResult("gradually_compressing", gc_score)
 
 
 def _fcf_durably_recovered(fcf: list[float], run_end: int) -> bool:
@@ -412,6 +496,8 @@ def score_step1(
     fcf: list[float] | None = None,
     margin_context_revenue: list[float] | None = None,
     fcf_cfo: list[float] | None = None,
+    margins_exempt: bool = False,
+    margins_severity_carveout: bool = False,
 ) -> dict:
     """Pure scoring function per CLAUDE.md's Step 1 spec: takes parsed metric
     series (chronological, oldest fiscal year -> TTM) and returns
@@ -428,7 +514,23 @@ def score_step1(
     (NOT the same filter as `cfo` above -- `fcf[i]` is None whenever either
     CFO or CapEx is missing for period i, so a naive shared filter would
     desync the two arrays' indices; see step1_data.py's own comment on this)
-    -- feeds _classify_fcf's capex-driven softening (see that function)."""
+    -- feeds _classify_fcf's capex-driven softening (see that function).
+
+    `margins_exempt` (Banks only -- see MARGINS_EXEMPT_TYPES in
+    step1_data.py) skips `_classify_margins` entirely, same mechanism as
+    `cfo_exempt` skipping CFO/FCF -- `components["margins"]` comes back
+    `None` and `WEIGHTS_CFO_MARGINS_EXEMPT` is used instead of
+    `WEIGHTS_CFO_EXEMPT`. Always `False` unless `cfo_exempt` is also `True`
+    in practice (every MARGINS_EXEMPT_TYPES member is also CFO-exempt), but
+    this function doesn't enforce that -- it's a caller-level invariant.
+
+    `margins_severity_carveout` (Insurance / REIT-Property-Developer /
+    Utility -- see MARGINS_SEVERITY_CARVEOUT_TYPES) is passed straight
+    through to `_classify_margins`'s own `carveout` param -- keeps
+    `gradually_compressing` at the old flat 60 instead of the graduated
+    score for these three types, unrelated to (and never simultaneously
+    `True` with) `margins_exempt` above, which skips the classifier
+    entirely rather than carving out one of its patterns."""
     # Computed early (moved ahead of the Margins section below, where it
     # originally lived) so it's available as the `not_yet_positive`
     # graduated-score denominator for Net Income/Operating Income/CFO --
@@ -468,15 +570,24 @@ def score_step1(
     )
 
     revenue_growing = growth_reference[-1] > growth_reference[0] if len(growth_reference) >= 2 else False
-    margin_result = _classify_margins(gross_margin, net_margin, revenue_growing)
+    margin_result = (
+        None
+        if margins_exempt
+        else _classify_margins(gross_margin, net_margin, revenue_growing, carveout=margins_severity_carveout)
+    )
 
     if cfo_exempt or cfo is None:
         cfo_result = None
         fcf_result = None
-        weights = WEIGHTS_CFO_EXEMPT
     else:
         cfo_result = _classify_positive_trend(cfo, growth_reference)
         fcf_result = _classify_fcf(fcf, fcf_cfo) if fcf is not None else None
+
+    if margins_exempt:
+        weights = WEIGHTS_CFO_MARGINS_EXEMPT
+    elif cfo_exempt or cfo is None:
+        weights = WEIGHTS_CFO_EXEMPT
+    else:
         weights = WEIGHTS_STANDARD
 
     # A fetch failure (cache.py::safe_fetch swallows httpx.HTTPError to {})
@@ -496,11 +607,15 @@ def score_step1(
     cfo_fcf_applicable = not (cfo_exempt or cfo is None)
     cfo_insufficient = cfo_fcf_applicable and cfo_result.pattern == "insufficient_data"
     fcf_insufficient = cfo_fcf_applicable and fcf_result is not None and fcf_result.pattern == "insufficient_data"
+    # Same "an exemption is not a gap" reasoning as cfo_fcf_applicable above
+    # -- margins_exempt Banks never reach _classify_margins at all, so
+    # there's no result to check for insufficiency.
+    margins_insufficient = not margins_exempt and margin_result.pattern == "insufficient_data"
 
     if (
         revenue_result.pattern == "insufficient_data"
         or net_income_insufficient
-        or margin_result.pattern == "insufficient_data"
+        or margins_insufficient
         or cfo_insufficient
         or fcf_insufficient
     ):
@@ -510,7 +625,7 @@ def score_step1(
         revenue_result.score * weights["revenue"]
         + net_income_result.score * weights["net_income"]
         + (cfo_result.score if cfo_result else 0) * weights["cfo"]
-        + margin_result.score * weights["margins"]
+        + (margin_result.score if margin_result else 0) * weights["margins"]
         + (fcf_result.score if fcf_result else 0) * weights["fcf"]
     )
     score = max(0, min(100, round(weighted_sum)))
@@ -526,7 +641,7 @@ def score_step1(
                 "used_operating_income_backup": net_income_backup_used,
             },
             "cfo": {"score": cfo_result.score, "pattern": cfo_result.pattern} if cfo_result else None,
-            "margins": {"score": margin_result.score, "pattern": margin_result.pattern},
+            "margins": {"score": margin_result.score, "pattern": margin_result.pattern} if margin_result else None,
             "fcf": {"score": fcf_result.score, "pattern": fcf_result.pattern} if fcf_result else None,
         },
         "weights": weights,

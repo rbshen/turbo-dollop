@@ -157,7 +157,11 @@ export interface Step1Components {
   revenue: Step1TrendComponent;
   net_income: Step1NetIncomeComponent;
   cfo: Step1TrendComponent | null;
-  margins: Step1TrendComponent;
+  // null for Banks specifically (2026-09-10) -- grossProfit/revenue isn't a
+  // coherent concept for a lending institution any more than CFO is; every
+  // other CFO-exempt type (Insurance, Property Developer, Commodity
+  // Company) still scores Margins normally.
+  margins: Step1TrendComponent | null;
   // null whenever cfo is null -- FCF is derived from CFO, exempt under the
   // exact same conditions.
   fcf: Step1TrendComponent | null;

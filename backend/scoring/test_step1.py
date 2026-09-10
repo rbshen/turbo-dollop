@@ -88,6 +88,72 @@ def test_cfo_exemption_redistributes_weights():
     assert result["score"] == 100
 
 
+def test_margins_exemption_redistributes_weights_proportionally_for_banks():
+    # Banks (2026-09-10): Margins joins CFO/FCF as excluded. Its
+    # WEIGHTS_CFO_EXEMPT-stage weight (13/60, ~21.67%) redistributes
+    # PROPORTIONALLY across Revenue/Net Income -- not a flat 50/50 split --
+    # preserving their existing WEIGHTS_CFO_EXEMPT ratio (28:19). Works out
+    # to Revenue 28/47 (~59.57%), Net Income 19/47 (~40.43%).
+    result = score_step1(
+        revenue=GROWING,
+        net_income=GROWING,
+        operating_income=GROWING,
+        cfo=None,
+        gross_margin=STABLE_MARGINS,
+        net_margin=NET_MARGINS_STABLE,
+        cfo_exempt=True,
+        margins_exempt=True,
+    )
+    assert result["weights"]["cfo"] == 0.0
+    assert result["weights"]["fcf"] == 0.0
+    assert result["weights"]["margins"] == 0.0
+    assert result["weights"]["revenue"] == pytest.approx(28 / 47, abs=1e-5)
+    assert result["weights"]["net_income"] == pytest.approx(19 / 47, abs=1e-5)
+    assert result["components"]["cfo"] is None
+    assert result["components"]["fcf"] is None
+    assert result["components"]["margins"] is None
+    assert result["score"] == 100
+
+
+def test_margins_exemption_ignores_margin_data_entirely():
+    # Mirrors test_fcf_exemption_mirrors_cfo_exemption_ignores_fcf_data_entirely
+    # below -- even a genuinely bad margin series must have zero influence
+    # once margins_exempt, confirming _classify_margins is never even
+    # called (not just that its result is discarded).
+    sharply_declining_margins = [80, 60, 40, 20, 5]
+    result = score_step1(
+        revenue=GROWING,
+        net_income=GROWING,
+        operating_income=GROWING,
+        cfo=None,
+        gross_margin=sharply_declining_margins,
+        net_margin=sharply_declining_margins,
+        cfo_exempt=True,
+        margins_exempt=True,
+    )
+    assert result["components"]["margins"] is None
+    assert result["score"] == 100
+
+
+def test_non_bank_cfo_exempt_types_keep_margins_scored():
+    # Insurance / Property Developer / Commodity Company are CFO-exempt but
+    # NOT in MARGINS_EXEMPT_TYPES -- margins_exempt defaults to False, so
+    # they stay on WEIGHTS_CFO_EXEMPT (margins scored normally), unaffected
+    # by the Bank-only margins exemption above.
+    result = score_step1(
+        revenue=GROWING,
+        net_income=GROWING,
+        operating_income=GROWING,
+        cfo=None,
+        gross_margin=STABLE_MARGINS,
+        net_margin=NET_MARGINS_STABLE,
+        cfo_exempt=True,
+    )
+    assert result["components"]["margins"] is not None
+    assert result["components"]["margins"]["score"] == 100
+    assert result["weights"]["margins"] == pytest.approx(0.216667, abs=1e-5)
+
+
 def test_fcf_exemption_mirrors_cfo_exemption_ignores_fcf_data_entirely():
     # Even genuinely bad FCF data must have zero influence once CFO (and
     # therefore FCF) is exempt -- confirms the exemption branch ignores the
@@ -151,9 +217,10 @@ def test_positive_trend_gate_growing_series_unaffected():
 def test_net_income_never_profitable_stays_not_yet_positive_even_with_relative_recovery():
     # SYM's real shape: Net Income has been negative every single period
     # (-104.4M FY19 -> -4.97M TTM) yet classify_trend alone reads this as
-    # multiple_dips_resolved/75 since each "dip" is a relative worsening
-    # that later reverses -- never checking whether the value itself is
-    # positive. Operating Income is also still negative at TTM, so the
+    # multiple_dips_resolved (a strong, near-ceiling score) since each
+    # "dip" is a relative worsening that later reverses -- never checking
+    # whether the value itself is positive. Operating Income is also still
+    # negative at TTM, so the
     # one-off/recency-gated OI fallback correctly does NOT rescue this --
     # this is a genuinely unprofitable company, not a one-off charge.
     # Score is graduated as of 2026-08-13 (12, not a flat 0) -- TTM Net
@@ -182,11 +249,13 @@ def test_cfo_positive_ttm_keeps_existing_dip_tolerance_unchanged():
     # -> 231M -> -58M) before finally settling positive the last 2 periods
     # (867M, 845M TTM). The confirmed rule only gates the CURRENT value's
     # sign -- it deliberately does not tighten classify_trend's own
-    # dip-tolerance/recovery math -- so this stays multiple_dips_resolved/75.
+    # dip-tolerance/recovery math -- so this stays multiple_dips_resolved
+    # (score graduated as of 2026-09-10, no longer a flat 75 -- see
+    # RESOLVED_CEILING's own comment in scoring/trend.py).
     # Documents this is intended behavior, not a regression.
     pattern, score = _classify_positive_trend(SYM_CFO)
     assert pattern == "multiple_dips_resolved"
-    assert score == 75
+    assert score == 73
 
 
 def test_net_income_oi_fallback_triggers_for_recent_one_off_dip():
@@ -248,13 +317,18 @@ def test_net_income_oi_fallback_does_not_trigger_when_classify_trend_already_res
     # The one real dip happened 6 periods before TTM with 6 clean growth
     # years since -- classify_trend's own age/recovery-run-aware resolution
     # (see trend.py::_dip_durably_resolved) now recognizes this as durably
-    # resolved (75) on its own merits, so NI's score never drops to/below
-    # NET_INCOME_BACKUP_THRESHOLD in the first place and the OI fallback is
-    # never even considered. (Before that fix, this same fixture scored 40
-    # and this test existed to confirm the OI fallback still correctly
-    # declined to rescue an old, chronic-looking dip -- see
+    # resolved on its own merits. Its graduated severity score (66, as of
+    # 2026-09-10 -- baseline=100 vs TTM=70 is a 30% depth relative to
+    # current scale) is now BELOW NET_INCOME_BACKUP_THRESHOLD (70), so the
+    # OI fallback IS score-eligible here -- but it still doesn't trigger,
+    # because the dip's age (6 periods) is well outside
+    # NET_INCOME_BACKUP_RECENCY_YEARS (2). The recency gate, not the score
+    # threshold, is what's actually keeping this test's premise true now
+    # (before this fix, the flat 75 kept it out of score-eligibility
+    # entirely; the underlying "why" changed, the outcome didn't). See
     # test_net_income_oi_fallback_does_not_trigger_for_a_still_unresolved_old_dip
-    # below for that scenario, preserved with a fixture that still exercises it.)
+    # below for the still-unresolved (not durably-resolved) variant of this
+    # same recency-gate scenario.
     old_dip_net_income = [100, 40, 45, 50, 55, 60, 65, 70]
     result = score_step1(
         revenue=GROWING,
@@ -266,7 +340,7 @@ def test_net_income_oi_fallback_does_not_trigger_when_classify_trend_already_res
         cfo_exempt=False,
     )
     assert result["components"]["net_income"] == {
-        "score": 75,
+        "score": 66,
         "pattern": "dip_durably_resolved",
         "used_operating_income_backup": False,
     }
@@ -383,7 +457,10 @@ def test_margins_sustained_decline_not_forgiven_by_partial_rebound():
     net = [25, 24, 20, 15, 17, 18, 18, 19, 19]
     pattern, score = _classify_margins(gross, net, revenue_growing=True)
     assert pattern == "gradually_compressing"
-    assert score == 60
+    # Score graduated (2026-09-10, no carveout for this synthetic non-
+    # exempt fixture) by how far past MARGIN_STABLE_TOLERANCE the worse of
+    # gross/net direction sits -- no longer a flat 60.
+    assert score == 51
 
 
 def test_margins_sustained_decline_forgiven_once_durably_reversed():
@@ -410,6 +487,9 @@ def test_margins_positive_average_direction_alone_is_not_enough_to_forgive():
     net = [25, 25, 25, 15, 12, 9, 32, 25, 18]
     pattern, score = _classify_margins(gross, net, revenue_growing=True)
     assert pattern == "gradually_compressing"
+    # Still exactly the ceiling (2026-09-10 graduation) -- worst_direction
+    # here clears MARGIN_STABLE_TOLERANCE, landing at MARGINS_CEILING (60)
+    # coincidentally, not via a carveout (none passed/needed here).
     assert score == 60
 
 
@@ -425,6 +505,9 @@ def test_margins_late_window_spike_does_not_forgive_an_otherwise_flat_series():
     net = [10, 10, 10, 10, 10, 10, 10, 10, 10]
     pattern, score = _classify_margins(gross, net, revenue_growing=True)
     assert pattern == "gradually_compressing"
+    # Still exactly the ceiling (2026-09-10 graduation) -- net's flat
+    # direction (0.0) alone clears MARGIN_STABLE_TOLERANCE, landing at
+    # MARGINS_CEILING (60) coincidentally, not via a carveout.
     assert score == 60
 
 
@@ -489,7 +572,9 @@ def test_margins_sharp_decline_rescued_by_robust_early_direction_when_early_wind
     net = [39.35, -4.91, 9.44, 8.35, 4.53, 13.54, 9.27, 4.62, 3.86, 10.21, 11.2]
     pattern, score = _classify_margins(gross, net, revenue_growing=True)
     assert pattern == "gradually_compressing"
-    assert score == 60
+    # Score graduated (2026-09-10, no carveout for this synthetic non-
+    # exempt fixture) -- no longer a flat 60.
+    assert score == 53
 
 
 def test_margins_robust_early_direction_never_manufactures_a_sharp_decline_from_a_low_outlier():
@@ -506,6 +591,65 @@ def test_margins_robust_early_direction_never_manufactures_a_sharp_decline_from_
     net = [-10.25, 13.81, 34.44, -5.71, -55.51, 23.05, 31.38, 24.56, 18.14, 15.37, 16.67]
     pattern, score = _classify_margins(gross, net, revenue_growing=True)
     assert pattern != "sharply_declining"
+
+
+# --- `gradually_compressing` graduated score + carveout (2026-09-10) ------
+
+
+def test_margins_graduated_score_applies_by_default_no_carveout():
+    # Same fixture as test_margins_sustained_decline_not_forgiven_by_
+    # partial_rebound above -- confirms _classify_margins graduates
+    # gradually_compressing by default (carveout=False) for a company NOT
+    # in MARGINS_SEVERITY_CARVEOUT_TYPES.
+    gross = [60, 58, 50, 42, 45, 46, 47, 48, 49]
+    net = [25, 24, 20, 15, 17, 18, 18, 19, 19]
+    pattern, score = _classify_margins(gross, net, revenue_growing=True)
+    assert pattern == "gradually_compressing"
+    assert score == 51
+
+
+def test_margins_carveout_keeps_old_flat_ceiling_for_the_same_severity():
+    # Identical fixture to the test above, carveout=True this time (as
+    # step1_data.py passes for Insurance/REIT-Property-Developer/Utility)
+    # -- the exact same underlying severity stays at the OLD flat 60,
+    # confirming the carveout is a real, effective override, not a no-op.
+    gross = [60, 58, 50, 42, 45, 46, 47, 48, 49]
+    net = [25, 24, 20, 15, 17, 18, 18, 19, 19]
+    pattern, score = _classify_margins(gross, net, revenue_growing=True, carveout=True)
+    assert pattern == "gradually_compressing"
+    assert score == 60
+
+
+def test_margins_carveout_does_not_affect_other_patterns():
+    # carveout only touches the gradually_compressing return points --
+    # sharply_declining/wildly_inconsistent/stable_or_expanding must be
+    # byte-identical with or without it.
+    gross = [30, 29, 30, 26, 22, 30, 32, 33, 32]
+    net = [20, 19, 18, 10, 5, 3, 2, 1, -3]
+    no_carveout = _classify_margins(gross, net, revenue_growing=True, carveout=False)
+    with_carveout = _classify_margins(gross, net, revenue_growing=True, carveout=True)
+    assert no_carveout == with_carveout == ("sharply_declining", 20)
+
+
+def test_score_step1_margins_severity_carveout_wires_through_correctly():
+    # End-to-end through score_step1 (not just the pure _classify_margins
+    # call) -- a CFO-exempt, non-Bank company type (e.g. Insurance) passing
+    # margins_severity_carveout=True keeps its gradually_compressing score
+    # at the flat 60 even though the underlying series would otherwise
+    # graduate lower.
+    sharply_compressing_margins = [60, 58, 50, 42, 45, 46, 47, 48, 49]
+    result = score_step1(
+        revenue=GROWING,
+        net_income=GROWING,
+        operating_income=GROWING,
+        cfo=None,
+        gross_margin=sharply_compressing_margins,
+        net_margin=[v / 2 for v in sharply_compressing_margins],
+        cfo_exempt=True,
+        margins_severity_carveout=True,
+    )
+    assert result["components"]["margins"]["pattern"] == "gradually_compressing"
+    assert result["components"]["margins"]["score"] == 60
 
 
 def test_score_clamped_to_valid_range():
