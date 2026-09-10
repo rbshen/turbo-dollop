@@ -1183,6 +1183,60 @@ export interface LiquidityZonesOut {
   weekly: LiquidityZoneOut | null;
 }
 
+export interface ChartBarOut {
+  time: string; // "YYYY-MM-DD"
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+export interface ChartLinePointOut {
+  time: string;
+  value: number;
+}
+
+export interface ChartBollingerPointOut {
+  time: string;
+  upper: number;
+  middle: number;
+  lower: number;
+}
+
+export interface ChartStochasticPointOut {
+  time: string;
+  k: number;
+  d: number;
+}
+
+export interface ChartMarkerOut {
+  time: string;
+  label: string; // "BB+RSI"
+}
+
+export type ChartRange = "D_1Y" | "D_2Y" | "W_4Y";
+
+export interface ChartOut {
+  range: ChartRange;
+  timeframe: string; // "daily" | "weekly"
+  bars: ChartBarOut[];
+  sma20: ChartLinePointOut[];
+  sma50: ChartLinePointOut[];
+  sma200: ChartLinePointOut[];
+  bollinger: ChartBollingerPointOut[];
+  stochastic: ChartStochasticPointOut[];
+  rsi: ChartLinePointOut[];
+  // Null when there's no current marker to show -- either because
+  // entry_signal_available is false (not tracked at all), or because the
+  // ticker IS tracked but has no currently-active signal right now.
+  // entry_signal_available is what distinguishes those two cases, not this
+  // field alone.
+  entry_signal_marker: ChartMarkerOut | null;
+  entry_signal_available: boolean;
+  source: string; // "fmp" | "yahoo"
+  chart_available: boolean; // false only for a genuinely bad/delisted ticker with no bars at all
+}
+
 export interface LiquidityZoneConfigOut {
   key: string;
   daily_swing_bars: number;
