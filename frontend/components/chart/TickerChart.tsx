@@ -133,20 +133,27 @@ function renderMain(chart: IChartApi, data: ChartOut) {
     }
   }
 
-  // Liquidity Zone (LP) support/resistance levels -- static horizontal
-  // price lines, same createPriceLine mechanism as the RSI/Stochastic
-  // reference lines below, dashed to read as a level rather than a
-  // plotted trend line like EMA/SMA/Bollinger above.
+  // Liquidity Zone (LP) support/resistance levels -- a LineSeries per
+  // zone, not createPriceLine: PriceLineOptions (confirmed via v5.2.0's
+  // own typings, no partial-range option exists) has no time-bound field
+  // at all, so createPriceLine always spans the full chart width
+  // regardless of when the zone actually formed. A LineSeries fed only
+  // the bars from formed_at onward naturally starts drawing exactly at
+  // that swing point and stops at the last visible bar -- no title/axis
+  // label, so it reads as a plain flat level, not a named indicator line.
   for (const zone of data.zones) {
     const isSupport = zone.side === "support";
-    candle.createPriceLine({
-      price: zone.price,
+    const points = data.bars.filter((b) => b.time >= zone.formed_at).map((b) => ({ time: b.time, value: zone.price }));
+    if (!points.length) continue;
+    const zoneLine = chart.addSeries(LineSeries, {
       color: isSupport ? COLORS.lpSupport : COLORS.lpResistance,
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
-      axisLabelVisible: true,
-      title: isSupport ? "LP Support" : "LP Resistance",
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
     });
+    zoneLine.setData(points);
   }
 
   if (data.entry_signal_marker) {
