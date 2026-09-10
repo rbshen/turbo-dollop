@@ -150,8 +150,8 @@ export interface ScreenerFilterState {
   // true means "show only qualifies=true" (see filterTickerScores below).
   speculativeGrowth: boolean;
   // Same boolean-checkbox shape as speculativeGrowth above -- but unlike
-  // every other Technical filter, this one only ever matches tickers in
-  // the "Main"/"Secondary" named watchlists (see TechnicalFilters.tsx's
+  // every other Technical filter, this one only ever matches tickers on
+  // a watchlist named W1 through W5 (see TechnicalFilters.tsx's
   // own caption), since bb_rsi_entry_signal is null for every other ticker.
   bbRsiEntrySignal: boolean;
 }

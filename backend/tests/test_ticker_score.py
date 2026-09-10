@@ -344,7 +344,7 @@ def test_bb_rsi_entry_signal_is_false_for_a_fire_older_than_seven_days(monkeypat
 
 
 def test_bb_rsi_entry_signal_is_none_when_ticker_is_not_in_the_watchlist(monkeypatch):
-    # A universe ticker on neither the "Main" nor "Secondary" named
+    # A universe ticker on none of the W1-W5 named
     # watchlists (the overwhelming majority) has no TechnicalEntrySignal
     # row at all -- reads None, same "no signal" contract as speculative_growth_qualifies/
     # weinstein_stage above, never aborts the rest of the row.

@@ -919,7 +919,7 @@ class TickerScoreOut(BaseModel):
     pullback_status: str | None = None
     # See models.py::TickerScore.bb_rsi_entry_signal. None for the
     # overwhelming majority of tickers -- this signal only ever exists for
-    # the "Main"/"Secondary" named watchlists' members.
+    # members of a watchlist named W1 through W5.
     bb_rsi_entry_signal: bool | None = None
 
 
@@ -1066,7 +1066,7 @@ class TechnicalEntrySignalOut(BaseModel):
     timeframe) -- see models.py::TechnicalEntrySignal for the persisted
     shape this mirrors. None (the whole object, via the endpoint returning
     `| None`) when this ticker has no computed row yet -- either it isn't a
-    member of the "Main"/"Secondary" named watchlists the nightly job
+    member of a watchlist named W1 through W5 the nightly job
     reads (see pipeline/nightly_entry_signal_calculation.py), or it hasn't
     been processed yet, same "not computed yet, not a fabricated neutral
     result" convention as TrendAnalysisOut above.
@@ -1128,8 +1128,8 @@ class LiquidityZonesOut(BaseModel):
     trips (a deliberate deviation from TechnicalEntrySignalOut's
     one-timeframe-per-call shape). None (the whole object, via the
     endpoint returning `| None`) only when NEITHER timeframe has ever been
-    computed for this ticker -- either it isn't a member of the "Main"/
-    "Secondary" named watchlists the nightly job reads, or it hasn't been
+    computed for this ticker -- either it isn't a member of a watchlist
+    named W1 through W5 the nightly job reads, or it hasn't been
     processed yet. If only one timeframe has been computed (e.g. a
     brand-new deploy), the other side is None rather than the whole
     object being None."""
@@ -1221,7 +1221,7 @@ class ChartOut(BaseModel):
     entry_signal_marker: ChartMarkerOut | None = None
     entry_signal_available: bool
     # zones_available mirrors entry_signal_available's convention: False
-    # means the ticker isn't on the "Main"/"Secondary" watchlists (or the
+    # means the ticker isn't on a watchlist named W1 through W5 (or the
     # nightly LP job hasn't reached it yet), not "genuinely zero zones" --
     # an empty `zones` list with zones_available=True means the latter.
     zones: list[ChartZoneOut] = []

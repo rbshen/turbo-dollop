@@ -4,7 +4,7 @@ calculation engine (analysis/liquidity_zones/) and persists/reads the
 result (models.py::LiquidityZoneAnalysis).
 
 Unlike trend_analysis_data.py, there is no live-fetch path here: this
-feature is scoped to the union of the "Main"/"Secondary" named watchlists
+feature is scoped to the union of every watchlist named W1 through W5
 and refreshed only by the nightly cron job
 (pipeline/nightly_liquidity_zone_calculation.py) -- get_liquidity_zone_data
 below is a plain cache-only read, returning None for a ticker that was
@@ -32,8 +32,8 @@ from core.tickers import normalize_ticker
 # for why a single ~4yr fetch serves both timeframes.
 DAILY_LOOKBACK = pd.DateOffset(years=1)
 
-# How long a row can go un-recomputed (e.g. its ticker dropped off both
-# "Main" and "Secondary") before sweep_stale_liquidity_zones clears it.
+# How long a row can go un-recomputed (e.g. its ticker dropped off every
+# W1-W5 watchlist) before sweep_stale_liquidity_zones clears it.
 STALE_AFTER_DAYS = 7
 
 # support_zones_json/resistance_zones_json are NOT NULL columns, so
@@ -112,7 +112,7 @@ def compute_and_store_liquidity_zones(ticker: str, ohlcv: pd.DataFrame, source: 
 def get_liquidity_zone_data(ticker: str) -> LiquidityZonesOut | None:
     """Cache-only read -- never triggers a live fetch (see module
     docstring). Returns None only if NEITHER timeframe has ever been
-    computed for this ticker (not a "Main"/"Secondary" member, or the
+    computed for this ticker (not a member of any W1-W5 watchlist, or the
     nightly job hasn't reached it yet)."""
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
@@ -130,8 +130,8 @@ def get_liquidity_zone_data(ticker: str) -> LiquidityZonesOut | None:
 
 def sweep_stale_liquidity_zones(now: datetime | None = None) -> int:
     """Clears (never deletes) any row whose computed_at is more than
-    STALE_AFTER_DAYS old -- the case where a ticker has fallen off both
-    "Main" and "Secondary" and so is no longer reached by the nightly
+    STALE_AFTER_DAYS old -- the case where a ticker has fallen off every
+    W1-W5 watchlist and so is no longer reached by the nightly
     job's per-ticker loop at all. Sets support_zones_json/
     resistance_zones_json to _EMPTY_ZONES_JSON ("no zones") rather than
     NULL, since both columns are NOT NULL and relaxing that would need a

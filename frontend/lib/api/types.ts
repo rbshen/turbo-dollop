@@ -548,8 +548,8 @@ export interface TickerScoreOut {
   reversal_status: "not_present" | "confirmed" | "confirmed_stale" | null;
   pullback_status: "no_pullback" | "pending" | "recovered" | "invalidated" | null;
   // See TickerScore.bb_rsi_entry_signal. null for the overwhelming
-  // majority of tickers -- this signal only ever exists for the
-  // "Main"/"Secondary" named watchlists' members.
+  // majority of tickers -- this signal only ever exists for
+  // members of a watchlist named W1 through W5.
   bb_rsi_entry_signal: boolean | null;
 }
 
@@ -1118,7 +1118,7 @@ export interface TrendAnalysisOut {
 
 // Latest BB+RSI (2h) technical entry-signal read for one ticker -- see
 // backend's models.py::TechnicalEntrySignal. Only ever populated for
-// tickers in the "Main"/"Secondary" named watchlists (see
+// tickers on a watchlist named W1 through W5 (see
 // pipeline/nightly_entry_signal_calculation.py); GET
 // /api/tickers/{ticker}/entry-signal returns null for every other ticker,
 // same "not computed yet, not a fabricated neutral result" convention as
@@ -1240,7 +1240,7 @@ export interface ChartOut {
   entry_signal_marker: ChartMarkerOut | null;
   entry_signal_available: boolean;
   // zones_available mirrors entry_signal_available's convention -- false
-  // means not tracked (not on the "Main"/"Secondary" watchlists, or the
+  // means not tracked (not on a watchlist named W1 through W5, or the
   // nightly LP job hasn't reached it yet), not "genuinely zero zones".
   zones: ChartZoneOut[];
   zones_available: boolean;

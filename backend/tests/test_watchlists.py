@@ -1,9 +1,12 @@
+import re
 from datetime import datetime
 
 from sqlmodel import Session, SQLModel, create_engine
 
 from core.models import Watchlist, WatchlistTicker
 from data.watchlists import list_tickers_across_watchlists
+
+PATTERN = re.compile(r"^W[1-5]$")
 
 
 def _fresh_engine():
@@ -24,46 +27,49 @@ def _seed_watchlist(engine, name: str, tickers: list[str]) -> None:
         session.commit()
 
 
-def test_union_dedupes_a_ticker_present_on_both_lists():
+def test_union_dedupes_a_ticker_present_on_both_matching_lists():
     engine = _fresh_engine()
     _seed_watchlist(engine, "W1", ["AAPL", "MSFT"])
     _seed_watchlist(engine, "W2", ["MSFT", "GOOG"])
 
     with Session(engine) as session:
-        tickers, missing = list_tickers_across_watchlists(session, ["W1", "W2"])
+        tickers, matched = list_tickers_across_watchlists(session, PATTERN)
 
     assert tickers == ["AAPL", "MSFT", "GOOG"]  # first-seen order, MSFT not duplicated
-    assert missing == []
+    assert matched == ["W1", "W2"]
 
 
-def test_a_third_unrelated_list_is_never_consulted():
+def test_a_third_matching_list_is_also_included_not_just_the_first_two():
+    engine = _fresh_engine()
+    _seed_watchlist(engine, "W1", ["AAPL"])
+    _seed_watchlist(engine, "W2", ["MSFT"])
+    _seed_watchlist(engine, "W3", ["GOOG"])
+
+    with Session(engine) as session:
+        tickers, matched = list_tickers_across_watchlists(session, PATTERN)
+
+    assert tickers == ["AAPL", "MSFT", "GOOG"]
+    assert matched == ["W1", "W2", "W3"]
+
+
+def test_a_non_matching_name_is_never_consulted():
     engine = _fresh_engine()
     _seed_watchlist(engine, "W1", ["AAPL"])
     _seed_watchlist(engine, "Some Other List", ["ZZZZ"])
+    _seed_watchlist(engine, "W6", ["YYYY"])  # out of the 1-5 range -- must not match
 
     with Session(engine) as session:
-        tickers, missing = list_tickers_across_watchlists(session, ["W1", "W2"])
+        tickers, matched = list_tickers_across_watchlists(session, PATTERN)
 
     assert tickers == ["AAPL"]
-    assert missing == ["W2"]
+    assert matched == ["W1"]
 
 
-def test_a_missing_list_is_reported_but_does_not_error():
-    engine = _fresh_engine()
-    _seed_watchlist(engine, "W1", ["AAPL"])
-
-    with Session(engine) as session:
-        tickers, missing = list_tickers_across_watchlists(session, ["W1", "W2"])
-
-    assert tickers == ["AAPL"]
-    assert missing == ["W2"]
-
-
-def test_both_lists_missing_returns_empty_tickers_and_both_names_missing():
+def test_no_matching_watchlists_returns_empty_tickers_and_empty_matched_names():
     engine = _fresh_engine()
 
     with Session(engine) as session:
-        tickers, missing = list_tickers_across_watchlists(session, ["W1", "W2"])
+        tickers, matched = list_tickers_across_watchlists(session, PATTERN)
 
     assert tickers == []
-    assert missing == ["W1", "W2"]
+    assert matched == []

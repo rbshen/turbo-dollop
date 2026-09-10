@@ -4,7 +4,7 @@ calculation engine (analysis/entry_signal/) and persists/reads the result
 (models.py::TechnicalEntrySignal). Independent of FMP entirely.
 
 Unlike trend_analysis_data.py, there is no live-fetch path here: this
-signal is scoped to the union of the "Main"/"Secondary" named watchlists
+signal is scoped to the union of every watchlist named W1 through W5
 and refreshed only by the nightly cron job
 (pipeline/nightly_entry_signal_calculation.py) -- get_entry_signal_data
 below is a plain cache-only read, returning None for a ticker that was
@@ -34,8 +34,8 @@ DEFAULT_TIMEFRAME = "2h"
 # own comment).
 ACTIVE_WINDOW_DAYS = 7
 
-# How long a row can go un-recomputed (e.g. its ticker dropped off both
-# "Main" and "Secondary") before sweep_stale_entry_signals clears it.
+# How long a row can go un-recomputed (e.g. its ticker dropped off every
+# W1-W5 watchlist) before sweep_stale_entry_signals clears it.
 STALE_AFTER_DAYS = 7
 
 
@@ -127,7 +127,7 @@ async def get_entry_signal_data(
 ) -> TechnicalEntrySignalOut | None:
     """Cache-only read -- never triggers a live fetch (see module
     docstring). Returns None if this ticker/signal_type/timeframe has never
-    been computed (not a "Main"/"Secondary" member, or the nightly job
+    been computed (not a member of any W1-W5 watchlist, or the nightly job
     hasn't reached it yet)."""
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
@@ -137,8 +137,8 @@ async def get_entry_signal_data(
 
 def sweep_stale_entry_signals(now: datetime | None = None) -> int:
     """Clears (never deletes) any row whose computed_at is more than
-    STALE_AFTER_DAYS old -- the case where a ticker has fallen off both
-    "Main" and "Secondary" and so is no longer reached by the nightly
+    STALE_AFTER_DAYS old -- the case where a ticker has fallen off every
+    W1-W5 watchlist and so is no longer reached by the nightly
     job's per-ticker loop at all. Nulls fired_at/pct_b/rsi/close/
     stop_price (all already-Optional fields, so no schema change) so a
     stale fire/reading is never displayed as if current -- `active` reads

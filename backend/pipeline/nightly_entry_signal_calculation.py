@@ -1,9 +1,10 @@
 """Standalone script: nightly BB+RSI (2h) technical entry-signal recompute,
-scoped to the union of the "W1" and "W2" named watchlists (up to 100
-tickers each, deduped -- a ticker on both is only processed once) -- NOT
-the full tracked universe, unlike every other nightly job in this
-package. See CLAUDE.md's technical entry-signal section for the full
-methodology and Phase 1 investigation this is built on.
+scoped to the union of every watchlist named W1 through W5 (up to 100
+tickers each, deduped -- a ticker on more than one matching watchlist is
+only processed once) -- NOT the full tracked universe, unlike every other
+nightly job in this package. See CLAUDE.md's technical entry-signal
+section for the full methodology and Phase 1 investigation this is built
+on.
 
 Runs entirely on Yahoo Finance (clients/technical_sources.py) -- FMP's
 intraday endpoints return HTTP 402 under the current subscription plan
@@ -29,6 +30,7 @@ Run:
 
 import asyncio
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -43,7 +45,7 @@ from data.watchlists import list_tickers_across_watchlists
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_entry_signal_calculation.log"
 
-WATCHLIST_NAMES = ["W1", "W2"]
+WATCHLIST_NAME_PATTERN = re.compile(r"^W[1-5]$")
 LOOKBACK_DAYS = 60
 SOURCE_NAME = "yahoo"
 
@@ -58,17 +60,17 @@ async def main() -> dict:
     init_db()
 
     with Session(engine) as session:
-        tickers, missing = list_tickers_across_watchlists(session, WATCHLIST_NAMES)
+        tickers, matched_names = list_tickers_across_watchlists(session, WATCHLIST_NAME_PATTERN)
 
-    for name in missing:
-        logger.warning('No watchlist named "%s" exists -- continuing with whichever of %s does.', name, WATCHLIST_NAMES)
+    if not matched_names:
+        logger.warning("No watchlist matching %s exists.", WATCHLIST_NAME_PATTERN.pattern)
 
     if not tickers:
-        logger.error("No tickers found across %s -- nothing to process.", WATCHLIST_NAMES)
+        logger.error("No tickers found across %s -- nothing to process.", matched_names or WATCHLIST_NAME_PATTERN.pattern)
         swept = sweep_stale_entry_signals()
         return {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "swept": swept}
 
-    logger.info("Starting nightly entry-signal calculation for %d tickers across %s.", len(tickers), WATCHLIST_NAMES)
+    logger.info("Starting nightly entry-signal calculation for %d tickers across %s.", len(tickers), matched_names)
     start_time = time.monotonic()
 
     bars_by_ticker = await get_technical_source().get_intraday_bars(tickers, LOOKBACK_DAYS)

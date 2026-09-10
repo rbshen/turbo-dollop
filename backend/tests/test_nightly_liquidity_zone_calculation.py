@@ -89,7 +89,23 @@ def test_main_processes_the_union_of_w1_and_w2_deduped(monkeypatch, tmp_path):
     assert summary["failed"] == 0
 
 
-def test_main_returns_empty_summary_when_neither_watchlist_exists(monkeypatch, tmp_path):
+def test_main_also_includes_a_third_watchlist_named_w3(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_watchlist(engine, "W1", ["AAPL"])
+    _seed_watchlist(engine, "W3", ["GOOG"])  # not just a hardcoded pair -- W3 counts too
+    _seed_watchlist(engine, "W6", ["ZZZZ"])  # out of the 1-5 range -- never consulted
+
+    batch_calls = _patch_bar_source(monkeypatch, {"AAPL": _fake_bars(), "GOOG": _fake_bars()})
+    store_calls = _patch_store(monkeypatch)
+
+    summary = asyncio.run(nightly_lz.main())
+
+    assert set(batch_calls[0][0]) == {"AAPL", "GOOG"}
+    assert sorted(t for t, _ in store_calls) == ["AAPL", "GOOG"]
+    assert summary["processed"] == 2
+
+
+def test_main_returns_empty_summary_when_no_matching_watchlist_exists(monkeypatch, tmp_path):
     _fresh_engine(monkeypatch, tmp_path)
 
     summary = asyncio.run(nightly_lz.main())
@@ -100,7 +116,7 @@ def test_main_returns_empty_summary_when_neither_watchlist_exists(monkeypatch, t
     assert summary["failures"] == []
 
 
-def test_main_continues_with_whichever_list_exists_when_one_is_missing(monkeypatch, tmp_path):
+def test_main_processes_whichever_matching_watchlist_exists_when_the_other_does_not(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
     _seed_watchlist(engine, "W1", ["AAPL"])  # "W2" never created
 

@@ -1,7 +1,7 @@
 """Standalone script: nightly Liquidity Zone (LP) detection recompute,
-scoped to the union of the "W1" and "W2" named watchlists (up to 100
-tickers each, deduped -- a ticker on both is only processed once) -- NOT
-the full tracked universe, same scoping as
+scoped to the union of every watchlist named W1 through W5 (up to 100
+tickers each, deduped -- a ticker on more than one matching watchlist is
+only processed once) -- NOT the full tracked universe, same scoping as
 pipeline/nightly_entry_signal_calculation.py. See CLAUDE.md's "Liquidity
 Zone (LP) detection (Technical)" section for the full methodology.
 
@@ -9,7 +9,7 @@ Unlike nightly_entry_signal_calculation.py (hard-forced Yahoo, since FMP's
 intraday endpoints are plan-restricted), this feature's daily/weekly bars
 work fine on FMP -- clients/daily_price_sources.py::get_daily_bar_source()
 uses the ordinary settings.fmp_enabled toggle, so this job needs (and has)
-a real FMP<->Yahoo branch, unlike the two other W1/W2-scoped/full-universe
+a real FMP<->Yahoo branch, unlike the two other W1-W5-scoped/full-universe
 technical jobs.
 
 Fetches every tracked ticker's ~4yr daily OHLC in one shot (FMP: looped,
@@ -30,6 +30,7 @@ Run:
 
 import asyncio
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -46,7 +47,7 @@ from helpers.liquidity_zone_config import get_liquidity_zone_config
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_liquidity_zone_calculation.log"
 
-WATCHLIST_NAMES = ["W1", "W2"]
+WATCHLIST_NAME_PATTERN = re.compile(r"^W[1-5]$")
 
 logger = logging.getLogger(__name__)
 
@@ -59,20 +60,20 @@ async def main() -> dict:
     init_db()
 
     with Session(engine) as session:
-        tickers, missing = list_tickers_across_watchlists(session, WATCHLIST_NAMES)
+        tickers, matched_names = list_tickers_across_watchlists(session, WATCHLIST_NAME_PATTERN)
         config = get_liquidity_zone_config(session)
 
-    for name in missing:
-        logger.warning('No watchlist named "%s" exists -- continuing with whichever of %s does.', name, WATCHLIST_NAMES)
+    if not matched_names:
+        logger.warning("No watchlist matching %s exists.", WATCHLIST_NAME_PATTERN.pattern)
 
     if not tickers:
-        logger.error("No tickers found across %s -- nothing to process.", WATCHLIST_NAMES)
+        logger.error("No tickers found across %s -- nothing to process.", matched_names or WATCHLIST_NAME_PATTERN.pattern)
         swept = sweep_stale_liquidity_zones()
         return {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "swept": swept}
 
     source_name = "fmp" if settings.fmp_enabled else "yahoo"
     logger.info(
-        "Starting nightly liquidity-zone calculation for %d tickers across %s (source: %s).", len(tickers), WATCHLIST_NAMES, source_name
+        "Starting nightly liquidity-zone calculation for %d tickers across %s (source: %s).", len(tickers), matched_names, source_name
     )
     start_time = time.monotonic()
 

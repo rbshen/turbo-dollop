@@ -71,7 +71,7 @@ function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
       <div>
         <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Liquidity Zones</h2>
         <p className="mt-1 text-xs text-zinc-600">
-          Swing-based support/resistance detection, computed nightly for the &quot;Main&quot; or &quot;Secondary&quot; watchlists only. Daily and
+          Swing-based support/resistance detection, computed nightly for watchlists named W1 through W5 only. Daily and
           Weekly each have their own independent settings. Changes here apply on the next nightly run, not retroactively.
         </p>
       </div>

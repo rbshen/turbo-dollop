@@ -80,13 +80,13 @@ export function ChartTab({ ticker }: Props) {
         <>
           <TickerChart key={range} data={data} />
           {!data.entry_signal_available && !data.zones_available ? (
-            // Both features share the exact same "Main"/"Secondary" scope
+            // Both features share the exact same W1-W5 scope
             // (see chart_data.py) -- when neither has ever run for this
             // ticker, one combined line reads cleaner than two identical
             // "not tracked" sentences stacked on top of each other.
             <p className="text-xs text-text-tertiary">
-              Not tracked for entry signals or Liquidity Zone (LP) levels — this ticker isn&apos;t on the &quot;Main&quot; or
-              &quot;Secondary&quot; watchlists.
+              Not tracked for entry signals or Liquidity Zone (LP) levels — this ticker isn&apos;t on a watchlist
+              named W1 through W5.
             </p>
           ) : (
             <div className="space-y-1">
@@ -95,14 +95,14 @@ export function ChartTab({ ticker }: Props) {
                   ? data.entry_signal_marker
                     ? "Marker shows the most recent active BB+RSI (2h) entry signal."
                     : "Tracked for BB+RSI entry signals — no active signal right now."
-                  : "Not tracked for entry signals — this ticker isn't on the \"Main\" or \"Secondary\" watchlists."}
+                  : "Not tracked for entry signals — this ticker isn't on a watchlist named W1 through W5."}
               </p>
               <p className="text-xs text-text-tertiary">
                 {data.zones_available
                   ? data.zones.length > 0
                     ? "Green/red lines show unbreached support/resistance levels from Liquidity Zone (LP) detection."
                     : "Tracked for Liquidity Zone (LP) detection — no zones in this range."
-                  : "Not tracked for Liquidity Zone (LP) detection — this ticker isn't on the \"Main\" or \"Secondary\" watchlists."}
+                  : "Not tracked for Liquidity Zone (LP) detection — this ticker isn't on a watchlist named W1 through W5."}
               </p>
             </div>
           )}

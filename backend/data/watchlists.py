@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 from sqlmodel import Session, select
@@ -22,30 +23,29 @@ def list_watchlist_tickers(session: Session, watchlist_id: int) -> list[Watchlis
     )
 
 
-def list_tickers_across_watchlists(session: Session, names: list[str]) -> tuple[list[str], list[str]]:
-    """Union of tickers across the named watchlists, deduped (first-seen
-    order preserved) so a ticker present on more than one of `names` is
-    only returned once. Shared by nightly_entry_signal_calculation.py and
+def list_tickers_across_watchlists(session: Session, name_pattern: re.Pattern[str]) -> tuple[list[str], list[str]]:
+    """Union of tickers across every watchlist whose name matches
+    `name_pattern` (matched watchlists visited in ascending name order via
+    list_watchlists), deduped (first-seen order preserved) so a ticker
+    present on more than one matching watchlist is only returned once.
+    Shared by nightly_entry_signal_calculation.py and
     nightly_liquidity_zone_calculation.py, both scoped to the same
-    ["Main", "Secondary"] pair rather than a single hardcoded watchlist.
+    ^W[1-5]$ pattern rather than a fixed pair of names -- a user can add a
+    W3/W4/W5 watchlist later with no code change.
 
-    Returns (tickers, missing_names) rather than raising on a missing
-    watchlist -- callers log/handle a missing list themselves (e.g. warn
-    and continue with whichever list does exist) rather than this helper
-    deciding that's fatal."""
+    Returns (tickers, matched_names) so callers can log which watchlists
+    were actually included -- unlike a fixed name list, there's no notion
+    of a "missing" name here, only however many (zero or more) watchlists
+    happen to match right now."""
+    matched = [w for w in list_watchlists(session) if name_pattern.fullmatch(w.name)]
     seen: set[str] = set()
     tickers: list[str] = []
-    missing: list[str] = []
-    for name in names:
-        watchlist = get_watchlist_by_name(session, name)
-        if watchlist is None:
-            missing.append(name)
-            continue
+    for watchlist in matched:
         for row in list_watchlist_tickers(session, watchlist.id):
             if row.ticker not in seen:
                 seen.add(row.ticker)
                 tickers.append(row.ticker)
-    return tickers, missing
+    return tickers, [w.name for w in matched]
 
 
 def create_watchlist(session: Session, name: str) -> Watchlist:

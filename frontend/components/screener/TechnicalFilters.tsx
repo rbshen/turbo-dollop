@@ -56,7 +56,7 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
           />
           BB + RSI entry (2h)
         </label>
-        <p className="text-xs text-text-tertiary">Only ever matches tickers in the &quot;Main&quot; or &quot;Secondary&quot; watchlists.</p>
+        <p className="text-xs text-text-tertiary">Only ever matches tickers on a watchlist named W1 through W5.</p>
       </div>
     </CollapsibleFilterSection>
   );

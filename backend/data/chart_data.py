@@ -187,8 +187,8 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
     entry_signal_available = entry_signal is not None
 
     # Also independent of the bar fetch -- another plain cache-only read
-    # (see data/liquidity_zone_data.py), scoped to the same "Main"/
-    # "Secondary" watchlists as entry_signal above (a separate nightly job,
+    # (see data/liquidity_zone_data.py), scoped to the same W1-W5
+    # watchlists as entry_signal above (a separate nightly job,
     # so the two can occasionally diverge for a just-added ticker, but the
     # scope condition is the same). Unlike entry_signal, this one isn't
     # async -- it's a plain synchronous DB read, no live-fetch path exists

@@ -167,11 +167,11 @@ class TechnicalEntrySignal(SQLModel, table=True):
     designed to grow: future signal types (and daily-timeframe variants)
     will coexist per ticker rather than replace this one row.
 
-    Unlike TrendAnalysis, this table is scoped to the union of the "Main"
-    and "Secondary" named watchlists the nightly job reads, not the full
-    tracked universe -- a ticker on neither watchlist simply has no row
-    here, which is the intended "this filter only ever matches Main/
-    Secondary tickers" behavior, not a gap to work around.
+    Unlike TrendAnalysis, this table is scoped to the union of every
+    watchlist named W1 through W5 the nightly job reads, not the full
+    tracked universe -- a ticker on none of them simply has no row
+    here, which is the intended "this filter only ever matches W1-W5
+    tickers" behavior, not a gap to work around.
 
     Originally had a `fired: bool` column, replaced by `fired_at` below
     (2026-09-09, see fired_at's own comment). Unlike core/db.py::
@@ -224,9 +224,9 @@ class LiquidityZoneAnalysis(SQLModel, table=True):
     docstring gives: Daily and Weekly need to coexist as independent rows
     per ticker, not parallel daily_/weekly_-prefixed columns on one row.
 
-    Scoped to the union of the "Main" and "Secondary" named watchlists the
-    nightly job reads, same as TechnicalEntrySignal -- a ticker on neither
-    watchlist simply has no rows here.
+    Scoped to the union of every watchlist named W1 through W5 the
+    nightly job reads, same as TechnicalEntrySignal -- a ticker on none of
+    them simply has no rows here.
 
     support_zones_json/resistance_zones_json are plain-string JSON columns
     (a list of {price, cluster_size, formed_at} objects) -- this
@@ -540,9 +540,9 @@ class TickerScore(SQLModel, table=True):
     # nightly-snapshot staleness every other TickerScore field already has
     # -- not re-derived live per Screener page view. None for the
     # overwhelming majority of tickers, since this signal is only ever
-    # computed for the "Main"/"Secondary" named watchlists' members (see
+    # computed for members of a watchlist named W1 through W5 (see
     # pipeline/nightly_entry_signal_calculation.py), not the full tracked
-    # universe. A universe ticker on neither watchlist reads None here
+    # universe. A universe ticker on none of them reads None here
     # exactly the same way a row computed before this field existed would
     # (see _add_missing_columns) -- both mean "no signal," not an error.
     bb_rsi_entry_signal: bool | None = None
