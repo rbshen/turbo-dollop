@@ -139,8 +139,19 @@ function renderMain(chart: IChartApi, data: ChartOut) {
   // at all, so createPriceLine always spans the full chart width
   // regardless of when the zone actually formed. A LineSeries fed only
   // the bars from formed_at onward naturally starts drawing exactly at
-  // that swing point and stops at the last visible bar -- no title/axis
-  // label, so it reads as a plain flat level, not a named indicator line.
+  // that swing point and stops at the last visible bar.
+  //
+  // Two distinct SeriesOptionsCommon fields govern what shows next to a
+  // series, and they're independent: `lastValueVisible` is the numeric
+  // last-value label on the price axis itself (what we want here, since
+  // every point on a zone's line is the same price, so its "last value"
+  // IS the zone's level); `title` is a text name appended next to that
+  // label (left unset/empty so no "LP Support"/"LP Resistance" text
+  // appears anywhere). `priceLineVisible` is a THIRD, unrelated thing --
+  // an auto-drawn horizontal line spanning the whole pane at the series'
+  // last value -- kept false since enabling it would reintroduce the
+  // exact full-width-regardless-of-formed_at problem this LineSeries
+  // switch was built to fix, just via a different mechanism.
   for (const zone of data.zones) {
     const isSupport = zone.side === "support";
     const points = data.bars.filter((b) => b.time >= zone.formed_at).map((b) => ({ time: b.time, value: zone.price }));
@@ -150,7 +161,7 @@ function renderMain(chart: IChartApi, data: ChartOut) {
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
       priceLineVisible: false,
-      lastValueVisible: false,
+      lastValueVisible: true,
       crosshairMarkerVisible: false,
     });
     zoneLine.setData(points);
