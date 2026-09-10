@@ -500,7 +500,7 @@ def ticker_liquidity_zones(ticker: str) -> LiquidityZonesOut | None:
 
 
 @app.get("/api/tickers/{ticker}/chart", response_model=ChartOut)
-async def ticker_chart(ticker: str, range: Literal["D_1Y", "D_2Y", "W_4Y"] = "D_1Y") -> ChartOut:
+async def ticker_chart(ticker: str, range: Literal["D_6M", "D_1Y", "D_2Y", "W_4Y"] = "D_1Y") -> ChartOut:
     # Unlike every other ticker-page endpoint above, this one DOES make a
     # live call on every request (no nightly precompute -- see
     # data/chart_data.py's own docstring for why), so the httpx.HTTPError ->

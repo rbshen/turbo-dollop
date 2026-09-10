@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timedelta
 
 import pandas as pd
+import pytest
 
 import data.chart_data as chart_data
 from core.schemas import TechnicalEntrySignalOut
@@ -66,7 +67,7 @@ def test_chart_available_false_when_fetch_returns_no_bars(monkeypatch):
 
     assert out.chart_available is False
     assert out.bars == []
-    assert out.sma20 == out.sma50 == out.sma200 == []
+    assert out.ema21 == out.sma50 == out.sma200 == []
     assert out.entry_signal_available is False
     assert out.entry_signal_marker is None
     assert out.source == "fmp"
@@ -96,10 +97,93 @@ def test_daily_range_computes_full_warmup_then_slices_to_visible_window(monkeypa
     # but not visible) portion of the series was included in the rolling
     # computation before slicing, not computed on the visible slice alone.
     assert len(out.sma200) == len(out.bars)
-    assert len(out.sma20) == len(out.bars)
+    assert len(out.ema21) == len(out.bars)
     assert len(out.bollinger) == len(out.bars)
     assert len(out.rsi) > 0
     assert len(out.stochastic) > 0
+
+
+def test_d6m_range_computes_full_warmup_then_slices_to_visible_window(monkeypatch):
+    # Same shape as the D_1Y warm-up test above, at D_6M's own (shorter)
+    # visible window -- 600 business days (~2.4y) fetched, of which D_6M
+    # only shows the trailing ~182 calendar days.
+    df = _daily_df(600)
+
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: df}
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+
+    out = asyncio.run(chart_data.get_chart_data("AAPL", "D_6M"))
+
+    assert out.chart_available is True
+    assert out.timeframe == "daily"
+    assert 0 < len(out.bars) < 600
+    # Every visible bar has a real SMA200 -- confirms the warm-up (fetched
+    # but not visible) portion of the series was included in the rolling
+    # computation before slicing, not computed on the visible slice alone.
+    assert len(out.sma200) == len(out.bars)
+    assert len(out.ema21) == len(out.bars)
+    assert len(out.bollinger) == len(out.bars)
+
+
+def test_ema21_is_exponential_not_a_rolling_average(monkeypatch):
+    # A trend-line switch, not just a rename -- confirms the series is
+    # actually close.ewm(span=21, adjust=False).mean(), not SMA20 (or any
+    # other rolling mean) under a new field name.
+    df = _daily_df(300)
+
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: df}
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+
+    out = asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y"))
+
+    expected_ema21 = df["close"].ewm(span=21, adjust=False).mean()
+    expected_sma20 = df["close"].rolling(20).mean()
+    last = out.ema21[-1]
+    last_idx = df.index[df.index.strftime("%Y-%m-%d") == last.time][0]
+
+    assert last.value == pytest.approx(float(expected_ema21.loc[last_idx]), abs=1e-6)
+    # Confirms this genuinely differs from the old SMA20 series, not just a
+    # renamed field holding the same values.
+    assert last.value != pytest.approx(float(expected_sma20.loc[last_idx]), abs=1e-6)
+
+
+def test_bollinger_basis_is_ema20_not_sma20(monkeypatch):
+    # Basis is EMA(20) now; stddev/window/multiplier are unchanged from the
+    # shared BB_LENGTH/BB_STD constants -- only the basis calculation moved.
+    df = _daily_df(300)
+
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: df}
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+
+    out = asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y"))
+
+    close = df["close"]
+    expected_ema20 = close.ewm(span=20, adjust=False).mean()
+    expected_sma20 = close.rolling(20).mean()
+    expected_sigma = close.rolling(20).std(ddof=0)
+
+    last = out.bollinger[-1]
+    last_idx = df.index[df.index.strftime("%Y-%m-%d") == last.time][0]
+
+    assert last.middle == pytest.approx(float(expected_ema20.loc[last_idx]), abs=1e-6)
+    assert last.middle != pytest.approx(float(expected_sma20.loc[last_idx]), abs=1e-6)
+    assert (last.upper - last.middle) == pytest.approx(2.0 * float(expected_sigma.loc[last_idx]), abs=1e-6)
+    assert (last.middle - last.lower) == pytest.approx(2.0 * float(expected_sigma.loc[last_idx]), abs=1e-6)
 
 
 def test_fmp_w4y_range_resamples_daily_to_weekly(monkeypatch):

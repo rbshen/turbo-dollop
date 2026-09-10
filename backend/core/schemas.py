@@ -1147,7 +1147,7 @@ class ChartBarOut(BaseModel):
 
 
 class ChartLinePointOut(BaseModel):
-    """One point in a simple line series -- reused for sma20/sma50/sma200/rsi,
+    """One point in a simple line series -- reused for ema21/sma50/sma200/rsi,
     same shared-shape convention Options Tracker's own chart schema uses for
     its equivalent EMA/SMA/RSI series."""
 
@@ -1188,10 +1188,10 @@ class ChartOut(BaseModel):
     -- that feature hasn't shipped a Chart-tab integration yet); adding one
     later is additive, not a breaking change to this shape."""
 
-    range: str  # "D_1Y" | "D_2Y" | "W_4Y"
+    range: str  # "D_6M" | "D_1Y" | "D_2Y" | "W_4Y"
     timeframe: str  # "daily" | "weekly"
     bars: list[ChartBarOut]
-    sma20: list[ChartLinePointOut]
+    ema21: list[ChartLinePointOut]
     sma50: list[ChartLinePointOut]
     sma200: list[ChartLinePointOut]
     bollinger: list[ChartBollingerPointOut]

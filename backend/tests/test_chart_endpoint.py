@@ -47,6 +47,8 @@ def test_endpoint_returns_chart_for_valid_ticker(monkeypatch):
     assert body["chart_available"] is True
     assert len(body["bars"]) > 0
     assert len(body["sma200"]) > 0
+    assert "ema21" in body and len(body["ema21"]) > 0
+    assert "sma20" not in body
     assert body["entry_signal_available"] is False
     assert body["entry_signal_marker"] is None
     assert body["source"] == "fmp"
@@ -61,6 +63,20 @@ def test_endpoint_defaults_to_d_1y_range(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["range"] == "D_1Y"
+
+
+def test_endpoint_accepts_d_6m_range(monkeypatch):
+    _fresh_entry_signal_engine(monkeypatch)
+    _patch_fmp_bars(monkeypatch)
+
+    with TestClient(main.app) as client:
+        response = client.get("/api/tickers/AAPL/chart", params={"range": "D_6M"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["range"] == "D_6M"
+    assert body["timeframe"] == "daily"
+    assert body["chart_available"] is True
 
 
 def test_endpoint_accepts_w_4y_range(monkeypatch):

@@ -1,7 +1,8 @@
 """Orchestration layer for the ticker-page Chart tab -- OHLC candles plus
-SMA20/50/200, Bollinger(20,2), Full Stochastic(5,3,3), and RSI(14), across
-three fixed views (D/1Y, D/2Y, W/4Y). See CLAUDE.md's Chart tab investigation
-notes for the full design history; the two decisions this module embodies:
+EMA21, SMA50/200, Bollinger(20,2, EMA basis), Full Stochastic(5,3,3), and
+RSI(14), across four fixed views (D/6M, D/1Y, D/2Y, W/4Y). See CLAUDE.md's
+Chart tab investigation notes for the full design history; the two
+decisions this module embodies:
 
 1. Fully ON-DEMAND -- no new nightly cron job, no new precomputed table
    (confirmed fast enough for a page load in the latency investigation:
@@ -24,7 +25,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from analysis.entry_signal.indicators import compute_bollinger_bands, compute_rsi
+from analysis.entry_signal.indicators import BB_LENGTH, BB_STD, compute_rsi
 from analysis.trend_structure.stochastic import compute_stochastic
 from analysis.trend_structure.weinstein import resample_to_weekly
 from clients.daily_price_sources import FMPDailyBarSource
@@ -51,6 +52,10 @@ _EMPTY_OHLCV_COLUMNS = ["open", "high", "low", "close", "volume"]
 # regardless), so both are snapped to the nearest covering value rather than
 # fetched at exact precision.
 RANGE_CONFIG: dict[str, dict] = {
+    # Same fmp_lookback_years/yahoo_period as D_1Y -- both already comfortably
+    # cover the ~1.3y actually needed (182 visible days + ~200-bar SMA200
+    # warm-up + margin); only visible_days is halved.
+    "D_6M": {"timeframe": "daily", "fmp_lookback_years": 2, "yahoo_period": "2y", "visible_days": 365 // 2},
     "D_1Y": {"timeframe": "daily", "fmp_lookback_years": 2, "yahoo_period": "2y", "visible_days": 365},
     "D_2Y": {"timeframe": "daily", "fmp_lookback_years": 3, "yahoo_period": "5y", "visible_days": 365 * 2},
     # FMP has no weekly endpoint (confirmed 404 on /historical-chart/1week)
@@ -162,7 +167,7 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
             range=range_key,
             timeframe=cfg["timeframe"],
             bars=[],
-            sma20=[],
+            ema21=[],
             sma50=[],
             sma200=[],
             bollinger=[],
@@ -176,13 +181,20 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
 
     close, high, low = bars_df["close"], bars_df["high"], bars_df["low"]
 
-    sma20 = close.rolling(20).mean()
+    ema21 = close.ewm(span=21, adjust=False).mean()
     sma50 = close.rolling(50).mean()
     sma200 = close.rolling(200).mean()
-    # compute_bollinger_bands' own middle band is close.rolling(BB_LENGTH=20).mean()
-    # -- identical to sma20 above, so it's reused directly rather than
-    # computed twice.
-    bb_upper, bb_lower, _pct_b = compute_bollinger_bands(close)
+    # Bollinger's basis is its own EMA(20) -- independent from the EMA21
+    # trend line above (different span) and computed separately from
+    # analysis.entry_signal.indicators.compute_bollinger_bands (which stays
+    # SMA-basis, unmodified, since the BB+RSI entry-signal feature's
+    # check_buy_signal depends on its SMA-basis pct_b). Only the basis
+    # changes here -- stddev/window/multiplier are the same BB_LENGTH/BB_STD
+    # that function uses.
+    bb_basis = close.ewm(span=BB_LENGTH, adjust=False).mean()
+    bb_sigma = close.rolling(BB_LENGTH).std(ddof=0)
+    bb_upper = bb_basis + BB_STD * bb_sigma
+    bb_lower = bb_basis - BB_STD * bb_sigma
     rsi_series = compute_rsi(close)
     full_k, full_d = compute_stochastic(high, low, close)
 
@@ -202,10 +214,10 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
         range=range_key,
         timeframe=cfg["timeframe"],
         bars=bars,
-        sma20=_line_points(sma20, mask),
+        ema21=_line_points(ema21, mask),
         sma50=_line_points(sma50, mask),
         sma200=_line_points(sma200, mask),
-        bollinger=_bollinger_points(bb_upper, sma20, bb_lower, mask),
+        bollinger=_bollinger_points(bb_upper, bb_basis, bb_lower, mask),
         stochastic=_stochastic_points(full_k, full_d, mask),
         rsi=_line_points(rsi_series, mask),
         entry_signal_marker=marker,
