@@ -139,7 +139,9 @@ function renderMain(chart: IChartApi, data: ChartOut) {
   // at all, so createPriceLine always spans the full chart width
   // regardless of when the zone actually formed. A LineSeries fed only
   // the bars from formed_at onward naturally starts drawing exactly at
-  // that swing point and stops at the last visible bar.
+  // that swing point and stops at the last visible bar -- the caller
+  // (see useEffect below) extends each one past the last real bar, into
+  // the rightOffset margin, only AFTER fitContent() has run.
   //
   // Two distinct SeriesOptionsCommon fields govern what shows next to a
   // series, and they're independent: `lastValueVisible` is the numeric
@@ -152,6 +154,7 @@ function renderMain(chart: IChartApi, data: ChartOut) {
   // last value -- kept false since enabling it would reintroduce the
   // exact full-width-regardless-of-formed_at problem this LineSeries
   // switch was built to fix, just via a different mechanism.
+  const zoneLines: { series: ISeriesApi<"Line">; points: { time: string; value: number }[] }[] = [];
   for (const zone of data.zones) {
     const isSupport = zone.side === "support";
     const points = data.bars.filter((b) => b.time >= zone.formed_at).map((b) => ({ time: b.time, value: zone.price }));
@@ -165,6 +168,7 @@ function renderMain(chart: IChartApi, data: ChartOut) {
       crosshairMarkerVisible: false,
     });
     zoneLine.setData(points);
+    zoneLines.push({ series: zoneLine, points });
   }
 
   if (data.entry_signal_marker) {
@@ -182,7 +186,68 @@ function renderMain(chart: IChartApi, data: ChartOut) {
     ]);
   }
 
-  return candle;
+  return { candle, zoneLines };
+}
+
+// Generates `count` distinct, strictly-increasing "YYYY-MM-DD" dates after
+// `lastTime`, spaced `incrementDays` apart. Used only to extend LP zone
+// lines into the empty rightOffset margin -- see extendZoneLinesToEdge's
+// own comment for why the actual calendar spacing between these synthetic
+// dates doesn't affect how many pixels of the margin they end up
+// covering (lightweight-charts spaces bars by ordinal position among
+// known distinct time values, not by elapsed calendar time between them),
+// so incrementDays is chosen purely so a synthetic date still LOOKS like
+// a plausible next trading day/week for this timeframe, not because the
+// exact gap size matters for rendering.
+function futureDateStrings(lastTime: string, count: number, incrementDays: number): string[] {
+  const base = new Date(`${lastTime}T00:00:00Z`);
+  const out: string[] = [];
+  for (let i = 1; i <= count; i++) {
+    const d = new Date(base);
+    d.setUTCDate(d.getUTCDate() + incrementDays * i);
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+// Extends each LP zone's LineSeries from the last real bar into the
+// chart's empty rightOffset margin, so an active zone visually reaches
+// the pane's right edge instead of stopping short (which reads as "this
+// zone ended," not "still active as of today") -- must run AFTER
+// chart.timeScale().fitContent() has already been called using only the
+// REAL bars/indicator series (i.e. before these synthetic points exist),
+// not before or during. This ordering is load-bearing, not incidental:
+// fitContent() always sets the visible right edge to (the LATEST known
+// time value across every series on the chart) + rightOffset -- so if
+// the synthetic extension existed BEFORE fitContent() ran, the margin
+// would just get computed relative to the new, farther-out last point
+// and reappear beyond it, chasing the extension forever. Calling
+// fitContent() first locks in the true edge (lastBar + rightOffset,
+// still a fixed number of bar-slots at this point) from the real data
+// alone; only then do these zone lines grow into that already-fixed
+// space. lightweight-charts' business-day time mode spaces points by
+// ORDINAL position among all distinct known time values, not by real
+// elapsed calendar time (this is what lets it render Friday->Monday with
+// no weekend gap) -- so exactly `rightOffset` new synthetic points are
+// needed for a zone line to reach `rightOffset` bar-slots further right,
+// landing its last point exactly on the already-fixed edge; fewer points
+// would fall short, and a single point placed far in the future would
+// still only consume ONE ordinal slot next to the last real bar,
+// regardless of its actual calendar date.
+function extendZoneLinesToEdge(
+  chart: IChartApi,
+  zoneLines: { series: ISeriesApi<"Line">; points: { time: string; value: number }[] }[],
+  timeframe: string
+) {
+  const rightOffset = chart.timeScale().options().rightOffset;
+  if (!rightOffset || rightOffset <= 0) return;
+  const incrementDays = timeframe === "weekly" ? 7 : 1;
+  for (const { series, points } of zoneLines) {
+    if (!points.length) continue;
+    const last = points[points.length - 1];
+    const extension = futureDateStrings(last.time, rightOffset, incrementDays).map((time) => ({ time, value: last.value }));
+    series.setData([...points, ...extension]);
+  }
 }
 
 function addRefLine(series: ISeriesApi<"Line">, price: number) {
@@ -264,8 +329,9 @@ export function TickerChart({ data }: Props) {
     if (!mainRef.current) return;
 
     const main = createChart(mainRef.current, makeChartOptions());
-    const candle = renderMain(main, data);
+    const { candle, zoneLines } = renderMain(main, data);
     main.timeScale().fitContent();
+    extendZoneLinesToEdge(main, zoneLines, data.timeframe);
 
     let rsiChart: IChartApi | null = null;
     let rsiSeries: ISeriesApi<"Line"> | null = null;
