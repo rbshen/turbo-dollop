@@ -22,14 +22,16 @@ const CHART_THEME = {
 const COLORS = {
   upCandle: "#10b981",
   downCandle: "#ef4444",
-  sma20: "#eab308",
-  sma50: "#3b82f6",
-  sma200: "#f97316",
-  bollinger: "#71717a",
-  rsi: "#ef4444",
-  stochK: "#22d3ee",
-  stochD: "#f472b6",
-  marker: "#a78bfa",
+  ema21: "#3179F5",
+  sma50: "#4CAF50",
+  sma200: "#F23645",
+  bollinger: "#808080",
+  rsi: "#808080",
+  stochK: "#F23645",
+  stochD: "#808080",
+  // Reuses upCandle's green -- the only "up/bullish" green already defined
+  // in this component, for a bullish entry-signal marker.
+  marker: "#10b981",
 };
 
 interface OhlcState {
@@ -52,7 +54,7 @@ function makeChartOptions(height?: number) {
     handleScroll: false,
     handleScale: false,
     rightPriceScale: { borderColor: CHART_THEME.border },
-    timeScale: { borderColor: CHART_THEME.border, timeVisible: false },
+    timeScale: { borderColor: CHART_THEME.border, timeVisible: false, rightOffset: 10 },
     crosshair: { mode: 1 },
     ...(height !== undefined ? { height } : {}),
   };
@@ -81,7 +83,7 @@ function renderMain(chart: IChartApi, data: ChartOut) {
   }
 
   for (const [key, color] of [
-    ["sma20", COLORS.sma20],
+    ["ema21", COLORS.ema21],
     ["sma50", COLORS.sma50],
     ["sma200", COLORS.sma200],
   ] as const) {
@@ -116,9 +118,9 @@ function renderMain(chart: IChartApi, data: ChartOut) {
     createSeriesMarkers(candle as any, [
       {
         time: marker.time,
-        position: "aboveBar" as const,
+        position: "belowBar" as const,
         color: COLORS.marker,
-        shape: "arrowDown" as const,
+        shape: "arrowUp" as const,
         text: marker.label,
         size: 1,
       },
@@ -129,7 +131,10 @@ function renderMain(chart: IChartApi, data: ChartOut) {
 }
 
 function renderRsi(container: HTMLElement, data: ChartOut) {
-  const chart = createChart(container, { ...makeChartOptions(120), timeScale: { borderColor: CHART_THEME.border, visible: false } });
+  const chart = createChart(container, {
+    ...makeChartOptions(120),
+    timeScale: { borderColor: CHART_THEME.border, visible: false, rightOffset: 10 },
+  });
   const series = chart.addSeries(LineSeries, {
     color: COLORS.rsi,
     lineWidth: 1,
@@ -141,7 +146,10 @@ function renderRsi(container: HTMLElement, data: ChartOut) {
 }
 
 function renderStochastic(container: HTMLElement, data: ChartOut) {
-  const chart = createChart(container, { ...makeChartOptions(120), timeScale: { borderColor: CHART_THEME.border, visible: false } });
+  const chart = createChart(container, {
+    ...makeChartOptions(120),
+    timeScale: { borderColor: CHART_THEME.border, visible: false, rightOffset: 10 },
+  });
   const kSeries = chart.addSeries(LineSeries, { color: COLORS.stochK, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
   const dSeries = chart.addSeries(LineSeries, { color: COLORS.stochD, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
   kSeries.setData(data.stochastic.map((p) => ({ time: p.time, value: p.k })));
@@ -291,7 +299,7 @@ export function TickerChart({ data }: Props) {
               </div>
             )}
           </div>
-          <div ref={mainRef} className="w-full" style={{ height: 420 }} />
+          <div ref={mainRef} className="w-full" style={{ height: 630 }} />
         </div>
 
         {data.rsi.length > 0 && (

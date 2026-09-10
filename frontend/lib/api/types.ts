@@ -1214,13 +1214,13 @@ export interface ChartMarkerOut {
   label: string; // "BB+RSI"
 }
 
-export type ChartRange = "D_1Y" | "D_2Y" | "W_4Y";
+export type ChartRange = "D_6M" | "D_1Y" | "D_2Y" | "W_4Y";
 
 export interface ChartOut {
   range: ChartRange;
   timeframe: string; // "daily" | "weekly"
   bars: ChartBarOut[];
-  sma20: ChartLinePointOut[];
+  ema21: ChartLinePointOut[];
   sma50: ChartLinePointOut[];
   sma200: ChartLinePointOut[];
   bollinger: ChartBollingerPointOut[];

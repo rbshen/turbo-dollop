@@ -11,6 +11,7 @@ interface Props {
 }
 
 const RANGE_OPTIONS: { key: ChartRange; label: string }[] = [
+  { key: "D_6M", label: "D · 6M" },
   { key: "D_1Y", label: "D · 1Y" },
   { key: "D_2Y", label: "D · 2Y" },
   { key: "W_4Y", label: "W · 4Y" },
@@ -29,7 +30,7 @@ const _SKELETON_HEIGHTS = [
 
 function ChartSkeleton() {
   return (
-    <div className="h-[420px] rounded-lg border border-border-card bg-zinc-950 relative flex items-end gap-[2px] px-4 pb-10 animate-pulse">
+    <div className="h-[630px] rounded-lg border border-border-card bg-zinc-950 relative flex items-end gap-[2px] px-4 pb-10 animate-pulse">
       {_SKELETON_HEIGHTS.map((h, i) => (
         <div key={i} className="flex-1 bg-zinc-800 rounded-t-[1px]" style={{ height: `${h}%` }} />
       ))}
@@ -47,7 +48,7 @@ export function ChartTab({ ticker }: Props) {
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Chart</h2>
           <p className="mt-1 text-sm text-text-secondary">
-            OHLC price chart with SMA(20/50/200), Bollinger Bands(20, 2), Full Stochastic(5, 3, 3), and RSI(14). Informational only.
+            OHLC price chart with EMA(21), SMA(50/200), Bollinger Bands(20, 2), Full Stochastic(5, 3, 3), and RSI(14). Informational only.
           </p>
         </div>
         <div className="flex items-center gap-1">
