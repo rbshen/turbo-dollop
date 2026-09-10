@@ -32,17 +32,19 @@ const COLORS = {
   // Reuses upCandle's green -- the only "up/bullish" green already defined
   // in this component, for a bullish entry-signal marker.
   marker: "#10b981",
-  // Same dark gray as the main pane's last-close price line -- distinct
-  // from the #808080 RSI/StochD data-line gray so the static 70/30 and
-  // 80/20 reference lines read as background guides, not data.
+  // Same dark gray previously used for the main pane's last-close price
+  // line (since removed) -- distinct from the #808080 RSI/StochD
+  // data-line gray so the static 70/30 and 80/20 reference lines read as
+  // background guides, not data.
   refLine: "#52525b",
-  // Liquidity Zone (LP) support/resistance overlay -- a warm amber "floor"
-  // vs. a muted purple "ceiling," deliberately not green/red (which would
-  // misread as bullish/bearish the way the candles already use those
-  // colors; a support level isn't itself a buy signal). Distinct from
-  // every other color already on this chart.
-  lpSupport: "#D4A24C",
-  lpResistance: "#9C6ADE",
+  // Liquidity Zone (LP) support/resistance overlay -- reuses the candle
+  // up/down colors directly (green floor, red ceiling), per explicit
+  // request. An earlier version deliberately avoided green/red here to
+  // keep a support/resistance level from misreading as a bullish/
+  // bearish signal the way the candles themselves use those colors --
+  // superseded by this request.
+  lpSupport: "#10b981",
+  lpResistance: "#ef4444",
 };
 
 const RSI_OVERBOUGHT = 70;
@@ -176,7 +178,7 @@ function renderMain(chart: IChartApi, data: ChartOut) {
     const zoneLine = chart.addSeries(LineSeries, {
       color: isSupport ? COLORS.lpSupport : COLORS.lpResistance,
       lineWidth: 1,
-      lineStyle: LineStyle.Dashed,
+      lineStyle: LineStyle.Solid,
       priceLineVisible: false,
       lastValueVisible: true,
       crosshairMarkerVisible: false,

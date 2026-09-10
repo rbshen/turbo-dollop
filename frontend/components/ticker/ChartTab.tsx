@@ -100,7 +100,7 @@ export function ChartTab({ ticker }: Props) {
               <p className="text-xs text-text-tertiary">
                 {data.zones_available
                   ? data.zones.length > 0
-                    ? "Dashed lines show unbreached support/resistance levels from Liquidity Zone (LP) detection."
+                    ? "Green/red lines show unbreached support/resistance levels from Liquidity Zone (LP) detection."
                     : "Tracked for Liquidity Zone (LP) detection — no zones in this range."
                   : "Not tracked for Liquidity Zone (LP) detection — this ticker isn't on the \"Main\" or \"Secondary\" watchlists."}
               </p>
