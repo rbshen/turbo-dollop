@@ -60,16 +60,11 @@ describe("MomentumTable", () => {
     expect(screen.getByText("—", { selector: "td:last-child" })).toBeInTheDocument();
   });
 
-  it("renders the Overall column muted relative to the other numeric columns", () => {
+  it("renders the Score column muted relative to the other numeric columns", () => {
     render(<MomentumTable rows={ROWS} />);
     const overallCell = screen.getAllByText("47")[0];
     expect(overallCell).toHaveClass("text-text-tertiary");
     const compositeCell = screen.getByText("+1008.30%");
     expect(compositeCell.className).not.toContain("text-text-tertiary");
-  });
-
-  it("shows the info icon next to the Overall header", () => {
-    render(<MomentumTable rows={ROWS} />);
-    expect(screen.getByRole("button", { name: "About the Overall column" })).toBeInTheDocument();
   });
 });

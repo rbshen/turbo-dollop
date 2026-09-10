@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-import { MomentumOverallInfoIcon } from "@/components/momentum/MomentumOverallInfoIcon";
 import { MoatPill } from "@/components/ticker/MoatPill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { MomentumSnapshotRowOut } from "@/lib/api/types";
@@ -25,12 +24,7 @@ export function MomentumTable({ rows }: Props) {
           <TableHead className={`${HEAD_CLASS} text-right`}>6mo</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>12mo</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>Composite</TableHead>
-          <TableHead className={`${HEAD_CLASS} text-right`}>
-            <span className="inline-flex items-center gap-1">
-              Overall
-              <MomentumOverallInfoIcon />
-            </span>
-          </TableHead>
+          <TableHead className={`${HEAD_CLASS} text-right`}>Score</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
