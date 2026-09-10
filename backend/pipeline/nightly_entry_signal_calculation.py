@@ -1,7 +1,7 @@
 """Standalone script: nightly BB+RSI (2h) technical entry-signal recompute,
-scoped to the union of the "Main" and "Secondary" named watchlists (up to
-100 tickers each, deduped -- a ticker on both is only processed once) --
-NOT the full tracked universe, unlike every other nightly job in this
+scoped to the union of the "W1" and "W2" named watchlists (up to 100
+tickers each, deduped -- a ticker on both is only processed once) -- NOT
+the full tracked universe, unlike every other nightly job in this
 package. See CLAUDE.md's technical entry-signal section for the full
 methodology and Phase 1 investigation this is built on.
 
@@ -43,7 +43,7 @@ from data.watchlists import list_tickers_across_watchlists
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_entry_signal_calculation.log"
 
-WATCHLIST_NAMES = ["Main", "Secondary"]
+WATCHLIST_NAMES = ["W1", "W2"]
 LOOKBACK_DAYS = 60
 SOURCE_NAME = "yahoo"
 

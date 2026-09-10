@@ -9,7 +9,7 @@ const DISCLAIMER =
   "Bollinger Band %B + RSI oversold check on 2-hour candles, ported from a reference trading bot's entry condition. A fire stays \"active\" for 7 days after it happens. Stop price is a single computed reference level (close - ATR x 2 on the firing bar), not a live/trailing stop -- there's no position being tracked. Display-only -- Fathom does not execute trades. Informational only, not a trading signal.";
 
 const UNAVAILABLE_MESSAGE =
-  'No BB+RSI entry signal tracked for this ticker -- this check only runs nightly for tickers in the "Main" or "Secondary" watchlists.';
+  'No BB+RSI entry signal tracked for this ticker -- this check only runs nightly for tickers in the "W1" or "W2" watchlists.';
 
 const SOURCE_LABEL: Record<string, string> = {
   yahoo: "Yahoo Finance",

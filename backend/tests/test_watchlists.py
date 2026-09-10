@@ -26,11 +26,11 @@ def _seed_watchlist(engine, name: str, tickers: list[str]) -> None:
 
 def test_union_dedupes_a_ticker_present_on_both_lists():
     engine = _fresh_engine()
-    _seed_watchlist(engine, "Main", ["AAPL", "MSFT"])
-    _seed_watchlist(engine, "Secondary", ["MSFT", "GOOG"])
+    _seed_watchlist(engine, "W1", ["AAPL", "MSFT"])
+    _seed_watchlist(engine, "W2", ["MSFT", "GOOG"])
 
     with Session(engine) as session:
-        tickers, missing = list_tickers_across_watchlists(session, ["Main", "Secondary"])
+        tickers, missing = list_tickers_across_watchlists(session, ["W1", "W2"])
 
     assert tickers == ["AAPL", "MSFT", "GOOG"]  # first-seen order, MSFT not duplicated
     assert missing == []
@@ -38,32 +38,32 @@ def test_union_dedupes_a_ticker_present_on_both_lists():
 
 def test_a_third_unrelated_list_is_never_consulted():
     engine = _fresh_engine()
-    _seed_watchlist(engine, "Main", ["AAPL"])
+    _seed_watchlist(engine, "W1", ["AAPL"])
     _seed_watchlist(engine, "Some Other List", ["ZZZZ"])
 
     with Session(engine) as session:
-        tickers, missing = list_tickers_across_watchlists(session, ["Main", "Secondary"])
+        tickers, missing = list_tickers_across_watchlists(session, ["W1", "W2"])
 
     assert tickers == ["AAPL"]
-    assert missing == ["Secondary"]
+    assert missing == ["W2"]
 
 
 def test_a_missing_list_is_reported_but_does_not_error():
     engine = _fresh_engine()
-    _seed_watchlist(engine, "Main", ["AAPL"])
+    _seed_watchlist(engine, "W1", ["AAPL"])
 
     with Session(engine) as session:
-        tickers, missing = list_tickers_across_watchlists(session, ["Main", "Secondary"])
+        tickers, missing = list_tickers_across_watchlists(session, ["W1", "W2"])
 
     assert tickers == ["AAPL"]
-    assert missing == ["Secondary"]
+    assert missing == ["W2"]
 
 
 def test_both_lists_missing_returns_empty_tickers_and_both_names_missing():
     engine = _fresh_engine()
 
     with Session(engine) as session:
-        tickers, missing = list_tickers_across_watchlists(session, ["Main", "Secondary"])
+        tickers, missing = list_tickers_across_watchlists(session, ["W1", "W2"])
 
     assert tickers == []
-    assert missing == ["Main", "Secondary"]
+    assert missing == ["W1", "W2"]

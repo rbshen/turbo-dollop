@@ -5,10 +5,10 @@ interface Props {
 }
 
 const DISCLAIMER =
-  'Unbreached swing-low support / swing-high resistance levels, clustered by price -- only a LATER swing of the same kind invalidates an earlier one, an ordinary price move through a level does not. Computed nightly for tickers in the "Main" or "Secondary" watchlists only. Informational only, not a trading signal.';
+  'Unbreached swing-low support / swing-high resistance levels, clustered by price -- only a LATER swing of the same kind invalidates an earlier one, an ordinary price move through a level does not. Computed nightly for tickers in the "W1" or "W2" watchlists only. Informational only, not a trading signal.';
 
 const UNAVAILABLE_MESSAGE =
-  'No Liquidity Zone data tracked for this ticker -- this check only runs nightly for tickers in the "Main" or "Secondary" watchlists.';
+  'No Liquidity Zone data tracked for this ticker -- this check only runs nightly for tickers in the "W1" or "W2" watchlists.';
 
 function fmtPrice(price: number): string {
   return `$${price.toFixed(2)}`;

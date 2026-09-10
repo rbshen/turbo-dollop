@@ -1,7 +1,7 @@
 """Standalone script: nightly Liquidity Zone (LP) detection recompute,
-scoped to the union of the "Main" and "Secondary" named watchlists (up to
-100 tickers each, deduped -- a ticker on both is only processed once) --
-NOT the full tracked universe, same scoping as
+scoped to the union of the "W1" and "W2" named watchlists (up to 100
+tickers each, deduped -- a ticker on both is only processed once) -- NOT
+the full tracked universe, same scoping as
 pipeline/nightly_entry_signal_calculation.py. See CLAUDE.md's "Liquidity
 Zone (LP) detection (Technical)" section for the full methodology.
 
@@ -9,8 +9,8 @@ Unlike nightly_entry_signal_calculation.py (hard-forced Yahoo, since FMP's
 intraday endpoints are plan-restricted), this feature's daily/weekly bars
 work fine on FMP -- clients/daily_price_sources.py::get_daily_bar_source()
 uses the ordinary settings.fmp_enabled toggle, so this job needs (and has)
-a real FMP<->Yahoo branch, unlike the two other Main/Secondary-scoped/
-full-universe technical jobs.
+a real FMP<->Yahoo branch, unlike the two other W1/W2-scoped/full-universe
+technical jobs.
 
 Fetches every tracked ticker's ~4yr daily OHLC in one shot (FMP: looped,
 each call cache-gated; Yahoo: one batch call -- see
@@ -46,7 +46,7 @@ from helpers.liquidity_zone_config import get_liquidity_zone_config
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_liquidity_zone_calculation.log"
 
-WATCHLIST_NAMES = ["Main", "Secondary"]
+WATCHLIST_NAMES = ["W1", "W2"]
 
 logger = logging.getLogger(__name__)
 
