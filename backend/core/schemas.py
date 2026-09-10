@@ -1177,6 +1177,21 @@ class ChartMarkerOut(BaseModel):
     label: str  # "BB+RSI"
 
 
+class ChartZoneOut(BaseModel):
+    """One Liquidity Zone (LP) level to overlay on the Chart tab's main
+    pane -- see data/liquidity_zone_data.py::ZoneOut for the richer
+    (distance_pct-carrying) shape this is sourced from; only what the
+    chart needs to draw a price line is kept here. `formed_at` is the
+    establishing swing's own date (same field LiquidityZoneAnalysis calls
+    formed_at), already filtered server-side to fall within this
+    response's own visible window -- see get_chart_data's range-filtering
+    comment."""
+
+    side: str  # "support" | "resistance"
+    price: float
+    formed_at: str  # "YYYY-MM-DD"
+
+
 class ChartOut(BaseModel):
     """OHLC + indicators for one ticker-page Chart tab view -- see
     data/chart_data.py for the fetch/compute mechanism. Computed fully
@@ -1184,9 +1199,10 @@ class ChartOut(BaseModel):
     for a page load in the Chart tab latency investigation), so this always
     reflects a live-or-cached-FMP/Yahoo read, never a stale precomputed row.
 
-    No `zones` field yet (Liquidity Zone overlay isn't wired into this view
-    -- that feature hasn't shipped a Chart-tab integration yet); adding one
-    later is additive, not a breaking change to this shape."""
+    `zones`/`zones_available` overlay the separately-computed, nightly-cron
+    -backed Liquidity Zone (LP) feature (data/liquidity_zone_data.py) --
+    unlike every other field on this schema, these are a cache-only read,
+    not computed from the bars fetched for this same request."""
 
     range: str  # "D_6M" | "D_1Y" | "D_2Y" | "W_4Y"
     timeframe: str  # "daily" | "weekly"
@@ -1204,6 +1220,12 @@ class ChartOut(BaseModel):
     # not by inspecting this field alone.
     entry_signal_marker: ChartMarkerOut | None = None
     entry_signal_available: bool
+    # zones_available mirrors entry_signal_available's convention: False
+    # means the ticker isn't on the "Main"/"Secondary" watchlists (or the
+    # nightly LP job hasn't reached it yet), not "genuinely zero zones" --
+    # an empty `zones` list with zones_available=True means the latter.
+    zones: list[ChartZoneOut] = []
+    zones_available: bool
     source: str  # "fmp" | "yahoo"
     chart_available: bool  # False only for a genuinely bad/delisted ticker with no bars at all
 

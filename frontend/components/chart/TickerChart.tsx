@@ -36,6 +36,13 @@ const COLORS = {
   // from the #808080 RSI/StochD data-line gray so the static 70/30 and
   // 80/20 reference lines read as background guides, not data.
   refLine: "#52525b",
+  // Liquidity Zone (LP) support/resistance overlay -- a warm amber "floor"
+  // vs. a muted purple "ceiling," deliberately not green/red (which would
+  // misread as bullish/bearish the way the candles already use those
+  // colors; a support level isn't itself a buy signal). Distinct from
+  // every other color already on this chart.
+  lpSupport: "#D4A24C",
+  lpResistance: "#9C6ADE",
 };
 
 const RSI_OVERBOUGHT = 70;
@@ -124,6 +131,22 @@ function renderMain(chart: IChartApi, data: ChartOut) {
       });
       bb.setData(data.bollinger.map((b) => ({ time: b.time, value: b[key] })));
     }
+  }
+
+  // Liquidity Zone (LP) support/resistance levels -- static horizontal
+  // price lines, same createPriceLine mechanism as the RSI/Stochastic
+  // reference lines below, dashed to read as a level rather than a
+  // plotted trend line like EMA/SMA/Bollinger above.
+  for (const zone of data.zones) {
+    const isSupport = zone.side === "support";
+    candle.createPriceLine({
+      price: zone.price,
+      color: isSupport ? COLORS.lpSupport : COLORS.lpResistance,
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: isSupport ? "LP Support" : "LP Resistance",
+    });
   }
 
   if (data.entry_signal_marker) {

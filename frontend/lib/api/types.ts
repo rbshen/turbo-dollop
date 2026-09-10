@@ -1214,6 +1214,12 @@ export interface ChartMarkerOut {
   label: string; // "BB+RSI"
 }
 
+export interface ChartZoneOut {
+  side: "support" | "resistance";
+  price: number;
+  formed_at: string; // "YYYY-MM-DD"
+}
+
 export type ChartRange = "D_6M" | "D_1Y" | "D_2Y" | "W_4Y";
 
 export interface ChartOut {
@@ -1233,6 +1239,11 @@ export interface ChartOut {
   // field alone.
   entry_signal_marker: ChartMarkerOut | null;
   entry_signal_available: boolean;
+  // zones_available mirrors entry_signal_available's convention -- false
+  // means not tracked (not on the "Main"/"Secondary" watchlists, or the
+  // nightly LP job hasn't reached it yet), not "genuinely zero zones".
+  zones: ChartZoneOut[];
+  zones_available: boolean;
   source: string; // "fmp" | "yahoo"
   chart_available: boolean; // false only for a genuinely bad/delisted ticker with no bars at all
 }

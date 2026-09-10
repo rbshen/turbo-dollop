@@ -21,7 +21,7 @@ decisions this module embodies:
    persistence at all.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
 import pandas as pd
 
@@ -38,9 +38,12 @@ from core.schemas import (
     ChartMarkerOut,
     ChartOut,
     ChartStochasticPointOut,
+    ChartZoneOut,
+    LiquidityZoneOut,
 )
 from core.tickers import normalize_ticker
 from data.entry_signal_data import get_entry_signal_data
+from data.liquidity_zone_data import get_liquidity_zone_data
 
 _EMPTY_OHLCV_COLUMNS = ["open", "high", "low", "close", "volume"]
 
@@ -100,7 +103,7 @@ async def _fetch_bars(ticker: str, range_key: str) -> tuple[pd.DataFrame, str]:
     return raw.rename(columns=str.lower)[_EMPTY_OHLCV_COLUMNS], "yahoo"
 
 
-def _fmt(ts: pd.Timestamp) -> str:
+def _fmt(ts: pd.Timestamp | date) -> str:
     return ts.strftime("%Y-%m-%d")
 
 
@@ -137,6 +140,27 @@ def _bar_points(df: pd.DataFrame, mask: pd.Series) -> list[ChartBarOut]:
     ]
 
 
+def _filter_zones(lp_read: LiquidityZoneOut | None, visible_start: pd.Timestamp) -> list[ChartZoneOut]:
+    """Liquidity Zone (LP) levels for one timeframe's read, restricted to
+    zones whose establishing swing (formed_at) falls within this
+    response's own VISIBLE window (visible_start, same cutoff the
+    bars/indicator series are sliced against below) -- not the wider
+    warm-up-inclusive fetch window, and not the LP feature's own
+    independent num_zones cap (which already happened server-side, inside
+    the nightly job). A zone established before visible_start is dropped
+    entirely for this range, even if it's still unbreached/active --
+    there's no bar on this chart for it to anchor against."""
+    if lp_read is None:
+        return []
+    visible_start_date = visible_start.date()
+    zones = []
+    for side, zone_list in (("support", lp_read.support_zones), ("resistance", lp_read.resistance_zones)):
+        for z in zone_list:
+            if z.formed_at >= visible_start_date:
+                zones.append(ChartZoneOut(side=side, price=z.price, formed_at=_fmt(z.formed_at)))
+    return zones
+
+
 def _marker_bar_time(visible_index: pd.DatetimeIndex, fired_at: datetime) -> pd.Timestamp | None:
     """The last visible bar whose date is <= fired_at's date. For a weekly
     view this naturally lands on the Monday-anchored week containing
@@ -162,6 +186,26 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
     entry_signal = await get_entry_signal_data(ticker)
     entry_signal_available = entry_signal is not None
 
+    # Also independent of the bar fetch -- another plain cache-only read
+    # (see data/liquidity_zone_data.py), scoped to the same "Main"/
+    # "Secondary" watchlists as entry_signal above (a separate nightly job,
+    # so the two can occasionally diverge for a just-added ticker, but the
+    # scope condition is the same). Unlike entry_signal, this one isn't
+    # async -- it's a plain synchronous DB read, no live-fetch path exists
+    # for this feature at all.
+    liquidity_zones = get_liquidity_zone_data(ticker)
+    zones_available = liquidity_zones is not None
+    # visible_start doesn't depend on bars_df at all (today's date minus a
+    # fixed per-range window), so it's computed here, ahead of the
+    # empty-bars early return below, purely to filter zones -- the
+    # bars/indicator slicing further down recomputes the identical value
+    # for its own mask, since that half DOES need bars_df's index.
+    visible_start = pd.Timestamp.today().normalize() - pd.Timedelta(days=cfg["visible_days"])
+    lp_read = None
+    if liquidity_zones is not None:
+        lp_read = liquidity_zones.weekly if cfg["timeframe"] == "weekly" else liquidity_zones.daily
+    zones = _filter_zones(lp_read, visible_start)
+
     if bars_df.empty:
         return ChartOut(
             range=range_key,
@@ -175,6 +219,8 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
             rsi=[],
             entry_signal_marker=None,
             entry_signal_available=entry_signal_available,
+            zones=[],
+            zones_available=zones_available,
             source=source,
             chart_available=False,
         )
@@ -198,7 +244,6 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
     rsi_series = compute_rsi(close)
     full_k, full_d = compute_stochastic(high, low, close)
 
-    visible_start = pd.Timestamp.today().normalize() - pd.Timedelta(days=cfg["visible_days"])
     mask = bars_df.index >= visible_start
     visible_index = bars_df.index[mask]
 
@@ -222,6 +267,8 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
         rsi=_line_points(rsi_series, mask),
         entry_signal_marker=marker,
         entry_signal_available=entry_signal_available,
+        zones=zones,
+        zones_available=zones_available,
         source=source,
         # Mirrors Options Tracker's own api_position_chart convention:
         # "available" reads off the VISIBLE slice, not the full fetched

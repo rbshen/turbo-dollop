@@ -1,11 +1,11 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import pytest
 
 import data.chart_data as chart_data
-from core.schemas import TechnicalEntrySignalOut
+from core.schemas import LiquidityZoneOut, LiquidityZonesOut, TechnicalEntrySignalOut, ZoneOut
 
 
 def _daily_df(n: int, *, end: pd.Timestamp | None = None) -> pd.DataFrame:
@@ -54,6 +54,27 @@ async def _no_entry_signal(ticker: str):
     return None
 
 
+def _no_zones(ticker: str):
+    return None
+
+
+def _zone_out(price: float, formed_at: str) -> ZoneOut:
+    return ZoneOut(price=price, distance_pct=0.0, cluster_size=1, formed_at=date.fromisoformat(formed_at))
+
+
+def _lp_out(*, support: list[ZoneOut], resistance: list[ZoneOut]) -> LiquidityZoneOut:
+    now = datetime.now()
+    return LiquidityZoneOut(
+        timeframe="daily",
+        last_price=100.0,
+        as_of=now.date(),
+        computed_at=now,
+        source="yahoo",
+        support_zones=support,
+        resistance_zones=resistance,
+    )
+
+
 def test_chart_available_false_when_fetch_returns_no_bars(monkeypatch):
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
@@ -62,6 +83,7 @@ def test_chart_available_false_when_fetch_returns_no_bars(monkeypatch):
 
     monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
     out = asyncio.run(chart_data.get_chart_data("BADTICKER", "D_1Y"))
 
@@ -87,6 +109,7 @@ def test_daily_range_computes_full_warmup_then_slices_to_visible_window(monkeypa
 
     monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
     out = asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y"))
 
@@ -116,6 +139,7 @@ def test_d6m_range_computes_full_warmup_then_slices_to_visible_window(monkeypatc
 
     monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
     out = asyncio.run(chart_data.get_chart_data("AAPL", "D_6M"))
 
@@ -143,6 +167,7 @@ def test_ema21_is_exponential_not_a_rolling_average(monkeypatch):
 
     monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
     out = asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y"))
 
@@ -169,6 +194,7 @@ def test_bollinger_basis_is_ema20_not_sma20(monkeypatch):
 
     monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
     out = asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y"))
 
@@ -197,6 +223,7 @@ def test_fmp_w4y_range_resamples_daily_to_weekly(monkeypatch):
 
     monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
     out = asyncio.run(chart_data.get_chart_data("AAPL", "W_4Y"))
 
@@ -225,6 +252,7 @@ def test_yahoo_w4y_range_fetches_weekly_directly_not_resampled(monkeypatch):
     monkeypatch.setattr(chart_data.yahoo_client, "get_history", fake_get_history)
     monkeypatch.setattr(chart_data, "resample_to_weekly", fail_if_resampled)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
     out = asyncio.run(chart_data.get_chart_data("AAPL", "W_4Y"))
 
@@ -242,6 +270,7 @@ def test_entry_signal_not_tracked(monkeypatch):
 
     monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
     out = asyncio.run(chart_data.get_chart_data("NOTTRACKED", "D_1Y"))
 
@@ -261,6 +290,7 @@ def test_entry_signal_tracked_but_not_active_has_no_marker(monkeypatch):
 
     monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", fake_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
     out = asyncio.run(chart_data.get_chart_data("TRACKED", "D_1Y"))
 
@@ -284,6 +314,7 @@ def test_entry_signal_tracked_and_active_places_marker_on_correct_bar(monkeypatc
 
     monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", fake_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
     out = asyncio.run(chart_data.get_chart_data("TRACKED", "D_1Y"))
 
@@ -293,3 +324,94 @@ def test_entry_signal_tracked_and_active_places_marker_on_correct_bar(monkeypatc
     marker_date = datetime.strptime(out.entry_signal_marker.time, "%Y-%m-%d").date()
     assert marker_date <= fired_at.date()
     assert (fired_at.date() - marker_date).days <= 3  # nearest trading bar on/before a weekday fired_at
+
+
+def test_zones_not_tracked(monkeypatch):
+    df = _daily_df(300)
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: df}
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+
+    out = asyncio.run(chart_data.get_chart_data("NOTTRACKED", "D_1Y"))
+
+    assert out.zones_available is False
+    assert out.zones == []
+
+
+def test_zones_within_visible_window_included_outside_excluded(monkeypatch):
+    df = _daily_df(600)
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: df}
+
+    today = pd.Timestamp.today().normalize()
+    within = (today - pd.Timedelta(days=300)).strftime("%Y-%m-%d")  # inside D_1Y's 365-day window
+    outside = (today - pd.Timedelta(days=400)).strftime("%Y-%m-%d")  # older than the window
+
+    support = [_zone_out(90.0, within), _zone_out(80.0, outside)]
+    resistance = [_zone_out(110.0, within)]
+    lp = LiquidityZonesOut(daily=_lp_out(support=support, resistance=resistance), weekly=None)
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", lambda ticker: lp)
+
+    out = asyncio.run(chart_data.get_chart_data("TRACKED", "D_1Y"))
+
+    assert out.zones_available is True
+    got = {(z.side, z.price) for z in out.zones}
+    assert got == {("support", 90.0), ("resistance", 110.0)}  # the outside-window support zone is dropped
+
+
+def test_zones_use_weekly_read_for_w4y_range_not_daily(monkeypatch):
+    # ~9y of daily bars, matching the existing W_4Y resample test's own
+    # fixture size -- enough warm-up + 4y visible window once resampled.
+    df = _daily_df(365 * 9)
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: df}
+
+    recent = (pd.Timestamp.today().normalize() - pd.Timedelta(days=30)).strftime("%Y-%m-%d")
+    daily_read = _lp_out(support=[_zone_out(90.0, recent)], resistance=[])
+    weekly_read = _lp_out(support=[], resistance=[_zone_out(120.0, recent)])
+    lp = LiquidityZonesOut(daily=daily_read, weekly=weekly_read)
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", lambda ticker: lp)
+
+    out = asyncio.run(chart_data.get_chart_data("TRACKED", "W_4Y"))
+
+    # Only the weekly read's zone shows up -- the daily read's own zone
+    # (90.0/support) is never consulted for a W_4Y request.
+    assert [(z.side, z.price) for z in out.zones] == [("resistance", 120.0)]
+
+
+def test_zones_absent_when_bars_empty(monkeypatch):
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {}
+
+    recent = (pd.Timestamp.today().normalize() - pd.Timedelta(days=30)).strftime("%Y-%m-%d")
+    lp = LiquidityZonesOut(daily=_lp_out(support=[_zone_out(90.0, recent)], resistance=[]), weekly=None)
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", lambda ticker: lp)
+
+    out = asyncio.run(chart_data.get_chart_data("BADTICKER", "D_1Y"))
+
+    # zones_available still reflects the real (independent) cache-only
+    # read, but the zones list itself is empty -- no chart to anchor
+    # price lines onto, same convention entry_signal_marker uses here.
+    assert out.chart_available is False
+    assert out.zones_available is True
+    assert out.zones == []

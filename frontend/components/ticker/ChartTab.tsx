@@ -79,13 +79,33 @@ export function ChartTab({ ticker }: Props) {
       {!error && data && data.chart_available && (
         <>
           <TickerChart key={range} data={data} />
-          <p className="text-xs text-text-tertiary">
-            {data.entry_signal_available
-              ? data.entry_signal_marker
-                ? "Marker shows the most recent active BB+RSI (2h) entry signal."
-                : 'Tracked for BB+RSI entry signals — no active signal right now.'
-              : 'Not tracked for entry signals — this ticker isn’t on the "Main" or "Secondary" watchlists.'}
-          </p>
+          {!data.entry_signal_available && !data.zones_available ? (
+            // Both features share the exact same "Main"/"Secondary" scope
+            // (see chart_data.py) -- when neither has ever run for this
+            // ticker, one combined line reads cleaner than two identical
+            // "not tracked" sentences stacked on top of each other.
+            <p className="text-xs text-text-tertiary">
+              Not tracked for entry signals or Liquidity Zone (LP) levels — this ticker isn&apos;t on the &quot;Main&quot; or
+              &quot;Secondary&quot; watchlists.
+            </p>
+          ) : (
+            <div className="space-y-1">
+              <p className="text-xs text-text-tertiary">
+                {data.entry_signal_available
+                  ? data.entry_signal_marker
+                    ? "Marker shows the most recent active BB+RSI (2h) entry signal."
+                    : "Tracked for BB+RSI entry signals — no active signal right now."
+                  : "Not tracked for entry signals — this ticker isn't on the \"Main\" or \"Secondary\" watchlists."}
+              </p>
+              <p className="text-xs text-text-tertiary">
+                {data.zones_available
+                  ? data.zones.length > 0
+                    ? "Dashed lines show unbreached support/resistance levels from Liquidity Zone (LP) detection."
+                    : "Tracked for Liquidity Zone (LP) detection — no zones in this range."
+                  : "Not tracked for Liquidity Zone (LP) detection — this ticker isn't on the \"Main\" or \"Secondary\" watchlists."}
+              </p>
+            </div>
+          )}
         </>
       )}
     </div>
