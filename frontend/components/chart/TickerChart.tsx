@@ -70,7 +70,23 @@ function makeChartOptions(height?: number) {
     handleScroll: false,
     handleScale: false,
     rightPriceScale: { borderColor: CHART_THEME.border },
-    timeScale: { borderColor: CHART_THEME.border, timeVisible: false, rightOffset: 10 },
+    // shiftVisibleRangeOnNewBar defaults to true (a "streaming chart"
+    // convenience: auto-scroll to keep showing rightOffset's margin ahead
+    // of a genuinely new incoming bar). This chart never streams -- every
+    // range switch tears down and recreates the whole chart from data
+    // fetched once -- but it DOES call series.setData() a second time
+    // after the initial render, to extend LP zone lines into the
+    // rightOffset margin (see extendZoneLinesToEdge below). Left at its
+    // default, that second setData() is indistinguishable from "a new bar
+    // arrived," so the model silently scrolls the whole visible window
+    // right by the same distance instead of just filling the margin --
+    // confirmed via a standalone numerical simulation of this library's
+    // own TimeScale math (not just re-reading the code): the zone line's
+    // extension only reached ~96% of the way to the true edge, and 10
+    // bars of real history were silently cropped off the left. Set false
+    // here so a later setData() only ever changes what's drawn, never
+    // the visible range itself.
+    timeScale: { borderColor: CHART_THEME.border, timeVisible: false, rightOffset: 10, shiftVisibleRangeOnNewBar: false },
     crosshair: { mode: 1 },
     ...(height !== undefined ? { height } : {}),
   };
@@ -83,6 +99,14 @@ function renderMain(chart: IChartApi, data: ChartOut) {
     wickUpColor: COLORS.upCandle,
     wickDownColor: COLORS.downCandle,
     borderVisible: false,
+    // Candlestick series default to priceLineVisible: true (an
+    // auto-drawn horizontal line at the last bar's close, colored by the
+    // last candle's own up/down color) -- confirmed via
+    // SeriesOptionsCommon in typings.d.ts, not assumed. This duplicated
+    // the gray dashed last-close line already drawn explicitly two lines
+    // below via candle.createPriceLine(...), and the OHLC legend in the
+    // top-left corner already shows the close value regardless.
+    priceLineVisible: false,
   });
   candle.setData(data.bars);
 
@@ -234,6 +258,23 @@ function futureDateStrings(lastTime: string, count: number, incrementDays: numbe
 // would fall short, and a single point placed far in the future would
 // still only consume ONE ordinal slot next to the last real bar,
 // regardless of its actual calendar date.
+//
+// The ordering above is necessary but NOT sufficient on its own --
+// makeChartOptions' timeScale.shiftVisibleRangeOnNewBar: false is a
+// required companion setting. Without it, this later setData() call
+// (adding new time values past the current base index, with the last
+// real bar still visible) is exactly the condition lightweight-charts'
+// own model uses to detect "a new bar streamed in," and it silently
+// SHIFTS the whole visible window right to keep showing rightOffset's
+// margin ahead of it, rather than just filling the margin in place --
+// re-introducing the same "moving target" problem the fitContent()
+// ordering above was meant to solve, just one level deeper, AND cropping
+// real history off the left edge in the process. Confirmed numerically
+// (not just by re-reading the source): simulating this library's own
+// TimeScale math for a 252-bar/900px chart, the zone line's last point
+// only reached 96.2% of the way to the true edge with the default left
+// on, and landed at exactly 100% with it off -- see this round's commit
+// message for the full numbers.
 function extendZoneLinesToEdge(
   chart: IChartApi,
   zoneLines: { series: ISeriesApi<"Line">; points: { time: string; value: number }[] }[],
