@@ -57,7 +57,17 @@ FCF_CASH_BURN_RECENCY_YEARS = 3
 # MARGIN_TREND_WINDOW's sizing convention (see _series_recovered).
 FCF_RECOVERY_WINDOW = 3
 
-NET_INCOME_BACKUP_THRESHOLD = 40
+# Matches scoring/trend.py::MULTIPLE_DIPS_CEILING -- a mandatory companion
+# to that fix (2026-09-10), not an independent tuning choice. This gate
+# used to compare against classify_trend's old flat multiple_dips value
+# (40) directly; once that score is graduated up to a ceiling of 70 for a
+# near-recovered dip, leaving this threshold at 40 would silently exclude
+# exactly the mildly-graduated cases (e.g. a raw NI score of 45-60) from a
+# backup rescue they'd still benefit from -- confirmed via simulation to
+# regress 37 tickers (e.g. CTVA 94->88, CL 88->82, AEP 84->80) purely from
+# losing an already-computed OI rescue, with zero underlying data change.
+# See CLAUDE.md's Step 1 deviations for the full investigation.
+NET_INCOME_BACKUP_THRESHOLD = 70
 NET_INCOME_BACKUP_CAP = 80
 # "1 or 2 years in the past" -- deliberately includes age 0 (the dip
 # landing in the TTM transition itself). Excluding age 0 would mean the

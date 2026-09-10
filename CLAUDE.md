@@ -623,6 +623,79 @@ at each point below. Notable design decisions and fixes:
     Fail→Pass — Net Income `declining`/0→13, crossing the OI-backup
     threshold and pulling the blend over 70) and **CNC** (68→70,
     Fail→Pass — Net Income `not_yet_positive`/0→13).
+- **`multiple_dips` (unresolved dip) graduated (2026-09-10)**, following a
+  dedicated UNH-vs-DDOG investigation (UNH: Financials 66/Fail; DDOG:
+  90/Pass) that generalized into the same class of hard-fail-cliff bug as
+  the fixes above, just for the ONE bucket those investigations didn't
+  already cover. `classify_trend` (`scoring/trend.py`) used to return a
+  flat 40 for ANY unresolved dip event regardless of how close to recovery
+  TTM actually was — a single merged dip event that's 0.1% away from its
+  own baseline scored identically to one still thousands of percent below
+  it. Confirmed via a 572-ticker cache-only scan: 381 tickers hit this
+  flat 40; the mildest 20 (ADI, ZBH, VTRS, MKC, AVB, TXN, CB, EW, CI,
+  DLTR, TMP, EA, ZBRA, TXT, WSM, HPQ, PSA, PPG, TMO, HCA) all sat within
+  ~1.7% of their own baseline. UNH itself: Net Income genuinely -36.9%
+  below its own pre-dip baseline (correctly stays near the floor), CFO
+  only -7.1% below baseline (was wrongly scoring the same flat 40 as NI).
+  - New `MULTIPLE_DIPS_CEILING` (70), `MULTIPLE_DIPS_FLOOR` (40 — the OLD
+    flat value, preserved as the floor so a genuinely severe, still-
+    unresolved dip like SMCI/MRNA/PARA/ECHO/LITE/JOBY/ARE never scores
+    BETTER than before), `MULTIPLE_DIPS_SEVERE_FRAC` (30%, chosen from the
+    real distribution — hits cluster either near-zero or far beyond 30%).
+    Score graduates linearly as `shortfall_frac` — `(baseline - TTM) /
+    abs(baseline)`, i.e. how far below its own pre-dip baseline TTM
+    currently sits — moves from 0% to the 30% cutoff.
+  - **Deliberately scoped to ONLY this one bucket.**
+    `multiple_dips_resolved`/`dip_durably_resolved` (still flat 75) and
+    Margins' `gradually_compressing` (still flat 60) were investigated and
+    simulated in the same pass and found to have the identical
+    severity-insensitivity bug, but are held for later review — unlike
+    this bucket, their ceiling would have to sit AT the current flat value
+    rather than above it (any graduation is a pure score decrease for at
+    least some tickers), and margins' graduation in particular showed a
+    concerning interaction with Bank/Insurance-type tickers (GS, CB — both
+    CFO-exempt, so Margins carries outsized weight — regressed Pass→Fail
+    purely from a margin-severity read that may itself be noise for those
+    company types) that needs its own investigation before shipping.
+  - **Mandatory companion fix**: `scoring/step1.py::
+    NET_INCOME_BACKUP_THRESHOLD` raised from 40 to 70 (== 
+    `MULTIPLE_DIPS_CEILING`, enforced by a same-file test). That threshold
+    gates Net Income's Operating-Income backup on `net_income_pos_result.
+    score <= NET_INCOME_BACKUP_THRESHOLD` — an exact-value comparison
+    against `classify_trend`'s own output, unlike every other consumer in
+    this codebase (Step 3's method-selection tree, Step 4's ROE/ROIC
+    recovery checks, Step 1's own FCF recovery check), which all test
+    `pattern in RECOVERY_PATTERNS` and are therefore completely unaffected
+    by a score-value change. Left at 40, a mildly-graduated NI score (e.g.
+    45–65) would have silently fallen outside the backup's trigger range
+    even though Operating Income would still have rescued it further.
+    Confirmed via simulation BEFORE shipping (not assumed): running the
+    `multiple_dips` graduation in isolation, without this companion
+    change, regressed 37 tickers (e.g. CTVA 94→88, CL 88→82, AEP 84→80) —
+    each purely from losing an already-computed OI rescue, with zero
+    change to the underlying business data. Raising the threshold to 70
+    eliminates all 37 regressions.
+  - **Confirmed via a full-universe recompute (572 tickers, cache-only):
+    47 Step 1 verdict flips, 0 regressions, exactly matching the
+    pre-shipping simulation.** All 47 flips are Fail→Pass (ABT, AVB, BMY,
+    C, CALM, CCJ, CDW, CSCO, CTSH, CVS, CVX, DAL, DIS, EA, EOG, ETR, FITB,
+    HAS, **HCA**, IBM, JBL, KDP, KMI, LRCX, MAS, MDLZ, MPC, NSC, NWS, NWSA,
+    OMC, PNR, PPG, Q, REGN, ROK, SRE, TEAM, TFC, TGT, **TMO**, TXT, **UNH**,
+    WSM, XEL, **ZBH**, ZBRA — bold: the tickers directly named in the
+    motivating investigation). 11 Overall Assessment verdicts flip
+    (all upward: 8 Fail→Pass/Pass-with-caution, 2 Pass→Strong Pass, 1
+    additional Fail→Pass — ABT, CCJ, CDW, CMG, CPRT, DHI, ETSY, HCA, JBL,
+    PSX, QCOM). A further 150 tickers' Step 1 score moved without a
+    verdict flip (all increases — zero decreases anywhere, step1 or
+    overall, confirmed by direct before/after diff). **UNH: 66→73
+    (Fail→Pass)** — Net Income stays at the floor (40, genuinely -36.9%
+    below baseline), CFO rises 40→63 (-7.1% below baseline, graduated:
+    `70 - 30*(0.071/0.30) ≈ 63`), blend `100×.35 + 40×.20 + 63×.30 +
+    60×.10 + 100×.05 = 72.9 → 73`. **DDOG: unchanged at 90/Pass** — its
+    dips all sit in the untouched `multiple_dips_resolved`/
+    `significant_dip_recovers` buckets. Severe-case tickers (SMCI, MRNA,
+    PARA, ECHO, LITE, JOBY, ARE) are all byte-identical before/after,
+    confirming the floor holds.
 
 Growth Rate's original methodology called for averaging projections
 across 3-4 independent platforms (GuruFocus, Finviz, Zacks, etc.) and

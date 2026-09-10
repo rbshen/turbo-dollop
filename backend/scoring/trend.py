@@ -84,6 +84,62 @@ def _graduated_declining_points(pct_change: float) -> int:
     return round(DECLINING_DISPLAY_CEILING * (1 - fraction))
 
 
+# --- `multiple_dips` (unresolved) graduated score (2026-09-10) -------------
+# A dip event that hasn't recovered (literally or durably) by TTM used to
+# score a flat 40 no matter how close to recovery it actually was -- a
+# ticker whose TTM sits 0.0% below its own baseline (effectively already
+# recovered in every way that matters) scored identically to one still
+# 8000%+ below baseline (a genuine, ongoing crisis). Confirmed via a
+# 572-ticker cache-only investigation: 381 tickers hit this flat 40, with
+# the mildest 20 (ADI, ZBH, VTRS, MKC, AVB, TXN, CB, EW, CI, DLTR, TMP, EA,
+# ZBRA, TXT, WSM, HPQ, PSA, PPG, TMO, HCA) all sitting within ~1.7% of
+# their own baseline -- see CLAUDE.md's Step 1 deviations for the full
+# investigation and simulation write-up. Motivating case: UNH's CFO is
+# only -7.1% below its own pre-dip baseline (NI, a separate and genuinely
+# deeper -36.9% shortfall, correctly stays near the floor) yet both scored
+# an identical flat 40 before this fix.
+#
+# Graduates from MULTIPLE_DIPS_CEILING (70, near-fully-recovered) down to
+# MULTIPLE_DIPS_FLOOR (40 -- the OLD flat value, preserved as the floor so
+# a genuinely severe, still-unresolved dip like SMCI/MRNA/PARA never scores
+# BETTER than it did before) as `shortfall_frac` -- how far below baseline
+# TTM currently sits, as a fraction of the baseline itself -- approaches
+# MULTIPLE_DIPS_SEVERE_FRAC (30%, chosen from the real distribution above:
+# the vast majority of hits are either near-zero or far beyond 30%, so this
+# is where "confirm the dip is genuinely still severe" starts, mirroring
+# SEVERE_TTM_DECLINE's own role for the `declining` pattern). Deliberately
+# does NOT touch `multiple_dips_resolved`/`dip_durably_resolved` (still flat
+# 75) or Margins' `gradually_compressing` (still flat 60) -- both were
+# investigated in the same pass but held for later review (see CLAUDE.md):
+# unlike this bucket, their ceiling would have to sit AT the current flat
+# value rather than above it, so graduating them isn't a same-shape,
+# regression-free change the way this one is.
+#
+# Mandatory companion fix, shipped in the same change:
+# `scoring/step1.py::NET_INCOME_BACKUP_THRESHOLD` raised from 40 to
+# MULTIPLE_DIPS_CEILING (70) -- that threshold gates Net Income's
+# Operating-Income backup on `net_income_pos_result.score <= 40`, an exact
+# comparison against classify_trend's old flat multiple_dips value. Left
+# at 40, a mildly-graduated NI score (e.g. 45-60) would silently fall
+# outside the backup's trigger range even though OI would still rescue it
+# further -- confirmed via simulation to regress 37 tickers (e.g. CTVA
+# 94->88, CL 88->82, AEP 84->80) purely from losing an OI rescue they used
+# to get, with zero change to the underlying business data. Raising the
+# threshold to 70 eliminates all 37 regressions.
+MULTIPLE_DIPS_CEILING = 70
+MULTIPLE_DIPS_FLOOR = 40
+MULTIPLE_DIPS_SEVERE_FRAC = 0.30
+
+
+def _graduated_multiple_dips_score(baseline: float, ttm: float) -> int:
+    if not baseline:
+        return MULTIPLE_DIPS_FLOOR
+    shortfall_frac = max(0.0, (baseline - ttm) / abs(baseline))
+    clipped = min(shortfall_frac, MULTIPLE_DIPS_SEVERE_FRAC)
+    fraction = clipped / MULTIPLE_DIPS_SEVERE_FRAC
+    return round(MULTIPLE_DIPS_CEILING - (MULTIPLE_DIPS_CEILING - MULTIPLE_DIPS_FLOOR) * fraction)
+
+
 class TrendResult(NamedTuple):
     pattern: str
     score: int
@@ -332,7 +388,9 @@ def classify_trend(values: list[float]) -> TrendResult:
         else:
             # At least one dip event never got back to its baseline by TTM
             # and isn't old/durable enough to excuse -- genuinely uneven.
-            return TrendResult("multiple_dips", 40)
+            # Score graduated by how close TTM actually is to recovering
+            # -- see MULTIPLE_DIPS_CEILING's own comment above.
+            return TrendResult("multiple_dips", _graduated_multiple_dips_score(event.baseline, float(arr[-1])))
 
     if len(events) == 1 and literal_recovery[0]:
         event = events[0]

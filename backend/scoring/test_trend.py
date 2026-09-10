@@ -27,15 +27,56 @@ def test_significant_dip_recovers():
 
 
 def test_multiple_dips():
+    # Two non-contiguous dip events (100->90, then 95->85); the loop
+    # resolves against the FIRST unresolved one it hits (baseline=100 at
+    # index 0). TTM (92) vs that baseline is an 8% shortfall, graduated
+    # rather than a flat 40 (see MULTIPLE_DIPS_CEILING's own comment in
+    # scoring/trend.py).
     pattern, score = classify_trend([100, 90, 95, 85, 92])
     assert pattern == "multiple_dips"
-    assert score == 40
+    assert score == 62  # shortfall_frac=8% -> 70 - 30*(0.08/0.30) = 62
 
 
 def test_dip_without_recovery_counts_as_multiple_dips():
     # A single dip that never gets back to the pre-dip level isn't a clean
-    # "recovery" story even though there's only one real decline.
+    # "recovery" story even though there's only one real decline. baseline
+    # (110) vs TTM (88) is a ~20% shortfall -- past the ceiling but still
+    # short of MULTIPLE_DIPS_SEVERE_FRAC, so it's graduated between the
+    # ceiling and the old flat floor, not pinned to either.
     pattern, score = classify_trend([100, 110, 80, 85, 88])
+    assert pattern == "multiple_dips"
+    assert score == 50
+
+
+def test_multiple_dips_graduated_near_ceiling_for_a_near_recovered_dip():
+    # Motivating case (see CLAUDE.md's Step 1 deviations): a dip event
+    # whose TTM sits only ~1% below its own baseline (100 -> 99) reads as
+    # nearly fully recovered in every way that matters, and should score
+    # close to MULTIPLE_DIPS_CEILING (70), not the old flat 40 a company
+    # in genuine ongoing crisis would also have scored.
+    pattern, score = classify_trend([100, 100, 80, 100, 99])
+    assert pattern == "multiple_dips"
+    assert score == 69  # shortfall_frac=1% -> 70 - 30*(0.01/0.30) = 69
+
+
+def test_multiple_dips_graduated_mid_range_shortfall():
+    # Halfway to MULTIPLE_DIPS_SEVERE_FRAC (15% of a 30% cutoff) lands
+    # halfway between the ceiling and floor.
+    pattern, score = classify_trend([100, 80, 82, 83, 85])
+    assert pattern == "multiple_dips"
+    assert score == 55  # shortfall_frac=15% -> 70 - 30*(0.15/0.30) = 55
+
+
+def test_multiple_dips_graduated_floors_at_the_old_flat_value_beyond_severe_cutoff():
+    # At or beyond MULTIPLE_DIPS_SEVERE_FRAC (30% shortfall), the score
+    # floors at MULTIPLE_DIPS_FLOOR (40) -- the OLD flat value, preserved
+    # so a genuinely severe, still-unresolved dip (SMCI/MRNA/PARA-shaped
+    # real cases) never scores BETTER than it did before this fix.
+    pattern, score = classify_trend([100, 50, 60, 65, 69])  # exactly at the 30% cutoff
+    assert pattern == "multiple_dips"
+    assert score == 40
+
+    pattern, score = classify_trend([100, 65, 66, 67, 68])  # well beyond it (32%)
     assert pattern == "multiple_dips"
     assert score == 40
 
@@ -75,7 +116,8 @@ def test_dip_baseline_fallback_requires_more_than_a_100_percent_jump():
     # Boundary: the jump before the dip is EXACTLY +100% (ratio == 1.0, not
     # > 1.0) -- the fallback must not trigger, so recovery is still measured
     # against the (non-fallback) pre-dip value directly, same as before this
-    # fix existed.
+    # fix existed. baseline=200 vs TTM=95 is a 52.5% shortfall -- well
+    # beyond MULTIPLE_DIPS_SEVERE_FRAC, so this still floors at 40.
     pattern, score = classify_trend([50, 60, 100, 200, 90, 95])
     assert pattern == "multiple_dips"
     assert score == 40
@@ -173,6 +215,8 @@ def test_contiguous_dip_transitions_merge_into_one_event():
 def test_merged_dip_event_still_multiple_dips_when_too_recent():
     # Same shape as above, one year short -- age=3 fails
     # DIP_RESOLUTION_MIN_AGE, so it's too recent to durably resolve.
+    # baseline=140 vs TTM=80 is a 42.9% shortfall -- beyond
+    # MULTIPLE_DIPS_SEVERE_FRAC, so this still floors at the old flat 40.
     pattern, score = classify_trend([140, 120, 95, 50, 60, 70, 80])
     assert pattern == "multiple_dips"
     assert score == 40
@@ -182,7 +226,8 @@ def test_merged_dip_event_still_multiple_dips_when_recovery_run_too_short():
     # The original 2018-shaped decline is comfortably old, but a fresh,
     # real (>5%) relapse lands right before TTM -- breaks the trailing
     # clean-run requirement, so the old event can't be excused even though
-    # its own age would otherwise qualify.
+    # its own age would otherwise qualify. baseline=140 vs TTM=92 is a
+    # 34.3% shortfall -- still beyond MULTIPLE_DIPS_SEVERE_FRAC, floors at 40.
     pattern, score = classify_trend([140, 120, 95, 50, 60, 70, 80, 90, 100, 92])
     assert pattern == "multiple_dips"
     assert score == 40
@@ -203,10 +248,12 @@ def test_ttm_decline_within_graduated_band_flows_through_as_ordinary_dip():
     # 4 clean growth years then a -7.5% TTM dip -- inside the graduated
     # band (NOISE_FLOOR < decline < SEVERE_TTM_DECLINE) and too recent
     # (age=0) to durably resolve, so it lands on the ordinary unrecovered-
-    # dip tier instead of the old flat, unconditional 0.
+    # dip tier instead of the old flat, unconditional 0. baseline=146 vs
+    # TTM=135 is an 8% shortfall -- since 2026-09-10, graduated rather
+    # than a flat 40 (see MULTIPLE_DIPS_CEILING's own comment).
     pattern, score = classify_trend([100, 110, 121, 133, 146, 135])
     assert pattern == "multiple_dips"
-    assert score == 40
+    assert score == 62  # shortfall_frac=8% -> 70 - 30*(0.08/0.30) = 62
 
 
 def test_ttm_decline_inside_graduated_band_not_forced_to_zero():
