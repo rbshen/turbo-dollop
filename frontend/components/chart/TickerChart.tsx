@@ -102,25 +102,15 @@ function renderMain(chart: IChartApi, data: ChartOut) {
     // Candlestick series default to priceLineVisible: true (an
     // auto-drawn horizontal line at the last bar's close, colored by the
     // last candle's own up/down color) -- confirmed via
-    // SeriesOptionsCommon in typings.d.ts, not assumed. This duplicated
-    // the gray dashed last-close line already drawn explicitly two lines
-    // below via candle.createPriceLine(...), and the OHLC legend in the
-    // top-left corner already shows the close value regardless.
+    // SeriesOptionsCommon in typings.d.ts, not assumed. No last-close
+    // line is wanted here at all -- the OHLC legend in the top-left
+    // corner already shows the close value -- so this stays false; the
+    // component's own separate manual last-close createPriceLine() call
+    // (which duplicated this one) has been removed outright rather than
+    // left disabled.
     priceLineVisible: false,
   });
   candle.setData(data.bars);
-
-  if (data.bars.length > 0) {
-    const last = data.bars[data.bars.length - 1];
-    candle.createPriceLine({
-      price: last.close,
-      color: "#52525b",
-      lineWidth: 1,
-      lineStyle: 2,
-      axisLabelVisible: false,
-      title: "",
-    });
-  }
 
   for (const [key, color] of [
     ["ema21", COLORS.ema21],
