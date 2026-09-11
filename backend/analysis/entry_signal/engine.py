@@ -4,6 +4,8 @@ data/entry_signal_data.py calls; everything below it stays pure (no DB, no
 HTTP), matching analysis/trend_structure/engine.py's own composition style.
 """
 
+from datetime import date as date_
+
 import pandas as pd
 
 from .indicators import ATR_MULTIPLIER, check_buy_signal, compute_atr, compute_bollinger_bands, compute_rsi
@@ -76,3 +78,63 @@ def compute_entry_signal(ohlcv: pd.DataFrame) -> EntrySignalResult:
         close=close_fired,
         stop_price=stop_price_fired,
     )
+
+
+def compute_historical_entry_signals(ohlcv: pd.DataFrame) -> list[EntrySignalResult]:
+    """Backfill-only counterpart to compute_entry_signal above -- added
+    alongside it, not a modification, since the nightly job's own
+    detection logic (this function, check_buy_signal, compute_rsi, etc.)
+    must stay exactly as-is (see data/entry_signal_data.py's own
+    docstring for why). Computes RSI/Bollinger/ATR ONCE over the entire
+    given history, so 14/20-period warmup is correct throughout, then
+    scans EVERY trading day present -- not just the most recent one.
+
+    Tie-breaking deliberately differs from compute_entry_signal:
+    compute_entry_signal keeps the LAST firing candle of a day, matching
+    TechnicalEntrySignal's "most recent tradeable fire" semantics --
+    correct for that table's own purpose, and left unchanged here. This
+    function keeps the FIRST firing candle of each day instead: a
+    historical chart marker answers "when did this setup first appear,"
+    not "what's still live," and confirmed real data shows the two
+    answers commonly differ -- a from-scratch scan across a 6-ticker,
+    2-year sample found ~56% of firing days fired 2+ times in the same
+    session (RSI-oversold conditions tend to persist across consecutive
+    2h bars during a single drawdown leg), so this tie-break is
+    frequently load-bearing, not a rare edge case.
+
+    Returns one EntrySignalResult per trading day that had at least one
+    real fire, ordered chronologically -- unlike compute_entry_signal,
+    quiet days are omitted entirely rather than represented by a
+    fired=False result, since there's no "latest state" concept here to
+    report a quiet day against."""
+    candles = build_2h_session_candles(ohlcv)
+    if candles.empty:
+        raise ValueError("No 2h session candles could be built from the given OHLCV bars")
+
+    close = candles["close"]
+    rsi = compute_rsi(close)
+    _, _, pct_b = compute_bollinger_bands(close)
+    atr = compute_atr(candles)
+
+    results_by_day: dict[date_, EntrySignalResult] = {}
+    for i in range(len(candles)):
+        if not check_buy_signal(rsi, pct_b, i):
+            continue
+        day = candles.index[i].date()
+        if day in results_by_day:
+            continue  # first fire of this day already recorded -- later same-day fires are ignored
+        fired_at = candles.index[i].to_pydatetime().replace(tzinfo=None)
+        pct_b_i = pct_b.iloc[i]
+        rsi_i = rsi.iloc[i]
+        atr_i = atr.iloc[i]
+        results_by_day[day] = EntrySignalResult(
+            as_of=fired_at,
+            fired=True,
+            fired_at=fired_at,
+            pct_b=float(pct_b_i) if pd.notna(pct_b_i) else None,
+            rsi=float(rsi_i) if pd.notna(rsi_i) else None,
+            close=float(close.iloc[i]),
+            stop_price=float(close.iloc[i] - atr_i * ATR_MULTIPLIER) if pd.notna(atr_i) else None,
+        )
+
+    return [results_by_day[d] for d in sorted(results_by_day)]
