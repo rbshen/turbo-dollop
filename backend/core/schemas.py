@@ -935,6 +935,9 @@ class SavedScreenerFilterIn(BaseModel):
     sort_field: str
     sort_direction: str
     filters: dict
+    # Which watchlist (if any) was selected as the Screener's base universe
+    # when this view was saved -- see SavedScreenerFilter.watchlist_id.
+    watchlist_id: int | None = None
 
 
 class SavedScreenerFilterOut(BaseModel):
@@ -944,6 +947,7 @@ class SavedScreenerFilterOut(BaseModel):
     sort_field: str
     sort_direction: str
     filters: dict
+    watchlist_id: int | None = None
     created_at: datetime
     updated_at: datetime
 

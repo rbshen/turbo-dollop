@@ -397,7 +397,17 @@ class SavedScreenerFilter(SQLModel, table=True):
     ScreenerFilterState object as-is (verbatim JSON, not decomposed into
     columns) since its shape is expected to keep growing as new filter
     fields are added -- same "store raw, don't force a rigid schema"
-    reasoning as FundamentalsCache.raw_json."""
+    reasoning as FundamentalsCache.raw_json.
+
+    watchlist_id is a discrete column, not folded into filters_json, since
+    -- unlike the Fundamental/Technical filter state -- it needs real
+    referential meaning: a saved view must survive the referenced
+    Watchlist being renamed (looked up by id, not name) and must be
+    cleaned up if it's deleted (see watchlists.py::delete_watchlist, which
+    deletes any SavedScreenerFilter row referencing the watchlist in the
+    same transaction as its WatchlistTicker cleanup -- no SQLite-level ON
+    DELETE CASCADE, same reasoning as WatchlistTicker's own docstring).
+    Nullable -- most saved views have no watchlist scoping at all."""
 
     __table_args__ = (UniqueConstraint("name", name="uq_saved_screener_filter_name"),)
 
@@ -407,6 +417,7 @@ class SavedScreenerFilter(SQLModel, table=True):
     sort_field: str
     sort_direction: str
     filters_json: str
+    watchlist_id: int | None = Field(default=None, foreign_key="watchlist.id")
     created_at: datetime
     updated_at: datetime
 
