@@ -69,6 +69,20 @@
 # pipeline/nightly_liquidity_zone_calculation.py.
 25 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_liquidity_zone_calculation >> /home/shen/fathom/backend/logs/nightly_liquidity_zone_calculation_cron.log 2>&1
 
+# Nightly Warren RSI/ADX/WVF (2h) technical entry-signal calculation, 3:30
+# AM server time -- the existing gap between Liquidity Zone (3:25) and
+# backup_db (3:35), fits comfortably without needing to push backup_db
+# later again: unlike Liquidity Zone's added-later FMP cold-cache risk,
+# this job is Yahoo-only (same as BB+RSI) and measured at ~15-30s
+# worst-case even at full W1-W5 capacity (see CLAUDE.md's Warren signal
+# section for the actual benchmark). Scoped to the same W1-W5 watchlist
+# union as BB+RSI/Liquidity Zone, but fetches a full 2-year lookback and
+# replays the whole state machine from scratch every run (unlike BB+RSI's
+# 60-day/latest-day-only shape) -- a genuinely different computation shape
+# from the two jobs around it, hence its own dedicated script rather than
+# folding into either. See pipeline/nightly_warren_signal_calculation.py.
+30 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_warren_signal_calculation >> /home/shen/fathom/backend/logs/nightly_warren_signal_calculation_cron.log 2>&1
+
 # Weekly S&P 500 constituent list refresh (Wikipedia scrape), Sundays at
 # 1:00 AM server time -- runs before the nightly fetch above so a freshly
 # added/removed ticker is reflected the same night. Index membership only
