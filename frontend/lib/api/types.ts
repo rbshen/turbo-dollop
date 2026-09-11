@@ -1236,12 +1236,14 @@ export interface ChartOut {
   bollinger: ChartBollingerPointOut[];
   stochastic: ChartStochasticPointOut[];
   rsi: ChartLinePointOut[];
-  // Null when there's no current marker to show -- either because
-  // entry_signal_available is false (not tracked at all), or because the
-  // ticker IS tracked but has no currently-active signal right now.
-  // entry_signal_available is what distinguishes those two cases, not this
-  // field alone.
-  entry_signal_marker: ChartMarkerOut | null;
+  // Every historical fire within the visible window, one per
+  // exchange-calendar day (daily views) / Monday-anchored week (weekly
+  // view) -- NOT gated on the 7-day "active" window (that only applies to
+  // "is there a live signal right now", a separate concept). Empty (not
+  // an omitted field) when the ticker is tracked but nothing fired in
+  // this window; entry_signal_available is what distinguishes "not
+  // tracked at all" from "tracked, nothing fired here".
+  entry_signal_markers: ChartMarkerOut[];
   entry_signal_available: boolean;
   // zones_available mirrors entry_signal_available's convention -- false
   // means not tracked (not on a watchlist named W1 through W5, or the

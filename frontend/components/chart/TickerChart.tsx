@@ -211,19 +211,19 @@ function renderMain(chart: IChartApi, data: ChartOut) {
     zoneLines.push({ series: zoneLine, points });
   }
 
-  if (data.entry_signal_marker) {
-    const marker = data.entry_signal_marker;
+  if (data.entry_signal_markers.length > 0) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    createSeriesMarkers(candle as any, [
-      {
+    createSeriesMarkers(
+      candle as any,
+      data.entry_signal_markers.map((marker) => ({
         time: marker.time,
         position: "belowBar" as const,
         color: COLORS.marker,
         shape: "arrowUp" as const,
         text: marker.label,
         size: 1,
-      },
-    ]);
+      }))
+    );
   }
 
   return { candle, zoneLines };

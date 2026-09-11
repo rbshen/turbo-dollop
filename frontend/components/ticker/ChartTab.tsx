@@ -92,9 +92,9 @@ export function ChartTab({ ticker }: Props) {
             <div className="space-y-1">
               <p className="text-xs text-text-tertiary">
                 {data.entry_signal_available
-                  ? data.entry_signal_marker
-                    ? "Marker shows the most recent active BB+RSI (2h) entry signal."
-                    : "Tracked for BB+RSI entry signals — no active signal right now."
+                  ? data.entry_signal_markers.length > 0
+                    ? "Markers show past BB+RSI (2h) entry signals in this range."
+                    : "Tracked for BB+RSI entry signals — none fired in this range."
                   : "Not tracked for entry signals — this ticker isn't on a watchlist named W1 through W5."}
               </p>
               <p className="text-xs text-text-tertiary">
