@@ -4,7 +4,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 import pipeline.nightly_fundamentals_fetch as nightly
 import pipeline.stale_data_health_check as health_check
-from core.models import FundamentalsCache, IndexConstituent
+from core.models import FundamentalsCache, IndexConstituent, TickerScore, Watchlist, WatchlistTicker
 
 
 def _fresh_engine(monkeypatch, tmp_path):
@@ -77,3 +77,35 @@ def test_main_uses_the_universe_ticker_list_and_writes_a_report(monkeypatch, tmp
     assert result["fresh"] == ["AAPL"]
     captured = capsys.readouterr()
     assert "Stale-data health check (1 tickers" in captured.out
+
+
+def test_main_uses_the_full_tracked_universe_not_just_index_constituents(monkeypatch, tmp_path):
+    # Regression test for the 2026-09-11 widening (cron audit finding #6/B):
+    # a watchlisted-only ticker (never an index member, never cached, never
+    # scored) whose nightly refresh silently broke used to be invisible to
+    # this report, because it only checked load_universe_tickers (S&P 500 +
+    # Dow). It must now show up via load_full_tracked_universe, the same
+    # helper nightly_fundamentals_fetch.py actually keeps fresh against.
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    with Session(engine) as session:
+        session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime.now()))
+        _seed_profile(session, "AAPL", days_old=1)
+
+        # IREN: cached FMP data only, never an index member.
+        _seed_profile(session, "IREN", days_old=20)
+
+        # SEZL: has a TickerScore row only, no cache, no index membership.
+        session.add(TickerScore(ticker="SEZL", overall_score=66, overall_verdict="Fail", computed_at=datetime.now()))
+
+        # ASML: watchlisted only -- not indexed, not cached, not scored.
+        watchlist = Watchlist(name="Main", created_at=datetime.now(), updated_at=datetime.now())
+        session.add(watchlist)
+        session.commit()
+        session.add(WatchlistTicker(watchlist_id=watchlist.id, ticker="ASML", added_at=datetime.now()))
+        session.commit()
+
+    result = health_check.main(threshold_days=10)
+
+    assert result["fresh"] == ["AAPL"]
+    assert result["stale"] == [("IREN", 20)]
+    assert result["never_fetched"] == ["ASML", "SEZL"]

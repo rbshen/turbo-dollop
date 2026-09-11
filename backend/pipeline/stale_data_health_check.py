@@ -1,10 +1,22 @@
-"""Standalone script: reports how many tickers in the stored S&P 500 + Dow
-universe haven't had their FundamentalsCache "profile" row refreshed within
-the staleness threshold -- a readable freshness report, not a silent check.
+"""Standalone script: reports how many tickers in the full tracked universe
+(index constituents UNION cached UNION scored UNION watchlisted -- see
+nightly_fundamentals_fetch.py::load_full_tracked_universe, reused here)
+haven't had their FundamentalsCache "profile" row refreshed within the
+staleness threshold -- a readable freshness report, not a silent check.
 "profile" is fetched on every nightly refresh cycle (see
 nightly_fundamentals_fetch.py::_refresh_one_ticker), so its fetched_at is a
 reliable proxy for "did this ticker's nightly refresh actually happen
 recently." Cache-only, zero FMP calls, safe to run anytime.
+
+Widened from S&P 500 + Dow only to the full tracked universe (2026-09-11,
+cron audit finding #6/B): nightly_fundamentals_fetch.py has refreshed the
+full tracked universe (not just the index) since 2026-08-06, but this
+report was never widened to match, so a watchlisted-only or ad-hoc-viewed
+ticker whose nightly refresh silently broke would never have surfaced here
+-- the same index-only-vs-full-universe blind-spot shape already fixed once
+in nightly_score_recompute.py/recompute_ticker_scores.py (see CLAUDE.md's
+Speculative Growth section). The report is expected to get noisier (~572
+vs ~530 tickers) as a direct, intended consequence.
 
 Run:
     uv run python -m pipeline.stale_data_health_check
@@ -24,7 +36,7 @@ from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from core.models import FundamentalsCache
-from pipeline.nightly_fundamentals_fetch import load_universe_tickers
+from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "stale_data_health_check.log"
 
@@ -80,7 +92,7 @@ def main(threshold_days: int = DEFAULT_STALE_THRESHOLD_DAYS) -> dict:
     configure_logging(LOG_PATH)
     init_db()
     with Session(engine) as session:
-        tickers = load_universe_tickers(session)
+        tickers = load_full_tracked_universe(session)
     result = check_staleness(tickers, threshold_days)
     report = _format_report(result, len(tickers), threshold_days)
     logger.info("\n%s", report)
