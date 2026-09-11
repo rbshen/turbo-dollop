@@ -18,11 +18,17 @@ clients/technical_sources.py::get_technical_source().get_intraday_bars),
 then runs the pure calculation engine and upserts per ticker
 (data.entry_signal_data.compute_and_store_entry_signal), matching
 nightly_trend_calculation.py's own one-batch-fetch-then-per-ticker-compute
-shape. After the per-ticker loop, sweeps any existing row whose
-computed_at is more than entry_signal_data.STALE_AFTER_DAYS old (e.g. a
-ticker dropped from both watchlists) -- see
-data.entry_signal_data.sweep_stale_entry_signals's own docstring for what
-"stale" means here and why rows are cleared rather than deleted.
+shape. Each per-ticker compute also appends to TechnicalEntrySignalEvent
+whenever it fires (see compute_and_store_entry_signal's own docstring) --
+no detection-logic change here, this job's own loop is unaware of the
+event table entirely. After the per-ticker loop, sweeps any existing
+TechnicalEntrySignal row whose computed_at is more than
+entry_signal_data.STALE_AFTER_DAYS old (e.g. a ticker dropped from both
+watchlists) -- see data.entry_signal_data.sweep_stale_entry_signals's own
+docstring for what "stale" means here and why rows are cleared rather than
+deleted -- and prunes TechnicalEntrySignalEvent rows older than
+entry_signal_data.EVENT_RETENTION_DAYS (deleted outright, not cleared --
+see prune_entry_signal_events's own docstring).
 
 Run:
     uv run python -m pipeline.nightly_entry_signal_calculation
@@ -40,7 +46,7 @@ from clients.technical_sources import get_technical_source
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
-from data.entry_signal_data import compute_and_store_entry_signal, sweep_stale_entry_signals
+from data.entry_signal_data import compute_and_store_entry_signal, prune_entry_signal_events, sweep_stale_entry_signals
 from data.watchlists import list_tickers_across_watchlists
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_entry_signal_calculation.log"
@@ -68,7 +74,8 @@ async def main() -> dict:
     if not tickers:
         logger.error("No tickers found across %s -- nothing to process.", matched_names or WATCHLIST_NAME_PATTERN.pattern)
         swept = sweep_stale_entry_signals()
-        return {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "swept": swept}
+        pruned = prune_entry_signal_events()
+        return {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "swept": swept, "pruned": pruned}
 
     logger.info("Starting nightly entry-signal calculation for %d tickers across %s.", len(tickers), matched_names)
     start_time = time.monotonic()
@@ -88,19 +95,28 @@ async def main() -> dict:
             failures.append((ticker, str(exc)))
 
     swept = sweep_stale_entry_signals()
+    pruned = prune_entry_signal_events()
 
     duration = time.monotonic() - start_time
     logger.info(
-        "Nightly entry-signal calculation complete. Processed: %d. Failed: %d. Swept: %d. Duration: %.1fs.",
+        "Nightly entry-signal calculation complete. Processed: %d. Failed: %d. Swept: %d. Pruned: %d. Duration: %.1fs.",
         len(tickers),
         len(failures),
         swept,
+        pruned,
         duration,
     )
     if failures:
         logger.info("Tickers with failures: %s", ", ".join(f"{t} ({e})" for t, e in failures))
 
-    return {"processed": len(tickers), "failed": len(failures), "duration_seconds": duration, "failures": failures, "swept": swept}
+    return {
+        "processed": len(tickers),
+        "failed": len(failures),
+        "duration_seconds": duration,
+        "failures": failures,
+        "swept": swept,
+        "pruned": pruned,
+    }
 
 
 if __name__ == "__main__":
