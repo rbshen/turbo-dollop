@@ -126,16 +126,20 @@
 0 3 1 * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.monthly_price_target_snapshot >> /home/shen/fathom/backend/logs/monthly_price_target_snapshot_cron.log 2>&1
 
 # Monthly Momentum snapshot (3mo/6mo/12mo composite trailing-return ranking
-# over the Moat-rated universe), 3 AM server time -- tried daily across the
-# 1st-5th of each month rather than pinned to the 1st, since the lookback
-# windows must anchor to a completed month's FINAL close (running at 3am
-# on the calendar 1st would be before that day's own session even opens),
-# and a holiday can push the real first trading day of the month past the
-# 1st. The script itself (helpers/trading_calendar.py::
+# over the Moat-rated universe), 3:05 AM server time -- staggered 5 minutes
+# after the price-target snapshot above (2026-09-11 cron audit finding #5/A:
+# both used to fire at the literal same minute, 0 3 1 * *, on the 1st of the
+# month -- no shared data between them, but both open a Session against the
+# same SQLite file concurrently, an avoidable writer-lock contention risk).
+# Tried daily across the 1st-5th of each month rather than pinned to the
+# 1st, since the lookback windows must anchor to a completed month's FINAL
+# close (running at 3am on the calendar 1st would be before that day's own
+# session even opens), and a holiday can push the real first trading day of
+# the month past the 1st. The script itself (helpers/trading_calendar.py::
 # resolve_month_end_anchor) checks whether today is genuinely the first
 # NYSE trading day of the month and no-ops (still a "success" heartbeat)
 # on every other day in this window. See pipeline/monthly_momentum_snapshot.py.
-0 3 1-5 * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.monthly_momentum_snapshot >> /home/shen/fathom/backend/logs/monthly_momentum_snapshot_cron.log 2>&1
+5 3 1-5 * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.monthly_momentum_snapshot >> /home/shen/fathom/backend/logs/monthly_momentum_snapshot_cron.log 2>&1
 
 # Daily SQLite backup, 3:35 AM server time (moved from 3:30 when the
 # Liquidity Zone job above was added, to keep a full 10-minute buffer
