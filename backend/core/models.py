@@ -215,6 +215,45 @@ class TechnicalEntrySignal(SQLModel, table=True):
     computed_at: datetime  # when the nightly job produced this row
 
 
+class TechnicalEntrySignalEvent(SQLModel, table=True):
+    """Append-only history of every individual firing 2h bar, feeding the
+    Chart tab's multi-marker history (see data/chart_data.py). Unlike
+    TechnicalEntrySignal above -- which holds only the single latest fire
+    per (ticker, signal_type, timeframe), overwritten every nightly run --
+    this table accumulates one row per distinct fire and is never
+    overwritten, only pruned by age (see prune_entry_signal_events in
+    data/entry_signal_data.py). Purely additive: TechnicalEntrySignal
+    stays exactly as before, still the only thing the API's
+    single-latest-fire read and the Screener's "active" filter consult.
+
+    Populated two ways: nightly, one row per ticker per run when
+    compute_and_store_entry_signal's result.fired is True (using the same
+    result already computed for the TechnicalEntrySignal upsert -- no
+    change to check_buy_signal/compute_entry_signal's detection logic);
+    and via a one-time backfill (pipeline/backfills/
+    backfill_entry_signal_events.py) that scans up to Yahoo's own 730-day
+    2h-interval history limit using compute_historical_entry_signals
+    (analysis/entry_signal/engine.py).
+
+    Surrogate `id` PK (not composite, unlike TechnicalEntrySignal) since
+    this is a real accumulating time series, not a single latest-state
+    row per key -- matches FundamentalsCache/YahooPriceCache's own
+    surrogate-PK-plus-UniqueConstraint shape. The UniqueConstraint is
+    what actually enforces one row per (ticker, signal_type, timeframe,
+    fired_at), making a cron rerun's insert an idempotent no-op via
+    on_conflict_do_nothing rather than a duplicate row."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    ticker: str = Field(index=True)
+    signal_type: str  # "bb_rsi" -- matches TechnicalEntrySignal's naming
+    timeframe: str  # "2h" -- matches TechnicalEntrySignal's naming
+    fired_at: datetime  # naive, Eastern-local -- same convention as TechnicalEntrySignal.fired_at
+    stop_price: float | None = None
+    created_at: datetime  # when this row was inserted -- auditing only, not read by any query
+
+    __table_args__ = (UniqueConstraint("ticker", "signal_type", "timeframe", "fired_at", name="uq_entry_signal_event_key"),)
+
+
 class LiquidityZoneAnalysis(SQLModel, table=True):
     """Latest Liquidity Zone (LP) detection read per (ticker, timeframe) --
     unbreached swing-low support / swing-high resistance levels, clustered
