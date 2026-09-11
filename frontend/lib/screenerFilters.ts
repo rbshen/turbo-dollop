@@ -190,8 +190,21 @@ function inRange(value: number | null, range: RangeFilter): boolean {
   return true;
 }
 
-export function filterTickerScores(rows: TickerScoreOut[], filters: ScreenerFilterState): TickerScoreOut[] {
+// watchlistTickers: the currently-selected WATCHLIST universe filter's
+// member set (see WatchlistFilter.tsx), or null when no watchlist is
+// selected / the universe toggle isn't "all". Deliberately a separate
+// parameter rather than a ScreenerFilterState field -- like `universe`,
+// watchlist selection is a "base scope" concept, not part of the
+// Fundamental/Technical filter blob SavedScreenerFilter.filters_json
+// stores verbatim (see that model's own docstring on why watchlist_id is
+// a discrete column instead).
+export function filterTickerScores(
+  rows: TickerScoreOut[],
+  filters: ScreenerFilterState,
+  watchlistTickers: Set<string> | null = null
+): TickerScoreOut[] {
   return rows.filter((row) => {
+    if (watchlistTickers && !watchlistTickers.has(row.ticker)) return false;
     if (!inRange(row.overall_score, filters.overallScore)) return false;
     if (!inRange(row.step1_score, filters.step1Score)) return false;
     if (!inRange(row.step2_score, filters.step2Score)) return false;

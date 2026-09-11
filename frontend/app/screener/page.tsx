@@ -10,9 +10,11 @@ import { ScreenerCard } from "@/components/screener/ScreenerCard";
 import { FundamentalFilters } from "@/components/screener/FundamentalFilters";
 import { TechnicalFilters } from "@/components/screener/TechnicalFilters";
 import { UniverseSelector } from "@/components/screener/UniverseSelector";
+import { WatchlistFilters } from "@/components/screener/WatchlistFilters";
 import { AddToWatchlistButton } from "@/components/ticker/AddToWatchlistButton";
 import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
 import { useScreener, useScreenerMeta } from "@/lib/hooks/useScreener";
+import { useWatchlists } from "@/lib/hooks/useWatchlists";
 import {
   DEFAULT_FILTER_STATE,
   extractCompanyTypes,
@@ -48,11 +50,25 @@ export default function ScreenerPage() {
   const [universe, setUniverse] = useState<ScreenerUniverse>("all");
   const { data, error } = useScreener(universe);
   const { data: meta } = useScreenerMeta(universe);
+  const { data: watchlists } = useWatchlists();
 
   const [filters, setFilters] = useState<ScreenerFilterState>(DEFAULT_FILTER_STATE);
   const [sortField, setSortField] = useState<SortField>("overall_score");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(1);
+  // The WATCHLIST universe filter's selection. Deliberately NOT cleared
+  // when `universe` flips away from "all" -- WatchlistFilters just dims the
+  // dropdown in that state, and the selection is restored the moment
+  // universe flips back, since the value below only ever takes effect
+  // (via watchlistTickerSet) when universe === "all" anyway.
+  const [watchlistId, setWatchlistId] = useState<number | null>(null);
+
+  const selectedWatchlist = useMemo(() => (watchlists ?? []).find((w) => w.id === watchlistId) ?? null, [watchlists, watchlistId]);
+  const watchlistActive = universe === "all" && selectedWatchlist != null;
+  const watchlistTickerSet = useMemo(
+    () => (watchlistActive && selectedWatchlist ? new Set(selectedWatchlist.tickers.map((t) => t.ticker)) : null),
+    [watchlistActive, selectedWatchlist]
+  );
 
   function handleUniverseChange(next: ScreenerUniverse) {
     setUniverse(next);
@@ -62,8 +78,20 @@ export default function ScreenerPage() {
   const sectors = useMemo(() => extractSectors(data ?? []), [data]);
   const companyTypes = useMemo(() => extractCompanyTypes(data ?? []), [data]);
 
-  const filtered = useMemo(() => filterTickerScores(data ?? [], filters), [data, filters]);
+  const filtered = useMemo(() => filterTickerScores(data ?? [], filters, watchlistTickerSet), [data, filters, watchlistTickerSet]);
   const sorted = useMemo(() => sortTickerScores(filtered, sortField, sortDirection), [filtered, sortField, sortDirection]);
+
+  // "X of Y" transparency, watchlist flavor: the count of `data` (the
+  // fetched, unfiltered universe="all" response) that also sit in the
+  // selected watchlist -- mirrors ScreenerMeta's own "X of Y" note for the
+  // sp500/dow universes (some watchlist tickers have never been scored, so
+  // they never got a TickerScore row and can't appear even in universe=
+  // "all"), computed independently of Fundamental/Technical filters the
+  // same way ScreenerMeta's total_constituents is.
+  const watchlistScoredCount = useMemo(() => {
+    if (!watchlistTickerSet || !data) return null;
+    return data.filter((row) => watchlistTickerSet.has(row.ticker)).length;
+  }, [watchlistTickerSet, data]);
 
   const nPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const currentPage = Math.min(page, nPages);
@@ -76,6 +104,16 @@ export default function ScreenerPage() {
 
   function handleResetFilters() {
     handleFiltersChange(DEFAULT_FILTER_STATE);
+    // "Reset" means back to the whole universe -- clears both the sp500/
+    // dow/all toggle and the watchlist selection, not just the Fundamental/
+    // Technical filter blob.
+    setUniverse("all");
+    setWatchlistId(null);
+  }
+
+  function handleWatchlistChange(next: number | null) {
+    setWatchlistId(next);
+    setPage(1);
   }
 
   function handleSortChange(field: SortField, direction: SortDirection) {
@@ -92,7 +130,23 @@ export default function ScreenerPage() {
     setFilters({ ...DEFAULT_FILTER_STATE, ...saved.filters });
     setSortField(saved.sort_field);
     setSortDirection(saved.sort_direction);
-    setUniverse(saved.universe);
+    // A saved watchlist scoping only applies if that watchlist still
+    // exists -- one may have been deleted since this view was saved (its
+    // SavedScreenerFilter row would already be gone too in that case, via
+    // the delete-watchlist cascade, but an older client cache/tab could
+    // still be holding a stale reference). Fall back to no watchlist
+    // selected rather than erroring or pointing at nothing.
+    const referencedWatchlistStillExists = saved.watchlist_id != null && (watchlists ?? []).some((w) => w.id === saved.watchlist_id);
+    if (referencedWatchlistStillExists) {
+      // Watchlist scoping only ever applies under "All" -- force it here
+      // rather than trusting saved.universe, which could be stale/
+      // inconsistent for an old save.
+      setUniverse("all");
+      setWatchlistId(saved.watchlist_id);
+    } else {
+      setUniverse(saved.universe);
+      setWatchlistId(null);
+    }
     setPage(1);
   }
 
@@ -118,8 +172,17 @@ export default function ScreenerPage() {
         <div>
           <h1 className="font-heading text-xl font-semibold text-text-primary">Screener</h1>
           <p className="text-xs text-text-tertiary">
-            {data.length} of {meta ? meta.total_constituents : "…"} {UNIVERSE_LABELS[universe]} tickers
-            {sorted.length !== data.length && ` — ${sorted.length} match the current filters`}
+            {watchlistActive && selectedWatchlist ? (
+              <>
+                {watchlistScoredCount} of {selectedWatchlist.tickers.length} &quot;{selectedWatchlist.name}&quot; tickers
+                {sorted.length !== watchlistScoredCount && ` — ${sorted.length} match the current filters`}
+              </>
+            ) : (
+              <>
+                {data.length} of {meta ? meta.total_constituents : "…"} {UNIVERSE_LABELS[universe]} tickers
+                {sorted.length !== data.length && ` — ${sorted.length} match the current filters`}
+              </>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -166,6 +229,7 @@ export default function ScreenerPage() {
           edge, rather than sitting a row-height higher. */}
       <div className="flex flex-col gap-6 lg:flex-row">
         <aside className="w-full shrink-0 space-y-4 lg:w-64">
+          <WatchlistFilters watchlists={watchlists} value={watchlistId} onChange={handleWatchlistChange} disabled={universe !== "all"} />
           <FundamentalFilters filters={filters} onFiltersChange={handleFiltersChange} sectors={sectors} companyTypes={companyTypes} />
           <TechnicalFilters filters={filters} onFiltersChange={handleFiltersChange} />
           <SavedFiltersBar
@@ -174,6 +238,7 @@ export default function ScreenerPage() {
             sortField={sortField}
             sortDirection={sortDirection}
             filters={filters}
+            watchlistId={watchlistId}
             onLoad={handleLoadSavedFilter}
             onReset={handleResetFilters}
           />

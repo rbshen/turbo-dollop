@@ -14,6 +14,7 @@ export interface SaveScreenerFilterBody {
   sort_field: SortField;
   sort_direction: SortDirection;
   filters: ScreenerFilterState;
+  watchlist_id: number | null;
 }
 
 export function useSavedFilters() {

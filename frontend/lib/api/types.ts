@@ -573,6 +573,10 @@ export interface SavedScreenerFilter {
   sort_field: SortField;
   sort_direction: SortDirection;
   filters: ScreenerFilterState;
+  // Which watchlist (if any) was selected as the Screener's WATCHLIST
+  // universe filter when this view was saved. Only meaningful alongside
+  // universe === "all" -- null means no watchlist was selected.
+  watchlist_id: number | null;
   created_at: string;
   updated_at: string;
 }

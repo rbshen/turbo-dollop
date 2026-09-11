@@ -58,6 +58,28 @@ describe("filterTickerScores", () => {
     expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(2);
   });
 
+  it("does not filter by watchlist membership when watchlistTickers is null (default)", () => {
+    const rows = [row({ ticker: "AAPL" }), row({ ticker: "MSFT" })];
+    expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(2);
+  });
+
+  it("narrows to watchlist membership when a watchlistTickers set is passed", () => {
+    const rows = [row({ ticker: "AAPL" }), row({ ticker: "MSFT" }), row({ ticker: "GOOG" })];
+    const result = filterTickerScores(rows, DEFAULT_FILTER_STATE, new Set(["MSFT", "GOOG"]));
+    expect(result.map((r) => r.ticker)).toEqual(["MSFT", "GOOG"]);
+  });
+
+  it("combines watchlist membership with an ordinary field filter, both must pass", () => {
+    const rows = [
+      row({ ticker: "IN_LIST_HIGH", overall_score: 90 }),
+      row({ ticker: "IN_LIST_LOW", overall_score: 20 }),
+      row({ ticker: "NOT_IN_LIST", overall_score: 90 }),
+    ];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, overallScore: { min: 70, max: null } };
+    const result = filterTickerScores(rows, filters, new Set(["IN_LIST_HIGH", "IN_LIST_LOW"]));
+    expect(result.map((r) => r.ticker)).toEqual(["IN_LIST_HIGH"]);
+  });
+
   it("filters by an Overall score range", () => {
     const rows = [row({ ticker: "HIGH", overall_score: 90 }), row({ ticker: "LOW", overall_score: 20 })];
     const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, overallScore: { min: 70, max: null } };

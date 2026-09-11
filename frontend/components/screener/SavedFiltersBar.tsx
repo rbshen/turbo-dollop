@@ -13,6 +13,9 @@ interface Props {
   sortField: SortField;
   sortDirection: SortDirection;
   filters: ScreenerFilterState;
+  // The WATCHLIST universe filter's current selection, persisted alongside
+  // universe/sortField/etc. on save -- see SavedScreenerFilter.watchlist_id.
+  watchlistId: number | null;
   onLoad: (saved: SavedScreenerFilter) => void;
   onReset: () => void;
   // "horizontal" (default): the original full-width top-bar layout.
@@ -33,7 +36,16 @@ const STATUS_LABELS: Record<Status, string> = {
   error: "Save failed",
 };
 
-export function SavedFiltersBar({ universe, sortField, sortDirection, filters, onLoad, onReset, layout = "horizontal" }: Props) {
+export function SavedFiltersBar({
+  universe,
+  sortField,
+  sortDirection,
+  filters,
+  watchlistId,
+  onLoad,
+  onReset,
+  layout = "horizontal",
+}: Props) {
   const { data: saved } = useSavedFilters();
   const [listOpen, setListOpen] = useState(false);
   const [saveStep, setSaveStep] = useState<SaveStep>("idle");
@@ -75,6 +87,7 @@ export function SavedFiltersBar({ universe, sortField, sortDirection, filters, o
         sort_field: sortField,
         sort_direction: sortDirection,
         filters,
+        watchlist_id: watchlistId,
       });
       setStatus("saved");
       setSaveStep("idle");
