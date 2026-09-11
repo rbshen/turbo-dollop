@@ -8,6 +8,18 @@ On any failure (network, page-structure change, suspiciously-low row
 count), the existing stored list is left untouched -- see
 dow_scraper.refresh_dow_constituents for the failure handling itself.
 
+A failed SyncResult is re-raised as a RuntimeError here (2026-09-11), after
+`SyncResult(success=False, ...)` was found flowing straight into a logged
+`logger.error(...)` with nothing propagating out of `main()` -- since
+cron_heartbeat only distinguishes success/failure by whether an exception
+escaped the `with` block, every failed run was recorded as a "success"
+CronRunLog row. Confirmed live: the Dow list failed every weekly run from
+2026-08-16 through 2026-09-06 (Wikipedia's "constituents" table went
+missing) with `CronRunLog`/`GET /api/config/cron-health` showing "ok" the
+whole time. The DB-safety behavior itself (never touch the stored list on
+a failed sync) is unchanged -- this only makes an already-decided failure
+visible to the heartbeat.
+
 Run manually:
     uv run python -m scrapers.refresh_dow_list
 """
@@ -38,6 +50,7 @@ async def main() -> None:
         logger.info("Dow constituent list refreshed: %d tickers stored.", result.constituent_count)
     else:
         logger.error("Dow constituent list refresh failed, existing list left unchanged: %s", result.error)
+        raise RuntimeError(f"Dow constituent list refresh failed: {result.error}")
 
 
 if __name__ == "__main__":
