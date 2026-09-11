@@ -158,13 +158,16 @@ class Step1Out(BaseModel):
     revenue_label: str = "Revenue"
     net_income: list[float | None]
     operating_income: list[float | None]
-    # None (the whole field) when the ticker is CFO-exempt (bank / property
-    # developer / commodity company) — not a list of nulls.
+    # Real values always populate here, even for a CFO-exempt ticker (bank /
+    # property developer / commodity company) -- display is decoupled from
+    # scoring (2026-09-11). The score itself still excludes cfo entirely for
+    # an exempt ticker (see scoring/step1.py::score_step1's own `cfo_exempt`
+    # param) regardless of what's returned in this field; check
+    # `cfo_exempt_reason` (below), not `cfo is None`, to tell whether CFO
+    # was actually scored.
     cfo: list[float | None] | None = None
-    # FCF = CFO - CapEx -- exempt under the exact same conditions as CFO
-    # (derived from it, so the same "not a reliable trend signal for these
-    # business models" reasoning applies). None (the whole field) whenever
-    # cfo is None, never scored independently of CFO's exemption.
+    # FCF = CFO - CapEx -- same display/scoring decoupling as CFO above:
+    # real values always populate here, even when exempt from scoring.
     fcf: list[float | None] | None = None
     gross_margin: list[float | None]
     net_margin: list[float | None]
@@ -1320,9 +1323,11 @@ class WatchlistRowOut(BaseModel):
     # Latest watchlist_data.LATEST_YEARS_SHOWN (5) periods of Step 1's
     # years/revenue/net_income/cfo, for the table's per-row mini trend bar
     # charts -- same series Step1Out itself exposes, just windowed down.
-    # cfo is None (the whole field, not a list of nulls) for a CFO-exempt
-    # ticker (Bank/Property Developer/Commodity), same convention as
-    # Step1Out.cfo.
+    # Real values populate here even for a CFO-exempt ticker (Bank/Property
+    # Developer/Commodity) -- same display/scoring decoupling as
+    # Step1Out.cfo (2026-09-11); this row carries no `cfo_exempt_reason` of
+    # its own, so it can't distinguish "exempt" from "not exempt" anyway,
+    # only the Financials tab's Step1Out does.
     years: list[str] = []
     revenue: list[float | None] = []
     net_income: list[float | None] = []

@@ -59,23 +59,24 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
   const cfYears = fin.cash_flow.annual.periods.map(shortYearLabel);
   const bsYears = fin.balance_sheet.annual.periods.map(shortYearLabel);
 
-  // CFO/FCF stay suppressed for CFO-exempt company types (Bank/Insurance/
-  // Property Developer/Commodity Company -- see Step1Out.cfo_exempt_reason)
-  // same as before this repoint: s1.cfo/s1.fcf still read null (the whole
-  // field, not just de-weighted) for those types, even though FinancialsOut
-  // itself has no such exemption and would otherwise happily show a real
-  // CFO trend for them. The exemption is a Step1-scoring concept (CFO is
-  // noisy/de-emphasized for these business models), not a data gap -- worth
-  // continuing to hide the card rather than silently starting to show a
-  // trend the app has never surfaced for these company types before.
-  const cfoExempt = s1.cfo == null;
+  // CFO/FCF used to be suppressed for CFO-exempt company types (Bank/
+  // Insurance/Property Developer/Commodity Company -- see
+  // Step1Out.cfo_exempt_reason), since s1.cfo/s1.fcf used to read null (the
+  // whole field) for those types. Display is now decoupled from scoring
+  // (2026-09-11): real CFO/FCF data is worth showing here even when it's
+  // excluded from the Step 1 score -- FinancialsOut's own cash-flow figures
+  // were never gated on this exemption to begin with, only this repoint's
+  // read of Step1Out was. The exemption still fully applies to the score
+  // itself (see Step1Card's own "isn't scored for this company" note,
+  // driven by cfo_exempt_reason/components, untouched by this change) --
+  // just no longer to whether the card renders.
 
   // Accounts Receivable stays suppressed for company types Step 4 exempts
   // from the Revenue-vs-AR check (Bank/Insurance/Utility/REIT -- see
-  // Step4Out.revenue_vs_ar_exempt_reason) -- same "FinancialsOut has no
-  // notion of this exemption" reasoning as cfoExempt above: the raw balance
-  // sheet always has an Accounts Receivable line, but it isn't a trend
-  // worth showing for these business models.
+  // Step4Out.revenue_vs_ar_exempt_reason) -- unlike CFO/FCF above, this
+  // exemption still gates display, not just scoring (not revisited by this
+  // change -- Step 4's AR exemption was never reported as a false-positive
+  // display-suppression the way Step 1's CFO exemption was).
   const arExempt = s4.revenue_vs_ar_exempt_reason != null;
 
   const ccc2 = (v: number) => fmtDays(v, 2);
@@ -105,7 +106,7 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
       key: "cfo",
       label: "Net Operating Cash Flow",
       years: cfYears,
-      values: cfoExempt ? [] : financialsValues(fin.cash_flow.annual, "Net Cash from Operating Activities"),
+      values: financialsValues(fin.cash_flow.annual, "Net Cash from Operating Activities"),
       format: fmtTableMoney,
       tooltipFormat: fmtCompactMoney,
     },
@@ -141,7 +142,7 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
       key: "fcf",
       label: "Free Cash Flow",
       years: cfYears,
-      values: cfoExempt ? [] : financialsValues(fin.cash_flow.annual, "Free Cash Flow"),
+      values: financialsValues(fin.cash_flow.annual, "Free Cash Flow"),
       format: fmtTableMoney,
       tooltipFormat: fmtCompactMoney,
     },

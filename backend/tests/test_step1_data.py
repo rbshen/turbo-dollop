@@ -171,12 +171,17 @@ def test_bank_is_cfo_exempt(monkeypatch):
     result = asyncio.run(get_step1_data("jpm"))
 
     assert result.cfo_exempt_reason == "Bank"
-    assert result.cfo is None
+    # Display is decoupled from scoring (2026-09-11): real CFO/FCF values
+    # still populate here for the UI even though the ticker is CFO-exempt --
+    # only components["cfo"]/["fcf"] (what actually feeds the score) reads
+    # None. Same fixture data as the base (non-exempt) test above, since
+    # exemption never touches the raw cash-flow-statement parsing.
+    assert result.cfo == [50, 70, 90, 96]
     assert result.components["cfo"] is None
 
     # FCF mirrors CFO's exemption exactly -- derived from CFO, so it's not a
-    # reliable signal for Banks either.
-    assert result.fcf is None
+    # reliable signal for Banks either. Still displayed, not scored.
+    assert result.fcf == [40, 55, 70, 76]
     assert result.components["fcf"] is None
 
     # Change 1: Banks show Net Interest Income in place of Revenue, clearly
@@ -216,9 +221,11 @@ def test_insurance_is_cfo_exempt_but_keeps_revenue_label(monkeypatch):
     result = asyncio.run(get_step1_data("met"))
 
     assert result.cfo_exempt_reason == "Insurance"
-    assert result.cfo is None
+    # Display decoupled from scoring, same as Bank above -- real values
+    # still populate, only the score-facing components read None.
+    assert result.cfo == [50, 70, 90, 96]
     assert result.components["cfo"] is None
-    assert result.fcf is None
+    assert result.fcf == [40, 55, 70, 76]
     assert result.components["fcf"] is None
 
     # Unlike Bank, Insurance keeps the plain Revenue label/series -- no NII
@@ -254,6 +261,13 @@ def test_property_developer_and_commodity_company_also_keep_margins_scored(monke
         result = asyncio.run(get_step1_data("test"))
 
         assert result.cfo_exempt_reason == expected_reason
+        # Display decoupled from scoring (2026-09-11) -- real CFO/FCF still
+        # populate for these two exempt types too, not just Bank/Insurance
+        # above (this is the LIN/APD/ECL-shaped bug fix: Commodity Company's
+        # own real cash-flow numbers should render on the Financials tab
+        # even though CFO/FCF are excluded from the Step 1 score).
+        assert result.cfo == [50, 70, 90, 96]
+        assert result.fcf == [40, 55, 70, 76]
         assert result.components["cfo"] is None
         assert result.components["margins"] is not None
         assert result.weights["margins"] == pytest.approx(13 / 60, abs=1e-5)

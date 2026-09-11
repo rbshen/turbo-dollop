@@ -238,8 +238,18 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
     # are only for scoring. FCF mirrors CFO's exemption exactly (it's
     # derived from CFO, so the same "not a reliable signal for these
     # business models" reasoning applies).
-    clean_cfo = [v for v in cfo if v is not None] if not cfo_exempt else None
-    clean_fcf = [v for v in fcf if v is not None] if not cfo_exempt else None
+    #
+    # Computed unconditionally, regardless of cfo_exempt, since score_step1
+    # already short-circuits on the `cfo_exempt` flag itself (`if cfo_exempt
+    # or cfo is None: cfo_result = None; fcf_result = None`, and every other
+    # cfo_exempt-gated branch in score_step1 follows the same `cfo_exempt
+    # or ...` pattern) -- the *value* passed for cfo/fcf/fcf_cfo is never
+    # consulted once cfo_exempt is True, so pre-nulling it here bought
+    # nothing for scoring and only served to double as the frontend's
+    # "hide this card" signal (see the Step1Out.cfo/fcf docstring below --
+    # that's now handled via cfo_exempt_reason instead).
+    clean_cfo = [v for v in cfo if v is not None]
+    clean_fcf = [v for v in fcf if v is not None]
     # NOT the same filter as clean_cfo above: fcf[i] is None whenever EITHER
     # cfo[i] or capex[i] is missing, so clean_cfo's own independent
     # None-filter can drop a different set of periods than clean_fcf did --
@@ -247,7 +257,7 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
     # This filter instead walks fcf's own None-ness, guaranteeing fcf_cfo is
     # None-free and positionally aligned with clean_fcf (fcf[i] is only
     # non-None when cfo[i] is too).
-    fcf_cfo = [c for c, f in zip(cfo, fcf) if f is not None] if not cfo_exempt else None
+    fcf_cfo = [c for c, f in zip(cfo, fcf) if f is not None]
 
     result = score_step1(
         revenue=[v for v in display_revenue if v is not None],
@@ -271,8 +281,12 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
         revenue_label=revenue_label,
         net_income=net_income,
         operating_income=operating_income,
-        cfo=None if cfo_exempt else cfo,
-        fcf=None if cfo_exempt else fcf,
+        # Real values now pass through unconditionally -- display is
+        # decoupled from scoring. The score itself still excludes cfo/fcf
+        # entirely for an exempt ticker via score_step1's own `cfo_exempt`
+        # param above, independent of what's returned here for the UI.
+        cfo=cfo,
+        fcf=fcf,
         gross_margin=gross_margin,
         net_margin=net_margin,
         cfo_exempt_reason=exemption,
