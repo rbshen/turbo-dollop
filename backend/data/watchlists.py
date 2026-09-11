@@ -3,7 +3,7 @@ from datetime import datetime
 
 from sqlmodel import Session, select
 
-from core.models import Watchlist, WatchlistTicker
+from core.models import SavedScreenerFilter, Watchlist, WatchlistTicker
 from core.tickers import normalize_ticker
 
 
@@ -86,9 +86,16 @@ def delete_watchlist(session: Session, watchlist_id: int) -> bool:
     if row is None:
         return False
     # No SQLite ON DELETE CASCADE (see WatchlistTicker's docstring) -- delete
-    # child rows explicitly before the parent.
+    # child rows explicitly before the parent. Any SavedScreenerFilter that
+    # scoped itself to this watchlist (Screener's WATCHLIST universe filter)
+    # is deleted too, in the same transaction -- a saved view referencing a
+    # gone watchlist_id would otherwise be a dangling reference with no
+    # cleanup path of its own (see SavedScreenerFilter.watchlist_id's own
+    # docstring).
     for ticker_row in list_watchlist_tickers(session, watchlist_id):
         session.delete(ticker_row)
+    for saved_filter in session.exec(select(SavedScreenerFilter).where(SavedScreenerFilter.watchlist_id == watchlist_id)).all():
+        session.delete(saved_filter)
     session.delete(row)
     session.commit()
     return True

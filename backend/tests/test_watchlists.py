@@ -1,10 +1,10 @@
 import re
 from datetime import datetime
 
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
-from core.models import Watchlist, WatchlistTicker
-from data.watchlists import list_tickers_across_watchlists
+from core.models import SavedScreenerFilter, Watchlist, WatchlistTicker
+from data.watchlists import delete_watchlist, list_tickers_across_watchlists
 
 PATTERN = re.compile(r"^W[1-5]$")
 
@@ -73,3 +73,44 @@ def test_no_matching_watchlists_returns_empty_tickers_and_empty_matched_names():
 
     assert tickers == []
     assert matched == []
+
+
+def test_delete_watchlist_also_deletes_saved_screener_filters_that_reference_it():
+    engine = _fresh_engine()
+    _seed_watchlist(engine, "W1", ["AAPL"])
+    now = datetime.now()
+    with Session(engine) as session:
+        watchlist_id = session.exec(select(Watchlist).where(Watchlist.name == "W1")).one().id
+        session.add(
+            SavedScreenerFilter(
+                name="Scoped view",
+                universe="all",
+                sort_field="overall_score",
+                sort_direction="desc",
+                filters_json="{}",
+                watchlist_id=watchlist_id,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            SavedScreenerFilter(
+                name="Unscoped view",
+                universe="sp500",
+                sort_field="overall_score",
+                sort_direction="desc",
+                filters_json="{}",
+                watchlist_id=None,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        assert delete_watchlist(session, watchlist_id) is True
+
+    with Session(engine) as session:
+        remaining = session.exec(select(SavedScreenerFilter)).all()
+
+    assert [f.name for f in remaining] == ["Unscoped view"]
