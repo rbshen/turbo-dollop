@@ -34,6 +34,20 @@ def _fresh_liquidity_zone_engine(monkeypatch):
     monkeypatch.setattr(liquidity_zone_data, "engine", engine)
 
 
+def _fresh_chart_data_engine(monkeypatch):
+    # data/chart_data.py holds its own independent `engine` reference too
+    # (its historical entry-signal marker query, added alongside this
+    # comment, reads TechnicalEntrySignalEvent directly) -- same isolation
+    # rationale as the two helpers above. Every test in this file that
+    # goes through entry_signal_available=False never actually reaches
+    # this query (get_chart_data short-circuits it), but this is added
+    # proactively so a future test that DOES exercise it can't silently
+    # fall through to the real core.db.engine for a read.
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(engine)
+    monkeypatch.setattr(chart_data, "engine", engine)
+
+
 def _patch_fmp_bars(monkeypatch, n: int = 300):
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
     index = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=n)
@@ -51,6 +65,7 @@ def _patch_fmp_bars(monkeypatch, n: int = 300):
 def test_endpoint_returns_chart_for_valid_ticker(monkeypatch):
     _fresh_entry_signal_engine(monkeypatch)
     _fresh_liquidity_zone_engine(monkeypatch)
+    _fresh_chart_data_engine(monkeypatch)
     _patch_fmp_bars(monkeypatch)
 
     with TestClient(main.app) as client:
@@ -66,7 +81,7 @@ def test_endpoint_returns_chart_for_valid_ticker(monkeypatch):
     assert "ema21" in body and len(body["ema21"]) > 0
     assert "sma20" not in body
     assert body["entry_signal_available"] is False
-    assert body["entry_signal_marker"] is None
+    assert body["entry_signal_markers"] == []
     assert body["zones_available"] is False
     assert body["zones"] == []
     assert body["source"] == "fmp"
@@ -75,6 +90,7 @@ def test_endpoint_returns_chart_for_valid_ticker(monkeypatch):
 def test_endpoint_defaults_to_d_1y_range(monkeypatch):
     _fresh_entry_signal_engine(monkeypatch)
     _fresh_liquidity_zone_engine(monkeypatch)
+    _fresh_chart_data_engine(monkeypatch)
     _patch_fmp_bars(monkeypatch)
 
     with TestClient(main.app) as client:
@@ -87,6 +103,7 @@ def test_endpoint_defaults_to_d_1y_range(monkeypatch):
 def test_endpoint_accepts_d_6m_range(monkeypatch):
     _fresh_entry_signal_engine(monkeypatch)
     _fresh_liquidity_zone_engine(monkeypatch)
+    _fresh_chart_data_engine(monkeypatch)
     _patch_fmp_bars(monkeypatch)
 
     with TestClient(main.app) as client:
@@ -102,6 +119,7 @@ def test_endpoint_accepts_d_6m_range(monkeypatch):
 def test_endpoint_accepts_w_4y_range(monkeypatch):
     _fresh_entry_signal_engine(monkeypatch)
     _fresh_liquidity_zone_engine(monkeypatch)
+    _fresh_chart_data_engine(monkeypatch)
     _patch_fmp_bars(monkeypatch, n=365 * 9)
 
     with TestClient(main.app) as client:
@@ -114,6 +132,7 @@ def test_endpoint_accepts_w_4y_range(monkeypatch):
 def test_endpoint_rejects_invalid_range_value(monkeypatch):
     _fresh_entry_signal_engine(monkeypatch)
     _fresh_liquidity_zone_engine(monkeypatch)
+    _fresh_chart_data_engine(monkeypatch)
     _patch_fmp_bars(monkeypatch)
 
     with TestClient(main.app) as client:
@@ -125,6 +144,7 @@ def test_endpoint_rejects_invalid_range_value(monkeypatch):
 def test_endpoint_returns_chart_unavailable_for_a_ticker_with_no_bars(monkeypatch):
     _fresh_entry_signal_engine(monkeypatch)
     _fresh_liquidity_zone_engine(monkeypatch)
+    _fresh_chart_data_engine(monkeypatch)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
     async def fake_get_daily_bars(self, tickers, lookback_years):

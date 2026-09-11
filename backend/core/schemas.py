@@ -1176,11 +1176,18 @@ class ChartStochasticPointOut(BaseModel):
 
 
 class ChartMarkerOut(BaseModel):
-    """A single point-in-time BB+RSI entry-signal marker -- at most one,
-    never a history of every past firing (TechnicalEntrySignal only stores
-    the latest fired_at per ticker, see models.py's own comment)."""
+    """One historical BB+RSI entry-signal marker, sourced from
+    TechnicalEntrySignalEvent (see data/chart_data.py's grouping logic) --
+    ChartOut.entry_signal_markers below carries a list of these, one per
+    exchange-calendar day (daily views) or Monday-anchored week (weekly
+    view) within the visible window, not just the single latest fire.
+    `time` is always a plain "YYYY-MM-DD" date string, deliberately never a
+    raw timestamp -- fired_at is stored naive-Eastern (see
+    TechnicalEntrySignalEvent's own comment), and emitting only the
+    already-bucketed date avoids a client re-deriving "which day" from a
+    timestamp under a different, incorrect timezone assumption."""
 
-    time: str
+    time: str  # "YYYY-MM-DD"
     label: str  # "BB+RSI"
 
 
@@ -1220,12 +1227,17 @@ class ChartOut(BaseModel):
     bollinger: list[ChartBollingerPointOut]
     stochastic: list[ChartStochasticPointOut]
     rsi: list[ChartLinePointOut]
-    # None when there's no current marker to show -- either because
-    # entry_signal_available is False (not tracked at all), or because the
-    # ticker IS tracked but has no currently-active signal right now. The
-    # frontend distinguishes those two cases via entry_signal_available,
-    # not by inspecting this field alone.
-    entry_signal_marker: ChartMarkerOut | None = None
+    # Every historical fire within this response's visible window, one per
+    # exchange-calendar day (daily views) / Monday-anchored week (weekly
+    # view) -- see data/chart_data.py's grouping logic. Deliberately NOT
+    # gated on TechnicalEntrySignal's own 7-day "active" window (that gate
+    # only makes sense for "is there a live, tradeable signal right now,"
+    # not for a historical chart marker) -- an old, long-inactive fire
+    # still gets a marker if it falls in the visible range. Empty (not
+    # None) when the ticker is tracked but had no fires in this window --
+    # entry_signal_available, not this field, distinguishes "not tracked
+    # at all" from "tracked, nothing fired here."
+    entry_signal_markers: list[ChartMarkerOut] = []
     entry_signal_available: bool
     # zones_available mirrors entry_signal_available's convention: False
     # means the ticker isn't on a watchlist named W1 through W5 (or the

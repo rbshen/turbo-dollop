@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 import data.chart_data as chart_data
+from core.models import TechnicalEntrySignalEvent
 from core.schemas import LiquidityZoneOut, LiquidityZonesOut, TechnicalEntrySignalOut, ZoneOut
 
 
@@ -54,6 +55,13 @@ async def _no_entry_signal(ticker: str):
     return None
 
 
+def _events(ticker: str, fired_ats: list[datetime]) -> list[TechnicalEntrySignalEvent]:
+    return [
+        TechnicalEntrySignalEvent(ticker=ticker, signal_type="bb_rsi", timeframe="2h", fired_at=fa, stop_price=95.0, created_at=fa)
+        for fa in sorted(fired_ats)
+    ]
+
+
 def _no_zones(ticker: str):
     return None
 
@@ -91,7 +99,7 @@ def test_chart_available_false_when_fetch_returns_no_bars(monkeypatch):
     assert out.bars == []
     assert out.ema21 == out.sma50 == out.sma200 == []
     assert out.entry_signal_available is False
-    assert out.entry_signal_marker is None
+    assert out.entry_signal_markers == []
     assert out.source == "fmp"
 
 
@@ -275,10 +283,15 @@ def test_entry_signal_not_tracked(monkeypatch):
     out = asyncio.run(chart_data.get_chart_data("NOTTRACKED", "D_1Y"))
 
     assert out.entry_signal_available is False
-    assert out.entry_signal_marker is None
+    assert out.entry_signal_markers == []
 
 
-def test_entry_signal_tracked_but_not_active_has_no_marker(monkeypatch):
+def test_entry_signal_tracked_but_no_events_in_window_has_no_markers(monkeypatch):
+    # "active" (TechnicalEntrySignal's own 7-day window) no longer gates
+    # history at all -- what matters now is purely whether
+    # TechnicalEntrySignalEvent has any rows in the visible window. Here
+    # the ticker IS tracked (entry_signal_available=True) but the event
+    # table has nothing for it.
     df = _daily_df(300)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
@@ -291,39 +304,175 @@ def test_entry_signal_tracked_but_not_active_has_no_marker(monkeypatch):
     monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", fake_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    monkeypatch.setattr(chart_data, "_fetch_entry_signal_events", lambda ticker, since: [])
 
     out = asyncio.run(chart_data.get_chart_data("TRACKED", "D_1Y"))
 
     assert out.entry_signal_available is True
-    assert out.entry_signal_marker is None
+    assert out.entry_signal_markers == []
 
 
-def test_entry_signal_tracked_and_active_places_marker_on_correct_bar(monkeypatch):
+def test_entry_signal_places_a_marker_per_event_even_when_inactive(monkeypatch):
+    # A single old, long-INACTIVE fire (TechnicalEntrySignal.active would
+    # read False -- outside its own 7-day window) must still produce a
+    # historical marker: the active gate is a TechnicalEntrySignal-only
+    # concept and deliberately does not apply to entry_signal_markers.
     df = _daily_df(300)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
     async def fake_get_daily_bars(self, tickers, lookback_years):
         return {tickers[0]: df}
 
-    # A recent fired_at, landing on a real bdate in df's index (or the
-    # nearest earlier one if it lands on a weekend).
-    fired_at = (pd.Timestamp.today().normalize() - pd.Timedelta(days=2)).to_pydatetime()
+    fired_at = (pd.Timestamp.today().normalize() - pd.Timedelta(days=60)).to_pydatetime()
 
     async def fake_entry_signal(ticker):
-        return _entry_signal(active=True, fired_at=fired_at)
+        return _entry_signal(active=False, fired_at=fired_at)
 
     monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", fake_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    monkeypatch.setattr(chart_data, "_fetch_entry_signal_events", lambda ticker, since: _events(ticker, [fired_at]))
 
     out = asyncio.run(chart_data.get_chart_data("TRACKED", "D_1Y"))
 
     assert out.entry_signal_available is True
-    assert out.entry_signal_marker is not None
-    assert out.entry_signal_marker.label == "BB+RSI"
-    marker_date = datetime.strptime(out.entry_signal_marker.time, "%Y-%m-%d").date()
+    assert len(out.entry_signal_markers) == 1
+    assert out.entry_signal_markers[0].label == "BB+RSI"
+    marker_date = datetime.strptime(out.entry_signal_markers[0].time, "%Y-%m-%d").date()
     assert marker_date <= fired_at.date()
     assert (fired_at.date() - marker_date).days <= 3  # nearest trading bar on/before a weekday fired_at
+
+
+def test_entry_signal_multiple_fires_same_day_collapse_to_one_marker_keeping_first(monkeypatch):
+    # The confirmed real-world shape from the historical-backfill
+    # investigation: ~56% of firing days fire 2+ times in the same
+    # session. Three events land on the exact same calendar day here --
+    # they must collapse to ONE marker, anchored to the FIRST
+    # chronological fire, not the last.
+    df = _daily_df(300)
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: df}
+
+    day = pd.Timestamp.today().normalize() - pd.Timedelta(days=5)
+    first_fire = (day + pd.Timedelta(hours=11, minutes=30)).to_pydatetime()
+    second_fire = (day + pd.Timedelta(hours=13, minutes=30)).to_pydatetime()
+    third_fire = (day + pd.Timedelta(hours=15, minutes=30)).to_pydatetime()
+
+    async def fake_entry_signal(ticker):
+        return _entry_signal(active=True, fired_at=third_fire)
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", fake_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    monkeypatch.setattr(
+        chart_data, "_fetch_entry_signal_events", lambda ticker, since: _events(ticker, [first_fire, second_fire, third_fire])
+    )
+
+    out = asyncio.run(chart_data.get_chart_data("TRACKED", "D_1Y"))
+
+    assert len(out.entry_signal_markers) == 1  # not 3
+    marker_date = datetime.strptime(out.entry_signal_markers[0].time, "%Y-%m-%d").date()
+    assert marker_date <= first_fire.date()
+    assert (first_fire.date() - marker_date).days <= 3
+
+
+def test_entry_signal_distinct_days_each_get_their_own_marker(monkeypatch):
+    df = _daily_df(300)
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: df}
+
+    today = pd.Timestamp.today().normalize()
+    fired_1 = (today - pd.Timedelta(days=30)).to_pydatetime()
+    fired_2 = (today - pd.Timedelta(days=10)).to_pydatetime()
+
+    async def fake_entry_signal(ticker):
+        return _entry_signal(active=True, fired_at=fired_2)
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", fake_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    monkeypatch.setattr(chart_data, "_fetch_entry_signal_events", lambda ticker, since: _events(ticker, [fired_1, fired_2]))
+
+    out = asyncio.run(chart_data.get_chart_data("TRACKED", "D_1Y"))
+
+    assert len(out.entry_signal_markers) == 2
+    times = sorted(out.entry_signal_markers, key=lambda m: m.time)
+    assert times[0].time < times[1].time
+
+
+def test_entry_signal_weekly_view_collapses_same_week_fires_keeping_first(monkeypatch):
+    # Same multi-fire-per-bucket shape as the daily test above, but for
+    # the W_4Y (weekly) view -- two fires in the same Monday-anchored
+    # week must collapse to one marker on that week's bar, keeping the
+    # earlier of the two.
+    df = _daily_df(365 * 5)  # enough history for W_4Y's warm-up + 4y visible window
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: df}
+
+    # Two fires in the same calendar week (a Tuesday and a Thursday),
+    # comfortably inside the visible window.
+    monday = pd.Timestamp.today().normalize() - pd.Timedelta(days=180)
+    monday = monday - pd.Timedelta(days=monday.weekday())  # snap to that week's Monday
+    tuesday_fire = (monday + pd.Timedelta(days=1, hours=11, minutes=30)).to_pydatetime()
+    thursday_fire = (monday + pd.Timedelta(days=3, hours=13, minutes=30)).to_pydatetime()
+
+    async def fake_entry_signal(ticker):
+        return _entry_signal(active=True, fired_at=thursday_fire)
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", fake_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    monkeypatch.setattr(
+        chart_data, "_fetch_entry_signal_events", lambda ticker, since: _events(ticker, [tuesday_fire, thursday_fire])
+    )
+
+    out = asyncio.run(chart_data.get_chart_data("TRACKED", "W_4Y"))
+
+    assert out.timeframe == "weekly"
+    assert len(out.entry_signal_markers) == 1  # both fires collapse onto the same week's bar
+    marker_date = date.fromisoformat(out.entry_signal_markers[0].time)
+    assert marker_date == monday.date()  # anchored to the week's Monday, matching resample_to_weekly
+
+
+def test_entry_signal_w4y_shows_no_markers_for_the_older_two_years_not_an_error(monkeypatch):
+    # The documented, accepted asymmetry: W_4Y shows 4 years of price but
+    # TechnicalEntrySignalEvent only ever retains ~2 years (see
+    # entry_signal_data.EVENT_RETENTION_DAYS and chart_data's own module
+    # docstring). Simulates that by only returning events within the most
+    # recent ~2 years -- the older ~2 years of the visible window must
+    # simply have no markers, not raise or degrade the rest of the chart.
+    df = _daily_df(365 * 5)
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: df}
+
+    recent_fire = (pd.Timestamp.today().normalize() - pd.Timedelta(days=200)).to_pydatetime()  # well within 2y
+
+    async def fake_entry_signal(ticker):
+        return _entry_signal(active=True, fired_at=recent_fire)
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", fake_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    # Simulates the real query already having nothing older than ~2 years
+    # to return (pruned/never backfilled that far back) -- only the one
+    # recent event exists at all.
+    monkeypatch.setattr(chart_data, "_fetch_entry_signal_events", lambda ticker, since: _events(ticker, [recent_fire]))
+
+    out = asyncio.run(chart_data.get_chart_data("TRACKED", "W_4Y"))
+
+    assert out.chart_available is True  # the rest of the chart renders normally
+    assert out.timeframe == "weekly"
+    assert len(out.entry_signal_markers) == 1  # only the one recent fire -- no error, no fabricated old markers
+    marker_date = date.fromisoformat(out.entry_signal_markers[0].time)
+    assert marker_date <= recent_fire.date()
 
 
 def test_zones_not_tracked(monkeypatch):
@@ -411,7 +560,7 @@ def test_zones_absent_when_bars_empty(monkeypatch):
 
     # zones_available still reflects the real (independent) cache-only
     # read, but the zones list itself is empty -- no chart to anchor
-    # price lines onto, same convention entry_signal_marker uses here.
+    # price lines onto, same convention entry_signal_markers uses here.
     assert out.chart_available is False
     assert out.zones_available is True
     assert out.zones == []

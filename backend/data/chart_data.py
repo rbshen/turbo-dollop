@@ -19,11 +19,22 @@ decisions this module embodies:
    2y/4y nightly jobs reads as "fresh" even when this feature needs 8y of
    history), so this calls clients/yahoo_client.py directly instead, with no
    persistence at all.
+
+Known, accepted asymmetry: W_4Y shows 4 years of price (RANGE_CONFIG's own
+visible_days) but entry_signal_markers only ever has up to
+entry_signal_data.EVENT_RETENTION_DAYS (~2 years) of history behind it --
+Yahoo's own 2h-interval history limit, confirmed in the historical-backfill
+investigation, is itself ~2 years, so there is no way to have more marker
+history than that regardless of retention. The oldest ~2 years of a W_4Y
+view simply has no markers to show -- expected, not a bug, and needs no
+special-casing (_entry_signal_markers already returns an empty list for a
+window with no matching events).
 """
 
 from datetime import date, datetime
 
 import pandas as pd
+from sqlmodel import Session, select
 
 from analysis.entry_signal.indicators import BB_LENGTH, BB_STD, compute_rsi
 from analysis.trend_structure.stochastic import compute_stochastic
@@ -31,6 +42,8 @@ from analysis.trend_structure.weinstein import resample_to_weekly
 from clients.daily_price_sources import FMPDailyBarSource
 from clients.yahoo_client import yahoo_client
 from core.config import settings
+from core.db import engine
+from core.models import TechnicalEntrySignalEvent
 from core.schemas import (
     ChartBarOut,
     ChartBollingerPointOut,
@@ -165,13 +178,66 @@ def _marker_bar_time(visible_index: pd.DatetimeIndex, fired_at: datetime) -> pd.
     """The last visible bar whose date is <= fired_at's date. For a weekly
     view this naturally lands on the Monday-anchored week containing
     fired_at, since both resample_to_weekly and Yahoo's native interval="1wk"
-    bars are indexed by each week's Monday (see weinstein.py). None if
-    fired_at predates every visible bar -- shouldn't happen in practice
-    given ACTIVE_WINDOW_DAYS=7 (entry_signal_data.py), but a marker with
-    nothing to attach to is simply omitted rather than guessed at."""
+    bars are indexed by each week's Monday (see weinstein.py) -- this is
+    also, deliberately, the SAME bucketing _entry_signal_markers below
+    relies on to group multiple historical fires onto one bar: reusing one
+    function for both the daily-day and weekly-week cases keeps a marker's
+    bucket byte-identical to how the chart's own bars are bucketed, rather
+    than maintaining a second, parallel week-anchoring rule that could
+    drift from resample_to_weekly's. None if fired_at predates every
+    visible bar -- a marker with nothing to attach to is simply omitted
+    rather than guessed at (this is expected, not an error, for an old
+    fire outside the visible window -- see get_chart_data's own comment on
+    the W_4Y/event-retention asymmetry)."""
     target = pd.Timestamp(fired_at.date())
     eligible = visible_index[visible_index <= target]
     return eligible[-1] if len(eligible) > 0 else None
+
+
+def _fetch_entry_signal_events(ticker: str, since: pd.Timestamp) -> list[TechnicalEntrySignalEvent]:
+    """Every recorded historical fire for `ticker` at or after `since`
+    (the response's own visible_start, as a lower-bound optimization only
+    -- an event older than that would map to bar_time=None in
+    _entry_signal_markers below anyway and get dropped, so this doesn't
+    affect correctness, just how many rows get fetched). Ordered
+    chronologically so _entry_signal_markers' "first assignment per bucket
+    wins" logic is correct without a second sort."""
+    with Session(engine) as session:
+        stmt = (
+            select(TechnicalEntrySignalEvent)
+            .where(TechnicalEntrySignalEvent.ticker == ticker, TechnicalEntrySignalEvent.fired_at >= since)
+            .order_by(TechnicalEntrySignalEvent.fired_at)
+        )
+        return list(session.exec(stmt).all())
+
+
+def _entry_signal_markers(visible_index: pd.DatetimeIndex, events: list[TechnicalEntrySignalEvent]) -> list[ChartMarkerOut]:
+    """One marker per bar in visible_index with at least one real fire,
+    keeping the FIRST chronological fire when more than one event maps to
+    the same bar -- i.e. the same exchange-calendar day for a daily view,
+    or the same Monday-anchored week for the weekly view, per
+    _marker_bar_time's own bucketing. `events` must already be ordered
+    chronologically (see _fetch_entry_signal_events) so "skip a bucket
+    already seen" below correctly keeps the first, not an arbitrary, fire.
+
+    First (not last) is a deliberate choice, not a default: a historical
+    marker answers "when did this setup first appear," which is what a
+    viewer scanning the chart for past occurrences of this pattern wants
+    to see -- confirmed via a real 6-ticker, 2-year sample that ~56% of
+    firing days fire 2+ times in the same session (an oversold reading
+    tends to persist across consecutive 2h bars during one drawdown leg),
+    so this is a frequent, load-bearing choice, not a rare tie-break.
+    Unlike TechnicalEntrySignal's own "latest fire" semantics (last wins,
+    by design, for its own "is there a live signal right now" purpose --
+    left completely unchanged), this function serves a different
+    question, so it deliberately answers it differently."""
+    first_fire_bar: dict[pd.Timestamp, None] = {}
+    for event in events:
+        bar_time = _marker_bar_time(visible_index, event.fired_at)
+        if bar_time is None or bar_time in first_fire_bar:
+            continue
+        first_fire_bar[bar_time] = None
+    return [ChartMarkerOut(time=_fmt(bt), label="BB+RSI") for bt in sorted(first_fire_bar)]
 
 
 async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
@@ -217,7 +283,7 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
             bollinger=[],
             stochastic=[],
             rsi=[],
-            entry_signal_marker=None,
+            entry_signal_markers=[],
             entry_signal_available=entry_signal_available,
             zones=[],
             zones_available=zones_available,
@@ -247,11 +313,16 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
     mask = bars_df.index >= visible_start
     visible_index = bars_df.index[mask]
 
-    marker = None
-    if entry_signal is not None and entry_signal.active and entry_signal.fired_at is not None:
-        bar_time = _marker_bar_time(visible_index, entry_signal.fired_at)
-        if bar_time is not None:
-            marker = ChartMarkerOut(time=_fmt(bar_time), label="BB+RSI")
+    # Independent of entry_signal/entry_signal_available above -- history
+    # is sourced from TechnicalEntrySignalEvent, not TechnicalEntrySignal,
+    # and deliberately ignores entry_signal.active's 7-day window: that
+    # gate answers "is there a live signal right now," which has no
+    # bearing on whether a past fire should still show as a historical
+    # marker. A ticker that's tracked but has never fired gets an empty
+    # list here, not an omitted field -- entry_signal_available is what
+    # distinguishes "not tracked" from "tracked, nothing fired."
+    events = _fetch_entry_signal_events(ticker, visible_start) if entry_signal_available else []
+    markers = _entry_signal_markers(visible_index, events)
 
     bars = _bar_points(bars_df, mask)
 
@@ -265,7 +336,7 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
         bollinger=_bollinger_points(bb_upper, bb_basis, bb_lower, mask),
         stochastic=_stochastic_points(full_k, full_d, mask),
         rsi=_line_points(rsi_series, mask),
-        entry_signal_marker=marker,
+        entry_signal_markers=markers,
         entry_signal_available=entry_signal_available,
         zones=zones,
         zones_available=zones_available,
