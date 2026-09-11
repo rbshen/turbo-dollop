@@ -6,6 +6,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 import core.main as main
 import data.entry_signal_data as entry_signal_data
+import data.warren_signal_data as warren_signal_data
 from core.models import TechnicalEntrySignal
 
 
@@ -18,6 +19,11 @@ def _fresh_engine(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(entry_signal_data, "engine", engine)
+    # The endpoint now branches to data/warren_signal_data.py too (see
+    # signal_type=warren tests below) -- both modules must point at the
+    # same fresh engine, or a warren-signal request would silently read
+    # against the real on-disk DB.
+    monkeypatch.setattr(warren_signal_data, "engine", engine)
     return engine
 
 
@@ -118,6 +124,63 @@ def test_returns_null_for_a_ticker_never_computed(monkeypatch):
 
     with TestClient(main.app) as client:
         response = client.get("/api/tickers/ZZZZINVALID/entry-signal")
+
+    assert response.status_code == 200
+    assert response.json() is None
+
+
+def test_signal_type_warren_reads_from_the_warren_row_not_bb_rsi(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(
+            TechnicalEntrySignal(
+                ticker="AAPL",
+                signal_type="bb_rsi",
+                timeframe="2h",
+                fired_at=datetime.now(),
+                pct_b=0.02,
+                source="yahoo",
+                as_of=datetime(2026, 9, 8, 15, 30),
+                computed_at=datetime(2026, 9, 9, 3, 20),
+            )
+        )
+        session.add(
+            TechnicalEntrySignal(
+                ticker="AAPL",
+                signal_type="warren",
+                timeframe="2h",
+                fired_at=datetime(2026, 9, 8, 13, 30),
+                rsi=32.0,
+                close=210.5,
+                stop_price=195.0,
+                signal_kind="yellow_up",
+                gray_suppressed=False,
+                stop_count=1,
+                source="yahoo",
+                as_of=datetime(2026, 9, 8, 15, 30),
+                computed_at=datetime(2026, 9, 9, 3, 30),
+            )
+        )
+        session.commit()
+
+    with TestClient(main.app) as client:
+        response = client.get("/api/tickers/AAPL/entry-signal", params={"signal_type": "warren"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["signal_type"] == "warren"
+    assert body["signal_kind"] == "yellow_up"
+    assert body["active"] is True
+    assert body["gray_suppressed"] is False
+    assert body["stop_count"] == 1
+    assert body["pct_b"] is None
+
+
+def test_signal_type_warren_returns_null_when_never_computed(monkeypatch):
+    _fresh_engine(monkeypatch)
+
+    with TestClient(main.app) as client:
+        response = client.get("/api/tickers/AAPL/entry-signal", params={"signal_type": "warren"})
 
     assert response.status_code == 200
     assert response.json() is None

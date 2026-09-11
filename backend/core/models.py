@@ -214,6 +214,22 @@ class TechnicalEntrySignal(SQLModel, table=True):
     as_of: datetime
     computed_at: datetime  # when the nightly job produced this row
 
+    # The three columns below exist ONLY for signal_type="warren" rows
+    # (always NULL for "bb_rsi" -- added additively via core/db.py::
+    # _add_missing_columns, no migration script needed since this table's
+    # PK already discriminates by signal_type). See
+    # analysis/warren_signal/ and data/warren_signal_data.py. For a
+    # "warren" row, fired_at/rsi/close above describe the LATEST EVENT OF
+    # EITHER DIRECTION (buy or sell) -- not buy-only, unlike "bb_rsi"'s own
+    # fired_at -- and stop_price above is the LIVE yellowStopPrice as of
+    # the last replayed bar (analysis/warren_signal/types.py::
+    # WarrenReplayResult.live_stop_price), which can reflect an
+    # earlier-held yellow entry, not necessarily the same bar signal_kind
+    # fired on. pct_b is always NULL for "warren" (not applicable).
+    signal_kind: str | None = None  # one of analysis.warren_signal.types.SIGNAL_KINDS
+    gray_suppressed: bool | None = None  # yellowIsGray as of the last replayed bar
+    stop_count: int | None = None  # stopCount (since the last Blue trigger) as of the last replayed bar
+
 
 class TechnicalEntrySignalEvent(SQLModel, table=True):
     """Append-only history of every individual firing 2h bar, feeding the
@@ -252,6 +268,50 @@ class TechnicalEntrySignalEvent(SQLModel, table=True):
     created_at: datetime  # when this row was inserted -- auditing only, not read by any query
 
     __table_args__ = (UniqueConstraint("ticker", "signal_type", "timeframe", "fired_at", name="uq_entry_signal_event_key"),)
+
+
+class WarrenSignalEvent(SQLModel, table=True):
+    """Append-only history of every individual Warren RSI/ADX/WVF arrow
+    (see analysis/warren_signal/ and data/warren_signal_data.py) -- the
+    Warren-specific counterpart to TechnicalEntrySignalEvent above, kept as
+    its OWN table rather than reusing that one. Reason: two different
+    Warren arrows (e.g. Blue Up and Yellow Up) can fire on the exact same
+    bar (verified algebraically from the reference script's own formulas),
+    which would collide under TechnicalEntrySignalEvent's existing
+    UniqueConstraint on (ticker, signal_type, timeframe, fired_at) -- it
+    has no signal_kind column to disambiguate. core/db.py's migration
+    tooling (_add_missing_columns) is additive-column-only; it cannot
+    alter an existing UniqueConstraint, so widening that table's own
+    constraint would need a real migration this app has no tooling for. A
+    brand-new table sidesteps this entirely -- the correct constraint is
+    just part of its definition from creation.
+
+    No signal_type column (unlike TechnicalEntrySignalEvent) since this
+    table is Warren-only by construction -- the table itself is the
+    discriminator. `timeframe` is kept anyway, always "2h" today, for the
+    same future-proofing reason TechnicalEntrySignalEvent keeps it despite
+    an identical single current value.
+
+    Unlike BB+RSI's own nightly job (which only evaluates the latest day,
+    needing a separate one-time backfill script for older history -- see
+    pipeline/backfills/backfill_entry_signal_events.py), Warren's nightly
+    job always replays the FULL available history from scratch every run
+    (see analysis/warren_signal/state_machine.py's own docstring on why
+    this is safe/idempotent) -- so this table is fully populated by the
+    nightly job alone, with no separate backfill script needed."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    ticker: str = Field(index=True)
+    timeframe: str  # "2h"
+    signal_kind: str  # one of analysis.warren_signal.types.SIGNAL_KINDS
+    fired_at: datetime  # naive, Eastern-local -- same convention as TechnicalEntrySignalEvent.fired_at
+    # The LIVE yellowStopPrice as of this specific bar (see
+    # TechnicalEntrySignal.stop_price's own comment on this same nuance) --
+    # None if no yellow/gray entry had ever been held yet at this bar.
+    stop_price: float | None = None
+    created_at: datetime  # when this row was inserted -- auditing only, not read by any query
+
+    __table_args__ = (UniqueConstraint("ticker", "timeframe", "fired_at", "signal_kind", name="uq_warren_signal_event_key"),)
 
 
 class LiquidityZoneAnalysis(SQLModel, table=True):

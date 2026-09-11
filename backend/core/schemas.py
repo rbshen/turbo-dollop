@@ -1078,14 +1078,22 @@ class TechnicalEntrySignalOut(BaseModel):
     been processed yet, same "not computed yet, not a fabricated neutral
     result" convention as TrendAnalysisOut above.
 
-    `active` is derived (fired_at within the last
-    data/entry_signal_data.py::ACTIVE_WINDOW_DAYS), never the raw stored
-    value -- there is no longer a raw stored flag at all (a `fired` column
-    used to play that role; see models.py::TechnicalEntrySignal's own
-    comment on why it was replaced by fired_at instead)."""
+    `active` is derived, never the raw stored value -- there is no longer a
+    raw stored flag at all (a `fired` column used to play that role; see
+    models.py::TechnicalEntrySignal's own comment on why it was replaced by
+    fired_at instead). For signal_type="bb_rsi", derived as fired_at within
+    the last data/entry_signal_data.py::ACTIVE_WINDOW_DAYS; for
+    signal_type="warren", derived instead from signal_kind membership (see
+    data/warren_signal_data.py::is_warren_signal_active) -- no time window
+    at all, since Warren's own state machine (not a flat timer) is what
+    determines whether a signal is still "in trade."
+
+    signal_kind/gray_suppressed/stop_count are only ever populated for
+    signal_type="warren" (always None for "bb_rsi") -- see
+    models.py::TechnicalEntrySignal's own comment on these three columns."""
 
     ticker: str
-    signal_type: str  # "bb_rsi"
+    signal_type: str  # "bb_rsi" | "warren"
     timeframe: str  # "2h"
     active: bool
     fired_at: datetime | None = None
@@ -1093,6 +1101,9 @@ class TechnicalEntrySignalOut(BaseModel):
     rsi: float | None = None
     close: float | None = None
     stop_price: float | None = None
+    signal_kind: str | None = None  # "warren" only -- one of analysis.warren_signal.types.SIGNAL_KINDS
+    gray_suppressed: bool | None = None  # "warren" only
+    stop_count: int | None = None  # "warren" only
     source: str  # "yahoo" (or "fmp", once that adapter is ever wired in)
     as_of: datetime
     computed_at: datetime

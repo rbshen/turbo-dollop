@@ -109,6 +109,7 @@ from data.step5_data import get_step5_data
 from data.ticker_score import compute_ticker_score
 from data.chart_data import get_chart_data
 from data.entry_signal_data import get_entry_signal_data
+from data.warren_signal_data import get_warren_signal_data
 from data.ticker_summary import get_summary
 from data.trend_analysis_data import get_trend_analysis_data
 from data.watchlist_data import get_watchlist_rows
@@ -479,13 +480,17 @@ async def ticker_trend_analysis(ticker: str) -> TrendAnalysisOut | None:
 
 
 @app.get("/api/tickers/{ticker}/entry-signal", response_model=TechnicalEntrySignalOut | None)
-async def ticker_entry_signal(ticker: str) -> TechnicalEntrySignalOut | None:
+async def ticker_entry_signal(ticker: str, signal_type: str = "bb_rsi") -> TechnicalEntrySignalOut | None:
     # Cache-only, same as get_trend_analysis_data's degrade-to-null
     # convention -- but there's no live-fetch fallback path here at all
     # (see data/entry_signal_data.py's own docstring): this signal only
     # ever exists for tickers on a watchlist named W1 through W5,
-    # refreshed by pipeline/nightly_entry_signal_calculation.py, not on
-    # demand.
+    # refreshed by pipeline/nightly_entry_signal_calculation.py (bb_rsi) or
+    # pipeline/nightly_warren_signal_calculation.py (warren), not on
+    # demand. One endpoint, two backing reads -- matches how the DB itself
+    # discriminates by signal_type (see models.py::TechnicalEntrySignal).
+    if signal_type == "warren":
+        return await get_warren_signal_data(ticker)
     return await get_entry_signal_data(ticker)
 
 
