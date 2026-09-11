@@ -84,6 +84,8 @@ configured):
 | Nightly fundamentals fetch | `nightly_fundamentals_fetch.log` / `_cron.log` |
 | Nightly full-universe score recompute | `nightly_score_recompute.log` / `_cron.log` |
 | Nightly trend-structure calculation | `nightly_trend_calculation.log` / `_cron.log` |
+| Nightly BB+RSI entry-signal calculation | `nightly_entry_signal_calculation.log` / `_cron.log` |
+| Nightly Liquidity Zone (LP) calculation | `nightly_liquidity_zone_calculation.log` / `_cron.log` |
 | Weekly S&P 500 list refresh | `sp500_list_refresh.log` / `_cron.log` |
 | Weekly Dow list refresh | `dow_list_refresh.log` / `_cron.log` |
 | Cache pruning | `prune_cache.log` / `_cron.log` |
@@ -92,6 +94,7 @@ configured):
 | Stale-data health check | `stale_data_health_check.log` / `_cron.log` |
 | Invalid-ticker purge | `purge_invalid_tickers.log` / `_cron.log` |
 | Monthly price-target snapshot | `monthly_price_target_snapshot.log` / `_cron.log` |
+| Monthly Momentum snapshot | `monthly_momentum_snapshot.log` / `_cron.log` |
 | Daily SQLite backup | `backup_db.log` / `_cron.log` |
 
 ```bash
@@ -113,7 +116,7 @@ health monitoring" below.
 ## Maintenance scripts (`backend/pipeline/`)
 
 All of the scripts below are wired into `crontab.txt`'s weekly maintenance
-window (Sundays 1:10–1:25 AM), the daily backup at 3:30 AM, or the daily
+window (Sundays 1:10–1:30 AM), the daily backup at 3:35 AM, or the daily
 2:50 AM full-universe score recompute. Each can also be run manually with
 `uv run python -m pipeline.<name>` from `backend/`.
 
@@ -227,8 +230,8 @@ its next view.
 ### Cron job heartbeat / health monitoring
 
 Cross-cutting, not one specific script — `core/cron_health.py` wraps every
-one of the 12 jobs above (plus `nightly_score_recompute`, the weekly S&P
-500/Dow refreshes below, and `monthly_price_target_snapshot`) in a
+one of the 15 cron jobs currently in `crontab.txt` (`core/cron_health.py::
+CRON_JOB_NAMES` is the single source of truth for the current list) in a
 `cron_heartbeat("<job_name>")` context manager, added directly at each
 script's `if __name__ == "__main__":` block. It writes a `CronRunLog` row
 (`"running"` at start, `"success"`/`"failure"` at exit — one row per
@@ -241,8 +244,8 @@ incident this was built to catch.
 `GET /api/config/cron-health` computes each job's `health_status` from its
 `CronRunLog` history: `"failed"` if the most recent row failed, `"unknown"`
 if no row exists yet, `"overdue"` if no successful run falls within that
-job's expected cadence (36h for the 4 daily jobs, ~8 days for the 7
-weekly-Sunday jobs, ~35 days for the monthly one — `core/cron_health.py`'s
+job's expected cadence (36h for the 6 daily jobs, ~8 days for the 7
+weekly-Sunday jobs, ~35 days for the 2 monthly ones — `core/cron_health.py`'s
 `_EXPECTED_CADENCE_HOURS`), else `"ok"`. The frontend's `CronHealthBanner`
 (site-wide, mounted next to `FmpPausedBanner`) renders nothing while every
 job is `"ok"`, and otherwise lists every non-ok job — so day to day, seeing
@@ -250,9 +253,9 @@ no banner at all is the expected, healthy state; nobody needs to
 proactively check this endpoint or tail a log.
 
 `CRON_JOB_NAMES` in `core/cron_health.py` is the single source of truth for
-which 12 jobs exist — `tests/test_cron_wiring.py` fails loudly if
+which 15 jobs exist — `tests/test_cron_wiring.py` fails loudly if
 `crontab.txt` and this list ever drift apart, or if a listed job's script
-stops calling `cron_heartbeat(...)`, so a future 12th cron job can't ship
+stops calling `cron_heartbeat(...)`, so a future 16th cron job can't ship
 unmonitored by accident.
 
 **`CRON_HEALTH_ENABLED=false`** (`.env`, default `true`, requires a

@@ -84,8 +84,10 @@ backend/     FastAPI app, organized into packages by role (2026-08-05
                refresh_dow_list.py.
   pipeline/    Production cron/maintenance entrypoints that read/write the
                real DB: nightly_fundamentals_fetch.py,
-               nightly_trend_calculation.py,
-               monthly_price_target_snapshot.py, recompute_ticker_scores.py,
+               nightly_trend_calculation.py, nightly_entry_signal_calculation.py,
+               nightly_liquidity_zone_calculation.py,
+               monthly_price_target_snapshot.py, monthly_momentum_snapshot.py,
+               recompute_ticker_scores.py,
                audit_fixture_contamination.py, refresh.py, prune_cache.py,
                backup_db.py, rotate_logs.py, stale_data_health_check.py --
                see backend/OPS_RUNBOOK.md for what each of the latter four
@@ -134,13 +136,18 @@ Each watchlist is capped at `WATCHLIST_CAPACITY` (100 tickers,
 `backend/core/main.py`) — adding tickers past the cap is rejected with an
 explanatory error rather than silently truncating.
 
-Two watchlists have a special, hardcoded role beyond ordinary user-created
-lists: **"Main"** and **"Secondary"** are the two named watchlists the
-BB+RSI entry-signal and Liquidity Zone (LP) nightly jobs read from (see
-"Liquidity Zone (LP) detection (Technical)" below for the full mechanism).
-Both jobs compute over the deduped union of the two — a ticker on both is
-only processed once, and a ticker on neither has no row in either
-feature's table at all.
+Watchlists whose name matches `^W[1-5]$` (i.e. `"W1"` through `"W5"`) have a
+special role beyond ordinary user-created lists: the BB+RSI entry-signal
+and Liquidity Zone (LP) nightly jobs read from the deduped union of every
+matching watchlist (see "Liquidity Zone (LP) detection (Technical)" below
+for the full mechanism) — a ticker on more than one matching watchlist is
+only processed once, and a ticker on none of them has no row in either
+feature's table at all. Originally hardcoded to two watchlists literally
+named `"Main"`/`"Secondary"`, then renamed to `"W1"`/`"W2"`, then
+generalized to this `^W[1-5]$` pattern match (`data/watchlists.py::
+list_tickers_across_watchlists`) so a user can add a W3/W4/W5 watchlist
+later with no code change — see "Main/Secondary watchlist rename +
+computed_at staleness sweep" below for that history.
 
 ## Caching policy
 
@@ -306,8 +313,10 @@ handlers entirely, landing only in stderr/`<job>_cron.log` — invisible
 anywhere in the app itself (real incidents: `sp500_list_refresh`'s
 `sqlite3.IntegrityError` on 07-26/08-02, `backup_db`'s disk-full error on
 08-09). `backend/core/cron_health.py::cron_heartbeat("<job_name>")` wraps
-every one of the 12 real cron jobs' entry points (`if __name__ ==
-"__main__":`), writing a `CronRunLog` row regardless of how the job fails.
+every one of the 15 real cron jobs' entry points (`if __name__ ==
+"__main__":` — see `core/cron_health.py::CRON_JOB_NAMES`, the single
+source of truth for the current count), writing a `CronRunLog` row
+regardless of how the job fails.
 Purely additive — on failure the original exception is always re-raised
 unchanged, so existing stderr/`_cron.log` capture and exit codes are
 untouched; the heartbeat's own DB writes are independently
@@ -2451,10 +2460,11 @@ scoring or any other lens -- a second, parallel read on price structure.
   fix. A settings change only takes effect on the next nightly run, not retroactively --
   this feature has no live-recompute path the way Step 3's discount rate does.
 - **Cron: a new dedicated job, not folded into `nightly_entry_signal_calculation.py`**,
-  despite both being Main/Secondary-scoped. Every existing pipeline script already maps 1:1
-  to one feature (even the two other Main/Secondary-scoped/full-universe technical jobs are
-  already split despite similar shape); this job also needs a genuine `fmp_enabled`
-  FMP<->Yahoo branch that BB+RSI's script has no equivalent of, and separate
+  despite both being scoped to the same W1-W5 watchlist union (originally Main/Secondary --
+  see "Main/Secondary watchlist rename + computed_at staleness sweep" below). Every existing
+  pipeline script already maps 1:1 to one feature (even the two other W1-W5-scoped/
+  full-universe technical jobs are already split despite similar shape); this job also needs
+  a genuine `fmp_enabled` FMP<->Yahoo branch that BB+RSI's script has no equivalent of, and separate
   `cron_heartbeat` names keep failure attribution clean (an FMP outage affecting Liquidity
   Zones shouldn't read as a BB+RSI health failure or vice versa). Scheduled at **3:25 AM**,
   in the existing 3:20 (BB+RSI) -> 3:30 (backup_db) gap; `backup_db` was moved to **3:35
@@ -2472,11 +2482,19 @@ scoring or any other lens -- a second, parallel read on price structure.
   with zero currently-valid zones for a timeframe (sparse/early history, or price simply
   hasn't pulled back far enough to form one) shows a plain "No confirmed
   support/resistance levels yet" line while the rest of the card renders normally; a
-  ticker never computed at all (on neither "Main" nor "Secondary", or not yet processed)
+  ticker never computed at all (on none of the W1-W5 watchlists, or not yet processed)
   renders the same "Not tracked" shape `BbRsiEntrySignalCard` uses, explaining the
-  Main/Secondary-only scoping, rather than four empty sections.
+  W1-W5-only scoping, rather than four empty sections.
 
 ### Main/Secondary watchlist rename + computed_at staleness sweep (2026-09-09)
+
+**Superseded 2026-09-11 (see the "Watchlists" section above for the current behavior):**
+two further renames landed after this entry — `"Main"`/`"Secondary"` -> `"W1"`/`"W2"`
+(`fcacfc0`), then generalized to a `^W[1-5]$` pattern match, any watchlist named W1 through
+W5 (`0ef5e5b`) — so the fixed-two-name behavior this section describes is no longer current.
+`list_tickers_across_watchlists`'s own signature changed in the same generalization, from
+`names: list[str]` to `name_pattern: re.Pattern[str]`. Kept below as a historical record of
+the original mechanism and the real-DB state at the time it shipped.
 
 Both the BB+RSI entry-signal and Liquidity Zone (LP) nightly jobs were originally scoped
 to a single hardcoded watchlist literally named `"Watchlist"`. Renamed to two named lists,
