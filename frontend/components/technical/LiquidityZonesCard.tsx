@@ -1,8 +1,14 @@
+import { useLiquidityZoneConfig } from "@/lib/hooks/useLiquidityZoneConfig";
 import type { LiquidityZoneOut, LiquidityZonesOut, ZoneOut } from "@/lib/api/types";
 
 interface Props {
   data: LiquidityZonesOut | null;
 }
+
+// Matches backend's helpers/liquidity_zone_config.py::DEFAULT_NUM_ZONES --
+// used only until useLiquidityZoneConfig() resolves, so slots still render
+// sensibly on first paint.
+const DEFAULT_NUM_ZONES = 3;
 
 const DISCLAIMER =
   'Unbreached swing-low support / swing-high resistance levels, clustered by price -- only a LATER swing of the same kind invalidates an earlier one, an ordinary price move through a level does not. Computed nightly for tickers in the "W1" or "W2" watchlists only. Informational only, not a trading signal.';
@@ -37,20 +43,41 @@ function ZoneRow({ zone, tone }: { zone: ZoneOut; tone: "support" | "resistance"
   );
 }
 
-function ZoneList({ zones, tone, emptyLabel }: { zones: ZoneOut[]; tone: "support" | "resistance"; emptyLabel: string }) {
-  if (zones.length === 0) {
-    return <p className="text-xs text-text-tertiary">No confirmed {emptyLabel} levels yet.</p>;
-  }
+// A slot with no real zone in it -- mirrors ZoneRow's exact box model (same
+// flex/padding/text sizing) so its height matches a real row precisely, but
+// styled as an obviously empty placeholder (dashed, faint) rather than fully
+// invisible, so it reads as "an empty slot by design," not a stray gap.
+function BlankZoneSlot() {
+  return (
+    <li
+      className="flex items-center justify-between gap-3 rounded-md border border-dashed border-border-card/30 px-3 py-2 text-sm text-text-tertiary/30"
+      aria-hidden="true"
+    >
+      <span>&mdash;</span>
+    </li>
+  );
+}
+
+// Always renders exactly `numSlots` rows -- real zones first, then blank
+// filler slots -- so a side with fewer real zones than the configured cap
+// still occupies the same vertical space as a full side, keeping the
+// current-price divider below it at a fixed row position.
+function ZoneList({ zones, tone, numSlots }: { zones: ZoneOut[]; tone: "support" | "resistance"; numSlots: number }) {
+  const shown = zones.slice(0, numSlots);
+  const blanks = Math.max(0, numSlots - shown.length);
   return (
     <ul className="space-y-1">
-      {zones.map((z) => (
+      {shown.map((z) => (
         <ZoneRow key={`${tone}-${z.price}`} zone={z} tone={tone} />
+      ))}
+      {Array.from({ length: blanks }, (_, i) => (
+        <BlankZoneSlot key={`${tone}-blank-${i}`} />
       ))}
     </ul>
   );
 }
 
-function TimeframeSection({ label, tf }: { label: string; tf: LiquidityZoneOut }) {
+function TimeframeSection({ label, tf, numSlots }: { label: string; tf: LiquidityZoneOut; numSlots: number }) {
   return (
     <div className="space-y-3">
       <div className="flex items-baseline justify-between">
@@ -62,7 +89,7 @@ function TimeframeSection({ label, tf }: { label: string; tf: LiquidityZoneOut }
 
       <div className="space-y-1">
         <p className="text-[11px] uppercase tracking-wide text-text-tertiary">Resistance</p>
-        <ZoneList zones={tf.resistance_zones} tone="resistance" emptyLabel="resistance" />
+        <ZoneList zones={tf.resistance_zones} tone="resistance" numSlots={numSlots} />
       </div>
 
       <div className="border-t border-border-card/60 pt-1 text-center text-[11px] uppercase tracking-wide text-text-tertiary">
@@ -71,7 +98,7 @@ function TimeframeSection({ label, tf }: { label: string; tf: LiquidityZoneOut }
 
       <div className="space-y-1">
         <p className="text-[11px] uppercase tracking-wide text-text-tertiary">Support</p>
-        <ZoneList zones={tf.support_zones} tone="support" emptyLabel="support" />
+        <ZoneList zones={tf.support_zones} tone="support" numSlots={numSlots} />
       </div>
     </div>
   );
@@ -87,6 +114,14 @@ function EmptyTimeframe({ label }: { label: string }) {
 }
 
 export function LiquidityZonesCard({ data }: Props) {
+  // Independent per-timeframe caps (daily_num_zones/weekly_num_zones CAN
+  // differ -- see the settings form) -- fixed-slot alignment across the two
+  // columns below only holds when they're set to the same value. Falls back
+  // to DEFAULT_NUM_ZONES while config is still loading.
+  const { data: config } = useLiquidityZoneConfig();
+  const dailyNumSlots = config?.daily_num_zones ?? DEFAULT_NUM_ZONES;
+  const weeklyNumSlots = config?.weekly_num_zones ?? DEFAULT_NUM_ZONES;
+
   if (!data || (!data.daily && !data.weekly)) {
     return (
       <div className="space-y-4 rounded-lg border border-border-card bg-surface p-6">
@@ -112,8 +147,16 @@ export function LiquidityZonesCard({ data }: Props) {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {data.daily ? <TimeframeSection label="Daily" tf={data.daily} /> : <EmptyTimeframe label="Daily" />}
-        {data.weekly ? <TimeframeSection label="Weekly" tf={data.weekly} /> : <EmptyTimeframe label="Weekly" />}
+        {data.daily ? (
+          <TimeframeSection label="Daily" tf={data.daily} numSlots={dailyNumSlots} />
+        ) : (
+          <EmptyTimeframe label="Daily" />
+        )}
+        {data.weekly ? (
+          <TimeframeSection label="Weekly" tf={data.weekly} numSlots={weeklyNumSlots} />
+        ) : (
+          <EmptyTimeframe label="Weekly" />
+        )}
       </div>
 
       <p className="rounded-md border border-warn/40 bg-warn/10 p-3 text-xs text-warn">{DISCLAIMER}</p>
