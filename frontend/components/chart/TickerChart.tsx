@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers, LineStyle } from "lightweight-charts";
-import type { IChartApi, ISeriesApi, ISeriesMarkersPluginApi, Time } from "lightweight-charts";
+import type { IChartApi, ISeriesApi, ISeriesMarkersPluginApi, Logical, LogicalRangeChangeEventHandler, Time } from "lightweight-charts";
 import { fmtMoney } from "@/lib/format";
 import type { ChartOut } from "@/lib/api/types";
 
@@ -155,8 +155,8 @@ function makeChartOptions(rightOffset: number, height: number) {
       panes: { enableResize: false, separatorColor: CHART_THEME.border, separatorHoverColor: CHART_THEME.border },
     },
     grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-    handleScroll: false,
-    handleScale: false,
+    handleScroll: true,
+    handleScale: true,
     rightPriceScale: { borderColor: CHART_THEME.border, minimumWidth: PRICE_SCALE_MIN_WIDTH },
     // shiftVisibleRangeOnNewBar defaults to true (a "streaming chart"
     // convenience: auto-scroll to keep showing rightOffset's margin ahead
@@ -180,7 +180,50 @@ function makeChartOptions(rightOffset: number, height: number) {
     // its own); left visible so dates render once, at the true bottom of
     // however many panes actually exist, instead of only under the price
     // pane as before.
-    timeScale: { borderColor: CHART_THEME.border, timeVisible: false, rightOffset, shiftVisibleRangeOnNewBar: false },
+    //
+    // fixLeftEdge: true blocks panning past the first fetched bar --
+    // verified safe, no interaction with anything else in this file (it
+    // only nudges rightOffset to keep the first bar in view if a pan/zoom
+    // would otherwise reveal empty space to its left).
+    //
+    // fixRightEdge is deliberately NOT set here, even though it looks
+    // like the obvious mirror of fixLeftEdge. Confirmed via the library's
+    // own source AND a standalone empirical run (a real chart instance,
+    // not just reading code) that fixRightEdge:true hardcodes the
+    // right-edge bound to baseIndex+0 -- i.e. exactly the last real bar,
+    // ZERO margin -- unconditionally, regardless of the configured
+    // rightOffset above. That collapses this app's own tuned right
+    // margin (computeRightOffset/BASE_RIGHT_OFFSET) to nothing on every
+    // chart load, not just under user panning, and silently breaks
+    // extendZoneLinesToEdge below: its synthetic future points still get
+    // added, but the visible right edge stays pinned at the last real
+    // bar, so they render entirely off-screen instead of visibly
+    // extending an active LP zone line into the margin. Baking the
+    // margin into the data itself as literal whitespace points doesn't
+    // route around this either -- the same hardcoded 0 bound applies no
+    // matter how the visible range is reached. See the
+    // subscribeVisibleLogicalRangeChange handler in the mount effect
+    // below for the equivalent right-edge bound that preserves the
+    // margin instead of zeroing it.
+    timeScale: {
+      borderColor: CHART_THEME.border,
+      timeVisible: false,
+      rightOffset,
+      shiftVisibleRangeOnNewBar: false,
+      fixLeftEdge: true,
+      // Zoom bounds. maxBarSpacing caps zoom-IN so a single candle can
+      // never swallow most of the pane. minBarSpacing is a defensive
+      // floor well below any real range's natural fitContent() spacing
+      // (D_2Y, the densest range at ~504 bars, still fits comfortably
+      // above this even on a narrow viewport) -- true zoom-OUT bounding
+      // comes from fixLeftEdge plus the visible-range clamp below, which
+      // together cap the visible span at "everything the range fetched,
+      // plus the existing margin," so minBarSpacing here only guards
+      // against a one-frame flash of over-thin bars before that clamp
+      // corrects it, not the primary bound.
+      minBarSpacing: 1,
+      maxBarSpacing: 60,
+    },
     crosshair: { mode: 1 },
     height,
   };
@@ -662,6 +705,52 @@ export function TickerChart({
     chart.timeScale().fitContent();
     extendZoneLinesToEdge(chart, zoneLines, data.timeframe);
 
+    // Bounded right-edge pan/zoom -- see fixLeftEdge/fixRightEdge's own
+    // comment on the timeScale options above for why this exists instead
+    // of just setting fixRightEdge:true. The bound is read directly off
+    // the chart's OWN visible range right after fitContent()+
+    // extendZoneLinesToEdge() above (rather than recomputing
+    // computeRightOffset(data.bars.length) independently), so it's
+    // guaranteed to exactly match whatever margin is actually on screen
+    // at that moment -- including the zone-line extension's own
+    // Math.ceil() rounding -- with no risk of the two drifting apart.
+    // A pan/zoom that would push the right edge past this bound is
+    // translated (from and to shifted by the same amount), preserving
+    // the current zoom level, matching fixLeftEdge's own left-edge
+    // behavior; the subsequent left-edge check only fires if that
+    // translation would then push `from` past the first bar (i.e. the
+    // visible span itself is wider than all fetched data plus the
+    // margin), in which case the span is shrunk instead -- this is the
+    // one case fixLeftEdge can't correct on its own, since it only reacts
+    // to genuine user pan/zoom input, not to a range this handler itself
+    // just set via setVisibleLogicalRange (which bypasses fixLeftEdge's
+    // own correction pass).
+    const initialVisibleRange = chart.timeScale().getVisibleLogicalRange();
+    let handleVisibleRangeChange: LogicalRangeChangeEventHandler | null = null;
+    if (initialVisibleRange) {
+      const maxTo = initialVisibleRange.to;
+      const minFrom = initialVisibleRange.from;
+      handleVisibleRangeChange = (range) => {
+        if (!range) return;
+        let from: number = range.from;
+        let to: number = range.to;
+        let needsCorrection = false;
+        if (to > maxTo) {
+          from -= to - maxTo;
+          to = maxTo;
+          needsCorrection = true;
+        }
+        if (from < minFrom) {
+          from = minFrom;
+          needsCorrection = true;
+        }
+        if (needsCorrection) {
+          chart.timeScale().setVisibleLogicalRange({ from: from as Logical, to: to as Logical });
+        }
+      };
+      chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
+    }
+
     // Position the RSI/Stochastic overlay labels from the chart's own real,
     // post-layout pane geometry (IChartApi.paneSize(), "the plot surface which
     // excludes time and price scales") rather than the nominal height constants --
@@ -736,6 +825,7 @@ export function TickerChart({
       labelPositioningCancelled = true;
       cancelAnimationFrame(positionLabelsRafId);
       observer.disconnect();
+      if (handleVisibleRangeChange) chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
       chart.remove();
       markersApiRef.current = { bbRsi: null, warren: null };
       overlayApiRef.current = { lpSupport: [], lpResistance: [], bollinger: [], ema21: null, sma50: null, sma200: null };
