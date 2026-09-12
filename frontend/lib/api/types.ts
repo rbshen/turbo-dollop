@@ -1129,24 +1129,41 @@ export interface TrendAnalysisOut {
 // TrendAnalysisOut.
 export interface TechnicalEntrySignalOut {
   ticker: string;
-  signal_type: string; // "bb_rsi"
+  signal_type: string; // "bb_rsi" | "warren"
   timeframe: string; // "2h"
-  // Derived (fired_at within the last 7 days), not a raw stored flag --
-  // there is no raw stored flag any more (a `fired` column used to play
-  // that role). See backend's data/entry_signal_data.py::is_entry_signal_active.
+  // Derived, not a raw stored flag. For signal_type="bb_rsi": fired_at
+  // within the last 7 days (see backend's data/entry_signal_data.py::
+  // is_entry_signal_active). For signal_type="warren": whether the latest
+  // event (buy or sell, whichever is more recent) was a buy-side arrow --
+  // no time window at all (see data/warren_signal_data.py::
+  // is_warren_signal_active).
   active: boolean;
-  // Timestamp of the 2h bar where the check LAST evaluated true -- null
-  // if it never has. pct_b/rsi/close/stop_price below describe THIS bar,
-  // not "whatever the latest candle read" -- they're only non-null
-  // together with this.
+  // Timestamp of the 2h bar where the check LAST evaluated true ("bb_rsi")
+  // or the latest event of EITHER direction ("warren") -- null if it
+  // never has. pct_b/rsi/close below describe THIS bar; stop_price is the
+  // LIVE reference stop for "warren" (may reflect an earlier-held entry,
+  // not necessarily this same bar -- see signal_kind/gray_suppressed/
+  // stop_count below).
   fired_at: string | null;
-  pct_b: number | null;
+  pct_b: number | null; // "bb_rsi" only, always null for "warren"
   rsi: number | null;
   close: number | null;
-  // close - ATR(14) x ATR_MULTIPLIER on the fired_at bar -- a single
-  // computed reference level, not a live/trailing stop (there's no
-  // position being tracked). Null whenever fired_at is null.
+  // "bb_rsi": close - ATR(14) x ATR_MULTIPLIER on the fired_at bar, a
+  // single computed reference level (no open position tracked). "warren":
+  // the live yellowStopPrice as of the last nightly replay. Null whenever
+  // there's no fire ("bb_rsi") or no yellow/gray entry has ever been held
+  // yet ("warren").
   stop_price: number | null;
+  // "warren" only (always null for "bb_rsi") -- one of "blue_up"/
+  // "yellow_up"/"gray_up"/"blue_down"/"yellow_down"/"gray_down", the
+  // latest recorded event's own arrow.
+  signal_kind: string | null;
+  // "warren" only -- whether the NEXT Yellow-type trigger would currently
+  // render as Gray (2+ stop-outs since the last Blue trigger).
+  gray_suppressed: boolean | null;
+  // "warren" only -- how many stop-outs have occurred since the last Blue
+  // trigger (the count gray_suppressed is thresholded on).
+  stop_count: number | null;
   source: string; // "yahoo" (or "fmp", once that adapter is ever wired in)
   // Timestamp of the last candle actually evaluated, fired or not --
   // updates every nightly run regardless of outcome, so this can
@@ -1215,7 +1232,11 @@ export interface ChartStochasticPointOut {
 
 export interface ChartMarkerOut {
   time: string;
-  label: string; // "BB+RSI"
+  label: string; // "BB+RSI" | "Blue Up" | "Yellow Up" | "Gray Up" | "Blue Down" | "Yellow Down" | "Gray Down"
+  // Drives marker styling (color/shape/position) -- "bb_rsi" for every
+  // BB+RSI marker, or one of "blue_up"/"yellow_up"/"gray_up"/"blue_down"/
+  // "yellow_down"/"gray_down" for a Warren marker.
+  kind: string;
 }
 
 export interface ChartZoneOut {
@@ -1245,6 +1266,11 @@ export interface ChartOut {
   // tracked at all" from "tracked, nothing fired here".
   entry_signal_markers: ChartMarkerOut[];
   entry_signal_available: boolean;
+  // Warren's own marker pair, parallel to entry_signal_markers/
+  // entry_signal_available above rather than merged into it -- a separate,
+  // independent signal with its own tracked/not-tracked state.
+  warren_signal_markers: ChartMarkerOut[];
+  warren_signal_available: boolean;
   // zones_available mirrors entry_signal_available's convention -- false
   // means not tracked (not on a watchlist named W1 through W5, or the
   // nightly LP job hasn't reached it yet), not "genuinely zero zones".

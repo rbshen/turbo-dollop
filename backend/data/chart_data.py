@@ -43,7 +43,7 @@ from clients.daily_price_sources import FMPDailyBarSource
 from clients.yahoo_client import yahoo_client
 from core.config import settings
 from core.db import engine
-from core.models import TechnicalEntrySignalEvent
+from core.models import TechnicalEntrySignalEvent, WarrenSignalEvent
 from core.schemas import (
     ChartBarOut,
     ChartBollingerPointOut,
@@ -57,6 +57,19 @@ from core.schemas import (
 from core.tickers import normalize_ticker
 from data.entry_signal_data import get_entry_signal_data
 from data.liquidity_zone_data import get_liquidity_zone_data
+from data.warren_signal_data import get_warren_signal_data
+
+# Human-readable label per Warren signal_kind -- everything else about a
+# marker (color/shape/position) is a frontend styling decision keyed off
+# `kind` itself, not this label.
+_WARREN_KIND_LABELS = {
+    "blue_up": "Blue Up",
+    "yellow_up": "Yellow Up",
+    "gray_up": "Gray Up",
+    "blue_down": "Blue Down",
+    "yellow_down": "Yellow Down",
+    "gray_down": "Gray Down",
+}
 
 _EMPTY_OHLCV_COLUMNS = ["open", "high", "low", "close", "volume"]
 
@@ -237,7 +250,38 @@ def _entry_signal_markers(visible_index: pd.DatetimeIndex, events: list[Technica
         if bar_time is None or bar_time in first_fire_bar:
             continue
         first_fire_bar[bar_time] = None
-    return [ChartMarkerOut(time=_fmt(bt), label="BB+RSI") for bt in sorted(first_fire_bar)]
+    return [ChartMarkerOut(time=_fmt(bt), label="BB+RSI", kind="bb_rsi") for bt in sorted(first_fire_bar)]
+
+
+def _fetch_warren_signal_events(ticker: str, since: pd.Timestamp) -> list[WarrenSignalEvent]:
+    """Warren's own counterpart to _fetch_entry_signal_events above --
+    same lower-bound-only `since` optimization, same chronological
+    ordering."""
+    with Session(engine) as session:
+        stmt = select(WarrenSignalEvent).where(WarrenSignalEvent.ticker == ticker, WarrenSignalEvent.fired_at >= since).order_by(WarrenSignalEvent.fired_at)
+        return list(session.exec(stmt).all())
+
+
+def _warren_signal_markers(visible_index: pd.DatetimeIndex, events: list[WarrenSignalEvent]) -> list[ChartMarkerOut]:
+    """Same first-fire-per-bucket tie-break as _entry_signal_markers above,
+    but grouped by (bucket, signal_kind) rather than bucket alone -- two
+    DIFFERENT arrows (e.g. a Blue Up and a Yellow Up) can genuinely fire on
+    the same bar (see models.py::WarrenSignalEvent's own comment) and must
+    both render as distinct markers, while multiple fires of the SAME kind
+    in one bucket still collapse to the first."""
+    first_fire_bar: dict[tuple[pd.Timestamp, str], None] = {}
+    for event in events:
+        bar_time = _marker_bar_time(visible_index, event.fired_at)
+        if bar_time is None:
+            continue
+        key = (bar_time, event.signal_kind)
+        if key in first_fire_bar:
+            continue
+        first_fire_bar[key] = None
+    return [
+        ChartMarkerOut(time=_fmt(bt), label=_WARREN_KIND_LABELS[kind], kind=kind)
+        for bt, kind in sorted(first_fire_bar, key=lambda k: (k[0], k[1]))
+    ]
 
 
 async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
@@ -251,6 +295,11 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
     # regardless of whether bars_df came back empty.
     entry_signal = await get_entry_signal_data(ticker)
     entry_signal_available = entry_signal is not None
+
+    # Warren's own counterpart -- same cache-only, degrade-to-null
+    # convention, independent of everything else in this function.
+    warren_signal = await get_warren_signal_data(ticker)
+    warren_signal_available = warren_signal is not None
 
     # Also independent of the bar fetch -- another plain cache-only read
     # (see data/liquidity_zone_data.py), scoped to the same W1-W5
@@ -285,6 +334,8 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
             rsi=[],
             entry_signal_markers=[],
             entry_signal_available=entry_signal_available,
+            warren_signal_markers=[],
+            warren_signal_available=warren_signal_available,
             zones=[],
             zones_available=zones_available,
             source=source,
@@ -324,6 +375,12 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
     events = _fetch_entry_signal_events(ticker, visible_start) if entry_signal_available else []
     markers = _entry_signal_markers(visible_index, events)
 
+    # Warren's own history fetch/marker-grouping, independent of BB+RSI's
+    # above -- see _warren_signal_markers' own docstring for why it groups
+    # by (bucket, signal_kind) rather than bucket alone.
+    warren_events = _fetch_warren_signal_events(ticker, visible_start) if warren_signal_available else []
+    warren_markers = _warren_signal_markers(visible_index, warren_events)
+
     bars = _bar_points(bars_df, mask)
 
     return ChartOut(
@@ -338,6 +395,8 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
         rsi=_line_points(rsi_series, mask),
         entry_signal_markers=markers,
         entry_signal_available=entry_signal_available,
+        warren_signal_markers=warren_markers,
+        warren_signal_available=warren_signal_available,
         zones=zones,
         zones_available=zones_available,
         source=source,

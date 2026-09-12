@@ -45,6 +45,25 @@ const COLORS = {
   // superseded by this request.
   lpSupport: "#10b981",
   lpResistance: "#ef4444",
+  // Warren RSI/ADX/WVF's own Blue/Yellow/Gray convention, per the
+  // reference script -- distinct from BB+RSI's plain green `marker`
+  // above, and reused identically for both the Up (buy) and Down (sell)
+  // variant of each color (position/shape alone distinguishes direction).
+  warrenBlue: "#3179F5", // same blue already used for ema21
+  warrenYellow: "#f59e0b",
+  warrenGray: "#a1a1aa",
+};
+
+// One entry per Warren signal_kind (see ChartMarkerOut.kind) -- color by
+// Blue/Yellow/Gray, shape/position by Up (buy, below the bar) vs. Down
+// (sell, above the bar).
+const WARREN_MARKER_STYLE: Record<string, { color: string; shape: "arrowUp" | "arrowDown"; position: "belowBar" | "aboveBar" }> = {
+  blue_up: { color: COLORS.warrenBlue, shape: "arrowUp", position: "belowBar" },
+  yellow_up: { color: COLORS.warrenYellow, shape: "arrowUp", position: "belowBar" },
+  gray_up: { color: COLORS.warrenGray, shape: "arrowUp", position: "belowBar" },
+  blue_down: { color: COLORS.warrenBlue, shape: "arrowDown", position: "aboveBar" },
+  yellow_down: { color: COLORS.warrenYellow, shape: "arrowDown", position: "aboveBar" },
+  gray_down: { color: COLORS.warrenGray, shape: "arrowDown", position: "aboveBar" },
 };
 
 const RSI_OVERBOUGHT = 70;
@@ -223,6 +242,26 @@ function renderMain(chart: IChartApi, data: ChartOut) {
         text: marker.label,
         size: 1,
       }))
+    );
+  }
+
+  if (data.warren_signal_markers.length > 0) {
+    // A second, independent markers primitive on the same candle series --
+    // distinct from BB+RSI's plain green arrow above, styled per
+    // WARREN_MARKER_STYLE's Blue/Yellow/Gray x Up/Down convention.
+    createSeriesMarkers(
+      candle as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+      data.warren_signal_markers.map((marker) => {
+        const style = WARREN_MARKER_STYLE[marker.kind] ?? WARREN_MARKER_STYLE.gray_up;
+        return {
+          time: marker.time,
+          position: style.position,
+          color: style.color,
+          shape: style.shape,
+          text: marker.label,
+          size: 1,
+        };
+      })
     );
   }
 

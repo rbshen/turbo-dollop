@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 import data.chart_data as chart_data
-from core.models import TechnicalEntrySignalEvent
+from core.models import TechnicalEntrySignalEvent, WarrenSignalEvent
 from core.schemas import LiquidityZoneOut, LiquidityZonesOut, TechnicalEntrySignalOut, ZoneOut
 
 
@@ -59,6 +59,52 @@ def _events(ticker: str, fired_ats: list[datetime]) -> list[TechnicalEntrySignal
     return [
         TechnicalEntrySignalEvent(ticker=ticker, signal_type="bb_rsi", timeframe="2h", fired_at=fa, stop_price=95.0, created_at=fa)
         for fa in sorted(fired_ats)
+    ]
+
+
+def _warren_signal(*, active: bool, fired_at: datetime | None, signal_kind: str | None) -> TechnicalEntrySignalOut:
+    now = datetime.now()
+    return TechnicalEntrySignalOut(
+        ticker="TEST",
+        signal_type="warren",
+        timeframe="2h",
+        active=active,
+        fired_at=fired_at,
+        rsi=25.0,
+        close=101.5,
+        stop_price=98.0,
+        signal_kind=signal_kind,
+        gray_suppressed=False,
+        stop_count=0,
+        source="yahoo",
+        as_of=now,
+        computed_at=now,
+    )
+
+
+async def _no_warren_signal(ticker: str):
+    return None
+
+
+@pytest.fixture(autouse=True)
+def _default_no_warren_signal(monkeypatch):
+    # Every test in this file must patch get_warren_signal_data to SOME
+    # value -- chart_data.get_chart_data now calls it unconditionally, and
+    # without a default stub these otherwise-unrelated tests would silently
+    # read against the real, on-disk core.db.engine instead of a fixture
+    # value (a real fixed/fake ticker like "TEST"/"BADTICKER" would read
+    # back None either way, but this app's own test-isolation convention --
+    # see CLAUDE.md's fixture-contamination section -- is to never leave a
+    # module's DB-backed function unpatched in a test, reads included).
+    # Tests exercising Warren's own marker behavior override this via their
+    # own monkeypatch.setattr call, which takes precedence.
+    monkeypatch.setattr(chart_data, "get_warren_signal_data", _no_warren_signal)
+
+
+def _warren_events(ticker: str, fired_ats_and_kinds: list[tuple[datetime, str]]) -> list[WarrenSignalEvent]:
+    return [
+        WarrenSignalEvent(ticker=ticker, timeframe="2h", signal_kind=kind, fired_at=fa, stop_price=95.0, created_at=fa)
+        for fa, kind in sorted(fired_ats_and_kinds, key=lambda x: x[0])
     ]
 
 
@@ -473,6 +519,120 @@ def test_entry_signal_w4y_shows_no_markers_for_the_older_two_years_not_an_error(
     assert len(out.entry_signal_markers) == 1  # only the one recent fire -- no error, no fabricated old markers
     marker_date = date.fromisoformat(out.entry_signal_markers[0].time)
     assert marker_date <= recent_fire.date()
+
+
+def test_warren_signal_not_tracked(monkeypatch):
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: _daily_df(300)}
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    # get_warren_signal_data stays the module's default (_no_warren_signal)
+    # via the autouse fixture -- not overridden here.
+
+    out = asyncio.run(chart_data.get_chart_data("UNTRACKED", "D_1Y"))
+
+    assert out.warren_signal_available is False
+    assert out.warren_signal_markers == []
+
+
+def test_warren_signal_places_a_marker_per_event_with_its_own_kind_and_label(monkeypatch):
+    df = _daily_df(300)
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: df}
+
+    fired_at = (pd.Timestamp.today().normalize() - pd.Timedelta(days=60)).to_pydatetime()
+
+    async def fake_warren_signal(ticker):
+        return _warren_signal(active=False, fired_at=fired_at, signal_kind="gray_up")
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    monkeypatch.setattr(chart_data, "get_warren_signal_data", fake_warren_signal)
+    monkeypatch.setattr(chart_data, "_fetch_warren_signal_events", lambda ticker, since: _warren_events(ticker, [(fired_at, "gray_up")]))
+
+    out = asyncio.run(chart_data.get_chart_data("TRACKED", "D_1Y"))
+
+    assert out.warren_signal_available is True
+    assert len(out.warren_signal_markers) == 1
+    marker = out.warren_signal_markers[0]
+    assert marker.kind == "gray_up"
+    assert marker.label == "Gray Up"
+    # BB+RSI's own markers are untouched by any of this -- confirms the
+    # two marker streams are genuinely independent, not accidentally merged.
+    assert out.entry_signal_markers == []
+
+
+def test_warren_signal_two_different_kinds_on_the_same_bar_both_render(monkeypatch):
+    # The exact scenario that ruled out reusing TechnicalEntrySignalEvent's
+    # UniqueConstraint for Warren's own history table -- see
+    # models.py::WarrenSignalEvent's own comment. Confirms the Chart tab
+    # marker layer preserves both, rather than collapsing them the way two
+    # SAME-kind fires on one bucket correctly do.
+    df = _daily_df(300)
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: df}
+
+    day = pd.Timestamp.today().normalize() - pd.Timedelta(days=5)
+    same_bar = (day + pd.Timedelta(hours=11, minutes=30)).to_pydatetime()
+
+    async def fake_warren_signal(ticker):
+        return _warren_signal(active=True, fired_at=same_bar, signal_kind="blue_up")
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    monkeypatch.setattr(chart_data, "get_warren_signal_data", fake_warren_signal)
+    monkeypatch.setattr(
+        chart_data,
+        "_fetch_warren_signal_events",
+        lambda ticker, since: _warren_events(ticker, [(same_bar, "blue_up"), (same_bar, "yellow_up")]),
+    )
+
+    out = asyncio.run(chart_data.get_chart_data("TRACKED", "D_1Y"))
+
+    assert len(out.warren_signal_markers) == 2
+    assert {m.kind for m in out.warren_signal_markers} == {"blue_up", "yellow_up"}
+    assert all(m.time == out.warren_signal_markers[0].time for m in out.warren_signal_markers)
+
+
+def test_warren_signal_multiple_fires_of_the_same_kind_same_day_collapse_to_one(monkeypatch):
+    df = _daily_df(300)
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: df}
+
+    day = pd.Timestamp.today().normalize() - pd.Timedelta(days=5)
+    first_fire = (day + pd.Timedelta(hours=11, minutes=30)).to_pydatetime()
+    second_fire = (day + pd.Timedelta(hours=13, minutes=30)).to_pydatetime()
+
+    async def fake_warren_signal(ticker):
+        return _warren_signal(active=True, fired_at=second_fire, signal_kind="yellow_up")
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    monkeypatch.setattr(chart_data, "get_warren_signal_data", fake_warren_signal)
+    monkeypatch.setattr(
+        chart_data,
+        "_fetch_warren_signal_events",
+        lambda ticker, since: _warren_events(ticker, [(first_fire, "yellow_up"), (second_fire, "yellow_up")]),
+    )
+
+    out = asyncio.run(chart_data.get_chart_data("TRACKED", "D_1Y"))
+
+    assert len(out.warren_signal_markers) == 1  # not 2 -- same kind, same bucket
+    marker_date = datetime.strptime(out.warren_signal_markers[0].time, "%Y-%m-%d").date()
+    assert marker_date <= first_fire.date()
 
 
 def test_zones_not_tracked(monkeypatch):

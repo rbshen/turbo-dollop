@@ -1187,19 +1187,28 @@ class ChartStochasticPointOut(BaseModel):
 
 
 class ChartMarkerOut(BaseModel):
-    """One historical BB+RSI entry-signal marker, sourced from
-    TechnicalEntrySignalEvent (see data/chart_data.py's grouping logic) --
-    ChartOut.entry_signal_markers below carries a list of these, one per
-    exchange-calendar day (daily views) or Monday-anchored week (weekly
-    view) within the visible window, not just the single latest fire.
-    `time` is always a plain "YYYY-MM-DD" date string, deliberately never a
-    raw timestamp -- fired_at is stored naive-Eastern (see
-    TechnicalEntrySignalEvent's own comment), and emitting only the
-    already-bucketed date avoids a client re-deriving "which day" from a
-    timestamp under a different, incorrect timezone assumption."""
+    """One historical entry-signal marker -- either BB+RSI (sourced from
+    TechnicalEntrySignalEvent) or Warren (sourced from WarrenSignalEvent),
+    see data/chart_data.py's grouping logic for both. ChartOut.
+    entry_signal_markers / warren_signal_markers below each carry a list of
+    these, one per exchange-calendar day (daily views) or Monday-anchored
+    week (weekly view) within the visible window -- for Warren, grouped by
+    (bucket, kind) rather than bucket alone, so two different arrows firing
+    in the same visible bar (e.g. Blue Up and Yellow Up) both render as
+    distinct markers. `time` is always a plain "YYYY-MM-DD" date string,
+    deliberately never a raw timestamp -- fired_at is stored naive-Eastern,
+    and emitting only the already-bucketed date avoids a client re-deriving
+    "which day" from a timestamp under a different, incorrect timezone
+    assumption.
+
+    `kind` drives frontend marker styling (color/shape/position) --
+    `"bb_rsi"` for every BB+RSI marker, or one of
+    analysis.warren_signal.types.SIGNAL_KINDS for a Warren marker. `label`
+    stays human-readable text ("BB+RSI", "Blue Up", "Yellow Down", ...)."""
 
     time: str  # "YYYY-MM-DD"
-    label: str  # "BB+RSI"
+    label: str  # "BB+RSI" | "Blue Up" | "Yellow Up" | "Gray Up" | "Blue Down" | "Yellow Down" | "Gray Down"
+    kind: str  # "bb_rsi" | one of analysis.warren_signal.types.SIGNAL_KINDS
 
 
 class ChartZoneOut(BaseModel):
@@ -1250,6 +1259,17 @@ class ChartOut(BaseModel):
     # at all" from "tracked, nothing fired here."
     entry_signal_markers: list[ChartMarkerOut] = []
     entry_signal_available: bool
+    # Warren's own marker pair, parallel to entry_signal_markers/
+    # entry_signal_available above rather than merged into it -- keeps
+    # BB+RSI's own wire shape/semantics untouched (same "add a new pair
+    # alongside the old one" convention zones/zones_available below already
+    # established for Liquidity Zones). warren_signal_available=False means
+    # "not tracked" (not on a W1-W5 watchlist, or not yet processed), same
+    # as entry_signal_available's own convention -- an empty
+    # warren_signal_markers with warren_signal_available=True means
+    # "tracked, nothing fired in this window."
+    warren_signal_markers: list[ChartMarkerOut] = []
+    warren_signal_available: bool
     # zones_available mirrors entry_signal_available's convention: False
     # means the ticker isn't on a watchlist named W1 through W5 (or the
     # nightly LP job hasn't reached it yet), not "genuinely zero zones" --
