@@ -97,14 +97,25 @@ function computeRightOffset(barCount: number): number {
 
 // Shared minimum price-scale (y-axis) width across all three stacked panes (price, RSI,
 // Stochastic), so their axis columns render flush/aligned instead of each auto-sizing to
-// its own widest label ("231.00" vs "60.39" vs "75.15"). lightweight-charts'
+// its own widest label ("1188.33" vs "70.00" vs "80.00"). lightweight-charts'
 // PriceScaleOptions.minimumWidth exists specifically for this "vertical stack of charts"
 // case -- it only raises the floor, so a pane never renders narrower than this, but can
-// still exceed it if it genuinely needs more space. Sized generously for the tracked
-// universe's highest realistic prices (e.g. NVR/AZO trade in the thousands; nothing in
-// the tens of thousands) at this chart's 11px monospace font, plus lightweight-charts'
-// own axis padding.
-const PRICE_SCALE_MIN_WIDTH = 70;
+// still exceed it if it genuinely needs more space (confirmed via
+// lightweight-charts.development.mjs: each chart's real width is
+// max(paneWidget.optimalWidth(), minimumWidth), only THEN rounded up to an even number --
+// so if one pane's own optimalWidth() exceeds minimumWidth, that pane alone renders wider
+// than the others, which is exactly what a too-tight minimumWidth (70, this constant's
+// first-pass value) produced: the price pane's own last-value/LP-zone boxes
+// (lastValueVisible: true, unlike RSI/Stochastic's `false`) plus its longer 4-digit-dollar
+// tick labels pushed its optimalWidth() just over 70, while RSI/Stochastic's shorter
+// "70.00"/"80.00"-style labels stayed under it and clamped to exactly 70 -- a real few-px
+// width mismatch, visible as the RSI/Stochastic crosshair landing slightly right of the
+// price pane's for the same date). optimalWidth()'s own formula is
+// borderSize(1) + tickLength(5) + paddingInner + paddingOuter + labelOffset(5) (~20px
+// overhead at this 11px font) plus the widest label's text width -- 100 leaves real
+// headroom above that even for a future 5-digit-dollar ticker, so minimumWidth reliably
+// dominates on every pane rather than sitting at another close boundary.
+const PRICE_SCALE_MIN_WIDTH = 100;
 
 interface OhlcState {
   o: number;
