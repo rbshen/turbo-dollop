@@ -69,19 +69,25 @@
 # pipeline/nightly_liquidity_zone_calculation.py.
 25 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_liquidity_zone_calculation >> /home/shen/fathom/backend/logs/nightly_liquidity_zone_calculation_cron.log 2>&1
 
-# Nightly Warren RSI/ADX/WVF (2h) technical entry-signal calculation, 3:30
-# AM server time -- the existing gap between Liquidity Zone (3:25) and
-# backup_db (3:35), fits comfortably without needing to push backup_db
-# later again: unlike Liquidity Zone's added-later FMP cold-cache risk,
-# this job is Yahoo-only (same as BB+RSI) and measured at ~15-30s
-# worst-case even at full W1-W5 capacity (see CLAUDE.md's Warren signal
-# section for the actual benchmark). Scoped to the same W1-W5 watchlist
-# union as BB+RSI/Liquidity Zone, but fetches a full 2-year lookback and
-# replays the whole state machine from scratch every run (unlike BB+RSI's
-# 60-day/latest-day-only shape) -- a genuinely different computation shape
-# from the two jobs around it, hence its own dedicated script rather than
-# folding into either. See pipeline/nightly_warren_signal_calculation.py.
-30 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_warren_signal_calculation >> /home/shen/fathom/backend/logs/nightly_warren_signal_calculation_cron.log 2>&1
+# Nightly Warren RSI/ADX/WVF (2h) technical entry-signal calculation, 3:40
+# AM server time -- placed AFTER Liquidity Zone's own full 3:25-3:35
+# window (not squeezed into the gap before it), with its own dedicated
+# ~15-minute allocation ending by 3:55, when backup_db (below) now runs.
+# CORRECTED 2026-09-12 from an original 3:30 placement with a claimed
+# "~15-30s worst-case" cost, based on a flawed pre-shipping benchmark that
+# only measured the state-machine replay itself and never exercised
+# build_2h_session_candles' real per-ticker resample cost over a full
+# 2-year history (see CLAUDE.md's Warren signal section and this script's
+# own module docstring for the full story). A REAL run against the live
+# 98-ticker W1-W5 union measured 98.9s total; the theoretical worst case
+# (500 tickers, 100/list x 5 lists) extrapolates to roughly 9 minutes.
+# Scoped to the same W1-W5 watchlist union as BB+RSI/Liquidity Zone, but
+# fetches a full 2-year lookback and replays the whole state machine from
+# scratch every run (unlike BB+RSI's 60-day/latest-day-only shape) -- a
+# genuinely different computation shape from the two jobs before it, hence
+# its own dedicated script rather than folding into either. See
+# pipeline/nightly_warren_signal_calculation.py.
+40 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_warren_signal_calculation >> /home/shen/fathom/backend/logs/nightly_warren_signal_calculation_cron.log 2>&1
 
 # Weekly S&P 500 constituent list refresh (Wikipedia scrape), Sundays at
 # 1:00 AM server time -- runs before the nightly fetch above so a freshly
@@ -155,10 +161,11 @@
 # on every other day in this window. See pipeline/monthly_momentum_snapshot.py.
 5 3 1-5 * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.monthly_momentum_snapshot >> /home/shen/fathom/backend/logs/monthly_momentum_snapshot_cron.log 2>&1
 
-# Daily SQLite backup, 3:35 AM server time (moved from 3:30 when the
-# Liquidity Zone job above was added, to keep a full 10-minute buffer
-# ahead of it) -- after the 2 AM nightly fetch, with a comfortable margin
-# even for a cold-cache run. Compressed, timestamped copy of fathom.db to
-# backend/backups/ (gitignored); keeps the last 14 (two weeks). See
-# pipeline/backup_db.py.
-35 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.backup_db >> /home/shen/fathom/backend/logs/backup_db_cron.log 2>&1
+# Daily SQLite backup, 3:55 AM server time (moved from 3:30 -> 3:35 when
+# the Liquidity Zone job was added, then 3:35 -> 3:55 when Warren's own
+# job was corrected to a realistic ~15-minute window starting 3:40 -- see
+# that job's own crontab comment for why) -- after the 2 AM nightly fetch,
+# with a comfortable margin even for a cold-cache run. Compressed,
+# timestamped copy of fathom.db to backend/backups/ (gitignored); keeps
+# the last 14 (two weeks). See pipeline/backup_db.py.
+55 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.backup_db >> /home/shen/fathom/backend/logs/backup_db_cron.log 2>&1

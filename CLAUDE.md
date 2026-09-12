@@ -2570,14 +2570,27 @@ all in scope -- not an entry-only subset.
   `pipeline/backfills/backfill_entry_signal_events.py` to populate older history once), while
   Warren's nightly job already replays everything every night, so its very first run already
   backfills all available history.
-- **Measured, not assumed, before shipping.** A synthetic full-universe-scale benchmark
-  (indicators via Wilder-smoothed rolling passes + the sequential per-bar loop, ~2016 bars/
-  ticker matching ~2 years of 2h candles) measured **2.3s at today's real W1-W5 union size (98
-  tickers), 11.7s at the theoretical worst case (500, 100/list x 5 lists)** -- compute only.
-  Combined with the ~15s batch Yahoo fetch for the same 2-year window (already measured
-  separately by the BB+RSI historical-backfill investigation), total nightly cost lands around
-  15-30s even worst-case -- not meaningfully expensive, so no incremental-state-persistence
-  complexity was built to work around a cost that doesn't exist.
+- **Measured, not assumed -- but the FIRST measurement was itself wrong, and only a real run
+  caught it (2026-09-12).** The original pre-shipping benchmark was synthetic: it fed
+  `replay()` ALREADY-BUILT 2h candles directly, timing only the indicators + sequential
+  state-machine loop (**2.3s at 98 tickers, 11.7s at the 500-ticker worst case**) and combined
+  that with a separately-measured ~15s batch-fetch figure to conclude a comfortable ~15-30s
+  worst-case total -- comfortably fits a 5-minute cron slot. That number was real for what it
+  measured, but it never exercised `build_2h_session_candles`' own per-day resample loop over
+  the FULL 2-year history this job actually feeds it (the synthetic benchmark's candles were
+  already 2h-resampled) -- and that resample step, not the replay itself, turns out to
+  dominate real per-ticker cost. A real run against the live 98-ticker W1-W5 union measured
+  **98.9s total** (resample ~0.9-1.0s/ticker, replay itself still only ~30-40ms/ticker,
+  confirming the synthetic replay-only number was accurate for what it covered) --
+  extrapolating to roughly **9 minutes** at the 500-ticker worst case, genuinely at the edge
+  of a 5-minute slot. Fixed by rescheduling (see the Cron entry below), not by touching the
+  shared, already-tested `build_2h_session_candles` itself -- optimizing a function BB+RSI
+  also depends on wasn't worth the regression risk for a cost that a wider cron window already
+  fully absorbs. Recorded here as a real process lesson: a synthetic benchmark that bypasses a
+  real pipeline STAGE (resampling) rather than just synthesizing its INPUT data (bar values)
+  can look conclusive while missing the actual bottleneck -- the fix, going forward, is to
+  benchmark through the same entry point the real nightly job calls, not a lower-level
+  function that happens to be convenient to call directly.
 - **RSI is deliberately re-implemented, not reused from BB+RSI's own `compute_rsi`.**
   `analysis/entry_signal/indicators.py::compute_rsi` is EWM-seeded (pandas' `ewm` default,
   seeded from the first observation) -- a real, working RSI, just not the one Pine's built-in
@@ -2646,14 +2659,19 @@ all in scope -- not an entry-only subset.
   `gray_up`) -- i.e., no sell arrow has fired since. Unlike BB+RSI's
   `is_entry_signal_active`, this never "expires" on its own; it only changes when a newer
   event of either direction is recorded.
-- **Cron: a new dedicated job, `pipeline.nightly_warren_signal_calculation`**, scheduled 3:30
-  AM -- the existing gap between Liquidity Zone's 3:25 and `backup_db`'s 3:35, comfortably fits
-  the measured ~15-30s worst-case cost with no need to push `backup_db` later again. A
-  dedicated script rather than folding into `nightly_entry_signal_calculation.py`, for the
-  same "one feature, one script" reasoning the Liquidity Zone job's own entry above gives --
-  doubly justified here since Warren's 2-year-lookback/full-replay shape is fundamentally
-  different from BB+RSI's 60-day/latest-day-only one, even though both share the same W1-W5
-  scope and Yahoo-only adapter. Talks to `yahoo_client` directly (`period="2y"`) rather than
+- **Cron: a new dedicated job, `pipeline.nightly_warren_signal_calculation`**, scheduled 3:40
+  AM -- placed AFTER Liquidity Zone's own full 3:25-3:35 window (not squeezed into a gap
+  before it), with its own dedicated ~15-minute allocation ending by 3:55, when `backup_db`
+  (moved from 3:35) now runs. **Originally scheduled 3:30 AM, in the gap between Liquidity
+  Zone's 3:25 and the old `backup_db` 3:35**, based on the flawed ~15-30s worst-case estimate
+  the "Measured, not assumed" bullet above documents getting corrected -- re-scheduled
+  2026-09-12 once the real ~9-minute worst-case estimate was known, since the original 5-minute
+  gap could no longer safely contain it. A dedicated script rather than folding into
+  `nightly_entry_signal_calculation.py`, for the same "one feature, one script" reasoning the
+  Liquidity Zone job's own entry above gives -- doubly justified here since Warren's
+  2-year-lookback/full-replay shape is fundamentally different from BB+RSI's
+  60-day/latest-day-only one, even though both share the same W1-W5 scope and Yahoo-only
+  adapter. Talks to `yahoo_client` directly (`period="2y"`) rather than
   `clients/technical_sources.py`'s own `f"{lookback_days}d"` interpolation, which the BB+RSI
   historical-backfill investigation already found unreliable at this magnitude. Wired into
   `core/cron_health.py`'s `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS` as the 16th job.

@@ -29,11 +29,20 @@ signal (see data/warren_signal_data.py's own module docstring) -- running
 this script once already backfills all available history, since every run
 replays from scratch.
 
-Measured cost (2026-09-11, synthetic full-universe-scale benchmark, see
-CLAUDE.md): ~2.3s compute at today's real W1-W5 union size (98 tickers),
-~11.7s at the theoretical worst case (500, 100/list x 5 lists) -- plus the
-~15s batch Yahoo fetch already measured for the same 2-year window by the
-BB+RSI backfill script. Comfortably fits its own 5-minute cron slot.
+Measured cost -- CORRECTED 2026-09-12 after a real run against the live
+98-ticker W1-W5 union exposed a flaw in the original pre-shipping estimate
+(see CLAUDE.md's Warren signal section for the full story): the original
+synthetic benchmark fed the state-machine replay ALREADY-BUILT 2h candles
+directly, entirely skipping the cost of build_2h_session_candles' own
+per-day resample loop over a full 2-year history -- which turns out to
+dominate real per-ticker cost (~0.9-1.0s/ticker, vs. the replay's own
+~30-40ms). Real end-to-end run: 98 tickers, 98.9s total (fetch ~2-5s,
+compute+store the rest). Extrapolated worst case (500 tickers, 100/list x
+5 lists): roughly 500-560s (~9 minutes) compute + a batch fetch on the
+order of tens of seconds. This is genuinely at the edge of a 5-minute cron
+slot at worst case -- see crontab.txt's own comment for why this job now
+gets a dedicated ~15-minute window instead of squeezing into the gap
+between two other jobs.
 
 Run:
     uv run python -m pipeline.nightly_warren_signal_calculation

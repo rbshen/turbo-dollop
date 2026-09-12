@@ -86,6 +86,7 @@ configured):
 | Nightly trend-structure calculation | `nightly_trend_calculation.log` / `_cron.log` |
 | Nightly BB+RSI entry-signal calculation | `nightly_entry_signal_calculation.log` / `_cron.log` |
 | Nightly Liquidity Zone (LP) calculation | `nightly_liquidity_zone_calculation.log` / `_cron.log` |
+| Nightly Warren RSI/ADX/WVF entry-signal calculation | `nightly_warren_signal_calculation.log` / `_cron.log` |
 | Weekly S&P 500 list refresh | `sp500_list_refresh.log` / `_cron.log` |
 | Weekly Dow list refresh | `dow_list_refresh.log` / `_cron.log` |
 | Cache pruning | `prune_cache.log` / `_cron.log` |
@@ -116,7 +117,7 @@ health monitoring" below.
 ## Maintenance scripts (`backend/pipeline/`)
 
 All of the scripts below are wired into `crontab.txt`'s weekly maintenance
-window (Sundays 1:10–1:30 AM), the daily backup at 3:35 AM, or the daily
+window (Sundays 1:10–1:30 AM), the daily backup at 3:55 AM, or the daily
 2:50 AM full-universe score recompute. Each can also be run manually with
 `uv run python -m pipeline.<name>` from `backend/`.
 
