@@ -80,16 +80,18 @@ export function TechnicalTab({ ticker }: Props) {
         <NearTermCard data={data} />
       </div>
 
-      <WeinsteinStageCard data={data} />
-
-      <BbRsiEntrySignalCard data={entrySignalData ?? null} />
-
-      <WarrenSignalCard data={warrenSignalData ?? null} />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <BbRsiEntrySignalCard data={entrySignalData ?? null} />
+        <WarrenSignalCard data={warrenSignalData ?? null} />
+      </div>
 
       <LiquidityZonesCard data={liquidityZonesData ?? null} />
 
       <div className="space-y-2">
-        {scope.fullCard === "reversal" ? <ReversalCard data={data} /> : <TrendContinuationCard data={data} />}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <WeinsteinStageCard data={data} />
+          {scope.fullCard === "reversal" ? <ReversalCard data={data} /> : <TrendContinuationCard data={data} />}
+        </div>
         <CollapsedTechnicalCard label={scope.collapsedLabel} subline={scope.collapsedSubline} />
       </div>
     </div>
