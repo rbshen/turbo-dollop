@@ -1,7 +1,7 @@
 "use client";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers, LineStyle } from "lightweight-charts";
-import type { IChartApi, ISeriesApi } from "lightweight-charts";
+import type { IChartApi, ISeriesApi, ISeriesMarkersPluginApi, Time } from "lightweight-charts";
 import { fmtMoney } from "@/lib/format";
 import type { ChartOut } from "@/lib/api/types";
 
@@ -186,7 +186,18 @@ function makeChartOptions(rightOffset: number, height: number) {
   };
 }
 
-function addMainSeries(chart: IChartApi, data: ChartOut) {
+interface OverlayVisibility {
+  showBbRsi: boolean;
+  showWarren: boolean;
+  showLpSupport: boolean;
+  showLpResistance: boolean;
+  showBollinger: boolean;
+  showEma21: boolean;
+  showSma50: boolean;
+  showSma200: boolean;
+}
+
+function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisibility) {
   // No paneIndex passed -- defaults to pane 0, the main price pane.
   const candle = chart.addSeries(CandlestickSeries, {
     upColor: COLORS.upCandle,
@@ -207,6 +218,19 @@ function addMainSeries(chart: IChartApi, data: ChartOut) {
   });
   candle.setData(data.bars);
 
+  // Overlay visibility is set at creation time via the `visible` series option (not by skipping series creation
+  // outright) so a later toggle-on can flip it back via applyOptions({ visible: true }) -- see the overlayApiRef
+  // effects in the component below -- without recreating the series or the chart.
+  const overlayToggleForKey: Record<"ema21" | "sma50" | "sma200", boolean> = {
+    ema21: visibility.showEma21,
+    sma50: visibility.showSma50,
+    sma200: visibility.showSma200,
+  };
+  const overlaySeries: { ema21: ISeriesApi<"Line"> | null; sma50: ISeriesApi<"Line"> | null; sma200: ISeriesApi<"Line"> | null } = {
+    ema21: null,
+    sma50: null,
+    sma200: null,
+  };
   for (const [key, color] of [
     ["ema21", COLORS.ema21],
     ["sma50", COLORS.sma50],
@@ -220,10 +244,13 @@ function addMainSeries(chart: IChartApi, data: ChartOut) {
       priceLineVisible: false,
       lastValueVisible: false,
       crosshairMarkerVisible: false,
+      visible: overlayToggleForKey[key],
     });
     line.setData(pts);
+    overlaySeries[key] = line;
   }
 
+  const bollingerSeries: ISeriesApi<"Line">[] = [];
   if (data.bollinger.length) {
     // Only the upper/lower bands are plotted -- the basis (middle) line is
     // computed on the backend (bb_basis, EMA(20)) and still feeds the
@@ -237,8 +264,10 @@ function addMainSeries(chart: IChartApi, data: ChartOut) {
         priceLineVisible: false,
         lastValueVisible: false,
         crosshairMarkerVisible: false,
+        visible: visibility.showBollinger,
       });
       bb.setData(data.bollinger.map((b) => ({ time: b.time, value: b[key] })));
+      bollingerSeries.push(bb);
     }
   }
 
@@ -264,6 +293,8 @@ function addMainSeries(chart: IChartApi, data: ChartOut) {
   // exact full-width-regardless-of-formed_at problem this LineSeries
   // switch was built to fix, just via a different mechanism.
   const zoneLines: { series: ISeriesApi<"Line">; points: { time: string; value: number }[] }[] = [];
+  const lpSupportSeries: ISeriesApi<"Line">[] = [];
+  const lpResistanceSeries: ISeriesApi<"Line">[] = [];
   for (const zone of data.zones) {
     const isSupport = zone.side === "support";
     const points = data.bars.filter((b) => b.time >= zone.formed_at).map((b) => ({ time: b.time, value: zone.price }));
@@ -275,47 +306,76 @@ function addMainSeries(chart: IChartApi, data: ChartOut) {
       priceLineVisible: false,
       lastValueVisible: true,
       crosshairMarkerVisible: false,
+      visible: isSupport ? visibility.showLpSupport : visibility.showLpResistance,
     });
     zoneLine.setData(points);
     zoneLines.push({ series: zoneLine, points });
+    (isSupport ? lpSupportSeries : lpResistanceSeries).push(zoneLine);
   }
 
+  // The plugin instance is created whenever there's data to potentially show (regardless of the current toggle
+  // state) so a later toggle-on can call setMarkers() on it directly (see the showBbRsi/showWarren effects in the
+  // component below) without recreating the series or the chart -- only the INITIAL markers array passed here is
+  // gated on the toggle.
+  let bbRsiMarkersApi: ISeriesMarkersPluginApi<Time> | null = null;
   if (data.entry_signal_markers.length > 0) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    createSeriesMarkers(
-      candle as any,
-      data.entry_signal_markers.map((marker) => ({
-        time: marker.time,
-        position: "belowBar" as const,
-        color: COLORS.marker,
-        shape: "arrowUp" as const,
-        text: marker.label,
-        size: 1,
-      }))
-    );
-  }
-
-  if (data.warren_signal_markers.length > 0) {
-    // A second, independent markers primitive on the same candle series --
-    // distinct from BB+RSI's plain green arrow above, styled per
-    // WARREN_MARKER_STYLE's Blue/Yellow/Gray x Up/Down convention.
-    createSeriesMarkers(
+    bbRsiMarkersApi = createSeriesMarkers(
       candle as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-      data.warren_signal_markers.map((marker) => {
-        const style = WARREN_MARKER_STYLE[marker.kind] ?? WARREN_MARKER_STYLE.gray_up;
-        return {
-          time: marker.time,
-          position: style.position,
-          color: style.color,
-          shape: style.shape,
-          text: marker.label,
-          size: 1,
-        };
-      })
-    );
+      visibility.showBbRsi ? buildEntrySignalMarkers(data) : []
+    ) as ISeriesMarkersPluginApi<Time>;
   }
 
-  return { candle, zoneLines };
+  // A second, independent markers primitive on the same candle series --
+  // distinct from BB+RSI's plain green arrow above, styled per
+  // WARREN_MARKER_STYLE's Blue/Yellow/Gray x Up/Down convention.
+  let warrenMarkersApi: ISeriesMarkersPluginApi<Time> | null = null;
+  if (data.warren_signal_markers.length > 0) {
+    warrenMarkersApi = createSeriesMarkers(
+      candle as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+      visibility.showWarren ? buildWarrenMarkers(data) : []
+    ) as ISeriesMarkersPluginApi<Time>;
+  }
+
+  return {
+    candle,
+    zoneLines,
+    bbRsiMarkersApi,
+    warrenMarkersApi,
+    lpSupportSeries,
+    lpResistanceSeries,
+    bollingerSeries,
+    ema21Series: overlaySeries.ema21,
+    sma50Series: overlaySeries.sma50,
+    sma200Series: overlaySeries.sma200,
+  };
+}
+
+// Pure marker-array builders, shared between initial chart creation (addMainSeries above) and the toggle-driven
+// setMarkers() calls in the component itself (see the showBbRsi/showWarren effects) -- keeps both call sites
+// byte-identical instead of two hand-maintained copies of the same mapping.
+function buildEntrySignalMarkers(data: ChartOut) {
+  return data.entry_signal_markers.map((marker) => ({
+    time: marker.time,
+    position: "belowBar" as const,
+    color: COLORS.marker,
+    shape: "arrowUp" as const,
+    text: marker.label,
+    size: 1,
+  }));
+}
+
+function buildWarrenMarkers(data: ChartOut) {
+  return data.warren_signal_markers.map((marker) => {
+    const style = WARREN_MARKER_STYLE[marker.kind] ?? WARREN_MARKER_STYLE.gray_up;
+    return {
+      time: marker.time,
+      position: style.position,
+      color: style.color,
+      shape: style.shape,
+      text: marker.label,
+      size: 1,
+    };
+  });
 }
 
 // Generates `count` distinct, strictly-increasing "YYYY-MM-DD" dates after
@@ -461,11 +521,23 @@ function addStochasticSeries(chart: IChartApi, data: ChartOut, paneIndex: number
   addRefLine(kSeries, STOCH_OVERSOLD);
 }
 
-interface Props {
+// Chart-tab-only overlay visibility toggles (see ChartTab.tsx) -- purely additive over the existing series/marker
+// rendering, never touching crosshair sync or pane geometry.
+interface Props extends OverlayVisibility {
   data: ChartOut;
 }
 
-export function TickerChart({ data }: Props) {
+export function TickerChart({
+  data,
+  showBbRsi,
+  showWarren,
+  showLpSupport,
+  showLpResistance,
+  showBollinger,
+  showEma21,
+  showSma50,
+  showSma200,
+}: Props) {
   // Default OHLC (the latest bar) is a plain derived value, not state --
   // avoids a setState-during-effect render cascade for the common "nothing
   // hovered yet" case. hoverOhlc is real state, set only from the
@@ -479,6 +551,22 @@ export function TickerChart({ data }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rsiLabelRef = useRef<HTMLDivElement>(null);
   const stochLabelRef = useRef<HTMLDivElement>(null);
+  // Populated by the chart-creation effect below; read by the showBbRsi/showWarren toggle effects further down to
+  // flip marker visibility via setMarkers() without recreating the chart.
+  const markersApiRef = useRef<{ bbRsi: ISeriesMarkersPluginApi<Time> | null; warren: ISeriesMarkersPluginApi<Time> | null }>({
+    bbRsi: null,
+    warren: null,
+  });
+  // Same purpose as markersApiRef, for the plain LineSeries overlays -- toggling one calls applyOptions({ visible })
+  // on every series in the relevant list/slot (see the overlay-visibility effects below), never recreating the chart.
+  const overlayApiRef = useRef<{
+    lpSupport: ISeriesApi<"Line">[];
+    lpResistance: ISeriesApi<"Line">[];
+    bollinger: ISeriesApi<"Line">[];
+    ema21: ISeriesApi<"Line"> | null;
+    sma50: ISeriesApi<"Line"> | null;
+    sma200: ISeriesApi<"Line"> | null;
+  }>({ lpSupport: [], lpResistance: [], bollinger: [], ema21: null, sma50: null, sma200: null });
 
   // Pane layout: main is always pane 0; RSI/Stochastic each get the next
   // free pane index only when they have data -- a thin-history ticker
@@ -521,7 +609,36 @@ export function TickerChart({ data }: Props) {
 
     const chart = createChart(containerRef.current, makeChartOptions(rightOffset, totalHeight));
 
-    const { candle, zoneLines } = addMainSeries(chart, data);
+    const {
+      candle,
+      zoneLines,
+      bbRsiMarkersApi,
+      warrenMarkersApi,
+      lpSupportSeries,
+      lpResistanceSeries,
+      bollingerSeries,
+      ema21Series,
+      sma50Series,
+      sma200Series,
+    } = addMainSeries(chart, data, {
+      showBbRsi,
+      showWarren,
+      showLpSupport,
+      showLpResistance,
+      showBollinger,
+      showEma21,
+      showSma50,
+      showSma200,
+    });
+    markersApiRef.current = { bbRsi: bbRsiMarkersApi, warren: warrenMarkersApi };
+    overlayApiRef.current = {
+      lpSupport: lpSupportSeries,
+      lpResistance: lpResistanceSeries,
+      bollinger: bollingerSeries,
+      ema21: ema21Series,
+      sma50: sma50Series,
+      sma200: sma200Series,
+    };
     if (rsiPaneIndex !== null) addRsiSeries(chart, data, rsiPaneIndex);
     if (stochPaneIndex !== null) addStochasticSeries(chart, data, stochPaneIndex);
 
@@ -620,8 +737,51 @@ export function TickerChart({ data }: Props) {
       cancelAnimationFrame(positionLabelsRafId);
       observer.disconnect();
       chart.remove();
+      markersApiRef.current = { bbRsi: null, warren: null };
+      overlayApiRef.current = { lpSupport: [], lpResistance: [], bollinger: [], ema21: null, sma50: null, sma200: null };
     };
+    // Every showXxx toggle is intentionally excluded here: they only set the INITIAL visibility at chart creation
+    // (read once, via closure); a later toggle flip is handled by the separate effects below via
+    // setMarkers()/applyOptions({ visible }), without tearing down and recreating the whole chart.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, totalHeight, rsiPaneIndex, stochPaneIndex]);
+
+  // Syncs marker/series visibility on a toggle flip alone -- deliberately not combined with the chart-creation
+  // effect above, which would otherwise tear down and recreate the whole chart (losing crosshair state, pane
+  // layout, etc.) on every toggle click. Each of these also runs once on initial mount (React runs every effect
+  // after the first render), which just re-applies the same visibility addMainSeries already set -- a harmless
+  // no-op.
+  useEffect(() => {
+    markersApiRef.current.bbRsi?.setMarkers(showBbRsi ? buildEntrySignalMarkers(data) : []);
+  }, [data, showBbRsi]);
+
+  useEffect(() => {
+    markersApiRef.current.warren?.setMarkers(showWarren ? buildWarrenMarkers(data) : []);
+  }, [data, showWarren]);
+
+  useEffect(() => {
+    for (const s of overlayApiRef.current.lpSupport) s.applyOptions({ visible: showLpSupport });
+  }, [showLpSupport]);
+
+  useEffect(() => {
+    for (const s of overlayApiRef.current.lpResistance) s.applyOptions({ visible: showLpResistance });
+  }, [showLpResistance]);
+
+  useEffect(() => {
+    for (const s of overlayApiRef.current.bollinger) s.applyOptions({ visible: showBollinger });
+  }, [showBollinger]);
+
+  useEffect(() => {
+    overlayApiRef.current.ema21?.applyOptions({ visible: showEma21 });
+  }, [showEma21]);
+
+  useEffect(() => {
+    overlayApiRef.current.sma50?.applyOptions({ visible: showSma50 });
+  }, [showSma50]);
+
+  useEffect(() => {
+    overlayApiRef.current.sma200?.applyOptions({ visible: showSma200 });
+  }, [showSma200]);
 
   return (
     <div className="rounded-lg border border-border-card">

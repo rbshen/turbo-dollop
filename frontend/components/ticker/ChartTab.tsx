@@ -17,6 +17,72 @@ const RANGE_OPTIONS: { key: ChartRange; label: string }[] = [
   { key: "W_4Y", label: "W · 4Y" },
 ];
 
+// Chart-tab-only overlay visibility toggles -- scoped to this tab's own TickerChart rendering (see TickerChart.tsx's
+// showXxx props); the Technical tab's BbRsiEntrySignalCard/WarrenSignalCard and the EMA/SMA/Bollinger/LP series data
+// itself are otherwise untouched -- toggling one of these only flips series/marker visibility, never refetches or
+// recomputes anything. Persisted the same way Watchlist sort rules are (app/watchlist/page.tsx) -- a single
+// localStorage key, read/written inside try/catch for private-window/blocked-storage cases, silently falling back
+// to the default (all on) rather than throwing during render.
+const SIGNAL_TOGGLE_STORAGE_KEY = "fathom-chart-signal-toggles";
+
+interface SignalToggles {
+  bbRsi: boolean;
+  warren: boolean;
+  lpSupport: boolean;
+  lpResistance: boolean;
+  bollinger: boolean;
+  ema21: boolean;
+  sma50: boolean;
+  sma200: boolean;
+}
+
+const DEFAULT_SIGNAL_TOGGLES: SignalToggles = {
+  bbRsi: true,
+  warren: true,
+  lpSupport: true,
+  lpResistance: true,
+  bollinger: true,
+  ema21: true,
+  sma50: true,
+  sma200: true,
+};
+
+const TOGGLE_OPTIONS: { key: keyof SignalToggles; label: string }[] = [
+  { key: "bbRsi", label: "BB+RSI" },
+  { key: "warren", label: "Warren" },
+  { key: "lpSupport", label: "LP Support" },
+  { key: "lpResistance", label: "LP Resistance" },
+  { key: "bollinger", label: "BB" },
+  { key: "ema21", label: "EMA 21" },
+  { key: "sma50", label: "SMA 50" },
+  { key: "sma200", label: "SMA 200" },
+];
+
+function loadSignalToggles(): SignalToggles {
+  if (typeof window === "undefined") return DEFAULT_SIGNAL_TOGGLES;
+  try {
+    const raw = window.localStorage.getItem(SIGNAL_TOGGLE_STORAGE_KEY);
+    if (!raw) return DEFAULT_SIGNAL_TOGGLES;
+    const parsed = JSON.parse(raw);
+    const result = { ...DEFAULT_SIGNAL_TOGGLES };
+    for (const key of Object.keys(DEFAULT_SIGNAL_TOGGLES) as (keyof SignalToggles)[]) {
+      if (typeof parsed[key] === "boolean") result[key] = parsed[key];
+    }
+    return result;
+  } catch {
+    return DEFAULT_SIGNAL_TOGGLES;
+  }
+}
+
+function saveSignalToggles(toggles: SignalToggles) {
+  try {
+    window.localStorage.setItem(SIGNAL_TOGGLE_STORAGE_KEY, JSON.stringify(toggles));
+  } catch {
+    // localStorage unavailable (private window, blocked site data, quota) -- the in-memory state still updates
+    // for this session, it just won't survive a reload.
+  }
+}
+
 // Approximates a plausible price-chart silhouette while the on-demand fetch
 // (see data/chart_data.py -- there's no nightly precompute for this
 // feature, so every range switch is a real fetch) is in flight. Adapted
@@ -40,7 +106,25 @@ function ChartSkeleton() {
 
 export function ChartTab({ ticker }: Props) {
   const [range, setRange] = useState<ChartRange>("D_1Y");
+  // Loaded from localStorage during render, not in an effect -- mirrors Watchlist sort rules' own "adjust state
+  // during rendering" pattern (app/watchlist/page.tsx's sortState/activeId), which this project's lint config
+  // requires over calling setState from inside a useEffect body. `loaded` starts false so this only runs once
+  // per mount.
+  const [toggleState, setToggleState] = useState<{ loaded: boolean; toggles: SignalToggles }>({
+    loaded: false,
+    toggles: DEFAULT_SIGNAL_TOGGLES,
+  });
+  if (!toggleState.loaded) {
+    setToggleState({ loaded: true, toggles: loadSignalToggles() });
+  }
+  const signalToggles = toggleState.toggles;
   const { data, error, isLoading } = useTickerChart(ticker, range);
+
+  function handleToggleChange(key: keyof SignalToggles) {
+    const next = { ...signalToggles, [key]: !signalToggles[key] };
+    setToggleState({ loaded: true, toggles: next });
+    saveSignalToggles(next);
+  }
 
   return (
     <div className="space-y-4 py-6">
@@ -66,6 +150,21 @@ export function ChartTab({ ticker }: Props) {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-1">
+        {TOGGLE_OPTIONS.map((opt) => (
+          <button
+            key={opt.key}
+            onClick={() => handleToggleChange(opt.key)}
+            aria-pressed={signalToggles[opt.key]}
+            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+              signalToggles[opt.key] ? "bg-zinc-700 text-zinc-100" : "text-text-tertiary hover:text-text-secondary hover:bg-surface-2"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
       {error && <p className="py-6 text-sm text-negative">Couldn&apos;t load the chart — {error.message}</p>}
 
       {!error && isLoading && !data && <ChartSkeleton />}
@@ -77,36 +176,18 @@ export function ChartTab({ ticker }: Props) {
       )}
 
       {!error && data && data.chart_available && (
-        <>
-          <TickerChart key={range} data={data} />
-          {!data.entry_signal_available && !data.zones_available ? (
-            // Both features share the exact same W1-W5 scope
-            // (see chart_data.py) -- when neither has ever run for this
-            // ticker, one combined line reads cleaner than two identical
-            // "not tracked" sentences stacked on top of each other.
-            <p className="text-xs text-text-tertiary">
-              Not tracked for entry signals or Liquidity Zone (LP) levels — this ticker isn&apos;t on a watchlist
-              named W1 through W5.
-            </p>
-          ) : (
-            <div className="space-y-1">
-              <p className="text-xs text-text-tertiary">
-                {data.entry_signal_available
-                  ? data.entry_signal_markers.length > 0
-                    ? "Markers show past BB+RSI (2h) entry signals in this range."
-                    : "Tracked for BB+RSI entry signals — none fired in this range."
-                  : "Not tracked for entry signals — this ticker isn't on a watchlist named W1 through W5."}
-              </p>
-              <p className="text-xs text-text-tertiary">
-                {data.zones_available
-                  ? data.zones.length > 0
-                    ? "Green/red lines show unbreached support/resistance levels from Liquidity Zone (LP) detection."
-                    : "Tracked for Liquidity Zone (LP) detection — no zones in this range."
-                  : "Not tracked for Liquidity Zone (LP) detection — this ticker isn't on a watchlist named W1 through W5."}
-              </p>
-            </div>
-          )}
-        </>
+        <TickerChart
+          key={range}
+          data={data}
+          showBbRsi={signalToggles.bbRsi}
+          showWarren={signalToggles.warren}
+          showLpSupport={signalToggles.lpSupport}
+          showLpResistance={signalToggles.lpResistance}
+          showBollinger={signalToggles.bollinger}
+          showEma21={signalToggles.ema21}
+          showSma50={signalToggles.sma50}
+          showSma200={signalToggles.sma200}
+        />
       )}
     </div>
   );
