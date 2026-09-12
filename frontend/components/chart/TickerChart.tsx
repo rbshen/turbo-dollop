@@ -13,6 +13,18 @@ import type { ChartOut } from "@/lib/api/types";
 // convention every other Technical-tab feature already uses) and extended
 // from two stacked chart instances (price + RSI) to three (price, RSI,
 // Stochastic).
+//
+// Originally three fully independent `createChart()` instances (one per
+// pane) bridged by a hand-rolled `subscribeCrosshairMove` relay -- each
+// instance computed its own bar spacing and price-scale rounding
+// independently, which left a small but real crosshair/axis misalignment
+// between panes no amount of tuning a shared `minimumWidth` could fully
+// close (two rounds tried). Rewritten onto lightweight-charts' native
+// multi-pane API (one `createChart()` call, three panes via
+// `addSeries(..., paneIndex)`) so all three share a single time scale --
+// axis-width equality and crosshair alignment become structural
+// guarantees of the library's own per-chart layout pass instead of
+// something three independent instances have to be kept in sync by hand.
 const CHART_THEME = {
   background: "#09090b",
   text: "#71717a",
@@ -95,27 +107,33 @@ function computeRightOffset(barCount: number): number {
   return (BASE_RIGHT_OFFSET * barCount) / REFERENCE_D1Y_BAR_COUNT;
 }
 
-// Shared minimum price-scale (y-axis) width across all three stacked panes (price, RSI,
-// Stochastic), so their axis columns render flush/aligned instead of each auto-sizing to
-// its own widest label ("1188.33" vs "70.00" vs "80.00"). lightweight-charts'
-// PriceScaleOptions.minimumWidth exists specifically for this "vertical stack of charts"
-// case -- it only raises the floor, so a pane never renders narrower than this, but can
-// still exceed it if it genuinely needs more space (confirmed via
-// lightweight-charts.development.mjs: each chart's real width is
-// max(paneWidget.optimalWidth(), minimumWidth), only THEN rounded up to an even number --
-// so if one pane's own optimalWidth() exceeds minimumWidth, that pane alone renders wider
-// than the others, which is exactly what a too-tight minimumWidth (70, this constant's
-// first-pass value) produced: the price pane's own last-value/LP-zone boxes
-// (lastValueVisible: true, unlike RSI/Stochastic's `false`) plus its longer 4-digit-dollar
-// tick labels pushed its optimalWidth() just over 70, while RSI/Stochastic's shorter
-// "70.00"/"80.00"-style labels stayed under it and clamped to exactly 70 -- a real few-px
-// width mismatch, visible as the RSI/Stochastic crosshair landing slightly right of the
-// price pane's for the same date). optimalWidth()'s own formula is
-// borderSize(1) + tickLength(5) + paddingInner + paddingOuter + labelOffset(5) (~20px
-// overhead at this 11px font) plus the widest label's text width -- 100 leaves real
-// headroom above that even for a future 5-digit-dollar ticker, so minimumWidth reliably
-// dominates on every pane rather than sitting at another close boundary.
-const PRICE_SCALE_MIN_WIDTH = 100;
+// Fixed pixel heights per pane -- unchanged from the three-separate-charts
+// era, just applied via Pane.setHeight() now instead of each chart's own
+// `height` option.
+const MAIN_PANE_HEIGHT = 630;
+const RSI_PANE_HEIGHT = 120;
+const STOCH_PANE_HEIGHT = 120;
+// lightweight-charts' own pane-separator height (confirmed as a fixed 1px
+// constant in lightweight-charts.development.mjs), which the library now
+// draws natively between panes sharing one chart, replacing the old CSS
+// `border-t` divider between three separate chart divs. Only used below to
+// compute the RSI/Stochastic overlay labels' vertical offset -- a 1px miss
+// here would be a cosmetically negligible label position, not a layout
+// break, since the panes' own real heights are set directly via
+// setHeight() regardless of this constant.
+const PANE_SEPARATOR_HEIGHT = 1;
+
+// Minimum price-scale (y-axis) width, purely a readability floor now (e.g.
+// for a hypothetical ticker where every pane's labels happen to be very
+// short) -- NOT load-bearing for cross-pane width equality the way it was
+// across three independent chart instances. Now that price/RSI/Stochastic
+// are three panes of one chart, lightweight-charts' own per-chart layout
+// pass (ChartWidget._private__adjustSizeImpl, confirmed in
+// lightweight-charts.development.mjs) takes Math.max across every pane's
+// natural label width AND this floor, once, for the whole chart -- so
+// every pane gets the same width structurally, not because this constant
+// happens to be tuned larger than any one pane's real need.
+const PRICE_SCALE_MIN_WIDTH = 70;
 
 interface OhlcState {
   o: number;
@@ -124,7 +142,7 @@ interface OhlcState {
   c: number;
 }
 
-function makeChartOptions(rightOffset: number, height?: number) {
+function makeChartOptions(rightOffset: number, height: number) {
   return {
     layout: {
       background: { color: CHART_THEME.background },
@@ -132,6 +150,9 @@ function makeChartOptions(rightOffset: number, height?: number) {
       fontSize: 11,
       fontFamily: "var(--font-mono), ui-monospace, monospace",
       attributionLogo: false,
+      // Static, non-resizable stacked panes -- matches the old fixed-height
+      // three-separate-divs look (no user-facing pane resize handle).
+      panes: { enableResize: false, separatorColor: CHART_THEME.border, separatorHoverColor: CHART_THEME.border },
     },
     grid: { vertLines: { visible: false }, horzLines: { visible: false } },
     handleScroll: false,
@@ -153,13 +174,20 @@ function makeChartOptions(rightOffset: number, height?: number) {
     // bars of real history were silently cropped off the left. Set false
     // here so a later setData() only ever changes what's drawn, never
     // the visible range itself.
+    //
+    // One shared time axis for the whole pane stack now (previously
+    // hidden per-instance on the RSI/Stochastic charts, since each had
+    // its own); left visible so dates render once, at the true bottom of
+    // however many panes actually exist, instead of only under the price
+    // pane as before.
     timeScale: { borderColor: CHART_THEME.border, timeVisible: false, rightOffset, shiftVisibleRangeOnNewBar: false },
     crosshair: { mode: 1 },
-    ...(height !== undefined ? { height } : {}),
+    height,
   };
 }
 
-function renderMain(chart: IChartApi, data: ChartOut) {
+function addMainSeries(chart: IChartApi, data: ChartOut) {
+  // No paneIndex passed -- defaults to pane 0, the main price pane.
   const candle = chart.addSeries(CandlestickSeries, {
     upColor: COLORS.upCandle,
     downColor: COLORS.downCandle,
@@ -393,17 +421,12 @@ function addRefLine(series: ISeriesApi<"Line">, price: number) {
   });
 }
 
-function renderRsi(container: HTMLElement, data: ChartOut, rightOffset: number) {
-  const chart = createChart(container, {
-    ...makeChartOptions(rightOffset, 120),
-    timeScale: { borderColor: CHART_THEME.border, visible: false, rightOffset },
-  });
-  const series = chart.addSeries(LineSeries, {
-    color: COLORS.rsi,
-    lineWidth: 1,
-    priceLineVisible: false,
-    lastValueVisible: false,
-  });
+function addRsiSeries(chart: IChartApi, data: ChartOut, paneIndex: number) {
+  const series = chart.addSeries(
+    LineSeries,
+    { color: COLORS.rsi, lineWidth: 1, priceLineVisible: false, lastValueVisible: false },
+    paneIndex
+  );
   // Per-point color: lightweight-charts' LineData accepts an optional
   // `color` per point (falls back to the series' own `color` option when
   // omitted), which recolors the line segment ending at that point -- no
@@ -419,21 +442,23 @@ function renderRsi(container: HTMLElement, data: ChartOut, rightOffset: number) 
   );
   addRefLine(series, RSI_OVERBOUGHT);
   addRefLine(series, RSI_OVERSOLD);
-  return { chart, series };
 }
 
-function renderStochastic(container: HTMLElement, data: ChartOut, rightOffset: number) {
-  const chart = createChart(container, {
-    ...makeChartOptions(rightOffset, 120),
-    timeScale: { borderColor: CHART_THEME.border, visible: false, rightOffset },
-  });
-  const kSeries = chart.addSeries(LineSeries, { color: COLORS.stochK, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-  const dSeries = chart.addSeries(LineSeries, { color: COLORS.stochD, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+function addStochasticSeries(chart: IChartApi, data: ChartOut, paneIndex: number) {
+  const kSeries = chart.addSeries(
+    LineSeries,
+    { color: COLORS.stochK, lineWidth: 1, priceLineVisible: false, lastValueVisible: false },
+    paneIndex
+  );
+  const dSeries = chart.addSeries(
+    LineSeries,
+    { color: COLORS.stochD, lineWidth: 1, priceLineVisible: false, lastValueVisible: false },
+    paneIndex
+  );
   kSeries.setData(data.stochastic.map((p) => ({ time: p.time, value: p.k })));
   dSeries.setData(data.stochastic.map((p) => ({ time: p.time, value: p.d })));
   addRefLine(kSeries, STOCH_OVERBOUGHT);
   addRefLine(kSeries, STOCH_OVERSOLD);
-  return { chart, series: kSeries };
 }
 
 interface Props {
@@ -451,56 +476,60 @@ export function TickerChart({ data }: Props) {
   const [hoverOhlc, setHoverOhlc] = useState<OhlcState | null>(null);
   const ohlc = hoverOhlc ?? defaultOhlc;
 
-  const mainRef = useRef<HTMLDivElement>(null);
-  const rsiRef = useRef<HTMLDivElement>(null);
-  const stochRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Pane layout: main is always pane 0; RSI/Stochastic each get the next
+  // free pane index only when they have data -- a thin-history ticker
+  // missing one or both indicators (still too little warm-up) must not
+  // leave an empty gap pane, exactly like the old conditionally-rendered
+  // divs. Computed here, once per data change, so both the chart-creation
+  // effect below and the overlay-label JSX stay in sync by construction
+  // instead of by two hand-maintained copies of "does RSI exist."
+  const hasRsi = data.rsi.length > 0;
+  const hasStochastic = data.stochastic.length > 0;
+  let nextPaneIndex = 1;
+  const rsiPaneIndex = hasRsi ? nextPaneIndex++ : null;
+  const stochPaneIndex = hasStochastic ? nextPaneIndex++ : null;
+
+  const totalHeight =
+    MAIN_PANE_HEIGHT +
+    (hasRsi ? PANE_SEPARATOR_HEIGHT + RSI_PANE_HEIGHT : 0) +
+    (hasStochastic ? PANE_SEPARATOR_HEIGHT + STOCH_PANE_HEIGHT : 0);
+  const rsiLabelTop = MAIN_PANE_HEIGHT + PANE_SEPARATOR_HEIGHT;
+  const stochLabelTop = MAIN_PANE_HEIGHT + PANE_SEPARATOR_HEIGHT + (hasRsi ? RSI_PANE_HEIGHT + PANE_SEPARATOR_HEIGHT : 0);
 
   useEffect(() => {
-    if (!mainRef.current) return;
+    if (!containerRef.current) return;
 
     // Computed once per data change, from the currently-rendered range's
     // own real bar count -- see computeRightOffset's own comment for why
-    // this alone (no live pixel/barSpacing reading) is sufficient, and
-    // passed identically to all three chart instances so their margins
-    // stay visually aligned with each other (mirroring how a flat
-    // rightOffset: 10 was applied uniformly across all three panes in an
-    // earlier round).
+    // this alone (no live pixel/barSpacing reading) is sufficient. Passed
+    // once to the one shared chart now, rather than identically to three
+    // separate instances.
     const rightOffset = computeRightOffset(data.bars.length);
 
-    const main = createChart(mainRef.current, makeChartOptions(rightOffset));
-    const { candle, zoneLines } = renderMain(main, data);
-    main.timeScale().fitContent();
-    extendZoneLinesToEdge(main, zoneLines, data.timeframe);
+    const chart = createChart(containerRef.current, makeChartOptions(rightOffset, totalHeight));
 
-    let rsiChart: IChartApi | null = null;
-    let rsiSeries: ISeriesApi<"Line"> | null = null;
-    if (data.rsi.length && rsiRef.current) {
-      const result = renderRsi(rsiRef.current, data, rightOffset);
-      rsiChart = result.chart;
-      rsiSeries = result.series;
-      rsiChart.timeScale().fitContent();
-    }
+    const { candle, zoneLines } = addMainSeries(chart, data);
+    if (rsiPaneIndex !== null) addRsiSeries(chart, data, rsiPaneIndex);
+    if (stochPaneIndex !== null) addStochasticSeries(chart, data, stochPaneIndex);
 
-    let stochChart: IChartApi | null = null;
-    let stochSeries: ISeriesApi<"Line"> | null = null;
-    if (data.stochastic.length && stochRef.current) {
-      const result = renderStochastic(stochRef.current, data, rightOffset);
-      stochChart = result.chart;
-      stochSeries = result.series;
-      stochChart.timeScale().fitContent();
-    }
+    // addSeries(..., paneIndex) above already created each pane on demand
+    // -- setHeight() here just locks in the fixed pixel split (630/120/
+    // 120) instead of leaving panes to share space by stretch factor.
+    chart.panes()[0].setHeight(MAIN_PANE_HEIGHT);
+    if (rsiPaneIndex !== null) chart.panes()[rsiPaneIndex].setHeight(RSI_PANE_HEIGHT);
+    if (stochPaneIndex !== null) chart.panes()[stochPaneIndex].setHeight(STOCH_PANE_HEIGHT);
 
-    // Cross-wire the crosshair across however many of the three panes are
-    // actually mounted (RSI/Stochastic panes are conditionally rendered
-    // above whenever a ticker's history is too thin for that indicator's
-    // own warm-up) -- a suppress flag per pane prevents each pane's own
-    // subscribeCrosshairMove from re-triggering the others in a loop.
-    const panes: Array<{ chart: IChartApi; series: ISeriesApi<"Line"> }> = [];
-    if (rsiChart && rsiSeries) panes.push({ chart: rsiChart, series: rsiSeries });
-    if (stochChart && stochSeries) panes.push({ chart: stochChart, series: stochSeries });
+    chart.timeScale().fitContent();
+    extendZoneLinesToEdge(chart, zoneLines, data.timeframe);
 
-    let suppress = false;
-    main.subscribeCrosshairMove((params) => {
+    // One shared time scale for the whole pane stack means one crosshair
+    // callback already covers every pane's data for the same instant --
+    // no manual setCrosshairPosition relay between separate chart
+    // instances needed any more (previously ~60 lines cross-wiring up to
+    // three independent charts).
+    chart.subscribeCrosshairMove((params) => {
       if (params.time !== undefined) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const bar = params.seriesData.get(candle as any) as any;
@@ -510,42 +539,7 @@ export function TickerChart({ data }: Props) {
       } else {
         setHoverOhlc(null); // falls back to defaultOhlc (the latest bar) above
       }
-
-      if (suppress) return;
-      suppress = true;
-      for (const pane of panes) {
-        if (params.time !== undefined) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          pane.chart.setCrosshairPosition(NaN, params.time, pane.series as any);
-        } else {
-          pane.chart.clearCrosshairPosition();
-        }
-      }
-      suppress = false;
     });
-
-    for (const pane of panes) {
-      pane.chart.subscribeCrosshairMove((params) => {
-        if (suppress) return;
-        suppress = true;
-        if (params.time !== undefined) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          main.setCrosshairPosition(NaN, params.time, candle as any);
-        } else {
-          main.clearCrosshairPosition();
-        }
-        for (const other of panes) {
-          if (other === pane) continue;
-          if (params.time !== undefined) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            other.chart.setCrosshairPosition(NaN, params.time, other.series as any);
-          } else {
-            other.chart.clearCrosshairPosition();
-          }
-        }
-        suppress = false;
-      });
-    }
 
     // rightOffset (computed once above, before any of this) never needs
     // recomputing here on resize: the margin-equalization math is a pure
@@ -554,64 +548,59 @@ export function TickerChart({ data }: Props) {
     // wide range of widths (600-2000px) -- so the same value stays
     // correct at whatever width the container resizes to.
     const observer = new ResizeObserver(() => {
-      const w = mainRef.current?.clientWidth;
-      if (w) {
-        main.applyOptions({ width: w });
-        rsiChart?.applyOptions({ width: w });
-        stochChart?.applyOptions({ width: w });
-      }
+      const w = containerRef.current?.clientWidth;
+      if (w) chart.applyOptions({ width: w });
     });
-    if (mainRef.current) observer.observe(mainRef.current);
+    if (containerRef.current) observer.observe(containerRef.current);
 
     return () => {
       observer.disconnect();
-      main.remove();
-      rsiChart?.remove();
-      stochChart?.remove();
+      chart.remove();
     };
-  }, [data]);
+  }, [data, totalHeight, rsiPaneIndex, stochPaneIndex]);
 
   return (
     <div className="rounded-lg border border-border-card">
-      <div className="bg-zinc-950">
-        <div className="relative">
-          <div className="absolute top-2 left-3 z-10 flex flex-col gap-0.5 select-none pointer-events-none">
-            <span className="text-[10px] font-mono font-semibold text-zinc-600">{data.timeframe === "weekly" ? "1W" : "1D"}</span>
-            {ohlc && (
-              <div className="flex items-center gap-2.5 text-xs font-mono">
-                <span className="text-zinc-500">
-                  O <span className="text-zinc-300">{fmtMoney(ohlc.o)}</span>
-                </span>
-                <span className="text-zinc-500">
-                  H <span className="text-emerald-400">{fmtMoney(ohlc.h)}</span>
-                </span>
-                <span className="text-zinc-500">
-                  L <span className="text-red-400">{fmtMoney(ohlc.l)}</span>
-                </span>
-                <span className="text-zinc-500">
-                  C <span className="text-zinc-200">{fmtMoney(ohlc.c)}</span>
-                </span>
-              </div>
-            )}
-          </div>
-          <div ref={mainRef} className="w-full" style={{ height: 630 }} />
+      <div className="relative bg-zinc-950">
+        <div className="absolute top-2 left-3 z-10 flex flex-col gap-0.5 select-none pointer-events-none">
+          <span className="text-[10px] font-mono font-semibold text-zinc-600">{data.timeframe === "weekly" ? "1W" : "1D"}</span>
+          {ohlc && (
+            <div className="flex items-center gap-2.5 text-xs font-mono">
+              <span className="text-zinc-500">
+                O <span className="text-zinc-300">{fmtMoney(ohlc.o)}</span>
+              </span>
+              <span className="text-zinc-500">
+                H <span className="text-emerald-400">{fmtMoney(ohlc.h)}</span>
+              </span>
+              <span className="text-zinc-500">
+                L <span className="text-red-400">{fmtMoney(ohlc.l)}</span>
+              </span>
+              <span className="text-zinc-500">
+                C <span className="text-zinc-200">{fmtMoney(ohlc.c)}</span>
+              </span>
+            </div>
+          )}
         </div>
 
-        {data.rsi.length > 0 && (
-          <div className="relative border-t border-zinc-800/60">
-            <div className="absolute top-1.5 left-3 z-10 text-[10px] font-mono text-zinc-600 select-none pointer-events-none">RSI (14)</div>
-            <div ref={rsiRef} className="w-full" style={{ height: 120 }} />
+        {hasRsi && (
+          <div
+            className="absolute left-3 z-10 text-[10px] font-mono text-zinc-600 select-none pointer-events-none"
+            style={{ top: rsiLabelTop + 6 }}
+          >
+            RSI (14)
           </div>
         )}
 
-        {data.stochastic.length > 0 && (
-          <div className="relative border-t border-zinc-800/60">
-            <div className="absolute top-1.5 left-3 z-10 text-[10px] font-mono text-zinc-600 select-none pointer-events-none">
-              Full Stochastic (5, 3, 3)
-            </div>
-            <div ref={stochRef} className="w-full" style={{ height: 120 }} />
+        {hasStochastic && (
+          <div
+            className="absolute left-3 z-10 text-[10px] font-mono text-zinc-600 select-none pointer-events-none"
+            style={{ top: stochLabelTop + 6 }}
+          >
+            Full Stochastic (5, 3, 3)
           </div>
         )}
+
+        <div ref={containerRef} className="w-full" style={{ height: totalHeight }} />
       </div>
     </div>
   );
