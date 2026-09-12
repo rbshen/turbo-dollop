@@ -7,10 +7,12 @@ import { LongTermCard } from "@/components/technical/LongTermCard";
 import { NearTermCard } from "@/components/technical/NearTermCard";
 import { ReversalCard, reversalStatus } from "@/components/technical/ReversalCard";
 import { resolutionStatus, TrendContinuationCard } from "@/components/technical/TrendContinuationCard";
+import { WarrenSignalCard } from "@/components/technical/WarrenSignalCard";
 import { WeinsteinStageCard } from "@/components/technical/WeinsteinStageCard";
 import { useEntrySignal } from "@/lib/hooks/useEntrySignal";
 import { useLiquidityZones } from "@/lib/hooks/useLiquidityZones";
 import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
+import { useWarrenSignal } from "@/lib/hooks/useWarrenSignal";
 import { technicalCardScope } from "@/lib/technicalCardScope";
 import { buildInterpretation } from "@/lib/technicalInterpretation";
 
@@ -26,6 +28,11 @@ export function TechnicalTab({ ticker }: Props) {
   // available) to BbRsiEntrySignalCard, which has its own "not tracked"
   // empty state.
   const { data: entrySignalData } = useEntrySignal(ticker);
+  // Same independent-fetch convention as entrySignalData above -- a
+  // distinct signal_type on the same underlying table, undefined-while-
+  // loading reads the same as null to WarrenSignalCard, which has its own
+  // "not tracked" state.
+  const { data: warrenSignalData } = useWarrenSignal(ticker);
   // Same independent-fetch convention as entrySignalData above -- a fully
   // separate table/endpoint, undefined-while-loading reads the same as
   // null to LiquidityZonesCard, which has its own "not tracked" state.
@@ -76,6 +83,8 @@ export function TechnicalTab({ ticker }: Props) {
       <WeinsteinStageCard data={data} />
 
       <BbRsiEntrySignalCard data={entrySignalData ?? null} />
+
+      <WarrenSignalCard data={warrenSignalData ?? null} />
 
       <LiquidityZonesCard data={liquidityZonesData ?? null} />
 
