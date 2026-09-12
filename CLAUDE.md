@@ -2543,6 +2543,152 @@ accumulating time series a delete would meaningfully shrink. Sweeping an already
 is a cheap no-op (both sweep functions only rewrite rows that still have something to
 clear), so this runs safely every night indefinitely.
 
+## Warren RSI/ADX/WVF entry signal (2h) (Technical)
+
+A fifth, fully independent technical entry-signal lens -- alongside BB+RSI, this is the
+second entry in the technical-signal family, both scoped to the same W1-W5 watchlist union
+and running on the same Yahoo-only 2h adapter. Ported from a reference Pine script
+("ANY TICKER Δ1,3,4") the user described; buy-side (Blue/Yellow/Gray Up), sell-side
+(Blue/Yellow/Gray Down), the trailing stop line, and the gray-suppression state machine are
+all in scope -- not an entry-only subset.
+
+- **A genuinely sequential state machine, unlike BB+RSI's stateless per-bar condition.**
+  `yellowEntryHeld`/`barsSinceYellow`/`yellowCountSinceBlue`/`stopCount`/the
+  gray-suppression latch all carry state forward bar-to-bar, so this can't be evaluated
+  against a single candle in isolation the way `check_buy_signal` can. Resolved by a **full
+  nightly replay from scratch** (`analysis/warren_signal/state_machine.py::replay`) over the
+  full available 2-year Yahoo 60m-interval history (resampled into the same 2h session
+  candles BB+RSI already uses, reusing `analysis/entry_signal/resample.py::
+  build_2h_session_candles` directly) -- intermediate state is discarded after each run, only
+  the resulting events are persisted. This is safe because every input the state machine
+  reads (`rsiValue[1..3]`, the current bar's own low/high/close, and the vectorized
+  RSI/ADX/WVF series feeding those) only ever looks backward -- a strictly causal system, so
+  replaying the same history twice reproduces identical events for the shared prefix
+  (`test_state_machine.py::test_replay_is_deterministic_and_causal_across_reruns`). A direct,
+  real consequence: **unlike BB+RSI, there is no separate one-time backfill script** for this
+  signal -- BB+RSI's own nightly job only ever evaluates the latest trading day (hence needing
+  `pipeline/backfills/backfill_entry_signal_events.py` to populate older history once), while
+  Warren's nightly job already replays everything every night, so its very first run already
+  backfills all available history.
+- **Measured, not assumed, before shipping.** A synthetic full-universe-scale benchmark
+  (indicators via Wilder-smoothed rolling passes + the sequential per-bar loop, ~2016 bars/
+  ticker matching ~2 years of 2h candles) measured **2.3s at today's real W1-W5 union size (98
+  tickers), 11.7s at the theoretical worst case (500, 100/list x 5 lists)** -- compute only.
+  Combined with the ~15s batch Yahoo fetch for the same 2-year window (already measured
+  separately by the BB+RSI historical-backfill investigation), total nightly cost lands around
+  15-30s even worst-case -- not meaningfully expensive, so no incremental-state-persistence
+  complexity was built to work around a cost that doesn't exist.
+- **RSI is deliberately re-implemented, not reused from BB+RSI's own `compute_rsi`.**
+  `analysis/entry_signal/indicators.py::compute_rsi` is EWM-seeded (pandas' `ewm` default,
+  seeded from the first observation) -- a real, working RSI, just not the one Pine's built-in
+  `RSI(14)` computes. Pine's `ta.rsi` uses `ta.rma` internally, which is Wilder-seeded (a plain
+  SMA over the first `length` bars, then recursive `out[t] = (out[t-1] * (length-1) +
+  src[t]) / length`) -- the same convention `analysis/trend_structure/atr.py::compute_atr`
+  already uses for ATR. Since Warren's state machine depends on exact-value threshold
+  crossings (12, 30, 70, 80.81, 84.75), this divergence is load-bearing, not cosmetic --
+  `analysis/warren_signal/indicators.py::wilder_rma` is a new, shared Wilder-smoothing helper
+  (RSI, DMI's DI-smoothing, and ADX's DX-smoothing all use it identically), with its own
+  `compute_rsi_wilder` kept fully separate from BB+RSI's `compute_rsi`.
+  - **One real bug found and fixed during this build**: a plain `.mean()` seed (matching
+    `atr.py`'s own code literally) produced `NaN` for RSI specifically, because `close.diff()`'s
+    structurally-NaN first element poisons a `gain`/`loss` series' seed window in a way
+    `atr.py`'s own `true_range` never hits (its row-wise `max(axis=1)` already drops that same
+    class of leading NaN before `atr.py`'s seed ever sees it). Fixed via `np.nanmean` for the
+    seed instead -- confirmed via `test_compute_rsi_wilder_is_0_for_unbroken_downtrend` and
+    `test_compute_dmi_adx_reads_strongly_bullish_for_a_clean_uptrend`, both of which failed
+    with a `NaN` result before this fix.
+- **Dead code, confirmed rather than assumed.** The reference script's own `pivotLow` (plain,
+  distinct from `pivotLowMajor`/scanOverSold3), `adxBetween`, `wvfBetween`, and
+  `paraHighestHigh`/`paraDrop` are computed in the given spec but never gate any arrow or
+  state transition in the logic that follows -- the same class of dead code as
+  `scanOverSold1`/`scanOverSold2`, which the request itself flagged explicitly. Confirmed with
+  the user before implementation (no access to the actual `.pine` file, only the text
+  description) rather than assumed; not ported.
+- **Storage: a shared "latest state" row, a dedicated events table.** `TechnicalEntrySignal`
+  (BB+RSI's own table) gained 3 nullable columns -- `signal_kind`, `gray_suppressed`,
+  `stop_count` -- always `NULL` for `signal_type="bb_rsi"` rows, populated only for
+  `"warren"`. This reuses the table's existing composite PK
+  (`ticker, signal_type, timeframe`), which its own docstring already anticipated growing
+  into multiple signal types as separate rows. `fired_at`/`rsi`/`close` for a `"warren"` row
+  describe the **latest event of EITHER direction** (buy or sell) -- not buy-only, unlike
+  BB+RSI's own `fired_at` -- and `stop_price` is the **live** `yellowStopPrice` as of the last
+  replayed bar (`WarrenReplayResult.live_stop_price`), which can reflect an earlier-held
+  yellow entry, not necessarily the same bar `signal_kind` fired on.
+  - **History gets its own new table, `WarrenSignalEvent`, not a reuse of
+    `TechnicalEntrySignalEvent`.** Verified algebraically from the given formulas that
+    Warren's Blue-Up (`scanOverSold4`, `rsiValue[1] <= 12`) and Yellow-Up
+    (`scanOverSold3`, a 3-bar oversold recovery pattern) conditions reference different bars'
+    RSI values and can genuinely both be true on the same bar (a sharp V-shaped RSI spike from
+    deeply oversold straight through 30) -- this would collide with
+    `TechnicalEntrySignalEvent`'s existing `UniqueConstraint` on
+    `(ticker, signal_type, timeframe, fired_at)`, which has no `signal_kind` column to
+    disambiguate. `core/db.py`'s migration tooling (`_add_missing_columns`) is
+    additive-column-only -- it cannot alter an existing constraint, and this app has no
+    tooling for a real table-recreate migration. A brand-new table sidesteps this cleanly:
+    `WarrenSignalEvent`'s own `UniqueConstraint` is `(ticker, timeframe, fired_at,
+    signal_kind)` from creation, confirmed load-bearing by
+    `test_warren_signal_data.py::test_same_bar_co_firing_events_produce_two_distinct_rows`
+    and the equivalent Chart-tab test.
+  - **`_upsert` always fully overwrites, unlike BB+RSI's conditional `should_advance` guard.**
+    BB+RSI's nightly job only evaluates the latest day and must avoid erasing a still-relevant
+    prior fire on a quiet night -- Warren's full-replay-every-run design has no such case: the
+    replay result already IS the complete current truth every time, so every field
+    (`fired_at`/`rsi`/`close`/`signal_kind`/`stop_price`/`gray_suppressed`/`stop_count`) is
+    explicitly set every run, `None` when there's no last event. A real bug was caught here
+    during development: an early version omitted the fired-fields from the `UPDATE`'s `SET`
+    clause entirely when there was no last event (mirroring BB+RSI's own convention too
+    closely), which silently retained a stale prior value instead of clearing it -- caught by
+    `test_a_full_replay_always_overwrites_the_prior_state_never_conditionally_advances` before
+    shipping.
+- **`active` is the literal `inTrade` mapping the request asked for**, not a time window:
+  `data/warren_signal_data.py::is_warren_signal_active(signal_kind)` returns whether the
+  latest recorded event (of either direction) was a buy-side arrow (`blue_up`/`yellow_up`/
+  `gray_up`) -- i.e., no sell arrow has fired since. Unlike BB+RSI's
+  `is_entry_signal_active`, this never "expires" on its own; it only changes when a newer
+  event of either direction is recorded.
+- **Cron: a new dedicated job, `pipeline.nightly_warren_signal_calculation`**, scheduled 3:30
+  AM -- the existing gap between Liquidity Zone's 3:25 and `backup_db`'s 3:35, comfortably fits
+  the measured ~15-30s worst-case cost with no need to push `backup_db` later again. A
+  dedicated script rather than folding into `nightly_entry_signal_calculation.py`, for the
+  same "one feature, one script" reasoning the Liquidity Zone job's own entry above gives --
+  doubly justified here since Warren's 2-year-lookback/full-replay shape is fundamentally
+  different from BB+RSI's 60-day/latest-day-only one, even though both share the same W1-W5
+  scope and Yahoo-only adapter. Talks to `yahoo_client` directly (`period="2y"`) rather than
+  `clients/technical_sources.py`'s own `f"{lookback_days}d"` interpolation, which the BB+RSI
+  historical-backfill investigation already found unreliable at this magnitude. Wired into
+  `core/cron_health.py`'s `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS` as the 16th job.
+- **API/UI**: `GET /api/tickers/{ticker}/entry-signal` gained a `signal_type` query param
+  (`"bb_rsi"` default, or `"warren"`) branching to the matching backing read -- one endpoint,
+  two backing reads, matching how the DB itself discriminates by `signal_type`. Chart tab:
+  `ChartMarkerOut` gained a `kind` discriminator (`"bb_rsi"`, or one of Warren's 6 arrow
+  kinds) driving frontend marker styling; `ChartOut` gained a parallel
+  `warren_signal_markers`/`warren_signal_available` pair alongside the existing
+  `entry_signal_markers`/`entry_signal_available` one, rather than merging into it, keeping
+  BB+RSI's own wire shape untouched (same "add a new pair alongside the old one" convention
+  Liquidity Zones' own `zones`/`zones_available` pair already established). Warren's own
+  marker grouping keys on **(bucket, signal_kind)** rather than bucket alone, since two
+  different arrows can genuinely fire on the same bar (see the co-fire schema decision above)
+  and must both render as distinct markers, while multiple fires of the SAME kind in one
+  bucket still collapse to the first (mirrors BB+RSI's own tie-break reasoning).
+  `TickerChart.tsx` renders Warren's markers via a second `createSeriesMarkers` call on the
+  same candle series, styled by a `kind -> {color, shape, position}` lookup (Blue/Yellow/Gray
+  x Up/Down -- Up arrows below the bar, Down arrows above). Technical tab: a new
+  `WarrenSignalCard`, structurally mirroring `BbRsiEntrySignalCard`, surfaces the last
+  signal's kind/timestamp, the live stop line, and the gray-suppression latch with its stop
+  count.
+  - **Found and fixed while wiring this in, not a pre-existing bug**: neither
+    `test_chart_data.py` nor `test_chart_endpoint.py` isolated a fresh engine for
+    `data/warren_signal_data.py`'s own `engine` reference before this feature existed to touch
+    it -- once `get_chart_data` started calling `get_warren_signal_data` unconditionally,
+    every test in both files would have silently read against the real, on-disk
+    `core.db.engine` instead of a fixture value (harmless in practice here, since these tests
+    use fake tickers like `"TEST"`/`"BADTICKER"` that have no real "warren" row either way, but
+    a real violation of this codebase's own engine-isolation convention -- see "Ad-hoc
+    reproduction scripts must not touch the real database" above). Fixed by adding a
+    `_fresh_warren_signal_engine` helper (`test_chart_endpoint.py`) and an autouse
+    `_default_no_warren_signal` fixture (`test_chart_data.py`), mirroring the existing
+    per-module engine-isolation helpers exactly.
+
 ## Workflow rules
 
 - **Plan Mode by default.** Propose a plan and wait for confirmation before
