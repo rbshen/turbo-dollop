@@ -594,7 +594,14 @@ export function TickerChart({ data }: Props) {
         {hasRsi && (
           <div
             className="absolute left-3 z-10 text-[10px] font-mono text-zinc-600 select-none pointer-events-none"
-            style={{ top: rsiLabelTop + 6 }}
+            // +2, not the +6 carried over from the pre-rewrite per-pane divs -- the
+            // overbought reference line (createPriceLine at 70) autoscales with the
+            // pane's own visible RSI range, so it can render close to the pane's top
+            // edge during a real overbought stretch. Sitting closer to that top edge
+            // keeps the label inside lightweight-charts' default ~10% top scale
+            // margin, clear of the line, in the common case -- a tuned-by-eye first
+            // pass, not a computed avoidance.
+            style={{ top: rsiLabelTop + 2 }}
           >
             RSI (14)
           </div>
@@ -603,7 +610,7 @@ export function TickerChart({ data }: Props) {
         {hasStochastic && (
           <div
             className="absolute left-3 z-10 text-[10px] font-mono text-zinc-600 select-none pointer-events-none"
-            style={{ top: stochLabelTop + 6 }}
+            style={{ top: stochLabelTop + 2 }} // see the RSI label's own comment above
           >
             Full Stochastic (5, 3, 3)
           </div>
