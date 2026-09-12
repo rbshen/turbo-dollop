@@ -95,6 +95,17 @@ function computeRightOffset(barCount: number): number {
   return (BASE_RIGHT_OFFSET * barCount) / REFERENCE_D1Y_BAR_COUNT;
 }
 
+// Shared minimum price-scale (y-axis) width across all three stacked panes (price, RSI,
+// Stochastic), so their axis columns render flush/aligned instead of each auto-sizing to
+// its own widest label ("231.00" vs "60.39" vs "75.15"). lightweight-charts'
+// PriceScaleOptions.minimumWidth exists specifically for this "vertical stack of charts"
+// case -- it only raises the floor, so a pane never renders narrower than this, but can
+// still exceed it if it genuinely needs more space. Sized generously for the tracked
+// universe's highest realistic prices (e.g. NVR/AZO trade in the thousands; nothing in
+// the tens of thousands) at this chart's 11px monospace font, plus lightweight-charts'
+// own axis padding.
+const PRICE_SCALE_MIN_WIDTH = 70;
+
 interface OhlcState {
   o: number;
   h: number;
@@ -114,7 +125,7 @@ function makeChartOptions(rightOffset: number, height?: number) {
     grid: { vertLines: { visible: false }, horzLines: { visible: false } },
     handleScroll: false,
     handleScale: false,
-    rightPriceScale: { borderColor: CHART_THEME.border },
+    rightPriceScale: { borderColor: CHART_THEME.border, minimumWidth: PRICE_SCALE_MIN_WIDTH },
     // shiftVisibleRangeOnNewBar defaults to true (a "streaming chart"
     // convenience: auto-scroll to keep showing rightOffset's margin ahead
     // of a genuinely new incoming bar). This chart never streams -- every
