@@ -110,7 +110,7 @@ function computeRightOffset(barCount: number): number {
 // Fixed pixel heights per pane -- unchanged from the three-separate-charts
 // era, just applied via Pane.setHeight() now instead of each chart's own
 // `height` option.
-const MAIN_PANE_HEIGHT = 630;
+const MAIN_PANE_HEIGHT = 520;
 const RSI_PANE_HEIGHT = 120;
 const STOCH_PANE_HEIGHT = 120;
 // lightweight-charts' own pane-separator height (confirmed as a fixed 1px
