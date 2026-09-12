@@ -594,14 +594,14 @@ export function TickerChart({ data }: Props) {
         {hasRsi && (
           <div
             className="absolute left-3 z-10 text-[10px] font-mono text-zinc-600 select-none pointer-events-none"
-            // +2, not the +6 carried over from the pre-rewrite per-pane divs -- the
-            // overbought reference line (createPriceLine at 70) autoscales with the
-            // pane's own visible RSI range, so it can render close to the pane's top
-            // edge during a real overbought stretch. Sitting closer to that top edge
-            // keeps the label inside lightweight-charts' default ~10% top scale
-            // margin, clear of the line, in the common case -- a tuned-by-eye first
-            // pass, not a computed avoidance.
-            style={{ top: rsiLabelTop + 2 }}
+            // top: 0 (the pane's own top edge) -- +2 still overlapped the overbought
+            // reference line (createPriceLine at 70) on a real ticker, confirming the
+            // assumed top scale margin wasn't enough buffer in practice. This is the
+            // most headroom a static offset can give against a line whose y-position
+            // is data-dependent (autoscales with the pane's own visible RSI range); if
+            // it can still reach the true top edge, no static offset can fully clear
+            // it and this would need `series.priceToCoordinate(70)` at render time.
+            style={{ top: rsiLabelTop }}
           >
             RSI (14)
           </div>
@@ -610,7 +610,7 @@ export function TickerChart({ data }: Props) {
         {hasStochastic && (
           <div
             className="absolute left-3 z-10 text-[10px] font-mono text-zinc-600 select-none pointer-events-none"
-            style={{ top: stochLabelTop + 2 }} // see the RSI label's own comment above
+            style={{ top: stochLabelTop }} // see the RSI label's own comment above
           >
             Full Stochastic (5, 3, 3)
           </div>
