@@ -24,7 +24,20 @@ interface Props {
   onSortRulesChange: (rules: SortRule[]) => void;
 }
 
-const HEAD_CLASS = "whitespace-nowrap text-xs font-semibold uppercase tracking-widest text-text-tertiary";
+// Sticky header (2026-09-12): this table has no bounded-height scroll
+// container of its own (unlike FinancialsStatementTable/RatiosTable, which
+// scroll within their own `max-h-[...] overflow-y-auto` wrapper and so stick
+// at `top-0`) -- the Watchlist page scrolls the window/body itself, with
+// TopNav (`components/nav/TopNav.tsx`) pinned at `top-0 z-30` via its own
+// `h-12`. `top-12`/`z-20` matches TickerTabsContainer's own page-scroll
+// sticky convention (same h-12 offset, one z-level below the nav) rather
+// than FinancialsStatementTable's `top-0` one, which doesn't apply here.
+// `bg-surface-2` (matching the header row's own background) is required on
+// each cell, not just the row, since sticky positioning is applied per-`th`
+// -- an unpainted cell would let body rows show through as they scroll
+// underneath.
+const HEAD_CLASS =
+  "sticky top-12 z-20 bg-surface-2 whitespace-nowrap text-xs font-semibold uppercase tracking-widest text-text-tertiary";
 
 // The Analysis column collapses the 4 individual step chips into one
 // overall_score/overall_verdict pill (see the column-order comment below) --
@@ -239,7 +252,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
             <SortableHead field="pe_ratio" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} text-right`}>
               P/E
             </SortableHead>
-            <TableHead className="w-9" />
+            <TableHead className={`${HEAD_CLASS} w-9`} />
           </TableRow>
         </TableHeader>
         <TableBody>
