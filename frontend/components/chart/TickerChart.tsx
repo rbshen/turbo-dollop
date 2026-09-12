@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers, LineStyle } from "lightweight-charts";
 import type { IChartApi, ISeriesApi } from "lightweight-charts";
 import { fmtMoney } from "@/lib/format";
@@ -249,7 +249,7 @@ function addMainSeries(chart: IChartApi, data: ChartOut) {
   // regardless of when the zone actually formed. A LineSeries fed only
   // the bars from formed_at onward naturally starts drawing exactly at
   // that swing point and stops at the last visible bar -- the caller
-  // (see useEffect below) extends each one past the last real bar, into
+  // (see useLayoutEffect below) extends each one past the last real bar, into
   // the rightOffset margin, only AFTER fitContent() has run.
   //
   // Two distinct SeriesOptionsCommon fields govern what shows next to a
@@ -477,6 +477,8 @@ export function TickerChart({ data }: Props) {
   const ohlc = hoverOhlc ?? defaultOhlc;
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const rsiLabelRef = useRef<HTMLDivElement>(null);
+  const stochLabelRef = useRef<HTMLDivElement>(null);
 
   // Pane layout: main is always pane 0; RSI/Stochastic each get the next
   // free pane index only when they have data -- a thin-history ticker
@@ -495,10 +497,19 @@ export function TickerChart({ data }: Props) {
     MAIN_PANE_HEIGHT +
     (hasRsi ? PANE_SEPARATOR_HEIGHT + RSI_PANE_HEIGHT : 0) +
     (hasStochastic ? PANE_SEPARATOR_HEIGHT + STOCH_PANE_HEIGHT : 0);
+  // Pre-layout placeholder only, from the *nominal* pane-height constants -- never
+  // actually visible, since the layout effect below overwrites both labels' real
+  // `top` from the chart's own post-layout paneSize() before the browser paints.
+  // Needed here only because these constants don't equal the chart's real rendered
+  // pane heights (the chart's `height` option must also budget for the shared time
+  // axis row, which these nominal sums never accounted for -- confirmed via
+  // lightweight-charts.development.mjs's _private__adjustSizeImpl, which subtracts
+  // timeAxisHeight from the given `height` before splitting panes), so using them
+  // as a final value silently landed both labels a few px into the wrong pane.
   const rsiLabelTop = MAIN_PANE_HEIGHT + PANE_SEPARATOR_HEIGHT;
   const stochLabelTop = MAIN_PANE_HEIGHT + PANE_SEPARATOR_HEIGHT + (hasRsi ? RSI_PANE_HEIGHT + PANE_SEPARATOR_HEIGHT : 0);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!containerRef.current) return;
 
     // Computed once per data change, from the currently-rendered range's
@@ -533,6 +544,25 @@ export function TickerChart({ data }: Props) {
 
     chart.timeScale().fitContent();
     extendZoneLinesToEdge(chart, zoneLines, data.timeframe);
+
+    // Position the RSI/Stochastic overlay labels from the chart's own real,
+    // post-layout pane geometry (IChartApi.paneSize(), "the plot surface which
+    // excludes time and price scales") rather than the nominal height constants --
+    // see rsiLabelTop/stochLabelTop's own comment above for why those constants
+    // don't match the real rendered pane heights. A direct style write (not React
+    // state) since this value is derived from the chart's own layout, not
+    // something React needs to track, and running inside useLayoutEffect (not
+    // useEffect) means this correction lands before the browser ever paints the
+    // placeholder position.
+    const mainPaneHeight = chart.paneSize(0).height;
+    if (rsiLabelRef.current && rsiPaneIndex !== null) {
+      rsiLabelRef.current.style.top = `${mainPaneHeight + PANE_SEPARATOR_HEIGHT}px`;
+    }
+    if (stochLabelRef.current && stochPaneIndex !== null) {
+      const rsiPaneHeight = rsiPaneIndex !== null ? chart.paneSize(rsiPaneIndex).height : 0;
+      const stochTop = mainPaneHeight + PANE_SEPARATOR_HEIGHT + (rsiPaneIndex !== null ? rsiPaneHeight + PANE_SEPARATOR_HEIGHT : 0);
+      stochLabelRef.current.style.top = `${stochTop}px`;
+    }
 
     // One shared time scale for the whole pane stack means one crosshair
     // callback already covers every pane's data for the same instant --
@@ -593,15 +623,9 @@ export function TickerChart({ data }: Props) {
 
         {hasRsi && (
           <div
+            ref={rsiLabelRef}
             className="absolute left-3 z-10 text-[10px] font-mono text-zinc-600 select-none pointer-events-none"
-            // top: 0 (the pane's own top edge) -- +2 still overlapped the overbought
-            // reference line (createPriceLine at 70) on a real ticker, confirming the
-            // assumed top scale margin wasn't enough buffer in practice. This is the
-            // most headroom a static offset can give against a line whose y-position
-            // is data-dependent (autoscales with the pane's own visible RSI range); if
-            // it can still reach the true top edge, no static offset can fully clear
-            // it and this would need `series.priceToCoordinate(70)` at render time.
-            style={{ top: rsiLabelTop }}
+            style={{ top: rsiLabelTop }} // placeholder; corrected from real pane geometry in the layout effect above
           >
             RSI (14)
           </div>
@@ -609,8 +633,9 @@ export function TickerChart({ data }: Props) {
 
         {hasStochastic && (
           <div
+            ref={stochLabelRef}
             className="absolute left-3 z-10 text-[10px] font-mono text-zinc-600 select-none pointer-events-none"
-            style={{ top: stochLabelTop }} // see the RSI label's own comment above
+            style={{ top: stochLabelTop }} // placeholder; corrected from real pane geometry in the layout effect above
           >
             Full Stochastic (5, 3, 3)
           </div>
