@@ -549,20 +549,42 @@ export function TickerChart({ data }: Props) {
     // post-layout pane geometry (IChartApi.paneSize(), "the plot surface which
     // excludes time and price scales") rather than the nominal height constants --
     // see rsiLabelTop/stochLabelTop's own comment above for why those constants
-    // don't match the real rendered pane heights. A direct style write (not React
-    // state) since this value is derived from the chart's own layout, not
-    // something React needs to track, and running inside useLayoutEffect (not
-    // useEffect) means this correction lands before the browser ever paints the
-    // placeholder position.
-    const mainPaneHeight = chart.paneSize(0).height;
-    if (rsiLabelRef.current && rsiPaneIndex !== null) {
-      rsiLabelRef.current.style.top = `${mainPaneHeight + PANE_SEPARATOR_HEIGHT}px`;
-    }
-    if (stochLabelRef.current && stochPaneIndex !== null) {
-      const rsiPaneHeight = rsiPaneIndex !== null ? chart.paneSize(rsiPaneIndex).height : 0;
-      const stochTop = mainPaneHeight + PANE_SEPARATOR_HEIGHT + (rsiPaneIndex !== null ? rsiPaneHeight + PANE_SEPARATOR_HEIGHT : 0);
-      stochLabelRef.current.style.top = `${stochTop}px`;
-    }
+    // don't match the real rendered pane heights.
+    //
+    // Deferred one animation frame, NOT read synchronously here -- confirmed via
+    // lightweight-charts.development.mjs that paneSize() reads a WIDGET-layer array
+    // (ChartWidget._private__paneWidgets) that's only kept in sync with the model
+    // by _private__syncGuiWithModel(), itself only invoked from the library's own
+    // requestAnimationFrame-scheduled draw (_private__invalidateHandler). A newly
+    // created pane (RSI/Stochastic, via addSeries(..., paneIndex) above) has no
+    // widget yet at this point in the SAME synchronous tick -- confirmed by a real
+    // crash report ("Value is undefined" from paneSize()'s own ensureDefined) --
+    // pane 0 alone never crashed since it already exists from chart construction.
+    // requestAnimationFrame callbacks run in registration order within a frame, and
+    // the library's own sync-triggering RAF was registered earlier in this same
+    // tick (as a side effect of addSeries/setStretchFactor above), so scheduling
+    // ours here guarantees it runs after pane widgets actually exist. This
+    // reintroduces a one-frame flash of the placeholder position -- the very thing
+    // useLayoutEffect was meant to avoid -- but that's a necessary trade-off: the
+    // library's own pane-widget creation is itself RAF-deferred, so there's no way
+    // to read real pane geometry any earlier than this. PaneApi.getHeight() (reads
+    // the model directly, so it wouldn't throw) was considered and rejected: its
+    // value is written by the same RAF-deferred layout pass, so it would silently
+    // return a STALE height instead of crashing -- worse, not better.
+    let labelPositioningCancelled = false;
+    const positionLabelsFromRealPaneGeometry = () => {
+      if (labelPositioningCancelled) return;
+      const mainPaneHeight = chart.paneSize(0).height;
+      if (rsiLabelRef.current && rsiPaneIndex !== null) {
+        rsiLabelRef.current.style.top = `${mainPaneHeight + PANE_SEPARATOR_HEIGHT}px`;
+      }
+      if (stochLabelRef.current && stochPaneIndex !== null) {
+        const rsiPaneHeight = rsiPaneIndex !== null ? chart.paneSize(rsiPaneIndex).height : 0;
+        const stochTop = mainPaneHeight + PANE_SEPARATOR_HEIGHT + (rsiPaneIndex !== null ? rsiPaneHeight + PANE_SEPARATOR_HEIGHT : 0);
+        stochLabelRef.current.style.top = `${stochTop}px`;
+      }
+    };
+    const positionLabelsRafId = requestAnimationFrame(positionLabelsFromRealPaneGeometry);
 
     // One shared time scale for the whole pane stack means one crosshair
     // callback already covers every pane's data for the same instant --
@@ -594,6 +616,8 @@ export function TickerChart({ data }: Props) {
     if (containerRef.current) observer.observe(containerRef.current);
 
     return () => {
+      labelPositioningCancelled = true;
+      cancelAnimationFrame(positionLabelsRafId);
       observer.disconnect();
       chart.remove();
     };
