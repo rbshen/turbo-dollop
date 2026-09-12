@@ -59,9 +59,24 @@ describe("WatchlistTable sticky header", () => {
     );
     for (const cell of document.querySelectorAll("thead th")) {
       expect(cell.className).toContain("sticky");
-      expect(cell.className).toContain("top-12");
+      expect(cell.className).toContain("top-0");
       expect(cell.className).toContain("bg-surface-2");
     }
+  });
+
+  it("gives the table its own bounded, two-axis scroll box (not just overflow-x)", () => {
+    // Regression guard: a container with only `overflow-x-auto` set forces
+    // `overflow-y` to compute as `auto` too (per the CSS overflow spec),
+    // silently making that div -- not the window -- the sticky positioning
+    // context. Since the div's own top edge sits at the header's natural
+    // position, this used to make `top-0`/`top-12` "stuck" immediately,
+    // producing a permanent blank gap instead of a working sticky header.
+    render(
+      <WatchlistTable watchlist={WATCHLIST} rows={ROWS} sortRules={DEFAULT_SORT_RULES} onSortRulesChange={vi.fn()} />
+    );
+    const container = document.querySelector('[data-slot="table-container"]');
+    expect(container?.className).toContain("overflow-auto");
+    expect(container?.className).toMatch(/max-h-/);
   });
 
   it("still cycles sort rules when a sticky header is clicked", () => {

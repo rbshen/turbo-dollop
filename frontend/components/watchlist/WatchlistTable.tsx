@@ -24,20 +24,30 @@ interface Props {
   onSortRulesChange: (rules: SortRule[]) => void;
 }
 
-// Sticky header (2026-09-12): this table has no bounded-height scroll
-// container of its own (unlike FinancialsStatementTable/RatiosTable, which
-// scroll within their own `max-h-[...] overflow-y-auto` wrapper and so stick
-// at `top-0`) -- the Watchlist page scrolls the window/body itself, with
-// TopNav (`components/nav/TopNav.tsx`) pinned at `top-0 z-30` via its own
-// `h-12`. `top-12`/`z-20` matches TickerTabsContainer's own page-scroll
-// sticky convention (same h-12 offset, one z-level below the nav) rather
-// than FinancialsStatementTable's `top-0` one, which doesn't apply here.
+// Sticky header (2026-09-12, fixed same day -- see the Table wrapper's own
+// containerClassName below for what the first version got wrong). This
+// table needs its own bounded-height/overflow-auto scroll box, matching
+// FinancialsStatementTable/RatiosTable's existing convention, rather than
+// trying to stick against the window's own scroll: a `<div>` with only
+// `overflow-x-auto` set (no explicit `overflow-y`) doesn't stay a normal,
+// non-scrolling wrapper the way it looks like it should -- per the CSS
+// overflow spec, mixing `visible` on one axis with anything else on the
+// other forces the `visible` axis to compute as `auto` too, so that div
+// silently becomes its own (unbounded-height, so never-actually-scrolling)
+// vertical scroll container. Sticky positioning then resolves against
+// *that* div, not the window -- and since the div's top edge sits right at
+// the header's own natural position, `top-12`'s 48px offset was already
+// "exceeded" with zero scroll, so the header immediately snapped down 48px
+// leaving a permanent blank gap above it, never actually tracking window
+// scroll. Fixed by making the container an explicit, bounded two-axis
+// scroll box (`max-h-[70vh] overflow-auto`) and stickying at `top-0` within
+// it, exactly like FinancialsStatementTable/RatiosTable already do.
 // `bg-surface-2` (matching the header row's own background) is required on
 // each cell, not just the row, since sticky positioning is applied per-`th`
 // -- an unpainted cell would let body rows show through as they scroll
 // underneath.
 const HEAD_CLASS =
-  "sticky top-12 z-20 bg-surface-2 whitespace-nowrap text-xs font-semibold uppercase tracking-widest text-text-tertiary";
+  "sticky top-0 z-20 bg-surface-2 whitespace-nowrap text-xs font-semibold uppercase tracking-widest text-text-tertiary";
 
 // The Analysis column collapses the 4 individual step chips into one
 // overall_score/overall_verdict pill (see the column-order comment below) --
@@ -214,7 +224,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
 
   return (
     <div className="rounded-lg border border-border-card bg-surface">
-      <Table containerClassName="overflow-x-auto" className="min-w-[1000px] border-separate border-spacing-0">
+      <Table containerClassName="max-h-[70vh] overflow-auto" className="min-w-[1000px] border-separate border-spacing-0">
         <TableHeader>
           <TableRow className="border-border-card bg-surface-2 hover:bg-surface-2">
             <SortableHead field="ticker" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-[250px]`}>
