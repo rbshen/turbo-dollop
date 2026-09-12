@@ -515,11 +515,21 @@ export function TickerChart({ data }: Props) {
     if (stochPaneIndex !== null) addStochasticSeries(chart, data, stochPaneIndex);
 
     // addSeries(..., paneIndex) above already created each pane on demand
-    // -- setHeight() here just locks in the fixed pixel split (630/120/
-    // 120) instead of leaving panes to share space by stretch factor.
-    chart.panes()[0].setHeight(MAIN_PANE_HEIGHT);
-    if (rsiPaneIndex !== null) chart.panes()[rsiPaneIndex].setHeight(RSI_PANE_HEIGHT);
-    if (stochPaneIndex !== null) chart.panes()[stochPaneIndex].setHeight(STOCH_PANE_HEIGHT);
+    // -- setStretchFactor() here locks in the fixed pixel split (630/120/
+    // 120), used as pure ratios since the chart's own `height` option
+    // already fixes the total. Deliberately NOT setHeight(): confirmed via
+    // lightweight-charts.development.mjs that setHeight() (ChartModel.
+    // _internal_changePanesHeight) is a RELATIVE delta-redistribution --
+    // each call nudges every OTHER pane's current height too, so three
+    // sequential setHeight() calls compound (only the LAST pane called
+    // lands exactly on target; earlier ones drift). setStretchFactor() is
+    // a direct, independent assignment with no cross-pane side effects,
+    // so all three panes land on their intended ratio regardless of call
+    // order -- RSI and Stochastic (equal stretch factors) are guaranteed
+    // pixel-identical to each other, not just approximately close.
+    chart.panes()[0].setStretchFactor(MAIN_PANE_HEIGHT);
+    if (rsiPaneIndex !== null) chart.panes()[rsiPaneIndex].setStretchFactor(RSI_PANE_HEIGHT);
+    if (stochPaneIndex !== null) chart.panes()[stochPaneIndex].setStretchFactor(STOCH_PANE_HEIGHT);
 
     chart.timeScale().fitContent();
     extendZoneLinesToEdge(chart, zoneLines, data.timeframe);
@@ -562,8 +572,7 @@ export function TickerChart({ data }: Props) {
   return (
     <div className="rounded-lg border border-border-card">
       <div className="relative bg-zinc-950">
-        <div className="absolute top-2 left-3 z-10 flex flex-col gap-0.5 select-none pointer-events-none">
-          <span className="text-[10px] font-mono font-semibold text-zinc-600">{data.timeframe === "weekly" ? "1W" : "1D"}</span>
+        <div className="absolute top-2 left-3 z-10 select-none pointer-events-none">
           {ohlc && (
             <div className="flex items-center gap-2.5 text-xs font-mono">
               <span className="text-zinc-500">
