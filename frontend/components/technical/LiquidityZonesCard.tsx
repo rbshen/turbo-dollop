@@ -58,23 +58,29 @@ function BlankZoneSlot() {
   );
 }
 
-// Always renders exactly `numSlots` rows -- real zones first, then blank
-// filler slots -- so a side with fewer real zones than the configured cap
-// still occupies the same vertical space as a full side, keeping the
-// current-price divider below it at a fixed row position.
+// Always renders exactly `numSlots` rows, price-ordered high-to-low
+// top-to-bottom so Resistance-above-divider-above-Support reads as one
+// continuous descending price ladder, with the nearest real zone on each
+// side always adjacent to the divider (blanks pushed to the far end,
+// away from current price) -- so a single resistance zone shows up right
+// above the divider, not stranded at the top of the section.
+//
+// Backend (engine.py) already returns support nearest-(highest-)first,
+// i.e. already high-to-low top-to-bottom -- blanks append at the bottom
+// (farthest from the divider). Resistance is nearest-(lowest-)first, the
+// opposite of the display order we want, so it's reversed here (farthest/
+// highest first, nearest/lowest last, right above the divider) with
+// blanks prepended at the top (also farthest from the divider).
 function ZoneList({ zones, tone, numSlots }: { zones: ZoneOut[]; tone: "support" | "resistance"; numSlots: number }) {
   const shown = zones.slice(0, numSlots);
-  const blanks = Math.max(0, numSlots - shown.length);
-  return (
-    <ul className="space-y-1">
-      {shown.map((z) => (
-        <ZoneRow key={`${tone}-${z.price}`} zone={z} tone={tone} />
-      ))}
-      {Array.from({ length: blanks }, (_, i) => (
-        <BlankZoneSlot key={`${tone}-blank-${i}`} />
-      ))}
-    </ul>
-  );
+  const blanks = Array.from({ length: Math.max(0, numSlots - shown.length) }, (_, i) => (
+    <BlankZoneSlot key={`${tone}-blank-${i}`} />
+  ));
+  const rows = (tone === "resistance" ? [...shown].reverse() : shown).map((z) => (
+    <ZoneRow key={`${tone}-${z.price}`} zone={z} tone={tone} />
+  ));
+  const ordered = tone === "resistance" ? [...blanks, ...rows] : [...rows, ...blanks];
+  return <ul className="space-y-1">{ordered}</ul>;
 }
 
 function TimeframeSection({ label, tf, numSlots }: { label: string; tf: LiquidityZoneOut; numSlots: number }) {
