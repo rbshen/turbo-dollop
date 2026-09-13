@@ -8,7 +8,9 @@ from analysis.warren_signal.types import WarrenReplayResult, WarrenSignalEvent a
 from core.models import TechnicalEntrySignal, WarrenSignalEvent
 from data.warren_signal_data import (
     compute_and_store_warren_signal,
+    is_warren_entry_signal_active,
     is_warren_signal_active,
+    last_buy_signal_fired_at,
     prune_warren_signal_events,
     sweep_stale_warren_signals,
 )
@@ -168,6 +170,64 @@ def test_is_warren_signal_active_only_true_for_up_kinds():
         assert is_warren_signal_active(kind) is True
     for kind in ("blue_down", "yellow_down", "gray_down", None):
         assert is_warren_signal_active(kind) is False
+
+
+def test_is_warren_entry_signal_active_excludes_gray_up():
+    # Unlike is_warren_signal_active above, the Screener-filter predicate
+    # must NOT treat a gray-suppressed buy as active.
+    for kind in ("blue_up", "yellow_up"):
+        assert is_warren_entry_signal_active(kind) is True
+    for kind in ("gray_up", "blue_down", "yellow_down", "gray_down", None):
+        assert is_warren_entry_signal_active(kind) is False
+
+
+def test_last_buy_signal_fired_at_returns_max_across_up_kinds_only(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add_all(
+            [
+                WarrenSignalEvent(
+                    ticker="AAPL", timeframe="2h", signal_kind="blue_up",
+                    fired_at=datetime(2026, 1, 5, 11, 30), created_at=datetime(2026, 1, 5, 11, 30),
+                ),
+                # A later sell arrow must not win over an earlier buy arrow.
+                WarrenSignalEvent(
+                    ticker="AAPL", timeframe="2h", signal_kind="blue_down",
+                    fired_at=datetime(2026, 1, 7, 9, 30), created_at=datetime(2026, 1, 7, 9, 30),
+                ),
+                # gray_up counts toward recency (UP_KINDS), unlike the
+                # narrower ACTIVE_BUY_KINDS the filter predicate above uses.
+                WarrenSignalEvent(
+                    ticker="AAPL", timeframe="2h", signal_kind="gray_up",
+                    fired_at=datetime(2026, 1, 6, 13, 30), created_at=datetime(2026, 1, 6, 13, 30),
+                ),
+            ]
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        result = last_buy_signal_fired_at(session, "AAPL")
+
+    assert result == datetime(2026, 1, 6, 13, 30)
+
+
+def test_last_buy_signal_fired_at_is_none_when_no_buy_event_exists(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(
+            WarrenSignalEvent(
+                ticker="AAPL", timeframe="2h", signal_kind="blue_down",
+                fired_at=datetime(2026, 1, 7, 9, 30), created_at=datetime(2026, 1, 7, 9, 30),
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        assert last_buy_signal_fired_at(session, "AAPL") is None
+
+    # Ticker with no rows at all reads the same way.
+    with Session(engine) as session:
+        assert last_buy_signal_fired_at(session, "MSFT") is None
 
 
 def test_sweep_clears_a_stale_warren_row_including_its_own_three_columns(monkeypatch):

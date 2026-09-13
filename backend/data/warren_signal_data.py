@@ -26,9 +26,9 @@ module (not a branch inside that one) since Warren's persistence and
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete, or_, update
+from sqlalchemy import delete, func, or_, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from analysis.entry_signal.resample import build_2h_session_candles
 from analysis.warren_signal.state_machine import UP_KINDS, replay
@@ -60,6 +60,41 @@ def is_warren_signal_active(signal_kind: str | None) -> bool:
     is_entry_signal_active, this has no notion of "expiring" on its own; it
     only changes when a newer event of either direction is recorded."""
     return signal_kind in UP_KINDS
+
+
+# Screener-filter-only subset of UP_KINDS: Gray Up is a genuine buy-side
+# arrow but marks the gray-suppression latch's "don't treat this as a live
+# entry" state, so it must not count as "active" for the Screener's
+# checkbox filter the way it still does for is_warren_signal_active's
+# ticker-page-card purposes above. Recency (last_buy_signal_fired_at below)
+# deliberately keeps using the broader UP_KINDS -- "when did a buy arrow
+# last fire" is a different question than "is the current state
+# actionable right now".
+ACTIVE_BUY_KINDS = frozenset({"blue_up", "yellow_up"})
+
+
+def is_warren_entry_signal_active(signal_kind: str | None) -> bool:
+    """Screener-filter predicate: Blue Up or Yellow Up only, excluding Gray
+    Up -- see ACTIVE_BUY_KINDS above for why this is narrower than
+    is_warren_signal_active."""
+    return signal_kind in ACTIVE_BUY_KINDS
+
+
+def last_buy_signal_fired_at(session: Session, ticker: str) -> datetime | None:
+    """Max fired_at across every WarrenSignalEvent buy-side arrow (Blue/
+    Yellow/Gray Up, i.e. UP_KINDS) ever recorded for this ticker.
+    Deliberately NOT read off TechnicalEntrySignal.fired_at -- that
+    snapshot holds the latest event of EITHER direction (buy or sell), so
+    once a ticker's most recent event is a sell arrow, that field no
+    longer answers "when did a buy last fire" at all; it would silently
+    read as the sell's own timestamp instead. Used to denormalize
+    TickerScore.warren_last_buy_fired_at in ticker_score.py."""
+    return session.exec(
+        select(func.max(WarrenSignalEvent.fired_at)).where(
+            WarrenSignalEvent.ticker == ticker,
+            WarrenSignalEvent.signal_kind.in_(UP_KINDS),
+        )
+    ).one()
 
 
 def _upsert(ticker: str, signal_type: str, timeframe: str, result: WarrenReplayResult, source: str, computed_at: datetime) -> None:
