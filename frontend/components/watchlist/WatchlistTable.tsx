@@ -40,7 +40,7 @@ interface Props {
 // "exceeded" with zero scroll, so the header immediately snapped down 48px
 // leaving a permanent blank gap above it, never actually tracking window
 // scroll. Fixed by making the container an explicit, bounded two-axis
-// scroll box (`max-h-[70vh] overflow-auto`) and stickying at `top-0` within
+// scroll box (`max-h-[80vh] overflow-auto`) and stickying at `top-0` within
 // it, exactly like FinancialsStatementTable/RatiosTable already do.
 // `bg-surface-2` (matching the header row's own background) is required on
 // each cell, not just the row, since sticky positioning is applied per-`th`
@@ -224,7 +224,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
 
   return (
     <div className="rounded-lg border border-border-card bg-surface">
-      <Table containerClassName="max-h-[70vh] overflow-auto" className="min-w-[1000px] border-separate border-spacing-0">
+      <Table containerClassName="max-h-[80vh] overflow-auto" className="min-w-[1000px] border-separate border-spacing-0">
         <TableHeader>
           <TableRow className="border-border-card bg-surface-2 hover:bg-surface-2">
             <SortableHead field="ticker" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-[250px]`}>
