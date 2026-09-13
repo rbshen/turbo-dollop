@@ -22,8 +22,8 @@ from data.ticker_summary import get_summary
 from data.warren_signal_data import (
     DEFAULT_SIGNAL_TYPE as WARREN_SIGNAL_TYPE,
     DEFAULT_TIMEFRAME as WARREN_TIMEFRAME,
-    is_warren_entry_signal_active,
     last_buy_signal_fired_at,
+    warren_active_up_kind,
 )
 
 logger = logging.getLogger(__name__)
@@ -183,7 +183,7 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         reversal_status=reversal_status,
         pullback_status=pullback_status,
         bb_rsi_entry_signal=is_entry_signal_active(entry_signal.fired_at) if entry_signal else None,
-        warren_entry_signal=is_warren_entry_signal_active(warren_signal.signal_kind) if warren_signal else None,
+        warren_active_signal_kind=warren_active_up_kind(warren_signal.signal_kind) if warren_signal else None,
         warren_last_buy_fired_at=warren_last_buy_fired_at,
     )
 

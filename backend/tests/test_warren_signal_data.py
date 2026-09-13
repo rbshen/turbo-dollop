@@ -8,11 +8,11 @@ from analysis.warren_signal.types import WarrenReplayResult, WarrenSignalEvent a
 from core.models import TechnicalEntrySignal, WarrenSignalEvent
 from data.warren_signal_data import (
     compute_and_store_warren_signal,
-    is_warren_entry_signal_active,
     is_warren_signal_active,
     last_buy_signal_fired_at,
     prune_warren_signal_events,
     sweep_stale_warren_signals,
+    warren_active_up_kind,
 )
 
 
@@ -172,13 +172,15 @@ def test_is_warren_signal_active_only_true_for_up_kinds():
         assert is_warren_signal_active(kind) is False
 
 
-def test_is_warren_entry_signal_active_excludes_gray_up():
-    # Unlike is_warren_signal_active above, the Screener-filter predicate
-    # must NOT treat a gray-suppressed buy as active.
-    for kind in ("blue_up", "yellow_up"):
-        assert is_warren_entry_signal_active(kind) is True
-    for kind in ("gray_up", "blue_down", "yellow_down", "gray_down", None):
-        assert is_warren_entry_signal_active(kind) is False
+def test_warren_active_up_kind_returns_the_kind_itself_for_all_three_up_kinds():
+    # Unlike an earlier, narrower Blue+Yellow-only predicate, this
+    # Screener-filter helper treats Gray Up as equally well-defined an
+    # "active" state as Blue/Yellow Up -- it's a fully-formed, distinct
+    # event, not a derived/inferred state.
+    for kind in ("blue_up", "yellow_up", "gray_up"):
+        assert warren_active_up_kind(kind) == kind
+    for kind in ("blue_down", "yellow_down", "gray_down", None):
+        assert warren_active_up_kind(kind) is None
 
 
 def test_last_buy_signal_fired_at_returns_max_across_up_kinds_only(monkeypatch):
@@ -195,8 +197,8 @@ def test_last_buy_signal_fired_at_returns_max_across_up_kinds_only(monkeypatch):
                     ticker="AAPL", timeframe="2h", signal_kind="blue_down",
                     fired_at=datetime(2026, 1, 7, 9, 30), created_at=datetime(2026, 1, 7, 9, 30),
                 ),
-                # gray_up counts toward recency (UP_KINDS), unlike the
-                # narrower ACTIVE_BUY_KINDS the filter predicate above uses.
+                # gray_up counts toward recency (UP_KINDS) exactly the
+                # same as blue_up/yellow_up.
                 WarrenSignalEvent(
                     ticker="AAPL", timeframe="2h", signal_kind="gray_up",
                     fired_at=datetime(2026, 1, 6, 13, 30), created_at=datetime(2026, 1, 6, 13, 30),

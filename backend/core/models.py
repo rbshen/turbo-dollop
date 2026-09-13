@@ -657,24 +657,32 @@ class TickerScore(SQLModel, table=True):
     # (see _add_missing_columns) -- both mean "no signal," not an error.
     bb_rsi_entry_signal: bool | None = None
     # Warren (RSI/ADX/WVF, 2h) technical entry signal -- the DERIVED active
-    # state (data/warren_signal_data.py::is_warren_entry_signal_active on
-    # the matching signal_type="warren" TechnicalEntrySignal row's
-    # signal_kind, same session.get() sibling-read pattern as
-    # bb_rsi_entry_signal above), narrower than Warren's own
-    # is_warren_signal_active (excludes gray_up -- see
-    # is_warren_entry_signal_active's own docstring). None for the
-    # overwhelming majority of tickers, same W1-W5-only scoping as
-    # bb_rsi_entry_signal.
-    warren_entry_signal: bool | None = None
+    # kind (data/warren_signal_data.py::warren_active_up_kind on the
+    # matching signal_type="warren" TechnicalEntrySignal row's signal_kind,
+    # same session.get() sibling-read pattern as bb_rsi_entry_signal
+    # above): "blue_up" / "yellow_up" / "gray_up" when the ticker's latest
+    # recorded event was that specific buy-side arrow with no sell since,
+    # else None. Powers the Screener's 3-option (Blue/Yellow/Gray Up)
+    # multi-select filter -- see warren_active_up_kind's own docstring for
+    # why all three kinds are equally well-defined "currently active"
+    # states, unlike an earlier version of this field that was a single
+    # Blue+Yellow-only boolean excluding Gray Up as a selectable option
+    # entirely. None for the overwhelming majority of tickers, same
+    # W1-W5-only scoping as bb_rsi_entry_signal.
+    warren_active_signal_kind: str | None = None
     # Max fired_at across every WarrenSignalEvent buy-side arrow (Blue/
     # Yellow/Gray Up) ever recorded for this ticker -- data/
     # warren_signal_data.py::last_buy_signal_fired_at, a genuine query
     # against WarrenSignalEvent rather than a copy of
     # TechnicalEntrySignal.fired_at, which holds the latest event of
     # EITHER direction and would misreport recency once a ticker's state
-    # has flipped to a sell arrow since its last buy. None whenever no
-    # buy arrow has ever fired for this ticker (including every ticker
-    # outside W1-W5, same as warren_entry_signal above).
+    # has flipped to a sell arrow since its last buy. Deliberately
+    # independent of warren_active_signal_kind above and of the Screener
+    # filter built on it -- always the combined Blue/Yellow/Gray Up
+    # recency regardless of which kind(s) a user has filtered for. None
+    # whenever no buy arrow has ever fired for this ticker (including
+    # every ticker outside W1-W5, same as warren_active_signal_kind
+    # above).
     warren_last_buy_fired_at: datetime | None = None
 
 

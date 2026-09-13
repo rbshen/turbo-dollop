@@ -924,9 +924,9 @@ class TickerScoreOut(BaseModel):
     # overwhelming majority of tickers -- this signal only ever exists for
     # members of a watchlist named W1 through W5.
     bb_rsi_entry_signal: bool | None = None
-    # See models.py::TickerScore.warren_entry_signal/_last_buy_fired_at.
+    # See models.py::TickerScore.warren_active_signal_kind/_last_buy_fired_at.
     # Same W1-W5-only scoping as bb_rsi_entry_signal.
-    warren_entry_signal: bool | None = None
+    warren_active_signal_kind: str | None = None
     warren_last_buy_fired_at: datetime | None = None
 
 

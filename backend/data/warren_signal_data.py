@@ -62,22 +62,22 @@ def is_warren_signal_active(signal_kind: str | None) -> bool:
     return signal_kind in UP_KINDS
 
 
-# Screener-filter-only subset of UP_KINDS: Gray Up is a genuine buy-side
-# arrow but marks the gray-suppression latch's "don't treat this as a live
-# entry" state, so it must not count as "active" for the Screener's
-# checkbox filter the way it still does for is_warren_signal_active's
-# ticker-page-card purposes above. Recency (last_buy_signal_fired_at below)
-# deliberately keeps using the broader UP_KINDS -- "when did a buy arrow
-# last fire" is a different question than "is the current state
-# actionable right now".
-ACTIVE_BUY_KINDS = frozenset({"blue_up", "yellow_up"})
-
-
-def is_warren_entry_signal_active(signal_kind: str | None) -> bool:
-    """Screener-filter predicate: Blue Up or Yellow Up only, excluding Gray
-    Up -- see ACTIVE_BUY_KINDS above for why this is narrower than
-    is_warren_signal_active."""
-    return signal_kind in ACTIVE_BUY_KINDS
+def warren_active_up_kind(signal_kind: str | None) -> str | None:
+    """The specific Up-kind (blue_up/yellow_up/gray_up) the ticker's
+    current state is actively in, or None if the latest recorded event
+    (if any) was a sell arrow, or nothing has ever fired. All three
+    Up-kinds are symmetric here -- gray_up is emitted as a fully-formed,
+    distinct WarrenSignalEvent at exactly the same point in the replay
+    loop as blue_up/yellow_up (state_machine.py::_replay_from_signals'
+    `gray_up = is_scan3 and yellow_is_gray`), so "the latest recorded
+    event is specifically gray_up, with no sell since" is exactly as
+    well-defined a notion of "currently active" as it already is for
+    blue_up/yellow_up via is_warren_signal_active above -- no separate
+    query or additional state is needed. Powers the Screener's per-kind
+    multi-select filter (TickerScore.warren_active_signal_kind), which
+    replaced an earlier Blue+Yellow-only combined checkbox that excluded
+    Gray Up as a selectable option entirely."""
+    return signal_kind if signal_kind in UP_KINDS else None
 
 
 def last_buy_signal_fired_at(session: Session, ticker: str) -> datetime | None:
