@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { TickerChart } from "@/components/chart/TickerChart";
+import type { ZoomBounds } from "@/components/chart/TickerChart";
 import { useTickerChart } from "@/lib/hooks/useTickerChart";
 import type { ChartRange } from "@/lib/api/types";
 
@@ -120,10 +121,24 @@ export function ChartTab({ ticker }: Props) {
   const signalToggles = toggleState.toggles;
   const { data, error, isLoading } = useTickerChart(ticker, range);
 
+  // Zoom is fully controlled here -- TickerChart owns no zoom state of its own, it
+  // just applies whichever index this is and reports back whether either button
+  // should be enabled (bounds depend on the chart's own live pane width, which only
+  // TickerChart has access to). handleZoomBoundsChange is stable across renders so
+  // TickerChart's zoom-apply effect doesn't re-run purely because ChartTab re-rendered.
+  const [zoomIndex, setZoomIndex] = useState(0);
+  const [zoomBounds, setZoomBounds] = useState<ZoomBounds>({ canZoomIn: true, canZoomOut: false });
+  const handleZoomBoundsChange = useCallback((bounds: ZoomBounds) => setZoomBounds(bounds), []);
+
   function handleToggleChange(key: keyof SignalToggles) {
     const next = { ...signalToggles, [key]: !signalToggles[key] };
     setToggleState({ loaded: true, toggles: next });
     saveSignalToggles(next);
+  }
+
+  function handleRangeChange(next: ChartRange) {
+    setRange(next);
+    setZoomIndex(0); // a new range has its own bar count/fit level -- start back at fitContent()'s equivalent
   }
 
   return (
@@ -139,7 +154,7 @@ export function ChartTab({ ticker }: Props) {
           {RANGE_OPTIONS.map((opt) => (
             <button
               key={opt.key}
-              onClick={() => setRange(opt.key)}
+              onClick={() => handleRangeChange(opt.key)}
               className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
                 range === opt.key ? "bg-zinc-700 text-zinc-100" : "text-text-tertiary hover:text-text-secondary hover:bg-surface-2"
               }`}
@@ -150,19 +165,37 @@ export function ChartTab({ ticker }: Props) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-1">
-        {TOGGLE_OPTIONS.map((opt) => (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1">
+          {TOGGLE_OPTIONS.map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => handleToggleChange(opt.key)}
+              aria-pressed={signalToggles[opt.key]}
+              className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                signalToggles[opt.key] ? "bg-zinc-700 text-zinc-100" : "text-text-tertiary hover:text-text-secondary hover:bg-surface-2"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1">
           <button
-            key={opt.key}
-            onClick={() => handleToggleChange(opt.key)}
-            aria-pressed={signalToggles[opt.key]}
-            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-              signalToggles[opt.key] ? "bg-zinc-700 text-zinc-100" : "text-text-tertiary hover:text-text-secondary hover:bg-surface-2"
-            }`}
+            onClick={() => setZoomIndex((i) => Math.max(0, i - 1))}
+            disabled={!zoomBounds.canZoomOut}
+            className="rounded px-2.5 py-1 text-xs font-medium text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-tertiary"
           >
-            {opt.label}
+            Zoom out
           </button>
-        ))}
+          <button
+            onClick={() => setZoomIndex((i) => i + 1)}
+            disabled={!zoomBounds.canZoomIn}
+            className="rounded px-2.5 py-1 text-xs font-medium text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-tertiary"
+          >
+            Zoom in
+          </button>
+        </div>
       </div>
 
       {error && <p className="py-6 text-sm text-negative">Couldn&apos;t load the chart — {error.message}</p>}
@@ -187,6 +220,8 @@ export function ChartTab({ ticker }: Props) {
           showEma21={signalToggles.ema21}
           showSma50={signalToggles.sma50}
           showSma200={signalToggles.sma200}
+          zoomIndex={zoomIndex}
+          onZoomBoundsChange={handleZoomBoundsChange}
         />
       )}
     </div>

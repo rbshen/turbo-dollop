@@ -107,6 +107,78 @@ function computeRightOffset(barCount: number): number {
   return (BASE_RIGHT_OFFSET * barCount) / REFERENCE_D1Y_BAR_COUNT;
 }
 
+// Pan/zoom bounds, computed directly from the fetched data rather than read back off
+// the timeScale. Root-cause fix for a bug where the old code called
+// chart.timeScale().fitContent() and then SYNCHRONOUSLY read
+// getVisibleLogicalRange() to capture these bounds: fitContent() in
+// lightweight-charts 5.2.0 only queues a deferred InvalidateMask (applied on the next
+// requestAnimationFrame) rather than recomputing barSpacing/rightOffset immediately,
+// so that synchronous read captured the timeScale's PRE-fit state (barSpacing still
+// at the library's hardcoded default of 6, not the true fitted value) -- producing a
+// minFrom far to the right of the true first bar, silently clamping panning ~1-4
+// months short of the true window start depending on pane width/range. Confirmed via
+// a jsdom + real-library harness against live chart data, independent of LP zones and
+// not zoom-level-dependent (the bad value was fixed once at mount).
+//
+// minFrom is always 0: the candle series is confirmed (via a live
+// /api/tickers/{ticker}/chart check) to be the earliest-starting series of the bunch
+// -- no indicator ever has a data point before the first candle -- so index 0 of the
+// shared timeScale is always the true first bar, regardless of pane width or timing.
+// maxTo mirrors exactly what fitContent() was trying to produce (last real bar +
+// the configured right margin); hand-tracing _internal_setVisibleRange's math confirms
+// this is self-correcting at RAF-apply time regardless of the LP zone-line
+// extension's own baseIndex bump below (extendZoneLinesToEdge), since the library
+// derives whatever rightOffset is needed to realize this exact {from,to} using
+// whatever baseIndex is current when the queued range is actually applied.
+function computePanBounds(barCount: number): { minFrom: number; maxTo: number } {
+  return { minFrom: 0, maxTo: barCount - 1 + computeRightOffset(barCount) };
+}
+
+// Shared by the pan-clamp handler (subscribeVisibleLogicalRangeChange, below) and
+// the zoom-level effect: translate {from,to} left/right to bring `to` back under
+// maxTo (preserving the requested width, i.e. the current zoom level/pan gesture),
+// then -- only if that translation would still leave `from` short of minFrom (the
+// requested span is wider than the entire fetched range plus margin) -- clamp
+// `from` up to minFrom outright, which narrows the span. One shared implementation
+// so pan and button-zoom can never drift into two subtly different clamp shapes.
+function clampToPanBounds(from: number, to: number, minFrom: number, maxTo: number): { from: number; to: number } {
+  if (to > maxTo) {
+    from -= to - maxTo;
+    to = maxTo;
+  }
+  if (from < minFrom) {
+    from = minFrom;
+  }
+  return { from, to };
+}
+
+// Fixed ladder of discrete zoom levels, replacing free-form pointer zoom (wheel/
+// pinch/drag-to-scale -- see makeChartOptions' handleScale:false below). Each
+// multiplier scales the range's own "fit" bar spacing (paneWidth / (barCount +
+// rightOffset), i.e. exactly what computePanBounds's maxTo already shows
+// end-to-end) -- so level 0 is always precisely the fit level, which is why
+// "zoom out" naturally has nothing left to do at index 0 (matches the requirement
+// that zoom-out cannot go past the equivalent of fitContent()). Three levels
+// total (one fit + two zoom-in steps), geometric rather than linear spacing --
+// equal RATIOS between consecutive bar-spacing values read as equal perceived
+// zoom steps (bar width is what the eye judges, and halving/doubling a width
+// feels like the same-size jump whether it's 3px->6px or 30px->60px; equal
+// linear increments would instead make the first click feel huge and the second
+// feel trivial). Max zoom-in capped at 4.5x the fit spacing (per explicit
+// request -- 4.5x alone is plenty for this chart's purposes), with the middle
+// level at sqrt(4.5) so both steps are the same ratio apart (1 -> 2.12 -> 4.5,
+// each ~2.12x the previous). Capped at MAX_BAR_SPACING_CAP so a small-bar-count
+// range (e.g. D_6M) can't zoom in to where a single candle swallows most of the pane --
+// canZoomIn's own cap-aware check (see the zoom-apply effect below) disables the
+// button once a level's effective (capped) spacing stops increasing, even if
+// that happens before the ladder's last index.
+const ZOOM_LEVEL_MULTIPLIERS = [1, Math.sqrt(4.5), 4.5];
+const MAX_BAR_SPACING_CAP = 60;
+
+function barSpacingForZoomLevel(fitBarSpacing: number, levelIndex: number): number {
+  return Math.min(fitBarSpacing * ZOOM_LEVEL_MULTIPLIERS[levelIndex], MAX_BAR_SPACING_CAP);
+}
+
 // Fixed pixel heights per pane -- unchanged from the three-separate-charts
 // era, just applied via Pane.setHeight() now instead of each chart's own
 // `height` option.
@@ -155,15 +227,20 @@ function makeChartOptions(rightOffset: number, height: number) {
       panes: { enableResize: false, separatorColor: CHART_THEME.border, separatorHoverColor: CHART_THEME.border },
     },
     grid: { vertLines: { visible: false }, horzLines: { visible: false } },
+    // Click-drag panning stays on (handleScroll); free-form zoom (wheel, pinch,
+    // drag-on-axis-to-scale) is off -- zoom is now exclusively the discrete
+    // Zoom in/out buttons in ChartTab.tsx, stepping through ZOOM_LEVEL_MULTIPLIERS.
+    // Same handleScale:false convention already used in the sibling options_tracker
+    // project's PositionChart.tsx.
     handleScroll: true,
-    handleScale: true,
+    handleScale: false,
     rightPriceScale: { borderColor: CHART_THEME.border, minimumWidth: PRICE_SCALE_MIN_WIDTH },
     // shiftVisibleRangeOnNewBar defaults to true (a "streaming chart"
     // convenience: auto-scroll to keep showing rightOffset's margin ahead
     // of a genuinely new incoming bar). This chart never streams -- every
     // range switch tears down and recreates the whole chart from data
     // fetched once -- but it DOES call series.setData() a second time
-    // after the initial render, to extend LP zone lines into the
+    // after the initial view is set, to extend LP zone lines into the
     // rightOffset margin (see extendZoneLinesToEdge below). Left at its
     // default, that second setData() is indistinguishable from "a new bar
     // arrived," so the model silently scrolls the whole visible window
@@ -211,18 +288,13 @@ function makeChartOptions(rightOffset: number, height: number) {
       rightOffset,
       shiftVisibleRangeOnNewBar: false,
       fixLeftEdge: true,
-      // Zoom bounds. maxBarSpacing caps zoom-IN so a single candle can
-      // never swallow most of the pane. minBarSpacing is a defensive
-      // floor well below any real range's natural fitContent() spacing
-      // (D_2Y, the densest range at ~504 bars, still fits comfortably
-      // above this even on a narrow viewport) -- true zoom-OUT bounding
-      // comes from fixLeftEdge plus the visible-range clamp below, which
-      // together cap the visible span at "everything the range fetched,
-      // plus the existing margin," so minBarSpacing here only guards
-      // against a one-frame flash of over-thin bars before that clamp
-      // corrects it, not the primary bound.
+      // Defensive floor/ceiling only now that zoom is exclusively button-driven
+      // (see ZOOM_LEVEL_MULTIPLIERS/MAX_BAR_SPACING_CAP above) -- the discrete
+      // ladder never asks for a barSpacing outside this range by construction, but
+      // these stay as a backstop against the library's own default-barSpacing
+      // state (6) ever being visible for a frame before the ladder is applied.
       minBarSpacing: 1,
-      maxBarSpacing: 60,
+      maxBarSpacing: MAX_BAR_SPACING_CAP,
     },
     crosshair: { mode: 1 },
     height,
@@ -445,21 +517,21 @@ function futureDateStrings(lastTime: string, count: number, incrementDays: numbe
 // Extends each LP zone's LineSeries from the last real bar into the
 // chart's empty rightOffset margin, so an active zone visually reaches
 // the pane's right edge instead of stopping short (which reads as "this
-// zone ended," not "still active as of today") -- must run AFTER
-// chart.timeScale().fitContent() has already been called using only the
-// REAL bars/indicator series (i.e. before these synthetic points exist),
-// not before or during. This ordering is load-bearing, not incidental:
-// fitContent() always sets the visible right edge to (the LATEST known
-// time value across every series on the chart) + rightOffset -- so if
-// the synthetic extension existed BEFORE fitContent() ran, the margin
-// would just get computed relative to the new, farther-out last point
-// and reappear beyond it, chasing the extension forever. Calling
-// fitContent() first locks in the true edge (lastBar + rightOffset,
-// still a fixed number of bar-slots at this point) from the real data
-// alone; only then do these zone lines grow into that already-fixed
-// space. lightweight-charts' business-day time mode spaces points by
-// ORDINAL position among all distinct known time values, not by real
-// elapsed calendar time (this is what lets it render Friday->Monday with
+// zone ended," not "still active as of today") -- must run AFTER the
+// chart's initial view has already been set (via setVisibleLogicalRange in the
+// mount effect, using the REAL bars/indicator series, i.e. before these synthetic
+// points exist), not before or during. `rightOffset` is passed in as the same
+// value the caller already computed from data.bars.length (computeRightOffset) --
+// deliberately NOT read back from chart.timeScale().options() here, so this
+// function has no dependency on the chart's own (RAF-deferred) state either.
+// This ordering is load-bearing, not incidental: setting the visible range
+// locks in the true edge (lastBar + rightOffset, a fixed number of bar-slots)
+// from the real data alone; only then do these zone lines grow into that
+// already-fixed space -- if the synthetic extension existed first, the edge
+// would be computed relative to the new, farther-out last point and the
+// extension would chase it forever. lightweight-charts' business-day time mode
+// spaces points by ORDINAL position among all distinct known time values, not by
+// real elapsed calendar time (this is what lets it render Friday->Monday with
 // no weekend gap) -- so exactly `rightOffset` new synthetic points are
 // needed for a zone line to reach `rightOffset` bar-slots further right,
 // landing its last point exactly on the already-fixed edge; fewer points
@@ -475,20 +547,18 @@ function futureDateStrings(lastTime: string, count: number, incrementDays: numbe
 // own model uses to detect "a new bar streamed in," and it silently
 // SHIFTS the whole visible window right to keep showing rightOffset's
 // margin ahead of it, rather than just filling the margin in place --
-// re-introducing the same "moving target" problem the fitContent()
-// ordering above was meant to solve, just one level deeper, AND cropping
-// real history off the left edge in the process. Confirmed numerically
-// (not just by re-reading the source): simulating this library's own
-// TimeScale math for a 252-bar/900px chart, the zone line's last point
-// only reached 96.2% of the way to the true edge with the default left
-// on, and landed at exactly 100% with it off -- see this round's commit
-// message for the full numbers.
+// re-introducing the same "moving target" problem the ordering above was
+// meant to solve, just one level deeper, AND cropping real history off the
+// left edge in the process. Confirmed numerically (not just by re-reading
+// the source): simulating this library's own TimeScale math for a
+// 252-bar/900px chart, the zone line's last point only reached 96.2% of the
+// way to the true edge with the default left on, and landed at exactly 100%
+// with it off -- see this round's commit message for the full numbers.
 function extendZoneLinesToEdge(
-  chart: IChartApi,
   zoneLines: { series: ISeriesApi<"Line">; points: { time: string; value: number }[] }[],
-  timeframe: string
+  timeframe: string,
+  rightOffset: number
 ) {
-  const rightOffset = chart.timeScale().options().rightOffset;
   if (!rightOffset || rightOffset <= 0) return;
   // rightOffset is now a per-range-calibrated value (see
   // computeRightOffset) and can be fractional (e.g. W_4Y's ~8.29) --
@@ -564,10 +634,22 @@ function addStochasticSeries(chart: IChartApi, data: ChartOut, paneIndex: number
   addRefLine(kSeries, STOCH_OVERSOLD);
 }
 
+export interface ZoomBounds {
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+}
+
 // Chart-tab-only overlay visibility toggles (see ChartTab.tsx) -- purely additive over the existing series/marker
 // rendering, never touching crosshair sync or pane geometry.
 interface Props extends OverlayVisibility {
   data: ChartOut;
+  // Fully controlled from ChartTab.tsx -- an index into ZOOM_LEVEL_MULTIPLIERS, 0 =
+  // the fitContent()-equivalent fit level. TickerChart owns no zoom state of its
+  // own (no ref/imperative API): this codebase has no existing forwardRef/
+  // useImperativeHandle usage, and a plain controlled-prop pattern is simpler here
+  // since the only cross-component need is "step the index" / "know the bounds."
+  zoomIndex: number;
+  onZoomBoundsChange: (bounds: ZoomBounds) => void;
 }
 
 export function TickerChart({
@@ -580,6 +662,8 @@ export function TickerChart({
   showEma21,
   showSma50,
   showSma200,
+  zoomIndex,
+  onZoomBoundsChange,
 }: Props) {
   // Default OHLC (the latest bar) is a plain derived value, not state --
   // avoids a setState-during-effect render cascade for the common "nothing
@@ -610,6 +694,12 @@ export function TickerChart({
     sma50: ISeriesApi<"Line"> | null;
     sma200: ISeriesApi<"Line"> | null;
   }>({ lpSupport: [], lpResistance: [], bollinger: [], ema21: null, sma50: null, sma200: null });
+  // Populated by the chart-creation effect below with everything the zoom-level
+  // effect (further down) needs to apply a discrete zoom level without recreating
+  // the chart: the chart instance itself, and the analytic pan bounds computed
+  // once from data.bars.length (see computePanBounds's own comment for why these
+  // are never read back off the timeScale).
+  const chartStateRef = useRef<{ chart: IChartApi; minFrom: number; maxTo: number } | null>(null);
 
   // Pane layout: main is always pane 0; RSI/Stochastic each get the next
   // free pane index only when they have data -- a thin-history ticker
@@ -702,54 +792,41 @@ export function TickerChart({
     if (rsiPaneIndex !== null) chart.panes()[rsiPaneIndex].setStretchFactor(RSI_PANE_HEIGHT);
     if (stochPaneIndex !== null) chart.panes()[stochPaneIndex].setStretchFactor(STOCH_PANE_HEIGHT);
 
-    chart.timeScale().fitContent();
-    extendZoneLinesToEdge(chart, zoneLines, data.timeframe);
+    // Analytic pan bounds -- computed directly from data.bars.length/rightOffset,
+    // never read back off the timeScale. See computePanBounds's own comment for
+    // the full root-cause history (a synchronous getVisibleLogicalRange() read
+    // right after fitContent() used to capture the timeScale's pre-fit state,
+    // silently clamping the left edge months short of the true window start).
+    const { minFrom, maxTo } = computePanBounds(data.bars.length);
+    chart.timeScale().setVisibleLogicalRange({ from: minFrom as Logical, to: maxTo as Logical });
+    extendZoneLinesToEdge(zoneLines, data.timeframe, rightOffset);
+    chartStateRef.current = { chart, minFrom, maxTo };
 
     // Bounded right-edge pan/zoom -- see fixLeftEdge/fixRightEdge's own
     // comment on the timeScale options above for why this exists instead
-    // of just setting fixRightEdge:true. The bound is read directly off
-    // the chart's OWN visible range right after fitContent()+
-    // extendZoneLinesToEdge() above (rather than recomputing
-    // computeRightOffset(data.bars.length) independently), so it's
-    // guaranteed to exactly match whatever margin is actually on screen
-    // at that moment -- including the zone-line extension's own
-    // Math.ceil() rounding -- with no risk of the two drifting apart.
-    // A pan/zoom that would push the right edge past this bound is
-    // translated (from and to shifted by the same amount), preserving
-    // the current zoom level, matching fixLeftEdge's own left-edge
-    // behavior; the subsequent left-edge check only fires if that
-    // translation would then push `from` past the first bar (i.e. the
-    // visible span itself is wider than all fetched data plus the
-    // margin), in which case the span is shrunk instead -- this is the
-    // one case fixLeftEdge can't correct on its own, since it only reacts
+    // of just setting fixRightEdge:true. minFrom/maxTo are the same analytic
+    // bounds set above, guaranteed correct at any pane width or zoom level
+    // (no live-read timing dependency -- see computePanBounds). A pan/zoom
+    // that would push the right edge past this bound is translated (from and
+    // to shifted by the same amount), preserving the current zoom level,
+    // matching fixLeftEdge's own left-edge behavior; the subsequent left-edge
+    // check only fires if that translation would then push `from` past the
+    // first bar (i.e. the visible span itself is wider than all fetched data
+    // plus the margin), in which case the span is shrunk instead -- this is
+    // the one case fixLeftEdge can't correct on its own, since it only reacts
     // to genuine user pan/zoom input, not to a range this handler itself
     // just set via setVisibleLogicalRange (which bypasses fixLeftEdge's
-    // own correction pass).
-    const initialVisibleRange = chart.timeScale().getVisibleLogicalRange();
-    let handleVisibleRangeChange: LogicalRangeChangeEventHandler | null = null;
-    if (initialVisibleRange) {
-      const maxTo = initialVisibleRange.to;
-      const minFrom = initialVisibleRange.from;
-      handleVisibleRangeChange = (range) => {
-        if (!range) return;
-        let from: number = range.from;
-        let to: number = range.to;
-        let needsCorrection = false;
-        if (to > maxTo) {
-          from -= to - maxTo;
-          to = maxTo;
-          needsCorrection = true;
-        }
-        if (from < minFrom) {
-          from = minFrom;
-          needsCorrection = true;
-        }
-        if (needsCorrection) {
-          chart.timeScale().setVisibleLogicalRange({ from: from as Logical, to: to as Logical });
-        }
-      };
-      chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
-    }
+    // own correction pass). The zoom-level effect further down (which
+    // applies the button-driven ZOOM_LEVEL_MULTIPLIERS ladder) reuses this
+    // exact same translate-then-shrink shape to stay consistent with pan.
+    const handleVisibleRangeChange: LogicalRangeChangeEventHandler = (range) => {
+      if (!range) return;
+      const clamped = clampToPanBounds(range.from, range.to, minFrom, maxTo);
+      if (clamped.from !== range.from || clamped.to !== range.to) {
+        chart.timeScale().setVisibleLogicalRange({ from: clamped.from as Logical, to: clamped.to as Logical });
+      }
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
 
     // Position the RSI/Stochastic overlay labels from the chart's own real,
     // post-layout pane geometry (IChartApi.paneSize(), "the plot surface which
@@ -825,16 +902,62 @@ export function TickerChart({
       labelPositioningCancelled = true;
       cancelAnimationFrame(positionLabelsRafId);
       observer.disconnect();
-      if (handleVisibleRangeChange) chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
       chart.remove();
       markersApiRef.current = { bbRsi: null, warren: null };
       overlayApiRef.current = { lpSupport: [], lpResistance: [], bollinger: [], ema21: null, sma50: null, sma200: null };
+      chartStateRef.current = null;
     };
     // Every showXxx toggle is intentionally excluded here: they only set the INITIAL visibility at chart creation
     // (read once, via closure); a later toggle flip is handled by the separate effects below via
     // setMarkers()/applyOptions({ visible }), without tearing down and recreating the whole chart.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, totalHeight, rsiPaneIndex, stochPaneIndex]);
+
+  // Applies the button-driven discrete zoom level (see ZOOM_LEVEL_MULTIPLIERS) --
+  // deliberately a separate, lightweight effect from the chart-creation one above
+  // (same "don't recreate the whole chart" reasoning as the showXxx toggle effects
+  // below), keyed on `data` too so it correctly reapplies the CURRENT zoomIndex to
+  // a freshly (re)created chart -- e.g. a background SWR refetch that leaves
+  // zoomIndex untouched still needs this to run against the new chart instance
+  // chartStateRef now points at.
+  useEffect(() => {
+    const state = chartStateRef.current;
+    if (!state) return;
+    const { chart, minFrom, maxTo } = state;
+    const paneWidth = chart.timeScale().width();
+    if (!paneWidth) return;
+
+    const barCount = data.bars.length;
+    const rightOffset = computeRightOffset(barCount);
+    const fitBarSpacing = paneWidth / (barCount + rightOffset);
+    const lastIndex = ZOOM_LEVEL_MULTIPLIERS.length - 1;
+    const clampedIndex = Math.min(Math.max(zoomIndex, 0), lastIndex);
+    const barSpacing = barSpacingForZoomLevel(fitBarSpacing, clampedIndex);
+    const visibleBarCount = paneWidth / barSpacing;
+
+    // Anchor every zoom-level change to the RIGHT edge (`to = maxTo`, the same
+    // last-real-bar + rightOffset margin the initial view and pan clamp already
+    // use), NOT the current pan position -- a deliberate change from this file's
+    // previous behavior (recenter on wherever the user was panned to), which was
+    // the actual bug being fixed here: the dominant case is "looking at the most
+    // recent bars, then zoom," and recentering silently moved the right edge out
+    // of view, forcing an immediate re-pan right just to see today's bar again.
+    // Always anchoring right is the simplest, most predictable rule -- one
+    // behavior, no "was the user close enough to the edge to count as still
+    // there" threshold -- and matches the right edge's existing role as this
+    // chart's canonical resting position (the initial view already opens there).
+    // The tradeoff: a user who deliberately panned left to inspect older history
+    // and then clicks zoom will jump back to the latest bars rather than keep
+    // their scrolled-away position centered -- accepted as the less common case.
+    const { from, to } = clampToPanBounds(maxTo - visibleBarCount, maxTo, minFrom, maxTo);
+    chart.timeScale().setVisibleLogicalRange({ from: from as Logical, to: to as Logical });
+
+    const canZoomOut = clampedIndex > 0;
+    const nextIndex = clampedIndex + 1;
+    const canZoomIn = nextIndex <= lastIndex && barSpacingForZoomLevel(fitBarSpacing, nextIndex) > barSpacing;
+    onZoomBoundsChange({ canZoomIn, canZoomOut });
+  }, [data, zoomIndex, onZoomBoundsChange]);
 
   // Syncs marker/series visibility on a toggle flip alone -- deliberately not combined with the chart-creation
   // effect above, which would otherwise tear down and recreate the whole chart (losing crosshair state, pane
