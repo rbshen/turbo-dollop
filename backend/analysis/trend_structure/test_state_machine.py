@@ -172,3 +172,58 @@ def test_pullback_occurred_since_flip_persists_across_a_second_later_warning():
 
     assert state.warning_flag is True
     assert state.pullback_occurred_since_flip is True
+
+
+def test_bootstrap_sets_flip_swing_as_a_lower_bound_when_no_real_flip_ever_occurs():
+    """No genuine flip anywhere in this classified history -- the current
+    trend covers the ticker's entire available history, so flip_swing falls
+    back to the very first classified swing, flagged as a lower bound (the
+    true start may predate the cached data) rather than left null."""
+    classified = [_cs(0, "HH", 1.2), _cs(5, "HL", 0.8), _cs(10, "HH", 1.1)]
+
+    state = run_state_machine(classified)
+
+    assert state.flip_swing is not None
+    assert state.flip_swing.date == classified[0].swing.date
+    assert state.flip_swing_is_lower_bound is True
+
+
+def test_genuine_flip_sets_flip_swing_and_clears_the_lower_bound_flag():
+    classified = [
+        _cs(0, "HH", 1.2),  # bootstraps uptrend -- flip_swing is a lower bound here
+        _cs(5, "HL", 0.8),
+        _cs(10, "LL", 1.3),  # genuine confirmed flip to downtrend
+    ]
+
+    state = run_state_machine(classified)
+
+    assert state.trend_state == "downtrend"
+    assert state.flip_swing is not None
+    assert state.flip_swing.date == classified[2].swing.date  # the actual flip trigger, not the bootstrap swing
+    assert state.flip_swing.classification == "LL"
+    assert state.flip_swing_is_lower_bound is False
+
+
+def test_flip_swing_stays_at_the_most_recent_flip_across_further_confirming_moves():
+    """flip_swing must not drift to the latest confirming swing the way
+    last_confirmed_swing does -- it's pinned to the flip itself."""
+    classified = [
+        _cs(0, "LL", 1.2),  # bootstraps downtrend
+        _cs(5, "HH", 1.4),  # genuine flip to uptrend
+        _cs(10, "HL", 0.9),  # ordinary confirming move -- must not move flip_swing
+        _cs(15, "HH", 1.6),  # another confirming move
+    ]
+
+    state = run_state_machine(classified)
+
+    assert state.persistence_count == 3
+    assert state.last_confirmed_swing.date == classified[3].swing.date
+    assert state.flip_swing.date == classified[1].swing.date
+    assert state.flip_swing_is_lower_bound is False
+
+
+def test_empty_classified_list_leaves_flip_swing_unset():
+    state = run_state_machine([])
+
+    assert state.flip_swing is None
+    assert state.flip_swing_is_lower_bound is False

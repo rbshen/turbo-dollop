@@ -49,6 +49,15 @@ export function formatWeinsteinSince(sinceDate: string, isLowerBound: boolean, f
   return isLowerBound ? `Since at least ${fmtDate(sinceDate)}` : `Since ${fmtDate(sinceDate)}`;
 }
 
+// Same data-visibility caveat wording as NearTermCard.tsx's
+// TREND_STARTED_LOWER_BOUND_CAVEAT, for the identical shape of problem on a
+// different lens (weekly stage vs. daily trend) -- shown alongside
+// formatWeinsteinSince's "at least" framing wherever isLowerBound is true,
+// so both "since" readings a user might encounter on this tab explain
+// themselves the same way rather than one being a bare, unexplained date.
+export const WEINSTEIN_LOWER_BOUND_CAVEAT =
+  "Data starts here — the stage may have begun earlier than our price history shows.";
+
 // Distinguishes WHY weinstein_stage is null -- found necessary after a real
 // incident (CTAS/ABNB, 2026-09-06) where a stale, never-reprocessed row's
 // null stage was indistinguishable in the UI from a genuine data gap, even

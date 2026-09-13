@@ -20,24 +20,34 @@ const REGIME_LABEL: Record<string, string> = {
   "range-bound": "Range-bound",
 };
 
-// "Turned up on"/"Turned down on" -- worded per trend direction so the date
-// beneath it is never misread as measuring something it doesn't (this is
-// last_confirmed_swing's own date, i.e. when the CURRENT trend direction was
-// last confirmed or re-confirmed, not necessarily the original flip).
-export function turnedOnLabel(trendState: TrendAnalysisOut["trend_state"]): string {
-  return trendState === "uptrend" ? "Turned up on" : "Turned down on";
+// "Trend started"/"Trending since at least" -- the same lower-bound framing
+// Weinstein Stage Analysis already uses for its own stage_since_date (see
+// lib/weinsteinStage.ts::formatWeinsteinSince and
+// WEINSTEIN_LOWER_BOUND_CAVEAT), applied here to trend_started: a true
+// isLowerBound means no genuine flip has occurred anywhere in this ticker's
+// available cached history, so the date shown is the earliest we can see,
+// not necessarily when the trend actually began.
+export function trendStartedLabel(isLowerBound: boolean): string {
+  return isLowerBound ? "Trending since at least" : "Trend started";
 }
 
-function NearTermStat({ label, value }: { label: string; value: string }) {
+export const TREND_STARTED_LOWER_BOUND_CAVEAT =
+  "Our price history starts here — the trend may have begun earlier than this date shows.";
+
+function NearTermStat({ label, value, caption }: { label: string; value: string; caption?: string }) {
   return (
     <div className="min-w-[9rem] space-y-1">
       <p className="text-xs text-text-tertiary">{label}</p>
       <p className="font-mono text-sm font-semibold tabular-nums text-text-primary">{value}</p>
+      {caption && <p className="max-w-[16rem] text-[11px] text-text-tertiary">{caption}</p>}
     </div>
   );
 }
 
 export function NearTermCard({ data }: Props) {
+  const trendStarted = data.trend_started;
+  const trendStartedIsLowerBound = data.trend_started_is_lower_bound === true;
+
   return (
     <div className="space-y-4 rounded-lg border border-border-card bg-surface p-6">
       <div className="space-y-1">
@@ -52,7 +62,12 @@ export function NearTermCard({ data }: Props) {
 
       <div className="flex flex-wrap gap-x-8 gap-y-4 border-t border-border-subtle pt-4">
         <NearTermStat
-          label={turnedOnLabel(data.trend_state)}
+          label={trendStartedLabel(trendStartedIsLowerBound)}
+          value={trendStarted ? fmtSwingDate(trendStarted.date) : "—"}
+          caption={trendStarted && trendStartedIsLowerBound ? TREND_STARTED_LOWER_BOUND_CAVEAT : undefined}
+        />
+        <NearTermStat
+          label="Last confirming move"
           value={data.last_confirmed_swing ? fmtSwingDate(data.last_confirmed_swing.date) : "—"}
         />
         <NearTermStat label="Confirming moves so far" value={String(data.persistence_count)} />

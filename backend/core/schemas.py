@@ -1039,6 +1039,16 @@ class TrendAnalysisOut(BaseModel):
     # comment. Nullable for the same pre-existing-row reason as
     # ad_bullish_divergence/sma*_cross above.
     pullback_occurred_since_flip: bool | None = None
+    # The swing that triggered trend_state's own most recent genuine flip.
+    # trend_started_is_lower_bound=True means no genuine flip has occurred
+    # anywhere in the ticker's available cached history -- the current
+    # trend covers the entire history, so this date is the earliest we can
+    # see, not necessarily the true start (mirrors
+    # weinstein_stage_since_date/_is_lower_bound's identical convention).
+    # Both null for a row computed before this field existed (same
+    # migration-safety convention as pullback_occurred_since_flip above).
+    trend_started: SwingDetailOut | None = None
+    trend_started_is_lower_bound: bool | None = None
     efficiency_ratio: float | None = None
     regime: str | None = None  # "trending" | "range-bound" | None
     blended_score: float

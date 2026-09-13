@@ -80,6 +80,20 @@ class TrendMachineState:
     # swing) deliberately leaves this True -- that's a resolved pullback,
     # not "none occurred."
     pullback_occurred_since_flip: bool = False
+    # The swing that triggered the CURRENT trend_state's own most recent
+    # genuine flip (set in the flip branch below, the same `cs` that also
+    # becomes last_confirmed_swing there). Also set on the initial bootstrap
+    # -- see run_state_machine's own comment -- since the bootstrap swing IS
+    # what "started" the very first trend segment, even though it isn't a
+    # rule-driven flip; flip_swing_is_lower_bound distinguishes the two
+    # cases: True only for a bootstrap value that no later genuine flip has
+    # ever overwritten (the current trend covers the ticker's ENTIRE
+    # available classified history), meaning the true start may predate the
+    # cached data -- mirrors WeinsteinStageResult.stage_since_date/
+    # _is_lower_bound's identical "report the earliest available point as a
+    # lower bound rather than leaving this null" convention.
+    flip_swing: SwingDetail | None = None
+    flip_swing_is_lower_bound: bool = False
 
 
 def run_state_machine(classified: list[ClassifiedSwing]) -> TrendMachineState:
@@ -108,6 +122,8 @@ def run_state_machine(classified: list[ClassifiedSwing]) -> TrendMachineState:
         last_confirmed_swing=None,
         warning_flag=False,
         warning_swing=None,
+        flip_swing=_to_detail(classified[0]),
+        flip_swing_is_lower_bound=True,
     )
 
     for cs in classified:
@@ -139,6 +155,8 @@ def run_state_machine(classified: list[ClassifiedSwing]) -> TrendMachineState:
             state.warning_flag = False
             state.warning_swing = None
             state.pullback_occurred_since_flip = False
+            state.flip_swing = _to_detail(cs)
+            state.flip_swing_is_lower_bound = False
         elif not is_primary:
             # "A confirmed LH or HL -- regardless of ratio -- does NOT flip
             # trend_state; it only sets warning_flag=true with its own

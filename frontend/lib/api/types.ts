@@ -1091,6 +1091,16 @@ export interface TrendAnalysisOut {
   // above) -- a fresh compute always populates it. See backend's
   // models.py::TrendAnalysis for the full rationale.
   pullback_occurred_since_flip: boolean | null;
+  // The swing that triggered trend_state's own most recent genuine flip.
+  // trend_started_is_lower_bound=true means no genuine flip has occurred
+  // anywhere in the ticker's available cached history -- the current trend
+  // covers the entire history, so this date is the earliest we can see,
+  // not necessarily the true start (mirrors weinstein_stage_since_date/
+  // _is_lower_bound's identical convention below). Both null for a row
+  // computed before this field existed (same migration-safety convention
+  // as pullback_occurred_since_flip above).
+  trend_started: SwingDetailOut | null;
+  trend_started_is_lower_bound: boolean | null;
   efficiency_ratio: number | null;
   regime: "trending" | "range-bound" | null;
   blended_score: number;

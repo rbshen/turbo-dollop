@@ -1,5 +1,12 @@
 import { fmtSwingDate } from "@/components/technical/ChecklistCard";
-import { formatWeinsteinSince, WEINSTEIN_STAGE_LABEL, WEINSTEIN_STAGE_STYLES_CHIP, WEINSTEIN_STAGE_STYLES_FLAT, type WeinsteinStage } from "@/lib/weinsteinStage";
+import {
+  formatWeinsteinSince,
+  WEINSTEIN_LOWER_BOUND_CAVEAT,
+  WEINSTEIN_STAGE_LABEL,
+  WEINSTEIN_STAGE_STYLES_CHIP,
+  WEINSTEIN_STAGE_STYLES_FLAT,
+  type WeinsteinStage,
+} from "@/lib/weinsteinStage";
 import { cn } from "@/lib/utils";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
@@ -44,6 +51,9 @@ function buildTooltip(data: WeinsteinStagePillData): string {
   const lines: string[] = [];
   if (data.weinstein_stage_since_date) {
     lines.push(formatWeinsteinSince(data.weinstein_stage_since_date, data.weinstein_stage_since_is_lower_bound ?? false, fmtSwingDate));
+    if (data.weinstein_stage_since_is_lower_bound) {
+      lines.push(WEINSTEIN_LOWER_BOUND_CAVEAT);
+    }
   }
   if (data.weinstein_ma_slope_pct != null) {
     lines.push(`30-wk MA slope: ${data.weinstein_ma_slope_pct >= 0 ? "+" : ""}${data.weinstein_ma_slope_pct.toFixed(1)}%`);

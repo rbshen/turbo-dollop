@@ -1,5 +1,11 @@
 import { ChecklistCard, fmtSwingDate, type ChecklistItem } from "@/components/technical/ChecklistCard";
-import { formatWeinsteinSince, weinsteinUnavailableReason, WEINSTEIN_STAGE_LABEL, WEINSTEIN_STAGE_STYLES_CHIP } from "@/lib/weinsteinStage";
+import {
+  formatWeinsteinSince,
+  weinsteinUnavailableReason,
+  WEINSTEIN_LOWER_BOUND_CAVEAT,
+  WEINSTEIN_STAGE_LABEL,
+  WEINSTEIN_STAGE_STYLES_CHIP,
+} from "@/lib/weinsteinStage";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
 interface Props {
@@ -49,6 +55,7 @@ export function WeinsteinStageCard({ data }: Props) {
         ? formatWeinsteinSince(data.weinstein_stage_since_date, data.weinstein_stage_since_is_lower_bound ?? false, fmtSwingDate)
         : "—",
       toneClass: "text-text-tertiary",
+      detail: data.weinstein_stage_since_date && data.weinstein_stage_since_is_lower_bound ? WEINSTEIN_LOWER_BOUND_CAVEAT : undefined,
     },
     {
       key: "ma-slope",

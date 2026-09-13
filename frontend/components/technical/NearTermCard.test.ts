@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { turnedOnLabel } from "@/components/technical/NearTermCard";
+import { trendStartedLabel } from "@/components/technical/NearTermCard";
 
-describe("turnedOnLabel", () => {
-  it("reads 'Turned up on' for an uptrend", () => {
-    expect(turnedOnLabel("uptrend")).toBe("Turned up on");
+describe("trendStartedLabel", () => {
+  it("reads 'Trend started' when the flip date is precisely known", () => {
+    expect(trendStartedLabel(false)).toBe("Trend started");
   });
 
-  it("reads 'Turned down on' for a downtrend", () => {
-    expect(turnedOnLabel("downtrend")).toBe("Turned down on");
+  it("reads 'Trending since at least' when the current trend has never actually flipped -- the true start may predate the cached history", () => {
+    expect(trendStartedLabel(true)).toBe("Trending since at least");
   });
 });

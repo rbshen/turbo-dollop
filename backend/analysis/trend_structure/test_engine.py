@@ -42,6 +42,9 @@ def test_compute_trend_structure_produces_a_fully_populated_result():
     # slightly past +10.0 -- see conviction.py's own note on this.
     assert -10.0 <= result.blended_score <= 11.5
     assert isinstance(result.pullback_occurred_since_flip, bool)
+    assert isinstance(result.trend_started_is_lower_bound, bool)
+    if result.trend_started is not None:
+        assert isinstance(result.trend_started.date, date)
     assert isinstance(result.ad_bullish_divergence, bool)
     assert result.ad_divergence_swing_date is None or isinstance(result.ad_divergence_swing_date, date)
     # SMA position tracking -- 150 bars of history clears all three windows
@@ -197,3 +200,35 @@ def test_ad_bullish_divergence_selects_the_most_recent_confirmed_ll_and_boosts_b
 
     assert result_no_divergence.ad_bullish_divergence is False
     assert result.blended_score > result_no_divergence.blended_score
+
+
+def test_trend_started_is_copied_from_the_state_machines_flip_swing(monkeypatch):
+    """Wiring test: compute_trend_structure must surface
+    TrendMachineState.flip_swing/flip_swing_is_lower_bound as
+    trend_started/trend_started_is_lower_bound verbatim -- state_machine.py's
+    own tests cover the actual flip-detection logic, this just confirms the
+    engine doesn't drop or rename the values in transit."""
+    import analysis.trend_structure.engine as engine_module
+    from analysis.trend_structure.state_machine import TrendMachineState
+    from analysis.trend_structure.types import SwingDetail
+
+    flip_swing = SwingDetail(date=date(2024, 2, 1), price=85.0, margin=5.0, atr=1.0, ratio=5.0, classification="HH")
+    state = TrendMachineState(
+        trend_state="uptrend",
+        magnitude_tier="strong",
+        persistence_count=3,
+        last_confirmed_swing=flip_swing,
+        warning_flag=False,
+        warning_swing=None,
+        flip_swing=flip_swing,
+        flip_swing_is_lower_bound=True,
+    )
+
+    ohlcv = _synthetic_ohlcv()
+    monkeypatch.setattr(engine_module, "classify_swings", lambda swings, atr_by_date, chaikin_osc: [])
+    monkeypatch.setattr(engine_module, "run_state_machine", lambda classified_arg: state)
+
+    result = engine_module.compute_trend_structure(ohlcv)
+
+    assert result.trend_started is flip_swing
+    assert result.trend_started_is_lower_bound is True

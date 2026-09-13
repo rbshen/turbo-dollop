@@ -76,6 +76,18 @@ class TrendStructureResult:
     # -- both of which otherwise read identically as warning_flag=False (see
     # state_machine.py::run_state_machine).
     pullback_occurred_since_flip: bool
+    # The swing that triggered the CURRENT trend_state's own most recent
+    # genuine flip -- renamed from state_machine.py's own `flip_swing` at
+    # this boundary (this is the "public" shape TrendAnalysisOut mirrors,
+    # where the API/UI vocabulary is "when did the trend start," not
+    # "which swing flipped it"). trend_started_is_lower_bound=True means no
+    # genuine flip has ever occurred anywhere in the ticker's available
+    # classified history -- the current trend covers the entire history, so
+    # this date is the earliest we can see, not necessarily the true start
+    # (mirrors WeinsteinStageResult.stage_since_date/_is_lower_bound's
+    # identical convention for the same shape of problem).
+    trend_started: SwingDetail | None
+    trend_started_is_lower_bound: bool
     efficiency_ratio: float | None
     regime: Regime | None
     blended_score: float

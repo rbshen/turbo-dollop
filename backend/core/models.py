@@ -87,6 +87,17 @@ class TrendAnalysis(SQLModel, table=True):
     # usual _add_missing_columns-has-no-backfill reason: a pre-existing row
     # reads NULL until the next nightly run rewrites it.
     pullback_occurred_since_flip: bool | None = None
+    # The swing that triggered trend_state's own most recent genuine flip
+    # (see analysis/trend_structure/state_machine.py::TrendMachineState.
+    # flip_swing). trend_started_is_lower_bound=True means no genuine flip
+    # has occurred anywhere in the ticker's available cached history -- the
+    # current trend covers the entire history, so this date is the
+    # earliest we can see, not necessarily the true start (mirrors
+    # weinstein_stage_since_date/_is_lower_bound's identical convention).
+    # Nullable for the same _add_missing_columns-has-no-backfill reason as
+    # pullback_occurred_since_flip above.
+    trend_started_json: str | None = None
+    trend_started_is_lower_bound: bool | None = None
     efficiency_ratio: float | None = None
     regime: str | None = None  # "trending" | "range-bound" | None
     blended_score: float
