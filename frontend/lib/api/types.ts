@@ -551,6 +551,12 @@ export interface TickerScoreOut {
   // majority of tickers -- this signal only ever exists for
   // members of a watchlist named W1 through W5.
   bb_rsi_entry_signal: boolean | null;
+  // See TickerScore.warren_entry_signal -- Blue Up or Yellow Up only,
+  // excluding Gray Up (the gray-suppressed state). Same W1-W5-only
+  // scoping as bb_rsi_entry_signal.
+  warren_entry_signal: boolean | null;
+  // See TickerScore.warren_last_buy_fired_at.
+  warren_last_buy_fired_at: string | null;
 }
 
 export type ScreenerUniverse = "sp500" | "dow" | "all";

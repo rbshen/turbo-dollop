@@ -56,6 +56,15 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
           />
           BB + RSI entry (2h)
         </label>
+        <label className="flex h-8 items-center gap-1.5 rounded-md border border-border-input px-2 text-xs font-medium text-text-secondary">
+          <input
+            type="checkbox"
+            checked={filters.warrenEntrySignal}
+            onChange={(e) => patch({ warrenEntrySignal: e.target.checked })}
+            className="size-3.5 rounded-sm border-border-input accent-chart-purple"
+          />
+          Warren entry (2h)
+        </label>
         <p className="text-xs text-text-tertiary">Only ever matches tickers on a watchlist named W1 through W5.</p>
       </div>
     </CollapsibleFilterSection>

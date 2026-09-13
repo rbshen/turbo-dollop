@@ -154,6 +154,12 @@ export interface ScreenerFilterState {
   // a watchlist named W1 through W5 (see TechnicalFilters.tsx's
   // own caption), since bb_rsi_entry_signal is null for every other ticker.
   bbRsiEntrySignal: boolean;
+  // Same shape/scoping as bbRsiEntrySignal above -- matches
+  // warren_entry_signal (Blue Up or Yellow Up combined; Gray Up is
+  // deliberately excluded, see TickerScore.warren_entry_signal's own
+  // comment), not a Weinstein-style multi-select over Warren's signal
+  // kinds.
+  warrenEntrySignal: boolean;
 }
 
 export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
@@ -176,6 +182,7 @@ export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
   pullbackStatuses: [],
   speculativeGrowth: false,
   bbRsiEntrySignal: false,
+  warrenEntrySignal: false,
 };
 
 // A range filter is only "active" if min or max is actually set -- an
@@ -232,6 +239,7 @@ export function filterTickerScores(
     }
     if (filters.speculativeGrowth && !row.speculative_growth_qualifies) return false;
     if (filters.bbRsiEntrySignal && !row.bb_rsi_entry_signal) return false;
+    if (filters.warrenEntrySignal && !row.warren_entry_signal) return false;
     return true;
   });
 }

@@ -48,6 +48,8 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     reversal_status: null,
     pullback_status: null,
     bb_rsi_entry_signal: null,
+    warren_entry_signal: null,
+    warren_last_buy_fired_at: null,
     ...overrides,
   };
 }
@@ -309,6 +311,25 @@ describe("filterTickerScores", () => {
     ];
     const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, speculativeGrowth: true };
     expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["QUALIFIES"]);
+  });
+
+  it("does not filter by Warren entry when the checkbox is unchecked (default)", () => {
+    const rows = [
+      row({ ticker: "ACTIVE", warren_entry_signal: true }),
+      row({ ticker: "INACTIVE", warren_entry_signal: false }),
+      row({ ticker: "PREDATES_FIELD", warren_entry_signal: null }),
+    ];
+    expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(3);
+  });
+
+  it("shows only warren_entry_signal=true tickers when the Warren entry checkbox is checked", () => {
+    const rows = [
+      row({ ticker: "ACTIVE", warren_entry_signal: true }),
+      row({ ticker: "INACTIVE", warren_entry_signal: false }),
+      row({ ticker: "PREDATES_FIELD", warren_entry_signal: null }),
+    ];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, warrenEntrySignal: true };
+    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["ACTIVE"]);
   });
 });
 
