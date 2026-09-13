@@ -1014,6 +1014,16 @@ class SwingDetailOut(BaseModel):
     classification: Literal["HH", "HL", "LH", "LL"] | None = None
 
 
+class PullbackCycleOut(BaseModel):
+    """One completed warning-to-resolution pullback cycle within the
+    ticker's CURRENT trend. See
+    analysis/trend_structure/types.py::PullbackCycle and
+    TrendAnalysisOut.pullback_history's own comment for the full contract."""
+
+    warning_swing: SwingDetailOut
+    resolving_swing: SwingDetailOut
+
+
 class TrendAnalysisOut(BaseModel):
     """Latest trend-structure analysis for one ticker -- see
     analysis/trend_structure/ for the full swing/BOS/blended-score
@@ -1049,6 +1059,15 @@ class TrendAnalysisOut(BaseModel):
     # migration-safety convention as pullback_occurred_since_flip above).
     trend_started: SwingDetailOut | None = None
     trend_started_is_lower_bound: bool | None = None
+    # Every pullback cycle that has resolved within the CURRENT trend (i.e.
+    # since trend_started), oldest first -- reset empty on every genuine
+    # flip, same trigger as trend_started/pullback_occurred_since_flip's
+    # own reset. A still-pending (unresolved) warning is not in this list,
+    # only warning_flag/warning_swing describe that. Empty list (not null)
+    # for a row computed before this field existed, since an empty history
+    # is indistinguishable from "genuinely none yet" either way -- no
+    # migration-safety null needed here, unlike the other Phase-1 fields.
+    pullback_history: list[PullbackCycleOut] = []
     efficiency_ratio: float | None = None
     regime: str | None = None  # "trending" | "range-bound" | None
     blended_score: float

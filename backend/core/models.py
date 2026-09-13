@@ -98,6 +98,18 @@ class TrendAnalysis(SQLModel, table=True):
     # pullback_occurred_since_flip above.
     trend_started_json: str | None = None
     trend_started_is_lower_bound: bool | None = None
+    # Every pullback cycle that has resolved within the CURRENT trend --
+    # see analysis/trend_structure/state_machine.py::TrendMachineState.
+    # pullback_history and TrendAnalysisOut.pullback_history's own comments
+    # for the full contract. Plain `str` JSON (a list of {warning_swing,
+    # resolving_swing} objects, each shaped like last_confirmed_swing_json's
+    # own SwingDetail dict), same convention as every other JSON-shaped
+    # field on this table (see the class docstring). Nullable for the usual
+    # _add_missing_columns-has-no-backfill reason; reads as an empty list
+    # (not None) at the API boundary either way, since a pre-existing row
+    # and a genuinely-empty history are indistinguishable and both mean
+    # "nothing to show" to a caller.
+    pullback_history_json: str | None = None
     efficiency_ratio: float | None = None
     regime: str | None = None  # "trending" | "range-bound" | None
     blended_score: float

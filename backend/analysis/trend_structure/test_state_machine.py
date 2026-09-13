@@ -227,3 +227,90 @@ def test_empty_classified_list_leaves_flip_swing_unset():
 
     assert state.flip_swing is None
     assert state.flip_swing_is_lower_bound is False
+
+
+def test_pullback_history_is_empty_when_no_warning_has_ever_resolved():
+    classified = [_cs(0, "HH", 1.2), _cs(5, "HL", 0.8)]  # establish uptrend  # ordinary confirming move, no warning involved
+
+    state = run_state_machine(classified)
+
+    assert state.pullback_history == []
+
+
+def test_pullback_history_does_not_record_a_still_pending_warning():
+    classified = [_cs(0, "HH", 1.2), _cs(5, "LH", 0.8)]  # establish uptrend  # sets warning, never resolved
+
+    state = run_state_machine(classified)
+
+    assert state.warning_flag is True
+    assert state.pullback_history == []
+
+
+def test_pullback_history_records_a_resolved_cycle_with_both_swings():
+    classified = [
+        _cs(0, "HH", 1.2),  # establish uptrend
+        _cs(5, "LH", 0.8),  # warning
+        _cs(10, "HL", 0.6),  # clears it -- a completed cycle
+    ]
+
+    state = run_state_machine(classified)
+
+    assert len(state.pullback_history) == 1
+    cycle = state.pullback_history[0]
+    assert cycle.warning_swing.date == classified[1].swing.date
+    assert cycle.warning_swing.classification == "LH"
+    assert cycle.resolving_swing.date == classified[2].swing.date
+    assert cycle.resolving_swing.classification == "HL"
+
+
+def test_pullback_history_accumulates_multiple_resolved_cycles_within_the_same_trend():
+    classified = [
+        _cs(0, "HH", 1.2),  # establish uptrend
+        _cs(5, "LH", 0.8),  # warning 1
+        _cs(10, "HL", 0.6),  # resolves cycle 1
+        _cs(15, "HH", 1.3),  # ordinary confirming move, no warning involved
+        _cs(20, "LH", 0.7),  # warning 2
+        _cs(25, "HL", 0.9),  # resolves cycle 2
+    ]
+
+    state = run_state_machine(classified)
+
+    assert len(state.pullback_history) == 2
+    assert state.pullback_history[0].warning_swing.date == classified[1].swing.date
+    assert state.pullback_history[0].resolving_swing.date == classified[2].swing.date
+    assert state.pullback_history[1].warning_swing.date == classified[4].swing.date
+    assert state.pullback_history[1].resolving_swing.date == classified[5].swing.date
+
+
+def test_pullback_history_resets_on_a_genuine_flip():
+    """A resolved cycle from the PRIOR trend must not leak into the new
+    trend's history -- pullback_history is scoped to the current trend only,
+    same lifecycle as pullback_occurred_since_flip/flip_swing."""
+    classified = [
+        _cs(0, "HH", 1.2),  # establish uptrend
+        _cs(5, "LH", 0.8),  # warning
+        _cs(10, "HL", 0.6),  # resolves cycle 1 -- this uptrend's own history
+        _cs(15, "LL", 1.4),  # genuine flip to downtrend
+    ]
+
+    state = run_state_machine(classified)
+
+    assert state.trend_state == "downtrend"
+    assert state.pullback_history == []
+
+
+def test_pullback_history_discards_a_still_pending_warning_superseded_by_a_flip():
+    """A warning that never resolved bullishly -- the trend reversed instead
+    -- is never recorded as a completed cycle, even though it's the same
+    warning_swing a caller could otherwise see via TrendContinuationCard's
+    own "Invalidated" reading."""
+    classified = [
+        _cs(0, "HH", 1.2),  # establish uptrend
+        _cs(5, "LH", 0.8),  # warning, still pending
+        _cs(10, "LL", 1.5),  # flip -- warning superseded, not resolved
+    ]
+
+    state = run_state_machine(classified)
+
+    assert state.trend_state == "downtrend"
+    assert state.pullback_history == []

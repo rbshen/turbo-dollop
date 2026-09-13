@@ -71,7 +71,6 @@ export function NearTermCard({ data }: Props) {
           value={data.last_confirmed_swing ? fmtSwingDate(data.last_confirmed_swing.date) : "—"}
         />
         <NearTermStat label="Confirming moves so far" value={String(data.persistence_count)} />
-        <NearTermStat label="Days since last move" value={data.bars_since_confirmation != null ? String(data.bars_since_confirmation) : "—"} />
       </div>
     </div>
   );

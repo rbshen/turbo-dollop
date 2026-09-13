@@ -35,10 +35,10 @@ its direction against the current trend_state:
     an oversight.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .classification import ClassifiedSwing
-from .types import CONFIRMED_RATIO, Classification, MagnitudeTier, SwingDetail, TrendState
+from .types import CONFIRMED_RATIO, Classification, MagnitudeTier, PullbackCycle, SwingDetail, TrendState
 
 WEAK_RATIO = 0.5
 
@@ -94,6 +94,15 @@ class TrendMachineState:
     # lower bound rather than leaving this null" convention.
     flip_swing: SwingDetail | None = None
     flip_swing_is_lower_bound: bool = False
+    # Every pullback cycle that has resolved within the CURRENT trend --
+    # appended to in the same-direction branch below, right where a
+    # pending warning is cleared (reusing that exact detection, not a
+    # second pass over `classified`). Reset to [] on a genuine flip, same
+    # trigger as pullback_occurred_since_flip's own reset -- a pullback
+    # still pending at flip time is superseded by the flip, not recorded
+    # here as resolved. See TrendStructureResult.pullback_history's own
+    # docstring for the full contract.
+    pullback_history: list[PullbackCycle] = field(default_factory=list)
 
 
 def run_state_machine(classified: list[ClassifiedSwing]) -> TrendMachineState:
@@ -136,6 +145,11 @@ def run_state_machine(classified: list[ClassifiedSwing]) -> TrendMachineState:
             if ratio >= WEAK_RATIO:
                 state.magnitude_tier = _magnitude_tier_for_ratio(ratio)
                 state.last_confirmed_swing = _to_detail(cs)
+                if state.warning_flag:
+                    # A pending pullback just resolved -- record the
+                    # completed cycle before clearing warning_swing below.
+                    assert state.warning_swing is not None  # warning_flag/warning_swing are always set together
+                    state.pullback_history.append(PullbackCycle(warning_swing=state.warning_swing, resolving_swing=_to_detail(cs)))
                 state.warning_flag = False
                 state.warning_swing = None
             # ratio < WEAK_RATIO ("tentative"): persistence_count already
@@ -157,6 +171,7 @@ def run_state_machine(classified: list[ClassifiedSwing]) -> TrendMachineState:
             state.pullback_occurred_since_flip = False
             state.flip_swing = _to_detail(cs)
             state.flip_swing_is_lower_bound = False
+            state.pullback_history = []
         elif not is_primary:
             # "A confirmed LH or HL -- regardless of ratio -- does NOT flip
             # trend_state; it only sets warning_flag=true with its own

@@ -55,6 +55,19 @@ class SwingDetail:
 
 
 @dataclass(frozen=True)
+class PullbackCycle:
+    """One completed warning-to-resolution pullback cycle within the
+    CURRENT trend -- the swing that set warning_flag, paired with the
+    same-direction confirming swing that later cleared it. Only ever
+    recorded once a cycle actually resolves (see state_machine.py::
+    run_state_machine); a pullback still pending has no PullbackCycle yet
+    -- that's what warning_flag/warning_swing already describe."""
+
+    warning_swing: SwingDetail
+    resolving_swing: SwingDetail
+
+
+@dataclass(frozen=True)
 class TrendStructureResult:
     trend_state: TrendState
     # None only when the swing history is too thin to have ever produced a
@@ -88,6 +101,14 @@ class TrendStructureResult:
     # identical convention for the same shape of problem).
     trend_started: SwingDetail | None
     trend_started_is_lower_bound: bool
+    # Every pullback cycle that has resolved within the CURRENT trend (i.e.
+    # since trend_started), oldest first -- reset to empty on every genuine
+    # flip, the same trigger trend_started/pullback_occurred_since_flip
+    # reset on (see state_machine.py::run_state_machine). A still-pending
+    # (unresolved) warning is NOT in this list -- that's warning_flag/
+    # warning_swing's own job. Bounded by construction: it only ever grows
+    # across the swings of one trend segment, never across a flip.
+    pullback_history: list[PullbackCycle]
     efficiency_ratio: float | None
     regime: Regime | None
     blended_score: float

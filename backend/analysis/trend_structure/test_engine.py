@@ -45,6 +45,7 @@ def test_compute_trend_structure_produces_a_fully_populated_result():
     assert isinstance(result.trend_started_is_lower_bound, bool)
     if result.trend_started is not None:
         assert isinstance(result.trend_started.date, date)
+    assert isinstance(result.pullback_history, list)
     assert isinstance(result.ad_bullish_divergence, bool)
     assert result.ad_divergence_swing_date is None or isinstance(result.ad_divergence_swing_date, date)
     # SMA position tracking -- 150 bars of history clears all three windows
@@ -232,3 +233,33 @@ def test_trend_started_is_copied_from_the_state_machines_flip_swing(monkeypatch)
 
     assert result.trend_started is flip_swing
     assert result.trend_started_is_lower_bound is True
+
+
+def test_pullback_history_is_copied_from_the_state_machine_verbatim(monkeypatch):
+    """Wiring test, mirroring the trend_started one above: compute_trend_structure
+    must surface TrendMachineState.pullback_history as-is -- state_machine.py's
+    own tests cover the accumulate/reset logic itself."""
+    import analysis.trend_structure.engine as engine_module
+    from analysis.trend_structure.state_machine import TrendMachineState
+    from analysis.trend_structure.types import PullbackCycle, SwingDetail
+
+    warning_swing = SwingDetail(date=date(2024, 1, 10), price=90.0, margin=2.0, atr=1.0, ratio=0.8, classification="LH")
+    resolving_swing = SwingDetail(date=date(2024, 1, 20), price=95.0, margin=3.0, atr=1.0, ratio=0.9, classification="HL")
+    history = [PullbackCycle(warning_swing=warning_swing, resolving_swing=resolving_swing)]
+    state = TrendMachineState(
+        trend_state="uptrend",
+        magnitude_tier="strong",
+        persistence_count=3,
+        last_confirmed_swing=resolving_swing,
+        warning_flag=False,
+        warning_swing=None,
+        pullback_history=history,
+    )
+
+    ohlcv = _synthetic_ohlcv()
+    monkeypatch.setattr(engine_module, "classify_swings", lambda swings, atr_by_date, chaikin_osc: [])
+    monkeypatch.setattr(engine_module, "run_state_machine", lambda classified_arg: state)
+
+    result = engine_module.compute_trend_structure(ohlcv)
+
+    assert result.pullback_history is history

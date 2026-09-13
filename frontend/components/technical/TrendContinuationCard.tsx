@@ -85,6 +85,54 @@ export function invalidatedFreshnessText(bars: number | null): string {
   return bars != null ? `Downtrend confirmed ${bars} bars ago.` : "Downtrend confirmation date unavailable.";
 }
 
+type PullbackHistoryPoint = { kind: "warning" | "resolved"; date: string };
+
+// Flattens pullback_history's {warning_swing, resolving_swing} pairs into a
+// single chronological sequence -- two points per cycle, always alternating
+// (a cycle only ever exists once it's resolved, see state_machine.py::
+// run_state_machine, so there's never a stray unpaired warning point here;
+// a still-pending warning is shown separately, via the checklist item
+// above, not in this timeline).
+export function pullbackHistoryPoints(history: TrendAnalysisOut["pullback_history"]): PullbackHistoryPoint[] {
+  return history.flatMap((cycle) => [
+    { kind: "warning" as const, date: cycle.warning_swing.date },
+    { kind: "resolved" as const, date: cycle.resolving_swing.date },
+  ]);
+}
+
+// Compact "how many times has this happened in the current trend" timeline
+// -- additive context alongside the single-cycle checklist item above,
+// which only ever shows the LATEST warning/resolution. Renders nothing for
+// an empty history (no pullback has resolved yet this trend -- the common
+// case for a fresh or still-clean uptrend), same "only show when
+// meaningful" contract the rest of this tab's pills already follow.
+function PullbackHistoryTimeline({ history }: { history: TrendAnalysisOut["pullback_history"] }) {
+  if (history.length === 0) return null;
+  const points = pullbackHistoryPoints(history);
+
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs text-text-tertiary">
+        Pullback cycles this trend <span className="text-text-secondary">({history.length})</span>
+      </p>
+      <div className="flex items-start overflow-x-auto pb-1">
+        {points.map((point, i) => (
+          <div key={i} className="flex items-center">
+            {i > 0 && <div className="h-px w-4 shrink-0 bg-border-subtle" />}
+            <div className="flex shrink-0 flex-col items-center gap-1">
+              <span
+                className={`h-2 w-2 rounded-full ${point.kind === "warning" ? "bg-warn" : "bg-positive"}`}
+                title={point.kind === "warning" ? "Pullback began (lower high)" : "Pullback resolved"}
+              />
+              <span className="whitespace-nowrap text-[10px] text-text-tertiary">{fmtSwingDate(point.date)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function TrendContinuationCard({ data }: Props) {
   const status = resolutionStatus(data);
   const pullbackInProgress = data.trend_state === "uptrend" && data.warning_flag === true;
@@ -141,7 +189,12 @@ export function TrendContinuationCard({ data }: Props) {
       statusToneClass={STATUS_PILL_CLASS[status]}
       blurb="Checked because the stock is currently in an uptrend. Looks for whether a recent pullback has resolved bullishly or turned into a real breakdown."
       items={items}
-      extra={freshnessBar}
+      extra={
+        <>
+          <PullbackHistoryTimeline history={data.pullback_history} />
+          {freshnessBar}
+        </>
+      }
       disclaimer={DISCLAIMER}
     />
   );

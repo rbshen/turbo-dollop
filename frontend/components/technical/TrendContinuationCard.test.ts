@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FRESHNESS_LABEL, invalidatedFreshnessText, resolutionStatus } from "@/components/technical/TrendContinuationCard";
+import { FRESHNESS_LABEL, invalidatedFreshnessText, pullbackHistoryPoints, resolutionStatus } from "@/components/technical/TrendContinuationCard";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
 // Only trend_state/warning_flag/pullback_occurred_since_flip vary across the
@@ -20,6 +20,7 @@ function trendAnalysis(overrides: Partial<TrendAnalysisOut>): TrendAnalysisOut {
     pullback_occurred_since_flip: false,
     trend_started: null,
     trend_started_is_lower_bound: null,
+    pullback_history: [],
     efficiency_ratio: null,
     regime: null,
     blended_score: 5,
@@ -82,6 +83,32 @@ describe("FRESHNESS_LABEL", () => {
 
   it("does not claim to measure the pullback's own start for Pending -- last_confirmed_swing is untouched by a warning firing", () => {
     expect(FRESHNESS_LABEL.Pending).not.toMatch(/pullback started/i);
+  });
+});
+
+describe("pullbackHistoryPoints", () => {
+  it("returns an empty timeline for an empty history", () => {
+    expect(pullbackHistoryPoints([])).toEqual([]);
+  });
+
+  it("flattens each cycle into an alternating warning-then-resolved pair, in order", () => {
+    const history: TrendAnalysisOut["pullback_history"] = [
+      {
+        warning_swing: { date: "2026-08-11", price: 204.75, margin: 11.22, atr: 5.2, ratio: 2.16, classification: "LH" },
+        resolving_swing: { date: "2026-08-17", price: 197.82, margin: 29.46, atr: 4.85, ratio: 6.08, classification: "HL" },
+      },
+      {
+        warning_swing: { date: "2026-08-24", price: 207.4, margin: 8.57, atr: 4.51, ratio: 1.9, classification: "LH" },
+        resolving_swing: { date: "2026-09-02", price: 198.09, margin: 29.73, atr: 3.92, ratio: 7.58, classification: "HL" },
+      },
+    ];
+
+    expect(pullbackHistoryPoints(history)).toEqual([
+      { kind: "warning", date: "2026-08-11" },
+      { kind: "resolved", date: "2026-08-17" },
+      { kind: "warning", date: "2026-08-24" },
+      { kind: "resolved", date: "2026-09-02" },
+    ]);
   });
 });
 

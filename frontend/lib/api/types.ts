@@ -1101,6 +1101,15 @@ export interface TrendAnalysisOut {
   // as pullback_occurred_since_flip above).
   trend_started: SwingDetailOut | null;
   trend_started_is_lower_bound: boolean | null;
+  // Every pullback cycle that has resolved within the CURRENT trend (i.e.
+  // since trend_started), oldest first -- reset empty on every genuine
+  // flip, same trigger as trend_started/pullback_occurred_since_flip's own
+  // reset. A still-pending (unresolved) warning is NOT in this list --
+  // that's warning_flag/warning_swing's own job. Always a real array
+  // (never null), including for a row computed before this field existed
+  // -- an empty history there is indistinguishable from "genuinely none
+  // yet" either way. See backend's core/schemas.py::PullbackCycleOut.
+  pullback_history: { warning_swing: SwingDetailOut; resolving_swing: SwingDetailOut }[];
   efficiency_ratio: number | null;
   regime: "trending" | "range-bound" | null;
   blended_score: number;

@@ -14,13 +14,13 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
 from analysis.trend_structure.engine import compute_trend_structure
-from analysis.trend_structure.types import SwingDetail, TrendStructureResult, WeinsteinStageResult
+from analysis.trend_structure.types import PullbackCycle, SwingDetail, TrendStructureResult, WeinsteinStageResult
 from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER, compute_weinstein_stage
 from clients.yahoo_cache import get_or_fetch_price_history
 from core.config import settings
 from core.db import engine
 from core.models import TrendAnalysis, YahooPriceCache
-from core.schemas import SwingDetailOut, TrendAnalysisOut
+from core.schemas import PullbackCycleOut, SwingDetailOut, TrendAnalysisOut
 from core.tickers import normalize_ticker
 
 
@@ -32,10 +32,7 @@ def _swing_detail_to_json(detail: SwingDetail | None) -> str | None:
     return json.dumps(payload)
 
 
-def _swing_detail_from_json(raw: str | None) -> SwingDetailOut | None:
-    if raw is None:
-        return None
-    payload = json.loads(raw)
+def _swing_detail_dict_to_out(payload: dict) -> SwingDetailOut:
     return SwingDetailOut(
         date=date.fromisoformat(payload["date"]),
         price=payload["price"],
@@ -50,12 +47,55 @@ def _swing_detail_from_json(raw: str | None) -> SwingDetailOut | None:
     )
 
 
+def _swing_detail_from_json(raw: str | None) -> SwingDetailOut | None:
+    if raw is None:
+        return None
+    return _swing_detail_dict_to_out(json.loads(raw))
+
+
 def _swing_detail_out(detail: SwingDetail | None) -> SwingDetailOut | None:
     if detail is None:
         return None
     return SwingDetailOut(
         date=detail.date, price=detail.price, margin=detail.margin, atr=detail.atr, ratio=detail.ratio, classification=detail.classification
     )
+
+
+def _pullback_history_to_json(history: list[PullbackCycle]) -> str:
+    payload = [
+        {
+            "warning_swing": {**asdict(cycle.warning_swing), "date": cycle.warning_swing.date.isoformat()},
+            "resolving_swing": {**asdict(cycle.resolving_swing), "date": cycle.resolving_swing.date.isoformat()},
+        }
+        for cycle in history
+    ]
+    return json.dumps(payload)
+
+
+def _pullback_history_from_json(raw: str | None) -> list[PullbackCycleOut]:
+    # [] (not None) for a pre-existing row computed before this field
+    # existed -- see models.py::TrendAnalysis.pullback_history_json's own
+    # comment on why an empty list, not a nullable field, is the right
+    # migration-safety shape here.
+    if raw is None:
+        return []
+    return [
+        PullbackCycleOut(
+            warning_swing=_swing_detail_dict_to_out(entry["warning_swing"]),
+            resolving_swing=_swing_detail_dict_to_out(entry["resolving_swing"]),
+        )
+        for entry in json.loads(raw)
+    ]
+
+
+def _pullback_history_out(history: list[PullbackCycle]) -> list[PullbackCycleOut]:
+    return [
+        PullbackCycleOut(
+            warning_swing=_swing_detail_out(cycle.warning_swing),
+            resolving_swing=_swing_detail_out(cycle.resolving_swing),
+        )
+        for cycle in history
+    ]
 
 
 def _ohlcv_frame(rows: list[YahooPriceCache]) -> pd.DataFrame:
@@ -95,6 +135,7 @@ def _upsert(ticker: str, result: TrendStructureResult, weinstein_result: Weinste
             "pullback_occurred_since_flip": result.pullback_occurred_since_flip,
             "trend_started_json": _swing_detail_to_json(result.trend_started),
             "trend_started_is_lower_bound": result.trend_started_is_lower_bound,
+            "pullback_history_json": _pullback_history_to_json(result.pullback_history),
             "efficiency_ratio": result.efficiency_ratio,
             "regime": result.regime,
             "blended_score": result.blended_score,
@@ -140,6 +181,7 @@ def _row_to_out(row: TrendAnalysis) -> TrendAnalysisOut:
         pullback_occurred_since_flip=row.pullback_occurred_since_flip,
         trend_started=_swing_detail_from_json(row.trend_started_json),
         trend_started_is_lower_bound=row.trend_started_is_lower_bound,
+        pullback_history=_pullback_history_from_json(row.pullback_history_json),
         efficiency_ratio=row.efficiency_ratio,
         regime=row.regime,
         blended_score=row.blended_score,
@@ -207,6 +249,7 @@ def compute_and_store_from_rows(
         pullback_occurred_since_flip=result.pullback_occurred_since_flip,
         trend_started=_swing_detail_out(result.trend_started),
         trend_started_is_lower_bound=result.trend_started_is_lower_bound,
+        pullback_history=_pullback_history_out(result.pullback_history),
         efficiency_ratio=result.efficiency_ratio,
         regime=result.regime,
         blended_score=result.blended_score,

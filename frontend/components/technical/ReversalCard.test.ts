@@ -23,6 +23,7 @@ function trendAnalysis(overrides: Partial<TrendAnalysisOut>): TrendAnalysisOut {
     pullback_occurred_since_flip: false,
     trend_started: null,
     trend_started_is_lower_bound: null,
+    pullback_history: [],
     efficiency_ratio: null,
     regime: null,
     blended_score: -3.71,
