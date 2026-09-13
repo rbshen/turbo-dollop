@@ -48,6 +48,7 @@ const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: "pe_ratio", label: "P/E" },
   { value: "beta", label: "Beta" },
   { value: "growth_rate", label: "Growth rate" },
+  { value: "warren_signal_recency", label: "Warren signal recency" },
 ];
 
 export default function ScreenerPage() {

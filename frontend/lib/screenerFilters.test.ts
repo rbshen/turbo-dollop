@@ -362,6 +362,24 @@ describe("sortTickerScores", () => {
     expect(sortTickerScores(rows, "step5_score", "desc").map((r) => r.ticker)).toEqual(["MID", "LOW", "NULL"]);
   });
 
+  it("sorts by warren_signal_recency, most recent first on desc", () => {
+    const rows = [
+      row({ ticker: "OLD", warren_last_buy_fired_at: "2026-01-01T00:00:00" }),
+      row({ ticker: "RECENT", warren_last_buy_fired_at: "2026-09-01T00:00:00" }),
+      row({ ticker: "MID", warren_last_buy_fired_at: "2026-05-01T00:00:00" }),
+    ];
+    expect(sortTickerScores(rows, "warren_signal_recency", "desc").map((r) => r.ticker)).toEqual(["RECENT", "MID", "OLD"]);
+  });
+
+  it("sorts tickers with no Warren signal history to the end regardless of direction", () => {
+    const rows = [
+      row({ ticker: "HAS_SIGNAL", warren_last_buy_fired_at: "2026-05-01T00:00:00" }),
+      row({ ticker: "NO_SIGNAL", warren_last_buy_fired_at: null }),
+    ];
+    expect(sortTickerScores(rows, "warren_signal_recency", "asc").map((r) => r.ticker)).toEqual(["HAS_SIGNAL", "NO_SIGNAL"]);
+    expect(sortTickerScores(rows, "warren_signal_recency", "desc").map((r) => r.ticker)).toEqual(["HAS_SIGNAL", "NO_SIGNAL"]);
+  });
+
   it("does not mutate the input array", () => {
     const rows = [row({ ticker: "B", step5_score: 50 }), row({ ticker: "A", step5_score: 10 })];
     const original = [...rows];

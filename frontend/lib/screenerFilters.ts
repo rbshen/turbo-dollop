@@ -253,18 +253,34 @@ export type SortField =
   | "market_cap"
   | "pe_ratio"
   | "beta"
-  | "growth_rate";
+  | "growth_rate"
+  | "warren_signal_recency";
 
 export type SortDirection = "asc" | "desc";
+
+// warren_signal_recency is the one date-typed sort field (every other
+// SortField reads a plain number|null score/metric straight off the row,
+// so a's[field] - b's[field] just works) -- this converts
+// warren_last_buy_fired_at (an ISO timestamp string) to an epoch-ms number
+// for that one field, leaving every other field's raw numeric value
+// untouched, so the shared null-handling/subtraction below stays generic.
+function sortValue(row: TickerScoreOut, field: SortField): number | null {
+  if (field === "warren_signal_recency") {
+    return row.warren_last_buy_fired_at ? Date.parse(row.warren_last_buy_fired_at) : null;
+  }
+  return row[field];
+}
 
 export function sortTickerScores(rows: TickerScoreOut[], field: SortField, direction: SortDirection): TickerScoreOut[] {
   const dir = direction === "asc" ? 1 : -1;
   return [...rows].sort((a, b) => {
-    const av = a[field];
-    const bv = b[field];
+    const av = sortValue(a, field);
+    const bv = sortValue(b, field);
     // Nulls always sort to the end, regardless of direction -- an
-    // Incomplete ticker shouldn't jump to the top just because "asc" was
-    // picked and null sorts low by default in a naive comparator.
+    // Incomplete ticker (or, for warren_signal_recency, a ticker with no
+    // Warren buy signal history at all) shouldn't jump to the top just
+    // because "asc" was picked and null sorts low by default in a naive
+    // comparator.
     if (av == null && bv == null) return 0;
     if (av == null) return 1;
     if (bv == null) return -1;
