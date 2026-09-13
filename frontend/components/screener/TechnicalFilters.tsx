@@ -48,6 +48,12 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
           selected={filters.pullbackStatuses}
           onChange={(s) => patch({ pullbackStatuses: s })}
         />
+        <MultiSelectDropdown
+          label="Warren entry (2h)"
+          options={WARREN_SIGNAL_KIND_FILTER_OPTIONS}
+          selected={filters.warrenSignalKinds}
+          onChange={(s) => patch({ warrenSignalKinds: s })}
+        />
         <label className="flex h-8 items-center gap-1.5 rounded-md border border-border-input px-2 text-xs font-medium text-text-secondary">
           <input
             type="checkbox"
@@ -57,12 +63,6 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
           />
           BB + RSI entry (2h)
         </label>
-        <MultiSelectDropdown
-          label="Warren entry (2h)"
-          options={WARREN_SIGNAL_KIND_FILTER_OPTIONS}
-          selected={filters.warrenSignalKinds}
-          onChange={(s) => patch({ warrenSignalKinds: s })}
-        />
         <p className="text-xs text-text-tertiary">
           BB + RSI entry and Warren entry only ever match tickers on a watchlist named W1 through W5.
         </p>
