@@ -26,7 +26,11 @@ import {
   type SortField,
 } from "@/lib/screenerFilters";
 
-const PAGE_SIZE = 24;
+// 6 rows of cards at the grid's 3-column (xl) breakpoint -- the primary
+// desktop layout the result grid is designed around (see the grid's own
+// `sm:grid-cols-2 xl:grid-cols-3` below); fewer columns at a narrower
+// viewport just means more (not fewer) visual rows per page, same as before.
+const PAGE_SIZE = 18;
 
 const UNIVERSE_LABELS: Record<ScreenerUniverse, string> = {
   sp500: "S&P 500",
