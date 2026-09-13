@@ -1,4 +1,4 @@
-import { ChecklistCard, fmtSwingDate, type ChecklistItem } from "@/components/technical/ChecklistCard";
+import { ChecklistCard, DotTimeline, fmtSwingDate, SectionHeading, type ChecklistItem, type TimelineDot } from "@/components/technical/ChecklistCard";
 import { fmtNumber } from "@/lib/format";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
@@ -95,6 +95,33 @@ export function reversalFreshnessCaption(bars: number | null): string {
   return "Past 2 months since the confirming low — the backtest found no real edge this far out, so this reading is now flagged stale.";
 }
 
+// Turns reversal_history into DotTimeline's own shape -- pulled out to a
+// standalone pure function (mirroring TrendContinuationCard's own
+// pullbackHistoryPoints) so it's directly unit-testable without rendering.
+// Every confirmed LL is its OWN single-point event (not a warning/
+// resolution PAIR like pullback_history), so each dot is colored by that
+// swing's own ad_bullish_divergence rather than alternating between two
+// fixed kinds.
+export function reversalHistoryDots(history: TrendAnalysisOut["reversal_history"]): TimelineDot[] {
+  return history.map((candidate, i) => ({
+    key: `${candidate.swing.date}-${i}`,
+    date: candidate.swing.date,
+    dotClassName: candidate.ad_bullish_divergence ? "bg-positive" : "bg-border-subtle",
+    title: candidate.ad_bullish_divergence ? "Confirmed low — A/D bullish divergence present" : "Confirmed low — no divergence",
+  }));
+}
+
+// "how many confirmed lows has this downtrend produced" timeline -- headed
+// "Past candidates this trend" (see the render below), mirroring
+// TrendContinuationCard's own "Past cycles this trend" section. Renders
+// nothing for an empty history (DotTimeline's own contract) -- should be
+// rare now that a fresh downtrend's flip-triggering LL always seeds
+// reversal_history, but a legacy row computed before this field existed
+// still reads as [] until its next nightly recompute.
+function ReversalHistoryTimeline({ history }: { history: TrendAnalysisOut["reversal_history"] }) {
+  return <DotTimeline dots={reversalHistoryDots(history)} />;
+}
+
 export function ReversalCard({ data }: Props) {
   const swing = data.last_confirmed_swing;
   const confirmedLl = swing?.classification === "LL" && (data.magnitude_tier === "confirmed" || data.magnitude_tier === "strong");
@@ -147,6 +174,24 @@ export function ReversalCard({ data }: Props) {
     </div>
   ) : null;
 
+  const hasHistory = data.reversal_history.length > 0;
+  const historySection = hasHistory ? (
+    <div className={`space-y-1.5 ${freshnessBar ? "border-t border-border-subtle pt-4" : ""}`}>
+      <SectionHeading>
+        Past candidates this trend <span className="normal-case text-text-secondary">({data.reversal_history.length})</span>
+      </SectionHeading>
+      <ReversalHistoryTimeline history={data.reversal_history} />
+    </div>
+  ) : null;
+
+  const extra =
+    freshnessBar || historySection ? (
+      <div className="space-y-4">
+        {freshnessBar}
+        {historySection}
+      </div>
+    ) : undefined;
+
   return (
     <ChecklistCard
       title="Bullish reversal"
@@ -154,7 +199,7 @@ export function ReversalCard({ data }: Props) {
       statusToneClass={statusToneClass}
       blurb="Checked because the stock is currently in a downtrend. Looks for a solid new low plus quiet buying pressure underneath."
       items={items}
-      extra={freshnessBar}
+      extra={extra}
       disclaimer={DISCLAIMER}
     />
   );

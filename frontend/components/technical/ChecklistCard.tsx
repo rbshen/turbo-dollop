@@ -9,6 +9,56 @@ export function fmtSwingDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
+/** Small uppercase section label, shared by Trend Continuation's "Right
+ * now"/"Past cycles this trend" and Reversal's "Past candidates this
+ * trend" sub-sections. */
+export function SectionHeading({ children }: { children: React.ReactNode }) {
+  return <p className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">{children}</p>;
+}
+
+export interface TimelineDot {
+  key: string;
+  date: string;
+  /** Tailwind background color class for the dot itself, e.g. "bg-warn"
+   * (pullback began), "bg-positive" (resolved / divergence present), or
+   * "bg-border-subtle" (neutral / no divergence). */
+  dotClassName: string;
+  /** Hover tooltip explaining this specific dot. */
+  title: string;
+  /** Appended after the date as " · <caption>" -- e.g. "12 bars ago". */
+  caption?: string;
+}
+
+/** A horizontal, horizontally-scrollable row of dated dots connected by
+ * hairlines -- shared low-level shape behind both Trend Continuation's
+ * pullback-cycle timeline (two-color alternating warning/resolved PAIRS)
+ * and Reversal's reversal-candidate timeline (single-point events colored
+ * by whether A/D Bullish Divergence was present). The two callers differ
+ * in what a "point" means and how it's colored, not in this rendering
+ * shape, so only the row-of-dots primitive is shared -- each card keeps
+ * its own function for turning its own data into `dots`. Renders nothing
+ * for an empty list, same "only show when meaningful" contract every
+ * other piece of this timeline follows. */
+export function DotTimeline({ dots }: { dots: TimelineDot[] }) {
+  if (dots.length === 0) return null;
+  return (
+    <div className="flex items-start overflow-x-auto pb-1">
+      {dots.map((dot, i) => (
+        <div key={dot.key} className="flex items-center">
+          {i > 0 && <div className="h-px w-4 shrink-0 bg-border-subtle" />}
+          <div className="flex shrink-0 flex-col items-center gap-1">
+            <span className={`h-2 w-2 rounded-full ${dot.dotClassName}`} title={dot.title} />
+            <span className="whitespace-nowrap text-[10px] text-text-tertiary">
+              {fmtSwingDate(dot.date)}
+              {dot.caption ? ` · ${dot.caption}` : ""}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export interface ChecklistItem {
   key: string;
   label: string;

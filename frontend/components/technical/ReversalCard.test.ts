@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { reversalDisplayStatus, reversalFreshnessCaption, reversalStatus } from "@/components/technical/ReversalCard";
+import { reversalDisplayStatus, reversalFreshnessCaption, reversalHistoryDots, reversalStatus } from "@/components/technical/ReversalCard";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
 // Only last_confirmed_swing/magnitude_tier/ad_bullish_divergence/
@@ -24,6 +24,7 @@ function trendAnalysis(overrides: Partial<TrendAnalysisOut>): TrendAnalysisOut {
     trend_started: null,
     trend_started_is_lower_bound: null,
     pullback_history: [],
+    reversal_history: [],
     efficiency_ratio: null,
     regime: null,
     blended_score: -3.71,
@@ -107,5 +108,34 @@ describe("reversalFreshnessCaption", () => {
 
   it("treats a null bars_since_confirmation the same as fresh", () => {
     expect(reversalFreshnessCaption(null)).toMatch(/21-trading-day/);
+  });
+});
+
+describe("reversalHistoryDots", () => {
+  it("returns an empty timeline for an empty history", () => {
+    expect(reversalHistoryDots([])).toEqual([]);
+  });
+
+  it("maps each confirmed LL to its own single-point dot, colored by its own ad_bullish_divergence", () => {
+    const history: TrendAnalysisOut["reversal_history"] = [
+      {
+        swing: { date: "2026-06-25", price: 118.4, margin: 3.11, atr: 2.05, ratio: 1.52, classification: "LL" },
+        ad_bullish_divergence: false,
+        ad_divergence_swing_date: null,
+      },
+      {
+        swing: { date: "2026-08-04", price: 109.7, margin: 4.02, atr: 1.98, ratio: 2.03, classification: "LL" },
+        ad_bullish_divergence: true,
+        ad_divergence_swing_date: "2026-08-01",
+      },
+    ];
+
+    const dots = reversalHistoryDots(history);
+
+    expect(dots).toHaveLength(2);
+    expect(dots[0]).toMatchObject({ date: "2026-06-25", dotClassName: "bg-border-subtle" });
+    expect(dots[1]).toMatchObject({ date: "2026-08-04", dotClassName: "bg-positive" });
+    // Every dot key is unique -- required as a React list key.
+    expect(new Set(dots.map((d) => d.key)).size).toBe(2);
   });
 });

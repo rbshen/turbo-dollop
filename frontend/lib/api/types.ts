@@ -1110,6 +1110,17 @@ export interface TrendAnalysisOut {
   // -- an empty history there is indistinguishable from "genuinely none
   // yet" either way. See backend's core/schemas.py::PullbackCycleOut.
   pullback_history: { warning_swing: SwingDetailOut; resolving_swing: SwingDetailOut }[];
+  // Every confirmed LL swing within the CURRENT downtrend (i.e. since
+  // trend_started), oldest first -- reset on every genuine flip, same
+  // trigger as pullback_history above. UNLIKE pullback_history, seeded
+  // with the flip-triggering LL itself as its first entry when flipping
+  // INTO a downtrend, so a freshly-flipped downtrend's history isn't
+  // empty while last_confirmed_swing/ReversalCard's own "Confirmed"
+  // checklist item is already showing that same LL as satisfied. Always
+  // empty while trend_state is "uptrend". Always a real array (never
+  // null), same migration-safety convention as pullback_history above.
+  // See backend's core/schemas.py::ReversalCandidateOut.
+  reversal_history: { swing: SwingDetailOut; ad_bullish_divergence: boolean; ad_divergence_swing_date: string | null }[];
   efficiency_ratio: number | null;
   regime: "trending" | "range-bound" | null;
   blended_score: number;

@@ -5,12 +5,22 @@ from analysis.trend_structure.state_machine import run_state_machine
 from analysis.trend_structure.types import SwingPoint
 
 
-def _cs(day_offset: int, classification: str, ratio: float) -> ClassifiedSwing:
+def _cs(
+    day_offset: int, classification: str, ratio: float, ad_bullish_divergence: bool = False, ad_divergence_swing_date: date | None = None
+) -> ClassifiedSwing:
     kind = "high" if classification in ("HH", "LH") else "low"
     d = date(2024, 1, 1) + timedelta(days=day_offset)
     atr = 1.0
     margin = ratio * atr
-    return ClassifiedSwing(swing=SwingPoint(date=d, price=100.0, kind=kind), classification=classification, margin=margin, atr=atr, ratio=ratio)
+    return ClassifiedSwing(
+        swing=SwingPoint(date=d, price=100.0, kind=kind),
+        classification=classification,
+        margin=margin,
+        atr=atr,
+        ratio=ratio,
+        ad_bullish_divergence=ad_bullish_divergence,
+        ad_divergence_swing_date=ad_divergence_swing_date,
+    )
 
 
 def test_empty_classified_list_returns_documented_bootstrap_default():
@@ -314,3 +324,98 @@ def test_pullback_history_discards_a_still_pending_warning_superseded_by_a_flip(
 
     assert state.trend_state == "downtrend"
     assert state.pullback_history == []
+
+
+def test_reversal_history_is_empty_while_still_uptrend():
+    classified = [_cs(0, "HH", 1.2), _cs(5, "HL", 0.8)]  # establish uptrend  # ordinary confirming move
+
+    state = run_state_machine(classified)
+
+    assert state.trend_state == "uptrend"
+    assert state.reversal_history == []
+
+
+def test_reversal_history_seeds_with_the_flip_triggering_ll_unlike_pullback_history():
+    """UNLIKE pullback_history (reset to [] on a flip), reversal_history is
+    seeded with the flip-triggering LL itself -- a freshly-flipped
+    downtrend's history must not be empty while last_confirmed_swing/
+    ReversalCard's own "Confirmed" checklist item already reads true off
+    this exact swing."""
+    classified = [
+        _cs(0, "HH", 1.2),  # establish uptrend
+        _cs(5, "LL", 1.4, ad_bullish_divergence=True, ad_divergence_swing_date=date(2024, 1, 4)),  # genuine flip to downtrend
+    ]
+
+    state = run_state_machine(classified)
+
+    assert state.trend_state == "downtrend"
+    assert len(state.reversal_history) == 1
+    candidate = state.reversal_history[0]
+    assert candidate.swing.date == classified[1].swing.date
+    assert candidate.swing.classification == "LL"
+    assert candidate.ad_bullish_divergence is True
+    assert candidate.ad_divergence_swing_date == date(2024, 1, 4)
+
+
+def test_reversal_history_stays_empty_when_flipping_into_an_uptrend():
+    classified = [
+        _cs(0, "LL", 1.2),  # bootstrap/establish downtrend
+        _cs(5, "HH", 1.0),  # genuine flip to uptrend
+    ]
+
+    state = run_state_machine(classified)
+
+    assert state.trend_state == "uptrend"
+    assert state.reversal_history == []
+
+
+def test_reversal_history_accumulates_further_confirmed_lls_within_the_same_downtrend():
+    classified = [
+        _cs(0, "HH", 1.2),  # establish uptrend
+        _cs(5, "LL", 1.4),  # genuine flip to downtrend -- seeds reversal_history[0]
+        _cs(10, "HL", 0.8),  # warning against the downtrend, no effect on reversal_history
+        _cs(15, "LH", 0.6),  # resolves the warning, no effect on reversal_history (not an LL)
+        _cs(20, "LL", 1.1, ad_bullish_divergence=True, ad_divergence_swing_date=date(2024, 1, 19)),  # a further confirmed LL
+    ]
+
+    state = run_state_machine(classified)
+
+    assert state.trend_state == "downtrend"
+    assert len(state.reversal_history) == 2
+    assert state.reversal_history[0].swing.date == classified[1].swing.date
+    assert state.reversal_history[0].ad_bullish_divergence is False
+    assert state.reversal_history[1].swing.date == classified[4].swing.date
+    assert state.reversal_history[1].ad_bullish_divergence is True
+    assert state.reversal_history[1].ad_divergence_swing_date == date(2024, 1, 19)
+
+
+def test_reversal_history_excludes_a_weak_below_confirmed_ratio_ll():
+    """A same-direction LL below CONFIRMED_RATIO still updates
+    last_confirmed_swing (ratio>=WEAK_RATIO), but is not a "confirmed" LL
+    -- ReversalCard's own gate requires magnitude_tier confirmed/strong,
+    so reversal_history must not include it either."""
+    classified = [
+        _cs(0, "HH", 1.2),  # establish uptrend
+        _cs(5, "LL", 1.4),  # genuine flip to downtrend -- seeds reversal_history[0]
+        _cs(10, "LL", 0.7),  # same-direction LL, weak-confirmed but below CONFIRMED_RATIO
+    ]
+
+    state = run_state_machine(classified)
+
+    assert state.trend_state == "downtrend"
+    assert len(state.reversal_history) == 1
+    assert state.reversal_history[0].swing.date == classified[1].swing.date
+
+
+def test_reversal_history_resets_on_a_further_flip_back_to_uptrend():
+    classified = [
+        _cs(0, "HH", 1.2),  # establish uptrend
+        _cs(5, "LL", 1.4),  # flip to downtrend -- seeds reversal_history[0]
+        _cs(10, "LL", 1.1),  # a second confirmed LL within this downtrend
+        _cs(15, "HH", 1.3),  # flip back to uptrend -- clears reversal_history
+    ]
+
+    state = run_state_machine(classified)
+
+    assert state.trend_state == "uptrend"
+    assert state.reversal_history == []

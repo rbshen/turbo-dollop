@@ -38,7 +38,7 @@ its direction against the current trend_state:
 from dataclasses import dataclass, field
 
 from .classification import ClassifiedSwing
-from .types import CONFIRMED_RATIO, Classification, MagnitudeTier, PullbackCycle, SwingDetail, TrendState
+from .types import CONFIRMED_RATIO, Classification, MagnitudeTier, PullbackCycle, ReversalCandidate, SwingDetail, TrendState
 
 WEAK_RATIO = 0.5
 
@@ -64,6 +64,14 @@ def _to_detail(cs: ClassifiedSwing) -> SwingDetail:
     return SwingDetail(
         date=cs.swing.date, price=cs.swing.price, margin=cs.margin, atr=cs.atr, ratio=cs.ratio, classification=cs.classification
     )
+
+
+def _to_reversal_candidate(cs: ClassifiedSwing) -> ReversalCandidate:
+    # ad_bullish_divergence/ad_divergence_swing_date are copied verbatim
+    # from classify_swings()'s own already-computed values -- see
+    # ReversalCandidate's own docstring for why this must never be
+    # re-derived or re-scoped here.
+    return ReversalCandidate(swing=_to_detail(cs), ad_bullish_divergence=cs.ad_bullish_divergence, ad_divergence_swing_date=cs.ad_divergence_swing_date)
 
 
 @dataclass
@@ -103,6 +111,14 @@ class TrendMachineState:
     # here as resolved. See TrendStructureResult.pullback_history's own
     # docstring for the full contract.
     pullback_history: list[PullbackCycle] = field(default_factory=list)
+    # Every confirmed LL swing within the CURRENT downtrend -- appended in
+    # the same-direction branch below (alongside last_confirmed_swing) and
+    # in the flip branch (as the flip-triggering LL's own seed entry,
+    # UNLIKE pullback_history's reset-to-empty). Reset on every genuine
+    # flip, same trigger as pullback_history. See
+    # TrendStructureResult.reversal_history's own docstring for the full
+    # contract.
+    reversal_history: list[ReversalCandidate] = field(default_factory=list)
 
 
 def run_state_machine(classified: list[ClassifiedSwing]) -> TrendMachineState:
@@ -152,6 +168,12 @@ def run_state_machine(classified: list[ClassifiedSwing]) -> TrendMachineState:
                     state.pullback_history.append(PullbackCycle(warning_swing=state.warning_swing, resolving_swing=_to_detail(cs)))
                 state.warning_flag = False
                 state.warning_swing = None
+                if cs.classification == "LL" and ratio >= CONFIRMED_RATIO:
+                    # Every confirmed LL within the current downtrend is its
+                    # own reversal candidate -- see ReversalCandidate's own
+                    # docstring. Only reachable while trend_state ==
+                    # "downtrend" (LL's direction), same-direction here.
+                    state.reversal_history.append(_to_reversal_candidate(cs))
             # ratio < WEAK_RATIO ("tentative"): persistence_count already
             # bumped above; magnitude_tier must NOT change (the specific fix
             # this feature's spec calls out by name).
@@ -172,6 +194,15 @@ def run_state_machine(classified: list[ClassifiedSwing]) -> TrendMachineState:
             state.flip_swing = _to_detail(cs)
             state.flip_swing_is_lower_bound = False
             state.pullback_history = []
+            # UNLIKE pullback_history's reset-to-empty: flipping INTO a
+            # downtrend seeds reversal_history with the flip-triggering LL
+            # itself, so a freshly-flipped downtrend's history isn't empty
+            # while last_confirmed_swing/ReversalCard's own "Confirmed"
+            # checklist item is already showing this exact LL as satisfied
+            # (see ReversalCandidate's own docstring). Flipping INTO an
+            # uptrend (direction == "uptrend", cs is an HH) simply clears
+            # it -- reversal_history has no meaning outside a downtrend.
+            state.reversal_history = [_to_reversal_candidate(cs)] if direction == "downtrend" else []
         elif not is_primary:
             # "A confirmed LH or HL -- regardless of ratio -- does NOT flip
             # trend_state; it only sets warning_flag=true with its own

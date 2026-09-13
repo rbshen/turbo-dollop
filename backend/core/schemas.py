@@ -1024,6 +1024,18 @@ class PullbackCycleOut(BaseModel):
     resolving_swing: SwingDetailOut
 
 
+class ReversalCandidateOut(BaseModel):
+    """One confirmed LL swing within the ticker's CURRENT downtrend -- a
+    single-point event, not a warning-to-resolution pair like
+    PullbackCycleOut above. See
+    analysis/trend_structure/types.py::ReversalCandidate and
+    TrendAnalysisOut.reversal_history's own comment for the full contract."""
+
+    swing: SwingDetailOut
+    ad_bullish_divergence: bool
+    ad_divergence_swing_date: date | None = None
+
+
 class TrendAnalysisOut(BaseModel):
     """Latest trend-structure analysis for one ticker -- see
     analysis/trend_structure/ for the full swing/BOS/blended-score
@@ -1068,6 +1080,17 @@ class TrendAnalysisOut(BaseModel):
     # is indistinguishable from "genuinely none yet" either way -- no
     # migration-safety null needed here, unlike the other Phase-1 fields.
     pullback_history: list[PullbackCycleOut] = []
+    # Every confirmed LL swing within the CURRENT downtrend (i.e. since
+    # trend_started), oldest first -- reset on every genuine flip, same
+    # trigger as pullback_history above, but UNLIKE pullback_history,
+    # seeded with the flip-triggering LL itself as its first entry when
+    # flipping INTO a downtrend (see state_machine.py::run_state_machine),
+    # so a freshly-flipped downtrend's history isn't empty while
+    # last_confirmed_swing/ReversalCard's own "Confirmed" checklist item is
+    # already showing that same LL as satisfied. Always empty while
+    # trend_state is "uptrend". Empty list (not null) for a row computed
+    # before this field existed, same reasoning as pullback_history above.
+    reversal_history: list[ReversalCandidateOut] = []
     efficiency_ratio: float | None = None
     regime: str | None = None  # "trending" | "range-bound" | None
     blended_score: float

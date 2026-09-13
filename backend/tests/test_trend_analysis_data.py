@@ -229,6 +229,59 @@ def test_pullback_occurred_since_flip_round_trips_through_a_real_compute(monkeyp
     assert reread.pullback_occurred_since_flip == result.pullback_occurred_since_flip
 
 
+def _synthetic_downtrend_rows(n: int = 150, ticker: str = "AAPL") -> list[YahooPriceCache]:
+    """Unlike _synthetic_rows above (a noisy random-walk uptrend), this is a
+    deterministic downward-sloping sine wave -- needed to exercise
+    reversal_history's real (non-empty) JSON round trip: a random-walk
+    series (up OR down) rarely produces enough genuine N=5 fractal swings
+    for a reliable, non-flaky test (cumsum'd noise tends to wander too
+    smoothly to trip find_swing_highs/find_swing_lows' strict N=5-bars-
+    each-side inequality), whereas a clean oscillation reliably produces
+    one swing high/low per half-period. Period=14 with a downward slope
+    confirmed (by direct inspection) to produce ~9 confirmed LL swings
+    across a genuine downtrend."""
+    i = np.arange(n)
+    closes = 100 + (-0.3 * i) + 5.0 * np.sin(2 * np.pi * i / 14)
+    rows = []
+    for idx in range(n):
+        d = date(2024, 1, 1) + timedelta(days=idx)
+        c = float(closes[idx])
+        rows.append(
+            YahooPriceCache(ticker=ticker, date=d, open=c - 0.05, high=c + 0.3, low=c - 0.3, close=c, volume=1000, fetched_at=datetime.now())
+        )
+    return rows
+
+
+def test_reversal_history_round_trips_through_a_real_compute(monkeypatch):
+    """Exercises the actual JSON serialize/deserialize path for
+    reversal_history (a real list[ReversalCandidate] -> str column ->
+    list[ReversalCandidateOut] round trip), not just a mocked-out
+    shortcut -- using a genuine downtrend so the list isn't trivially
+    empty."""
+    engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+
+    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+        return _synthetic_downtrend_rows()
+
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+
+    result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
+
+    assert result.trend_state == "downtrend"
+    assert len(result.reversal_history) >= 1
+    for candidate in result.reversal_history:
+        assert candidate.swing.classification == "LL"
+        assert isinstance(candidate.ad_bullish_divergence, bool)
+        if candidate.ad_bullish_divergence:
+            assert isinstance(candidate.ad_divergence_swing_date, date)
+        else:
+            assert candidate.ad_divergence_swing_date is None
+
+    reread = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
+    assert reread.reversal_history == result.reversal_history
+
+
 def test_sma_position_fields_round_trip_through_a_real_compute(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)

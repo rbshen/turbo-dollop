@@ -68,6 +68,25 @@ class PullbackCycle:
 
 
 @dataclass(frozen=True)
+class ReversalCandidate:
+    """One confirmed LL swing within the CURRENT downtrend -- a candidate
+    reversal event, whether or not A/D Bullish Divergence was present at
+    it. Unlike PullbackCycle, this is a single-point event, not a
+    warning-to-resolution pair: every confirmed LL is its own reversal
+    candidate, not just the ones that happen to resolve something.
+    ad_bullish_divergence/ad_divergence_swing_date are copied verbatim from
+    this swing's own ClassifiedSwing (see classification.py) -- the
+    trailing-3 divergence floor they're computed against is deliberately
+    trend-boundary-agnostic (see classification.py's own docstring), so
+    scoping THIS LIST to the current downtrend must never re-derive or
+    re-scope the divergence value itself."""
+
+    swing: SwingDetail
+    ad_bullish_divergence: bool
+    ad_divergence_swing_date: date | None
+
+
+@dataclass(frozen=True)
 class TrendStructureResult:
     trend_state: TrendState
     # None only when the swing history is too thin to have ever produced a
@@ -109,6 +128,16 @@ class TrendStructureResult:
     # warning_swing's own job. Bounded by construction: it only ever grows
     # across the swings of one trend segment, never across a flip.
     pullback_history: list[PullbackCycle]
+    # Every confirmed LL swing within the CURRENT downtrend (i.e. since
+    # trend_started), oldest first -- reset on every genuine flip like
+    # pullback_history above, but UNLIKE pullback_history, seeded with the
+    # flip-triggering LL itself as its first entry when flipping INTO a
+    # downtrend (see state_machine.py::run_state_machine) -- a fresh
+    # downtrend's history is never empty while last_confirmed_swing/
+    # ReversalCard's own "Confirmed" checklist item is already showing that
+    # same LL as satisfied. Always empty while trend_state is "uptrend"
+    # (only LL swings while trend_state=="downtrend" are ever appended).
+    reversal_history: list[ReversalCandidate]
     efficiency_ratio: float | None
     regime: Regime | None
     blended_score: float

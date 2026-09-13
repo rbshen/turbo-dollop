@@ -92,6 +92,7 @@ def compute_trend_structure(ohlcv: pd.DataFrame) -> TrendStructureResult:
         trend_started=state.flip_swing,
         trend_started_is_lower_bound=state.flip_swing_is_lower_bound,
         pullback_history=state.pullback_history,
+        reversal_history=state.reversal_history,
         efficiency_ratio=efficiency_ratio,
         regime=regime,
         blended_score=blended_score,

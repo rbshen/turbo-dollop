@@ -110,6 +110,16 @@ class TrendAnalysis(SQLModel, table=True):
     # and a genuinely-empty history are indistinguishable and both mean
     # "nothing to show" to a caller.
     pullback_history_json: str | None = None
+    # Every confirmed LL swing within the CURRENT downtrend -- see
+    # analysis/trend_structure/state_machine.py::TrendMachineState.
+    # reversal_history and TrendAnalysisOut.reversal_history's own comments
+    # for the full contract. Plain `str` JSON (a list of {swing,
+    # ad_bullish_divergence, ad_divergence_swing_date} objects, `swing`
+    # shaped like last_confirmed_swing_json's own SwingDetail dict), same
+    # convention as pullback_history_json above. Nullable for the same
+    # _add_missing_columns-has-no-backfill reason; reads as an empty list
+    # (not None) at the API boundary either way.
+    reversal_history_json: str | None = None
     efficiency_ratio: float | None = None
     regime: str | None = None  # "trending" | "range-bound" | None
     blended_score: float

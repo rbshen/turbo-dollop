@@ -1,4 +1,4 @@
-import { ChecklistCard, fmtSwingDate } from "@/components/technical/ChecklistCard";
+import { ChecklistCard, DotTimeline, fmtSwingDate, SectionHeading, type TimelineDot } from "@/components/technical/ChecklistCard";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
 interface Props {
@@ -165,33 +165,17 @@ function PullbackHistoryTimeline({
   history: TrendAnalysisOut["pullback_history"];
   lastPointFreshnessBars: number | null;
 }) {
-  if (history.length === 0) return null;
   const points = pullbackHistoryPoints(history);
   const lastIndex = points.length - 1;
+  const dots: TimelineDot[] = points.map((point, i) => ({
+    key: `${point.kind}-${point.date}-${i}`,
+    date: point.date,
+    dotClassName: point.kind === "warning" ? "bg-warn" : "bg-positive",
+    title: point.kind === "warning" ? "Pullback began (lower high)" : "Pullback resolved",
+    caption: i === lastIndex && lastPointFreshnessBars != null ? `${lastPointFreshnessBars} bars ago` : undefined,
+  }));
 
-  return (
-    <div className="flex items-start overflow-x-auto pb-1">
-      {points.map((point, i) => (
-        <div key={i} className="flex items-center">
-          {i > 0 && <div className="h-px w-4 shrink-0 bg-border-subtle" />}
-          <div className="flex shrink-0 flex-col items-center gap-1">
-            <span
-              className={`h-2 w-2 rounded-full ${point.kind === "warning" ? "bg-warn" : "bg-positive"}`}
-              title={point.kind === "warning" ? "Pullback began (lower high)" : "Pullback resolved"}
-            />
-            <span className="whitespace-nowrap text-[10px] text-text-tertiary">
-              {fmtSwingDate(point.date)}
-              {i === lastIndex && lastPointFreshnessBars != null ? ` · ${lastPointFreshnessBars} bars ago` : ""}
-            </span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function SectionHeading({ children }: { children: React.ReactNode }) {
-  return <p className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">{children}</p>;
+  return <DotTimeline dots={dots} />;
 }
 
 export function TrendContinuationCard({ data }: Props) {

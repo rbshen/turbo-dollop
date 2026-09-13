@@ -14,13 +14,13 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
 from analysis.trend_structure.engine import compute_trend_structure
-from analysis.trend_structure.types import PullbackCycle, SwingDetail, TrendStructureResult, WeinsteinStageResult
+from analysis.trend_structure.types import PullbackCycle, ReversalCandidate, SwingDetail, TrendStructureResult, WeinsteinStageResult
 from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER, compute_weinstein_stage
 from clients.yahoo_cache import get_or_fetch_price_history
 from core.config import settings
 from core.db import engine
 from core.models import TrendAnalysis, YahooPriceCache
-from core.schemas import PullbackCycleOut, SwingDetailOut, TrendAnalysisOut
+from core.schemas import PullbackCycleOut, ReversalCandidateOut, SwingDetailOut, TrendAnalysisOut
 from core.tickers import normalize_ticker
 
 
@@ -98,6 +98,46 @@ def _pullback_history_out(history: list[PullbackCycle]) -> list[PullbackCycleOut
     ]
 
 
+def _reversal_history_to_json(history: list[ReversalCandidate]) -> str:
+    payload = [
+        {
+            "swing": {**asdict(candidate.swing), "date": candidate.swing.date.isoformat()},
+            "ad_bullish_divergence": candidate.ad_bullish_divergence,
+            "ad_divergence_swing_date": candidate.ad_divergence_swing_date.isoformat() if candidate.ad_divergence_swing_date else None,
+        }
+        for candidate in history
+    ]
+    return json.dumps(payload)
+
+
+def _reversal_history_from_json(raw: str | None) -> list[ReversalCandidateOut]:
+    # [] (not None) for a pre-existing row computed before this field
+    # existed -- see models.py::TrendAnalysis.reversal_history_json's own
+    # comment on why an empty list, not a nullable field, is the right
+    # migration-safety shape here.
+    if raw is None:
+        return []
+    return [
+        ReversalCandidateOut(
+            swing=_swing_detail_dict_to_out(entry["swing"]),
+            ad_bullish_divergence=entry["ad_bullish_divergence"],
+            ad_divergence_swing_date=date.fromisoformat(entry["ad_divergence_swing_date"]) if entry["ad_divergence_swing_date"] else None,
+        )
+        for entry in json.loads(raw)
+    ]
+
+
+def _reversal_history_out(history: list[ReversalCandidate]) -> list[ReversalCandidateOut]:
+    return [
+        ReversalCandidateOut(
+            swing=_swing_detail_out(candidate.swing),
+            ad_bullish_divergence=candidate.ad_bullish_divergence,
+            ad_divergence_swing_date=candidate.ad_divergence_swing_date,
+        )
+        for candidate in history
+    ]
+
+
 def _ohlcv_frame(rows: list[YahooPriceCache]) -> pd.DataFrame:
     data = {
         "open": [r.open for r in rows],
@@ -136,6 +176,7 @@ def _upsert(ticker: str, result: TrendStructureResult, weinstein_result: Weinste
             "trend_started_json": _swing_detail_to_json(result.trend_started),
             "trend_started_is_lower_bound": result.trend_started_is_lower_bound,
             "pullback_history_json": _pullback_history_to_json(result.pullback_history),
+            "reversal_history_json": _reversal_history_to_json(result.reversal_history),
             "efficiency_ratio": result.efficiency_ratio,
             "regime": result.regime,
             "blended_score": result.blended_score,
@@ -182,6 +223,7 @@ def _row_to_out(row: TrendAnalysis) -> TrendAnalysisOut:
         trend_started=_swing_detail_from_json(row.trend_started_json),
         trend_started_is_lower_bound=row.trend_started_is_lower_bound,
         pullback_history=_pullback_history_from_json(row.pullback_history_json),
+        reversal_history=_reversal_history_from_json(row.reversal_history_json),
         efficiency_ratio=row.efficiency_ratio,
         regime=row.regime,
         blended_score=row.blended_score,
@@ -250,6 +292,7 @@ def compute_and_store_from_rows(
         trend_started=_swing_detail_out(result.trend_started),
         trend_started_is_lower_bound=result.trend_started_is_lower_bound,
         pullback_history=_pullback_history_out(result.pullback_history),
+        reversal_history=_reversal_history_out(result.reversal_history),
         efficiency_ratio=result.efficiency_ratio,
         regime=result.regime,
         blended_score=result.blended_score,
