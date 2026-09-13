@@ -48,7 +48,7 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     reversal_status: null,
     pullback_status: null,
     bb_rsi_entry_signal: null,
-    warren_entry_signal: null,
+    warren_active_signal_kind: null,
     warren_last_buy_fired_at: null,
     ...overrides,
   };
@@ -313,23 +313,25 @@ describe("filterTickerScores", () => {
     expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["QUALIFIES"]);
   });
 
-  it("does not filter by Warren entry when the checkbox is unchecked (default)", () => {
+  it("filters by Warren signal kind multi-select (OR semantics across selected kinds)", () => {
     const rows = [
-      row({ ticker: "ACTIVE", warren_entry_signal: true }),
-      row({ ticker: "INACTIVE", warren_entry_signal: false }),
-      row({ ticker: "PREDATES_FIELD", warren_entry_signal: null }),
+      row({ ticker: "BLUE", warren_active_signal_kind: "blue_up" }),
+      row({ ticker: "YELLOW", warren_active_signal_kind: "yellow_up" }),
+      row({ ticker: "GRAY", warren_active_signal_kind: "gray_up" }),
     ];
-    expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(3);
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, warrenSignalKinds: ["blue_up", "gray_up"] };
+    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["BLUE", "GRAY"]);
   });
 
-  it("shows only warren_entry_signal=true tickers when the Warren entry checkbox is checked", () => {
-    const rows = [
-      row({ ticker: "ACTIVE", warren_entry_signal: true }),
-      row({ ticker: "INACTIVE", warren_entry_signal: false }),
-      row({ ticker: "PREDATES_FIELD", warren_entry_signal: null }),
-    ];
-    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, warrenEntrySignal: true };
-    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["ACTIVE"]);
+  it("excludes a ticker with no active Warren signal once the filter is active", () => {
+    const rows = [row({ ticker: "PREDATES_FIELD", warren_active_signal_kind: null })];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, warrenSignalKinds: ["blue_up"] };
+    expect(filterTickerScores(rows, filters)).toHaveLength(0);
+  });
+
+  it("does not exclude a null-Warren-signal ticker when no Warren filter is active", () => {
+    const rows = [row({ ticker: "PREDATES_FIELD", warren_active_signal_kind: null })];
+    expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(1);
   });
 });
 

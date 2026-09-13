@@ -125,6 +125,23 @@ export const PULLBACK_STATUS_FILTER_OPTIONS: MultiSelectOption[] = [
   { value: "invalidated", label: "Invalidated" },
 ];
 
+// Fixed 3-value set matching Warren's own Up-kind vocabulary exactly
+// (see TickerScore.warren_active_signal_kind) -- no "not active" option,
+// same reasoning as Weinstein Stage above: a ticker with no currently
+// active Warren buy state simply fails every .includes() check once this
+// filter is active. Labels are local to this dropdown (matching
+// WarrenSignalCard.tsx's own KIND_LABELS text), not imported from there --
+// this filter's own group label already reads "Warren entry (2h)", same
+// redundancy rationale as VS_SPY_FILTER_OPTIONS/REVERSAL_STATUS_FILTER_OPTIONS
+// above. Replaced an earlier single combined checkbox (Blue+Yellow only,
+// Gray Up excluded entirely) once Gray Up became a real, independently
+// selectable option.
+export const WARREN_SIGNAL_KIND_FILTER_OPTIONS: MultiSelectOption[] = [
+  { value: "blue_up", label: "Blue Up" },
+  { value: "yellow_up", label: "Yellow Up" },
+  { value: "gray_up", label: "Gray Up" },
+];
+
 export interface ScreenerFilterState {
   overallScore: RangeFilter;
   step1Score: RangeFilter;
@@ -154,12 +171,12 @@ export interface ScreenerFilterState {
   // a watchlist named W1 through W5 (see TechnicalFilters.tsx's
   // own caption), since bb_rsi_entry_signal is null for every other ticker.
   bbRsiEntrySignal: boolean;
-  // Same shape/scoping as bbRsiEntrySignal above -- matches
-  // warren_entry_signal (Blue Up or Yellow Up combined; Gray Up is
-  // deliberately excluded, see TickerScore.warren_entry_signal's own
-  // comment), not a Weinstein-style multi-select over Warren's signal
-  // kinds.
-  warrenEntrySignal: boolean;
+  // Multi-select over Warren's 3 Up-kinds (Blue/Yellow/Gray Up), OR
+  // semantics -- matches Weinstein Stage's array-filter pattern above,
+  // not bbRsiEntrySignal's single-checkbox shape. Same W1-W5-only
+  // scoping as bbRsiEntrySignal (warren_active_signal_kind is null for
+  // every other ticker).
+  warrenSignalKinds: string[];
 }
 
 export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
@@ -182,7 +199,7 @@ export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
   pullbackStatuses: [],
   speculativeGrowth: false,
   bbRsiEntrySignal: false,
-  warrenEntrySignal: false,
+  warrenSignalKinds: [],
 };
 
 // A range filter is only "active" if min or max is actually set -- an
@@ -239,7 +256,9 @@ export function filterTickerScores(
     }
     if (filters.speculativeGrowth && !row.speculative_growth_qualifies) return false;
     if (filters.bbRsiEntrySignal && !row.bb_rsi_entry_signal) return false;
-    if (filters.warrenEntrySignal && !row.warren_entry_signal) return false;
+    if (filters.warrenSignalKinds.length > 0 && !filters.warrenSignalKinds.includes(row.warren_active_signal_kind ?? "")) {
+      return false;
+    }
     return true;
   });
 }

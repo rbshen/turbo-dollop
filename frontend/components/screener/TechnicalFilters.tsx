@@ -6,6 +6,7 @@ import {
   PULLBACK_STATUS_FILTER_OPTIONS,
   REVERSAL_STATUS_FILTER_OPTIONS,
   VS_SPY_FILTER_OPTIONS,
+  WARREN_SIGNAL_KIND_FILTER_OPTIONS,
   WEINSTEIN_STAGE_FILTER_OPTIONS,
   type ScreenerFilterState,
 } from "@/lib/screenerFilters";
@@ -56,16 +57,15 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
           />
           BB + RSI entry (2h)
         </label>
-        <label className="flex h-8 items-center gap-1.5 rounded-md border border-border-input px-2 text-xs font-medium text-text-secondary">
-          <input
-            type="checkbox"
-            checked={filters.warrenEntrySignal}
-            onChange={(e) => patch({ warrenEntrySignal: e.target.checked })}
-            className="size-3.5 rounded-sm border-border-input accent-chart-purple"
-          />
-          Warren entry (2h)
-        </label>
-        <p className="text-xs text-text-tertiary">Only ever matches tickers on a watchlist named W1 through W5.</p>
+        <MultiSelectDropdown
+          label="Warren entry (2h)"
+          options={WARREN_SIGNAL_KIND_FILTER_OPTIONS}
+          selected={filters.warrenSignalKinds}
+          onChange={(s) => patch({ warrenSignalKinds: s })}
+        />
+        <p className="text-xs text-text-tertiary">
+          BB + RSI entry and Warren entry only ever match tickers on a watchlist named W1 through W5.
+        </p>
       </div>
     </CollapsibleFilterSection>
   );

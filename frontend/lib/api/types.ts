@@ -551,10 +551,12 @@ export interface TickerScoreOut {
   // majority of tickers -- this signal only ever exists for
   // members of a watchlist named W1 through W5.
   bb_rsi_entry_signal: boolean | null;
-  // See TickerScore.warren_entry_signal -- Blue Up or Yellow Up only,
-  // excluding Gray Up (the gray-suppressed state). Same W1-W5-only
+  // See TickerScore.warren_active_signal_kind -- the ticker's currently
+  // active Warren buy state (all three of Blue/Yellow/Gray Up are
+  // equally valid "active" states, see that field's own backend
+  // comment), or null when not currently active. Same W1-W5-only
   // scoping as bb_rsi_entry_signal.
-  warren_entry_signal: boolean | null;
+  warren_active_signal_kind: "blue_up" | "yellow_up" | "gray_up" | null;
   // See TickerScore.warren_last_buy_fired_at.
   warren_last_buy_fired_at: string | null;
 }
