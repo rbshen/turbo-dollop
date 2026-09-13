@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { FRESHNESS_LABEL, invalidatedFreshnessText, pullbackHistoryPoints, resolutionStatus } from "@/components/technical/TrendContinuationCard";
+import { fmtSwingDate } from "@/components/technical/ChecklistCard";
+import {
+  FRESHNESS_LABEL,
+  invalidatedFreshnessText,
+  pullbackHistoryPoints,
+  resolutionStatus,
+  rightNowDetailText,
+  rightNowFreshnessCaption,
+  rightNowStatusText,
+} from "@/components/technical/TrendContinuationCard";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
 // Only trend_state/warning_flag/pullback_occurred_since_flip vary across the
@@ -109,6 +118,70 @@ describe("pullbackHistoryPoints", () => {
       { kind: "warning", date: "2026-08-24" },
       { kind: "resolved", date: "2026-09-02" },
     ]);
+  });
+});
+
+describe("rightNowStatusText", () => {
+  it("reads the relabeled, plainer text while a pullback is in progress", () => {
+    const data = trendAnalysis({ trend_state: "uptrend" });
+    expect(rightNowStatusText(data, true)).toBe("Pulled back — hasn't made a new high yet");
+  });
+
+  it("reads a plain 'no pullback' line when nothing is currently active", () => {
+    const data = trendAnalysis({ trend_state: "uptrend" });
+    expect(rightNowStatusText(data, false)).toBe("No pullback currently active");
+  });
+
+  it("reads distinctly once the trend itself has reversed -- this card's dead-in-production branch, per technicalCardScope.ts, but still exercised directly here", () => {
+    const data = trendAnalysis({ trend_state: "downtrend" });
+    expect(rightNowStatusText(data, false)).toBe("Trend has reversed — no longer tracking a pullback here.");
+  });
+});
+
+describe("rightNowDetailText", () => {
+  it("names the actual lower high once a pullback is in progress", () => {
+    const data = trendAnalysis({
+      warning_swing: { date: "2026-08-24", price: 207.4, margin: 8.57, atr: 4.51, ratio: 1.9, classification: "LH" },
+    });
+    expect(rightNowDetailText(data, true)).toBe(`Lower high on ${fmtSwingDate("2026-08-24")} against the established uptrend.`);
+  });
+
+  it("has no detail line when no pullback is in progress", () => {
+    const data = trendAnalysis({ warning_swing: null });
+    expect(rightNowDetailText(data, false)).toBeNull();
+  });
+
+  it("has no detail line if in progress but warning_swing itself is somehow missing", () => {
+    const data = trendAnalysis({ warning_swing: null });
+    expect(rightNowDetailText(data, true)).toBeNull();
+  });
+});
+
+describe("rightNowFreshnessCaption", () => {
+  it("is null for Recovered -- that fact is folded onto the timeline's own last dot instead", () => {
+    expect(rightNowFreshnessCaption("Recovered", "2026-09-02", 6)).toBeNull();
+  });
+
+  it("is null for Invalidated -- no reference-window framing applies there", () => {
+    expect(rightNowFreshnessCaption("Invalidated", "2026-09-02", 6)).toBeNull();
+  });
+
+  it("renders the status-specific label alongside the date and bars-ago count for NoPullback", () => {
+    expect(rightNowFreshnessCaption("NoPullback", "2026-08-20", 12)).toBe(
+      `Bars since last confirming swing: ${fmtSwingDate("2026-08-20")} · 12 bars ago`
+    );
+  });
+
+  it("renders the status-specific label for Pending", () => {
+    expect(rightNowFreshnessCaption("Pending", "2026-08-05", 15)).toBe(`Bars since uptrend last confirmed: ${fmtSwingDate("2026-08-05")} · 15 bars ago`);
+  });
+
+  it("is null when there's no date to anchor it to (e.g. too-thin history)", () => {
+    expect(rightNowFreshnessCaption("NoPullback", null, 12)).toBeNull();
+  });
+
+  it("is null when bars itself is unavailable", () => {
+    expect(rightNowFreshnessCaption("NoPullback", "2026-08-20", null)).toBeNull();
   });
 });
 

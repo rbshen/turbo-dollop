@@ -1,4 +1,4 @@
-import { ChecklistCard, fmtSwingDate, type ChecklistItem } from "@/components/technical/ChecklistCard";
+import { ChecklistCard, fmtSwingDate } from "@/components/technical/ChecklistCard";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
 interface Props {
@@ -22,8 +22,11 @@ const DISCLAIMER =
 
 // Illustrative only -- matches the 1-month (21 trading day) horizon the
 // backtest itself measured forward returns over, not a validated
-// "pullbacks resolve within N bars" threshold. See the freshness bar's own
-// caption below.
+// "pullbacks resolve within N bars" threshold. Kept as a standalone caption
+// (see the render below) even though the Recovered case's own numeric
+// freshness fact moved onto the timeline in the Phase 3 restructure --
+// this reference-window context still matters independent of WHERE the
+// bars count is displayed.
 const FRESHNESS_ILLUSTRATIVE_WINDOW_BARS = 21;
 
 export type ResolutionStatus = "NoPullback" | "Pending" | "Recovered" | "Invalidated";
@@ -32,6 +35,15 @@ export function resolutionStatus(data: TrendAnalysisOut): ResolutionStatus {
   // A flip to downtrend also clears warning_flag (see state_machine.py), so
   // "downtrend" is the only signal needed to distinguish "the pullback
   // resolved bullishly" from "the trend flipped and superseded it."
+  //
+  // NOTE (Phase 3 trace, not a behavior change): this branch is not
+  // actually reachable via TechnicalTab.tsx's own render path today --
+  // lib/technicalCardScope.ts only ever mounts <TrendContinuationCard>
+  // when trend_state is "uptrend" (a downtrend renders <ReversalCard>
+  // instead, collapsing this card to a muted row). It's exercised directly
+  // by this file's own unit tests below, and is left in place rather than
+  // removed -- deleting a resolutionStatus branch is a logic change this
+  // presentation-only pass was explicitly told not to make.
   if (data.trend_state === "downtrend") return "Invalidated";
   if (data.warning_flag) return "Pending";
   // warning_flag=false alone is ambiguous -- it reads the same whether no
@@ -64,13 +76,11 @@ const STATUS_LABEL: Record<ResolutionStatus, string> = {
 // same-direction continuation with no pullback involved at all
 // (NoPullback), the last continuation BEFORE the current pullback started
 // (Pending -- last_confirmed_swing is untouched by a warning firing, only
-// warning_swing marks the pullback's own start), the swing that resolved a
-// pullback (Recovered), or the swing that flipped the trend (Invalidated,
-// handled separately below since it drops the progress-bar framing
-// entirely). Worded per status so the number is never misread as measuring
-// something it doesn't -- in particular, Pending's label deliberately does
-// NOT say "since pullback started," since that's warning_swing's date, not
-// this one.
+// warning_swing marks the pullback's own start), or the swing that resolved
+// a pullback (Recovered). Worded per status so the number is never misread
+// as measuring something it doesn't -- in particular, Pending's label
+// deliberately does NOT say "since pullback started," since that's
+// warning_swing's date, not this one.
 export const FRESHNESS_LABEL: Record<Exclude<ResolutionStatus, "Invalidated">, string> = {
   NoPullback: "Bars since last confirming swing",
   Pending: "Bars since uptrend last confirmed",
@@ -85,13 +95,51 @@ export function invalidatedFreshnessText(bars: number | null): string {
   return bars != null ? `Downtrend confirmed ${bars} bars ago.` : "Downtrend confirmation date unavailable.";
 }
 
+// The "Right now" section's single status line -- what used to be a static
+// ChecklistItem label ("Uptrend pausing — price just missed a new high")
+// paired with a met/not-met checkbox. Reworded per Phase 3 review feedback
+// (plainer, less alarming for a routine in-trend event) and now varies by
+// state instead of staying fixed text next to a crossed-out icon, since a
+// healthy uptrend spends most of its life in the "no pullback" state and a
+// permanently-present, usually-crossed-out checklist item read as noise.
+export function rightNowStatusText(data: TrendAnalysisOut, pullbackInProgress: boolean): string {
+  if (data.trend_state !== "uptrend") return "Trend has reversed — no longer tracking a pullback here.";
+  return pullbackInProgress ? "Pulled back — hasn't made a new high yet" : "No pullback currently active";
+}
+
+export function rightNowDetailText(data: TrendAnalysisOut, pullbackInProgress: boolean): string | null {
+  if (pullbackInProgress && data.warning_swing) {
+    return `Lower high on ${fmtSwingDate(data.warning_swing.date)} against the established uptrend.`;
+  }
+  return null;
+}
+
+// The NoPullback/Pending freshness fact has no timeline dot to attach to
+// (NoPullback has no pullback_history at all; Pending's own
+// bars_since_confirmation describes last_confirmed_swing, a point BEFORE
+// the pullback even started, not any cycle in the timeline) -- so instead
+// of a third, separate "freshness bar" element, it renders as a small
+// caption directly under the "Right now" status line above. Recovered is
+// deliberately excluded here: its fact IS the timeline's own last dot (see
+// PullbackHistoryTimeline below), so folding it in twice would reintroduce
+// exactly the duplication this restructure removes.
+export function rightNowFreshnessCaption(
+  status: ResolutionStatus,
+  lastConfirmedSwingDate: string | null,
+  bars: number | null
+): string | null {
+  if (status !== "NoPullback" && status !== "Pending") return null;
+  if (lastConfirmedSwingDate == null || bars == null) return null;
+  return `${FRESHNESS_LABEL[status]}: ${fmtSwingDate(lastConfirmedSwingDate)} · ${bars} bars ago`;
+}
+
 type PullbackHistoryPoint = { kind: "warning" | "resolved"; date: string };
 
 // Flattens pullback_history's {warning_swing, resolving_swing} pairs into a
 // single chronological sequence -- two points per cycle, always alternating
 // (a cycle only ever exists once it's resolved, see state_machine.py::
 // run_state_machine, so there's never a stray unpaired warning point here;
-// a still-pending warning is shown separately, via the checklist item
+// a still-pending warning is shown separately, via the "Right now" section
 // above, not in this timeline).
 export function pullbackHistoryPoints(history: TrendAnalysisOut["pullback_history"]): PullbackHistoryPoint[] {
   return history.flatMap((cycle) => [
@@ -100,87 +148,71 @@ export function pullbackHistoryPoints(history: TrendAnalysisOut["pullback_histor
   ]);
 }
 
-// Compact "how many times has this happened in the current trend" timeline
-// -- additive context alongside the single-cycle checklist item above,
-// which only ever shows the LATEST warning/resolution. Renders nothing for
-// an empty history (no pullback has resolved yet this trend -- the common
-// case for a fresh or still-clean uptrend), same "only show when
-// meaningful" contract the rest of this tab's pills already follow.
-function PullbackHistoryTimeline({ history }: { history: TrendAnalysisOut["pullback_history"] }) {
+// "how many times has this happened in the current trend" timeline --
+// clearly headed "Past cycles this trend" (see the render below) to
+// separate it from the "Right now" section above, per the Phase 3 review
+// finding that nothing previously distinguished current vs. historical
+// pullback state on this card. Renders nothing for an empty history (no
+// pullback has resolved yet this trend -- the common case for a fresh or
+// still-clean uptrend), same "only show when meaningful" contract the rest
+// of this tab's pills already follow. lastPointFreshnessBars annotates the
+// final (Recovered-only) dot with "· N bars ago" instead of a separate
+// freshness-bar element duplicating the same date.
+function PullbackHistoryTimeline({
+  history,
+  lastPointFreshnessBars,
+}: {
+  history: TrendAnalysisOut["pullback_history"];
+  lastPointFreshnessBars: number | null;
+}) {
   if (history.length === 0) return null;
   const points = pullbackHistoryPoints(history);
+  const lastIndex = points.length - 1;
 
   return (
-    <div className="space-y-1.5">
-      <p className="text-xs text-text-tertiary">
-        Pullback cycles this trend <span className="text-text-secondary">({history.length})</span>
-      </p>
-      <div className="flex items-start overflow-x-auto pb-1">
-        {points.map((point, i) => (
-          <div key={i} className="flex items-center">
-            {i > 0 && <div className="h-px w-4 shrink-0 bg-border-subtle" />}
-            <div className="flex shrink-0 flex-col items-center gap-1">
-              <span
-                className={`h-2 w-2 rounded-full ${point.kind === "warning" ? "bg-warn" : "bg-positive"}`}
-                title={point.kind === "warning" ? "Pullback began (lower high)" : "Pullback resolved"}
-              />
-              <span className="whitespace-nowrap text-[10px] text-text-tertiary">{fmtSwingDate(point.date)}</span>
-            </div>
+    <div className="flex items-start overflow-x-auto pb-1">
+      {points.map((point, i) => (
+        <div key={i} className="flex items-center">
+          {i > 0 && <div className="h-px w-4 shrink-0 bg-border-subtle" />}
+          <div className="flex shrink-0 flex-col items-center gap-1">
+            <span
+              className={`h-2 w-2 rounded-full ${point.kind === "warning" ? "bg-warn" : "bg-positive"}`}
+              title={point.kind === "warning" ? "Pullback began (lower high)" : "Pullback resolved"}
+            />
+            <span className="whitespace-nowrap text-[10px] text-text-tertiary">
+              {fmtSwingDate(point.date)}
+              {i === lastIndex && lastPointFreshnessBars != null ? ` · ${lastPointFreshnessBars} bars ago` : ""}
+            </span>
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
     </div>
   );
+}
+
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return <p className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">{children}</p>;
 }
 
 export function TrendContinuationCard({ data }: Props) {
   const status = resolutionStatus(data);
   const pullbackInProgress = data.trend_state === "uptrend" && data.warning_flag === true;
-
   const freshnessBars = data.bars_since_confirmation;
-  const freshnessPct = freshnessBars != null ? Math.min(100, (freshnessBars / FRESHNESS_ILLUSTRATIVE_WINDOW_BARS) * 100) : null;
+  const hasHistory = data.pullback_history.length > 0;
 
-  const items: ChecklistItem[] = [
-    {
-      key: "pullback-in-progress",
-      label: "Uptrend pausing — price just missed a new high",
-      met: pullbackInProgress,
-      detail:
-        pullbackInProgress && data.warning_swing
-          ? `Lower high on ${fmtSwingDate(data.warning_swing.date)} against the established uptrend.`
-          : data.trend_state !== "uptrend"
-            ? "Current trend state is downtrend."
-            : "No pullback warning currently active.",
-    },
-  ];
-
-  // Invalidated drops the progress-bar/reference-window framing entirely --
-  // that framing (an illustrative comparison against the ~1-month horizon
-  // the resolution backtest measured) only means something for an
-  // unresolved-or-just-resolved pullback. Once the trend has already
-  // flipped, the number isn't a staleness signal to compare against
-  // anything -- it's just a plain historical fact.
-  const freshnessBar =
-    status === "Invalidated" ? (
-      <p className="text-xs text-text-tertiary">{invalidatedFreshnessText(freshnessBars)}</p>
-    ) : (
-      <div className="space-y-1.5">
-        <div className="flex items-baseline justify-between text-xs text-text-tertiary">
-          <span>{FRESHNESS_LABEL[status]}</span>
-          <span className="font-mono tabular-nums text-text-secondary">{freshnessBars ?? "—"}</span>
-        </div>
-        <div className="h-1.5 w-full rounded-full bg-surface-2">
-          <div
-            className="h-1.5 rounded-full bg-brand transition-[width]"
-            style={{ width: `${freshnessPct ?? 0}%` }}
-          />
-        </div>
-        <p className="text-[11px] text-text-tertiary">
-          Illustrative only, against a {FRESHNESS_ILLUSTRATIVE_WINDOW_BARS}-trading-day (~1 month) reference window — not a validated
-          threshold.
-        </p>
-      </div>
-    );
+  // A legacy/transient row computed before Phase 2 shipped can read
+  // Recovered (pullback_occurred_since_flip was already true) with an
+  // empty pullback_history (never computed yet, defaults to [] -- see
+  // data/trend_analysis_data.py::_pullback_history_from_json). Without
+  // this fallback the freshness fact would silently vanish until the next
+  // nightly recompute, since it would otherwise only ever render attached
+  // to a timeline dot that doesn't exist yet.
+  const recoveredFallbackCaption =
+    status === "Recovered" && !hasHistory && data.last_confirmed_swing
+      ? `${FRESHNESS_LABEL.Recovered}: ${fmtSwingDate(data.last_confirmed_swing.date)} · ${freshnessBars ?? "—"} bars ago`
+      : null;
+  const detailText = rightNowDetailText(data, pullbackInProgress);
+  const freshnessCaption = rightNowFreshnessCaption(status, data.last_confirmed_swing?.date ?? null, freshnessBars);
 
   return (
     <ChecklistCard
@@ -188,12 +220,50 @@ export function TrendContinuationCard({ data }: Props) {
       statusLabel={STATUS_LABEL[status]}
       statusToneClass={STATUS_PILL_CLASS[status]}
       blurb="Checked because the stock is currently in an uptrend. Looks for whether a recent pullback has resolved bullishly or turned into a real breakdown."
-      items={items}
+      items={[]}
       extra={
-        <>
-          <PullbackHistoryTimeline history={data.pullback_history} />
-          {freshnessBar}
-        </>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <SectionHeading>Right now</SectionHeading>
+            <div className="flex items-start gap-2 text-sm">
+              <span
+                className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${pullbackInProgress ? "bg-warn" : "bg-border-subtle"}`}
+              />
+              <div className="min-w-0 space-y-0.5">
+                <p className={pullbackInProgress ? "font-medium text-warn" : "text-text-primary"}>
+                  {rightNowStatusText(data, pullbackInProgress)}
+                </p>
+                {detailText && <p className="text-xs text-text-tertiary">{detailText}</p>}
+                {status === "Invalidated" && <p className="text-xs text-text-tertiary">{invalidatedFreshnessText(freshnessBars)}</p>}
+                {freshnessCaption && <p className="text-xs text-text-tertiary">{freshnessCaption}</p>}
+              </div>
+            </div>
+          </div>
+
+          {(hasHistory || recoveredFallbackCaption) && (
+            <div className="space-y-1.5 border-t border-border-subtle pt-4">
+              <SectionHeading>
+                Past cycles this trend
+                {hasHistory && <span className="normal-case text-text-secondary"> ({data.pullback_history.length})</span>}
+              </SectionHeading>
+              {hasHistory ? (
+                <PullbackHistoryTimeline
+                  history={data.pullback_history}
+                  lastPointFreshnessBars={status === "Recovered" ? freshnessBars : null}
+                />
+              ) : (
+                <p className="text-xs text-text-tertiary">{recoveredFallbackCaption}</p>
+              )}
+            </div>
+          )}
+
+          {status !== "Invalidated" && (
+            <p className="text-[11px] text-text-tertiary">
+              Bars-since counts above are illustrative only, against a {FRESHNESS_ILLUSTRATIVE_WINDOW_BARS}-trading-day (~1 month)
+              reference window — not a validated threshold.
+            </p>
+          )}
+        </div>
       }
       disclaimer={DISCLAIMER}
     />
