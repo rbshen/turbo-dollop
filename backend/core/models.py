@@ -656,6 +656,26 @@ class TickerScore(SQLModel, table=True):
     # exactly the same way a row computed before this field existed would
     # (see _add_missing_columns) -- both mean "no signal," not an error.
     bb_rsi_entry_signal: bool | None = None
+    # Warren (RSI/ADX/WVF, 2h) technical entry signal -- the DERIVED active
+    # state (data/warren_signal_data.py::is_warren_entry_signal_active on
+    # the matching signal_type="warren" TechnicalEntrySignal row's
+    # signal_kind, same session.get() sibling-read pattern as
+    # bb_rsi_entry_signal above), narrower than Warren's own
+    # is_warren_signal_active (excludes gray_up -- see
+    # is_warren_entry_signal_active's own docstring). None for the
+    # overwhelming majority of tickers, same W1-W5-only scoping as
+    # bb_rsi_entry_signal.
+    warren_entry_signal: bool | None = None
+    # Max fired_at across every WarrenSignalEvent buy-side arrow (Blue/
+    # Yellow/Gray Up) ever recorded for this ticker -- data/
+    # warren_signal_data.py::last_buy_signal_fired_at, a genuine query
+    # against WarrenSignalEvent rather than a copy of
+    # TechnicalEntrySignal.fired_at, which holds the latest event of
+    # EITHER direction and would misreport recency once a ticker's state
+    # has flipped to a sell arrow since its last buy. None whenever no
+    # buy arrow has ever fired for this ticker (including every ticker
+    # outside W1-W5, same as warren_entry_signal above).
+    warren_last_buy_fired_at: datetime | None = None
 
 
 class TickerCustomValuation(SQLModel, table=True):

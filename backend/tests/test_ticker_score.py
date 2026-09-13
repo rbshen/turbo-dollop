@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import data.ticker_score as ticker_score
-from core.models import TechnicalEntrySignal, TickerScore, TrendAnalysis
+from core.models import TechnicalEntrySignal, TickerScore, TrendAnalysis, WarrenSignalEvent
 from core.schemas import SpeculativeGrowthOut, Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
 from data.ticker_score import compute_ticker_score
 
@@ -360,6 +360,121 @@ def test_bb_rsi_entry_signal_is_none_when_ticker_is_not_in_the_watchlist(monkeyp
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
     assert row.bb_rsi_entry_signal is None
+
+
+def test_warren_entry_signal_is_true_for_blue_or_yellow_up_but_not_gray_up(monkeypatch):
+    # Plain session.get(TechnicalEntrySignal, (ticker, "warren", "2h")) read
+    # inside compute_ticker_score -- same sibling-read pattern as
+    # bb_rsi_entry_signal above, but DERIVED via
+    # is_warren_entry_signal_active (blue_up/yellow_up only), not Warren's
+    # own broader is_warren_signal_active (which still counts gray_up).
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(
+            TechnicalEntrySignal(
+                ticker="AAPL",
+                signal_type="warren",
+                timeframe="2h",
+                signal_kind="yellow_up",
+                fired_at=datetime(2026, 9, 8, 15, 30),
+                rsi=24.1,
+                close=210.5,
+                source="yahoo",
+                as_of=datetime(2026, 9, 8, 15, 30),
+                computed_at=datetime(2026, 9, 9, 3, 20),
+            )
+        )
+        session.commit()
+    _patch_all(monkeypatch)
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None
+    assert result.warren_entry_signal is True
+
+    with Session(engine) as session:
+        row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
+    assert row.warren_entry_signal is True
+
+
+def test_warren_entry_signal_is_false_when_latest_kind_is_gray_up(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(
+            TechnicalEntrySignal(
+                ticker="AAPL",
+                signal_type="warren",
+                timeframe="2h",
+                signal_kind="gray_up",
+                fired_at=datetime(2026, 9, 8, 15, 30),
+                gray_suppressed=True,
+                stop_count=2,
+                source="yahoo",
+                as_of=datetime(2026, 9, 8, 15, 30),
+                computed_at=datetime(2026, 9, 9, 3, 20),
+            )
+        )
+        session.commit()
+    _patch_all(monkeypatch)
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None
+    assert result.warren_entry_signal is False
+
+
+def test_warren_entry_signal_is_none_when_ticker_is_not_in_the_watchlist(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch)
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None
+    assert result.warren_entry_signal is None
+    assert result.warren_last_buy_fired_at is None
+    assert result.overall_score == 76  # unaffected -- not an Overall Assessment input
+
+
+def test_warren_last_buy_fired_at_is_max_across_up_kinds_regardless_of_active_state(monkeypatch):
+    # Deliberately NOT read off TechnicalEntrySignal.fired_at -- the latest
+    # recorded event here is a sell arrow (blue_down), so the snapshot's
+    # own fired_at would misreport recency; warren_last_buy_fired_at must
+    # instead reflect the true last BUY-side event from WarrenSignalEvent,
+    # including gray_up (broader than the active-state filter above).
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(
+            TechnicalEntrySignal(
+                ticker="AAPL",
+                signal_type="warren",
+                timeframe="2h",
+                signal_kind="blue_down",
+                fired_at=datetime(2026, 9, 10, 9, 30),
+                source="yahoo",
+                as_of=datetime(2026, 9, 10, 9, 30),
+                computed_at=datetime(2026, 9, 11, 3, 20),
+            )
+        )
+        session.add_all(
+            [
+                WarrenSignalEvent(
+                    ticker="AAPL", timeframe="2h", signal_kind="gray_up",
+                    fired_at=datetime(2026, 9, 8, 15, 30), created_at=datetime(2026, 9, 8, 15, 30),
+                ),
+                WarrenSignalEvent(
+                    ticker="AAPL", timeframe="2h", signal_kind="blue_down",
+                    fired_at=datetime(2026, 9, 10, 9, 30), created_at=datetime(2026, 9, 10, 9, 30),
+                ),
+            ]
+        )
+        session.commit()
+    _patch_all(monkeypatch)
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None
+    assert result.warren_entry_signal is False
+    assert result.warren_last_buy_fired_at == datetime(2026, 9, 8, 15, 30)
 
 
 def test_reversal_and_pullback_status_are_computed_from_trend_analysis(monkeypatch):

@@ -19,6 +19,12 @@ from data.speculative_growth_data import get_speculative_growth_data
 from data.step4_data import get_step4_data
 from data.step5_data import get_step5_data
 from data.ticker_summary import get_summary
+from data.warren_signal_data import (
+    DEFAULT_SIGNAL_TYPE as WARREN_SIGNAL_TYPE,
+    DEFAULT_TIMEFRAME as WARREN_TIMEFRAME,
+    is_warren_entry_signal_active,
+    last_buy_signal_fired_at,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +97,8 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         # ticker Weinstein hasn't processed yet) is just None, never a raise.
         trend_analysis = session.get(TrendAnalysis, ticker)
         entry_signal = session.get(TechnicalEntrySignal, (ticker, DEFAULT_SIGNAL_TYPE, DEFAULT_TIMEFRAME))
+        warren_signal = session.get(TechnicalEntrySignal, (ticker, WARREN_SIGNAL_TYPE, WARREN_TIMEFRAME))
+        warren_last_buy_fired_at = last_buy_signal_fired_at(session, ticker)
 
     reversal_status: str | None = None
     pullback_status: str | None = None
@@ -175,6 +183,8 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         reversal_status=reversal_status,
         pullback_status=pullback_status,
         bb_rsi_entry_signal=is_entry_signal_active(entry_signal.fired_at) if entry_signal else None,
+        warren_entry_signal=is_warren_entry_signal_active(warren_signal.signal_kind) if warren_signal else None,
+        warren_last_buy_fired_at=warren_last_buy_fired_at,
     )
 
     values = row.model_dump()
