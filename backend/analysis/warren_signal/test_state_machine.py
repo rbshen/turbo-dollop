@@ -176,6 +176,121 @@ def test_replay_is_deterministic_and_causal_across_reruns():
     assert full_events_in_prefix_window == prefix.events
 
 
+def _active_state_candles() -> pd.DataFrame:
+    """A real OHLC series (run through the actual RSI/DMI/WVF indicator
+    pipeline, not hand-picked booleans) engineered to walk the state
+    machine through several distinct active states: a deep crash drives RSI
+    through several Blue Up (scanOverSold4) triggers, a partial recovery
+    then a second oversold dip produce two Yellow Up (scanOverSold3)
+    triggers with no Blue in between -- arming yellowCountSinceBlue on the
+    second one -- and a sharp drop right after breaches the resulting
+    yellow stop, incrementing stopCount. Verified against the real
+    indicator pipeline (not just asserted here): 7 blue_up events, 2
+    yellow_up events, and stop_count == 1, gray_suppressed == False."""
+    closes = [100.0] * 15  # RSI(14) warmup -- flat, produces no signal
+    for _ in range(6):
+        closes.append(closes[-1] * 0.90)  # deep crash -> RSI to ~0, several Blue Up triggers
+    for _ in range(3):
+        closes.append(closes[-1] * 1.05)  # partial recovery -> RSI climbs back above 12, Blue stops firing
+    closes.append(closes[-1] * 1.0)
+    closes.append(closes[-1] * 1.10)  # jump above 30 -> 1st Yellow Up (yellowCountSinceBlue -> 1)
+    for _ in range(4):
+        closes.append(closes[-1] * 0.95)  # 2nd oversold dip, stays above the Blue threshold (12)
+    closes.append(closes[-1] * 1.12)  # jump above 30 again -> 2nd Yellow Up, now armed (count -> 2)
+    closes.append(closes[-1] * 0.80)  # sharp drop -> breaches the armed yellow stop, stop_count -> 1
+
+    n = len(closes)
+    highs = [c * 1.005 for c in closes]
+    lows = [c * 0.995 for c in closes]
+    base = datetime(2026, 1, 5, 9, 30)
+    idx = pd.DatetimeIndex([base + timedelta(hours=2 * i) for i in range(n)])
+    return pd.DataFrame({"open": closes, "high": highs, "low": lows, "close": closes}, index=idx)
+
+
+def _quiet_candles() -> pd.DataFrame:
+    """A genuinely quiet series -- a small, unchanging oscillation that
+    never sends RSI/ADX/WVF anywhere near a threshold (RSI stays in
+    ~47-57, well clear of both 30 and 70; ADX stays near 5-6, well clear of
+    40). No arrow ever fires and every counter stays at its fresh-start
+    value."""
+    n = 40
+    base_price = 100.0
+    closes = [base_price + (i % 4) * 0.3 for i in range(n)]
+    highs = [c + 0.5 for c in closes]
+    lows = [c - 0.5 for c in closes]
+    base = datetime(2026, 1, 5, 9, 30)
+    idx = pd.DatetimeIndex([base + timedelta(hours=2 * i) for i in range(n)])
+    return pd.DataFrame({"open": closes, "high": highs, "low": lows, "close": closes}, index=idx)
+
+
+def test_active_state_fixture_reaches_armed_yellow_and_a_stop_event():
+    # Documents the shape of _active_state_candles() itself, independent of
+    # the isolation tests below -- if this ever stops holding, the
+    # isolation tests downstream are no longer exercising an "active"
+    # ticker and would need re-tuning.
+    result = replay(_active_state_candles())
+    kinds = [e.kind for e in result.events]
+    assert kinds == ["blue_up"] * 7 + ["yellow_up", "yellow_up"]
+    assert result.stop_count == 1
+    assert result.gray_suppressed is False
+
+
+def test_quiet_fixture_fires_nothing():
+    result = replay(_quiet_candles())
+    assert result.events == []
+    assert result.stop_count == 0
+    assert result.gray_suppressed is False
+    assert result.live_stop_price is None
+
+
+def test_replay_has_no_cross_ticker_leakage_active_ticker_then_quiet_ticker():
+    # The "isolation" gap flagged in review: replay() must not carry any
+    # state (via a shared/global variable, an unreset counter, or anything
+    # else) from one ticker's call into the next one. Running the active
+    # fixture first -- which pushes stop_count to 1 and arms
+    # yellowCountSinceBlue -- must have zero effect on a subsequent call
+    # for a completely different (quiet) ticker.
+    quiet_in_isolation = replay(_quiet_candles())
+
+    replay(_active_state_candles())
+    quiet_after_active = replay(_quiet_candles())
+
+    assert quiet_after_active == quiet_in_isolation
+    assert quiet_after_active.events == []
+    assert quiet_after_active.stop_count == 0
+    assert quiet_after_active.gray_suppressed is False
+
+
+def test_replay_has_no_cross_ticker_leakage_quiet_ticker_then_active_ticker():
+    # The reverse order -- a "boring" ticker run first must not suppress or
+    # otherwise alter a subsequent, genuinely active ticker's own result.
+    active_in_isolation = replay(_active_state_candles())
+
+    replay(_quiet_candles())
+    active_after_quiet = replay(_active_state_candles())
+
+    assert active_after_quiet == active_in_isolation
+    assert active_after_quiet.stop_count == 1
+    assert len(active_after_quiet.events) == 9
+
+
+def test_replay_does_not_accumulate_state_across_repeated_calls_for_the_same_ticker():
+    # Simulates the same ticker being replayed on two separate nightly
+    # runs (see data/warren_signal_data.py -- every run replays from
+    # scratch against the full available history, nothing is persisted
+    # into the next run's inputs). Calling replay() twice in a row against
+    # identical input must produce byte-identical output both times, not
+    # an accumulating stop_count/yellowCountSinceBlue/gray_suppressed
+    # carried over from the first call.
+    candles = _active_state_candles()
+    first_run = replay(candles)
+    second_run = replay(candles)
+
+    assert second_run == first_run
+    assert second_run.stop_count == 1
+    assert second_run.gray_suppressed is False
+
+
 def test_replay_raises_on_empty_candles():
     with pytest.raises(ValueError):
         replay(pd.DataFrame(columns=["open", "high", "low", "close"]))
