@@ -6,6 +6,7 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
 import data.step3_data as step3_data
+from core.schemas import Step2Out
 from data.custom_valuation_data import activate_ticker_custom_valuation, set_ticker_custom_valuation
 from data.step3_data import get_active_valuation, get_step3_data
 from scoring.step3 import run_20yr_engine
@@ -820,6 +821,129 @@ def test_negative_book_value_on_both_bases_returns_no_result_not_a_negative_verd
     assert result.inputs.pb_mean_ratio is None
     assert result.inputs.book_value_per_share_standard == pytest.approx(-0.30)
     assert result.inputs.pb_mean_ratio_standard is None
+
+
+# --- Regression (2026-09-15): run_20yr_engine/run_psg's negative-value ---
+# --- guards, exercised through get_step3_data's OWN Auto Calculation -----
+# --- dispatch (not just the pure-function/run_manual_calculation unit ----
+# --- tests in scoring/test_step3.py) -- confirms the dispatch's own ------
+# --- null-check doesn't crash and blanks intrinsic_value_per_share/pb_bands/
+# --- verdict correctly, D/ECHO-shaped (real tickers from the full------
+# --- universe investigation). ---------------------------------------------
+
+
+def test_auto_calculation_dni_normalized_debt_swamped_returns_no_result(monkeypatch):
+    # D-shaped: choppy-but-currently-profitable Net Income (mirrors
+    # scoring/test_step3.py's own proven select_method fixture,
+    # `choppy_ni = [50, -10, 40, -5, 45, 30]`, scaled x10M) reaches
+    # DNI_NORMALIZED via the real select_method tree (CFO unavailable --
+    # a genuine fetch failure -- skips steps 2/3 entirely; Net Income is
+    # not consistently increasing (step 4 False) but IS currently
+    # profitable with a positive 5yr-smoothed average (steps 4a/4a-1 True)).
+    # total_debt is set deliberately enormous relative to shares so the
+    # engine's debt/cash adjustment swamps the value regardless of the
+    # exact NI/growth numbers -- exercises get_step3_data's own dispatch
+    # null-check (data/step3_data.py), not just run_20yr_engine/
+    # run_manual_calculation's own unit tests.
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_quote(ticker):
+        return [{"price": 70.0, "marketCap": 63_000_000_000.0}]
+
+    async def fake_income_statement(ticker, period, limit):
+        if period == "annual":
+            return [
+                {"fiscalYear": "2025", "revenue": 950_000_000, "netIncome": 450_000_000},
+                {"fiscalYear": "2024", "revenue": 1_050_000_000, "netIncome": -50_000_000},
+                {"fiscalYear": "2023", "revenue": 900_000_000, "netIncome": 400_000_000},
+                {"fiscalYear": "2022", "revenue": 1_100_000_000, "netIncome": -100_000_000},
+                {"fiscalYear": "2021", "revenue": 1_000_000_000, "netIncome": 500_000_000},
+            ]
+        return [{"date": "2026-03-31", "revenue": 240_000_000, "netIncome": 75_000_000} for _ in range(4)]
+
+    async def raise_cash_flow_error(ticker, period, limit):
+        raise httpx.ConnectError("boom")
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        if period != "annual":
+            return [{"cashAndCashEquivalents": 1_000_000, "totalDebt": 500_000_000_000.0}]
+        return []
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_quote", fake_quote)
+    monkeypatch.setattr(step3_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step3_data.fmp_client, "get_cash_flow_statement", raise_cash_flow_error)
+    monkeypatch.setattr(step3_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+
+    # step2_out supplied directly (bypasses analyst_estimates/earnings
+    # fixtures entirely -- get_step3_data's own documented escape hatch
+    # for a caller that already has one) -- a real, positive 6.75% growth
+    # rate, matching D's own real Step 2 figure from the investigation.
+    step2_out = Step2Out(ticker="d", growth_rate=6.75, basis="eps", verdict="Pass", weights={})
+
+    result = asyncio.run(get_step3_data("d", step2_out=step2_out))
+
+    assert result.company_type == "Standard"
+    assert result.selected_method == "DNI_NORMALIZED"
+    steps_by_id = {s.step: s for s in result.method_reasoning}
+    assert steps_by_id["2"].passed is None  # CFO genuinely unavailable
+    assert steps_by_id["4a"].passed is True  # currently profitable
+    assert steps_by_id["4a-1"].passed is True  # smoothed NI positive
+    assert result.intrinsic_value_per_share is None
+    assert result.discount_premium_pct is None
+    assert result.verdict is None
+
+
+def test_auto_calculation_psg_negative_growth_returns_no_result(monkeypatch):
+    # ECHO-shaped: Net Income negative throughout (never qualifies for any
+    # CFO/NI-based method), revenue growing aggressively enough (>=15%
+    # CAGR) to reach PSG via select_method's real step 5 -- but the
+    # forward growth rate PSG's own formula uses (Step 2's growth_rate,
+    # threaded through as projected_growth_rate) is negative, mirroring
+    # ECHO's real -13.07% figure. Exercises get_step3_data's own PSG
+    # dispatch null-check, not just run_psg/run_manual_calculation's own
+    # unit tests.
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_quote(ticker):
+        return [{"price": 91.89, "marketCap": 14_560_000_000.0}]
+
+    async def fake_income_statement(ticker, period, limit):
+        if period == "annual":
+            return [
+                {"fiscalYear": "2025", "revenue": 1_728_000_000, "netIncome": -400_000_000},
+                {"fiscalYear": "2024", "revenue": 1_440_000_000, "netIncome": -300_000_000},
+                {"fiscalYear": "2023", "revenue": 1_200_000_000, "netIncome": -200_000_000},
+                {"fiscalYear": "2022", "revenue": 1_000_000_000, "netIncome": -100_000_000},
+                {"fiscalYear": "2021", "revenue": 833_000_000, "netIncome": -50_000_000},
+            ]
+        return [{"date": "2026-03-31", "revenue": 500_000_000, "netIncome": -150_000_000} for _ in range(4)]
+
+    async def raise_cash_flow_error(ticker, period, limit):
+        raise httpx.ConnectError("boom")
+
+    async def fake_ratios(ticker, period, limit):
+        return [{"fiscalYear": "2025", "revenuePerShare": 52.175114486298156}]
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_quote", fake_quote)
+    monkeypatch.setattr(step3_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step3_data.fmp_client, "get_cash_flow_statement", raise_cash_flow_error)
+    monkeypatch.setattr(step3_data.fmp_client, "get_ratios", fake_ratios)
+
+    step2_out = Step2Out(ticker="echo", growth_rate=-13.07, basis="eps", verdict="Fail", weights={})
+
+    result = asyncio.run(get_step3_data("echo", step2_out=step2_out))
+
+    assert result.company_type == "Standard"
+    assert result.selected_method == "PSG"
+    steps_by_id = {s.step: s for s in result.method_reasoning}
+    assert steps_by_id["4a"].passed is False  # not currently profitable
+    assert steps_by_id["5"].passed is True  # revenue growing aggressively
+    assert result.inputs.projected_growth_rate == pytest.approx(-0.1307)
+    assert result.intrinsic_value_per_share is None
+    assert result.discount_premium_pct is None
+    assert result.verdict is None
 
 
 # --- TTM-period-duplicate exclusion (net_income_smoothed/cfo_smoothed/

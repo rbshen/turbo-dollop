@@ -495,12 +495,26 @@ def run_20yr_engine(
     cash_and_st_investments: float,
     fx_rate: float,
     last_close: float | None,
-) -> TwentyYearEngineResult:
+) -> TwentyYearEngineResult | None:
     """Spec §2.2-2.4's shared 20yr projection/discount/roll-up engine --
     identical math for DCF/DFCF/DNI, differing only in what `current_value`
     represents (see §2.5's method-specific labels, handled by the caller).
     Cross-checked cell-for-cell against the spec's own MSFT DFCF worked
-    example in the source workbook (PV sum, IV/share, discount %)."""
+    example in the source workbook (PV sum, IV/share, discount %).
+
+    Returns None when the final per-share value (after the debt/cash
+    adjustment) is <= 0 (2026-09-15) -- confirmed via a full-universe sweep
+    that a company with a genuinely positive, healthy pre-debt-adjustment
+    value (`intrinsic_value_pre_adj` below) can still end up negative here
+    purely because gross total_debt/shares_outstanding exceeds it (D, ES,
+    FE: regulated-utility infrastructure debt; GM: captive-finance-arm
+    debt; HOOD: margin-lending debt; DLTR/ETSY/URI: debt combined with a
+    currently-depressed current_value). `classify_valuation_verdict` would
+    otherwise confidently call a negative "intrinsic value" undervalued --
+    the same class of bug already fixed for Price-to-Book's non-positive-
+    book-value case (`bands_from_mean_sd`'s own docstring). This is an
+    output check, not an input check -- unlike PSG below, no single input
+    here is invalid on its own, only the combination."""
     growth_rates = np.concatenate(
         [np.full(5, growth_yr_1_5), np.full(5, growth_yr_6_10), np.full(10, growth_yr_11_20)]
     )
@@ -517,6 +531,9 @@ def run_20yr_engine(
     plus_cash_per_share = cash_and_st_investments / shares_outstanding
     intrinsic_value_per_share = intrinsic_value_pre_adj - less_debt_per_share + plus_cash_per_share
     final_iv_per_share = intrinsic_value_per_share * fx_rate
+
+    if final_iv_per_share <= 0:
+        return None
 
     return TwentyYearEngineResult(
         intrinsic_value_per_share=final_iv_per_share,
@@ -622,9 +639,20 @@ def run_psg(
     fair_psg_ratio: float,
     fx_rate: float,
     last_close: float | None,
-) -> PSGResult:
+) -> PSGResult | None:
     """Spec §4.2 -- note the literal `* 100`: growth is expressed as a
-    percentage number inside this specific formula, not a decimal fraction."""
+    percentage number inside this specific formula, not a decimal fraction.
+
+    Returns None when projected_growth_rate is negative (2026-09-15) --
+    confirmed real case: ECHO's -13.07% projected growth multiplied
+    straight through this formula into a fabricated -$136.34 "intrinsic
+    value" that classify_valuation_verdict then confidently called
+    undervalued. An input check, not an output check (unlike
+    run_20yr_engine above) -- fair_psg_ratio/sales_per_share are always
+    positive in practice, so growth's sign alone determines the formula's
+    sign here."""
+    if projected_growth_rate < 0:
+        return None
     intrinsic_value_per_share = fair_psg_ratio * sales_per_share * projected_growth_rate * 100
     final_iv_per_share = intrinsic_value_per_share * fx_rate
 
@@ -713,6 +741,8 @@ def run_manual_calculation(
             fx_rate=fx_rate,
             last_close=last_close,
         )
+        if engine_result is None:
+            return ManualCalculationResult(None, None, None, None, f"Resulting intrinsic value is not positive for {method}")
         return ManualCalculationResult(
             engine_result.intrinsic_value_per_share,
             None,
@@ -765,6 +795,8 @@ def run_manual_calculation(
             fx_rate=fx_rate,
             last_close=last_close,
         )
+        if psg_result is None:
+            return ManualCalculationResult(None, None, None, None, "Projected growth rate must be non-negative for PSG")
         return ManualCalculationResult(
             psg_result.intrinsic_value_per_share,
             None,

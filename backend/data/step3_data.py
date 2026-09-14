@@ -820,8 +820,9 @@ async def get_step3_data(
                 fx_rate=1.0,
                 last_close=inputs.last_close,
             )
-            intrinsic_value_per_share = engine_result.intrinsic_value_per_share
-            discount_premium_pct = engine_result.discount_premium_pct
+            if engine_result is not None:
+                intrinsic_value_per_share = engine_result.intrinsic_value_per_share
+                discount_premium_pct = engine_result.discount_premium_pct
     elif selection.method == "PRICE_TO_BOOK":
         if pb_result is not None:
             pb_bands = Step3PBBands(**pb_result.bands)
@@ -844,8 +845,9 @@ async def get_step3_data(
                 fx_rate=1.0,
                 last_close=inputs.last_close,
             )
-            intrinsic_value_per_share = psg_result.intrinsic_value_per_share
-            discount_premium_pct = psg_result.discount_premium_pct
+            if psg_result is not None:
+                intrinsic_value_per_share = psg_result.intrinsic_value_per_share
+                discount_premium_pct = psg_result.discount_premium_pct
 
     # Loss-making Standard company PB reference (spec's Method B,
     # "Liquidation Method") -- purely additive/informational, computed

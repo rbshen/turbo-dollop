@@ -13,6 +13,7 @@ from scoring.step3 import (
     run_20yr_engine,
     run_manual_calculation,
     run_price_to_book,
+    run_psg,
     select_method,
     trailing_smoothed_average,
 )
@@ -77,6 +78,86 @@ def test_run_20yr_engine_matches_msft_dfcf_worked_example():
     assert result.intrinsic_value_per_share == pytest.approx(518.98220737725239)
     # M28 "(Discount)/Premium" = last_close / iv_per_share - 1
     assert result.discount_premium_pct == pytest.approx(-0.21816202129440299)
+
+
+# --- Regression (2026-09-15): gross total_debt swamping an otherwise ------
+# --- healthy pre-debt-adjustment value must return None, never a --------
+# --- fabricated negative "intrinsic value" a verdict then reads --------
+# --- confidently -- D (Dominion Energy) was live in production with -----
+# --- exactly this shape before this fix: real inputs from the -----------
+# --- full-universe investigation, not invented. --------------------------
+
+
+def test_run_20yr_engine_returns_none_when_debt_swamps_a_positive_value():
+    # D-shaped: current_value (Net Income Smoothed) and every growth rate
+    # are genuinely positive -- the pre-debt-adjustment value is a real
+    # ~$53/share -- but total_debt alone ($53.4B / 879.5M shares =
+    # ~$60.7/share) exceeds it, so the final per-share value goes negative.
+    result = run_20yr_engine(
+        current_value=2_179_400_000.0,
+        growth_yr_1_5=0.06746791450161393,
+        growth_yr_6_10=0.06746791450161393,
+        growth_yr_11_20=0.04,
+        discount_rate=0.053266400000000005,
+        shares_outstanding=879_525_948.9965096,
+        total_debt=53_424_000_000.0,
+        cash_and_st_investments=296_000_000.0,
+        fx_rate=1.0,
+        last_close=68.76,
+    )
+    assert result is None
+
+
+def test_run_20yr_engine_same_shape_without_debt_is_a_real_positive_result():
+    # Same D-shaped inputs as above, minus the debt -- confirms the guard
+    # fires specifically because of total_debt, not some other property of
+    # this fixture (e.g. the growth rates or discount rate).
+    result = run_20yr_engine(
+        current_value=2_179_400_000.0,
+        growth_yr_1_5=0.06746791450161393,
+        growth_yr_6_10=0.06746791450161393,
+        growth_yr_11_20=0.04,
+        discount_rate=0.053266400000000005,
+        shares_outstanding=879_525_948.9965096,
+        total_debt=0.0,
+        cash_and_st_investments=296_000_000.0,
+        fx_rate=1.0,
+        last_close=68.76,
+    )
+    assert result is not None
+    assert result.intrinsic_value_per_share > 0
+
+
+# --- Regression (2026-09-15): a negative projected_growth_rate must -----
+# --- return None, never a fabricated negative PSG "intrinsic value" -----
+# --- ECHO's real -13.07% projected growth, from the full-universe -------
+# --- investigation. -------------------------------------------------------
+
+
+def test_run_psg_returns_none_for_negative_growth():
+    result = run_psg(
+        sales_per_share=52.175114486298156,
+        projected_growth_rate=-0.1306566341024875,
+        fair_psg_ratio=0.2,
+        fx_rate=1.0,
+        last_close=91.89,
+    )
+    assert result is None
+
+
+def test_run_psg_zero_growth_is_not_negative_still_returns_a_result():
+    # Boundary: the guard is `< 0`, not `<= 0` (unlike bands_from_mean_sd's
+    # P/B guard) -- zero growth is degenerate (a real $0.00 "intrinsic
+    # value") but not itself negative, so it's not blocked.
+    result = run_psg(sales_per_share=10.0, projected_growth_rate=0.0, fair_psg_ratio=0.2, fx_rate=1.0, last_close=100.0)
+    assert result is not None
+    assert result.intrinsic_value_per_share == pytest.approx(0.0)
+
+
+def test_run_psg_positive_growth_is_unaffected():
+    result = run_psg(sales_per_share=10.0, projected_growth_rate=0.10, fair_psg_ratio=0.2, fx_rate=1.0, last_close=100.0)
+    assert result is not None
+    assert result.intrinsic_value_per_share == pytest.approx(20.0)
 
 
 # --- Regression: P/B minus-side bands must NOT reproduce the workbook's --
@@ -234,6 +315,47 @@ def test_run_manual_calculation_price_to_book_standard_negative_book_value_error
     assert result.error == "Book value per share must be positive for PRICE_TO_BOOK_STANDARD"
     assert result.intrinsic_value_per_share is None
     assert result.pb_bands is None
+
+
+def test_run_manual_calculation_dni_normalized_debt_swamped_errors_not_crashes():
+    # Same D-shaped inputs as run_20yr_engine's own regression test above --
+    # must return the new, distinct error (not "Missing required inputs",
+    # which would be misleading -- every input IS present) and must not
+    # raise (this is the exact shape that would previously AttributeError
+    # on `engine_result.intrinsic_value_per_share` once run_20yr_engine
+    # started returning None).
+    result = run_manual_calculation(
+        method="DNI_NORMALIZED",
+        **{
+            **_MANUAL_CALC_DEFAULTS,
+            "current_value": 2_179_400_000.0,
+            "growth_yr_1_5": 0.06746791450161393,
+            "growth_yr_6_10": 0.06746791450161393,
+            "growth_yr_11_20": 0.04,
+            "discount_rate": 0.053266400000000005,
+            "shares_outstanding": 879_525_948.9965096,
+            "total_debt": 53_424_000_000.0,
+            "cash_and_st_investments": 296_000_000.0,
+            "last_close": 68.76,
+        },
+    )
+    assert result.error == "Resulting intrinsic value is not positive for DNI_NORMALIZED"
+    assert result.intrinsic_value_per_share is None
+
+
+def test_run_manual_calculation_psg_negative_growth_errors_not_crashes():
+    result = run_manual_calculation(
+        method="PSG",
+        **{
+            **_MANUAL_CALC_DEFAULTS,
+            "sales_per_share": 52.175114486298156,
+            "projected_growth_rate": -0.1306566341024875,
+            "fair_psg_ratio": 0.2,
+            "last_close": 91.89,
+        },
+    )
+    assert result.error == "Projected growth rate must be non-negative for PSG"
+    assert result.intrinsic_value_per_share is None
 
 
 # --- Regression: RIVN-style zero-revenue years must not poison the CAGR --
