@@ -363,7 +363,7 @@ def test_reit_gets_dividend_dpu_fields_and_pb_benchmark(monkeypatch):
     result = asyncio.run(get_step3_data("o"))
 
     assert result.company_type == "REIT/Property Developer"
-    assert result.selected_method == "PRICE_TO_BOOK"
+    assert result.selected_method == "PRICE_TO_BOOK_STANDARD"
     # dividendYield 0.055 -> 5.5%, above the configured 5.0% default REIT
     # threshold (helpers/reit_dividend_yield_config.py).
     assert result.dividend_yield_pct == pytest.approx(5.5)
@@ -472,7 +472,7 @@ def test_bank_gets_pb_benchmark_and_buy_signal(monkeypatch):
     result = asyncio.run(get_step3_data("jpm"))
 
     assert result.company_type == "Bank"
-    assert result.selected_method == "PRICE_TO_BOOK"
+    assert result.selected_method == "PRICE_TO_BOOK_STANDARD"
     assert result.benchmark_pb_low == 1.2
     assert result.benchmark_pb_high == 1.4
     assert result.benchmark_pb_note is None
@@ -481,7 +481,10 @@ def test_bank_gets_pb_benchmark_and_buy_signal(monkeypatch):
     assert result.dividend_yield_meets_reit_threshold is None
     assert result.dpu_growth_note is None
     # Flat P/B history -> sd=0 -> minus_1sd == mean == 50.0; price 10.0 is
-    # well below that, so the buy signal should read True.
+    # well below that, so the buy signal should read True. Reads off the
+    # standard basis (2026-09-14) -- goodwill=0 in this fixture means the
+    # standard and tangible book values are numerically identical, so this
+    # assertion is unaffected by the default-method flip.
     assert result.historical_pb_buy_signal is True
 
 
@@ -524,7 +527,11 @@ def test_non_usd_reporter_converts_every_monetary_input_to_usd(monkeypatch):
     # Bank/P-B fixture (same shape as test_bank_gets_pb_benchmark_and_buy_
     # signal) -- picked because P/B's math is the easiest to hand-verify:
     # mean_pb(1.0) * book_value_per_share(50.0 TWD) * fx_rate(0.05) == 2.5
-    # USD, with no engine/discount-rate machinery involved.
+    # USD, with no engine/discount-rate machinery involved. goodwill=0 in
+    # this fixture means the standard basis (the auto-selected default as
+    # of 2026-09-14) and the tangible basis are numerically identical, so
+    # pb_bands.mean stays 2.5 either way -- this test is about FX
+    # conversion, not which P/B basis is selected.
     _fresh_engine(monkeypatch)
     _patch_real_data(monkeypatch)
 
@@ -587,7 +594,7 @@ def test_non_usd_reporter_converts_every_monetary_input_to_usd(monkeypatch):
     result = asyncio.run(get_step3_data("jpm"))
 
     assert result.company_type == "Bank"
-    assert result.selected_method == "PRICE_TO_BOOK"
+    assert result.selected_method == "PRICE_TO_BOOK_STANDARD"
     assert result.inputs.reported_currency == "TWD"
     assert result.inputs.fx_rate == pytest.approx(0.05)
     assert result.inputs.fx_rate_as_of is not None
@@ -597,6 +604,72 @@ def test_non_usd_reporter_converts_every_monetary_input_to_usd(monkeypatch):
     assert result.pb_bands is not None
     assert result.pb_bands.mean == pytest.approx(2.5)
     assert result.intrinsic_value_per_share == pytest.approx(2.5)
+
+
+def test_tangible_pb_rescale_uses_total_equity_not_stockholders_equity_for_nci(monkeypatch):
+    # Regression test for the 2026-09-14 fix -- a PLD/WFC/C-shaped fixture
+    # with genuine minority interest (totalStockholdersEquity !=
+    # totalEquity). If the rescale ever regresses back to using
+    # totalStockholdersEquity, this test catches it: the tangible mean P/B
+    # would read 1.1 (the old, understated value) instead of the correct
+    # 1.2.
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_profile(ticker):
+        return [{"sector": "Financial Services", "industry": "Banks - Diversified", "beta": 1.1}]
+
+    async def fake_quote(ticker):
+        return [{"price": 10.0, "marketCap": 1_000_000_000}]
+
+    async def fake_ratios(ticker, period, limit):
+        # Flat priceToBookRatio=1.0 history -> sd=0, so both mean_pb values
+        # below are exact, not just approximately near their expected
+        # values.
+        return [{"fiscalYear": str(2025 - i), "priceToBookRatio": 1.0} for i in range(10)]
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        # shares_outstanding = marketCap/price = 1_000_000_000/10.0 =
+        # 100_000_000. totalAssets - goodwillAndIntangibleAssets -
+        # totalLiabilities = 50_000_000_000 (tangible); totalAssets -
+        # totalLiabilities = 60_000_000_000 (standard) -- the
+        # totalStockholdersEquity/totalEquity split (55B/60B, i.e. 5B of
+        # minority interest) only matters for the tangible historical
+        # rescale below, not either current book_value_per_share.
+        row = {
+            "totalAssets": 100_000_000_000,
+            "goodwillAndIntangibleAssets": 10_000_000_000,
+            "totalLiabilities": 40_000_000_000,
+            "totalStockholdersEquity": 55_000_000_000,
+            "totalEquity": 60_000_000_000,
+        }
+        if period != "annual":
+            return [{**row, "cashAndCashEquivalents": 100, "totalDebt": 0}]
+        return [{**row, "fiscalYear": str(2025 - i)} for i in range(10)]
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step3_data.fmp_client, "get_quote", fake_quote)
+    monkeypatch.setattr(step3_data.fmp_client, "get_ratios", fake_ratios)
+    monkeypatch.setattr(step3_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+
+    result = asyncio.run(get_step3_data("pld"))
+
+    assert result.company_type == "Bank"
+    # Tangible (manual-only "custom" method, 2026-09-14): rescale factor is
+    # totalEquity / tangible_equity = 60B / 50B = 1.2, so mean_pb ==
+    # 1.0 * 1.2 == 1.2 -- NOT 1.1, which is what the old (buggy)
+    # totalStockholdersEquity / tangible_equity = 55B / 50B rescale would
+    # have produced.
+    assert result.inputs.book_value_per_share == pytest.approx(500.0)
+    assert result.inputs.pb_mean_ratio == pytest.approx(1.2)
+    # Standard (the new auto-selected default): no rescale at all -- the
+    # flat priceToBookRatio=1.0 history passes through unchanged regardless
+    # of the totalStockholdersEquity/totalEquity/goodwill split.
+    assert result.inputs.book_value_per_share_standard == pytest.approx(600.0)
+    assert result.inputs.pb_mean_ratio_standard == pytest.approx(1.0)
+    assert result.selected_method == "PRICE_TO_BOOK_STANDARD"
+    assert result.pb_bands is not None
+    assert result.pb_bands.mean == pytest.approx(600.0)
 
 
 # --- TTM-period-duplicate exclusion (net_income_smoothed/cfo_smoothed/

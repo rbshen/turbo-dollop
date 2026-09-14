@@ -11,9 +11,35 @@ from scoring.step3 import (
     loss_making_pb_reference_note,
     pb_benchmark_for,
     run_20yr_engine,
+    run_manual_calculation,
     run_price_to_book,
     select_method,
     trailing_smoothed_average,
+)
+
+# run_manual_calculation's own 19 keyword args, minus `method` -- every
+# manual-calc test below starts from this and overrides only what it needs,
+# so a future new parameter doesn't silently leave every other test calling
+# with stale positional/missing args.
+_MANUAL_CALC_DEFAULTS = dict(
+    current_value=None,
+    growth_yr_1_5=None,
+    growth_yr_6_10=None,
+    growth_yr_11_20=None,
+    discount_rate=None,
+    shares_outstanding=None,
+    total_debt=None,
+    cash_and_st_investments=None,
+    book_value_per_share=None,
+    pb_mean_ratio=None,
+    pb_sd_ratio=None,
+    book_value_per_share_standard=None,
+    pb_mean_ratio_standard=None,
+    pb_sd_ratio_standard=None,
+    sales_per_share=None,
+    projected_growth_rate=None,
+    fair_psg_ratio=None,
+    last_close=None,
 )
 
 # --- 20yr engine: MSFT DFCF worked example -------------------------------
@@ -90,6 +116,61 @@ def test_bands_from_mean_sd_matches_jpm_worked_example_not_workbooks_mislabeled_
 
     # J30 "(Discount)/Premium" -- JPM traded above this method's fair value.
     assert result.discount_premium_pct == pytest.approx(0.38287671232876708, rel=1e-4)
+
+
+# --- run_manual_calculation: PRICE_TO_BOOK (tangible/"custom") vs. -------
+# --- PRICE_TO_BOOK_STANDARD read from two genuinely distinct input triples,
+# --- never crossing over ---------------------------------------------------
+
+
+def test_run_manual_calculation_price_to_book_reads_only_the_tangible_inputs():
+    # Both the tangible AND standard triples are populated with distinct
+    # values -- method="PRICE_TO_BOOK" must produce the tangible mean band
+    # (100 * 2.0 = 200), never the standard one (150 * 1.0 = 150).
+    result = run_manual_calculation(
+        method="PRICE_TO_BOOK",
+        **{
+            **_MANUAL_CALC_DEFAULTS,
+            "book_value_per_share": 100,
+            "pb_mean_ratio": 2.0,
+            "pb_sd_ratio": 0.5,
+            "book_value_per_share_standard": 150,
+            "pb_mean_ratio_standard": 1.0,
+            "pb_sd_ratio_standard": 0.1,
+            "last_close": 180,
+        },
+    )
+    assert result.error is None
+    assert result.intrinsic_value_per_share == pytest.approx(200.0)
+    assert result.pb_bands["mean"] == pytest.approx(200.0)
+
+
+def test_run_manual_calculation_price_to_book_standard_reads_only_the_standard_inputs():
+    # Mirror of the test above, with the roles of the two triples swapped --
+    # method="PRICE_TO_BOOK_STANDARD" must produce the standard mean band
+    # (150 * 1.0 = 150), never the tangible one (100 * 2.0 = 200).
+    result = run_manual_calculation(
+        method="PRICE_TO_BOOK_STANDARD",
+        **{
+            **_MANUAL_CALC_DEFAULTS,
+            "book_value_per_share": 100,
+            "pb_mean_ratio": 2.0,
+            "pb_sd_ratio": 0.5,
+            "book_value_per_share_standard": 150,
+            "pb_mean_ratio_standard": 1.0,
+            "pb_sd_ratio_standard": 0.1,
+            "last_close": 180,
+        },
+    )
+    assert result.error is None
+    assert result.intrinsic_value_per_share == pytest.approx(150.0)
+    assert result.pb_bands["mean"] == pytest.approx(150.0)
+
+
+def test_run_manual_calculation_price_to_book_standard_missing_inputs_errors():
+    result = run_manual_calculation(method="PRICE_TO_BOOK_STANDARD", **_MANUAL_CALC_DEFAULTS)
+    assert result.error == "Missing required inputs for PRICE_TO_BOOK_STANDARD"
+    assert result.intrinsic_value_per_share is None
 
 
 # --- Regression: RIVN-style zero-revenue years must not poison the CAGR --
@@ -209,8 +290,10 @@ def test_select_method_amzn_style_recency_boundary_changes_the_selected_method()
 # here.
 
 
-def test_select_method_bank_reit_uses_price_to_book():
+def test_select_method_bank_reit_uses_price_to_book_standard():
     # Step 1 YES branch -- short-circuits immediately, no other data needed.
+    # PRICE_TO_BOOK_STANDARD (plain book value), not the tangible
+    # PRICE_TO_BOOK -- the latter was demoted to manual-only 2026-09-14.
     result = select_method(
         company_type="Bank",
         cfo_series=None,
@@ -221,7 +304,7 @@ def test_select_method_bank_reit_uses_price_to_book():
         capex_series=None,
         revenue_series=None,
     )
-    assert result.method == "PRICE_TO_BOOK"
+    assert result.method == "PRICE_TO_BOOK_STANDARD"
     assert result.current_value_source is None
     assert len(result.decision_trail) == 1
     assert result.decision_trail[0].step == "1"

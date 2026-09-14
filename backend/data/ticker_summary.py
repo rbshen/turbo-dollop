@@ -35,7 +35,13 @@ FAIR_VALUE_METHOD_LABELS = {
     "DFCF": "DFCF",
     "DNI": "DNI",
     "DNI_NORMALIZED": "DNI (Normalized)",
-    "PRICE_TO_BOOK": "P/B",
+    # PRICE_TO_BOOK (tangible/"custom") demoted to manual-only 2026-09-14;
+    # PRICE_TO_BOOK_STANDARD (plain book value) is the new auto-selected
+    # default for Bank/REIT/Property Developer. Both labeled explicitly --
+    # no bare unlabeled "P/B" for either, so a manually-saved custom
+    # valuation's pill is never ambiguous with the default.
+    "PRICE_TO_BOOK": "P/B (custom)",
+    "PRICE_TO_BOOK_STANDARD": "P/B (standard)",
     "PSG": "PSG",
 }
 

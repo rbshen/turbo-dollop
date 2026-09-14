@@ -41,10 +41,10 @@ class MethodStep(NamedTuple):
 
 
 class MethodSelection(NamedTuple):
-    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | PRICE_TO_BOOK | PSG | PASS
+    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | PRICE_TO_BOOK_STANDARD | PSG | PASS
     # Which pre-computed figure step3_data.py should feed into the 20yr
-    # engine as `current_value` -- None for PRICE_TO_BOOK/PSG/PASS, which
-    # don't use the 20yr engine at all.
+    # engine as `current_value` -- None for PRICE_TO_BOOK_STANDARD/PSG/PASS,
+    # which don't use the 20yr engine at all.
     current_value_source: str | None
     decision_trail: list[MethodStep]
     pass_reason: str | None
@@ -232,10 +232,13 @@ def select_method(
     normalized-FCF check."""
     trail: list[MethodStep] = []
 
-    # 1. Company type check.
+    # 1. Company type check. Auto-selects the standard P/B method (plain
+    # book value, no intangibles adjustment) -- the tangible/"custom" P/B
+    # method (PRICE_TO_BOOK) is demoted to manual-only as of 2026-09-14
+    # (Manual Calculation/Custom Valuation), no longer auto-selected here.
     if company_type in ("Bank", "REIT/Property Developer"):
         trail.append(MethodStep("1", "Bank / REIT / Property Developer?", True, f"company_type={company_type}"))
-        return MethodSelection("PRICE_TO_BOOK", None, trail, None)
+        return MethodSelection("PRICE_TO_BOOK_STANDARD", None, trail, None)
     trail.append(MethodStep("1", "Bank / REIT / Property Developer?", False, f"company_type={company_type}"))
 
     # 1a. Insurance skips the CFO-based method family entirely (steps
@@ -645,6 +648,9 @@ def run_manual_calculation(
     book_value_per_share: float | None,
     pb_mean_ratio: float | None,
     pb_sd_ratio: float | None,
+    book_value_per_share_standard: float | None,
+    pb_mean_ratio_standard: float | None,
+    pb_sd_ratio_standard: float | None,
     sales_per_share: float | None,
     projected_growth_rate: float | None,
     fair_psg_ratio: float | None,
@@ -695,6 +701,24 @@ def run_manual_calculation(
         if None in (book_value_per_share, pb_mean_ratio, pb_sd_ratio):
             return ManualCalculationResult(None, None, None, None, "Missing required inputs for PRICE_TO_BOOK")
         pb_result = bands_from_mean_sd(book_value_per_share, pb_mean_ratio, pb_sd_ratio, fx_rate, last_close)
+        return ManualCalculationResult(
+            pb_result.bands["mean"],
+            pb_result.bands,
+            pb_result.discount_premium_pct,
+            classify_valuation_verdict(pb_result.discount_premium_pct),
+            None,
+        )
+
+    # PRICE_TO_BOOK_STANDARD -- plain book value (totalAssets -
+    # totalLiabilities, no intangibles/goodwill subtraction), the new
+    # 2026-09-14 auto-selected default for Bank/REIT/Property Developer.
+    # Shares bands_from_mean_sd unchanged with PRICE_TO_BOOK above -- the
+    # two methods differ only in which book-value-per-share/mean/SD triple
+    # step3_data.py computed and threaded in, not in the engine itself.
+    if method == "PRICE_TO_BOOK_STANDARD":
+        if None in (book_value_per_share_standard, pb_mean_ratio_standard, pb_sd_ratio_standard):
+            return ManualCalculationResult(None, None, None, None, "Missing required inputs for PRICE_TO_BOOK_STANDARD")
+        pb_result = bands_from_mean_sd(book_value_per_share_standard, pb_mean_ratio_standard, pb_sd_ratio_standard, fx_rate, last_close)
         return ManualCalculationResult(
             pb_result.bands["mean"],
             pb_result.bands,

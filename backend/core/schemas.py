@@ -530,7 +530,9 @@ class Step3Inputs(BaseModel):
     fx_rate_as_of: datetime | None = None
     last_close: float | None = None
 
-    # --- Price-to-Book inputs ---
+    # --- Price-to-Book inputs (tangible/"custom" basis -- manual-only as of
+    # 2026-09-14, see book_value_per_share_standard below for the
+    # auto-selected default) ---
     book_value_per_share: float | None = None
     historical_pb_ratios: list[float] | None = None
     pb_lookback: str | None = None
@@ -540,6 +542,17 @@ class Step3Inputs(BaseModel):
     # different method for this ticker.
     pb_mean_ratio: float | None = None
     pb_sd_ratio: float | None = None
+
+    # --- Price-to-Book inputs (standard basis: totalAssets -
+    # totalLiabilities, no intangibles/goodwill subtraction) -- the
+    # 2026-09-14 auto-selected default for Bank/REIT/Property Developer.
+    # Exactly parallel to the 5 tangible fields above; computed
+    # unconditionally, same reasoning. ---
+    book_value_per_share_standard: float | None = None
+    historical_pb_ratios_standard: list[float] | None = None
+    pb_lookback_standard: str | None = None
+    pb_mean_ratio_standard: float | None = None
+    pb_sd_ratio_standard: float | None = None
 
     # --- PSG inputs ---
     sales_per_share: float | None = None
@@ -562,10 +575,13 @@ class Step3Out(BaseModel):
     # Step 4/Step 5 (see CLAUDE.md's "Scoring rubric deviations").
     company_type: str
     classification_note: str = "Best-effort classification from sector/industry text — not a certified determination."
-    # DCF | DFCF | DNI | DNI_NORMALIZED | PRICE_TO_BOOK | PSG | PASS -- plus
-    # CF_NORMALIZED | FCF_NORMALIZED, but only when valuation_source ==
-    # "custom": select_method's own tree never produces either (Manual
-    # Calculation/Custom Valuation-only method choices, see CLAUDE.md's
+    # DCF | DFCF | DNI | DNI_NORMALIZED | PRICE_TO_BOOK_STANDARD | PSG |
+    # PASS -- plus CF_NORMALIZED | FCF_NORMALIZED | PRICE_TO_BOOK, but only
+    # when valuation_source == "custom": select_method's own tree never
+    # produces any of these three (Manual Calculation/Custom Valuation-only
+    # method choices; PRICE_TO_BOOK was demoted from auto-selected to
+    # manual-only 2026-09-14 when PRICE_TO_BOOK_STANDARD became the new
+    # Bank/REIT/Property Developer default -- see CLAUDE.md's
     # Item 3 note), so an "auto" Step3Out can never show one here.
     selected_method: str
     method_reasoning: list[Step3MethodStep] = []
@@ -633,7 +649,7 @@ class Step3Out(BaseModel):
 
 
 class Step3ManualParams(BaseModel):
-    """The 13 method-specific input fields run_manual_calculation takes,
+    """The 16 method-specific input fields run_manual_calculation takes,
     factored out of Step3ManualRequest so TickerCustomValuationIn/Out (the
     persistent custom valuation's save/load schema) can reuse the exact
     same shape rather than redeclaring these fields a second time. Every
@@ -651,10 +667,14 @@ class Step3ManualParams(BaseModel):
     shares_outstanding: float | None = None
     total_debt: float | None = None
     cash_and_st_investments: float | None = None
-    # Price-to-Book inputs.
+    # Price-to-Book inputs (tangible/"custom" basis).
     book_value_per_share: float | None = None
     pb_mean_ratio: float | None = None
     pb_sd_ratio: float | None = None
+    # Price-to-Book inputs (standard basis, 2026-09-14).
+    book_value_per_share_standard: float | None = None
+    pb_mean_ratio_standard: float | None = None
+    pb_sd_ratio_standard: float | None = None
     # PSG inputs.
     sales_per_share: float | None = None
     projected_growth_rate: float | None = None
@@ -665,7 +685,7 @@ class Step3ManualRequest(Step3ManualParams):
     """Manual Calculation's what-if request -- see Step3ManualParams for
     the shared parameter fields."""
 
-    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | CF_NORMALIZED | FCF_NORMALIZED | PRICE_TO_BOOK | PSG
+    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | CF_NORMALIZED | FCF_NORMALIZED | PRICE_TO_BOOK | PRICE_TO_BOOK_STANDARD | PSG
     # Supplied by the caller (already available from the live Auto
     # Calculation fetch) rather than re-fetched server-side.
     last_close: float | None = None
@@ -687,7 +707,7 @@ class TickerCustomValuationIn(Step3ManualParams):
     live, never saved) plus `method`. See models.py::TickerCustomValuation
     and data/custom_valuation_data.py."""
 
-    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | CF_NORMALIZED | FCF_NORMALIZED | PRICE_TO_BOOK | PSG
+    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | CF_NORMALIZED | FCF_NORMALIZED | PRICE_TO_BOOK | PRICE_TO_BOOK_STANDARD | PSG
 
 
 class TickerCustomValuationOut(Step3ManualParams):

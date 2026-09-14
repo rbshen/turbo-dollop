@@ -738,7 +738,7 @@ class TickerCustomValuation(SQLModel, table=True):
     Valuation panel)."""
 
     ticker: str = Field(primary_key=True)
-    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | CF_NORMALIZED | FCF_NORMALIZED | PRICE_TO_BOOK | PSG
+    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | CF_NORMALIZED | FCF_NORMALIZED | PRICE_TO_BOOK | PRICE_TO_BOOK_STANDARD | PSG
     parameters_json: str
     is_active: bool = False
     saved_at: datetime

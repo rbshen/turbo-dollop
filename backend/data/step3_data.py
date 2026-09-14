@@ -664,6 +664,58 @@ async def get_step3_data(
             last_close=quote.get("price"),
         )
 
+    # Standard-basis P/B (totalAssets - totalLiabilities, no intangibles/
+    # goodwill subtraction) -- the 2026-09-14 auto-selected default for
+    # Bank/REIT/Property Developer, replacing the tangible calc above in
+    # that role (which is now manual-only, see select_method). Needs no
+    # rescale at all, unlike the tangible series: FMP's own priceToBookRatio
+    # is already computed off totalEquity == totalAssets - totalLiabilities
+    # (see the tangible block's own comment above for the empirical
+    # confirmation against real O/PLD data), so pb_raw is used directly.
+    pb_history_standard_desc = []
+    for row in ratios_annual:
+        pb_raw = row.get("priceToBookRatio")
+        bs_row = balance_sheet_annual_by_fy.get(row.get("fiscalYear"))
+        if pb_raw is None or bs_row is None:
+            continue
+        total_assets = bs_row.get("totalAssets")
+        total_liabilities = bs_row.get("totalLiabilities")
+        if None in (total_assets, total_liabilities):
+            continue
+        if total_assets - total_liabilities <= 0:
+            # Same "don't fabricate a meaningless multiple" guard as the
+            # tangible loop above, against the standard (not tangible)
+            # book value for that period.
+            continue
+        pb_history_standard_desc.append(pb_raw)
+    pb_history_standard = list(reversed(pb_history_standard_desc))
+    pb_lookback_standard = None
+    if len(pb_history_standard) >= PB_LOOKBACK_LONG:
+        pb_lookback_standard = f"{PB_LOOKBACK_LONG} years"
+    elif len(pb_history_standard) >= PB_LOOKBACK_SHORT:
+        pb_lookback_standard = f"{PB_LOOKBACK_SHORT} years"
+
+    standard_book_value = None
+    if None not in (balance_sheet_latest.get("totalAssets"), balance_sheet_latest.get("totalLiabilities")):
+        standard_book_value = balance_sheet_latest["totalAssets"] - balance_sheet_latest["totalLiabilities"]
+    book_value_per_share_standard = (
+        standard_book_value / shares_outstanding if standard_book_value is not None and shares_outstanding else None
+    )
+    book_value_per_share_standard = (
+        book_value_per_share_standard * fx_rate if book_value_per_share_standard is not None else None
+    )
+
+    # Computed unconditionally, same reasoning as pb_result above.
+    pb_result_standard = None
+    if book_value_per_share_standard is not None and pb_lookback_standard is not None:
+        pb_result_standard = run_price_to_book(
+            book_value_per_share=book_value_per_share_standard,
+            historical_pb_ratios=pb_history_standard,
+            lookback=pb_lookback_standard,
+            fx_rate=1.0,
+            last_close=quote.get("price"),
+        )
+
     # PSG inputs.
     sales_per_share = _first(ratios_annual).get("revenuePerShare")
     sales_per_share = sales_per_share * fx_rate if sales_per_share is not None else None
@@ -672,11 +724,18 @@ async def get_step3_data(
     # investigation) -- never change intrinsic_value_per_share/
     # discount_premium_pct/verdict above, which keep their existing
     # mean+-10% logic untouched. The -1SD value itself already exists as
-    # pb_result.bands["minus_1sd"] whenever P/B was computed (unconditional,
-    # same as pb_mean_ratio/pb_sd_ratio above) -- this just names the
-    # framework's own buy signal explicitly.
+    # pb_result_standard.bands["minus_1sd"] whenever P/B was computed
+    # (unconditional, same as pb_mean_ratio_standard/pb_sd_ratio_standard
+    # above) -- this just names the framework's own buy signal explicitly.
+    #
+    # Reads off the *standard* basis (pb_result_standard), not tangible --
+    # 2026-09-14, following the same default flip as the auto-selected
+    # method itself, so this note stays consistent with whatever intrinsic
+    # value is actually displayed by default for Bank/REIT tickers.
     pb_buy_signal = (
-        historical_pb_buy_signal(quote.get("price"), pb_result.bands["minus_1sd"]) if pb_result is not None else None
+        historical_pb_buy_signal(quote.get("price"), pb_result_standard.bands["minus_1sd"])
+        if pb_result_standard is not None
+        else None
     )
     pb_benchmark = pb_benchmark_for(company_type)
 
@@ -721,6 +780,11 @@ async def get_step3_data(
         pb_lookback=pb_lookback,
         pb_mean_ratio=pb_result.mean_pb if pb_result else None,
         pb_sd_ratio=pb_result.sd_pb if pb_result else None,
+        book_value_per_share_standard=book_value_per_share_standard,
+        historical_pb_ratios_standard=pb_history_standard or None,
+        pb_lookback_standard=pb_lookback_standard,
+        pb_mean_ratio_standard=pb_result_standard.mean_pb if pb_result_standard else None,
+        pb_sd_ratio_standard=pb_result_standard.sd_pb if pb_result_standard else None,
         sales_per_share=sales_per_share,
         projected_growth_rate=growth_yr_1_5,
         fair_psg_ratio=FAIR_PSG_RATIO_DEFAULT,
@@ -763,6 +827,11 @@ async def get_step3_data(
             pb_bands = Step3PBBands(**pb_result.bands)
             intrinsic_value_per_share = pb_result.bands["mean"]
             discount_premium_pct = pb_result.discount_premium_pct
+    elif selection.method == "PRICE_TO_BOOK_STANDARD":
+        if pb_result_standard is not None:
+            pb_bands = Step3PBBands(**pb_result_standard.bands)
+            intrinsic_value_per_share = pb_result_standard.bands["mean"]
+            discount_premium_pct = pb_result_standard.discount_premium_pct
     elif selection.method == "PSG":
         if inputs.sales_per_share is not None and inputs.projected_growth_rate is not None:
             psg_result = run_psg(
