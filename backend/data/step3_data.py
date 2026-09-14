@@ -562,24 +562,32 @@ async def get_step3_data(
     # computed on a different one produced a number that wasn't internally
     # consistent (previously documented here as a "deliberate" mismatch;
     # confirmed via real data this was worth fixing, not leaving as-is).
-    # FMP's own priceToBookRatio = price / bookValuePerShare (its own
-    # non-tangible per-share figure) for that period -- rescaling by
-    # (totalStockholdersEquity / tangible_book_value) for the same fiscal
-    # year converts it to price / tangible_book_value_per_share exactly,
-    # since bookValuePerShare's own share-count denominator cancels out
-    # algebraically: priceToBookRatio * (equity / tangible_equity)
+    # FMP's own priceToBookRatio = price / bookValuePerShare for that
+    # period -- rescaling by (equity / tangible_book_value) for the same
+    # fiscal year converts it to price / tangible_book_value_per_share
+    # exactly, since bookValuePerShare's own share-count denominator
+    # cancels out algebraically: priceToBookRatio * (equity / tangible_equity)
     #   = (price / (equity/shares)) * (equity / tangible_equity)
     #   = price * shares / tangible_equity
     #   = price / (tangible_equity / shares)
     #   = price / tangible_book_value_per_share.
     # No new price-history fetch needed -- FMP's own priceToBookRatio
-    # already embeds that period's price implicitly. Confirmed via real
-    # cached data (JPM/BAC/WFC/O/AVB) that the resulting tangible-basis
-    # book value per share this implies lands within ~1% of FMP's own
-    # separately-reported tangibleBookValuePerShare field for the same
-    # period -- i.e. this reproduces the same tangible concept, just
-    # derived from data already fetched rather than trusting a second,
-    # independent FMP field.
+    # already embeds that period's price implicitly.
+    #
+    # `equity` here is `totalEquity`, not `totalStockholdersEquity` --
+    # fixed 2026-09-14, alongside adding the new standard-basis P/B method
+    # below. FMP's own bookValuePerShare/priceToBookRatio ratio fields are
+    # computed off totalEquity (which includes minority/non-controlling
+    # interest), not the parent-only totalStockholdersEquity -- confirmed
+    # empirically against real cached balance-sheet + shares data: for O
+    # and PLD, totalEquity/shares matches FMP's reported bookValuePerShare
+    # exactly (to the last digit), while totalStockholdersEquity/shares
+    # does not. Using totalStockholdersEquity here understated this
+    # tangible rescale for any NCI-bearing company -- confirmed material
+    # for PLD (~7.9% understatement, minorityInterest is ~7.9% of its
+    # totalEquity) and present but smaller for O/WFC/C (~1-2%); zero
+    # effect for a company with no minority interest (e.g. JPM,
+    # minorityInterest == 0, totalStockholdersEquity == totalEquity).
     balance_sheet_annual_by_fy = {row.get("fiscalYear"): row for row in balance_sheet_annual}
     pb_history_desc = []
     for row in ratios_annual:
@@ -587,7 +595,7 @@ async def get_step3_data(
         bs_row = balance_sheet_annual_by_fy.get(row.get("fiscalYear"))
         if pb_raw is None or bs_row is None:
             continue
-        equity = bs_row.get("totalStockholdersEquity")
+        equity = bs_row.get("totalEquity")
         total_assets = bs_row.get("totalAssets")
         goodwill_and_intangibles = bs_row.get("goodwillAndIntangibleAssets")
         total_liabilities = bs_row.get("totalLiabilities")

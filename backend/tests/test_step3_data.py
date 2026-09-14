@@ -442,12 +442,16 @@ def test_bank_gets_pb_benchmark_and_buy_signal(monkeypatch):
                     "totalLiabilities": 10_000_000_000,
                 }
             ]
-        # Annual (historical P/B tangibility rescale, 2026-08-15): identical
-        # totalStockholdersEquity/tangible-equity every year (goodwill=0, so
-        # the two are equal) -- the rescale factor is exactly 1.0, keeping
-        # the flat priceToBookRatio=1.0 history from fake_ratios above
-        # unchanged, so this test's buy-signal assertions (mean=1.0, sd=0,
-        # minus_1sd=50.0) stay valid without re-deriving them by hand.
+        # Annual (historical P/B tangibility rescale, 2026-08-15, corrected
+        # 2026-09-14 to rescale off totalEquity rather than
+        # totalStockholdersEquity -- see step3_data.py's own comment):
+        # identical totalEquity/tangible-equity every year (goodwill=0, so
+        # the two are equal; totalStockholdersEquity == totalEquity here too
+        # since this fixture has no minority interest, matching real JPM
+        # data) -- the rescale factor is exactly 1.0, keeping the flat
+        # priceToBookRatio=1.0 history from fake_ratios above unchanged, so
+        # this test's buy-signal assertions (mean=1.0, sd=0, minus_1sd=50.0)
+        # stay valid without re-deriving them by hand.
         return [
             {
                 "fiscalYear": str(2025 - i),
@@ -455,6 +459,7 @@ def test_bank_gets_pb_benchmark_and_buy_signal(monkeypatch):
                 "goodwillAndIntangibleAssets": 0,
                 "totalLiabilities": 10_000_000_000,
                 "totalStockholdersEquity": 50_000_000_000,
+                "totalEquity": 50_000_000_000,
             }
             for i in range(10)
         ]
@@ -554,12 +559,13 @@ def test_non_usd_reporter_converts_every_monetary_input_to_usd(monkeypatch):
                     "totalLiabilities": 1_000_000_000,
                 }
             ]
-        # Annual (historical P/B tangibility rescale, 2026-08-15): equity ==
-        # tangible equity every year (goodwill=0) -> rescale factor 1.0,
-        # keeping fake_ratios' flat priceToBookRatio=1.0 history unchanged
-        # so pb_bands.mean stays exactly 1.0 * 2.5 USD == 2.5, unaffected by
-        # the tangibility fix -- this test is about FX conversion, not the
-        # rescale itself.
+        # Annual (historical P/B tangibility rescale, 2026-08-15, corrected
+        # 2026-09-14 to rescale off totalEquity -- see step3_data.py's own
+        # comment): totalEquity == tangible equity every year (goodwill=0)
+        # -> rescale factor 1.0, keeping fake_ratios' flat
+        # priceToBookRatio=1.0 history unchanged so pb_bands.mean stays
+        # exactly 1.0 * 2.5 USD == 2.5, unaffected by the tangibility fix --
+        # this test is about FX conversion, not the rescale itself.
         return [
             {
                 "fiscalYear": str(2025 - i),
@@ -567,6 +573,7 @@ def test_non_usd_reporter_converts_every_monetary_input_to_usd(monkeypatch):
                 "goodwillAndIntangibleAssets": 0,
                 "totalLiabilities": 1_000_000_000,
                 "totalStockholdersEquity": 5_000_000_000,
+                "totalEquity": 5_000_000_000,
             }
             for i in range(10)
         ]
