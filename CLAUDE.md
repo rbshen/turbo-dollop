@@ -2082,6 +2082,55 @@ these are the design decisions and fixes behind them.
     is genuinely 0), so only its *historical* rescaled series differs (mean P/B 2.272x → 2.241x,
     the ~7.9% NCI effect from the bug fix above, not the method change itself).
 
+- **Full-universe verdict-flip audit run before pushing the above (2026-09-15)**, since the
+  3-ticker JPM/O/PLD spot-check wasn't representative on its own. Scanned all 572 tracked
+  tickers (`load_full_tracked_universe`, cache-only, zero live FMP calls); 59 classify Bank
+  (28) or REIT/Property Developer (31). **54 tickers behaved cleanly** (both bases produce a
+  real result): 5 verdict flips (**EQIX** undervalued→overvalued -- its tangible historical
+  P/B series has two ~600x outlier years from a near-zero tangible book value in that period,
+  a data artifact the standard basis's smooth ~5-7x series doesn't share, so this flip is very
+  likely a quality improvement, not a regression; **DLR** undervalued→fair; **KIM** fair→
+  overvalued, a razor-thin ±0.4pp boundary case; **SYF**/**TFC** undervalued→fair, both Banks).
+  Median |% change| in intrinsic value across the 54: **2.8%** (JPM/O/PLD's own 0-6% moves
+  were on the calm end, not unrepresentative); 90th percentile 23.4%; max **CSGP** 117.8%
+  (goodwill is 83.7% of its standard book value, no verdict flip either way).
+- **5 tickers surfaced a separate, pre-existing bug: no guard anywhere in the P/B calc
+  against a non-positive book value per share.** `AMT`/`CBRE`/`CCI`/`IRM`/`SBAC` -- all
+  heavy-goodwill/negative-equity REITs -- have negative book value on at least one basis.
+  Confirmed **CBRE was already live in production with this bug** under the old (tangible)
+  default before any of this build's commits: `P/B multiple x book value` produced a negative
+  "intrinsic value" (~$45.72 for CBRE) that `classify_valuation_verdict` still confidently
+  called "undervalued" rather than flagging as invalid. The default-switch changed *which*
+  tickers hit it (CBRE/AMT happen to have positive *standard* book value, so the switch
+  accidentally fixes them; **CCI**/**IRM** have negative *standard* book value too, newly
+  exposing the same bug there; **SBAC** stays a genuine "no result" on both bases either way)
+  -- confirmed real, not a regression introduced by the switch itself, and fixed the same day
+  (see below).
+- **Fixed 2026-09-15: `bands_from_mean_sd` (`scoring/step3.py`) now returns `None` when
+  `book_value_per_share <= 0`**, instead of computing a negative/zero "intrinsic value" that
+  the caller's own verdict logic would then mislabel. One shared choke point covers every P/B
+  call path -- `run_price_to_book` (Auto Calculation, both tangible and standard bases) just
+  inherits the `None` via its own delegation, and `run_manual_calculation`'s two PB branches
+  (Manual Calculation/Custom Valuation, also both bases) gained an explicit null-check
+  returning a distinct `"Book value per share must be positive for PRICE_TO_BOOK[_STANDARD]"`
+  error rather than crashing on `None.bands`. Every existing consumer of `pb_result`/
+  `pb_result_standard` in `step3_data.py` was already null-safe (written for the "too little
+  historical data" case), so this collapses into that same existing "no result" shape for
+  free -- zero changes needed there. `book_value_per_share`/`book_value_per_share_standard`
+  themselves (the raw point figures) are untouched -- a real negative book value is still
+  shown as-is, only the derived P/B multiple is blocked. Confirmed via a full-universe
+  cache-only re-sweep: **CCI/IRM now correctly read `None`/`None`/`None`** (previously a
+  fabricated −$58.96/−$96.75 "undervalued"); **CBRE/AMT unchanged** (their standard-basis
+  result was already valid); **SBAC unchanged** (`None` on both bases, as before).
+- **Known, separate, deferred issue found by the same broader sweep**: re-scanning all 572
+  tickers for *any* negative `intrinsic_value_per_share` (any method, not just P/B) found 9
+  more -- **D, DLTR, ES, ETSY, FE, GM, HOOD, URI** (DNI_NORMALIZED/DFCF) and **ECHO** (PSG) --
+  all showing the same class of fabricated negative-dollar "undervalued" verdict, just via a
+  completely different mechanism (very negative growth/current-value inputs into the 20yr
+  engine or PSG formula, not book value). Confirmed present, **not fixed here** -- out of
+  scope for this P/B-specific guard; flagged for a future, separate investigation into the
+  20yr-engine/PSG methods' own equivalent guard.
+
 ## Speculative Growth (new classification) scoring notes
 
 Speculative Growth is a new, independent, read-only lens layered on top of the existing 5-step
