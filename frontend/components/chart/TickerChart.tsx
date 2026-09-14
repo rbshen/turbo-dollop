@@ -27,7 +27,10 @@ import type { ChartOut } from "@/lib/api/types";
 // something three independent instances have to be kept in sync by hand.
 const CHART_THEME = {
   background: "#09090b",
-  text: "#71717a",
+  // Drives layout.textColor below -- the price-scale/time-scale axis label
+  // color. Was zinc-500 (#71717a), too dim against the zinc-950 background;
+  // bumped to zinc-400 for real contrast.
+  text: "#a1a1aa",
   border: "#27272a",
 };
 
@@ -203,9 +206,9 @@ function barSpacingForZoomLevel(fitBarSpacing: number, levelIndex: number, multi
 // Fixed pixel heights per pane -- unchanged from the three-separate-charts
 // era, just applied via Pane.setHeight() now instead of each chart's own
 // `height` option.
-const MAIN_PANE_HEIGHT = 520;
-const RSI_PANE_HEIGHT = 120;
-const STOCH_PANE_HEIGHT = 120;
+const MAIN_PANE_HEIGHT = 580;
+const RSI_PANE_HEIGHT = 100;
+const STOCH_PANE_HEIGHT = 100;
 // lightweight-charts' own pane-separator height (confirmed as a fixed 1px
 // constant in lightweight-charts.development.mjs), which the library now
 // draws natively between panes sharing one chart, replacing the old CSS
@@ -250,7 +253,8 @@ function makeChartOptions(rightOffset: number, height: number) {
     layout: {
       background: { color: CHART_THEME.background },
       textColor: CHART_THEME.text,
-      fontSize: 11,
+      // Axis (price-scale/time-scale) label size, chart-wide -- bumped from 11 to 12 for readability.
+      fontSize: 12,
       fontFamily: "var(--font-mono), ui-monospace, monospace",
       attributionLogo: false,
       // Static, non-resizable stacked panes -- matches the old fixed-height
@@ -808,8 +812,8 @@ export function TickerChart({
     if (stochPaneIndex !== null) addStochasticSeries(chart, data, stochPaneIndex);
 
     // addSeries(..., paneIndex) above already created each pane on demand
-    // -- setStretchFactor() here locks in the fixed pixel split (520/120/
-    // 120), used as pure ratios since the chart's own `height` option
+    // -- setStretchFactor() here locks in the fixed pixel split (580/100/
+    // 100), used as pure ratios since the chart's own `height` option
     // already fixes the total. Deliberately NOT setHeight(): confirmed via
     // lightweight-charts.development.mjs that setHeight() (ChartModel.
     // _internal_changePanesHeight) is a RELATIVE delta-redistribution --
@@ -1058,7 +1062,7 @@ export function TickerChart({
         {hasRsi && (
           <div
             ref={rsiLabelRef}
-            className="absolute left-3 z-10 text-[10px] font-mono text-zinc-600 select-none pointer-events-none"
+            className="absolute left-3 z-10 text-[10px] font-mono text-zinc-500 select-none pointer-events-none"
             style={{ top: rsiLabelTop }} // placeholder; corrected from real pane geometry in the layout effect above
           >
             RSI (14)
@@ -1068,7 +1072,7 @@ export function TickerChart({
         {hasStochastic && (
           <div
             ref={stochLabelRef}
-            className="absolute left-3 z-10 text-[10px] font-mono text-zinc-600 select-none pointer-events-none"
+            className="absolute left-3 z-10 text-[10px] font-mono text-zinc-500 select-none pointer-events-none"
             style={{ top: stochLabelTop }} // placeholder; corrected from real pane geometry in the layout effect above
           >
             Full Stochastic (5, 3, 3)
