@@ -672,6 +672,156 @@ def test_tangible_pb_rescale_uses_total_equity_not_stockholders_equity_for_nci(m
     assert result.pb_bands.mean == pytest.approx(600.0)
 
 
+def test_negative_tangible_book_value_with_positive_standard_still_produces_a_real_standard_result(monkeypatch):
+    # CBRE/AMT-shaped (2026-09-15 fix regression): a heavy-goodwill REIT
+    # whose LATEST quarter has enough goodwill to push tangible book value
+    # negative, while historical years (less goodwill) and the standard
+    # basis both stay positive throughout. Before the negative-book-value
+    # guard, CBRE's tangible calc was live in production with exactly this
+    # shape, producing a fabricated negative "intrinsic value" the verdict
+    # logic then confidently mislabeled -- this fixture pins the corrected
+    # behavior: tangible quietly reads as "no result" (matching the
+    # existing insufficient-data shape) while standard (the auto-selected
+    # default) is completely unaffected and still produces a real number.
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_profile(ticker):
+        return [{"sector": "Real Estate", "industry": "Real Estate Services", "beta": 1.0}]
+
+    async def fake_quote(ticker):
+        return [{"price": 10.0, "marketCap": 1_000.0}]
+
+    async def fake_ratios(ticker, period, limit):
+        return [{"fiscalYear": str(2025 - i), "priceToBookRatio": 1.0} for i in range(10)]
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        # shares_outstanding = marketCap/price = 1_000/10.0 = 100.
+        if period != "annual":
+            # Latest quarter: tangible = 100 - 150 - 20 = -70 -> bvps -0.70
+            # (negative); standard = 100 - 20 = 80 -> bvps 0.80 (positive).
+            return [
+                {
+                    "cashAndCashEquivalents": 100,
+                    "totalDebt": 0,
+                    "totalAssets": 100,
+                    "goodwillAndIntangibleAssets": 150,
+                    "totalLiabilities": 20,
+                }
+            ]
+        # Annual: much smaller goodwill than the latest quarter -- tangible
+        # equity stays positive (100 - 10 - 20 = 70) every year, so the
+        # tangible historical mean_pb is genuinely computable (1.0 flat,
+        # rescale factor 70/70 == 1 since totalStockholdersEquity ==
+        # totalEquity here, no NCI) -- this is what makes the guard's
+        # effect visible: a perfectly good mean/SD, blocked only by the
+        # negative CURRENT point value.
+        return [
+            {
+                "fiscalYear": str(2025 - i),
+                "totalAssets": 100,
+                "goodwillAndIntangibleAssets": 10,
+                "totalLiabilities": 20,
+                "totalStockholdersEquity": 70,
+                "totalEquity": 70,
+            }
+            for i in range(10)
+        ]
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step3_data.fmp_client, "get_quote", fake_quote)
+    monkeypatch.setattr(step3_data.fmp_client, "get_ratios", fake_ratios)
+    monkeypatch.setattr(step3_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+
+    result = asyncio.run(get_step3_data("cbre"))
+
+    assert result.company_type == "REIT/Property Developer"
+    assert result.selected_method == "PRICE_TO_BOOK_STANDARD"
+    # Tangible ("custom", manual-only): book_value_per_share itself is
+    # still shown as the real, negative figure -- a negative book value is
+    # legitimate information -- but pb_mean_ratio/pb_sd_ratio (and
+    # therefore any pb_bands, if a user manually selected this method) are
+    # None, the same "no result" shape as insufficient historical data.
+    assert result.inputs.book_value_per_share == pytest.approx(-0.70)
+    assert result.inputs.pb_mean_ratio is None
+    assert result.inputs.pb_sd_ratio is None
+    # Standard (auto-selected default): completely unaffected, a real
+    # positive result.
+    assert result.inputs.book_value_per_share_standard == pytest.approx(0.80)
+    assert result.inputs.pb_mean_ratio_standard == pytest.approx(1.0)
+    assert result.intrinsic_value_per_share == pytest.approx(0.80)
+    assert result.pb_bands is not None
+    assert result.pb_bands.mean == pytest.approx(0.80)
+    assert result.verdict is not None
+
+
+def test_negative_book_value_on_both_bases_returns_no_result_not_a_negative_verdict(monkeypatch):
+    # CCI/IRM-shaped (2026-09-15 fix regression): a REIT whose latest
+    # quarter has negative book value on BOTH the tangible and the
+    # standard basis (total liabilities exceed total assets even before
+    # subtracting goodwill) -- confirms the guard fires independently for
+    # each basis and neither one ever surfaces a fabricated negative
+    # dollar figure with a confident verdict, with no exception raised.
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_profile(ticker):
+        return [{"sector": "Real Estate", "industry": "Real Estate Services", "beta": 1.0}]
+
+    async def fake_quote(ticker):
+        return [{"price": 10.0, "marketCap": 1_000.0}]
+
+    async def fake_ratios(ticker, period, limit):
+        return [{"fiscalYear": str(2025 - i), "priceToBookRatio": 1.0} for i in range(10)]
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        # shares_outstanding = 1_000/10.0 = 100.
+        if period != "annual":
+            # tangible = 100 - 150 - 130 = -180 -> bvps -1.80; standard =
+            # 100 - 130 = -30 -> bvps -0.30. Both negative.
+            return [
+                {
+                    "cashAndCashEquivalents": 100,
+                    "totalDebt": 0,
+                    "totalAssets": 100,
+                    "goodwillAndIntangibleAssets": 150,
+                    "totalLiabilities": 130,
+                }
+            ]
+        # Annual: both bases stay positive here (100-10-20=70 tangible,
+        # 100-20=80 standard) -- a genuinely computable mean/SD on both
+        # sides, so this test isolates the point-value guard specifically,
+        # not the separate pre-existing "too little history" pathway.
+        return [
+            {
+                "fiscalYear": str(2025 - i),
+                "totalAssets": 100,
+                "goodwillAndIntangibleAssets": 10,
+                "totalLiabilities": 20,
+                "totalStockholdersEquity": 70,
+                "totalEquity": 70,
+            }
+            for i in range(10)
+        ]
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step3_data.fmp_client, "get_quote", fake_quote)
+    monkeypatch.setattr(step3_data.fmp_client, "get_ratios", fake_ratios)
+    monkeypatch.setattr(step3_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+
+    result = asyncio.run(get_step3_data("cci"))
+
+    assert result.company_type == "REIT/Property Developer"
+    assert result.selected_method == "PRICE_TO_BOOK_STANDARD"
+    assert result.intrinsic_value_per_share is None
+    assert result.pb_bands is None
+    assert result.verdict is None
+    assert result.inputs.book_value_per_share == pytest.approx(-1.80)
+    assert result.inputs.pb_mean_ratio is None
+    assert result.inputs.book_value_per_share_standard == pytest.approx(-0.30)
+    assert result.inputs.pb_mean_ratio_standard is None
+
+
 # --- TTM-period-duplicate exclusion (net_income_smoothed/cfo_smoothed/
 # fcf_smoothed) -- end-to-end wiring, not just the pure-function unit tests
 # in scoring/test_step3.py and tests/test_ttm.py ---------------------------

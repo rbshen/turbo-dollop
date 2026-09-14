@@ -538,11 +538,31 @@ def bands_from_mean_sd(
     sd_pb: float,
     fx_rate: float,
     last_close: float | None,
-) -> PriceToBookResult:
+) -> PriceToBookResult | None:
     """Spec §3.2's 5-band roll-up, factored out of `run_price_to_book` so a
     caller that already has (or wants to directly supply) a mean/SD P/B
     pair -- e.g. Manual Calculation's what-if panel -- doesn't need to hand
     in a full historical-ratio array just to get the same bands.
+
+    Returns None when book_value_per_share <= 0 (2026-09-15) -- a
+    non-positive book value makes every band (P/B multiple x book value)
+    meaningless regardless of how well-behaved mean_pb/sd_pb themselves
+    are: the multiple would be applied to a negative or zero base,
+    producing a negative/zero "intrinsic value" that classify_valuation_
+    verdict would then confidently (and wrongly) call undervalued/
+    overvalued rather than flag as invalid. Confirmed live in production
+    for CBRE (tangible book value negative) before this fix -- see
+    CLAUDE.md's Valuation section. This is the same "don't fabricate a
+    meaningless multiple" convention step3_data.py's own pb_history/
+    pb_history_standard loops already apply per historical year; this is
+    the equivalent guard for the *current* point value, applied once here
+    so every caller -- Auto Calculation's two run_price_to_book call
+    sites (tangible/standard) and Manual Calculation's two direct
+    bands_from_mean_sd calls -- gets it for free, with zero call-site
+    duplication. Every existing caller already null-checks its result
+    (the same shape already used for "too little historical data to
+    compute a mean/SD" -- pb_lookback is None), so this collapses into
+    that same, already-handled "no result" state rather than a new one.
 
     Note: the source workbook's own "VMI IV Calculator (Mean PB)" sheet has
     a labeling bug on its minus-side band columns -- its "Mean - 1 SD"
@@ -552,6 +572,8 @@ def bands_from_mean_sd(
     side is correctly ordered. This implementation follows the spec's
     literal formula (mathematically correct), not the workbook's own
     mislabeled minus-side columns."""
+    if book_value_per_share <= 0:
+        return None
     pb_bands = {
         "minus_2sd": mean_pb - 2 * sd_pb,
         "minus_1sd": mean_pb - 1 * sd_pb,
@@ -575,10 +597,12 @@ def run_price_to_book(
     lookback: str,
     fx_rate: float,
     last_close: float | None,
-) -> PriceToBookResult:
+) -> PriceToBookResult | None:
     """Spec §3.2's 5-band mean/SD engine. `historical_pb_ratios` must be
     chronological (oldest first) -- "last N entries" means the N most
-    recent. Uses sample stdev (ddof=1, matching Excel's STDEV.S)."""
+    recent. Uses sample stdev (ddof=1, matching Excel's STDEV.S). Returns
+    None when book_value_per_share <= 0 -- see bands_from_mean_sd's own
+    docstring for why."""
     window = historical_pb_ratios[-5:] if lookback == "5 years" else historical_pb_ratios[-10:]
     arr = np.asarray(window, dtype=float)
     mean_pb = float(arr.mean())
@@ -701,6 +725,8 @@ def run_manual_calculation(
         if None in (book_value_per_share, pb_mean_ratio, pb_sd_ratio):
             return ManualCalculationResult(None, None, None, None, "Missing required inputs for PRICE_TO_BOOK")
         pb_result = bands_from_mean_sd(book_value_per_share, pb_mean_ratio, pb_sd_ratio, fx_rate, last_close)
+        if pb_result is None:
+            return ManualCalculationResult(None, None, None, None, "Book value per share must be positive for PRICE_TO_BOOK")
         return ManualCalculationResult(
             pb_result.bands["mean"],
             pb_result.bands,
@@ -719,6 +745,8 @@ def run_manual_calculation(
         if None in (book_value_per_share_standard, pb_mean_ratio_standard, pb_sd_ratio_standard):
             return ManualCalculationResult(None, None, None, None, "Missing required inputs for PRICE_TO_BOOK_STANDARD")
         pb_result = bands_from_mean_sd(book_value_per_share_standard, pb_mean_ratio_standard, pb_sd_ratio_standard, fx_rate, last_close)
+        if pb_result is None:
+            return ManualCalculationResult(None, None, None, None, "Book value per share must be positive for PRICE_TO_BOOK_STANDARD")
         return ManualCalculationResult(
             pb_result.bands["mean"],
             pb_result.bands,

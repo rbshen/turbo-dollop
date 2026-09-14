@@ -118,6 +118,37 @@ def test_bands_from_mean_sd_matches_jpm_worked_example_not_workbooks_mislabeled_
     assert result.discount_premium_pct == pytest.approx(0.38287671232876708, rel=1e-4)
 
 
+# --- Regression (2026-09-15): negative/zero book value must return None, --
+# --- never a fabricated negative "intrinsic value" a verdict then reads --
+# --- confidently -- CBRE (tangible book value negative) was live in ------
+# --- production with exactly this bug before this fix ---------------------
+
+
+def test_bands_from_mean_sd_returns_none_for_negative_book_value():
+    result = bands_from_mean_sd(book_value_per_share=-2.31, mean_pb=19.79, sd_pb=3.0, fx_rate=1.0, last_close=152.83)
+    assert result is None
+
+
+def test_bands_from_mean_sd_returns_none_for_zero_book_value():
+    result = bands_from_mean_sd(book_value_per_share=0.0, mean_pb=1.5, sd_pb=0.2, fx_rate=1.0, last_close=100.0)
+    assert result is None
+
+
+def test_run_price_to_book_returns_none_for_negative_book_value():
+    # Propagates through the historical-series wrapper too, not just the
+    # direct bands_from_mean_sd call -- mean_pb/sd_pb computed from
+    # JPM_HISTORICAL_PB are perfectly ordinary; only book_value_per_share
+    # itself is the problem.
+    result = run_price_to_book(
+        book_value_per_share=-2.31,
+        historical_pb_ratios=JPM_HISTORICAL_PB,
+        lookback="5 years",
+        fx_rate=1.0,
+        last_close=152.83,
+    )
+    assert result is None
+
+
 # --- run_manual_calculation: PRICE_TO_BOOK (tangible/"custom") vs. -------
 # --- PRICE_TO_BOOK_STANDARD read from two genuinely distinct input triples,
 # --- never crossing over ---------------------------------------------------
@@ -171,6 +202,38 @@ def test_run_manual_calculation_price_to_book_standard_missing_inputs_errors():
     result = run_manual_calculation(method="PRICE_TO_BOOK_STANDARD", **_MANUAL_CALC_DEFAULTS)
     assert result.error == "Missing required inputs for PRICE_TO_BOOK_STANDARD"
     assert result.intrinsic_value_per_share is None
+
+
+def test_run_manual_calculation_price_to_book_negative_book_value_errors_not_crashes():
+    # mean_pb/sd_pb are perfectly valid -- only book_value_per_share is
+    # negative. Must return the new, distinct error (not "Missing required
+    # inputs", which would be misleading -- every input IS present) and
+    # must not raise (this is the exact shape that would previously
+    # AttributeError on `pb_result.bands` once bands_from_mean_sd started
+    # returning None).
+    result = run_manual_calculation(
+        method="PRICE_TO_BOOK",
+        **{**_MANUAL_CALC_DEFAULTS, "book_value_per_share": -2.31, "pb_mean_ratio": 19.79, "pb_sd_ratio": 3.0, "last_close": 152.83},
+    )
+    assert result.error == "Book value per share must be positive for PRICE_TO_BOOK"
+    assert result.intrinsic_value_per_share is None
+    assert result.pb_bands is None
+
+
+def test_run_manual_calculation_price_to_book_standard_negative_book_value_errors_not_crashes():
+    result = run_manual_calculation(
+        method="PRICE_TO_BOOK_STANDARD",
+        **{
+            **_MANUAL_CALC_DEFAULTS,
+            "book_value_per_share_standard": -7.48,
+            "pb_mean_ratio_standard": 7.88,
+            "pb_sd_ratio_standard": 1.2,
+            "last_close": 75.98,
+        },
+    )
+    assert result.error == "Book value per share must be positive for PRICE_TO_BOOK_STANDARD"
+    assert result.intrinsic_value_per_share is None
+    assert result.pb_bands is None
 
 
 # --- Regression: RIVN-style zero-revenue years must not poison the CAGR --
