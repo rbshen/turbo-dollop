@@ -106,7 +106,7 @@ function ChartSkeleton() {
 }
 
 export function ChartTab({ ticker }: Props) {
-  const [range, setRange] = useState<ChartRange>("D_1Y");
+  const [range, setRange] = useState<ChartRange>("D_6M");
   // Loaded from localStorage during render, not in an effect -- mirrors Watchlist sort rules' own "adjust state
   // during rendering" pattern (app/watchlist/page.tsx's sortState/activeId), which this project's lint config
   // requires over calling setState from inside a useEffect body. `loaded` starts false so this only runs once
