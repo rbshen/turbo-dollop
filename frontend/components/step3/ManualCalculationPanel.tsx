@@ -42,6 +42,7 @@ const METHOD_OPTIONS: Exclude<Step3Method, "PASS">[] = [
   "DNI_NORMALIZED",
   "CF_NORMALIZED",
   "FCF_NORMALIZED",
+  "PRICE_TO_BOOK_STANDARD",
   "PRICE_TO_BOOK",
   "PSG",
 ];
@@ -112,6 +113,9 @@ interface FormState {
   bookValuePerShare: string;
   pbMeanRatio: string;
   pbSdRatio: string;
+  bookValuePerShareStandard: string;
+  pbMeanRatioStandard: string;
+  pbSdRatioStandard: string;
   salesPerShare: string;
   projectedGrowthRate: string;
   fairPsgRatio: string;
@@ -166,6 +170,9 @@ function defaultsForMethod(method: Step3Method, autoData: Step3Out): FormState {
     bookValuePerShare: toPlainText(autoData.inputs.book_value_per_share),
     pbMeanRatio: toPlainText(autoData.inputs.pb_mean_ratio),
     pbSdRatio: toPlainText(autoData.inputs.pb_sd_ratio),
+    bookValuePerShareStandard: toPlainText(autoData.inputs.book_value_per_share_standard),
+    pbMeanRatioStandard: toPlainText(autoData.inputs.pb_mean_ratio_standard),
+    pbSdRatioStandard: toPlainText(autoData.inputs.pb_sd_ratio_standard),
     salesPerShare: toPlainText(autoData.inputs.sales_per_share),
     projectedGrowthRate: toPctText(autoData.inputs.projected_growth_rate),
     fairPsgRatio: toPlainText(autoData.inputs.fair_psg_ratio),
@@ -189,6 +196,9 @@ function defaultsFromSaved(saved: TickerCustomValuationOut): FormState {
     bookValuePerShare: toPlainText(saved.book_value_per_share),
     pbMeanRatio: toPlainText(saved.pb_mean_ratio),
     pbSdRatio: toPlainText(saved.pb_sd_ratio),
+    bookValuePerShareStandard: toPlainText(saved.book_value_per_share_standard),
+    pbMeanRatioStandard: toPlainText(saved.pb_mean_ratio_standard),
+    pbSdRatioStandard: toPlainText(saved.pb_sd_ratio_standard),
     salesPerShare: toPlainText(saved.sales_per_share),
     projectedGrowthRate: toPctText(saved.projected_growth_rate),
     fairPsgRatio: toPlainText(saved.fair_psg_ratio),
@@ -208,6 +218,9 @@ function buildParams(form: FormState): Step3ManualParams {
     book_value_per_share: parseNum(form.bookValuePerShare),
     pb_mean_ratio: parseNum(form.pbMeanRatio),
     pb_sd_ratio: parseNum(form.pbSdRatio),
+    book_value_per_share_standard: parseNum(form.bookValuePerShareStandard),
+    pb_mean_ratio_standard: parseNum(form.pbMeanRatioStandard),
+    pb_sd_ratio_standard: parseNum(form.pbSdRatioStandard),
     sales_per_share: parseNum(form.salesPerShare),
     projected_growth_rate: parsePct(form.projectedGrowthRate),
     fair_psg_ratio: parseNum(form.fairPsgRatio),
@@ -506,7 +519,8 @@ function ManualCalculationControls({
     method === "DNI_NORMALIZED" ||
     method === "CF_NORMALIZED" ||
     method === "FCF_NORMALIZED";
-  const isPB = method === "PRICE_TO_BOOK";
+  const isPB = method === "PRICE_TO_BOOK" || method === "PRICE_TO_BOOK_STANDARD";
+  const isPBStandard = method === "PRICE_TO_BOOK_STANDARD";
   const isPSG = method === "PSG";
 
   return (
@@ -591,9 +605,24 @@ function ManualCalculationControls({
 
           {isPB && (
             <>
-              <ManualInputRow label="Book Value Per Share" value={form.bookValuePerShare} onChange={field("bookValuePerShare")} kind="currency" />
-              <ManualInputRow label="Mean P/B" value={form.pbMeanRatio} onChange={field("pbMeanRatio")} kind="ratio" />
-              <ManualInputRow label="SD P/B" value={form.pbSdRatio} onChange={field("pbSdRatio")} kind="ratio" />
+              <ManualInputRow
+                label={isPBStandard ? "Book Value Per Share (standard)" : "Book Value Per Share (custom)"}
+                value={isPBStandard ? form.bookValuePerShareStandard : form.bookValuePerShare}
+                onChange={field(isPBStandard ? "bookValuePerShareStandard" : "bookValuePerShare")}
+                kind="currency"
+              />
+              <ManualInputRow
+                label="Mean P/B"
+                value={isPBStandard ? form.pbMeanRatioStandard : form.pbMeanRatio}
+                onChange={field(isPBStandard ? "pbMeanRatioStandard" : "pbMeanRatio")}
+                kind="ratio"
+              />
+              <ManualInputRow
+                label="SD P/B"
+                value={isPBStandard ? form.pbSdRatioStandard : form.pbSdRatio}
+                onChange={field(isPBStandard ? "pbSdRatioStandard" : "pbSdRatio")}
+                kind="ratio"
+              />
             </>
           )}
 

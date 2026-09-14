@@ -668,6 +668,7 @@ export type Step3Method =
   | "CF_NORMALIZED"
   | "FCF_NORMALIZED"
   | "PRICE_TO_BOOK"
+  | "PRICE_TO_BOOK_STANDARD"
   | "PSG"
   | "PASS";
 
@@ -743,12 +744,23 @@ export interface Step3Inputs {
   // a USD reporter (no forex fetch ever attempted for one).
   fx_rate_as_of: string | null;
   last_close: number | null;
-  // Price-to-Book inputs.
+  // Price-to-Book inputs (tangible/"custom" basis -- manual-only as of
+  // 2026-09-14, see the _standard fields below for the auto-selected
+  // default).
   book_value_per_share: number | null;
   historical_pb_ratios: number[] | null;
   pb_lookback: string | null;
   pb_mean_ratio: number | null;
   pb_sd_ratio: number | null;
+  // Price-to-Book inputs (standard basis: totalAssets - totalLiabilities,
+  // no intangibles/goodwill subtraction) -- the 2026-09-14 auto-selected
+  // default for Bank/REIT/Property Developer. Exactly parallel to the 5
+  // tangible fields above.
+  book_value_per_share_standard: number | null;
+  historical_pb_ratios_standard: number[] | null;
+  pb_lookback_standard: string | null;
+  pb_mean_ratio_standard: number | null;
+  pb_sd_ratio_standard: number | null;
   // PSG inputs.
   sales_per_share: number | null;
   projected_growth_rate: number | null;
@@ -842,6 +854,9 @@ export interface Step3ManualParams {
   book_value_per_share?: number | null;
   pb_mean_ratio?: number | null;
   pb_sd_ratio?: number | null;
+  book_value_per_share_standard?: number | null;
+  pb_mean_ratio_standard?: number | null;
+  pb_sd_ratio_standard?: number | null;
   sales_per_share?: number | null;
   projected_growth_rate?: number | null;
   fair_psg_ratio?: number | null;
