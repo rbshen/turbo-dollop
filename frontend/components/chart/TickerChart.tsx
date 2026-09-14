@@ -152,7 +152,7 @@ function clampToPanBounds(from: number, to: number, minFrom: number, maxTo: numb
   return { from, to };
 }
 
-// Fixed ladder of discrete zoom levels, replacing free-form pointer zoom (wheel/
+// Discrete ladder of zoom levels, replacing free-form pointer zoom (wheel/
 // pinch/drag-to-scale -- see makeChartOptions' handleScale:false below). Each
 // multiplier scales the range's own "fit" bar spacing (paneWidth / (barCount +
 // rightOffset), i.e. exactly what computePanBounds's maxTo already shows
@@ -164,19 +164,40 @@ function clampToPanBounds(from: number, to: number, minFrom: number, maxTo: numb
 // zoom steps (bar width is what the eye judges, and halving/doubling a width
 // feels like the same-size jump whether it's 3px->6px or 30px->60px; equal
 // linear increments would instead make the first click feel huge and the second
-// feel trivial). Max zoom-in capped at 4.5x the fit spacing (per explicit
-// request -- 4.5x alone is plenty for this chart's purposes), with the middle
-// level at sqrt(4.5) so both steps are the same ratio apart (1 -> 2.12 -> 4.5,
-// each ~2.12x the previous). Capped at MAX_BAR_SPACING_CAP so a small-bar-count
-// range (e.g. D_6M) can't zoom in to where a single candle swallows most of the pane --
-// canZoomIn's own cap-aware check (see the zoom-apply effect below) disables the
-// button once a level's effective (capped) spacing stops increasing, even if
-// that happens before the ladder's last index.
-const ZOOM_LEVEL_MULTIPLIERS = [1, Math.sqrt(4.5), 4.5];
+// feel trivial).
+//
+// The max multiplier is range-aware, not a shared constant -- a flat 4.5x for
+// every range (the original design) zoomed each range to a very different
+// ABSOLUTE bar density, since each range's "fit" spacing starts from a very
+// different bar count (D_6M's ~126 bars vs. D_2Y's ~504): confirmed via a
+// dedicated investigation that a flat 4.5x always lands at exactly 1/4.5
+// (~22%) of a range's own bar count regardless of range, i.e. ~29 bars for
+// D_6M (arguably already over-zoomed) vs. ~116 for D_2Y (still fairly wide).
+// computeZoomLevelMultipliers instead derives the multiplier from the range's
+// OWN bar count so every range converges on roughly the same ABSOLUTE
+// TARGET_VISIBLE_BARS_AT_MAX_ZOOM bars visible at max zoom -- computed from
+// `data.bars.length` (the real per-ticker count already used for
+// computeRightOffset/computePanBounds), not a hardcoded per-range guess, so a
+// thin-history ticker degrades the same way the rest of this file already
+// does. Floored at 1 so a range/ticker whose bar count is already below the
+// target (max zoom would otherwise be a multiplier < 1, i.e. zoomed OUT past
+// fit) just gets a flat, inert ladder instead -- canZoomIn's own check
+// naturally disables the button in that case since barSpacing stops
+// increasing. Capped at MAX_BAR_SPACING_CAP so a still-small-bar-count range
+// can't zoom in to where a single candle swallows most of the pane --
+// canZoomIn's own cap-aware check (see the zoom-apply effect below) disables
+// the button once a level's effective (capped) spacing stops increasing, even
+// if that happens before the ladder's last index.
+const TARGET_VISIBLE_BARS_AT_MAX_ZOOM = 50;
 const MAX_BAR_SPACING_CAP = 60;
 
-function barSpacingForZoomLevel(fitBarSpacing: number, levelIndex: number): number {
-  return Math.min(fitBarSpacing * ZOOM_LEVEL_MULTIPLIERS[levelIndex], MAX_BAR_SPACING_CAP);
+function computeZoomLevelMultipliers(barCount: number, rightOffset: number): number[] {
+  const maxMultiplier = Math.max(1, (barCount + rightOffset) / TARGET_VISIBLE_BARS_AT_MAX_ZOOM);
+  return [1, Math.sqrt(maxMultiplier), maxMultiplier];
+}
+
+function barSpacingForZoomLevel(fitBarSpacing: number, levelIndex: number, multipliers: number[]): number {
+  return Math.min(fitBarSpacing * multipliers[levelIndex], MAX_BAR_SPACING_CAP);
 }
 
 // Fixed pixel heights per pane -- unchanged from the three-separate-charts
@@ -207,6 +228,16 @@ const PANE_SEPARATOR_HEIGHT = 1;
 // happens to be tuned larger than any one pane's real need.
 const PRICE_SCALE_MIN_WIDTH = 70;
 
+// Main (price) pane's own scaleMargins, applied explicitly -- left unset, every
+// pane's price scale falls back to the library default `{ top: 0.2, bottom: 0.1 }`
+// (confirmed in this library's own typings), reserving 30% of the pane's height as
+// blank space above/below the candles regardless of the pane's own fixed pixel
+// height. Deliberately scoped to the main pane only, via chart.priceScale('right',
+// 0) below -- the RSI/Stochastic panes keep the library default unchanged, since
+// their own 0-100-ish value range and OB/OS reference lines already sit close to
+// each pane's top/bottom edge and were left untouched per explicit request.
+const PRICE_PANE_SCALE_MARGINS = { top: 0.08, bottom: 0.08 };
+
 interface OhlcState {
   o: number;
   h: number;
@@ -229,7 +260,7 @@ function makeChartOptions(rightOffset: number, height: number) {
     grid: { vertLines: { visible: false }, horzLines: { visible: false } },
     // Click-drag panning stays on (handleScroll); free-form zoom (wheel, pinch,
     // drag-on-axis-to-scale) is off -- zoom is now exclusively the discrete
-    // Zoom in/out buttons in ChartTab.tsx, stepping through ZOOM_LEVEL_MULTIPLIERS.
+    // Zoom in/out buttons in ChartTab.tsx, stepping through computeZoomLevelMultipliers's ladder.
     // Same handleScale:false convention already used in the sibling options_tracker
     // project's PositionChart.tsx.
     handleScroll: true,
@@ -289,7 +320,7 @@ function makeChartOptions(rightOffset: number, height: number) {
       shiftVisibleRangeOnNewBar: false,
       fixLeftEdge: true,
       // Defensive floor/ceiling only now that zoom is exclusively button-driven
-      // (see ZOOM_LEVEL_MULTIPLIERS/MAX_BAR_SPACING_CAP above) -- the discrete
+      // (see computeZoomLevelMultipliers/MAX_BAR_SPACING_CAP above) -- the discrete
       // ladder never asks for a barSpacing outside this range by construction, but
       // these stay as a backstop against the library's own default-barSpacing
       // state (6) ever being visible for a frame before the ladder is applied.
@@ -643,7 +674,7 @@ export interface ZoomBounds {
 // rendering, never touching crosshair sync or pane geometry.
 interface Props extends OverlayVisibility {
   data: ChartOut;
-  // Fully controlled from ChartTab.tsx -- an index into ZOOM_LEVEL_MULTIPLIERS, 0 =
+  // Fully controlled from ChartTab.tsx -- an index into computeZoomLevelMultipliers's ladder, 0 =
   // the fitContent()-equivalent fit level. TickerChart owns no zoom state of its
   // own (no ref/imperative API): this codebase has no existing forwardRef/
   // useImperativeHandle usage, and a plain controlled-prop pattern is simpler here
@@ -763,6 +794,7 @@ export function TickerChart({
       showSma50,
       showSma200,
     });
+    chart.priceScale("right", 0).applyOptions({ scaleMargins: PRICE_PANE_SCALE_MARGINS });
     markersApiRef.current = { bbRsi: bbRsiMarkersApi, warren: warrenMarkersApi };
     overlayApiRef.current = {
       lpSupport: lpSupportSeries,
@@ -776,7 +808,7 @@ export function TickerChart({
     if (stochPaneIndex !== null) addStochasticSeries(chart, data, stochPaneIndex);
 
     // addSeries(..., paneIndex) above already created each pane on demand
-    // -- setStretchFactor() here locks in the fixed pixel split (630/120/
+    // -- setStretchFactor() here locks in the fixed pixel split (520/120/
     // 120), used as pure ratios since the chart's own `height` option
     // already fixes the total. Deliberately NOT setHeight(): confirmed via
     // lightweight-charts.development.mjs that setHeight() (ChartModel.
@@ -817,7 +849,7 @@ export function TickerChart({
     // to genuine user pan/zoom input, not to a range this handler itself
     // just set via setVisibleLogicalRange (which bypasses fixLeftEdge's
     // own correction pass). The zoom-level effect further down (which
-    // applies the button-driven ZOOM_LEVEL_MULTIPLIERS ladder) reuses this
+    // applies the button-driven computeZoomLevelMultipliers ladder) reuses this
     // exact same translate-then-shrink shape to stay consistent with pan.
     const handleVisibleRangeChange: LogicalRangeChangeEventHandler = (range) => {
       if (!range) return;
@@ -914,13 +946,17 @@ export function TickerChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, totalHeight, rsiPaneIndex, stochPaneIndex]);
 
-  // Applies the button-driven discrete zoom level (see ZOOM_LEVEL_MULTIPLIERS) --
+  // Applies the button-driven discrete zoom level (see computeZoomLevelMultipliers) --
   // deliberately a separate, lightweight effect from the chart-creation one above
   // (same "don't recreate the whole chart" reasoning as the showXxx toggle effects
   // below), keyed on `data` too so it correctly reapplies the CURRENT zoomIndex to
   // a freshly (re)created chart -- e.g. a background SWR refetch that leaves
   // zoomIndex untouched still needs this to run against the new chart instance
-  // chartStateRef now points at.
+  // chartStateRef now points at. Recomputing the multiplier ladder here too
+  // (rather than reading it once at mount) is deliberate: `data` is already a
+  // dependency for the reasons above, and the ladder is cheap to derive, so
+  // there's no separate state/memo to keep in sync with the chart-creation
+  // effect's own barCount/rightOffset read.
   useEffect(() => {
     const state = chartStateRef.current;
     if (!state) return;
@@ -931,9 +967,10 @@ export function TickerChart({
     const barCount = data.bars.length;
     const rightOffset = computeRightOffset(barCount);
     const fitBarSpacing = paneWidth / (barCount + rightOffset);
-    const lastIndex = ZOOM_LEVEL_MULTIPLIERS.length - 1;
+    const multipliers = computeZoomLevelMultipliers(barCount, rightOffset);
+    const lastIndex = multipliers.length - 1;
     const clampedIndex = Math.min(Math.max(zoomIndex, 0), lastIndex);
-    const barSpacing = barSpacingForZoomLevel(fitBarSpacing, clampedIndex);
+    const barSpacing = barSpacingForZoomLevel(fitBarSpacing, clampedIndex, multipliers);
     const visibleBarCount = paneWidth / barSpacing;
 
     // Anchor every zoom-level change to the RIGHT edge (`to = maxTo`, the same
@@ -955,7 +992,7 @@ export function TickerChart({
 
     const canZoomOut = clampedIndex > 0;
     const nextIndex = clampedIndex + 1;
-    const canZoomIn = nextIndex <= lastIndex && barSpacingForZoomLevel(fitBarSpacing, nextIndex) > barSpacing;
+    const canZoomIn = nextIndex <= lastIndex && barSpacingForZoomLevel(fitBarSpacing, nextIndex, multipliers) > barSpacing;
     onZoomBoundsChange({ canZoomIn, canZoomOut });
   }, [data, zoomIndex, onZoomBoundsChange]);
 
