@@ -2033,6 +2033,55 @@ these are the design decisions and fixes behind them.
   of the fix (it corrects for how much goodwill/intangibles a company carries, not a uniform
   shift applied to every ticker alike), not evidence the fix is inconsistent.
 
+- **New standard P/B method added, now the Bank/REIT/Property Developer default; the tangible
+  method renamed to "(custom)" and demoted to manual-only (2026-09-14).** The tangible P/B
+  calc above (`totalAssets - goodwillAndIntangibleAssets - totalLiabilities`) has always been
+  the only P/B method, auto-selected for Bank/REIT/Property Developer. A new **standard** P/B
+  method -- plain book value, `totalAssets - totalLiabilities`, no intangibles/goodwill
+  subtraction -- is now the auto-selected default in that role instead; the tangible method,
+  relabeled **"Price to Book (custom)"** in the UI (was "Price to Book"), is demoted to
+  manual-only (Manual Calculation/Custom Valuation, new method string
+  `PRICE_TO_BOOK_STANDARD` for the new default, existing `PRICE_TO_BOOK` string unchanged for
+  the tangible one). An existing saved `TickerCustomValuation` row with `method="PRICE_TO_BOOK"`
+  is unaffected -- `get_active_valuation` resolves purely off the stored method string,
+  independent of `select_method`'s own tree, so only the *auto-selected* default changed, never
+  an explicit prior manual choice.
+  - **Needs no historical rescale at all, unlike the tangible series** -- confirmed empirically
+    against real cached balance-sheet + shares data (JPM/O/PLD/WFC/C): FMP's own
+    `priceToBookRatio`/`bookValuePerShare` ratio fields are computed off `totalEquity` (which
+    already equals `totalAssets - totalLiabilities`, i.e. includes minority/non-controlling
+    interest), not the parent-only `totalStockholdersEquity` -- `totalEquity/shares` matches
+    FMP's reported `bookValuePerShare` exactly (to the last digit) for O and PLD. So the
+    standard historical series is just `pb_raw` used directly, no rescale multiply needed.
+  - **Same finding surfaced and fixed a latent bug in the existing tangible rescale**: it
+    multiplied by `(totalStockholdersEquity / tangible_book_value)`, but since `pb_raw` is
+    actually on the `totalEquity` basis, this understated the tangible historical P/B series
+    for any NCI-bearing company -- confirmed material for **PLD** (~7.9% understatement,
+    `minorityInterest` is ~7.9% of its `totalEquity`), smaller for **O**/**WFC**/**C** (~1-2%),
+    zero effect for a company with no minority interest (e.g. **JPM**, `minorityInterest == 0`).
+    Fixed to `(totalEquity / tangible_book_value)`, in the same change that added the standard
+    method (the two are directly adjacent code).
+  - **The Bank/REIT informational fields (`historical_pb_buy_signal`, `benchmark_pb_*`) now
+    read off the standard basis**, not tangible -- matching what's actually displayed by
+    default. The REIT dividend-yield/DPU-growth note and the Standard-company-only
+    loss-making-PB liquidation reference are both unaffected (orthogonal to this change).
+  - **No new engine type** -- `bands_from_mean_sd`/`run_price_to_book`
+    (`scoring/step3.py`) were already fully generic over their inputs, called a second time
+    with the standard-basis book-value-per-share/historical-ratios/mean/SD; only
+    `data/step3_data.py` needed a parallel computation block. `Step3Inputs`/`Step3ManualParams`
+    gained 5/3 new `_standard`-suffixed fields respectively, exactly parallel to the existing
+    tangible ones -- no field was renamed, so every existing test/saved-parameter shape stayed
+    valid. No DB migration -- `TickerCustomValuation.method`/`parameters_json` are plain `str`
+    columns.
+  - **Confirmed via real cached data (JPM, O, PLD -- `cache_only=True`, zero live FMP calls)**:
+    intrinsic value (mean band) moves from the old tangible default to the new standard one --
+    **JPM** $232.75 → $225.45 (still overvalued, 55.9% → 60.9% premium); **O** $70.94 → $75.35
+    (still undervalued, −11.6% → −16.7% discount); **PLD** $141.55 → $139.58 (still fair, −0.7%
+    → +0.7%). **0 verdict flips** among these three -- PLD's own *point* tangible/standard book
+    values happen to be numerically identical (its latest-quarter `goodwillAndIntangibleAssets`
+    is genuinely 0), so only its *historical* rescaled series differs (mean P/B 2.272x → 2.241x,
+    the ~7.9% NCI effect from the bug fix above, not the method change itself).
+
 ## Speculative Growth (new classification) scoring notes
 
 Speculative Growth is a new, independent, read-only lens layered on top of the existing 5-step
