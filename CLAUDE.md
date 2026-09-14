@@ -2122,14 +2122,40 @@ these are the design decisions and fixes behind them.
   cache-only re-sweep: **CCI/IRM now correctly read `None`/`None`/`None`** (previously a
   fabricated −$58.96/−$96.75 "undervalued"); **CBRE/AMT unchanged** (their standard-basis
   result was already valid); **SBAC unchanged** (`None` on both bases, as before).
-- **Known, separate, deferred issue found by the same broader sweep**: re-scanning all 572
-  tickers for *any* negative `intrinsic_value_per_share` (any method, not just P/B) found 9
-  more -- **D, DLTR, ES, ETSY, FE, GM, HOOD, URI** (DNI_NORMALIZED/DFCF) and **ECHO** (PSG) --
-  all showing the same class of fabricated negative-dollar "undervalued" verdict, just via a
-  completely different mechanism (very negative growth/current-value inputs into the 20yr
-  engine or PSG formula, not book value). Confirmed present, **not fixed here** -- out of
-  scope for this P/B-specific guard; flagged for a future, separate investigation into the
-  20yr-engine/PSG methods' own equivalent guard.
+- **Same broader sweep found 9 more tickers with the same class of bug via a different
+  mechanism -- investigated and fixed 2026-09-15.** Re-scanning all 572 tickers for *any*
+  negative `intrinsic_value_per_share` (any method, not just P/B) found **D, DLTR, ES, ETSY,
+  FE, GM, HOOD, URI** (DNI_NORMALIZED/DFCF) and **ECHO** (PSG), each showing a fabricated
+  negative-dollar "undervalued" verdict. Per-ticker investigation found two distinct root
+  causes, not the "negative growth/current-value inputs" originally guessed:
+  1. **`run_20yr_engine`** (shared by DCF/DFCF/DNI/DNI_NORMALIZED/CF_NORMALIZED/
+     FCF_NORMALIZED) subtracts gross `total_debt/shares_outstanding` with no floor. In all 8
+     affected cases, `current_value` and every growth rate were genuinely positive and the
+     pre-debt-adjustment value (`intrinsic_value_pre_adj`) was real and healthy -- e.g. **D**
+     (Dominion Energy): $53.13/share pre-adjustment, swamped to -$7.27 purely by
+     `total_debt` ($53.4B) / `shares_outstanding` (879.5M shares) = $60.74/share of gross
+     debt, exceeding it. Same shape for **ES**/**FE** (regulated-utility infrastructure
+     debt), **GM** (captive-finance-arm debt), **HOOD** (margin-lending debt), and
+     **DLTR**/**ETSY**/**URI** (moderate debt combined with a currently-depressed
+     current_value). Every debt figure is a real balance-sheet fact, not a data artifact --
+     a genuine methodology gap, not a data-quality issue.
+  2. **`run_psg`**: `fair_psg_ratio * sales_per_share * projected_growth_rate * 100` has no
+     guard on `projected_growth_rate`'s sign. **ECHO**'s real Step 2 growth rate is -13.07%
+     (its historical revenue CAGR is a healthy +17% over 10y, clearing the aggressive-growth
+     threshold that gets it *into* PSG in the first place, but its *forward* analyst-estimated
+     growth is negative) -- multiplies straight through into -$136.34.
+  - **Fix, same pattern as the P/B guard above**: `run_20yr_engine` returns `None` when the
+    *final* per-share value (after the debt/cash adjustment) is `<= 0` -- an output check,
+    since no single input is invalid on its own, only the combination. `run_psg` returns
+    `None` when `projected_growth_rate < 0` -- an input check, since growth's sign alone
+    determines the formula's sign (an input check and an output check are equivalent here,
+    unlike the engine). Every call site (`data/step3_data.py`'s Auto Calculation dispatch,
+    `run_manual_calculation`'s two corresponding branches) needed an explicit null-check
+    added -- unlike the P/B fix, these dispatch sites were NOT already null-safe, since
+    `run_20yr_engine`/`run_psg` had never been able to return `None` before. Confirmed via a
+    full-universe cache-only re-sweep: **all 9 named tickers now read `None`/`None`/`None`**;
+    zero negative `intrinsic_value_per_share` remain anywhere in the 572-ticker universe
+    (any method, any company type); zero exceptions.
 
 ## Speculative Growth (new classification) scoring notes
 
