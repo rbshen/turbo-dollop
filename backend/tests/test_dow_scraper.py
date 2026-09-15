@@ -1,5 +1,5 @@
 import asyncio
-from pathlib import Path
+import datetime
 
 import httpx
 import pytest
@@ -14,7 +14,62 @@ from scrapers.dow_scraper import (
     sync_dow_constituents,
 )
 
-FIXTURE_HTML = (Path(__file__).parent / "fixtures" / "dow_wikipedia_sample.html").read_text()
+# Small but structurally real sample -- same field names/shape as FMP's live
+# /dowjones-constituent response (confirmed live 2026-09-15). Unlike
+# Wikipedia's old Dow table, FMP's response carries a real subSector value
+# for every row.
+SAMPLE_ROWS = [
+    {
+        "symbol": "MMM",
+        "name": "3M",
+        "sector": "Industrials",
+        "subSector": "Industrial Conglomerates",
+        "headQuarter": "Saint Paul, MN",
+        "dateFirstAdded": "1976-08-09",
+        "cik": "0000066740",
+        "founded": "1902",
+    },
+    {
+        "symbol": "GOOGL",
+        "name": "Alphabet Inc.",
+        "sector": "Communication Services",
+        "subSector": "Internet Content & Information",
+        "headQuarter": "Mountain View, CA",
+        "dateFirstAdded": "2026-06-29",
+        "cik": "0001652044",
+        "founded": "1998",
+    },
+    {
+        "symbol": "AXP",
+        "name": "American Express",
+        "sector": "Financials",
+        "subSector": "Consumer Finance",
+        "headQuarter": "New York, NY",
+        "dateFirstAdded": "1982-08-30",
+        "cik": "0000004962",
+        "founded": "1850",
+    },
+    {
+        "symbol": "AMGN",
+        "name": "Amgen",
+        "sector": "Health Care",
+        "subSector": "Biotechnology",
+        "headQuarter": "Thousand Oaks, CA",
+        "dateFirstAdded": "2020-08-31",
+        "cik": "0000318154",
+        "founded": "1980",
+    },
+    {
+        "symbol": "AMZN",
+        "name": "Amazon",
+        "sector": "Consumer Discretionary",
+        "subSector": "Broadline Retail",
+        "headQuarter": "Seattle, WA",
+        "dateFirstAdded": "2024-02-26",
+        "cik": "0001018724",
+        "founded": "1994",
+    },
+]
 
 
 def _fresh_engine():
@@ -23,54 +78,45 @@ def _fresh_engine():
     return engine
 
 
-def test_parses_real_wikipedia_table_structure_from_fixture():
-    # Fixture is a trimmed but structurally real sample: same table id,
-    # header row, and column order as the live page (confirmed live before
-    # writing this fixture) -- including the Company column's <th
-    # scope="row"> (unlike S&P 500's table, which uses plain <td>
-    # throughout). 5 valid rows plus one deliberately malformed row (fewer
-    # than 5 cells) that must be skipped, not crash the parser.
-    rows = parse_dow_constituents(FIXTURE_HTML)
+def test_parses_fmp_response_into_constituent_rows():
+    rows = parse_dow_constituents(SAMPLE_ROWS)
 
     assert len(rows) == 5
     assert rows[0] == ConstituentRow(
-        ticker="MMM", company_name="3M", sector="Industrials", sub_industry=None, date_added="1976-08-09"
+        ticker="MMM", company_name="3M", sector="Industrials", sub_industry="Industrial Conglomerates", date_added="1976-08-09"
     )
     assert rows[1].ticker == "GOOGL"
-    assert rows[1].company_name == "Alphabet"
-    assert all(r.ticker != "BADEX" for r in rows)
-    # No GICS sub-industry column on this table, unlike S&P 500's.
-    assert all(r.sub_industry is None for r in rows)
+    assert rows[1].company_name == "Alphabet Inc."
+    # Unlike the old Wikipedia-based parse (no GICS sub-industry column on
+    # that table), every row here carries a real subSector value.
+    assert all(r.sub_industry is not None for r in rows)
 
 
-def test_ignores_unrelated_tables_on_the_page():
-    rows = parse_dow_constituents(FIXTURE_HTML)
-    assert all(r.ticker != "ignore me" for r in rows)
+def test_skips_rows_missing_symbol_or_name():
+    raw = SAMPLE_ROWS + [{"symbol": "", "name": "No Symbol Co"}]
+    rows = parse_dow_constituents(raw)
+    assert len(rows) == 5
 
 
-def test_raises_value_error_when_constituents_table_missing():
-    html = "<html><body><table id='something-else'><tbody><tr><td>x</td></tr></tbody></table></body></html>"
-    with pytest.raises(ValueError, match="Could not find the constituents table"):
-        parse_dow_constituents(html)
+def test_raises_value_error_when_response_is_not_a_list():
+    with pytest.raises(ValueError, match="was not a list"):
+        parse_dow_constituents({"Error Message": "not authorized"})
 
 
-def test_raises_value_error_when_table_has_no_rows():
-    html = '<html><body><table id="constituents"><tbody><tr><th>Company</th></tr></tbody></table></body></html>'
+def test_raises_value_error_when_zero_usable_rows():
     with pytest.raises(ValueError, match="Parsed 0 constituent rows"):
-        parse_dow_constituents(html)
+        parse_dow_constituents([{"symbol": "", "name": ""}])
 
 
 def test_sync_replaces_existing_constituents():
     engine = _fresh_engine()
     with Session(engine) as session:
         session.add(
-            IndexConstituent(
-                index_name="dow", ticker="OLD", company_name="Stale Co", last_synced_at=__import__("datetime").datetime.now()
-            )
+            IndexConstituent(index_name="dow", ticker="OLD", company_name="Stale Co", last_synced_at=datetime.datetime.now())
         )
         session.commit()
 
-        rows = [ConstituentRow(ticker="NEW", company_name="Fresh Co", sector="Tech", sub_industry=None, date_added="2020-01-01")]
+        rows = [ConstituentRow(ticker="NEW", company_name="Fresh Co", sector="Tech", sub_industry="Software", date_added="2020-01-01")]
         result = sync_dow_constituents(session, rows)
 
         assert result.success is True
@@ -92,20 +138,16 @@ def test_sync_replaces_existing_constituents_when_tickers_overlap():
     engine = _fresh_engine()
     with Session(engine) as session:
         session.add(
-            IndexConstituent(
-                index_name="dow", ticker="MMM", company_name="3M", last_synced_at=__import__("datetime").datetime.now()
-            )
+            IndexConstituent(index_name="dow", ticker="MMM", company_name="3M", last_synced_at=datetime.datetime.now())
         )
         session.add(
-            IndexConstituent(
-                index_name="dow", ticker="GOOGL", company_name="Alphabet", last_synced_at=__import__("datetime").datetime.now()
-            )
+            IndexConstituent(index_name="dow", ticker="GOOGL", company_name="Alphabet", last_synced_at=datetime.datetime.now())
         )
         session.commit()
 
         rows = [
-            ConstituentRow(ticker="MMM", company_name="3M", sector="Industrials", sub_industry=None, date_added="1976-08-09"),
-            ConstituentRow(ticker="GOOGL", company_name="Alphabet Inc.", sector="Technology", sub_industry=None, date_added="2024-02-26"),
+            ConstituentRow(ticker="MMM", company_name="3M", sector="Industrials", sub_industry="Industrial Conglomerates", date_added="1976-08-09"),
+            ConstituentRow(ticker="GOOGL", company_name="Alphabet Inc.", sector="Communication Services", sub_industry="Internet Content & Information", date_added="2026-06-29"),
         ]
         result = sync_dow_constituents(session, rows)
 
@@ -121,19 +163,14 @@ def test_refresh_keeps_old_list_when_fetch_fails(monkeypatch):
     engine = _fresh_engine()
     with Session(engine) as session:
         session.add(
-            IndexConstituent(
-                index_name="dow",
-                ticker="KEEP",
-                company_name="Known Good Co",
-                last_synced_at=__import__("datetime").datetime.now(),
-            )
+            IndexConstituent(index_name="dow", ticker="KEEP", company_name="Known Good Co", last_synced_at=datetime.datetime.now())
         )
         session.commit()
 
         async def failing_fetch():
-            raise httpx.HTTPError("Wikipedia unreachable")
+            raise httpx.HTTPError("FMP unreachable")
 
-        monkeypatch.setattr(dow_scraper, "fetch_dow_html", failing_fetch)
+        monkeypatch.setattr(dow_scraper, "fetch_dow_constituents", failing_fetch)
 
         result = asyncio.run(refresh_dow_constituents(session))
 
@@ -149,19 +186,14 @@ def test_refresh_keeps_old_list_when_row_count_suspiciously_low(monkeypatch):
     engine = _fresh_engine()
     with Session(engine) as session:
         session.add(
-            IndexConstituent(
-                index_name="dow",
-                ticker="KEEP",
-                company_name="Known Good Co",
-                last_synced_at=__import__("datetime").datetime.now(),
-            )
+            IndexConstituent(index_name="dow", ticker="KEEP", company_name="Known Good Co", last_synced_at=datetime.datetime.now())
         )
         session.commit()
 
-        async def fetch_truncated_page():
-            return FIXTURE_HTML  # only 5 real rows, far below MIN_EXPECTED_CONSTITUENTS
+        async def fetch_truncated_response():
+            return SAMPLE_ROWS  # only 5 real rows, far below MIN_EXPECTED_CONSTITUENTS
 
-        monkeypatch.setattr(dow_scraper, "fetch_dow_html", fetch_truncated_page)
+        monkeypatch.setattr(dow_scraper, "fetch_dow_constituents", fetch_truncated_response)
 
         result = asyncio.run(refresh_dow_constituents(session))
 
@@ -177,11 +209,11 @@ def test_refresh_succeeds_and_stores_rows_when_everything_is_fine(monkeypatch):
     engine = _fresh_engine()
     with Session(engine) as session:
 
-        async def fetch_ok_page():
-            return FIXTURE_HTML
+        async def fetch_ok_response():
+            return SAMPLE_ROWS
 
-        monkeypatch.setattr(dow_scraper, "fetch_dow_html", fetch_ok_page)
-        monkeypatch.setattr(dow_scraper, "MIN_EXPECTED_CONSTITUENTS", 3)  # fixture only has 5 rows
+        monkeypatch.setattr(dow_scraper, "fetch_dow_constituents", fetch_ok_response)
+        monkeypatch.setattr(dow_scraper, "MIN_EXPECTED_CONSTITUENTS", 3)  # sample only has 5 rows
 
         result = asyncio.run(refresh_dow_constituents(session))
 

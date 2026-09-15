@@ -1,9 +1,10 @@
-"""Generic Wikipedia-table-scrape pipeline shared by every stock-index
-constituent scraper (sp500_scraper.py, dow_scraper.py, ...). FMP's own
-constituent endpoints are unavailable on this plan (confirmed for
-sp500-constituent, dowjones-constituent and nasdaq-constituent -- all 402),
-so each concrete index module supplies its own Wikipedia URL, table id, and
-column layout via IndexTableConfig, and gets the same
+"""Generic FMP-backed constituent-list pipeline shared by every stock-index
+constituent module (sp500_scraper.py, dow_scraper.py, ...). FMP Ultimate now
+serves its own /sp500-constituent and /dowjones-constituent endpoints
+(confirmed live 2026-09-15 -- previously 402 on this plan, which is why this
+pipeline originally scraped Wikipedia's own constituent tables via httpx +
+BeautifulSoup; see git history for that implementation). Each concrete index
+module supplies its own FMP-fetch callable and index_name, and gets the same
 fetch -> parse -> sanity-check -> replace pipeline sp500_scraper.py
 originally had to itself.
 """
@@ -13,7 +14,6 @@ from datetime import datetime
 from typing import Awaitable, Callable, NamedTuple
 
 import httpx
-from bs4 import BeautifulSoup
 from sqlmodel import Session, select
 
 from core.models import IndexConstituent
@@ -36,85 +36,39 @@ class SyncResult(NamedTuple):
     error: str | None
 
 
-class IndexTableConfig(NamedTuple):
-    """Column indices are 0-based positions into a wikitable row's <td>
-    cells (header row excluded). sector_col/sub_industry_col/date_added_col
-    are optional -- not every index's Wikipedia table has all three (Dow's
-    table has no GICS sub-industry column, unlike S&P 500's)."""
+def parse_constituent_rows(raw: list[dict] | dict, index_name: str) -> list[ConstituentRow]:
+    """Pure function: maps FMP's /sp500-constituent or /dowjones-constituent
+    response (a flat list of dicts -- symbol/name/sector/subSector/
+    dateFirstAdded/cik/founded, confirmed live 2026-09-15) into
+    ConstituentRow. Raises ValueError on any structural surprise (not a
+    list, or zero usable rows) -- an FMP response-shape change must be a
+    loud, caught failure here, never a silently empty or wrong list. Does
+    NOT enforce the sanity floor itself -- that's the caller's job
+    (refresh_index_constituents), so this stays independently testable
+    against small fixture payloads."""
+    if not isinstance(raw, list):
+        raise ValueError(f"{index_name} constituent response was not a list -- FMP response shape may have changed.")
 
-    index_name: str
-    url: str
-    table_id: str
-    min_cells: int
-    ticker_col: int
-    company_name_col: int
-    sector_col: int | None = None
-    sub_industry_col: int | None = None
-    date_added_col: int | None = None
-
-
-async def fetch_index_html(url: str) -> str:
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; FathomBot/1.0; +https://github.com/)"},
-        )
-        response.raise_for_status()
-        return response.text
-
-
-def _cell_text(cells, idx: int | None) -> str | None:
-    if idx is None:
-        return None
-    return cells[idx].get_text(strip=True) or None
-
-
-def parse_index_constituents(html: str, config: IndexTableConfig) -> list[ConstituentRow]:
-    """Pure function: parses the constituents wikitable identified by
-    `config.table_id`. Raises ValueError on any structural surprise (missing
-    table, missing tbody, too few usable rows) -- a Wikipedia layout change
-    must be a loud, caught failure here, never a silently empty or wrong
-    list. Does NOT enforce the sanity floor itself -- that's the caller's
-    job (refresh_index_constituents), so this stays independently testable
-    against small fixture snippets."""
-    soup = BeautifulSoup(html, "lxml")
-    table = soup.find("table", {"id": config.table_id})
-    if table is None:
-        raise ValueError(
-            f'Could not find the constituents table (id="{config.table_id}") -- Wikipedia page structure may have changed.'
-        )
-
-    tbody = table.find("tbody")
-    if tbody is None:
-        raise ValueError("constituents table has no <tbody> -- Wikipedia page structure may have changed.")
-
-    body_rows = tbody.find_all("tr")[1:]  # first row is the header
     rows: list[ConstituentRow] = []
-    for tr in body_rows:
-        # th, not just td: some tables (e.g. Dow's) mark their row-header
-        # column (Company) as <th scope="row">, not <td> -- confirmed S&P
-        # 500's own table uses plain <td> throughout its body rows, so this
-        # is a no-op there.
-        cells = tr.find_all(["th", "td"])
-        if len(cells) < config.min_cells:
+    for entry in raw:
+        symbol = (entry.get("symbol") or "").strip()
+        name = (entry.get("name") or "").strip()
+        if not symbol or not name:
             continue
-        ticker = cells[config.ticker_col].get_text(strip=True)
-        company_name = cells[config.company_name_col].get_text(strip=True)
-        if not ticker or not company_name:
-            continue
-        ticker = normalize_ticker(ticker)
         rows.append(
             ConstituentRow(
-                ticker=ticker,
-                company_name=company_name,
-                sector=_cell_text(cells, config.sector_col),
-                sub_industry=_cell_text(cells, config.sub_industry_col),
-                date_added=_cell_text(cells, config.date_added_col),
+                ticker=normalize_ticker(symbol),
+                company_name=name,
+                sector=entry.get("sector") or None,
+                sub_industry=entry.get("subSector") or None,
+                date_added=entry.get("dateFirstAdded") or None,
             )
         )
 
     if not rows:
-        raise ValueError("Parsed 0 constituent rows from the constituents table -- Wikipedia page structure may have changed.")
+        raise ValueError(
+            f"Parsed 0 constituent rows from the {index_name} FMP response -- FMP response shape may have changed."
+        )
 
     return rows
 
@@ -152,29 +106,36 @@ def sync_index_constituents(session: Session, index_name: str, rows: list[Consti
 
 async def refresh_index_constituents(
     session: Session,
-    config: IndexTableConfig,
-    fetch_html: Callable[[], Awaitable[str]],
+    index_name: str,
+    fetch_constituents: Callable[[], Awaitable[list[dict] | dict]],
     min_expected_constituents: int,
     label: str,
 ) -> SyncResult:
     """Orchestrates fetch -> parse -> sanity-check -> store. On ANY failure
-    (network error, parse error, too-few-rows sanity check), logs clearly
-    and returns without touching the existing stored list -- a failed
-    refresh attempt must never wipe or partially-overwrite last known-good
-    data. `fetch_html`/`min_expected_constituents` are passed in rather than
-    read off `config` so a caller's own module-level fetch function/
-    threshold (e.g. sp500_scraper.py's fetch_sp500_html/
-    MIN_EXPECTED_CONSTITUENTS, which existing tests monkeypatch directly) is
-    honored without this module needing to know about that caller's
-    globals."""
+    (network/FMP error, parse error, too-few-rows sanity check), logs
+    clearly and returns without touching the existing stored list -- a
+    failed refresh attempt must never wipe or partially-overwrite last
+    known-good data. `fetch_constituents`/`min_expected_constituents` are
+    passed in rather than read off a shared config so a caller's own
+    module-level fetch function/threshold (e.g. sp500_scraper.py's
+    fetch_sp500_constituents/MIN_EXPECTED_CONSTITUENTS, which existing
+    tests monkeypatch directly) is honored without this module needing to
+    know about that caller's globals.
+
+    Catching httpx.HTTPError here also catches FMPDisabledError (a
+    subclass -- see clients/fmp_client.py) as a defense-in-depth safety
+    net, but the primary FMP-disabled handling lives one layer up, in each
+    refresh_*_list.py script's own early-return guard -- see that guard's
+    own comment for why a disabled run must never reach this failure path
+    at all (it needs to read as a clean skip, not a failed sync)."""
     try:
-        html = await fetch_html()
+        raw = await fetch_constituents()
     except httpx.HTTPError as exc:
-        logger.error("%s constituent refresh failed: could not fetch Wikipedia page: %s", label, exc)
+        logger.error("%s constituent refresh failed: could not fetch from FMP: %s", label, exc)
         return SyncResult(success=False, constituent_count=0, error=f"fetch failed: {exc}")
 
     try:
-        rows = parse_index_constituents(html, config)
+        rows = parse_constituent_rows(raw, index_name)
     except ValueError as exc:
         logger.error("%s constituent refresh failed: %s", label, exc)
         return SyncResult(success=False, constituent_count=0, error=str(exc))
@@ -184,6 +145,6 @@ async def refresh_index_constituents(
         logger.error("%s constituent refresh failed: %s", label, error)
         return SyncResult(success=False, constituent_count=len(rows), error=error)
 
-    result = sync_index_constituents(session, config.index_name, rows)
+    result = sync_index_constituents(session, index_name, rows)
     logger.info("%s constituent refresh succeeded: %d tickers stored", label, result.constituent_count)
     return result

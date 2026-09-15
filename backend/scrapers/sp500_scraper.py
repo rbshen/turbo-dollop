@@ -2,50 +2,34 @@ import logging
 
 from sqlmodel import Session
 
+from clients.fmp_client import fmp_client
 from scrapers.index_scraper import (
     ConstituentRow,
-    IndexTableConfig,
     SyncResult,
-    fetch_index_html,
-    parse_index_constituents,
+    parse_constituent_rows,
     refresh_index_constituents,
     sync_index_constituents,
 )
 
 logger = logging.getLogger(__name__)
 
-WIKIPEDIA_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 INDEX_NAME = "sp500"
 # The real S&P 500 is exactly 500 tickers (give or take a handful for
 # dual-class share companies briefly overlapping during index changes) --
-# a parse producing far fewer means the page structure changed or the
+# a parse producing far fewer means FMP's response shape changed or the
 # fetch returned something wrong, not a real index shrinkage.
 MIN_EXPECTED_CONSTITUENTS = 480
 
-# Column order confirmed live: Symbol, Security, GICS Sector, GICS
-# Sub-Industry, Headquarters Location, Date added, CIK, Founded.
-_CONFIG = IndexTableConfig(
-    index_name=INDEX_NAME,
-    url=WIKIPEDIA_URL,
-    table_id="constituents",
-    min_cells=6,
-    ticker_col=0,
-    company_name_col=1,
-    sector_col=2,
-    sub_industry_col=3,
-    date_added_col=5,
-)
+
+async def fetch_sp500_constituents() -> list[dict]:
+    return await fmp_client.get_sp500_constituents()
 
 
-async def fetch_sp500_html() -> str:
-    return await fetch_index_html(WIKIPEDIA_URL)
-
-
-def parse_sp500_constituents(html: str) -> list[ConstituentRow]:
-    """Pure function: parses the "constituents" wikitable (id="constituents")
-    on the S&P 500 Wikipedia page -- see index_scraper.parse_index_constituents
-    for the shared implementation this delegates to."""
-    return parse_index_constituents(html, _CONFIG)
+def parse_sp500_constituents(raw: list[dict]) -> list[ConstituentRow]:
+    """Pure function: maps FMP's /sp500-constituent response into
+    ConstituentRow -- see index_scraper.parse_constituent_rows for the
+    shared implementation this delegates to."""
+    return parse_constituent_rows(raw, INDEX_NAME)
 
 
 def sync_sp500_constituents(session: Session, rows: list[ConstituentRow]) -> SyncResult:
@@ -57,7 +41,9 @@ def sync_sp500_constituents(session: Session, rows: list[ConstituentRow]) -> Syn
 async def refresh_sp500_constituents(session: Session) -> SyncResult:
     """Orchestrates fetch -> parse -> sanity-check -> store. On ANY failure,
     logs clearly and returns without touching the existing stored list.
-    References fetch_sp500_html/MIN_EXPECTED_CONSTITUENTS as bare module
-    globals (not values captured into _CONFIG) so tests can monkeypatch
-    either directly on this module."""
-    return await refresh_index_constituents(session, _CONFIG, fetch_sp500_html, MIN_EXPECTED_CONSTITUENTS, "S&P 500")
+    References fetch_sp500_constituents/MIN_EXPECTED_CONSTITUENTS as bare
+    module globals (not values captured into a shared config) so tests can
+    monkeypatch either directly on this module."""
+    return await refresh_index_constituents(
+        session, INDEX_NAME, fetch_sp500_constituents, MIN_EXPECTED_CONSTITUENTS, "S&P 500"
+    )

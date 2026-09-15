@@ -1,5 +1,5 @@
 import asyncio
-from pathlib import Path
+import datetime
 
 import httpx
 import pytest
@@ -14,7 +14,60 @@ from scrapers.sp500_scraper import (
     sync_sp500_constituents,
 )
 
-FIXTURE_HTML = (Path(__file__).parent / "fixtures" / "sp500_wikipedia_sample.html").read_text()
+# Small but structurally real sample -- same field names/shape as FMP's live
+# /sp500-constituent response (confirmed live 2026-09-15).
+SAMPLE_ROWS = [
+    {
+        "symbol": "MMM",
+        "name": "3M",
+        "sector": "Industrials",
+        "subSector": "Industrial Conglomerates",
+        "headQuarter": "Saint Paul, MN",
+        "dateFirstAdded": "1957-03-04",
+        "cik": "0000066740",
+        "founded": "1902",
+    },
+    {
+        "symbol": "AOS",
+        "name": "A. O. Smith",
+        "sector": "Industrials",
+        "subSector": "Building Products",
+        "headQuarter": "Milwaukee, WI",
+        "dateFirstAdded": "2017-07-26",
+        "cik": "0000091142",
+        "founded": "1916",
+    },
+    {
+        "symbol": "ABT",
+        "name": "Abbott Laboratories",
+        "sector": "Health Care",
+        "subSector": "Health Care Equipment",
+        "headQuarter": "North Chicago, IL",
+        "dateFirstAdded": "1957-03-04",
+        "cik": "0000001800",
+        "founded": "1888",
+    },
+    {
+        "symbol": "ABBV",
+        "name": "AbbVie",
+        "sector": "Health Care",
+        "subSector": "Biotechnology",
+        "headQuarter": "North Chicago, IL",
+        "dateFirstAdded": "2012-12-31",
+        "cik": "0001551152",
+        "founded": "2013",
+    },
+    {
+        "symbol": "ACN",
+        "name": "Accenture",
+        "sector": "Information Technology",
+        "subSector": "IT Consulting & Other Services",
+        "headQuarter": "Dublin, Ireland",
+        "dateFirstAdded": "2011-07-06",
+        "cik": "0001467373",
+        "founded": "1989",
+    },
+]
 
 
 def _fresh_engine():
@@ -23,12 +76,8 @@ def _fresh_engine():
     return engine
 
 
-def test_parses_real_wikipedia_table_structure_from_fixture():
-    # Fixture is a trimmed but structurally real sample: same table id,
-    # header row, and column order as the live page (confirmed live before
-    # writing this fixture) -- 5 valid rows plus one deliberately malformed
-    # row (fewer than 6 cells) that must be skipped, not crash the parser.
-    rows = parse_sp500_constituents(FIXTURE_HTML)
+def test_parses_fmp_response_into_constituent_rows():
+    rows = parse_sp500_constituents(SAMPLE_ROWS)
 
     assert len(rows) == 5
     assert rows[0] == ConstituentRow(
@@ -36,49 +85,44 @@ def test_parses_real_wikipedia_table_structure_from_fixture():
     )
     assert rows[3].ticker == "ABBV"
     assert rows[3].date_added == "2012-12-31"
-    assert all(r.ticker != "BADROW" for r in rows)
 
 
 def test_parses_dot_notation_ticker_as_hyphenated():
-    # Wikipedia's Symbol column uses dot notation for dual-class shares
-    # ("BRK.B") -- parse_sp500_constituents must normalize this to Fathom's
-    # canonical hyphen form (core.tickers.normalize_ticker) at parse time,
-    # not leave it for a downstream caller to catch.
-    html = """
-    <html><body><table id="constituents"><tbody>
-    <tr><th>Symbol</th><th>Security</th><th>GICS Sector</th><th>GICS Sub-Industry</th><th>Headquarters Location</th><th>Date added</th></tr>
-    <tr><td>BRK.B</td><td>Berkshire Hathaway</td><td>Financials</td><td>Multi-Sector Holdings</td><td>Omaha, NE</td><td>2010-02-01</td></tr>
-    </tbody></table></body></html>
-    """
-    rows = parse_sp500_constituents(html)
+    # FMP's own live symbol field already uses hyphen notation for
+    # dual-class shares ("BRK-B"), but parse_sp500_constituents must still
+    # normalize a dot-notation symbol (core.tickers.normalize_ticker) at
+    # parse time, defensively, rather than assume the source never sends one.
+    raw = [{"symbol": "BRK.B", "name": "Berkshire Hathaway", "sector": "Financials", "subSector": "Multi-Sector Holdings", "dateFirstAdded": "2010-02-01"}]
+    rows = parse_sp500_constituents(raw)
     assert len(rows) == 1
     assert rows[0].ticker == "BRK-B"
 
 
-def test_ignores_unrelated_tables_on_the_page():
-    rows = parse_sp500_constituents(FIXTURE_HTML)
-    assert all(r.ticker != "ignore me" for r in rows)
+def test_skips_rows_missing_symbol_or_name():
+    raw = SAMPLE_ROWS + [
+        {"symbol": "", "name": "No Symbol Co", "sector": "Tech"},
+        {"symbol": "NONAME", "name": "", "sector": "Tech"},
+    ]
+    rows = parse_sp500_constituents(raw)
+    assert len(rows) == 5
+    assert all(r.ticker != "NONAME" for r in rows)
 
 
-def test_raises_value_error_when_constituents_table_missing():
-    html = "<html><body><table id='something-else'><tbody><tr><td>x</td></tr></tbody></table></body></html>"
-    with pytest.raises(ValueError, match="Could not find the constituents table"):
-        parse_sp500_constituents(html)
+def test_raises_value_error_when_response_is_not_a_list():
+    with pytest.raises(ValueError, match="was not a list"):
+        parse_sp500_constituents({"Error Message": "not authorized"})
 
 
-def test_raises_value_error_when_table_has_no_rows():
-    html = '<html><body><table id="constituents"><tbody><tr><th>Symbol</th></tr></tbody></table></body></html>'
+def test_raises_value_error_when_zero_usable_rows():
     with pytest.raises(ValueError, match="Parsed 0 constituent rows"):
-        parse_sp500_constituents(html)
+        parse_sp500_constituents([{"symbol": "", "name": ""}])
 
 
 def test_sync_replaces_existing_constituents():
     engine = _fresh_engine()
     with Session(engine) as session:
         session.add(
-            IndexConstituent(
-                index_name="sp500", ticker="OLD", company_name="Stale Co", last_synced_at=__import__("datetime").datetime.now()
-            )
+            IndexConstituent(index_name="sp500", ticker="OLD", company_name="Stale Co", last_synced_at=datetime.datetime.now())
         )
         session.commit()
 
@@ -104,14 +148,10 @@ def test_sync_replaces_existing_constituents_when_tickers_overlap():
     engine = _fresh_engine()
     with Session(engine) as session:
         session.add(
-            IndexConstituent(
-                index_name="sp500", ticker="MMM", company_name="3M", last_synced_at=__import__("datetime").datetime.now()
-            )
+            IndexConstituent(index_name="sp500", ticker="MMM", company_name="3M", last_synced_at=datetime.datetime.now())
         )
         session.add(
-            IndexConstituent(
-                index_name="sp500", ticker="AOS", company_name="A O Smith", last_synced_at=__import__("datetime").datetime.now()
-            )
+            IndexConstituent(index_name="sp500", ticker="AOS", company_name="A O Smith", last_synced_at=datetime.datetime.now())
         )
         session.commit()
 
@@ -130,25 +170,20 @@ def test_sync_replaces_existing_constituents_when_tickers_overlap():
 
 
 def test_refresh_keeps_old_list_when_fetch_fails(monkeypatch):
-    # Simulated scrape failure: the network fetch itself raises. The
-    # existing stored list must survive untouched, and the failure must be
+    # Simulated fetch failure: the FMP call itself raises. The existing
+    # stored list must survive untouched, and the failure must be
     # reported, not silently swallowed into an empty/wrong list.
     engine = _fresh_engine()
     with Session(engine) as session:
         session.add(
-            IndexConstituent(
-                index_name="sp500",
-                ticker="KEEP",
-                company_name="Known Good Co",
-                last_synced_at=__import__("datetime").datetime.now(),
-            )
+            IndexConstituent(index_name="sp500", ticker="KEEP", company_name="Known Good Co", last_synced_at=datetime.datetime.now())
         )
         session.commit()
 
         async def failing_fetch():
-            raise httpx.HTTPError("Wikipedia unreachable")
+            raise httpx.HTTPError("FMP unreachable")
 
-        monkeypatch.setattr(sp500_scraper, "fetch_sp500_html", failing_fetch)
+        monkeypatch.setattr(sp500_scraper, "fetch_sp500_constituents", failing_fetch)
 
         result = asyncio.run(refresh_sp500_constituents(session))
 
@@ -160,30 +195,25 @@ def test_refresh_keeps_old_list_when_fetch_fails(monkeypatch):
         assert stored[0].ticker == "KEEP"
 
 
-def test_refresh_keeps_old_list_when_page_structure_changed(monkeypatch):
-    # Simulated scrape failure: the page fetched fine, but its structure no
-    # longer matches what we parse for (id="constituents" table missing).
+def test_refresh_keeps_old_list_when_response_shape_changed(monkeypatch):
+    # Simulated fetch failure: the call succeeds, but FMP's response shape
+    # no longer matches what we parse for (not a list).
     engine = _fresh_engine()
     with Session(engine) as session:
         session.add(
-            IndexConstituent(
-                index_name="sp500",
-                ticker="KEEP",
-                company_name="Known Good Co",
-                last_synced_at=__import__("datetime").datetime.now(),
-            )
+            IndexConstituent(index_name="sp500", ticker="KEEP", company_name="Known Good Co", last_synced_at=datetime.datetime.now())
         )
         session.commit()
 
-        async def fetch_broken_page():
-            return "<html><body><p>Wikipedia redesigned this page entirely</p></body></html>"
+        async def fetch_broken_response():
+            return {"Error Message": "FMP changed its response shape"}
 
-        monkeypatch.setattr(sp500_scraper, "fetch_sp500_html", fetch_broken_page)
+        monkeypatch.setattr(sp500_scraper, "fetch_sp500_constituents", fetch_broken_response)
 
         result = asyncio.run(refresh_sp500_constituents(session))
 
         assert result.success is False
-        assert "Could not find the constituents table" in result.error
+        assert "was not a list" in result.error
 
         stored = session.exec(select(IndexConstituent).where(IndexConstituent.index_name == "sp500")).all()
         assert len(stored) == 1
@@ -191,25 +221,20 @@ def test_refresh_keeps_old_list_when_page_structure_changed(monkeypatch):
 
 
 def test_refresh_keeps_old_list_when_row_count_suspiciously_low(monkeypatch):
-    # A structurally valid table that parses fine but yields far fewer rows
-    # than a real S&P 500 list -- e.g. Wikipedia serving a partial/cached
-    # page. Must be caught by the sanity floor, not stored as-is.
+    # A structurally valid response that parses fine but yields far fewer
+    # rows than a real S&P 500 list -- e.g. FMP serving a partial response.
+    # Must be caught by the sanity floor, not stored as-is.
     engine = _fresh_engine()
     with Session(engine) as session:
         session.add(
-            IndexConstituent(
-                index_name="sp500",
-                ticker="KEEP",
-                company_name="Known Good Co",
-                last_synced_at=__import__("datetime").datetime.now(),
-            )
+            IndexConstituent(index_name="sp500", ticker="KEEP", company_name="Known Good Co", last_synced_at=datetime.datetime.now())
         )
         session.commit()
 
-        async def fetch_truncated_page():
-            return FIXTURE_HTML  # only 5 real rows, far below MIN_EXPECTED_CONSTITUENTS
+        async def fetch_truncated_response():
+            return SAMPLE_ROWS  # only 5 real rows, far below MIN_EXPECTED_CONSTITUENTS
 
-        monkeypatch.setattr(sp500_scraper, "fetch_sp500_html", fetch_truncated_page)
+        monkeypatch.setattr(sp500_scraper, "fetch_sp500_constituents", fetch_truncated_response)
 
         result = asyncio.run(refresh_sp500_constituents(session))
 
@@ -225,11 +250,11 @@ def test_refresh_succeeds_and_stores_rows_when_everything_is_fine(monkeypatch):
     engine = _fresh_engine()
     with Session(engine) as session:
 
-        async def fetch_ok_page():
-            return FIXTURE_HTML
+        async def fetch_ok_response():
+            return SAMPLE_ROWS
 
-        monkeypatch.setattr(sp500_scraper, "fetch_sp500_html", fetch_ok_page)
-        monkeypatch.setattr(sp500_scraper, "MIN_EXPECTED_CONSTITUENTS", 3)  # fixture only has 5 rows
+        monkeypatch.setattr(sp500_scraper, "fetch_sp500_constituents", fetch_ok_response)
+        monkeypatch.setattr(sp500_scraper, "MIN_EXPECTED_CONSTITUENTS", 3)  # sample only has 5 rows
 
         result = asyncio.run(refresh_sp500_constituents(session))
 
