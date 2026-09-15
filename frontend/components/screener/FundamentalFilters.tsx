@@ -5,12 +5,14 @@ import { useState } from "react";
 import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
 import { MultiSelectDropdown } from "@/components/screener/MultiSelectDropdown";
 import {
+  FILTER_ACTIVE_LABEL_CLASS,
   MOAT_FILTER_OPTIONS,
   parseMarketCapInput,
   VALUATION_FILTER_OPTIONS,
   type RangeFilter,
   type ScreenerFilterState,
 } from "@/lib/screenerFilters";
+import { cn } from "@/lib/utils";
 
 interface Props {
   filters: ScreenerFilterState;
@@ -33,9 +35,11 @@ function RangeInput({
   value: RangeFilter;
   onChange: (range: RangeFilter) => void;
 }) {
+  const active = value.min != null || value.max != null;
+
   return (
     <div className="space-y-1">
-      <span className="text-xs text-text-tertiary">{label}</span>
+      <span className={cn("text-xs", active ? FILTER_ACTIVE_LABEL_CLASS : "text-text-tertiary")}>{label}</span>
       <div className="flex items-center gap-1.5">
         <input
           type="number"
@@ -103,9 +107,11 @@ function MarketCapSideInput({
 }
 
 function MarketCapRangeInput({ value, onChange }: { value: RangeFilter; onChange: (range: RangeFilter) => void }) {
+  const active = value.min != null || value.max != null;
+
   return (
     <div className="space-y-1">
-      <span className="text-xs text-text-tertiary">Mkt Cap</span>
+      <span className={cn("text-xs", active ? FILTER_ACTIVE_LABEL_CLASS : "text-text-tertiary")}>Mkt Cap</span>
       <div className="flex items-center gap-1.5">
         <MarketCapSideInput placeholder="Min" value={value.min} onChange={(min) => onChange({ ...value, min })} />
         <span className="shrink-0 text-text-tertiary">–</span>
@@ -162,7 +168,12 @@ export function FundamentalFilters({ filters, onFiltersChange, sectors, companyT
             selected={filters.valuationVerdict}
             onChange={(s) => patch({ valuationVerdict: s })}
           />
-          <label className="flex h-8 items-center gap-1.5 rounded-md border border-border-input px-2 text-xs font-medium text-text-secondary">
+          <label
+            className={cn(
+              "flex h-8 items-center gap-1.5 rounded-md border border-border-input px-2 text-xs font-medium",
+              filters.speculativeGrowth ? FILTER_ACTIVE_LABEL_CLASS : "text-text-secondary"
+            )}
+          >
             <input
               type="checkbox"
               checked={filters.speculativeGrowth}

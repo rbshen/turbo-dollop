@@ -3,6 +3,7 @@
 import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
 import { MultiSelectDropdown } from "@/components/screener/MultiSelectDropdown";
 import {
+  FILTER_ACTIVE_LABEL_CLASS,
   PULLBACK_STATUS_FILTER_OPTIONS,
   REVERSAL_STATUS_FILTER_OPTIONS,
   VS_SPY_FILTER_OPTIONS,
@@ -10,6 +11,7 @@ import {
   WEINSTEIN_STAGE_FILTER_OPTIONS,
   type ScreenerFilterState,
 } from "@/lib/screenerFilters";
+import { cn } from "@/lib/utils";
 
 interface Props {
   filters: ScreenerFilterState;
@@ -54,7 +56,12 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
           selected={filters.warrenSignalKinds}
           onChange={(s) => patch({ warrenSignalKinds: s })}
         />
-        <label className="flex h-8 items-center gap-1.5 rounded-md border border-border-input px-2 text-xs font-medium text-text-secondary">
+        <label
+          className={cn(
+            "flex h-8 items-center gap-1.5 rounded-md border border-border-input px-2 text-xs font-medium",
+            filters.bbRsiEntrySignal ? FILTER_ACTIVE_LABEL_CLASS : "text-text-secondary"
+          )}
+        >
           <input
             type="checkbox"
             checked={filters.bbRsiEntrySignal}

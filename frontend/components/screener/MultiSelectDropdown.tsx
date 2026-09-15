@@ -2,6 +2,9 @@
 
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
+import { FILTER_ACTIVE_LABEL_CLASS } from "@/lib/screenerFilters";
+import { cn } from "@/lib/utils";
+
 export interface MultiSelectOption {
   value: string;
   label: string;
@@ -100,6 +103,7 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Prop
 
   const selectedLabel = selected.length === 1 ? (options.find((o) => o.value === selected[0])?.label ?? selected[0]) : "";
   const summary = selected.length === 0 ? label : selected.length === 1 ? selectedLabel : `${label} (${selected.length})`;
+  const active = selected.length > 0;
 
   return (
     <div ref={ref} className="relative">
@@ -115,7 +119,10 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Prop
         }}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex h-8 items-center gap-1.5 rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
+        className={cn(
+          "flex h-8 items-center gap-1.5 rounded-md border border-border-input bg-surface px-3 text-xs font-medium transition-colors hover:border-brand hover:text-text-primary",
+          active ? FILTER_ACTIVE_LABEL_CLASS : "text-text-secondary"
+        )}
       >
         {summary}
         <span className="text-text-tertiary">▾</span>
