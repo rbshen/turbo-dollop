@@ -138,10 +138,18 @@ export interface TickerSummaryOut {
   fair_value_method: string | null;
   // "auto" / "custom" -- which source fair_value_* above came from.
   valuation_source: ValuationSource | null;
-  // FMP's reportedCurrency (e.g. "TWD"), null for a USD reporter --
-  // display-only, drives FairValuePill's compact currency badge.
-  // fair_value_price above is already USD either way.
+  // FMP's reportedCurrency (e.g. "TWD"), null when it equals quote_currency
+  // (no conversion happened) -- display-only, drives FairValuePill's
+  // compact currency badge. fair_value_price above is in quote_currency
+  // either way (see backend's HK market support FX-generalization).
   fair_value_reported_currency: string | null;
+  // The ticker's actual trading currency (e.g. "HKD"), defaults to "USD".
+  // price/market_cap/fair_value_price are all denominated in this.
+  quote_currency: string;
+  // The ticker's financial-statement reporting currency (e.g. "CNY"), null
+  // when unavailable. revenue_growth_yoy/net_income_growth_yoy/total_debt/
+  // ebitda_ttm/etc. on this model stay raw/un-converted in this currency.
+  reported_currency: string | null;
 }
 
 export interface Step1TrendComponent {
@@ -515,6 +523,11 @@ export interface TickerScoreOut {
   overall_score: number | null;
   overall_verdict: string | null;
   market_cap: number | null;
+  // Currency market_cap above is denominated in -- null (treat as "USD")
+  // for a row computed before this field existed.
+  quote_currency: string | null;
+  // See models.py::TickerScore.reported_currency.
+  reported_currency: string | null;
   pe_ratio: number | null;
   beta: number | null;
   // "undervalued" / "fair" / "overvalued" -- same Step 3 verdict as the
@@ -728,20 +741,26 @@ export interface Step3Inputs {
   discount_rate: number | null;
   capm: Step3CapmComponents | null;
   current_fiscal_year: string | null;
-  // FMP's reportedCurrency (e.g. "TWD"), null for a USD reporter --
-  // display-only. Every monetary field on this interface (current_value,
-  // total_debt, cash_and_st_investments, book_value_per_share,
-  // sales_per_share, current_value_candidates' own fields) is already
-  // converted to USD, whether or not this is set.
+  // The ticker's actual trading currency (e.g. "HKD"), defaults to "USD".
+  // The conversion TARGET fx_rate below converts reported_currency into --
+  // not always USD (see backend's HK market support FX-generalization).
+  quote_currency: string;
+  // FMP's reportedCurrency (e.g. "TWD"), null when it equals
+  // quote_currency (no conversion needed) -- display-only. Every monetary
+  // field on this interface (current_value, total_debt,
+  // cash_and_st_investments, book_value_per_share, sales_per_share,
+  // current_value_candidates' own fields) is already converted to
+  // quote_currency, whether or not this is set. last_close needs no
+  // conversion -- it's already in quote_currency by construction.
   reported_currency: string | null;
-  // The resolved reported_currency -> USD spot rate actually used, null
-  // when no conversion was needed (USD reporter) OR when a non-USD
-  // conversion couldn't be resolved at all (selected_method reads PASS
-  // with insufficient_data=true instead of a fabricated 1.0-rate value).
-  // 1.0 for a USD reporter.
+  // The resolved reported_currency -> quote_currency spot rate actually
+  // used, null when no conversion was needed (reported_currency ==
+  // quote_currency) OR when a mismatched conversion couldn't be resolved
+  // at all (selected_method reads PASS with insufficient_data=true instead
+  // of a fabricated 1.0-rate value). 1.0 when no conversion was needed.
   fx_rate: number | null;
-  // fetched_at of the cached forex rate this fx_rate came from -- null for
-  // a USD reporter (no forex fetch ever attempted for one).
+  // fetched_at of the cached forex rate(s) this fx_rate came from -- null
+  // when reported_currency == quote_currency (no forex fetch attempted).
   fx_rate_as_of: string | null;
   last_close: number | null;
   // Price-to-Book inputs (tangible/"custom" basis -- manual-only as of
@@ -1052,6 +1071,12 @@ export interface WatchlistRowOut {
   overall_score: number | null;
   overall_verdict: string | null;
   market_cap: number | null;
+  // See TickerScoreOut.quote_currency above.
+  quote_currency: string | null;
+  // See TickerScoreOut.reported_currency above -- what years/revenue/
+  // net_income/cfo below are denominated in. Must always match the
+  // Financials tab's own reported_currency for the same ticker.
+  reported_currency: string | null;
   pe_ratio: number | null;
   beta: number | null;
   // See TickerSummaryOut.perf_5y_vs_spy_pct/_status above. No longer shown

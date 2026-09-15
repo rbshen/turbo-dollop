@@ -262,6 +262,11 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     assert summary.ebitda_ttm == 114_000_000_000
     assert summary.interest_expense_ttm == 3_200_000_000
     assert summary.interest_income_ttm == 200_000_000
+    # FAKE_PROFILE has no "currency" field -- defaults to "USD". FAKE_INCOME_
+    # QUARTERLY has no "reportedCurrency" field -- stays None (same "unset"
+    # convention FinancialsOut/RatiosOut already use).
+    assert summary.quote_currency == "USD"
+    assert summary.reported_currency is None
     expected_call_count = {
         "profile": 1,
         "quote": 1,
@@ -295,6 +300,79 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     # live (cache_only=False) path.
     asyncio.run(get_summary("aapl", cache_only=True))
     assert call_count == {**expected_call_count, "quote": 2}
+
+
+def test_get_summary_hk_shaped_ticker_reads_quote_and_reported_currency_from_profile_and_income(monkeypatch):
+    # 0700.HK-shaped: /profile's currency field is "HKD" (the ticker's
+    # actual trading currency), income statement's reportedCurrency is
+    # "CNY" (its financial-statement reporting currency) -- the two are
+    # genuinely distinct fields sourced from genuinely distinct FMP
+    # payloads, confirmed via this test rather than assumed. Reuses every
+    # other fixture from test_get_summary_maps_fields_and_caches unchanged
+    # -- only currency fields differ, so any other field regression would
+    # already be caught there.
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(ticker_summary, "engine", test_engine)
+    monkeypatch.setattr(step2_data, "engine", test_engine)
+
+    async def fake_profile(ticker):
+        return [{**FAKE_PROFILE[0], "currency": "HKD"}]
+
+    async def fake_quote(ticker):
+        return FAKE_QUOTE
+
+    async def fake_price_change(ticker):
+        return FAKE_PRICE_CHANGE
+
+    async def fake_ratios(ticker):
+        return FAKE_RATIOS
+
+    async def fake_estimates(ticker):
+        return FAKE_ESTIMATES
+
+    async def fake_earnings(ticker):
+        return FAKE_EARNINGS
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return FAKE_BALANCE_SHEET_QUARTERLY
+
+    async def fake_income_statement(ticker, period, limit):
+        return [{**row, "reportedCurrency": "CNY"} for row in FAKE_INCOME_QUARTERLY]
+
+    async def fake_enterprise_values(ticker, period, limit):
+        return FAKE_ENTERPRISE_VALUES
+
+    async def fake_ratios_ttm(ticker):
+        return FAKE_RATIOS_TTM
+
+    async def fake_historical_price_eod(ticker, from_date, to_date):
+        return FAKE_DAILY_PRICES
+
+    async def fake_financial_growth(ticker, period, limit):
+        return FAKE_FINANCIAL_GROWTH
+
+    async def fake_get_active_valuation(ticker, cache_only=False, step2_out=None):
+        return FAKE_STEP3_OUT
+
+    monkeypatch.setattr(ticker_summary, "get_active_valuation", fake_get_active_valuation)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_quote", fake_quote)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_price_change", fake_price_change)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios", fake_ratios)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_analyst_estimates", fake_estimates)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_earnings", fake_earnings)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_enterprise_values", fake_enterprise_values)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios_ttm", fake_ratios_ttm)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_historical_price_eod", fake_historical_price_eod)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_financial_growth", fake_financial_growth)
+
+    summary = asyncio.run(get_summary("0700.HK"))
+
+    assert summary.quote_currency == "HKD"
+    assert summary.reported_currency == "CNY"
 
 
 def test_get_summary_suppresses_enterprise_value_team_shaped_magnitude_defect(monkeypatch):

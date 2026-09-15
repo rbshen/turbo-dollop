@@ -9,11 +9,14 @@ const FLAG_TITLE = "Looks anomalous compared to trailing history — verify inde
 // means something slightly different than usual), not a data-quality flag.
 const TOOLTIP_ICON = "ⓘ";
 
-function formatValue(value: TickerSummaryOut[keyof TickerSummaryOut], format: MetricDef["format"]): string {
+function formatValue(value: TickerSummaryOut[keyof TickerSummaryOut], format: MetricDef["format"], quoteCurrency: string): string {
   if (value == null) return "—";
   if (format === "text") return typeof value === "string" ? value : "—";
   if (typeof value !== "number") return "—";
-  if (format === "compactMoney") return fmtCompactMoney(value);
+  // Every "compactMoney" field in lib/metrics/config.ts (market_cap,
+  // enterprise_value, avg_dollar_volume_20d, week52_high/low) is
+  // quote-domain -- derived from price/market cap, not a statement figure.
+  if (format === "compactMoney") return fmtCompactMoney(value, quoteCurrency);
   if (format === "compactNumber") return fmtCompactNumber(value);
   if (format === "percent") return fmtPct(value);
   if (format === "ratio") return fmtRatio(value);
@@ -49,7 +52,7 @@ function StatColumn({ groups, values, flaggedKeys }: StatColumnProps) {
                     {metric.label}
                   </TableCell>
                   <TableCell className="border-b border-border-subtle py-2 text-right font-mono tabular-nums text-text-primary">
-                    {formatValue(values[metric.key], metric.format)}
+                    {formatValue(values[metric.key], metric.format, values.quote_currency)}
                     {flaggedKeys.has(metric.key) && (
                       <span className="ml-1.5 text-warn" title={FLAG_TITLE}>
                         ⚠
@@ -85,7 +88,7 @@ export function MetricsGrid({ groups, values, outlierWarnings = [] }: Props) {
         <StatColumn groups={rightGroups} values={values} flaggedKeys={flaggedKeys} />
       </div>
 
-      <OutlierWarningNote warnings={outlierWarnings} labels={labels} />
+      <OutlierWarningNote warnings={outlierWarnings} labels={labels} currency={values.reported_currency ?? "USD"} />
     </div>
   );
 }

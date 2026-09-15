@@ -248,7 +248,7 @@ async function manualCalcFetcher(path: string, { arg }: { arg: Step3ManualReques
 // straight fmtPct/fmtMoney call, no further scaling.
 type FieldKind = "plain" | "pct" | "millions" | "currency" | "sharesMillions" | "ratio";
 
-function formatDisplay(kind: FieldKind, raw: string): string {
+function formatDisplay(kind: FieldKind, raw: string, currency: string = "USD"): string {
   const trimmed = raw.trim();
   if (trimmed === "") return "";
   const n = parseFloat(trimmed);
@@ -258,7 +258,7 @@ function formatDisplay(kind: FieldKind, raw: string): string {
       return fmtPct(n, 1);
     case "millions":
     case "currency":
-      return fmtMoney(n);
+      return fmtMoney(n, currency);
     case "sharesMillions":
       return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     case "ratio":
@@ -280,12 +280,14 @@ function ManualInputRow({
   value,
   onChange,
   kind = "plain",
+  currency = "USD",
 }: {
   label: string;
   sublabel?: string;
   value: string;
   onChange: (v: string) => void;
   kind?: FieldKind;
+  currency?: string;
 }) {
   const [focused, setFocused] = useState(false);
   return (
@@ -306,7 +308,7 @@ function ManualInputRow({
         <input
           type="text"
           inputMode="decimal"
-          value={focused ? value : formatDisplay(kind, value)}
+          value={focused ? value : formatDisplay(kind, value, currency)}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           onChange={(e) => onChange(e.target.value)}
@@ -439,6 +441,7 @@ function ManualCalculationControls({
   // directly.
   const method: Step3Method = realMethodFor(selection, saved.method);
   const [form, setForm] = useState<FormState>(() => (saved.saved ? defaultsFromSaved(saved) : defaultsForMethod(method, autoData)));
+  const quoteCurrency = autoData.inputs.quote_currency ?? "USD";
 
   const { trigger, reset, data: result, error: mutationError } = useSWRMutation(`/tickers/${ticker}/step3/manual`, manualCalcFetcher, { throwOnError: false });
 
@@ -555,6 +558,7 @@ function ManualCalculationControls({
         discountPremiumPct={result?.discount_premium_pct ?? null}
         intrinsicValuePerShare={result?.intrinsic_value_per_share ?? null}
         lastClose={autoData.inputs.last_close}
+        quoteCurrency={quoteCurrency}
         reportedCurrency={autoData.inputs.reported_currency}
         fxRate={autoData.inputs.fx_rate}
         fxRateAsOf={autoData.inputs.fx_rate_as_of}
@@ -584,7 +588,7 @@ function ManualCalculationControls({
         <TableBody>
           {isTwentyYearMethod && (
             <>
-              <ManualInputRow label={CURRENT_VALUE_LABELS[method]} sublabel="(in millions)" value={form.currentValue} onChange={field("currentValue")} kind="millions" />
+              <ManualInputRow label={CURRENT_VALUE_LABELS[method]} sublabel="(in millions)" value={form.currentValue} onChange={field("currentValue")} kind="millions" currency={quoteCurrency} />
               <ManualInputRow
                 label="Shares Outstanding"
                 sublabel="(in millions)"
@@ -592,13 +596,14 @@ function ManualCalculationControls({
                 onChange={field("sharesOutstanding")}
                 kind="sharesMillions"
               />
-              <ManualInputRow label="Total Debt" sublabel="(in millions)" value={form.totalDebt} onChange={field("totalDebt")} kind="millions" />
+              <ManualInputRow label="Total Debt" sublabel="(in millions)" value={form.totalDebt} onChange={field("totalDebt")} kind="millions" currency={quoteCurrency} />
               <ManualInputRow
                 label={`Cash${autoData.inputs.cash_and_st_investments_includes_short_term_investments ? " + ST Investments" : ""}`}
                 sublabel="(in millions)"
                 value={form.cashAndSt}
                 onChange={field("cashAndSt")}
                 kind="millions"
+                currency={quoteCurrency}
               />
             </>
           )}
@@ -610,6 +615,7 @@ function ManualCalculationControls({
                 value={isPBStandard ? form.bookValuePerShareStandard : form.bookValuePerShare}
                 onChange={field(isPBStandard ? "bookValuePerShareStandard" : "bookValuePerShare")}
                 kind="currency"
+                currency={quoteCurrency}
               />
               <ManualInputRow
                 label="Mean P/B"
@@ -628,7 +634,7 @@ function ManualCalculationControls({
 
           {isPSG && (
             <>
-              <ManualInputRow label="Sales Per Share" value={form.salesPerShare} onChange={field("salesPerShare")} kind="currency" />
+              <ManualInputRow label="Sales Per Share" value={form.salesPerShare} onChange={field("salesPerShare")} kind="currency" currency={quoteCurrency} />
               <ManualInputRow label="Projected Growth Rate" value={form.projectedGrowthRate} onChange={field("projectedGrowthRate")} kind="pct" />
               <ManualInputRow label="Fair PSG Ratio" value={form.fairPsgRatio} onChange={field("fairPsgRatio")} kind="ratio" />
             </>
@@ -636,7 +642,9 @@ function ManualCalculationControls({
         </TableBody>
       </Table>
 
-      {isPB && result?.pb_bands && <PBBandsTable bands={result.pb_bands} lastClose={autoData.inputs.last_close} />}
+      {isPB && result?.pb_bands && (
+        <PBBandsTable bands={result.pb_bands} lastClose={autoData.inputs.last_close} currency={quoteCurrency} />
+      )}
 
       {mutationError && <p className="text-sm text-negative">{mutationError instanceof Error ? mutationError.message : "Calculation failed"}</p>}
       {result?.error && <p className="text-sm text-warn">{result.error}</p>}

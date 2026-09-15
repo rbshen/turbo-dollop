@@ -8,6 +8,7 @@ import { PriceTargetTrendChart } from "@/components/analystRatings/PriceTargetTr
 import { RatingDistributionTrendChart } from "@/components/analystRatings/RatingDistributionTrendChart";
 import { RecommendationDetailsTable } from "@/components/analystRatings/RecommendationDetailsTable";
 import { useAnalystRatings } from "@/lib/hooks/useAnalystRatings";
+import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
 
 interface Props {
   ticker: string;
@@ -15,6 +16,12 @@ interface Props {
 
 export function AnalystRatingsTab({ ticker }: Props) {
   const { data, error } = useAnalystRatings(ticker);
+  // Same SWR key TickerTabsContainer's own header fetch already uses -- a
+  // cache hit, not a new request. Price targets are quote-domain (the
+  // ticker's actual traded market currency), same as the header's own
+  // price -- must never disagree with it.
+  const { data: summary } = useTickerSummary(ticker);
+  const quoteCurrency = summary?.quote_currency ?? "USD";
 
   if (error) {
     return (
@@ -40,7 +47,7 @@ export function AnalystRatingsTab({ ticker }: Props) {
     <div className="space-y-6 py-6">
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <ConsensusBanner data={data.banner} />
-        <PriceTargetsCard data={data.price_target} />
+        <PriceTargetsCard data={data.price_target} currency={quoteCurrency} />
       </div>
 
       {currentColumn && (
@@ -62,12 +69,12 @@ export function AnalystRatingsTab({ ticker }: Props) {
 
       <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
         <h2 className="font-heading text-sm font-semibold text-text-primary">Average Price Target Trend</h2>
-        <PriceTargetTrendChart history={data.history} />
+        <PriceTargetTrendChart history={data.history} currency={quoteCurrency} />
       </div>
 
       <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
         <h2 className="font-heading text-sm font-semibold text-text-primary">Recommendation Details</h2>
-        <RecommendationDetailsTable columns={data.recommendation_details} />
+        <RecommendationDetailsTable columns={data.recommendation_details} currency={quoteCurrency} />
       </div>
     </div>
   );

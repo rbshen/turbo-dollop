@@ -432,6 +432,15 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
     earnings = earnings_data if isinstance(earnings_data, list) else []
     price = quote.get("price")
     income_quarterly = income_quarterly_data if isinstance(income_quarterly_data, list) else []
+    # Same source/convention financials_data.py/ratios_data.py/step3_data.py
+    # use (reportedCurrency off the income statement) -- quarterly here
+    # since that's the series already fetched above, no new FMP call.
+    # quote_currency mirrors step3_data.py's own resolution (see its "HK
+    # market support" FX-generalization comment) -- the ticker's actual
+    # trading currency, defaulting to "USD" when /profile has no currency
+    # field.
+    reported_currency = _first(income_quarterly).get("reportedCurrency")
+    quote_currency = profile.get("currency") or "USD"
     debt_metrics = compute_debt_metrics(_first(balance_sheet_data), income_quarterly)
     shares_outstanding, shares_outstanding_source = compute_shares_outstanding(quote, income_quarterly)
     enterprise_values_row = _first(enterprise_values_data)
@@ -524,4 +533,6 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
         fair_value_method=fair_value_method,
         valuation_source=step3_out.valuation_source,
         fair_value_reported_currency=step3_out.inputs.reported_currency,
+        quote_currency=quote_currency,
+        reported_currency=reported_currency,
     )

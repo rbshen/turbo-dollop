@@ -81,21 +81,24 @@ export function TickerHeader({ symbol, data }: Props) {
       {/* Row 2: price + change + Assessment/Valuation/Moat chips */}
       <div className="flex flex-wrap items-center gap-3">
         {data.price != null && (
-          <span className="font-mono text-xl font-bold tabular-nums text-text-primary">{fmtMoney(data.price)}</span>
+          <span className="font-mono text-xl font-bold tabular-nums text-text-primary">
+            {fmtMoney(data.price, data.quote_currency)}
+          </span>
         )}
-        <PriceChange change={data.change} changePercent={data.change_percent} />
+        <PriceChange change={data.change} changePercent={data.change_percent} currency={data.quote_currency} />
         <AssessmentChip symbol={symbol} />
         <MoatPill moat={moatData?.moat} variant="flat" />
         <FairValuePill
           verdict={data.fair_value_verdict}
           price={data.fair_value_price}
+          currency={data.quote_currency}
           method={data.fair_value_method}
           source={data.valuation_source}
           reportedCurrency={data.fair_value_reported_currency}
           variant="flat"
         />
         <span className="inline-flex items-center gap-1">
-          <SpeculativeGrowthPill data={specGrowthData} variant="flat" />
+          <SpeculativeGrowthPill data={specGrowthData} variant="flat" currency={data.reported_currency ?? "USD"} />
           {specGrowthData?.qualifies && <SpeculativeGrowthInfoIcon />}
           {specGrowthData?.qualifies && specGrowthData.potential_fake_growth && <SpeculativeGrowthFakeGrowthWarning />}
         </span>

@@ -84,11 +84,16 @@ export function FinancialsTab({ ticker }: Props) {
       <p className="text-xs text-text-tertiary">
         All numbers are in {data.reported_currency ?? "USD"} millions, except per-share data, ratios, and percentages.
         {data.reported_currency && data.reported_currency !== "USD" && (
-          <> Figures are as reported by {ticker}, not converted to USD (unlike the Valuation tab).</>
+          <> Figures are as reported by {ticker}, not converted (unlike the Valuation tab, which converts to {ticker}&apos;s quote currency).</>
         )}
       </p>
 
-      <FinancialsStatementTable ticker={ticker} periodType={period} data={statementData[period]} />
+      <FinancialsStatementTable
+        ticker={ticker}
+        periodType={period}
+        data={statementData[period]}
+        reportedCurrency={data.reported_currency ?? "USD"}
+      />
     </div>
   );
 }

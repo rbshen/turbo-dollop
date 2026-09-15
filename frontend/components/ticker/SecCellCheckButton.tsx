@@ -20,11 +20,14 @@ interface Props {
   ticker: string;
   field: SecCellCheckField;
   periodEnd: string;
+  /** The reported-statement currency this cell's figure (and SEC EDGAR's
+   * own filed figure) are denominated in -- defaults to "USD". */
+  currency?: string;
 }
 
 type Status = "idle" | "loading" | "done" | "error";
 
-export function SecCellCheckButton({ ticker, field, periodEnd }: Props) {
+export function SecCellCheckButton({ ticker, field, periodEnd, currency = "USD" }: Props) {
   const [status, setStatus] = useState<Status>("idle");
   const [result, setResult] = useState<SecCrossCheck | null>(null);
 
@@ -80,7 +83,7 @@ export function SecCellCheckButton({ ticker, field, periodEnd }: Props) {
       className={`ml-1.5 text-[10px] font-semibold ${result.matches_fmp ? "text-positive" : "text-negative"}`}
       title={result.note}
     >
-      SEC: {fmtCompactMoney(result.sec_value ?? 0)}
+      SEC: {fmtCompactMoney(result.sec_value ?? 0, currency)}
     </span>
   );
 }

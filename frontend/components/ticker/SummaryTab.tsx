@@ -56,6 +56,7 @@ export function SummaryTab({ ticker }: Props) {
               segments={segmentation.product_segments}
               values={segmentation.product_values}
               notDisclosedNote={`${ticker} does not disclose a business-segment revenue breakdown.`}
+              currency={data.reported_currency ?? "USD"}
             />
             <SegmentationSection
               title="By Geographic Region"
@@ -63,6 +64,7 @@ export function SummaryTab({ ticker }: Props) {
               segments={segmentation.geographic_segments}
               values={segmentation.geographic_values}
               notDisclosedNote={`${ticker} does not disclose a geographic revenue breakdown.`}
+              currency={data.reported_currency ?? "USD"}
             />
           </div>
         </div>

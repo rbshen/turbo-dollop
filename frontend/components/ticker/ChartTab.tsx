@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 import { TickerChart } from "@/components/chart/TickerChart";
 import type { ZoomBounds } from "@/components/chart/TickerChart";
 import { useTickerChart } from "@/lib/hooks/useTickerChart";
+import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
 import type { ChartRange } from "@/lib/api/types";
 
 interface Props {
@@ -120,6 +121,12 @@ export function ChartTab({ ticker }: Props) {
   }
   const signalToggles = toggleState.toggles;
   const { data, error, isLoading } = useTickerChart(ticker, range);
+  // Same SWR key TickerTabsContainer's own header fetch already uses -- a
+  // cache hit, not a new request. OHLC prices are quote-domain (the
+  // ticker's actual traded market currency), same as the header's own
+  // price -- must never disagree with it.
+  const { data: summary } = useTickerSummary(ticker);
+  const quoteCurrency = summary?.quote_currency ?? "USD";
 
   // Zoom is fully controlled here -- TickerChart owns no zoom state of its own, it
   // just applies whichever index this is and reports back whether either button
@@ -212,6 +219,7 @@ export function ChartTab({ ticker }: Props) {
         <TickerChart
           key={range}
           data={data}
+          quoteCurrency={quoteCurrency}
           showBbRsi={signalToggles.bbRsi}
           showWarren={signalToggles.warren}
           showLpSupport={signalToggles.lpSupport}

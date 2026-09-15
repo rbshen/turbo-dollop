@@ -4,6 +4,10 @@ import { fmtCompactMoney } from "@/lib/format";
 interface Props {
   warnings: OutlierWarning[];
   labels: Record<string, string>;
+  /** Every warned metric here (total_debt/ebitda_ttm/etc.) is a raw
+   * statement figure -- reported_currency, not quote_currency. Defaults to
+   * "USD". */
+  currency?: string;
 }
 
 /** Purely informational note for a TTM-summed flow metric where one of the
@@ -11,7 +15,7 @@ interface Props {
  * backend/ttm.py::sum_last_four_quarters) -- never changes the number,
  * score, or verdict it's attached to. Shared by Step5Card and the ticker
  * header's metrics grid, the two current consumers of outlier_warnings. */
-export function OutlierWarningNote({ warnings, labels }: Props) {
+export function OutlierWarningNote({ warnings, labels, currency = "USD" }: Props) {
   if (warnings.length === 0) return null;
 
   return (
@@ -25,13 +29,13 @@ export function OutlierWarningNote({ warnings, labels }: Props) {
           <li key={i}>
             <div>
               {labels[w.metric] ?? w.metric}
-              {w.date ? ` (${w.date})` : ""}: FMP {fmtCompactMoney(w.value)} vs. trailing median{" "}
-              {fmtCompactMoney(w.trailing_median)}
+              {w.date ? ` (${w.date})` : ""}: FMP {fmtCompactMoney(w.value, currency)} vs. trailing median{" "}
+              {fmtCompactMoney(w.trailing_median, currency)}
             </div>
             {w.sec_cross_check &&
               (w.sec_cross_check.available ? (
                 <div className={w.sec_cross_check.matches_fmp ? "text-positive" : "text-negative"}>
-                  SEC EDGAR (filed value): {fmtCompactMoney(w.sec_cross_check.sec_value!)} — {w.sec_cross_check.note}
+                  SEC EDGAR (filed value): {fmtCompactMoney(w.sec_cross_check.sec_value!, currency)} — {w.sec_cross_check.note}
                 </div>
               ) : (
                 <div className="text-text-tertiary">{w.sec_cross_check.note}</div>

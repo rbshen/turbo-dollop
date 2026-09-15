@@ -6,21 +6,29 @@ interface Props {
   discountPremiumPct: number | null;
   intrinsicValuePerShare: number | null;
   lastClose: number | null;
-  /** FMP's reportedCurrency (e.g. "TWD") -- null for a USD reporter, in
+  /** The currency intrinsicValuePerShare/lastClose are denominated in
+   * (Step3Inputs.quote_currency) -- defaults to "USD". */
+  quoteCurrency?: string;
+  /** FMP's reportedCurrency (e.g. "TWD") -- null/equal to quoteCurrency, in
    * which case no FX caption renders at all. See CLAUDE.md's non-USD
    * currency conversion investigation. */
   reportedCurrency?: string | null;
-  /** The reportedCurrency -> USD spot rate actually applied. */
+  /** The reportedCurrency -> quoteCurrency spot rate actually applied. */
   fxRate?: number | null;
   /** ISO timestamp of when fxRate was fetched. */
   fxRateAsOf?: string | null;
 }
 
-function fxCaption(reportedCurrency: string | null | undefined, fxRate: number | null | undefined, fxRateAsOf: string | null | undefined): string | null {
-  if (!reportedCurrency || reportedCurrency === "USD") return null;
-  if (fxRate == null) return `${reportedCurrency} → USD rate unavailable — Valuation may be incomplete.`;
+function fxCaption(
+  quoteCurrency: string,
+  reportedCurrency: string | null | undefined,
+  fxRate: number | null | undefined,
+  fxRateAsOf: string | null | undefined
+): string | null {
+  if (!reportedCurrency || reportedCurrency === quoteCurrency) return null;
+  if (fxRate == null) return `${reportedCurrency} → ${quoteCurrency} rate unavailable — Valuation may be incomplete.`;
   const asOf = fxRateAsOf ? new Date(fxRateAsOf).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : null;
-  return `Converted from ${reportedCurrency} @ ${fmtNumber(fxRate, 4)}${asOf ? ` (as of ${asOf})` : ""}`;
+  return `Converted from ${reportedCurrency} to ${quoteCurrency} @ ${fmtNumber(fxRate, 4)}${asOf ? ` (as of ${asOf})` : ""}`;
 }
 
 function clamp(v: number, min: number, max: number): number {
@@ -36,7 +44,15 @@ function clamp(v: number, min: number, max: number): number {
 // directly above it -- Auto and Manual used to each duplicate that block
 // separately; consolidating it here means both columns render identically
 // from one component instead of two hand-kept-in-sync copies.
-export function ValuationGauge({ discountPremiumPct, intrinsicValuePerShare, lastClose, reportedCurrency, fxRate, fxRateAsOf }: Props) {
+export function ValuationGauge({
+  discountPremiumPct,
+  intrinsicValuePerShare,
+  lastClose,
+  quoteCurrency = "USD",
+  reportedCurrency,
+  fxRate,
+  fxRateAsOf,
+}: Props) {
   // discountPremiumPct is a fraction (e.g. -0.218) -- the CSS formula in the
   // handoff operates on the percentage number (-21.8), not the fraction.
   const markerLeft = discountPremiumPct != null ? clamp(50 + discountPremiumPct * 100 * 0.7, 3, 97) : null;
@@ -44,19 +60,21 @@ export function ValuationGauge({ discountPremiumPct, intrinsicValuePerShare, las
   // the good/green case; positive ("premium") is overvalued/red. Matches
   // FairValuePill's own undervalued=positive/overvalued=negative mapping.
   const pctClass = discountPremiumPct == null ? "text-text-tertiary" : discountPremiumPct < 0 ? "text-positive" : discountPremiumPct > 0 ? "text-negative" : "text-text-tertiary";
-  const caption = fxCaption(reportedCurrency, fxRate, fxRateAsOf);
+  const caption = fxCaption(quoteCurrency, reportedCurrency, fxRate, fxRateAsOf);
 
   return (
     <div className="space-y-3" role="img" aria-label="Intrinsic value vs stock price gauge">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="font-mono text-3xl font-bold tabular-nums text-text-primary">
-          {intrinsicValuePerShare != null ? fmtMoney(intrinsicValuePerShare) : "—"}
+          {intrinsicValuePerShare != null ? fmtMoney(intrinsicValuePerShare, quoteCurrency) : "—"}
         </span>
         {discountPremiumPct != null && (
           <span className={`font-mono text-sm font-semibold ${pctClass}`}>{fmtPct(discountPremiumPct * 100, 1)}</span>
         )}
       </div>
-      <p className="text-xs text-text-tertiary">vs last close {lastClose != null ? fmtMoney(lastClose) : "—"}</p>
+      <p className="text-xs text-text-tertiary">
+        vs last close {lastClose != null ? fmtMoney(lastClose, quoteCurrency) : "—"}
+      </p>
       {caption && <p className="text-xs text-text-tertiary">{caption}</p>}
 
       <div className="relative pt-2">

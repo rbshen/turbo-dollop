@@ -50,8 +50,8 @@ export function pctText(fraction: number | null): string {
 /** Company-level dollar figures are shown in millions (label carries the
  * "(in millions)" tag) rather than raw dollars -- per-share figures like
  * Intrinsic Value / Last Close are left as plain per-share dollars. */
-export function millionsText(n: number | null): string {
-  return n == null ? "—" : fmtMoney(n / 1_000_000);
+export function millionsText(n: number | null, currency: string = "USD"): string {
+  return n == null ? "—" : fmtMoney(n / 1_000_000, currency);
 }
 
 // Round 8 tried top-aligning the value cell to the row instead of centering
@@ -96,7 +96,15 @@ export function InputRow({ label, sublabel, value }: { label: string; sublabel?:
   );
 }
 
-export function PBBandsTable({ bands, lastClose }: { bands: Step3PBBands; lastClose: number | null }) {
+export function PBBandsTable({
+  bands,
+  lastClose,
+  currency = "USD",
+}: {
+  bands: Step3PBBands;
+  lastClose: number | null;
+  currency?: string;
+}) {
   const order: (keyof Step3PBBands)[] = ["minus_2sd", "minus_1sd", "mean", "plus_1sd", "plus_2sd"];
   return (
     <Table className="w-full border-separate border-spacing-0 text-sm">
@@ -113,14 +121,14 @@ export function PBBandsTable({ bands, lastClose }: { bands: Step3PBBands; lastCl
             <TableCell
               className={`border-b border-border-subtle py-1.5 text-right font-mono ${key === "mean" ? "font-semibold text-text-primary" : "text-text-secondary"}`}
             >
-              {fmtMoney(bands[key])}
+              {fmtMoney(bands[key], currency)}
             </TableCell>
           </TableRow>
         ))}
         {lastClose != null && (
           <TableRow className="hover:bg-transparent">
             <TableCell className="py-1.5 pr-4 text-text-tertiary">Last Close</TableCell>
-            <TableCell className="py-1.5 text-right font-mono text-text-secondary">{fmtMoney(lastClose)}</TableCell>
+            <TableCell className="py-1.5 text-right font-mono text-text-secondary">{fmtMoney(lastClose, currency)}</TableCell>
           </TableRow>
         )}
       </TableBody>
@@ -206,6 +214,7 @@ export function Step3Card({ ticker }: Props) {
   const isPB = data.selected_method === "PRICE_TO_BOOK" || data.selected_method === "PRICE_TO_BOOK_STANDARD";
   const isPSG = data.selected_method === "PSG";
   const isPass = data.selected_method === "PASS";
+  const quoteCurrency = data.inputs.quote_currency ?? "USD";
 
   // `data` is always Auto Calculation (the /step3 endpoint deliberately
   // never routes through get_active_valuation) -- this whole card is a
@@ -260,6 +269,7 @@ export function Step3Card({ ticker }: Props) {
                 discountPremiumPct={data.discount_premium_pct}
                 intrinsicValuePerShare={data.intrinsic_value_per_share}
                 lastClose={data.inputs.last_close}
+                quoteCurrency={quoteCurrency}
                 reportedCurrency={data.inputs.reported_currency}
                 fxRate={data.inputs.fx_rate}
                 fxRateAsOf={data.inputs.fx_rate_as_of}
@@ -282,7 +292,7 @@ export function Step3Card({ ticker }: Props) {
                       <InputRow label="Growth Yr 1-5" value={pctText(data.inputs.growth_yr_1_5)} sublabel={data.inputs.growth_yr_1_5_source ?? "Unavailable"} />
                       <InputRow label="Growth Yr 6-10" value={pctText(data.inputs.growth_yr_6_10)} />
                       <InputRow label="Growth Yr 11-20 (terminal)" value={pctText(data.inputs.growth_yr_11_20)} />
-                      <InputRow label={data.inputs.current_value_label ?? "Current Value"} sublabel="(in millions)" value={millionsText(data.inputs.current_value)} />
+                      <InputRow label={data.inputs.current_value_label ?? "Current Value"} sublabel="(in millions)" value={millionsText(data.inputs.current_value, quoteCurrency)} />
                       <InputRow
                         label="Discount Rate (CAPM)"
                         value={
@@ -300,17 +310,17 @@ export function Step3Card({ ticker }: Props) {
                         label="Shares Outstanding"
                         value={data.inputs.shares_outstanding != null ? data.inputs.shares_outstanding.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "—"}
                       />
-                      <InputRow label="Total Debt" sublabel="(in millions)" value={millionsText(data.inputs.total_debt)} />
+                      <InputRow label="Total Debt" sublabel="(in millions)" value={millionsText(data.inputs.total_debt, quoteCurrency)} />
                       <InputRow
                         label={`Cash${data.inputs.cash_and_st_investments_includes_short_term_investments ? " + ST Investments" : ""}`}
                         sublabel="(in millions)"
-                        value={millionsText(data.inputs.cash_and_st_investments)}
+                        value={millionsText(data.inputs.cash_and_st_investments, quoteCurrency)}
                       />
                     </>
                   )}
                   {isPSG && (
                     <>
-                      <InputRow label="Sales Per Share" value={data.inputs.sales_per_share != null ? fmtMoney(data.inputs.sales_per_share) : "—"} />
+                      <InputRow label="Sales Per Share" value={data.inputs.sales_per_share != null ? fmtMoney(data.inputs.sales_per_share, quoteCurrency) : "—"} />
                       <InputRow label="Projected Growth Rate" value={pctText(data.inputs.projected_growth_rate)} />
                       <InputRow label="Fair PSG Ratio" value={data.inputs.fair_psg_ratio != null ? fmtNumber(data.inputs.fair_psg_ratio) : "—"} />
                     </>
@@ -318,7 +328,9 @@ export function Step3Card({ ticker }: Props) {
                 </TableBody>
               </Table>
 
-              {isPB && data.pb_bands && <PBBandsTable bands={data.pb_bands} lastClose={data.inputs.last_close} />}
+              {isPB && data.pb_bands && (
+                <PBBandsTable bands={data.pb_bands} lastClose={data.inputs.last_close} currency={quoteCurrency} />
+              )}
 
               {isPB && <ValuationContextNotes data={data} />}
 

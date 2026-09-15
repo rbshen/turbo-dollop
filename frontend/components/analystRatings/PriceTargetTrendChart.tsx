@@ -4,13 +4,14 @@ import { fmtMoney } from "@/lib/format";
 
 interface Props {
   history: RatingHistoryPoint[];
+  currency?: string;
 }
 
 // "Average Price Target Trend" bar chart -- one x (period) to one y
 // (avg_price_target) value per bar, so it follows the same MiniBarChart
 // house style as the Financials tab's Historical Trends grid (thick bars,
 // no axis, hover tooltip) rather than a bespoke chart.
-export function PriceTargetTrendChart({ history }: Props) {
+export function PriceTargetTrendChart({ history, currency = "USD" }: Props) {
   const hasPriceTargetHistory = history.some((point) => point.avg_price_target != null);
 
   if (!hasPriceTargetHistory) {
@@ -25,7 +26,7 @@ export function PriceTargetTrendChart({ history }: Props) {
     <MiniBarChart
       categories={history.map((point) => point.date.slice(0, 7))}
       values={history.map((point) => point.avg_price_target)}
-      valueFormat={fmtMoney}
+      valueFormat={(v) => fmtMoney(v, currency)}
       height={140}
     />
   );

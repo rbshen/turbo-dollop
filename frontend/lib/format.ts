@@ -11,24 +11,46 @@ function signChar(n: number): string {
   return n >= 0 ? "+" : "-";
 }
 
-/** "$1,234.56" / "-$1,234.56" */
-export function fmtMoney(n: number): string {
-  return (n < 0 ? "-" : "") + "$" + absLocale(n, 2);
+/** ISO currency code -> an unambiguous prefix, e.g. "$" for USD but "HK$"
+ * for HKD and "CN¥" for CNY (never a bare "¥", which is ambiguous between
+ * CNY/JPY) -- see CLAUDE.md's HK market support round. Falls back to
+ * "<CODE> " for any currency with no dedicated symbol here rather than
+ * guessing one. Every fmt*Money function below defaults `currency` to
+ * "USD", so every existing call site (most of the app -- HK/foreign
+ * tickers are a small minority) renders byte-identical to before this
+ * parameter existed. */
+const CURRENCY_PREFIXES: Record<string, string> = {
+  USD: "$",
+  HKD: "HK$",
+  CNY: "CN¥",
+  JPY: "¥",
+  EUR: "€",
+  GBP: "£",
+};
+
+export function currencyPrefix(currency: string): string {
+  return CURRENCY_PREFIXES[currency] ?? `${currency} `;
 }
 
-/** "+$1,234.56" / "-$1,234.56" / "$0.00" */
-export function fmtSignedMoney(n: number): string {
-  return signChar(n) + "$" + absLocale(n, 2);
+/** "$1,234.56" / "-$1,234.56" (or "HK$1,234.56" / "CN¥1,234.56" / etc. for a non-USD `currency`) */
+export function fmtMoney(n: number, currency: string = "USD"): string {
+  return (n < 0 ? "-" : "") + currencyPrefix(currency) + absLocale(n, 2);
 }
 
-/** "$4.90T" / "$482.11B" / "$12.50M" for large magnitudes, falls back to fmtMoney below $1M. */
-export function fmtCompactMoney(n: number): string {
+/** "+$1,234.56" / "-$1,234.56" / "$0.00" (currency-aware, see fmtMoney) */
+export function fmtSignedMoney(n: number, currency: string = "USD"): string {
+  return signChar(n) + currencyPrefix(currency) + absLocale(n, 2);
+}
+
+/** "$4.90T" / "$482.11B" / "$12.50M" for large magnitudes, falls back to fmtMoney below $1M. Currency-aware, see fmtMoney. */
+export function fmtCompactMoney(n: number, currency: string = "USD"): string {
   const abs = Math.abs(n);
   const sign = n < 0 ? "-" : "";
-  if (abs >= 1e12) return `${sign}$${(abs / 1e12).toFixed(2)}T`;
-  if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(2)}M`;
-  return fmtMoney(n);
+  const prefix = currencyPrefix(currency);
+  if (abs >= 1e12) return `${sign}${prefix}${(abs / 1e12).toFixed(2)}T`;
+  if (abs >= 1e9) return `${sign}${prefix}${(abs / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${sign}${prefix}${(abs / 1e6).toFixed(2)}M`;
+  return fmtMoney(n, currency);
 }
 
 /** "4.90T" / "482.11B" / "12.50M" — like fmtCompactMoney but without the "$",
@@ -79,8 +101,8 @@ export function pickAxisMoneyUnit(maxAbs: number): AxisMoneyUnit {
   return { divisor: 1, suffix: "" };
 }
 
-export function fmtAxisMoney(n: number, unit: AxisMoneyUnit): string {
-  return `$${(n / unit.divisor).toFixed(0)}${unit.suffix}`;
+export function fmtAxisMoney(n: number, unit: AxisMoneyUnit, currency: string = "USD"): string {
+  return `${currencyPrefix(currency)}${(n / unit.divisor).toFixed(0)}${unit.suffix}`;
 }
 
 /** Plain number, fixed decimals (e.g. beta, P/E). */

@@ -4,6 +4,7 @@ import { fmtMoney, fmtNumber } from "@/lib/format";
 
 interface Props {
   columns: RecommendationDetailsColumn[];
+  currency?: string;
 }
 
 type RowKey = "buy" | "outperform" | "hold" | "underperform" | "sell" | "mean" | "consensus" | "target";
@@ -23,19 +24,19 @@ const ROWS: { key: RowKey; label: string }[] = [
   { key: "target", label: "Target" },
 ];
 
-function formatCell(key: RowKey, column: RecommendationDetailsColumn): string {
+function formatCell(key: RowKey, column: RecommendationDetailsColumn, currency: string): string {
   const value = column[key];
   if (value == null) return "—";
   if (key === "mean") return fmtNumber(value as number, 2);
   if (key === "consensus") return value as string;
-  if (key === "target") return fmtMoney(value as number);
+  if (key === "target") return fmtMoney(value as number, currency);
   return String(value);
 }
 
 // Same sticky-left-label-column structure as RatiosTable -- rows are fixed
 // (Buy/Outperform/Hold/Underperform/Sell/Mean/Consensus/Target) rather than
 // FMP-driven groups, so there's no group-header row to carry over.
-export function RecommendationDetailsTable({ columns }: Props) {
+export function RecommendationDetailsTable({ columns, currency = "USD" }: Props) {
   return (
     <Table containerClassName="rounded-lg border border-border-card bg-surface" className="border-separate border-spacing-0 text-sm">
       <TableHeader>
@@ -64,7 +65,7 @@ export function RecommendationDetailsTable({ columns }: Props) {
                 key={column.label}
                 className="border-b border-border-subtle py-2 pr-4 text-right font-mono tabular-nums text-text-primary"
               >
-                {formatCell(row.key, column)}
+                {formatCell(row.key, column, currency)}
               </TableCell>
             ))}
           </TableRow>

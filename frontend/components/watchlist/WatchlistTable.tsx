@@ -81,7 +81,15 @@ function ratingColorClass(rating: string): string {
 // Historical Trends grid (thick bars, no axis, hover tooltip w/ signed
 // 2-decimal value), just sized down for a table row. Not sortable -- these
 // are a 5-year preview, not a single comparable number.
-function TrendCell({ years, values }: { years: string[]; values: (number | null)[] | null }) {
+function TrendCell({
+  years,
+  values,
+  currency = "USD",
+}: {
+  years: string[];
+  values: (number | null)[] | null;
+  currency?: string;
+}) {
   if (!values || values.every((v) => v == null)) {
     // Empty box, not a dash -- keeps this cell the same size as a populated
     // one so row height/alignment doesn't shift.
@@ -95,7 +103,13 @@ function TrendCell({ years, values }: { years: string[]; values: (number | null)
           wide gap left each bar too thin to read, so this favors thicker
           bars with just a small gap over the wider spacing the column's
           two earlier narrowings had used. */}
-      <MiniBarChart categories={years} values={values} valueFormat={fmtCompactMoney} height={32} barCategoryGap="15%" />
+      <MiniBarChart
+        categories={years}
+        values={values}
+        valueFormat={(v) => fmtCompactMoney(v, currency)}
+        height={32}
+        barCategoryGap="15%"
+      />
     </div>
   );
 }
@@ -291,13 +305,13 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                 {row.sector}
               </TableCell>
               <TableCell className="text-center">
-                <TrendCell years={row.years} values={row.revenue} />
+                <TrendCell years={row.years} values={row.revenue} currency={row.reported_currency ?? "USD"} />
               </TableCell>
               <TableCell className="text-center">
-                <TrendCell years={row.years} values={row.net_income} />
+                <TrendCell years={row.years} values={row.net_income} currency={row.reported_currency ?? "USD"} />
               </TableCell>
               <TableCell className="text-center">
-                <TrendCell years={row.years} values={row.cfo} />
+                <TrendCell years={row.years} values={row.cfo} currency={row.reported_currency ?? "USD"} />
               </TableCell>
               <TableCell className="text-center">
                 {row.moat && <SignalBars level={MOAT_SIGNAL_LEVEL[row.moat]} color={MOAT_SIGNAL_COLOR[row.moat]} />}
@@ -319,7 +333,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
               </TableCell>
               <TableCell className={ratingColorClass(row.consensus_rating)}>{row.consensus_rating.toUpperCase()}</TableCell>
               <TableCell className="text-right font-mono text-text-secondary">
-                {row.market_cap != null && fmtCompactMoney(row.market_cap)}
+                {row.market_cap != null && fmtCompactMoney(row.market_cap, row.quote_currency ?? "USD")}
               </TableCell>
               <TableCell className="text-right font-mono text-text-secondary">{row.beta != null && fmtNumber(row.beta)}</TableCell>
               <TableCell className="text-right font-mono text-text-secondary">

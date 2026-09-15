@@ -17,6 +17,7 @@ interface Props {
   // SecCellCheckButton and the backend's get_cash_flow_cell_sec_check.
   periodType: "annual" | "quarterly";
   data: FinancialsPeriodOut;
+  reportedCurrency?: string;
 }
 
 // Confirmed by investigation: FMP's data for these two specific fields is
@@ -59,7 +60,7 @@ function formatValue(value: number | null, unit: string): string {
 // a row's content (e.g. an empty group-header cell) rendered at a different
 // height than its counterpart. One <tr> per line item can't drift out of
 // alignment with itself.
-export function FinancialsStatementTable({ ticker, periodType, data }: Props) {
+export function FinancialsStatementTable({ ticker, periodType, data, reportedCurrency = "USD" }: Props) {
   const columnCount = data.periods.length + 1;
   // Every group starts expanded (matches the pre-collapse behavior) --
   // groups without a label (Income Statement's flat rows) never appear in
@@ -145,7 +146,12 @@ export function FinancialsStatementTable({ ticker, periodType, data }: Props) {
                           <span className="inline-flex items-center justify-end">
                             {formatValue(value, item.unit)}
                             {showCellCheck && (
-                              <SecCellCheckButton ticker={ticker} field={cellCheckField} periodEnd={periodEnd} />
+                              <SecCellCheckButton
+                                ticker={ticker}
+                                field={cellCheckField}
+                                periodEnd={periodEnd}
+                                currency={reportedCurrency}
+                              />
                             )}
                           </span>
                         </TableCell>

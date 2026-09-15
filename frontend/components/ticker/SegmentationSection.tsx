@@ -10,9 +10,13 @@ interface Props {
   segments: string[] | null;
   values: Record<string, (number | null)[]>;
   notDisclosedNote: string;
+  /** Revenue-by-segment/-geography is a raw statement figure --
+   * reported_currency, not quote_currency (matches the Financials tab's
+   * own treatment of the same underlying data). Defaults to "USD". */
+  currency?: string;
 }
 
-export function SegmentationSection({ title, years, segments, values, notDisclosedNote }: Props) {
+export function SegmentationSection({ title, years, segments, values, notDisclosedNote, currency = "USD" }: Props) {
   if (!segments || segments.length === 0) {
     return (
       <div className="space-y-3 rounded-lg border border-border-card bg-surface p-5">
@@ -44,7 +48,7 @@ export function SegmentationSection({ title, years, segments, values, notDisclos
         series={series}
         values={values}
         yTicks={yTicks}
-        yTickFormat={(v) => fmtAxisMoney(v, unit)}
+        yTickFormat={(v) => fmtAxisMoney(v, unit, currency)}
       />
 
       <ChartLegend items={series} layout="row" />

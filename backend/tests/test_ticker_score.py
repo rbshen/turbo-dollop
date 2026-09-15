@@ -62,6 +62,8 @@ def _summary(
     valuation_source="auto",
     perf_5y_vs_spy_pct=None,
     perf_5y_vs_spy_status=None,
+    quote_currency="USD",
+    reported_currency=None,
 ):
     return TickerSummaryOut(
         company_name=company_name,
@@ -75,6 +77,8 @@ def _summary(
         valuation_source=valuation_source,
         perf_5y_vs_spy_pct=perf_5y_vs_spy_pct,
         perf_5y_vs_spy_status=perf_5y_vs_spy_status,
+        quote_currency=quote_currency,
+        reported_currency=reported_currency,
     )
 
 
@@ -152,6 +156,7 @@ def test_computes_and_upserts_a_full_row(monkeypatch):
     assert result.overall_score == 76
     assert result.overall_verdict == "Pass"
     assert result.market_cap == 3_000_000_000_000.0
+    assert result.quote_currency == "USD"
     assert result.pe_ratio == 30.0
     assert result.beta == 1.2
     assert result.valuation_verdict == "undervalued"
@@ -170,6 +175,44 @@ def test_computes_and_upserts_a_full_row(monkeypatch):
     assert row is not None
     assert row.overall_score == 76
     assert row.speculative_growth_qualifies is True
+
+
+def test_quote_currency_is_copied_from_summary_for_a_non_usd_ticker(monkeypatch):
+    # 0700.HK-shaped: quote_currency flows straight through from
+    # get_summary()'s own resolved value (see ticker_summary.py) -- no
+    # separate FX/profile lookup in this module.
+    engine = _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch, summary=_summary(quote_currency="HKD"))
+
+    result = asyncio.run(compute_ticker_score("0700.HK"))
+
+    assert result is not None
+    assert result.quote_currency == "HKD"
+
+    with Session(engine) as session:
+        row = session.exec(select(TickerScore).where(TickerScore.ticker == "0700.HK")).first()
+    assert row is not None
+    assert row.quote_currency == "HKD"
+
+
+def test_reported_currency_is_copied_from_summary_for_a_non_usd_ticker(monkeypatch):
+    # 0700.HK-shaped: reported_currency flows straight through from
+    # get_summary()'s own resolved value -- backs the Watchlist's Revenue/
+    # Net Income/CFO mini trend chart, which must always match the
+    # Financials tab's own reported_currency for the same ticker (same
+    # underlying annual-statement data).
+    engine = _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch, summary=_summary(quote_currency="HKD", reported_currency="CNY"))
+
+    result = asyncio.run(compute_ticker_score("0700.HK"))
+
+    assert result is not None
+    assert result.reported_currency == "CNY"
+
+    with Session(engine) as session:
+        row = session.exec(select(TickerScore).where(TickerScore.ticker == "0700.HK")).first()
+    assert row is not None
+    assert row.reported_currency == "CNY"
 
 
 def test_perf_5y_vs_spy_fields_are_copied_from_summary(monkeypatch):

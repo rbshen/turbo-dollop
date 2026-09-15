@@ -20,7 +20,7 @@ const STYLES_FLAT = `bg-chart-purple/16 ${SPECULATIVE_GROWTH_TEXT_CLASS}`;
 
 const PSG_REASONABLE_MAX = 1.0;
 
-function buildTooltip(data: SpeculativeGrowthOut): string {
+function buildTooltip(data: SpeculativeGrowthOut, currency: string): string {
   const lines: string[] = [];
   if (data.growth_rate_pct != null) {
     lines.push(`Forward growth (${data.growth_basis ?? "n/a"} basis): ${fmtPct(data.growth_rate_pct)}`);
@@ -45,7 +45,7 @@ function buildTooltip(data: SpeculativeGrowthOut): string {
     lines.push(`P/S (TTM): ${fmtRatio(data.price_to_sales_ttm)}`);
   }
   if (data.net_income_ttm != null) {
-    lines.push(`Net income (TTM): ${fmtCompactMoney(data.net_income_ttm)}`);
+    lines.push(`Net income (TTM): ${fmtCompactMoney(data.net_income_ttm, currency)}`);
   }
   return lines.join("\n");
 }
@@ -59,9 +59,13 @@ interface Props {
   // "chip" (default): bordered pill, used in TickerHeader's chip row.
   // "flat": borderless, same height as ScreenerCard/WatchlistTable's other pills.
   variant?: "chip" | "flat";
+  /** net_income_ttm in the tooltip above is a raw statement figure --
+   * reported_currency, not quote_currency (see TickerSummaryOut.reported_
+   * currency). Defaults to "USD". */
+  currency?: string;
 }
 
-export function SpeculativeGrowthPill({ data, variant = "chip" }: Props) {
+export function SpeculativeGrowthPill({ data, variant = "chip", currency = "USD" }: Props) {
   if (!data || !data.qualifies) return null;
 
   return (
@@ -71,7 +75,7 @@ export function SpeculativeGrowthPill({ data, variant = "chip" }: Props) {
         variant === "chip" ? "border px-2 py-0.5" : "px-2 py-1",
         variant === "chip" ? STYLES : STYLES_FLAT
       )}
-      title={buildTooltip(data)}
+      title={buildTooltip(data, currency)}
     >
       Speculative Growth
     </span>

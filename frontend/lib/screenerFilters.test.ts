@@ -31,6 +31,8 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     overall_score: 78,
     overall_verdict: "Pass",
     market_cap: 3_000_000_000_000,
+    quote_currency: "USD",
+    reported_currency: "USD",
     pe_ratio: 30,
     beta: 1.2,
     valuation_verdict: null,

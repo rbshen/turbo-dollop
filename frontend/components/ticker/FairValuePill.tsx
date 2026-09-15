@@ -48,6 +48,10 @@ export const VERDICT_SIGNAL_COLOR: Record<string, string> = {
 interface Props {
   verdict: string | null;
   price: number | null;
+  /** The currency `price` is denominated in (quote_currency) -- defaults
+   * to "USD" so every existing caller stays byte-identical until it's
+   * threaded through explicitly. */
+  currency?: string;
   /** e.g. "DCF" / "P/B" / "PSG" -- the Step 3 method the price was derived
    * from, shown alongside the verdict so it never reads as a bare,
    * unexplained "Undervalued". */
@@ -58,18 +62,19 @@ interface Props {
    * Auto-derived verdict with a user's own override (see CLAUDE.md's Fork
    * B scope decision). Undefined/"auto"/null all render nothing extra. */
   source?: ValuationSource | null;
-  /** FMP's reportedCurrency (e.g. "TWD") -- undefined/null/"USD" all render
-   * nothing extra. `price` is already USD either way (converted
-   * server-side); this is a compact "converted from X" indicator only --
-   * no rate/timestamp here, that detail lives on the Valuation tab's own
-   * caption (see ValuationGauge). */
+  /** FMP's reportedCurrency (e.g. "TWD") -- undefined/null/(equal to
+   * `currency`) all render nothing extra. `price` is in `currency` either
+   * way (converted server-side to quote_currency, not always USD); this is
+   * a compact "converted from X" indicator only -- no rate/timestamp here,
+   * that detail lives on the Valuation tab's own caption (see
+   * ValuationGauge). */
   reportedCurrency?: string | null;
   // "chip" (default): bordered pill. "flat": borderless, same height as
   // ScreenerCard's other pills (MoatPill's "flat" variant, ValuationBadge).
   variant?: "chip" | "flat";
 }
 
-export function FairValuePill({ verdict, price, method, source, reportedCurrency, variant = "chip" }: Props) {
+export function FairValuePill({ verdict, price, currency = "USD", method, source, reportedCurrency, variant = "chip" }: Props) {
   if (!verdict || price == null) return null;
   const cls = variant === "chip" ? (VERDICT_STYLES[verdict] ?? VERDICT_STYLES.fair) : (FLAT_VERDICT_STYLES[verdict] ?? FLAT_VERDICT_STYLES.fair);
   const label = VERDICT_LABELS[verdict] ?? verdict;
@@ -82,10 +87,10 @@ export function FairValuePill({ verdict, price, method, source, reportedCurrency
         cls
       )}
     >
-      {label} ·<span className="font-mono tabular-nums">{fmtMoney(price)}</span>
+      {label} ·<span className="font-mono tabular-nums">{fmtMoney(price, currency)}</span>
       {method && <span className="font-normal opacity-70">({method})</span>}
       {source === "custom" && <span className="font-normal opacity-70">· Custom</span>}
-      {reportedCurrency && reportedCurrency !== "USD" && (
+      {reportedCurrency && reportedCurrency !== currency && (
         <span className="font-normal opacity-70" title={`Converted from ${reportedCurrency}`}>
           · {reportedCurrency}
         </span>

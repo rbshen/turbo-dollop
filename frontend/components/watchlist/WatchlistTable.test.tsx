@@ -42,6 +42,8 @@ const ROWS: WatchlistRowOut[] = [
     overall_score: 90,
     overall_verdict: "Pass",
     market_cap: 3_000_000_000_000,
+    quote_currency: "USD",
+    reported_currency: "USD",
     pe_ratio: 30,
     beta: 1.2,
     perf_5y_vs_spy_pct: null,

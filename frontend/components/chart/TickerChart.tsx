@@ -678,6 +678,10 @@ export interface ZoomBounds {
 // rendering, never touching crosshair sync or pane geometry.
 interface Props extends OverlayVisibility {
   data: ChartOut;
+  /** The ticker's quote_currency (TickerSummaryOut) -- OHLC prices are
+   * quote-domain, must match the header's own price currency. Defaults to
+   * "USD" so an omitted prop stays byte-identical. */
+  quoteCurrency?: string;
   // Fully controlled from ChartTab.tsx -- an index into computeZoomLevelMultipliers's ladder, 0 =
   // the fitContent()-equivalent fit level. TickerChart owns no zoom state of its
   // own (no ref/imperative API): this codebase has no existing forwardRef/
@@ -689,6 +693,7 @@ interface Props extends OverlayVisibility {
 
 export function TickerChart({
   data,
+  quoteCurrency = "USD",
   showBbRsi,
   showWarren,
   showLpSupport,
@@ -1044,16 +1049,16 @@ export function TickerChart({
           {ohlc && (
             <div className="flex items-center gap-2.5 text-xs font-mono">
               <span className="text-zinc-500">
-                O <span className="text-zinc-300">{fmtMoney(ohlc.o)}</span>
+                O <span className="text-zinc-300">{fmtMoney(ohlc.o, quoteCurrency)}</span>
               </span>
               <span className="text-zinc-500">
-                H <span className="text-emerald-400">{fmtMoney(ohlc.h)}</span>
+                H <span className="text-emerald-400">{fmtMoney(ohlc.h, quoteCurrency)}</span>
               </span>
               <span className="text-zinc-500">
-                L <span className="text-red-400">{fmtMoney(ohlc.l)}</span>
+                L <span className="text-red-400">{fmtMoney(ohlc.l, quoteCurrency)}</span>
               </span>
               <span className="text-zinc-500">
-                C <span className="text-zinc-200">{fmtMoney(ohlc.c)}</span>
+                C <span className="text-zinc-200">{fmtMoney(ohlc.c, quoteCurrency)}</span>
               </span>
             </div>
           )}

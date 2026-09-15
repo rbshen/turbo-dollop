@@ -134,6 +134,8 @@ async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
         overall_score=score.overall_score if score else None,
         overall_verdict=score.overall_verdict if score else None,
         market_cap=score.market_cap if score else None,
+        quote_currency=score.quote_currency if score else None,
+        reported_currency=score.reported_currency if score else None,
         pe_ratio=score.pe_ratio if score else None,
         beta=score.beta if score else None,
         perf_5y_vs_spy_pct=score.perf_5y_vs_spy_pct if score else None,

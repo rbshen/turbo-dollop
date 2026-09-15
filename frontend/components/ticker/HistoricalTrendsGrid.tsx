@@ -54,6 +54,12 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
   const s4 = step4.data;
   const s5 = step5.data;
   const fin = financials.data;
+  // Every value/card on this grid is a raw FinancialsOut/Step-derived
+  // statement figure (never converted -- see FinancialsTab's own caption),
+  // so tooltipMoney below is bound to reported_currency, not quote_currency.
+  // format (fmtTableMoney) needs no currency -- it has no "$"/symbol at all.
+  const reportedCurrency = fin.reported_currency ?? "USD";
+  const tooltipMoney = (v: number) => fmtCompactMoney(v, reportedCurrency);
 
   const incYears = fin.income_statement.annual.periods.map(shortYearLabel);
   const cfYears = fin.cash_flow.annual.periods.map(shortYearLabel);
@@ -108,7 +114,7 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
       years: cfYears,
       values: financialsValues(fin.cash_flow.annual, "Net Cash from Operating Activities"),
       format: fmtTableMoney,
-      tooltipFormat: fmtCompactMoney,
+      tooltipFormat: tooltipMoney,
     },
     {
       key: "net_income",
@@ -116,7 +122,7 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
       years: incYears,
       values: financialsValues(fin.income_statement.annual, "Net Income"),
       format: fmtTableMoney,
-      tooltipFormat: fmtCompactMoney,
+      tooltipFormat: tooltipMoney,
     },
     {
       key: "operating_income",
@@ -124,7 +130,7 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
       years: incYears,
       values: financialsValues(fin.income_statement.annual, "Operating Income"),
       format: fmtTableMoney,
-      tooltipFormat: fmtCompactMoney,
+      tooltipFormat: tooltipMoney,
     },
     {
       key: "revenue",
@@ -136,7 +142,7 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
       years: incYears,
       values: financialsValues(fin.income_statement.annual, s1.revenue_label === "Revenue" ? "Revenue" : "Net Interest Income"),
       format: fmtTableMoney,
-      tooltipFormat: fmtCompactMoney,
+      tooltipFormat: tooltipMoney,
     },
     {
       key: "fcf",
@@ -144,7 +150,7 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
       years: cfYears,
       values: financialsValues(fin.cash_flow.annual, "Free Cash Flow"),
       format: fmtTableMoney,
-      tooltipFormat: fmtCompactMoney,
+      tooltipFormat: tooltipMoney,
     },
     {
       key: "accounts_receivable",
@@ -152,7 +158,7 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
       years: bsYears,
       values: arExempt ? [] : financialsValues(fin.balance_sheet.annual, "Accounts Receivable"),
       format: fmtTableMoney,
-      tooltipFormat: fmtCompactMoney,
+      tooltipFormat: tooltipMoney,
     },
     { key: "ccc", label: "Cash Conversion Cycle", years: s4.years, values: s4.ccc ?? [], format: (v: number) => fmtDays(v, 0), tooltipFormat: ccc2 },
     {
@@ -165,7 +171,7 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
         { key: "short_term_debt", label: "Short-Term Debt", color: "var(--color-chart-orange)", values: s5.debt_ratios_evaluated ? s4.short_term_debt : [] },
       ],
       format: fmtTableMoney,
-      tooltipFormat: fmtCompactMoney,
+      tooltipFormat: tooltipMoney,
     },
   ];
 

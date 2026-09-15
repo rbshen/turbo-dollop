@@ -3,6 +3,7 @@ import { fmtMoney, fmtPct, pnlClass } from "@/lib/format";
 
 interface Props {
   data: PriceTargetSummary;
+  currency?: string;
 }
 
 // Merges the old separate AvgTargetCard + PriceTargetRangeCard into the
@@ -15,7 +16,7 @@ const ROWS: { key: "target_low" | "target_consensus" | "target_high"; label: str
   { key: "target_high", label: "High" },
 ];
 
-export function PriceTargetsCard({ data }: Props) {
+export function PriceTargetsCard({ data, currency = "USD" }: Props) {
   return (
     <div className="space-y-4 rounded-lg border border-border-card bg-surface p-6">
       <p className="text-xs uppercase tracking-widest text-text-tertiary">Price Targets</p>
@@ -26,7 +27,7 @@ export function PriceTargetsCard({ data }: Props) {
             <div key={row.key} className="space-y-1">
               <p className="text-xs text-text-tertiary">{row.label}</p>
               <p className="font-mono text-lg font-semibold tabular-nums text-text-primary">
-                {value != null ? fmtMoney(value) : "—"}
+                {value != null ? fmtMoney(value, currency) : "—"}
               </p>
               {row.key === "target_consensus" &&
                 (data.upside_pct != null ? (

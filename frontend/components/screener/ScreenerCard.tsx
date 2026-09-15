@@ -78,7 +78,9 @@ export function ScreenerCard({ data }: Props) {
       <div className="mt-auto grid grid-cols-3 gap-2 border-t border-border-subtle pt-2 text-xs">
         <div>
           <p className="text-text-tertiary">Mkt Cap</p>
-          <p className="font-mono text-text-secondary">{data.market_cap != null ? fmtCompactMoney(data.market_cap) : "—"}</p>
+          <p className="font-mono text-text-secondary">
+            {data.market_cap != null ? fmtCompactMoney(data.market_cap, data.quote_currency ?? "USD") : "—"}
+          </p>
         </div>
         <div>
           <p className="text-text-tertiary">P/E</p>

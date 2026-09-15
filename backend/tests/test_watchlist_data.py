@@ -14,13 +14,15 @@ from core.schemas import Step1Out
 from data.watchlist_data import get_watchlist_rows
 
 
-def _score(ticker="AAPL", speculative_growth_qualifies=True):
+def _score(ticker="AAPL", speculative_growth_qualifies=True, quote_currency=None, reported_currency=None):
     return TickerScore(
         ticker=ticker,
         company_name="Apple Inc.",
         sector="Technology",
         computed_at=datetime(2026, 1, 1),
         speculative_growth_qualifies=speculative_growth_qualifies,
+        quote_currency=quote_currency,
+        reported_currency=reported_currency,
     )
 
 
@@ -87,3 +89,37 @@ def test_speculative_growth_qualifies_none_when_no_ticker_score_row(monkeypatch)
     rows = asyncio.run(get_watchlist_rows([ticker]))
 
     assert rows[0].speculative_growth_qualifies is None
+
+
+def test_quote_currency_flows_into_the_row(monkeypatch):
+    # 0700.HK-shaped -- see models.py::TickerScore.quote_currency.
+    _patch(monkeypatch, _score(ticker="0700.HK", quote_currency="HKD"))
+    ticker = WatchlistTicker(watchlist_id=1, ticker="0700.HK", added_at=datetime(2026, 1, 1))
+
+    rows = asyncio.run(get_watchlist_rows([ticker]))
+
+    assert rows[0].quote_currency == "HKD"
+
+
+def test_reported_currency_flows_into_the_row_and_matches_quote_currency_independently(monkeypatch):
+    # 0700.HK-shaped: reported_currency (CNY, backs the Revenue/Net Income/
+    # CFO mini trend chart) and quote_currency (HKD, would back a price/
+    # market-cap cell) are genuinely distinct fields -- confirms neither
+    # accidentally shadows or falls back to the other.
+    _patch(monkeypatch, _score(ticker="0700.HK", quote_currency="HKD", reported_currency="CNY"))
+    ticker = WatchlistTicker(watchlist_id=1, ticker="0700.HK", added_at=datetime(2026, 1, 1))
+
+    rows = asyncio.run(get_watchlist_rows([ticker]))
+
+    assert rows[0].reported_currency == "CNY"
+    assert rows[0].quote_currency == "HKD"
+
+
+def test_quote_currency_none_when_no_ticker_score_row(monkeypatch):
+    _patch(monkeypatch, None)
+    ticker = WatchlistTicker(watchlist_id=1, ticker="AAPL", added_at=datetime(2026, 1, 1))
+
+    rows = asyncio.run(get_watchlist_rows([ticker]))
+
+    assert rows[0].quote_currency is None
+    assert rows[0].reported_currency is None
