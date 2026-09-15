@@ -11,8 +11,6 @@ dependencies = [
     "httpx>=0.27",
     "pandas>=2.2",
     "numpy>=1.26",
-    "beautifulsoup4>=4.15.0",
-    "lxml>=6.1.1",
     "yfinance>=1.6.0",
     "pandas_market_calendars>=4.4",
 ]
