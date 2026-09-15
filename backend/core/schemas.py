@@ -938,6 +938,9 @@ class TickerScoreOut(BaseModel):
     sector: str | None = None
     industry: str | None = None
     company_type: str | None = None
+    # See models.py::TickerScore.country -- "US"/"HK" primary listing
+    # market, derived from exchange, NOT FMP's own domicile `country` field.
+    country: str | None = None
     step1_score: int | None = None
     step1_verdict: str | None = None
     step2_score: int | None = None
@@ -1006,6 +1009,8 @@ class SavedScreenerFilterIn(BaseModel):
     # Which watchlist (if any) was selected as the Screener's base universe
     # when this view was saved -- see SavedScreenerFilter.watchlist_id.
     watchlist_id: int | None = None
+    # Which Country filter value was selected -- see SavedScreenerFilter.country.
+    country: str | None = None
 
 
 class SavedScreenerFilterOut(BaseModel):
@@ -1016,6 +1021,7 @@ class SavedScreenerFilterOut(BaseModel):
     sort_direction: str
     filters: dict
     watchlist_id: int | None = None
+    country: str | None = None
     created_at: datetime
     updated_at: datetime
 

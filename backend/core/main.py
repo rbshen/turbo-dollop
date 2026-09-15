@@ -780,6 +780,7 @@ def _saved_filter_out(row: SavedScreenerFilter) -> SavedScreenerFilterOut:
         sort_direction=row.sort_direction,
         filters=json.loads(row.filters_json),
         watchlist_id=row.watchlist_id,
+        country=row.country,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -803,6 +804,7 @@ def screener_filters_upsert(name: str, body: SavedScreenerFilterIn) -> SavedScre
             sort_direction=body.sort_direction,
             filters_json=json.dumps(body.filters),
             watchlist_id=body.watchlist_id,
+            country=body.country,
         )
     return _saved_filter_out(row)
 

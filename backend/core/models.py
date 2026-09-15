@@ -545,7 +545,14 @@ class SavedScreenerFilter(SQLModel, table=True):
     deletes any SavedScreenerFilter row referencing the watchlist in the
     same transaction as its WatchlistTicker cleanup -- no SQLite-level ON
     DELETE CASCADE, same reasoning as WatchlistTicker's own docstring).
-    Nullable -- most saved views have no watchlist scoping at all."""
+    Nullable -- most saved views have no watchlist scoping at all.
+
+    country is a discrete column for the same reason as watchlist_id --
+    it's a "base scope" concept (see TickerScore.country), not part of the
+    Fundamental/Technical filter blob. Unlike watchlist_id it has no
+    referential-integrity concern (a plain "US"/"HK" string, not a foreign
+    key), so it's just a plain nullable str -- None means this saved view
+    predates the Country filter and should load as the "US" default."""
 
     __table_args__ = (UniqueConstraint("name", name="uq_saved_screener_filter_name"),)
 
@@ -556,6 +563,7 @@ class SavedScreenerFilter(SQLModel, table=True):
     sort_direction: str
     filters_json: str
     watchlist_id: int | None = Field(default=None, foreign_key="watchlist.id")
+    country: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -606,6 +614,23 @@ class TickerScore(SQLModel, table=True):
     sector: str | None = None
     industry: str | None = None
     company_type: str | None = None
+    # "US" / "HK" -- the ticker's own PRIMARY LISTING MARKET, for the
+    # Screener's Country filter. Deliberately NOT FMP /profile's own
+    # `country` field (company domicile) -- confirmed via real cached data
+    # that the two disagree for 3 of the 4 tracked .HK tickers (0005.HK/
+    # HSBC reads country="GB", 3988.HK/Bank of China and 0728.HK/China
+    # Telecom both read country="CN"; only 0941.HK/China Mobile happens to
+    # read "HK"), the same class of "not 1:1" trap step3_data.py's own
+    # country-for-discount-rate-region comment already documents for a
+    # different field. Derived instead from `exchange` (`ticker_score.py::
+    # _resolve_screener_country`, off summary.exchange -- see
+    # ticker_summary.py) -- "HKSE" -> "HK", every other value seen across
+    # the tracked universe (NYSE/NASDAQ/OTC/AMEX/CBOE) -> "US". None for a
+    # row computed before this field existed -- see _add_missing_columns --
+    # same "no signal yet" convention as every other backfilled column here;
+    # the frontend treats None as "US" (the overwhelming majority) rather
+    # than excluding the row.
+    country: str | None = None
     step1_score: int | None = None
     step1_verdict: str | None = None
     step2_score: int | None = None

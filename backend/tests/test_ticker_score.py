@@ -64,12 +64,14 @@ def _summary(
     perf_5y_vs_spy_status=None,
     quote_currency="USD",
     reported_currency=None,
+    exchange="NASDAQ",
 ):
     return TickerSummaryOut(
         company_name=company_name,
         ticker="AAPL",
         sector=sector,
         industry=industry,
+        exchange=exchange,
         market_cap=3_000_000_000_000.0,
         pe_ratio=30.0,
         beta=1.2,
@@ -213,6 +215,35 @@ def test_reported_currency_is_copied_from_summary_for_a_non_usd_ticker(monkeypat
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "0700.HK")).first()
     assert row is not None
     assert row.reported_currency == "CNY"
+
+
+def test_country_resolves_to_hk_for_a_hkse_listing(monkeypatch):
+    # 0700.HK-shaped: country is derived from summary.exchange ("HKSE"),
+    # NOT FMP /profile's own domicile `country` field -- see
+    # TickerScore.country's own docstring for why (confirmed via real
+    # cached data that the two disagree for most tracked .HK tickers).
+    engine = _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch, summary=_summary(quote_currency="HKD", exchange="HKSE"))
+
+    result = asyncio.run(compute_ticker_score("0700.HK"))
+
+    assert result is not None
+    assert result.country == "HK"
+
+    with Session(engine) as session:
+        row = session.exec(select(TickerScore).where(TickerScore.ticker == "0700.HK")).first()
+    assert row is not None
+    assert row.country == "HK"
+
+
+def test_country_defaults_to_us_for_a_us_exchange_listing(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch, summary=_summary(exchange="NYSE"))
+
+    result = asyncio.run(compute_ticker_score("AAPL"))
+
+    assert result is not None
+    assert result.country == "US"
 
 
 def test_perf_5y_vs_spy_fields_are_copied_from_summary(monkeypatch):

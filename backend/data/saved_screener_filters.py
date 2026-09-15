@@ -23,6 +23,7 @@ def upsert_saved_filter(
     sort_direction: str,
     filters_json: str,
     watchlist_id: int | None = None,
+    country: str | None = None,
 ) -> SavedScreenerFilter:
     now = datetime.now()
     values = {
@@ -32,6 +33,7 @@ def upsert_saved_filter(
         "sort_direction": sort_direction,
         "filters_json": filters_json,
         "watchlist_id": watchlist_id,
+        "country": country,
         "created_at": now,
         "updated_at": now,
     }
@@ -44,6 +46,7 @@ def upsert_saved_filter(
             "sort_direction": sort_direction,
             "filters_json": filters_json,
             "watchlist_id": watchlist_id,
+            "country": country,
             "updated_at": now,
         },
     )
