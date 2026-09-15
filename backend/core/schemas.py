@@ -955,6 +955,9 @@ class TickerScoreOut(BaseModel):
     overall_score: int | None = None
     overall_verdict: str | None = None
     market_cap: float | None = None
+    # See models.py::TickerScore.last_price -- same rollout-gap convention,
+    # None for a row computed before this field existed.
+    last_price: float | None = None
     # See models.py::TickerScore.quote_currency -- None (treat as "USD")
     # for a row computed before this field existed.
     quote_currency: str | None = None

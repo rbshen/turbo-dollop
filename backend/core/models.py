@@ -646,6 +646,14 @@ class TickerScore(SQLModel, table=True):
     overall_score: int | None = None
     overall_verdict: str | None = None
     market_cap: float | None = None
+    # Lifted straight from summary.price (ticker_summary.py), same
+    # cache_only=True get_summary() call market_cap above already comes
+    # from -- no new fetch. Denominated in quote_currency below, same as
+    # market_cap. Nullable per this table's usual no-backfill-migration
+    # convention (_add_missing_columns) -- a row computed before this field
+    # existed reads NULL until the next nightly recompute, same rollout gap
+    # as country/speculative_growth_qualifies.
+    last_price: float | None = None
     pe_ratio: float | None = None
     beta: float | None = None
     # Lifted straight from summary.quote_currency (ticker_summary.py) --

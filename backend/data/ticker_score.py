@@ -179,6 +179,7 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         overall_score=overall.score,
         overall_verdict=overall.verdict,
         market_cap=summary.market_cap,
+        last_price=summary.price,
         pe_ratio=summary.pe_ratio,
         beta=summary.beta,
         quote_currency=summary.quote_currency,
