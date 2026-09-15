@@ -93,6 +93,40 @@ def test_disabled_raises_without_ever_touching_the_network(monkeypatch):
     assert client.request_count == 0
 
 
+def test_get_sp500_constituents_hits_expected_endpoint(monkeypatch):
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json=[{"symbol": "AAPL", "name": "Apple Inc."}])
+
+    _install_mock_transport(monkeypatch, handler)
+    client = FMPClient(api_key="x")
+
+    result = asyncio.run(client.get_sp500_constituents())
+
+    assert result == [{"symbol": "AAPL", "name": "Apple Inc."}]
+    assert "/sp500-constituent" in seen["url"]
+    assert "apikey=x" in seen["url"]
+
+
+def test_get_dowjones_constituents_hits_expected_endpoint(monkeypatch):
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json=[{"symbol": "AAPL", "name": "Apple Inc."}])
+
+    _install_mock_transport(monkeypatch, handler)
+    client = FMPClient(api_key="x")
+
+    result = asyncio.run(client.get_dowjones_constituents())
+
+    assert result == [{"symbol": "AAPL", "name": "Apple Inc."}]
+    assert "/dowjones-constituent" in seen["url"]
+    assert "apikey=x" in seen["url"]
+
+
 def test_429_exhausts_retries_and_raises(monkeypatch):
     monkeypatch.setattr(fmp_client_module, "RATE_LIMIT_RETRY_BACKOFF_SECONDS", 0.01)
     calls = {"n": 0}
