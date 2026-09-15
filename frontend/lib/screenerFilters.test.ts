@@ -32,6 +32,7 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     overall_score: 78,
     overall_verdict: "Pass",
     market_cap: 3_000_000_000_000,
+    last_price: 190,
     quote_currency: "USD",
     reported_currency: "USD",
     pe_ratio: 30,
@@ -421,6 +422,16 @@ describe("sortTickerScores", () => {
       row({ ticker: "BIG", market_cap: 3_000_000_000_000 }),
     ];
     expect(sortTickerScores(rows, "market_cap", "desc").map((r) => r.ticker)).toEqual(["BIG", "SMALL"]);
+  });
+
+  it("sorts by Quote (last_price), nulls last", () => {
+    const rows = [
+      row({ ticker: "NO_PRICE", last_price: null }),
+      row({ ticker: "CHEAP", last_price: 5 }),
+      row({ ticker: "EXPENSIVE", last_price: 500 }),
+    ];
+    expect(sortTickerScores(rows, "last_price", "desc").map((r) => r.ticker)).toEqual(["EXPENSIVE", "CHEAP", "NO_PRICE"]);
+    expect(sortTickerScores(rows, "last_price", "asc").map((r) => r.ticker)).toEqual(["CHEAP", "EXPENSIVE", "NO_PRICE"]);
   });
 
   it("sorts by growth rate", () => {

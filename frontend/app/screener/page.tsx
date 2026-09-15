@@ -47,6 +47,7 @@ const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: "step2_score", label: "Growth Rate score" },
   { value: "step4_score", label: "Profitability score" },
   { value: "step5_score", label: "Debt score" },
+  { value: "last_price", label: "Quote" },
   { value: "market_cap", label: "Market cap" },
   { value: "pe_ratio", label: "P/E" },
   { value: "beta", label: "Beta" },

@@ -302,6 +302,7 @@ export type SortField =
   | "step2_score"
   | "step4_score"
   | "step5_score"
+  | "last_price"
   | "market_cap"
   | "pe_ratio"
   | "beta"
