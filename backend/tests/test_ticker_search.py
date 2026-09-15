@@ -53,6 +53,74 @@ def test_normalizes_dot_notation_symbol_from_fmp_response(monkeypatch):
     assert [r.symbol for r in results] == ["BRK-B"]
 
 
+# --- Ranking: primary listing vs. leveraged ETP / cross-listed lookalike ----
+
+
+def test_lvmh_search_ranks_the_primary_listing_above_a_leveraged_etp(monkeypatch):
+    # The motivating real case: searching "LVMH" used to surface a
+    # leveraged tracker product (3LLV.PA) ahead of the real primary listing
+    # (MC.PA) purely because FMP happened to return it first/at all in its
+    # own raw order. Neither /search-symbol nor /search-name exposes an
+    # exchange/security-type field to filter on, so this is a ranking fix
+    # (name-prefix tier + a same-tier leveraged-keyword/digit-symbol
+    # penalty), not a filter.
+    async def fake_search_symbol(query, limit):
+        return []
+
+    async def fake_search_name(query, limit):
+        # Deliberately returned in the "wrong" (ETP-first) order -- the fix
+        # must re-rank regardless of FMP's own raw order, not just happen
+        # to preserve an already-correct one.
+        return [
+            {"symbol": "3LLV.PA", "name": "Leverage Shares 3x Long LVMH ETP Securities", "exchange": "PAR"},
+            {"symbol": "MC.PA", "name": "LVMH Moet Hennessy Louis Vuitton SE", "exchange": "PAR"},
+        ]
+
+    monkeypatch.setattr(ticker_search.fmp_client, "search_symbol", fake_search_symbol)
+    monkeypatch.setattr(ticker_search.fmp_client, "search_name", fake_search_name)
+
+    results = asyncio.run(search_tickers("LVMH"))
+
+    assert [r.symbol for r in results] == ["MC.PA", "3LLV.PA"]
+
+
+def test_leveraged_product_ranks_below_a_same_tier_primary_listing(monkeypatch):
+    # Same-tier tiebreak: both names start with the query (tier alone
+    # doesn't resolve this), so it's the leveraged-keyword/digit-symbol
+    # penalty specifically doing the work here, not just the name-prefix
+    # tier.
+    async def fake_search_symbol(query, limit):
+        return []
+
+    async def fake_search_name(query, limit):
+        return [
+            {"symbol": "3AAPL.L", "name": "Apple 3x Long ETP Securities", "exchange": "LSE"},
+            {"symbol": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ"},
+        ]
+
+    monkeypatch.setattr(ticker_search.fmp_client, "search_symbol", fake_search_symbol)
+    monkeypatch.setattr(ticker_search.fmp_client, "search_name", fake_search_name)
+
+    results = asyncio.run(search_tickers("Apple"))
+
+    assert [r.symbol for r in results] == ["AAPL", "3AAPL.L"]
+
+
+def test_exact_symbol_match_always_outranks_a_mere_name_prefix_match(monkeypatch):
+    async def fake_search_symbol(query, limit):
+        return [{"symbol": "MSFT", "name": "Microsoft Corporation", "exchange": "NASDAQ"}]
+
+    async def fake_search_name(query, limit):
+        return [{"symbol": "MSFU", "name": "MSFT-adjacent leveraged fund", "exchange": "NASDAQ"}]
+
+    monkeypatch.setattr(ticker_search.fmp_client, "search_symbol", fake_search_symbol)
+    monkeypatch.setattr(ticker_search.fmp_client, "search_name", fake_search_name)
+
+    results = asyncio.run(search_tickers("MSFT"))
+
+    assert [r.symbol for r in results] == ["MSFT", "MSFU"]
+
+
 def test_caps_at_search_result_limit(monkeypatch):
     async def fake_search_symbol(query, limit):
         return [{"symbol": f"SYM{i}", "name": f"Company {i}", "exchange": "NYSE"} for i in range(limit)]
