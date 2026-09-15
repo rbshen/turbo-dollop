@@ -529,6 +529,9 @@ export interface TickerScoreOut {
   overall_score: number | null;
   overall_verdict: string | null;
   market_cap: number | null;
+  // See models.py::TickerScore.last_price -- null for a row computed
+  // before this field existed, until the next nightly recompute.
+  last_price: number | null;
   // Currency market_cap above is denominated in -- null (treat as "USD")
   // for a row computed before this field existed.
   quote_currency: string | null;

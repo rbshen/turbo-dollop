@@ -9,7 +9,7 @@ import { WeinsteinStagePill } from "@/components/ticker/WeinsteinStagePill";
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
 import { ValuationBadge } from "@/components/screener/ValuationBadge";
 import type { TickerScoreOut } from "@/lib/api/types";
-import { fmtCompactMoney, fmtNumber } from "@/lib/format";
+import { fmtCompactMoney, fmtMoney, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -75,7 +75,13 @@ export function ScreenerCard({ data }: Props) {
         </div>
       )}
 
-      <div className="mt-auto grid grid-cols-3 gap-2 border-t border-border-subtle pt-2 text-xs">
+      <div className="mt-auto grid grid-cols-4 gap-2 border-t border-border-subtle pt-2 text-xs">
+        <div>
+          <p className="text-text-tertiary">Quote</p>
+          <p className="font-mono text-text-secondary">
+            {data.last_price != null ? fmtMoney(data.last_price, data.quote_currency ?? "USD") : "—"}
+          </p>
+        </div>
         <div>
           <p className="text-text-tertiary">Mkt Cap</p>
           <p className="font-mono text-text-secondary">
