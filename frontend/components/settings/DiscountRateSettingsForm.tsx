@@ -5,7 +5,7 @@ import { mutate } from "swr";
 
 import { apiPut } from "@/lib/api/client";
 import type { DiscountRateConfigOut } from "@/lib/api/types";
-import { useDiscountRateConfig } from "@/lib/hooks/useDiscountRateConfig";
+import { useDiscountRateConfigs } from "@/lib/hooks/useDiscountRateConfig";
 import { fmtNumber } from "@/lib/format";
 
 type Status = "idle" | "saving" | "saved" | "error";
@@ -17,8 +17,24 @@ const STATUS_LABELS: Record<Status, string> = {
   error: "Save failed",
 };
 
+// A region's own display name, where it differs from its bare code -- US is
+// the only region every install has by default; any other region (HK now,
+// more later) is lazily seeded the first time a ticker from it is valued
+// (see backend helpers/discount_rate_config.py), so this list only ever
+// needs entries for regions this app is expected to actually see -- an
+// unlisted region code (a future addition) still renders fine, just with
+// its bare code as the label.
+const REGION_LABELS: Record<string, string> = {
+  US: "United States",
+  HK: "Hong Kong",
+};
+
+function regionLabel(region: string): string {
+  return REGION_LABELS[region] ?? region;
+}
+
 export function DiscountRateSettingsForm() {
-  const { data, error, isLoading } = useDiscountRateConfig();
+  const { data, error, isLoading } = useDiscountRateConfigs();
 
   if (error) {
     return <p className="text-sm text-red-400">Couldn&apos;t load discount rate settings — {error.message}</p>;
@@ -28,10 +44,29 @@ export function DiscountRateSettingsForm() {
     return <p className="text-sm text-zinc-600 animate-pulse">Loading…</p>;
   }
 
-  // Keyed on updated_at so a save (which changes updated_at) remounts this
-  // with fresh initial text -- avoids setState-in-effect just to resync
-  // local edit state with a reloaded server value.
-  return <DiscountRateForm key={data.updated_at} data={data} />;
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Discount Rate by Country</h2>
+        <p className="mt-1 text-xs text-zinc-600">
+          Risk-Free Rate and Market Risk Premium are 5-year trailing averages from market-risk-premia.com — manually
+          maintained here, not auto-fetched (see CLAUDE.md). Beta stays sourced live per-ticker from FMP. Feeds a
+          ticker&apos;s own country&apos;s Valuation discount rate: <span className="font-mono text-zinc-400">Rf + β × MRP</span>. A
+          country appears here once a ticker from it has been valued at least once — its row seeds from the current
+          US values as a placeholder until edited.
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        {data.map((row) => (
+          // Keyed on region + updated_at so a save (which changes updated_at)
+          // remounts just that region's form with fresh initial text --
+          // avoids setState-in-effect just to resync local edit state.
+          <DiscountRateForm key={`${row.region}-${row.updated_at}`} data={row} />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function DiscountRateForm({ data }: { data: DiscountRateConfigOut }) {
@@ -49,14 +84,19 @@ function DiscountRateForm({ data }: { data: DiscountRateConfigOut }) {
     setStatus("saving");
     try {
       await apiPut<DiscountRateConfigOut>("/config/discount-rate", {
+        region: data.region,
         risk_free_rate: riskFreeRate / 100,
         market_risk_premium: marketRiskPremium / 100,
       });
       await mutate("/config/discount-rate");
+      await mutate("/config/discount-rates");
       // Every ticker's Step 3 discount rate is derived from this config --
       // invalidate every cached Step 3 fetch (and the ticker header, which
       // also reads Step 3's result) so the next view reflects the new rate
-      // without a manual page reload.
+      // without a manual page reload. Invalidates every region's cache at
+      // once (not just this row's) since there's no cheap way to know from
+      // here which cached /step3 responses belong to this region's
+      // tickers -- an over-invalidation, not a correctness issue.
       await mutate((key) => typeof key === "string" && (key.includes("/step3") || key.includes("/summary")));
       setStatus("saved");
     } catch {
@@ -67,23 +107,18 @@ function DiscountRateForm({ data }: { data: DiscountRateConfigOut }) {
   }
 
   return (
-    <div className="space-y-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-      <div>
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">CAPM Discount Rate — US</h2>
-        <p className="mt-1 text-xs text-zinc-600">
-          Risk-Free Rate and Market Risk Premium are 5-year trailing averages from market-risk-premia.com/us.html — manually
-          maintained here, not auto-fetched (see CLAUDE.md). Beta stays sourced live per-ticker from FMP. Feeds every ticker&apos;s
-          Valuation discount rate: <span className="font-mono text-zinc-400">Rf + β × MRP</span>.
-        </p>
-      </div>
+    <div className="space-y-4 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
+      <h3 className="text-sm font-semibold text-zinc-200">
+        {regionLabel(data.region)} <span className="font-mono text-xs text-zinc-500">({data.region})</span>
+      </h3>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
-          <label className="block text-xs uppercase tracking-widest text-zinc-500" htmlFor="risk-free-rate">
+          <label className="block text-xs uppercase tracking-widest text-zinc-500" htmlFor={`risk-free-rate-${data.region}`}>
             Risk-Free Rate (%)
           </label>
           <input
-            id="risk-free-rate"
+            id={`risk-free-rate-${data.region}`}
             type="number"
             step="0.001"
             className="mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none"
@@ -92,11 +127,14 @@ function DiscountRateForm({ data }: { data: DiscountRateConfigOut }) {
           />
         </div>
         <div>
-          <label className="block text-xs uppercase tracking-widest text-zinc-500" htmlFor="market-risk-premium">
+          <label
+            className="block text-xs uppercase tracking-widest text-zinc-500"
+            htmlFor={`market-risk-premium-${data.region}`}
+          >
             Market Risk Premium (%)
           </label>
           <input
-            id="market-risk-premium"
+            id={`market-risk-premium-${data.region}`}
             type="number"
             step="0.001"
             className="mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none"

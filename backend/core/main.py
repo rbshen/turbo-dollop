@@ -16,7 +16,11 @@ from core.config import settings
 from core.cron_health import get_cron_health
 from core.db import engine, init_db
 from core.exceptions import TickerNotFoundError
-from helpers.discount_rate_config import get_discount_rate_config, update_discount_rate_config
+from helpers.discount_rate_config import (
+    get_discount_rate_config,
+    list_discount_rate_configs,
+    update_discount_rate_config,
+)
 from core.logging_config import apply_redaction_filters
 from data.liquidity_zone_data import get_liquidity_zone_data
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
@@ -177,8 +181,20 @@ def discount_rate_config() -> DiscountRateConfigOut:
 @app.put("/api/config/discount-rate", response_model=DiscountRateConfigOut)
 def update_discount_rate(body: DiscountRateConfigIn) -> DiscountRateConfigOut:
     with Session(engine) as session:
-        row = update_discount_rate_config(session, body.risk_free_rate, body.market_risk_premium)
+        row = update_discount_rate_config(session, body.risk_free_rate, body.market_risk_premium, region=body.region)
     return DiscountRateConfigOut(**row.model_dump())
+
+
+@app.get("/api/config/discount-rates", response_model=list[DiscountRateConfigOut])
+def discount_rate_configs() -> list[DiscountRateConfigOut]:
+    """Every region seeded so far (see list_discount_rate_configs) -- backs
+    the /settings "Discount Rate by Country" section. Eagerly get-or-creates
+    US first so it's always present even on a brand-new DB, before
+    Step 3 has ever run for any ticker."""
+    with Session(engine) as session:
+        get_discount_rate_config(session)
+        rows = list_discount_rate_configs(session)
+    return [DiscountRateConfigOut(**row.model_dump()) for row in rows]
 
 
 @app.get("/api/config/moat", response_model=MoatScoreConfigOut)

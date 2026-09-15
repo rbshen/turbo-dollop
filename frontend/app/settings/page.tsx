@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 
 const SECTIONS = [
   { key: "watchlists", label: "Watchlists", Component: WatchlistSettingsForm },
-  { key: "discount-rate", label: "Discount Rate", Component: DiscountRateSettingsForm },
+  { key: "discount-rate", label: "Discount Rate by Country", Component: DiscountRateSettingsForm },
   { key: "economic-moat", label: "Economic Moat", Component: MoatSettingsForm },
   { key: "reit", label: "REIT", Component: ReitDividendYieldSettingsForm },
   { key: "liquidity", label: "Liquidity", Component: LiquidityZoneSettingsForm },
