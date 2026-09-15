@@ -90,22 +90,24 @@ export function FundamentalFilters({ filters, onFiltersChange, sectors, companyT
   return (
     <CollapsibleFilterSection title="Fundamental">
       <div className="space-y-4">
-        {/* 8-item Min/Max range-filter grid, in the design handoff's original
+        {/* 9-item Min/Max range-filter grid, in the design handoff's original
             order minus Beta (moved to Technical, 2026-09 follow-up -- a
             price-covariance statistic, not an accounting metric, same
-            reasoning that already put 5Y vs SPY under Technical): Overall,
-            Financials, Growth Rate, Profitability, Debt, Mkt Cap, P/E,
-            Growth -- one flat grid, not grouped sub-rows. A single
-            grid-cols-1 column (not the old sm/lg-scaling grid) -- this now
-            lives in a ~256px sidebar column, not a full-width bar, so
-            there's no width at which 2-3 range inputs would ever fit side by
-            side. */}
+            reasoning that already put 5Y vs SPY under Technical), plus
+            Quote (2026-09-15, a raw price figure in the same family as
+            Market Cap, so placed just before it): Overall, Financials,
+            Growth Rate, Profitability, Debt, Quote, Mkt Cap, P/E, Growth --
+            one flat grid, not grouped sub-rows. A single grid-cols-1 column
+            (not the old sm/lg-scaling grid) -- this now lives in a ~256px
+            sidebar column, not a full-width bar, so there's no width at
+            which 2-3 range inputs would ever fit side by side. */}
         <div className="grid grid-cols-1 gap-y-3">
           <RangeInput label="Overall" value={filters.overallScore} onChange={(r) => patch({ overallScore: r })} />
           <RangeInput label="Financials" value={filters.step1Score} onChange={(r) => patch({ step1Score: r })} />
           <RangeInput label="Growth Rate" value={filters.step2Score} onChange={(r) => patch({ step2Score: r })} />
           <RangeInput label="Profitability" value={filters.step4Score} onChange={(r) => patch({ step4Score: r })} />
           <RangeInput label="Debt" value={filters.step5Score} onChange={(r) => patch({ step5Score: r })} />
+          <RangeInput label="Quote" value={filters.quote} onChange={(r) => patch({ quote: r })} />
           <MarketCapRangeInput value={filters.marketCap} onChange={(r) => patch({ marketCap: r })} />
           <RangeInput label="P/E" value={filters.peRatio} onChange={(r) => patch({ peRatio: r })} />
           <RangeInput label="Growth" value={filters.growthRate} onChange={(r) => patch({ growthRate: r })} />

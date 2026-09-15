@@ -169,6 +169,7 @@ export interface ScreenerFilterState {
   step2Score: RangeFilter;
   step4Score: RangeFilter;
   step5Score: RangeFilter;
+  quote: RangeFilter;
   marketCap: RangeFilter;
   peRatio: RangeFilter;
   beta: RangeFilter;
@@ -206,6 +207,7 @@ export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
   step2Score: EMPTY_RANGE,
   step4Score: EMPTY_RANGE,
   step5Score: EMPTY_RANGE,
+  quote: EMPTY_RANGE,
   marketCap: EMPTY_RANGE,
   peRatio: EMPTY_RANGE,
   beta: EMPTY_RANGE,
@@ -267,6 +269,7 @@ export function filterTickerScores(
     if (!inRange(row.step2_score, filters.step2Score)) return false;
     if (!inRange(row.step4_score, filters.step4Score)) return false;
     if (!inRange(row.step5_score, filters.step5Score)) return false;
+    if (!inRange(row.last_price, filters.quote)) return false;
     if (!inRange(row.market_cap, filters.marketCap)) return false;
     if (!inRange(row.pe_ratio, filters.peRatio)) return false;
     if (!inRange(row.beta, filters.beta)) return false;

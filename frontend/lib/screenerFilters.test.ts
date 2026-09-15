@@ -136,6 +136,16 @@ describe("filterTickerScores", () => {
     expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["B"]);
   });
 
+  it("filters by Quote range, excluding a null last_price rather than treating it as 0", () => {
+    const rows = [
+      row({ ticker: "CHEAP", last_price: 5 }),
+      row({ ticker: "MID", last_price: 100 }),
+      row({ ticker: "NO_PRICE", last_price: null }),
+    ];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, quote: { min: 50, max: 200 } };
+    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["MID"]);
+  });
+
   it("filters by sector multi-select", () => {
     const rows = [
       row({ ticker: "TECH", sector: "Technology" }),
