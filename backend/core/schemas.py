@@ -138,12 +138,29 @@ class TickerSummaryOut(BaseModel):
     # fair_value_verdict (Step 3 selected PASS with no active custom
     # valuation to fall back to).
     valuation_source: str | None = None
-    # Lifted from Step3Out.inputs.reported_currency -- None for a USD
-    # reporter. fair_value_price above is already USD either way; this is
-    # display-only, driving the header pill's compact currency badge (see
-    # FairValuePill.tsx) so a converted figure is never shown as if it were
-    # a native, un-converted number with no indication otherwise.
+    # Lifted from Step3Out.inputs.reported_currency -- None when Step 3's
+    # reported_currency == quote_currency (no conversion happened).
+    # fair_value_price above is in quote_currency either way (see
+    # step3_data.py's FX generalization) -- this is display-only, driving
+    # the header pill's compact currency badge (see FairValuePill.tsx) so a
+    # converted figure is never shown as if it were a native, un-converted
+    # number with no indication otherwise.
     fair_value_reported_currency: str | None = None
+    # The ticker's actual trading currency (FMP /profile's `currency`
+    # field, e.g. "HKD"), defaulting to "USD" when /profile has none.
+    # price/market_cap/fair_value_price above, and every other quote-domain
+    # figure on this model, are denominated in this currency -- drives the
+    # header/Screener/Watchlist currency-aware formatters (see
+    # frontend/lib/format.ts).
+    quote_currency: str = "USD"
+    # The ticker's financial-statement reporting currency (FMP
+    # `reportedCurrency`, e.g. "CNY"), None when unavailable. Distinct from
+    # fair_value_reported_currency above (which specifically reflects
+    # whether Step 3's Fair Value figure needed conversion) -- this field
+    # describes revenue/net income/total_debt/ebitda_ttm/etc. on THIS
+    # model, which stay raw/un-converted (same convention as
+    # FinancialsOut.reported_currency).
+    reported_currency: str | None = None
 
 
 class Step1Out(BaseModel):
@@ -505,28 +522,42 @@ class Step3Inputs(BaseModel):
     discount_rate: float | None = None
     capm: Step3CapmComponents | None = None
     current_fiscal_year: str | None = None
+    # quote_currency: the ticker's FMP `/profile` `currency` field (e.g.
+    # "HKD") -- the currency last_close/intrinsic_value_per_share are
+    # actually denominated in. Defaults to "USD" when /profile has no
+    # currency field, matching every ticker's behavior before this field
+    # existed. This is the conversion TARGET fx_rate below converts
+    # reported_currency into -- not always USD (see reported_currency's own
+    # comment). Display-only, same as reported_currency.
+    quote_currency: str = "USD"
     # reported_currency: the ticker's FMP `reportedCurrency` (e.g. "TWD"),
-    # None for USD reporters (the vast majority) -- display-only, so the
-    # Valuation tab can caption "Converted from TWD @ ...". Every monetary
-    # field elsewhere in this schema (current_value, total_debt,
-    # cash_and_st_investments, book_value_per_share, sales_per_share, and
-    # current_value_candidates' own fields) is ALREADY converted to USD by
-    # the time it lands here -- step3_data.py converts each raw figure once,
-    # upfront, right after it's pulled from FMP, rather than deferring
-    # conversion to a later multiply -- so Manual Calculation's pre-fill and
-    # a saved Custom Valuation's parameters are always plain USD, never a
-    # local-currency figure the user would have to know to convert
-    # themselves. fx_rate below is therefore pure display metadata past
-    # this point, not something downstream math still needs to apply.
+    # None for a reporter whose statements are already in quote_currency --
+    # display-only, so the Valuation tab can caption "Converted from TWD @
+    # ...". Every monetary field elsewhere in this schema (current_value,
+    # total_debt, cash_and_st_investments, book_value_per_share,
+    # sales_per_share, and current_value_candidates' own fields) is ALREADY
+    # converted to quote_currency by the time it lands here -- step3_data.py
+    # converts each raw figure once, upfront, right after it's pulled from
+    # FMP, rather than deferring conversion to a later multiply -- so Manual
+    # Calculation's pre-fill and a saved Custom Valuation's parameters are
+    # always plain quote_currency, never a local-currency figure the user
+    # would have to know to convert themselves. fx_rate below is therefore
+    # pure display metadata past this point, not something downstream math
+    # still needs to apply. last_close needs no conversion at all -- FMP's
+    # /quote price is already in quote_currency by construction.
     reported_currency: str | None = None
-    # The resolved reported_currency -> USD spot rate actually used for the
-    # conversion above (e.g. 0.0311 for TWD), None when no real conversion
-    # was needed (USD reporter) or when a non-USD conversion couldn't be
-    # resolved at all (Valuation reads as insufficient_data instead -- see
-    # step3_data.py's fx-resolution short-circuit). 1.0 for a USD reporter.
+    # The resolved reported_currency -> quote_currency spot rate actually
+    # used for the conversion above (e.g. 0.0311 for TWD -> USD, or a cross
+    # rate like CNY -> HKD for a Hong Kong-listed, China-reporting ticker),
+    # None when no real conversion was needed (reported_currency ==
+    # quote_currency) or when a non-matching conversion couldn't be resolved
+    # at all (Valuation reads as insufficient_data instead -- see
+    # step3_data.py's fx-resolution short-circuit). 1.0 when no conversion
+    # was needed.
     fx_rate: float | None = 1.0
-    # fetched_at of the cached forex_rate row this fx_rate came from --
-    # None for a USD reporter (no forex fetch ever attempted for one).
+    # fetched_at of the cached forex_rate row(s) this fx_rate came from --
+    # None when reported_currency == quote_currency (no forex fetch ever
+    # attempted).
     fx_rate_as_of: datetime | None = None
     last_close: float | None = None
 
@@ -776,6 +807,11 @@ class DiscountRateConfigOut(BaseModel):
 
 
 class DiscountRateConfigIn(BaseModel):
+    # Required (no default) -- every PUT must say which region's row it's
+    # updating now that this isn't US-only. The single-region GET/PUT below
+    # still default region to US_REGION at the query-param level for the
+    # common case; this body field is what the update itself actually acts on.
+    region: str
     risk_free_rate: float
     market_risk_premium: float
 
@@ -916,6 +952,11 @@ class TickerScoreOut(BaseModel):
     overall_score: int | None = None
     overall_verdict: str | None = None
     market_cap: float | None = None
+    # See models.py::TickerScore.quote_currency -- None (treat as "USD")
+    # for a row computed before this field existed.
+    quote_currency: str | None = None
+    # See models.py::TickerScore.reported_currency.
+    reported_currency: str | None = None
     pe_ratio: float | None = None
     beta: float | None = None
     # "undervalued" / "fair" / "overvalued" -- same Step 3 verdict as the
@@ -1466,6 +1507,14 @@ class WatchlistRowOut(BaseModel):
     overall_score: int | None = None
     overall_verdict: str | None = None
     market_cap: float | None = None
+    # See models.py::TickerScore.quote_currency -- None (treat as "USD")
+    # for a row computed before this field existed.
+    quote_currency: str | None = None
+    # See models.py::TickerScore.reported_currency -- what the Revenue/Net
+    # Income/CFO mini trend chart below (years/revenue/net_income/cfo) is
+    # denominated in. Must always match the Financials tab's own
+    # reported_currency for the same ticker (same underlying annual data).
+    reported_currency: str | None = None
     pe_ratio: float | None = None
     beta: float | None = None
     # See models.py::TickerScore.perf_5y_vs_spy_pct/_status.

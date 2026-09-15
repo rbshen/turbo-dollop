@@ -9,6 +9,12 @@ import data.step3_data as step3_data
 from core.schemas import Step2Out
 from data.custom_valuation_data import activate_ticker_custom_valuation, set_ticker_custom_valuation
 from data.step3_data import get_active_valuation, get_step3_data
+from helpers.discount_rate_config import (
+    DEFAULT_MARKET_RISK_PREMIUM_US,
+    DEFAULT_RISK_FREE_RATE_US,
+    get_discount_rate_config,
+    update_discount_rate_config,
+)
 from scoring.step3 import run_20yr_engine
 
 PROFILE = [{"sector": "Technology", "industry": "Software - Application", "beta": 1.1}]
@@ -607,6 +613,206 @@ def test_non_usd_reporter_converts_every_monetary_input_to_usd(monkeypatch):
     assert result.intrinsic_value_per_share == pytest.approx(2.5)
 
 
+# --- HK market support: reported_currency -> quote_currency generalization ---
+# (2026-09-15) -- the FX target is no longer hardcoded to USD; these cover
+# the two real HK shapes plus a same-currency-ADR regression guard. Same
+# Bank/P-B fixture shape as test_non_usd_reporter_converts_every_monetary_
+# input_to_usd above (easiest math to hand-verify: mean_pb(1.0) *
+# book_value_per_share(50.0 reported-currency units) * fx_rate).
+
+
+def _hk_shaped_fixture(monkeypatch, reported_currency, quote_currency, forex_rates):
+    # forex_rates: {currency: usd_rate} for each non-USD currency this test
+    # expects a `<currency>USD` fetch for. Asserts no fetch happens for any
+    # currency not in this dict (e.g. the USD leg of a same-currency-USD
+    # conversion, which must short-circuit without a fetch).
+    async def fake_profile(ticker):
+        return [{"sector": "Financial Services", "industry": "Banks - Diversified", "beta": 1.1, "currency": quote_currency}]
+
+    async def fake_income_statement(ticker, period, limit):
+        rows = INCOME_ANNUAL if period == "annual" else INCOME_QUARTERLY
+        return [{**row, "reportedCurrency": reported_currency} for row in rows]
+
+    async def fake_ratios(ticker, period, limit):
+        return [{"fiscalYear": str(2025 - i), "priceToBookRatio": 1.0, "bookValuePerShare": 50.0} for i in range(10)]
+
+    forex_calls: list[str] = []
+
+    async def fake_forex_quote(from_currency):
+        forex_calls.append(from_currency)
+        if from_currency not in forex_rates:
+            raise AssertionError(f"unexpected get_forex_quote call for {from_currency!r}")
+        return [{"symbol": f"{from_currency}USD", "price": forex_rates[from_currency]}]
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        # Same shape as test_non_usd_reporter_converts_every_monetary_input_to_usd:
+        # book_value_per_share = (6_000_000_000 - 0 - 1_000_000_000) /
+        # shares_outstanding(100_000_000) = 50.0 reported-currency units.
+        if period != "annual":
+            return [
+                {
+                    "cashAndCashEquivalents": 100,
+                    "totalDebt": 0,
+                    "totalAssets": 6_000_000_000,
+                    "goodwillAndIntangibleAssets": 0,
+                    "totalLiabilities": 1_000_000_000,
+                }
+            ]
+        return [
+            {
+                "fiscalYear": str(2025 - i),
+                "totalAssets": 6_000_000_000,
+                "goodwillAndIntangibleAssets": 0,
+                "totalLiabilities": 1_000_000_000,
+                "totalStockholdersEquity": 5_000_000_000,
+                "totalEquity": 5_000_000_000,
+            }
+            for i in range(10)
+        ]
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step3_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step3_data.fmp_client, "get_ratios", fake_ratios)
+    monkeypatch.setattr(step3_data.fmp_client, "get_forex_quote", fake_forex_quote)
+    monkeypatch.setattr(step3_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    return forex_calls
+
+
+def test_0700_hk_shaped_cny_reported_hkd_quoted_crosses_through_usd(monkeypatch):
+    # 0700.HK (Tencent)-shaped: reports CNY, quotes HKD -- a genuine
+    # mismatch on both sides of USD, must cross through two independent
+    # <CCY>USD legs since FMP has no guaranteed direct CNYHKD pair.
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+    forex_calls = _hk_shaped_fixture(
+        monkeypatch, reported_currency="CNY", quote_currency="HKD", forex_rates={"CNY": 0.14, "HKD": 0.128}
+    )
+
+    result = asyncio.run(get_step3_data("0700.HK"))
+
+    assert sorted(forex_calls) == ["CNY", "HKD"]
+    assert result.inputs.reported_currency == "CNY"
+    assert result.inputs.quote_currency == "HKD"
+    expected_fx_rate = 0.14 / 0.128
+    assert result.inputs.fx_rate == pytest.approx(expected_fx_rate)
+    assert result.inputs.fx_rate_as_of is not None
+    assert result.inputs.book_value_per_share == pytest.approx(50.0 * expected_fx_rate)
+    assert result.pb_bands is not None
+    assert result.pb_bands.mean == pytest.approx(50.0 * expected_fx_rate)
+
+
+def test_0005_hk_shaped_usd_reported_hkd_quoted_no_longer_silently_1_0(monkeypatch):
+    # 0005.HK (HSBC's HK listing)-shaped: reports USD, quotes HKD. This was
+    # the previously-silent bug -- the old code compared reported_currency
+    # only against the hardcoded "USD" target, saw reported_currency ==
+    # "USD", and short-circuited to fx_rate=1.0 with no warning, silently
+    # comparing a USD intrinsic value against an HKD quote price. Must now
+    # resolve a real, non-1.0 fx_rate (the USD->USD leg is still a free
+    # 1.0, but the HKD leg is a genuine fetch).
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+    forex_calls = _hk_shaped_fixture(
+        monkeypatch, reported_currency="USD", quote_currency="HKD", forex_rates={"HKD": 0.128}
+    )
+
+    result = asyncio.run(get_step3_data("0005.HK"))
+
+    # Only the HKD leg is ever fetched -- reported_currency=="USD" resolves
+    # its own leg to 1.0 with zero calls, exactly like a plain USD reporter.
+    assert forex_calls == ["HKD"]
+    assert result.inputs.reported_currency == "USD"
+    assert result.inputs.quote_currency == "HKD"
+    expected_fx_rate = 1.0 / 0.128
+    assert result.inputs.fx_rate == pytest.approx(expected_fx_rate)
+    assert result.inputs.fx_rate != 1.0
+    assert result.inputs.fx_rate_as_of is not None
+    assert result.inputs.book_value_per_share == pytest.approx(50.0 * expected_fx_rate)
+
+
+def test_nyse_hsbc_adr_shaped_same_currency_is_a_no_op(monkeypatch):
+    # HSBC's NYSE ADR (distinct from 0005.HK above): reports USD, quotes
+    # USD -- reported_currency == quote_currency, must stay a pure no-op
+    # exactly like a plain domestic USD ticker (regression guard against
+    # the new two-currency comparison over-triggering just because a
+    # `currency` field is now present on the profile).
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+    forex_calls = _hk_shaped_fixture(monkeypatch, reported_currency="USD", quote_currency="USD", forex_rates={})
+
+    result = asyncio.run(get_step3_data("HSBC"))
+
+    assert forex_calls == []
+    assert result.inputs.reported_currency == "USD"
+    assert result.inputs.quote_currency == "USD"
+    assert result.inputs.fx_rate == 1.0
+    assert result.inputs.fx_rate_as_of is None
+    assert result.inputs.book_value_per_share == pytest.approx(50.0)
+
+
+def test_usd_reporter_defaults_quote_currency_to_usd(monkeypatch):
+    # AAPL-shaped regression guard: PROFILE (the shared fixture) has no
+    # `currency` field at all -- quote_currency must default to "USD",
+    # keeping every existing USD-only ticker's Step3Out byte-identical to
+    # before this round.
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    result = asyncio.run(get_step3_data("TEST"))
+
+    assert result.inputs.quote_currency == "USD"
+    assert result.inputs.reported_currency is None
+    assert result.inputs.fx_rate == 1.0
+
+
+# --- HK market support: per-country discount rate ---------------------------
+
+
+def test_us_ticker_uses_the_default_us_discount_rate_config(monkeypatch):
+    # PROFILE (the shared fixture) has no "country" field -- must resolve
+    # to the US region's config, unchanged from before per-country support
+    # existed. beta=1.1 (PROFILE's own value).
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    result = asyncio.run(get_step3_data("TEST"))
+
+    expected_discount_rate = DEFAULT_RISK_FREE_RATE_US + 1.1 * DEFAULT_MARKET_RISK_PREMIUM_US
+    assert result.inputs.discount_rate == pytest.approx(expected_discount_rate)
+    assert result.inputs.capm.risk_free_rate == pytest.approx(DEFAULT_RISK_FREE_RATE_US)
+    assert result.inputs.capm.market_risk_premium == pytest.approx(DEFAULT_MARKET_RISK_PREMIUM_US)
+
+
+def test_hk_country_ticker_uses_its_own_regions_discount_rate_config(monkeypatch):
+    # 0700.HK-shaped: /profile's country="HK" resolves a genuinely
+    # different DiscountRateConfig row than the US default -- confirms
+    # country (NOT quote_currency, which this test deliberately leaves
+    # unset/"USD") drives the lookup.
+    test_engine = _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_profile(ticker):
+        return [{**PROFILE[0], "country": "HK"}]
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_profile", fake_profile)
+
+    with Session(test_engine) as session:
+        update_discount_rate_config(session, risk_free_rate=0.05, market_risk_premium=0.06, region="HK")
+
+    result = asyncio.run(get_step3_data("0700.HK"))
+
+    expected_discount_rate = 0.05 + 1.1 * 0.06
+    assert result.inputs.discount_rate == pytest.approx(expected_discount_rate)
+    assert result.inputs.capm.risk_free_rate == pytest.approx(0.05)
+    assert result.inputs.capm.market_risk_premium == pytest.approx(0.06)
+
+    # The US region's own config must stay at its untouched defaults --
+    # confirms the HK write above didn't leak into (or come from) US.
+    with Session(test_engine) as session:
+        us_row = get_discount_rate_config(session, region="US")
+    assert us_row.risk_free_rate == DEFAULT_RISK_FREE_RATE_US
+    assert us_row.market_risk_premium == DEFAULT_MARKET_RISK_PREMIUM_US
+
+
 def test_tangible_pb_rescale_uses_total_equity_not_stockholders_equity_for_nci(monkeypatch):
     # Regression test for the 2026-09-14 fix -- a PLD/WFC/C-shaped fixture
     # with genuine minority interest (totalStockholdersEquity !=
@@ -1045,6 +1251,42 @@ def test_non_usd_reporter_with_no_fx_rate_available_is_insufficient_data(monkeyp
     assert result.inputs.fx_rate is None
     assert "TWD" in result.pass_reason
     assert "→USD" in result.pass_reason
+
+
+def test_hk_shaped_ticker_is_insufficient_data_when_only_one_of_two_legs_resolves(monkeypatch):
+    # 0700.HK-shaped (CNY reported, HKD quoted): the CNY->USD leg resolves
+    # fine but the HKD->USD leg fails with no cached fallback at all --
+    # must still read insufficient_data (never partially apply just one
+    # leg, which would silently produce a CNY-scale, not HKD-scale, number).
+    _fresh_engine(monkeypatch)
+    _patch_real_data(monkeypatch)
+
+    async def fake_profile(ticker):
+        return [{"sector": "Technology", "industry": "Software - Application", "beta": 1.1, "currency": "HKD"}]
+
+    async def fake_income_statement(ticker, period, limit):
+        rows = INCOME_ANNUAL if period == "annual" else INCOME_QUARTERLY
+        return [{**row, "reportedCurrency": "CNY"} for row in rows]
+
+    async def fake_forex_quote(from_currency):
+        if from_currency == "CNY":
+            return [{"symbol": "CNYUSD", "price": 0.14}]
+        raise httpx.ConnectError("boom")
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step3_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step3_data.fmp_client, "get_forex_quote", fake_forex_quote)
+
+    result = asyncio.run(get_step3_data("0700.HK"))
+
+    assert result.selected_method == "PASS"
+    assert result.insufficient_data is True
+    assert result.intrinsic_value_per_share is None
+    assert result.inputs.reported_currency == "CNY"
+    assert result.inputs.quote_currency == "HKD"
+    assert result.inputs.fx_rate is None
+    assert "CNY" in result.pass_reason
+    assert "→HKD" in result.pass_reason
 
 
 def test_non_usd_reporter_falls_back_to_stale_cached_fx_rate_on_fetch_failure(monkeypatch):

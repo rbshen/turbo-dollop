@@ -8,7 +8,7 @@ from core.config import settings
 from core.db import engine
 from core.models import FundamentalsCache
 from helpers.debt_metrics import compute_debt_metrics
-from helpers.discount_rate_config import get_discount_rate_config
+from helpers.discount_rate_config import US_REGION, get_discount_rate_config
 from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config
 from helpers.first import _first
@@ -66,24 +66,22 @@ PB_LOOKBACK_LONG = 10
 PB_LOOKBACK_SHORT = 5
 
 
-async def _resolve_fx_rate(
+async def _currency_to_usd_rate(
     session: Session,
-    reported_currency: str | None,
+    currency: str,
     staleness_days: int,
     cache_only: bool,
 ) -> tuple[float | None, datetime | None]:
-    """Resolves a ticker's reportedCurrency -> USD spot rate, cached the
-    same way fundamentals are (FundamentalsCache, via the shared
-    get_or_fetch/staleness machinery) rather than fetched fresh on every
-    request -- see CLAUDE.md's non-USD currency conversion investigation.
-    None/"USD" short-circuits to (1.0, None) with zero FMP calls -- every
-    USD-reporting ticker (the vast majority) keeps today's exact behavior.
+    """Resolves a single `<currency>USD` spot rate, cached the same way
+    fundamentals are (FundamentalsCache, via the shared get_or_fetch/
+    staleness machinery) rather than fetched fresh on every request -- see
+    CLAUDE.md's non-USD currency conversion investigation. "USD"
+    short-circuits to (1.0, None) with zero FMP calls.
 
-    Returns (None, None) -- never (1.0, None) -- when a real non-USD
-    conversion is needed but no rate, fresh or stale, could be resolved at
-    all. Silently defaulting to 1.0 here would render a wildly-wrong
-    Fair Value at the ticker's raw local-currency scale; the caller must
-    treat this as insufficient_data instead.
+    Returns (None, None) -- never (1.0, None) -- when a real conversion is
+    needed but no rate, fresh or stale, could be resolved at all. The
+    caller must treat this as insufficient_data rather than silently
+    defaulting to 1.0.
 
     A stale-but-real cached row is queried up front so a live fetch failure
     below (FMP outage/rate limit) can still fall back to it: get_or_fetch's
@@ -93,10 +91,10 @@ async def _resolve_fx_rate(
     rate to safe_fetch's {} convention. This local fallback stays scoped to
     this one call site rather than changing get_or_fetch's own shared
     contract, which dozens of other call sites also depend on."""
-    if not reported_currency or reported_currency == "USD":
+    if currency == "USD":
         return 1.0, None
 
-    fx_symbol = f"{reported_currency}USD"
+    fx_symbol = f"{currency}USD"
 
     def _cached_row() -> FundamentalsCache | None:
         return session.exec(
@@ -116,7 +114,7 @@ async def _resolve_fx_rate(
             fx_symbol,
             "forex_rate",
             "latest",
-            lambda: fmp_client.get_forex_quote(reported_currency),
+            lambda: fmp_client.get_forex_quote(currency),
             staleness_days,
             cache_only,
         ),
@@ -132,6 +130,47 @@ async def _resolve_fx_rate(
             return stale_rate, existing_row.fetched_at
 
     return None, None
+
+
+async def _resolve_fx_rate(
+    session: Session,
+    reported_currency: str | None,
+    quote_currency: str,
+    staleness_days: int,
+    cache_only: bool,
+) -> tuple[float | None, datetime | None]:
+    """Resolves a ticker's reportedCurrency -> quote_currency spot rate --
+    NOT always -> USD, generalized from the original TSM-shaped case (a US
+    ADR: reports TWD, quotes USD) to also handle a genuine foreign primary
+    listing (e.g. 0700.HK: reports CNY, quotes HKD; 0005.HK: reports USD,
+    quotes HKD -- the latter used to silently short-circuit to fx_rate=1.0
+    since the old code only ever compared reported_currency against the
+    hardcoded "USD" target, never against the ticker's own actual quote
+    currency). Crosses through USD via two independent `<CCY>USD` legs
+    (_currency_to_usd_rate) rather than requiring FMP to have a direct
+    reported<->quote pair -- FMP quotes nearly everything against USD, but
+    has no guarantee of a direct e.g. CNYHKD pair.
+
+    None reported_currency is treated as "already in quote_currency" (same
+    as the original None/"USD" short-circuit). Returns (None, None) -- never
+    a silent (1.0, None) -- when either leg can't be resolved at all; the
+    caller must treat this as insufficient_data."""
+    reported_currency = reported_currency or quote_currency
+    if reported_currency == quote_currency:
+        return 1.0, None
+
+    reported_to_usd, reported_as_of = await _currency_to_usd_rate(session, reported_currency, staleness_days, cache_only)
+    if reported_to_usd is None:
+        return None, None
+
+    quote_to_usd, quote_as_of = await _currency_to_usd_rate(session, quote_currency, staleness_days, cache_only)
+    if quote_to_usd is None:
+        return None, None
+
+    fx_rate = reported_to_usd / quote_to_usd
+    as_of_candidates = [t for t in (reported_as_of, quote_as_of) if t is not None]
+    fx_rate_as_of = max(as_of_candidates) if as_of_candidates else None
+    return fx_rate, fx_rate_as_of
 
 
 def _annual_series(annual_rows: list[dict], field: str) -> tuple[list[str], list[float | None]]:
@@ -172,6 +211,19 @@ async def get_step3_data(
                 ),
             )
         )
+        # Trading/quote currency (e.g. "HKD" for a Hong Kong primary
+        # listing) -- the FX conversion TARGET, generalized from the old
+        # hardcoded-USD assumption. Defaults to "USD" when /profile has no
+        # currency field, matching every ticker's behavior before this
+        # existed.
+        quote_currency = profile.get("currency") or "USD"
+        # The ticker's domicile/listing country (e.g. "HK"), used below to
+        # look up its own per-country discount-rate config -- deliberately
+        # NOT inferred from quote_currency: the two are related but not 1:1
+        # (e.g. a USD-quoted ADR of a non-US company, or -- in principle --
+        # a US-domiciled company primary-listed on a foreign exchange).
+        # Read straight from /profile's own `country` field.
+        country = profile.get("country")
         quote = _first(
             await safe_fetch(
                 "quote",
@@ -297,7 +349,9 @@ async def get_step3_data(
         # result), which -- with SQLAlchemy's default expire_on_commit=True
         # -- expires every ORM object already read from this session.
         reported_currency = _first(income_annual).get("reportedCurrency")
-        fx_rate, fx_rate_as_of = await _resolve_fx_rate(session, reported_currency, staleness_days, cache_only)
+        fx_rate, fx_rate_as_of = await _resolve_fx_rate(
+            session, reported_currency, quote_currency, staleness_days, cache_only
+        )
 
         # Risk-Free Rate, Market Risk Premium, and the REIT dividend-yield
         # bargain-reference threshold are all manual, human-maintained
@@ -315,7 +369,7 @@ async def get_step3_data(
         # DetachedInstanceError the moment its attributes are accessed
         # after this block closes (confirmed: this broke for real once a
         # second config fetch was added here, not a theoretical concern).
-        discount_rate_config = get_discount_rate_config(session)
+        discount_rate_config = get_discount_rate_config(session, region=country or US_REGION)
         risk_free_rate = discount_rate_config.risk_free_rate
         market_risk_premium = discount_rate_config.market_risk_premium
         reit_dividend_yield_threshold_pct = get_reit_dividend_yield_config(session).threshold_pct
@@ -333,12 +387,13 @@ async def get_step3_data(
         profile.get("sector"), profile.get("industry"), ticker, is_fund=bool(profile.get("isEtf") or profile.get("isFund"))
     )
 
-    if reported_currency and reported_currency != "USD" and fx_rate is None:
-        # A genuine non-USD ticker whose FX rate couldn't be resolved at
-        # all (FMP outage/rate-limit AND no cached rate, fresh or stale, to
-        # fall back to) -- every monetary figure below would need this rate
-        # to become a meaningful USD value, so there's no partial result
-        # worth computing. Mirrors the total-fetch-failure PASS/
+    if reported_currency and reported_currency != quote_currency and fx_rate is None:
+        # A genuine reported_currency != quote_currency ticker whose FX rate
+        # couldn't be resolved at all (FMP outage/rate-limit AND no cached
+        # rate, fresh or stale, to fall back to, on at least one of the two
+        # <CCY>USD legs) -- every monetary figure below would need this rate
+        # to become a meaningful quote_currency value, so there's no partial
+        # result worth computing. Mirrors the total-fetch-failure PASS/
         # insufficient_data shape the rest of this function already uses
         # for other missing-data cases, rather than inventing a new state.
         return Step3Out(
@@ -346,13 +401,14 @@ async def get_step3_data(
             company_type=company_type,
             selected_method="PASS",
             pass_reason=(
-                f"Could not resolve a {reported_currency}→USD exchange rate "
+                f"Could not resolve a {reported_currency}→{quote_currency} exchange rate "
                 "(FMP fetch failed and no cached rate was available) -- "
                 "Valuation is unavailable until FX data can be fetched."
             ),
             insufficient_data=True,
             inputs=Step3Inputs(
                 growth_yr_11_20=TERMINAL_GROWTH_RATE_DEFAULT,
+                quote_currency=quote_currency,
                 reported_currency=reported_currency,
                 fx_rate=None,
                 last_close=quote.get("price"),
@@ -398,20 +454,22 @@ async def get_step3_data(
         for fq in result.flagged
     ]
 
-    # Convert every monetary figure to USD once, immediately after it's
-    # pulled from FMP -- rather than deferring conversion to a final
-    # multiply inside run_20yr_engine/run_price_to_book/run_psg -- so every
-    # downstream consumer of these raw figures (the Model Valuation panel's
-    # own displayed inputs, Manual Calculation's pre-fill, a saved Custom
-    # Valuation's parameters) sees genuine USD, never a local-currency
-    # number masquerading as one. fx_rate is guaranteed non-None here (the
-    # short-circuit above already returned for the one case it wouldn't
-    # be) and is exactly 1.0 for the ~546 USD-reporting tickers in the
-    # tracked universe -- multiplying by 1.0 is an exact IEEE754 no-op, so
-    # this is a byte-for-byte no-change for them. select_method below is
-    # unaffected either way: every check it runs (CFO/NI ratio, CAGR,
-    # trend shape) is scale-invariant, so converting before or after
-    # method selection can never change which method gets picked.
+    # Convert every monetary figure to quote_currency once, immediately
+    # after it's pulled from FMP -- rather than deferring conversion to a
+    # final multiply inside run_20yr_engine/run_price_to_book/run_psg -- so
+    # every downstream consumer of these raw figures (the Model Valuation
+    # panel's own displayed inputs, Manual Calculation's pre-fill, a saved
+    # Custom Valuation's parameters) sees genuine quote_currency, never a
+    # local-currency number masquerading as one. fx_rate is guaranteed
+    # non-None here (the short-circuit above already returned for the one
+    # case it wouldn't be) and is exactly 1.0 whenever reported_currency ==
+    # quote_currency (the vast majority of tickers, still USD for
+    # essentially the whole tracked universe) -- multiplying by 1.0 is an
+    # exact IEEE754 no-op, so this is a byte-for-byte no-change for them.
+    # select_method below is unaffected either way: every check it runs
+    # (CFO/NI ratio, CAGR, trend shape) is scale-invariant, so converting
+    # before or after method selection can never change which method gets
+    # picked.
     revenue_annual = [v * fx_rate if v is not None else None for v in revenue_annual]
     net_income_annual = [v * fx_rate if v is not None else None for v in net_income_annual]
     cfo_annual = [v * fx_rate if v is not None else None for v in cfo_annual]
@@ -651,7 +709,7 @@ async def get_step3_data(
     # auto-selected method) so Manual Calculation can pre-fill a real
     # mean/SD P/B pair regardless of which method the user selects there.
     # fx_rate=1.0 here is deliberate, not a leftover -- book_value_per_share
-    # is already USD by this point (converted above), so run_price_to_book
+    # is already quote_currency by this point (converted above), so run_price_to_book
     # must not convert it a second time. See Step3Inputs.fx_rate's own
     # docstring for why every engine call in this function passes 1.0.
     pb_result = None
@@ -750,8 +808,9 @@ async def get_step3_data(
     # Known gap, deliberately deferred: dividendPerShare (a real per-share
     # monetary figure) is left un-converted here -- dpu_growth_note is
     # informational text only (never feeds verdict/score), and no
-    # currently-tracked non-USD ticker is a REIT, so this is low-stakes for
-    # now. Convert (dpu * fx_rate) if a non-USD REIT is ever added.
+    # currently-tracked reported_currency != quote_currency ticker is a
+    # REIT, so this is low-stakes for now. Convert (dpu * fx_rate) if such a
+    # REIT is ever added.
     dpu_series = list(reversed([row.get("dividendPerShare") for row in ratios_annual]))
     is_reit = company_type == "REIT/Property Developer"
 
@@ -771,6 +830,7 @@ async def get_step3_data(
         discount_rate=discount_rate,
         capm=capm,
         current_fiscal_year=current_fiscal_year,
+        quote_currency=quote_currency,
         reported_currency=reported_currency,
         fx_rate=fx_rate,
         fx_rate_as_of=fx_rate_as_of,
@@ -814,9 +874,9 @@ async def get_step3_data(
                 total_debt=inputs.total_debt,
                 cash_and_st_investments=inputs.cash_and_st_investments,
                 # 1.0, not inputs.fx_rate -- current_value/total_debt/
-                # cash_and_st_investments above are already USD (converted
-                # upfront, see the comment where revenue_ttm/etc. are
-                # converted); using inputs.fx_rate here would convert twice.
+                # cash_and_st_investments above are already quote_currency
+                # (converted upfront, see the comment where revenue_ttm/etc.
+                # are converted); using inputs.fx_rate here would convert twice.
                 fx_rate=1.0,
                 last_close=inputs.last_close,
             )
@@ -839,9 +899,9 @@ async def get_step3_data(
                 sales_per_share=inputs.sales_per_share,
                 projected_growth_rate=inputs.projected_growth_rate,
                 fair_psg_ratio=inputs.fair_psg_ratio,
-                # 1.0, not inputs.fx_rate -- sales_per_share is already USD
-                # (converted upfront); see the 20yr-engine call above for
-                # the same reasoning.
+                # 1.0, not inputs.fx_rate -- sales_per_share is already
+                # quote_currency (converted upfront); see the 20yr-engine
+                # call above for the same reasoning.
                 fx_rate=1.0,
                 last_close=inputs.last_close,
             )

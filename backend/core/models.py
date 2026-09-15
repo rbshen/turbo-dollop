@@ -416,11 +416,17 @@ class DiscountRateConfig(SQLModel, table=True):
     Market Risk Premium are both 5-year trailing averages sourced from
     market-risk-premia.com, deliberately not auto-fetched (that source's
     terms only support citing the number, not automated re-fetching; see
-    CLAUDE.md). Editable via the /settings page. Keyed by region so a
-    China/HK row can be added later without a schema change, even though
-    only "US" is exposed in the UI today -- this app's screener is S&P 500
-    (US-listed) only. Beta stays live per-ticker from FMP, untouched by
-    this table."""
+    CLAUDE.md). Editable via the /settings page. Keyed by region -- this
+    table's docstring originally anticipated "a China/HK row... added
+    later without a schema change" back when only "US" was exposed in the
+    UI; as of the HK market support round this is real, not speculative --
+    a ticker's own country (FMP /profile's `country` field, NOT its
+    quote/reported currency -- confirmed the two aren't 1:1) resolves which
+    region's row step3_data.py reads. A new region's row is lazily
+    get-or-created (see helpers/discount_rate_config.py) the first time a
+    ticker from it is valued, seeded from the current US row's own values
+    as an explicit placeholder pending manual research, never fabricated.
+    Beta stays live per-ticker from FMP, untouched by this table."""
 
     region: str = Field(primary_key=True)
     risk_free_rate: float
@@ -617,6 +623,24 @@ class TickerScore(SQLModel, table=True):
     market_cap: float | None = None
     pe_ratio: float | None = None
     beta: float | None = None
+    # Lifted straight from summary.quote_currency (ticker_summary.py) --
+    # the currency market_cap above (and price, on the Watchlist/Screener
+    # cards that show it) is denominated in. Nullable, unlike
+    # TickerSummaryOut's own non-nullable "USD"-defaulted field, per this
+    # table's usual no-backfill-migration convention (_add_missing_columns)
+    # -- a row computed before this field existed reads NULL until the next
+    # nightly recompute, treated as "USD" by the frontend formatter the
+    # same way None is treated everywhere else on this model.
+    quote_currency: str | None = None
+    # Lifted straight from summary.reported_currency (ticker_summary.py) --
+    # the currency the Watchlist's Revenue/Net Income/CFO mini trend chart
+    # (sourced from Step 1's raw series, the same annual-statement data the
+    # Financials tab shows) is denominated in. Deliberately NOT
+    # quote_currency -- these are raw statement figures, not quote-domain
+    # ones, and must read identically to the Financials tab's own
+    # reported_currency for the same ticker. Same nullable/no-backfill
+    # convention as quote_currency above.
+    reported_currency: str | None = None
     # "undervalued" / "fair" / "overvalued" -- lifted straight from the
     # Step 3 verdict `get_summary` already computes (ticker_summary.py's
     # `fair_value_verdict`), same source as the ticker header's
