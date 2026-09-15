@@ -1,11 +1,14 @@
 """Standalone script: refreshes the stored Dow Jones Industrial Average
-constituent list from Wikipedia (see dow_scraper.py). Intended for a weekly
-cron entry (see crontab.txt) -- index membership changes a handful of times
-a year, not nightly, so this is deliberately separate from
-nightly_fundamentals_fetch.py. Mirrors refresh_sp500_list.py exactly.
+constituent list from FMP's /dowjones-constituent endpoint (see
+dow_scraper.py; this replaced the prior Wikipedia-scrape pipeline
+2026-09-15, once FMP Ultimate's constituent endpoints became available on
+this plan -- previously 402). Intended for a weekly cron entry (see
+crontab.txt) -- index membership changes a handful of times a year, not
+nightly, so this is deliberately separate from nightly_fundamentals_fetch.py.
+Mirrors refresh_sp500_list.py exactly.
 
-On any failure (network, page-structure change, suspiciously-low row
-count), the existing stored list is left untouched -- see
+On any failure (network/FMP error, response-shape change, suspiciously-low
+row count), the existing stored list is left untouched -- see
 dow_scraper.refresh_dow_constituents for the failure handling itself.
 
 A failed SyncResult is re-raised as a RuntimeError here (2026-09-11), after
@@ -20,6 +23,15 @@ whole time. The DB-safety behavior itself (never touch the stored list on
 a failed sync) is unchanged -- this only makes an already-decided failure
 visible to the heartbeat.
 
+FMP_ENABLED=false (2026-09-15): skipped cleanly before any fetch is
+attempted, via the same early-return guard nightly_fundamentals_fetch.py/
+monthly_price_target_snapshot.py use -- checked here rather than left to
+FMPDisabledError propagating up through refresh_dow_constituents, since that
+path would return a failed SyncResult and hit the RuntimeError re-raise
+above, recording a false "failure" in cron_heartbeat for what is actually a
+deliberate, healthy no-op. The existing stored list is left untouched
+either way.
+
 Run manually:
     uv run python -m scrapers.refresh_dow_list
 """
@@ -30,6 +42,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
+from core.config import settings
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from scrapers.dow_scraper import refresh_dow_constituents
@@ -42,6 +55,10 @@ async def main() -> None:
     configure_logging(LOG_PATH)
     logger = logging.getLogger(__name__)
     init_db()
+
+    if not settings.fmp_enabled:
+        logger.info("Dow constituent list refresh skipped: FMP paused (FMP_ENABLED=False).")
+        return
 
     with Session(engine) as session:
         result = await refresh_dow_constituents(session)

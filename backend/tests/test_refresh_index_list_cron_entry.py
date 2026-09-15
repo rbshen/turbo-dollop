@@ -94,3 +94,52 @@ def test_cron_heartbeat_records_success_when_sync_result_is_success(monkeypatch,
     with Session(cron_engine) as session:
         row = session.exec(select(CronRunLog).where(CronRunLog.job_name == job_name)).one()
     assert row.status == "success"
+
+
+@pytest.mark.parametrize(
+    "module, refresh_attr, job_name",
+    [
+        (refresh_dow_list, "refresh_dow_constituents", "scrapers.refresh_dow_list"),
+        (refresh_sp500_list, "refresh_sp500_constituents", "scrapers.refresh_sp500_list"),
+    ],
+)
+def test_main_skips_cleanly_without_calling_refresh_when_fmp_disabled(monkeypatch, module, refresh_attr, job_name):
+    """2026-09-15: FMP_ENABLED=false must short-circuit before any fetch is
+    attempted -- refresh_*_constituents must never even be called, since
+    letting FMPDisabledError propagate up through it would return a failed
+    SyncResult and trip the RuntimeError re-raise these jobs already have,
+    misrecording a deliberate no-op as a real failure."""
+    _fresh_engine(monkeypatch, module)
+    monkeypatch.setattr(module.settings, "fmp_enabled", False)
+
+    async def fail_if_called(session):
+        raise AssertionError("refresh must not be attempted while FMP_ENABLED is False")
+
+    monkeypatch.setattr(module, refresh_attr, fail_if_called)
+
+    asyncio.run(module.main())  # must not raise
+
+
+@pytest.mark.parametrize(
+    "module, refresh_attr, job_name",
+    [
+        (refresh_dow_list, "refresh_dow_constituents", "scrapers.refresh_dow_list"),
+        (refresh_sp500_list, "refresh_sp500_constituents", "scrapers.refresh_sp500_list"),
+    ],
+)
+def test_cron_heartbeat_records_success_when_fmp_disabled(monkeypatch, module, refresh_attr, job_name):
+    _fresh_engine(monkeypatch, module)
+    cron_engine = _fresh_engine(monkeypatch, cron_health)
+    monkeypatch.setattr(module.settings, "fmp_enabled", False)
+
+    async def fail_if_called(session):
+        raise AssertionError("refresh must not be attempted while FMP_ENABLED is False")
+
+    monkeypatch.setattr(module, refresh_attr, fail_if_called)
+
+    with cron_health.cron_heartbeat(job_name):
+        asyncio.run(module.main())  # must not raise
+
+    with Session(cron_engine) as session:
+        row = session.exec(select(CronRunLog).where(CronRunLog.job_name == job_name)).one()
+    assert row.status == "success"
