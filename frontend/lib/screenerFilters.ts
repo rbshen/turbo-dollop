@@ -12,6 +12,27 @@ export interface RangeFilter {
 
 export const EMPTY_RANGE: RangeFilter = { min: null, max: null };
 
+// The Screener's Country filter -- a "base scope" concept like watchlist
+// selection (see ScreenerFilterState's own docstring below on why it's
+// NOT a field on that interface), not a Fundamental/Technical criterion.
+// Backed by TickerScoreOut.country, which is the ticker's own listing
+// market (derived from exchange), NOT FMP's own domicile `country` field
+// -- see backend/core/models.py::TickerScore.country for the full
+// investigation. Only "US"/"HK" exist today (see COUNTRY_FILTER_OPTIONS).
+export type ScreenerCountry = "US" | "HK";
+export const DEFAULT_SCREENER_COUNTRY: ScreenerCountry = "US";
+export const COUNTRY_FILTER_OPTIONS: { value: ScreenerCountry; label: string }[] = [
+  { value: "US", label: "US" },
+  { value: "HK", label: "HK" },
+];
+
+// Shared "this filter currently holds a non-default value" highlight,
+// reused by every filter label across Watchlist/Country/Fundamental/
+// Technical (2026-09-15) rather than duplicating the color logic per
+// component -- see globals.css's --fathom-filter-active for why this is a
+// distinct token from --fathom-chart-orange despite sharing the same hue.
+export const FILTER_ACTIVE_LABEL_CLASS = "text-filter-active";
+
 const MARKET_CAP_SUFFIX_MULTIPLIERS: Record<string, number> = { B: 1e9, M: 1e6 };
 
 /** Parses Market Cap filter input: a bare number is raw dollars (unchanged
@@ -222,13 +243,25 @@ function inRange(value: number | null, range: RangeFilter): boolean {
 // Fundamental/Technical filter blob SavedScreenerFilter.filters_json
 // stores verbatim (see that model's own docstring on why watchlist_id is
 // a discrete column instead).
+// country: the Country filter's current value, or null when it's not in
+// effect (universe isn't "all" -- see page.tsx's own comment on why this
+// mirrors watchlistTickers' null-when-inactive shape rather than always
+// applying). Unlike every other filter here, a row with no `country` yet
+// (computed before this field existed) falls back to "US" rather than
+// being excluded -- see COUNTRY_FILTER_OPTIONS' own module comment/the
+// plan's Rollout note: this keeps the Screener from losing rows en masse
+// the moment this filter ships, at the cost of not-yet-recomputed .HK
+// tickers incorrectly still showing under the "US" default until the next
+// recompute.
 export function filterTickerScores(
   rows: TickerScoreOut[],
   filters: ScreenerFilterState,
-  watchlistTickers: Set<string> | null = null
+  watchlistTickers: Set<string> | null = null,
+  country: ScreenerCountry | null = null
 ): TickerScoreOut[] {
   return rows.filter((row) => {
     if (watchlistTickers && !watchlistTickers.has(row.ticker)) return false;
+    if (country && (row.country ?? "US") !== country) return false;
     if (!inRange(row.overall_score, filters.overallScore)) return false;
     if (!inRange(row.step1_score, filters.step1Score)) return false;
     if (!inRange(row.step2_score, filters.step2Score)) return false;

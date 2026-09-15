@@ -2,6 +2,8 @@
 
 import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
 import type { WatchlistOut } from "@/lib/api/types";
+import { FILTER_ACTIVE_LABEL_CLASS } from "@/lib/screenerFilters";
+import { cn } from "@/lib/utils";
 
 interface Props {
   watchlists: WatchlistOut[] | undefined;
@@ -19,9 +21,12 @@ interface Props {
 // single-select dropdown rather than MultiSelectDropdown since a Screener
 // result set can only be scoped to one base watchlist at a time.
 export function WatchlistFilters({ watchlists, value, onChange, disabled }: Props) {
+  const active = value != null;
+
   return (
     <CollapsibleFilterSection title="Watchlist">
       <div className="flex flex-col items-stretch gap-2">
+        <span className={cn("text-xs", active ? FILTER_ACTIVE_LABEL_CLASS : "text-text-tertiary")}>Watchlist</span>
         <select
           value={value ?? ""}
           disabled={disabled}

@@ -1,4 +1,4 @@
-import type { ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
+import type { ScreenerCountry, ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
 
 export interface SecCrossCheck {
   available: boolean;
@@ -507,6 +507,12 @@ export interface TickerScoreOut {
   sector: string | null;
   industry: string | null;
   company_type: string | null;
+  // The ticker's own primary listing market ("US"/"HK"), derived from
+  // exchange -- NOT FMP's own domicile `country` field. See
+  // backend/core/models.py::TickerScore.country. null for a row computed
+  // before this field existed -- screenerFilters.ts's filterTickerScores
+  // treats null as "US".
+  country: "US" | "HK" | null;
   step1_score: number | null;
   step1_verdict: string | null;
   step2_score: number | null;
@@ -598,6 +604,11 @@ export interface SavedScreenerFilter {
   // universe filter when this view was saved. Only meaningful alongside
   // universe === "all" -- null means no watchlist was selected.
   watchlist_id: number | null;
+  // Which Country filter value was selected -- see CountryFilter.tsx. Only
+  // meaningful alongside universe === "all", same as watchlist_id above.
+  // null means either "US was selected" or this view predates the Country
+  // filter -- both load as the "US" default (DEFAULT_SCREENER_COUNTRY).
+  country: ScreenerCountry | null;
   created_at: string;
   updated_at: string;
 }

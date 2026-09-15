@@ -86,6 +86,7 @@
   --color-negative: var(--fathom-negative);
   --color-chart-purple: var(--fathom-chart-purple);
   --color-chart-orange: var(--fathom-chart-orange);
+  --color-filter-active: var(--fathom-filter-active);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -203,6 +204,14 @@
      since short-term debt isn't itself a warning/negative signal, just the
      other half of a stacked total. Debt Historical Trends chart only. */
   --fathom-chart-orange: oklch(70% 0.15 55);
+  /* Same hue (55) as --fathom-chart-orange above for one consistent "true
+     orange" on this palette, but a deliberately separate token -- that one
+     is explicitly scoped to the Debt Historical Trends chart only (see its
+     own comment), not meant to be repurposed for a UI affordance. Screener
+     filter labels only: highlights a filter (range input, multi-select,
+     checkbox, or single-select) that currently holds a non-default value
+     -- see lib/screenerFilters.ts::FILTER_ACTIVE_LABEL_CLASS. */
+  --fathom-filter-active: oklch(70% 0.15 55);
 }
 
 @layer base {

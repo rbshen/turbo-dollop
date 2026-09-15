@@ -5,7 +5,7 @@ import { mutate } from "swr";
 import { apiDelete, apiPut } from "@/lib/api/client";
 import { useApiResource } from "@/lib/hooks/useApiResource";
 import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
-import type { ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
+import type { ScreenerCountry, ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
 
 const KEY = "/screener/filters";
 
@@ -15,6 +15,11 @@ export interface SaveScreenerFilterBody {
   sort_direction: SortDirection;
   filters: ScreenerFilterState;
   watchlist_id: number | null;
+  // Always a real value when saving (the Country filter has no "unset"
+  // state, unlike watchlist_id) -- SavedScreenerFilter.country itself
+  // stays nullable to represent a pre-existing view saved before this
+  // filter existed.
+  country: ScreenerCountry;
 }
 
 export function useSavedFilters() {

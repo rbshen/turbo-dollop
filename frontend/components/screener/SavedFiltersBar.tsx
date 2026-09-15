@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { deleteScreenerFilter, saveScreenerFilter, useSavedFilters } from "@/lib/hooks/useSavedFilters";
 import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
-import type { ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
+import type { ScreenerCountry, ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -16,6 +16,9 @@ interface Props {
   // The WATCHLIST universe filter's current selection, persisted alongside
   // universe/sortField/etc. on save -- see SavedScreenerFilter.watchlist_id.
   watchlistId: number | null;
+  // The COUNTRY universe filter's current selection, same persistence
+  // treatment as watchlistId above -- see SavedScreenerFilter.country.
+  country: ScreenerCountry;
   onLoad: (saved: SavedScreenerFilter) => void;
   onReset: () => void;
   // "horizontal" (default): the original full-width top-bar layout.
@@ -42,6 +45,7 @@ export function SavedFiltersBar({
   sortDirection,
   filters,
   watchlistId,
+  country,
   onLoad,
   onReset,
   layout = "horizontal",
@@ -88,6 +92,7 @@ export function SavedFiltersBar({
         sort_direction: sortDirection,
         filters,
         watchlist_id: watchlistId,
+        country,
       });
       setStatus("saved");
       setSaveStep("idle");

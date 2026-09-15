@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { PageContainer } from "@/components/layout/PageContainer";
+import { CountryFilter } from "@/components/screener/CountryFilter";
 import { Pagination } from "@/components/screener/Pagination";
 import { RecomputeButton } from "@/components/screener/RecomputeButton";
 import { SavedFiltersBar } from "@/components/screener/SavedFiltersBar";
@@ -17,10 +18,12 @@ import { useScreener, useScreenerMeta } from "@/lib/hooks/useScreener";
 import { useWatchlists } from "@/lib/hooks/useWatchlists";
 import {
   DEFAULT_FILTER_STATE,
+  DEFAULT_SCREENER_COUNTRY,
   extractCompanyTypes,
   extractSectors,
   filterTickerScores,
   sortTickerScores,
+  type ScreenerCountry,
   type ScreenerFilterState,
   type SortDirection,
   type SortField,
@@ -67,6 +70,12 @@ export default function ScreenerPage() {
   // universe flips back, since the value below only ever takes effect
   // (via watchlistTickerSet) when universe === "all" anyway.
   const [watchlistId, setWatchlistId] = useState<number | null>(null);
+  // The COUNTRY universe filter's selection. Same "kept in state, not
+  // cleared, while disabled" treatment as watchlistId above -- unlike
+  // watchlistId though, this always holds a real value (no "off" state),
+  // so it only actually restricts results while universe === "all" (see
+  // the filterTickerScores call below).
+  const [country, setCountry] = useState<ScreenerCountry>(DEFAULT_SCREENER_COUNTRY);
 
   const selectedWatchlist = useMemo(() => (watchlists ?? []).find((w) => w.id === watchlistId) ?? null, [watchlists, watchlistId]);
   const watchlistActive = universe === "all" && selectedWatchlist != null;
@@ -83,7 +92,10 @@ export default function ScreenerPage() {
   const sectors = useMemo(() => extractSectors(data ?? []), [data]);
   const companyTypes = useMemo(() => extractCompanyTypes(data ?? []), [data]);
 
-  const filtered = useMemo(() => filterTickerScores(data ?? [], filters, watchlistTickerSet), [data, filters, watchlistTickerSet]);
+  const filtered = useMemo(
+    () => filterTickerScores(data ?? [], filters, watchlistTickerSet, universe === "all" ? country : null),
+    [data, filters, watchlistTickerSet, universe, country]
+  );
   const sorted = useMemo(() => sortTickerScores(filtered, sortField, sortDirection), [filtered, sortField, sortDirection]);
 
   // "X of Y" transparency, watchlist flavor: the count of `data` (the
@@ -111,13 +123,20 @@ export default function ScreenerPage() {
     handleFiltersChange(DEFAULT_FILTER_STATE);
     // "Reset" means back to the whole universe -- clears both the sp500/
     // dow/all toggle and the watchlist selection, not just the Fundamental/
-    // Technical filter blob.
+    // Technical filter blob. Country goes back to its own default (US),
+    // same treatment as Watchlist going back to "none".
     setUniverse("all");
     setWatchlistId(null);
+    setCountry(DEFAULT_SCREENER_COUNTRY);
   }
 
   function handleWatchlistChange(next: number | null) {
     setWatchlistId(next);
+    setPage(1);
+  }
+
+  function handleCountryChange(next: ScreenerCountry) {
+    setCountry(next);
     setPage(1);
   }
 
@@ -135,6 +154,10 @@ export default function ScreenerPage() {
     setFilters({ ...DEFAULT_FILTER_STATE, ...saved.filters });
     setSortField(saved.sort_field);
     setSortDirection(saved.sort_direction);
+    // No referential-integrity concern here, unlike watchlist_id below --
+    // country is a plain "US"/"HK" string, always valid. null just means
+    // this saved view predates the Country filter.
+    setCountry(saved.country ?? DEFAULT_SCREENER_COUNTRY);
     // A saved watchlist scoping only applies if that watchlist still
     // exists -- one may have been deleted since this view was saved (its
     // SavedScreenerFilter row would already be gone too in that case, via
@@ -235,6 +258,7 @@ export default function ScreenerPage() {
       <div className="flex flex-col gap-6 lg:flex-row">
         <aside className="w-full shrink-0 space-y-4 lg:w-64">
           <WatchlistFilters watchlists={watchlists} value={watchlistId} onChange={handleWatchlistChange} disabled={universe !== "all"} />
+          <CountryFilter value={country} onChange={handleCountryChange} disabled={universe !== "all"} />
           <FundamentalFilters filters={filters} onFiltersChange={handleFiltersChange} sectors={sectors} companyTypes={companyTypes} />
           <TechnicalFilters filters={filters} onFiltersChange={handleFiltersChange} />
           <SavedFiltersBar
@@ -244,6 +268,7 @@ export default function ScreenerPage() {
             sortDirection={sortDirection}
             filters={filters}
             watchlistId={watchlistId}
+            country={country}
             onLoad={handleLoadSavedFilter}
             onReset={handleResetFilters}
           />
