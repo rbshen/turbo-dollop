@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
 import { MultiSelectDropdown } from "@/components/screener/MultiSelectDropdown";
+import { RangeInput } from "@/components/screener/RangeInput";
 import {
   FILTER_ACTIVE_LABEL_CLASS,
   MOAT_FILTER_OPTIONS,
@@ -19,46 +20,6 @@ interface Props {
   onFiltersChange: (filters: ScreenerFilterState) => void;
   sectors: string[];
   companyTypes: string[];
-}
-
-// Label stacked above a Min/Max row, each input sized via flex-1/min-w-0
-// rather than a fixed width -- a fixed w-24 label + 2x w-20 inputs (the old
-// single-row layout, sized for the full-width top bar this used to live in)
-// overflows a ~224px sidebar column's actual content width. Stacking keeps
-// this correct at any sidebar width instead of depending on a specific one.
-function RangeInput({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: RangeFilter;
-  onChange: (range: RangeFilter) => void;
-}) {
-  const active = value.min != null || value.max != null;
-
-  return (
-    <div className="space-y-1">
-      <span className={cn("text-xs", active ? FILTER_ACTIVE_LABEL_CLASS : "text-text-tertiary")}>{label}</span>
-      <div className="flex items-center gap-1.5">
-        <input
-          type="number"
-          placeholder="Min"
-          value={value.min ?? ""}
-          onChange={(e) => onChange({ ...value, min: e.target.value === "" ? null : Number(e.target.value) })}
-          className="h-8 w-0 min-w-0 flex-1 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
-        />
-        <span className="shrink-0 text-text-tertiary">–</span>
-        <input
-          type="number"
-          placeholder="Max"
-          value={value.max ?? ""}
-          onChange={(e) => onChange({ ...value, max: e.target.value === "" ? null : Number(e.target.value) })}
-          className="h-8 w-0 min-w-0 flex-1 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
-        />
-      </div>
-    </div>
-  );
 }
 
 /** One side (min or max) of the Market Cap range: free-text so "1B" / "2 m"
@@ -129,11 +90,14 @@ export function FundamentalFilters({ filters, onFiltersChange, sectors, companyT
   return (
     <CollapsibleFilterSection title="Fundamental">
       <div className="space-y-4">
-        {/* 9-item Min/Max range-filter grid, in the design handoff's exact
-            order: Overall, Financials, Growth Rate, Profitability, Debt, Mkt
-            Cap, P/E, Beta, Growth -- one flat grid, not grouped sub-rows. A
-            single grid-cols-1 column (not the old sm/lg-scaling grid) -- this
-            now lives in a ~256px sidebar column, not a full-width bar, so
+        {/* 8-item Min/Max range-filter grid, in the design handoff's original
+            order minus Beta (moved to Technical, 2026-09 follow-up -- a
+            price-covariance statistic, not an accounting metric, same
+            reasoning that already put 5Y vs SPY under Technical): Overall,
+            Financials, Growth Rate, Profitability, Debt, Mkt Cap, P/E,
+            Growth -- one flat grid, not grouped sub-rows. A single
+            grid-cols-1 column (not the old sm/lg-scaling grid) -- this now
+            lives in a ~256px sidebar column, not a full-width bar, so
             there's no width at which 2-3 range inputs would ever fit side by
             side. */}
         <div className="grid grid-cols-1 gap-y-3">
@@ -144,7 +108,6 @@ export function FundamentalFilters({ filters, onFiltersChange, sectors, companyT
           <RangeInput label="Debt" value={filters.step5Score} onChange={(r) => patch({ step5Score: r })} />
           <MarketCapRangeInput value={filters.marketCap} onChange={(r) => patch({ marketCap: r })} />
           <RangeInput label="P/E" value={filters.peRatio} onChange={(r) => patch({ peRatio: r })} />
-          <RangeInput label="Beta" value={filters.beta} onChange={(r) => patch({ beta: r })} />
           <RangeInput label="Growth" value={filters.growthRate} onChange={(r) => patch({ growthRate: r })} />
         </div>
 

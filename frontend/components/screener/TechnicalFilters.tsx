@@ -2,6 +2,7 @@
 
 import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
 import { MultiSelectDropdown } from "@/components/screener/MultiSelectDropdown";
+import { RangeInput } from "@/components/screener/RangeInput";
 import {
   FILTER_ACTIVE_LABEL_CLASS,
   PULLBACK_STATUS_FILTER_OPTIONS,
@@ -26,6 +27,11 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
   return (
     <CollapsibleFilterSection title="Technical">
       <div className="flex flex-col items-stretch gap-2">
+        {/* Moved here from Fundamental (2026-09 follow-up) -- Beta is a
+            price-covariance statistic, not an accounting metric, the same
+            "flavor" as 5Y vs SPY below. First item in this section per that
+            change's own approved proposal. */}
+        <RangeInput label="Beta" value={filters.beta} onChange={(r) => patch({ beta: r })} />
         <MultiSelectDropdown
           label="5Y vs SPY"
           options={VS_SPY_FILTER_OPTIONS}
