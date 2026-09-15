@@ -75,24 +75,36 @@ export function ScreenerCard({ data }: Props) {
         </div>
       )}
 
-      <div className="mt-auto grid grid-cols-4 gap-2 border-t border-border-subtle pt-2 text-xs">
-        <div>
+      {/* Weighted column widths, not equal grid-cols-4 -- Quote (e.g.
+          "$6,299.56" for a high-priced ticker like NVR) and Mkt Cap need
+          meaningfully more room than P/E/Beta. Ratio calibrated against the
+          real cached-data distribution (577 scored tickers, 2026-09):
+          formatted-string length p50/max is Quote 7/9 ("$190.24".."$6,299.56"),
+          Mkt Cap 7/8 ("$17.00B".."$938.18B"), P/E 5/7 ("30.00".."-154.08"),
+          Beta 4/5 ("1.20".."-7.34") -- P/E's real tail is close to Mkt Cap's,
+          Beta's isn't, hence 0.8fr/0.6fr rather than splitting the two
+          evenly. min-w-0 on every cell is required alongside this -- a grid
+          item won't shrink below its content's intrinsic width by default,
+          so without it a long Quote value still overflows into Mkt Cap's
+          cell even with more fr-space allocated to it. */}
+      <div className="mt-auto grid grid-cols-[1.3fr_1fr_0.8fr_0.6fr] gap-2 border-t border-border-subtle pt-2 text-xs">
+        <div className="min-w-0">
           <p className="text-text-tertiary">Quote</p>
-          <p className="font-mono text-text-secondary">
+          <p className="break-words font-mono text-text-secondary">
             {data.last_price != null ? fmtMoney(data.last_price, data.quote_currency ?? "USD") : "—"}
           </p>
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-text-tertiary">Mkt Cap</p>
           <p className="font-mono text-text-secondary">
             {data.market_cap != null ? fmtCompactMoney(data.market_cap, data.quote_currency ?? "USD") : "—"}
           </p>
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-text-tertiary">P/E</p>
           <p className="font-mono text-text-secondary">{data.pe_ratio != null ? fmtNumber(data.pe_ratio) : "—"}</p>
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-text-tertiary">Beta</p>
           <p className="font-mono text-text-secondary">{data.beta != null ? fmtNumber(data.beta) : "—"}</p>
         </div>
