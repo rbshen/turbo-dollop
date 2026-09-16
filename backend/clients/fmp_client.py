@@ -161,6 +161,20 @@ class FMPClient:
     async def get_price_target_consensus(self, ticker: str) -> dict | list:
         return await self.get("/price-target-consensus", {"symbol": ticker})
 
+    async def get_price_target_news(self, ticker: str, page: int = 0, limit: int = 100) -> dict | list:
+        # One row per individual analyst price-target action (not a
+        # ready-made consensus series) -- see
+        # helpers/price_target_history.py, the only reconstruction consumer.
+        # FMP caps this endpoint's own page size at 100 regardless of a
+        # higher requested `limit` (confirmed live); callers must paginate
+        # via `page` until an empty list comes back.
+        return await self.get("/price-target-news", {"symbol": ticker, "page": page, "limit": limit})
+
+    async def get_price_target_summary(self, ticker: str) -> dict | list:
+        # Ready-made recency-bucketed averages (last month/quarter/year/
+        # all-time) -- see data/analyst_ratings_data.py's price_target_by_recency.
+        return await self.get("/price-target-summary", {"symbol": ticker})
+
     async def get_financial_growth(self, ticker: str, period: str = "annual", limit: int = 1) -> dict | list:
         return await self.get("/financial-growth", {"symbol": ticker, "period": period, "limit": limit})
 

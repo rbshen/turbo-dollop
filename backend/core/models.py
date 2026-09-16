@@ -803,12 +803,17 @@ class TickerCustomValuation(SQLModel, table=True):
 
 class PriceTargetSnapshot(SQLModel, table=True):
     """Monthly point-in-time snapshot of FMP's price-target-consensus per
-    ticker, written by monthly_price_target_snapshot.py. FMP has no
-    historical price-target-consensus series of its own (unlike
-    grades-historical, which is already a ready-made monthly series) -- this
-    table exists purely to accumulate one going forward, feeding the Analyst
-    Ratings tab's price-target history line and the Recommendation Details
-    table's "N ago" Target column once enough months have been captured.
+    ticker, written by monthly_price_target_snapshot.py. FMP's own
+    /price-target-consensus is a live-only value with no historical series
+    attached (unlike grades-historical, which is already a ready-made
+    monthly series), so this table exists to accumulate one going forward.
+    It's also seeded with real reconstructed history going back to 2021+ for
+    well-covered tickers by the one-time
+    pipeline/backfills/backfill_price_target_snapshots.py script (which
+    derives its rows from FMP's /price-target-news raw per-analyst actions,
+    not /price-target-consensus) -- both write into this identical table
+    shape, feeding the Analyst Ratings tab's price-target history line and
+    the Recommendation Details table's "N ago" Target column.
 
     Deliberately append-only, unlike every other table in this file: no
     UniqueConstraint, plain session.add()/commit() inserts (see

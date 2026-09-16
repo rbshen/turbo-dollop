@@ -2,16 +2,23 @@
 ticker in the stored S&P 500 + Dow constituent lists (see
 nightly_fundamentals_fetch.py's load_universe_tickers, reused here).
 
-FMP has no historical price-target-consensus series of its own -- unlike
-grades-historical, which already ships a ready-made monthly series -- so
-this script exists purely to start accumulating one, one PriceTargetSnapshot
-row per ticker per run. It deliberately does NOT go through
+FMP's own /price-target-consensus is a live-only value with no historical
+series attached to it -- unlike grades-historical, which already ships a
+ready-made monthly series -- so this script exists to keep accumulating one
+PriceTargetSnapshot row per ticker per run, going forward from whenever it
+first ran. (An earlier version of this comment claimed FMP has no
+historical price-target data at all -- that's false: /price-target-news has
+real per-analyst target actions back to 2021+ for well-covered names, which
+pipeline/backfills/backfill_price_target_snapshots.py one-time-reconstructs
+into this same table's shape -- see that script's own docstring. This
+ongoing monthly job is unchanged by that backfill; it still just appends
+FMP's live current consensus each run.) It deliberately does NOT go through
 cache.get_or_fetch: that cache overwrites the latest value in place, but
 this table's whole purpose is to preserve every past snapshot (see
 PriceTargetSnapshot's docstring in models.py). The Analyst Ratings tab's
 price-target history line and its Recommendation Details table's "N ago"
-Target column both start empty and fill in as this script accumulates
-monthly runs.
+Target column, once seeded by the backfill above, fill in further as this
+script accumulates monthly runs.
 
 Default schedule: 3am server time, first of the month (see crontab.txt in
 this directory).
