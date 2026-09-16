@@ -1673,8 +1673,16 @@ class PriceTargetSummary(BaseModel):
 
 class RatingHistoryPoint(BaseModel):
     date: str
+    # All 5 of FMP's own buckets (Strong Buy/Buy/Hold/Sell/Strong Sell,
+    # relabeled Buy/Outperform/Hold/Underperform/Sell -- same 1:1 mapping
+    # RecommendationDetailsColumn uses), not a 3-bucket collapse -- see
+    # analyst_ratings_data.py's own comment on why history must stay
+    # uncollapsed even though ConsensusBanner's ITS OWN 3-bucket summary
+    # deliberately does collapse.
     buy_pct: float
+    outperform_pct: float
     hold_pct: float
+    underperform_pct: float
     sell_pct: float
     # Weighted score (5=Strong Buy ... 1=Strong Sell) averaged across all
     # analysts in that month's grades-historical snapshot -- see

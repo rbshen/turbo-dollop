@@ -8,17 +8,21 @@ interface Props {
   history: RatingHistoryPoint[];
 }
 
-// Same 3-bucket buy/hold/sell palette as ConsensusBanner's own collapse --
-// kept in sync by convention (see ConsensusBanner's own comment), not a
-// shared import.
+// Same 5-bucket Buy/Outperform/Hold/Underperform/Sell palette as
+// CurrentDistributionList's own breakdown -- kept in sync by convention
+// (see that component's own comment), not a shared import. Not collapsed
+// to 3 buckets the way ConsensusBanner's own summary is -- see
+// RatingHistoryPoint's schema comment for why.
 const SERIES: ChartSeries[] = [
   { key: "buy_pct", label: "Buy", color: "var(--color-positive)" },
+  { key: "outperform_pct", label: "Outperform", color: "var(--color-brand)" },
   { key: "hold_pct", label: "Hold", color: "var(--color-warn)" },
+  { key: "underperform_pct", label: "Underperform", color: "var(--color-chart-purple)" },
   { key: "sell_pct", label: "Sell", color: "var(--color-negative)" },
 ];
 
-// "Recommendation Trend" -- buy/hold/sell % of analyst coverage per
-// grades-historical month, stacked to 100%.
+// "Recommendation Trend" -- Buy/Outperform/Hold/Underperform/Sell % of
+// analyst coverage per grades-historical month, stacked to 100%.
 export function RatingDistributionTrendChart({ history }: Props) {
   if (history.length === 0) {
     return <p className="text-sm text-text-tertiary">No rating history available for this ticker.</p>;
@@ -27,7 +31,9 @@ export function RatingDistributionTrendChart({ history }: Props) {
   const categories = history.map((point) => point.date.slice(0, 7));
   const values = {
     buy_pct: history.map((point) => point.buy_pct),
+    outperform_pct: history.map((point) => point.outperform_pct),
     hold_pct: history.map((point) => point.hold_pct),
+    underperform_pct: history.map((point) => point.underperform_pct),
     sell_pct: history.map((point) => point.sell_pct),
   };
   const yTicks = computeNiceTicks(100);

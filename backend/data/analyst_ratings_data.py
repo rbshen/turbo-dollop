@@ -227,15 +227,22 @@ async def get_analyst_ratings_data(ticker: str, cache_only: bool = False) -> Ana
         total = sum(counts.values())
         if total == 0:
             continue
-        buy, hold, sell = _collapse_3bucket(counts)
         row_date = date.fromisoformat(row["date"][:10])
         snapshot = _nearest_by_date(snapshots, row_date, "snapshot_date")
         history.append(
             RatingHistoryPoint(
                 date=row["date"][:10],
-                buy_pct=buy / total * 100,
-                hold_pct=hold / total * 100,
-                sell_pct=sell / total * 100,
+                # 1:1 relabel of FMP's 5 buckets, same mapping
+                # _details_column uses for Current Distribution -- NOT
+                # _collapse_3bucket's 3-bucket collapse, which would fold
+                # Outperform/Underperform into Buy/Sell and understate the
+                # real rating composition (see the RatingHistoryPoint
+                # schema's own comment).
+                buy_pct=counts["strong_buy"] / total * 100,
+                outperform_pct=counts["buy"] / total * 100,
+                hold_pct=counts["hold"] / total * 100,
+                underperform_pct=counts["sell"] / total * 100,
+                sell_pct=counts["strong_sell"] / total * 100,
                 avg_rating=_weighted_score(counts),
                 avg_price_target=snapshot.target_consensus if snapshot else None,
             )

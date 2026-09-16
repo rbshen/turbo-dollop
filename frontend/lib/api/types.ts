@@ -953,8 +953,13 @@ export interface PriceTargetSummary {
 
 export interface RatingHistoryPoint {
   date: string;
+  // All 5 of FMP's own buckets (Strong Buy/Buy/Hold/Sell/Strong Sell,
+  // relabeled Buy/Outperform/Hold/Underperform/Sell) -- not a 3-bucket
+  // collapse, unlike ConsensusBanner's own Buy/Hold/Sell summary.
   buy_pct: number;
+  outperform_pct: number;
   hold_pct: number;
+  underperform_pct: number;
   sell_pct: number;
   avg_rating: number;
   // Null until the monthly snapshot cron has captured a price target near
