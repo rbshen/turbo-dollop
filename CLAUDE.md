@@ -2610,6 +2610,50 @@ scoring or any other lens -- a second, parallel read on price structure.
   renders the same "Not tracked" shape `BbRsiEntrySignalCard` uses, explaining the
   W1-W5-only scoping, rather than four empty sections.
 
+### Shared FMP daily-bar cache: wrong staleness window + colliding cache key (2026-09-16)
+
+`clients/daily_price_sources.py::FMPDailyBarSource` -- shared by the Chart tab's four ranges
+(D_6M/D_1Y/D_2Y/W_4Y) and this feature's nightly job -- had two compounding bugs in how it
+cached daily EOD bars through the general-purpose `FundamentalsCache`/`get_or_fetch`
+machinery, both in `_fetch_fmp_daily_bars`:
+
+1. **Wrong staleness window.** It reused `settings.cache_staleness_days` (7 days, meant for
+   slow-changing fundamentals) instead of a window matched to daily-price data's actual
+   change cadence (a new bar every trading day). A row fetched before that day's close read
+   as "fresh" for up to a week, silently withholding newer closes.
+2. **Cache key hardcoded to the module constant, not the caller's request.** The key was
+   `f"{LOOKBACK_YEARS}y"` (always `"4y"`) regardless of the `lookback_years` argument actually
+   passed to `get_daily_bars` -- so Chart's D_6M/D_1Y (`lookback_years=2`), D_2Y (`3`), W_4Y
+   (`8`), and this feature's nightly job (`4`) all collided on one shared
+   `(ticker, "historical_price_eod", "4y")` row, regardless of how much history each caller
+   actually needed. Whichever caller fetched first each day "won"; everyone else silently read
+   that one row.
+
+**Confirmed live in production before fixing, not assumed**: a direct read-only query against
+`backend/fathom.db` found **100 of 103** FMP-sourced `LiquidityZoneAnalysis` daily rows (and
+all 103 weekly rows) stuck at `as_of` one full trading day behind the most recent close --
+traced for `WDC` and others (AAPL, AMD, AMAT, AAOI) to the shared `"4y"` cache row having been
+fetched by the *previous* night's run, under 24h old and so well inside the old 7-day window,
+causing that night's run to skip a live re-fetch entirely and miss the newest close.
+
+**Fix**: added `Settings.daily_bar_staleness_days` (`core/config.py`, default 1, same
+reasoning/precedent as the existing `yahoo_price_cache_staleness_days`), used in place of
+`cache_staleness_days` at this one call site; threaded the caller's real `lookback_years` into
+the cache key (`_fetch_fmp_daily_bars` gained a `lookback_years` parameter, used to build
+`f"{lookback_years}y"`) instead of the `LOOKBACK_YEARS` constant -- `LOOKBACK_YEARS` itself is
+unchanged and still what this feature's nightly job passes in, now genuinely isolated into its
+own `"4y"` row rather than shared. Confirmed via a live re-run for `WDC` post-fix: Chart's
+D_6M/D_1Y/D_2Y now each hold their own `"2y"`/`"3y"`/`"8y"` cache rows (previously all
+would-be `"4y"` collisions) with a fresh `fetched_at` and the correct latest close
+(2026-09-15); re-running this feature's own compute for `WDC` picked up the same fresh close
+with zero code change needed here -- confirming the shared choke point in
+`daily_price_sources.py` was sufficient and this feature's own files (`data/
+liquidity_zone_data.py`, `pipeline/nightly_liquidity_zone_calculation.py`) needed none.
+**No manual backfill was run** for the other stale rows identified above -- the next scheduled
+3:25 AM nightly run self-heals every one of them (fresh cache key + 1-day staleness forces a
+real re-fetch), so this was left to happen on its normal schedule rather than forced
+out-of-band.
+
 ### Main/Secondary watchlist rename + computed_at staleness sweep (2026-09-09)
 
 **Superseded 2026-09-11 (see the "Watchlists" section above for the current behavior):**

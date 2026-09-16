@@ -50,15 +50,21 @@ class DailyBarSource(Protocol):
         ...
 
 
-async def _fetch_fmp_daily_bars(ticker: str, from_date: date, to_date: date) -> pd.DataFrame:
+async def _fetch_fmp_daily_bars(ticker: str, from_date: date, to_date: date, lookback_years: int) -> pd.DataFrame:
+    # Cache key incorporates the caller's actual lookback_years (not the
+    # LOOKBACK_YEARS module constant) so D_6M/D_1Y ("2y"), D_2Y ("3y"), W_4Y
+    # ("8y"), and Liquidity Zone ("4y") each get their own cache row instead
+    # of colliding on one shared "4y" row regardless of how much history the
+    # caller actually asked for -- confirmed live in production causing stale
+    # reads, see CLAUDE.md's Liquidity Zone section.
     with Session(engine) as session:
         data = await get_or_fetch(
             session,
             ticker,
             "historical_price_eod",
-            f"{LOOKBACK_YEARS}y",
+            f"{lookback_years}y",
             lambda: fmp_client.get_historical_price_eod(ticker, from_date.isoformat(), to_date.isoformat()),
-            settings.cache_staleness_days,
+            settings.daily_bar_staleness_days,
         )
     rows = data if isinstance(data, list) else []
     if not rows:
@@ -73,15 +79,18 @@ class FMPDailyBarSource:
     """FMP has no multi-ticker batch endpoint for historical EOD bars --
     get_historical_price_eod is single-ticker -- so this loops per ticker,
     same shape as analysis/ma_magnet/data.py's own fetch. Each call goes
-    through the normal cache_staleness_days-gated cache, so a steady-state
-    nightly run (warm cache) makes zero live FMP calls for most tickers."""
+    through daily_bar_staleness_days-gated cache (a distinct, much tighter
+    window than the general cache_staleness_days -- see that setting's own
+    comment in core/config.py), so a steady-state nightly run (warm cache,
+    already refreshed since the day's close) makes zero live FMP calls for
+    most tickers."""
 
     async def get_daily_bars(self, tickers: list[str], lookback_years: int) -> dict[str, pd.DataFrame]:
         to_date = date.today()
         from_date = to_date - timedelta(days=365 * lookback_years)
         result: dict[str, pd.DataFrame] = {}
         for ticker in tickers:
-            df = await _fetch_fmp_daily_bars(ticker, from_date, to_date)
+            df = await _fetch_fmp_daily_bars(ticker, from_date, to_date, lookback_years)
             if not df.empty:
                 result[ticker] = df
         return result
