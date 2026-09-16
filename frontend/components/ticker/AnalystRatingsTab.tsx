@@ -3,6 +3,7 @@
 import { AnalystDistributionBar } from "@/components/analystRatings/AnalystDistributionBar";
 import { AvgRatingTrendChart } from "@/components/analystRatings/AvgRatingTrendChart";
 import { ConsensusBanner } from "@/components/analystRatings/ConsensusBanner";
+import { PriceTargetRecencyCard } from "@/components/analystRatings/PriceTargetRecencyCard";
 import { PriceTargetsCard } from "@/components/analystRatings/PriceTargetsCard";
 import { PriceTargetTrendChart } from "@/components/analystRatings/PriceTargetTrendChart";
 import { RatingDistributionTrendChart } from "@/components/analystRatings/RatingDistributionTrendChart";
@@ -49,6 +50,8 @@ export function AnalystRatingsTab({ ticker }: Props) {
         <ConsensusBanner data={data.banner} />
         <PriceTargetsCard data={data.price_target} currency={quoteCurrency} />
       </div>
+
+      <PriceTargetRecencyCard data={data.price_target_by_recency} currency={quoteCurrency} />
 
       {currentColumn && (
         <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">

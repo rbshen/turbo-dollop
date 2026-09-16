@@ -1711,10 +1711,23 @@ class RecommendationDetailsColumn(BaseModel):
     target: float | None = None
 
 
+class PriceTargetRecencyBucket(BaseModel):
+    """One row of FMP's /price-target-summary -- a ready-made recency-
+    bucketed average target, independent of PriceTargetSnapshot/history
+    above (which is our own reconstructed monthly series). Purely
+    informational, same as every other Analyst Ratings figure -- no scoring
+    implications."""
+
+    label: str  # "Last Month" | "Last Quarter" | "Last Year" | "All Time"
+    avg_price_target: float | None = None
+    analyst_count: int
+
+
 class AnalystRatingsOut(BaseModel):
     ticker: str
     banner: ConsensusBanner
     price_target: PriceTargetSummary
+    price_target_by_recency: list[PriceTargetRecencyBucket]
     history: list[RatingHistoryPoint]
     recommendation_details: list[RecommendationDetailsColumn]
 

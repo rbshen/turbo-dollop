@@ -982,10 +982,17 @@ export interface RecommendationDetailsColumn {
   target: number | null;
 }
 
+export interface PriceTargetRecencyBucket {
+  label: string; // "Last Month" | "Last Quarter" | "Last Year" | "All Time"
+  avg_price_target: number | null;
+  analyst_count: number;
+}
+
 export interface AnalystRatingsOut {
   ticker: string;
   banner: ConsensusBanner;
   price_target: PriceTargetSummary;
+  price_target_by_recency: PriceTargetRecencyBucket[];
   history: RatingHistoryPoint[];
   recommendation_details: RecommendationDetailsColumn[];
 }

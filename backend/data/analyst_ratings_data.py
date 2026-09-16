@@ -9,7 +9,14 @@ from core.db import engine
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.models import PriceTargetSnapshot
-from core.schemas import AnalystRatingsOut, ConsensusBanner, PriceTargetSummary, RatingHistoryPoint, RecommendationDetailsColumn
+from core.schemas import (
+    AnalystRatingsOut,
+    ConsensusBanner,
+    PriceTargetRecencyBucket,
+    PriceTargetSummary,
+    RatingHistoryPoint,
+    RecommendationDetailsColumn,
+)
 from core.tickers import normalize_ticker
 
 # Weighted-score formula used to derive Mean/Consensus wherever FMP doesn't
@@ -93,6 +100,18 @@ def _nearest_by_date(rows: list, target_date: date, date_key: str):
     return best_row
 
 
+def _recency_buckets(raw: dict) -> list[PriceTargetRecencyBucket]:
+    return [
+        PriceTargetRecencyBucket(label=label, avg_price_target=raw.get(avg_key), analyst_count=raw.get(count_key, 0) or 0)
+        for label, avg_key, count_key in (
+            ("Last Month", "lastMonthAvgPriceTarget", "lastMonthCount"),
+            ("Last Quarter", "lastQuarterAvgPriceTarget", "lastQuarterCount"),
+            ("Last Year", "lastYearAvgPriceTarget", "lastYearCount"),
+            ("All Time", "allTimeAvgPriceTarget", "allTimeCount"),
+        )
+    ]
+
+
 def _details_column(label: str, counts: dict, mean: float | None, consensus: str | None, target: float | None) -> RecommendationDetailsColumn:
     # Row-label mapping is a 1:1 relabel of FMP's 5 buckets (strongBuy->Buy,
     # buy->Outperform, hold->Hold, sell->Underperform, strongSell->Sell),
@@ -143,6 +162,18 @@ async def get_analyst_ratings_data(ticker: str, cache_only: bool = False) -> Ana
                 session, ticker, "grades_historical", "latest", lambda: fmp_client.get_grades_historical(ticker), staleness_days, cache_only
             ),
         )
+        price_target_summary_data = await safe_fetch(
+            "price_target_summary",
+            get_or_fetch(
+                session,
+                ticker,
+                "price_target_summary",
+                "latest",
+                lambda: fmp_client.get_price_target_summary(ticker),
+                staleness_days,
+                cache_only,
+            ),
+        )
         # Reuses the "quote"/"latest" cache key ticker_summary.py and
         # step3_data.py already fetch under -- same data, no new key.
         quote_data = await safe_fetch(
@@ -154,6 +185,7 @@ async def get_analyst_ratings_data(ticker: str, cache_only: bool = False) -> Ana
 
     grades_consensus = _first(grades_consensus_data)
     price_target_consensus = _first(price_target_consensus_data)
+    price_target_summary = _first(price_target_summary_data)
     quote = _first(quote_data)
     historical_rows = sorted(
         (row for row in (grades_historical_data if isinstance(grades_historical_data, list) else []) if row.get("date")),
@@ -216,5 +248,10 @@ async def get_analyst_ratings_data(ticker: str, cache_only: bool = False) -> Ana
         columns.append(_details_column(label, counts, mean, _band_consensus(mean), snapshot.target_consensus if snapshot else None))
 
     return AnalystRatingsOut(
-        ticker=ticker, banner=banner, price_target=price_target, history=history, recommendation_details=columns
+        ticker=ticker,
+        banner=banner,
+        price_target=price_target,
+        price_target_by_recency=_recency_buckets(price_target_summary),
+        history=history,
+        recommendation_details=columns,
     )

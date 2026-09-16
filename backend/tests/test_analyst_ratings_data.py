@@ -35,6 +35,7 @@ def _patch_fmp(
     price_target_consensus: dict,
     grades_historical: list[dict],
     quote: dict,
+    price_target_summary: dict | None = None,
 ):
     async def fake_grades_consensus(ticker):
         return [grades_consensus]
@@ -48,10 +49,14 @@ def _patch_fmp(
     async def fake_quote(ticker):
         return [quote]
 
+    async def fake_price_target_summary(ticker):
+        return [price_target_summary or {}]
+
     monkeypatch.setattr(analyst_ratings_data.fmp_client, "get_grades_consensus", fake_grades_consensus)
     monkeypatch.setattr(analyst_ratings_data.fmp_client, "get_price_target_consensus", fake_price_target_consensus)
     monkeypatch.setattr(analyst_ratings_data.fmp_client, "get_grades_historical", fake_grades_historical)
     monkeypatch.setattr(analyst_ratings_data.fmp_client, "get_quote", fake_quote)
+    monkeypatch.setattr(analyst_ratings_data.fmp_client, "get_price_target_summary", fake_price_target_summary)
 
 
 def test_banner_collapses_five_buckets_to_three_and_uses_live_consensus_text(monkeypatch):
@@ -232,3 +237,53 @@ def test_history_skips_all_zero_rows_and_returns_empty_when_no_historical_data(m
 
     assert result.history == []
     assert result.banner.analyst_count == 0
+
+
+def test_price_target_by_recency_maps_all_four_fmp_buckets(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(
+        monkeypatch,
+        grades_consensus={"strongBuy": 1, "buy": 0, "hold": 0, "sell": 0, "strongSell": 0, "consensus": "Buy"},
+        price_target_consensus={"targetConsensus": 100, "targetHigh": 100, "targetLow": 100, "targetMedian": 100},
+        grades_historical=[],
+        quote={"price": 100},
+        price_target_summary={
+            "lastMonthCount": 2,
+            "lastMonthAvgPriceTarget": 352.0,
+            "lastQuarterCount": 15,
+            "lastQuarterAvgPriceTarget": 327.18,
+            "lastYearCount": 67,
+            "lastYearAvgPriceTarget": 312.65,
+            "allTimeCount": 260,
+            "allTimeAvgPriceTarget": 232.59,
+        },
+    )
+
+    result = asyncio.run(get_analyst_ratings_data("TEST"))
+    by_label = {b.label: b for b in result.price_target_by_recency}
+
+    assert by_label["Last Month"].avg_price_target == pytest.approx(352.0)
+    assert by_label["Last Month"].analyst_count == 2
+    assert by_label["Last Quarter"].analyst_count == 15
+    assert by_label["Last Year"].analyst_count == 67
+    assert by_label["All Time"].avg_price_target == pytest.approx(232.59)
+    assert by_label["All Time"].analyst_count == 260
+
+
+def test_price_target_by_recency_defaults_when_fmp_returns_nothing(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(
+        monkeypatch,
+        grades_consensus={"strongBuy": 0, "buy": 0, "hold": 0, "sell": 0, "strongSell": 0, "consensus": "N/A"},
+        price_target_consensus={},
+        grades_historical=[],
+        quote={},
+        price_target_summary={},
+    )
+
+    result = asyncio.run(get_analyst_ratings_data("TEST"))
+
+    assert len(result.price_target_by_recency) == 4
+    for bucket in result.price_target_by_recency:
+        assert bucket.avg_price_target is None
+        assert bucket.analyst_count == 0
