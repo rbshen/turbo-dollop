@@ -88,6 +88,38 @@ def test_before_on_or_before_earliest_reconstructable_month_yields_nothing():
     assert reconstruct_monthly_snapshots(rows, before=date(2024, 2, 1)) == []
 
 
+def test_prefers_split_adjusted_target_over_the_raw_nominal_figure():
+    # Firm A's only-ever action predates a later stock split -- priceTarget
+    # is its un-adjusted nominal figure (3500), adjPriceTarget is FMP's own
+    # split-rescaled value (175). The reconstruction must use the latter,
+    # not forward-fill the stale un-adjusted number forever.
+    rows = [
+        {"analystCompany": "Firm A", "publishedDate": "2022-01-10T00:00:00.000Z", "priceTarget": 3500.0, "adjPriceTarget": 175.0},
+        {"analystCompany": "Firm B", "publishedDate": "2022-02-10T00:00:00.000Z", "priceTarget": 180.0, "adjPriceTarget": 180.0},
+    ]
+    result = reconstruct_monthly_snapshots(rows, before=date(2022, 3, 1))
+    by_date = {r["snapshot_date"]: r for r in result}
+
+    jan = by_date[date(2022, 1, 31)]
+    assert jan["target_consensus"] == 175.0
+    assert jan["target_high"] == 175.0
+
+    feb = by_date[date(2022, 2, 28)]
+    assert feb["target_consensus"] == 177.5  # mean(175, 180), not mean(3500, 180)
+    assert feb["target_high"] == 180.0
+
+
+def test_falls_back_to_raw_target_when_adj_price_target_is_missing_from_one_row():
+    # A row missing adjPriceTarget specifically (not the whole column) still
+    # contributes via its raw priceTarget rather than being dropped.
+    rows = [
+        {"analystCompany": "Firm A", "publishedDate": "2024-01-10T00:00:00.000Z", "priceTarget": 100.0, "adjPriceTarget": None},
+        {"analystCompany": "Firm B", "publishedDate": "2024-01-15T00:00:00.000Z", "priceTarget": 200.0, "adjPriceTarget": 200.0},
+    ]
+    result = reconstruct_monthly_snapshots(rows, before=date(2024, 2, 1))
+    assert result[0]["target_consensus"] == 150.0  # mean(100, 200)
+
+
 def test_none_before_stops_at_the_last_full_month_before_today():
     rows = [_news_row("Firm A", "2024-01-05T00:00:00.000Z", 100.0)]
     result = reconstruct_monthly_snapshots(rows, before=None)

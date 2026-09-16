@@ -12,6 +12,20 @@ least one target by then (a rolling most-recent-per-analyst consensus).
 
 `analystCompany` -- not `analystName`, confirmed live to frequently be an
 empty string -- is used as the per-analyst identity key.
+
+Pivots on FMP's `adjPriceTarget` field, not the raw `priceTarget` field --
+`priceTarget` is the analyst's nominal figure exactly as originally
+published, never retroactively rescaled for a later stock split;
+`adjPriceTarget` is the same target adjusted for the security's current
+share count (confirmed live: always present, e.g. GOOGL's 2021-10-27
+Oppenheimer row reads `priceTarget: 3500, adjPriceTarget: 175` after
+GOOGL's July 2022 20:1 split). Since a stale analyst target (one with no
+newer action since) is forward-filled indefinitely below, an un-adjusted
+pre-split value would corrupt every later month's mean/high forever, not
+just the months immediately around the split -- confirmed real case: this
+alone inflated GOOGL's 2024-04 reconstructed consensus to $892.78 against a
+genuine ~$160-180 range. Falls back to raw `priceTarget` only if
+`adjPriceTarget` is missing from a given row.
 """
 
 from datetime import date
@@ -55,7 +69,14 @@ def reconstruct_monthly_snapshots(news_rows: list[dict], before: date | None = N
     df["publishedDate"] = pd.to_datetime(df["publishedDate"], utc=True).dt.tz_localize(None)
     df = df.sort_values("publishedDate").drop_duplicates(subset=["analystCompany", "publishedDate"], keep="last")
 
-    pivot = df.pivot(index="publishedDate", columns="analystCompany", values="priceTarget").sort_index()
+    # Split-adjusted where available -- see this module's own docstring.
+    # `fillna` covers a row that's missing `adjPriceTarget` specifically
+    # (confirmed live this never happens, but defensive); the `if` branch
+    # covers a caller/test that omits the column entirely.
+    price_target_col = df["adjPriceTarget"].fillna(df["priceTarget"]) if "adjPriceTarget" in df.columns else df["priceTarget"]
+    df = df.assign(_effective_price_target=price_target_col)
+
+    pivot = df.pivot(index="publishedDate", columns="analystCompany", values="_effective_price_target").sort_index()
 
     earliest_month_end = pivot.index.min().normalize() + pd.offsets.MonthEnd(0)
     cutoff = pd.Timestamp(before) if before is not None else pd.Timestamp(date.today())
