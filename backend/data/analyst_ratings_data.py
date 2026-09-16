@@ -101,15 +101,22 @@ def _nearest_by_date(rows: list, target_date: date, date_key: str):
 
 
 def _recency_buckets(raw: dict) -> list[PriceTargetRecencyBucket]:
-    return [
-        PriceTargetRecencyBucket(label=label, avg_price_target=raw.get(avg_key), analyst_count=raw.get(count_key, 0) or 0)
-        for label, avg_key, count_key in (
-            ("Last Month", "lastMonthAvgPriceTarget", "lastMonthCount"),
-            ("Last Quarter", "lastQuarterAvgPriceTarget", "lastQuarterCount"),
-            ("Last Year", "lastYearAvgPriceTarget", "lastYearCount"),
-            ("All Time", "allTimeAvgPriceTarget", "allTimeCount"),
-        )
-    ]
+    buckets = []
+    for label, avg_key, count_key in (
+        ("Last Month", "lastMonthAvgPriceTarget", "lastMonthCount"),
+        ("Last Quarter", "lastQuarterAvgPriceTarget", "lastQuarterCount"),
+        ("Last Year", "lastYearAvgPriceTarget", "lastYearCount"),
+        ("All Time", "allTimeAvgPriceTarget", "allTimeCount"),
+    ):
+        count = raw.get(count_key, 0) or 0
+        # FMP returns a literal 0 (not null) for the average when no analyst
+        # issued a target within this window -- confirmed live (a quiet
+        # ticker's lastMonthCount=0, lastMonthAvgPriceTarget=0). Without this
+        # guard, a literal 0 reads downstream as a real $0.00 price target
+        # rather than "no data for this period".
+        avg = raw.get(avg_key) if count > 0 else None
+        buckets.append(PriceTargetRecencyBucket(label=label, avg_price_target=avg, analyst_count=count))
+    return buckets
 
 
 def _details_column(label: str, counts: dict, mean: float | None, consensus: str | None, target: float | None) -> RecommendationDetailsColumn:

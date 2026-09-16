@@ -270,6 +270,39 @@ def test_price_target_by_recency_maps_all_four_fmp_buckets(monkeypatch):
     assert by_label["All Time"].analyst_count == 260
 
 
+def test_price_target_by_recency_treats_a_literal_zero_count_as_no_data(monkeypatch):
+    # FMP returns a literal 0 (not null) for lastMonthAvgPriceTarget when
+    # lastMonthCount is 0 -- a genuinely quiet period, distinct from a
+    # missing/empty response (the other test below). Must read as "no data"
+    # (avg_price_target=None), not a real $0.00 target.
+    _fresh_engine(monkeypatch)
+    _patch_fmp(
+        monkeypatch,
+        grades_consensus={"strongBuy": 0, "buy": 0, "hold": 0, "sell": 0, "strongSell": 0, "consensus": "N/A"},
+        price_target_consensus={},
+        grades_historical=[],
+        quote={},
+        price_target_summary={
+            "lastMonthCount": 0,
+            "lastMonthAvgPriceTarget": 0,
+            "lastQuarterCount": 14,
+            "lastQuarterAvgPriceTarget": 423.57,
+            "lastYearCount": 102,
+            "lastYearAvgPriceTarget": 368.37,
+            "allTimeCount": 270,
+            "allTimeAvgPriceTarget": 245.67,
+        },
+    )
+
+    result = asyncio.run(get_analyst_ratings_data("TEST"))
+    by_label = {b.label: b for b in result.price_target_by_recency}
+
+    assert by_label["Last Month"].analyst_count == 0
+    assert by_label["Last Month"].avg_price_target is None
+    assert by_label["Last Quarter"].avg_price_target == pytest.approx(423.57)
+    assert by_label["Last Quarter"].analyst_count == 14
+
+
 def test_price_target_by_recency_defaults_when_fmp_returns_nothing(monkeypatch):
     _fresh_engine(monkeypatch)
     _patch_fmp(
