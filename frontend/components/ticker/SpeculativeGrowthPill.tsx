@@ -7,7 +7,7 @@ import type { SpeculativeGrowthOut } from "@/lib/api/types";
 // verdict tier, so it deliberately doesn't reuse VERDICT_STYLES/MOAT_STYLES.
 // Reuses the existing chart-purple design token (app/globals.css) rather
 // than inventing a new one -- already a violet hue, already used as a
-// distinct categorical color by AnalystDistributionBar.tsx.
+// distinct categorical color by CurrentDistributionList.tsx.
 //
 // Exported so ScreenerCard/WatchlistTable can recolor a qualifying
 // ticker's symbol/name text without duplicating this class string --

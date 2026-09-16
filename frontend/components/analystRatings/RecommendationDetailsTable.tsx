@@ -35,10 +35,12 @@ function formatCell(key: RowKey, column: RecommendationDetailsColumn, currency: 
 
 // Same sticky-left-label-column structure as RatiosTable -- rows are fixed
 // (Buy/Outperform/Hold/Underperform/Sell/Mean/Consensus/Target) rather than
-// FMP-driven groups, so there's no group-header row to carry over.
+// FMP-driven groups, so there's no group-header row to carry over. No outer
+// border/bg of its own -- always embedded inside SentimentOverTimeCard's
+// own card, so an outer container here would double up the border.
 export function RecommendationDetailsTable({ columns, currency = "USD" }: Props) {
   return (
-    <Table containerClassName="rounded-lg border border-border-card bg-surface" className="border-separate border-spacing-0 text-sm">
+    <Table className="border-separate border-spacing-0 text-sm">
       <TableHeader>
         <TableRow className="hover:bg-transparent">
           <TableHead className="sticky left-0 z-10 whitespace-nowrap border-b border-border-card bg-surface-2 py-2 pr-8 text-xs font-medium uppercase tracking-widest text-text-secondary">

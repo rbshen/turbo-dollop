@@ -8,9 +8,9 @@ interface Props {
   history: RatingHistoryPoint[];
 }
 
-// Same 3-bucket buy/hold/sell palette as ConsensusBanner and
-// AnalystDistributionBar's own collapse -- kept in sync by convention (see
-// ConsensusBanner's own comment), not a shared import.
+// Same 3-bucket buy/hold/sell palette as ConsensusBanner's own collapse --
+// kept in sync by convention (see ConsensusBanner's own comment), not a
+// shared import.
 const SERIES: ChartSeries[] = [
   { key: "buy_pct", label: "Buy", color: "var(--color-positive)" },
   { key: "hold_pct", label: "Hold", color: "var(--color-warn)" },
@@ -18,9 +18,7 @@ const SERIES: ChartSeries[] = [
 ];
 
 // "Recommendation Trend" -- buy/hold/sell % of analyst coverage per
-// grades-historical month, stacked to 100%. Reads off the same
-// RatingHistoryPoint history as AvgRatingTrendChart, just the 3-bucket
-// distribution fields instead of the weighted score.
+// grades-historical month, stacked to 100%.
 export function RatingDistributionTrendChart({ history }: Props) {
   if (history.length === 0) {
     return <p className="text-sm text-text-tertiary">No rating history available for this ticker.</p>;

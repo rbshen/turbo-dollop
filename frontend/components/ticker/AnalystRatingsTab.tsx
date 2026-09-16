@@ -1,11 +1,8 @@
 "use client";
 
-import { AnalystDistributionBar } from "@/components/analystRatings/AnalystDistributionBar";
 import { AtAGlanceCard } from "@/components/analystRatings/AtAGlanceCard";
-import { AvgRatingTrendChart } from "@/components/analystRatings/AvgRatingTrendChart";
 import { PriceTargetTrendCard } from "@/components/analystRatings/PriceTargetTrendCard";
-import { RatingDistributionTrendChart } from "@/components/analystRatings/RatingDistributionTrendChart";
-import { RecommendationDetailsTable } from "@/components/analystRatings/RecommendationDetailsTable";
+import { SentimentOverTimeCard } from "@/components/analystRatings/SentimentOverTimeCard";
 import { useAnalystRatings } from "@/lib/hooks/useAnalystRatings";
 import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
 
@@ -40,35 +37,11 @@ export function AnalystRatingsTab({ ticker }: Props) {
     );
   }
 
-  const currentColumn = data.recommendation_details[0];
-
   return (
     <div className="space-y-6 py-6">
       <AtAGlanceCard banner={data.banner} priceTarget={data.price_target} currency={quoteCurrency} />
-
-      {currentColumn && (
-        <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
-          <h2 className="font-heading text-sm font-semibold text-text-primary">Analyst Distribution</h2>
-          <AnalystDistributionBar column={currentColumn} />
-        </div>
-      )}
-
-      <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
-        <h2 className="font-heading text-sm font-semibold text-text-primary">Recommendation Trend</h2>
-        <RatingDistributionTrendChart history={data.history} />
-      </div>
-
-      <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
-        <h2 className="font-heading text-sm font-semibold text-text-primary">Average Rating Trend</h2>
-        <AvgRatingTrendChart history={data.history} />
-      </div>
-
       <PriceTargetTrendCard history={data.history} recency={data.price_target_by_recency} currency={quoteCurrency} />
-
-      <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
-        <h2 className="font-heading text-sm font-semibold text-text-primary">Recommendation Details</h2>
-        <RecommendationDetailsTable columns={data.recommendation_details} currency={quoteCurrency} />
-      </div>
+      <SentimentOverTimeCard history={data.history} columns={data.recommendation_details} currency={quoteCurrency} />
     </div>
   );
 }
