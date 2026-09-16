@@ -5,11 +5,13 @@ interface Props {
 }
 
 // Same fixed status-palette steps (good/warning/critical) as
-// AnalystDistributionBar's own segments -- kept in sync by convention, not
+// CurrentDistributionList's own segments -- kept in sync by convention, not
 // a shared import, since it's a handful of CSS-var references used in 2
 // places with slightly different category counts (3 here, 5 there).
 const STATUS_COLORS = { buy: "var(--color-positive)", hold: "var(--color-warn)", sell: "var(--color-negative)" };
 
+// Content-only -- no outer card wrapper. Embedded as the left column of
+// AtAGlanceCard, which owns the outer border/background/padding.
 export function ConsensusBanner({ data }: Props) {
   const total = data.buy_count + data.hold_count + data.sell_count;
   const buyPct = total ? (data.buy_count / total) * 100 : 0;
@@ -17,7 +19,7 @@ export function ConsensusBanner({ data }: Props) {
   const sellPct = total ? (data.sell_count / total) * 100 : 0;
 
   return (
-    <div className="space-y-4 rounded-lg border border-border-card bg-surface p-6">
+    <div className="space-y-4">
       <div className="flex items-baseline justify-between">
         <div>
           <p className="text-xs uppercase tracking-widest text-text-tertiary">Consensus Rating</p>

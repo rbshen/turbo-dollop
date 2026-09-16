@@ -1,10 +1,9 @@
 "use client";
 
 import { AnalystDistributionBar } from "@/components/analystRatings/AnalystDistributionBar";
+import { AtAGlanceCard } from "@/components/analystRatings/AtAGlanceCard";
 import { AvgRatingTrendChart } from "@/components/analystRatings/AvgRatingTrendChart";
-import { ConsensusBanner } from "@/components/analystRatings/ConsensusBanner";
 import { PriceTargetRecencyCard } from "@/components/analystRatings/PriceTargetRecencyCard";
-import { PriceTargetsCard } from "@/components/analystRatings/PriceTargetsCard";
 import { PriceTargetTrendChart } from "@/components/analystRatings/PriceTargetTrendChart";
 import { RatingDistributionTrendChart } from "@/components/analystRatings/RatingDistributionTrendChart";
 import { RecommendationDetailsTable } from "@/components/analystRatings/RecommendationDetailsTable";
@@ -46,10 +45,7 @@ export function AnalystRatingsTab({ ticker }: Props) {
 
   return (
     <div className="space-y-6 py-6">
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <ConsensusBanner data={data.banner} />
-        <PriceTargetsCard data={data.price_target} currency={quoteCurrency} />
-      </div>
+      <AtAGlanceCard banner={data.banner} priceTarget={data.price_target} currency={quoteCurrency} />
 
       <PriceTargetRecencyCard data={data.price_target_by_recency} currency={quoteCurrency} />
 
