@@ -40,3 +40,14 @@ export function computeNiceTicksRange(min: number, max: number, count = 4): numb
   }
   return ticks;
 }
+
+/** Caps how many x-axis category labels a chart ever tries to render,
+ * regardless of category count -- without this, a caller with a long
+ * category list (e.g. 10 years of monthly history) relies on recharts' own
+ * default interval/minTickGap heuristic, which at high density produces
+ * either illegibly cramped or effectively invisible labels. A caller with
+ * few categories is unaffected: the computed interval is 0, i.e. "show
+ * every tick". Pass straight into a Recharts `<XAxis interval={...} />`. */
+export function capXAxisTickInterval(categoryCount: number, maxTicks = 10): number {
+  return categoryCount > maxTicks ? Math.ceil(categoryCount / maxTicks) - 1 : 0;
+}

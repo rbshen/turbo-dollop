@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Bar, BarChart, XAxis, YAxis } from "recharts";
 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import { capXAxisTickInterval } from "@/lib/charts";
 
 export interface ChartSeries {
   key: string;
@@ -15,20 +16,6 @@ export interface ChartSeries {
 // one bar per category (segments stack into it), so it can afford to run
 // wide, unlike a denser multi-bar-per-category chart.
 const STACKED_BAR_SIZE = 44;
-
-// Caps how many x-axis labels are ever shown, regardless of category count.
-// Without this, a caller with a long category list (e.g. 10 years of
-// monthly analyst-rating history, up to 120 points) relies on recharts'
-// own default interval ('preserveEnd', minTickGap 5px) to thin ticks --
-// which, at that density, produces either illegibly cramped or effectively
-// invisible labels. A caller with few categories (e.g. SegmentationSection's
-// per-fiscal-year bars) is unaffected: the computed interval is 0, i.e.
-// "show every tick", identical to the prior unset-interval behavior.
-const MAX_X_AXIS_TICKS = 10;
-
-function xAxisInterval(categoryCount: number): number {
-  return categoryCount > MAX_X_AXIS_TICKS ? Math.ceil(categoryCount / MAX_X_AXIS_TICKS) - 1 : 0;
-}
 
 interface Props {
   categories: string[];
@@ -71,7 +58,7 @@ export function RechartsStackedChart({ categories, series, values, yTicks, yTick
           dataKey="category"
           tickLine={false}
           axisLine={false}
-          interval={xAxisInterval(categories.length)}
+          interval={capXAxisTickInterval(categories.length)}
           tick={{ fill: "var(--color-text-tertiary)", fontSize: 10 }}
         />
         {/* Y-axis kept mounted (for the same domain/headroom the tooltip's

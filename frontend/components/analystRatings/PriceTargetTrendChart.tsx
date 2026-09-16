@@ -1,4 +1,4 @@
-import { MiniBarChart } from "@/components/charts/MiniBarChart";
+import { RechartsAreaChart } from "@/components/charts/RechartsAreaChart";
 import type { RatingHistoryPoint } from "@/lib/api/types";
 import { fmtMoney } from "@/lib/format";
 
@@ -7,10 +7,8 @@ interface Props {
   currency?: string;
 }
 
-// "Average Price Target Trend" bar chart -- one x (period) to one y
-// (avg_price_target) value per bar, so it follows the same MiniBarChart
-// house style as the Financials tab's Historical Trends grid (thick bars,
-// no axis, hover tooltip) rather than a bespoke chart.
+// "Average Price Target Trend" -- one x (period) to one y (avg_price_target)
+// value per point, rendered as a smooth line + gradient-area chart.
 export function PriceTargetTrendChart({ history, currency = "USD" }: Props) {
   const hasPriceTargetHistory = history.some((point) => point.avg_price_target != null);
 
@@ -23,11 +21,11 @@ export function PriceTargetTrendChart({ history, currency = "USD" }: Props) {
   }
 
   return (
-    <MiniBarChart
+    <RechartsAreaChart
       categories={history.map((point) => point.date.slice(0, 7))}
       values={history.map((point) => point.avg_price_target)}
       valueFormat={(v) => fmtMoney(v, currency)}
-      height={140}
+      height={216}
     />
   );
 }
