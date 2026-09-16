@@ -3,8 +3,7 @@
 import { AnalystDistributionBar } from "@/components/analystRatings/AnalystDistributionBar";
 import { AtAGlanceCard } from "@/components/analystRatings/AtAGlanceCard";
 import { AvgRatingTrendChart } from "@/components/analystRatings/AvgRatingTrendChart";
-import { PriceTargetRecencyCard } from "@/components/analystRatings/PriceTargetRecencyCard";
-import { PriceTargetTrendChart } from "@/components/analystRatings/PriceTargetTrendChart";
+import { PriceTargetTrendCard } from "@/components/analystRatings/PriceTargetTrendCard";
 import { RatingDistributionTrendChart } from "@/components/analystRatings/RatingDistributionTrendChart";
 import { RecommendationDetailsTable } from "@/components/analystRatings/RecommendationDetailsTable";
 import { useAnalystRatings } from "@/lib/hooks/useAnalystRatings";
@@ -47,8 +46,6 @@ export function AnalystRatingsTab({ ticker }: Props) {
     <div className="space-y-6 py-6">
       <AtAGlanceCard banner={data.banner} priceTarget={data.price_target} currency={quoteCurrency} />
 
-      <PriceTargetRecencyCard data={data.price_target_by_recency} currency={quoteCurrency} />
-
       {currentColumn && (
         <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
           <h2 className="font-heading text-sm font-semibold text-text-primary">Analyst Distribution</h2>
@@ -66,10 +63,7 @@ export function AnalystRatingsTab({ ticker }: Props) {
         <AvgRatingTrendChart history={data.history} />
       </div>
 
-      <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
-        <h2 className="font-heading text-sm font-semibold text-text-primary">Average Price Target Trend</h2>
-        <PriceTargetTrendChart history={data.history} currency={quoteCurrency} />
-      </div>
+      <PriceTargetTrendCard history={data.history} recency={data.price_target_by_recency} currency={quoteCurrency} />
 
       <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
         <h2 className="font-heading text-sm font-semibold text-text-primary">Recommendation Details</h2>
