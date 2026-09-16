@@ -39,9 +39,18 @@ export function AnalystRatingsTab({ ticker }: Props) {
 
   return (
     <div className="space-y-6 py-6">
-      <AtAGlanceCard banner={data.banner} priceTarget={data.price_target} currency={quoteCurrency} />
-      <PriceTargetTrendCard history={data.history} recency={data.price_target_by_recency} currency={quoteCurrency} />
-      <SentimentOverTimeCard history={data.history} columns={data.recommendation_details} currency={quoteCurrency} />
+      <div className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">At a Glance</h2>
+        <AtAGlanceCard banner={data.banner} priceTarget={data.price_target} currency={quoteCurrency} />
+      </div>
+      <div className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Price Targets Over Time</h2>
+        <PriceTargetTrendCard history={data.history} recency={data.price_target_by_recency} currency={quoteCurrency} />
+      </div>
+      <div className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Analyst Sentiment Over Time</h2>
+        <SentimentOverTimeCard history={data.history} columns={data.recommendation_details} currency={quoteCurrency} />
+      </div>
     </div>
   );
 }
