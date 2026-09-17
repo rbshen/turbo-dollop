@@ -3,7 +3,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, create_engine
 
 import core.main as main
-from helpers.liquidity_zone_config import DEFAULT_CLUSTER_PCT, DEFAULT_NUM_ZONES, DEFAULT_SWING_BARS
+from helpers.liquidity_zone_config import DEFAULT_BREACH_RECENCY_BARS, DEFAULT_CLUSTER_PCT, DEFAULT_NUM_ZONES, DEFAULT_SWING_BARS
 
 
 def _fresh_engine(monkeypatch):
@@ -27,6 +27,8 @@ def test_get_returns_lazily_seeded_defaults(monkeypatch):
     assert body["weekly_swing_bars"] == DEFAULT_SWING_BARS
     assert body["weekly_cluster_pct"] == DEFAULT_CLUSTER_PCT
     assert body["weekly_num_zones"] == DEFAULT_NUM_ZONES
+    assert body["daily_breach_recency_bars"] == DEFAULT_BREACH_RECENCY_BARS
+    assert body["weekly_breach_recency_bars"] == DEFAULT_BREACH_RECENCY_BARS
 
 
 def test_put_updates_both_timeframes_independently_and_subsequent_get_reflects_it(monkeypatch):
@@ -42,15 +44,21 @@ def test_put_updates_both_timeframes_independently_and_subsequent_get_reflects_i
             "weekly_swing_bars": 2,
             "weekly_cluster_pct": 3.0,
             "weekly_num_zones": 5,
+            "daily_breach_recency_bars": 8,
+            "weekly_breach_recency_bars": 4,
         },
     )
     assert put_response.status_code == 200
     body = put_response.json()
     assert body["daily_swing_bars"] == 3
     assert body["weekly_num_zones"] == 5
+    assert body["daily_breach_recency_bars"] == 8
+    assert body["weekly_breach_recency_bars"] == 4
 
     get_response = client.get("/api/config/liquidity-zones")
     assert get_response.status_code == 200
     got = get_response.json()
     assert got["daily_cluster_pct"] == 1.5
     assert got["weekly_cluster_pct"] == 3.0
+    assert got["daily_breach_recency_bars"] == 8
+    assert got["weekly_breach_recency_bars"] == 4

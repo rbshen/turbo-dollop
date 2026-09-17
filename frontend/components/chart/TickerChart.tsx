@@ -60,6 +60,11 @@ const COLORS = {
   // superseded by this request.
   lpSupport: "#10b981",
   lpResistance: "#ef4444",
+  // Most-recently-breached LP level (see ChartZoneOut.broken) -- distinct
+  // colors so a broken level never reads as an active one, per explicit
+  // request.
+  lpSupportBroken: "#FF9800",
+  lpResistanceBroken: "#E040FB",
   // Warren RSI/ADX/WVF's own Blue/Yellow/Gray convention, per the
   // reference script -- distinct from BB+RSI's plain green `marker`
   // above, and reused identically for both the Up (buy) and Down (sell)
@@ -449,8 +454,15 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
     const isSupport = zone.side === "support";
     const points = data.bars.filter((b) => b.time >= zone.formed_at).map((b) => ({ time: b.time, value: zone.price }));
     if (!points.length) continue;
+    const color = zone.broken
+      ? isSupport
+        ? COLORS.lpSupportBroken
+        : COLORS.lpResistanceBroken
+      : isSupport
+        ? COLORS.lpSupport
+        : COLORS.lpResistance;
     const zoneLine = chart.addSeries(LineSeries, {
-      color: isSupport ? COLORS.lpSupport : COLORS.lpResistance,
+      color,
       lineWidth: 1,
       lineStyle: LineStyle.Solid,
       priceLineVisible: false,

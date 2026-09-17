@@ -1274,6 +1274,21 @@ class ZoneOut(BaseModel):
     formed_at: date
 
 
+class BrokenZoneOut(BaseModel):
+    """The single most-recently-breached support or resistance level that
+    still qualifies for display -- see
+    analysis/liquidity_zones/types.py::BrokenZone for the pure-engine
+    shape this mirrors. `distance_pct` is derived the same way ZoneOut's
+    own is. `breached_at` is the later, confirming swing's own date (the
+    "breach bar"), distinct from `formed_at` (the original swing's own
+    date)."""
+
+    price: float
+    distance_pct: float  # (price - last_price) / last_price * 100
+    formed_at: date
+    breached_at: date
+
+
 class LiquidityZoneOut(BaseModel):
     """One timeframe's (Daily or Weekly) complete Liquidity Zone (LP) read
     -- see models.py::LiquidityZoneAnalysis for the persisted shape this
@@ -1281,7 +1296,9 @@ class LiquidityZoneOut(BaseModel):
     correct-side-of-price, clustered zones (see analysis/liquidity_zones/
     engine.py) -- an empty list means genuinely zero currently-valid zones
     on that side (sparse history, or price has never pulled back far
-    enough to form one yet), not a data gap."""
+    enough to form one yet), not a data gap. broken_support/
+    broken_resistance are None whenever no breach currently qualifies for
+    display (see BrokenZoneOut's own docstring)."""
 
     timeframe: str  # "daily" | "weekly"
     last_price: float
@@ -1290,6 +1307,8 @@ class LiquidityZoneOut(BaseModel):
     source: str  # "fmp" | "yahoo"
     support_zones: list[ZoneOut]
     resistance_zones: list[ZoneOut]
+    broken_support: BrokenZoneOut | None = None
+    broken_resistance: BrokenZoneOut | None = None
 
 
 class LiquidityZonesOut(BaseModel):
@@ -1371,11 +1390,15 @@ class ChartZoneOut(BaseModel):
     establishing swing's own date (same field LiquidityZoneAnalysis calls
     formed_at), already filtered server-side to fall within this
     response's own visible window -- see get_chart_data's range-filtering
-    comment."""
+    comment. `broken=True` marks the (at most one per side) most-recently-
+    breached zone -- see BrokenZoneOut -- so the frontend can render it in
+    a distinct color while reusing the exact same LineSeries mechanism as
+    an active zone."""
 
     side: str  # "support" | "resistance"
     price: float
     formed_at: str  # "YYYY-MM-DD"
+    broken: bool = False
 
 
 class ChartOut(BaseModel):
@@ -1440,6 +1463,8 @@ class LiquidityZoneConfigOut(BaseModel):
     weekly_swing_bars: int
     weekly_cluster_pct: float
     weekly_num_zones: int
+    daily_breach_recency_bars: int
+    weekly_breach_recency_bars: int
     updated_at: datetime
 
 
@@ -1450,6 +1475,8 @@ class LiquidityZoneConfigIn(BaseModel):
     weekly_swing_bars: int
     weekly_cluster_pct: float
     weekly_num_zones: int
+    daily_breach_recency_bars: int
+    weekly_breach_recency_bars: int
 
 
 class MomentumSnapshotRowOut(BaseModel):

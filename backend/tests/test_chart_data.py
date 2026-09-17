@@ -6,7 +6,7 @@ import pytest
 
 import data.chart_data as chart_data
 from core.models import TechnicalEntrySignalEvent, WarrenSignalEvent
-from core.schemas import LiquidityZoneOut, LiquidityZonesOut, TechnicalEntrySignalOut, ZoneOut
+from core.schemas import BrokenZoneOut, LiquidityZoneOut, LiquidityZonesOut, TechnicalEntrySignalOut, ZoneOut
 
 
 def _daily_df(n: int, *, end: pd.Timestamp | None = None) -> pd.DataFrame:
@@ -116,7 +116,17 @@ def _zone_out(price: float, formed_at: str) -> ZoneOut:
     return ZoneOut(price=price, distance_pct=0.0, cluster_size=1, formed_at=date.fromisoformat(formed_at))
 
 
-def _lp_out(*, support: list[ZoneOut], resistance: list[ZoneOut]) -> LiquidityZoneOut:
+def _broken_zone_out(price: float, formed_at: str, breached_at: str) -> BrokenZoneOut:
+    return BrokenZoneOut(price=price, distance_pct=0.0, formed_at=date.fromisoformat(formed_at), breached_at=date.fromisoformat(breached_at))
+
+
+def _lp_out(
+    *,
+    support: list[ZoneOut],
+    resistance: list[ZoneOut],
+    broken_support: BrokenZoneOut | None = None,
+    broken_resistance: BrokenZoneOut | None = None,
+) -> LiquidityZoneOut:
     now = datetime.now()
     return LiquidityZoneOut(
         timeframe="daily",
@@ -126,6 +136,8 @@ def _lp_out(*, support: list[ZoneOut], resistance: list[ZoneOut]) -> LiquidityZo
         source="yahoo",
         support_zones=support,
         resistance_zones=resistance,
+        broken_support=broken_support,
+        broken_resistance=broken_resistance,
     )
 
 
@@ -676,6 +688,61 @@ def test_zones_within_visible_window_included_outside_excluded(monkeypatch):
     assert out.zones_available is True
     got = {(z.side, z.price) for z in out.zones}
     assert got == {("support", 90.0), ("resistance", 110.0)}  # the outside-window support zone is dropped
+
+
+def test_broken_zone_within_window_is_included_with_broken_flag_set(monkeypatch):
+    df = _daily_df(600)
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: df}
+
+    today = pd.Timestamp.today().normalize()
+    within = (today - pd.Timedelta(days=300)).strftime("%Y-%m-%d")  # inside D_1Y's 365-day window
+    breached_at = (today - pd.Timedelta(days=100)).strftime("%Y-%m-%d")
+    outside = (today - pd.Timedelta(days=400)).strftime("%Y-%m-%d")  # older than the window
+
+    lp = LiquidityZonesOut(
+        daily=_lp_out(
+            support=[],
+            resistance=[],
+            broken_support=_broken_zone_out(85.0, within, breached_at),
+            broken_resistance=_broken_zone_out(115.0, outside, breached_at),
+        ),
+        weekly=None,
+    )
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", lambda ticker: lp)
+
+    out = asyncio.run(chart_data.get_chart_data("TRACKED", "D_1Y"))
+
+    # broken_support (formed within the visible window) shows up with
+    # broken=True; broken_resistance (formed before the window) is dropped
+    # entirely -- same "no bar to anchor against" rule active zones use.
+    assert len(out.zones) == 1
+    zone = out.zones[0]
+    assert (zone.side, zone.price, zone.broken) == ("support", 85.0, True)
+
+
+def test_no_broken_zone_when_none_currently_qualifies(monkeypatch):
+    df = _daily_df(600)
+    monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
+
+    async def fake_get_daily_bars(self, tickers, lookback_years):
+        return {tickers[0]: df}
+
+    within = (pd.Timestamp.today().normalize() - pd.Timedelta(days=300)).strftime("%Y-%m-%d")
+    lp = LiquidityZonesOut(daily=_lp_out(support=[_zone_out(90.0, within)], resistance=[]), weekly=None)
+
+    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", lambda ticker: lp)
+
+    out = asyncio.run(chart_data.get_chart_data("TRACKED", "D_1Y"))
+
+    assert all(not z.broken for z in out.zones)
 
 
 def test_zones_use_weekly_read_for_w4y_range_not_daily(monkeypatch):

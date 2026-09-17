@@ -1,13 +1,14 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import data.liquidity_zone_data as liquidity_zone_data
+from analysis.liquidity_zones.types import BrokenZone, LiquidityZoneResult
 from core.models import LiquidityZoneAnalysis, LiquidityZoneConfig
 from data.liquidity_zone_data import compute_and_store_liquidity_zones, get_liquidity_zone_data, sweep_stale_liquidity_zones
-from helpers.liquidity_zone_config import DEFAULT_CLUSTER_PCT, DEFAULT_NUM_ZONES, DEFAULT_SWING_BARS
+from helpers.liquidity_zone_config import DEFAULT_BREACH_RECENCY_BARS, DEFAULT_CLUSTER_PCT, DEFAULT_NUM_ZONES, DEFAULT_SWING_BARS
 
 
 def _fresh_engine(monkeypatch):
@@ -38,6 +39,8 @@ def _config() -> LiquidityZoneConfig:
         weekly_swing_bars=DEFAULT_SWING_BARS,
         weekly_cluster_pct=DEFAULT_CLUSTER_PCT,
         weekly_num_zones=DEFAULT_NUM_ZONES,
+        daily_breach_recency_bars=DEFAULT_BREACH_RECENCY_BARS,
+        weekly_breach_recency_bars=DEFAULT_BREACH_RECENCY_BARS,
         updated_at=datetime.now(),
     )
 
@@ -76,6 +79,35 @@ def test_get_liquidity_zone_data_parses_zones_and_computes_distance_pct(monkeypa
     resistance = out.daily.resistance_zones[0]
     assert resistance.price == pytest.approx(130.0)
     assert resistance.distance_pct == pytest.approx((130.0 - 102.5) / 102.5 * 100.0)
+
+
+def test_broken_zone_round_trips_through_storage_and_read(monkeypatch):
+    # Bypasses the real swing engine (already exhaustively covered in
+    # analysis/liquidity_zones/test_engine.py) to isolate this test to the
+    # data-layer's own JSON persist/parse plumbing for the new
+    # broken_support/broken_resistance fields.
+    engine = _fresh_engine(monkeypatch)
+    fake_result = LiquidityZoneResult(
+        last_price=100.0,
+        as_of=date(2026, 1, 10),
+        support=[],
+        resistance=[],
+        broken_support=BrokenZone(price=90.0, formed_at=date(2026, 1, 1), breached_at=date(2026, 1, 5)),
+        broken_resistance=None,
+    )
+    monkeypatch.setattr(liquidity_zone_data, "compute_liquidity_zones", lambda *args, **kwargs: fake_result)
+
+    compute_and_store_liquidity_zones("AAPL", _ohlcv(), source="fmp", config=_config())
+    out = get_liquidity_zone_data("AAPL")
+
+    assert out is not None
+    for lp_read in (out.daily, out.weekly):
+        assert lp_read.broken_support is not None
+        assert lp_read.broken_support.price == 90.0
+        assert lp_read.broken_support.formed_at == date(2026, 1, 1)
+        assert lp_read.broken_support.breached_at == date(2026, 1, 5)
+        assert lp_read.broken_support.distance_pct == pytest.approx((90.0 - 100.0) / 100.0 * 100.0)
+        assert lp_read.broken_resistance is None
 
 
 def test_recompute_upserts_rather_than_duplicating_rows(monkeypatch):
@@ -125,6 +157,8 @@ def _seed_row(
     computed_at: datetime,
     support_json: str = '[{"price": 90.0, "cluster_size": 1, "formed_at": "2026-01-01"}]',
     resistance_json: str = '[{"price": 130.0, "cluster_size": 1, "formed_at": "2026-01-01"}]',
+    broken_support_json: str | None = None,
+    broken_resistance_json: str | None = None,
 ):
     with Session(engine) as session:
         session.add(
@@ -135,6 +169,8 @@ def _seed_row(
                 as_of=computed_at.date(),
                 support_zones_json=support_json,
                 resistance_zones_json=resistance_json,
+                broken_support_json=broken_support_json,
+                broken_resistance_json=broken_resistance_json,
                 source="fmp",
                 computed_at=computed_at,
             )
@@ -173,6 +209,44 @@ def test_sweep_leaves_a_fresh_row_untouched(monkeypatch):
     with Session(engine) as session:
         row = session.get(LiquidityZoneAnalysis, ("AAPL", "daily"))
     assert row.support_zones_json != "[]"
+
+
+def test_sweep_clears_a_stale_rows_broken_zone_fields_to_null(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    now = datetime(2026, 9, 9, 12, 0)
+    stale_computed_at = now - timedelta(days=8)
+    _seed_row(
+        engine,
+        stale_computed_at,
+        broken_support_json='{"price": 85.0, "formed_at": "2026-01-01", "breached_at": "2026-01-05"}',
+    )
+
+    cleared = sweep_stale_liquidity_zones(now=now)
+
+    assert cleared == 1
+    with Session(engine) as session:
+        row = session.get(LiquidityZoneAnalysis, ("AAPL", "daily"))
+    assert row.broken_support_json is None
+    assert row.broken_resistance_json is None
+
+
+def test_sweep_triggers_on_a_stale_row_whose_only_leftover_state_is_a_broken_zone(monkeypatch):
+    # Active zones already "[]" (a previously-swept row), but a broken
+    # zone was recorded on a later run before the ticker fell off the
+    # watchlist again -- the WHERE clause's broken-zone half must catch
+    # this, not just the support/resistance-json half.
+    engine = _fresh_engine(monkeypatch)
+    now = datetime(2026, 9, 9, 12, 0)
+    stale_computed_at = now - timedelta(days=8)
+    _seed_row(
+        engine,
+        stale_computed_at,
+        support_json="[]",
+        resistance_json="[]",
+        broken_support_json='{"price": 85.0, "formed_at": "2026-01-01", "breached_at": "2026-01-05"}',
+    )
+
+    assert sweep_stale_liquidity_zones(now=now) == 1
 
 
 def test_sweep_is_idempotent_on_an_already_cleared_row(monkeypatch):

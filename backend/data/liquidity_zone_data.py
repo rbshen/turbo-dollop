@@ -20,11 +20,11 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session
 
 from analysis.liquidity_zones.engine import compute_liquidity_zones
-from analysis.liquidity_zones.types import Zone
+from analysis.liquidity_zones.types import BrokenZone, Zone
 from analysis.trend_structure.weinstein import resample_to_weekly
 from core.db import engine
 from core.models import LiquidityZoneAnalysis, LiquidityZoneConfig
-from core.schemas import LiquidityZoneOut, LiquidityZonesOut, ZoneOut
+from core.schemas import BrokenZoneOut, LiquidityZoneOut, LiquidityZonesOut, ZoneOut
 from core.tickers import normalize_ticker
 
 # Sliced from the same fetched frame the Weekly timeframe resamples in
@@ -62,6 +62,24 @@ def _zones_from_json(raw: str, last_price: float) -> list[ZoneOut]:
     return [_zone_out(item["price"], item["cluster_size"], date.fromisoformat(item["formed_at"]), last_price) for item in payload]
 
 
+def _broken_zone_to_json(broken: BrokenZone | None) -> str | None:
+    if broken is None:
+        return None
+    return json.dumps({"price": broken.price, "formed_at": broken.formed_at.isoformat(), "breached_at": broken.breached_at.isoformat()})
+
+
+def _broken_zone_out(raw: str | None, last_price: float) -> BrokenZoneOut | None:
+    if raw is None:
+        return None
+    item = json.loads(raw)
+    return BrokenZoneOut(
+        price=item["price"],
+        distance_pct=(item["price"] - last_price) / last_price * 100.0,
+        formed_at=date.fromisoformat(item["formed_at"]),
+        breached_at=date.fromisoformat(item["breached_at"]),
+    )
+
+
 def _row_to_out(row: LiquidityZoneAnalysis) -> LiquidityZoneOut:
     return LiquidityZoneOut(
         timeframe=row.timeframe,
@@ -71,6 +89,8 @@ def _row_to_out(row: LiquidityZoneAnalysis) -> LiquidityZoneOut:
         source=row.source,
         support_zones=_zones_from_json(row.support_zones_json, row.last_price),
         resistance_zones=_zones_from_json(row.resistance_zones_json, row.last_price),
+        broken_support=_broken_zone_out(row.broken_support_json, row.last_price),
+        broken_resistance=_broken_zone_out(row.broken_resistance_json, row.last_price),
     )
 
 
@@ -89,8 +109,12 @@ def compute_and_store_liquidity_zones(ticker: str, ohlcv: pd.DataFrame, source: 
     daily_df = ohlcv[ohlcv.index >= daily_cutoff]
     weekly_df = resample_to_weekly(ohlcv)
 
-    daily_result = compute_liquidity_zones(daily_df, config.daily_swing_bars, config.daily_cluster_pct, config.daily_num_zones)
-    weekly_result = compute_liquidity_zones(weekly_df, config.weekly_swing_bars, config.weekly_cluster_pct, config.weekly_num_zones)
+    daily_result = compute_liquidity_zones(
+        daily_df, config.daily_swing_bars, config.daily_cluster_pct, config.daily_num_zones, config.daily_breach_recency_bars
+    )
+    weekly_result = compute_liquidity_zones(
+        weekly_df, config.weekly_swing_bars, config.weekly_cluster_pct, config.weekly_num_zones, config.weekly_breach_recency_bars
+    )
 
     computed_at = datetime.now()
     with Session(engine) as session:
@@ -100,6 +124,8 @@ def compute_and_store_liquidity_zones(ticker: str, ohlcv: pd.DataFrame, source: 
                 "as_of": result.as_of,
                 "support_zones_json": _zones_to_json(result.support),
                 "resistance_zones_json": _zones_to_json(result.resistance),
+                "broken_support_json": _broken_zone_to_json(result.broken_support),
+                "broken_resistance_json": _broken_zone_to_json(result.broken_resistance),
                 "source": source,
                 "computed_at": computed_at,
             }
@@ -135,13 +161,14 @@ def sweep_stale_liquidity_zones(now: datetime | None = None) -> int:
     job's per-ticker loop at all. Sets support_zones_json/
     resistance_zones_json to _EMPTY_ZONES_JSON ("no zones") rather than
     NULL, since both columns are NOT NULL and relaxing that would need a
-    SQLite table recreate. last_price/as_of/source/computed_at are
-    deliberately left untouched, standing as a "last known" breadcrumb
-    (computed_at in particular is what the ticker-page card uses to show
-    "computed on X, no longer tracked") rather than deleting the row
-    outright, which would lose that breadcrumb for no real storage-cost
-    benefit (this table is one row per ticker/timeframe, not an
-    accumulating time series).
+    SQLite table recreate. broken_support_json/broken_resistance_json are
+    nullable, so those are cleared to genuine NULL instead. last_price/
+    as_of/source/computed_at are deliberately left untouched, standing as
+    a "last known" breadcrumb (computed_at in particular is what the
+    ticker-page card uses to show "computed on X, no longer tracked")
+    rather than deleting the row outright, which would lose that
+    breadcrumb for no real storage-cost benefit (this table is one row
+    per ticker/timeframe, not an accumulating time series).
 
     Only rewrites rows that still have real zones to clear, so re-running
     this against an already-swept row is a cheap no-op, not a repeated
@@ -156,9 +183,16 @@ def sweep_stale_liquidity_zones(now: datetime | None = None) -> int:
                 or_(
                     LiquidityZoneAnalysis.support_zones_json != _EMPTY_ZONES_JSON,
                     LiquidityZoneAnalysis.resistance_zones_json != _EMPTY_ZONES_JSON,
+                    LiquidityZoneAnalysis.broken_support_json.is_not(None),
+                    LiquidityZoneAnalysis.broken_resistance_json.is_not(None),
                 ),
             )
-            .values(support_zones_json=_EMPTY_ZONES_JSON, resistance_zones_json=_EMPTY_ZONES_JSON)
+            .values(
+                support_zones_json=_EMPTY_ZONES_JSON,
+                resistance_zones_json=_EMPTY_ZONES_JSON,
+                broken_support_json=None,
+                broken_resistance_json=None,
+            )
         )
         result = session.execute(stmt)
         session.commit()

@@ -365,7 +365,18 @@ class LiquidityZoneAnalysis(SQLModel, table=True):
     codebase's established convention for a JSON-shaped field (see
     TrendAnalysis.last_confirmed_swing_json/warning_swing_json above), not
     a native JSON column type, which doesn't exist anywhere else in this
-    codebase either."""
+    codebase either.
+
+    broken_support_json/broken_resistance_json (added for the most-
+    recently-breached-zone tracking feature) hold at most ONE {price,
+    formed_at, breached_at} object each -- None whenever no breach
+    currently qualifies for display (see analysis/liquidity_zones/
+    types.py::BrokenZone and engine.py's own module docstring for the two
+    hard filters). Single-object JSON, not a list, matching
+    TrendAnalysis.last_confirmed_swing_json's convention rather than
+    support_zones_json's list-shaped one above, since at most one broken
+    zone ever exists per side per timeframe. Nullable for the usual
+    _add_missing_columns-has-no-backfill reason."""
 
     ticker: str = Field(primary_key=True)
     timeframe: str = Field(primary_key=True)  # "daily" | "weekly"
@@ -373,6 +384,8 @@ class LiquidityZoneAnalysis(SQLModel, table=True):
     as_of: date
     support_zones_json: str
     resistance_zones_json: str
+    broken_support_json: str | None = None
+    broken_resistance_json: str | None = None
     source: str  # "fmp" | "yahoo"
     computed_at: datetime  # when the nightly job produced this row
 
@@ -481,12 +494,25 @@ class LiquidityZoneConfig(SQLModel, table=True):
     /settings, same lazy-seed get-or-create pattern as MoatScoreConfig/
     ReitDividendYieldConfig (see helpers/liquidity_zone_config.py).
     Singleton row, keyed on a fixed `key`. Daily and Weekly each get their
-    own independent swing_bars/cluster_pct/num_zones -- deliberately not
-    shared, since the two timeframes' lookback windows and typical price
-    ranges call for different tuning. A change here only takes effect on
-    the next nightly run (pipeline/nightly_liquidity_zone_calculation.py),
-    not retroactively -- this feature has no live-recompute path the way
-    Step 3's discount rate does."""
+    own independent swing_bars/cluster_pct/num_zones/breach_recency_bars --
+    deliberately not shared, since the two timeframes' lookback windows and
+    typical price ranges call for different tuning. A change here only
+    takes effect on the next nightly run
+    (pipeline/nightly_liquidity_zone_calculation.py), not retroactively --
+    this feature has no live-recompute path the way Step 3's discount rate
+    does.
+
+    daily_breach_recency_bars/weekly_breach_recency_bars (added for the
+    most-recently-breached-zone tracking feature) control how many bars
+    back from the current bar a breach can have occurred and still qualify
+    for display -- see analysis/liquidity_zones/engine.py's own module
+    docstring. Nullable (unlike the six original fields above, which
+    predate this column and were always populated by the lazy-seed path)
+    purely for the usual _add_missing_columns-has-no-backfill reason: an
+    existing on-disk row reads NULL for these two until the next save;
+    helpers/liquidity_zone_config.py::get_liquidity_zone_config coalesces
+    that back to DEFAULT_BREACH_RECENCY_BARS at read time so a stale row
+    never silently passes None into the engine."""
 
     key: str = Field(primary_key=True, default="default")
     daily_swing_bars: int
@@ -495,6 +521,8 @@ class LiquidityZoneConfig(SQLModel, table=True):
     weekly_swing_bars: int
     weekly_cluster_pct: float
     weekly_num_zones: int
+    daily_breach_recency_bars: int | None = None
+    weekly_breach_recency_bars: int | None = None
     updated_at: datetime
 
 

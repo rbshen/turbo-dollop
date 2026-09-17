@@ -1303,6 +1303,15 @@ export interface ZoneOut {
   formed_at: string;
 }
 
+export interface BrokenZoneOut {
+  price: number;
+  distance_pct: number;
+  formed_at: string;
+  // The later, confirming swing's own date (the "breach bar") -- distinct
+  // from formed_at, the original swing's own date.
+  breached_at: string;
+}
+
 export interface LiquidityZoneOut {
   timeframe: string; // "daily" | "weekly"
   last_price: number;
@@ -1315,6 +1324,10 @@ export interface LiquidityZoneOut {
   // one yet), not a data gap.
   support_zones: ZoneOut[];
   resistance_zones: ZoneOut[];
+  // The single most-recently-breached zone per side, if any currently
+  // qualifies for display -- null when none does.
+  broken_support: BrokenZoneOut | null;
+  broken_resistance: BrokenZoneOut | null;
 }
 
 export interface LiquidityZonesOut {
@@ -1364,6 +1377,9 @@ export interface ChartZoneOut {
   side: "support" | "resistance";
   price: number;
   formed_at: string; // "YYYY-MM-DD"
+  // True for the (at most one per side) most-recently-breached zone --
+  // rendered the same way as an active zone, just in a distinct color.
+  broken: boolean;
 }
 
 export type ChartRange = "D_6M" | "D_1Y" | "D_2Y" | "W_4Y";
@@ -1409,6 +1425,8 @@ export interface LiquidityZoneConfigOut {
   weekly_swing_bars: number;
   weekly_cluster_pct: number;
   weekly_num_zones: number;
+  daily_breach_recency_bars: number;
+  weekly_breach_recency_bars: number;
   updated_at: string;
 }
 

@@ -39,13 +39,33 @@ class Zone:
 
 
 @dataclass(frozen=True)
+class BrokenZone:
+    """The single most recently breached support or resistance level that
+    still qualifies for display -- see engine.py's own module docstring
+    for the two hard filters (recency window + positional constraint)
+    this must clear. `formed_at` is the original swing's own date (same
+    meaning as Zone.formed_at); `breached_at` is the date of the LATER,
+    confirming swing that broke it -- the "breach bar" the recency window
+    is measured from. Never clustered with other breached candidates,
+    unlike Zone -- at most one BrokenZone exists per side per timeframe."""
+
+    price: float
+    formed_at: date
+    breached_at: date
+
+
+@dataclass(frozen=True)
 class LiquidityZoneResult:
     """One timeframe's (Daily or Weekly) complete LP read. support/
     resistance are already filtered to the side of last_price that's
     actually meaningful and capped at the caller's num_zones, nearest
-    first -- see engine.py's own module docstring for why."""
+    first -- see engine.py's own module docstring for why. broken_support/
+    broken_resistance are None whenever no breach currently qualifies for
+    display (see BrokenZone's own docstring)."""
 
     last_price: float
     as_of: date
     support: list[Zone]
     resistance: list[Zone]
+    broken_support: BrokenZone | None = None
+    broken_resistance: BrokenZone | None = None

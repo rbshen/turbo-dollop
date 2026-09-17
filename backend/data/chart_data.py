@@ -175,7 +175,11 @@ def _filter_zones(lp_read: LiquidityZoneOut | None, visible_start: pd.Timestamp)
     independent num_zones cap (which already happened server-side, inside
     the nightly job). A zone established before visible_start is dropped
     entirely for this range, even if it's still unbreached/active --
-    there's no bar on this chart for it to anchor against."""
+    there's no bar on this chart for it to anchor against. The same
+    formed_at cutoff also gates the at-most-one-per-side most-recently-
+    breached zone (broken=True) -- it reuses the exact same LineSeries/
+    formed_at-anchoring mechanism as an active zone, just in a distinct
+    color, so it needs the same "no bar to anchor against" guard."""
     if lp_read is None:
         return []
     visible_start_date = visible_start.date()
@@ -184,6 +188,9 @@ def _filter_zones(lp_read: LiquidityZoneOut | None, visible_start: pd.Timestamp)
         for z in zone_list:
             if z.formed_at >= visible_start_date:
                 zones.append(ChartZoneOut(side=side, price=z.price, formed_at=_fmt(z.formed_at)))
+    for side, broken in (("support", lp_read.broken_support), ("resistance", lp_read.broken_resistance)):
+        if broken is not None and broken.formed_at >= visible_start_date:
+            zones.append(ChartZoneOut(side=side, price=broken.price, formed_at=_fmt(broken.formed_at), broken=True))
     return zones
 
 

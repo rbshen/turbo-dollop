@@ -23,15 +23,26 @@ since a support level above today's price (or a resistance level below
 it) isn't a meaningful "nearest support/resistance" for the card this
 feeds. This is a display refinement on top of the locked breach rule, not
 a change to it.
-"""
+
+Most-recently-breached tracking: a breached swing is, by the locked
+breach rule above, no longer "valid" -- but the single most recent
+breach per side is still worth surfacing (see BrokenZone's own
+docstring) if it clears two hard filters, evaluated fresh every call
+against `breach_recency_bars` (rule 1, recency) and against the FULL
+clustered valid-zone set -- deliberately the same set used before the
+wrong-side-of-price/num_zones display filters above, since a zone that's
+valid but merely hidden from display is still a real obstacle for this
+comparison (rule 2, positional). No clustering is applied across
+breached candidates themselves -- this is a single scalar per side, not
+a second zone list."""
 
 from datetime import date
 
 import pandas as pd
 
 from .clustering import cluster_prices
-from .swings import annotate_swings, find_swing_highs, find_swing_lows, valid_prices_at
-from .types import LiquidityZoneResult
+from .swings import SwingEvent, annotate_swings, find_swing_highs, find_swing_lows, valid_prices_at
+from .types import BrokenZone, LiquidityZoneResult
 
 
 def _bar_date(index: pd.Index, pos: int) -> date:
@@ -39,12 +50,44 @@ def _bar_date(index: pd.Index, pos: int) -> date:
     return value.date() if hasattr(value, "date") else value
 
 
-def compute_liquidity_zones(df: pd.DataFrame, swing_bars: int, cluster_pct: float, num_zones: int) -> LiquidityZoneResult:
+def _select_broken_zone(
+    events: list[SwingEvent],
+    last_pos: int,
+    breach_recency_bars: int,
+    valid_zone_extreme: float | None,
+    kind: str,
+    index: pd.Index,
+) -> BrokenZone | None:
+    """Among `events` (the full swing list for one side), finds the single
+    most recently breached candidate clearing both hard filters. kind="low"
+    (support): a candidate must sit ABOVE valid_zone_extreme (the highest
+    still-valid support zone), if one exists. kind="high" (resistance): a
+    candidate must sit BELOW valid_zone_extreme (the lowest still-valid
+    resistance zone). "Most recent" is max(breach_pos) -- ties ARE
+    possible (a single later swing can breach several earlier, higher-
+    priced swings at once), broken by preferring the candidate with the
+    later original formation (max pos), since that's the more current of
+    the tied levels."""
+    candidates = [e for e in events if e.breach_pos is not None and last_pos - e.breach_pos <= breach_recency_bars]
+    if kind == "low":
+        candidates = [e for e in candidates if valid_zone_extreme is None or e.price > valid_zone_extreme]
+    else:
+        candidates = [e for e in candidates if valid_zone_extreme is None or e.price < valid_zone_extreme]
+    if not candidates:
+        return None
+    best = max(candidates, key=lambda e: (e.breach_pos, e.pos))
+    return BrokenZone(price=best.price, formed_at=best.date, breached_at=_bar_date(index, best.breach_pos))
+
+
+def compute_liquidity_zones(
+    df: pd.DataFrame, swing_bars: int, cluster_pct: float, num_zones: int, breach_recency_bars: int
+) -> LiquidityZoneResult:
     """df needs lowercase open/high/low/close/volume columns and a
     DatetimeIndex, ascending by date (matching every other engine in this
     codebase). Returns the nearest `num_zones` clustered support zones
     (below the last close) and resistance zones (above it), nearest
-    first."""
+    first, plus at most one most-recently-breached zone per side (see
+    BrokenZone's own docstring and this module's docstring)."""
     if df.empty:
         raise ValueError("compute_liquidity_zones requires a non-empty OHLC frame")
 
@@ -63,19 +106,27 @@ def compute_liquidity_zones(df: pd.DataFrame, swing_bars: int, cluster_pct: floa
 
     # Support: highest price first (adjacency for clustering), representative = lowest member.
     support_items = sorted(((e.price, e.date) for e in valid_lows), key=lambda item: item[0], reverse=True)
-    support_zones = cluster_prices(support_items, cluster_pct, representative="min")
-    support_zones = [z for z in support_zones if z.price <= last_price]
+    all_support_zones = cluster_prices(support_items, cluster_pct, representative="min")
+    support_zones = [z for z in all_support_zones if z.price <= last_price]
     support_zones.sort(key=lambda z: z.price, reverse=True)  # nearest (highest) first
 
     # Resistance: lowest price first (adjacency for clustering), representative = highest member.
     resistance_items = sorted(((e.price, e.date) for e in valid_highs), key=lambda item: item[0])
-    resistance_zones = cluster_prices(resistance_items, cluster_pct, representative="max")
-    resistance_zones = [z for z in resistance_zones if z.price >= last_price]
+    all_resistance_zones = cluster_prices(resistance_items, cluster_pct, representative="max")
+    resistance_zones = [z for z in all_resistance_zones if z.price >= last_price]
     resistance_zones.sort(key=lambda z: z.price)  # nearest (lowest) first
+
+    highest_valid_support = max((z.price for z in all_support_zones), default=None)
+    lowest_valid_resistance = min((z.price for z in all_resistance_zones), default=None)
+
+    broken_support = _select_broken_zone(low_events, last_pos, breach_recency_bars, highest_valid_support, "low", df.index)
+    broken_resistance = _select_broken_zone(high_events, last_pos, breach_recency_bars, lowest_valid_resistance, "high", df.index)
 
     return LiquidityZoneResult(
         last_price=last_price,
         as_of=as_of,
         support=support_zones[:num_zones],
         resistance=resistance_zones[:num_zones],
+        broken_support=broken_support,
+        broken_resistance=broken_resistance,
     )

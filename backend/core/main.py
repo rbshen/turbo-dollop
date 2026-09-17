@@ -253,6 +253,8 @@ def update_liquidity_zones(body: LiquidityZoneConfigIn) -> LiquidityZoneConfigOu
             body.weekly_swing_bars,
             body.weekly_cluster_pct,
             body.weekly_num_zones,
+            body.daily_breach_recency_bars,
+            body.weekly_breach_recency_bars,
         )
     return LiquidityZoneConfigOut(**row.model_dump())
 

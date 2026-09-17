@@ -36,9 +36,11 @@ function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
   const [dailySwingBars, setDailySwingBars] = useState(String(data.daily_swing_bars));
   const [dailyClusterPct, setDailyClusterPct] = useState(String(data.daily_cluster_pct));
   const [dailyNumZones, setDailyNumZones] = useState(String(data.daily_num_zones));
+  const [dailyBreachRecencyBars, setDailyBreachRecencyBars] = useState(String(data.daily_breach_recency_bars));
   const [weeklySwingBars, setWeeklySwingBars] = useState(String(data.weekly_swing_bars));
   const [weeklyClusterPct, setWeeklyClusterPct] = useState(String(data.weekly_cluster_pct));
   const [weeklyNumZones, setWeeklyNumZones] = useState(String(data.weekly_num_zones));
+  const [weeklyBreachRecencyBars, setWeeklyBreachRecencyBars] = useState(String(data.weekly_breach_recency_bars));
   const [status, setStatus] = useState<Status>("idle");
 
   async function handleSave() {
@@ -46,9 +48,11 @@ function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
       daily_swing_bars: parseInt(dailySwingBars, 10),
       daily_cluster_pct: parseFloat(dailyClusterPct),
       daily_num_zones: parseInt(dailyNumZones, 10),
+      daily_breach_recency_bars: parseInt(dailyBreachRecencyBars, 10),
       weekly_swing_bars: parseInt(weeklySwingBars, 10),
       weekly_cluster_pct: parseFloat(weeklyClusterPct),
       weekly_num_zones: parseInt(weeklyNumZones, 10),
+      weekly_breach_recency_bars: parseInt(weeklyBreachRecencyBars, 10),
     };
     if (Object.values(parsed).some((v) => Number.isNaN(v))) {
       setStatus("error");
@@ -85,6 +89,8 @@ function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
           setClusterPct={setDailyClusterPct}
           numZones={dailyNumZones}
           setNumZones={setDailyNumZones}
+          breachRecencyBars={dailyBreachRecencyBars}
+          setBreachRecencyBars={setDailyBreachRecencyBars}
           idPrefix="daily"
         />
         <TimeframeFields
@@ -95,6 +101,8 @@ function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
           setClusterPct={setWeeklyClusterPct}
           numZones={weeklyNumZones}
           setNumZones={setWeeklyNumZones}
+          breachRecencyBars={weeklyBreachRecencyBars}
+          setBreachRecencyBars={setWeeklyBreachRecencyBars}
           idPrefix="weekly"
         />
       </div>
@@ -123,6 +131,8 @@ interface TimeframeFieldsProps {
   setClusterPct: (v: string) => void;
   numZones: string;
   setNumZones: (v: string) => void;
+  breachRecencyBars: string;
+  setBreachRecencyBars: (v: string) => void;
 }
 
 function TimeframeFields({
@@ -134,6 +144,8 @@ function TimeframeFields({
   setClusterPct,
   numZones,
   setNumZones,
+  breachRecencyBars,
+  setBreachRecencyBars,
 }: TimeframeFieldsProps) {
   return (
     <div className="space-y-3">
@@ -178,6 +190,20 @@ function TimeframeFields({
           className="mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none"
           value={numZones}
           onChange={(e) => setNumZones(e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="block text-xs uppercase tracking-widest text-zinc-500" htmlFor={`${idPrefix}-breach-recency-bars`}>
+          Breach recency (bars)
+        </label>
+        <input
+          id={`${idPrefix}-breach-recency-bars`}
+          type="number"
+          step="1"
+          min="1"
+          className="mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none"
+          value={breachRecencyBars}
+          onChange={(e) => setBreachRecencyBars(e.target.value)}
         />
       </div>
     </div>
