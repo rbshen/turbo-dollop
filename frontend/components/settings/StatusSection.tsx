@@ -4,8 +4,14 @@ import { DataSourceCard } from "@/components/settings/DataSourceCard";
 import { ScheduledJobsSection } from "@/components/settings/ScheduledJobsSection";
 import { useDataSourceHealth } from "@/lib/hooks/useDataSourceHealth";
 
-const FMP_POWERS = ["Fundamentals", "Ratios & Scoring", "Quote / Price", "Analyst Ratings"];
-const YAHOO_POWERS = ["Chart (OHLC)", "Weinstein Stage", "Liquidity Zones", "Trend Signals"];
+// "Quote / Price" is deliberately split across both cards, not one tag on
+// FMP -- when FMP is paused, data/ticker_summary.py::get_summary()
+// overrides only the `price` field with a live Yahoo close
+// (_fetch_yahoo_latest_close); every other quote field (change, market
+// cap, year high/low) has no Yahoo equivalent and stays pinned to the
+// last cached FMP value, going stale like everything else on this card.
+const FMP_POWERS = ["Fundamentals", "Ratios & Scoring", "Quote (change/cap/range)", "Analyst Ratings"];
+const YAHOO_POWERS = ["Chart (OHLC)", "Price (fallback)", "Weinstein Stage", "Liquidity Zones", "Trend Signals"];
 
 /** Settings "Status" tab content -- Data Sources (FMP + Yahoo Finance
  * health cards) then Scheduled Jobs, replacing the old site-wide
