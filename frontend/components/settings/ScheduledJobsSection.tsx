@@ -74,7 +74,6 @@ export function ScheduledJobsSection() {
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="text-xs uppercase tracking-wide text-zinc-500">
-              <th className="py-1.5 pr-3 font-medium">Job</th>
               <th className="py-1.5 pr-3 font-medium">Description</th>
               <th className="py-1.5 pr-3 font-medium">Time</th>
               <th className="py-1.5 pr-3 font-medium">Status</th>
@@ -90,14 +89,16 @@ export function ScheduledJobsSection() {
               return (
                 <Fragment key={group}>
                   <tr>
-                    <td colSpan={5} className="pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    <td colSpan={4} className="pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                       {GROUP_LABELS[group]}
                     </td>
                   </tr>
                   {jobs.map((job) => (
                     <tr key={job.job_name} className="border-t border-zinc-800/60">
-                      <td className="py-2 pr-3 font-mono text-xs text-zinc-200">{job.job_name}</td>
-                      <td className="py-2 pr-3 text-zinc-400">{job.description}</td>
+                      <td className="py-2 pr-3">
+                        <div className="text-zinc-200">{job.description}</div>
+                        <div className="font-mono text-[11px] text-zinc-500">{job.job_name}</div>
+                      </td>
                       <td className="py-2 pr-3 font-mono text-xs text-zinc-400">{job.time_label}</td>
                       <td className="py-2 pr-3">
                         <span className={cn("inline-block size-2 rounded-full", STATUS_DOT[job.health_status])} />
