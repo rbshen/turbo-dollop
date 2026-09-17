@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { SegmentedControl } from "@/components/shared/SegmentedControl";
 import { ExportMenu } from "@/components/watchlist/ExportMenu";
+import { WatchlistDeleteButton } from "@/components/watchlist/WatchlistDeleteButton";
 import { WatchlistNameEditor } from "@/components/watchlist/WatchlistNameEditor";
 import { WatchlistTable } from "@/components/watchlist/WatchlistTable";
 import { useWatchlists } from "@/lib/hooks/useWatchlists";
@@ -172,10 +173,14 @@ export default function WatchlistPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-heading text-xl font-semibold text-text-primary">Watchlists</h1>
-          {/* key={active.id}: remounts (dropping any in-progress edit) on
-              tab switch, rather than an editor mid-rename silently
-              re-targeting a different watchlist underneath the user. */}
-          <WatchlistNameEditor key={active.id} watchlist={active} />
+          {/* key={active.id}: remounts (dropping any in-progress edit/delete
+              confirmation) on tab switch, rather than an editor mid-rename
+              silently re-targeting a different watchlist underneath the
+              user. */}
+          <div className="flex items-center gap-2">
+            <WatchlistNameEditor key={active.id} watchlist={active} />
+            <WatchlistDeleteButton key={active.id} watchlist={active} onDeleted={() => setManualActiveId(null)} />
+          </div>
         </div>
         <ExportMenu
           disabled={!rows || rows.length === 0}

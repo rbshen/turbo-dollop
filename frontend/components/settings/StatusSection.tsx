@@ -16,9 +16,10 @@ const YAHOO_POWERS = ["Chart (OHLC)", "Price (fallback)", "Weinstein Stage", "Li
 /** Settings "Status" tab content -- Data Sources (FMP + Yahoo Finance
  * health cards) then Scheduled Jobs, replacing the old site-wide
  * FmpPausedBanner/CronHealthBanner entirely (see app/layout.tsx, both
- * deleted). No own section title -- the sidebar nav label already says
- * "Status", matching every sibling section's own content component
- * (e.g. WatchlistSettingsForm renders no "Watchlists" heading either). */
+ * deleted). No own section title here -- the sidebar nav label already
+ * says "Status" -- unlike every sibling section, which renders its own
+ * `<h2>` matching its nav label (e.g. MoatSettingsForm's own "Economic
+ * Moat Point Values" heading). */
 export function StatusSection() {
   const { data } = useDataSourceHealth();
   const fmp = data?.sources.find((s) => s.source === "fmp");

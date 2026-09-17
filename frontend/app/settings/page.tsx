@@ -8,12 +8,10 @@ import { LiquidityZoneSettingsForm } from "@/components/settings/LiquidityZoneSe
 import { MoatSettingsForm } from "@/components/settings/MoatSettingsForm";
 import { ReitDividendYieldSettingsForm } from "@/components/settings/ReitDividendYieldSettingsForm";
 import { StatusSection } from "@/components/settings/StatusSection";
-import { WatchlistSettingsForm } from "@/components/settings/WatchlistSettingsForm";
 import { cn } from "@/lib/utils";
 
 const SECTIONS = [
   { key: "status", label: "Status", Component: StatusSection },
-  { key: "watchlists", label: "Watchlists", Component: WatchlistSettingsForm },
   { key: "discount-rate", label: "Discount Rate by Country", Component: DiscountRateSettingsForm },
   { key: "economic-moat", label: "Economic Moat", Component: MoatSettingsForm },
   { key: "reit", label: "REIT", Component: ReitDividendYieldSettingsForm },
