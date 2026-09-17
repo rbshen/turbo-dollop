@@ -12,6 +12,7 @@ import { WatchlistSettingsForm } from "@/components/settings/WatchlistSettingsFo
 import { cn } from "@/lib/utils";
 
 const SECTIONS = [
+  { key: "status", label: "Status", Component: StatusSection },
   { key: "watchlists", label: "Watchlists", Component: WatchlistSettingsForm },
   { key: "discount-rate", label: "Discount Rate by Country", Component: DiscountRateSettingsForm },
   { key: "economic-moat", label: "Economic Moat", Component: MoatSettingsForm },
@@ -25,16 +26,14 @@ export default function SettingsPage() {
   const [active, setActive] = useState<SectionKey>(SECTIONS[0].key);
 
   // Only the active section is mounted -- each form fetches its own config via
-  // SWR on mount, so rendering all 5 at once (the old vertical-stack layout)
-  // fired 5 concurrent requests every page load for 4 sections the user isn't
+  // SWR on mount, so rendering all 6 at once (the old vertical-stack layout)
+  // fired concurrent requests every page load for sections the user isn't
   // even looking at yet.
   const ActiveSection = SECTIONS.find((section) => section.key === active) ?? SECTIONS[0];
 
   return (
     <PageContainer className="space-y-6 pb-12">
       <h1 className="font-heading pt-6 text-2xl font-semibold tracking-tight text-zinc-100">Settings</h1>
-
-      <StatusSection />
 
       <div className="flex flex-col gap-6 lg:flex-row">
         <aside className="w-full shrink-0 lg:w-56">

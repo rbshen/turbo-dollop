@@ -36,7 +36,18 @@ def _last_success_at(source: str) -> datetime | None:
 def _status_for(enabled: bool, last_success_at: datetime | None, now: datetime) -> str:
     if not enabled:
         return "disabled_or_failing"
-    if last_success_at is None or (now - last_success_at) >= timedelta(hours=_FAILING_AFTER_HOURS):
+    # No record yet is NOT evidence of failure -- most traffic is served
+    # from a warm cache and never reaches the live FMPClient.get/
+    # YahooClient.get_history choke point at all (see core/cache.py's
+    # staleness-gated get_or_fetch), so a freshly-added DataSourceHealth
+    # row (or a quiet period with nothing needing a live refetch) can
+    # easily leave this None while the source is genuinely fine. Absent a
+    # real reachability check, an enabled source with no history defaults
+    # to healthy -- only an existing, aging timestamp downgrades the
+    # status, never a missing one.
+    if last_success_at is None:
+        return "healthy"
+    if (now - last_success_at) >= timedelta(hours=_FAILING_AFTER_HOURS):
         return "disabled_or_failing"
     if (now - last_success_at) >= timedelta(hours=_STALE_AFTER_HOURS):
         return "stale"

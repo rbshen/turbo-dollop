@@ -18,8 +18,14 @@ def test_status_for_disabled_is_disabled_or_failing():
     assert _status_for(False, datetime.now(), datetime.now()) == "disabled_or_failing"
 
 
-def test_status_for_no_last_success_is_disabled_or_failing():
-    assert _status_for(True, None, datetime.now()) == "disabled_or_failing"
+def test_status_for_no_last_success_but_enabled_is_healthy():
+    # No record yet isn't evidence of failure -- most traffic is served
+    # from a warm cache and never reaches the live fetch choke point at
+    # all, so a freshly-added row (or a quiet period) can easily leave
+    # this None while the source is genuinely fine. Confirmed real case:
+    # FMP_ENABLED=true showing "Disabled or failing" purely because no
+    # live FMP call had happened yet since this table was added.
+    assert _status_for(True, None, datetime.now()) == "healthy"
 
 
 def test_status_for_recent_success_is_healthy():
