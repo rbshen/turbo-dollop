@@ -2711,6 +2711,73 @@ accumulating time series a delete would meaningfully shrink. Sweeping an already
 is a cheap no-op (both sweep functions only rewrite rows that still have something to
 clear), so this runs safely every night indefinitely.
 
+### Most-recently-breached LP level tracking (2026-09-17)
+
+Previously, once a later confirmed swing breached a support/resistance zone, that zone
+simply dropped out of the valid set forever -- `valid_prices_at` excludes it before
+clustering, and nothing else ever surfaces it again. New requirement: keep track of the
+single most recently breached zone per side (support/resistance) per timeframe
+(Daily/Weekly), subject to two hard AND-ed filters, and plot it on the Technical tab
+chart alongside the still-valid zones, in a distinct color.
+
+- **No new replay/history mechanism needed.** The engine already recomputes from
+  scratch on every nightly run (same shape as the Warren signal engine, not
+  `trend_structure`'s incremental state machine), and `swings.py::annotate_swings`
+  already computes `breach_pos` for every swing regardless of whether it's currently
+  valid -- the full breach history (which swing, breached by which later swing, at
+  which bar position) is already available in memory on every run, for free. This also
+  means the "re-evaluate nightly, don't just flag once at breach time" requirement falls
+  out for free: a previously-qualifying broken zone that no longer clears either filter
+  today simply isn't selected this run, with no explicit clear/expire logic needed.
+- **Two hard filters, both required (`analysis/liquidity_zones/engine.py::
+  _select_broken_zone`)**: (1) recency -- `last_pos - breach_pos <= breach_recency_bars`,
+  counted from the breach bar (the confirming swing), not the zone's original formation;
+  (2) position -- a broken support only qualifies if its price sits ABOVE the highest
+  currently-valid support zone (auto-satisfied if none exists), mirrored for resistance.
+  **The positional check deliberately uses the FULL clustered valid-zone set, before the
+  existing wrong-side-of-price display filter and before the `num_zones` display cap** --
+  both of those are documented display-only refinements "on top of the locked breach
+  rule, not a change to it" (confirmed with the user before implementing), so a zone
+  that's valid but merely hidden from display still counts as a real obstacle here.
+  `engine.py` computes the full clustered list once and derives both the display slice
+  (unchanged) and this positional extreme from it -- no double computation.
+- **Tie-breaking, found via testing rather than assumed away.** A single later, lower
+  swing can breach several earlier, higher-priced swings simultaneously (e.g. two
+  independent, non-breaching-each-other swings both later undercut by the same new low)
+  -- an exact `breach_pos` tie the original design assumed couldn't happen. Resolved by
+  preferring the candidate with the later original formation (`max(breach_pos, pos)`) --
+  the more current of the tied levels. Never clustered with other breached candidates
+  (out of scope per the request) -- at most one `BrokenZone` per side per timeframe.
+- **Storage**: `broken_support_json`/`broken_resistance_json`, new nullable single-object
+  JSON columns on `LiquidityZoneAnalysis` (`{price, formed_at, breached_at}` or `NULL`) --
+  matches `TrendAnalysis.last_confirmed_swing_json`'s single-object JSON convention, not
+  `support_zones_json`'s list-shaped one, since at most one broken zone ever exists per
+  side per timeframe. `sweep_stale_liquidity_zones` clears both to `NULL` for a stale row,
+  alongside its existing `support_zones_json`/`resistance_zones_json` -> `"[]"` clearing.
+- **Settings**: new `daily_breach_recency_bars`/`weekly_breach_recency_bars` fields on
+  `LiquidityZoneConfig` (default 6, `DEFAULT_BREACH_RECENCY_BARS`), editable in the
+  existing `/settings` Liquidity Zones section alongside `swing_bars`/`cluster_pct`/
+  `num_zones` -- same "takes effect on the next nightly run, not retroactively"
+  convention as every other field there. Nullable on the model (the usual
+  `_add_missing_columns`-has-no-backfill reason) -- `get_liquidity_zone_config`
+  coalesces a `NULL` read back to the default so a pre-existing on-disk row never
+  silently passes `None` into the engine.
+- **Chart display, not the `LiquidityZonesCard` list** -- explicitly scoped to the
+  Technical tab chart only, per the request's own framing. `ChartZoneOut` gained a
+  `broken: bool` field; `chart_data.py::_filter_zones` emits at most one broken-zone
+  entry per side, subject to the same visible-window `formed_at` cutoff active zones
+  already use (a zone formed before the visible window has no bar to anchor a line
+  start). `TickerChart.tsx` reuses the exact same `LineSeries`/`extendZoneLinesToEdge`
+  mechanism as an active zone (confirmed with the user: extends to today's edge, not
+  truncated at the breach bar) -- only the color differs: `#FF9800` for a broken
+  support, `#E040FB` for a broken resistance, versus the existing green/red for active
+  zones. Grouped into the existing `showLpSupport`/`showLpResistance` visibility toggles
+  by side, same as any other zone line -- no new toggle needed.
+- Confirmed via new engine-level tests (recency-window exclusion, positional exclusion,
+  most-recent-of-several selection, the same-bar tie-break case above) plus data-layer/
+  config-endpoint/chart-data coverage; full backend suite (1480 tests) and frontend
+  `tsc --noEmit` both clean.
+
 ## Warren RSI/ADX/WVF entry signal (2h) (Technical)
 
 A fifth, fully independent technical entry-signal lens -- alongside BB+RSI, this is the
