@@ -2771,17 +2771,30 @@ chart alongside the still-valid zones, in a distinct color.
   `_add_missing_columns`-has-no-backfill reason) -- `get_liquidity_zone_config`
   coalesces a `NULL` read back to the default so a pre-existing on-disk row never
   silently passes `None` into the engine.
-- **Chart display, not the `LiquidityZonesCard` list** -- explicitly scoped to the
-  Technical tab chart only, per the request's own framing. `ChartZoneOut` gained a
-  `broken: bool` field; `chart_data.py::_filter_zones` emits at most one broken-zone
-  entry per side, subject to the same visible-window `formed_at` cutoff active zones
-  already use (a zone formed before the visible window has no bar to anchor a line
-  start). `TickerChart.tsx` reuses the exact same `LineSeries`/`extendZoneLinesToEdge`
-  mechanism as an active zone (confirmed with the user: extends to today's edge, not
-  truncated at the breach bar) -- only the color differs: `#FF9800` for a broken
-  support, `#E040FB` for a broken resistance, versus the existing green/red for active
-  zones. Grouped into the existing `showLpSupport`/`showLpResistance` visibility toggles
-  by side, same as any other zone line -- no new toggle needed.
+- **Chart display**: `ChartZoneOut` gained a `broken: bool` field; `chart_data.py::
+  _filter_zones` emits at most one broken-zone entry per side, subject to the same
+  visible-window `formed_at` cutoff active zones already use (a zone formed before the
+  visible window has no bar to anchor a line start). `TickerChart.tsx` reuses the exact
+  same `LineSeries`/`extendZoneLinesToEdge` mechanism as an active zone (confirmed with
+  the user: extends to today's edge, not truncated at the breach bar) -- only the color
+  differs: `#FF9800` for a broken support, `#E040FB` for a broken resistance, versus the
+  existing green/red for active zones. Grouped into the existing `showLpSupport`/
+  `showLpResistance` visibility toggles by side, same as any other zone line -- no new
+  toggle needed.
+- **`LiquidityZonesCard` list, added same-day (2026-09-17) per follow-up request** --
+  the first version deliberately scoped this to the chart only, per the original
+  request's own framing, but the user asked for it in the card too. A dashed "Broken"
+  row (`BrokenZoneRow`, same `#FF9800`/`#E040FB` pair as the chart, kept in sync
+  manually) renders per side when `broken_support`/`broken_resistance` is non-null.
+  Placement is derived from the engine's own positional-constraint guarantee, not
+  chosen arbitrarily: a broken zone's price is only ever included when it sits closer
+  to current price than every remaining valid zone on that side (rule 2), so it always
+  belongs immediately adjacent to the "current price" divider -- appended after the
+  regular resistance ladder (nearest the divider from above) and prepended before the
+  regular support ladder (nearest the divider from below). Sits outside the
+  `numSlots`-capped/blank-padded ladder (`ZoneList` gained an optional `broken` prop,
+  placed after blanks/rows are assembled) so it never consumes one of the fixed
+  daily/weekly alignment slots.
 - Confirmed via new engine-level tests (recency-window exclusion measured off the zone's
   own formation -- including the dedicated old-formation/recent-breach regression case
   above --, positional exclusion, most-recent-of-several selection, a same-bar tie-break
