@@ -1,5 +1,13 @@
 import { useLiquidityZoneConfig } from "@/lib/hooks/useLiquidityZoneConfig";
-import type { LiquidityZoneOut, LiquidityZonesOut, ZoneOut } from "@/lib/api/types";
+import type { BrokenZoneOut, LiquidityZoneOut, LiquidityZonesOut, ZoneOut } from "@/lib/api/types";
+
+// Matches the chart's own COLORS.lpSupportBroken/lpResistanceBroken
+// (frontend/components/chart/TickerChart.tsx) -- kept in sync manually,
+// same as every other hardcoded color pair on this card.
+const BROKEN_COLOR = {
+  support: "#FF9800",
+  resistance: "#E040FB",
+};
 
 interface Props {
   data: LiquidityZonesOut | null;
@@ -11,7 +19,7 @@ interface Props {
 const DEFAULT_NUM_ZONES = 3;
 
 const DISCLAIMER =
-  'Unbreached swing-low support / swing-high resistance levels, clustered by price -- only a LATER swing of the same kind invalidates an earlier one, an ordinary price move through a level does not. Computed nightly for tickers in the "W1" or "W2" watchlists only. Informational only, not a trading signal.';
+  'Unbreached swing-low support / swing-high resistance levels, clustered by price -- only a LATER swing of the same kind invalidates an earlier one, an ordinary price move through a level does not. A dashed "Broken" row (if present) is the single most recently broken level per side that\'s still close enough to current price to be relevant -- see its own tooltip-style caption for exactly when it formed and broke. Computed nightly for tickers in the "W1" or "W2" watchlists only. Informational only, not a trading signal.';
 
 const UNAVAILABLE_MESSAGE =
   'No Liquidity Zone data tracked for this ticker -- this check only runs nightly for tickers in the "W1" or "W2" watchlists.';
@@ -39,6 +47,37 @@ function ZoneRow({ zone, tone }: { zone: ZoneOut; tone: "support" | "resistance"
         </span>
       </div>
       <span className={`shrink-0 text-xs font-medium ${priceClass}`}>{fmtDistance(zone.distance_pct)}</span>
+    </li>
+  );
+}
+
+// The single most-recently-broken level per side, if one currently
+// qualifies (see BrokenZoneOut) -- dashed border + the same orange/
+// magenta the Technical tab chart uses for its broken-zone line
+// (TickerChart.tsx's COLORS.lpSupportBroken/lpResistanceBroken), so it
+// reads as clearly distinct from an active ZoneRow rather than just
+// another entry in the ladder.
+function BrokenZoneRow({ zone, tone }: { zone: BrokenZoneOut; tone: "support" | "resistance" }) {
+  const color = BROKEN_COLOR[tone];
+  return (
+    <li className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm" style={{ borderColor: `${color}66` }}>
+      <div className="min-w-0">
+        <span className="font-mono" style={{ color }}>
+          {fmtPrice(zone.price)}
+        </span>
+        <span
+          className="ml-2 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+          style={{ color, borderColor: `${color}66` }}
+        >
+          Broken
+        </span>
+        <span className="ml-2 text-xs text-text-tertiary">
+          formed {fmtDate(zone.formed_at)} · broke {fmtDate(zone.breached_at)}
+        </span>
+      </div>
+      <span className="shrink-0 text-xs font-medium" style={{ color }}>
+        {fmtDistance(zone.distance_pct)}
+      </span>
     </li>
   );
 }
@@ -71,7 +110,25 @@ function BlankZoneSlot() {
 // opposite of the display order we want, so it's reversed here (farthest/
 // highest first, nearest/lowest last, right above the divider) with
 // blanks prepended at the top (also farthest from the divider).
-function ZoneList({ zones, tone, numSlots }: { zones: ZoneOut[]; tone: "support" | "resistance"; numSlots: number }) {
+//
+// `broken` (if present) is placed even closer to the divider than the
+// nearest real zone -- the positional constraint that qualifies a broken
+// zone for display (its price sits above the highest valid support /
+// below the lowest valid resistance) guarantees it's always nearer to
+// current price than whatever real zones remain, so it belongs at the
+// very end of the ladder on its side, not mixed into `numSlots`'
+// fixed-alignment slice above it.
+function ZoneList({
+  zones,
+  tone,
+  numSlots,
+  broken,
+}: {
+  zones: ZoneOut[];
+  tone: "support" | "resistance";
+  numSlots: number;
+  broken?: BrokenZoneOut | null;
+}) {
   const shown = zones.slice(0, numSlots);
   const blanks = Array.from({ length: Math.max(0, numSlots - shown.length) }, (_, i) => (
     <BlankZoneSlot key={`${tone}-blank-${i}`} />
@@ -79,7 +136,9 @@ function ZoneList({ zones, tone, numSlots }: { zones: ZoneOut[]; tone: "support"
   const rows = (tone === "resistance" ? [...shown].reverse() : shown).map((z) => (
     <ZoneRow key={`${tone}-${z.price}`} zone={z} tone={tone} />
   ));
-  const ordered = tone === "resistance" ? [...blanks, ...rows] : [...rows, ...blanks];
+  const brokenRow = broken ? <BrokenZoneRow key={`${tone}-broken`} zone={broken} tone={tone} /> : null;
+  const ordered =
+    tone === "resistance" ? [...blanks, ...rows, brokenRow] : [brokenRow, ...rows, ...blanks];
   return <ul className="space-y-1">{ordered}</ul>;
 }
 
@@ -95,7 +154,7 @@ function TimeframeSection({ label, tf, numSlots }: { label: string; tf: Liquidit
 
       <div className="space-y-1">
         <p className="text-[11px] uppercase tracking-wide text-text-tertiary">Resistance</p>
-        <ZoneList zones={tf.resistance_zones} tone="resistance" numSlots={numSlots} />
+        <ZoneList zones={tf.resistance_zones} tone="resistance" numSlots={numSlots} broken={tf.broken_resistance} />
       </div>
 
       <div className="border-t border-border-card/60 pt-1 text-center text-[11px] uppercase tracking-wide text-text-tertiary">
@@ -104,7 +163,7 @@ function TimeframeSection({ label, tf, numSlots }: { label: string; tf: Liquidit
 
       <div className="space-y-1">
         <p className="text-[11px] uppercase tracking-wide text-text-tertiary">Support</p>
-        <ZoneList zones={tf.support_zones} tone="support" numSlots={numSlots} />
+        <ZoneList zones={tf.support_zones} tone="support" numSlots={numSlots} broken={tf.broken_support} />
       </div>
     </div>
   );
