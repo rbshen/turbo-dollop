@@ -71,7 +71,13 @@ export function ScheduledJobsSection() {
       ) : !cronHealth.enabled ? (
         <p className="text-sm text-zinc-400">Scheduled job monitoring is currently disabled (CRON_HEALTH_ENABLED=false).</p>
       ) : (
-        <table className="w-full text-left text-sm">
+        <table className="w-full table-fixed text-left text-sm">
+          <colgroup>
+            <col className="w-[30%]" />
+            <col className="w-28" />
+            <col className="w-16" />
+            <col />
+          </colgroup>
           <thead>
             <tr className="text-xs uppercase tracking-wide text-zinc-500">
               <th className="py-1.5 pr-3 font-medium">Description</th>
