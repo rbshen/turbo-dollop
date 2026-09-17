@@ -34,7 +34,17 @@ wrong-side-of-price/num_zones display filters above, since a zone that's
 valid but merely hidden from display is still a real obstacle for this
 comparison (rule 2, positional). No clustering is applied across
 breached candidates themselves -- this is a single scalar per side, not
-a second zone list."""
+a second zone list.
+
+Rule 1 (recency) is measured from the last bar to the ZONE'S OWN swing
+point (its original formation), NOT to the later breach bar -- a zone
+formed long ago is stale even if the swing that broke it just happened.
+This is strictly tighter than a breach-bar-measured window (breach_pos
+is always >= the zone's own pos, so the gap to last_pos can only be
+smaller when measured from the breach bar) -- confirmed via a real case
+(MSFT, 2026-09-17) where a support formed 9 bars back but breached only
+4 bars back incorrectly qualified under an earlier, breach-bar-measured
+version of this rule."""
 
 from datetime import date
 
@@ -59,16 +69,19 @@ def _select_broken_zone(
     index: pd.Index,
 ) -> BrokenZone | None:
     """Among `events` (the full swing list for one side), finds the single
-    most recently breached candidate clearing both hard filters. kind="low"
-    (support): a candidate must sit ABOVE valid_zone_extreme (the highest
-    still-valid support zone), if one exists. kind="high" (resistance): a
-    candidate must sit BELOW valid_zone_extreme (the lowest still-valid
-    resistance zone). "Most recent" is max(breach_pos) -- ties ARE
-    possible (a single later swing can breach several earlier, higher-
-    priced swings at once), broken by preferring the candidate with the
-    later original formation (max pos), since that's the more current of
-    the tied levels."""
-    candidates = [e for e in events if e.breach_pos is not None and last_pos - e.breach_pos <= breach_recency_bars]
+    most recently breached candidate clearing both hard filters.
+    Recency (rule 1) is measured from `last_pos` to the candidate's OWN
+    formation (`e.pos`), not to its breach bar (`e.breach_pos`) -- see
+    this module's own docstring for why. kind="low" (support): a
+    candidate must sit ABOVE valid_zone_extreme (the highest still-valid
+    support zone), if one exists. kind="high" (resistance): a candidate
+    must sit BELOW valid_zone_extreme (the lowest still-valid resistance
+    zone). "Most recent" is max(breach_pos) -- ties ARE possible (a
+    single later swing can breach several earlier, higher-priced swings
+    at once), broken by preferring the candidate with the later original
+    formation (max pos), since that's the more current of the tied
+    levels."""
+    candidates = [e for e in events if e.breach_pos is not None and last_pos - e.pos <= breach_recency_bars]
     if kind == "low":
         candidates = [e for e in candidates if valid_zone_extreme is None or e.price > valid_zone_extreme]
     else:

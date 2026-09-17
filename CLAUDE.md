@@ -2730,10 +2730,19 @@ chart alongside the still-valid zones, in a distinct color.
   out for free: a previously-qualifying broken zone that no longer clears either filter
   today simply isn't selected this run, with no explicit clear/expire logic needed.
 - **Two hard filters, both required (`analysis/liquidity_zones/engine.py::
-  _select_broken_zone`)**: (1) recency -- `last_pos - breach_pos <= breach_recency_bars`,
-  counted from the breach bar (the confirming swing), not the zone's original formation;
-  (2) position -- a broken support only qualifies if its price sits ABOVE the highest
-  currently-valid support zone (auto-satisfied if none exists), mirrored for resistance.
+  _select_broken_zone`)**: (1) recency -- `last_pos - pos <= breach_recency_bars`, counted
+  from the ZONE'S OWN swing point (its original formation), not the later breach bar; a
+  zone formed long ago is stale even if the swing that broke it just happened. **Caught
+  and corrected same-day (2026-09-17) via a real MSFT trace**: the first version measured
+  from the breach bar (`last_pos - breach_pos`) instead, which is strictly looser --
+  breach_pos is always >= the zone's own pos, so the gap to last_pos measured from the
+  breach bar can only be smaller (or equal). MSFT's daily support at $493.81 (formed
+  2026-09-02, 9 bars back) incorrectly qualified under the old rule because its breach
+  (2026-09-10, only 4 bars back) alone was recent, even though the zone itself wasn't --
+  confirmed by re-deriving the actual `daily_df` bar positions the engine used, not just
+  eyeballing calendar dates. (2) position -- a broken support only qualifies if its price
+  sits ABOVE the highest currently-valid support zone (auto-satisfied if none exists),
+  mirrored for resistance.
   **The positional check deliberately uses the FULL clustered valid-zone set, before the
   existing wrong-side-of-price display filter and before the `num_zones` display cap** --
   both of those are documented display-only refinements "on top of the locked breach
@@ -2773,10 +2782,12 @@ chart alongside the still-valid zones, in a distinct color.
   support, `#E040FB` for a broken resistance, versus the existing green/red for active
   zones. Grouped into the existing `showLpSupport`/`showLpResistance` visibility toggles
   by side, same as any other zone line -- no new toggle needed.
-- Confirmed via new engine-level tests (recency-window exclusion, positional exclusion,
-  most-recent-of-several selection, the same-bar tie-break case above) plus data-layer/
-  config-endpoint/chart-data coverage; full backend suite (1480 tests) and frontend
-  `tsc --noEmit` both clean.
+- Confirmed via new engine-level tests (recency-window exclusion measured off the zone's
+  own formation -- including the dedicated old-formation/recent-breach regression case
+  above --, positional exclusion, most-recent-of-several selection, a same-bar tie-break
+  case reconstructed to still produce a genuine tie under the corrected, tighter recency
+  rule) plus data-layer/config-endpoint/chart-data coverage; full backend suite (1481
+  tests) and frontend `tsc --noEmit` both clean.
 
 ## Warren RSI/ADX/WVF entry signal (2h) (Technical)
 

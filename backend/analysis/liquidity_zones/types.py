@@ -44,9 +44,10 @@ class BrokenZone:
     still qualifies for display -- see engine.py's own module docstring
     for the two hard filters (recency window + positional constraint)
     this must clear. `formed_at` is the original swing's own date (same
-    meaning as Zone.formed_at); `breached_at` is the date of the LATER,
-    confirming swing that broke it -- the "breach bar" the recency window
-    is measured from. Never clustered with other breached candidates,
+    meaning as Zone.formed_at) -- the recency window is measured FROM
+    THIS date, not from `breached_at`. `breached_at` is the date of the
+    LATER, confirming swing that broke it, kept only for display/"most
+    recent" tie-breaking. Never clustered with other breached candidates,
     unlike Zone -- at most one BrokenZone exists per side per timeframe."""
 
     price: float
