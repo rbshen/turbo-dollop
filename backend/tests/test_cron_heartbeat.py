@@ -28,6 +28,49 @@ def test_success_path_writes_running_then_success(monkeypatch):
     assert row.error_summary is None
 
 
+def test_success_path_stores_run_context_message(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+
+    with cron_health.cron_heartbeat("pipeline.prune_cache") as run:
+        run.message = "12 row(s) deleted"
+
+    with Session(engine) as session:
+        row = session.exec(select(CronRunLog)).one()
+    assert row.status == "success"
+    assert row.error_summary == "12 row(s) deleted"
+
+
+def test_success_path_with_no_message_set_leaves_error_summary_none(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+
+    with cron_health.cron_heartbeat("pipeline.prune_cache"):
+        pass
+
+    with Session(engine) as session:
+        row = session.exec(select(CronRunLog)).one()
+    assert row.status == "success"
+    assert row.error_summary is None
+
+
+def test_failure_path_overwrites_any_message_already_set(monkeypatch):
+    """A script that sets run.message and then goes on to raise must not
+    have that message linger in error_summary -- the exception summary is
+    always what gets recorded on a failure exit."""
+    engine = _fresh_engine(monkeypatch)
+
+    with pytest.raises(ValueError, match="boom"):
+        with cron_health.cron_heartbeat("pipeline.prune_cache") as run:
+            run.message = "this should never be stored"
+            raise ValueError("boom")
+
+    with Session(engine) as session:
+        row = session.exec(select(CronRunLog)).one()
+    assert row.status == "failure"
+    assert row.error_summary is not None
+    assert "boom" in row.error_summary
+    assert "this should never be stored" not in row.error_summary
+
+
 def test_failure_path_reraises_and_records_failure(monkeypatch):
     engine = _fresh_engine(monkeypatch)
 

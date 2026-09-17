@@ -108,5 +108,6 @@ def _parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     cli_args = _parse_args()
-    with cron_heartbeat("pipeline.stale_data_health_check"):
-        main(cli_args.days)
+    with cron_heartbeat("pipeline.stale_data_health_check") as run:
+        result = main(cli_args.days)
+        run.message = f"{len(result['stale'])} stale, {len(result['never_fetched'])} never-fetched"

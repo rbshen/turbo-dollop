@@ -51,25 +51,30 @@ from core.logging_config import configure_logging
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "dow_list_refresh.log"
 
 
-async def main() -> None:
+async def main() -> int | None:
+    """Returns the number of tickers synced, or None if skipped (FMP
+    disabled) -- lets the cron_heartbeat wrapper below tell the two states
+    apart for its own summary message."""
     configure_logging(LOG_PATH)
     logger = logging.getLogger(__name__)
     init_db()
 
     if not settings.fmp_enabled:
         logger.info("Dow constituent list refresh skipped: FMP paused (FMP_ENABLED=False).")
-        return
+        return None
 
     with Session(engine) as session:
         result = await refresh_dow_constituents(session)
 
     if result.success:
         logger.info("Dow constituent list refreshed: %d tickers stored.", result.constituent_count)
+        return result.constituent_count
     else:
         logger.error("Dow constituent list refresh failed, existing list left unchanged: %s", result.error)
         raise RuntimeError(f"Dow constituent list refresh failed: {result.error}")
 
 
 if __name__ == "__main__":
-    with cron_heartbeat("scrapers.refresh_dow_list"):
-        asyncio.run(main())
+    with cron_heartbeat("scrapers.refresh_dow_list") as run:
+        count = asyncio.run(main())
+        run.message = "Skipped — FMP disabled" if count is None else f"{count} tickers synced"

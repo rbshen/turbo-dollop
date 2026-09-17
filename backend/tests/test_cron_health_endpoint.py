@@ -76,6 +76,31 @@ def test_recent_success_is_ok(monkeypatch):
     assert job["health_status"] == "ok"
 
 
+def test_recent_success_carries_message(monkeypatch):
+    """The "ok" branch must read message off the most recent success row's
+    error_summary (the same column a failure row's message already comes
+    from) -- previously hardcoded to None regardless of what a script
+    wrote via cron_heartbeat's CronRunContext."""
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(
+            CronRunLog(
+                job_name="pipeline.prune_cache",
+                started_at=datetime.now() - timedelta(days=1),
+                finished_at=datetime.now() - timedelta(days=1),
+                status="success",
+                error_summary="12 row(s) deleted",
+            )
+        )
+        session.commit()
+
+    with TestClient(app) as client:
+        response = client.get("/api/config/cron-health")
+    job = _job(response.json(), "pipeline.prune_cache")
+    assert job["health_status"] == "ok"
+    assert job["message"] == "12 row(s) deleted"
+
+
 def test_stale_success_is_overdue(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     # pipeline.prune_cache is a weekly job (~8 day cadence window) -- a

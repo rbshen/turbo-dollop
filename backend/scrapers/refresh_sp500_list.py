@@ -46,25 +46,30 @@ from scrapers.sp500_scraper import refresh_sp500_constituents
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "sp500_list_refresh.log"
 
 
-async def main() -> None:
+async def main() -> int | None:
+    """Returns the number of tickers synced, or None if skipped (FMP
+    disabled) -- lets the cron_heartbeat wrapper below tell the two states
+    apart for its own summary message."""
     configure_logging(LOG_PATH)
     logger = logging.getLogger(__name__)
     init_db()
 
     if not settings.fmp_enabled:
         logger.info("S&P 500 constituent list refresh skipped: FMP paused (FMP_ENABLED=False).")
-        return
+        return None
 
     with Session(engine) as session:
         result = await refresh_sp500_constituents(session)
 
     if result.success:
         logger.info("S&P 500 constituent list refreshed: %d tickers stored.", result.constituent_count)
+        return result.constituent_count
     else:
         logger.error("S&P 500 constituent list refresh failed, existing list left unchanged: %s", result.error)
         raise RuntimeError(f"S&P 500 constituent list refresh failed: {result.error}")
 
 
 if __name__ == "__main__":
-    with cron_heartbeat("scrapers.refresh_sp500_list"):
-        asyncio.run(main())
+    with cron_heartbeat("scrapers.refresh_sp500_list") as run:
+        count = asyncio.run(main())
+        run.message = "Skipped — FMP disabled" if count is None else f"{count} tickers synced"

@@ -98,17 +98,19 @@ def run_audit() -> list[tuple[str, str, str, str]]:
     return findings
 
 
-def main() -> None:
+def main() -> list[tuple[str, str, str, str]]:
     init_db()
     findings = run_audit()
     if not findings:
         print("No fixture-contamination fingerprints found.")
-        return
-    print(f"{len(findings)} suspect row(s) found -- review manually, this is not automatic proof of contamination:")
-    for ticker, statement_type, period, reason in findings:
-        print(f"  {ticker} {statement_type}/{period}: {reason}")
+    else:
+        print(f"{len(findings)} suspect row(s) found -- review manually, this is not automatic proof of contamination:")
+        for ticker, statement_type, period, reason in findings:
+            print(f"  {ticker} {statement_type}/{period}: {reason}")
+    return findings
 
 
 if __name__ == "__main__":
-    with cron_heartbeat("pipeline.audit_fixture_contamination"):
-        main()
+    with cron_heartbeat("pipeline.audit_fixture_contamination") as run:
+        findings = main()
+        run.message = f"{len(findings)} contamination flag(s) found" if findings else "No fixture-contamination fingerprints found"

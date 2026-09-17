@@ -14,6 +14,7 @@ script's actual wiring all agree)."""
 
 import traceback
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Iterator, Literal, NamedTuple
 
@@ -149,10 +150,30 @@ def _truncated_error_summary(exc: Exception) -> str:
     return redact_apikey(summary)[:_ERROR_SUMMARY_MAX_CHARS]
 
 
+@dataclass
+class CronRunContext:
+    """Yielded by cron_heartbeat() -- a script can set `.message` on it any
+    time before its own `with` block exits to have a short, human-readable
+    summary (e.g. "142 stale, 3 never-fetched") stored on the success run's
+    CronRunLog.error_summary row (the existing nullable column, reused --
+    no schema change) and surfaced by GET /api/config/cron-health. Ignored
+    on a failure exit, where error_summary is always overwritten with the
+    exception summary instead."""
+
+    message: str | None = None
+
+
 @contextmanager
-def cron_heartbeat(job_name: str) -> Iterator[None]:
+def cron_heartbeat(job_name: str) -> Iterator[CronRunContext]:
     """Wrap a cron script's job-execution call with this: writes a
     "running" CronRunLog row at start, "success"/"failure" at exit.
+
+    Yields a CronRunContext the wrapped script can write a short summary
+    message into (see CronRunContext's own docstring) -- e.g.:
+
+        with cron_heartbeat("pipeline.stale_data_health_check") as run:
+            result = main()
+            run.message = f"{result.stale_count} stale, {result.never_fetched_count} never-fetched"
 
     Purely additive -- on failure the original exception is always
     re-raised unchanged, so stderr/_cron.log capture and the process's
@@ -183,8 +204,10 @@ def cron_heartbeat(job_name: str) -> Iterator[None]:
     except Exception:
         row_id = None
 
+    run_context = CronRunContext()
+
     try:
-        yield
+        yield run_context
     except Exception as exc:
         if row_id is not None:
             try:
@@ -207,6 +230,7 @@ def cron_heartbeat(job_name: str) -> Iterator[None]:
                     if row is not None:
                         row.status = "success"
                         row.finished_at = datetime.now()
+                        row.error_summary = run_context.message
                         session.add(row)
                         session.commit()
             except Exception:
@@ -269,7 +293,7 @@ def _job_health(job_name: str, session: Session, now: datetime) -> CronJobHealth
         return CronJobHealthOut(
             job_name=job_name,
             health_status="ok",
-            message=None,
+            message=most_recent_success.error_summary if most_recent_success is not None else None,
             last_run=last_run,
             last_success_at=last_success_at,
             description=metadata.description,

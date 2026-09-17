@@ -73,5 +73,11 @@ def _parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     cli_args = _parse_args()
-    with cron_heartbeat("pipeline.prune_cache"):
-        main(cli_args.retention_days, dry_run=cli_args.dry_run)
+    with cron_heartbeat("pipeline.prune_cache") as run:
+        count = main(cli_args.retention_days, dry_run=cli_args.dry_run)
+        if not count:
+            run.message = "0 rows past retention"
+        elif cli_args.dry_run:
+            run.message = f"{count} row(s) would be deleted (dry run)"
+        else:
+            run.message = f"{count} row(s) deleted"

@@ -246,5 +246,7 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
 
 if __name__ == "__main__":
     cli_args = _parse_args()
-    with cron_heartbeat("pipeline.nightly_fundamentals_fetch"):
-        asyncio.run(main(_resolve_cli_tickers(cli_args)))
+    with cron_heartbeat("pipeline.nightly_fundamentals_fetch") as run:
+        result = asyncio.run(main(_resolve_cli_tickers(cli_args)))
+        if result.get("skipped"):
+            run.message = "Skipped — FMP disabled"
