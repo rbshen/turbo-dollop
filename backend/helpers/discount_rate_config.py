@@ -14,21 +14,37 @@ DEFAULT_MARKET_RISK_PREMIUM_US = 0.02728
 
 US_REGION = "US"
 
+# The only countries this app maintains a distinct discount rate for --
+# deliberately capped, not auto-expanding to every FMP profile `country`
+# value seen (2026-09-17 cleanup: 16 regions had accumulated from ordinary
+# valuation traffic, most left un-researched at the US placeholder default
+# and never intentionally reviewed). Any ticker whose country isn't in this
+# set is treated as US_REGION at the get_discount_rate_config call site
+# below -- it uses the US row's live rate directly and never seeds its own
+# region row.
+SUPPORTED_REGIONS = {"US", "HK", "FR"}
+
 
 def get_discount_rate_config(session: Session, region: str = US_REGION) -> DiscountRateConfig:
     """Get-or-create -- this app has no migration tooling (db.init_db() is
     a plain SQLModel.metadata.create_all), so a first-boot default row is
     seeded lazily on first read rather than via a separate seed script.
 
-    US_REGION seeds from the hardcoded DEFAULT_* constants above, unchanged
-    from before per-country support existed. Any OTHER region (e.g. "HK",
-    seeded the first time a Hong Kong-listed ticker's Step 3 valuation runs
-    -- see step3_data.py) seeds instead from the CURRENT live US row's own
+    A region outside SUPPORTED_REGIONS is redirected to US_REGION before
+    the get-or-create below ever runs, so it's never seeded its own row --
+    it simply uses the US row's live rate. US_REGION itself seeds from the
+    hardcoded DEFAULT_* constants above, unchanged from before per-country
+    support existed. Any OTHER supported region (e.g. "HK", seeded the
+    first time a Hong Kong-listed ticker's Step 3 valuation runs -- see
+    step3_data.py) seeds instead from the CURRENT live US row's own
     values, recursively get-or-creating US first -- per the HK market
     support round's explicit seeding rule: "defaults to whatever the
     CURRENT single global rate is today," including a value the user has
     already edited away from DEFAULT_RISK_FREE_RATE_US/DEFAULT_MARKET_
     RISK_PREMIUM_US, not a fresh, un-researched HK-specific number."""
+    if region not in SUPPORTED_REGIONS:
+        region = US_REGION
+
     row = session.get(DiscountRateConfig, region)
     if row is not None:
         return row

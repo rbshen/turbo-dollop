@@ -3,6 +3,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from helpers.discount_rate_config import (
     DEFAULT_MARKET_RISK_PREMIUM_US,
     DEFAULT_RISK_FREE_RATE_US,
+    SUPPORTED_REGIONS,
     US_REGION,
     get_discount_rate_config,
     list_discount_rate_configs,
@@ -91,3 +92,23 @@ def test_updating_hk_never_touches_the_us_row():
 
     assert us_row.risk_free_rate == DEFAULT_RISK_FREE_RATE_US
     assert us_row.market_risk_premium == DEFAULT_MARKET_RISK_PREMIUM_US
+
+
+def test_an_unsupported_region_is_redirected_to_us_and_never_seeds_its_own_row():
+    # A ticker from a country outside SUPPORTED_REGIONS (e.g. "CA") must
+    # use the US rate directly, not silently accumulate its own row the
+    # way every country used to before this cap (2026-09-17 cleanup).
+    engine = _fresh_engine()
+    with Session(engine) as session:
+        update_discount_rate_config(session, risk_free_rate=0.05, market_risk_premium=0.04, region=US_REGION)
+
+        ca_row = get_discount_rate_config(session, region="CA")
+
+    assert ca_row.region == US_REGION
+    assert ca_row.risk_free_rate == 0.05
+    assert ca_row.market_risk_premium == 0.04
+    assert sorted(row.region for row in list_discount_rate_configs(session)) == [US_REGION]
+
+
+def test_supported_regions_is_exactly_us_hk_fr():
+    assert SUPPORTED_REGIONS == {"US", "HK", "FR"}

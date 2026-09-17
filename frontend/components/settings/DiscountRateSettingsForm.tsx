@@ -17,16 +17,16 @@ const STATUS_LABELS: Record<Status, string> = {
   error: "Save failed",
 };
 
-// A region's own display name, where it differs from its bare code -- US is
-// the only region every install has by default; any other region (HK now,
-// more later) is lazily seeded the first time a ticker from it is valued
-// (see backend helpers/discount_rate_config.py), so this list only ever
-// needs entries for regions this app is expected to actually see -- an
-// unlisted region code (a future addition) still renders fine, just with
-// its bare code as the label.
+// A region's own display name, where it differs from its bare code. Only
+// US/HK/FR are supported (backend helpers/discount_rate_config.py::
+// SUPPORTED_REGIONS) -- US always exists by default; HK/FR are lazily
+// seeded the first time a ticker from that country is valued, so either
+// may be absent here until then. A ticker from any other country uses the
+// US rate directly and never gets its own row.
 const REGION_LABELS: Record<string, string> = {
   US: "United States",
   HK: "Hong Kong",
+  FR: "France",
 };
 
 function regionLabel(region: string): string {
@@ -53,7 +53,8 @@ export function DiscountRateSettingsForm() {
           maintained here, not auto-fetched (see CLAUDE.md). Beta stays sourced live per-ticker from FMP. Feeds a
           ticker&apos;s own country&apos;s Valuation discount rate: <span className="font-mono text-zinc-400">Rf + β × MRP</span>. A
           country appears here once a ticker from it has been valued at least once — its row seeds from the current
-          US values as a placeholder until edited.
+          US values as a placeholder until edited. Only United States, Hong Kong, and France get their own rate; a
+          ticker from any other country uses the US rate directly.
         </p>
       </div>
 
