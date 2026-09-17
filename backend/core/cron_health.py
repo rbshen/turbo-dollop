@@ -121,17 +121,15 @@ JOB_METADATA: dict[str, JobMetadata] = {
         "Warren RSI/ADX/WVF (2h) entry signal, W1-W5 watchlists", "daily", "3:40 AM", 3 * 60 + 40
     ),
     "pipeline.backup_db": JobMetadata("Nightly SQLite backup + rotation", "daily", "3:55 AM", 3 * 60 + 55),
-    "scrapers.refresh_sp500_list": JobMetadata("Sync S&P 500 constituent list", "weekly", "Sun 1:00 AM", 60),
-    "scrapers.refresh_dow_list": JobMetadata("Sync Dow Jones constituent list", "weekly", "Sun 1:05 AM", 65),
-    "pipeline.prune_cache": JobMetadata(
-        "Delete FundamentalsCache rows past retention window", "weekly", "Sun 1:10 AM", 70
-    ),
+    "scrapers.refresh_sp500_list": JobMetadata("Keeps your S&P 500 stock list up to date", "weekly", "Sun 1:00 AM", 60),
+    "scrapers.refresh_dow_list": JobMetadata("Keeps your Dow Jones stock list up to date", "weekly", "Sun 1:05 AM", 65),
+    "pipeline.prune_cache": JobMetadata("Clears out old cached data to save space", "weekly", "Sun 1:10 AM", 70),
     "pipeline.rotate_logs": JobMetadata("Rotate/archive backend/logs/ files", "weekly", "Sun 1:15 AM", 75),
     "pipeline.audit_fixture_contamination": JobMetadata(
-        "Scan cache for test-fixture contamination", "weekly", "Sun 1:20 AM", 80
+        "Checks that no test/fake data snuck into the real data", "weekly", "Sun 1:20 AM", 80
     ),
     "pipeline.stale_data_health_check": JobMetadata(
-        "Report tickers overdue for a nightly refresh", "weekly", "Sun 1:25 AM", 85
+        "Flags stocks whose data hasn't been refreshed recently", "weekly", "Sun 1:25 AM", 85
     ),
     "pipeline.purge_invalid_tickers": JobMetadata(
         "Delete cache rows for confirmed-invalid tickers", "weekly", "Sun 1:30 AM", 90
