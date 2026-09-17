@@ -73,7 +73,7 @@ export function ScheduledJobsSection() {
       ) : (
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>
-            <col className="w-[40%]" />
+            <col className="w-[45%]" />
             <col className="w-28" />
             <col className="w-24" />
             <col />
