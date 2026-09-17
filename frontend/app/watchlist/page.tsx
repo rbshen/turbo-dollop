@@ -173,13 +173,18 @@ export default function WatchlistPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-heading text-xl font-semibold text-text-primary">Watchlists</h1>
-          {/* key={active.id}: remounts (dropping any in-progress edit/delete
-              confirmation) on tab switch, rather than an editor mid-rename
-              silently re-targeting a different watchlist underneath the
-              user. */}
+          {/* Each key is prefixed (not bare active.id) since these are two
+              sibling elements -- React requires unique keys per sibling
+              regardless of component type, and a shared key across both
+              caused a real duplicate-key reconciliation bug (stale editors
+              from previously-active tabs piling up instead of being
+              replaced). The remount itself still drops any in-progress
+              edit/delete confirmation on tab switch, rather than an editor
+              mid-rename silently re-targeting a different watchlist
+              underneath the user. */}
           <div className="flex items-center gap-2">
-            <WatchlistNameEditor key={active.id} watchlist={active} />
-            <WatchlistDeleteButton key={active.id} watchlist={active} onDeleted={() => setManualActiveId(null)} />
+            <WatchlistNameEditor key={`name-${active.id}`} watchlist={active} />
+            <WatchlistDeleteButton key={`delete-${active.id}`} watchlist={active} onDeleted={() => setManualActiveId(null)} />
           </div>
         </div>
         <ExportMenu
