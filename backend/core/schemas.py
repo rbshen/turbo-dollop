@@ -786,6 +786,15 @@ class CronJobHealthOut(BaseModel):
     message: str | None = None
     last_run: CronRunOut | None = None
     last_success_at: datetime | None = None
+    # Static display metadata from core/cron_health.py::JOB_METADATA --
+    # sourced from crontab.txt, not derived from any live state. Added for
+    # the Settings "Status" section's Scheduled Jobs table (job/
+    # description/frequency+time columns), which has nothing else to read
+    # this from -- crontab.txt itself isn't queryable at runtime.
+    description: str
+    cadence_group: Literal["daily", "weekly", "monthly"]
+    time_label: str
+    sort_minutes: int
 
 
 class CronHealthOut(BaseModel):
@@ -797,6 +806,23 @@ class CronHealthOut(BaseModel):
     # everything's ok" (enabled=True, every job's health_status == "ok").
     enabled: bool
     jobs: list[CronJobHealthOut]
+
+
+class DataSourceStatusOut(BaseModel):
+    """One data source's health, for the Settings "Status" section's Data
+    Sources cards -- computed purely from an enabled/kill-switch flag (FMP
+    only; Yahoo has none, see clients/yahoo_client.py's own docstring for
+    why) plus DataSourceHealth.last_success_at, NEVER a live reachability
+    ping (see core/data_source_status.py)."""
+
+    source: Literal["fmp", "yahoo"]
+    enabled: bool
+    status: Literal["healthy", "disabled_or_failing", "stale"]
+    last_success_at: datetime | None = None
+
+
+class DataSourceHealthOut(BaseModel):
+    sources: list[DataSourceStatusOut]
 
 
 class DiscountRateConfigOut(BaseModel):

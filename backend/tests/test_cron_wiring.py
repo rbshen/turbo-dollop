@@ -6,7 +6,7 @@ system exists to close. This test fails loudly if that ever happens."""
 import re
 from pathlib import Path
 
-from core.cron_health import CRON_JOB_NAMES
+from core.cron_health import CRON_JOB_NAMES, JOB_METADATA
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 CRONTAB_PATH = BACKEND_DIR / "crontab.txt"
@@ -49,3 +49,14 @@ def test_every_cron_job_script_calls_cron_heartbeat():
             f"{path} calls cron_heartbeat(...) with a job_name that doesn't match "
             f"its own CRON_JOB_NAMES entry ({job_name!r})"
         )
+
+
+def test_job_metadata_matches_cron_job_names():
+    # A job could otherwise ship with live health tracking but no display
+    # metadata for the Settings "Status" section's Scheduled Jobs table
+    # (or vice versa, a stale entry left behind after a job is removed).
+    assert set(JOB_METADATA.keys()) == set(CRON_JOB_NAMES), (
+        f"JOB_METADATA and CRON_JOB_NAMES have drifted apart. "
+        f"In JOB_METADATA but not CRON_JOB_NAMES: {set(JOB_METADATA) - set(CRON_JOB_NAMES)}. "
+        f"In CRON_JOB_NAMES but not JOB_METADATA: {set(CRON_JOB_NAMES) - set(JOB_METADATA)}."
+    )

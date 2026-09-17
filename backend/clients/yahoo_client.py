@@ -14,6 +14,8 @@ import logging
 import pandas as pd
 import yfinance as yf
 
+from core.data_source_health import record_success
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,6 +55,11 @@ class YahooClient:
         except Exception:
             logger.warning("Yahoo Finance batch download failed for %d ticker(s)", len(tickers))
             return {}
+
+        # The live call itself succeeded (no exception) -- this is the same
+        # "got a response" bar FMPClient.get records success at, not "did
+        # every requested ticker have real data" (checked next).
+        record_success("yahoo")
 
         if raw is None or raw.empty:
             return {}

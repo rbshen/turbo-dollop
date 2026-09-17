@@ -14,6 +14,7 @@ from data.analyst_ratings_data import get_analyst_ratings_data
 from helpers.bank_capital_metrics import get_ticker_bank_capital_metrics, set_ticker_bank_capital_metrics
 from core.config import settings
 from core.cron_health import get_cron_health
+from core.data_source_status import get_data_source_health
 from core.db import engine, init_db
 from core.exceptions import TickerNotFoundError
 from helpers.discount_rate_config import (
@@ -42,6 +43,7 @@ from core.schemas import (
     AnalystRatingsOut,
     ChartOut,
     CronHealthOut,
+    DataSourceHealthOut,
     DiscountRateConfigIn,
     DiscountRateConfigOut,
     FinancialsOut,
@@ -164,6 +166,14 @@ def fmp_status() -> FmpStatusOut:
 @app.get("/api/config/cron-health", response_model=CronHealthOut)
 def cron_health() -> CronHealthOut:
     return get_cron_health()
+
+
+# Backs the Settings "Status" section's Data Sources cards -- see
+# core/data_source_status.py for the health computation and
+# core/data_source_health.py for where last_success_at gets written.
+@app.get("/api/config/data-source-health", response_model=DataSourceHealthOut)
+def data_source_health() -> DataSourceHealthOut:
+    return get_data_source_health()
 
 
 @app.get("/api/momentum", response_model=MomentumOut)

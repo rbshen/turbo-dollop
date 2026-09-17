@@ -19,12 +19,16 @@ this fixture, so `core.db.engine` never gets this listener attached
 outside of a pytest session."""
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import create_engine, event
+from sqlalchemy.pool import StaticPool
+from sqlmodel import SQLModel
 
+import core.data_source_health as data_source_health
 import data.ticker_summary as ticker_summary
 from clients.fmp_client import fmp_client
 from core.config import settings
 from core.db import engine as real_engine
+from core.models import DataSourceHealth
 
 _WRITE_PREFIXES = ("INSERT", "UPDATE", "DELETE", "REPLACE")
 
@@ -46,6 +50,41 @@ def _forbid_writes_to_real_db():
     event.listen(real_engine, "before_cursor_execute", _forbid_write)
     yield
     event.remove(real_engine, "before_cursor_execute", _forbid_write)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_data_source_health_engine(monkeypatch):
+    """core.data_source_health.record_success is reached from
+    FMPClient.get/YahooClient.get_history, both of which are exercised for
+    real (not just monkeypatched away) by test_fmp_client.py/
+    test_yahoo_client.py via MockTransport/a monkeypatched yf.download --
+    so this needs the same fresh-in-memory-engine isolation every other
+    per-module `engine` reference gets, applied once globally here rather
+    than per test file, since so many otherwise-unrelated tests reach one
+    of those two functions. record_success's own try/except swallows any
+    write failure (same reasoning as cron_heartbeat's swallowed writes) --
+    safe specifically because this fixture means tests never touch the
+    real engine here in the first place, so the swallow can't hide a
+    missing per-test monkeypatch the way it could for an unisolated write
+    path.
+
+    Function-scoped (a fresh engine per test), not session-scoped -- a
+    single shared engine across the whole suite would let one test's
+    incidental record_success("fmp") call (e.g. any test_fmp_client.py
+    case) leak a DataSourceHealth row into a completely unrelated test
+    (e.g. test_data_source_status.py's own threshold assertions),
+    producing order-dependent flakiness.
+
+    StaticPool + check_same_thread=False, not a bare `sqlite://` -- a
+    plain in-memory engine hands each new connection its own separate
+    database, and TestClient(app) runs the endpoint handler in a worker
+    thread (see test_cron_health_endpoint.py's own `_fresh_engine` for the
+    same reasoning), which would otherwise see an empty, unseeded database
+    even though this fixture's own Session calls populated one."""
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(test_engine, tables=[DataSourceHealth.__table__])
+    monkeypatch.setattr(data_source_health, "engine", test_engine)
+    return test_engine
 
 
 @pytest.fixture(autouse=True)

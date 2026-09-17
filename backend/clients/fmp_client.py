@@ -5,6 +5,7 @@ import time
 import httpx
 
 from core.config import settings
+from core.data_source_health import record_success
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ class FMPClient:
                 await asyncio.sleep(RATE_LIMIT_RETRY_BACKOFF_SECONDS)
                 continue
             response.raise_for_status()
+            record_success("fmp")
             return response.json()
         raise AssertionError("unreachable")  # loop always returns or raises above
 

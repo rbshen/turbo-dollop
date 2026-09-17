@@ -36,6 +36,18 @@ def test_cron_health_returns_all_known_jobs(monkeypatch):
     assert {j["job_name"] for j in body["jobs"]} == set(cron_health.CRON_JOB_NAMES)
 
 
+def test_cron_health_jobs_carry_display_metadata(monkeypatch):
+    _fresh_engine(monkeypatch)
+    with TestClient(app) as client:
+        response = client.get("/api/config/cron-health")
+    for job in response.json()["jobs"]:
+        metadata = cron_health.JOB_METADATA[job["job_name"]]
+        assert job["description"] == metadata.description
+        assert job["cadence_group"] == metadata.cadence_group
+        assert job["time_label"] == metadata.time_label
+        assert job["sort_minutes"] == metadata.sort_minutes
+
+
 def test_job_with_no_rows_is_unknown(monkeypatch):
     _fresh_engine(monkeypatch)
     with TestClient(app) as client:

@@ -15,7 +15,7 @@ script's actual wiring all agree)."""
 import traceback
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Iterator
+from typing import Iterator, Literal, NamedTuple
 
 from sqlmodel import Session, SQLModel, select
 
@@ -79,6 +79,68 @@ _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.purge_invalid_tickers": _WEEKLY_HOURS,
     "pipeline.monthly_price_target_snapshot": _MONTHLY_HOURS,
     "pipeline.monthly_momentum_snapshot": _MONTHLY_HOURS,
+}
+
+
+class JobMetadata(NamedTuple):
+    """Static display metadata for one cron job -- description, cadence
+    group, and a human time-of-day label -- sourced by hand from
+    crontab.txt, since nothing queryable holds this today (crontab.txt
+    itself isn't readable at runtime the way CronRunLog is). Backs the
+    Settings "Status" section's Scheduled Jobs table, grouped by
+    cadence_group and sorted by sort_minutes within each group."""
+
+    description: str
+    cadence_group: Literal["daily", "weekly", "monthly"]
+    time_label: str
+    sort_minutes: int  # minutes past midnight, for within-group ordering
+
+
+# One entry per CRON_JOB_NAMES entry -- test_cron_wiring.py asserts the two
+# sets stay identical, the same drift-prevention convention that file
+# already applies to CRON_JOB_NAMES vs. crontab.txt vs. cron_heartbeat(...)
+# wiring.
+JOB_METADATA: dict[str, JobMetadata] = {
+    "pipeline.nightly_fundamentals_fetch": JobMetadata(
+        "Refetch FMP fundamentals, full tracked universe", "daily", "2:00 AM", 2 * 60
+    ),
+    "pipeline.nightly_score_recompute": JobMetadata(
+        "Recompute 5-step scores, full universe", "daily", "2:50 AM", 2 * 60 + 50
+    ),
+    "pipeline.nightly_trend_calculation": JobMetadata(
+        "Trend structure + Weinstein stage, weekly resample", "daily", "3:10 AM", 3 * 60 + 10
+    ),
+    "pipeline.nightly_entry_signal_calculation": JobMetadata(
+        "BB+RSI (2h) entry signal, W1-W5 watchlists", "daily", "3:20 AM", 3 * 60 + 20
+    ),
+    "pipeline.nightly_liquidity_zone_calculation": JobMetadata(
+        "Support/resistance zone detection, W1-W5 watchlists", "daily", "3:25 AM", 3 * 60 + 25
+    ),
+    "pipeline.nightly_warren_signal_calculation": JobMetadata(
+        "Warren RSI/ADX/WVF (2h) entry signal, W1-W5 watchlists", "daily", "3:40 AM", 3 * 60 + 40
+    ),
+    "pipeline.backup_db": JobMetadata("Nightly SQLite backup + rotation", "daily", "3:55 AM", 3 * 60 + 55),
+    "scrapers.refresh_sp500_list": JobMetadata("Sync S&P 500 constituent list", "weekly", "Sun 1:00 AM", 60),
+    "scrapers.refresh_dow_list": JobMetadata("Sync Dow Jones constituent list", "weekly", "Sun 1:05 AM", 65),
+    "pipeline.prune_cache": JobMetadata(
+        "Delete FundamentalsCache rows past retention window", "weekly", "Sun 1:10 AM", 70
+    ),
+    "pipeline.rotate_logs": JobMetadata("Rotate/archive backend/logs/ files", "weekly", "Sun 1:15 AM", 75),
+    "pipeline.audit_fixture_contamination": JobMetadata(
+        "Scan cache for test-fixture contamination", "weekly", "Sun 1:20 AM", 80
+    ),
+    "pipeline.stale_data_health_check": JobMetadata(
+        "Report tickers overdue for a nightly refresh", "weekly", "Sun 1:25 AM", 85
+    ),
+    "pipeline.purge_invalid_tickers": JobMetadata(
+        "Delete cache rows for confirmed-invalid tickers", "weekly", "Sun 1:30 AM", 90
+    ),
+    "pipeline.monthly_price_target_snapshot": JobMetadata(
+        "Archive analyst price-target consensus", "monthly", "1st, 3:00 AM", 3 * 60
+    ),
+    "pipeline.monthly_momentum_snapshot": JobMetadata(
+        "3/6/12mo momentum ranking snapshot", "monthly", "1st–5th, 3:05 AM", 3 * 60 + 5
+    ),
 }
 
 
@@ -162,6 +224,7 @@ def _run_out(row: CronRunLog) -> CronRunOut:
 
 
 def _job_health(job_name: str, session: Session, now: datetime) -> CronJobHealthOut:
+    metadata = JOB_METADATA[job_name]
     most_recent = session.exec(
         select(CronRunLog).where(CronRunLog.job_name == job_name).order_by(CronRunLog.started_at.desc()).limit(1)
     ).first()
@@ -180,6 +243,10 @@ def _job_health(job_name: str, session: Session, now: datetime) -> CronJobHealth
             message="No run recorded yet.",
             last_run=None,
             last_success_at=None,
+            description=metadata.description,
+            cadence_group=metadata.cadence_group,
+            time_label=metadata.time_label,
+            sort_minutes=metadata.sort_minutes,
         )
 
     last_run = _run_out(most_recent)
@@ -191,6 +258,10 @@ def _job_health(job_name: str, session: Session, now: datetime) -> CronJobHealth
             message=most_recent.error_summary or "Job failed.",
             last_run=last_run,
             last_success_at=last_success_at,
+            description=metadata.description,
+            cadence_group=metadata.cadence_group,
+            time_label=metadata.time_label,
+            sort_minutes=metadata.sort_minutes,
         )
 
     cadence_hours = _EXPECTED_CADENCE_HOURS[job_name]
@@ -201,6 +272,10 @@ def _job_health(job_name: str, session: Session, now: datetime) -> CronJobHealth
             message=None,
             last_run=last_run,
             last_success_at=last_success_at,
+            description=metadata.description,
+            cadence_group=metadata.cadence_group,
+            time_label=metadata.time_label,
+            sort_minutes=metadata.sort_minutes,
         )
 
     if most_recent.status == "running" and last_success_at is None:
@@ -217,6 +292,10 @@ def _job_health(job_name: str, session: Session, now: datetime) -> CronJobHealth
         message=message,
         last_run=last_run,
         last_success_at=last_success_at,
+        description=metadata.description,
+        cadence_group=metadata.cadence_group,
+        time_label=metadata.time_label,
+        sort_minutes=metadata.sort_minutes,
     )
 
 

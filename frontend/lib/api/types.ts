@@ -42,6 +42,12 @@ export interface CronJobHealthOut {
   message: string | null;
   last_run: CronRunOut | null;
   last_success_at: string | null;
+  // Static display metadata (core/cron_health.py::JOB_METADATA), sourced
+  // from crontab.txt -- not derived from any live state.
+  description: string;
+  cadence_group: "daily" | "weekly" | "monthly";
+  time_label: string;
+  sort_minutes: number;
 }
 
 export interface CronHealthOut {
@@ -50,6 +56,17 @@ export interface CronHealthOut {
   // state, never conflated with "checked and everything's ok".
   enabled: boolean;
   jobs: CronJobHealthOut[];
+}
+
+export interface DataSourceStatusOut {
+  source: "fmp" | "yahoo";
+  enabled: boolean;
+  status: "healthy" | "disabled_or_failing" | "stale";
+  last_success_at: string | null;
+}
+
+export interface DataSourceHealthOut {
+  sources: DataSourceStatusOut[];
 }
 
 export interface RefreshResult {

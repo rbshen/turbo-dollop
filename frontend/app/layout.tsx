@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Public_Sans, Sora } from "next/font/google";
 import "./globals.css";
-import { CronHealthBanner } from "@/components/layout/CronHealthBanner";
-import { FmpPausedBanner } from "@/components/layout/FmpPausedBanner";
 import { TopNav } from "@/components/nav/TopNav";
 import { cn } from "@/lib/utils";
 
@@ -38,8 +36,6 @@ export default function RootLayout({
       className={cn("h-full", "dark", "antialiased", publicSans.variable, sora.variable, ibmPlexMono.variable)}
     >
       <body className="min-h-full flex flex-col bg-page text-text-primary">
-        <FmpPausedBanner />
-        <CronHealthBanner />
         <TopNav />
         <main className="flex flex-1 flex-col">{children}</main>
       </body>

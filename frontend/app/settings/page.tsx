@@ -7,6 +7,7 @@ import { DiscountRateSettingsForm } from "@/components/settings/DiscountRateSett
 import { LiquidityZoneSettingsForm } from "@/components/settings/LiquidityZoneSettingsForm";
 import { MoatSettingsForm } from "@/components/settings/MoatSettingsForm";
 import { ReitDividendYieldSettingsForm } from "@/components/settings/ReitDividendYieldSettingsForm";
+import { StatusSection } from "@/components/settings/StatusSection";
 import { WatchlistSettingsForm } from "@/components/settings/WatchlistSettingsForm";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +33,9 @@ export default function SettingsPage() {
   return (
     <PageContainer className="space-y-6 pb-12">
       <h1 className="font-heading pt-6 text-2xl font-semibold tracking-tight text-zinc-100">Settings</h1>
+
+      <StatusSection />
+
       <div className="flex flex-col gap-6 lg:flex-row">
         <aside className="w-full shrink-0 lg:w-56">
           <nav className="space-y-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-2">

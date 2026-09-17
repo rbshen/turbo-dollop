@@ -888,3 +888,20 @@ class CronRunLog(SQLModel, table=True):
     finished_at: datetime | None = None
     status: str  # "running" | "success" | "failure"
     error_summary: str | None = None
+
+
+class DataSourceHealth(SQLModel, table=True):
+    """One row per external data source ("fmp" | "yahoo"), recording the
+    timestamp of its most recent genuinely successful live fetch -- written
+    by core.data_source_health.record_success from the single choke point
+    each source's client already funnels every call through
+    (clients/fmp_client.py::FMPClient.get, clients/yahoo_client.py::
+    YahooClient.get_history). Backs the Settings "Status" section's Data
+    Sources cards (core/data_source_status.py) -- deliberately NOT a live
+    reachability ping, just a record of the last time a real call actually
+    succeeded. Singleton-per-source row, same `key`-as-primary-key shape as
+    MoatScoreConfig/ReitDividendYieldConfig above, just keyed on the source
+    name instead of a fixed "default"."""
+
+    source: str = Field(primary_key=True)  # "fmp" | "yahoo"
+    last_success_at: datetime
