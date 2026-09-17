@@ -75,7 +75,7 @@ export function ScheduledJobsSection() {
           <colgroup>
             <col className="w-[40%]" />
             <col className="w-28" />
-            <col className="w-16" />
+            <col className="w-24" />
             <col />
           </colgroup>
           <thead>
