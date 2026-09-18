@@ -164,3 +164,12 @@ row as stale if the most recent US trading session's close has occurred since `f
    deserialize-and-peek before the existing TTL check.
 Either approach should also be considered for the Liquidity Zone job's own `4y` key, which shares
 the identical `get_or_fetch`/`daily_bar_staleness_days` mechanism and is subject to the same race.
+
+**Update (2026-09-18, same day): a different fix was implemented instead**, per direct
+instruction — rather than building market-close-aware staleness logic into the shared cache, the
+Chart tab's FMP branch was reverted to a genuinely uncached, on-demand live fetch (bypassing
+`daily_price_sources.py`/`FundamentalsCache` entirely for this feature only). See CLAUDE.md's
+"Chart tab reverted to zero-cache on-demand fetch (2026-09-18)" section for the change itself.
+Liquidity Zone detection was deliberately left on the cached path described above and remains
+subject to this exact bug — options 1/2 above are still the live proposal if/when that gets
+revisited.

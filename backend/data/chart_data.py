@@ -8,17 +8,38 @@ decisions this module embodies:
    (confirmed fast enough for a page load in the latency investigation:
    median ~0.14s combined daily+weekly fetch, worst case ~0.56s). Every
    request computes fresh from whichever bar source is currently active.
-2. On the FMP branch, this still goes through the app's ordinary
-   get_or_fetch-backed FundamentalsCache (via daily_price_sources.py,
-   reused as-is) -- "on-demand" means no NEW persistence layer was built for
-   this feature, not that FMP's own standing cache is bypassed (every other
-   FMP call in this app goes through it; skipping it here would burn FMP
-   quota on every Chart tab view for a popular ticker). On the Yahoo branch,
-   clients/yahoo_cache.py's YahooPriceCache table is deliberately NOT used
-   -- its staleness check is coverage-blind (a cache row freshened by the
-   2y/4y nightly jobs reads as "fresh" even when this feature needs 8y of
-   history), so this calls clients/yahoo_client.py directly instead, with no
-   persistence at all.
+2. **Zero persistent caching on EITHER branch, deliberately reverted
+   2026-09-18.** From this feature's original commit through 2026-09-17,
+   the FMP branch reused daily_price_sources.py's ordinary
+   get_or_fetch-backed FundamentalsCache (`FMPDailyBarSource`) -- the
+   reasoning at the time was that skipping it would burn FMP quota on
+   every Chart tab view for a popular ticker, and every other FMP call in
+   this app already goes through that cache. That reasoning didn't hold up
+   in practice: `daily_bar_staleness_days` (1 day) is a flat rolling TTL
+   from `fetched_at` with no market-close awareness, so a row fetched any
+   time before a trading day's close (e.g. the first Chart tab view of the
+   morning) locks in the PRIOR close as "fresh" for up to the next 24
+   hours -- which routinely spans past the next session's open, hiding the
+   newest bar from the chart. Confirmed live in production 2026-09-18 (see
+   docs/chart_tab_missing_bar_investigation_2026-09-18.md): 34 real cached
+   rows across all three FMP lookback keys (2y/3y/8y -- i.e. all 4
+   Chart-tab ranges, since D_6M/D_1Y share the 2y key) were serving a
+   stale last bar at the exact moment this was checked, all from
+   pre-close morning fetches. Fixed by calling `fmp_client.
+   get_historical_price_eod` directly here (`_fetch_fmp_bars`, this
+   module) instead of going through `FMPDailyBarSource`/`get_or_fetch` --
+   this module now makes a genuinely live FMP call on every request,
+   same as the Yahoo branch always has. Scoped to the Chart tab ONLY:
+   `daily_price_sources.py`'s own cache behavior is unchanged for every
+   other consumer -- Liquidity Zone detection (data/liquidity_zone_data.py)
+   still reads through that same cached path and remains subject to the
+   identical staleness bug, left as a separate, not-yet-fixed issue.
+   On the Yahoo branch, clients/yahoo_cache.py's YahooPriceCache table was
+   already deliberately NOT used (unchanged by this revert) -- its
+   staleness check is coverage-blind (a cache row freshened by the 2y/4y
+   nightly jobs reads as "fresh" even when this feature needs 8y of
+   history), so this calls clients/yahoo_client.py directly instead, with
+   no persistence at all, exactly as it always has.
 
 Known, accepted asymmetry: W_4Y shows 4 years of price (RANGE_CONFIG's own
 visible_days) but entry_signal_markers only ever has up to
@@ -31,7 +52,7 @@ special-casing (_entry_signal_markers already returns an empty list for a
 window with no matching events).
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 from sqlmodel import Session, select
@@ -39,7 +60,7 @@ from sqlmodel import Session, select
 from analysis.entry_signal.indicators import BB_LENGTH, BB_STD, compute_rsi
 from analysis.trend_structure.stochastic import compute_stochastic
 from analysis.trend_structure.weinstein import resample_to_weekly
-from clients.daily_price_sources import FMPDailyBarSource
+from clients.fmp_client import fmp_client
 from clients.yahoo_client import yahoo_client
 from core.config import settings
 from core.db import engine
@@ -100,6 +121,25 @@ def _empty_ohlcv() -> pd.DataFrame:
     return pd.DataFrame(columns=_EMPTY_OHLCV_COLUMNS)
 
 
+async def _fetch_fmp_bars(ticker: str, lookback_years: int) -> pd.DataFrame:
+    """A direct, uncached live call to FMP's daily EOD endpoint -- see
+    module docstring point 2 for why this deliberately does NOT go through
+    daily_price_sources.py's FMPDailyBarSource/get_or_fetch-backed
+    FundamentalsCache the way it used to. Mirrors daily_price_sources.py::
+    _fetch_fmp_daily_bars's own request/parsing shape (same endpoint, same
+    from/to window math) minus the Session/cache plumbing."""
+    to_date = date.today()
+    from_date = to_date - timedelta(days=365 * lookback_years)
+    rows = await fmp_client.get_historical_price_eod(ticker, from_date.isoformat(), to_date.isoformat())
+    rows = rows if isinstance(rows, list) else []
+    if not rows:
+        return _empty_ohlcv()
+    df = pd.DataFrame(rows).drop_duplicates(subset="date")
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values("date").set_index("date")
+    return df[_EMPTY_OHLCV_COLUMNS]
+
+
 async def _fetch_bars(ticker: str, range_key: str) -> tuple[pd.DataFrame, str]:
     """Returns (lowercase-column OHLCV DataFrame, "fmp"|"yahoo"). Empty
     DataFrame (never None/raised) for a bad/delisted ticker or a fetch that
@@ -108,13 +148,7 @@ async def _fetch_bars(ticker: str, range_key: str) -> tuple[pd.DataFrame, str]:
     cfg = RANGE_CONFIG[range_key]
 
     if settings.fmp_enabled:
-        # Reused directly (not clients.daily_price_sources.get_daily_bar_source(),
-        # which would also hand back YahooDailyBarSource on the disabled
-        # branch -- that class persists into YahooPriceCache, exactly the
-        # table this feature avoids; see module docstring) since only the
-        # FMP half of that module's dual-source pattern applies here.
-        result = await FMPDailyBarSource().get_daily_bars([ticker], cfg["fmp_lookback_years"])
-        df = result.get(ticker, _empty_ohlcv())
+        df = await _fetch_fmp_bars(ticker, cfg["fmp_lookback_years"])
         if cfg["timeframe"] == "weekly" and not df.empty:
             df = resample_to_weekly(df)
         return df, "fmp"

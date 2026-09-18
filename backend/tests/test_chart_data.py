@@ -144,10 +144,10 @@ def _lp_out(
 def test_chart_available_false_when_fetch_returns_no_bars(monkeypatch):
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return pd.DataFrame()
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -170,10 +170,10 @@ def test_daily_range_computes_full_warmup_then_slices_to_visible_window(monkeypa
 
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -200,10 +200,10 @@ def test_d6m_range_computes_full_warmup_then_slices_to_visible_window(monkeypatc
 
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -228,10 +228,10 @@ def test_ema21_is_exponential_not_a_rolling_average(monkeypatch):
 
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -255,10 +255,10 @@ def test_bollinger_basis_is_ema20_not_sma20(monkeypatch):
 
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -283,11 +283,11 @@ def test_fmp_w4y_range_resamples_daily_to_weekly(monkeypatch):
 
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
         assert lookback_years == 8
-        return {tickers[0]: df}
+        return df
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -331,10 +331,10 @@ def test_entry_signal_not_tracked(monkeypatch):
     df = _daily_df(300)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -353,13 +353,13 @@ def test_entry_signal_tracked_but_no_events_in_window_has_no_markers(monkeypatch
     df = _daily_df(300)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
     async def fake_entry_signal(ticker):
         return _entry_signal(active=False, fired_at=datetime.now() - timedelta(days=10))
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", fake_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     monkeypatch.setattr(chart_data, "_fetch_entry_signal_events", lambda ticker, since: [])
@@ -378,15 +378,15 @@ def test_entry_signal_places_a_marker_per_event_even_when_inactive(monkeypatch):
     df = _daily_df(300)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
     fired_at = (pd.Timestamp.today().normalize() - pd.Timedelta(days=60)).to_pydatetime()
 
     async def fake_entry_signal(ticker):
         return _entry_signal(active=False, fired_at=fired_at)
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", fake_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     monkeypatch.setattr(chart_data, "_fetch_entry_signal_events", lambda ticker, since: _events(ticker, [fired_at]))
@@ -410,8 +410,8 @@ def test_entry_signal_multiple_fires_same_day_collapse_to_one_marker_keeping_fir
     df = _daily_df(300)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
     day = pd.Timestamp.today().normalize() - pd.Timedelta(days=5)
     first_fire = (day + pd.Timedelta(hours=11, minutes=30)).to_pydatetime()
@@ -421,7 +421,7 @@ def test_entry_signal_multiple_fires_same_day_collapse_to_one_marker_keeping_fir
     async def fake_entry_signal(ticker):
         return _entry_signal(active=True, fired_at=third_fire)
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", fake_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     monkeypatch.setattr(
@@ -440,8 +440,8 @@ def test_entry_signal_distinct_days_each_get_their_own_marker(monkeypatch):
     df = _daily_df(300)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
     today = pd.Timestamp.today().normalize()
     fired_1 = (today - pd.Timedelta(days=30)).to_pydatetime()
@@ -450,7 +450,7 @@ def test_entry_signal_distinct_days_each_get_their_own_marker(monkeypatch):
     async def fake_entry_signal(ticker):
         return _entry_signal(active=True, fired_at=fired_2)
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", fake_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     monkeypatch.setattr(chart_data, "_fetch_entry_signal_events", lambda ticker, since: _events(ticker, [fired_1, fired_2]))
@@ -470,8 +470,8 @@ def test_entry_signal_weekly_view_collapses_same_week_fires_keeping_first(monkey
     df = _daily_df(365 * 5)  # enough history for W_4Y's warm-up + 4y visible window
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
     # Two fires in the same calendar week (a Tuesday and a Thursday),
     # comfortably inside the visible window.
@@ -483,7 +483,7 @@ def test_entry_signal_weekly_view_collapses_same_week_fires_keeping_first(monkey
     async def fake_entry_signal(ticker):
         return _entry_signal(active=True, fired_at=thursday_fire)
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", fake_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     monkeypatch.setattr(
@@ -508,15 +508,15 @@ def test_entry_signal_w4y_shows_no_markers_for_the_older_two_years_not_an_error(
     df = _daily_df(365 * 5)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
     recent_fire = (pd.Timestamp.today().normalize() - pd.Timedelta(days=200)).to_pydatetime()  # well within 2y
 
     async def fake_entry_signal(ticker):
         return _entry_signal(active=True, fired_at=recent_fire)
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", fake_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     # Simulates the real query already having nothing older than ~2 years
@@ -536,10 +536,10 @@ def test_entry_signal_w4y_shows_no_markers_for_the_older_two_years_not_an_error(
 def test_warren_signal_not_tracked(monkeypatch):
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: _daily_df(300)}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return _daily_df(300)
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     # get_warren_signal_data stays the module's default (_no_warren_signal)
@@ -555,15 +555,15 @@ def test_warren_signal_places_a_marker_per_event_with_its_own_kind_and_label(mon
     df = _daily_df(300)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
     fired_at = (pd.Timestamp.today().normalize() - pd.Timedelta(days=60)).to_pydatetime()
 
     async def fake_warren_signal(ticker):
         return _warren_signal(active=False, fired_at=fired_at, signal_kind="gray_up")
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     monkeypatch.setattr(chart_data, "get_warren_signal_data", fake_warren_signal)
@@ -590,8 +590,8 @@ def test_warren_signal_two_different_kinds_on_the_same_bar_both_render(monkeypat
     df = _daily_df(300)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
     day = pd.Timestamp.today().normalize() - pd.Timedelta(days=5)
     same_bar = (day + pd.Timedelta(hours=11, minutes=30)).to_pydatetime()
@@ -599,7 +599,7 @@ def test_warren_signal_two_different_kinds_on_the_same_bar_both_render(monkeypat
     async def fake_warren_signal(ticker):
         return _warren_signal(active=True, fired_at=same_bar, signal_kind="blue_up")
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     monkeypatch.setattr(chart_data, "get_warren_signal_data", fake_warren_signal)
@@ -620,8 +620,8 @@ def test_warren_signal_multiple_fires_of_the_same_kind_same_day_collapse_to_one(
     df = _daily_df(300)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
     day = pd.Timestamp.today().normalize() - pd.Timedelta(days=5)
     first_fire = (day + pd.Timedelta(hours=11, minutes=30)).to_pydatetime()
@@ -630,7 +630,7 @@ def test_warren_signal_multiple_fires_of_the_same_kind_same_day_collapse_to_one(
     async def fake_warren_signal(ticker):
         return _warren_signal(active=True, fired_at=second_fire, signal_kind="yellow_up")
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     monkeypatch.setattr(chart_data, "get_warren_signal_data", fake_warren_signal)
@@ -651,10 +651,10 @@ def test_zones_not_tracked(monkeypatch):
     df = _daily_df(300)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -668,8 +668,8 @@ def test_zones_within_visible_window_included_outside_excluded(monkeypatch):
     df = _daily_df(600)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
     today = pd.Timestamp.today().normalize()
     within = (today - pd.Timedelta(days=300)).strftime("%Y-%m-%d")  # inside D_1Y's 365-day window
@@ -679,7 +679,7 @@ def test_zones_within_visible_window_included_outside_excluded(monkeypatch):
     resistance = [_zone_out(110.0, within)]
     lp = LiquidityZonesOut(daily=_lp_out(support=support, resistance=resistance), weekly=None)
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", lambda ticker: lp)
 
@@ -694,8 +694,8 @@ def test_broken_zone_within_window_is_included_with_broken_flag_set(monkeypatch)
     df = _daily_df(600)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
     today = pd.Timestamp.today().normalize()
     within = (today - pd.Timedelta(days=300)).strftime("%Y-%m-%d")  # inside D_1Y's 365-day window
@@ -712,7 +712,7 @@ def test_broken_zone_within_window_is_included_with_broken_flag_set(monkeypatch)
         weekly=None,
     )
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", lambda ticker: lp)
 
@@ -730,13 +730,13 @@ def test_no_broken_zone_when_none_currently_qualifies(monkeypatch):
     df = _daily_df(600)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
     within = (pd.Timestamp.today().normalize() - pd.Timedelta(days=300)).strftime("%Y-%m-%d")
     lp = LiquidityZonesOut(daily=_lp_out(support=[_zone_out(90.0, within)], resistance=[]), weekly=None)
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", lambda ticker: lp)
 
@@ -751,15 +751,15 @@ def test_zones_use_weekly_read_for_w4y_range_not_daily(monkeypatch):
     df = _daily_df(365 * 9)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
     recent = (pd.Timestamp.today().normalize() - pd.Timedelta(days=30)).strftime("%Y-%m-%d")
     daily_read = _lp_out(support=[_zone_out(90.0, recent)], resistance=[])
     weekly_read = _lp_out(support=[], resistance=[_zone_out(120.0, recent)])
     lp = LiquidityZonesOut(daily=daily_read, weekly=weekly_read)
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", lambda ticker: lp)
 
@@ -773,13 +773,13 @@ def test_zones_use_weekly_read_for_w4y_range_not_daily(monkeypatch):
 def test_zones_absent_when_bars_empty(monkeypatch):
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return pd.DataFrame()
 
     recent = (pd.Timestamp.today().normalize() - pd.Timedelta(days=30)).strftime("%Y-%m-%d")
     lp = LiquidityZonesOut(daily=_lp_out(support=[_zone_out(90.0, recent)], resistance=[]), weekly=None)
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", lambda ticker: lp)
 

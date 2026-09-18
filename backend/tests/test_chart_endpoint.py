@@ -67,10 +67,10 @@ def _patch_fmp_bars(monkeypatch, n: int = 300):
         {"open": closes - 0.5, "high": closes + 1.0, "low": closes - 1.0, "close": closes, "volume": 1000}, index=index
     )
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {tickers[0]: df}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return df
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
 
 
 def test_endpoint_returns_chart_for_valid_ticker(monkeypatch):
@@ -166,10 +166,10 @@ def test_endpoint_returns_chart_unavailable_for_a_ticker_with_no_bars(monkeypatc
     _fresh_chart_data_engine(monkeypatch)
     monkeypatch.setattr(chart_data.settings, "fmp_enabled", True)
 
-    async def fake_get_daily_bars(self, tickers, lookback_years):
-        return {}
+    async def fake_fetch_fmp_bars(ticker, lookback_years):
+        return pd.DataFrame()
 
-    monkeypatch.setattr(chart_data.FMPDailyBarSource, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(chart_data, "_fetch_fmp_bars", fake_fetch_fmp_bars)
 
     with TestClient(main.app) as client:
         response = client.get("/api/tickers/ZZZZINVALID/chart")

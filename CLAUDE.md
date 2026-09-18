@@ -2654,6 +2654,36 @@ liquidity_zone_data.py`, `pipeline/nightly_liquidity_zone_calculation.py`) neede
 real re-fetch), so this was left to happen on its normal schedule rather than forced
 out-of-band.
 
+### Chart tab reverted to zero-cache on-demand fetch (2026-09-18)
+
+**The fix directly above wasn't enough for the Chart tab** -- `daily_bar_staleness_days` being
+a flat 24h TTL with no market-close awareness meant a row fetched any time before a trading
+day's close still locked in the PRIOR close as "fresh" for up to the next 24 hours, regardless
+of the colliding-cache-key fix. Confirmed live in production 2026-09-18
+(`docs/chart_tab_missing_bar_investigation_2026-09-18.md`): AAPL's Chart tab showed 2026-09-16
+as its most recent bar on 2026-09-18, and a full-table scan found 34 cached rows across all
+three FMP lookback keys (2y/3y/8y -- i.e. all 4 Chart-tab ranges, since D_6M/D_1Y share the 2y
+key) exhibiting the identical failure shape, all from pre-close morning fetches. A live,
+uncached FMP call proved the missing bar was already available upstream the whole time -- this
+was never data lag, only the local cache serving a stale snapshot.
+
+Rather than build market-close-aware staleness logic, the Chart tab's FMP branch was reverted
+to what its own module docstring's "fully on-demand" framing always claimed but didn't fully
+deliver: `data/chart_data.py::_fetch_fmp_bars` now calls `fmp_client.get_historical_price_eod`
+directly, bypassing `daily_price_sources.py`'s `FMPDailyBarSource`/`get_or_fetch`-backed
+`FundamentalsCache` entirely -- a genuinely live FMP call on every Chart tab request, matching
+what the Yahoo branch (`clients/yahoo_client.py`, no caching layer, unchanged) has always done.
+**Scoped to the Chart tab only** -- `daily_price_sources.py` itself, and every other consumer of
+it, are untouched. Liquidity Zone detection (`data/liquidity_zone_data.py`,
+`pipeline/nightly_liquidity_zone_calculation.py`) still reads through the same
+`FMPDailyBarSource`/`get_or_fetch` cached path documented in the fix above, and remains subject
+to the identical market-close-blind staleness bug -- a deliberate scoping decision, not an
+oversight, left as a known, separate issue if it needs revisiting (Liquidity Zones only runs
+once nightly rather than on every page view, so the cost/benefit of adding a persistence layer
+there is genuinely different from the Chart tab's case). This also means the "shared by the
+Chart tab's four ranges... and this feature's nightly job" framing in the fix above is no
+longer accurate as of this revert -- `FMPDailyBarSource` is now only the nightly job's own path.
+
 ### Main/Secondary watchlist rename + computed_at staleness sweep (2026-09-09)
 
 **Superseded 2026-09-11 (see the "Watchlists" section above for the current behavior):**
