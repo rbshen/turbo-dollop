@@ -6,12 +6,13 @@ import { CurrentDistributionList } from "@/components/analystRatings/CurrentDist
 import { RatingDistributionTrendChart } from "@/components/analystRatings/RatingDistributionTrendChart";
 import { RecommendationDetailsTable } from "@/components/analystRatings/RecommendationDetailsTable";
 import { SegmentedControl } from "@/components/shared/SegmentedControl";
-import type { RatingHistoryPoint, RecommendationDetailsColumn } from "@/lib/api/types";
-import { fmtNumber } from "@/lib/format";
+import { buildVerdict } from "@/lib/analystRatingsVerdict";
+import type { PriceTargetSummary, RatingHistoryPoint, RecommendationDetailsColumn } from "@/lib/api/types";
 
 interface Props {
   history: RatingHistoryPoint[];
   columns: RecommendationDetailsColumn[];
+  priceTarget: PriceTargetSummary;
   currency?: string;
   /** ISO timestamp of the cached grades_consensus row Current Distribution
    * is built from -- see analyst_ratings_data.py's own comment on why this
@@ -28,35 +29,6 @@ function fmtAsOfDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-// One-line takeaway built from real data: the current mean/consensus, plus
-// whether consensus has held steady or shifted over the past year (Current
-// vs. the "1Y Ago" column -- always columns[3] per
-// analyst_ratings_data.py's fixed Current/2M/6M/1Y column order). Omits the
-// second clause entirely if either side's consensus is unavailable, rather
-// than guessing.
-function buildSummarySentence(columns: RecommendationDetailsColumn[]): string {
-  const current = columns[0];
-  if (!current) return "No recommendation data available.";
-
-  const parts: string[] = [];
-  if (current.mean != null && current.consensus) {
-    parts.push(`Mean rating ${fmtNumber(current.mean, 2)} (${current.consensus}).`);
-  } else if (current.consensus) {
-    parts.push(`Current consensus: ${current.consensus}.`);
-  }
-
-  const yearAgo = columns[3];
-  if (current.consensus && yearAgo?.consensus) {
-    parts.push(
-      current.consensus === yearAgo.consensus
-        ? `Consensus has held "${current.consensus}" for at least the past year.`
-        : `Consensus has shifted from "${yearAgo.consensus}" to "${current.consensus}" over the past year.`
-    );
-  }
-
-  return parts.length > 0 ? parts.join(" ") : "No recommendation data available.";
-}
-
 // Merges the old separate Analyst Distribution, Recommendation Trend, and
 // Recommendation Details cards into one. Row 1: the recommendation-trend
 // chart, full row width. Row 2: the current distribution as label/value
@@ -64,7 +36,7 @@ function buildSummarySentence(columns: RecommendationDetailsColumn[]): string {
 // full details table (~80% width) -- a 1/5-4/5 split via the same
 // `grid-cols-1 lg:grid-cols-5` pattern this card already used for its
 // former side-by-side layout, so it still stacks to one column below `lg`.
-export function SentimentOverTimeCard({ history, columns, currency = "USD", currentAsOf }: Props) {
+export function SentimentOverTimeCard({ history, columns, priceTarget, currency = "USD", currentAsOf }: Props) {
   const [view, setView] = useState<SentimentView>("summary");
   const currentColumn = columns[0];
 
@@ -105,7 +77,7 @@ export function SentimentOverTimeCard({ history, columns, currency = "USD", curr
               />
 
               {view === "summary" ? (
-                <p className="text-xs leading-relaxed text-text-tertiary">{buildSummarySentence(columns)}</p>
+                <p className="text-xs leading-relaxed text-text-tertiary">{buildVerdict(columns, priceTarget, currency)}</p>
               ) : (
                 <RecommendationDetailsTable columns={columns} currency={currency} />
               )}

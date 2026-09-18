@@ -52,6 +52,7 @@ export function AnalystRatingsTab({ ticker }: Props) {
         <SentimentOverTimeCard
           history={data.history}
           columns={data.recommendation_details}
+          priceTarget={data.price_target}
           currency={quoteCurrency}
           currentAsOf={data.grades_consensus_as_of}
         />
