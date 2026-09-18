@@ -49,6 +49,7 @@ export function SegmentationSection({ title, years, segments, values, notDisclos
         values={values}
         yTicks={yTicks}
         yTickFormat={(v) => fmtAxisMoney(v, unit, currency)}
+        barSize={44}
       />
 
       <ChartLegend items={series} layout="row" />

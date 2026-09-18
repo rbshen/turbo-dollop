@@ -22,7 +22,12 @@ const SERIES: ChartSeries[] = [
 ];
 
 // "Recommendation Trend" -- Buy/Outperform/Hold/Underperform/Sell % of
-// analyst coverage per grades-historical month, stacked to 100%.
+// analyst coverage per grades-historical month, stacked to 100%. Runs
+// full-row width (see SentimentOverTimeCard) -- height 216 matches this
+// tab's other full-width chart (PriceTargetTrendChart), and `barSize` is
+// left unset so Recharts fills each category's band proportionally to the
+// row's real width instead of leaving fixed-width bars stranded in empty
+// space.
 export function RatingDistributionTrendChart({ history }: Props) {
   if (history.length === 0) {
     return <p className="text-sm text-text-tertiary">No rating history available for this ticker.</p>;
@@ -46,7 +51,7 @@ export function RatingDistributionTrendChart({ history }: Props) {
         values={values}
         yTicks={yTicks}
         yTickFormat={(v) => fmtPlainPct(v, 0)}
-        height={140}
+        height={216}
       />
       <ChartLegend items={SERIES} layout="row" />
     </div>

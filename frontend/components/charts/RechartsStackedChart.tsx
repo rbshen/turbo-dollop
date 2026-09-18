@@ -12,11 +12,6 @@ export interface ChartSeries {
   color: string;
 }
 
-// Thicker bars with a small fixed gap between years -- this chart has only
-// one bar per category (segments stack into it), so it can afford to run
-// wide, unlike a denser multi-bar-per-category chart.
-const STACKED_BAR_SIZE = 44;
-
 interface Props {
   categories: string[];
   series: ChartSeries[];
@@ -24,13 +19,22 @@ interface Props {
   yTicks: number[];
   yTickFormat: (v: number) => string;
   height?: number;
+  /** Fixed per-bar pixel width -- this chart has only one bar per category
+   * (segments stack into it), so a narrower, side-by-side layout can afford
+   * to set this and still run thick (Segmentation passes 44). Omit it to
+   * let Recharts auto-size each category's band to fill the available
+   * width instead -- appropriate for a full-width row (Recommendation
+   * Trend), where a fixed width would leave the bars stranded in empty
+   * space rather than filling the row proportionally. */
+  barSize?: number;
 }
 
 /** Stacked-bar chart -- every Bar shares one stackId instead of being
  * grouped side by side. Used for the Summary tab's revenue-by-segment and
  * revenue-by-geography charts, where the segment list is dynamic
- * per-company free text rather than a fixed metric set. */
-export function RechartsStackedChart({ categories, series, values, yTicks, yTickFormat, height = 216 }: Props) {
+ * per-company free text rather than a fixed metric set, and for the
+ * Analyst Ratings tab's Recommendation Trend chart. */
+export function RechartsStackedChart({ categories, series, values, yTicks, yTickFormat, height = 216, barSize }: Props) {
   const [hovered, setHovered] = useState<string | null>(null);
 
   const chartData = categories.map((cat, i) => {
@@ -93,7 +97,7 @@ export function RechartsStackedChart({ categories, series, values, yTicks, yTick
               stackId="segments"
               fill={s.color}
               fillOpacity={opacity}
-              barSize={STACKED_BAR_SIZE}
+              barSize={barSize}
               isAnimationActive={false}
               onMouseEnter={() => setHovered(s.key)}
               onMouseLeave={() => setHovered(null)}

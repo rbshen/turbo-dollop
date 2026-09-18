@@ -58,22 +58,25 @@ function buildSummarySentence(columns: RecommendationDetailsColumn[]): string {
 }
 
 // Merges the old separate Analyst Distribution, Recommendation Trend, and
-// Recommendation Details cards into one. Left: the recommendation-trend
-// chart. Right: the current distribution as label/value rows, plus a
-// toggle between a one-line summary and the full details table.
+// Recommendation Details cards into one. Row 1: the recommendation-trend
+// chart, full row width. Row 2: the current distribution as label/value
+// rows (~20% width) alongside a toggle between a one-line summary and the
+// full details table (~80% width) -- a 1/5-4/5 split via the same
+// `grid-cols-1 lg:grid-cols-5` pattern this card already used for its
+// former side-by-side layout, so it still stacks to one column below `lg`.
 export function SentimentOverTimeCard({ history, columns, currency = "USD", currentAsOf }: Props) {
   const [view, setView] = useState<SentimentView>("summary");
   const currentColumn = columns[0];
 
   return (
-    <div className="rounded-lg border border-border-card bg-surface p-6">
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-        <div className="space-y-3 lg:col-span-3">
-          <h2 className="font-heading text-sm font-semibold text-text-primary">Recommendation Trend</h2>
-          <RatingDistributionTrendChart history={history} />
-        </div>
+    <div className="space-y-6 rounded-lg border border-border-card bg-surface p-6">
+      <div className="space-y-3">
+        <h2 className="font-heading text-sm font-semibold text-text-primary">Recommendation Trend</h2>
+        <RatingDistributionTrendChart history={history} />
+      </div>
 
-        <div className="space-y-3 lg:col-span-2">
+      <div className="grid grid-cols-1 gap-6 border-t border-border-card pt-6 lg:grid-cols-5">
+        <div className="space-y-3 lg:col-span-1">
           <h2 className="font-heading text-sm font-semibold text-text-primary">Current Distribution</h2>
           {currentColumn ? (
             <>
@@ -82,7 +85,16 @@ export function SentimentOverTimeCard({ history, columns, currency = "USD", curr
                 Live consensus{currentAsOf ? `, as of ${fmtAsOfDate(currentAsOf)}` : ""} — independently refreshed
                 from the Recommendation Trend chart, so totals may not match.
               </p>
+            </>
+          ) : (
+            <p className="text-sm text-text-tertiary">No current distribution available.</p>
+          )}
+        </div>
 
+        <div className="space-y-3 lg:col-span-4">
+          {currentColumn && (
+            <>
+              <h2 className="font-heading text-sm font-semibold text-text-primary">Recommendation Details</h2>
               <SegmentedControl
                 value={view}
                 onChange={setView}
@@ -98,8 +110,6 @@ export function SentimentOverTimeCard({ history, columns, currency = "USD", curr
                 <RecommendationDetailsTable columns={columns} currency={currency} />
               )}
             </>
-          ) : (
-            <p className="text-sm text-text-tertiary">No current distribution available.</p>
           )}
         </div>
       </div>
