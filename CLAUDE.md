@@ -2676,13 +2676,71 @@ what the Yahoo branch (`clients/yahoo_client.py`, no caching layer, unchanged) h
 **Scoped to the Chart tab only** -- `daily_price_sources.py` itself, and every other consumer of
 it, are untouched. Liquidity Zone detection (`data/liquidity_zone_data.py`,
 `pipeline/nightly_liquidity_zone_calculation.py`) still reads through the same
-`FMPDailyBarSource`/`get_or_fetch` cached path documented in the fix above, and remains subject
-to the identical market-close-blind staleness bug -- a deliberate scoping decision, not an
-oversight, left as a known, separate issue if it needs revisiting (Liquidity Zones only runs
-once nightly rather than on every page view, so the cost/benefit of adding a persistence layer
-there is genuinely different from the Chart tab's case). This also means the "shared by the
-Chart tab's four ranges... and this feature's nightly job" framing in the fix above is no
-longer accurate as of this revert -- `FMPDailyBarSource` is now only the nightly job's own path.
+`FMPDailyBarSource`/`get_or_fetch` cached path documented in the fix above, and **at the time of
+this revert** remained subject to the identical market-close-blind staleness bug -- a deliberate
+scoping decision, not an oversight, left as a known, separate issue to revisit (Liquidity Zones
+only runs once nightly rather than on every page view, so the cost/benefit of adding a
+persistence layer there is genuinely different from the Chart tab's case). This also means the
+"shared by the Chart tab's four ranges... and this feature's nightly job" framing in the fix
+above is no longer accurate as of this revert -- `FMPDailyBarSource` is now only the nightly
+job's own path. **See the next entry below: revisited and fixed the same day.**
+
+### Liquidity Zone nightly job: confirmed live-exposed to the same bug, fixed with a market-close-aware check (2026-09-18)
+
+Follow-up investigation into whether the gap the entry above left open was actually being hit,
+or just theoretically possible given the job's schedule -- it was live, not theoretical.
+
+**Confirmed via the real `fundamentalscache` table**, grouping every `historical_price_eod`/`4y`
+row (Liquidity Zone's own cache key) by `date(fetched_at)`: of 116 rows, only 42 had been
+refreshed on the night being checked, 62 were still dated the PRIOR night's run, 11 were two
+nights stale, and 1 was three nights stale -- a compounding version of the Chart tab's own "stuck
+one day behind" symptom, not a milder one. Traced the exact mechanism via the job's own log
+(`nightly_liquidity_zone_calculation_cron.log`): the cron entry (`crontab.txt`, `25 3 * * *`,
+server timezone UTC per `timedatectl`) fires at a fixed wall-clock time every night, but
+`FMPDailyBarSource.get_daily_bars` fetches tickers **sequentially** (no multi-ticker FMP
+endpoint), so each ticker's own `fetched_at` lands at `job_start + cumulative_per_ticker_delay`
+-- and real run durations vary a lot night to night (7.3s to 133.2s across nine consecutive
+nights, driven by network/FMP latency jitter). Since the interval between two consecutive runs
+is ~24h00m by the cron schedule itself, whether a given ticker's row reads as "stale" on the next
+run reduces to whether *that run* processed the ticker slightly later in wall-clock terms than
+the *previous* run did -- a coin flip decided by relative run-speed, not by anything related to
+whether the cached data is actually current. A ticker can lose this coin flip several nights in a
+row, which is why some rows were 2-3 nights stale, not just 1 -- worse than the Chart tab's bug
+in practice, since that one only ever spanned a single day before self-healing.
+
+**Fix**: added a market-close-aware freshness check on top of (not instead of) the existing
+`daily_bar_staleness_days` TTL, scoped to `clients/daily_price_sources.py` only --
+`_fetch_fmp_daily_bars` now also compares the cached series' own last bar date against a new
+`_most_recent_completed_trading_date()` helper (US/Eastern, weekday-aware, deliberately NOT
+holiday-aware -- flagged as a lower-value follow-up in
+`docs/chart_tab_missing_bar_investigation_2026-09-18.md`'s "Proposed fix" section, option 2,
+which this implements) and forces a live refetch via `core/cache.py::force_fetch` (ignoring the
+TTL entirely) whenever the two disagree -- i.e. whenever the cache is "fresh" per the flat window
+but its content still predates the most recently completed session. Unlike the Chart tab, this
+job's cache was kept rather than dropped: it only fetches once per ticker per night regardless,
+so the cache is genuinely load-bearing here (a warm, genuinely-current row still means zero live
+FMP calls), whereas the Chart tab's cache bought little against many same-day views. `get_or_fetch`
+itself, `daily_bar_staleness_days`'s meaning, and every other potential consumer of
+`FMPDailyBarSource` (there is currently none -- the Chart tab moved off this cache entirely, see
+the entry above) are all unchanged -- this is an additive check at the one call site inside
+`daily_price_sources.py`, not a change to the shared cache primitive.
+
+Confirmed via `tests/test_daily_price_sources.py`: a new regression test
+(`test_fresh_per_ttl_but_missing_latest_session_still_forces_a_refetch`) reproduces the exact
+production shape (a row fetched 1 hour ago, comfortably inside the TTL, whose last bar is two
+sessions behind) and confirms a live refetch still fires; the three pre-existing tests in that
+file were updated to pin `_most_recent_completed_trading_date` to match their own fixture dates,
+since they were written before this check existed and used a hardcoded historical bar date that
+would otherwise always fail the new gate once run against a later real wall-clock date. Full
+Liquidity Zone test surface (`test_daily_price_sources.py`, `test_liquidity_zone_data.py`,
+`test_liquidity_zone_config_endpoints.py`, `test_liquidity_zone_endpoint.py`,
+`test_nightly_liquidity_zone_calculation.py`, 35 tests total) and the Chart tab's own tests
+(confirming zero cross-impact, since it no longer reads through this module) all pass.
+
+**Manual verification checklist** (no browser available in this environment): after the next
+nightly run, query `fundamentalscache` for `statement_type='historical_price_eod' AND
+period='4y'`, group by `date(fetched_at)` -- every row should now date to that run's own night,
+with no multi-night-stale residue accumulating the way it did before this fix.
 
 ### Main/Secondary watchlist rename + computed_at staleness sweep (2026-09-09)
 
