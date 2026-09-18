@@ -5,18 +5,22 @@ only processed once) -- NOT the full tracked universe, same scoping as
 pipeline/nightly_entry_signal_calculation.py. See CLAUDE.md's "Liquidity
 Zone (LP) detection (Technical)" section for the full methodology.
 
-Unlike nightly_entry_signal_calculation.py (hard-forced Yahoo, since FMP's
-intraday endpoints are plan-restricted), this feature's daily/weekly bars
-work fine on FMP -- clients/daily_price_sources.py::get_daily_bar_source()
-uses the ordinary settings.fmp_enabled toggle, so this job needs (and has)
-a real FMP<->Yahoo branch, unlike the two other W1-W5-scoped/full-universe
-technical jobs.
+**Yahoo Finance only, unconditionally (2026-09-18).** This job used to have
+a real FMP<->Yahoo branch (clients/daily_price_sources.py::
+get_daily_bar_source(), gated on the ordinary settings.fmp_enabled toggle)
+-- unlike nightly_entry_signal_calculation.py's BB+RSI feed, FMP's daily
+EOD endpoint was never plan-restricted, so that branch was the normal
+degrade pattern rather than BB+RSI's hard-forced single source. That
+branch is now removed: Liquidity Zones is one of six technical-analysis
+features (alongside Chart, Weinstein Stage, Trend, Warren, BB+RSI) moved
+to Yahoo-only regardless of FMP_ENABLED, so a paused FMP subscription can
+never affect what price levels this feature detects.
 
-Fetches every tracked ticker's ~4yr daily OHLC in one shot (FMP: looped,
-each call cache-gated; Yahoo: one batch call -- see
-clients/daily_price_sources.py), then runs the pure calculation engine for
-both Daily and Weekly off that same fetched frame and upserts per ticker
-(data.liquidity_zone_data.compute_and_store_liquidity_zones), matching
+Fetches every tracked ticker's ~4yr daily OHLC in one Yahoo batch call
+(see clients/daily_price_sources.py::get_daily_bars), then runs the pure
+calculation engine for both Daily and Weekly off that same fetched frame
+and upserts per ticker (data.liquidity_zone_data.
+compute_and_store_liquidity_zones), matching
 nightly_entry_signal_calculation.py's own one-fetch-then-per-ticker-compute
 shape. After the per-ticker loop, sweeps any existing row whose
 computed_at is more than liquidity_zone_data.STALE_AFTER_DAYS old (e.g. a
@@ -36,8 +40,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from clients.daily_price_sources import LOOKBACK_YEARS, get_daily_bar_source
-from core.config import settings
+from clients.daily_price_sources import get_daily_bars
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
@@ -48,6 +51,7 @@ from helpers.liquidity_zone_config import get_liquidity_zone_config
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_liquidity_zone_calculation.log"
 
 WATCHLIST_NAME_PATTERN = re.compile(r"^W[1-5]$")
+SOURCE_NAME = "yahoo"
 
 logger = logging.getLogger(__name__)
 
@@ -71,13 +75,12 @@ async def main() -> dict:
         swept = sweep_stale_liquidity_zones()
         return {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "swept": swept}
 
-    source_name = "fmp" if settings.fmp_enabled else "yahoo"
     logger.info(
-        "Starting nightly liquidity-zone calculation for %d tickers across %s (source: %s).", len(tickers), matched_names, source_name
+        "Starting nightly liquidity-zone calculation for %d tickers across %s (source: %s).", len(tickers), matched_names, SOURCE_NAME
     )
     start_time = time.monotonic()
 
-    bars_by_ticker = await get_daily_bar_source().get_daily_bars(tickers, LOOKBACK_YEARS)
+    bars_by_ticker = await get_daily_bars(tickers)
 
     failures: list[tuple[str, str]] = []
     for i, ticker in enumerate(tickers, start=1):
@@ -85,7 +88,7 @@ async def main() -> dict:
             ohlcv = bars_by_ticker.get(ticker)
             if ohlcv is None or ohlcv.empty:
                 raise ValueError("No daily OHLC bars returned")
-            compute_and_store_liquidity_zones(ticker, ohlcv, source=source_name, config=config)
+            compute_and_store_liquidity_zones(ticker, ohlcv, source=SOURCE_NAME, config=config)
             logger.info("[%d/%d] %s: ok", i, len(tickers), ticker)
         except Exception as exc:  # noqa: BLE001 -- a single bad ticker must never abort the whole run
             logger.error("[%d/%d] %s: FAILED - %s", i, len(tickers), ticker, exc)

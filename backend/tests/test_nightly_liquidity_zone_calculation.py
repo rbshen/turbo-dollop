@@ -44,14 +44,13 @@ def _seed_watchlist(engine, name: str, tickers: list[str]) -> None:
 
 
 def _patch_bar_source(monkeypatch, bars_by_ticker: dict):
-    calls: list[tuple[list[str], int]] = []
+    calls: list[list[str]] = []
 
-    class FakeSource:
-        async def get_daily_bars(self, tickers, lookback_years):
-            calls.append((list(tickers), lookback_years))
-            return bars_by_ticker
+    async def fake_get_daily_bars(tickers):
+        calls.append(list(tickers))
+        return bars_by_ticker
 
-    monkeypatch.setattr(nightly_lz, "get_daily_bar_source", lambda: FakeSource())
+    monkeypatch.setattr(nightly_lz, "get_daily_bars", fake_get_daily_bars)
     return calls
 
 
@@ -82,8 +81,7 @@ def test_main_processes_the_union_of_w1_and_w2_deduped(monkeypatch, tmp_path):
 
     summary = asyncio.run(nightly_lz.main())
 
-    assert set(batch_calls[0][0]) == {"AAPL", "MSFT", "GOOG"}
-    assert batch_calls[0][1] == nightly_lz.LOOKBACK_YEARS
+    assert set(batch_calls[0]) == {"AAPL", "MSFT", "GOOG"}
     assert sorted(t for t, _ in store_calls) == ["AAPL", "GOOG", "MSFT"]  # each processed exactly once
     assert summary["processed"] == 3
     assert summary["failed"] == 0
@@ -100,7 +98,7 @@ def test_main_also_includes_a_third_watchlist_named_w3(monkeypatch, tmp_path):
 
     summary = asyncio.run(nightly_lz.main())
 
-    assert set(batch_calls[0][0]) == {"AAPL", "GOOG"}
+    assert set(batch_calls[0]) == {"AAPL", "GOOG"}
     assert sorted(t for t, _ in store_calls) == ["AAPL", "GOOG"]
     assert summary["processed"] == 2
 
@@ -125,7 +123,7 @@ def test_main_processes_whichever_matching_watchlist_exists_when_the_other_does_
 
     summary = asyncio.run(nightly_lz.main())
 
-    assert set(batch_calls[0][0]) == {"AAPL"}
+    assert set(batch_calls[0]) == {"AAPL"}
     assert [t for t, _ in store_calls] == ["AAPL"]
     assert summary["processed"] == 1
 
@@ -171,17 +169,23 @@ def test_a_failing_ticker_does_not_abort_the_sweep(monkeypatch, tmp_path):
     assert summary["failed"] == 1
 
 
-def test_source_is_fmp_when_enabled_and_yahoo_when_disabled(monkeypatch, tmp_path):
+def test_source_is_always_yahoo_regardless_of_fmp_enabled(monkeypatch, tmp_path):
+    """Regression test for the 2026-09-18 Yahoo-consolidation change: this
+    job no longer has an FMP branch at all, so the recorded source stays
+    "yahoo" whether or not FMP_ENABLED is set -- confirmed by flipping the
+    flag both ways and asserting the outcome never changes."""
+    from core.config import settings
+
     engine = _fresh_engine(monkeypatch, tmp_path)
     _seed_watchlist(engine, "W1", ["AAPL"])
     _patch_bar_source(monkeypatch, {"AAPL": _fake_bars()})
     store_calls = _patch_store(monkeypatch)
 
-    monkeypatch.setattr(nightly_lz.settings, "fmp_enabled", True)
+    monkeypatch.setattr(settings, "fmp_enabled", True)
     asyncio.run(nightly_lz.main())
-    assert store_calls[-1] == ("AAPL", "fmp")
+    assert store_calls[-1] == ("AAPL", "yahoo")
 
-    monkeypatch.setattr(nightly_lz.settings, "fmp_enabled", False)
+    monkeypatch.setattr(settings, "fmp_enabled", False)
     asyncio.run(nightly_lz.main())
     assert store_calls[-1] == ("AAPL", "yahoo")
 

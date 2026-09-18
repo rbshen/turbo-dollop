@@ -45,17 +45,15 @@ class Settings(BaseSettings):
     # quarterly, so a much tighter staleness window applies here. See
     # clients/yahoo_cache.py.
     yahoo_price_cache_staleness_days: int = 1
-    # Distinct from both cache_staleness_days and yahoo_price_cache_staleness_days
-    # above -- FMP daily EOD price bars (clients/daily_price_sources.py, feeding
-    # the Chart tab and Liquidity Zone detection) get a new bar every trading
-    # day, the same reasoning yahoo_price_cache_staleness_days already applies
-    # to Yahoo's own OHLCV cache, just for the FMP-sourced daily-bar path
-    # instead. Before this setting existed, that path reused the general
-    # cache_staleness_days (7 days, meant for slow-changing fundamentals): a
-    # row fetched before that day's close would read as "fresh" for up to a
-    # week, silently withholding newer closes (confirmed live in production,
-    # see CLAUDE.md's Liquidity Zone section).
-    daily_bar_staleness_days: int = 1
+    # daily_bar_staleness_days (FMP daily EOD price bars' own staleness
+    # window) was removed 2026-09-18: Chart tab and Liquidity Zone
+    # detection, its only two consumers, both dropped FMP as a data source
+    # entirely (Chart moved to zero-cache on-demand Yahoo the day before;
+    # Liquidity Zones followed the same day, moving to
+    # yahoo_price_cache_staleness_days above via clients/yahoo_cache.py) --
+    # see CLAUDE.md's Liquidity Zone section for the staleness bug this
+    # setting existed to fix, now moot since the FMP-backed cache it gated
+    # (clients/daily_price_sources.py::FMPDailyBarSource) no longer exists.
     # Company profile (name, sector, industry, description, exchange, beta)
     # is near-static reference data -- it doesn't change because of an
     # earnings report the way statement-grain data does (earnings-aware
