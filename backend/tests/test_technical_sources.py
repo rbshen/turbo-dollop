@@ -33,7 +33,7 @@ def test_yahoo_technical_source_lowercases_columns(monkeypatch):
     result = asyncio.run(YahooTechnicalSource().get_intraday_bars(["AAPL"], lookback_days=60))
 
     assert list(result["AAPL"].columns) == ["open", "high", "low", "close", "volume"]
-    assert captured_kwargs == {"period": "60d", "interval": "60m"}
+    assert captured_kwargs == {"period": "60d", "interval": "60m", "auto_adjust": False}
 
 
 def test_fmp_technical_source_is_unwired_placeholder():

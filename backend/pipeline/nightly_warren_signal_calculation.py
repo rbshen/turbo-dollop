@@ -95,7 +95,11 @@ async def main() -> dict:
     logger.info("Starting nightly Warren signal calculation for %d tickers across %s.", len(tickers), matched_names)
     start_time = time.monotonic()
 
-    raw = await yahoo_client.get_history(tickers, period=YAHOO_PERIOD, interval=YAHOO_INTERVAL)
+    # auto_adjust=False explicitly (2026-09-18 Yahoo-consolidation decision)
+    # -- Warren wants raw, non-dividend-adjusted bars, not
+    # yahoo_client.get_history's own default (True, kept for unrelated
+    # consumers -- see that function's docstring).
+    raw = await yahoo_client.get_history(tickers, period=YAHOO_PERIOD, interval=YAHOO_INTERVAL, auto_adjust=False)
     bars_by_ticker = {
         ticker: df.rename(columns={"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"})
         for ticker, df in raw.items()

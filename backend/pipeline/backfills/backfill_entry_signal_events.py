@@ -89,7 +89,11 @@ async def backfill(limit: int | None = None, tickers_override: str | None = None
     logger.info("Starting historical entry-signal backfill for %d ticker(s), excluding %s (today).", len(tickers), today)
     start_time = time.monotonic()
 
-    raw = await yahoo_client.get_history(tickers, period=BACKFILL_YAHOO_PERIOD, interval=BACKFILL_YAHOO_INTERVAL)
+    # auto_adjust=False -- matches the nightly job's own 2026-09-18
+    # Yahoo-consolidation choice, so a re-run of this backfill produces
+    # signals consistent with what the nightly job would compute for the
+    # same historical bars.
+    raw = await yahoo_client.get_history(tickers, period=BACKFILL_YAHOO_PERIOD, interval=BACKFILL_YAHOO_INTERVAL, auto_adjust=False)
 
     failures: list[tuple[str, str]] = []
     total_inserted = 0

@@ -43,11 +43,11 @@ def _seed_watchlist(engine, name: str, tickers: list[str]) -> None:
 
 
 def _patch_batch_fetch(monkeypatch, bars_by_ticker: dict):
-    calls: list[tuple[list[str], str, str]] = []
+    calls: list[tuple[list[str], str, str, bool]] = []
 
     class FakeYahooClient:
-        async def get_history(self, tickers, period, interval):
-            calls.append((list(tickers), period, interval))
+        async def get_history(self, tickers, period, interval, auto_adjust=True):
+            calls.append((list(tickers), period, interval, auto_adjust))
             return bars_by_ticker
 
     monkeypatch.setattr(nightly_warren_signal, "yahoo_client", FakeYahooClient())
@@ -82,6 +82,7 @@ def test_main_processes_the_union_of_w1_and_w2_deduped(monkeypatch, tmp_path):
     assert set(batch_calls[0][0]) == {"AAPL", "MSFT", "GOOG"}
     assert batch_calls[0][1] == nightly_warren_signal.YAHOO_PERIOD
     assert batch_calls[0][2] == nightly_warren_signal.YAHOO_INTERVAL
+    assert batch_calls[0][3] is False  # auto_adjust=False -- raw, non-dividend-adjusted bars
     assert sorted(store_calls) == ["AAPL", "GOOG", "MSFT"]  # each processed exactly once
     assert summary["processed"] == 3
     assert summary["failed"] == 0

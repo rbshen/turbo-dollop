@@ -46,7 +46,11 @@ class YahooTechnicalSource:
     """The only source actually wired in today -- see module docstring."""
 
     async def get_intraday_bars(self, tickers: list[str], lookback_days: int) -> dict[str, pd.DataFrame]:
-        raw = await yahoo_client.get_history(tickers, period=f"{lookback_days}d", interval=INTRADAY_INTERVAL)
+        # auto_adjust=False explicitly (2026-09-18 Yahoo-consolidation
+        # decision) -- BB+RSI wants raw, non-dividend-adjusted bars, not
+        # yahoo_client.get_history's own default (True, kept for unrelated
+        # consumers -- see that function's docstring).
+        raw = await yahoo_client.get_history(tickers, period=f"{lookback_days}d", interval=INTRADAY_INTERVAL, auto_adjust=False)
         return {
             ticker: df.rename(columns={"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"})
             for ticker, df in raw.items()
