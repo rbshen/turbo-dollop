@@ -44,7 +44,7 @@ def test_compute_and_store_trend_analysis_persists_and_returns_matching_result(m
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
         return _synthetic_rows()
 
     monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
@@ -66,7 +66,7 @@ def test_compute_and_store_trend_analysis_raises_when_no_yahoo_data(monkeypatch)
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_empty(ticker, period="2y"):
+    async def fake_empty(ticker, period="2y", auto_adjust=True):
         return []
 
     monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_empty)
@@ -79,7 +79,7 @@ def test_get_trend_analysis_data_cache_only_never_fetches_and_returns_none_when_
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    def fail_if_called(ticker, period="2y"):
+    def fail_if_called(ticker, period="2y", auto_adjust=True):
         raise AssertionError("cache_only must never fetch live")
 
     monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fail_if_called)
@@ -93,7 +93,7 @@ def test_get_trend_analysis_data_computes_when_missing_and_not_cache_only(monkey
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
         return _synthetic_rows()
 
     monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
@@ -126,7 +126,7 @@ def test_get_trend_analysis_data_returns_fresh_cached_row_without_recomputing(mo
         )
         session.commit()
 
-    def fail_if_called(ticker, period="2y"):
+    def fail_if_called(ticker, period="2y", auto_adjust=True):
         raise AssertionError("must not recompute when the cached row is fresh")
 
     monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fail_if_called)
@@ -158,7 +158,7 @@ def test_get_trend_analysis_data_falls_back_to_stale_row_on_yahoo_failure(monkey
         )
         session.commit()
 
-    async def fake_empty(ticker, period="2y"):
+    async def fake_empty(ticker, period="2y", auto_adjust=True):
         return []  # Yahoo has no data -- compute_and_store raises ValueError internally
 
     monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_empty)
@@ -175,7 +175,7 @@ def test_swing_detail_json_round_trips_through_a_real_compute(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
         return _synthetic_rows()
 
     monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
@@ -194,7 +194,7 @@ def test_ad_bullish_divergence_fields_round_trip_through_a_real_compute(monkeypa
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
         return _synthetic_rows()
 
     monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
@@ -216,7 +216,7 @@ def test_pullback_occurred_since_flip_round_trips_through_a_real_compute(monkeyp
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
         return _synthetic_rows()
 
     monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
@@ -261,7 +261,7 @@ def test_reversal_history_round_trips_through_a_real_compute(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
         return _synthetic_downtrend_rows()
 
     monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
@@ -286,7 +286,7 @@ def test_sma_position_fields_round_trip_through_a_real_compute(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
         return _synthetic_rows()
 
     monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
@@ -368,7 +368,7 @@ def test_weinstein_stage_fields_round_trip_through_a_real_compute(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
         # 730 days (~104 weekly bars) clears Weinstein's MIN_WEEKS_REQUIRED
         # with real margin -- ^GSPC returns empty here since this test is
         # about the stage/breakout fields, not Mansfield RS specifically.
@@ -405,7 +405,7 @@ def test_weinstein_stage_reads_as_none_below_min_weeks_required(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
         # Default n=150 (~21 weeks), well under MIN_WEEKS_REQUIRED (40).
         return [] if ticker == WEINSTEIN_BENCHMARK_TICKER else _synthetic_rows()
 
@@ -427,7 +427,7 @@ def test_weinstein_stage_changed_reflects_a_real_difference_from_the_prior_store
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y"):
+    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
         return [] if ticker == WEINSTEIN_BENCHMARK_TICKER else _synthetic_rows(n=730)
 
     monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)

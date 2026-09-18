@@ -78,7 +78,12 @@ async def main(tickers: list[str] | None = None) -> dict:
     # Mansfield RS benchmark) -- never added to `tickers` itself, so it
     # never gets its own TrendAnalysis row and never counts toward
     # processed/failed below.
-    rows_by_ticker = await get_or_fetch_price_history_batch(tickers + [WEINSTEIN_BENCHMARK_TICKER])
+    #
+    # auto_adjust=False explicitly (2026-09-18 Yahoo-consolidation
+    # decision) -- Trend/Weinstein want raw, non-dividend-adjusted bars, not
+    # clients/yahoo_cache.py's own default (True, kept for Price/Quote's
+    # unrelated Yahoo fallback -- see that function's docstring).
+    rows_by_ticker = await get_or_fetch_price_history_batch(tickers + [WEINSTEIN_BENCHMARK_TICKER], auto_adjust=False)
     benchmark_rows = rows_by_ticker.get(WEINSTEIN_BENCHMARK_TICKER, [])
 
     failures: list[tuple[str, str]] = []

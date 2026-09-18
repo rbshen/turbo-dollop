@@ -327,8 +327,14 @@ async def compute_and_store_trend_analysis(ticker: str, period: str = "2y") -> T
     nightly job keeps ^GSPC's cache warm, so this is a cache hit in the
     overwhelming majority of on-demand calls, not a new live fetch."""
     ticker = normalize_ticker(ticker)
-    rows = await get_or_fetch_price_history(ticker, period=period)
-    benchmark_rows = await get_or_fetch_price_history(WEINSTEIN_BENCHMARK_TICKER, period=period)
+    # auto_adjust=False explicitly -- Trend/Weinstein want raw, non-dividend-
+    # adjusted bars (2026-09-18 Yahoo-consolidation decision), not this
+    # shared cache's own default (see clients/yahoo_cache.py::
+    # get_or_fetch_price_history's docstring for why the default itself is
+    # left at True, and for the shared-table caveat with Price/Quote's own
+    # Yahoo fallback).
+    rows = await get_or_fetch_price_history(ticker, period=period, auto_adjust=False)
+    benchmark_rows = await get_or_fetch_price_history(WEINSTEIN_BENCHMARK_TICKER, period=period, auto_adjust=False)
     return compute_and_store_from_rows(ticker, rows, benchmark_rows=benchmark_rows)
 
 

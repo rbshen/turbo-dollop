@@ -16,10 +16,10 @@ def _fresh_engine(monkeypatch, tmp_path):
 
 
 def _patch_batch_fetch(monkeypatch, rows_by_ticker: dict):
-    calls: list[list[str]] = []
+    calls: list[tuple[list[str], bool]] = []
 
-    async def fake_batch(tickers):
-        calls.append(list(tickers))
+    async def fake_batch(tickers, auto_adjust=True):
+        calls.append((list(tickers), auto_adjust))
         return rows_by_ticker
 
     monkeypatch.setattr(nightly_trend, "get_or_fetch_price_history_batch", fake_batch)
@@ -52,7 +52,8 @@ def test_main_sweeps_the_full_tracked_universe_when_no_tickers_passed(monkeypatc
 
     summary = asyncio.run(nightly_trend.main(tickers=None))
 
-    assert set(batch_calls[0]) == {"IREN", "SEZL", nightly_trend.WEINSTEIN_BENCHMARK_TICKER}
+    assert set(batch_calls[0][0]) == {"IREN", "SEZL", nightly_trend.WEINSTEIN_BENCHMARK_TICKER}
+    assert batch_calls[0][1] is False  # auto_adjust=False -- raw, non-dividend-adjusted bars
     assert {t for t, _ in store_calls} == {"IREN", "SEZL"}
     assert summary["processed"] == 2
     assert summary["failed"] == 0
@@ -139,7 +140,7 @@ def test_benchmark_ticker_rides_the_batch_fetch_but_is_never_processed_or_counte
 
     summary = asyncio.run(nightly_trend.main(tickers=["AAPL", "MSFT"]))
 
-    assert nightly_trend.WEINSTEIN_BENCHMARK_TICKER in batch_calls[0]
+    assert nightly_trend.WEINSTEIN_BENCHMARK_TICKER in batch_calls[0][0]
     assert {t for t, _ in store_calls} == {"AAPL", "MSFT"}
     assert summary["processed"] == 2
     assert summary["failed"] == 0
