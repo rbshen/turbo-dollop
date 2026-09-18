@@ -1406,7 +1406,8 @@ class ChartOut(BaseModel):
     data/chart_data.py for the fetch/compute mechanism. Computed fully
     on-demand (no persisted table, no nightly job -- confirmed fast enough
     for a page load in the Chart tab latency investigation), so this always
-    reflects a live-or-cached-FMP/Yahoo read, never a stale precomputed row.
+    reflects a live Yahoo Finance read (2026-09-18 -- FMP is no longer a
+    data source here at all), never a stale precomputed row.
 
     `zones`/`zones_available` overlay the separately-computed, nightly-cron
     -backed Liquidity Zone (LP) feature (data/liquidity_zone_data.py) --
@@ -1451,7 +1452,7 @@ class ChartOut(BaseModel):
     # an empty `zones` list with zones_available=True means the latter.
     zones: list[ChartZoneOut] = []
     zones_available: bool
-    source: str  # "fmp" | "yahoo"
+    source: str  # always "yahoo" (2026-09-18 -- Chart dropped FMP as a data source entirely)
     chart_available: bool  # False only for a genuinely bad/delisted ticker with no bars at all
 
 

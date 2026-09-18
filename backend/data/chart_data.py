@@ -1,45 +1,35 @@
 """Orchestration layer for the ticker-page Chart tab -- OHLC candles plus
 EMA21, SMA50/200, Bollinger(20,2, EMA basis), Full Stochastic(5,3,3), and
 RSI(14), across four fixed views (D/6M, D/1Y, D/2Y, W/4Y). See CLAUDE.md's
-Chart tab investigation notes for the full design history; the two
-decisions this module embodies:
+Chart tab investigation notes for the full design history; the decisions
+this module embodies:
 
 1. Fully ON-DEMAND -- no new nightly cron job, no new precomputed table
    (confirmed fast enough for a page load in the latency investigation:
    median ~0.14s combined daily+weekly fetch, worst case ~0.56s). Every
-   request computes fresh from whichever bar source is currently active.
-2. **Zero persistent caching on EITHER branch, deliberately reverted
-   2026-09-18.** From this feature's original commit through 2026-09-17,
-   the FMP branch reused daily_price_sources.py's ordinary
-   get_or_fetch-backed FundamentalsCache (`FMPDailyBarSource`) -- the
-   reasoning at the time was that skipping it would burn FMP quota on
-   every Chart tab view for a popular ticker, and every other FMP call in
-   this app already goes through that cache. That reasoning didn't hold up
-   in practice: `daily_bar_staleness_days` (1 day) is a flat rolling TTL
-   from `fetched_at` with no market-close awareness, so a row fetched any
-   time before a trading day's close (e.g. the first Chart tab view of the
-   morning) locks in the PRIOR close as "fresh" for up to the next 24
-   hours -- which routinely spans past the next session's open, hiding the
-   newest bar from the chart. Confirmed live in production 2026-09-18 (see
-   docs/chart_tab_missing_bar_investigation_2026-09-18.md): 34 real cached
-   rows across all three FMP lookback keys (2y/3y/8y -- i.e. all 4
-   Chart-tab ranges, since D_6M/D_1Y share the 2y key) were serving a
-   stale last bar at the exact moment this was checked, all from
-   pre-close morning fetches. Fixed by calling `fmp_client.
-   get_historical_price_eod` directly here (`_fetch_fmp_bars`, this
-   module) instead of going through `FMPDailyBarSource`/`get_or_fetch` --
-   this module now makes a genuinely live FMP call on every request,
-   same as the Yahoo branch always has. Scoped to the Chart tab ONLY:
-   `daily_price_sources.py`'s own cache behavior is unchanged for every
-   other consumer -- Liquidity Zone detection (data/liquidity_zone_data.py)
-   still reads through that same cached path and remains subject to the
-   identical staleness bug, left as a separate, not-yet-fixed issue.
-   On the Yahoo branch, clients/yahoo_cache.py's YahooPriceCache table was
-   already deliberately NOT used (unchanged by this revert) -- its
-   staleness check is coverage-blind (a cache row freshened by the 2y/4y
-   nightly jobs reads as "fresh" even when this feature needs 8y of
-   history), so this calls clients/yahoo_client.py directly instead, with
-   no persistence at all, exactly as it always has.
+   request computes fresh.
+2. Zero persistent caching (deliberately reverted 2026-09-18 -- see
+   CLAUDE.md's Chart tab entries for the FMP-cache staleness bug that
+   caused this). `_fetch_bars` calls clients/yahoo_client.py directly on
+   every request, with no persistence at all -- not
+   clients/yahoo_cache.py's YahooPriceCache table (that cache's staleness
+   check is coverage-blind: a row freshened by the 2y/4y nightly jobs would
+   read as "fresh" even when this feature needs up to 10y of history for
+   W_4Y).
+3. **Yahoo Finance only, unconditionally, non-dividend-adjusted
+   (2026-09-18).** Previously this module branched on `settings.
+   fmp_enabled` -- FMP's `/historical-price-eod/full` when enabled, Yahoo
+   as the fallback. That branch is removed entirely: Chart is one of six
+   technical-analysis features (alongside Weinstein Stage, Trend,
+   Liquidity Zones, Warren, BB+RSI) moved to Yahoo-only, regardless of
+   FMP_ENABLED, so a paused FMP subscription can never affect what candles
+   this tab shows. `auto_adjust=False` is passed explicitly to
+   `yahoo_client.get_history` -- Yahoo's own default (True, still used by
+   Price/Quote's unrelated fallback and by Momentum) is split/dividend-
+   adjusted, which showed a confirmed ~1-7% divergence vs. FMP's raw
+   closes for dividend-heavy tickers (O/UNH/F). Raw prices match what FMP
+   was already showing, so this is also a continuity improvement for
+   anyone who used this tab while FMP was still the default source.
 
 Known, accepted asymmetry: W_4Y shows 4 years of price (RANGE_CONFIG's own
 visible_days) but entry_signal_markers only ever has up to
@@ -52,17 +42,14 @@ special-casing (_entry_signal_markers already returns an empty list for a
 window with no matching events).
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 import pandas as pd
 from sqlmodel import Session, select
 
 from analysis.entry_signal.indicators import BB_LENGTH, BB_STD, compute_rsi
 from analysis.trend_structure.stochastic import compute_stochastic
-from analysis.trend_structure.weinstein import resample_to_weekly
-from clients.fmp_client import fmp_client
 from clients.yahoo_client import yahoo_client
-from core.config import settings
 from core.db import engine
 from core.models import TechnicalEntrySignalEvent, WarrenSignalEvent
 from core.schemas import (
@@ -94,26 +81,23 @@ _WARREN_KIND_LABELS = {
 
 _EMPTY_OHLCV_COLUMNS = ["open", "high", "low", "close", "volume"]
 
-# Per-range fetch/visible-window configuration. `fmp_lookback_years` and
-# `yahoo_period` both over-fetch slightly relative to the bare
-# warm-up-plus-visible-window math (see CLAUDE.md) -- yfinance's period enum
-# has no exact "2.8y"/"3y" value, and a little extra fetched history costs
-# nothing (indicators are computed on the full series and sliced afterward
-# regardless), so both are snapped to the nearest covering value rather than
-# fetched at exact precision.
+# Per-range fetch/visible-window configuration. `yahoo_period` over-fetches
+# slightly relative to the bare warm-up-plus-visible-window math (see
+# CLAUDE.md) -- yfinance's period enum has no exact "2.8y" value, and a
+# little extra fetched history costs nothing (indicators are computed on
+# the full series and sliced afterward regardless), so it's snapped to the
+# nearest covering value rather than fetched at exact precision.
 RANGE_CONFIG: dict[str, dict] = {
-    # Same fmp_lookback_years/yahoo_period as D_1Y -- both already comfortably
-    # cover the ~1.3y actually needed (182 visible days + ~200-bar SMA200
-    # warm-up + margin); only visible_days is halved.
-    "D_6M": {"timeframe": "daily", "fmp_lookback_years": 2, "yahoo_period": "2y", "visible_days": 365 // 2},
-    "D_1Y": {"timeframe": "daily", "fmp_lookback_years": 2, "yahoo_period": "2y", "visible_days": 365},
-    "D_2Y": {"timeframe": "daily", "fmp_lookback_years": 3, "yahoo_period": "5y", "visible_days": 365 * 2},
-    # FMP has no weekly endpoint (confirmed 404 on /historical-chart/1week)
-    # -- the FMP branch always fetches DAILY here and resamples locally.
-    # The Yahoo branch fetches interval="1wk" directly instead (confirmed
-    # bit-identical to resampling, and faster/simpler, in the latency
+    # Same yahoo_period as D_1Y -- already comfortably covers the ~1.3y
+    # actually needed (182 visible days + ~200-bar SMA200 warm-up + margin);
+    # only visible_days is halved.
+    "D_6M": {"timeframe": "daily", "yahoo_period": "2y", "visible_days": 365 // 2},
+    "D_1Y": {"timeframe": "daily", "yahoo_period": "2y", "visible_days": 365},
+    "D_2Y": {"timeframe": "daily", "yahoo_period": "5y", "visible_days": 365 * 2},
+    # interval="1wk" is fetched directly (confirmed bit-identical to
+    # resampling daily bars, and faster/simpler, in the latency
     # investigation) -- see _fetch_bars below.
-    "W_4Y": {"timeframe": "weekly", "fmp_lookback_years": 8, "yahoo_period": "10y", "visible_days": 365 * 4},
+    "W_4Y": {"timeframe": "weekly", "yahoo_period": "10y", "visible_days": 365 * 4},
 }
 
 
@@ -121,40 +105,21 @@ def _empty_ohlcv() -> pd.DataFrame:
     return pd.DataFrame(columns=_EMPTY_OHLCV_COLUMNS)
 
 
-async def _fetch_fmp_bars(ticker: str, lookback_years: int) -> pd.DataFrame:
-    """A direct, uncached live call to FMP's daily EOD endpoint -- see
-    module docstring point 2 for why this deliberately does NOT go through
-    daily_price_sources.py's FMPDailyBarSource/get_or_fetch-backed
-    FundamentalsCache the way it used to. Mirrors daily_price_sources.py::
-    _fetch_fmp_daily_bars's own request/parsing shape (same endpoint, same
-    from/to window math) minus the Session/cache plumbing."""
-    to_date = date.today()
-    from_date = to_date - timedelta(days=365 * lookback_years)
-    rows = await fmp_client.get_historical_price_eod(ticker, from_date.isoformat(), to_date.isoformat())
-    rows = rows if isinstance(rows, list) else []
-    if not rows:
-        return _empty_ohlcv()
-    df = pd.DataFrame(rows).drop_duplicates(subset="date")
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date").set_index("date")
-    return df[_EMPTY_OHLCV_COLUMNS]
-
-
 async def _fetch_bars(ticker: str, range_key: str) -> tuple[pd.DataFrame, str]:
-    """Returns (lowercase-column OHLCV DataFrame, "fmp"|"yahoo"). Empty
-    DataFrame (never None/raised) for a bad/delisted ticker or a fetch that
-    returned nothing -- get_chart_data below is the single place that turns
-    that into chart_available=False."""
+    """Returns (lowercase-column OHLCV DataFrame, "yahoo"). Empty DataFrame
+    (never None/raised) for a bad/delisted ticker or a fetch that returned
+    nothing -- get_chart_data below is the single place that turns that
+    into chart_available=False. The second tuple element is always "yahoo"
+    now (kept, not collapsed away, since ChartOut.source is still a real
+    part of the API contract) -- see module docstring point 3 for why FMP
+    is no longer a source here at all.
+
+    auto_adjust=False explicitly -- see yahoo_client.get_history's own
+    docstring for why its default (True) is wrong for this feature."""
     cfg = RANGE_CONFIG[range_key]
 
-    if settings.fmp_enabled:
-        df = await _fetch_fmp_bars(ticker, cfg["fmp_lookback_years"])
-        if cfg["timeframe"] == "weekly" and not df.empty:
-            df = resample_to_weekly(df)
-        return df, "fmp"
-
     interval = "1wk" if cfg["timeframe"] == "weekly" else "1d"
-    result = await yahoo_client.get_history([ticker], period=cfg["yahoo_period"], interval=interval)
+    result = await yahoo_client.get_history([ticker], period=cfg["yahoo_period"], interval=interval, auto_adjust=False)
     raw = result.get(ticker)
     if raw is None or raw.empty:
         return _empty_ohlcv(), "yahoo"
