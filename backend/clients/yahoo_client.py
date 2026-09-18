@@ -28,7 +28,7 @@ class YahooClient:
     asyncio.to_thread rather than stalling the event loop."""
 
     async def get_history(
-        self, tickers: list[str], period: str = "2y", interval: str = "1d"
+        self, tickers: list[str], period: str = "2y", interval: str = "1d", auto_adjust: bool = True
     ) -> dict[str, pd.DataFrame]:
         """Returns {ticker: OHLCV DataFrame} for every ticker yfinance
         actually returned real data for -- a bad/delisted/typo'd ticker is
@@ -36,9 +36,23 @@ class YahooClient:
         symbol in a large batch never fails the whole fetch (mirrors
         nightly_fundamentals_fetch.py's per-ticker try/except isolation, at
         the batch layer here since this is one call for N tickers, not N
-        separate calls). auto_adjust=True (split/dividend-adjusted closes) --
-        swing/ATR structure should be continuous across a split, not show a
-        false gap."""
+        separate calls).
+
+        auto_adjust defaults to True (split/dividend-adjusted closes) --
+        this was this client's original tuning, chosen for trend-structure's
+        swing/ATR/BOS engine, where continuity across a corporate action
+        mattered more than raw price-level fidelity. That tradeoff was
+        revisited 2026-09-18: adjusted closes showed a confirmed ~1-7%
+        divergence vs. FMP for dividend-heavy tickers (O/UNH/F), so every
+        technical-analysis consumer -- Chart, Weinstein Stage, Trend,
+        Liquidity Zones, Warren, BB+RSI -- now passes auto_adjust=False
+        explicitly at its own call site instead of relying on this default.
+        The default itself is deliberately left at True, unchanged: Price/
+        Quote's Yahoo fallback (data/ticker_summary.py::
+        _fetch_yahoo_latest_close) and the unrelated Momentum feature
+        (data/momentum_data.py) don't pass this parameter at all, so they
+        keep today's behavior rather than silently picking up a change
+        neither asked for."""
         if not tickers:
             return {}
         try:
@@ -48,7 +62,7 @@ class YahooClient:
                 period=period,
                 interval=interval,
                 group_by="ticker",
-                auto_adjust=True,
+                auto_adjust=auto_adjust,
                 threads=True,
                 progress=False,
             )
