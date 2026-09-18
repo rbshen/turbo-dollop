@@ -9,6 +9,15 @@ interface Props {
 
 type RowKey = "buy" | "outperform" | "hold" | "underperform" | "sell" | "mean" | "consensus" | "target";
 
+// Distinct icon from MetricsGrid's own "⚠" data-quality flag -- a
+// methodology caveat, not an anomaly warning. See analyst_ratings_data.py's
+// _details_column / RecommendationDetailsColumn.consensus for why "Current"
+// alone uses FMP's own live rating text rather than this table's own
+// weighted-score banding.
+const TOOLTIP_ICON = "ⓘ";
+const CURRENT_CONSENSUS_TOOLTIP =
+  '"Current" is FMP\'s own live consensus rating; 2M/6M/1Y Ago are calculated from Fathom\'s weighted-score thresholds.';
+
 // Row order/labels are a 1:1 relabel of FMP's 5 rating buckets
 // (strongBuy->Buy, buy->Outperform, hold->Hold, sell->Underperform,
 // strongSell->Sell), matching backend/analyst_ratings_data.py's
@@ -68,6 +77,11 @@ export function RecommendationDetailsTable({ columns, currency = "USD" }: Props)
                 className="border-b border-border-subtle py-2 pr-4 text-right font-mono tabular-nums text-text-primary"
               >
                 {formatCell(row.key, column, currency)}
+                {row.key === "consensus" && column.label === "Current" && (
+                  <span className="ml-1 text-text-tertiary" title={CURRENT_CONSENSUS_TOOLTIP}>
+                    {TOOLTIP_ICON}
+                  </span>
+                )}
               </TableCell>
             ))}
           </TableRow>

@@ -13,9 +13,20 @@ interface Props {
   history: RatingHistoryPoint[];
   columns: RecommendationDetailsColumn[];
   currency?: string;
+  /** ISO timestamp of the cached grades_consensus row Current Distribution
+   * is built from -- see analyst_ratings_data.py's own comment on why this
+   * is a live, independently-refreshed FMP snapshot, not expected to
+   * reconcile with Recommendation Trend's grades_historical-sourced bars. */
+  currentAsOf?: string | null;
 }
 
 type SentimentView = "summary" | "details";
+
+// Mirrors ValuationGauge.tsx's own inline toLocaleDateString convention
+// (this app has no shared fmtDate helper).
+function fmtAsOfDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
 
 // One-line takeaway built from real data: the current mean/consensus, plus
 // whether consensus has held steady or shifted over the past year (Current
@@ -50,7 +61,7 @@ function buildSummarySentence(columns: RecommendationDetailsColumn[]): string {
 // Recommendation Details cards into one. Left: the recommendation-trend
 // chart. Right: the current distribution as label/value rows, plus a
 // toggle between a one-line summary and the full details table.
-export function SentimentOverTimeCard({ history, columns, currency = "USD" }: Props) {
+export function SentimentOverTimeCard({ history, columns, currency = "USD", currentAsOf }: Props) {
   const [view, setView] = useState<SentimentView>("summary");
   const currentColumn = columns[0];
 
@@ -67,6 +78,10 @@ export function SentimentOverTimeCard({ history, columns, currency = "USD" }: Pr
           {currentColumn ? (
             <>
               <CurrentDistributionList column={currentColumn} />
+              <p className="text-xs text-text-tertiary">
+                Live consensus{currentAsOf ? `, as of ${fmtAsOfDate(currentAsOf)}` : ""} — independently refreshed
+                from the Recommendation Trend chart, so totals may not match.
+              </p>
 
               <SegmentedControl
                 value={view}

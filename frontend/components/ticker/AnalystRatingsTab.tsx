@@ -49,7 +49,12 @@ export function AnalystRatingsTab({ ticker }: Props) {
       </div>
       <div className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Analyst Sentiment Over Time</h2>
-        <SentimentOverTimeCard history={data.history} columns={data.recommendation_details} currency={quoteCurrency} />
+        <SentimentOverTimeCard
+          history={data.history}
+          columns={data.recommendation_details}
+          currency={quoteCurrency}
+          currentAsOf={data.grades_consensus_as_of}
+        />
       </div>
     </div>
   );

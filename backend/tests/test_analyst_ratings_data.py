@@ -303,6 +303,24 @@ def test_price_target_by_recency_treats_a_literal_zero_count_as_no_data(monkeypa
     assert by_label["Last Quarter"].analyst_count == 14
 
 
+def test_grades_consensus_as_of_reflects_the_cached_fetch_time(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(
+        monkeypatch,
+        grades_consensus={"strongBuy": 1, "buy": 0, "hold": 0, "sell": 0, "strongSell": 0, "consensus": "Buy"},
+        price_target_consensus={"targetConsensus": 100, "targetHigh": 100, "targetLow": 100, "targetMedian": 100},
+        grades_historical=[],
+        quote={"price": 100},
+    )
+
+    before = datetime.now()
+    result = asyncio.run(get_analyst_ratings_data("TEST"))
+    after = datetime.now()
+
+    assert result.grades_consensus_as_of is not None
+    assert before <= result.grades_consensus_as_of <= after
+
+
 def test_price_target_by_recency_defaults_when_fmp_returns_nothing(monkeypatch):
     _fresh_engine(monkeypatch)
     _patch_fmp(

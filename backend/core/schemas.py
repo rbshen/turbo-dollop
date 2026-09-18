@@ -1791,6 +1791,13 @@ class AnalystRatingsOut(BaseModel):
     price_target_by_recency: list[PriceTargetRecencyBucket]
     history: list[RatingHistoryPoint]
     recommendation_details: list[RecommendationDetailsColumn]
+    # fetched_at of the cached grades_consensus row banner/recommendation_
+    # details[0] ("Current") are both built from -- FMP's own live, rolling
+    # consensus, refreshed independently of grades_historical (the monthly
+    # rating-action snapshots behind `history`/the Recommendation Trend
+    # chart). Surfaced so the UI can caption Current Distribution rather
+    # than let it look reconcilable against that chart's own totals.
+    grades_consensus_as_of: datetime | None = None
 
 
 class NewsArticle(BaseModel):

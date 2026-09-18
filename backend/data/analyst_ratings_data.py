@@ -1,5 +1,5 @@
 import calendar
-from datetime import date
+from datetime import date, datetime
 
 from sqlmodel import Session, select
 
@@ -8,7 +8,7 @@ from core.config import settings
 from core.db import engine
 from helpers.first import _first
 from clients.fmp_client import fmp_client
-from core.models import PriceTargetSnapshot
+from core.models import FundamentalsCache, PriceTargetSnapshot
 from core.schemas import (
     AnalystRatingsOut,
     ConsensusBanner,
@@ -189,6 +189,20 @@ async def get_analyst_ratings_data(ticker: str, cache_only: bool = False) -> Ana
         snapshots = session.exec(
             select(PriceTargetSnapshot).where(PriceTargetSnapshot.ticker == ticker).order_by(PriceTargetSnapshot.snapshot_date)
         ).all()
+        # fetched_at of the cached grades_consensus row -- surfaced so the UI
+        # can caption "Current Distribution" as a live, independently-
+        # refreshed FMP consensus snapshot, distinct from Recommendation
+        # Trend's own grades_historical-sourced (monthly rating actions)
+        # bars next to it. get_or_fetch itself only returns the raw
+        # payload, not this metadata, so the row is re-read directly.
+        grades_consensus_row = session.exec(
+            select(FundamentalsCache).where(
+                FundamentalsCache.ticker == ticker,
+                FundamentalsCache.statement_type == "grades_consensus",
+                FundamentalsCache.period == "latest",
+            )
+        ).first()
+        grades_consensus_as_of: datetime | None = grades_consensus_row.fetched_at if grades_consensus_row else None
 
     grades_consensus = _first(grades_consensus_data)
     price_target_consensus = _first(price_target_consensus_data)
@@ -268,4 +282,5 @@ async def get_analyst_ratings_data(ticker: str, cache_only: bool = False) -> Ana
         price_target_by_recency=_recency_buckets(price_target_summary),
         history=history,
         recommendation_details=columns,
+        grades_consensus_as_of=grades_consensus_as_of,
     )

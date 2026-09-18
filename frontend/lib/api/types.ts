@@ -1017,6 +1017,12 @@ export interface AnalystRatingsOut {
   price_target_by_recency: PriceTargetRecencyBucket[];
   history: RatingHistoryPoint[];
   recommendation_details: RecommendationDetailsColumn[];
+  // ISO timestamp of the cached grades_consensus row banner/
+  // recommendation_details[0] ("Current") are built from -- FMP's own live,
+  // independently-refreshed consensus, distinct from grades_historical's
+  // monthly rating-action snapshots behind `history`/the Recommendation
+  // Trend chart. Null only if grades_consensus was never successfully cached.
+  grades_consensus_as_of: string | null;
 }
 
 export interface NewsArticle {
