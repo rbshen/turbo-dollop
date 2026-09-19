@@ -2239,7 +2239,7 @@ to display.
 - **Nightly cron** (`pipeline/nightly_trend_calculation.py`, 3:10 AM, after the two FMP-dependent
   nightly jobs and before the 3:30 AM backup): sweeps the full tracked universe
   (`load_full_tracked_universe`, shared with the fundamentals/score-recompute jobs) via **one**
-  `yfinance` multi-ticker batch download (`clients.yahoo_cache.get_or_fetch_price_history_batch`),
+  `yfinance` multi-ticker batch download (now `clients.shared_bars_cache.get_or_fetch_bars_batch` -- see "Shared Yahoo bars cache" below; originally `yahoo_cache.get_or_fetch_price_history_batch`),
   then runs the engine and upserts per ticker -- never one live fetch per ticker. Makes zero FMP
   calls, so unlike `nightly_fundamentals_fetch.py`/`monthly_price_target_snapshot.py` it needs no
   `if not settings.fmp_enabled: ...` guard at all (there's no FMP-gated work to skip). Wired into
@@ -2436,7 +2436,7 @@ to display.
     earliest available week and `stage_since_is_lower_bound=True` instead of fabricating a precise
     transition date the fetch window can't actually see.
   - **Mansfield RS benchmark (`^GSPC`) rides along in the SAME nightly batch fetch**
-    (`clients.yahoo_cache.get_or_fetch_price_history_batch`) as one more symbol -- confirmed
+    (now `clients.shared_bars_cache.get_or_fetch_bars_batch`) as one more symbol -- confirmed
     `normalize_ticker("^GSPC")` passes through unchanged and `YahooPriceCache.ticker` is just a
     plain string column, no schema conflict -- but is deliberately never added to the per-ticker
     processing loop itself, so it never gets its own `TrendAnalysis` row and never counts toward
@@ -2558,7 +2558,7 @@ scoring or any other lens -- a second, parallel read on price structure.
   404 on `/historical-chart/1week`), so Weekly bars are always derived by resampling
   Daily -- reusing `analysis/trend_structure/weinstein.py::resample_to_weekly` directly
   (confirmed genuinely data-source-agnostic, not Yahoo-coupled) rather than reimplementing
-  it. `backend/clients/daily_price_sources.py::get_daily_bar_source()` returns
+  it. (**Superseded 2026-09-19 -- see "Shared Yahoo bars cache" below: Liquidity Zones is Yahoo-only now and `daily_price_sources.py` is deleted; the FMP-vs-Yahoo branch described here and in the two entries that follow is historical.**) `backend/clients/daily_price_sources.py::get_daily_bar_source()` returns
   `FMPDailyBarSource` when enabled, `YahooDailyBarSource` (one batch call, yfinance's
   period enum has no "4y" so "5y" is fetched and trimmed) when FMP is paused -- the normal
   degrade pattern every other FMP-backed feature in this app uses. A single ~4yr fetch per
@@ -3053,6 +3053,50 @@ all in scope -- not an entry-only subset.
     `_fresh_warren_signal_engine` helper (`test_chart_endpoint.py`) and an autouse
     `_default_no_warren_signal` fixture (`test_chart_data.py`), mirroring the existing
     per-module engine-isolation helpers exactly.
+
+## Shared Yahoo bars cache (2026-09-19)
+
+Trend/Weinstein, Liquidity Zones, Warren, and BB+RSI all read Yahoo bars through one table,
+`SharedBarsCache` (`core/models.py`, unique `(ticker, interval, bar_time)`), via
+`clients/shared_bars_cache.py::get_or_fetch_bars_batch`. Follows the round that made all six
+price consumers Yahoo-only, `auto_adjust=False` (`daily_price_sources.py` and its FMP branch are
+deleted). The Chart tab is deliberately NOT a consumer (variable per-request window; same-day
+caching not worth it) and still fetches live. `YahooPriceCache`/`yahoo_cache.py` now only back the
+Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
+
+- **Key is `(ticker, "1d" | "60m")`.** Warren and BB+RSI both build their "2h" candles from raw
+  60m bars, so they share ONE `"60m"` row; Trend and Liquidity Zones share the `"1d"` row.
+- **Growth to the max window ever requested.** A request is served from cache only if the row is
+  fresh AND its earliest bar reaches back to the caller's `lookback_days`; otherwise it refetches
+  at `max(requested, preserved width)`. Preserved width is the stored span snapped DOWN to a
+  yfinance period tier (`_preserved_lookback_days`) so a narrow consumer's refetch never shrinks a
+  wide row and the ever-growing stored span never ratchets the download wider. Tickers are grouped
+  by needed period, one yfinance call per distinct period (a 572-ticker Trend run does not
+  re-download everyone at 5y because ~100 are also LZ tickers). Each consumer gets only its own
+  window back. Whichever overlapping job runs first each night does the one live fetch; no cron-
+  order assumption exists.
+- **Freshness is close-aware, never a flat TTL** (`_is_stale`): a row is trusted only if its LAST
+  bar matches the most recently completed session for its interval. Daily:
+  `_most_recent_completed_trading_date()` (US/Eastern, weekday-aware, NOT holiday-aware). 60m:
+  `_most_recent_completed_intraday_bar_start()` -- Yahoo labels bars by start (09:30..15:30, the
+  last only 30 min); before 10:30 ET, on weekends, or pre-open it resolves to the prior trading
+  day's 15:30 bar, so overnight/weekend re-runs are not falsely stale. A mismatch forces a live
+  refetch. `force=True` still live-fetches unconditionally.
+- **Read path is deliberately not ORM-based.** Freshness/coverage come from one grouped
+  MIN/MAX query per batch; the read is one column-only query with the caller's window trimmed in
+  SQL; writes are one vectorized executemany upsert per ticker. The first version hydrated every
+  bar as an ORM object twice per ticker and measured at minutes per nightly run at Warren's
+  volume (~365k rows) -- caught by the before/after measurement, not by tests.
+- **Known limits.** Bars are never pruned (storage grows ~1yr of bars/yr/ticker; ~620 KB/ticker
+  combined at the current windows). `get_trend_analysis_data`'s result-level staleness check still
+  uses the flat `yahoo_price_cache_staleness_days` -- it gates the computed `TrendAnalysis` row,
+  not the bars, and was left alone. Not holiday-aware: a market holiday looks like one missed
+  session and costs one extra (harmless) refetch that day.
+- **Verification after a nightly run** (no `sqlite3` CLI on this box; use python):
+  `select ticker, interval, min(bar_time), max(bar_time), count(*), max(fetched_at) from
+  sharedbarscache group by ticker, interval`. `max(bar_time)` should be the last completed
+  session's date at 00:00 for `1d` and that session's 15:30 for `60m`; `min(bar_time)` should be
+  ~2y back (`60m`, Warren/BB+RSI), ~2y (`1d`, Trend-only tickers) or ~5y (`1d`, LZ tickers).
 
 ## Workflow rules
 

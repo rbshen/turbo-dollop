@@ -58,14 +58,11 @@
 
 # Nightly Liquidity Zone (LP) detection recompute, 3:25 AM server time --
 # after BB+RSI (3:20) above, before the (now 3:35) backup. Scoped to the
-# single named "Watchlist" watchlist only (same scoping as BB+RSI), not
-# the full tracked universe. Unlike the two jobs above it, this one CAN
-# make live FMP calls (daily/weekly aggregates aren't plan-restricted the
-# way FMP's intraday endpoints are -- see clients/daily_price_sources.py),
-# falling back to Yahoo Finance only when FMP_ENABLED=false -- backup_db
-# below was moved from 3:30 to 3:35 to give this job a full 10-minute
-# window instead of 5, since a cold FMP cache could plausibly need more
-# time than BB+RSI's Yahoo-only fetch ever did. See
+# W1-W5 watchlist union only (same scoping as BB+RSI), not the full tracked
+# universe. Reads daily bars through the shared Yahoo bars cache
+# (clients/shared_bars_cache.py, the same "1d" rows the 3:10 trend job
+# fills), zero FMP calls -- backup_db below was moved from 3:30 to 3:35 to
+# give this job a full 10-minute window instead of 5. See
 # pipeline/nightly_liquidity_zone_calculation.py.
 25 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_liquidity_zone_calculation >> /home/shen/fathom/backend/logs/nightly_liquidity_zone_calculation_cron.log 2>&1
 

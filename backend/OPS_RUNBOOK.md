@@ -142,7 +142,7 @@ use, upserting one `TrendAnalysis` row per ticker
 (`data/trend_analysis_data.py`). Sourced entirely from Yahoo Finance, not
 FMP — makes zero FMP calls, unaffected by `FMP_ENABLED`. Fetches the whole
 universe's OHLCV in **one** `yfinance` multi-ticker batch download
-(`clients.yahoo_cache.get_or_fetch_price_history_batch`), not one call per
+(`clients.shared_bars_cache.get_or_fetch_bars_batch`), not one call per
 ticker. Success: a log line `Nightly trend calculation complete.
 Processed: N. Failed: M.` in `backend/logs/nightly_trend_calculation.log`.
 A high failed count points at Yahoo Finance reachability/rate-limiting, not
