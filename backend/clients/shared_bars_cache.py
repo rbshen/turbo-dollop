@@ -106,8 +106,8 @@ def _most_recent_completed_trading_date(reference: datetime | None = None) -> da
     session has already closed, as of `reference` (default: now).
     Weekend-aware, deliberately NOT holiday-aware -- ported verbatim from
     the now-deleted clients/daily_price_sources.py, which this module
-    supersedes; ate its own regression test suite along with it (see
-    tests/test_shared_bars_cache.py)."""
+    supersedes; that module's regression cases for this function were
+    ported into tests/test_shared_bars_cache.py."""
     ref = reference or datetime.now(timezone.utc)
     if ref.tzinfo is None:
         ref = ref.replace(tzinfo=timezone.utc)
@@ -308,22 +308,23 @@ async def get_or_fetch_bars_batch(
             to_fetch[t] = max(lookback_days, existing_width_days)
 
     if to_fetch:
-        # One shared period for the whole batch -- yfinance's multi-ticker
-        # download takes a single period, not one per ticker. Using the
-        # WIDEST need among tickers being (re)fetched this round is a
-        # deliberate, accepted over-fetch for any ticker whose own need is
-        # narrower: in steady state (after the first night any given
-        # ticker is touched by its widest consumer) every ticker's own
-        # cached coverage already converges to that same widest value, so
-        # this costs nothing beyond the very first fetch.
-        effective_lookback_days = max(to_fetch.values())
-        period = _period_for(interval, effective_lookback_days)
-        fetched = await yahoo_client.get_history(list(to_fetch), period=period, interval=interval, auto_adjust=auto_adjust)
+        # yfinance's multi-ticker download takes ONE period per call, so
+        # tickers are grouped by the period their own need snaps to -- one
+        # call per distinct period (in practice at most two or three), not
+        # one call per ticker and not one call at the widest period for
+        # everyone. The latter would make a full-universe Trend run
+        # re-download ~570 tickers at 5y just because the ~100 that are
+        # also Liquidity Zone tickers happen to be that wide.
+        by_period: dict[str, list[str]] = {}
+        for ticker, days in to_fetch.items():
+            by_period.setdefault(_period_for(interval, days), []).append(ticker)
         fetched_at = datetime.now()
-        with Session(engine) as session:
-            for ticker, df in fetched.items():
-                if df is not None and not df.empty:
-                    _write_rows(session, ticker, interval, df, fetched_at)
+        for period, group in by_period.items():
+            fetched = await yahoo_client.get_history(group, period=period, interval=interval, auto_adjust=auto_adjust)
+            with Session(engine) as session:
+                for ticker, df in fetched.items():
+                    if df is not None and not df.empty:
+                        _write_rows(session, ticker, interval, df, fetched_at)
 
     with Session(engine) as session:
         rows_by_ticker = {t: _load_cached_rows(session, t, interval) for t in tickers}

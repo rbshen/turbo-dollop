@@ -2,7 +2,7 @@
 tracked universe (see nightly_fundamentals_fetch.py::load_full_tracked_universe,
 reused here rather than duplicated).
 
-Runs entirely on Yahoo Finance (clients/yahoo_client.py, clients/yahoo_cache.py)
+Runs entirely on Yahoo Finance (clients/yahoo_client.py, clients/shared_bars_cache.py)
 -- makes ZERO FMP calls, so it's scheduled independently of the FMP-dependent
 jobs above it in crontab.txt (nightly_fundamentals_fetch, nightly_score_
 recompute) and needs no `if not settings.fmp_enabled: ...` early-return guard
@@ -13,10 +13,10 @@ a missing safety net (see CLAUDE.md's note on monthly_price_target_snapshot.py's
 actual missing-guard bug, which this is deliberately not a repeat of).
 
 Fetches the whole universe's OHLCV in ONE yfinance multi-ticker batch call
-(clients.yahoo_cache.get_or_fetch_price_history_batch) -- per this feature's
+(clients.shared_bars_cache.get_or_fetch_bars_batch) -- per this feature's
 explicit "use yfinance's multi-ticker download, not one call per ticker"
 requirement -- then runs the pure calculation engine and upserts per ticker
-(data.trend_analysis_data.compute_and_store_from_rows), rather than looping
+(data.trend_analysis_data.compute_and_store_from_frames), rather than looping
 compute_and_store_trend_analysis (which would fetch one ticker at a time).
 ^GSPC (Weinstein Stage Analysis's Mansfield RS benchmark, see
 analysis/trend_structure/weinstein.py) rides along in this SAME batch call
@@ -42,12 +42,12 @@ from pathlib import Path
 from sqlmodel import Session
 
 from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER
-from clients.yahoo_cache import get_or_fetch_price_history_batch
+from clients.shared_bars_cache import DAILY_INTERVAL, get_or_fetch_bars_batch
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from core.tickers import normalize_ticker
-from data.trend_analysis_data import compute_and_store_from_rows
+from data.trend_analysis_data import LOOKBACK_DAYS, compute_and_store_from_frames
 from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_trend_calculation.log"
@@ -79,17 +79,21 @@ async def main(tickers: list[str] | None = None) -> dict:
     # never gets its own TrendAnalysis row and never counts toward
     # processed/failed below.
     #
-    # auto_adjust=False explicitly (2026-09-18 Yahoo-consolidation
-    # decision) -- Trend/Weinstein want raw, non-dividend-adjusted bars, not
-    # clients/yahoo_cache.py's own default (True, kept for Price/Quote's
-    # unrelated Yahoo fallback -- see that function's docstring).
-    rows_by_ticker = await get_or_fetch_price_history_batch(tickers + [WEINSTEIN_BENCHMARK_TICKER], auto_adjust=False)
-    benchmark_rows = rows_by_ticker.get(WEINSTEIN_BENCHMARK_TICKER, [])
+    # Reads through the shared bars cache (interval "1d"): every ticker also
+    # on a W1-W5 watchlist overlaps Liquidity Zones' own (wider, ~4yr)
+    # daily need, so whichever of the two jobs runs first each night does
+    # the one live fetch for that ticker and the other reads it back --
+    # this job never has to know or care which. auto_adjust=False
+    # (2026-09-18 decision): raw, non-dividend-adjusted bars.
+    bars_by_ticker = await get_or_fetch_bars_batch(
+        tickers + [WEINSTEIN_BENCHMARK_TICKER], DAILY_INTERVAL, LOOKBACK_DAYS, auto_adjust=False
+    )
+    benchmark_ohlcv = bars_by_ticker.get(WEINSTEIN_BENCHMARK_TICKER)
 
     failures: list[tuple[str, str]] = []
     for i, ticker in enumerate(tickers, start=1):
         try:
-            compute_and_store_from_rows(ticker, rows_by_ticker.get(ticker, []), benchmark_rows=benchmark_rows)
+            compute_and_store_from_frames(ticker, bars_by_ticker.get(ticker), benchmark_ohlcv=benchmark_ohlcv)
             logger.info("[%d/%d] %s: ok", i, len(tickers), ticker)
         except Exception as exc:  # noqa: BLE001 -- a single bad ticker must never abort the whole run
             logger.error("[%d/%d] %s: FAILED - %s", i, len(tickers), ticker, exc)

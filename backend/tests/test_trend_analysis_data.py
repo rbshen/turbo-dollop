@@ -2,12 +2,13 @@ import asyncio
 from datetime import date, datetime, timedelta
 
 import numpy as np
+import pandas as pd
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER
 import data.trend_analysis_data as trend_analysis_data_module
-from core.models import TrendAnalysis, YahooPriceCache
+from core.models import TrendAnalysis
 from data.trend_analysis_data import compute_and_store_trend_analysis, get_trend_analysis_data
 
 
@@ -17,10 +18,24 @@ def _fresh_engine():
     return engine
 
 
-def _synthetic_rows(n: int = 150, ticker: str = "AAPL", seed: int = 3) -> list[YahooPriceCache]:
+def _frame_from_closes(closes, open_off: float, high_off: float, low_off: float) -> pd.DataFrame:
+    """Lowercase-column, naive-DatetimeIndex daily OHLCV -- exactly the
+    shape clients/shared_bars_cache.py::get_or_fetch_bars returns."""
+    index = pd.DatetimeIndex([date(2024, 1, 1) + timedelta(days=i) for i in range(len(closes))])
+    c = np.asarray(closes, dtype=float)
+    return pd.DataFrame(
+        {"open": c - open_off, "high": c + high_off, "low": c - low_off, "close": c, "volume": 1000}, index=index
+    )
+
+
+def _empty_frame() -> pd.DataFrame:
+    return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+
+
+def _synthetic_rows(n: int = 150, ticker: str = "AAPL", seed: int = 3) -> pd.DataFrame:
     """A reproducible noisy uptrend -- enough real zigzag to produce genuine
     swings, ATR(14), and the 60-day efficiency ratio (never persisted to
-    the DB directly -- returned in place of a real get_or_fetch_price_history
+    the DB directly -- returned in place of a real get_or_fetch_bars
     call). The default n=150 (~21 weeks) is deliberately well under
     Weinstein's own MIN_WEEKS_REQUIRED (40) -- most existing tests here
     predate that feature and never intended to exercise it; a real
@@ -30,24 +45,17 @@ def _synthetic_rows(n: int = 150, ticker: str = "AAPL", seed: int = 3) -> list[Y
     trend = np.linspace(0, 30, n)
     noise = rng.normal(0, 1.0, size=n).cumsum() * 0.2
     closes = 100 + trend + noise
-    rows = []
-    for i in range(n):
-        d = date(2024, 1, 1) + timedelta(days=i)
-        c = float(closes[i])
-        rows.append(
-            YahooPriceCache(ticker=ticker, date=d, open=c - 0.1, high=c + 0.5, low=c - 0.5, close=c, volume=1000, fetched_at=datetime.now())
-        )
-    return rows
+    return _frame_from_closes(closes, open_off=0.1, high_off=0.5, low_off=0.5)
 
 
 def test_compute_and_store_trend_analysis_persists_and_returns_matching_result(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
         return _synthetic_rows()
 
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
 
     result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
 
@@ -66,10 +74,10 @@ def test_compute_and_store_trend_analysis_raises_when_no_yahoo_data(monkeypatch)
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_empty(ticker, period="2y", auto_adjust=True):
-        return []
+    async def fake_empty(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
+        return _empty_frame()
 
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_empty)
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_empty)
 
     with pytest.raises(ValueError):
         asyncio.run(compute_and_store_trend_analysis("ZZZZINVALID"))
@@ -79,10 +87,10 @@ def test_get_trend_analysis_data_cache_only_never_fetches_and_returns_none_when_
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    def fail_if_called(ticker, period="2y", auto_adjust=True):
+    def fail_if_called(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
         raise AssertionError("cache_only must never fetch live")
 
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fail_if_called)
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fail_if_called)
 
     result = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
 
@@ -93,10 +101,10 @@ def test_get_trend_analysis_data_computes_when_missing_and_not_cache_only(monkey
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
         return _synthetic_rows()
 
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
 
     result = asyncio.run(get_trend_analysis_data("AAPL", cache_only=False))
 
@@ -126,10 +134,10 @@ def test_get_trend_analysis_data_returns_fresh_cached_row_without_recomputing(mo
         )
         session.commit()
 
-    def fail_if_called(ticker, period="2y", auto_adjust=True):
+    def fail_if_called(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
         raise AssertionError("must not recompute when the cached row is fresh")
 
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fail_if_called)
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fail_if_called)
 
     result = asyncio.run(get_trend_analysis_data("AAPL", cache_only=False))
 
@@ -158,10 +166,10 @@ def test_get_trend_analysis_data_falls_back_to_stale_row_on_yahoo_failure(monkey
         )
         session.commit()
 
-    async def fake_empty(ticker, period="2y", auto_adjust=True):
-        return []  # Yahoo has no data -- compute_and_store raises ValueError internally
+    async def fake_empty(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
+        return _empty_frame()  # Yahoo has no data -- compute_and_store raises ValueError internally
 
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_empty)
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_empty)
 
     result = asyncio.run(get_trend_analysis_data("AAPL", cache_only=False))
 
@@ -175,10 +183,10 @@ def test_swing_detail_json_round_trips_through_a_real_compute(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
         return _synthetic_rows()
 
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
 
     result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
 
@@ -194,10 +202,10 @@ def test_ad_bullish_divergence_fields_round_trip_through_a_real_compute(monkeypa
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
         return _synthetic_rows()
 
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
 
     result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
 
@@ -216,10 +224,10 @@ def test_pullback_occurred_since_flip_round_trips_through_a_real_compute(monkeyp
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
         return _synthetic_rows()
 
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
 
     result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
 
@@ -229,7 +237,7 @@ def test_pullback_occurred_since_flip_round_trips_through_a_real_compute(monkeyp
     assert reread.pullback_occurred_since_flip == result.pullback_occurred_since_flip
 
 
-def _synthetic_downtrend_rows(n: int = 150, ticker: str = "AAPL") -> list[YahooPriceCache]:
+def _synthetic_downtrend_rows(n: int = 150, ticker: str = "AAPL") -> pd.DataFrame:
     """Unlike _synthetic_rows above (a noisy random-walk uptrend), this is a
     deterministic downward-sloping sine wave -- needed to exercise
     reversal_history's real (non-empty) JSON round trip: a random-walk
@@ -242,14 +250,7 @@ def _synthetic_downtrend_rows(n: int = 150, ticker: str = "AAPL") -> list[YahooP
     across a genuine downtrend."""
     i = np.arange(n)
     closes = 100 + (-0.3 * i) + 5.0 * np.sin(2 * np.pi * i / 14)
-    rows = []
-    for idx in range(n):
-        d = date(2024, 1, 1) + timedelta(days=idx)
-        c = float(closes[idx])
-        rows.append(
-            YahooPriceCache(ticker=ticker, date=d, open=c - 0.05, high=c + 0.3, low=c - 0.3, close=c, volume=1000, fetched_at=datetime.now())
-        )
-    return rows
+    return _frame_from_closes(closes, open_off=0.05, high_off=0.3, low_off=0.3)
 
 
 def test_reversal_history_round_trips_through_a_real_compute(monkeypatch):
@@ -261,10 +262,10 @@ def test_reversal_history_round_trips_through_a_real_compute(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
         return _synthetic_downtrend_rows()
 
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
 
     result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
 
@@ -286,10 +287,10 @@ def test_sma_position_fields_round_trip_through_a_real_compute(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
         return _synthetic_rows()
 
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
 
     result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
 
@@ -368,13 +369,13 @@ def test_weinstein_stage_fields_round_trip_through_a_real_compute(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
         # 730 days (~104 weekly bars) clears Weinstein's MIN_WEEKS_REQUIRED
         # with real margin -- ^GSPC returns empty here since this test is
         # about the stage/breakout fields, not Mansfield RS specifically.
-        return [] if ticker == WEINSTEIN_BENCHMARK_TICKER else _synthetic_rows(n=730)
+        return _empty_frame() if ticker == WEINSTEIN_BENCHMARK_TICKER else _synthetic_rows(n=730)
 
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
 
     result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
 
@@ -405,11 +406,11 @@ def test_weinstein_stage_reads_as_none_below_min_weeks_required(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
         # Default n=150 (~21 weeks), well under MIN_WEEKS_REQUIRED (40).
-        return [] if ticker == WEINSTEIN_BENCHMARK_TICKER else _synthetic_rows()
+        return _empty_frame() if ticker == WEINSTEIN_BENCHMARK_TICKER else _synthetic_rows()
 
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
 
     result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
 
@@ -427,10 +428,10 @@ def test_weinstein_stage_changed_reflects_a_real_difference_from_the_prior_store
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y", auto_adjust=True):
-        return [] if ticker == WEINSTEIN_BENCHMARK_TICKER else _synthetic_rows(n=730)
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
+        return _empty_frame() if ticker == WEINSTEIN_BENCHMARK_TICKER else _synthetic_rows(n=730)
 
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
 
     first = asyncio.run(compute_and_store_trend_analysis("AAPL"))
     assert first.weinstein_stage_changed is False  # brand-new ticker, nothing to compare against yet

@@ -16,13 +16,13 @@ def _fresh_engine(monkeypatch, tmp_path):
 
 
 def _patch_batch_fetch(monkeypatch, rows_by_ticker: dict):
-    calls: list[tuple[list[str], bool]] = []
+    calls: list[tuple[list[str], bool, str, int]] = []
 
-    async def fake_batch(tickers, auto_adjust=True):
-        calls.append((list(tickers), auto_adjust))
+    async def fake_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
+        calls.append((list(tickers), auto_adjust, interval, lookback_days))
         return rows_by_ticker
 
-    monkeypatch.setattr(nightly_trend, "get_or_fetch_price_history_batch", fake_batch)
+    monkeypatch.setattr(nightly_trend, "get_or_fetch_bars_batch", fake_batch)
     return calls
 
 
@@ -30,13 +30,13 @@ def _patch_store(monkeypatch, fail_for: set[str] | None = None):
     fail_for = fail_for or set()
     calls: list[tuple[str, list]] = []
 
-    def fake_store(ticker, rows, benchmark_rows=None):
-        calls.append((ticker, rows))
+    def fake_store(ticker, ohlcv, benchmark_ohlcv=None):
+        calls.append((ticker, ohlcv))
         if ticker in fail_for:
             raise RuntimeError(f"simulated failure computing {ticker}")
         return object()
 
-    monkeypatch.setattr(nightly_trend, "compute_and_store_from_rows", fake_store)
+    monkeypatch.setattr(nightly_trend, "compute_and_store_from_frames", fake_store)
     return calls
 
 
@@ -54,6 +54,7 @@ def test_main_sweeps_the_full_tracked_universe_when_no_tickers_passed(monkeypatc
 
     assert set(batch_calls[0][0]) == {"IREN", "SEZL", nightly_trend.WEINSTEIN_BENCHMARK_TICKER}
     assert batch_calls[0][1] is False  # auto_adjust=False -- raw, non-dividend-adjusted bars
+    assert batch_calls[0][2:] == ("1d", nightly_trend.LOOKBACK_DAYS)  # daily interval, 2y-shaped request
     assert {t for t, _ in store_calls} == {"IREN", "SEZL"}
     assert summary["processed"] == 2
     assert summary["failed"] == 0
@@ -94,20 +95,20 @@ def test_batch_fetch_is_called_exactly_once_for_the_whole_universe_not_per_ticke
     assert len(batch_calls) == 1  # exactly one batch call total
 
 
-def test_ticker_missing_from_batch_result_is_still_attempted_with_empty_rows(monkeypatch, tmp_path):
+def test_ticker_missing_from_batch_result_is_still_attempted_with_no_frame(monkeypatch, tmp_path):
     """A ticker Yahoo returned nothing for (missing from the batch dict, not
-    just an empty list) must still reach compute_and_store_from_rows (with
-    empty rows, which raises ValueError there) rather than being silently
+    just an empty list) must still reach compute_and_store_from_frames (with
+    no frame, which raises ValueError there) rather than being silently
     skipped -- so it shows up as a real, visible failure in the run summary."""
     _fresh_engine(monkeypatch, tmp_path)
     _patch_batch_fetch(monkeypatch, {"AAPL": [1]})  # BADCO entirely absent
 
-    def fake_store(ticker, rows, benchmark_rows=None):
-        if not rows:
+    def fake_store(ticker, ohlcv, benchmark_ohlcv=None):
+        if ohlcv is None:
             raise ValueError(f"No Yahoo Finance price history available for {ticker}")
         return object()
 
-    monkeypatch.setattr(nightly_trend, "compute_and_store_from_rows", fake_store)
+    monkeypatch.setattr(nightly_trend, "compute_and_store_from_frames", fake_store)
 
     summary = asyncio.run(nightly_trend.main(tickers=["AAPL", "BADCO"]))
 
@@ -129,7 +130,7 @@ def test_empty_universe_returns_zero_summary_without_calling_batch_fetch(monkeyp
 def test_benchmark_ticker_rides_the_batch_fetch_but_is_never_processed_or_counted(monkeypatch, tmp_path):
     """^GSPC (Weinstein's Mansfield RS benchmark) must appear in the ONE
     batch-fetch call's ticker list, but must never get its own
-    compute_and_store_from_rows call and must never appear in
+    compute_and_store_from_frames call and must never appear in
     processed/failures -- even when it's entirely absent from the batch
     result dict (e.g. a transient Yahoo failure for that one symbol)."""
     _fresh_engine(monkeypatch, tmp_path)
@@ -154,11 +155,11 @@ def test_benchmark_rows_are_passed_through_to_every_ticker_compute(monkeypatch, 
 
     received: list = []
 
-    def fake_store(ticker, rows, benchmark_rows=None):
-        received.append(benchmark_rows)
+    def fake_store(ticker, ohlcv, benchmark_ohlcv=None):
+        received.append(benchmark_ohlcv)
         return object()
 
-    monkeypatch.setattr(nightly_trend, "compute_and_store_from_rows", fake_store)
+    monkeypatch.setattr(nightly_trend, "compute_and_store_from_frames", fake_store)
 
     asyncio.run(nightly_trend.main(tickers=["AAPL"]))
 

@@ -1,5 +1,5 @@
 """Orchestration layer for trend-structure analysis -- same get_stepN_data
-shape as data/step4_data.py: fetches raw data (via clients/yahoo_cache.py),
+shape as data/step4_data.py: fetches raw data (via clients/shared_bars_cache.py),
 calls the pure calculation engine (analysis/trend_structure/), and
 persists/reads the result (models.py::TrendAnalysis). Independent of FMP
 entirely -- Yahoo Finance is the sole data source for this feature.
@@ -16,12 +16,17 @@ from sqlmodel import Session, select
 from analysis.trend_structure.engine import compute_trend_structure
 from analysis.trend_structure.types import PullbackCycle, ReversalCandidate, SwingDetail, TrendStructureResult, WeinsteinStageResult
 from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER, compute_weinstein_stage
-from clients.yahoo_cache import get_or_fetch_price_history
+from clients.shared_bars_cache import DAILY_INTERVAL, get_or_fetch_bars
 from core.config import settings
 from core.db import engine
-from core.models import TrendAnalysis, YahooPriceCache
+from core.models import TrendAnalysis
 from core.schemas import PullbackCycleOut, ReversalCandidateOut, SwingDetailOut, TrendAnalysisOut
 from core.tickers import normalize_ticker
+
+# 2 calendar years of daily bars -- unchanged from the period="2y" this
+# feature always fetched; also what Weinstein's own bootstrap-convergence
+# validation (CLAUDE.md) was measured against.
+LOOKBACK_DAYS = 730
 
 
 def _swing_detail_to_json(detail: SwingDetail | None) -> str | None:
@@ -138,18 +143,6 @@ def _reversal_history_out(history: list[ReversalCandidate]) -> list[ReversalCand
     ]
 
 
-def _ohlcv_frame(rows: list[YahooPriceCache]) -> pd.DataFrame:
-    data = {
-        "open": [r.open for r in rows],
-        "high": [r.high for r in rows],
-        "low": [r.low for r in rows],
-        "close": [r.close for r in rows],
-        "volume": [r.volume for r in rows],
-    }
-    index = pd.DatetimeIndex([r.date for r in rows])
-    return pd.DataFrame(data, index=index)
-
-
 def _upsert(ticker: str, result: TrendStructureResult, weinstein_result: WeinsteinStageResult, computed_at: datetime) -> bool:
     """Returns weinstein_stage_changed -- computed HERE, not in the pure
     engine, since it's an ACROSS-NIGHTLY-RUNS comparison (today's freshly
@@ -249,32 +242,34 @@ def _row_to_out(row: TrendAnalysis) -> TrendAnalysisOut:
     )
 
 
-def compute_and_store_from_rows(
-    ticker: str, rows: list[YahooPriceCache], benchmark_rows: list[YahooPriceCache] | None = None
+def compute_and_store_from_frames(
+    ticker: str, ohlcv: pd.DataFrame, benchmark_ohlcv: pd.DataFrame | None = None
 ) -> TrendAnalysisOut:
-    """Runs the pure calculation engine against already-fetched OHLCV rows
-    and upserts -- no fetch of its own. Split out from
+    """Runs the pure calculation engine against already-fetched daily OHLCV
+    (lowercase columns, naive DatetimeIndex -- exactly what
+    clients/shared_bars_cache.py::get_or_fetch_bars[_batch] returns) and
+    upserts -- no fetch of its own. Split out from
     compute_and_store_trend_analysis so the nightly job (which fetches the
-    whole universe in one yfinance batch call via
-    clients.yahoo_cache.get_or_fetch_price_history_batch, per this
-    feature's explicit "batch download, not one call per ticker"
-    requirement) can reuse this same compute+upsert logic per ticker
-    without each ticker triggering its own separate live fetch. Raises
-    ValueError if `rows` is empty (no Yahoo data at all for this ticker) --
-    callers (the nightly job's per-ticker loop) treat this like any other
-    per-ticker failure, never aborting the whole batch. benchmark_rows
-    (^GSPC's own daily OHLCV rows) is optional -- absent/empty degrades
-    Weinstein's Mansfield RS/breakout fields to None/False rather than
-    raising (see compute_weinstein_stage's own na()-passes-through
-    handling), so this stays backward compatible with any caller that
-    doesn't pass it."""
+    whole universe in one batch call via
+    clients.shared_bars_cache.get_or_fetch_bars_batch, per this feature's
+    explicit "batch download, not one call per ticker" requirement) can
+    reuse this same compute+upsert logic per ticker without each ticker
+    triggering its own separate live fetch. Raises ValueError if `ohlcv`
+    is empty (no Yahoo data at all for this ticker) -- callers (the nightly
+    job's per-ticker loop) treat this like any other per-ticker failure,
+    never aborting the whole batch. benchmark_ohlcv (^GSPC's own daily
+    OHLCV) is optional -- absent/empty degrades Weinstein's Mansfield
+    RS/breakout fields to None/False rather than raising (see
+    compute_weinstein_stage's own na()-passes-through handling), so this
+    stays backward compatible with any caller that doesn't pass it."""
     ticker = normalize_ticker(ticker)
-    if not rows:
+    if ohlcv is None or ohlcv.empty:
         raise ValueError(f"No Yahoo Finance price history available for {ticker}")
 
-    ohlcv = _ohlcv_frame(rows)
     result = compute_trend_structure(ohlcv)
-    weinstein_result = compute_weinstein_stage(ohlcv, _ohlcv_frame(benchmark_rows or []))
+    weinstein_result = compute_weinstein_stage(
+        ohlcv, benchmark_ohlcv if benchmark_ohlcv is not None else pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+    )
     computed_at = datetime.now()
     weinstein_stage_changed = _upsert(ticker, result, weinstein_result, computed_at)
 
@@ -318,27 +313,26 @@ def compute_and_store_from_rows(
     )
 
 
-async def compute_and_store_trend_analysis(ticker: str, period: str = "2y") -> TrendAnalysisOut:
+async def compute_and_store_trend_analysis(ticker: str, lookback_days: int = LOOKBACK_DAYS) -> TrendAnalysisOut:
     """Single-ticker fetch-then-compute-then-store -- used by the standalone
     API endpoint (a one-off, on-demand request), where fetching just this
     one ticker's history is the right cost, unlike the nightly job's
-    whole-universe batch (see compute_and_store_from_rows above). Also
-    fetches ^GSPC for Weinstein's Mansfield RS -- cache-first, and the
-    nightly job keeps ^GSPC's cache warm, so this is a cache hit in the
-    overwhelming majority of on-demand calls, not a new live fetch."""
+    whole-universe batch (see compute_and_store_from_frames above). Also
+    fetches ^GSPC for Weinstein's Mansfield RS. Both reads go through the
+    shared bars cache (clients/shared_bars_cache.py): the nightly job keeps
+    both warm and close-fresh, so this is a cache hit in the overwhelming
+    majority of on-demand calls, and a genuinely-stale row (last bar behind
+    the most recently completed session) refetches on its own.
+
+    auto_adjust=False -- Trend/Weinstein want raw, non-dividend-adjusted
+    bars (2026-09-18 Yahoo-consolidation decision)."""
     ticker = normalize_ticker(ticker)
-    # auto_adjust=False explicitly -- Trend/Weinstein want raw, non-dividend-
-    # adjusted bars (2026-09-18 Yahoo-consolidation decision), not this
-    # shared cache's own default (see clients/yahoo_cache.py::
-    # get_or_fetch_price_history's docstring for why the default itself is
-    # left at True, and for the shared-table caveat with Price/Quote's own
-    # Yahoo fallback).
-    rows = await get_or_fetch_price_history(ticker, period=period, auto_adjust=False)
-    benchmark_rows = await get_or_fetch_price_history(WEINSTEIN_BENCHMARK_TICKER, period=period, auto_adjust=False)
-    return compute_and_store_from_rows(ticker, rows, benchmark_rows=benchmark_rows)
+    ohlcv = await get_or_fetch_bars(ticker, DAILY_INTERVAL, lookback_days, auto_adjust=False)
+    benchmark_ohlcv = await get_or_fetch_bars(WEINSTEIN_BENCHMARK_TICKER, DAILY_INTERVAL, lookback_days, auto_adjust=False)
+    return compute_and_store_from_frames(ticker, ohlcv, benchmark_ohlcv=benchmark_ohlcv)
 
 
-async def get_trend_analysis_data(ticker: str, cache_only: bool = False, period: str = "2y") -> TrendAnalysisOut | None:
+async def get_trend_analysis_data(ticker: str, cache_only: bool = False, lookback_days: int = LOOKBACK_DAYS) -> TrendAnalysisOut | None:
     """cache_only=True (used by watchlist_data.py's bulk row compose) never
     triggers a live Yahoo fetch -- returns whatever's cached (even if
     stale), or None if this ticker has never been computed yet (the nightly
@@ -353,7 +347,7 @@ async def get_trend_analysis_data(ticker: str, cache_only: bool = False, period:
         return _row_to_out(row) if row else None
 
     try:
-        return await compute_and_store_trend_analysis(ticker, period=period)
+        return await compute_and_store_trend_analysis(ticker, lookback_days=lookback_days)
     except ValueError:
         # No Yahoo Finance data at all for this ticker -- reads the same as
         # "not computed yet" to callers (falls back to a stale cached row if
