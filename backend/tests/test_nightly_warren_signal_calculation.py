@@ -10,10 +10,9 @@ from core.models import TechnicalEntrySignal, Watchlist, WatchlistTicker
 
 
 def _fake_bars() -> pd.DataFrame:
-    # Yahoo-native column casing (Open/High/Low/Close/Volume) -- the script
-    # itself renames to lowercase, same as the BB+RSI nightly job/backfill
-    # script's own convention.
-    return pd.DataFrame({"Open": [1.0], "High": [1.0], "Low": [1.0], "Close": [1.0], "Volume": [1]})
+    # Lowercase columns -- exactly what clients/shared_bars_cache.py's
+    # get_or_fetch_bars_batch already returns (no renaming left to do here).
+    return pd.DataFrame({"open": [1.0], "high": [1.0], "low": [1.0], "close": [1.0], "volume": [1]})
 
 
 def _fresh_engine(monkeypatch, tmp_path):
@@ -43,14 +42,13 @@ def _seed_watchlist(engine, name: str, tickers: list[str]) -> None:
 
 
 def _patch_batch_fetch(monkeypatch, bars_by_ticker: dict):
-    calls: list[tuple[list[str], str, str, bool]] = []
+    calls: list[tuple[list[str], str, int, bool]] = []
 
-    class FakeYahooClient:
-        async def get_history(self, tickers, period, interval, auto_adjust=True):
-            calls.append((list(tickers), period, interval, auto_adjust))
-            return bars_by_ticker
+    async def fake_get_or_fetch_bars_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
+        calls.append((list(tickers), interval, lookback_days, auto_adjust))
+        return bars_by_ticker
 
-    monkeypatch.setattr(nightly_warren_signal, "yahoo_client", FakeYahooClient())
+    monkeypatch.setattr(nightly_warren_signal, "get_or_fetch_bars_batch", fake_get_or_fetch_bars_batch)
     return calls
 
 
@@ -80,8 +78,8 @@ def test_main_processes_the_union_of_w1_and_w2_deduped(monkeypatch, tmp_path):
     summary = asyncio.run(nightly_warren_signal.main())
 
     assert set(batch_calls[0][0]) == {"AAPL", "MSFT", "GOOG"}
-    assert batch_calls[0][1] == nightly_warren_signal.YAHOO_PERIOD
-    assert batch_calls[0][2] == nightly_warren_signal.YAHOO_INTERVAL
+    assert batch_calls[0][1] == "60m"  # the raw interval BB+RSI's row shares
+    assert batch_calls[0][2] == nightly_warren_signal.LOOKBACK_DAYS == 730
     assert batch_calls[0][3] is False  # auto_adjust=False -- raw, non-dividend-adjusted bars
     assert sorted(store_calls) == ["AAPL", "GOOG", "MSFT"]  # each processed exactly once
     assert summary["processed"] == 3

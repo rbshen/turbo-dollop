@@ -21,19 +21,22 @@ def _sample_ohlcv(n: int = 10) -> pd.DataFrame:
     )
 
 
-def test_yahoo_technical_source_lowercases_columns(monkeypatch):
-    captured_kwargs = {}
+def test_yahoo_technical_source_reads_through_the_shared_bars_cache(monkeypatch):
+    """BB+RSI must NOT fetch on its own: it reads the (ticker, "60m") row
+    Warren's job shares, at its own 60-day width, raw (non-adjusted)."""
+    seen = {}
 
-    async def fake_get_history(tickers, **kwargs):
-        captured_kwargs.update(kwargs)
-        return {"AAPL": _sample_ohlcv()}
+    async def fake_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
+        seen.update(tickers=list(tickers), interval=interval, lookback_days=lookback_days, auto_adjust=auto_adjust, kwargs=kwargs)
+        return {"AAPL": _sample_ohlcv().rename(columns=str.lower)}
 
-    monkeypatch.setattr(technical_sources_module.yahoo_client, "get_history", fake_get_history)
+    monkeypatch.setattr(technical_sources_module, "get_or_fetch_bars_batch", fake_batch)
 
     result = asyncio.run(YahooTechnicalSource().get_intraday_bars(["AAPL"], lookback_days=60))
 
     assert list(result["AAPL"].columns) == ["open", "high", "low", "close", "volume"]
-    assert captured_kwargs == {"period": "60d", "interval": "60m", "auto_adjust": False}
+    assert seen == {"tickers": ["AAPL"], "interval": "60m", "lookback_days": 60, "auto_adjust": False, "kwargs": {}}
+    assert not hasattr(technical_sources_module, "yahoo_client")  # no independent fetch path left in this module
 
 
 def test_fmp_technical_source_is_unwired_placeholder():

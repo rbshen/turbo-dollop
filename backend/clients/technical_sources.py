@@ -18,15 +18,16 @@ from typing import Protocol
 
 import pandas as pd
 
-from clients.yahoo_client import yahoo_client
+from clients.shared_bars_cache import INTRADAY_INTERVAL, get_or_fetch_bars_batch
 
 logger = logging.getLogger(__name__)
 
-# Matches yfinance's own granularity choice validated during the Phase 1
-# investigation (30m and 60m bars resample to bit-identical 2h candles and
-# RSI/%B series) -- 60m halves the row count for the same 2h-candle result,
-# so it's the one actually used.
-INTRADAY_INTERVAL = "60m"
+# The raw bar interval (INTRADAY_INTERVAL, "60m" -- defined in
+# clients/shared_bars_cache.py, re-exported here) matches yfinance's own
+# granularity choice validated during the Phase 1 investigation (30m and 60m
+# bars resample to bit-identical 2h candles and RSI/%B series) -- 60m halves
+# the row count for the same 2h-candle result, so it's the one actually used.
+__all__ = ["INTRADAY_INTERVAL", "IntradayBarSource", "YahooTechnicalSource", "FMPTechnicalSource", "get_technical_source"]
 
 
 class IntradayBarSource(Protocol):
@@ -43,18 +44,22 @@ class IntradayBarSource(Protocol):
 
 
 class YahooTechnicalSource:
-    """The only source actually wired in today -- see module docstring."""
+    """The only source actually wired in today -- see module docstring.
+
+    Reads through the shared bars cache (clients/shared_bars_cache.py,
+    interval "60m"), NOT its own independent Yahoo fetch: Warren's nightly
+    job reads the very same (ticker, "60m") row at a much wider (2y) window,
+    so this 60-day request is served from whatever Warren (or an earlier
+    run of this job) already fetched whenever that row is still close-fresh
+    and wide enough -- and whichever of the two jobs runs first on a given
+    night does the one live fetch that keeps it fresh. auto_adjust=False
+    (2026-09-18): raw, non-dividend-adjusted bars. The cache hands back
+    lowercase columns and an America/New_York tz-aware index already, which
+    is what analysis/entry_signal/resample.py::build_2h_session_candles
+    requires."""
 
     async def get_intraday_bars(self, tickers: list[str], lookback_days: int) -> dict[str, pd.DataFrame]:
-        # auto_adjust=False explicitly (2026-09-18 Yahoo-consolidation
-        # decision) -- BB+RSI wants raw, non-dividend-adjusted bars, not
-        # yahoo_client.get_history's own default (True, kept for unrelated
-        # consumers -- see that function's docstring).
-        raw = await yahoo_client.get_history(tickers, period=f"{lookback_days}d", interval=INTRADAY_INTERVAL, auto_adjust=False)
-        return {
-            ticker: df.rename(columns={"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"})
-            for ticker, df in raw.items()
-        }
+        return await get_or_fetch_bars_batch(tickers, INTRADAY_INTERVAL, lookback_days, auto_adjust=False)
 
 
 class FMPTechnicalSource:

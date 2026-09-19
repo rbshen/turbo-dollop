@@ -12,12 +12,12 @@ state_machine.py's own docstring for why this is safe) are fundamentally
 different from BB+RSI's (60-day lookback, latest-day-only), even though both
 run on the same W1-W5 union.
 
-Fetches every watchlist ticker's intraday bars in ONE batch call, using
-yahoo_client directly (not clients/technical_sources.py's own
-get_intraday_bars, which builds an f"{lookback_days}d" period string --
-confirmed unreliable at this magnitude by the historical BB+RSI backfill
-investigation; period="2y" is the confirmed-reliable form for Yahoo's real
-730-day 60m-interval limit, see pipeline/backfills/
+Reads every watchlist ticker's intraday bars through the shared bars cache
+(clients/shared_bars_cache.py, interval "60m", one batch call for whatever
+needs a live fetch) rather than fetching independently -- the cache maps a
+730-day request to yfinance's confirmed-reliable period="2y" enum value
+(NOT an f"{days}d" string, which the historical BB+RSI backfill
+investigation found unreliable at this magnitude; see pipeline/backfills/
 backfill_entry_signal_events.py's own comment). Runs entirely on Yahoo
 Finance, zero FMP calls -- FMP's intraday endpoints return HTTP 402 under
 the current subscription plan (confirmed 2026-09-09), so this needs no
@@ -56,7 +56,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from clients.yahoo_client import yahoo_client
+from clients.shared_bars_cache import INTRADAY_INTERVAL, get_or_fetch_bars_batch
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
@@ -66,8 +66,8 @@ from data.watchlists import list_tickers_across_watchlists
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_warren_signal_calculation.log"
 
 WATCHLIST_NAME_PATTERN = re.compile(r"^W[1-5]$")
-YAHOO_PERIOD = "2y"
-YAHOO_INTERVAL = "60m"
+# 2 calendar years -- Yahoo's real 60m-interval history limit (~730 days).
+LOOKBACK_DAYS = 730
 SOURCE_NAME = "yahoo"
 
 logger = logging.getLogger(__name__)
@@ -95,15 +95,13 @@ async def main() -> dict:
     logger.info("Starting nightly Warren signal calculation for %d tickers across %s.", len(tickers), matched_names)
     start_time = time.monotonic()
 
-    # auto_adjust=False explicitly (2026-09-18 Yahoo-consolidation decision)
-    # -- Warren wants raw, non-dividend-adjusted bars, not
-    # yahoo_client.get_history's own default (True, kept for unrelated
-    # consumers -- see that function's docstring).
-    raw = await yahoo_client.get_history(tickers, period=YAHOO_PERIOD, interval=YAHOO_INTERVAL, auto_adjust=False)
-    bars_by_ticker = {
-        ticker: df.rename(columns={"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"})
-        for ticker, df in raw.items()
-    }
+    # Reads through the shared bars cache (interval "60m"): BB+RSI's nightly
+    # job reads the same row at a narrower 60-day width, so whichever of the
+    # two runs first each night does the one live fetch and the other reads
+    # it back -- this job needs no knowledge of which. auto_adjust=False
+    # (2026-09-18): raw, non-dividend-adjusted bars. The cache already
+    # returns lowercase columns and an America/New_York tz-aware index.
+    bars_by_ticker = await get_or_fetch_bars_batch(tickers, INTRADAY_INTERVAL, LOOKBACK_DAYS, auto_adjust=False)
 
     failures: list[tuple[str, str]] = []
     for i, ticker in enumerate(tickers, start=1):
