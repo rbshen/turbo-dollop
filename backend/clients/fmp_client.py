@@ -177,6 +177,17 @@ class FMPClient:
         # all-time) -- see data/analyst_ratings_data.py's price_target_by_recency.
         return await self.get("/price-target-summary", {"symbol": ticker})
 
+    async def get_insider_trading_search(self, ticker: str, limit: int = 100) -> dict | list:
+        # One row per Form 4 transaction line (newest first), including
+        # position-only Form 3/5 disclosures with an empty transactionType --
+        # see data/insider_activity_data.py's normalization.
+        return await self.get("/insider-trading/search", {"symbol": ticker, "limit": limit})
+
+    async def get_insider_trading_statistics(self, ticker: str) -> dict | list:
+        # Quarterly aggregates (one row per year/quarter) -- see
+        # data/insider_activity_data.py's trailing-window sums.
+        return await self.get("/insider-trading/statistics", {"symbol": ticker})
+
     async def get_financial_growth(self, ticker: str, period: str = "annual", limit: int = 1) -> dict | list:
         return await self.get("/financial-growth", {"symbol": ticker, "period": period, "limit": limit})
 

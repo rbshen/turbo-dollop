@@ -1816,3 +1816,82 @@ class NewsArticle(BaseModel):
 class NewsOut(BaseModel):
     ticker: str
     articles: list[NewsArticle]
+
+
+InsiderTransactionKind = Literal["open_market_buy", "open_market_sale", "option_exercise", "award", "gift", "other"]
+InsiderSentiment = Literal["net_buying", "net_selling", "no_activity", "mixed"]
+
+
+class InsiderTransactionOut(BaseModel):
+    """One normalized Form 4 transaction line -- see
+    data/insider_activity_data.py. The frontend never sees FMP's raw
+    transactionType codes, only `kind` + a plain-language `type_label`."""
+
+    transaction_date: date
+    filing_date: date | None = None
+    insider_name: str
+    # reportingCik -- the stable identity key (names vary in formatting
+    # across filings); the cluster-buy check counts distinct values of it.
+    insider_cik: str | None = None
+    # FMP's typeOfOwner text (e.g. "officer: Chief Executive Officer",
+    # "director") passed through -- free text, not an enum.
+    insider_role: str | None = None
+    ownership: Literal["direct", "indirect"] | None = None
+    kind: InsiderTransactionKind
+    type_label: str
+    shares: float
+    price: float | None = None
+    # False for a non-open-market row with price == 0 (award/gift/option
+    # exercise etc.) -- the UI shows "no cash value", never "$0".
+    has_cash_value: bool
+    # price * shares, only when has_cash_value.
+    dollar_value: float | None = None
+    sec_filing_url: str | None = None
+
+
+class InsiderQuarterStatOut(BaseModel):
+    year: int
+    quarter: int
+    total_acquired: float
+    total_disposed: float
+    total_purchases: float
+    total_sales: float
+
+
+class InsiderClusterBuy(BaseModel):
+    insider_count: int
+    window_start: date
+    window_end: date
+
+
+class InsiderSummaryOut(BaseModel):
+    sentiment: InsiderSentiment
+    # Summed over the (up to) 2 most recent quarterly statistics rows --
+    # an approximation of a trailing window, not a true rolling 6 months.
+    quarters_in_window: int
+    total_purchases: float
+    total_sales: float
+    total_acquired: float
+    total_disposed: float
+    # Open-market buy/sale transaction counts from `transactions`, over the
+    # same window as the totals above (from the first day of the earliest
+    # window quarter; every fetched transaction when there are no
+    # statistics rows to define a window).
+    open_market_buy_count: int
+    open_market_sale_count: int
+    cluster_buy: InsiderClusterBuy | None = None
+    notable_buy: InsiderTransactionOut | None = None
+    notable_sale: InsiderTransactionOut | None = None
+
+
+class InsiderActivityOut(BaseModel):
+    ticker: str
+    transactions: list[InsiderTransactionOut]
+    quarterly_stats: list[InsiderQuarterStatOut]
+    summary: InsiderSummaryOut
+    has_data: bool
+    # fetched_at of the cached search row. None only when it was never
+    # successfully cached (cold miss -- FMP paused, or the fetch failed);
+    # a non-None as_of with has_data False means cached and genuinely empty
+    # (e.g. HK/France-listed or quiet tickers).
+    as_of: datetime | None = None

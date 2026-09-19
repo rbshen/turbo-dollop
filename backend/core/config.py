@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     # same historical date from all coming due together every 7 days
     # (2026-08-16 cron thundering-herd follow-up -- see CLAUDE.md).
     profile_staleness_days: int = 30
+    # Distinct from cache_staleness_days above: insider trading (Form 4)
+    # filings are event-driven -- an insider can file any business day, and
+    # a filing is due within 2 business days of the trade -- not tied to
+    # the ticker's earnings cycle the way statement-grain data is, so the
+    # shared 7-day window would leave a fresh filing invisible for up to a
+    # week. See data/insider_activity_data.py.
+    insider_staleness_days: int = 1
     # Distinct from cache_staleness_days above: staleness controls when a
     # cached row is refetched from FMP, not when it's deleted. This bounds
     # FundamentalsCache's actual row count, which only grows from tickers
