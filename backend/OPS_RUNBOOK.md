@@ -118,7 +118,8 @@ health monitoring" below.
 
 All of the scripts below are wired into `crontab.txt`'s weekly maintenance
 window (Sundays 1:10–1:30 AM), the daily backup at 3:55 AM, or the daily
-2:50 AM full-universe score recompute. Each can also be run manually with
+3:50 AM full-universe score recompute (deliberately last -- it copies the trend/Weinstein, BB+RSI and Warren
+outputs onto `TickerScore`, so it has to run after all three). Each can also be run manually with
 `uv run python -m pipeline.<name>` from `backend/`.
 
 **`nightly_score_recompute`** — cache-only `TickerScore` recompute

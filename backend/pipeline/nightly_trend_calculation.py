@@ -4,9 +4,9 @@ reused here rather than duplicated).
 
 Runs entirely on Yahoo Finance (clients/yahoo_client.py, clients/shared_bars_cache.py)
 -- makes ZERO FMP calls, so it's scheduled independently of the FMP-dependent
-jobs above it in crontab.txt (nightly_fundamentals_fetch, nightly_score_
-recompute) and needs no `if not settings.fmp_enabled: ...` early-return guard
-the way those do -- that guard exists specifically to skip a job whose EVERY
+job above it in crontab.txt (nightly_fundamentals_fetch) and needs no
+`if not settings.fmp_enabled: ...` early-return guard
+the way that job does -- that guard exists specifically to skip a job whose EVERY
 fetch is FMP-gated; this job's fetches are never FMP-gated at all, so an
 analogous guard here would be checking a condition this job doesn't have, not
 a missing safety net (see CLAUDE.md's note on monthly_price_target_snapshot.py's

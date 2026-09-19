@@ -25,24 +25,15 @@
 # ModuleNotFoundError. Confirmed by actually running both forms.
 0 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_fundamentals_fetch >> /home/shen/fathom/backend/logs/nightly_fundamentals_fetch_cron.log 2>&1
 
-# Nightly full-universe TickerScore recompute, 2:50 AM server time -- after
-# the nightly fetch above (which usually finishes well under 30 min on a
-# warm cache, and already recomputes scores for its own S&P 500/Dow
-# tickers at the end of its per-ticker loop). This sweep's real value is
-# every OTHER tracked ticker (any ticker ever viewed ad hoc, outside the
-# index universe) -- built after the IREN/SEZL/POOL investigation found
-# those tickers' TickerScore rows could go stale/incomplete (e.g. computed
-# before all step inputs finished caching) with nothing ever revisiting
-# them. Cache-only -- zero FMP calls, no rate-limit pacing needed, safe to
-# run anytime. See pipeline/nightly_score_recompute.py.
-50 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_score_recompute >> /home/shen/fathom/backend/logs/nightly_score_recompute_cron.log 2>&1
+# (The nightly full-universe TickerScore recompute is deliberately NOT
+# here -- it runs at 3:50 AM, after every technical job below. See its
+# entry after the Warren job.)
 
 # Nightly trend-structure (swing/BOS/blended-score) calculation, 3:10 AM
-# server time -- after the fundamentals fetch (2:00) and score recompute
-# (2:50) above, before the 3:30 backup. Runs entirely on Yahoo Finance, zero
-# FMP calls -- independent of the two FMP-dependent jobs above it, doesn't
-# need to wait on them, just staggered into a free slot. See
-# pipeline/nightly_trend_calculation.py.
+# server time -- after the fundamentals fetch (2:00), before the 3:30
+# backup. Runs entirely on Yahoo Finance, zero FMP calls -- independent of
+# the FMP-dependent fetch above it, doesn't need to wait on it, just
+# staggered into a free slot. See pipeline/nightly_trend_calculation.py.
 10 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_trend_calculation >> /home/shen/fathom/backend/logs/nightly_trend_calculation_cron.log 2>&1
 
 # Nightly BB+RSI (2h) technical entry-signal calculation, 3:20 AM server
@@ -85,6 +76,24 @@
 # its own dedicated script rather than folding into either. See
 # pipeline/nightly_warren_signal_calculation.py.
 40 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_warren_signal_calculation >> /home/shen/fathom/backend/logs/nightly_warren_signal_calculation_cron.log 2>&1
+
+# Nightly full-universe TickerScore recompute, 3:50 AM server time -- MUST
+# run after every job whose output compute_ticker_score copies onto
+# TickerScore: trend-structure (3:10: weinstein_*, reversal_status,
+# pullback_status), BB+RSI (3:20: bb_rsi_entry_signal) and Warren (3:40:
+# warren_active_signal_kind, warren_last_buy_fired_at). It used to run at
+# 2:50, before all three, so the Screener's copy of those fields was
+# structurally a night behind (confirmed 2026-09-19: 36 tickers' Screener
+# Weinstein stage disagreed with their own TrendAnalysis row). Pinned by
+# tests/test_cron_wiring.py::test_score_recompute_runs_after_every_job_it_
+# copies_from. The 2:00 fundamentals fetch still recomputes each ticker's
+# score inline, so fundamentals-derived fields stay fresh from 2:00 on;
+# this sweep only has to pick up the technical fields and the ad-hoc
+# tickers outside the index universe (the IREN/SEZL/POOL backstop -- see
+# pipeline/nightly_score_recompute.py). Cache-only -- zero FMP calls
+# (~30s), so it fits between Warren (~2 min today, ~9 min theoretical
+# worst case) and the 3:55 backup.
+50 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_score_recompute >> /home/shen/fathom/backend/logs/nightly_score_recompute_cron.log 2>&1
 
 # Weekly S&P 500 constituent list refresh (Wikipedia scrape), Sundays at
 # 1:00 AM server time -- runs before the nightly fetch above so a freshly

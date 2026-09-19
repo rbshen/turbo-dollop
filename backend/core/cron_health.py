@@ -53,7 +53,7 @@ CRON_JOB_NAMES: list[str] = [
     "pipeline.backup_db",
 ]
 
-# Expected cadence per job, with slack -- daily jobs (2:00/2:50/3:30 AM)
+# Expected cadence per job, with slack -- daily jobs (2:00 AM through 3:55 AM)
 # flagged overdue past ~36h (tolerates one missed run without a false
 # alarm the next morning); weekly-Sunday jobs (1:00-1:30 AM) past ~8 days;
 # the one monthly job past ~35 days (safely past any month length). First-
@@ -106,7 +106,7 @@ JOB_METADATA: dict[str, JobMetadata] = {
         "Refetch FMP fundamentals, full tracked universe", "daily", "2:00 AM", 2 * 60
     ),
     "pipeline.nightly_score_recompute": JobMetadata(
-        "Recompute 5-step scores, full universe", "daily", "2:50 AM", 2 * 60 + 50
+        "Recompute 5-step scores, full universe", "daily", "3:50 AM", 3 * 60 + 50
     ),
     "pipeline.nightly_trend_calculation": JobMetadata(
         "Trend structure + Weinstein stage, weekly resample", "daily", "3:10 AM", 3 * 60 + 10

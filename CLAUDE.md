@@ -3118,15 +3118,42 @@ Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
 - **Known limits.** Not holiday-aware: a market holiday looks like one missed session and costs
   one extra (harmless) refetch that day -- and, for the trend endpoint above, one recompute per
   on-demand read that day.
-- **Not fixed, found while auditing for the same flat-timer pattern (2026-09-19):**
-  (1) `TickerScore.weinstein_*` (the Screener's Weinstein pill/filter) is copied from
-  `TrendAnalysis` inside `compute_ticker_score`, which runs at 2:00 (fundamentals) and 2:50
-  (score recompute) -- both BEFORE the 3:10 trend job -- so the Screener always shows the
-  PREVIOUS night's stage (36 of 579 tickers disagreed with their own `TrendAnalysis` row when
-  checked). (2) `YahooPriceCache`'s flat 1-day timer (`clients/yahoo_cache.py::_is_stale`) on the
-  FMP-paused price fallback. BB+RSI, Warren and Liquidity Zones have no read-time freshness gate
-  at all (cache-only reads, unconditional nightly recompute); their only timers are the 7-day
-  `STALE_AFTER_DAYS` abandonment sweeps, which are not freshness checks.
+- **Found while auditing for the same flat-timer pattern (2026-09-19):**
+  (1) **FIXED, see "Screener's copy of technical fields" below.** `TickerScore.weinstein_*` was
+  copied from `TrendAnalysis` at 2:00/2:50, before the 3:10 trend job, so the Screener showed the
+  PREVIOUS night's stage. (2) `YahooPriceCache`'s flat 1-day timer (`clients/yahoo_cache.py::
+  _is_stale`) on the FMP-paused price fallback. BB+RSI, Warren and Liquidity Zones have no
+  read-time freshness gate at all (cache-only reads, unconditional nightly recompute); their only
+  timers are the 7-day `STALE_AFTER_DAYS` abandonment sweeps, which are not freshness checks.
+- **Screener's copy of technical fields was a night behind; score recompute moved 2:50 -> 3:50
+  (2026-09-19).** `compute_ticker_score` copies `weinstein_*` (+ `reversal_status`/
+  `pullback_status`) from `TrendAnalysis` (written by the 3:10 trend job), `bb_rsi_entry_signal`
+  from the 3:20 BB+RSI job's row, and `warren_active_signal_kind`/`warren_last_buy_fired_at` from
+  the 3:40 Warren job's rows. The full-universe recompute (`nightly_score_recompute`) ran at 2:50,
+  and the 2:00 fundamentals fetch also scores each ticker inline -- both before any of those
+  three jobs, so every one of those Screener fields was structurally a night behind. Confirmed
+  live: 36 of 579 tickers' Screener Weinstein stage disagreed with their own `TrendAnalysis` row,
+  all 36 copied before that row was written and all 36 exactly the tickers whose stage the trend
+  job changed that night (the other 543 agreed only because their stage didn't change). Warren
+  and BB+RSI showed ~0 disagreements the same night only because no ticker's latest signal
+  changed -- the exposure was identical. **Fix: reorder, not a second copy** -- the recompute now
+  runs at **3:50 AM**, after Warren (3:40, ~2 min today, ~9 min theoretical worst case) and
+  before the 3:55 backup (recompute is ~30s, cache-only). Nothing depended on the old order:
+  the trend job reads only Yahoo bars and its own universe, and `crontab.txt` already said it
+  "doesn't need to wait on" the FMP jobs. Moving the trend job earlier instead would have fixed
+  only `weinstein_*`/`reversal_status`/`pullback_status` and left BB+RSI/Warren a night behind
+  (they can't all fit before 2:00 next to the Sunday maintenance window). The 2:00 fundamentals
+  fetch's inline scoring is unchanged (its fundamentals-derived fields are fresh from 2:00; its
+  technical fields are overwritten by the 3:50 sweep). Pinned by `tests/test_cron_wiring.py::
+  test_score_recompute_runs_after_every_job_it_copies_from` (and `JOB_METADATA`'s time label by
+  `test_job_metadata_sort_minutes_match_crontab`, which would have caught that display metadata
+  going stale). Verified on a lean copy of the live DB (36 disagreeing + 24 agreeing tickers, real
+  `recompute_all` code path, FMP disabled): 36 -> 0 stage disagreements, 56 -> 0 rows with any
+  other mismatched `weinstein_*` field. **Not live until the crontab is reinstalled**
+  (`crontab crontab.txt` from `backend/` -- editing the file alone changes nothing on this box);
+  the live crontab's schedule lines were confirmed identical to the committed file beforehand, so
+  that one command is the whole deploy. Until then, or after any night the trend/BB+RSI/Warren
+  job overruns 3:50, the affected tickers just read a night behind as before.
 - **Verification after a nightly run** (no `sqlite3` CLI on this box; use python):
   `select ticker, interval, min(bar_time), max(bar_time), count(*), max(fetched_at) from
   sharedbarscache group by ticker, interval`. `max(bar_time)` should be the last completed
