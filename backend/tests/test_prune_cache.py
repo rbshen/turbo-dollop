@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
+import clients.shared_bars_cache as shared_bars_cache
 import pipeline.prune_cache as prune_cache
 from core.models import FundamentalsCache
 
@@ -10,6 +11,7 @@ def _fresh_engine(monkeypatch, tmp_path):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(prune_cache, "engine", engine)
+    monkeypatch.setattr(shared_bars_cache, "engine", engine)
     monkeypatch.setattr(prune_cache, "LOG_PATH", tmp_path / "test_prune_cache.log")
     return engine
 

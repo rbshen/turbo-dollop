@@ -3087,8 +3087,24 @@ Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
   SQL; writes are one vectorized executemany upsert per ticker. The first version hydrated every
   bar as an ORM object twice per ticker and measured at minutes per nightly run at Warren's
   volume (~365k rows) -- caught by the before/after measurement, not by tests.
-- **Known limits.** Bars are never pruned (storage grows ~1yr of bars/yr/ticker; ~620 KB/ticker
-  combined at the current windows). `get_trend_analysis_data`'s result-level staleness check still
+- **Retention/pruning (2026-09-19).** `SharedBarsCache.RETENTION_DAYS` keeps **6y of `1d`** and
+  **3y of `60m`** bars, trimmed per bar (never whole rows, so a survivor's last bar -- what
+  freshness reads -- is untouched and `min(bar_time)` just moves forward to the first survivor) by
+  `prune_old_bars`, run weekly from the existing `pipeline.prune_cache` job (Sun 1:10 AM; no new
+  cron entry, so nothing new for `CRON_JOB_NAMES`) and previewable with its `--dry-run`. Windows
+  are chosen against the consumers' real fetch tiers: each is >= the widest tier fetched (1d: LZ's
+  4y lookback -> the `5y` tier; 60m: Warren's 730d -> `2y`) plus a year of headroom, and BELOW the
+  next tier up (`10y`), so a full-grown retained row still snaps down to the tier it was fetched at
+  in `_preserved_lookback_days` (no ratchet) and the nightly coverage check never sees a pruned row
+  as too narrow. `tests/test_shared_bars_cache_prune.py` pins both invariants against the
+  consumers' real `LOOKBACK_DAYS` constants -- a new consumer needing more than a window retains
+  fails CI instead of refetching its full width every night. The 60m window is deliberately wider
+  than any consumer needs: Yahoo only serves 60m history ~730 days back, so a pruned 60m bar can
+  never be re-fetched. Simulated (104 watchlist tickers, 469 Trend-only, 176 B/row) five years out:
+  unpruned 2.46M rows / ~430 MB vs. pruned 1.47M rows / ~250 MB (plateaus; growth unpruned is
+  ~+57 MB/yr forever). A DELETE doesn't shrink the SQLite file -- the freed pages are reused by
+  later inserts, so it plateaus rather than shrinks; nothing VACUUMs it.
+- **Known limits.** `get_trend_analysis_data`'s result-level staleness check still
   uses the flat `yahoo_price_cache_staleness_days` -- it gates the computed `TrendAnalysis` row,
   not the bars, and was left alone. Not holiday-aware: a market holiday looks like one missed
   session and costs one extra (harmless) refetch that day.

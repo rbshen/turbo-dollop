@@ -164,7 +164,12 @@ a reason to see it in the failure list.
 7-day staleness window, which only controls refetching, not deletion).
 Success: a log line `Pruned N FundamentalsCache row(s) older than 180
 days.` in `backend/logs/prune_cache.log`. `--dry-run` previews the count
-without deleting. If N is unexpectedly huge, check whether the S&P
+without deleting. The same job also trims `SharedBarsCache` (Yahoo OHLCV bars)
+to 6 years of `1d` / 3 years of `60m` (`clients/shared_bars_cache.py::
+RETENTION_DAYS`) and logs one `SharedBarsCache: N '<interval>' bar(s) older
+than D days deleted.` line per interval — a few thousand bars a week in
+steady state, ~1M on the very first run after a long-unpruned cache. If the
+FundamentalsCache N is unexpectedly huge, check whether the S&P
 500/Dow constituent lists synced correctly recently (see the section
 below) — a broken sync can make otherwise-active tickers look
 "orphaned" and eligible for pruning.

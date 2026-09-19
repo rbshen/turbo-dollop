@@ -45,8 +45,8 @@ from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+from sqlalchemy import delete, func
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy import func
 from sqlmodel import Session, select
 
 from clients.yahoo_client import yahoo_client
@@ -199,6 +199,31 @@ def _is_stale(last_bar_time: datetime | None, interval: str, reference: datetime
         return last_bar_time < _most_recent_completed_intraday_bar_start(reference)
     raise ValueError(f"unsupported interval {interval!r}")
 
+
+# How far back bars are KEPT, per interval -- consumed by prune_old_bars
+# (run weekly from pipeline/prune_cache.py). Bars are only ever appended
+# otherwise, so without this a row's stored span grows ~1yr/yr forever.
+#
+# Both windows sit above the widest fetch any consumer makes today (1d:
+# Liquidity Zones' 4yr lookback, fetched at the "5y" tier; 60m: Warren's
+# 730-day lookback, the "2y" tier) with a year of headroom, and BELOW the
+# next period tier above that fetch (1d: "10y"; 60m has none), so a
+# retained row's span always still snaps DOWN to the tier it was fetched
+# at -- _preserved_lookback_days never reads a pruned-then-regrown row as
+# a wider tier and ratchets the nightly download up. Both invariants are
+# pinned by tests/test_shared_bars_cache_prune.py against the consumers'
+# real LOOKBACK constants, so a new consumer asking for more than this
+# retains fails CI rather than refetching its full window every night
+# only to have the weekly prune trim it again.
+#
+# The 60m window is deliberately wider than any consumer needs today:
+# Yahoo serves 60m history only ~730 days back, so a pruned 60m bar can
+# never be re-fetched -- it is the only way this app could ever hold more
+# intraday history than Yahoo will hand over in one request.
+RETENTION_DAYS: dict[str, int] = {
+    DAILY_INTERVAL: 6 * 365,
+    INTRADAY_INTERVAL: 3 * 365,
+}
 
 # SQLite's bound-parameter cap is 999 on older builds; leave headroom for the
 # interval/bar_time parameters that ride along with the ticker list.
@@ -391,6 +416,35 @@ async def get_or_fetch_bars_batch(
 
     with Session(engine) as session:
         return _load_frames(session, tickers, interval, needed_start)
+
+
+def prune_old_bars(reference: datetime | None = None, dry_run: bool = False) -> dict[str, int]:
+    """Deletes bars older than RETENTION_DAYS[interval], measured back from
+    today (US/Eastern), per bar -- never whole rows. Returns the number of
+    bars deleted (or that would be, under dry_run) per interval.
+
+    Per-bar, not drop-and-refetch: the tail being trimmed is the OLDEST end
+    only, so every survivor's freshness (its LAST bar) is untouched, and
+    _cache_span's MIN/MAX simply reads the trimmed first bar -- there is no
+    state kept anywhere else that could disagree with what's left. A ticker
+    whose every bar is past the window (delisted, or long off every
+    watchlist) loses its whole row, which is the point.
+
+    Measured from today, not from each ticker's own last bar, so an
+    abandoned ticker can't sit on stale bars indefinitely; the one-year
+    headroom in RETENTION_DAYS makes a multi-week Yahoo outage a non-event."""
+    today = _eastern_today(reference)
+    deleted: dict[str, int] = {}
+    with Session(engine) as session:
+        for interval, days in RETENTION_DAYS.items():
+            cutoff = datetime.combine(today - timedelta(days=days), time.min)
+            stale = (SharedBarsCache.interval == interval, SharedBarsCache.bar_time < cutoff)
+            if dry_run:
+                deleted[interval] = session.exec(select(func.count()).select_from(SharedBarsCache).where(*stale)).one()
+                continue
+            deleted[interval] = session.execute(delete(SharedBarsCache).where(*stale)).rowcount
+        session.commit()
+    return deleted
 
 
 async def get_or_fetch_bars(
