@@ -1465,3 +1465,76 @@ export interface MomentumOut {
   computed_at: string | null;
   rows: MomentumSnapshotRowOut[];
 }
+
+export type InsiderTransactionKind =
+  | "open_market_buy"
+  | "open_market_sale"
+  | "option_exercise"
+  | "award"
+  | "gift"
+  | "other";
+
+export type InsiderSentiment = "net_buying" | "net_selling" | "no_activity" | "mixed";
+
+export interface InsiderTransaction {
+  // "YYYY-MM-DD"
+  transaction_date: string;
+  filing_date: string | null;
+  insider_name: string;
+  insider_cik: string | null;
+  // FMP's free-text typeOfOwner (e.g. "officer: Chief Executive Officer")
+  insider_role: string | null;
+  ownership: "direct" | "indirect" | null;
+  kind: InsiderTransactionKind;
+  // Plain-language type label -- the UI never sees FMP's raw codes.
+  type_label: string;
+  shares: number;
+  price: number | null;
+  // False for a non-open-market row priced at $0 -- render "no cash value", never "$0".
+  has_cash_value: boolean;
+  dollar_value: number | null;
+  sec_filing_url: string | null;
+}
+
+export interface InsiderQuarterStat {
+  year: number;
+  quarter: number;
+  total_acquired: number;
+  total_disposed: number;
+  total_purchases: number;
+  total_sales: number;
+}
+
+export interface InsiderClusterBuy {
+  insider_count: number;
+  window_start: string;
+  window_end: string;
+}
+
+export interface InsiderSummary {
+  sentiment: InsiderSentiment;
+  // 0-2: how many of the most recent quarterly statistics rows the totals sum.
+  quarters_in_window: number;
+  total_purchases: number;
+  total_sales: number;
+  total_acquired: number;
+  total_disposed: number;
+  open_market_buy_count: number;
+  open_market_sale_count: number;
+  cluster_buy: InsiderClusterBuy | null;
+  notable_buy: InsiderTransaction | null;
+  notable_sale: InsiderTransaction | null;
+}
+
+export interface InsiderActivityOut {
+  ticker: string;
+  // Newest first.
+  transactions: InsiderTransaction[];
+  // Oldest first.
+  quarterly_stats: InsiderQuarterStat[];
+  summary: InsiderSummary;
+  has_data: boolean;
+  // ISO timestamp of the cached search row. null = never successfully cached
+  // (cold miss); non-null with has_data false = cached and genuinely empty.
+  as_of: string | null;
+}
