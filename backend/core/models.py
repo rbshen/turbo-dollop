@@ -31,13 +31,24 @@ class YahooPriceCache(SQLModel, table=True):
     clients/yahoo_cache.py) -- deliberately its own table, not a
     FundamentalsCache row, for the same reason NewsCache is its own table
     above: this is a different provider entirely (decoupled from the
-    FMP_ENABLED kill switch on purpose, so trend analysis keeps working
-    through an FMP pause) and a different shape (one row per ticker per
-    trading day, typed OHLCV columns, not a single raw_json blob per
-    statement-type/period). Refreshed on Settings.yahoo_price_cache_staleness_days
-    (default 1 day -- much tighter than FundamentalsCache's 7, since this is
-    trading-day-grain data that gets a new bar every day the nightly trend
-    job runs, unlike fundamentals which only change quarterly)."""
+    FMP_ENABLED kill switch on purpose) and a different shape (one row per
+    ticker per trading day, typed OHLCV columns, not a single raw_json blob
+    per statement-type/period). Refreshed on
+    Settings.yahoo_price_cache_staleness_days (default 1 day -- much
+    tighter than FundamentalsCache's 7, since this is trading-day-grain
+    data).
+
+    **As of the 2026-09-19 shared-bars-cache build, this table's only
+    remaining consumer is data/ticker_summary.py::_fetch_yahoo_latest_close**
+    (Price/Quote's Yahoo fallback when FMP_ENABLED=false) -- Trend/Weinstein
+    Stage and Liquidity Zones, its two other former readers, both moved to
+    SharedBarsCache below, which also serves Warren/BB+RSI. Kept as its own
+    table rather than folded in: ticker_summary's own use case (a handful
+    of adjusted, non-shared rows for a single quote lookup) has no growth/
+    coverage or multi-interval needs, and moving it would mean threading
+    auto_adjust-vs-raw's old shared-row caveat back in for no benefit -- see
+    SharedBarsCache's own docstring for why that caveat no longer applies
+    to the features that did need it."""
 
     __table_args__ = (UniqueConstraint("ticker", "date", name="uq_yahoo_price_cache_key"),)
 
@@ -52,10 +63,62 @@ class YahooPriceCache(SQLModel, table=True):
     fetched_at: datetime
 
 
+class SharedBarsCache(SQLModel, table=True):
+    """Raw OHLCV bars shared across every consumer of a given (ticker,
+    interval) combination -- Liquidity Zones and Trend/Weinstein Stage both
+    read/write interval="1d" rows; Warren and BB+RSI both read/write
+    interval="60m" rows (yfinance's own fetched granularity -- both
+    features' actual "2h" candles are built from these by resampling
+    downstream, see analysis/entry_signal/resample.py::
+    build_2h_session_candles; there is no native "2h" Yahoo interval).
+    Built 2026-09-19 after the prior Yahoo-consolidation round found real,
+    confirmable redundant-fetch overlap between exactly these four
+    features -- see clients/shared_bars_cache.py for the full mechanism
+    (growth-to-max-window-ever-requested, and the close-aware freshness
+    check that replaces a flat TTL).
+
+    interval + bar_time (not id) is the real identity -- bar_time is a
+    naive local-exchange-time timestamp (midnight for a daily bar, the raw
+    60m bar's own start time for an intraday one), matching this
+    codebase's established naive-datetime convention for anything
+    Eastern-time-denominated (see WarrenSignalEvent's own fired_at comment
+    for the same reasoning: SQLite drops tzinfo on storage regardless, so
+    a tz-aware value here would just be silently stripped on read-back
+    without ever having bought anything). clients/shared_bars_cache.py
+    re-attaches America/New_York tzinfo on intraday rows when building the
+    DataFrame handed back to a caller, since analysis/entry_signal/
+    resample.py's build_2h_session_candles requires a tz-aware index --
+    daily rows are returned naive, matching every daily-bar consumer's
+    existing expectation (data/trend_analysis_data.py, analysis/
+    liquidity_zones/).
+
+    Unlike YahooPriceCache above (always auto_adjust=True, per data/
+    ticker_summary.py's own need), every current consumer of this table
+    fetches with auto_adjust=False -- so, unlike YahooPriceCache's
+    documented adjusted-vs-unadjusted shared-row caveat, there is no
+    cross-consumer inconsistency risk here today. This isn't structurally
+    enforced (a future auto_adjust=True consumer of this same table would
+    reintroduce that exact caveat) -- flagged here so it isn't
+    rediscovered from scratch."""
+
+    __table_args__ = (UniqueConstraint("ticker", "interval", "bar_time", name="uq_shared_bars_cache_key"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    ticker: str = Field(index=True)
+    interval: str  # "1d" | "60m" -- the literal yfinance interval actually fetched
+    bar_time: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    fetched_at: datetime
+
+
 class TrendAnalysis(SQLModel, table=True):
     """Latest trend-structure analysis per ticker (swing/BOS/blended-score
     engine, see analysis/trend_structure/ and data/trend_analysis_data.py)
-    -- sourced from Yahoo Finance (YahooPriceCache above), independent of
+    -- sourced from Yahoo Finance (SharedBarsCache above), independent of
     FMP entirely. Ticker-PK, no surrogate id, `computed_at` (not
     `fetched_at`) naming -- same "this is a derived value" convention as
     TickerScore, not a raw fetch cache. Upserted per run, latest-only (no
