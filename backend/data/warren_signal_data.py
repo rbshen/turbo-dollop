@@ -22,6 +22,11 @@ module (not a branch inside that one) since Warren's persistence and
   looks further back than "today". Warren's nightly job already replays
   everything every night, so simply running it once IS the backfill --
   no separate script exists for this signal.
+- Because it replays from a blank state every night, events near the START of
+  the replay window are unreliable (BB+RSI, being stateless per bar, has no
+  equivalent exposure). Only events past EVENT_WRITE_WARMUP_DAYS from the
+  first replayed candle are persisted to WarrenSignalEvent; the latest-state
+  row is unaffected. See that constant for the measurements behind the value.
 """
 
 from datetime import datetime, timedelta
@@ -51,6 +56,32 @@ STALE_AFTER_DAYS = 7
 # deletes it -- same 730-day Yahoo 2h-interval history limit
 # entry_signal_data.py::EVENT_RETENTION_DAYS is based on.
 EVENT_RETENTION_DAYS = 730
+
+# Write-side warm-up buffer. Every nightly run replays the whole fetched
+# window, but the state machine starts blank at the window's first candle, so
+# events computed near that left edge are unreliable -- RSI/ADX seeds settle
+# in ~2 weeks, but the gray-suppression memory (`yellow_armed`/`stop_count`,
+# mostly showing up as gray_up <-> yellow_up mislabels) takes months. Events
+# are written insert-if-absent and never revised, and the window's start slides
+# forward a day every night, so every night used to persist a fresh crop of
+# leading-edge variants that no earlier (longer-context) night had produced.
+#
+# Measured 2026-09-19 (105 tickers, replay from a later start vs. a full-
+# context replay; error = missed + phantom events as % of correct ones), by
+# days from the replay's first candle: 0-7d ~240%, 8-14d ~134%, 15-30d ~51%,
+# 31-60d ~15-27%, 61-120d ~7-16%, 121-180d ~4-8%, 181-300d ~2-4%, 300d+ ~0%.
+# Events that clear a 180d buffer sit at ~2-4% error (181-300d) falling to ~0%,
+# ~1.3-1.6% averaged over everything written -- the point where the curve
+# flattens; a longer buffer buys little and costs stored history, a shorter
+# one (e.g. 90d, ~7-16% error) keeps a visible error rate. Tunable here; see
+# compute_and_store_warren_signal for how it is applied. Only WRITES are gated -- the replay still runs over the full window
+# (that is what builds the state), and the latest-state row is still derived
+# from the full replay's tail, untouched by this (its events sit at the right
+# edge, with the whole window as context).
+#
+# Not tied to EVENT_RETENTION_DAYS, which is deliberately unchanged: this
+# buffer is the prerequisite for ever raising that, not a change to it.
+EVENT_WRITE_WARMUP_DAYS = 180
 
 
 def is_warren_signal_active(signal_kind: str | None) -> bool:
@@ -97,11 +128,23 @@ def last_buy_signal_fired_at(session: Session, ticker: str) -> datetime | None:
     ).one()
 
 
-def _upsert(ticker: str, signal_type: str, timeframe: str, result: WarrenReplayResult, source: str, computed_at: datetime) -> None:
+def _upsert(
+    ticker: str,
+    signal_type: str,
+    timeframe: str,
+    result: WarrenReplayResult,
+    source: str,
+    computed_at: datetime,
+    write_events_from: datetime,
+) -> None:
     """Unlike entry_signal_data.py::_upsert, there is no should_advance
     guard here -- `result` is always the true, complete current state (a
     full replay from scratch), so every field is always written, not just
-    conditionally advanced. See module docstring."""
+    conditionally advanced. See module docstring.
+
+    `write_events_from` gates only the WarrenSignalEvent inserts below (see
+    EVENT_WRITE_WARMUP_DAYS): the latest-state row is deliberately derived
+    from the full, unfiltered `result`."""
     with Session(engine) as session:
         last_event = result.events[-1] if result.events else None
 
@@ -129,11 +172,15 @@ def _upsert(ticker: str, signal_type: str, timeframe: str, result: WarrenReplayR
         stmt = stmt.on_conflict_do_update(index_elements=["ticker", "signal_type", "timeframe"], set_=fields)
         session.execute(stmt)
 
-        # Every event from this full replay gets (re-)inserted --
-        # on_conflict_do_nothing makes re-inserting an already-recorded
-        # event (the overwhelming majority, every night) a cheap no-op
-        # rather than an error or a duplicate row.
+        # Every event from this full replay that clears the warm-up buffer
+        # gets (re-)inserted -- on_conflict_do_nothing makes re-inserting an
+        # already-recorded event (the overwhelming majority, every night) a
+        # cheap no-op rather than an error or a duplicate row. Anything
+        # earlier than write_events_from is dropped, whatever the state
+        # machine produced there.
         for event in result.events:
+            if event.fired_at < write_events_from:
+                continue
             event_stmt = sqlite_insert(WarrenSignalEvent).values(
                 ticker=ticker,
                 timeframe=timeframe,
@@ -185,6 +232,12 @@ def compute_and_store_warren_signal(
     unit-testable without needing real intraday bars (see
     analysis/warren_signal/test_state_machine.py).
 
+    Only events fired at or after (first replayed candle + EVENT_WRITE_WARMUP_
+    DAYS) are persisted to WarrenSignalEvent -- see that constant for why. The
+    first replayed candle is the start of the data actually handed in, so a
+    ticker with less history than the fetch window (a recent IPO) has its
+    buffer measured from its own first candle, same as any other.
+
     Raises ValueError (propagated from replay()) if no 2h session candles
     could be built at all -- callers (the nightly job's per-ticker loop)
     treat this like any other per-ticker failure, same convention as
@@ -193,7 +246,9 @@ def compute_and_store_warren_signal(
     candles = build_2h_session_candles(ohlcv)
     result = replay(candles)
     computed_at = datetime.now()
-    _upsert(ticker, signal_type, timeframe, result, source, computed_at)
+    replay_start = candles.index[0].to_pydatetime().replace(tzinfo=None)
+    write_events_from = replay_start + timedelta(days=EVENT_WRITE_WARMUP_DAYS)
+    _upsert(ticker, signal_type, timeframe, result, source, computed_at, write_events_from)
 
     with Session(engine) as session:
         row = session.get(TechnicalEntrySignal, (ticker, signal_type, timeframe))

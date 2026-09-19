@@ -3001,6 +3001,67 @@ all in scope -- not an entry-only subset.
     closely), which silently retained a stale prior value instead of clearing it -- caught by
     `test_a_full_replay_always_overwrites_the_prior_state_never_conditionally_advances` before
     shipping.
+- **Write-side warm-up buffer: events near the start of the replay window are not persisted
+  (2026-09-19).** The full-replay design above has one cost BB+RSI (stateless per bar) doesn't
+  share: the state machine starts blank at the window's first candle, so events computed near
+  that left edge are unreliable -- RSI/ADX seeds settle in ~2 weeks, but the gray-suppression
+  memory (`yellow_armed`/`stop_count`, mostly seen as gray_up <-> yellow_up mislabels) takes
+  months. Events are written insert-if-absent and never revised, and the window's start slides
+  forward a day every night, so every night persisted a fresh crop of leading-edge variants that
+  no earlier (longer-context) night had produced. Right-edge (new) events have the whole window
+  as context and are ~0% wrong.
+  - **Measured** (105 tickers; replay from a later start vs. a full-context replay; error =
+    missed + phantom events as % of correct ones), by days from the replay's first candle:
+    0-7d ~240%, 8-14d ~134%, 15-30d ~51%, 31-60d ~15-27%, 61-120d ~7-16%, 121-180d ~4-8%,
+    181-300d ~2-4%, 300d+ ~0%. Live DB: 198 retroactive inserts in 5 nights for 98 established
+    tickers, 96% within 60d of that night's window start; the earliest 30d of stored rows were
+    ~half not reproduced by a fresh replay.
+  - **Fix** (`data/warren_signal_data.py::EVENT_WRITE_WARMUP_DAYS`, 180): the nightly job still
+    REPLAYS the whole window (that is what builds the state) but `_upsert` only inserts events
+    with `fired_at >= first replayed candle + 180d`. **180d because that is where the curve
+    flattens** -- events past it sit at ~2-4% error falling to ~0% (~1.3-1.6% averaged over
+    everything written); 90d would keep ~7-16%, and a longer buffer buys little and costs stored
+    history. A named constant, retunable in one place. The edge is inclusive and measured from
+    the first candle of the data actually handed in, not a fixed date.
+  - **Only event writes are gated.** The latest-state row (`TechnicalEntrySignal`: signal_kind,
+    fired_at, stop_price, gray_suppressed, stop_count -- what the Technical card and Screener's
+    `warren_active_signal_kind`/`warren_entry_signal` read) is still derived from the full,
+    unfiltered replay, whose tail sits at the right edge. Pinned by
+    `test_latest_state_row_is_identical_with_and_without_the_buffer`, which asserts it is
+    byte-identical with the buffer on and off even when the last event itself falls inside the
+    buffer. `warren_last_buy_fired_at` is read off the event table, so it follows the buffer
+    (`test_last_buy_signal_fired_at_reads_the_events_that_were_written`) -- confirmed before the
+    cleanup below that no ticker's latest buy sat in the zone, so no Screener value moved.
+  - **`EVENT_RETENTION_DAYS` (730) deliberately unchanged.** The buffer is the prerequisite for
+    ever raising it, not a change to it: raising retention without the buffer would have frozen
+    phantom rows permanently (simulated: insert-only accumulates ~3.2x phantom rows vs. correct
+    ones). Stored history now effectively spans the last ~550 days and refills toward 730 as
+    new events accrue past the buffer. Yahoo refuses 60m history beyond 730 days, so the buffer
+    can't come from fetching more.
+  - **One-time cleanup, run 2026-09-19 against the real DB (script not kept -- see below):**
+    deleted every `WarrenSignalEvent` row before tonight's cutoff (window start 2024-09-20
+    10:30 + 180d = 2025-03-19 10:30): **2,870 -> 1,894 rows (976 deleted, across 103 tickers)**;
+    by kind yellow_up 436, gray_down 212, blue_down 169, yellow_down 131, blue_up 18, gray_up 10.
+    Latest-state rows and per-ticker last-buy timestamps confirmed identical before/after. (The
+    investigation's ~939 estimate differs from the 976 actually found at this cutoff; the
+    difference wasn't reconciled -- likely a different cutoff date or snapshot.) The script is deliberately not committed: it is **not safe to
+    re-run later**, since rows that merely slid into the zone as the window advanced were
+    written well past the buffer and are reliable. Today's `backups/fathom_20260919_*.db.gz`
+    holds the deleted rows.
+  - **Known edge, left for a decision: recently-listed tickers.** A ticker with less history than
+    the window (CRWV, SNDK today) replays from its own first candle, and its start is fixed
+    rather than sliding, so its early events are reproducible night to night -- not the
+    accumulation problem this fixes. The literal rule still withholds its first 180 days, so a
+    ticker under ~6 months old gets no chart markers/`last_buy` (its latest-state row still
+    shows the signal). The cleanup left CRWV's 9 and SNDK's 6 in-buffer rows in place for this
+    reason. Exempting non-truncated windows is a small change if wanted.
+  - Regression tests (`tests/test_warren_signal_data.py`): in-buffer never written, edge
+    inclusive, width driven by the constant, measured from the first candle, latest-state
+    unaffected, and an end-to-end two-consecutive-nights replay through the real state machine
+    (unbuffered control persists leading-edge events on both nights; buffered persists none).
+    Real-Yahoo spot check on 6 tickers: 45 of 169 replayed events (27%) sit in the first 180d,
+    all now unwritten; the old code also persisted 1 fresh leading-edge variant on the
+    following week's replay (AMD).
 - **`active` is the literal `inTrade` mapping the request asked for**, not a time window:
   `data/warren_signal_data.py::is_warren_signal_active(signal_kind)` returns whether the
   latest recorded event (of either direction) was a buy-side arrow (`blue_up`/`yellow_up`/
