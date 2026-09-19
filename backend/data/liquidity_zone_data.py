@@ -27,9 +27,16 @@ from core.models import LiquidityZoneAnalysis, LiquidityZoneConfig
 from core.schemas import BrokenZoneOut, LiquidityZoneOut, LiquidityZonesOut, ZoneOut
 from core.tickers import normalize_ticker
 
-# Sliced from the same fetched frame the Weekly timeframe resamples in
-# full -- see clients/daily_price_sources.py's own LOOKBACK_YEARS comment
-# for why a single ~4yr fetch serves both timeframes.
+# ~4 calendar years of daily bars requested from the shared bars cache
+# (clients/shared_bars_cache.py, interval "1d") -- covers both this
+# feature's Daily (trailing 1yr, sliced below) and Weekly (4yr, resampled
+# locally from these same daily bars; Yahoo has no native weekly feed here,
+# and neither did FMP) needs from a single fetch per ticker. Trend/Weinstein
+# share the same "1d" row at a narrower (2y) width -- see the cache module
+# for how the two overlapping consumers coexist.
+LOOKBACK_DAYS = 4 * 365
+
+# Sliced from the same fetched frame the Weekly timeframe resamples in full.
 DAILY_LOOKBACK = pd.DateOffset(years=1)
 
 # How long a row can go un-recomputed (e.g. its ticker dropped off every
@@ -96,7 +103,7 @@ def _row_to_out(row: LiquidityZoneAnalysis) -> LiquidityZoneOut:
 
 def compute_and_store_liquidity_zones(ticker: str, ohlcv: pd.DataFrame, source: str, config: LiquidityZoneConfig) -> None:
     """Runs the pure calculation engine against an already-fetched daily
-    OHLC frame (see clients/daily_price_sources.py) and upserts both the
+    OHLC frame (see clients/shared_bars_cache.py) and upserts both the
     Daily and Weekly rows -- no fetch of its own, so the nightly job's one
     fetch per ticker is shared across both timeframes' compute. Raises
     ValueError if `ohlcv` is empty -- callers (the nightly job's

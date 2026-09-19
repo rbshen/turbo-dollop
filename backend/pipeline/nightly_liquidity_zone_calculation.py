@@ -6,8 +6,8 @@ pipeline/nightly_entry_signal_calculation.py. See CLAUDE.md's "Liquidity
 Zone (LP) detection (Technical)" section for the full methodology.
 
 **Yahoo Finance only, unconditionally (2026-09-18).** This job used to have
-a real FMP<->Yahoo branch (clients/daily_price_sources.py::
-get_daily_bar_source(), gated on the ordinary settings.fmp_enabled toggle)
+a real FMP<->Yahoo branch (clients/daily_price_sources.py, since deleted,
+gated on the ordinary settings.fmp_enabled toggle)
 -- unlike nightly_entry_signal_calculation.py's BB+RSI feed, FMP's daily
 EOD endpoint was never plan-restricted, so that branch was the normal
 degrade pattern rather than BB+RSI's hard-forced single source. That
@@ -16,8 +16,11 @@ features (alongside Chart, Weinstein Stage, Trend, Warren, BB+RSI) moved
 to Yahoo-only regardless of FMP_ENABLED, so a paused FMP subscription can
 never affect what price levels this feature detects.
 
-Fetches every tracked ticker's ~4yr daily OHLC in one Yahoo batch call
-(see clients/daily_price_sources.py::get_daily_bars), then runs the pure
+Reads every tracked ticker's ~4yr daily OHLC through the shared bars cache
+(clients/shared_bars_cache.py, interval "1d" -- the same row Trend/Weinstein
+Stage reads at a narrower 2y width, so whichever of the two nightly jobs
+runs first does the one live fetch per overlapping ticker and the other
+reads it back; this job needs no knowledge of which), then runs the pure
 calculation engine for both Daily and Weekly off that same fetched frame
 and upserts per ticker (data.liquidity_zone_data.
 compute_and_store_liquidity_zones), matching
@@ -40,11 +43,11 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from clients.daily_price_sources import get_daily_bars
+from clients.shared_bars_cache import DAILY_INTERVAL, get_or_fetch_bars_batch
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
-from data.liquidity_zone_data import compute_and_store_liquidity_zones, sweep_stale_liquidity_zones
+from data.liquidity_zone_data import LOOKBACK_DAYS, compute_and_store_liquidity_zones, sweep_stale_liquidity_zones
 from data.watchlists import list_tickers_across_watchlists
 from helpers.liquidity_zone_config import get_liquidity_zone_config
 
@@ -80,7 +83,7 @@ async def main() -> dict:
     )
     start_time = time.monotonic()
 
-    bars_by_ticker = await get_daily_bars(tickers)
+    bars_by_ticker = await get_or_fetch_bars_batch(tickers, DAILY_INTERVAL, LOOKBACK_DAYS, auto_adjust=False)
 
     failures: list[tuple[str, str]] = []
     for i, ticker in enumerate(tickers, start=1):

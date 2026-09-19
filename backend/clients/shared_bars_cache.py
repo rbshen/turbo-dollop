@@ -261,8 +261,8 @@ async def get_or_fetch_bars_batch(
 
     force=True always live-fetches every requested ticker regardless of
     freshness or coverage -- kept for parity with the equivalent escape
-    hatch clients/yahoo_cache.py::get_or_fetch_price_history_batch already
-    had, for any future caller that genuinely needs a guaranteed-live read.
+    hatch the (since removed) yahoo_cache batch function had, for any
+    future caller that genuinely needs a guaranteed-live read.
     None of the four consumers wired into this module today need it: the
     growth+freshness design above is already self-correcting regardless of
     which of two overlapping consumers happens to run first on a given

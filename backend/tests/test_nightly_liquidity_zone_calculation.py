@@ -46,11 +46,11 @@ def _seed_watchlist(engine, name: str, tickers: list[str]) -> None:
 def _patch_bar_source(monkeypatch, bars_by_ticker: dict):
     calls: list[list[str]] = []
 
-    async def fake_get_daily_bars(tickers):
+    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
         calls.append(list(tickers))
         return bars_by_ticker
 
-    monkeypatch.setattr(nightly_lz, "get_daily_bars", fake_get_daily_bars)
+    monkeypatch.setattr(nightly_lz, "get_or_fetch_bars_batch", fake_get_bars_batch)
     return calls
 
 
@@ -221,3 +221,30 @@ def test_main_sweeps_a_row_stale_beyond_the_seven_day_window(monkeypatch, tmp_pa
     assert row.support_zones_json == "[]"
     assert row.resistance_zones_json == "[]"
     assert row.computed_at == stale_computed_at  # last-known marker untouched
+
+
+def test_reads_daily_bars_through_the_shared_cache_with_the_documented_request_shape(monkeypatch, tmp_path):
+    """Interval "1d", ~4yr lookback (Weekly's need -- Daily is sliced from
+    it), non-dividend-adjusted -- and no force flag: the shared cache's
+    growth+freshness design makes the old per-feature force=True
+    unnecessary."""
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_watchlist(engine, "W1", ["AAPL"])
+    seen: dict = {}
+
+    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
+        seen.update(interval=interval, lookback_days=lookback_days, auto_adjust=auto_adjust, kwargs=kwargs)
+        return {"AAPL": _fake_bars()}
+
+    monkeypatch.setattr(nightly_lz, "get_or_fetch_bars_batch", fake_get_bars_batch)
+    _patch_store(monkeypatch)
+
+    asyncio.run(nightly_lz.main())
+
+    assert seen == {
+        "interval": "1d",
+        "lookback_days": liquidity_zone_data.LOOKBACK_DAYS,
+        "auto_adjust": False,
+        "kwargs": {},
+    }
+    assert liquidity_zone_data.LOOKBACK_DAYS >= 4 * 365

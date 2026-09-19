@@ -1,4 +1,7 @@
-"""Bespoke get-or-fetch-style caching for YahooPriceCache -- deliberately
+"""Bespoke get-or-fetch-style caching for YahooPriceCache (Price/Quote's Yahoo
+fallback only, as of 2026-09-19 -- see get_or_fetch_price_history's own
+docstring; every other Yahoo bars consumer moved to
+clients/shared_bars_cache.py) -- deliberately
 separate from core/cache.py, which is hard-wired to FundamentalsCache's
 (ticker, statement_type, period) + raw_json-blob shape (see
 core/models.py::YahooPriceCache's own docstring for why this needed its own
@@ -58,9 +61,7 @@ def _write_rows(session: Session, ticker: str, df: pd.DataFrame, fetched_at: dat
     session.commit()
 
 
-async def get_or_fetch_price_history(
-    ticker: str, period: str = "2y", cache_only: bool = False, auto_adjust: bool = True
-) -> list[YahooPriceCache]:
+async def get_or_fetch_price_history(ticker: str, period: str = "2y", cache_only: bool = False) -> list[YahooPriceCache]:
     """Cache-first read of a ticker's daily OHLCV history: returns the
     cached rows if fresh (per Settings.yahoo_price_cache_staleness_days),
     else fetches live via yahoo_client and upserts -- mirrors
@@ -69,34 +70,22 @@ async def get_or_fetch_price_history(
     cache_only=True never calls Yahoo live, returning whatever's cached even
     if stale (same convention as core/cache.py's own cache_only branch).
 
-    auto_adjust defaults to True, matching this table's original consumer
-    (data/ticker_summary.py::_fetch_yahoo_latest_close, the Price/Quote
-    Yahoo fallback -- left unchanged by the 2026-09-18 Yahoo-consolidation
-    work). data/trend_analysis_data.py passes auto_adjust=False explicitly,
-    since Trend/Weinstein Stage now want raw (non-dividend-adjusted) bars.
-    Both share this one YahooPriceCache table keyed only on (ticker, date)
-    -- adding an `adjusted` column to that key isn't possible without a
-    real table-recreate migration this app has no tooling for (see
-    core/models.py::WarrenSignalEvent's own comment on why that class of
-    problem gets a new table instead) -- so whichever caller fetches a
-    given (ticker, date) row LAST determines what's stored there, and an
-    already-fresh cache is served as-is regardless of which auto_adjust
-    the caller that populated it used. This is safe in practice only
-    because ticker_summary's own read never looks past the single most
-    recent row's close, and an adjusted vs. unadjusted close are always
-    identical for the CURRENT/latest bar (adjustment only ever rescales
-    OLDER bars retroactively, for a corporate action that happened after
-    them) -- confirmed empirically for O/UNH/F. Older rows in this table
-    reflect whichever caller fetched them last; nothing currently reads
-    those older rows from the adjusted side, so this doesn't matter today,
-    but a future adjusted-side consumer of anything but the latest row
-    would need its own storage, not this shared table."""
+    **Sole remaining consumer: data/ticker_summary.py::
+    _fetch_yahoo_latest_close** (Price/Quote's Yahoo fallback, which reads
+    only the single most recent row's close). Trend/Weinstein Stage and
+    Liquidity Zones moved to clients/shared_bars_cache.py (2026-09-19),
+    which is also why this function no longer takes an auto_adjust
+    parameter or has a batch variant: nothing left here needs either, and
+    the adjusted-vs-unadjusted shared-row caveat that used to apply to this
+    table (Trend writing raw bars where Price/Quote expected adjusted ones)
+    is gone with those consumers -- this table is now only written (going forward)
+    with yahoo_client's own default (auto_adjust=True) bars."""
     with Session(engine) as session:
         rows = _load_cached_rows(session, ticker)
         if not _is_stale(rows) or cache_only:
             return rows
 
-        fetched = await yahoo_client.get_history([ticker], period=period, auto_adjust=auto_adjust)
+        fetched = await yahoo_client.get_history([ticker], period=period)
         df = fetched.get(ticker)
         if df is None or df.empty:
             # Live fetch failed or returned nothing -- fall back to whatever's
@@ -106,52 +95,3 @@ async def get_or_fetch_price_history(
 
         _write_rows(session, ticker, df, datetime.now())
         return _load_cached_rows(session, ticker)
-
-
-async def get_or_fetch_price_history_batch(
-    tickers: list[str], period: str = "2y", auto_adjust: bool = True, force: bool = False
-) -> dict[str, list[YahooPriceCache]]:
-    """Batch variant for the nightly job -- one yfinance multi-ticker
-    download covering every ticker whose cache is stale, rather than N
-    individual live fetches. A ticker with an already-fresh cache is
-    skipped entirely (no Yahoo call for it at all). See
-    get_or_fetch_price_history's own docstring for auto_adjust's meaning
-    and the shared-table caveat -- pipeline/nightly_trend_calculation.py
-    passes auto_adjust=False here.
-
-    force=True always live-fetches every requested ticker, ignoring
-    _is_stale entirely -- clients/daily_price_sources.py::get_daily_bars
-    (Liquidity Zones) passes this, since this cache's staleness check is
-    purely time-based (was ANY row for this ticker refreshed recently?),
-    not coverage-based (does the cache actually hold as much history as
-    THIS caller asked for?). Liquidity Zones and Trend/Weinstein
-    (pipeline/nightly_trend_calculation.py) now both read through this one
-    shared table, 15 minutes apart in cron (Trend 3:10am, Liquidity Zones
-    3:25am) -- confirmed every Liquidity Zone ticker is already unioned
-    into Trend's own full-tracked-universe fetch (see
-    pipeline/nightly_fundamentals_fetch.py::load_full_tracked_universe's
-    own "any ticker on any Watchlist" clause), so without `force`, Trend's
-    own period="2y" fetch would leave every overlapping ticker's cache
-    "fresh" by the time Liquidity Zones' job runs -- silently serving it
-    ~2 years of history instead of the ~5 it actually requested, truncating
-    its Weekly (4yr) timeframe every single night. This didn't exist before
-    2026-09-18: Liquidity Zones previously read this shared table only in
-    the rare FMP-disabled fallback state, not on every run. `force=True` is
-    cheap here specifically because Liquidity Zones' own population (the
-    W1-W5 watchlist union, capped at 500 tickers total) is small enough
-    that a guaranteed-live nightly batch fetch costs nothing extra worth
-    caching around -- Trend's own much larger (full-universe) fetch keeps
-    its normal staleness-gated behavior unchanged."""
-    with Session(engine) as session:
-        stale_tickers = tickers if force else [t for t in tickers if _is_stale(_load_cached_rows(session, t))]
-
-    if stale_tickers:
-        fetched = await yahoo_client.get_history(stale_tickers, period=period, auto_adjust=auto_adjust)
-        now = datetime.now()
-        with Session(engine) as session:
-            for ticker, df in fetched.items():
-                if df is not None and not df.empty:
-                    _write_rows(session, ticker, df, now)
-
-    with Session(engine) as session:
-        return {ticker: _load_cached_rows(session, ticker) for ticker in tickers}
