@@ -458,10 +458,55 @@ def test_a_refetch_triggered_by_the_narrower_consumer_preserves_the_wider_cached
     shrink the cache to its own 60d need."""
     engine = _fresh_engine(monkeypatch)
     overnight = pd.Timestamp("2026-09-18 03:20", tz=ZoneInfo("America/New_York")).to_pydatetime()
-    # Wide (~700d) row whose last bar is one session behind (09-16 close).
-    _seed_intraday_history(engine, days=700, last_bar=datetime(2026, 9, 16, 15, 30), fetched_at=datetime(2026, 9, 17, 3, 0))
+    # Wide (~2y) row whose last bar is one session behind (09-16 close).
+    _seed_intraday_history(engine, days=728, last_bar=datetime(2026, 9, 16, 15, 30), fetched_at=datetime(2026, 9, 17, 3, 0))
     calls = _patch_fetch(monkeypatch, {"AAPL": _intraday_df(["2026-09-17 15:30"])})
 
     asyncio.run(get_or_fetch_bars_batch(["AAPL"], INTRADAY_INTERVAL, lookback_days=60, reference=overnight))
 
     assert calls[0]["period"] == "2y"  # not "3mo" -- the existing width was preserved
+
+
+def test_preserved_lookback_snaps_to_a_tier_and_does_not_drift_as_bars_accumulate():
+    from clients.shared_bars_cache import _preserved_lookback_days
+
+    def rows(first: date, last: date):
+        return [
+            SharedBarsCache(ticker="X", interval="1d", bar_time=datetime.combine(d, datetime.min.time()), open=1, high=1, low=1, close=1, volume=1, fetched_at=datetime(2026, 9, 1))
+            for d in (first, last)
+        ]
+
+    # A "2y"-fetched row, right after fetch and a year of nightly appends later:
+    assert _preserved_lookback_days(rows(date(2024, 9, 20), date(2026, 9, 17)), DAILY_INTERVAL) == 730
+    assert _preserved_lookback_days(rows(date(2024, 9, 20), date(2027, 9, 17)), DAILY_INTERVAL) == 730
+    # A "5y"-fetched row (span a few days short of 1825 -- weekend at the boundary):
+    assert _preserved_lookback_days(rows(date(2021, 9, 21), date(2026, 9, 17)), DAILY_INTERVAL) == 1825
+    # Tiny row -> its own span; empty -> 0:
+    assert _preserved_lookback_days(rows(date(2026, 9, 16), date(2026, 9, 17)), DAILY_INTERVAL) == 2
+    assert _preserved_lookback_days([], DAILY_INTERVAL) == 0
+
+
+def test_batch_groups_tickers_by_the_period_each_one_needs(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    # WIDE already holds a 5y-tier row that is one session stale; NEW has nothing.
+    for d in (_TODAY - timedelta(days=1826), _TODAY - timedelta(days=1)):
+        _seed_row(engine, "WIDE", DAILY_INTERVAL, datetime.combine(d, datetime.min.time()), datetime(2026, 9, 17, 3, 0))
+    calls = _patch_fetch(monkeypatch, {"WIDE": _daily_df([_TODAY.isoformat()]), "NEW": _daily_df([_TODAY.isoformat()])})
+
+    asyncio.run(get_or_fetch_bars_batch(["WIDE", "NEW"], DAILY_INTERVAL, lookback_days=730, reference=_REFERENCE))
+
+    assert sorted((c["period"], tuple(c["tickers"])) for c in calls) == [("2y", ("NEW",)), ("5y", ("WIDE",))]
+
+
+def test_upsert_is_idempotent_and_overwrites_the_same_bar(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    df1 = _daily_df([_TODAY.isoformat()])
+    _patch_fetch(monkeypatch, {"AAPL": df1})
+    asyncio.run(get_or_fetch_bars_batch(["AAPL"], DAILY_INTERVAL, lookback_days=1, force=True, reference=_REFERENCE))
+    df2 = _daily_df([_TODAY.isoformat()])
+    df2["Close"] = 555.0
+    _patch_fetch(monkeypatch, {"AAPL": df2})
+    result = asyncio.run(get_or_fetch_bars_batch(["AAPL"], DAILY_INTERVAL, lookback_days=1, force=True, reference=_REFERENCE))
+
+    assert len(result["AAPL"]) == 1  # same (ticker, interval, bar_time) key -- updated, not duplicated
+    assert result["AAPL"]["close"].iloc[0] == 555.0

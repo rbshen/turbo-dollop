@@ -94,6 +94,34 @@ def _period_steps(interval: str) -> list[tuple[str, int]]:
     raise ValueError(f"unsupported interval {interval!r}")
 
 
+# A row fetched at period "2y" starts at the first trading day on/after
+# (today - 2y), so its stored span reads a few calendar days SHORT of the
+# tier's nominal days (weekends/holidays at the boundary) -- this much slack
+# lets the span still be recognized as that tier.
+_TIER_SLACK_DAYS = 10
+
+
+def _preserved_lookback_days(rows: list[SharedBarsCache], interval: str) -> int:
+    """The lookback width an existing row was (effectively) fetched at, so
+    a refetch triggered by a NARROWER consumer never shrinks it. Derived by
+    snapping the row's stored span DOWN to a yfinance period tier, not by
+    using the raw span (or today-minus-first-bar): stored bars are only ever
+    appended, never dropped, so the raw span grows by a day every night --
+    used directly, a "2y" row would snap up to a "5y" refetch after one
+    night, and a "5y" one to "10y" a few years on, ratcheting every nightly
+    download wider forever (caught by tests/
+    test_shared_bars_cache_consumers.py::test_a_universe_only_widens_...).
+    A tier is stable no matter how many bars have accumulated since."""
+    if not rows:
+        return 0
+    span = (rows[-1].bar_time.date() - rows[0].bar_time.date()).days + 1
+    tier_days = 0
+    for _, days in _period_steps(interval):
+        if span >= days - _TIER_SLACK_DAYS:
+            tier_days = days
+    return tier_days or span
+
+
 def _period_for(interval: str, lookback_days: int) -> str:
     for period, days in _period_steps(interval):
         if days >= lookback_days:
@@ -182,6 +210,12 @@ def _load_cached_rows(session: Session, ticker: str, interval: str) -> list[Shar
 
 
 def _write_rows(session: Session, ticker: str, interval: str, df: pd.DataFrame, fetched_at: datetime) -> None:
+    """Upserts every bar in `df` in ONE executemany round trip. (A per-row
+    execute loop, the shape YahooPriceCache._write_rows uses for a few
+    hundred daily rows, was measured to dominate this module's cost at
+    intraday volumes -- ~3,500 rows/ticker x ~100 tickers -- so it's
+    batched here.)"""
+    values = []
     for row_time, row in df.iterrows():
         bar_time = row_time.to_pydatetime()
         if bar_time.tzinfo is not None:
@@ -190,27 +224,27 @@ def _write_rows(session: Session, ticker: str, interval: str, df: pd.DataFrame, 
             # is a no-op in practice, but guards against a future caller
             # whose raw fetch came back in a different tz.
             bar_time = bar_time.astimezone(_EASTERN).replace(tzinfo=None)
-        open_ = float(row["Open"])
-        high = float(row["High"])
-        low = float(row["Low"])
-        close = float(row["Close"])
-        volume = int(row["Volume"]) if not pd.isna(row["Volume"]) else 0
-        stmt = sqlite_insert(SharedBarsCache).values(
-            ticker=ticker,
-            interval=interval,
-            bar_time=bar_time,
-            open=open_,
-            high=high,
-            low=low,
-            close=close,
-            volume=volume,
-            fetched_at=fetched_at,
+        values.append(
+            {
+                "ticker": ticker,
+                "interval": interval,
+                "bar_time": bar_time,
+                "open": float(row["Open"]),
+                "high": float(row["High"]),
+                "low": float(row["Low"]),
+                "close": float(row["Close"]),
+                "volume": int(row["Volume"]) if not pd.isna(row["Volume"]) else 0,
+                "fetched_at": fetched_at,
+            }
         )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["ticker", "interval", "bar_time"],
-            set_={"open": open_, "high": high, "low": low, "close": close, "volume": volume, "fetched_at": fetched_at},
-        )
-        session.execute(stmt)
+    if not values:
+        return
+    stmt = sqlite_insert(SharedBarsCache)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["ticker", "interval", "bar_time"],
+        set_={c: getattr(stmt.excluded, c) for c in ("open", "high", "low", "close", "volume", "fetched_at")},
+    )
+    session.execute(stmt, values)
     session.commit()
 
 
@@ -295,7 +329,7 @@ async def get_or_fetch_bars_batch(
     to_fetch: dict[str, int] = {}
     for t in tickers:
         rows = cached_by_ticker[t]
-        existing_width_days = (today - rows[0].bar_time.date()).days + 1 if rows else 0
+        existing_width_days = _preserved_lookback_days(rows, interval)
         if force:
             to_fetch[t] = max(lookback_days, existing_width_days)
             continue
