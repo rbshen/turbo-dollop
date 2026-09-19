@@ -136,6 +136,37 @@ revisiting it; `GET /api/tickers/{ticker}/score` also now self-heals a
 row like that on its next view (`core/main.py::ticker_score_out`), but
 this sweep is the backstop for a ticker that's never viewed again.
 
+**Why it runs at 3:50 AM, after the technical jobs (moved from 2:50 on
+2026-09-19):** it copies Trend/Weinstein (3:10), BB+RSI (3:20) and Warren
+(3:40) output onto `TickerScore` for the Screener. At 2:50 it ran before all
+three, so the Screener always showed the *previous* night's stage/signal —
+up to a full day stale (36 of 579 tickers' Screener Weinstein stage
+disagreed with their own `TrendAnalysis` row). `tests/test_cron_wiring.py::
+test_score_recompute_runs_after_every_job_it_copies_from` fails if it is ever
+scheduled ahead of any of them again. If one of those jobs overruns 3:50, the
+tickers it hadn't reached read a night behind until the next run.
+
+**Check that the ordering is doing its job** (read-only; run after a nightly
+run finishes, i.e. after ~3:55 AM server time) — both mismatch counts should
+be `0`:
+
+```bash
+cd backend && uv run python - <<'EOF'
+import sqlite3
+c = sqlite3.connect("file:fathom.db?mode=ro", uri=True)
+print(c.execute("""select count(*),
+                          sum(coalesce(s.weinstein_stage,'') != coalesce(t.weinstein_stage,'')),
+                          sum(coalesce(s.weinstein_stage_since_date,'') != coalesce(t.weinstein_stage_since_date,''))
+                   from tickerscore s join trendanalysis t on t.ticker = s.ticker""").fetchone())
+EOF
+```
+
+(Output is `(tickers compared, stage mismatches, since-date mismatches)`. The
+since-date check is the more sensitive one: the trend job's replay can revise
+a ticker's since-date without changing its stage, so it catches a stale copy
+the stage check misses — on the day the reorder shipped it read 173
+mismatches against 36 for stage alone.)
+
 **`nightly_trend_calculation`** — recomputes the swing/BOS/blended-score
 trend-structure engine (`backend/analysis/trend_structure/`) for the same
 full tracked universe `nightly_fundamentals_fetch`/`nightly_score_recompute`

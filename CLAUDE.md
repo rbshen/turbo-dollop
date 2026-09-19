@@ -2236,8 +2236,9 @@ to display.
   `TickerScore`; `last_confirmed_swing`/`warning_swing` stored as plain `str` JSON columns, this
   codebase's established convention for a JSON-shaped field, not a native JSON column type, which
   doesn't exist anywhere else in this codebase either).
-- **Nightly cron** (`pipeline/nightly_trend_calculation.py`, 3:10 AM, after the two FMP-dependent
-  nightly jobs and before the 3:30 AM backup): sweeps the full tracked universe
+- **Nightly cron** (`pipeline/nightly_trend_calculation.py`, 3:10 AM, after the 2:00 FMP
+  fundamentals fetch and before the 3:55 AM backup; the 3:50 score recompute then copies its
+  `weinstein_*` output onto `TickerScore`): sweeps the full tracked universe
   (`load_full_tracked_universe`, shared with the fundamentals/score-recompute jobs) via **one**
   `yfinance` multi-ticker batch download (now `clients.shared_bars_cache.get_or_fetch_bars_batch` -- see "Shared Yahoo bars cache" below; originally `yahoo_cache.get_or_fetch_price_history_batch`),
   then runs the engine and upserts per ticker -- never one live fetch per ticker. Makes zero FMP
@@ -3149,11 +3150,14 @@ Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
   `test_job_metadata_sort_minutes_match_crontab`, which would have caught that display metadata
   going stale). Verified on a lean copy of the live DB (36 disagreeing + 24 agreeing tickers, real
   `recompute_all` code path, FMP disabled): 36 -> 0 stage disagreements, 56 -> 0 rows with any
-  other mismatched `weinstein_*` field. **Not live until the crontab is reinstalled**
-  (`crontab crontab.txt` from `backend/` -- editing the file alone changes nothing on this box);
-  the live crontab's schedule lines were confirmed identical to the committed file beforehand, so
-  that one command is the whole deploy. Until then, or after any night the trend/BB+RSI/Warren
-  job overruns 3:50, the affected tickers just read a night behind as before.
+  other mismatched `weinstein_*` field. **Deployed 2026-09-19** (`crontab crontab.txt` from
+  `backend/`; `crontab -l` confirmed byte-identical to the committed file afterward -- editing
+  the file alone changes nothing on this box). Baseline immediately before the deploy: still 36
+  of 579 tickers' stage mismatched, and 173 on `weinstein_stage_since_date` (the more sensitive
+  check -- the trend replay can revise a since-date without changing the stage). The first real-night confirmation is the run after the deploy
+  (2026-09-20, 3:50 UTC); the read-only check is in `backend/OPS_RUNBOOK.md`'s
+  `nightly_score_recompute` entry. After any night the trend/BB+RSI/Warren job overruns 3:50, the
+  affected tickers just read a night behind as before.
 - **Yahoo price fallback: flat 1-day timer replaced with a market-session check (2026-09-19).**
   `YahooPriceCache` now backs only `ticker_summary.py::_fetch_yahoo_latest_close` (Price/Quote
   while `FMP_ENABLED=false`), which reads just the newest bar's close. That is a QUOTE, not

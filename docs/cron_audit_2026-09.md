@@ -64,6 +64,12 @@ about the watchlist-naming mechanism.
 | `pipeline.monthly_momentum_snapshot` | Daily 3:00 AM, days 1–5 (self-gates to the actual first NYSE trading day) | 3/6/12-month composite momentum ranking over the Moat-rated subset of the full tracked universe | Yes — Yahoo only | ~26s / 395 tickers | Yes |
 | `pipeline.backup_db` | Daily 3:35 AM | Transactionally-consistent gzip SQLite backup, keeps last 14 | No (local file op) | ~2min, ~94–96MB compressed | Yes |
 
+> **Update 2026-09-19:** this table is a point-in-time snapshot and has since drifted (e.g. it
+> predates the Warren job, and `backup_db` is now 3:55 AM). Of note,
+> `pipeline.nightly_score_recompute` now runs at **3:50 AM**, not 2:50 -- moved after the
+> technical jobs it copies from. `backend/crontab.txt` is the source of truth for the live
+> schedule; see CLAUDE.md's "Shared Yahoo bars cache" section for the reorder.
+
 All 15 scripts call `cron_heartbeat("<job_name>")` at their own
 `if __name__ == "__main__":` block, matching their `CRON_JOB_NAMES`/
 `_EXPECTED_CADENCE_HOURS` entries exactly (`test_cron_wiring.py` passes).
