@@ -458,11 +458,11 @@ def test_entry_signal_weekly_view_collapses_same_week_fires_keeping_first(monkey
 
 def test_entry_signal_w4y_shows_no_markers_for_the_older_two_years_not_an_error(monkeypatch):
     # The documented, accepted asymmetry: W_4Y shows 4 years of price but
-    # TechnicalEntrySignalEvent only ever retains ~2 years (see
-    # entry_signal_data.EVENT_RETENTION_DAYS and chart_data's own module
-    # docstring). Simulates that by only returning events within the most
-    # recent ~2 years -- the older ~2 years of the visible window must
-    # simply have no markers, not raise or degrade the rest of the chart.
+    # stored events only reach back as far as they have accumulated (Yahoo
+    # limits how far back they can be computed to ~2 years; retention is 4 --
+    # see chart_data's own module docstring). Simulates that by only returning
+    # events within the most recent ~2 years -- the older part of the visible
+    # window must simply have no markers, not raise or degrade the chart.
     df = _daily_df(365 * 5)
     _patch_yahoo_bars(monkeypatch, df)
 

@@ -31,13 +31,15 @@ this module embodies:
    was already showing, so this is also a continuity improvement for
    anyone who used this tab while FMP was still the default source.
 
-Known, accepted asymmetry: W_4Y shows 4 years of price (RANGE_CONFIG's own
-visible_days) but entry_signal_markers only ever has up to
-entry_signal_data.EVENT_RETENTION_DAYS (~2 years) of history behind it --
-Yahoo's own 2h-interval history limit, confirmed in the historical-backfill
-investigation, is itself ~2 years, so there is no way to have more marker
-history than that regardless of retention. The oldest ~2 years of a W_4Y
-view simply has no markers to show -- expected, not a bug, and needs no
+Known, accepted asymmetry that closes over time: W_4Y shows 4 years of price
+(RANGE_CONFIG's own visible_days), but signal-event markers only reach back as
+far as events have actually been accumulated. Yahoo's own 2h-interval history
+limit (~2 years, confirmed in the historical-backfill investigation) means no
+event older than that can be computed today, so marker history started at
+~2 years and grows by a day per day now that EVENT_RETENTION_DAYS (both
+entry_signal_data's and warren_signal_data's) is 4 years -- it reaches a full 4
+years around 2028-09 (BB+RSI) and 2029-03 (Warren). Until then the oldest part of
+a W_4Y view simply has no markers to show -- expected, not a bug, and needs no
 special-casing (_entry_signal_markers already returns an empty list for a
 window with no matching events).
 """

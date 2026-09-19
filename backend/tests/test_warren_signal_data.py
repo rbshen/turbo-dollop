@@ -342,6 +342,32 @@ def test_prune_warren_signal_events_deletes_old_rows_and_keeps_recent_ones(monke
     assert remaining[0].fired_at == recent
 
 
+def test_default_retention_is_four_years_and_comfortably_exceeds_the_warmup_buffer():
+    assert warren_signal_data.EVENT_RETENTION_DAYS == 1460
+    # Retention is only safe to raise because of the write-side buffer; the two must
+    # never be tuned into an overlap where kept history is mostly buffer-zone.
+    assert warren_signal_data.EVENT_RETENTION_DAYS > 2 * warren_signal_data.EVENT_WRITE_WARMUP_DAYS
+
+
+def test_default_prune_keeps_events_past_the_old_730_day_mark_and_only_deletes_past_1460(monkeypatch):
+    # No retention_days argument: exercises the default the nightly job actually uses.
+    engine = _fresh_engine(monkeypatch)
+    now = datetime(2026, 9, 9, 12, 0)
+    ages = {"just_past_old_cutoff": 731, "a_year_and_a_half": 550 + 400, "just_inside_new": 1459, "just_past_new": 1461, "ancient": 2000}
+    with Session(engine) as session:
+        for name, days in ages.items():
+            fired = now - timedelta(days=days)
+            session.add(WarrenSignalEvent(ticker=name, timeframe="2h", signal_kind="blue_up", fired_at=fired, stop_price=10.0, created_at=fired))
+        session.commit()
+
+    deleted = prune_warren_signal_events(now=now)
+
+    assert deleted == 2
+    with Session(engine) as session:
+        kept = {r.ticker for r in session.exec(select(WarrenSignalEvent)).all()}
+    assert kept == {"just_past_old_cutoff", "a_year_and_a_half", "just_inside_new"}
+
+
 def test_prune_warren_signal_events_is_idempotent_on_an_already_pruned_table(monkeypatch):
     _fresh_engine(monkeypatch)
     assert prune_warren_signal_events(retention_days=730, now=datetime(2026, 9, 9, 12, 0)) == 0

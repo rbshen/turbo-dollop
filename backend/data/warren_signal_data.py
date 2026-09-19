@@ -53,9 +53,15 @@ DEFAULT_TIMEFRAME = "2h"
 STALE_AFTER_DAYS = 7
 
 # How long a WarrenSignalEvent row is kept before prune_warren_signal_events
-# deletes it -- same 730-day Yahoo 2h-interval history limit
-# entry_signal_data.py::EVENT_RETENTION_DAYS is based on.
-EVENT_RETENTION_DAYS = 730
+# deletes it (4 years; raised from 730 on 2026-09-19). This is only a ceiling
+# on STORED history, not a fetch limit: Yahoo serves ~730 days of 60m bars, so
+# nothing older than that can be recomputed or backfilled -- retention above 730
+# just stops deleting events once they age past the old cutoff, and depth grows
+# by a day per day until it reaches this value. Safe to raise only because of
+# EVENT_WRITE_WARMUP_DAYS below: before that buffer, the unreliable leading-edge
+# events every night wrote would have been frozen here permanently instead of
+# aging out. Keep this comfortably above EVENT_WRITE_WARMUP_DAYS (test-pinned).
+EVENT_RETENTION_DAYS = 1460
 
 # Write-side warm-up buffer. Every nightly run replays the whole fetched
 # window, but the state machine starts blank at the window's first candle, so
@@ -74,13 +80,14 @@ EVENT_RETENTION_DAYS = 730
 # ~1.3-1.6% averaged over everything written -- the point where the curve
 # flattens; a longer buffer buys little and costs stored history, a shorter
 # one (e.g. 90d, ~7-16% error) keeps a visible error rate. Tunable here; see
-# compute_and_store_warren_signal for how it is applied. Only WRITES are gated -- the replay still runs over the full window
-# (that is what builds the state), and the latest-state row is still derived
-# from the full replay's tail, untouched by this (its events sit at the right
-# edge, with the whole window as context).
+# compute_and_store_warren_signal for how it is applied. Only WRITES are gated:
+# the replay still runs over the full window (that is what builds the state),
+# and the latest-state row is still derived from the full replay's tail,
+# untouched by this (its events sit at the right edge, with the whole window as
+# context).
 #
-# Not tied to EVENT_RETENTION_DAYS, which is deliberately unchanged: this
-# buffer is the prerequisite for ever raising that, not a change to it.
+# Independent of EVENT_RETENTION_DAYS: this buffer is what made raising that
+# (730 -> 1460) safe, but neither value is derived from the other.
 EVENT_WRITE_WARMUP_DAYS = 180
 
 

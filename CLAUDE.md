@@ -3032,11 +3032,10 @@ all in scope -- not an entry-only subset.
     buffer. `warren_last_buy_fired_at` is read off the event table, so it follows the buffer
     (`test_last_buy_signal_fired_at_reads_the_events_that_were_written`) -- confirmed before the
     cleanup below that no ticker's latest buy sat in the zone, so no Screener value moved.
-  - **`EVENT_RETENTION_DAYS` (730) deliberately unchanged.** The buffer is the prerequisite for
-    ever raising it, not a change to it: raising retention without the buffer would have frozen
-    phantom rows permanently (simulated: insert-only accumulates ~3.2x phantom rows vs. correct
-    ones). Stored history now effectively spans the last ~550 days and refills toward 730 as
-    new events accrue past the buffer. Yahoo refuses 60m history beyond 730 days, so the buffer
+  - **`EVENT_RETENTION_DAYS` was left at 730 in this pass and raised to 1460 right after** -- see
+    "Signal-event retention raised" below. The buffer was the prerequisite: raising retention
+    without it would have frozen phantom rows permanently (simulated: insert-only accumulates
+    ~3.2x phantom rows vs. correct ones). Yahoo refuses 60m history beyond 730 days, so the buffer
     can't come from fetching more.
   - **One-time cleanup, run 2026-09-19 against the real DB (script not kept -- see below):**
     deleted every `WarrenSignalEvent` row before tonight's cutoff (window start 2024-09-20
@@ -3062,6 +3061,54 @@ all in scope -- not an entry-only subset.
     Real-Yahoo spot check on 6 tickers: 45 of 169 replayed events (27%) sit in the first 180d,
     all now unwritten; the old code also persisted 1 fresh leading-edge variant on the
     following week's replay (AMD).
+- **Signal-event retention raised 730 -> 1460 days, both Warren and BB+RSI (2026-09-19).**
+  `warren_signal_data.EVENT_RETENTION_DAYS` and `entry_signal_data.EVENT_RETENTION_DAYS` (the
+  ceiling `prune_warren_signal_events`/`prune_entry_signal_events` use, called with no argument
+  by both nightly jobs -- no call site hardcodes 730) are now 4 years.
+  - **It is a ceiling on stored history, not a fetch limit, and does NOT backfill.** Yahoo serves
+    only ~730 days of 60m/2h bars (the earlier "730" was chosen to match that), so nothing older can
+    be computed today. Raising it just stops deleting events once they pass 2 years old; depth then
+    grows a day per day. **Timeline** (oldest stored event + 1460d): BB+RSI (oldest 2024-09-27)
+    reaches a full 4 years around **2028-09-26** (~2.0y out); Warren (oldest 2025-03-24, because
+    the cleanup above removed the earlier rows) around **2029-03-23** (~2.5y out). Under 730, BB+RSI
+    would have started deleting its oldest events on the 2026-09-28 run -- the raise landed first,
+    so nothing was lost. Depth is also per ticker: a ticker added to a watchlist later only has
+    whatever accrued since (or, for Warren, at most the ~550 days past the buffer at first compute).
+  - **Why it is now safe for Warren:** before the write-side buffer, every night wrote fresh
+    unreliable leading-edge events that would have stopped aging out. With them no longer written,
+    what is stored is ~2-4% error falling to ~0%, so keeping it longer preserves signal rather than
+    noise. Pinned by `test_default_retention_is_four_years_and_comfortably_exceeds_the_warmup_
+    buffer` (retention > 2x the buffer).
+  - **BB+RSI: confirmed rather than assumed.** It has no sliding-window accumulation problem: the
+    nightly job evaluates only the latest day over a 60-day window (RSI's EWM seed
+    -- `compute_rsi` is EWM-seeded from the first bar, so not literally stateless -- has decayed to
+    ~4e-6 by then: (13/14)^~170 candles), so nothing new is ever written near an unwarmed edge. The only exposure is the
+    one-time 2026-09-11 backfill, whose replay started ~2024-09-12. Measured on 12 real tickers
+    (full-window replay vs. replay started later, error = missed + phantom as % of true events),
+    by days from replay start: 0-14d large (3 true, 8 phantom -- tiny sample), 15-30d ~6%, 31-60d
+    ~5%, 61d+ 0%. Stored rows in the exposed slice: **0 in the 0-14d zone** (earliest stored event
+    is day ~15), 13 in 15-30d, ~84 in 31-60d -- roughly 5 questionable rows of 2,195, comparable to
+    Warren's accepted residual and a fixed slice (no accumulation). Left as is; they would have
+    aged out within weeks under 730 and now persist. A one-time delete of BB+RSI events before
+    ~2024-11-11 (97 rows) is the option if that ever matters.
+  - **Storage, measured (dbstat, table + both indexes):** ~238 B/event row Warren, ~162 B/row
+    BB+RSI. Steady rate over the last 12 full months: Warren ~1,222 events/yr (~11.6/ticker), BB+RSI
+    ~1,029/yr (~10.5/ticker), at ~100 tickers. Warren goes 1,894 rows today to ~4,900 at full 4y
+    depth; BB+RSI 2,195 to ~4,100-4,300. Versus 730 retention that is ~+2,450 and ~+2,060 rows,
+    i.e. **~1.1 MB total** against a 1 GB DB (~5.5 MB if the W1-W5 union ever hit its 500-ticker
+    cap). Chart cost: BB+RSI's own 2026-09-11 measurement put the marker query at 2.0 ms mean /
+    6.2 ms max at 730 days; ~2x rows keeps it in the noise (~46 rows/ticker at steady state).
+  - **`SharedBarsCache` pruning (6y `1d` / 3y `60m`) is unaffected and needs no change** -- the two
+    are independent: events live in their own tables and no consumer recomputes events beyond the
+    730-day fetch window, so bar retention never gates event retention. (Note the 60m window, 3y,
+    is *shorter* than 4y; that is fine for exactly this reason -- and 60m bars older than ~730d
+    could not be re-fetched from Yahoo anyway.) `tests/test_shared_bars_cache_prune.py` pins the
+    bar windows against the consumers' fetch tiers, not against event retention.
+  - `data/chart_data.py`'s module docstring "known asymmetry" (W_4Y shows 4y of price but ~2y of
+    markers) now describes it as closing over time rather than a permanent 2-year cap. Tests:
+    `test_default_prune_keeps_events_past_the_old_730_day_mark_and_only_deletes_past_1460` in both
+    `test_warren_signal_data.py` and `test_entry_signal_data.py` (default argument, so it is what
+    the nightly job actually runs).
 - **`active` is the literal `inTrade` mapping the request asked for**, not a time window:
   `data/warren_signal_data.py::is_warren_signal_active(signal_kind)` returns whether the
   latest recorded event (of either direction) was a buy-side arrow (`blue_up`/`yellow_up`/

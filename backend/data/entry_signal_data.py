@@ -39,22 +39,22 @@ ACTIVE_WINDOW_DAYS = 7
 STALE_AFTER_DAYS = 7
 
 # How long a TechnicalEntrySignalEvent row is kept before
-# prune_entry_signal_events deletes it -- matches Yahoo's own 730-day
-# 2h-interval history limit (see the historical-backfill investigation).
-# Confirmed via a real measurement (2026-09-11, isolated marker-query cost
-# against a warm backfilled DB, synthetic bars to remove Yahoo/FMP network
-# variance -- 5 real tickers spanning the actual event-row-count range,
-# 8-42 rows each, all 4 Chart tab ranges, 30 iterations each) that keeping
-# the full 730-day window adds NEGLIGIBLE load time: mean marginal cost
-# 2.0ms, max 6.2ms, against a 54-188ms baseline (dominated by indicator
-# computation on the fetched bar series, not this query) -- well under 1%
-# to ~6% of the baseline, and completely lost in the noise floor (tens of
-# ms of swing, including negative deltas) of a real end-to-end
-# measurement that includes an actual live Yahoo fetch. This is well
-# below any threshold that would justify the shorter 365-day alternative
-# considered before this measurement -- retention stays at the full
-# 730 days.
-EVENT_RETENTION_DAYS = 730
+# prune_entry_signal_events deletes it (4 years; raised from 730 on 2026-09-19).
+# This is only a ceiling on STORED history, not a fetch limit: Yahoo serves ~730
+# days of 2h/60m bars (see the historical-backfill investigation), so nothing
+# older can be recomputed -- retention above 730 just stops deleting events once
+# they age past the old cutoff, and depth grows a day per day until it reaches
+# this value. The original 730 was chosen to match that Yahoo limit, after a real
+# measurement (2026-09-11, isolated marker-query cost, 5 real tickers spanning
+# the actual event-row-count range, all 4 Chart tab ranges, 30 iterations each)
+# showed the full window added NEGLIGIBLE Chart load time: mean marginal cost
+# 2.0ms, max 6.2ms, against a 54-188ms baseline dominated by indicator
+# computation. Doubling the window roughly doubles that already-negligible
+# figure (~46 rows/ticker at steady state, one indexed range read per request).
+# BB+RSI has no sliding-window accumulation problem like Warren's: the nightly
+# job only evaluates the latest day over a 60-day window (RSI's EWM seed fully
+# decayed), so nothing new is ever written near an unwarmed edge.
+EVENT_RETENTION_DAYS = 1460
 
 
 def is_entry_signal_active(fired_at: datetime | None, now: datetime | None = None) -> bool:
@@ -265,10 +265,9 @@ def prune_entry_signal_events(retention_days: int = EVENT_RETENTION_DAYS, now: d
     display it -- deleting outright is the correct behavior here, not a
     storage-cost shortcut.
 
-    retention_days defaults to EVENT_RETENTION_DAYS (730, matching Yahoo's
-    own 2h-interval history limit -- see the historical-backfill
-    investigation and that constant's own comment for the measured
-    Chart-tab latency numbers behind this choice) rather than being
+    retention_days defaults to EVENT_RETENTION_DAYS (1460 -- see that
+    constant's own comment for why it can exceed Yahoo's 730-day history
+    limit, and the measured Chart-tab latency numbers) rather than being
     hardcoded here, so a call site (or a test) can override it without
     reaching into module internals.
 

@@ -260,6 +260,31 @@ def test_prune_entry_signal_events_deletes_old_rows_and_keeps_recent_ones(monkey
     assert remaining[0].fired_at == recent_fired_at
 
 
+def test_default_retention_is_four_years():
+    import data.entry_signal_data as entry_signal_data
+
+    assert entry_signal_data.EVENT_RETENTION_DAYS == 1460
+
+
+def test_default_prune_keeps_events_past_the_old_730_day_mark_and_only_deletes_past_1460(monkeypatch):
+    # No retention_days argument: exercises the default the nightly job actually uses.
+    engine = _fresh_engine(monkeypatch)
+    now = datetime(2026, 9, 9, 12, 0)
+    ages = {"just_past_old_cutoff": 731, "a_year_and_a_half": 950, "just_inside_new": 1459, "just_past_new": 1461, "ancient": 2000}
+    with Session(engine) as session:
+        for name, days in ages.items():
+            fired = now - timedelta(days=days)
+            session.add(TechnicalEntrySignalEvent(ticker=name, signal_type="bb_rsi", timeframe="2h", fired_at=fired, stop_price=10.0, created_at=fired))
+        session.commit()
+
+    deleted = prune_entry_signal_events(now=now)
+
+    assert deleted == 2
+    with Session(engine) as session:
+        kept = {r.ticker for r in session.exec(select(TechnicalEntrySignalEvent)).all()}
+    assert kept == {"just_past_old_cutoff", "a_year_and_a_half", "just_inside_new"}
+
+
 def test_prune_entry_signal_events_respects_a_custom_retention_window(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     now = datetime(2026, 9, 9, 12, 0)
@@ -270,7 +295,7 @@ def test_prune_entry_signal_events_respects_a_custom_retention_window(monkeypatc
         )
         session.commit()
 
-    # Under the default (730-day) retention this row would survive; a
+    # Under the default (1460-day) retention this row would survive; a
     # shorter, explicit 365-day retention_days must delete it -- confirms
     # the parameter is genuinely honored, not just defaulted.
     deleted = prune_entry_signal_events(retention_days=365, now=now)
