@@ -64,7 +64,7 @@ backend/     FastAPI app, organized into packages by role (2026-08-05
                step1_data.py .. step5_data.py, ticker_summary.py,
                financials_data.py, ratios_data.py, analyst_ratings_data.py,
                news_data.py, segmentation_data.py,
-               moat.py, watchlist_data.py, watchlists.py,
+               moat.py, insider_activity_data.py, watchlist_data.py, watchlists.py,
                saved_screener_filters.py, ticker_score.py,
                trend_analysis_data.py (see "Trend structure analysis
                (Technical)" below).
@@ -184,6 +184,10 @@ semantics) rather than the read just failing. Together, no call site under
   guards against.)
 - News (`GET /.../news`) serves the last cached articles, however stale,
   instead of refreshing — never wiped/replaced by a failed fetch attempt.
+- Insider Activity (`GET /.../insider-activity`) serves whatever is cached,
+  however stale (`get_or_fetch`'s own disabled-FMP behavior, no special
+  casing); a ticker never cached reads `has_data: false, as_of: null` -> the
+  tab's distinct "Not cached yet" state, never the "no data" one.
 - Price/quote **now has a live alternate feed** (built as part of the
   trend-structure feature — see "Trend structure analysis (Technical)"
   below): `get_summary()`'s quote-fetch block still runs the same
@@ -3298,6 +3302,47 @@ Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
   sharedbarscache group by ticker, interval`. `max(bar_time)` should be the last completed
   session's date at 00:00 for `1d` and that session's 15:30 for `60m`; `min(bar_time)` should be
   ~2y back (`60m`, Warren/BB+RSI), ~2y (`1d`, Trend-only tickers) or ~5y (`1d`, LZ tickers).
+
+## Insider Activity (ticker-page tab, 2026-09-19)
+
+A read-only lens on Form 4 insider trading -- never touches Step 1-5/Overall
+Assessment scoring, no Screener/Watchlist surface. FMP-sourced (the "Insider
+Activity" entry in `StatusSection.tsx`'s `FMP_POWERS`); no cron job, no new DB
+table, no new heartbeat wiring.
+
+- **Data** (`data/insider_activity_data.py`, `GET /api/tickers/{ticker}/insider-activity`):
+  two standard `FundamentalsCache` blobs, `insider_trading_search`/`latest`
+  (`/stable/insider-trading/search`, `limit=100`) and `insider_trading_statistics`/
+  `latest` (`/stable/insider-trading/statistics`), both via `get_or_fetch` +
+  `safe_fetch` on the dedicated `Settings.insider_staleness_days` (1 day, not
+  the shared 7 -- Form 4s are event-driven, not earnings-cycle-driven).
+- **Normalization is backend-only** -- the frontend never sees FMP's raw
+  transaction codes. Rows with an empty `transactionType` (Form 3/5 position-
+  only disclosures) are dropped; the rest are classified by the SEC code letter
+  before the hyphen (`P` open_market_buy, `S` open_market_sale, `M`
+  option_exercise, `A` award, `G` gift, everything else `other`) -- a fixed
+  mapping, **not** fetched from `/insider-trading-transaction-type` at request
+  time (SEC Form 4 codes are a fixed standard; a third FMP call per view buys
+  nothing). Non-open-market rows priced at $0 get `has_cash_value: false`
+  ("no cash value" in the UI, never "$0"); `dollar_value = price * shares` only
+  when `has_cash_value`.
+- **Aggregates**: the sentiment sums `totalPurchases`/`totalSales` over the 2
+  most recent quarterly statistics rows (a "last 2 filed quarters"
+  approximation, not a true rolling 6 months) and compares them directly --
+  `net_buying`/`net_selling`/`no_activity`/`mixed`, a first-pass rule with no
+  materiality band (retune in `classify_sentiment`). Cluster buy = 3+ distinct
+  `reportingCik` with open-market buys within 90 days (inclusive), scanning
+  this ticker's own search rows only -- **no `/latest` market-wide scanner**,
+  deferred. The reported cluster is the most recent qualifying window, which
+  can be old (the 100-row search window isn't recency-limited), so the pill's
+  tooltip carries the window dates. Open-market buy/sale *counts* come from
+  the normalized transactions over the same window as the totals.
+- **`as_of` = the search row's `fetched_at`** (null if never cached). It is the
+  only thing separating "cached and genuinely empty" (HK/France/quiet tickers:
+  FMP answers `[]`) from "not cached yet" (cold miss -- FMP paused, or the fetch
+  failed, e.g. a plan that doesn't cover the endpoint: `safe_fetch` swallows the
+  HTTP error and nothing is cached). The tab renders two distinct empty states
+  off it (`lib/insiderActivity.ts::insiderViewState`) -- never conflate them.
 
 ## Workflow rules
 
