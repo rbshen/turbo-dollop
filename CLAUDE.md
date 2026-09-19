@@ -3113,16 +3113,16 @@ Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
   (date of the last daily bar the row was computed from) with `_most_recent_completed_trading_date()`
   and recomputes only when it is older -- or NULL, i.e. a row from before the column existed,
   which self-heals with one recompute. `cache_only=True` reads are unchanged (never recompute).
-  `yahoo_price_cache_staleness_days` now only governs `YahooPriceCache` (the FMP-paused price
-  fallback in `ticker_summary.py`), which still uses the flat timer.
+  (`yahoo_price_cache_staleness_days`, which this used to read, was later deleted -- see the
+  Price/Quote fallback entry below.)
 - **Known limits.** Not holiday-aware: a market holiday looks like one missed session and costs
   one extra (harmless) refetch that day -- and, for the trend endpoint above, one recompute per
   on-demand read that day.
 - **Found while auditing for the same flat-timer pattern (2026-09-19):**
   (1) **FIXED, see "Screener's copy of technical fields" below.** `TickerScore.weinstein_*` was
   copied from `TrendAnalysis` at 2:00/2:50, before the 3:10 trend job, so the Screener showed the
-  PREVIOUS night's stage. (2) `YahooPriceCache`'s flat 1-day timer (`clients/yahoo_cache.py::
-  _is_stale`) on the FMP-paused price fallback. BB+RSI, Warren and Liquidity Zones have no
+  PREVIOUS night's stage. (2) **FIXED, see "Yahoo price fallback" below.** `YahooPriceCache`'s flat
+  1-day timer on the FMP-paused price fallback. BB+RSI, Warren and Liquidity Zones have no
   read-time freshness gate at all (cache-only reads, unconditional nightly recompute); their only
   timers are the 7-day `STALE_AFTER_DAYS` abandonment sweeps, which are not freshness checks.
 - **Screener's copy of technical fields was a night behind; score recompute moved 2:50 -> 3:50
@@ -3154,6 +3154,33 @@ Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
   the live crontab's schedule lines were confirmed identical to the committed file beforehand, so
   that one command is the whole deploy. Until then, or after any night the trend/BB+RSI/Warren
   job overruns 3:50, the affected tickers just read a night behind as before.
+- **Yahoo price fallback: flat 1-day timer replaced with a market-session check (2026-09-19).**
+  `YahooPriceCache` now backs only `ticker_summary.py::_fetch_yahoo_latest_close` (Price/Quote
+  while `FMP_ENABLED=false`), which reads just the newest bar's close. That is a QUOTE, not
+  bar history: while the session is open Yahoo's latest daily bar is the live last trade, and it
+  only becomes the final close after the bell -- so a flat TTL was wrong in both directions. A
+  fetch at 10am ET was served all day, and after the close, until 10am the next day (a partial
+  price shown as if it were the close); conversely a fetch taken after Friday's close was
+  needlessly refetched by Monday. Not a deliberate looser tolerance: the FMP path this stands in
+  for re-fetches the quote on every ticker-page view (`force_fetch`, see `get_summary`), and
+  nothing in the code or docs argues for a laxer fallback. `clients/yahoo_cache.py::_is_stale`
+  now: **session open** (weekday 9:30-16:00 ET) -> fresh only for
+  `Settings.yahoo_quote_intraday_ttl_seconds` (60; short, not zero, so a refresh loop doesn't
+  hammer Yahoo); **session closed** -> fresh iff `fetched_at` is after the most recent session's
+  close + a 10-minute settle allowance (`_CLOSE_SETTLE`, a conservative guess for the closing
+  auction, NOT a measured Yahoo figure). So a mid-session fetch reads stale from the bell on, and
+  an after-close fetch stays fresh through the night/weekend with zero refetches. Judged off
+  `fetched_at` only, never the last bar's date, so a market holiday can't leave a row permanently
+  stale (it costs one refetch). `yahoo_price_cache_staleness_days` is deleted (nothing read it
+  any more), replaced by the TTL setting. Reuses `shared_bars_cache`'s `_EASTERN`/
+  `_most_recent_completed_trading_date`, inheriting its limits: weekday-aware, not holiday-aware,
+  US-session clock (a foreign-listed symbol is judged on the US clock). Scope: this fallback path
+  only -- FMP's quote path, `cache_only` reads and every `SharedBarsCache` consumer are
+  untouched. `get_or_fetch_price_history` gained a `reference` testability seam (drives both the
+  check and the stored `fetched_at`); `tests/test_yahoo_cache.py` pins a 15-case fetched/read
+  matrix the old rule got wrong on 7. No live damage was ever observed: FMP has been enabled, so
+  the fallback was dormant, and every recorded write landed after the close -- this closes the
+  exposure for the next FMP pause rather than repairing bad data.
 - **Verification after a nightly run** (no `sqlite3` CLI on this box; use python):
   `select ticker, interval, min(bar_time), max(bar_time), count(*), max(fetched_at) from
   sharedbarscache group by ticker, interval`. `max(bar_time)` should be the last completed

@@ -33,10 +33,8 @@ class YahooPriceCache(SQLModel, table=True):
     above: this is a different provider entirely (decoupled from the
     FMP_ENABLED kill switch on purpose) and a different shape (one row per
     ticker per trading day, typed OHLCV columns, not a single raw_json blob
-    per statement-type/period). Refreshed on
-    Settings.yahoo_price_cache_staleness_days (default 1 day -- much
-    tighter than FundamentalsCache's 7, since this is trading-day-grain
-    data).
+    per statement-type/period). Refreshed by market session, not a flat
+    window -- see clients/yahoo_cache.py::_is_stale.
 
     **As of the 2026-09-19 shared-bars-cache build, this table's only
     remaining consumer is data/ticker_summary.py::_fetch_yahoo_latest_close**

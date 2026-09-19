@@ -96,9 +96,11 @@ async def _fetch_yahoo_latest_close(ticker: str) -> float | None:
     serving only the last cached FMP value with no live alternate feed at
     all (see CLAUDE.md's "Pausing the FMP subscription" section). A short
     5-day lookback is enough to always have at least one real bar even
-    across a long weekend/holiday; clients.yahoo_cache.get_or_fetch_price_
-    history's own staleness check still governs whether this is a live
-    fetch or a cache hit. Returns None if Yahoo has no data at all for this
+    across a long weekend/holiday; clients.yahoo_cache._is_stale still
+    governs whether this is a live fetch or a cache hit: while the session
+    is open the close is the live last trade (fresh for
+    Settings.yahoo_quote_intraday_ttl_seconds), after the close it is the
+    final close (fresh until the next session's close). Returns None if Yahoo has no data at all for this
     ticker -- callers keep whatever price the existing cached-FMP-quote
     path already resolved (stale is still better than nothing)."""
     rows = await get_or_fetch_price_history(ticker, period="5d")
