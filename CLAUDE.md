@@ -3104,10 +3104,29 @@ Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
   unpruned 2.46M rows / ~430 MB vs. pruned 1.47M rows / ~250 MB (plateaus; growth unpruned is
   ~+57 MB/yr forever). A DELETE doesn't shrink the SQLite file -- the freed pages are reused by
   later inserts, so it plateaus rather than shrinks; nothing VACUUMs it.
-- **Known limits.** `get_trend_analysis_data`'s result-level staleness check still
-  uses the flat `yahoo_price_cache_staleness_days` -- it gates the computed `TrendAnalysis` row,
-  not the bars, and was left alone. Not holiday-aware: a market holiday looks like one missed
-  session and costs one extra (harmless) refetch that day.
+- **Trend's computed row is close-aware too (2026-09-19).** `data/trend_analysis_data.py::
+  get_trend_analysis_data` (the on-demand `GET /api/tickers/{t}/trend-analysis` path; the nightly
+  job recomputes every ticker unconditionally and has no gate) used to call a stored
+  `TrendAnalysis` row fresh if `computed_at` was under `yahoo_price_cache_staleness_days` (1 day).
+  That served a row a full session behind from the 4pm ET close until the next 3:10 UTC run, and
+  recomputed an unchanged row every weekend day. It now compares the new `TrendAnalysis.bars_as_of`
+  (date of the last daily bar the row was computed from) with `_most_recent_completed_trading_date()`
+  and recomputes only when it is older -- or NULL, i.e. a row from before the column existed,
+  which self-heals with one recompute. `cache_only=True` reads are unchanged (never recompute).
+  `yahoo_price_cache_staleness_days` now only governs `YahooPriceCache` (the FMP-paused price
+  fallback in `ticker_summary.py`), which still uses the flat timer.
+- **Known limits.** Not holiday-aware: a market holiday looks like one missed session and costs
+  one extra (harmless) refetch that day -- and, for the trend endpoint above, one recompute per
+  on-demand read that day.
+- **Not fixed, found while auditing for the same flat-timer pattern (2026-09-19):**
+  (1) `TickerScore.weinstein_*` (the Screener's Weinstein pill/filter) is copied from
+  `TrendAnalysis` inside `compute_ticker_score`, which runs at 2:00 (fundamentals) and 2:50
+  (score recompute) -- both BEFORE the 3:10 trend job -- so the Screener always shows the
+  PREVIOUS night's stage (36 of 579 tickers disagreed with their own `TrendAnalysis` row when
+  checked). (2) `YahooPriceCache`'s flat 1-day timer (`clients/yahoo_cache.py::_is_stale`) on the
+  FMP-paused price fallback. BB+RSI, Warren and Liquidity Zones have no read-time freshness gate
+  at all (cache-only reads, unconditional nightly recompute); their only timers are the 7-day
+  `STALE_AFTER_DAYS` abandonment sweeps, which are not freshness checks.
 - **Verification after a nightly run** (no `sqlite3` CLI on this box; use python):
   `select ticker, interval, min(bar_time), max(bar_time), count(*), max(fetched_at) from
   sharedbarscache group by ticker, interval`. `max(bar_time)` should be the last completed

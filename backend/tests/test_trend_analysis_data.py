@@ -115,12 +115,14 @@ def test_get_trend_analysis_data_computes_when_missing_and_not_cache_only(monkey
 def test_get_trend_analysis_data_returns_fresh_cached_row_without_recomputing(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+    monkeypatch.setattr(trend_analysis_data_module, "_most_recent_completed_trading_date", lambda: date(2026, 9, 17))
 
     with Session(engine) as session:
         session.add(
             TrendAnalysis(
                 ticker="AAPL",
                 computed_at=datetime.now(),
+                bars_as_of=date(2026, 9, 17),
                 trend_state="uptrend",
                 magnitude_tier="strong",
                 persistence_count=4,
@@ -449,3 +451,135 @@ def test_weinstein_stage_changed_reflects_a_real_difference_from_the_prior_store
     third = asyncio.run(compute_and_store_trend_analysis("AAPL"))
     assert third.weinstein_stage == first.weinstein_stage  # deterministic recompute, same real answer
     assert third.weinstein_stage_changed is True  # ...but it now differs from the mutated stored value
+
+
+# ---------------------------------------------------------------------------
+# Close-aware freshness of the stored row (bars_as_of vs. the most recently
+# completed session), replacing the old flat computed_at timer.
+# ---------------------------------------------------------------------------
+
+_SESSION = date(2026, 9, 17)  # a Thursday
+
+
+def _ending_on(frame: pd.DataFrame, end: date) -> pd.DataFrame:
+    """Same bars, re-dated so the LAST one is `end` (one bar per day)."""
+    n = len(frame)
+    out = frame.copy()
+    out.index = pd.DatetimeIndex([end - timedelta(days=n - 1 - i) for i in range(n)])
+    return out
+
+
+def _insert_row(engine, *, computed_at: datetime, bars_as_of: date | None) -> None:
+    with Session(engine) as session:
+        session.add(
+            TrendAnalysis(
+                ticker="AAPL",
+                computed_at=computed_at,
+                bars_as_of=bars_as_of,
+                trend_state="uptrend",
+                magnitude_tier="strong",
+                persistence_count=4,
+                bars_since_confirmation=1,
+                warning_flag=False,
+                efficiency_ratio=0.5,
+                regime="trending",
+                blended_score=8.0,
+                bar_level=5,
+            )
+        )
+        session.commit()
+
+
+def _pin_session(monkeypatch, session_date: date) -> None:
+    monkeypatch.setattr(trend_analysis_data_module, "_most_recent_completed_trading_date", lambda: session_date)
+
+
+def _count_fetches(monkeypatch, frame: pd.DataFrame) -> list[str]:
+    calls: list[str] = []
+
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
+        calls.append(ticker)
+        return frame
+
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
+    return calls
+
+
+def test_compute_persists_the_last_bar_date_it_was_computed_from(monkeypatch):
+    engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+    _count_fetches(monkeypatch, _ending_on(_synthetic_rows(), _SESSION - timedelta(days=1)))
+
+    asyncio.run(compute_and_store_trend_analysis("AAPL"))
+
+    with Session(engine) as session:
+        assert session.get(TrendAnalysis, "AAPL").bars_as_of == _SESSION - timedelta(days=1)
+
+
+def test_a_row_computed_minutes_ago_is_still_recomputed_when_a_newer_session_has_completed(monkeypatch):
+    """The regression this build fixes, end to end: the old flat timer would
+    have called a row computed a minute ago "fresh" (1-day window) even though
+    a whole new session had since closed and its bar is sitting in the shared
+    cache. Now the stored row's own last-bar date is what's compared."""
+    engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+    base = _synthetic_rows()
+
+    _pin_session(monkeypatch, _SESSION - timedelta(days=1))
+    _count_fetches(monkeypatch, _ending_on(base, _SESSION - timedelta(days=1)))
+    first = asyncio.run(get_trend_analysis_data("AAPL"))  # night 1: computes from bars ending Wed
+    assert first is not None
+
+    _pin_session(monkeypatch, _SESSION)  # Thursday's session closes; its bar lands in the cache
+    calls = _count_fetches(monkeypatch, _ending_on(base, _SESSION))
+    second = asyncio.run(get_trend_analysis_data("AAPL"))
+
+    assert (datetime.now() - first.computed_at) < timedelta(minutes=5)  # old timer: nowhere near expired
+    assert calls == ["AAPL", "^GSPC"]  # ...but it recomputed anyway
+    with Session(engine) as session:
+        assert session.get(TrendAnalysis, "AAPL").bars_as_of == _SESSION
+    assert second.computed_at > first.computed_at
+
+
+def test_a_row_is_not_recomputed_when_only_the_old_timer_expired_but_its_bars_are_current(monkeypatch):
+    """Weekend shape: computed_at is days old (the old timer said stale), yet
+    its bars already reach the most recently completed session -- nothing
+    new exists to compute from, so it must NOT be recomputed."""
+    engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+    _pin_session(monkeypatch, _SESSION)
+    _insert_row(engine, computed_at=datetime.now() - timedelta(days=3), bars_as_of=_SESSION)
+    calls = _count_fetches(monkeypatch, _synthetic_rows())
+
+    result = asyncio.run(get_trend_analysis_data("AAPL"))
+
+    assert calls == []
+    assert result.bar_level == 5
+
+
+def test_a_row_from_before_the_column_existed_is_recomputed_once(monkeypatch):
+    engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+    _pin_session(monkeypatch, _SESSION)
+    _insert_row(engine, computed_at=datetime.now(), bars_as_of=None)
+    calls = _count_fetches(monkeypatch, _ending_on(_synthetic_rows(), _SESSION))
+
+    asyncio.run(get_trend_analysis_data("AAPL"))
+    assert calls == ["AAPL", "^GSPC"]
+
+    calls.clear()
+    asyncio.run(get_trend_analysis_data("AAPL"))  # now stamped -- steady state, no more recomputes
+    assert calls == []
+
+
+def test_cache_only_reads_never_recompute_regardless_of_how_stale_bars_as_of_is(monkeypatch):
+    engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+    _pin_session(monkeypatch, _SESSION)
+    _insert_row(engine, computed_at=datetime.now() - timedelta(days=30), bars_as_of=_SESSION - timedelta(days=30))
+    calls = _count_fetches(monkeypatch, _synthetic_rows())
+
+    result = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
+
+    assert calls == []
+    assert result.bar_level == 5

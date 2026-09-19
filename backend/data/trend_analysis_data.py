@@ -7,7 +7,7 @@ entirely -- Yahoo Finance is the sole data source for this feature.
 
 import json
 from dataclasses import asdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 import pandas as pd
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -16,8 +16,7 @@ from sqlmodel import Session, select
 from analysis.trend_structure.engine import compute_trend_structure
 from analysis.trend_structure.types import PullbackCycle, ReversalCandidate, SwingDetail, TrendStructureResult, WeinsteinStageResult
 from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER, compute_weinstein_stage
-from clients.shared_bars_cache import DAILY_INTERVAL, get_or_fetch_bars
-from core.config import settings
+from clients.shared_bars_cache import DAILY_INTERVAL, _most_recent_completed_trading_date, get_or_fetch_bars
 from core.db import engine
 from core.models import TrendAnalysis
 from core.schemas import PullbackCycleOut, ReversalCandidateOut, SwingDetailOut, TrendAnalysisOut
@@ -143,7 +142,9 @@ def _reversal_history_out(history: list[ReversalCandidate]) -> list[ReversalCand
     ]
 
 
-def _upsert(ticker: str, result: TrendStructureResult, weinstein_result: WeinsteinStageResult, computed_at: datetime) -> bool:
+def _upsert(
+    ticker: str, result: TrendStructureResult, weinstein_result: WeinsteinStageResult, computed_at: datetime, bars_as_of: date
+) -> bool:
     """Returns weinstein_stage_changed -- computed HERE, not in the pure
     engine, since it's an ACROSS-NIGHTLY-RUNS comparison (today's freshly
     computed stage vs. whatever was stored before this write), requiring a
@@ -158,6 +159,7 @@ def _upsert(ticker: str, result: TrendStructureResult, weinstein_result: Weinste
 
         fields = {
             "computed_at": computed_at,
+            "bars_as_of": bars_as_of,
             "trend_state": result.trend_state,
             "magnitude_tier": result.magnitude_tier,
             "persistence_count": result.persistence_count,
@@ -271,7 +273,7 @@ def compute_and_store_from_frames(
         ohlcv, benchmark_ohlcv if benchmark_ohlcv is not None else pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
     )
     computed_at = datetime.now()
-    weinstein_stage_changed = _upsert(ticker, result, weinstein_result, computed_at)
+    weinstein_stage_changed = _upsert(ticker, result, weinstein_result, computed_at, ohlcv.index.max().date())
 
     return TrendAnalysisOut(
         ticker=ticker,
@@ -332,6 +334,23 @@ async def compute_and_store_trend_analysis(ticker: str, lookback_days: int = LOO
     return compute_and_store_from_frames(ticker, ohlcv, benchmark_ohlcv=benchmark_ohlcv)
 
 
+def _is_row_stale(row: TrendAnalysis) -> bool:
+    """Close-aware, not a flat timer: a stored row is trusted only if it was
+    computed from bars reaching the most recently completed session -- the
+    same principle clients/shared_bars_cache.py::_is_stale applies to the
+    bars themselves, one level up. A flat "computed within the last day"
+    check both served a row a full session behind (computed 3:10am, market
+    closes 4pm ET) and recomputed an unchanged one over weekends. `bars_as_of`
+    NULL (a row from before that column existed) reads as stale.
+
+    Inherits the bars cache's own non-holiday-awareness: on a market holiday
+    the "most recently completed session" is the holiday itself, which no
+    bar will ever match, so this reads stale (and recomputes) on each
+    on-demand read that day -- cheap, and the bars cache refetches on the
+    same days for the same reason."""
+    return row.bars_as_of is None or row.bars_as_of < _most_recent_completed_trading_date()
+
+
 async def get_trend_analysis_data(ticker: str, cache_only: bool = False, lookback_days: int = LOOKBACK_DAYS) -> TrendAnalysisOut | None:
     """cache_only=True (used by watchlist_data.py's bulk row compose) never
     triggers a live Yahoo fetch -- returns whatever's cached (even if
@@ -342,7 +361,7 @@ async def get_trend_analysis_data(ticker: str, cache_only: bool = False, lookbac
     with Session(engine) as session:
         row = session.exec(select(TrendAnalysis).where(TrendAnalysis.ticker == ticker)).first()
 
-    is_stale = row is None or (datetime.now() - row.computed_at >= timedelta(days=settings.yahoo_price_cache_staleness_days))
+    is_stale = row is None or _is_row_stale(row)
     if cache_only or not is_stale:
         return _row_to_out(row) if row else None
 
