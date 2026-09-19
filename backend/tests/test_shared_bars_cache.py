@@ -470,20 +470,17 @@ def test_a_refetch_triggered_by_the_narrower_consumer_preserves_the_wider_cached
 def test_preserved_lookback_snaps_to_a_tier_and_does_not_drift_as_bars_accumulate():
     from clients.shared_bars_cache import _preserved_lookback_days
 
-    def rows(first: date, last: date):
-        return [
-            SharedBarsCache(ticker="X", interval="1d", bar_time=datetime.combine(d, datetime.min.time()), open=1, high=1, low=1, close=1, volume=1, fetched_at=datetime(2026, 9, 1))
-            for d in (first, last)
-        ]
+    def span(first: date, last: date):
+        return datetime.combine(first, datetime.min.time()), datetime.combine(last, datetime.min.time())
 
     # A "2y"-fetched row, right after fetch and a year of nightly appends later:
-    assert _preserved_lookback_days(rows(date(2024, 9, 20), date(2026, 9, 17)), DAILY_INTERVAL) == 730
-    assert _preserved_lookback_days(rows(date(2024, 9, 20), date(2027, 9, 17)), DAILY_INTERVAL) == 730
+    assert _preserved_lookback_days(*span(date(2024, 9, 20), date(2026, 9, 17)), DAILY_INTERVAL) == 730
+    assert _preserved_lookback_days(*span(date(2024, 9, 20), date(2027, 9, 17)), DAILY_INTERVAL) == 730
     # A "5y"-fetched row (span a few days short of 1825 -- weekend at the boundary):
-    assert _preserved_lookback_days(rows(date(2021, 9, 21), date(2026, 9, 17)), DAILY_INTERVAL) == 1825
+    assert _preserved_lookback_days(*span(date(2021, 9, 21), date(2026, 9, 17)), DAILY_INTERVAL) == 1825
     # Tiny row -> its own span; empty -> 0:
-    assert _preserved_lookback_days(rows(date(2026, 9, 16), date(2026, 9, 17)), DAILY_INTERVAL) == 2
-    assert _preserved_lookback_days([], DAILY_INTERVAL) == 0
+    assert _preserved_lookback_days(*span(date(2026, 9, 16), date(2026, 9, 17)), DAILY_INTERVAL) == 2
+    assert _preserved_lookback_days(None, None, DAILY_INTERVAL) == 0
 
 
 def test_batch_groups_tickers_by_the_period_each_one_needs(monkeypatch):
@@ -499,7 +496,7 @@ def test_batch_groups_tickers_by_the_period_each_one_needs(monkeypatch):
 
 
 def test_upsert_is_idempotent_and_overwrites_the_same_bar(monkeypatch):
-    engine = _fresh_engine(monkeypatch)
+    _fresh_engine(monkeypatch)
     df1 = _daily_df([_TODAY.isoformat()])
     _patch_fetch(monkeypatch, {"AAPL": df1})
     asyncio.run(get_or_fetch_bars_batch(["AAPL"], DAILY_INTERVAL, lookback_days=1, force=True, reference=_REFERENCE))

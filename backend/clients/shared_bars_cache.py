@@ -46,6 +46,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from clients.yahoo_client import yahoo_client
@@ -101,7 +102,7 @@ def _period_steps(interval: str) -> list[tuple[str, int]]:
 _TIER_SLACK_DAYS = 10
 
 
-def _preserved_lookback_days(rows: list[SharedBarsCache], interval: str) -> int:
+def _preserved_lookback_days(first_bar: datetime | None, last_bar: datetime | None, interval: str) -> int:
     """The lookback width an existing row was (effectively) fetched at, so
     a refetch triggered by a NARROWER consumer never shrinks it. Derived by
     snapping the row's stored span DOWN to a yfinance period tier, not by
@@ -112,9 +113,9 @@ def _preserved_lookback_days(rows: list[SharedBarsCache], interval: str) -> int:
     download wider forever (caught by tests/
     test_shared_bars_cache_consumers.py::test_a_universe_only_widens_...).
     A tier is stable no matter how many bars have accumulated since."""
-    if not rows:
+    if first_bar is None or last_bar is None:
         return 0
-    span = (rows[-1].bar_time.date() - rows[0].bar_time.date()).days + 1
+    span = (last_bar.date() - first_bar.date()).days + 1
     tier_days = 0
     for _, days in _period_steps(interval):
         if span >= days - _TIER_SLACK_DAYS:
@@ -199,14 +200,32 @@ def _is_stale(last_bar_time: datetime | None, interval: str, reference: datetime
     raise ValueError(f"unsupported interval {interval!r}")
 
 
-def _load_cached_rows(session: Session, ticker: str, interval: str) -> list[SharedBarsCache]:
-    return list(
-        session.exec(
-            select(SharedBarsCache)
-            .where(SharedBarsCache.ticker == ticker, SharedBarsCache.interval == interval)
-            .order_by(SharedBarsCache.bar_time)
-        ).all()
-    )
+# SQLite's bound-parameter cap is 999 on older builds; leave headroom for the
+# interval/bar_time parameters that ride along with the ticker list.
+_TICKER_CHUNK = 400
+
+
+def _chunks(items: list[str]):
+    for i in range(0, len(items), _TICKER_CHUNK):
+        yield items[i : i + _TICKER_CHUNK]
+
+
+def _cache_span(session: Session, tickers: list[str], interval: str) -> dict[str, tuple[datetime, datetime]]:
+    """(first bar, last bar) per ticker that has any cached bars -- ONE
+    grouped aggregate query per chunk, never loading the bars themselves.
+    That is all the freshness and coverage checks need; a full-row load here
+    (the first version hydrated every bar as an ORM object, twice per
+    ticker) was measured at minutes per nightly run at Warren's volume."""
+    span: dict[str, tuple[datetime, datetime]] = {}
+    for chunk in _chunks(tickers):
+        stmt = (
+            select(SharedBarsCache.ticker, func.min(SharedBarsCache.bar_time), func.max(SharedBarsCache.bar_time))
+            .where(SharedBarsCache.interval == interval, SharedBarsCache.ticker.in_(chunk))
+            .group_by(SharedBarsCache.ticker)
+        )
+        for ticker, first_bar, last_bar in session.exec(stmt).all():
+            span[ticker] = (first_bar, last_bar)
+    return span
 
 
 def _write_rows(session: Session, ticker: str, interval: str, df: pd.DataFrame, fetched_at: datetime) -> None:
@@ -215,28 +234,24 @@ def _write_rows(session: Session, ticker: str, interval: str, df: pd.DataFrame, 
     hundred daily rows, was measured to dominate this module's cost at
     intraday volumes -- ~3,500 rows/ticker x ~100 tickers -- so it's
     batched here.)"""
-    values = []
-    for row_time, row in df.iterrows():
-        bar_time = row_time.to_pydatetime()
-        if bar_time.tzinfo is not None:
-            # Re-express in Eastern wall-clock time before dropping tzinfo --
-            # yfinance's intraday index is already America/New_York, so this
-            # is a no-op in practice, but guards against a future caller
-            # whose raw fetch came back in a different tz.
-            bar_time = bar_time.astimezone(_EASTERN).replace(tzinfo=None)
-        values.append(
-            {
-                "ticker": ticker,
-                "interval": interval,
-                "bar_time": bar_time,
-                "open": float(row["Open"]),
-                "high": float(row["High"]),
-                "low": float(row["Low"]),
-                "close": float(row["Close"]),
-                "volume": int(row["Volume"]) if not pd.isna(row["Volume"]) else 0,
-                "fetched_at": fetched_at,
-            }
+    index = pd.DatetimeIndex(df.index)
+    if index.tz is not None:
+        # Re-express in Eastern wall-clock time before dropping tzinfo --
+        # yfinance's intraday index is already America/New_York, so this
+        # is a no-op in practice, but guards against a future caller
+        # whose raw fetch came back in a different tz.
+        index = index.tz_convert(_EASTERN).tz_localize(None)
+    volume = df["Volume"].fillna(0).astype("int64").tolist()
+    values = [
+        {
+            "ticker": ticker, "interval": interval, "bar_time": bar_time, "open": o, "high": h, "low": low,
+            "close": c, "volume": v, "fetched_at": fetched_at,
+        }
+        for bar_time, o, h, low, c, v in zip(
+            index.to_pydatetime(), df["Open"].astype(float).tolist(), df["High"].astype(float).tolist(),
+            df["Low"].astype(float).tolist(), df["Close"].astype(float).tolist(), volume,
         )
+    ]
     if not values:
         return
     stmt = sqlite_insert(SharedBarsCache)
@@ -248,25 +263,39 @@ def _write_rows(session: Session, ticker: str, interval: str, df: pd.DataFrame, 
     session.commit()
 
 
-def _rows_to_frame(rows: list[SharedBarsCache], interval: str) -> pd.DataFrame:
-    """Lowercase-column OHLCV DataFrame, indexed by bar_time -- tz-localized
-    back to America/New_York for interval="60m" (analysis/entry_signal/
-    resample.py::build_2h_session_candles requires a tz-aware index), left
-    naive for interval="1d" (every daily-bar consumer -- data/
-    trend_analysis_data.py, analysis/liquidity_zones/ -- already expects a
-    naive DatetimeIndex, matching YahooPriceCache's own long-standing
-    shape)."""
-    data = {
-        "open": [r.open for r in rows],
-        "high": [r.high for r in rows],
-        "low": [r.low for r in rows],
-        "close": [r.close for r in rows],
-        "volume": [r.volume for r in rows],
-    }
-    index = pd.DatetimeIndex([r.bar_time for r in rows])
-    if interval == INTRADAY_INTERVAL:
-        index = index.tz_localize(_EASTERN)
-    return pd.DataFrame(data, index=index)
+def _load_frames(session: Session, tickers: list[str], interval: str, start: date) -> dict[str, pd.DataFrame]:
+    """Lowercase-column OHLCV DataFrame per ticker, only bars dated on/after
+    `start` (the caller's own window, trimmed in SQL rather than after
+    loading everything the cache holds), read as plain column tuples rather
+    than ORM objects. Indexed by bar_time -- tz-localized back to
+    America/New_York for interval="60m" (analysis/entry_signal/resample.py::
+    build_2h_session_candles requires a tz-aware index), left naive for
+    interval="1d" (every daily-bar consumer -- data/trend_analysis_data.py,
+    analysis/liquidity_zones/ -- already expects a naive DatetimeIndex,
+    matching YahooPriceCache's own long-standing shape)."""
+    start_dt = datetime.combine(start, time.min)
+    columns = ["ticker", "bar_time", "open", "high", "low", "close", "volume"]
+    frames: dict[str, pd.DataFrame] = {}
+    for chunk in _chunks(tickers):
+        stmt = (
+            select(
+                SharedBarsCache.ticker, SharedBarsCache.bar_time, SharedBarsCache.open, SharedBarsCache.high,
+                SharedBarsCache.low, SharedBarsCache.close, SharedBarsCache.volume,
+            )
+            .where(SharedBarsCache.interval == interval, SharedBarsCache.ticker.in_(chunk), SharedBarsCache.bar_time >= start_dt)
+            .order_by(SharedBarsCache.ticker, SharedBarsCache.bar_time)
+        )
+        rows = session.exec(stmt).all()
+        if not rows:
+            continue
+        df = pd.DataFrame.from_records(rows, columns=columns)
+        for ticker, group in df.groupby("ticker", sort=False):
+            frame = group.drop(columns="ticker").set_index("bar_time")
+            frame.index = pd.DatetimeIndex(frame.index)
+            if interval == INTRADAY_INTERVAL:
+                frame.index = frame.index.tz_localize(_EASTERN)
+            frames[ticker] = frame
+    return frames
 
 
 def _eastern_today(reference: datetime | None = None) -> date:
@@ -324,20 +353,20 @@ async def get_or_fetch_bars_batch(
     needed_start = today - timedelta(days=max(lookback_days - 1, 0))
 
     with Session(engine) as session:
-        cached_by_ticker = {t: _load_cached_rows(session, t, interval) for t in tickers}
+        span_by_ticker = _cache_span(session, tickers, interval)
 
     to_fetch: dict[str, int] = {}
     for t in tickers:
-        rows = cached_by_ticker[t]
-        existing_width_days = _preserved_lookback_days(rows, interval)
+        first_bar, last_bar = span_by_ticker.get(t, (None, None))
+        existing_width_days = _preserved_lookback_days(first_bar, last_bar, interval)
         if force:
             to_fetch[t] = max(lookback_days, existing_width_days)
             continue
-        if not rows:
+        if last_bar is None:
             to_fetch[t] = lookback_days
             continue
-        stale = _is_stale(rows[-1].bar_time, interval, now)
-        insufficient = rows[0].bar_time.date() > needed_start
+        stale = _is_stale(last_bar, interval, now)
+        insufficient = first_bar.date() > needed_start
         if stale or insufficient:
             to_fetch[t] = max(lookback_days, existing_width_days)
 
@@ -361,18 +390,7 @@ async def get_or_fetch_bars_batch(
                         _write_rows(session, ticker, interval, df, fetched_at)
 
     with Session(engine) as session:
-        rows_by_ticker = {t: _load_cached_rows(session, t, interval) for t in tickers}
-
-    result: dict[str, pd.DataFrame] = {}
-    for t in tickers:
-        rows = rows_by_ticker[t]
-        if not rows:
-            continue
-        frame = _rows_to_frame(rows, interval)
-        frame = frame[frame.index.date >= needed_start]
-        if not frame.empty:
-            result[t] = frame
-    return result
+        return _load_frames(session, tickers, interval, needed_start)
 
 
 async def get_or_fetch_bars(
