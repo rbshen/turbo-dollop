@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildDividendMarkers,
-  buildEarningsMarkers,
+  buildDividendLabels,
+  buildEarningsLabels,
   describeEventMarker,
   epsSurprisePct,
-  EVENT_ROW_FLOOR_PX,
-  EVENT_ROW_STACK_PX,
-  eventRowPrice,
+  EVENT_LABEL_FLOOR_PX,
+  EVENT_LABEL_FONT_PX,
+  EVENT_LABEL_HIT_HALF_HEIGHT_PX,
+  EVENT_LABEL_HIT_HALF_WIDTH_PX,
+  EVENT_LABEL_STACK_PX,
+  eventLabelCenterY,
   eventTooltipPlacement,
   fmtEventDate,
+  hitTestEventLabels,
   TOOLTIP_FLIP_MARGIN_PX,
   TOOLTIP_OFFSET_PX,
 } from "@/lib/chartEventMarkers";
@@ -24,76 +28,93 @@ const dividends: ChartDividendMarkerOut[] = [
   { time: "2019-08-05", event_date: "2019-08-09", amount: 0.1925 },
 ];
 
-const PANE_H = 580;
+const PANE_H = 560;
 
-describe("marker builders", () => {
-  it("earnings: circle on the fixed event row, 'E', id keyed to kind + bar time", () => {
-    const [m] = buildEarningsMarkers(earnings, "#22d3ee", PANE_H);
-    expect(m).toMatchObject({
-      id: "earnings:2026-07-27",
-      time: "2026-07-27",
-      position: "atPriceTop",
-      shape: "circle",
-      text: "E",
-      color: "#22d3ee",
-    });
+describe("label builders", () => {
+  it("earnings: a bare 'E' keyed to kind + bar time, on the row", () => {
+    const [l] = buildEarningsLabels(earnings, "#22d3ee");
+    expect(l).toEqual({ id: "earnings:2026-07-27", time: "2026-07-27", text: "E", color: "#22d3ee", stackSlot: 0 });
   });
 
-  it("dividends: square on the same fixed event row, 'D', id keyed to kind + bar time", () => {
-    const [m] = buildDividendMarkers(dividends, "#a78bfa", PANE_H);
-    expect(m).toMatchObject({
-      id: "dividend:2026-08-10",
-      time: "2026-08-10",
-      position: "atPriceTop",
-      shape: "square",
-      text: "D",
-      color: "#a78bfa",
-    });
+  it("dividends: a bare 'D' keyed to kind + bar time, on the row", () => {
+    const [l] = buildDividendLabels(dividends, "#a78bfa");
+    expect(l).toEqual({ id: "dividend:2026-08-10", time: "2026-08-10", text: "D", color: "#a78bfa", stackSlot: 0 });
   });
 
-  it("markers are pinned by price on the event-row scale, never relative to a bar (no aboveBar/belowBar/inBar)", () => {
-    const all = [...buildEarningsMarkers(earnings, "#000", PANE_H), ...buildDividendMarkers(dividends, "#000", PANE_H)];
-    for (const m of all) {
-      expect(m.position).toBe("atPriceTop");
-      expect(typeof m.price).toBe("number");
+  it("labels carry no shape/position/size fields -- letters only", () => {
+    const [e] = buildEarningsLabels(earnings, "#000");
+    const [d] = buildDividendLabels(dividends, "#000");
+    for (const l of [e, d]) {
+      expect(l).not.toHaveProperty("shape");
+      expect(l).not.toHaveProperty("position");
+      expect(l).not.toHaveProperty("size");
     }
-    // Same row for both kinds on non-colliding bars, at the floor: price * (H - 1) recovers the pixel offset.
-    const e = buildEarningsMarkers(earnings, "#000", PANE_H)[0];
-    const d = buildDividendMarkers(dividends, "#000", PANE_H)[0];
-    expect(e.price).toBe(d.price);
-    expect(e.price * (PANE_H - 1)).toBeCloseTo(EVENT_ROW_FLOOR_PX);
-  });
-
-  it("the row's price does not depend on any candle price -- only on the pane height", () => {
-    expect(eventRowPrice(6, 580)).toBeCloseTo(6 / 579);
-    expect(eventRowPrice(6, 300)).toBeGreaterThan(eventRowPrice(6, 580));
-    // Stays inside the pinned 0..1 range for any sane offset, so it maps onto the pane rather than off it.
-    expect(eventRowPrice(EVENT_ROW_FLOOR_PX + EVENT_ROW_STACK_PX, PANE_H)).toBeLessThan(1);
-    expect(eventRowPrice(EVENT_ROW_FLOOR_PX, PANE_H)).toBeGreaterThan(0);
   });
 
   it("the two kinds never share an id, even on the same bar", () => {
-    const e = buildEarningsMarkers([{ time: "2026-08-10", event_date: "2026-08-10", eps_actual: 1, eps_estimated: 1 }], "#000", PANE_H);
-    const d = buildDividendMarkers([{ time: "2026-08-10", event_date: "2026-08-10", amount: 1 }], "#000", PANE_H);
+    const e = buildEarningsLabels([{ time: "2026-08-10", event_date: "2026-08-10", eps_actual: 1, eps_estimated: 1 }], "#000");
+    const d = buildDividendLabels([{ time: "2026-08-10", event_date: "2026-08-10", amount: 1 }], "#000");
     expect(e[0].id).not.toBe(d[0].id);
   });
 
-  it("a dividend on the same bar as an earnings report is stacked one slot above it; others stay on the row", () => {
+  it("a dividend on the same bar as an earnings report is stacked one slot up; others stay on the row", () => {
     const sameBar = [{ time: "2026-07-27", event_date: "2026-07-27", amount: 0.5 }];
-    const [stacked] = buildDividendMarkers(sameBar, "#000", PANE_H, earnings);
-    const [alone] = buildDividendMarkers(sameBar, "#000", PANE_H, []);
-    const [e] = buildEarningsMarkers(earnings, "#000", PANE_H);
-    expect(stacked.price).toBeGreaterThan(e.price);
-    expect((stacked.price - e.price) * (PANE_H - 1)).toBeCloseTo(EVENT_ROW_STACK_PX);
-    expect(alone.price).toBe(e.price);
-    // A dividend on a different bar is unaffected by the earnings list.
-    const [other] = buildDividendMarkers(dividends, "#000", PANE_H, earnings);
-    expect(other.price).toBe(e.price);
+    expect(buildDividendLabels(sameBar, "#000", earnings)[0].stackSlot).toBe(1);
+    expect(buildDividendLabels(sameBar, "#000", [])[0].stackSlot).toBe(0);
+    expect(buildDividendLabels(dividends, "#000", earnings).map((l) => l.stackSlot)).toEqual([0, 0]);
   });
 
-  it("an empty list builds an empty marker array", () => {
-    expect(buildEarningsMarkers([], "#000", PANE_H)).toEqual([]);
-    expect(buildDividendMarkers([], "#000", PANE_H)).toEqual([]);
+  it("an empty list builds an empty array", () => {
+    expect(buildEarningsLabels([], "#000")).toEqual([]);
+    expect(buildDividendLabels([], "#000")).toEqual([]);
+  });
+});
+
+describe("row geometry", () => {
+  it("the letter's box bottom sits exactly the floor gap above the pane's real bottom edge", () => {
+    const y = eventLabelCenterY(PANE_H, 0);
+    expect(y + EVENT_LABEL_FONT_PX / 2).toBe(PANE_H - EVENT_LABEL_FLOOR_PX);
+  });
+
+  it("depends only on the pane's height: the row tracks the bottom as the pane resizes", () => {
+    expect(eventLabelCenterY(PANE_H + 40, 0) - eventLabelCenterY(PANE_H, 0)).toBe(40);
+  });
+
+  it("a stacked label sits one stack step higher, clear of the letter below it", () => {
+    expect(eventLabelCenterY(PANE_H, 0) - eventLabelCenterY(PANE_H, 1)).toBe(EVENT_LABEL_STACK_PX);
+    expect(EVENT_LABEL_STACK_PX).toBeGreaterThanOrEqual(EVENT_LABEL_FONT_PX);
+  });
+
+  it("the letters are bigger than the chart's 12px default", () => {
+    expect(EVENT_LABEL_FONT_PX).toBeGreaterThan(12);
+  });
+});
+
+describe("hitTestEventLabels", () => {
+  const placed = [
+    { id: "earnings:a", x: 100, y: 540 },
+    { id: "dividend:a", x: 100, y: 522 },
+    { id: "earnings:b", x: 300, y: 540 },
+  ];
+
+  it("resolves a point on a label's box to its id", () => {
+    expect(hitTestEventLabels(placed, 300, 540)).toBe("earnings:b");
+    expect(hitTestEventLabels(placed, 300 + EVENT_LABEL_HIT_HALF_WIDTH_PX, 540 - EVENT_LABEL_HIT_HALF_HEIGHT_PX)).toBe("earnings:b");
+  });
+
+  it("misses just outside the box, and anywhere else", () => {
+    expect(hitTestEventLabels(placed, 300 + EVENT_LABEL_HIT_HALF_WIDTH_PX + 1, 540)).toBeNull();
+    expect(hitTestEventLabels(placed, 300, 540 + EVENT_LABEL_HIT_HALF_HEIGHT_PX + 1)).toBeNull();
+    expect(hitTestEventLabels(placed, 200, 300)).toBeNull();
+    expect(hitTestEventLabels([], 100, 540)).toBeNull();
+  });
+
+  it("stacked labels on one bar are told apart, nearest centre winning where boxes overlap", () => {
+    expect(hitTestEventLabels(placed, 100, 541)).toBe("earnings:a");
+    expect(hitTestEventLabels(placed, 100, 521)).toBe("dividend:a");
+    // Points between the two centres (540 vs 522) resolve to whichever letter's box they fall in.
+    expect(hitTestEventLabels(placed, 100, 532)).toBe("earnings:a");
+    expect(hitTestEventLabels(placed, 100, 529)).toBe("dividend:a");
   });
 });
 

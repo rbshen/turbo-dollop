@@ -5,74 +5,82 @@ import type { ChartDividendMarkerOut, ChartEarningsMarkerOut } from "@/lib/api/t
 // TickerChart.tsx (which imports lightweight-charts and its canvas dependency) so both are unit-testable
 // in plain vitest, mirroring how lib/weinsteinStage.ts sits beside its card.
 //
-// Each marker carries an `id` so a hover can be resolved back to its detail: lightweight-charts 5.2.0
-// reports `hoveredInfo.objectKind === "series-marker"` with `objectId === marker.id` on crosshair moves.
-// The id encodes kind + bar time (one marker per kind per bar, enforced server-side), so it is unique
-// across both marker plugins sharing the event-row series.
+// Each label carries an `id` so a hover can be resolved back to its detail: the custom primitive's hitTest
+// (components/chart/EventLabelsPrimitive.ts) reports it as `externalId`, which lightweight-charts 5.2.0 surfaces
+// as `hoveredInfo.objectKind === "primitive"` with `objectId === label.id` on crosshair moves. The id encodes
+// kind + bar time (one label per kind per bar, enforced server-side), so it is unique across both kinds.
 //
-// FIXED-ROW PLACEMENT. Every marker position in lightweight-charts 5.2.0 (aboveBar/belowBar/inBar and
-// atPriceTop/atPriceBottom/atPriceMiddle) is resolved through `series.priceToCoordinate`, so no marker can be
-// pinned to the pane itself. The markers here therefore attach to a hidden helper series on its OWN overlay
-// price scale (EVENT_ROW_SCALE_ID), whose range is pinned to 0..1 with zero scale margins -- which makes price
-// `p` map linearly onto the pane, independent of the candles' price range: y_from_pane_bottom = (H - 1) * p
-// (PriceScale._private__logicalToCoordinate). A marker's `price` is thus just a pixel offset from the pane
-// floor divided by (H - 1). `atPriceTop` puts a shape's BOTTOM edge exactly on that coordinate (and its letter
-// above it), so the icons sit on a floor that doesn't move with zoom/shape size.
+// FIXED-ROW PLACEMENT, LETTERS ONLY. lightweight-charts 5.2.0's built-in series markers can't do this: every
+// marker position resolves through a price coordinate (so none is pinned to the pane), every marker has a shape
+// (there is no "none"), and its text is fixed at the chart-wide axis font size. So the labels are drawn by a
+// small custom series primitive instead, in the pane's own pixel space -- which gives an exact floor (the
+// pane's real height, not a price-derived guess) and a font size of our own choosing.
 
 export const EARNINGS_MARKER_ID_PREFIX = "earnings:";
 export const DIVIDEND_MARKER_ID_PREFIX = "dividend:";
 
-/** priceScaleId of the helper series the event markers attach to (any id other than left/right is an overlay). */
-export const EVENT_ROW_SCALE_ID = "event-row";
-/** Fixed autoscale range for that overlay scale; with zero scale margins it spans the whole pane height. */
-export const EVENT_ROW_PRICE_RANGE = { minValue: 0, maxValue: 1 } as const;
-/** Distance from the pane's bottom edge to the bottom edge of an event icon. */
-export const EVENT_ROW_FLOOR_PX = 6;
-/** How far a dividend is lifted above an earnings marker on the SAME bar, so the two never sit on top of each
- * other. Clears the largest icon (24px circle at max bar spacing) plus its letter (~16px). */
-export const EVENT_ROW_STACK_PX = 44;
+/** Letter size. The signal-arrow labels and axes use the chart-wide 12px; these are deliberately a bit bigger. */
+export const EVENT_LABEL_FONT_PX = 13;
+/** Distance from the pane's bottom edge to the bottom of a letter's box. */
+export const EVENT_LABEL_FLOOR_PX = 6;
+/** How far a dividend is lifted above an earnings label on the SAME bar (one letter height plus a gap). */
+export const EVENT_LABEL_STACK_PX = 18;
+/** Half-extents of a label's hover box, around its centre. */
+export const EVENT_LABEL_HIT_HALF_WIDTH_PX = 8;
+export const EVENT_LABEL_HIT_HALF_HEIGHT_PX = EVENT_LABEL_FONT_PX / 2 + 2;
 
-/** Converts a pixel offset above the pane floor into a price on the event-row scale (see the header). */
-export function eventRowPrice(offsetPx: number, paneHeightPx: number): number {
-  return offsetPx / (paneHeightPx - 1);
+export interface EventLabel {
+  id: string;
+  /** Bar time ("YYYY-MM-DD") the label is anchored to. */
+  time: string;
+  text: "E" | "D";
+  color: string;
+  /** 0 = on the row; 1 = lifted one slot (a dividend sharing a bar with an earnings report). */
+  stackSlot: 0 | 1;
 }
 
-export function buildEarningsMarkers(markers: ChartEarningsMarkerOut[], color: string, paneHeightPx: number) {
-  const price = eventRowPrice(EVENT_ROW_FLOOR_PX, paneHeightPx);
+export function buildEarningsLabels(markers: ChartEarningsMarkerOut[], color: string): EventLabel[] {
   return markers.map((m) => ({
     id: `${EARNINGS_MARKER_ID_PREFIX}${m.time}`,
     time: m.time,
-    position: "atPriceTop" as const,
-    price,
-    color,
-    shape: "circle" as const,
     text: "E",
-    size: 1,
+    color,
+    stackSlot: 0,
   }));
 }
 
 /** `earnings` is consulted only to detect a same-bar collision (the weekly view makes one plausible): such a
- * dividend is stacked one slot above the earnings marker. Deliberately independent of the Earnings toggle, so
+ * dividend is stacked one slot above the earnings label. Deliberately independent of the Earnings toggle, so
  * hiding earnings never makes a dividend jump. */
-export function buildDividendMarkers(
+export function buildDividendLabels(
   markers: ChartDividendMarkerOut[],
   color: string,
-  paneHeightPx: number,
   earnings: ChartEarningsMarkerOut[] = []
-) {
+): EventLabel[] {
   const earningsTimes = new Set(earnings.map((e) => e.time));
-  const floor = eventRowPrice(EVENT_ROW_FLOOR_PX, paneHeightPx);
-  const stacked = eventRowPrice(EVENT_ROW_FLOOR_PX + EVENT_ROW_STACK_PX, paneHeightPx);
   return markers.map((m) => ({
     id: `${DIVIDEND_MARKER_ID_PREFIX}${m.time}`,
     time: m.time,
-    position: "atPriceTop" as const,
-    price: earningsTimes.has(m.time) ? stacked : floor,
-    color,
-    shape: "square" as const,
     text: "D",
-    size: 1,
+    color,
+    stackSlot: earningsTimes.has(m.time) ? 1 : 0,
   }));
+}
+
+/** Vertical centre (px from the pane's TOP) of a label, given the pane's real height. */
+export function eventLabelCenterY(paneHeightPx: number, stackSlot: 0 | 1): number {
+  return paneHeightPx - EVENT_LABEL_FLOOR_PX - EVENT_LABEL_FONT_PX / 2 - stackSlot * EVENT_LABEL_STACK_PX;
+}
+
+/** The id of the placed label under (x, y), or null. Ties (overlapping boxes) go to the nearest centre. */
+export function hitTestEventLabels(placed: { id: string; x: number; y: number }[], x: number, y: number): string | null {
+  let best: { id: string; d: number } | null = null;
+  for (const p of placed) {
+    if (Math.abs(x - p.x) > EVENT_LABEL_HIT_HALF_WIDTH_PX || Math.abs(y - p.y) > EVENT_LABEL_HIT_HALF_HEIGHT_PX) continue;
+    const d = Math.hypot(x - p.x, y - p.y);
+    if (best === null || d < best.d) best = { id: p.id, d };
+  }
+  return best?.id ?? null;
 }
 
 /** Where the hover tooltip goes, relative to the chart container. Always ABOVE the cursor: the markers live on
