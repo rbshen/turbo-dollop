@@ -1193,3 +1193,30 @@ def test_get_summary_yahoo_fallback_keeps_stale_price_when_yahoo_has_no_data(mon
     summary = asyncio.run(get_summary("aapl"))
 
     assert summary.price == 111.0  # served the stale cached FMP quote's price
+
+
+@pytest.mark.parametrize(
+    "flags, expected",
+    [
+        ({}, False),  # neither flag present (older/partial profile payloads)
+        ({"isEtf": False, "isFund": False}, False),
+        ({"isEtf": True, "isFund": False}, True),  # SPY-shaped
+        ({"isEtf": False, "isFund": True}, True),  # PTY-shaped closed-end fund
+    ],
+)
+def test_get_summary_is_etf_reads_the_profile_isetf_or_isfund_flag(monkeypatch, flags, expected):
+    _fresh_summary_engine(monkeypatch)
+
+    async def fake_quote(ticker):
+        return FAKE_QUOTE
+
+    _patch_all_but_quote(monkeypatch, fake_quote)
+
+    async def fake_profile(ticker):
+        return [{**FAKE_PROFILE[0], **flags}]
+
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", fake_profile)
+
+    summary = asyncio.run(get_summary("aapl"))
+
+    assert summary.is_etf is expected

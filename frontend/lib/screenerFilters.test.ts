@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { TickerScoreOut } from "@/lib/api/types";
 import {
   DEFAULT_FILTER_STATE,
+  excludeEtfs,
   extractCompanyTypes,
   extractSectors,
   filterTickerScores,
+  isEtfRow,
   parseMarketCapInput,
   sortTickerScores,
   type ScreenerFilterState,
@@ -19,6 +21,7 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     industry: "Consumer Electronics",
     company_type: "Standard",
     country: "US",
+    is_etf: false,
     step1_score: 90,
     step1_verdict: "Strong Pass",
     step2_score: 80,
@@ -489,5 +492,42 @@ describe("extractSectors / extractCompanyTypes", () => {
   it("extracts unique, sorted, non-null company type values", () => {
     const rows = [row({ company_type: "Bank" }), row({ company_type: "Standard" }), row({ company_type: "Bank" })];
     expect(extractCompanyTypes(rows)).toEqual(["Bank", "Standard"]);
+  });
+});
+
+describe("excludeEtfs", () => {
+  it("drops rows flagged is_etf=true and keeps stocks", () => {
+    const rows = [
+      row({ ticker: "AAPL", is_etf: false }),
+      row({ ticker: "QQQ", is_etf: true, company_type: "ETF" }),
+      row({ ticker: "ARKK", is_etf: true, company_type: "ETF" }),
+    ];
+    expect(excludeEtfs(rows).map((r) => r.ticker)).toEqual(["AAPL"]);
+  });
+
+  it("trusts an explicit is_etf=false over company_type", () => {
+    // is_etf is derived from the profile flag directly; it wins whenever it's set.
+    expect(isEtfRow(row({ is_etf: false, company_type: "ETF" }))).toBe(false);
+  });
+
+  it("falls back to company_type === ETF for a row with no is_etf yet (pre-recompute)", () => {
+    const rows = [
+      row({ ticker: "SPY", is_etf: null, company_type: "ETF" }),
+      row({ ticker: "AAPL", is_etf: null, company_type: "Standard" }),
+    ];
+    expect(excludeEtfs(rows).map((r) => r.ticker)).toEqual(["AAPL"]);
+  });
+
+  it("keeps a legacy row with neither is_etf nor company_type (not silently dropped)", () => {
+    expect(isEtfRow(row({ is_etf: null, company_type: null }))).toBe(false);
+  });
+
+  it("makes ETFs invisible to Country=US and to the Company type options", () => {
+    const rows = excludeEtfs([
+      row({ ticker: "AAPL", country: "US" }),
+      row({ ticker: "SPY", country: "US", is_etf: true, company_type: "ETF" }),
+    ]);
+    expect(filterTickerScores(rows, DEFAULT_FILTER_STATE, null, "US").map((r) => r.ticker)).toEqual(["AAPL"]);
+    expect(extractCompanyTypes(rows)).toEqual(["Standard"]);
   });
 });

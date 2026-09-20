@@ -174,6 +174,43 @@ def test_screener_meta_universe_all_counts_every_ticker_score_row(monkeypatch):
     assert response.json() == {"universe": "all", "total_constituents": 2}
 
 
+def test_screener_meta_universe_all_excludes_etfs_to_match_the_pages_client_side_drop(monkeypatch):
+    # The Screener page drops ETFs client-side (screenerFilters.ts::
+    # excludeEtfs), so its "X of Y" total must not count them either --
+    # otherwise an ETF reads as a permanently unscored ticker. Same rule as
+    # the frontend's: is_etf wins when set; a row with no is_etf yet
+    # (pre-recompute) falls back to company_type == "ETF".
+    engine = _fresh_engine(monkeypatch)
+    at = datetime(2026, 1, 1)
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="AAPL", is_etf=False, company_type="Standard", computed_at=at))
+        session.add(TickerScore(ticker="QQQ", is_etf=True, company_type="ETF", computed_at=at))
+        session.add(TickerScore(ticker="SPY", is_etf=None, company_type="ETF", computed_at=at))  # legacy ETF row
+        session.add(TickerScore(ticker="MSFT", is_etf=None, company_type="Standard", computed_at=at))  # legacy stock row
+        session.add(TickerScore(ticker="NOTYPE", is_etf=None, company_type=None, computed_at=at))  # legacy, unclassified
+        session.commit()
+
+    with TestClient(main.app) as client:
+        response = client.get("/api/screener/meta", params={"universe": "all"})
+
+    assert response.json() == {"universe": "all", "total_constituents": 3}
+
+
+def test_screener_list_still_returns_etf_rows_and_their_is_etf_flag(monkeypatch):
+    # The exclusion is the page's job (client-side, like every other
+    # Screener filter) -- the endpoint keeps serving every row and just
+    # carries the flag the page needs.
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="SPY", is_etf=True, company_type="ETF", computed_at=datetime(2026, 1, 1)))
+        session.commit()
+
+    with TestClient(main.app) as client:
+        response = client.get("/api/screener", params={"universe": "all"})
+
+    assert [(row["ticker"], row["is_etf"]) for row in response.json()] == [("SPY", True)]
+
+
 def test_screener_meta_is_zero_when_no_constituents_stored(monkeypatch):
     _fresh_engine(monkeypatch)
 

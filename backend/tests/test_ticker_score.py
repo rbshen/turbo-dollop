@@ -65,6 +65,7 @@ def _summary(
     quote_currency="USD",
     reported_currency=None,
     exchange="NASDAQ",
+    is_etf=False,
 ):
     return TickerSummaryOut(
         company_name=company_name,
@@ -72,6 +73,7 @@ def _summary(
         sector=sector,
         industry=industry,
         exchange=exchange,
+        is_etf=is_etf,
         market_cap=3_000_000_000_000.0,
         pe_ratio=30.0,
         beta=1.2,
@@ -244,6 +246,27 @@ def test_country_defaults_to_us_for_a_us_exchange_listing(monkeypatch):
 
     assert result is not None
     assert result.country == "US"
+
+
+def test_is_etf_is_persisted_true_for_an_etf_profile_and_false_for_a_stock(monkeypatch):
+    # Lifted straight from summary.is_etf (FMP profile isEtf/isFund) -- a
+    # pure field-mapping test, same shape as country/exchange above. The
+    # ETF's company_type deliberately stays whatever step4/5 say ("ETF" in
+    # real life) -- is_etf must not depend on it.
+    engine = _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch, summary=_summary(company_name="State Street SPDR S&P 500 ETF", exchange="AMEX", is_etf=True))
+
+    etf = asyncio.run(compute_ticker_score("SPY"))
+
+    _patch_all(monkeypatch, summary=_summary(is_etf=False))
+    stock = asyncio.run(compute_ticker_score("AAPL"))
+
+    assert etf is not None and etf.is_etf is True
+    assert stock is not None and stock.is_etf is False
+
+    with Session(engine) as session:
+        assert session.get(TickerScore, "SPY").is_etf is True
+        assert session.get(TickerScore, "AAPL").is_etf is False
 
 
 def test_perf_5y_vs_spy_fields_are_copied_from_summary(monkeypatch):

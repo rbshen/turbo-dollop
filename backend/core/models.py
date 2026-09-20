@@ -730,6 +730,19 @@ class TickerScore(SQLModel, table=True):
     # the frontend treats None as "US" (the overwhelming majority) rather
     # than excluding the row.
     country: str | None = None
+    # True for an ETF/fund product (FMP /profile's `isEtf` or `isFund`,
+    # lifted via summary.is_etf) -- the Screener hard-excludes these
+    # (stock equities only; the 5-step fundamentals framework doesn't apply
+    # to a fund), while Watchlist deliberately still shows them. Confirmed
+    # against real cached profiles before relying on it: SPY reads
+    # isEtf=true, all 580 other cached profiles (ADRs included) read
+    # isEtf=false/isFund=false.
+    # None for a row computed before this field existed -- see
+    # _add_missing_columns -- and the Screener then falls back to
+    # `company_type == "ETF"` (derived from the very same profile flag)
+    # rather than treating None as "not an ETF", so a not-yet-recomputed
+    # ETF row can't leak in for the window before the next recompute.
+    is_etf: bool | None = None
     step1_score: int | None = None
     step1_verdict: str | None = None
     step2_score: int | None = None

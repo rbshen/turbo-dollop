@@ -19,6 +19,7 @@ import { useWatchlists } from "@/lib/hooks/useWatchlists";
 import {
   DEFAULT_FILTER_STATE,
   DEFAULT_SCREENER_COUNTRY,
+  excludeEtfs,
   extractCompanyTypes,
   extractSectors,
   filterTickerScores,
@@ -57,7 +58,10 @@ const SORT_OPTIONS: { value: SortField; label: string }[] = [
 
 export default function ScreenerPage() {
   const [universe, setUniverse] = useState<ScreenerUniverse>("all");
-  const { data, error } = useScreener(universe);
+  const { data: rawData, error } = useScreener(universe);
+  // Stock equities only -- ETFs are dropped here, before counts/dropdown
+  // options/filters all derive from `data` (see screenerFilters.ts::excludeEtfs).
+  const data = useMemo(() => (rawData ? excludeEtfs(rawData) : undefined), [rawData]);
   const { data: meta } = useScreenerMeta(universe);
   const { data: watchlists } = useWatchlists();
 

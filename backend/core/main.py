@@ -8,6 +8,7 @@ from typing import Literal
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
+from sqlalchemy import and_, or_
 from sqlmodel import Session, func, select
 
 from data.analyst_ratings_data import get_analyst_ratings_data
@@ -772,10 +773,18 @@ def screener_meta(universe: Universe = "sp500") -> ScreenerMeta:
     # no TickerScore row -- this lets the UI show an honest "X of Y" count
     # rather than silently presenting a partial list as complete. universe=
     # "all" has no such gap by definition (it IS the cached-ticker count),
-    # so total_constituents there always equals screener_list's own length.
+    # so total_constituents there always equals screener_list's own length --
+    # minus ETFs, which the Screener page drops client-side (see
+    # screenerFilters.ts::excludeEtfs, same rule incl. the company_type
+    # fallback for a row with no is_etf yet) and which would otherwise read
+    # as a permanently "missing" ticker in the "X of Y" note.
     with Session(engine) as session:
         if universe == "all":
-            total_constituents = session.exec(select(func.count()).select_from(TickerScore)).one()
+            is_stock = or_(
+                TickerScore.is_etf.is_(False),
+                and_(TickerScore.is_etf.is_(None), or_(TickerScore.company_type.is_(None), TickerScore.company_type != "ETF")),
+            )
+            total_constituents = session.exec(select(func.count()).select_from(TickerScore).where(is_stock)).one()
         else:
             total_constituents = session.exec(
                 select(func.count()).select_from(IndexConstituent).where(IndexConstituent.index_name == universe)

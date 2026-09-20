@@ -166,6 +166,7 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         industry=summary.industry,
         company_type=company_type,
         country=_resolve_screener_country(summary.exchange),
+        is_etf=summary.is_etf,
         step1_score=step1.score if step1 else None,
         step1_verdict=step1.verdict if step1 else None,
         step2_score=step2.score if step2 else None,

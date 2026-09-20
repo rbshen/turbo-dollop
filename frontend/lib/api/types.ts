@@ -87,6 +87,8 @@ export interface TickerSummaryOut {
   company_name: string | null;
   ticker: string;
   exchange: string | null;
+  // FMP profile's isEtf/isFund -- see TickerScoreOut.is_etf.
+  is_etf: boolean;
   sector: string | null;
   industry: string | null;
   description: string | null;
@@ -530,6 +532,11 @@ export interface TickerScoreOut {
   // before this field existed -- screenerFilters.ts's filterTickerScores
   // treats null as "US".
   country: "US" | "HK" | null;
+  // True for an ETF/fund product (FMP profile isEtf/isFund) -- the Screener
+  // hard-excludes these (screenerFilters.ts::excludeEtfs). null for a row
+  // computed before this field existed; excludeEtfs then falls back to
+  // company_type === "ETF". See backend/core/models.py::TickerScore.is_etf.
+  is_etf: boolean | null;
   step1_score: number | null;
   step1_verdict: string | null;
   step2_score: number | null;

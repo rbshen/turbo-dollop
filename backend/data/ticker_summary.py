@@ -487,6 +487,7 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
         company_name=profile.get("companyName"),
         ticker=ticker,
         exchange=profile.get("exchangeShortName") or profile.get("exchange"),
+        is_etf=bool(profile.get("isEtf") or profile.get("isFund")),
         sector=profile.get("sector"),
         industry=profile.get("industry"),
         description=profile.get("description"),

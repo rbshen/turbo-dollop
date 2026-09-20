@@ -49,6 +49,10 @@ class TickerSummaryOut(BaseModel):
     company_name: str | None = None
     ticker: str
     exchange: str | None = None
+    # FMP profile's `isEtf`/`isFund` -- the same flag classify_company_type's
+    # `is_fund` reads. Lifted here so compute_ticker_score can denormalize it
+    # onto TickerScore.is_etf without a second profile read.
+    is_etf: bool = False
     sector: str | None = None
     industry: str | None = None
     # FMP's own company-profile prose blurb -- shown as-is on the ticker
@@ -967,6 +971,8 @@ class TickerScoreOut(BaseModel):
     # See models.py::TickerScore.country -- "US"/"HK" primary listing
     # market, derived from exchange, NOT FMP's own domicile `country` field.
     country: str | None = None
+    # See models.py::TickerScore.is_etf.
+    is_etf: bool | None = None
     step1_score: int | None = None
     step1_verdict: str | None = None
     step2_score: int | None = None

@@ -237,6 +237,26 @@ function inRange(value: number | null, range: RangeFilter): boolean {
   return true;
 }
 
+// True for an ETF/fund product. Reads TickerScoreOut.is_etf, but a row
+// computed before that column existed (null) falls back to company_type ===
+// "ETF" -- classify_company_type derives that from the very same FMP profile
+// flag, so a not-yet-recomputed ETF row (SPY, at rollout) is still caught
+// instead of leaking through as "not an ETF" until the next recompute.
+// Mirrored in SQL by backend/core/main.py::screener_meta -- keep in sync.
+export function isEtfRow(row: TickerScoreOut): boolean {
+  return row.is_etf ?? row.company_type === "ETF";
+}
+
+// The Screener is stock equities only -- the 5-step fundamentals framework
+// doesn't apply to a fund. Unconditional, NOT a filter/toggle: the page
+// applies this to the fetched rows once, before anything derives from them
+// (counts, Sector/Company type options, filterTickerScores), so an ETF can
+// never appear or be selectable. Screener-only -- Watchlist reads its own
+// rows and still shows an ETF a user explicitly added.
+export function excludeEtfs(rows: TickerScoreOut[]): TickerScoreOut[] {
+  return rows.filter((row) => !isEtfRow(row));
+}
+
 // watchlistTickers: the currently-selected WATCHLIST universe filter's
 // member set (see WatchlistFilter.tsx), or null when no watchlist is
 // selected / the universe toggle isn't "all". Deliberately a separate

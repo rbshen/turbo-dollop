@@ -1834,6 +1834,49 @@ Bank branch that constant gates). The mechanism itself (constant + branch
 `tests/test_step5_data.py`'s own regression test for it exercises the
 behavior generically, independent of which real tickers populate the set.
 
+## Screener excludes ETFs (2026-09-20)
+
+The Screener shows stock equities only -- the 5-step fundamentals framework
+doesn't apply to a fund. Unconditional, **not** a toggle. Screener-only:
+Watchlist reads its own rows and still shows an ETF a user explicitly added.
+
+- **How ETFs got in**: nothing ever filtered them. FMP's search returns
+  ETFs, viewing one (`GET /api/tickers/{t}/score`'s fallback, or the
+  Watchlist's `compute_ticker_score`) writes a `TickerScore` row, and
+  `load_full_tracked_universe` then keeps it in every nightly sweep
+  (profile cached => "ever-viewed"). `universe=all` (the page default)
+  returns every `TickerScore` row; `sp500`/`dow` were never exposed (an ETF
+  isn't an index constituent). Real DB at the time: 1 of 581 rows, SPY
+  (viewed via search only -- on no index/watchlist); QQQ/ARKK not cached.
+- **Detector**: FMP `/profile`'s `isEtf`/`isFund` -- the flag
+  `classify_company_type(is_fund=...)` already reads at 7 sites. Checked
+  against all 581 cached profiles: SPY `isEtf=true`; the other 580 (9 ADRs
+  included) `false/false`. Sector/industry text can't do this (SPY reads
+  "Financial Services"/"Asset Management", same as BLK). Already cached --
+  no new FMP field or fetch.
+- **Mechanism**: `TickerSummaryOut.is_etf` (from the profile) ->
+  `TickerScore.is_etf` (nullable, `_add_missing_columns`, no backfill) ->
+  `TickerScoreOut.is_etf`. The Screener page applies
+  `screenerFilters.ts::excludeEtfs` to the fetched rows once, *before*
+  counts/Sector/Company-type options/filters derive from them, so "ETF"
+  isn't even a selectable Company type. `screener_meta` for `universe=all`
+  excludes them too so the "X of Y" note doesn't show an ETF as a missing
+  ticker.
+- **Null handling**: `is_etf` wins when set; a row with no `is_etf` yet
+  (every row until its next recompute) falls back to `company_type ==
+  "ETF"` -- derived from the same profile flag -- instead of "not an ETF",
+  so SPY is excluded immediately, not after the next recompute. The
+  nightly 3:50 `nightly_score_recompute` backfills the column (or run
+  `uv run python -m pipeline.recompute_ticker_scores`, cache-only). The
+  SQL in `screener_meta` and `isEtfRow` in TS must stay in sync.
+- **Country=US is NOT "US-domiciled stocks"**: Country is exchange-based
+  (see `TickerScore.country`), so with ETFs gone `US` still includes
+  NYSE/NASDAQ-listed ADRs (HSBC, TSM, NVO, ASML, ARM, BABA, TME) and OTC
+  names (SINGY, EVVTY, CNSWF). Deliberate, unchanged here -- excluding them
+  is a different, domicile/ADR-based rule.
+- **Not done (flagged)**: `nightly_fundamentals_fetch` still spends FMP
+  calls fetching/scoring an ETF's statements (SPY: ~20 cache rows).
+
 ## Valuation (Step 3) scoring notes
 
 Three fixes shipped together 2026-08-08, all originating from an
