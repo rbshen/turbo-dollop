@@ -176,3 +176,8 @@ def _default_flags_enabled(monkeypatch):
     response."""
     monkeypatch.setattr(settings, "fmp_enabled", True)
     monkeypatch.setattr(settings, "cron_health_enabled", True)
+    # Unlike the two above, insider_activity_enabled's documented default is
+    # False (the feature is shelved) -- pinned so a developer's local
+    # INSIDER_ACTIVITY_ENABLED=true can't leak in. Tests that exercise the
+    # feature itself set it True explicitly (test_insider_activity_data.py).
+    monkeypatch.setattr(settings, "insider_activity_enabled", False)

@@ -25,6 +25,16 @@ from data.insider_activity_data import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _insider_activity_enabled(monkeypatch):
+    """The feature is shelved behind Settings.insider_activity_enabled
+    (default False, pinned by conftest's _default_flags_enabled). Every test
+    in this module exercises the feature itself, so it turns the flag on
+    explicitly; the disabled-state tests at the bottom set it back to
+    False -- same object, last write wins."""
+    monkeypatch.setattr(insider_data.settings, "insider_activity_enabled", True)
+
+
 def _fresh_engine(monkeypatch):
     # StaticPool so the endpoint test's TestClient thread shares the same
     # in-memory database (see test_liquidity_zone_endpoint.py).
@@ -928,3 +938,94 @@ def test_fmp_client_wrappers_hit_the_stable_insider_endpoints(monkeypatch):
     assert seen[1][1]["limit"] == "25" and seen[1][1]["page"] == "3"
     assert seen[2][0] == "/stable/insider-trading/statistics"
     assert seen[2][1]["symbol"] == "AAPL"
+
+
+# --- shelved-feature flag ---------------------------------------------------
+
+
+def _fmp_must_not_be_called(monkeypatch):
+    calls = []
+
+    async def boom(*args, **kwargs):
+        calls.append(args)
+        raise AssertionError("FMP must not be called while Insider Activity is disabled")
+
+    monkeypatch.setattr(insider_data.fmp_client, "get_insider_trading_search", boom)
+    monkeypatch.setattr(insider_data.fmp_client, "get_insider_trading_statistics", boom)
+    return calls
+
+
+def _cache_rows(engine):
+    with Session(engine) as session:
+        return session.exec(select(FundamentalsCache)).all()
+
+
+def test_the_documented_default_is_disabled():
+    from core.config import Settings
+
+    assert Settings.model_fields["insider_activity_enabled"].default is False
+
+
+def test_disabled_returns_a_distinct_payload_with_no_fmp_call_and_no_cache_write(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    calls = _fmp_must_not_be_called(monkeypatch)
+    monkeypatch.setattr(insider_data.settings, "insider_activity_enabled", False)
+
+    out = asyncio.run(get_insider_activity_data("test"))
+
+    assert calls == []
+    assert _cache_rows(engine) == []
+    assert out.enabled is False
+    assert out.ticker == "TEST"  # still normalized
+    assert (out.transactions, out.quarterly_stats, out.quarterly_activity) == ([], [], [])
+    assert out.has_data is False and out.as_of is None and out.history_truncated is False
+    assert out.summary.sentiment == "no_activity"
+
+
+def test_disabled_ignores_an_already_cached_row_entirely(monkeypatch):
+    # Not even a cache READ happens: a populated row must not surface as data.
+    engine = _fresh_engine(monkeypatch)
+    _seed_cache(engine, "insider_trading_search", [_row()], datetime.now())
+    _seed_cache(engine, "insider_trading_statistics", [_stat(2026, 3, purchases=5)], datetime.now())
+    _fmp_must_not_be_called(monkeypatch)
+    monkeypatch.setattr(insider_data.settings, "insider_activity_enabled", False)
+
+    out = asyncio.run(get_insider_activity_data("TEST", cache_only=True))
+
+    assert out.enabled is False and out.has_data is False and out.transactions == []
+    assert len(_cache_rows(engine)) == 2  # ...and nothing was deleted or rewritten either
+
+
+def test_disabled_is_distinguishable_from_genuinely_empty_and_not_cached(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, search=[], statistics=[])
+    empty = asyncio.run(get_insider_activity_data("TEST"))  # enabled, cached and genuinely empty
+    assert empty.enabled is True and empty.has_data is False and empty.as_of is not None
+
+    monkeypatch.setattr(insider_data.settings, "insider_activity_enabled", False)
+    disabled = asyncio.run(get_insider_activity_data("TEST"))
+    assert disabled.enabled is False and disabled.as_of is None
+    assert len(_cache_rows(engine)) == 2  # only the enabled call wrote anything
+
+
+def test_disabled_endpoint_returns_the_disabled_shape_not_a_404(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    _fmp_must_not_be_called(monkeypatch)
+    monkeypatch.setattr(insider_data.settings, "insider_activity_enabled", False)
+
+    response = TestClient(main.app).get("/api/tickers/AAPL/insider-activity")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is False
+    assert body["ticker"] == "AAPL"
+    assert body["transactions"] == [] and body["quarterly_stats"] == [] and body["quarterly_activity"] == []
+    assert body["has_data"] is False and body["as_of"] is None
+    assert _cache_rows(engine) == []
+
+
+def test_enabled_endpoint_reports_enabled_true(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, search=[_filed_row("2026-09-03")], statistics=[])
+    body = TestClient(main.app).get("/api/tickers/TEST/insider-activity").json()
+    assert body["enabled"] is True and body["has_data"] is True

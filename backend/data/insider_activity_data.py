@@ -490,8 +490,24 @@ async def get_insider_activity_data(ticker: str, cache_only: bool = False) -> In
     only whatever's already cached and never calls FMP. FMP being paused is
     handled the same way by get_or_fetch itself (serves any cached row,
     however stale; a cold miss returns None) -- no special-casing here.
+
+    Shelved feature: when Settings.insider_activity_enabled is False this
+    returns a distinct `enabled=False` payload before touching FMP, the
+    cache or the DB at all -- checked first, ahead of `cache_only`, so not
+    even a cache read happens. The GET route just calls this function, so it
+    inherits the gate.
     """
     ticker = normalize_ticker(ticker)
+    if not settings.insider_activity_enabled:
+        return InsiderActivityOut(
+            ticker=ticker,
+            enabled=False,
+            transactions=[],
+            quarterly_stats=[],
+            summary=build_summary([], []),
+            has_data=False,
+            as_of=None,
+        )
     staleness_days = settings.insider_staleness_days
 
     with Session(engine) as session:

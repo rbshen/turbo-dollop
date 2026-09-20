@@ -37,6 +37,16 @@ class Settings(BaseSettings):
     # second banner competing with FmpPausedBanner. Read once at process
     # start, same as every other Settings field.
     cron_health_enabled: bool = True
+    # Insider Activity is shelved (2026-09-20): the tab is off the ticker
+    # page and the feature makes no FMP calls and touches no cache while
+    # this is False. The code (data/insider_activity_data.py, the route, and
+    # the frontend components) is deliberately left in place so it can be
+    # revived by setting INSIDER_ACTIVITY_ENABLED=true and re-adding the tab
+    # (frontend/lib/tickerTabs.ts + TickerTabsContainer.tsx). Gated in
+    # get_insider_activity_data itself, so the route inherits it -- same
+    # shape as cron_health_enabled/get_cron_health(). Read once at process
+    # start, same as every other Settings field.
+    insider_activity_enabled: bool = False
     database_path: str = "fathom.db"
     cache_staleness_days: int = 7
     # YahooPriceCache (the FMP-paused Price/Quote fallback) is judged by

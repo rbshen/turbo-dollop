@@ -1914,6 +1914,12 @@ class InsiderSummaryOut(BaseModel):
 
 class InsiderActivityOut(BaseModel):
     ticker: str
+    # False (with every other field empty) when Settings.
+    # insider_activity_enabled is off -- an explicit "feature shelved" state
+    # that must never be read as "cached and genuinely empty" (enabled=True,
+    # has_data False, as_of set) or "not cached yet" (as_of None). Mirrors
+    # CronHealthOut.enabled.
+    enabled: bool = True
     transactions: list[InsiderTransactionOut]
     # The statistics endpoint's rows, oldest first. No longer the chart's
     # source (see quarterly_activity) -- it still supplies the sentiment
