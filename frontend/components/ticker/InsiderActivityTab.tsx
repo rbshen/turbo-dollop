@@ -21,6 +21,7 @@ interface Props {
 }
 
 const EMPTY_MESSAGE = "No insider trading data available for this ticker";
+const DISABLED_MESSAGE = "Insider Activity is turned off (INSIDER_ACTIVITY_ENABLED is false on the backend).";
 const NOT_CACHED_MESSAGE =
   "Insider activity hasn't been cached for this ticker yet. FMP may be paused, or the fetch hasn't succeeded yet — check back after the next successful refresh.";
 
@@ -59,6 +60,14 @@ export function InsiderActivityTab({ ticker }: Props) {
   // quiet tickers); "not_cached" means we have never successfully fetched
   // it, so an absence of data says nothing about the ticker. Same card
   // shape as LiquidityZonesCard's empty state.
+  if (view === "disabled") {
+    return (
+      <div className="py-6">
+        <p className="rounded-md border border-border-card bg-surface-2 p-3 text-xs text-text-secondary">{DISABLED_MESSAGE}</p>
+      </div>
+    );
+  }
+
   if (view !== "content") {
     const isEmpty = view === "empty";
     return (

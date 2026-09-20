@@ -1,14 +1,17 @@
 import type { InsiderActivityOut, InsiderQuarterActivity, InsiderSentiment, InsiderTransaction } from "@/lib/api/types";
 import { fmtCompactMoney } from "@/lib/format";
 
-/** Which of the tab's three body states to render. `has_data` alone can't
+/** Which of the tab's body states to render. `enabled` false (the backend's
+ * feature flag is off) comes first and is its own state -- never an empty or
+ * not-cached one. `has_data` alone can't
  * tell "cached and genuinely empty" (HK/France/quiet tickers) apart from
  * "never successfully cached" (FMP paused, plan doesn't cover the endpoint,
  * or the fetch hasn't succeeded yet) -- `as_of` (the cached search row's
  * fetched_at) is what separates them, so the two must never be conflated. */
-export type InsiderEmptyState = "content" | "empty" | "not_cached";
+export type InsiderEmptyState = "content" | "empty" | "not_cached" | "disabled";
 
-export function insiderViewState(data: Pick<InsiderActivityOut, "has_data" | "as_of">): InsiderEmptyState {
+export function insiderViewState(data: Pick<InsiderActivityOut, "enabled" | "has_data" | "as_of">): InsiderEmptyState {
+  if (!data.enabled) return "disabled";
   if (data.has_data) return "content";
   return data.as_of ? "empty" : "not_cached";
 }

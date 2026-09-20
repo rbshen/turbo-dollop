@@ -33,16 +33,21 @@ function tx(kind: InsiderTransaction["kind"], over: Partial<InsiderTransaction> 
 
 describe("insiderViewState", () => {
   it("is content whenever there is data", () => {
-    expect(insiderViewState({ has_data: true, as_of: "2026-09-19T00:00:00" })).toBe("content");
-    expect(insiderViewState({ has_data: true, as_of: null })).toBe("content");
+    expect(insiderViewState({ enabled: true, has_data: true, as_of: "2026-09-19T00:00:00" })).toBe("content");
+    expect(insiderViewState({ enabled: true, has_data: true, as_of: null })).toBe("content");
   });
 
   it("is a genuine empty (cached, nothing there) when as_of is set", () => {
-    expect(insiderViewState({ has_data: false, as_of: "2026-09-19T00:00:00" })).toBe("empty");
+    expect(insiderViewState({ enabled: true, has_data: false, as_of: "2026-09-19T00:00:00" })).toBe("empty");
+  });
+
+  it("is disabled -- ahead of every other state -- when the feature flag is off", () => {
+    expect(insiderViewState({ enabled: false, has_data: false, as_of: null })).toBe("disabled");
+    expect(insiderViewState({ enabled: false, has_data: true, as_of: "2026-09-19T00:00:00" })).toBe("disabled");
   });
 
   it("is not_cached -- distinct from empty -- when as_of is null", () => {
-    expect(insiderViewState({ has_data: false, as_of: null })).toBe("not_cached");
+    expect(insiderViewState({ enabled: true, has_data: false, as_of: null })).toBe("not_cached");
   });
 });
 

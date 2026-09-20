@@ -42,6 +42,7 @@ function tx(kind: InsiderTransaction["kind"], over: Partial<InsiderTransaction> 
 function data(over: Partial<InsiderActivityOut> = {}): InsiderActivityOut {
   return {
     ticker: "TEST",
+    enabled: true,
     transactions: [],
     quarterly_stats: [],
     quarterly_activity: [],
@@ -78,6 +79,14 @@ describe("InsiderActivityTab empty states", () => {
     render(<InsiderActivityTab ticker="TEST" />);
     expect(screen.getByText(/hasn't been cached for this ticker yet/)).toBeInTheDocument();
     expect(screen.queryByText(/No insider trading data available/)).not.toBeInTheDocument();
+  });
+
+  it("shows a distinct 'turned off' message when the backend flag is off -- not the empty or not-cached ones", () => {
+    mockUseInsiderActivity.mockReturnValue({ data: data({ enabled: false }) });
+    render(<InsiderActivityTab ticker="TEST" />);
+    expect(screen.getByText(/Insider Activity is turned off/)).toBeInTheDocument();
+    expect(screen.queryByText(/No insider trading data available/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/hasn't been cached/)).not.toBeInTheDocument();
   });
 
   it("shows a loading state and an error state", () => {

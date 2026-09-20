@@ -1549,6 +1549,9 @@ export interface InsiderSummary {
 
 export interface InsiderActivityOut {
   ticker: string;
+  // false = the feature is shelved backend-side (INSIDER_ACTIVITY_ENABLED off):
+  // every other field is empty. Distinct from has_data false (empty/not cached).
+  enabled: boolean;
   // Newest first.
   transactions: InsiderTransaction[];
   // Oldest first. Feeds the sentiment totals only -- the chart reads quarterly_activity.
