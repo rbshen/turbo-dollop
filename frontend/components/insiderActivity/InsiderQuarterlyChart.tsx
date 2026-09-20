@@ -4,41 +4,41 @@ import { Bar, BarChart, XAxis, YAxis } from "recharts";
 
 import { ChartLegend } from "@/components/charts/ChartLegend";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
-import type { InsiderQuarterStat } from "@/lib/api/types";
+import type { InsiderQuarterActivity } from "@/lib/api/types";
 import { fmtCompactNumber } from "@/lib/format";
-import { quarterLabel } from "@/lib/insiderActivity";
+import { type InsiderView, quarterlyBars } from "@/lib/insiderActivity";
 
 interface Props {
-  // Oldest first, as served.
-  stats: InsiderQuarterStat[];
+  // Oldest first, as served (already limited to the 12-quarter window).
+  activity: InsiderQuarterActivity[];
+  view: InsiderView;
 }
 
-// Three years of quarters -- the statistics endpoint returns every quarter
-// on record, far more than reads well as a trend.
-const MAX_QUARTERS = 12;
-
 const SERIES = [
-  { key: "total_acquired", label: "Acquired", color: "var(--color-positive)" },
-  { key: "total_disposed", label: "Disposed", color: "var(--color-negative)" },
+  { key: "acquired", label: "Acquired", color: "var(--color-positive)" },
+  { key: "disposed", label: "Disposed", color: "var(--color-negative)" },
 ] as const;
 
 const chartConfig: ChartConfig = Object.fromEntries(SERIES.map((s) => [s.key, { label: s.label, color: s.color }]));
 
-// Shares acquired vs. disposed per filed quarter -- two series per category
+// Shares acquired vs. disposed per calendar quarter -- two series per category
 // (grouped, not stacked). Same hidden-axis/hover-tooltip style as the app's
 // other bar charts; the XAxis stays mounted (hidden ticks aside) since the
-// tooltip needs it to resolve the category label.
-export function InsiderQuarterlyChart({ stats }: Props) {
-  const recent = stats.slice(-MAX_QUARTERS);
-  if (recent.length === 0) {
-    return <p className="text-sm text-text-tertiary">No quarterly statistics available for this ticker.</p>;
+// tooltip needs it to resolve the category label. The series comes from the
+// transactions themselves, so `view` just picks which totals to read: the
+// open-market ones, or the all-types ones.
+export function InsiderQuarterlyChart({ activity, view }: Props) {
+  const data = quarterlyBars(activity, view);
+  if (data.length === 0) {
+    return <p className="text-sm text-text-tertiary">No quarterly activity available for this ticker.</p>;
   }
-
-  const data = recent.map((s) => ({
-    category: quarterLabel(s.year, s.quarter),
-    total_acquired: s.total_acquired,
-    total_disposed: s.total_disposed,
-  }));
+  if (data.every((d) => d.acquired === 0 && d.disposed === 0)) {
+    return (
+      <p className="text-sm text-text-tertiary">
+        No open-market buys or sales in these quarters — switch to “All types” to see the other transactions.
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-3">

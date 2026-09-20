@@ -15,6 +15,7 @@ from clients.fmp_client import FMPClient
 from core.config import settings
 from core.models import FundamentalsCache
 from data.insider_activity_data import (
+    build_quarterly_activity,
     build_summary,
     classify_sentiment,
     find_cluster_buy,
@@ -664,6 +665,127 @@ def test_endpoint_reports_not_cached_yet_when_fmp_is_paused(monkeypatch):
     body = response.json()
     assert body["has_data"] is False
     assert body["as_of"] is None
+
+
+# --- quarterly chart series -------------------------------------------------
+
+
+def _q(txs, frontier=None):
+    series, truncated = build_quarterly_activity(normalize_transactions(txs), frontier)
+    return {(q.year, q.quarter): q for q in series}, truncated
+
+
+def test_open_market_and_all_types_totals_are_bucketed_by_transaction_date():
+    quarters, _ = _q(
+        [
+            _row(tx_type="S-Sale", tx_date="2026-08-01", shares=100, acquisitionOrDisposition="D"),
+            _row(tx_type="S-Sale", tx_date="2026-09-30", shares=50, acquisitionOrDisposition="D"),
+            _row(tx_type="P-Purchase", tx_date="2026-07-01", shares=30, acquisitionOrDisposition="A"),
+            # Same transactionDate quarter even though filed in the next one.
+            _row(tx_type="S-Sale", tx_date="2026-06-30", shares=7, filingDate="2026-07-02", acquisitionOrDisposition="D"),
+        ]
+    )
+    q3, q2 = quarters[(2026, 3)], quarters[(2026, 2)]
+    assert (q3.open_market_disposed, q3.open_market_acquired) == (150, 30)
+    assert (q3.all_disposed, q3.all_acquired) == (150, 30)
+    assert q2.open_market_disposed == 7
+
+
+def test_non_open_market_rows_only_count_toward_the_all_types_totals():
+    quarters, _ = _q(
+        [
+            _row(tx_type="S-Sale", shares=100, acquisitionOrDisposition="D"),
+            _row(tx_type="M-Exempt", shares=1000, price=0, acquisitionOrDisposition="A"),  # exercise: acquired
+            _row(tx_type="M-Exempt", shares=900, price=0, acquisitionOrDisposition="D"),  # ...and the option leg
+            _row(tx_type="F-InKind", shares=400, price=0, acquisitionOrDisposition="D"),  # tax withholding
+            _row(tx_type="G-Gift", shares=60, price=0, acquisitionOrDisposition="D"),
+            _row(tx_type="A-Award", shares=2000, price=0, acquisitionOrDisposition="A"),
+        ]
+    )
+    q = quarters[(2026, 3)]
+    assert (q.open_market_acquired, q.open_market_disposed) == (0, 100)
+    assert q.all_acquired == 3000
+    assert q.all_disposed == 100 + 900 + 400 + 60
+
+
+def test_open_market_direction_is_pinned_by_kind_not_the_flag():
+    quarters, _ = _q([_row(tx_type="S-Sale", shares=10), _row(tx_type="P-Purchase", shares=4)])  # no A/D flag at all
+    q = quarters[(2026, 3)]
+    assert (q.all_acquired, q.all_disposed) == (4, 10)
+
+
+def test_a_row_with_no_direction_flag_is_left_out_of_the_all_types_totals():
+    quarters, _ = _q([_row(tx_type="M-Exempt", shares=500, price=0)])
+    q = quarters[(2026, 3)]
+    assert (q.all_acquired, q.all_disposed) == (0, 0)
+
+
+def test_the_window_is_twelve_quarters_ending_at_the_newest_transaction_with_gaps_zero_filled():
+    quarters, truncated = _q(
+        [
+            _row(tx_date="2026-09-01", shares=1),
+            _row(tx_date="2026-01-15", shares=1),
+            _row(tx_date="2023-10-05", shares=1),  # first day of the window's first quarter
+            _row(tx_date="2023-09-29", shares=99),  # one quarter too old
+        ]
+    )
+    keys = sorted(quarters)
+    assert keys[0] == (2023, 4) and keys[-1] == (2026, 3) and len(keys) == 12
+    assert quarters[(2026, 2)].all_acquired == 0 and quarters[(2026, 2)].open_market_acquired == 0
+    assert (2023, 3) not in quarters
+    assert truncated is False
+
+
+def test_an_exhausted_young_history_is_not_padded_with_leading_zeros():
+    quarters, truncated = _q([_row(tx_date="2026-09-01"), _row(tx_date="2026-02-01")])
+    assert sorted(quarters) == [(2026, 1), (2026, 2), (2026, 3)]
+    assert truncated is False
+
+
+def test_a_frontier_drops_quarters_that_could_be_incomplete_and_flags_truncation():
+    txs = [_row(tx_date="2026-09-01"), _row(tx_date="2025-01-15"), _row(tx_date="2024-11-20")]
+    # Filings on/before 2025-02-10 may be missing -> 2025 Q1 (starts 2025-01-01) is unsafe,
+    # 2025 Q2 is the first quarter that begins after the frontier.
+    quarters, truncated = _q(txs, frontier=date(2025, 2, 10))
+    assert sorted(quarters)[0] == (2025, 2)
+    assert (2025, 1) not in quarters and (2024, 4) not in quarters
+    assert truncated is True
+
+
+def test_a_frontier_that_starts_before_the_window_truncates_nothing():
+    quarters, truncated = _q([_row(tx_date="2026-09-01"), _row(tx_date="2024-06-01")], frontier=date(2020, 1, 1))
+    assert len(quarters) == 12 and truncated is False
+    # ...and its leading empty quarters are real zeros, not trimmed.
+    assert quarters[(2023, 4)].all_acquired == 0
+
+
+def test_a_frontier_newer_than_every_quarter_leaves_an_empty_truncated_series():
+    quarters, truncated = _q([_row(tx_date="2026-09-01")], frontier=date(2026, 12, 31))
+    assert quarters == {} and truncated is True
+
+
+def test_no_transactions_means_no_series():
+    assert build_quarterly_activity([], None) == ([], False)
+
+
+def test_the_endpoint_payload_carries_the_series_and_the_truncation_flag(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, search=[_filed_row("2026-09-03", tx_type="S-Sale", shares=10)], statistics=[])
+    out = asyncio.run(get_insider_activity_data("TEST"))
+    assert [(q.year, q.quarter, q.open_market_disposed) for q in out.quarterly_activity] == [(2026, 3, 10)]
+    assert out.history_truncated is False
+
+
+def test_a_capped_cached_blob_reads_as_truncated_through_the_endpoint(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    rows = [_filed_row("2026-09-03"), _filed_row("2025-03-03")]
+    _seed_cache(engine, "insider_trading_search", {"rows": rows, "exhausted": False}, datetime.now())
+    _seed_cache(engine, "insider_trading_statistics", [], datetime.now())
+    _patch_fmp(monkeypatch)
+    out = asyncio.run(get_insider_activity_data("TEST"))
+    # Frontier 2025-03-03: 2025 Q1 is unsafe, 2025 Q2 is the first shown.
+    assert (out.quarterly_activity[0].year, out.quarterly_activity[0].quarter) == (2025, 2)
+    assert out.history_truncated is True
 
 
 # --- search paging ----------------------------------------------------------

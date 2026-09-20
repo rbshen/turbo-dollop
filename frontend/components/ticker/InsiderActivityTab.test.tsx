@@ -11,8 +11,9 @@ vi.mock("@/lib/hooks/useInsiderActivity", () => ({
 }));
 
 // Recharts' ResponsiveContainer needs layout that jsdom doesn't have.
+// The mock echoes the view it was handed, so tests can assert the toggle reaches the chart.
 vi.mock("@/components/insiderActivity/InsiderQuarterlyChart", () => ({
-  InsiderQuarterlyChart: () => <div data-testid="quarterly-chart" />,
+  InsiderQuarterlyChart: ({ view }: { view: string }) => <div data-testid="quarterly-chart" data-view={view} />,
 }));
 
 beforeEach(() => mockUseInsiderActivity.mockReset());
@@ -27,6 +28,7 @@ function tx(kind: InsiderTransaction["kind"], over: Partial<InsiderTransaction> 
     insider_role: "officer: Chief Financial Officer",
     ownership: "direct",
     kind,
+    direction: kind === "open_market_buy" ? "acquired" : "disposed",
     type_label: kind === "open_market_buy" ? "Open-market buy" : kind === "award" ? "Grant / award" : "Open-market sale",
     shares: 1000,
     price: 10,
@@ -42,6 +44,8 @@ function data(over: Partial<InsiderActivityOut> = {}): InsiderActivityOut {
     ticker: "TEST",
     transactions: [],
     quarterly_stats: [],
+    quarterly_activity: [],
+    history_truncated: false,
     summary: {
       sentiment: "no_activity",
       quarters_in_window: 0,
@@ -130,13 +134,78 @@ describe("InsiderActivityTab content", () => {
     render(<InsiderActivityTab ticker="TEST" />);
     expect(screen.queryByText("Grant / award")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "All types" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "All types" })[0]);
 
     expect(screen.getByText("Grant / award")).toBeInTheDocument();
     expect(screen.getByText("no cash value")).toBeInTheDocument();
     expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
     // The toggle only re-renders over the one fetched blob -- never asks for another resource.
     expect(new Set(mockUseInsiderActivity.mock.calls.map((c) => c[0]))).toEqual(new Set(["TEST"]));
+  });
+
+  it("drives the chart and the table from one control -- either toggle switches both", () => {
+    mockUseInsiderActivity.mockReturnValue({ data: content });
+    render(<InsiderActivityTab ticker="TEST" />);
+    const chart = () => screen.getByTestId("quarterly-chart");
+    expect(chart()).toHaveAttribute("data-view", "open_market");
+
+    // Two controls (chart heading, table header), index 0 = chart's, 1 = table's.
+    const allTypes = () => screen.getAllByRole("button", { name: "All types" });
+    const openMarket = () => screen.getAllByRole("button", { name: "Open market" });
+    expect(allTypes()).toHaveLength(2);
+
+    fireEvent.click(allTypes()[0]); // the chart's own control...
+    expect(chart()).toHaveAttribute("data-view", "all");
+    expect(screen.getByText("Grant / award")).toBeInTheDocument(); // ...also switched the table
+    allTypes().forEach((b) => expect(b.className).toContain("bg-brand")); // ...and both controls agree
+    openMarket().forEach((b) => expect(b.className).not.toContain("bg-brand"));
+
+    fireEvent.click(openMarket()[1]); // the table's control switches the chart back
+    expect(chart()).toHaveAttribute("data-view", "open_market");
+    expect(screen.queryByText("Grant / award")).not.toBeInTheDocument();
+  });
+
+  it("captions what the chart is counting for the current view", () => {
+    mockUseInsiderActivity.mockReturnValue({ data: content });
+    render(<InsiderActivityTab ticker="TEST" />);
+    expect(screen.getByText("Open-market buys and sales only.")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "All types" })[0]);
+    expect(screen.getByText(/All transaction types — includes option exercises, tax withholding/)).toBeInTheDocument();
+  });
+
+  it("notes when earlier quarters were left out, and only then", () => {
+    mockUseInsiderActivity.mockReturnValue({ data: { ...content, history_truncated: true } });
+    const { unmount } = render(<InsiderActivityTab ticker="TEST" />);
+    expect(screen.getByText(/Earlier quarters are left out/)).toBeInTheDocument();
+    unmount();
+
+    mockUseInsiderActivity.mockReturnValue({ data: content });
+    render(<InsiderActivityTab ticker="TEST" />);
+    expect(screen.queryByText(/Earlier quarters are left out/)).not.toBeInTheDocument();
+  });
+
+  it("renders a page of rows at a time and reveals the rest on request", () => {
+    const many = Array.from({ length: 230 }, (_, i) =>
+      tx("open_market_sale", { insider_name: `Insider ${i}`, insider_cik: String(i) })
+    );
+    mockUseInsiderActivity.mockReturnValue({ data: { ...content, transactions: many } });
+    render(<InsiderActivityTab ticker="TEST" />);
+
+    expect(screen.getAllByText(/^Insider \d+$/)).toHaveLength(100);
+    expect(screen.getByText("Showing 100 of 230")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show 100 more" }));
+    expect(screen.getAllByText(/^Insider \d+$/)).toHaveLength(200);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show 30 more" }));
+    expect(screen.getAllByText(/^Insider \d+$/)).toHaveLength(230);
+    expect(screen.queryByText(/^Showing/)).not.toBeInTheDocument();
+  });
+
+  it("renders no 'show more' control when everything fits on one page", () => {
+    mockUseInsiderActivity.mockReturnValue({ data: content });
+    render(<InsiderActivityTab ticker="TEST" />);
+    expect(screen.queryByText(/^Showing/)).not.toBeInTheDocument();
   });
 
   it("shows a fill count on a merged notable trade and none on a single-line one", () => {

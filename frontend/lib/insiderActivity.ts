@@ -1,4 +1,4 @@
-import type { InsiderActivityOut, InsiderSentiment, InsiderTransaction } from "@/lib/api/types";
+import type { InsiderActivityOut, InsiderQuarterActivity, InsiderSentiment, InsiderTransaction } from "@/lib/api/types";
 import { fmtCompactMoney } from "@/lib/format";
 
 /** Which of the tab's three body states to render. `has_data` alone can't
@@ -28,6 +28,35 @@ export const SENTIMENT_STYLES: Record<InsiderSentiment, string> = {
   no_activity: "bg-surface-2 text-text-tertiary border-border-card",
   mixed: "bg-surface-2 text-text-tertiary border-border-card",
 };
+
+/** The one view the chart and the transactions table share: open-market
+ * buys/sales only (the default), or every transaction type. */
+export type InsiderView = "open_market" | "all";
+
+export const INSIDER_VIEW_OPTIONS: { value: InsiderView; label: string }[] = [
+  { value: "open_market", label: "Open market" },
+  { value: "all", label: "All types" },
+];
+
+export const INSIDER_VIEW_CAPTIONS: Record<InsiderView, string> = {
+  open_market: "Open-market buys and sales only.",
+  all: "All transaction types — includes option exercises, tax withholding, gifts and grants.",
+};
+
+export interface InsiderQuarterBar {
+  category: string;
+  acquired: number;
+  disposed: number;
+}
+
+/** The chart's bars for the selected view, oldest first. */
+export function quarterlyBars(activity: InsiderQuarterActivity[], view: InsiderView): InsiderQuarterBar[] {
+  return activity.map((q) => ({
+    category: quarterLabel(q.year, q.quarter),
+    acquired: view === "all" ? q.all_acquired : q.open_market_acquired,
+    disposed: view === "all" ? q.all_disposed : q.open_market_disposed,
+  }));
+}
 
 /** Open-market-only (the default) keeps just buys and sales -- the
  * transactions that reflect an insider's own conviction, as opposed to

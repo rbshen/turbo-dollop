@@ -10,7 +10,7 @@ interface Props {
 // Cluster-buy reuses Speculative Growth's chart-purple chip look: like that
 // pill it's an orthogonal flag, not another rung on the green/red sentiment
 // scale next to it. The window dates go in the tooltip so a stale cluster
-// (the search window is the last 100 filings, not just recent ones) can
+// (the fetched history reaches back years, not just recent filings) can
 // never pass as a current one.
 const CLUSTER_PILL = "border-chart-purple/40 bg-chart-purple/16 text-chart-purple";
 

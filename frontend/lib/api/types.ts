@@ -1486,6 +1486,8 @@ export interface InsiderTransaction {
   insider_role: string | null;
   ownership: "direct" | "indirect" | null;
   kind: InsiderTransactionKind;
+  // null when FMP omits its acquisition/disposition flag.
+  direction: "acquired" | "disposed" | null;
   // Plain-language type label -- the UI never sees FMP's raw codes.
   type_label: string;
   shares: number;
@@ -1510,6 +1512,18 @@ export interface InsiderQuarterStat {
   total_disposed: number;
   total_purchases: number;
   total_sales: number;
+}
+
+// Shares acquired/disposed in one calendar quarter, summed from the
+// transactions by transaction date. open_market_* = buys/sales only; all_* also
+// counts exercises, tax withholding, gifts and grants.
+export interface InsiderQuarterActivity {
+  year: number;
+  quarter: number;
+  open_market_acquired: number;
+  open_market_disposed: number;
+  all_acquired: number;
+  all_disposed: number;
 }
 
 export interface InsiderClusterBuy {
@@ -1537,8 +1551,13 @@ export interface InsiderActivityOut {
   ticker: string;
   // Newest first.
   transactions: InsiderTransaction[];
-  // Oldest first.
+  // Oldest first. Feeds the sentiment totals only -- the chart reads quarterly_activity.
   quarterly_stats: InsiderQuarterStat[];
+  // The chart's series, oldest first (up to 12 calendar quarters).
+  quarterly_activity: InsiderQuarterActivity[];
+  // The fetched filings stop short of the 12-quarter window, so the earliest
+  // quarters were left out rather than shown incomplete.
+  history_truncated: boolean;
   summary: InsiderSummary;
   has_data: boolean;
   // ISO timestamp of the cached search row. null = never successfully cached

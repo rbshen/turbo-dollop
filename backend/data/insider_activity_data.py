@@ -13,6 +13,7 @@ from core.schemas import (
     InsiderActivityOut,
     InsiderClusterBuy,
     InsiderNotableTradeOut,
+    InsiderQuarterActivityOut,
     InsiderQuarterStatOut,
     InsiderSummaryOut,
     InsiderTransactionOut,
@@ -88,6 +89,11 @@ _OTHER_LABEL_BY_CODE = {
 
 _UNKNOWN_NAME = "Unknown"
 
+# An open-market buy is an acquisition and a sale a disposition by
+# definition; every other kind reads FMP's own A/D flag.
+_DIRECTION_BY_KIND = {"open_market_buy": "acquired", "open_market_sale": "disposed"}
+_DIRECTION_BY_FLAG = {"A": "acquired", "D": "disposed"}
+
 
 def _num(value) -> float:
     """FMP numeric fields are sometimes null or absent; treat as 0."""
@@ -98,10 +104,13 @@ def _quarter_index(d: date) -> int:
     return d.year * 4 + (d.month - 1) // 3
 
 
+def _index_start(index: int) -> date:
+    return date(index // 4, (index % 4) * 3 + 1, 1)
+
+
 def _quarter_start(d: date, quarters_back: int = 0) -> date:
     """First day of the calendar quarter `quarters_back` quarters before d's."""
-    index = _quarter_index(d) - quarters_back
-    return date(index // 4, (index % 4) * 3 + 1, 1)
+    return _index_start(_quarter_index(d) - quarters_back)
 
 
 def _parse_date(value) -> date | None:
@@ -148,6 +157,9 @@ def normalize_transactions(rows: list) -> list[InsiderTransactionOut]:
         # market buy/sale, where $0 would be a data problem, not a fact.
         has_cash_value = kind in ("open_market_buy", "open_market_sale") or price > 0
         direct_or_indirect = (row.get("directOrIndirect") or "").strip().upper()
+        direction = _DIRECTION_BY_KIND.get(kind) or _DIRECTION_BY_FLAG.get(
+            (row.get("acquisitionOrDisposition") or "").strip().upper()
+        )
 
         out.append(
             InsiderTransactionOut(
@@ -158,6 +170,7 @@ def normalize_transactions(rows: list) -> list[InsiderTransactionOut]:
                 insider_role=(row.get("typeOfOwner") or "").strip() or None,
                 ownership={"D": "direct", "I": "indirect"}.get(direct_or_indirect),
                 kind=kind,
+                direction=direction,
                 type_label=label,
                 shares=shares,
                 price=price if price > 0 else None,
@@ -222,6 +235,70 @@ def normalize_quarterly_stats(rows: list) -> list[InsiderQuarterStatOut]:
         )
     out.sort(key=lambda s: (s.year, s.quarter))
     return out
+
+
+def build_quarterly_activity(
+    transactions: list[InsiderTransactionOut], frontier: date | None
+) -> tuple[list[InsiderQuarterActivityOut], bool]:
+    """(chart series oldest first, history_truncated).
+
+    Sums shares acquired/disposed per calendar quarter straight from the
+    normalized transactions, bucketed by transactionDate. This replaces the
+    statistics endpoint's totalAcquired/totalDisposed as the chart's source:
+    those count exercises, tax withholding and gifts alongside real sales
+    (overstating "selling" by roughly half on a typical quarter, 100% on
+    some), and there was no way to split them. Open-market totals are the
+    P/S rows only -- what the sentiment summary already uses; all-types adds
+    every row that carries an acquired/disposed flag.
+
+    The window is the CHART_QUARTERS calendar quarters ending at the newest
+    transaction's quarter; a quarter with no rows inside it is a real zero.
+    `frontier` (see _unpack_search_blob) is the oldest filing date fetched
+    when the history stopped short of FMP's own; a quarter is only shown if
+    it begins after it, since an earlier one could be missing rows -- and a
+    partly-filled bar reads as a real, smaller total. When that trims the
+    window, `history_truncated` is True. With the history exhausted
+    (frontier None), quarters before the first-ever transaction aren't
+    plotted as zeros."""
+    if not transactions:
+        return [], False
+    newest = _quarter_index(transactions[0].transaction_date)  # newest first
+    window_first = newest - (CHART_QUARTERS - 1)
+
+    first = window_first
+    if frontier is None:
+        first = max(first, _quarter_index(transactions[-1].transaction_date))
+    else:
+        while first <= newest and _index_start(first) <= frontier:
+            first += 1
+    truncated = frontier is not None and first > window_first
+
+    buckets = {index: [0.0, 0.0, 0.0, 0.0] for index in range(first, newest + 1)}
+    for t in transactions:
+        bucket = buckets.get(_quarter_index(t.transaction_date))
+        if bucket is None:
+            continue
+        if t.kind == "open_market_buy":
+            bucket[0] += t.shares
+        elif t.kind == "open_market_sale":
+            bucket[1] += t.shares
+        if t.direction == "acquired":
+            bucket[2] += t.shares
+        elif t.direction == "disposed":
+            bucket[3] += t.shares
+
+    series = [
+        InsiderQuarterActivityOut(
+            year=index // 4,
+            quarter=index % 4 + 1,
+            open_market_acquired=b[0],
+            open_market_disposed=b[1],
+            all_acquired=b[2],
+            all_disposed=b[3],
+        )
+        for index, b in buckets.items()
+    ]
+    return series, truncated
 
 
 def classify_sentiment(total_purchases: float, total_sales: float) -> str:
@@ -455,14 +532,18 @@ async def get_insider_activity_data(ticker: str, cache_only: bool = False) -> In
         ).first()
         as_of = search_row.fetched_at if search_row else None
 
-    search_rows, _search_frontier = _unpack_search_blob(search)
+    search_rows, search_frontier = _unpack_search_blob(search)
     transactions = normalize_transactions(search_rows)
     quarterly_stats = normalize_quarterly_stats(statistics if isinstance(statistics, list) else [])
+
+    quarterly_activity, history_truncated = build_quarterly_activity(transactions, search_frontier)
 
     return InsiderActivityOut(
         ticker=ticker,
         transactions=transactions,
         quarterly_stats=quarterly_stats,
+        quarterly_activity=quarterly_activity,
+        history_truncated=history_truncated,
         summary=build_summary(transactions, quarterly_stats),
         has_data=bool(transactions or quarterly_stats),
         as_of=as_of,

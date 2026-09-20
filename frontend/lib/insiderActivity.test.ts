@@ -8,6 +8,7 @@ import {
   fmtIsoDate,
   insiderViewState,
   quarterLabel,
+  quarterlyBars,
 } from "@/lib/insiderActivity";
 
 function tx(kind: InsiderTransaction["kind"], over: Partial<InsiderTransaction> = {}): InsiderTransaction {
@@ -19,6 +20,7 @@ function tx(kind: InsiderTransaction["kind"], over: Partial<InsiderTransaction> 
     insider_role: null,
     ownership: "direct",
     kind,
+    direction: null,
     type_label: "x",
     shares: 100,
     price: 10,
@@ -107,6 +109,31 @@ describe("fmtInsiderRole", () => {
   it("leaves free-text titles without a colon alone", () => {
     expect(fmtInsiderRole("VP, Engineering")).toBe("VP, Engineering");
     expect(fmtInsiderRole("chief executive officer")).toBe("Chief executive officer");
+  });
+});
+
+describe("quarterlyBars", () => {
+  const activity = [
+    { year: 2026, quarter: 1, open_market_acquired: 10, open_market_disposed: 20, all_acquired: 110, all_disposed: 220 },
+    { year: 2026, quarter: 2, open_market_acquired: 0, open_market_disposed: 5, all_acquired: 1, all_disposed: 500 },
+  ];
+
+  it("reads the open-market totals by default view", () => {
+    expect(quarterlyBars(activity, "open_market")).toEqual([
+      { category: "2026 Q1", acquired: 10, disposed: 20 },
+      { category: "2026 Q2", acquired: 0, disposed: 5 },
+    ]);
+  });
+
+  it("reads the all-types totals for the 'all' view, keeping the order", () => {
+    expect(quarterlyBars(activity, "all")).toEqual([
+      { category: "2026 Q1", acquired: 110, disposed: 220 },
+      { category: "2026 Q2", acquired: 1, disposed: 500 },
+    ]);
+  });
+
+  it("is empty for no activity", () => {
+    expect(quarterlyBars([], "all")).toEqual([]);
   });
 });
 

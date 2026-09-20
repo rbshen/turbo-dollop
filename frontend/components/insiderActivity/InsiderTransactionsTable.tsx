@@ -7,14 +7,26 @@ import { SegmentedControl } from "@/components/shared/SegmentedControl";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { InsiderTransaction } from "@/lib/api/types";
 import { fmtCompactNumber } from "@/lib/format";
-import { filterInsiderTransactions, fmtInsiderRole, fmtInsiderValue, fmtIsoDate } from "@/lib/insiderActivity";
+import {
+  INSIDER_VIEW_OPTIONS,
+  type InsiderView,
+  filterInsiderTransactions,
+  fmtInsiderRole,
+  fmtInsiderValue,
+  fmtIsoDate,
+} from "@/lib/insiderActivity";
 import { cn } from "@/lib/utils";
 
 interface Props {
   transactions: InsiderTransaction[];
+  // Shared with the quarterly chart -- the tab owns it so one control drives both.
+  view: InsiderView;
+  onViewChange: (view: InsiderView) => void;
 }
 
-type View = "open_market" | "all";
+// A busy filer's fetched history runs to hundreds or thousands of lines, so
+// only a page of them is in the DOM at a time.
+const PAGE_SIZE = 100;
 
 const HEAD = "whitespace-nowrap border-b border-border-card py-2 pr-6 text-xs font-medium uppercase tracking-widest text-text-secondary";
 
@@ -26,25 +38,19 @@ function typeClass(kind: InsiderTransaction["kind"]): string {
   return "text-text-secondary";
 }
 
-// Defaults to open-market buys/sales; the toggle just filters the one
-// fetched blob client-side (same convention as the Screener's own
-// multi-selects) -- no refetch.
-export function InsiderTransactionsTable({ transactions }: Props) {
-  const [view, setView] = useState<View>("open_market");
+// The tab defaults the view to open-market buys/sales; the toggle just
+// filters the one fetched blob client-side (same convention as the
+// Screener's own multi-selects) -- no refetch.
+export function InsiderTransactionsTable({ transactions, view, onViewChange }: Props) {
+  const [shown, setShown] = useState(PAGE_SIZE);
   const rows = filterInsiderTransactions(transactions, view === "all");
+  const visible = rows.slice(0, shown);
 
   return (
     <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-heading text-sm font-semibold text-text-primary">Transactions</h2>
-        <SegmentedControl
-          value={view}
-          onChange={setView}
-          options={[
-            { value: "open_market", label: "Open market" },
-            { value: "all", label: "All types" },
-          ]}
-        />
+        <SegmentedControl value={view} onChange={onViewChange} options={INSIDER_VIEW_OPTIONS} />
       </div>
 
       {rows.length === 0 ? (
@@ -67,7 +73,7 @@ export function InsiderTransactionsTable({ transactions }: Props) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((t, i) => {
+            {visible.map((t, i) => {
               const role = fmtInsiderRole(t.insider_role);
               return (
                 <TableRow key={`${t.transaction_date}-${t.insider_cik ?? t.insider_name}-${i}`} className="hover:bg-surface-2">
@@ -107,6 +113,21 @@ export function InsiderTransactionsTable({ transactions }: Props) {
             })}
           </TableBody>
         </Table>
+      )}
+
+      {rows.length > shown && (
+        <div className="flex items-center justify-between gap-3 pt-1 text-xs text-text-tertiary">
+          <span>
+            Showing {visible.length} of {rows.length}
+          </span>
+          <button
+            type="button"
+            onClick={() => setShown((n) => n + PAGE_SIZE)}
+            className="inline-flex h-8 items-center rounded-md px-3 font-medium text-text-secondary transition-colors hover:text-text-primary"
+          >
+            Show {Math.min(PAGE_SIZE, rows.length - shown)} more
+          </button>
+        </div>
       )}
     </div>
   );

@@ -1838,6 +1838,10 @@ class InsiderTransactionOut(BaseModel):
     insider_role: str | None = None
     ownership: Literal["direct", "indirect"] | None = None
     kind: InsiderTransactionKind
+    # FMP's acquisitionOrDisposition ("A"/"D"); open-market buys/sales are
+    # pinned to acquired/disposed by kind. None when FMP omits it -- such a
+    # row is left out of the chart's all-types acquired/disposed totals.
+    direction: Literal["acquired", "disposed"] | None = None
     type_label: str
     shares: float
     price: float | None = None
@@ -1856,6 +1860,20 @@ class InsiderQuarterStatOut(BaseModel):
     total_disposed: float
     total_purchases: float
     total_sales: float
+
+
+class InsiderQuarterActivityOut(BaseModel):
+    """Shares acquired/disposed in one calendar quarter, summed from the
+    normalized transactions and bucketed by transactionDate -- the quarterly
+    chart's source. `open_market_*` counts buys/sales only; `all_*` also
+    counts exercises, tax withholding, gifts, grants and everything else."""
+
+    year: int
+    quarter: int
+    open_market_acquired: float
+    open_market_disposed: float
+    all_acquired: float
+    all_disposed: float
 
 
 class InsiderClusterBuy(BaseModel):
@@ -1897,7 +1915,16 @@ class InsiderSummaryOut(BaseModel):
 class InsiderActivityOut(BaseModel):
     ticker: str
     transactions: list[InsiderTransactionOut]
+    # The statistics endpoint's rows, oldest first. No longer the chart's
+    # source (see quarterly_activity) -- it still supplies the sentiment
+    # totals in `summary`.
     quarterly_stats: list[InsiderQuarterStatOut]
+    # Chart series, oldest first: up to the 12 calendar quarters ending at the
+    # newest transaction's quarter (see build_quarterly_activity).
+    quarterly_activity: list[InsiderQuarterActivityOut] = []
+    # True when the fetched filings stop short of the 12-quarter window, so
+    # the earliest quarters were left out rather than shown incomplete.
+    history_truncated: bool = False
     summary: InsiderSummaryOut
     has_data: bool
     # fetched_at of the cached search row. None only when it was never

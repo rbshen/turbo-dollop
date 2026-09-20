@@ -1,11 +1,20 @@
 "use client";
 
+import { useState } from "react";
+
 import { InsiderNotableTrades } from "@/components/insiderActivity/InsiderNotableTrades";
 import { InsiderQuarterlyChart } from "@/components/insiderActivity/InsiderQuarterlyChart";
 import { InsiderSummaryCard } from "@/components/insiderActivity/InsiderSummaryCard";
 import { InsiderTransactionsTable } from "@/components/insiderActivity/InsiderTransactionsTable";
+import { SegmentedControl } from "@/components/shared/SegmentedControl";
 import { useInsiderActivity } from "@/lib/hooks/useInsiderActivity";
-import { fmtAsOf, insiderViewState } from "@/lib/insiderActivity";
+import {
+  INSIDER_VIEW_CAPTIONS,
+  INSIDER_VIEW_OPTIONS,
+  type InsiderView,
+  fmtAsOf,
+  insiderViewState,
+} from "@/lib/insiderActivity";
 
 interface Props {
   ticker: string;
@@ -21,6 +30,9 @@ function SectionHeading({ children }: { children: string }) {
 
 export function InsiderActivityTab({ ticker }: Props) {
   const { data, error } = useInsiderActivity(ticker);
+  // One state for the chart and the transactions table -- a control on either
+  // one switches both.
+  const [insiderView, setInsiderView] = useState<InsiderView>("open_market");
 
   if (error) {
     return (
@@ -84,9 +96,19 @@ export function InsiderActivityTab({ ticker }: Props) {
       </div>
 
       <div className="space-y-3">
-        <SectionHeading>Shares Acquired vs. Disposed by Quarter</SectionHeading>
-        <div className="rounded-lg border border-border-card bg-surface p-6">
-          <InsiderQuarterlyChart stats={data.quarterly_stats} />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <SectionHeading>Shares Acquired vs. Disposed by Quarter</SectionHeading>
+          <SegmentedControl value={insiderView} onChange={setInsiderView} options={INSIDER_VIEW_OPTIONS} />
+        </div>
+        <div className="space-y-3 rounded-lg border border-border-card bg-surface p-6">
+          <p className="text-xs text-text-tertiary">{INSIDER_VIEW_CAPTIONS[insiderView]}</p>
+          <InsiderQuarterlyChart activity={data.quarterly_activity} view={insiderView} />
+          {data.history_truncated && (
+            <p className="text-xs text-text-tertiary">
+              Earlier quarters are left out — this ticker files too often for the fetched history to reach back the full
+              12 quarters, and a partly-covered quarter would read as a smaller real total.
+            </p>
+          )}
         </div>
       </div>
 
@@ -95,7 +117,7 @@ export function InsiderActivityTab({ ticker }: Props) {
         <InsiderNotableTrades buy={data.summary.notable_buy} sale={data.summary.notable_sale} />
       </div>
 
-      <InsiderTransactionsTable transactions={data.transactions} />
+      <InsiderTransactionsTable transactions={data.transactions} view={insiderView} onViewChange={setInsiderView} />
     </div>
   );
 }
