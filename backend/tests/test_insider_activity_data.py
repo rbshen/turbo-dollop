@@ -265,16 +265,98 @@ def test_open_market_counts_fall_back_to_every_transaction_without_stats():
 def test_notable_trades_are_the_largest_open_market_buy_and_sale_by_dollar_value():
     transactions = normalize_transactions(
         [
-            _row(tx_type="P-Purchase", price=10, shares=100, name="small buy"),
-            _row(tx_type="P-Purchase", price=10, shares=900, name="big buy"),
-            _row(tx_type="S-Sale", price=50, shares=10, name="small sale"),
-            _row(tx_type="S-Sale", price=50, shares=5000, name="big sale"),
-            _row(tx_type="M-Exempt", price=1000, shares=1_000_000, name="huge exercise"),  # never notable
+            _row(tx_type="P-Purchase", price=10, shares=100, name="small buy", cik="1"),
+            _row(tx_type="P-Purchase", price=10, shares=900, name="big buy", cik="2"),
+            _row(tx_type="S-Sale", price=50, shares=10, name="small sale", cik="3"),
+            _row(tx_type="S-Sale", price=50, shares=5000, name="big sale", cik="4"),
+            _row(tx_type="M-Exempt", price=1000, shares=1_000_000, name="huge exercise", cik="5"),  # never notable
         ]
     )
     summary = build_summary(transactions, [])
     assert summary.notable_buy.insider_name == "big buy"
     assert summary.notable_sale.insider_name == "big sale"
+
+
+def test_same_day_lines_by_one_insider_are_merged_into_one_notable_trade():
+    # One real sale split across price bands: the biggest single LINE ($6,000)
+    # is smaller than a different insider's one-line $9,000 sale, but the
+    # merged total ($14,000 across 3 fills) is the largest trade.
+    transactions = normalize_transactions(
+        [
+            _row(tx_type="S-Sale", cik="1", name="splitter", price=10, shares=400),
+            _row(tx_type="S-Sale", cik="1", name="splitter", price=15, shares=400),
+            _row(tx_type="S-Sale", cik="1", name="splitter", price=20, shares=200),
+            _row(tx_type="S-Sale", cik="2", name="one liner", price=90, shares=100),
+        ]
+    )
+    sale = build_summary(transactions, []).notable_sale
+    assert sale.insider_name == "splitter"
+    assert sale.fill_count == 3
+    assert sale.shares == 1000
+    assert sale.dollar_value == 400 * 10 + 400 * 15 + 200 * 20
+    assert sale.price == pytest.approx(14.0)  # share-weighted average
+    assert sale.has_cash_value is True
+
+
+def test_a_single_line_notable_trade_has_a_fill_count_of_one_and_is_unchanged():
+    transactions = normalize_transactions([_row(tx_type="P-Purchase", cik="1", price=10, shares=100)])
+    buy = build_summary(transactions, []).notable_buy
+    assert buy.fill_count == 1
+    assert buy.shares == 100 and buy.dollar_value == 1000 and buy.price == 10
+
+
+def test_lines_on_different_days_are_never_merged():
+    # Weekly 10b5-1 style sales stay distinct events: no multi-day windowing.
+    transactions = normalize_transactions(
+        [_row(tx_type="S-Sale", cik="1", tx_date=f"2026-09-0{d}", price=10, shares=100) for d in (1, 2, 3)]
+    )
+    sale = build_summary(transactions, []).notable_sale
+    assert sale.fill_count == 1
+    assert sale.dollar_value == 1000
+
+
+def test_same_day_lines_by_different_insiders_are_not_merged():
+    transactions = normalize_transactions(
+        [
+            _row(tx_type="S-Sale", cik="1", name="a", price=10, shares=100),
+            _row(tx_type="S-Sale", cik="2", name="b", price=10, shares=100),
+        ]
+    )
+    assert build_summary(transactions, []).notable_sale.fill_count == 1
+
+
+def test_buys_and_sales_by_one_insider_on_one_day_are_grouped_separately():
+    transactions = normalize_transactions(
+        [
+            _row(tx_type="S-Sale", cik="1", price=10, shares=100),
+            _row(tx_type="P-Purchase", cik="1", price=10, shares=300),
+        ]
+    )
+    summary = build_summary(transactions, [])
+    assert (summary.notable_sale.shares, summary.notable_sale.fill_count) == (100, 1)
+    assert (summary.notable_buy.shares, summary.notable_buy.fill_count) == (300, 1)
+
+
+def test_merged_notable_trade_takes_identity_fields_from_its_largest_line():
+    transactions = normalize_transactions(
+        [
+            _row(tx_type="S-Sale", cik="1", price=10, shares=10, secFilingUrl="https://sec/small"),
+            _row(tx_type="S-Sale", cik="1", price=10, shares=900, secFilingUrl="https://sec/big"),
+        ]
+    )
+    sale = build_summary(transactions, []).notable_sale
+    assert sale.sec_filing_url == "https://sec/big"
+    assert sale.fill_count == 2
+
+
+def test_merged_notable_trade_with_mixed_ownership_reports_none():
+    transactions = normalize_transactions(
+        [
+            _row(tx_type="S-Sale", cik="1", directOrIndirect="D"),
+            _row(tx_type="S-Sale", cik="1", directOrIndirect="I"),
+        ]
+    )
+    assert build_summary(transactions, []).notable_sale.ownership is None
 
 
 def test_notable_trade_is_none_when_there_is_no_positive_value_open_market_trade():

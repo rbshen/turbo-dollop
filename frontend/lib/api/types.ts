@@ -1496,6 +1496,13 @@ export interface InsiderTransaction {
   sec_filing_url: string | null;
 }
 
+// The largest open-market buy/sale with same-day, same-insider lines merged:
+// shares/dollar_value are the group totals, price the share-weighted average.
+export interface InsiderNotableTrade extends InsiderTransaction {
+  // How many Form 4 lines were merged (1 = a single line, nothing merged).
+  fill_count: number;
+}
+
 export interface InsiderQuarterStat {
   year: number;
   quarter: number;
@@ -1522,8 +1529,8 @@ export interface InsiderSummary {
   open_market_buy_count: number;
   open_market_sale_count: number;
   cluster_buy: InsiderClusterBuy | null;
-  notable_buy: InsiderTransaction | null;
-  notable_sale: InsiderTransaction | null;
+  notable_buy: InsiderNotableTrade | null;
+  notable_sale: InsiderNotableTrade | null;
 }
 
 export interface InsiderActivityOut {

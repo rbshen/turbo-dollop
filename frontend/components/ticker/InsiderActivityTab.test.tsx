@@ -102,7 +102,7 @@ describe("InsiderActivityTab content", () => {
       open_market_buy_count: 4,
       open_market_sale_count: 1,
       cluster_buy: { insider_count: 3, window_start: "2026-07-01", window_end: "2026-09-01" },
-      notable_buy: tx("open_market_buy"),
+      notable_buy: { ...tx("open_market_buy"), fill_count: 1 },
     },
   });
 
@@ -137,6 +137,24 @@ describe("InsiderActivityTab content", () => {
     expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
     // The toggle only re-renders over the one fetched blob -- never asks for another resource.
     expect(new Set(mockUseInsiderActivity.mock.calls.map((c) => c[0]))).toEqual(new Set(["TEST"]));
+  });
+
+  it("shows a fill count on a merged notable trade and none on a single-line one", () => {
+    mockUseInsiderActivity.mockReturnValue({
+      data: {
+        ...content,
+        summary: {
+          ...content.summary,
+          notable_buy: { ...tx("open_market_buy", { shares: 1000 }), fill_count: 1 },
+          notable_sale: { ...tx("open_market_sale", { shares: 5000, dollar_value: 250_000_000 }), fill_count: 22 },
+        },
+      },
+    });
+    render(<InsiderActivityTab ticker="TEST" />);
+    expect(screen.getByText(/22 fills/)).toBeInTheDocument();
+    expect(screen.getByText("$250.00M")).toBeInTheDocument();
+    expect(screen.queryByText(/1 fills/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/fill\b/)).not.toBeInTheDocument();
   });
 
   it("links each filing out to the SEC URL", () => {

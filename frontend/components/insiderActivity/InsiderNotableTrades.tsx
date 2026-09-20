@@ -1,11 +1,11 @@
-import type { InsiderTransaction } from "@/lib/api/types";
+import type { InsiderNotableTrade } from "@/lib/api/types";
 import { fmtInsiderRole, fmtInsiderValue, fmtIsoDate } from "@/lib/insiderActivity";
 import { fmtCompactNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 interface CardProps {
   title: string;
-  trade: InsiderTransaction | null;
+  trade: InsiderNotableTrade | null;
   tone: "positive" | "negative";
 }
 
@@ -25,6 +25,7 @@ function NotableTradeCard({ title, trade, tone }: CardProps) {
           </p>
           <p className="text-xs text-text-tertiary">
             {fmtCompactNumber(trade.shares)} shares · {fmtIsoDate(trade.transaction_date)}
+            {trade.fill_count > 1 && ` · ${trade.fill_count} fills`}
           </p>
         </>
       ) : (
@@ -35,8 +36,8 @@ function NotableTradeCard({ title, trade, tone }: CardProps) {
 }
 
 interface Props {
-  buy: InsiderTransaction | null;
-  sale: InsiderTransaction | null;
+  buy: InsiderNotableTrade | null;
+  sale: InsiderNotableTrade | null;
 }
 
 export function InsiderNotableTrades({ buy, sale }: Props) {

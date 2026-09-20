@@ -10,6 +10,7 @@ from core.models import FundamentalsCache
 from core.schemas import (
     InsiderActivityOut,
     InsiderClusterBuy,
+    InsiderNotableTradeOut,
     InsiderQuarterStatOut,
     InsiderSummaryOut,
     InsiderTransactionOut,
@@ -190,9 +191,44 @@ def find_cluster_buy(transactions: list[InsiderTransactionOut]) -> InsiderCluste
     return None
 
 
-def _largest(transactions: list[InsiderTransactionOut], kind: str) -> InsiderTransactionOut | None:
-    candidates = [t for t in transactions if t.kind == kind and (t.dollar_value or 0) > 0]
-    return max(candidates, key=lambda t: t.dollar_value or 0, default=None)
+def _largest_same_day(transactions: list[InsiderTransactionOut], kind: str) -> InsiderNotableTradeOut | None:
+    """The largest open-market trade of `kind`, with same-day lines by the
+    same insider merged first. Form 4 routinely splits one real sale into
+    many price-band lines, so the single largest LINE understates the trade
+    (AVGO: ~$40M line vs. a $250M same-day total across 22 lines).
+
+    Grouped by (reportingCik, transactionDate) only -- deliberately no wider
+    window, so separate 10b5-1 drip sales on different days stay distinct
+    events. Rows without a CIK fall back to the name as the insider key,
+    matching find_cluster_buy."""
+    groups: dict[tuple[str, date], list[InsiderTransactionOut]] = {}
+    for t in transactions:
+        if t.kind == kind:
+            groups.setdefault((t.insider_cik or t.insider_name, t.transaction_date), []).append(t)
+
+    best: tuple[float, list[InsiderTransactionOut]] | None = None
+    for lines in groups.values():
+        total = sum(t.dollar_value or 0 for t in lines)
+        if total > 0 and (best is None or total > best[0]):
+            best = (total, lines)
+    if best is None:
+        return None
+
+    total_dollars, lines = best
+    total_shares = sum(t.shares for t in lines)
+    largest_line = max(lines, key=lambda t: t.dollar_value or 0)
+    ownerships = {t.ownership for t in lines}
+    return InsiderNotableTradeOut(
+        **{
+            **largest_line.model_dump(),
+            "shares": total_shares,
+            "price": total_dollars / total_shares if total_shares > 0 else None,
+            "has_cash_value": True,
+            "dollar_value": total_dollars,
+            "ownership": ownerships.pop() if len(ownerships) == 1 else None,
+            "fill_count": len(lines),
+        }
+    )
 
 
 def build_summary(
@@ -219,8 +255,8 @@ def build_summary(
         open_market_buy_count=sum(1 for t in in_window if t.kind == "open_market_buy"),
         open_market_sale_count=sum(1 for t in in_window if t.kind == "open_market_sale"),
         cluster_buy=find_cluster_buy(transactions),
-        notable_buy=_largest(transactions, "open_market_buy"),
-        notable_sale=_largest(transactions, "open_market_sale"),
+        notable_buy=_largest_same_day(transactions, "open_market_buy"),
+        notable_sale=_largest_same_day(transactions, "open_market_sale"),
     )
 
 

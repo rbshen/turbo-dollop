@@ -1864,6 +1864,16 @@ class InsiderClusterBuy(BaseModel):
     window_end: date
 
 
+class InsiderNotableTradeOut(InsiderTransactionOut):
+    """The largest open-market buy/sale after same-day, same-insider lines
+    are merged (Form 4 often splits one real trade into several price-band
+    lines): `shares`/`dollar_value` are the group totals, `price` the
+    share-weighted average, and `fill_count` how many lines were merged.
+    Every other field comes from the group's single largest line."""
+
+    fill_count: int = 1
+
+
 class InsiderSummaryOut(BaseModel):
     sentiment: InsiderSentiment
     # Summed over the (up to) 2 most recent quarterly statistics rows --
@@ -1880,8 +1890,8 @@ class InsiderSummaryOut(BaseModel):
     open_market_buy_count: int
     open_market_sale_count: int
     cluster_buy: InsiderClusterBuy | None = None
-    notable_buy: InsiderTransactionOut | None = None
-    notable_sale: InsiderTransactionOut | None = None
+    notable_buy: InsiderNotableTradeOut | None = None
+    notable_sale: InsiderNotableTradeOut | None = None
 
 
 class InsiderActivityOut(BaseModel):
