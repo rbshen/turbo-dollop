@@ -3312,10 +3312,31 @@ table, no new heartbeat wiring.
 
 - **Data** (`data/insider_activity_data.py`, `GET /api/tickers/{ticker}/insider-activity`):
   two standard `FundamentalsCache` blobs, `insider_trading_search`/`latest`
-  (`/stable/insider-trading/search`, `limit=100`) and `insider_trading_statistics`/
-  `latest` (`/stable/insider-trading/statistics`), both via `get_or_fetch` +
-  `safe_fetch` on the dedicated `Settings.insider_staleness_days` (1 day, not
-  the shared 7 -- Form 4s are event-driven, not earnings-cycle-driven).
+  (`/stable/insider-trading/search`, paged -- see "Search paging" below) and
+  `insider_trading_statistics`/`latest` (`/stable/insider-trading/statistics`),
+  both via `get_or_fetch` + `safe_fetch` on the dedicated
+  `Settings.insider_staleness_days` (1 day, not the shared 7 -- Form 4s are
+  event-driven, not earnings-cycle-driven).
+- **Search paging (2026-09-20).** A single 100-row request covered under half a
+  year for busy filers, so the table/cluster check saw a fraction of the chart's
+  12 quarters. `_fetch_search_history` pages (`SEARCH_PAGE_SIZE` 500,
+  `SEARCH_MAX_PAGES` 4) until the chart window is covered. Measured live: 12
+  quarters needs ~600 rows for AVGO, ~1000 for FTNT, ~1600 for NVDA, and META
+  exceeds 3000 (hits the cap). **FMP orders rows by FILING date, not transaction
+  date** (verified monotone on AVGO/FTNT/NVDA) -- a late filing or Form 5 can
+  carry a 2020 `transactionDate` deep inside a recent page, so the stop check is
+  "oldest *filing* date fetched < window start" (a filing is never earlier than
+  its transaction, so this bounds everything unfetched). Judging by
+  `min(transactionDate)` stopped FTNT's paging after two pages. Per-request
+  latency is a flat ~1s regardless of page size (measured 100-1000 rows), so
+  pages are large to minimise round trips; the cost is overfetching up to one
+  page (AVGO fetches 1000 for ~600 needed). Live coverage: AVGO/FTNT/MSFT/NVDA
+  12/12 quarters; META 7/12 (capped). The cached blob is `{rows, exhausted}` --
+  `exhausted` separates "FMP has nothing older" (a quiet ticker: older quarters
+  are real zeros) from "we stopped at the cap" (older quarters are unseen);
+  legacy bare-list blobs read as capped iff they hold a full 100 rows. A
+  later-page failure keeps the rows already fetched; a first-page failure
+  propagates (cold miss, nothing cached, as before).
 - **Normalization is backend-only** -- the frontend never sees FMP's raw
   transaction codes. Rows with an empty `transactionType` (Form 3/5 position-
   only disclosures) are dropped; the rest are classified by the SEC code letter
@@ -3334,9 +3355,48 @@ table, no new heartbeat wiring.
   `reportingCik` with open-market buys within 90 days (inclusive), scanning
   this ticker's own search rows only -- **no `/latest` market-wide scanner**,
   deferred. The reported cluster is the most recent qualifying window, which
-  can be old (the 100-row search window isn't recency-limited), so the pill's
+  can be old (the fetched history isn't recency-limited), so the pill's
   tooltip carries the window dates. Open-market buy/sale *counts* come from
   the normalized transactions over the same window as the totals.
+- **Quarterly chart is transaction-derived, not the statistics endpoint
+  (2026-09-20).** `totalAcquired`/`totalDisposed` count exercises, tax
+  withholding and gifts alongside real sales (overstating "selling" by roughly
+  half on a typical quarter, 100% on some) with no way to split them.
+  `build_quarterly_activity` sums shares per calendar quarter from the
+  normalized transactions, bucketed by `transactionDate`: `open_market_*` (P/S
+  rows -- the default view, matching the sentiment summary) and `all_*` (every
+  row carrying an acquired/disposed flag). Window = the 12 calendar quarters
+  ending at the newest transaction's quarter, gaps zero-filled. Open-market
+  direction is pinned by kind, not FMP's `acquisitionOrDisposition`, which
+  mislabels some `S-Sale` rows `A` -- the only reason FTNT's 2024 Q1/Q2 differ
+  from the stats endpoint (AVGO matches 12/12, FTNT 10/12). A ticker that hit the
+  fetch cap drops quarters that begin on/before the oldest filing fetched (a
+  partly-filled bar would read as a real, smaller total) and sets
+  `history_truncated`, which the tab surfaces as a caption. The statistics
+  endpoint still feeds the sentiment `totalPurchases`/`totalSales` (transaction-
+  count-based, confirmed correct) -- only the chart's source changed. The
+  existing Open market / All types toggle drives the chart and the table from
+  one state in `InsiderActivityTab` (a synced control on each). The table
+  renders 100 rows at a time ("Show N more") since the deeper fetch returns
+  hundreds.
+- **Notable-trade cards merge same-day, same-insider lines (2026-09-20).** Form 4
+  splits one real sale into several price-band lines, so the largest single
+  *line* understated it (AVGO: card showed one ~$40M line vs. a real $250.0M
+  same-day sale across 22 lines; confirmed wrong on 9/11 tested tickers).
+  `_largest_same_day` groups open-market lines by (`reportingCik` or name,
+  `transactionDate`) per kind, sums shares/dollars, reports a share-weighted
+  average price and `fill_count` (shown as "N fills" when >1). Deliberately
+  same-day only -- wider windows added meaningfully on 3/11 tickers and would
+  merge genuinely separate 10b5-1 drip sales. This is the only "largest" call
+  site (the table has no per-row largest styling).
+- **One name and one role per `reportingCik`.** Every row for a CIK carries its
+  most recent row's name spelling (as filed -- not a synthetic re-casing, which
+  would mangle "McDonald"/"O'Toole") and most recent *non-blank* role, so a blank
+  latest `typeOfOwner` can't blank a role and casing variants ("Hennessy John
+  L." vs "HENNESSY JOHN L") collapse. `fmtInsiderRole` parses FMP's flag list
+  (`director, 10 percent owner, officer: <title>`) into one label joined by " / "
+  ("Director", "Director / CEO", "Director / 10% owner / Chief Strategy
+  Officer"); a title-less officer reads "Officer", blank reads null.
 - **`as_of` = the search row's `fetched_at`** (null if never cached). It is the
   only thing separating "cached and genuinely empty" (HK/France/quiet tickers:
   FMP answers `[]`) from "not cached yet" (cold miss -- FMP paused, or the fetch
