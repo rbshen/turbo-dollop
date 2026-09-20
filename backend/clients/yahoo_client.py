@@ -91,5 +91,26 @@ class YahooClient:
             result[ticker] = df
         return result
 
+    async def get_dividends(self, ticker: str) -> pd.Series:
+        """Ex-dividend-date-indexed (tz-aware, exchange-local) series of
+        split-adjusted per-share dividend amounts -- the same split-adjusted
+        basis Yahoo's Close column uses. Empty for a non-payer. Unlike
+        get_history above, exceptions PROPAGATE: the one consumer
+        (data/chart_events_data.py) needs "the fetch failed" distinguishable
+        from "this ticker pays no dividend"."""
+        series = await asyncio.to_thread(lambda: yf.Ticker(ticker).dividends)
+        record_success("yahoo")
+        return series if series is not None else pd.Series(dtype=float)
+
+    async def get_earnings_dates(self, ticker: str, limit: int = 40) -> pd.DataFrame:
+        """Earnings-date-indexed (tz-aware, exchange-local, time-of-day
+        included) frame with 'EPS Estimate' / 'Reported EPS' / 'Surprise(%)'
+        columns, newest first. Includes the next scheduled date with NaN
+        actuals. Empty for a symbol Yahoo has no earnings calendar for (ETFs).
+        Exceptions propagate, same reasoning as get_dividends."""
+        frame = await asyncio.to_thread(lambda: yf.Ticker(ticker).get_earnings_dates(limit=limit))
+        record_success("yahoo")
+        return frame if frame is not None else pd.DataFrame()
+
 
 yahoo_client = YahooClient()

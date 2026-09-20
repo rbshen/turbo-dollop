@@ -144,3 +144,21 @@ def test_429_exhausts_retries_and_raises(monkeypatch):
     # RATE_LIMIT_MAX_RETRIES retries + the original attempt.
     assert calls["n"] == fmp_client_module.RATE_LIMIT_MAX_RETRIES + 1
     assert client.request_count == fmp_client_module.RATE_LIMIT_MAX_RETRIES + 1
+
+
+def test_get_earnings_history_and_dividends_request_the_deeper_limits(monkeypatch):
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.path, dict(request.url.params)))
+        return httpx.Response(200, json=[])
+
+    _install_mock_transport(monkeypatch, handler)
+    client = FMPClient(api_key="x")
+
+    asyncio.run(client.get_earnings_history("AAPL"))
+    asyncio.run(client.get_dividends("AAPL"))
+
+    # base_url carries a /stable prefix; only the endpoint suffix matters here.
+    assert seen[0][0].endswith("/earnings") and (seen[0][1]["symbol"], seen[0][1]["limit"]) == ("AAPL", "40")
+    assert seen[1][0].endswith("/dividends") and (seen[1][1]["symbol"], seen[1][1]["limit"]) == ("AAPL", "400")

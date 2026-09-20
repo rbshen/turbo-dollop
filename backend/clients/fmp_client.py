@@ -118,6 +118,23 @@ class FMPClient:
     async def get_earnings(self, ticker: str) -> dict | list:
         return await self.get("/earnings", {"symbol": ticker, "limit": 8})
 
+    async def get_earnings_history(self, ticker: str, limit: int = 40) -> dict | list:
+        # Deeper counterpart to get_earnings above (which only needs the next/latest
+        # date, so stays at limit=8): one row per fiscal quarter, newest first,
+        # including the next scheduled (not-yet-reported) date with null actuals --
+        # see data/chart_events_data.py, the only consumer. 40 rows ~ 10 years,
+        # comfortably past the Chart tab's widest (4y) window.
+        return await self.get("/earnings", {"symbol": ticker, "limit": limit})
+
+    async def get_dividends(self, ticker: str, limit: int = 400) -> dict | list:
+        # One row per declared dividend, newest first, INCLUDING declared-but-
+        # not-yet-ex future dates. `date` is the ex-dividend date; `dividend` is
+        # the as-declared amount, `adjDividend` the split-adjusted one (matches
+        # the split-adjusted candles). Confirmed live that `from`/`to` are NOT
+        # honored (the full history comes back regardless), so `limit` is the
+        # only lever -- 400 covers the 4y Chart window even for a weekly payer.
+        return await self.get("/dividends", {"symbol": ticker, "limit": limit})
+
     async def get_income_statement(self, ticker: str, period: str, limit: int) -> dict | list:
         return await self.get("/income-statement", {"symbol": ticker, "period": period, "limit": limit})
 

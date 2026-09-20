@@ -80,3 +80,54 @@ def test_get_history_download_exception_returns_empty_dict(monkeypatch):
     result = asyncio.run(client.get_history(["AAPL"]))
 
     assert result == {}  # degrades gracefully, never raises out of get_history
+
+
+def test_get_dividends_returns_the_series_and_none_becomes_empty(monkeypatch):
+    series = pd.Series([0.27], index=pd.DatetimeIndex(["2026-08-10"]))
+
+    class FakeTicker:
+        def __init__(self, symbol):
+            self.dividends = series if symbol == "AAPL" else None
+
+    monkeypatch.setattr(yahoo_client_module.yf, "Ticker", FakeTicker)
+    client = YahooClient()
+
+    assert asyncio.run(client.get_dividends("AAPL")).equals(series)
+    assert asyncio.run(client.get_dividends("NOPE")).empty
+
+
+def test_get_earnings_dates_passes_limit_through_and_none_becomes_empty(monkeypatch):
+    seen = {}
+    frame = pd.DataFrame({"Reported EPS": [1.0]}, index=pd.DatetimeIndex(["2026-07-30"]))
+
+    class FakeTicker:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+        def get_earnings_dates(self, limit):
+            seen["limit"] = limit
+            return frame if self.symbol == "AAPL" else None
+
+    monkeypatch.setattr(yahoo_client_module.yf, "Ticker", FakeTicker)
+    client = YahooClient()
+
+    assert asyncio.run(client.get_earnings_dates("AAPL", limit=12)).equals(frame)
+    assert seen["limit"] == 12
+    assert asyncio.run(client.get_earnings_dates("SPY")).empty
+
+
+def test_get_dividends_propagates_fetch_errors(monkeypatch):
+    class FakeTicker:
+        def __init__(self, symbol):
+            pass
+
+        @property
+        def dividends(self):
+            raise RuntimeError("yahoo down")
+
+    monkeypatch.setattr(yahoo_client_module.yf, "Ticker", FakeTicker)
+
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(YahooClient().get_dividends("AAPL"))

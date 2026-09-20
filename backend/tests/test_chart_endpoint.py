@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, create_engine
@@ -10,6 +11,17 @@ import data.chart_data as chart_data
 import data.entry_signal_data as entry_signal_data
 import data.liquidity_zone_data as liquidity_zone_data
 import data.warren_signal_data as warren_signal_data
+from data.chart_events_data import ChartEvents, DividendEvent, EarningsEvent
+
+
+@pytest.fixture(autouse=True)
+def _default_no_chart_events(monkeypatch):
+    # get_chart_data fetches earnings/dividends live on every call -- stub it
+    # so no endpoint test here makes a real FMP/Yahoo request.
+    async def _none(ticker):
+        return ChartEvents()
+
+    monkeypatch.setattr(chart_data, "fetch_chart_events", _none)
 
 
 def _fresh_entry_signal_engine(monkeypatch):
@@ -107,6 +119,9 @@ def test_endpoint_returns_chart_for_valid_ticker(monkeypatch):
     assert body["warren_signal_markers"] == []
     assert body["zones_available"] is False
     assert body["zones"] == []
+    assert body["earnings_markers"] == []
+    assert body["dividend_markers"] == []
+    assert body["events_source"] is None
     assert body["source"] == "yahoo"
 
 
@@ -186,3 +201,30 @@ def test_endpoint_returns_chart_unavailable_for_a_ticker_with_no_bars(monkeypatc
     body = response.json()
     assert body["chart_available"] is False
     assert body["bars"] == []
+
+
+def test_endpoint_serializes_earnings_and_dividend_markers(monkeypatch):
+    _fresh_entry_signal_engine(monkeypatch)
+    _fresh_warren_signal_engine(monkeypatch)
+    _fresh_liquidity_zone_engine(monkeypatch)
+    _fresh_chart_data_engine(monkeypatch)
+    _patch_yahoo_bars(monkeypatch)
+    day = (pd.Timestamp.today().normalize() - pd.offsets.BDay(20)).date()
+
+    async def fake_events(ticker):
+        return ChartEvents(
+            earnings=[EarningsEvent(day, 1.5, None)],
+            dividends=[DividendEvent(day, 0.26)],
+            source="fmp",
+        )
+
+    monkeypatch.setattr(chart_data, "fetch_chart_events", fake_events)
+
+    with TestClient(main.app) as client:
+        body = client.get("/api/tickers/AAPL/chart", params={"range": "D_6M"}).json()
+
+    assert body["events_source"] == "fmp"
+    assert body["earnings_markers"] == [
+        {"time": day.isoformat(), "event_date": day.isoformat(), "eps_actual": 1.5, "eps_estimated": None}
+    ]
+    assert body["dividend_markers"] == [{"time": day.isoformat(), "event_date": day.isoformat(), "amount": 0.26}]

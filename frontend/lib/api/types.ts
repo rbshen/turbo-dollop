@@ -1395,6 +1395,24 @@ export interface ChartZoneOut {
   broken: boolean;
 }
 
+// One earnings-report marker on the Chart tab's price pane. `time` is the bar it attaches to (the report's
+// own trading day in a daily view, its Monday-anchored week in the weekly view); `event_date` is the real
+// report date -- what a tooltip shows. Both EPS values can be null (no analyst estimate on file).
+export interface ChartEarningsMarkerOut {
+  time: string;
+  event_date: string;
+  eps_actual: number | null;
+  eps_estimated: number | null;
+}
+
+// One dividend ex-date marker -- same time/event_date split. `amount` is per-share and split-adjusted; when
+// two ex-dates land in one bar it's their sum and event_date is the earlier one.
+export interface ChartDividendMarkerOut {
+  time: string;
+  event_date: string;
+  amount: number;
+}
+
 export type ChartRange = "D_6M" | "D_1Y" | "D_2Y" | "W_4Y";
 
 export interface ChartOut {
@@ -1426,6 +1444,13 @@ export interface ChartOut {
   // nightly LP job hasn't reached it yet), not "genuinely zero zones".
   zones: ChartZoneOut[];
   zones_available: boolean;
+  // Earnings-report dates / dividend ex-dates in the visible window, fetched live per request (FMP when
+  // enabled, else Yahoo). events_source is null when every source failed -- the only way to tell "couldn't
+  // fetch" from a genuinely empty list (a non-dividend payer). The chart omits both marker types silently
+  // either way.
+  earnings_markers: ChartEarningsMarkerOut[];
+  dividend_markers: ChartDividendMarkerOut[];
+  events_source: "fmp" | "yahoo" | null;
   source: string; // "fmp" | "yahoo"
   chart_available: boolean; // false only for a genuinely bad/delisted ticker with no bars at all
 }

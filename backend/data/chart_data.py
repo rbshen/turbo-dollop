@@ -31,6 +31,14 @@ this module embodies:
    was already showing, so this is also a continuity improvement for
    anyone who used this tab while FMP was still the default source.
 
+4. **Earnings/dividend markers (2026-09-20)** are the one part of this
+   module NOT Yahoo-only: data/chart_events_data.py fetches them live from FMP
+   when FMP_ENABLED (Yahoo otherwise, or on FMP failure). Point 3's decision
+   was about keeping technical-analysis INPUTS independent of the FMP
+   subscription; event markers feed no indicator, and FMP's coverage is
+   deeper for foreign issuers. Fetched concurrently with the candles and
+   never able to fail or stall them.
+
 Known, accepted asymmetry that closes over time: W_4Y shows 4 years of price
 (RANGE_CONFIG's own visible_days), but signal-event markers only reach back as
 far as events have actually been accumulated. Yahoo's own 2h-interval history
@@ -44,7 +52,8 @@ special-casing (_entry_signal_markers already returns an empty list for a
 window with no matching events).
 """
 
-from datetime import date, datetime
+import asyncio
+from datetime import date, datetime, time, timedelta
 
 import pandas as pd
 from sqlmodel import Session, select
@@ -57,6 +66,8 @@ from core.models import TechnicalEntrySignalEvent, WarrenSignalEvent
 from core.schemas import (
     ChartBarOut,
     ChartBollingerPointOut,
+    ChartDividendMarkerOut,
+    ChartEarningsMarkerOut,
     ChartLinePointOut,
     ChartMarkerOut,
     ChartOut,
@@ -65,6 +76,7 @@ from core.schemas import (
     LiquidityZoneOut,
 )
 from core.tickers import normalize_ticker
+from data.chart_events_data import DividendEvent, EarningsEvent, fetch_chart_events
 from data.entry_signal_data import get_entry_signal_data
 from data.liquidity_zone_data import get_liquidity_zone_data
 from data.warren_signal_data import get_warren_signal_data
@@ -292,11 +304,78 @@ def _warren_signal_markers(visible_index: pd.DatetimeIndex, events: list[WarrenS
     ]
 
 
+def _bucket_events(visible_index: pd.DatetimeIndex, events: list, timeframe: str) -> dict[pd.Timestamp, list]:
+    """Groups events onto the visible bar each one belongs to, chronologically
+    within a bar. Reuses _marker_bar_time, so an event's bucket is
+    byte-identical to how the signal markers above (and the bars themselves)
+    are bucketed -- including landing a weekly view's event on its
+    Monday-anchored week bar.
+
+    Two drops, both deliberate:
+    - Events before the first visible bar have nothing to attach to (the
+      visible window, not the wider warm-up-inclusive fetch, is the filter --
+      same rule LP zones follow), which _marker_bar_time already reports as
+      None.
+    - Events AFTER the last bar. Unlike a recorded signal fire, an event feed
+      is forward-looking (FMP lists the next scheduled earnings date and
+      declared-ahead ex-dates), and _marker_bar_time would happily snap a
+      future date back onto the last bar, presenting a scheduled event as one
+      that already happened. The cutoff is the last bar's own date for a daily
+      view, or that week's Sunday for the weekly view (whose last bar is
+      indexed by its Monday) -- and never later than today, since the
+      current, still-forming weekly bar spans days that haven't happened."""
+    if len(visible_index) == 0:
+        return {}
+    last_bar = visible_index[-1].date()
+    cutoff = min(date.today(), last_bar + timedelta(days=6 if timeframe == "weekly" else 0))
+    buckets: dict[pd.Timestamp, list] = {}
+    for event in sorted(events, key=lambda e: e.event_date):
+        if event.event_date > cutoff:
+            continue
+        bar_time = _marker_bar_time(visible_index, datetime.combine(event.event_date, time.min))
+        if bar_time is None:
+            continue
+        buckets.setdefault(bar_time, []).append(event)
+    return buckets
+
+
+def _earnings_markers(visible_index: pd.DatetimeIndex, events: list[EarningsEvent], timeframe: str) -> list[ChartEarningsMarkerOut]:
+    """One marker per bar. Two reports never legitimately share a bar (they
+    are a quarter apart), so a collision means duplicated/restated feed rows --
+    keep the first."""
+    out = []
+    for bar_time, bucket in sorted(_bucket_events(visible_index, events, timeframe).items()):
+        ev = bucket[0]
+        out.append(
+            ChartEarningsMarkerOut(
+                time=_fmt(bar_time), event_date=_fmt(ev.event_date), eps_actual=ev.eps_actual, eps_estimated=ev.eps_estimated
+            )
+        )
+    return out
+
+
+def _dividend_markers(visible_index: pd.DatetimeIndex, events: list[DividendEvent], timeframe: str) -> list[ChartDividendMarkerOut]:
+    """One marker per bar. Unlike earnings, several ex-dates in one bar are
+    real (a regular plus a special dividend in the same week -- or, in the
+    weekly view, any two close together), and the price impact is their sum,
+    so amounts add and the earlier ex-date is reported."""
+    out = []
+    for bar_time, bucket in sorted(_bucket_events(visible_index, events, timeframe).items()):
+        out.append(
+            ChartDividendMarkerOut(time=_fmt(bar_time), event_date=_fmt(bucket[0].event_date), amount=sum(e.amount for e in bucket))
+        )
+    return out
+
+
 async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
     ticker = normalize_ticker(ticker)
     cfg = RANGE_CONFIG[range_key]
 
-    bars_df, source = await _fetch_bars(ticker, range_key)
+    # Concurrent: the events fetch (two live FMP calls, ~1s) is independent of
+    # the candles, and serializing them would add its whole latency to every
+    # range switch. fetch_chart_events never raises and self-limits its own
+    # runtime, so it can't fail or stall the candles.
+    (bars_df, source), events_read = await asyncio.gather(_fetch_bars(ticker, range_key), fetch_chart_events(ticker))
 
     # Independent of the bar fetch above -- this is a plain cache-only read
     # (see data/entry_signal_data.py), so it degrades to None on its own
@@ -346,6 +425,7 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
             warren_signal_available=warren_signal_available,
             zones=[],
             zones_available=zones_available,
+            events_source=events_read.source,
             source=source,
             chart_available=False,
         )
@@ -389,6 +469,12 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
     warren_events = _fetch_warren_signal_events(ticker, visible_start) if warren_signal_available else []
     warren_markers = _warren_signal_markers(visible_index, warren_events)
 
+    # Corporate-event markers, bucketed onto the same visible bars as
+    # everything above. An empty list with events_source set means "fetched,
+    # nothing in this window"; events_source=None means the fetch failed.
+    earnings_markers = _earnings_markers(visible_index, events_read.earnings, cfg["timeframe"])
+    dividend_markers = _dividend_markers(visible_index, events_read.dividends, cfg["timeframe"])
+
     bars = _bar_points(bars_df, mask)
 
     return ChartOut(
@@ -407,6 +493,9 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
         warren_signal_available=warren_signal_available,
         zones=zones,
         zones_available=zones_available,
+        earnings_markers=earnings_markers,
+        dividend_markers=dividend_markers,
+        events_source=events_read.source,
         source=source,
         # Mirrors Options Tracker's own api_position_chart convention:
         # "available" reads off the VISIBLE slice, not the full fetched

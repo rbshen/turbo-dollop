@@ -2939,6 +2939,56 @@ chart alongside the still-valid zones, in a distinct color.
   rule) plus data-layer/config-endpoint/chart-data coverage; full backend suite (1481
   tests) and frontend `tsc --noEmit` both clean.
 
+### Chart tab earnings/dividend markers (2026-09-20)
+
+Earnings-report dates (circle, "E", above the bar, cyan) and dividend ex-dates (square, "D", below
+the bar, violet) on the Chart tab's price pane, all 4 ranges, each with its own toggle
+(`ChartTab.tsx`) and a hover tooltip (EPS actual/estimate/surprise; per-share amount).
+
+- **Source is FMP when `FMP_ENABLED`, Yahoo otherwise or on FMP failure
+  (`data/chart_events_data.py`) -- deliberately NOT Yahoo-only like the candles.** The 2026-09-18
+  Yahoo-only decision (`chart_data.py` docstring point 3) was about keeping technical-analysis
+  inputs independent of the FMP subscription; event markers feed no indicator, and FMP is deeper
+  for foreign issuers (HSBC: 39 quarters of earnings vs Yahoo's 6). Live check on AAPL/O/TSLA/
+  HSBC/SPY/CRWV: both sources agree on dates and counts wherever Yahoo has the history.
+  `FMPClient.get_earnings_history` (limit 40) / `get_dividends` (limit 400) are new -- the existing
+  `get_earnings` (limit 8, cached under `earnings`/`latest`) is untouched and is not reused.
+- **Zero persistent caching, matching the rest of the Chart tab**: two live FMP calls per chart
+  request (~1s), run concurrently with the candle fetch (`asyncio.gather`), capped by
+  `EVENTS_FETCH_TIMEOUT_SECONDS` (8s), and `fetch_chart_events` never raises -- a total failure is
+  `events_source=None` with empty lists and the chart just renders without markers. The FMP failure
+  log records the exception TYPE only (httpx messages embed the request URL, apikey included).
+  Fallback is per source-unit, not per kind: any FMP failure (or a non-list error body served with
+  HTTP 200) re-fetches both kinds from Yahoo. An empty FMP list is a real answer (TSLA pays no
+  dividend) and does not trigger a Yahoo call.
+- **Data gotchas confirmed live**: FMP `/dividends` **ignores `from`/`to`** (full history always;
+  `limit` is the only lever). `date` is the ex-date. `dividend` is as-declared and `adjDividend`
+  is split-adjusted -- the candles are split-adjusted, so `adjDividend` is used (AAPL 2019:
+  $0.77 declared vs $0.1925 adjusted, matching Yahoo). FMP `/earnings` includes the next
+  scheduled date with null actuals, and pure ETFs (SPY) carry a decade of null-actual placeholder
+  rows, so only rows with a real `epsActual`/`revenueActual` count (the same rule as
+  `helpers/earnings.py`). A report whose actuals FMP hasn't back-filled yet has no marker until
+  they land.
+- **Both feeds are forward-looking, unlike a recorded signal fire.** `_marker_bar_time` alone would
+  snap a future date onto the newest bar, presenting a scheduled event as one that happened.
+  `chart_data._bucket_events` therefore drops anything after the last bar (daily) / that week's
+  Sunday (weekly, whose bars are Monday-indexed), never later than today. Events before the first
+  visible bar are dropped by the same visible-window rule LP zones use; a weekend/holiday ex-date
+  snaps to the prior trading bar, and in the weekly view to its Monday bar -- the wire model keeps
+  the real `event_date` alongside the bar `time` so the tooltip shows the true date.
+  Two dividends in one bar sum (regular + special); duplicate earnings rows keep the first.
+- **Hover uses lightweight-charts 5.2.0's `hoveredInfo`** (`objectKind === "series-marker"`,
+  `objectId === marker.id`) from the existing crosshair handler -- no extra library. Markers carry
+  an `id` (`earnings:<bar time>` / `dividend:<bar time>`); BB+RSI/Warren markers have none, so they
+  never produce a tooltip. Each kind is its own `createSeriesMarkers` primitive on the candle
+  series (as BB+RSI and Warren already are). Separate primitives do not stack against each other,
+  so an event can visually overlap a signal arrow on the same bar -- accepted; not visually
+  verified in a browser (only unit tests, tsc and eslint were run).
+- **Degradation**: no note is shown, in either an empty or a failed fetch (the Chart tab has no
+  "not tracked" note for its other overlays either); the toggles stay. Sparse cases: ETFs have
+  dividends but no earnings; non-payers and recent IPOs have earnings only; a foreign issuer on the
+  Yahoo fallback can have far fewer earnings dates than on FMP.
+
 ## Warren RSI/ADX/WVF entry signal (2h) (Technical)
 
 A fifth, fully independent technical entry-signal lens -- alongside BB+RSI, this is the

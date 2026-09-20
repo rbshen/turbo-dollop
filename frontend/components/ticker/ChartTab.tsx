@@ -30,6 +30,8 @@ const SIGNAL_TOGGLE_STORAGE_KEY = "fathom-chart-signal-toggles";
 interface SignalToggles {
   bbRsi: boolean;
   warren: boolean;
+  earnings: boolean;
+  dividends: boolean;
   lpSupport: boolean;
   lpResistance: boolean;
   bollinger: boolean;
@@ -41,6 +43,8 @@ interface SignalToggles {
 const DEFAULT_SIGNAL_TOGGLES: SignalToggles = {
   bbRsi: true,
   warren: true,
+  earnings: true,
+  dividends: true,
   lpSupport: true,
   lpResistance: true,
   bollinger: true,
@@ -52,6 +56,8 @@ const DEFAULT_SIGNAL_TOGGLES: SignalToggles = {
 const TOGGLE_OPTIONS: { key: keyof SignalToggles; label: string }[] = [
   { key: "bbRsi", label: "BB+RSI" },
   { key: "warren", label: "Warren" },
+  { key: "earnings", label: "Earnings" },
+  { key: "dividends", label: "Dividends" },
   { key: "lpSupport", label: "LP Support" },
   { key: "lpResistance", label: "LP Resistance" },
   { key: "bollinger", label: "BB" },
@@ -222,6 +228,8 @@ export function ChartTab({ ticker }: Props) {
           quoteCurrency={quoteCurrency}
           showBbRsi={signalToggles.bbRsi}
           showWarren={signalToggles.warren}
+          showEarnings={signalToggles.earnings}
+          showDividends={signalToggles.dividends}
           showLpSupport={signalToggles.lpSupport}
           showLpResistance={signalToggles.lpResistance}
           showBollinger={signalToggles.bollinger}

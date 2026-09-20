@@ -8,6 +8,7 @@ import data.chart_data as chart_data
 from analysis.trend_structure.weinstein import resample_to_weekly
 from core.models import TechnicalEntrySignalEvent, WarrenSignalEvent
 from core.schemas import BrokenZoneOut, LiquidityZoneOut, LiquidityZonesOut, TechnicalEntrySignalOut, ZoneOut
+from data.chart_events_data import ChartEvents, DividendEvent, EarningsEvent
 
 
 def _daily_df(n: int, *, end: pd.Timestamp | None = None) -> pd.DataFrame:
@@ -100,6 +101,18 @@ def _default_no_warren_signal(monkeypatch):
     # Tests exercising Warren's own marker behavior override this via their
     # own monkeypatch.setattr call, which takes precedence.
     monkeypatch.setattr(chart_data, "get_warren_signal_data", _no_warren_signal)
+
+
+@pytest.fixture(autouse=True)
+def _default_no_chart_events(monkeypatch):
+    # get_chart_data now fetches earnings/dividends live (FMP/Yahoo) on every
+    # call; without a default stub every unrelated test in this file would
+    # make real network requests. Tests exercising the event markers override
+    # this via their own monkeypatch.setattr, which takes precedence.
+    async def _none(ticker):
+        return ChartEvents()
+
+    monkeypatch.setattr(chart_data, "fetch_chart_events", _none)
 
 
 def _warren_events(ticker: str, fired_ats_and_kinds: list[tuple[datetime, str]]) -> list[WarrenSignalEvent]:
@@ -703,3 +716,195 @@ def test_zones_absent_when_bars_empty(monkeypatch):
     assert out.chart_available is False
     assert out.zones_available is True
     assert out.zones == []
+
+
+# ---------------------------------------------------------------------------
+# Earnings / dividend event markers
+# ---------------------------------------------------------------------------
+
+
+def _patch_events(monkeypatch, events: ChartEvents) -> None:
+    async def fake_fetch(ticker):
+        return events
+
+    monkeypatch.setattr(chart_data, "fetch_chart_events", fake_fetch)
+
+
+def _run_chart(monkeypatch, range_key: str = "D_1Y", *, n: int = 600, events: ChartEvents):
+    _patch_yahoo_bars(monkeypatch, _daily_df(n))
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    _patch_events(monkeypatch, events)
+    return asyncio.run(chart_data.get_chart_data("TEST", range_key))
+
+
+def _days_ago(n: int) -> date:
+    return date.today() - timedelta(days=n)
+
+
+def test_event_markers_default_to_empty_and_source_none(monkeypatch):
+    # The autouse stub: no events at all reads as "nothing fetched".
+    out = _run_chart(monkeypatch, events=ChartEvents())
+
+    assert out.earnings_markers == []
+    assert out.dividend_markers == []
+    assert out.events_source is None
+
+
+def test_earnings_marker_lands_on_the_report_days_bar_and_carries_eps(monkeypatch):
+    # Anchor on a real bar date so the assertion doesn't depend on which
+    # weekday "N days ago" happens to be.
+    df = _daily_df(600)
+    report = df.index[-40].date()
+    events = ChartEvents(earnings=[EarningsEvent(report, 1.25, 1.10)], source="fmp")
+
+    out = _run_chart(monkeypatch, events=events)
+
+    assert out.events_source == "fmp"
+    assert len(out.earnings_markers) == 1
+    m = out.earnings_markers[0]
+    assert m.time == report.isoformat()
+    assert m.event_date == report.isoformat()
+    assert (m.eps_actual, m.eps_estimated) == (1.25, 1.10)
+
+
+def test_weekend_event_snaps_back_to_the_prior_trading_bar_but_keeps_its_own_date(monkeypatch):
+    df = _daily_df(600)
+    friday = next(ts.date() for ts in reversed(df.index[:-10]) if ts.weekday() == 4)
+    saturday = friday + timedelta(days=1)
+    events = ChartEvents(dividends=[DividendEvent(saturday, 0.5)], source="yahoo")
+
+    out = _run_chart(monkeypatch, events=events)
+
+    assert len(out.dividend_markers) == 1
+    assert out.dividend_markers[0].time == friday.isoformat()
+    assert out.dividend_markers[0].event_date == saturday.isoformat()
+
+
+def test_events_outside_the_visible_window_are_dropped(monkeypatch):
+    # D_6M shows ~182 days: a report 300 days ago sits in the warm-up-inclusive
+    # fetch history but has no visible bar to attach to.
+    events = ChartEvents(
+        earnings=[EarningsEvent(_days_ago(300), 1.0, 1.0)],
+        dividends=[DividendEvent(_days_ago(300), 0.3)],
+        source="fmp",
+    )
+
+    out_6m = _run_chart(monkeypatch, "D_6M", events=events)
+    out_1y = _run_chart(monkeypatch, "D_1Y", events=events)
+
+    assert out_6m.earnings_markers == [] and out_6m.dividend_markers == []
+    assert len(out_1y.earnings_markers) == 1 and len(out_1y.dividend_markers) == 1
+
+
+def test_future_scheduled_events_never_snap_onto_the_last_bar(monkeypatch):
+    # FMP lists the next scheduled earnings date and declared-ahead ex-dates.
+    # _marker_bar_time alone would snap these onto the newest bar, showing a
+    # scheduled event as if it had happened -- the future-date guard prevents
+    # that, in both the daily and weekly views.
+    events = ChartEvents(
+        earnings=[EarningsEvent(date.today() + timedelta(days=20), 2.0, 1.9)],
+        dividends=[DividendEvent(date.today() + timedelta(days=20), 0.4)],
+        source="fmp",
+    )
+
+    for range_key in ("D_1Y", "W_4Y"):
+        out = _run_chart(monkeypatch, range_key, n=1200, events=events)
+        assert out.earnings_markers == [], range_key
+        assert out.dividend_markers == [], range_key
+
+
+def test_weekly_view_buckets_events_onto_the_monday_week_bar(monkeypatch):
+    df = _daily_df(1200)
+    # A Wednesday well inside the 4y window.
+    wednesday = next(ts.date() for ts in reversed(df.index[:-60]) if ts.weekday() == 2)
+    monday = wednesday - timedelta(days=2)
+    events = ChartEvents(earnings=[EarningsEvent(wednesday, 0.8, 0.7)], source="fmp")
+
+    out = _run_chart(monkeypatch, "W_4Y", n=1200, events=events)
+
+    assert out.timeframe == "weekly"
+    assert len(out.earnings_markers) == 1
+    assert out.earnings_markers[0].time == monday.isoformat()
+    assert out.earnings_markers[0].event_date == wednesday.isoformat()  # tooltip shows the real report date
+
+
+def test_event_in_the_current_partial_week_lands_on_the_current_week_bar(monkeypatch):
+    # The weekly view's last bar is indexed by this week's Monday; an event
+    # from earlier this week belongs to it, and the cutoff (that week's
+    # Sunday, capped at today) must not reject it.
+    df = _daily_df(1200)
+    last_trading_day = df.index[-1].date()
+    events = ChartEvents(dividends=[DividendEvent(last_trading_day, 0.25)], source="fmp")
+
+    out = _run_chart(monkeypatch, "W_4Y", n=1200, events=events)
+
+    assert len(out.dividend_markers) == 1
+    marker_monday = date.fromisoformat(out.dividend_markers[0].time)
+    assert marker_monday.weekday() == 0
+    assert 0 <= (last_trading_day - marker_monday).days <= 6
+
+
+def test_dividends_in_one_bar_sum_and_report_the_earlier_ex_date(monkeypatch):
+    df = _daily_df(1200)
+    monday = next(ts.date() for ts in reversed(df.index[:-60]) if ts.weekday() == 0)
+    events = ChartEvents(
+        dividends=[DividendEvent(monday + timedelta(days=3), 1.0), DividendEvent(monday + timedelta(days=1), 0.25)], source="fmp"
+    )
+
+    out = _run_chart(monkeypatch, "W_4Y", n=1200, events=events)
+
+    assert len(out.dividend_markers) == 1
+    m = out.dividend_markers[0]
+    assert m.amount == 1.25
+    assert m.event_date == (monday + timedelta(days=1)).isoformat()
+
+
+def test_duplicate_earnings_rows_in_one_bar_keep_the_first(monkeypatch):
+    df = _daily_df(600)
+    day = df.index[-30].date()
+    events = ChartEvents(earnings=[EarningsEvent(day, 1.0, 0.9), EarningsEvent(day, 5.0, 0.9)], source="fmp")
+
+    out = _run_chart(monkeypatch, events=events)
+
+    assert len(out.earnings_markers) == 1
+    assert out.earnings_markers[0].eps_actual == 1.0
+
+
+def test_no_bars_still_reports_events_source_and_no_markers(monkeypatch):
+    _patch_yahoo_bars(monkeypatch, pd.DataFrame())
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    _patch_events(monkeypatch, ChartEvents(earnings=[EarningsEvent(_days_ago(30), 1.0, 1.0)], source="fmp"))
+
+    out = asyncio.run(chart_data.get_chart_data("BADTICKER", "D_1Y"))
+
+    assert out.chart_available is False
+    assert out.earnings_markers == [] and out.dividend_markers == []
+
+
+def test_events_are_fetched_concurrently_with_the_bars(monkeypatch):
+    # Deterministic, not timing-based: each side blocks until the OTHER has
+    # started. If get_chart_data awaited them one after the other, the first
+    # would wait forever for a second that never begins (wait_for turns that
+    # into a failure instead of a hang).
+    events_started, bars_started = asyncio.Event(), asyncio.Event()
+
+    async def events_waiting_for_bars(ticker):
+        events_started.set()
+        await asyncio.wait_for(bars_started.wait(), timeout=2)
+        return ChartEvents()
+
+    async def bars_waiting_for_events(tickers, period, interval, auto_adjust=True):
+        bars_started.set()
+        await asyncio.wait_for(events_started.wait(), timeout=2)
+        return {tickers[0]: _daily_df(300).rename(columns=str.capitalize)}
+
+    monkeypatch.setattr(chart_data.yahoo_client, "get_history", bars_waiting_for_events)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    monkeypatch.setattr(chart_data, "fetch_chart_events", events_waiting_for_bars)
+
+    out = asyncio.run(chart_data.get_chart_data("TEST", "D_1Y"))
+
+    assert out.chart_available is True

@@ -1407,6 +1407,32 @@ class ChartZoneOut(BaseModel):
     broken: bool = False
 
 
+class ChartEarningsMarkerOut(BaseModel):
+    """One earnings-report marker on the Chart tab's price pane -- see
+    data/chart_data.py::_earnings_markers. `time` is the chart bar the marker
+    attaches to (the report's own trading day for daily views, its
+    Monday-anchored week for the weekly view); `event_date` is the actual
+    report date, which differs from `time` in the weekly view and is what a
+    tooltip should show. EPS is per-share, split-adjusted, and either side can
+    be None (no analyst estimate on file)."""
+
+    time: str  # "YYYY-MM-DD"
+    event_date: str  # "YYYY-MM-DD"
+    eps_actual: float | None = None
+    eps_estimated: float | None = None
+
+
+class ChartDividendMarkerOut(BaseModel):
+    """One dividend ex-date marker -- same time/event_date split as
+    ChartEarningsMarkerOut. `amount` is per-share and split-adjusted; when two
+    ex-dates land in one bar (a regular plus a special dividend in the same
+    week) it is their sum and `event_date` is the earlier of the two."""
+
+    time: str  # "YYYY-MM-DD"
+    event_date: str  # "YYYY-MM-DD"
+    amount: float
+
+
 class ChartOut(BaseModel):
     """OHLC + indicators for one ticker-page Chart tab view -- see
     data/chart_data.py for the fetch/compute mechanism. Computed fully
@@ -1458,6 +1484,16 @@ class ChartOut(BaseModel):
     # an empty `zones` list with zones_available=True means the latter.
     zones: list[ChartZoneOut] = []
     zones_available: bool
+    # Earnings-report dates / dividend ex-dates within this response's visible
+    # window (see data/chart_events_data.py + chart_data.py). Unlike every
+    # other overlay above these are fetched live per request, from FMP when
+    # FMP_ENABLED and Yahoo otherwise. `events_source` is "fmp" | "yahoo", or
+    # None when every source failed -- the only way to tell "couldn't fetch"
+    # from a genuinely empty list (a non-dividend payer). The UI omits both
+    # marker types silently in either case.
+    earnings_markers: list[ChartEarningsMarkerOut] = []
+    dividend_markers: list[ChartDividendMarkerOut] = []
+    events_source: str | None = None
     source: str  # always "yahoo" (2026-09-18 -- Chart dropped FMP as a data source entirely)
     chart_available: bool  # False only for a genuinely bad/delisted ticker with no bars at all
 
