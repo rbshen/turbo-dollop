@@ -3437,6 +3437,57 @@ Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
   session's date at 00:00 for `1d` and that session's 15:30 for `60m`; `min(bar_time)` should be
   ~2y back (`60m`, Warren/BB+RSI), ~2y (`1d`, Trend-only tickers) or ~5y (`1d`, LZ tickers).
 
+## Sector Heatmap (`/sectors`, 2026-09-20)
+
+The 11 SPDR sector ETFs (XLK XLF XLV XLE XLI XLY XLP XLU XLB XLRE XLC) x 7 trailing
+**total-return** windows (1w/1m/3m/6m/9m/YTD/1y). Round 1 of the ETF work in
+`docs/etf_heatmap_momentum_investigation_2026-09-20.md`; the ETF momentum ranking is a separate,
+later round and is **not** built. Price-only, Yahoo-only, zero FMP calls, independent of Step 1-5
+scoring -- no `FMP_ENABLED` guard needed.
+
+- **Total return, not price return**: `yahoo_client.get_history(..., auto_adjust=False)` and the
+  math reads `Adj Close` explicitly. A frame without that column is a per-ticker **failure**, never
+  a silent fallback to price return (bond/income funds differ by up to ~6pp over 1y; XLE 1y is
+  +47.8% total vs +43.4% price).
+- **Windows** (`scoring/etf_returns.py`, pure): CALENDAR offsets back from the anchor, base = the
+  last close on/before the target (so a weekend/holiday target uses the prior session). 1w = 7
+  days, 1m/3m/6m/9m/1y = `DateOffset`. YTD base = the last close on/before Dec 31 of the prior
+  year. A window with no bar on/before its target (a young fund) is `None`, never imputed; a fund
+  whose latest bar is >5 days behind the anchor is all-`None`.
+- **Anchor** (`data/sector_heatmap_data.py::_resolve_anchor`): the latest bar date across the
+  fetched funds that is <= the last COMPLETED session (`_most_recent_completed_trading_date`).
+  The cap drops yfinance's in-progress same-day bar; taking it from the data (not the
+  weekday-only helper directly) makes a market holiday anchor to the real last trading day.
+- **Storage**: `SectorEtfReturn`, long format `(ticker, return_window, as_of_date)` unique, plus
+  `base_date`, `return_pct` (percentage POINTS, 4.25 == +4.25%, unlike `MomentumSnapshot`'s
+  fractions), `computed_at`. The column is `return_window` because WINDOW is reserved in SQLite.
+  Upserted, so a weekend/holiday re-run is idempotent; history is kept (~77 rows/session, no
+  pruning) and the API reads only the latest `as_of_date`. **Not** `SharedBarsCache` (no adjusted
+  close; Yahoo rescales `Adj Close` retroactively at every ex-dividend) and **not**
+  `MomentumSnapshot` (required `moat`, no universe discriminator).
+- **Job**: `pipeline.nightly_sector_heatmap`, 3:30 AM (the free slot between Liquidity Zones 3:25
+  and Warren 3:40), one 11-ticker batch (~1-4s). Wired into `CRON_JOB_NAMES`/
+  `_EXPECTED_CADENCE_HOURS`/`JOB_METADATA`/`crontab.txt`/`OPS_RUNBOOK.md`. Raises (heartbeat
+  "failure") only if NOTHING computed; one failed fund is logged, reported in the summary, and
+  shows blank under the new as-of date on the page rather than a stale number under a fresh date.
+  **`crontab crontab.txt` must be reinstalled** for it to actually run nightly -- editing the file
+  changes nothing on this box.
+- **API**: `GET /api/sector-heatmap` -> `{as_of_date, computed_at, windows, rows:[{ticker, name,
+  cells:{<window>:{return_pct, base_date}}}]}`, fixed universe order; before any run,
+  `as_of_date: null, rows: []` (never a 404). Display names are a hand-written constant
+  (`SECTOR_ETFS`).
+- **UI** (`app/sectors/page.tsx`, `components/sectors/SectorHeatmapGrid.tsx`,
+  `lib/sectorHeatmap.ts`): plain CSS grid, ETFs as rows, windows as columns. **UI choices that
+  were left to judgment and are open to revision**: (1) color scale is **per column** (each
+  column against its own largest |move|, floor 1pp) -- tints are therefore not comparable across
+  columns, said so in the page footnote; a fixed per-window clamp is the alternative; (2) default
+  sort is **3M descending**, header clicks re-sort client-side, blank cells always sink; (3) ETF
+  labels are **not links** -- `/tickers/<ETF>` still renders the stock-shaped page. Nav item
+  "Sectors" opens in a new tab like Momentum/Watchlist/Settings.
+- **Not verified on screen** (no browser): layout, tint legibility, narrow-width behavior. The
+  return math was checked against an independent calculation on live Yahoo data (max difference
+  1.5e-5pp) and the endpoint against the real DB.
+
 ## Insider Activity (ticker-page tab, 2026-09-19) -- SHELVED 2026-09-20
 
 **Shelved, not deleted.** `Settings.insider_activity_enabled`
