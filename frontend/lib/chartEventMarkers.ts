@@ -8,16 +8,42 @@ import type { ChartDividendMarkerOut, ChartEarningsMarkerOut } from "@/lib/api/t
 // Each marker carries an `id` so a hover can be resolved back to its detail: lightweight-charts 5.2.0
 // reports `hoveredInfo.objectKind === "series-marker"` with `objectId === marker.id` on crosshair moves.
 // The id encodes kind + bar time (one marker per kind per bar, enforced server-side), so it is unique
-// across both marker plugins sharing the candle series.
+// across both marker plugins sharing the event-row series.
+//
+// FIXED-ROW PLACEMENT. Every marker position in lightweight-charts 5.2.0 (aboveBar/belowBar/inBar and
+// atPriceTop/atPriceBottom/atPriceMiddle) is resolved through `series.priceToCoordinate`, so no marker can be
+// pinned to the pane itself. The markers here therefore attach to a hidden helper series on its OWN overlay
+// price scale (EVENT_ROW_SCALE_ID), whose range is pinned to 0..1 with zero scale margins -- which makes price
+// `p` map linearly onto the pane, independent of the candles' price range: y_from_pane_bottom = (H - 1) * p
+// (PriceScale._private__logicalToCoordinate). A marker's `price` is thus just a pixel offset from the pane
+// floor divided by (H - 1). `atPriceTop` puts a shape's BOTTOM edge exactly on that coordinate (and its letter
+// above it), so the icons sit on a floor that doesn't move with zoom/shape size.
 
 export const EARNINGS_MARKER_ID_PREFIX = "earnings:";
 export const DIVIDEND_MARKER_ID_PREFIX = "dividend:";
 
-export function buildEarningsMarkers(markers: ChartEarningsMarkerOut[], color: string) {
+/** priceScaleId of the helper series the event markers attach to (any id other than left/right is an overlay). */
+export const EVENT_ROW_SCALE_ID = "event-row";
+/** Fixed autoscale range for that overlay scale; with zero scale margins it spans the whole pane height. */
+export const EVENT_ROW_PRICE_RANGE = { minValue: 0, maxValue: 1 } as const;
+/** Distance from the pane's bottom edge to the bottom edge of an event icon. */
+export const EVENT_ROW_FLOOR_PX = 6;
+/** How far a dividend is lifted above an earnings marker on the SAME bar, so the two never sit on top of each
+ * other. Clears the largest icon (24px circle at max bar spacing) plus its letter (~16px). */
+export const EVENT_ROW_STACK_PX = 44;
+
+/** Converts a pixel offset above the pane floor into a price on the event-row scale (see the header). */
+export function eventRowPrice(offsetPx: number, paneHeightPx: number): number {
+  return offsetPx / (paneHeightPx - 1);
+}
+
+export function buildEarningsMarkers(markers: ChartEarningsMarkerOut[], color: string, paneHeightPx: number) {
+  const price = eventRowPrice(EVENT_ROW_FLOOR_PX, paneHeightPx);
   return markers.map((m) => ({
     id: `${EARNINGS_MARKER_ID_PREFIX}${m.time}`,
     time: m.time,
-    position: "aboveBar" as const,
+    position: "atPriceTop" as const,
+    price,
     color,
     shape: "circle" as const,
     text: "E",
@@ -25,16 +51,49 @@ export function buildEarningsMarkers(markers: ChartEarningsMarkerOut[], color: s
   }));
 }
 
-export function buildDividendMarkers(markers: ChartDividendMarkerOut[], color: string) {
+/** `earnings` is consulted only to detect a same-bar collision (the weekly view makes one plausible): such a
+ * dividend is stacked one slot above the earnings marker. Deliberately independent of the Earnings toggle, so
+ * hiding earnings never makes a dividend jump. */
+export function buildDividendMarkers(
+  markers: ChartDividendMarkerOut[],
+  color: string,
+  paneHeightPx: number,
+  earnings: ChartEarningsMarkerOut[] = []
+) {
+  const earningsTimes = new Set(earnings.map((e) => e.time));
+  const floor = eventRowPrice(EVENT_ROW_FLOOR_PX, paneHeightPx);
+  const stacked = eventRowPrice(EVENT_ROW_FLOOR_PX + EVENT_ROW_STACK_PX, paneHeightPx);
   return markers.map((m) => ({
     id: `${DIVIDEND_MARKER_ID_PREFIX}${m.time}`,
     time: m.time,
-    position: "belowBar" as const,
+    position: "atPriceTop" as const,
+    price: earningsTimes.has(m.time) ? stacked : floor,
     color,
     shape: "square" as const,
     text: "D",
     size: 1,
   }));
+}
+
+/** Where the hover tooltip goes, relative to the chart container. Always ABOVE the cursor: the markers live on
+ * the price pane's floor, so a below-the-cursor box would spill over the RSI/Stochastic panes (or out of the
+ * chart entirely when they're absent). Flips to the cursor's left near the right edge so it never clips. */
+export const TOOLTIP_OFFSET_PX = 12;
+export const TOOLTIP_FLIP_MARGIN_PX = 200;
+
+export interface TooltipPlacement {
+  left: number;
+  top: number;
+  transform: string;
+}
+
+export function eventTooltipPlacement(x: number, y: number, containerWidthPx: number): TooltipPlacement {
+  const flipLeft = x > containerWidthPx - TOOLTIP_FLIP_MARGIN_PX;
+  return {
+    left: flipLeft ? x - TOOLTIP_OFFSET_PX : x + TOOLTIP_OFFSET_PX,
+    top: y - TOOLTIP_OFFSET_PX,
+    transform: `translate(${flipLeft ? "-100%" : "0"}, -100%)`,
+  };
 }
 
 export interface EventTooltip {

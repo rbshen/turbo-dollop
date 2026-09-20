@@ -3,7 +3,15 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers, LineStyle } from "lightweight-charts";
 import type { IChartApi, ISeriesApi, ISeriesMarkersPluginApi, Logical, LogicalRangeChangeEventHandler, Time } from "lightweight-charts";
 import { fmtMoney } from "@/lib/format";
-import { buildDividendMarkers, buildEarningsMarkers, describeEventMarker } from "@/lib/chartEventMarkers";
+import {
+  buildDividendMarkers,
+  buildEarningsMarkers,
+  describeEventMarker,
+  eventTooltipPlacement,
+  EVENT_ROW_PRICE_RANGE,
+  EVENT_ROW_SCALE_ID,
+} from "@/lib/chartEventMarkers";
+import type { TooltipPlacement } from "@/lib/chartEventMarkers";
 import type { ChartOut } from "@/lib/api/types";
 
 // Ported from Options Tracker's PositionChart.tsx (lightweight-charts
@@ -73,9 +81,10 @@ const COLORS = {
   warrenBlue: "#3179F5", // same blue already used for ema21
   warrenYellow: "#f59e0b",
   warrenGray: "#a1a1aa",
-  // Corporate-event markers (earnings report / dividend ex-date). Shape alone already separates these from
-  // every signal arrow (circle/square vs. arrowUp/arrowDown) and from each other; the colors are additionally
-  // hues used nowhere else in this component (cyan-400 / violet-400), so an event never reads as a signal.
+  // Corporate-event markers (earnings report / dividend ex-date), drawn on their own fixed row at the price
+  // pane's floor (see addMainSeries). Shape alone already separates these from every signal arrow (circle/square
+  // vs. arrowUp/arrowDown) and from each other; the colors are additionally hues used nowhere else in this
+  // component (cyan-400 / violet-400), so an event never reads as a signal.
   earningsMarker: "#22d3ee",
   dividendMarker: "#a78bfa",
 };
@@ -91,10 +100,6 @@ const WARREN_MARKER_STYLE: Record<string, { color: string; shape: "arrowUp" | "a
   yellow_down: { color: COLORS.warrenYellow, shape: "arrowDown", position: "aboveBar" },
   gray_down: { color: COLORS.warrenGray, shape: "arrowDown", position: "aboveBar" },
 };
-
-// Cursor distance from the chart's right edge within which the marker tooltip flips to the cursor's left --
-// roughly a tooltip's own max width plus its offset.
-const TOOLTIP_FLIP_MARGIN_PX = 200;
 
 const RSI_OVERBOUGHT = 70;
 const RSI_OVERSOLD = 30;
@@ -255,6 +260,10 @@ const PRICE_SCALE_MIN_WIDTH = 70;
 // their own 0-100-ish value range and OB/OS reference lines already sit close to
 // each pane's top/bottom edge and were left untouched per explicit request.
 const PRICE_PANE_SCALE_MARGINS = { top: 0.08, bottom: 0.08 };
+// Same, when the pane also carries the earnings/dividend event row along its floor. The row is up to ~46px tall
+// at max zoom (24px icon + its letter + the 6px floor gap), which the default 8% (~45px) bottom margin would let
+// the lowest candles run into; 11% (~62px) keeps them clear, with room left for a belowBar signal arrow.
+const PRICE_PANE_SCALE_MARGINS_WITH_EVENT_ROW = { top: 0.08, bottom: 0.11 };
 
 interface OhlcState {
   o: number;
@@ -510,23 +519,52 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
     ) as ISeriesMarkersPluginApi<Time>;
   }
 
-  // Earnings/dividend event markers: one more independent markers primitive each on the same candle series
-  // (createSeriesMarkers attaches a separate primitive per call, so they coexist with the two above without
-  // interfering -- the same reason BB+RSI and Warren already can). Same "create whenever there's data,
-  // gate only the initial array on the toggle" convention as above.
+  // Earnings/dividend event markers, on a fixed row along the price pane's floor rather than attached to the
+  // candles (TradingView's convention). lightweight-charts 5.2.0 has no marker position that is independent of
+  // price -- every one resolves through series.priceToCoordinate -- so the markers attach to a hidden helper
+  // series on its own overlay price scale instead, pinned to a 0..1 range with zero margins so a marker's
+  // `price` is simply its height above the pane floor (see lib/chartEventMarkers.ts's header for the math).
+  //
+  // The helper is a real, visible series with everything drawable switched off: the markers plugin renders
+  // nothing for a series with `visible: false`. It carries one 0-valued point per candle because a marker needs
+  // a data point at its bar. As an overlay series it is skipped by Magnet-mode crosshair snapping
+  // (Magnet._internal_align ignores overlay series), and the marker plugins run with autoScale off so they
+  // can't perturb the pinned range.
+  //
+  // Each kind still gets its own independent markers primitive (so each keeps its own toggle), and the same
+  // "create whenever there's data, gate only the initial array on the toggle" convention as the signals above.
   let earningsMarkersApi: ISeriesMarkersPluginApi<Time> | null = null;
-  if (data.earnings_markers.length > 0) {
-    earningsMarkersApi = createSeriesMarkers(
-      candle as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-      visibility.showEarnings ? buildEarningsMarkers(data.earnings_markers, COLORS.earningsMarker) : []
-    ) as ISeriesMarkersPluginApi<Time>;
-  }
   let dividendMarkersApi: ISeriesMarkersPluginApi<Time> | null = null;
-  if (data.dividend_markers.length > 0) {
-    dividendMarkersApi = createSeriesMarkers(
-      candle as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-      visibility.showDividends ? buildDividendMarkers(data.dividend_markers, COLORS.dividendMarker) : []
-    ) as ISeriesMarkersPluginApi<Time>;
+  if (data.earnings_markers.length > 0 || data.dividend_markers.length > 0) {
+    const eventRow = chart.addSeries(LineSeries, {
+      priceScaleId: EVENT_ROW_SCALE_ID,
+      lineVisible: false,
+      pointMarkersVisible: false,
+      crosshairMarkerVisible: false,
+      lastValueVisible: false,
+      priceLineVisible: false,
+      autoscaleInfoProvider: () => ({ priceRange: { ...EVENT_ROW_PRICE_RANGE } }),
+    });
+    eventRow.setData(data.bars.map((b) => ({ time: b.time, value: 0 })));
+    eventRow.priceScale().applyOptions({ scaleMargins: { top: 0, bottom: 0 } });
+
+    const noAutoScale = { autoScale: false };
+    if (data.earnings_markers.length > 0) {
+      earningsMarkersApi = createSeriesMarkers(
+        eventRow,
+        visibility.showEarnings ? buildEarningsMarkers(data.earnings_markers, COLORS.earningsMarker, MAIN_PANE_HEIGHT) : [],
+        noAutoScale
+      ) as ISeriesMarkersPluginApi<Time>;
+    }
+    if (data.dividend_markers.length > 0) {
+      dividendMarkersApi = createSeriesMarkers(
+        eventRow,
+        visibility.showDividends
+          ? buildDividendMarkers(data.dividend_markers, COLORS.dividendMarker, MAIN_PANE_HEIGHT, data.earnings_markers)
+          : [],
+        noAutoScale
+      ) as ISeriesMarkersPluginApi<Time>;
+    }
   }
 
   return {
@@ -779,10 +817,10 @@ export function TickerChart({
     dividends: null,
   });
   // The earnings/dividend marker currently under the cursor (resolved from lightweight-charts' hoveredInfo in
-  // the crosshair handler below). Holds only the id + pointer position -- the tooltip text is derived at render
+  // the crosshair handler below). Holds only the id + tooltip placement -- the tooltip text is derived at render
   // time from the CURRENT data/quoteCurrency props, so it can never go stale against a closure captured when
   // the chart-creation effect last ran.
-  const [hoveredEvent, setHoveredEvent] = useState<{ id: string; x: number; y: number; flipLeft: boolean } | null>(null);
+  const [hoveredEvent, setHoveredEvent] = useState<({ id: string } & TooltipPlacement) | null>(null);
   // Same purpose as markersApiRef, for the plain LineSeries overlays -- toggling one calls applyOptions({ visible })
   // on every series in the relevant list/slot (see the overlay-visibility effects below), never recreating the chart.
   const overlayApiRef = useRef<{
@@ -866,7 +904,10 @@ export function TickerChart({
       showSma50,
       showSma200,
     });
-    chart.priceScale("right", 0).applyOptions({ scaleMargins: PRICE_PANE_SCALE_MARGINS });
+    const hasEventRow = data.earnings_markers.length > 0 || data.dividend_markers.length > 0;
+    chart
+      .priceScale("right", 0)
+      .applyOptions({ scaleMargins: hasEventRow ? PRICE_PANE_SCALE_MARGINS_WITH_EVENT_ROW : PRICE_PANE_SCALE_MARGINS });
     markersApiRef.current = { bbRsi: bbRsiMarkersApi, warren: warrenMarkersApi, earnings: earningsMarkersApi, dividends: dividendMarkersApi };
     overlayApiRef.current = {
       lpSupport: lpSupportSeries,
@@ -997,7 +1038,7 @@ export function TickerChart({
         // Decided here (an event handler), not at render: reading the container's width during render would
         // mean reading a ref there.
         const width = containerRef.current?.clientWidth ?? 0;
-        setHoveredEvent({ id: hovered.objectId, x: params.point.x, y: params.point.y, flipLeft: params.point.x > width - TOOLTIP_FLIP_MARGIN_PX });
+        setHoveredEvent({ id: hovered.objectId, ...eventTooltipPlacement(params.point.x, params.point.y, width) });
       } else {
         setHoveredEvent(null); // no-op (same value) when already null
       }
@@ -1095,11 +1136,15 @@ export function TickerChart({
   }, [data, showWarren]);
 
   useEffect(() => {
-    markersApiRef.current.earnings?.setMarkers(showEarnings ? buildEarningsMarkers(data.earnings_markers, COLORS.earningsMarker) : []);
+    markersApiRef.current.earnings?.setMarkers(
+      showEarnings ? buildEarningsMarkers(data.earnings_markers, COLORS.earningsMarker, MAIN_PANE_HEIGHT) : []
+    );
   }, [data, showEarnings]);
 
   useEffect(() => {
-    markersApiRef.current.dividends?.setMarkers(showDividends ? buildDividendMarkers(data.dividend_markers, COLORS.dividendMarker) : []);
+    markersApiRef.current.dividends?.setMarkers(
+      showDividends ? buildDividendMarkers(data.dividend_markers, COLORS.dividendMarker, MAIN_PANE_HEIGHT, data.earnings_markers) : []
+    );
   }, [data, showDividends]);
 
   useEffect(() => {
@@ -1178,13 +1223,9 @@ export function TickerChart({
         {eventTooltip && hoveredEvent && (
           <div
             className="absolute z-20 pointer-events-none select-none rounded border border-zinc-700 bg-zinc-900/95 px-2 py-1.5 text-xs font-mono shadow-lg"
-            style={{
-              top: hoveredEvent.y + 12,
-              // Flip to the cursor's left near the right edge so the box never spills out of the chart.
-              ...(hoveredEvent.flipLeft
-                ? { left: hoveredEvent.x - 12, transform: "translateX(-100%)" }
-                : { left: hoveredEvent.x + 12 }),
-            }}
+            // Above the cursor (the event row is on the pane floor), flipped left near the right edge --
+            // see eventTooltipPlacement.
+            style={{ left: hoveredEvent.left, top: hoveredEvent.top, transform: hoveredEvent.transform }}
           >
             <div className="text-zinc-200">{eventTooltip.title}</div>
             {eventTooltip.lines.map((line) => (

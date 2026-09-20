@@ -2941,9 +2941,11 @@ chart alongside the still-valid zones, in a distinct color.
 
 ### Chart tab earnings/dividend markers (2026-09-20)
 
-Earnings-report dates (circle, "E", above the bar, cyan) and dividend ex-dates (square, "D", below
-the bar, violet) on the Chart tab's price pane, all 4 ranges, each with its own toggle
-(`ChartTab.tsx`) and a hover tooltip (EPS actual/estimate/surprise; per-share amount).
+Earnings-report dates (circle, "E", cyan) and dividend ex-dates (square, "D", violet) on the Chart
+tab's price pane, all 4 ranges, each with its own toggle (`ChartTab.tsx`) and a hover tooltip (EPS
+actual/estimate/surprise; per-share amount). **Drawn on a fixed row along the price pane's floor,
+independent of price (TradingView's convention) -- see "Fixed-row placement" below; originally
+(same day) they sat above/below the candle at the bar's price level.**
 
 - **Source is FMP when `FMP_ENABLED`, Yahoo otherwise or on FMP failure
   (`data/chart_events_data.py`) -- deliberately NOT Yahoo-only like the candles.** The 2026-09-18
@@ -2980,10 +2982,50 @@ the bar, violet) on the Chart tab's price pane, all 4 ranges, each with its own 
 - **Hover uses lightweight-charts 5.2.0's `hoveredInfo`** (`objectKind === "series-marker"`,
   `objectId === marker.id`) from the existing crosshair handler -- no extra library. Markers carry
   an `id` (`earnings:<bar time>` / `dividend:<bar time>`); BB+RSI/Warren markers have none, so they
-  never produce a tooltip. Each kind is its own `createSeriesMarkers` primitive on the candle
-  series (as BB+RSI and Warren already are). Separate primitives do not stack against each other,
-  so an event can visually overlap a signal arrow on the same bar -- accepted; not visually
-  verified in a browser (only unit tests, tsc and eslint were run).
+  never produce a tooltip. Each kind is its own `createSeriesMarkers` primitive (so each keeps its
+  own toggle). The tooltip is placed ABOVE the cursor (`eventTooltipPlacement`) -- the markers live
+  on the pane floor, so a below-cursor box would spill over the RSI/Stochastic panes -- and flips to
+  the cursor's left within 200px of the right edge.
+- **Fixed-row placement (2026-09-20).** lightweight-charts 5.2.0 has **no marker position
+  independent of price**: aboveBar/belowBar/inBar and atPriceTop/atPriceBottom/atPriceMiddle all
+  resolve through `series.priceToCoordinate` (`fillSizeAndY` in the library). So the markers attach
+  to a hidden **helper LineSeries on its own overlay price scale** (`priceScaleId: "event-row"`,
+  pane 0) whose `autoscaleInfoProvider` pins the range to 0..1 and whose `scaleMargins` are 0/0 --
+  price `p` then maps linearly onto the pane (`y_from_floor = (H-1)*p + 1px`, verified against the
+  real library headlessly, not just read), unaffected by the candles' price range. A marker's
+  `price` is `offsetPx / (H-1)` (`lib/chartEventMarkers.ts::eventRowPrice`, H = the nominal
+  `MAIN_PANE_HEIGHT`; the real pane is ~4% shorter because it is split by stretch factor, which moves
+  the row ~1px -- negligible). `atPriceTop` puts an icon's BOTTOM edge exactly on that coordinate
+  (`EVENT_ROW_FLOOR_PX` = 6px above the floor) with the letter above it, so the row doesn't move with
+  zoom/icon size (icons are 10-24px depending on bar spacing).
+  - **The helper must stay `visible: true`**: the markers plugin renders nothing for a series with
+    `visible: false`. It is made invisible by `lineVisible`/`pointMarkersVisible`/
+    `crosshairMarkerVisible`/`lastValueVisible`/`priceLineVisible` all false. It carries one 0-valued
+    point per candle (a marker needs a data point at its bar). Overlay series are skipped by Magnet
+    crosshair snapping, so it cannot capture the crosshair; the marker plugins run with
+    `autoScale: false` so they can't perturb the pinned range.
+  - **Only created when there is at least one earnings/dividend marker**, and only then does the
+    price pane's bottom scale margin grow (0.08 -> 0.11, `PRICE_PANE_SCALE_MARGINS_WITH_EVENT_ROW`)
+    so candles clear the row's ~46px max height. ETFs/tickers with no events render exactly as before.
+  - **Same-bar collision** (E and D in one bar; plausible in the weekly view): both kinds share one
+    row now, so a dividend on the same bar as an earnings report is stacked `EVENT_ROW_STACK_PX`
+    (44px) above it. Derived from the data only -- independent of the Earnings toggle, so hiding
+    earnings never makes a dividend jump. This replaces the old above/below split as the E/D
+    separation mechanism.
+  - **Also fixes the earlier overlap-with-signals caveat**: event icons no longer share a bar-relative
+    position with BB+RSI/Warren arrows. Residual: a belowBar signal arrow on the lowest candle can
+    still reach toward the row at high zoom.
+  - **Not a new pane, and not literally against the time axis.** The shared time axis sits under the
+    LAST pane (Stochastic), so with RSI/Stochastic present the row is at the bottom of the PRICE pane,
+    above the RSI pane -- where TradingView also puts it when indicator panes exist. A dedicated
+    ~24px 4th pane would sit against the axis but needs a 4th stretch factor/`totalHeight`/label
+    offsets and a price scale in the pane; not done. BB+RSI/Warren arrows stay price-relative
+    (design question left open).
+  - Verified without a browser: unit tests (pure builders/placement), tsc, eslint, plus a throwaway
+    headless run of the real library confirming the row's coordinate is independent of candle
+    scale, the icon bottom edge lands on the anchor, letters draw above icons, and a stacked
+    dividend clears the earnings marker. **Not verified on screen**: the row's look/alignment at each
+    zoom level, hover hit-testing on the new position, and the tooltip flip.
 - **Degradation**: no note is shown, in either an empty or a failed fetch (the Chart tab has no
   "not tracked" note for its other overlays either); the toggles stay. Sparse cases: ETFs have
   dividends but no earnings; non-payers and recent IPOs have earnings only; a foreign issuer on the
