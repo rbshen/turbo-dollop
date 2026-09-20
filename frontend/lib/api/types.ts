@@ -1599,3 +1599,31 @@ export interface InsiderActivityOut {
   // (cold miss); non-null with has_data false = cached and genuinely empty.
   as_of: string | null;
 }
+
+// Sector Heatmap -- see backend/data/sector_heatmap_data.py. Every return
+// is a trailing TOTAL return (price + reinvested distributions) in
+// percentage points (4.25 == +4.25%), calendar-day windows.
+export interface SectorHeatmapCellOut {
+  // null when the fund has no history that far back, or no row exists for
+  // the current as_of_date -- never imputed.
+  return_pct: number | null;
+  // The trading day whose close the return is measured from.
+  base_date: string | null;
+}
+
+export interface SectorHeatmapRowOut {
+  ticker: string;
+  name: string;
+  // Keyed by window; every entry of SectorHeatmapOut.windows is present.
+  cells: Record<string, SectorHeatmapCellOut>;
+}
+
+export interface SectorHeatmapOut {
+  // Both null (with rows == []) before the nightly job has ever run.
+  as_of_date: string | null;
+  computed_at: string | null;
+  // Fixes the column order.
+  windows: string[];
+  // Fixed universe order; sorting is the client's job.
+  rows: SectorHeatmapRowOut[];
+}

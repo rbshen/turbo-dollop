@@ -11,7 +11,7 @@ import { useDataSourceHealth } from "@/lib/hooks/useDataSourceHealth";
 // cap, year high/low) has no Yahoo equivalent and stays pinned to the
 // last cached FMP value, going stale like everything else on this card.
 const FMP_POWERS = ["Fundamentals", "Ratios & Scoring", "Quote (change/cap/range)", "Analyst Ratings"];
-const YAHOO_POWERS = ["Chart (OHLC)", "Price (fallback)", "Weinstein Stage", "Liquidity Zones", "Trend Signals"];
+const YAHOO_POWERS = ["Chart (OHLC)", "Price (fallback)", "Weinstein Stage", "Liquidity Zones", "Trend Signals", "Sector Heatmap"];
 
 /** Settings "Status" tab content -- Data Sources (FMP + Yahoo Finance
  * health cards) then Scheduled Jobs, replacing the old site-wide
