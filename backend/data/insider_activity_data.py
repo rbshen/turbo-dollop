@@ -1,5 +1,7 @@
+import logging
 from datetime import date, timedelta
 
+import httpx
 from sqlmodel import Session, select
 
 from clients.fmp_client import fmp_client
@@ -17,6 +19,8 @@ from core.schemas import (
 )
 from core.tickers import normalize_ticker
 
+logger = logging.getLogger(__name__)
+
 # The trailing window is the N most recent quarterly statistics rows -- a
 # "last 2 filed quarters" approximation, not a true rolling 6 months (the
 # statistics endpoint only buckets by calendar quarter).
@@ -26,9 +30,27 @@ STATS_WINDOW_QUARTERS = 2
 CLUSTER_BUY_MIN_INSIDERS = 3
 CLUSTER_BUY_WINDOW_DAYS = 90
 
-# How many search rows to request. FMP returns newest first, so for a busy
-# ticker this bounds how far back the table/cluster check can see.
-SEARCH_LIMIT = 100
+# The quarterly chart's window: this many calendar quarters ending at the
+# newest transaction's quarter.
+CHART_QUARTERS = 12
+
+# /insider-trading/search paging. FMP orders rows by FILING date, newest
+# first, so reaching back 12 quarters takes a lot of rows for a busy filer
+# (measured live: AVGO ~600, FTNT ~1000, NVDA ~1600, META >3000 -- a single
+# 100-row page covered under half a year for the first two). Per-request
+# latency is ~1s regardless of page size, so pages are large to keep the
+# round-trip count down, and paging stops as soon as the chart window is
+# covered rather than at a fixed depth -- a quiet ticker costs one request.
+# The page cap bounds the pathological tickers (cached blob ~550 KB per
+# 1000 rows); a ticker that hits it is served as far back as it got, and the
+# chart drops the quarters that would be incomplete (see
+# build_quarterly_activity).
+SEARCH_PAGE_SIZE = 500
+SEARCH_MAX_PAGES = 4
+
+# Cached blobs written before paging were one bare 100-row list. A full one
+# was capped, not exhausted.
+_LEGACY_SEARCH_LIMIT = 100
 
 # FMP's transactionType is "<SEC Form 4 code>-<Label>" (e.g. "P-Purchase").
 # The frontend only ever sees `kind` + a plain-language label, never these.
@@ -70,6 +92,16 @@ _UNKNOWN_NAME = "Unknown"
 def _num(value) -> float:
     """FMP numeric fields are sometimes null or absent; treat as 0."""
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
+
+
+def _quarter_index(d: date) -> int:
+    return d.year * 4 + (d.month - 1) // 3
+
+
+def _quarter_start(d: date, quarters_back: int = 0) -> date:
+    """First day of the calendar quarter `quarters_back` quarters before d's."""
+    index = _quarter_index(d) - quarters_back
+    return date(index // 4, (index % 4) * 3 + 1, 1)
 
 
 def _parse_date(value) -> date | None:
@@ -294,6 +326,83 @@ def build_summary(
     )
 
 
+def _filing_frontier(rows: list) -> date | None:
+    """Oldest filing date among the fetched rows (transactionDate as a
+    fallback for a row with no usable filingDate). FMP pages by filing date,
+    newest first, so every row NOT fetched was filed on or before this --
+    and a filing is never earlier than its own transaction, so it also
+    bounds the unfetched rows' transaction dates."""
+    dates = [
+        d
+        for row in rows
+        if isinstance(row, dict)
+        for d in [_parse_date(row.get("filingDate")) or _parse_date(row.get("transactionDate"))]
+        if d is not None
+    ]
+    return min(dates, default=None)
+
+
+def _covers_chart_window(rows: list, frontier: date | None) -> bool:
+    """True once everything unfetched must fall before the chart window --
+    i.e. the frontier sits before the window's first day. (Not `min` over
+    transactionDate: a stray old Form 5 row inside a recent page would end
+    the paging early.)"""
+    transactions = normalize_transactions(rows)
+    if frontier is None or not transactions:
+        return False
+    return frontier < _quarter_start(transactions[0].transaction_date, CHART_QUARTERS - 1)
+
+
+async def _fetch_search_history(ticker: str) -> dict | list:
+    """Pages through /insider-trading/search until the chart window is
+    covered, FMP runs out of rows, or SEARCH_MAX_PAGES is hit.
+
+    Returns the cached blob `{"rows": [...], "exhausted": bool}` -- `exhausted`
+    is what tells "FMP has nothing older" (a quiet ticker) apart from "we
+    stopped fetching" (the cap), which decides whether quarters older than
+    the fetched rows are genuinely empty or just unseen. A first-page failure
+    propagates (safe_fetch turns it into a cold miss, nothing cached, same as
+    before); a failure on a later page keeps what was fetched and reports it
+    as not exhausted, rather than discarding a usable history over a blip.
+    """
+    rows: list = []
+    for page in range(SEARCH_MAX_PAGES):
+        try:
+            batch = await fmp_client.get_insider_trading_search(ticker, SEARCH_PAGE_SIZE, page)
+        except httpx.HTTPError:
+            if page == 0:
+                raise
+            logger.warning("insider search page %d failed for %s; keeping %d rows", page, ticker, len(rows))
+            return {"rows": rows, "exhausted": False}
+        if not isinstance(batch, list):
+            if page == 0:
+                return batch  # an error/unexpected payload -- read as empty downstream
+            return {"rows": rows, "exhausted": False}
+        rows.extend(batch)
+        if len(batch) < SEARCH_PAGE_SIZE:
+            return {"rows": rows, "exhausted": True}
+        if _covers_chart_window(rows, _filing_frontier(rows)):
+            return {"rows": rows, "exhausted": False}
+    logger.warning("insider search for %s hit the %d-page cap without covering the chart window", ticker, SEARCH_MAX_PAGES)
+    return {"rows": rows, "exhausted": False}
+
+
+def _unpack_search_blob(blob) -> tuple[list, date | None]:
+    """(rows, frontier) from a cached search blob. `frontier` is None when the
+    history is complete (FMP was exhausted); otherwise the oldest filing date
+    fetched -- rows filed on or before it may be missing."""
+    if isinstance(blob, dict) and isinstance(blob.get("rows"), list):
+        rows, exhausted = blob["rows"], bool(blob.get("exhausted"))
+    elif isinstance(blob, list):
+        # Pre-paging blob: a full 100-row list was capped, a shorter one exhausted.
+        rows, exhausted = blob, len(blob) < _LEGACY_SEARCH_LIMIT
+    else:
+        return [], None
+    if exhausted:
+        return rows, None
+    return rows, _filing_frontier(rows) or date.max
+
+
 async def get_insider_activity_data(ticker: str, cache_only: bool = False) -> InsiderActivityOut:
     """New, independent, read-only Insider Activity lens -- never touches
     Step 1-5/Overall Assessment scoring. Reads the standard
@@ -316,7 +425,7 @@ async def get_insider_activity_data(ticker: str, cache_only: bool = False) -> In
                 ticker,
                 "insider_trading_search",
                 "latest",
-                lambda: fmp_client.get_insider_trading_search(ticker, SEARCH_LIMIT),
+                lambda: _fetch_search_history(ticker),
                 staleness_days,
                 cache_only,
             ),
@@ -346,7 +455,8 @@ async def get_insider_activity_data(ticker: str, cache_only: bool = False) -> In
         ).first()
         as_of = search_row.fetched_at if search_row else None
 
-    transactions = normalize_transactions(search if isinstance(search, list) else [])
+    search_rows, _search_frontier = _unpack_search_blob(search)
+    transactions = normalize_transactions(search_rows)
     quarterly_stats = normalize_quarterly_stats(statistics if isinstance(statistics, list) else [])
 
     return InsiderActivityOut(

@@ -6,7 +6,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 import clients.fmp_client as fmp_client_module
 import core.main as main
@@ -73,9 +73,10 @@ def _stat(year, quarter, purchases=0, sales=0, acquired=0, disposed=0) -> dict:
 def _patch_fmp(monkeypatch, search=None, statistics=None):
     calls = {"search": 0, "statistics": 0}
 
-    async def fake_search(ticker, limit=100):
+    async def fake_search(ticker, limit=100, page=0):
         calls["search"] += 1
-        return search if search is not None else []
+        rows = search if search is not None else []
+        return rows[page * limit : (page + 1) * limit] if isinstance(rows, list) else rows
 
     async def fake_statistics(ticker):
         calls["statistics"] += 1
@@ -665,6 +666,114 @@ def test_endpoint_reports_not_cached_yet_when_fmp_is_paused(monkeypatch):
     assert body["as_of"] is None
 
 
+# --- search paging ----------------------------------------------------------
+
+
+def _filed_row(filed: str, tx_date: str | None = None, **kw) -> dict:
+    """A row in FMP's order: `filed` drives paging, the transaction is filed 2 days after it."""
+    if tx_date is None:
+        tx_date = (date.fromisoformat(filed) - timedelta(days=2)).isoformat()
+    return _row(tx_date=tx_date, filingDate=filed, **kw)
+
+
+def _stream(n, start="2026-09-15", step_days=1):
+    """n rows filed newest-first, one per `step_days`."""
+    first = date.fromisoformat(start)
+    return [_filed_row((first - timedelta(days=i * step_days)).isoformat()) for i in range(n)]
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
+
+def _record_pages(monkeypatch, rows, fail_on_page=None, page_size=10, max_pages=6):
+    monkeypatch.setattr(insider_data, "SEARCH_PAGE_SIZE", page_size)
+    monkeypatch.setattr(insider_data, "SEARCH_MAX_PAGES", max_pages)
+    pages = []
+
+    async def fake_search(ticker, limit, page):
+        pages.append(page)
+        if page == fail_on_page:
+            raise httpx.ConnectError("boom")
+        return rows[page * limit : (page + 1) * limit]
+
+    monkeypatch.setattr(insider_data.fmp_client, "get_insider_trading_search", fake_search)
+    return pages
+
+
+def test_a_quiet_ticker_costs_one_request_and_is_exhausted(monkeypatch):
+    pages = _record_pages(monkeypatch, _stream(4))
+    blob = _run(insider_data._fetch_search_history("TEST"))
+    assert pages == [0]
+    assert len(blob["rows"]) == 4 and blob["exhausted"] is True
+
+
+def test_paging_stops_as_soon_as_the_chart_window_is_covered(monkeypatch):
+    # One row a week: 12 quarters back from 2026-09 starts 2023-10-01, i.e. ~155
+    # weekly rows. 10-row pages must stop the page after the frontier crosses it,
+    # not run to the 6-page cap or drain the (much longer) stream.
+    rows = _stream(400, step_days=7)
+    pages = _record_pages(monkeypatch, rows, max_pages=100)
+    blob = _run(insider_data._fetch_search_history("TEST"))
+    frontier = insider_data._filing_frontier(blob["rows"])
+    assert frontier < date(2023, 10, 1)
+    assert pages == list(range(len(pages))) and len(pages) < 20
+    # ...and it stopped on the FIRST page that crossed the window start, not one later.
+    assert insider_data._filing_frontier(blob["rows"][: -10]) >= date(2023, 10, 1)
+    assert blob["exhausted"] is False
+
+
+def test_a_stray_old_transaction_date_does_not_end_paging_early(monkeypatch):
+    # A Form 5 filed today can carry a 2020 transactionDate deep in a recent page.
+    # Coverage is judged on FILING date, so this must not fool the stop check.
+    rows = _stream(400, step_days=7)
+    rows[3] = _filed_row(rows[3]["filingDate"], tx_date="2020-12-31")
+    pages = _record_pages(monkeypatch, rows, max_pages=100)
+    _run(insider_data._fetch_search_history("TEST"))
+    assert len(pages) > 5
+
+
+def test_paging_is_capped_and_the_blob_reports_not_exhausted(monkeypatch):
+    pages = _record_pages(monkeypatch, _stream(500), max_pages=3)
+    blob = _run(insider_data._fetch_search_history("TEST"))
+    assert pages == [0, 1, 2]
+    assert len(blob["rows"]) == 30 and blob["exhausted"] is False
+
+
+def test_a_later_page_failure_keeps_the_rows_already_fetched(monkeypatch):
+    _record_pages(monkeypatch, _stream(500), fail_on_page=2)
+    blob = _run(insider_data._fetch_search_history("TEST"))
+    assert len(blob["rows"]) == 20 and blob["exhausted"] is False
+
+
+def test_a_first_page_failure_propagates_so_nothing_is_cached(monkeypatch):
+    _record_pages(monkeypatch, _stream(50), fail_on_page=0)
+    with pytest.raises(httpx.HTTPError):
+        _run(insider_data._fetch_search_history("TEST"))
+
+
+def test_unpack_reads_the_new_blob_and_the_legacy_bare_list():
+    frontier = date(2026, 1, 5)
+    rows = [_filed_row("2026-09-01"), _filed_row("2026-01-05")]
+    assert insider_data._unpack_search_blob({"rows": rows, "exhausted": True}) == (rows, None)
+    assert insider_data._unpack_search_blob({"rows": rows, "exhausted": False}) == (rows, frontier)
+    # Legacy: a bare list shorter than the old 100-row limit was exhausted; a full one was capped.
+    assert insider_data._unpack_search_blob(rows) == (rows, None)
+    full = _stream(100)
+    assert insider_data._unpack_search_blob(full) == (full, insider_data._filing_frontier(full))
+    assert insider_data._unpack_search_blob({}) == ([], None)
+    assert insider_data._unpack_search_blob(None) == ([], None)
+
+
+def test_a_full_fetch_lands_in_the_cache_as_the_new_blob_shape(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, search=[_filed_row("2026-09-03")], statistics=[])
+    asyncio.run(get_insider_activity_data("TEST"))
+    with Session(engine) as session:
+        row = session.exec(select(FundamentalsCache).where(FundamentalsCache.statement_type == "insider_trading_search")).one()
+    assert set(json.loads(row.raw_json)) == {"rows", "exhausted"}
+
+
 # --- FMPClient wrappers -----------------------------------------------------
 
 
@@ -687,13 +796,13 @@ def test_fmp_client_wrappers_hit_the_stable_insider_endpoints(monkeypatch):
 
     async def run():
         await client.get_insider_trading_search("AAPL")
-        await client.get_insider_trading_search("AAPL", limit=25)
+        await client.get_insider_trading_search("AAPL", limit=25, page=3)
         await client.get_insider_trading_statistics("AAPL")
 
     asyncio.run(run())
 
     assert seen[0][0] == "/stable/insider-trading/search"
-    assert seen[0][1]["symbol"] == "AAPL" and seen[0][1]["limit"] == "100"
-    assert seen[1][1]["limit"] == "25"
+    assert seen[0][1]["symbol"] == "AAPL" and seen[0][1]["limit"] == "100" and seen[0][1]["page"] == "0"
+    assert seen[1][1]["limit"] == "25" and seen[1][1]["page"] == "3"
     assert seen[2][0] == "/stable/insider-trading/statistics"
     assert seen[2][1]["symbol"] == "AAPL"

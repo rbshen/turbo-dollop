@@ -177,11 +177,15 @@ class FMPClient:
         # all-time) -- see data/analyst_ratings_data.py's price_target_by_recency.
         return await self.get("/price-target-summary", {"symbol": ticker})
 
-    async def get_insider_trading_search(self, ticker: str, limit: int = 100) -> dict | list:
-        # One row per Form 4 transaction line (newest first), including
+    async def get_insider_trading_search(self, ticker: str, limit: int = 100, page: int = 0) -> dict | list:
+        # One row per Form 4 transaction line, ordered by FILING date newest
+        # first (not transaction date -- a late filing or Form 5 can carry an
+        # old transactionDate deep inside a recent page), including
         # position-only Form 3/5 disclosures with an empty transactionType --
-        # see data/insider_activity_data.py's normalization.
-        return await self.get("/insider-trading/search", {"symbol": ticker, "limit": limit})
+        # see data/insider_activity_data.py's normalization. `page` is
+        # 0-indexed and contiguous for a fixed `limit` (confirmed live;
+        # `limit` is honored up to 1000).
+        return await self.get("/insider-trading/search", {"symbol": ticker, "limit": limit, "page": page})
 
     async def get_insider_trading_statistics(self, ticker: str) -> dict | list:
         # Quarterly aggregates (one row per year/quarter) -- see
