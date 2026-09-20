@@ -10,7 +10,7 @@ import { useDataSourceHealth } from "@/lib/hooks/useDataSourceHealth";
 // (_fetch_yahoo_latest_close); every other quote field (change, market
 // cap, year high/low) has no Yahoo equivalent and stays pinned to the
 // last cached FMP value, going stale like everything else on this card.
-const FMP_POWERS = ["Fundamentals", "Ratios & Scoring", "Quote (change/cap/range)", "Analyst Ratings", "Insider Activity"];
+const FMP_POWERS = ["Fundamentals", "Ratios & Scoring", "Quote (change/cap/range)", "Analyst Ratings"];
 const YAHOO_POWERS = ["Chart (OHLC)", "Price (fallback)", "Weinstein Stage", "Liquidity Zones", "Trend Signals"];
 
 /** Settings "Status" tab content -- Data Sources (FMP + Yahoo Finance

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_TICKER_TAB, TICKER_TABS } from "@/lib/tickerTabs";
 
 describe("tickerTabs", () => {
-  it("has exactly the 10 tabs, in display order", () => {
+  it("has exactly the 9 tabs, in display order", () => {
     expect(TICKER_TABS.map((t) => t.key)).toEqual([
       "summary",
       "financials",
@@ -12,10 +12,14 @@ describe("tickerTabs", () => {
       "valuation",
       "moat",
       "analystRatings",
-      "insiderActivity",
       "technical",
       "chart",
     ]);
+  });
+
+  it("does not expose the shelved Insider Activity tab", () => {
+    expect(TICKER_TABS.map((t) => t.key)).not.toContain("insiderActivity");
+    expect(TICKER_TABS.map((t) => t.label)).not.toContain("Insider Activity");
   });
 
   it("every tab has a unique key", () => {
