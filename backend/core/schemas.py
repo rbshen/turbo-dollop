@@ -1555,6 +1555,39 @@ class MomentumOut(BaseModel):
     rows: list[MomentumSnapshotRowOut]
 
 
+class SectorHeatmapCellOut(BaseModel):
+    """One (ETF, window) cell. `return_pct` is a trailing TOTAL return in
+    percentage points (4.25 == +4.25%); None (with `base_date` None) when
+    the fund has no history that far back, or no row exists for the
+    current as_of_date -- never imputed. `base_date` is the trading day
+    whose close the return is measured from."""
+
+    return_pct: float | None = None
+    base_date: date | None = None
+
+
+class SectorHeatmapRowOut(BaseModel):
+    ticker: str
+    name: str
+    cells: dict[str, SectorHeatmapCellOut]  # keyed by window, every entry of SectorHeatmapOut.windows present
+
+
+class SectorHeatmapOut(BaseModel):
+    """The latest Sector Heatmap -- see models.py::SectorEtfReturn.
+    `as_of_date`/`computed_at` are both None (with rows == []) before the
+    nightly job has ever run, never a 404. Once data exists, every sector
+    is always listed: an ETF with no row at the latest as_of_date (its
+    fetch failed that night) has all-None cells rather than an older
+    night's numbers shown under a newer date. `windows` fixes the column
+    order (scoring/etf_returns.py::WINDOWS); `rows` follow the fixed
+    universe order, leaving any sorting to the client."""
+
+    as_of_date: date | None
+    computed_at: datetime | None
+    windows: list[str]
+    rows: list[SectorHeatmapRowOut]
+
+
 class WatchlistTickerIn(BaseModel):
     ticker: str
 

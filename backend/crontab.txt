@@ -57,6 +57,15 @@
 # pipeline/nightly_liquidity_zone_calculation.py.
 25 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_liquidity_zone_calculation >> /home/shen/fathom/backend/logs/nightly_liquidity_zone_calculation_cron.log 2>&1
 
+# Nightly Sector ETF heatmap recompute (11 SPDR sector ETFs x 7 trailing
+# total-return windows), 3:30 AM server time -- the free minute between
+# Liquidity Zones (3:25) and Warren (3:40). One Yahoo batch download of 11
+# tickers (~4s), zero FMP calls, so it needs no fmp_enabled guard and the
+# 10-minute gap is ample. Nothing else reads its output, so its position
+# relative to the score recompute (3:50) does not matter. See
+# pipeline/nightly_sector_heatmap.py.
+30 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_sector_heatmap >> /home/shen/fathom/backend/logs/nightly_sector_heatmap_cron.log 2>&1
+
 # Nightly Warren RSI/ADX/WVF (2h) technical entry-signal calculation, 3:40
 # AM server time -- placed AFTER Liquidity Zone's own full 3:25-3:35
 # window (not squeezed into the gap before it), with its own dedicated

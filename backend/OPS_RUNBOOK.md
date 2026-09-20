@@ -86,6 +86,7 @@ configured):
 | Nightly trend-structure calculation | `nightly_trend_calculation.log` / `_cron.log` |
 | Nightly BB+RSI entry-signal calculation | `nightly_entry_signal_calculation.log` / `_cron.log` |
 | Nightly Liquidity Zone (LP) calculation | `nightly_liquidity_zone_calculation.log` / `_cron.log` |
+| Nightly Sector ETF heatmap | `nightly_sector_heatmap.log` / `_cron.log` |
 | Nightly Warren RSI/ADX/WVF entry-signal calculation | `nightly_warren_signal_calculation.log` / `_cron.log` |
 | Weekly S&P 500 list refresh | `sp500_list_refresh.log` / `_cron.log` |
 | Weekly Dow list refresh | `dow_list_refresh.log` / `_cron.log` |
@@ -190,6 +191,22 @@ but is never counted toward `Processed`/`Failed` and never gets its own
 `TrendAnalysis` row — a `^GSPC` fetch failure that run just degrades every
 ticker's Weinstein RS/breakout fields to null/false for that run, it is not
 a reason to see it in the failure list.
+
+**`nightly_sector_heatmap`** — recomputes the Sector Heatmap: the 11 SPDR
+sector ETFs (`XLK XLF XLV XLE XLI XLY XLP XLU XLB XLRE XLC`) x 7 trailing
+total-return windows (1w/1m/3m/6m/9m/YTD/1y), upserting 77 `SectorEtfReturn`
+rows per session (`data/sector_heatmap_data.py`). Yahoo Finance only, one
+batch download, zero FMP calls, unaffected by `FMP_ENABLED`. Runs at 3:30 AM
+and re-derives the same anchor (the last completed session) on weekends and
+holidays, upserting over its own rows -- harmless. Success: a log line
+`Nightly sector heatmap complete. As of: <date>. Processed: 11. Failed: 0.`
+in `backend/logs/nightly_sector_heatmap.log`. The job **raises** (so
+`cron-health` shows it failed) only when *nothing* could be computed; a
+single fund that fails is logged as `Sector heatmap: XL? FAILED` and shows
+as a blank row on the page under the new as-of date (never a stale number
+under a fresh date). The page prints its own as-of date, so a job that has
+quietly stopped reads as an old date. Check `Processed` first -- a
+shortfall is Yahoo reachability or a renamed symbol, not FMP.
 
 **`prune_cache`** — deletes `FundamentalsCache` rows older than
 `Settings.cache_retention_days` (180 days by default; distinct from the

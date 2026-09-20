@@ -983,6 +983,49 @@ class MomentumSnapshot(SQLModel, table=True):
     rank: int
 
 
+class SectorEtfReturn(SQLModel, table=True):
+    """One trailing TOTAL return (price change + reinvested distributions,
+    from Yahoo's `Adj Close`) for one sector ETF over one calendar window,
+    as of one trading day -- the Sector Heatmap's storage (see
+    data/sector_heatmap_data.py, scoring/etf_returns.py,
+    pipeline/nightly_sector_heatmap.py). Long format, one row per
+    (ticker, return_window, as_of_date), rather than 7 wide columns per
+    ticker: adding or dropping a window later needs no schema change.
+
+    Computed returns only, deliberately NOT bars -- SharedBarsCache carries
+    no adjusted close, and Yahoo's `Adj Close` is rescaled retroactively at
+    every ex-dividend date, so a stored adjusted-close history would go
+    subtly wrong between refetches. A return is a self-contained number
+    that never needs re-adjusting.
+
+    Keeps history (as_of_date is part of the key) instead of latest-only:
+    the nightly job upserts, so a weekend/holiday re-run of the same anchor
+    day is idempotent, and each new session adds ~77 tiny rows. The API
+    only ever reads the latest as_of_date.
+
+    `return_pct` is in percentage POINTS (4.25 == +4.25%), unlike
+    MomentumSnapshot's fractions -- matches lib/format.ts::fmtPct's own
+    expectation, so nothing on the wire needs a x100. NULL (with a NULL
+    `base_date`) means this fund has no bar on/before that window's target
+    date yet (a young ETF) or its latest bar is too stale to trust -- never
+    imputed. `base_date` is the actual trading day whose close the return
+    is measured from (the last bar on/before the window's calendar target),
+    kept so a cell can show exactly what it was measured against.
+
+    The column is `return_window`, not `window` -- WINDOW is a reserved
+    word in SQLite."""
+
+    __table_args__ = (UniqueConstraint("ticker", "return_window", "as_of_date", name="uq_sector_etf_return_key"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    ticker: str = Field(index=True)
+    return_window: str  # "1w" | "1m" | "3m" | "6m" | "9m" | "ytd" | "1y"
+    as_of_date: date = Field(index=True)
+    base_date: date | None = None
+    return_pct: float | None = None
+    computed_at: datetime
+
+
 class CronRunLog(SQLModel, table=True):
     """One row per cron job invocation, written by core.cron_health.cron_heartbeat
     -- deliberately append-only (no UniqueConstraint, no upsert), same

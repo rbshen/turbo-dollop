@@ -28,6 +28,7 @@ from data.insider_activity_data import get_insider_activity_data
 from data.liquidity_zone_data import get_liquidity_zone_data
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from data.momentum_data import get_momentum_snapshot
+from data.sector_heatmap_data import get_sector_heatmap
 from helpers.liquidity_zone_config import get_liquidity_zone_config, update_liquidity_zone_config
 from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config, update_reit_dividend_yield_config
 from core.models import IndexConstituent, SavedScreenerFilter, TickerCustomValuation, TickerScore, Watchlist
@@ -68,6 +69,7 @@ from core.schemas import (
     SavedScreenerFilterOut,
     ScreenerMeta,
     SecCrossCheck,
+    SectorHeatmapOut,
     SegmentationOut,
     SpeculativeGrowthOut,
     Step1Out,
@@ -182,6 +184,11 @@ def data_source_health() -> DataSourceHealthOut:
 @app.get("/api/momentum", response_model=MomentumOut)
 def momentum(period: MomentumPeriod = "current") -> MomentumOut:
     return get_momentum_snapshot(period)
+
+
+@app.get("/api/sector-heatmap", response_model=SectorHeatmapOut)
+def sector_heatmap() -> SectorHeatmapOut:
+    return get_sector_heatmap()
 
 
 @app.get("/api/config/discount-rate", response_model=DiscountRateConfigOut)

@@ -1,0 +1,175 @@
+"""Orchestration layer for the Sector Heatmap -- the 11 SPDR sector ETFs x 7
+trailing total-return windows. Same shape as data/momentum_data.py: fetch
+via clients/yahoo_client.py, run the pure math (scoring/etf_returns.py),
+persist (models.py::SectorEtfReturn), and a read path that never computes
+live. Independent of FMP and of Step 1-5/Overall Assessment scoring
+entirely -- zero FMP calls, no FMP_ENABLED guard needed.
+
+**Total return, not price return**: fetched with auto_adjust=False so the
+frame carries both raw `Close` and dividend-adjusted `Adj Close`, and the
+returns are computed off `Adj Close` explicitly -- a frame without that
+column is a hard per-ticker failure, never a silent fallback to price
+return (bond/income funds differ from their price return by up to ~6pp over
+1y, see docs/etf_heatmap_momentum_investigation_2026-09-20.md, section 2.5).
+"""
+
+import logging
+from datetime import date, datetime
+
+import pandas as pd
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlmodel import Session, select
+
+from clients.shared_bars_cache import _most_recent_completed_trading_date
+from clients.yahoo_client import yahoo_client
+from core.db import engine
+from core.models import SectorEtfReturn
+from core.schemas import SectorHeatmapCellOut, SectorHeatmapOut, SectorHeatmapRowOut
+from scoring.etf_returns import WINDOWS, compute_window_returns
+
+logger = logging.getLogger(__name__)
+
+# Fixed for this round, in display order (roughly by index weight). Names
+# are the funds' own SPDR sector labels, hand-written -- ETFs are not in
+# TickerScore, so there is nothing to join them from.
+SECTOR_ETFS: list[tuple[str, str]] = [
+    ("XLK", "Technology"),
+    ("XLF", "Financials"),
+    ("XLV", "Health Care"),
+    ("XLE", "Energy"),
+    ("XLI", "Industrials"),
+    ("XLY", "Consumer Discretionary"),
+    ("XLP", "Consumer Staples"),
+    ("XLU", "Utilities"),
+    ("XLB", "Materials"),
+    ("XLRE", "Real Estate"),
+    ("XLC", "Communication Services"),
+]
+
+# 1y is the longest window; 2y leaves a full year of slack for the base
+# bar's on-or-before lookup and keeps one request in yfinance's "2y" tier.
+FETCH_PERIOD = "2y"
+
+
+def _adj_close(frame: pd.DataFrame) -> pd.Series:
+    if "Adj Close" not in frame.columns:
+        raise ValueError("Yahoo frame has no 'Adj Close' column -- refusing to fall back to price return")
+    return frame["Adj Close"]
+
+
+def _resolve_anchor(adj_closes: dict[str, pd.Series], completed_date: date) -> pd.Timestamp | None:
+    """The latest bar date, across every fetched fund, that is not after the
+    last COMPLETED session. Taking it from the data (rather than using the
+    weekday-aware `completed_date` directly, which is not holiday-aware)
+    means a market holiday anchors to the real last trading day, and the
+    `<= completed_date` cap drops the in-progress bar yfinance returns
+    during market hours -- its "close" would be a live price."""
+    cap = pd.Timestamp(completed_date)
+    latest: pd.Timestamp | None = None
+    for series in adj_closes.values():
+        index = series.dropna().index
+        if index.tz is not None:
+            index = index.tz_localize(None)
+        eligible = index.normalize()[index.normalize() <= cap]
+        if len(eligible) and (latest is None or eligible.max() > latest):
+            latest = eligible.max()
+    return latest
+
+
+async def compute_and_store_sector_returns(completed_date: date | None = None) -> dict:
+    """Fetches the 11 sector ETFs in one Yahoo batch, computes all 7 windows
+    for each, and upserts them. Idempotent per (ticker, window, as_of_date):
+    a weekend/holiday re-run re-computes the same anchor and overwrites in
+    place. `completed_date` (the last completed session, default: derived
+    from the clock) is a testing/manual-run seam.
+
+    A fund Yahoo returned nothing usable for is reported in `failures` and
+    keeps whatever rows it had -- the read path then shows it as blank under
+    the new as_of_date instead of serving a stale number. Raises only when
+    NOTHING could be computed (Yahoo down, or every frame unusable), so the
+    cron heartbeat records that as a failed run rather than a "success" that
+    silently left the table a night behind."""
+    completed = completed_date or _most_recent_completed_trading_date()
+    tickers = [t for t, _ in SECTOR_ETFS]
+
+    histories = await yahoo_client.get_history(tickers, period=FETCH_PERIOD, interval="1d", auto_adjust=False)
+
+    failures: list[tuple[str, str]] = []
+    adj_closes: dict[str, pd.Series] = {}
+    for ticker in tickers:
+        frame = histories.get(ticker)
+        if frame is None or frame.empty:
+            failures.append((ticker, "no bars returned"))
+            continue
+        try:
+            adj_closes[ticker] = _adj_close(frame)
+        except ValueError as exc:
+            failures.append((ticker, str(exc)))
+
+    anchor = _resolve_anchor(adj_closes, completed)
+    if anchor is None:
+        raise RuntimeError(
+            f"Sector heatmap: no usable bars for any of {len(tickers)} tickers on/before {completed} "
+            f"(failures: {failures})"
+        )
+
+    computed_at = datetime.now()
+    values = []
+    for ticker, series in adj_closes.items():
+        for result in compute_window_returns(series, anchor):
+            values.append(
+                {
+                    "ticker": ticker,
+                    "return_window": result.window,
+                    "as_of_date": anchor.date(),
+                    "base_date": result.base_date,
+                    "return_pct": result.return_pct,
+                    "computed_at": computed_at,
+                }
+            )
+
+    with Session(engine) as session:
+        stmt = sqlite_insert(SectorEtfReturn)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["ticker", "return_window", "as_of_date"],
+            set_={c: getattr(stmt.excluded, c) for c in ("base_date", "return_pct", "computed_at")},
+        )
+        session.execute(stmt, values)
+        session.commit()
+
+    for ticker, reason in failures:
+        logger.error("Sector heatmap: %s FAILED - %s", ticker, reason)
+
+    summary = {
+        "as_of_date": anchor.date().isoformat(),
+        "processed": len(adj_closes),
+        "failed": len(failures),
+        "failures": failures,
+    }
+    logger.info("Sector heatmap complete for %s: %d/%d tickers computed.", anchor.date(), summary["processed"], len(tickers))
+    return summary
+
+
+def get_sector_heatmap() -> SectorHeatmapOut:
+    """Reads the latest persisted heatmap -- never computes live. Empty
+    (as_of_date/computed_at None, rows []) before the nightly job has ever
+    run, never an error."""
+    windows = list(WINDOWS)
+    with Session(engine) as session:
+        latest = session.exec(select(SectorEtfReturn.as_of_date).order_by(SectorEtfReturn.as_of_date.desc()).limit(1)).first()
+        if latest is None:
+            return SectorHeatmapOut(as_of_date=None, computed_at=None, windows=windows, rows=[])
+        stored = session.exec(select(SectorEtfReturn).where(SectorEtfReturn.as_of_date == latest)).all()
+
+    by_key = {(row.ticker, row.return_window): row for row in stored}
+    rows = []
+    for ticker, name in SECTOR_ETFS:
+        cells = {}
+        for window in windows:
+            row = by_key.get((ticker, window))
+            cells[window] = (
+                SectorHeatmapCellOut(return_pct=row.return_pct, base_date=row.base_date) if row else SectorHeatmapCellOut()
+            )
+        rows.append(SectorHeatmapRowOut(ticker=ticker, name=name, cells=cells))
+
+    return SectorHeatmapOut(as_of_date=latest, computed_at=max(row.computed_at for row in stored), windows=windows, rows=rows)

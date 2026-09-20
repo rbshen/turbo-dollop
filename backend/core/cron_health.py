@@ -41,6 +41,7 @@ CRON_JOB_NAMES: list[str] = [
     "pipeline.nightly_entry_signal_calculation",
     "pipeline.nightly_warren_signal_calculation",
     "pipeline.nightly_liquidity_zone_calculation",
+    "pipeline.nightly_sector_heatmap",
     "scrapers.refresh_sp500_list",
     "scrapers.refresh_dow_list",
     "pipeline.prune_cache",
@@ -70,6 +71,7 @@ _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.nightly_entry_signal_calculation": _DAILY_HOURS,
     "pipeline.nightly_warren_signal_calculation": _DAILY_HOURS,
     "pipeline.nightly_liquidity_zone_calculation": _DAILY_HOURS,
+    "pipeline.nightly_sector_heatmap": _DAILY_HOURS,
     "pipeline.backup_db": _DAILY_HOURS,
     "scrapers.refresh_sp500_list": _WEEKLY_HOURS,
     "scrapers.refresh_dow_list": _WEEKLY_HOURS,
@@ -119,6 +121,9 @@ JOB_METADATA: dict[str, JobMetadata] = {
     ),
     "pipeline.nightly_warren_signal_calculation": JobMetadata(
         "Warren RSI/ADX/WVF (2h) entry signal, W1-W5 watchlists", "daily", "3:40 AM", 3 * 60 + 40
+    ),
+    "pipeline.nightly_sector_heatmap": JobMetadata(
+        "Sector ETF heatmap (11 SPDR sectors x 7 total-return windows)", "daily", "3:30 AM", 3 * 60 + 30
     ),
     "pipeline.backup_db": JobMetadata("Nightly SQLite backup + rotation", "daily", "3:55 AM", 3 * 60 + 55),
     "scrapers.refresh_sp500_list": JobMetadata("Keeps your S&P 500 stock list up to date", "weekly", "Sun 1:00 AM", 60),
