@@ -64,6 +64,9 @@ _OTHER_LABEL_BY_CODE = {
 }
 
 
+_UNKNOWN_NAME = "Unknown"
+
+
 def _num(value) -> float:
     """FMP numeric fields are sometimes null or absent; treat as 0."""
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
@@ -118,7 +121,7 @@ def normalize_transactions(rows: list) -> list[InsiderTransactionOut]:
             InsiderTransactionOut(
                 transaction_date=transaction_date,
                 filing_date=_parse_date(row.get("filingDate")),
-                insider_name=(row.get("reportingName") or "").strip() or "Unknown",
+                insider_name=(row.get("reportingName") or "").strip() or _UNKNOWN_NAME,
                 insider_cik=str(row["reportingCik"]).strip() if row.get("reportingCik") else None,
                 insider_role=(row.get("typeOfOwner") or "").strip() or None,
                 ownership={"D": "direct", "I": "indirect"}.get(direct_or_indirect),
@@ -132,7 +135,38 @@ def normalize_transactions(rows: list) -> list[InsiderTransactionOut]:
             )
         )
     out.sort(key=lambda t: (t.transaction_date, t.filing_date or date.min), reverse=True)
+    _canonicalize_identities(out)
     return out
+
+
+def _canonicalize_identities(newest_first: list[InsiderTransactionOut]) -> None:
+    """One name and one role per reportingCik, in place.
+
+    The same person's rows drift across filings: casing/punctuation variants
+    of the name ("Hennessy John L." vs "HENNESSY JOHN L"), and a role/title
+    that changes over time (or is blank on some filings). Every row for a CIK
+    gets the value from its most recent row, so the table and the notable
+    cards never disagree about who someone is.
+
+    Name: the most recent row's own spelling, as filed -- not a synthetic
+    re-casing, which would mangle names like "McDonald" or "O'Toole".
+    Role: the most recent NON-BLANK one -- a filing with an empty typeOfOwner
+    must not blank out a role every other filing carries. A name is "blank"
+    only when it fell back to "Unknown". Rows with no CIK have no identity to
+    unify and are left as they are."""
+    name_by_cik: dict[str, str] = {}
+    role_by_cik: dict[str, str] = {}
+    for t in newest_first:
+        if not t.insider_cik:
+            continue
+        if t.insider_name != _UNKNOWN_NAME:
+            name_by_cik.setdefault(t.insider_cik, t.insider_name)
+        if t.insider_role:
+            role_by_cik.setdefault(t.insider_cik, t.insider_role)
+    for t in newest_first:
+        if t.insider_cik:
+            t.insider_name = name_by_cik.get(t.insider_cik, t.insider_name)
+            t.insider_role = role_by_cik.get(t.insider_cik, t.insider_role)
 
 
 def normalize_quarterly_stats(rows: list) -> list[InsiderQuarterStatOut]:

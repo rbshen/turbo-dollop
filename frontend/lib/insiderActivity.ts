@@ -43,13 +43,50 @@ export function fmtInsiderValue(t: Pick<InsiderTransaction, "has_cash_value" | "
   return fmtCompactMoney(t.dollar_value);
 }
 
-/** FMP's typeOfOwner is free text like "officer: Chief Executive Officer" or
- * "director" -- drop the "officer: " prefix and sentence-case it. */
+// FMP's typeOfOwner flags, as they appear before the colon ("director, 10
+// percent owner, officer: <title>"). Anything else falls back to capitalizing
+// the raw text.
+const ROLE_FLAG_LABELS: Record<string, string> = {
+  director: "Director",
+  officer: "Officer",
+  "10 percent owner": "10% owner",
+  other: "Other",
+};
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** FMP's typeOfOwner is a comma-separated flag list, optionally followed by
+ * ": <officer title>" -- "officer: Chief Executive Officer", "director",
+ * "director: ", "director, officer: CEO", "director, 10 percent owner, officer:
+ * Chief Strategy Officer". Renders it as one clean label with the flags and
+ * title joined by " / " (titles themselves contain commas and ampersands, so
+ * neither reads unambiguously as a separator): "Chief Executive Officer",
+ * "Director", "Director / CEO", "Director / 10% owner / Chief Strategy
+ * Officer". The generic "officer"/"other" flag is dropped when a real title
+ * follows, since the title already says it. Blank -> null. */
 export function fmtInsiderRole(role: string | null): string | null {
-  if (!role) return null;
-  const stripped = role.replace(/^officer:\s*/i, "").trim();
-  if (!stripped) return null;
-  return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+  const text = role?.trim();
+  if (!text) return null;
+
+  const colon = text.indexOf(":");
+  const head = colon === -1 ? text : text.slice(0, colon);
+  const title = colon === -1 ? "" : text.slice(colon + 1).trim();
+  const flags = head
+    .split(",")
+    .map((f) => f.trim())
+    .filter(Boolean);
+
+  // Colon-less text that isn't purely known flags is a free-text title
+  // ("VP, Engineering") -- leave its commas alone rather than splitting it.
+  if (colon === -1 && !flags.every((f) => f.toLowerCase() in ROLE_FLAG_LABELS)) return capitalize(text);
+
+  const labels = flags
+    .filter((f) => !(title && /^(officer|other)$/i.test(f)))
+    .map((f) => ROLE_FLAG_LABELS[f.toLowerCase()] ?? capitalize(f));
+  const parts = [...labels, title ? capitalize(title) : ""].filter(Boolean);
+  return parts.length ? parts.join(" / ") : null;
 }
 
 export function quarterLabel(year: number, quarter: number): string {

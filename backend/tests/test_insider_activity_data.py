@@ -259,6 +259,88 @@ def test_open_market_counts_fall_back_to_every_transaction_without_stats():
     assert (summary.open_market_buy_count, summary.open_market_sale_count) == (1, 1)
 
 
+# --- one name / role per CIK ------------------------------------------------
+
+
+def test_every_row_for_a_cik_takes_the_most_recent_rows_role():
+    txs = normalize_transactions(
+        [
+            _row(cik="1", tx_date="2026-01-05", typeOfOwner="officer: Chief Financial Officer"),
+            _row(cik="1", tx_date="2026-09-05", typeOfOwner="director, officer: Chief Executive Officer"),
+            _row(cik="1", tx_date="2026-05-05", typeOfOwner="officer: VP Finance"),
+        ]
+    )
+    assert {t.insider_role for t in txs} == {"director, officer: Chief Executive Officer"}
+
+
+def test_a_blank_latest_role_falls_back_to_the_most_recent_non_blank_one():
+    txs = normalize_transactions(
+        [
+            _row(cik="1", tx_date="2026-09-05", typeOfOwner=""),
+            _row(cik="1", tx_date="2026-06-05", typeOfOwner="   "),
+            _row(cik="1", tx_date="2026-03-05", typeOfOwner="officer: Chief Legal Officer"),
+            _row(cik="1", tx_date="2026-01-05", typeOfOwner="officer: General Counsel"),
+        ]
+    )
+    assert {t.insider_role for t in txs} == {"officer: Chief Legal Officer"}
+
+
+def test_a_cik_whose_every_role_is_blank_keeps_none():
+    txs = normalize_transactions([_row(cik="1", typeOfOwner=""), _row(cik="1", typeOfOwner=None)])
+    assert {t.insider_role for t in txs} == {None}
+
+
+def test_roles_are_unified_per_cik_not_across_ciks():
+    txs = normalize_transactions(
+        [
+            _row(cik="1", typeOfOwner="director"),
+            _row(cik="2", typeOfOwner="officer: CFO"),
+        ]
+    )
+    assert {t.insider_cik: t.insider_role for t in txs} == {"1": "director", "2": "officer: CFO"}
+
+
+def test_name_variants_of_one_cik_collapse_to_the_most_recent_spelling():
+    txs = normalize_transactions(
+        [
+            _row(cik="1198046", tx_date="2026-08-01", name="Hennessy John L."),
+            _row(cik="1198046", tx_date="2026-03-01", name="HENNESSY JOHN L"),
+            _row(cik="1198046", tx_date="2025-11-01", name="HENNESSY JOHN L"),
+        ]
+    )
+    assert {t.insider_name for t in txs} == {"Hennessy John L."}
+
+
+def test_name_uses_the_latest_spelling_even_when_it_is_the_all_caps_one():
+    txs = normalize_transactions(
+        [
+            _row(cik="1", tx_date="2026-08-01", name="HENNESSY JOHN L"),
+            _row(cik="1", tx_date="2026-03-01", name="Hennessy John L."),
+        ]
+    )
+    assert {t.insider_name for t in txs} == {"HENNESSY JOHN L"}
+
+
+def test_a_missing_latest_name_does_not_replace_a_real_one_with_unknown():
+    txs = normalize_transactions(
+        [
+            _row(cik="1", tx_date="2026-08-01", name=""),
+            _row(cik="1", tx_date="2026-03-01", name="Jane Doe"),
+        ]
+    )
+    assert {t.insider_name for t in txs} == {"Jane Doe"}
+
+
+def test_rows_without_a_cik_are_left_untouched():
+    txs = normalize_transactions(
+        [
+            _row(cik=None, tx_date="2026-08-01", name="A. Person", typeOfOwner="director"),
+            _row(cik=None, tx_date="2026-03-01", name="a person", typeOfOwner="officer: CFO"),
+        ]
+    )
+    assert sorted((t.insider_name, t.insider_role) for t in txs) == [("A. Person", "director"), ("a person", "officer: CFO")]
+
+
 # --- notable trades ---------------------------------------------------------
 
 

@@ -72,9 +72,41 @@ describe("fmtInsiderRole", () => {
     expect(fmtInsiderRole("director")).toBe("Director");
   });
 
-  it("returns null for a missing or empty role", () => {
+  it("renders a bare or trailing-colon director as 'Director', never 'Director:'", () => {
+    expect(fmtInsiderRole("director: ")).toBe("Director");
+    expect(fmtInsiderRole("Director:")).toBe("Director");
+    expect(fmtInsiderRole("director:")).toBe("Director");
+  });
+
+  it("keeps both the director flag and the officer title for a combined role", () => {
+    expect(fmtInsiderRole("director, officer: Chief Executive Officer")).toBe("Director / Chief Executive Officer");
+    expect(fmtInsiderRole("Director, officer: CEO")).toBe("Director / CEO");
+    // Titles contain commas and ampersands of their own -- kept intact.
+    expect(fmtInsiderRole("director, officer: VP, ENGINEERING & CTO")).toBe("Director / VP, ENGINEERING & CTO");
+  });
+
+  it("handles the 10 percent owner flag, with and without a title", () => {
+    expect(fmtInsiderRole("director, 10 percent owner, officer: Chief Strategy Officer")).toBe(
+      "Director / 10% owner / Chief Strategy Officer"
+    );
+    expect(fmtInsiderRole("director, 10 percent owner: ")).toBe("Director / 10% owner");
+  });
+
+  it("labels a title-less officer 'Officer' rather than dropping it", () => {
+    expect(fmtInsiderRole("officer")).toBe("Officer");
+    expect(fmtInsiderRole("officer: ")).toBe("Officer");
+  });
+
+  it("returns null for a missing or blank role", () => {
     expect(fmtInsiderRole(null)).toBeNull();
-    expect(fmtInsiderRole("officer: ")).toBeNull();
+    expect(fmtInsiderRole("")).toBeNull();
+    expect(fmtInsiderRole("   ")).toBeNull();
+    expect(fmtInsiderRole(":")).toBeNull();
+  });
+
+  it("leaves free-text titles without a colon alone", () => {
+    expect(fmtInsiderRole("VP, Engineering")).toBe("VP, Engineering");
+    expect(fmtInsiderRole("chief executive officer")).toBe("Chief executive officer");
   });
 });
 
