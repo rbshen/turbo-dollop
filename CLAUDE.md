@@ -184,7 +184,8 @@ semantics) rather than the read just failing. Together, no call site under
   guards against.)
 - News (`GET /.../news`) serves the last cached articles, however stale,
   instead of refreshing — never wiped/replaced by a failed fetch attempt.
-- Insider Activity (`GET /.../insider-activity`) serves whatever is cached,
+- Insider Activity is **shelved** (see its own section below) -- off by
+  default, so this bullet only applies if it's revived. When enabled, (`GET /.../insider-activity`) serves whatever is cached,
   however stale (`get_or_fetch`'s own disabled-FMP behavior, no special
   casing); a ticker never cached reads `has_data: false, as_of: null` -> the
   tab's distinct "Not cached yet" state, never the "no data" one.
@@ -3303,7 +3304,28 @@ Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
   session's date at 00:00 for `1d` and that session's 15:30 for `60m`; `min(bar_time)` should be
   ~2y back (`60m`, Warren/BB+RSI), ~2y (`1d`, Trend-only tickers) or ~5y (`1d`, LZ tickers).
 
-## Insider Activity (ticker-page tab, 2026-09-19)
+## Insider Activity (ticker-page tab, 2026-09-19) -- SHELVED 2026-09-20
+
+**Shelved, not deleted.** `Settings.insider_activity_enabled`
+(`INSIDER_ACTIVITY_ENABLED`, default **`false`**, read once at process start like
+`fmp_enabled`/`cron_health_enabled`) gates `get_insider_activity_data` --
+checked first, ahead of `cache_only`, so when off there is no FMP call and no
+cache read or write. The route just calls that function and inherits the gate;
+it returns 200 with `enabled: false` and every other field empty (mirroring
+`CronHealthOut.enabled`), never a 404 -- so it's distinguishable from
+"cached and genuinely empty" (`enabled: true`, `as_of` set) and "not cached
+yet" (`as_of` null). The tab is off the ticker page (dropped from
+`lib/tickerTabs.ts`'s `TickerTab`/`TICKER_TABS` and `TickerTabsContainer`) and
+"Insider Activity" is off the Status page's `FMP_POWERS` list; it never had a
+cron job, so Scheduled Jobs needed nothing. All backend/frontend code and its
+tests are left in the tree. The two cache keys (`insider_trading_search`,
+`insider_trading_statistics`) were purged from `FundamentalsCache` 2026-09-20
+(22 rows, 11 tickers). **To revive:** set `INSIDER_ACTIVITY_ENABLED=true`
+(restart the backend), re-add `"insiderActivity"` to the `TickerTab` union and
+`TICKER_TABS` (between Analyst Ratings and Technical), the
+`InsiderActivityTab` branch in `TickerTabsContainer`, and the `FMP_POWERS`
+entry. `tests/conftest.py` pins the flag to False; the feature's own tests
+turn it on explicitly. Everything below describes the feature as built.
 
 A read-only lens on Form 4 insider trading -- never touches Step 1-5/Overall
 Assessment scoring, no Screener/Watchlist surface. FMP-sourced (the "Insider
