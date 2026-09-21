@@ -2,6 +2,8 @@ import gzip
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 import pipeline.backup_db as backup_db
 
 
@@ -156,3 +158,33 @@ def test_create_backup_prunes_per_the_tiered_rule(tmp_path):
     assert result.exists()
     assert not old[0].exists() and not old[1].exists()
     assert old[2].exists()
+
+
+def test_low_disk_space_fails_loudly_before_writing_or_pruning_anything(tmp_path, monkeypatch):
+    db_path = _make_db(tmp_path / "fathom.db", "x")
+    backup_dir = tmp_path / "backups"
+    existing = _touch_backups(backup_dir, ["20200101", "20200102", "20200103"])
+    monkeypatch.setattr(backup_db, "_free_bytes", lambda _path: 0)
+
+    with pytest.raises(backup_db.InsufficientDiskSpaceError) as exc:
+        # keep_daily=1 would prune two of the three if it got that far.
+        backup_db.create_backup(db_path=db_path, backup_dir=backup_dir, keep_daily=1, keep_weekly=0)
+
+    assert "Nothing was written" in str(exc.value)
+    # No temp copy, no new backup, and the old ones were not touched.
+    assert sorted(p.name for p in backup_dir.iterdir()) == sorted(p.name for p in existing)
+
+
+def test_free_space_requirement_scales_with_the_db_size(tmp_path, monkeypatch):
+    db_path = tmp_path / "fathom.db"
+    db_path.write_bytes(b"\0" * 1000)
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    needed = int(1000 * backup_db.BACKUP_FREE_SPACE_FACTOR)
+
+    monkeypatch.setattr(backup_db, "_free_bytes", lambda _path: needed - 1)
+    with pytest.raises(backup_db.InsufficientDiskSpaceError):
+        backup_db._check_free_space(db_path, backup_dir)
+
+    monkeypatch.setattr(backup_db, "_free_bytes", lambda _path: needed)
+    backup_db._check_free_space(db_path, backup_dir)  # exactly enough passes

@@ -41,10 +41,37 @@ LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "backup_db.log"
 BACKUP_KEEP_DAILY = 7
 BACKUP_KEEP_WEEKLY = 4
 
+# Free-space preflight. Each run writes an UNCOMPRESSED copy of the DB
+# (~1.0x its size) next to the backups, then gzips it (~0.11x today) and only
+# then deletes the copy, so peak need is ~1.1x the DB. 1.25x leaves slack for
+# a worse compression ratio. Prompted by the 2026-08-09 run that died with
+# "database or disk is full" mid-copy, leaving a partial file behind.
+BACKUP_FREE_SPACE_FACTOR = 1.25
+
 DEFAULT_DB_PATH = (BASE_DIR / settings.database_path).resolve()
 DEFAULT_BACKUP_DIR = BASE_DIR / "backups"
 
 logger = logging.getLogger(__name__)
+
+
+class InsufficientDiskSpaceError(RuntimeError):
+    """Raised before anything is written when the disk can't hold the backup's
+    temporary uncompressed copy."""
+
+
+def _free_bytes(path: Path) -> int:
+    return shutil.disk_usage(path).free
+
+
+def _check_free_space(db_path: Path, backup_dir: Path) -> None:
+    needed = int(db_path.stat().st_size * BACKUP_FREE_SPACE_FACTOR)
+    free = _free_bytes(backup_dir)
+    if free < needed:
+        raise InsufficientDiskSpaceError(
+            f"Refusing to start backup: {free / 1e9:.2f} GB free on the volume holding {backup_dir}, "
+            f"but the temporary uncompressed copy needs ~{needed / 1e9:.2f} GB "
+            f"({BACKUP_FREE_SPACE_FACTOR}x the {db_path.stat().st_size / 1e9:.2f} GB DB). Nothing was written."
+        )
 
 
 def create_backup(
@@ -61,6 +88,7 @@ def create_backup(
     CLAUDE.md's "Ad-hoc reproduction scripts must not touch the real
     database"."""
     backup_dir.mkdir(parents=True, exist_ok=True)
+    _check_free_space(db_path, backup_dir)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest_path = backup_dir / f"{db_path.stem}_{timestamp}.db.gz"
     tmp_path = backup_dir / f".{db_path.stem}_{timestamp}.db.tmp"

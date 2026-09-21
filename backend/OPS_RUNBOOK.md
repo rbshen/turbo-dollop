@@ -254,7 +254,13 @@ in `pipeline/backup_db.py`; the constants apply on the next run, and
 already-on-disk files are judged against them then (nothing is force-deleted
 out-of-band). Success: `Backup created: .../backups/fathom_<timestamp>.db.gz
 (N MB). Retention: 7 daily + 4 weekly kept.` in `backend/logs/backup_db.log`,
-plus a `Pruned N old backup(s): ...` line whenever anything was deleted. If it fails, check disk space first
+plus a `Pruned N old backup(s): ...` line whenever anything was deleted.
+Before writing anything, it checks the volume has at least 1.25x the DB's size
+free (`BACKUP_FREE_SPACE_FACTOR` — the run briefly holds an uncompressed copy
+of the DB next to the backups) and otherwise fails immediately with
+`InsufficientDiskSpaceError: Refusing to start backup: ... Nothing was
+written.`, recorded as a `pipeline.backup_db` failure by the cron heartbeat.
+If it fails, check disk space first
 (`df -h`) — a full disk is the most likely cause. To restore: `gunzip
 -k backend/backups/fathom_<timestamp>.db.gz` and copy the result over
 `backend/fathom.db` (stop the app first).
