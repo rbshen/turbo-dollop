@@ -17,8 +17,8 @@ class NoopResizeObserver {
 vi.stubGlobal("ResizeObserver", NoopResizeObserver);
 
 const point = (as_of_date: string, is_backfilled: boolean, overrides: Partial<MarketBreadthPointOut> = {}): MarketBreadthPointOut => ({
-  as_of_date, pct_above_sma50: 27.83, pct_above_sma200: 49.3, sma50_above: 140, sma200_above: 247, new_highs: 5, new_lows: 29,
-  net_new_highs: -24, constituents: 503, stale_excluded: 0, sma50_eligible: 503, sma200_eligible: 501, hl_eligible: 500, is_backfilled,
+  as_of_date, pct_above_sma20: 17.89, pct_above_sma50: 27.83, pct_above_sma200: 49.3, sma20_above: 90, sma50_above: 140, sma200_above: 247, new_highs: 5, new_lows: 29,
+  net_new_highs: -24, constituents: 503, stale_excluded: 0, sma20_eligible: 503, sma50_eligible: 503, sma200_eligible: 501, hl_eligible: 500, is_backfilled,
   ...overrides,
 });
 
@@ -59,6 +59,8 @@ describe("BreadthPage", () => {
     await waitFor(() => expect(screen.getByText("27.8%")).toBeInTheDocument());
     expect(screen.getByText("49.3%")).toBeInTheDocument();
     expect(screen.getByText("-24")).toBeInTheDocument();
+    expect(screen.getByText("17.9%")).toBeInTheDocument();
+    expect(screen.getByText("90 of 503 stocks")).toBeInTheDocument();
     expect(screen.getByText("140 of 503 stocks")).toBeInTheDocument();
     expect(screen.getByText("247 of 501 stocks")).toBeInTheDocument();
     expect(screen.getByText("5 highs · 29 lows")).toBeInTheDocument();
@@ -85,6 +87,13 @@ describe("BreadthPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("—")).toBeInTheDocument());
     expect(screen.getByText("0 of 0 stocks")).toBeInTheDocument();
+  });
+
+  it("shows a 20-day tile that has no reading yet when the row predates the metric", async () => {
+    stubFetch(body([point("2026-09-18", true, { pct_above_sma20: null, sma20_above: null, sma20_eligible: null })]));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Not computed yet")).toBeInTheDocument());
+    expect(screen.getByText("27.8%")).toBeInTheDocument(); // the other tiles still render
   });
 
   it("shows the no-data state when the nightly job has never run", async () => {

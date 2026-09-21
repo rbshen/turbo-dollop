@@ -4,8 +4,8 @@ import type { MarketBreadthPointOut } from "@/lib/api/types";
 import { firstLiveIndex, fmtAxisMonth, fmtBreadthPct, fmtSignedCount } from "@/lib/marketBreadth";
 
 const point = (as_of_date: string, is_backfilled: boolean): MarketBreadthPointOut => ({
-  as_of_date, pct_above_sma50: 50, pct_above_sma200: 50, sma50_above: 1, sma200_above: 1, new_highs: 0, new_lows: 0,
-  net_new_highs: 0, constituents: 2, stale_excluded: 0, sma50_eligible: 2, sma200_eligible: 2, hl_eligible: 2, is_backfilled,
+  as_of_date, pct_above_sma20: 50, pct_above_sma50: 50, pct_above_sma200: 50, sma20_above: 1, sma50_above: 1, sma200_above: 1, new_highs: 0, new_lows: 0,
+  net_new_highs: 0, constituents: 2, stale_excluded: 0, sma20_eligible: 2, sma50_eligible: 2, sma200_eligible: 2, hl_eligible: 2, is_backfilled,
 });
 
 describe("firstLiveIndex", () => {

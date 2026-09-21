@@ -16,11 +16,16 @@ function Stat({ label, value, valueClass, detail }: { label: string; value: stri
   );
 }
 
-// The latest session's three readings. The detail lines carry the denominators so a percentage is never
+// The latest session's four readings. The detail lines carry the denominators so a percentage is never
 // shown without what it is a percentage of.
 export function MarketBreadthStats({ latest }: Props) {
   return (
-    <div className="grid gap-4 sm:grid-cols-3">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <Stat
+        label="Above 20-day SMA"
+        value={fmtBreadthPct(latest.pct_above_sma20)}
+        detail={latest.sma20_eligible == null ? "Not computed yet" : `${latest.sma20_above} of ${latest.sma20_eligible} stocks`}
+      />
       <Stat
         label="Above 50-day SMA"
         value={fmtBreadthPct(latest.pct_above_sma50)}

@@ -41,7 +41,7 @@ export default function BreadthPage() {
 
       <div className="space-y-1 border-t border-border-subtle pt-4 text-xs text-text-tertiary">
         <p>
-          Breadth across the current S&amp;P 500 constituents: the share closing above their own 50- and 200-day simple moving average, and
+          Breadth across the current S&amp;P 500 constituents: the share closing above their own 20-, 50- and 200-day simple moving average, and
           the number of stocks at a new 52-week high (intraday) minus those at a new 52-week low. Only stocks with a bar that session are
           counted, and each metric only counts stocks with enough history for its window.
         </p>

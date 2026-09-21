@@ -15,6 +15,9 @@ interface Props {
   series: MarketBreadthPointOut[];
 }
 
+// chart-1 (green): the 50-day is chart-4 (blue) and the 200-day chart-2 (amber). Red (chart-3) is the app's
+// "negative" hue and purple (chart-5) is too close to the blue to tell apart, so neither is used here.
+const SMA20_COLOR = "var(--color-chart-1)";
 const SMA50_COLOR = "var(--color-chart-4)";
 const SMA200_COLOR = "var(--color-chart-2)";
 const GRID_COLOR = "var(--color-border-subtle)";
@@ -26,6 +29,7 @@ const CHART_HEIGHT = 240;
 const SYNC_ID = "market-breadth";
 
 const config: ChartConfig = {
+  pct_above_sma20: { label: "Above 20-day SMA", color: SMA20_COLOR },
   pct_above_sma50: { label: "Above 50-day SMA", color: SMA50_COLOR },
   pct_above_sma200: { label: "Above 200-day SMA", color: SMA200_COLOR },
   net_new_highs: { label: "Net new 52-week highs" },
@@ -48,6 +52,12 @@ function BreadthTooltip({ active, payload, kind }: TooltipProps) {
       <div className="font-medium text-text-primary">{fmtEventDate(point.as_of_date)}</div>
       {kind === "pct" ? (
         <>
+          <TooltipRow
+            color={SMA20_COLOR}
+            label="Above 20-day"
+            value={fmtBreadthPct(point.pct_above_sma20)}
+            note={point.sma20_eligible == null ? undefined : `${point.sma20_above} of ${point.sma20_eligible}`}
+          />
           <TooltipRow color={SMA50_COLOR} label="Above 50-day" value={fmtBreadthPct(point.pct_above_sma50)} note={`${point.sma50_above} of ${point.sma50_eligible}`} />
           <TooltipRow color={SMA200_COLOR} label="Above 200-day" value={fmtBreadthPct(point.pct_above_sma200)} note={`${point.sma200_above} of ${point.sma200_eligible}`} />
         </>
@@ -91,7 +101,7 @@ function Panel({ title, subtitle, className, children }: { title: string; subtit
   );
 }
 
-// Two panels, never one shared axis: the two SMA lines are percentages (0-100) while net new highs is a
+// Two panels, never one shared axis: the three SMA lines are percentages (0-100) while net new highs is a
 // signed count, and a dual-axis chart would let either one masquerade as the other's scale. `syncId` links
 // the hover across both so one date reads across the whole page.
 export function MarketBreadthCharts({ series }: Props) {
@@ -125,8 +135,8 @@ export function MarketBreadthCharts({ series }: Props) {
 
   return (
     <div className="space-y-4">
-      <Panel title="Constituents above their moving average" subtitle="% of S&P 500 stocks closing above their own 50- and 200-day SMA">
-        <ChartContainer config={config} className="aspect-auto w-full" style={{ height: CHART_HEIGHT }} role="img" aria-label="Percent of S&P 500 constituents above their 50-day and 200-day moving averages over time">
+      <Panel title="Constituents above their moving average" subtitle="% of S&P 500 stocks closing above their own 20-, 50- and 200-day SMA">
+        <ChartContainer config={config} className="aspect-auto w-full" style={{ height: CHART_HEIGHT }} role="img" aria-label="Percent of S&P 500 constituents above their 20-day, 50-day and 200-day moving averages over time">
           <LineChart data={series} syncId={SYNC_ID} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} stroke={GRID_COLOR} />
             {xAxis}
@@ -136,10 +146,12 @@ export function MarketBreadthCharts({ series }: Props) {
             <Tooltip cursor={{ stroke: "var(--color-text-tertiary)", strokeWidth: 1 }} content={<BreadthTooltip kind="pct" />} isAnimationActive={false} />
             <Line type="monotone" dataKey="pct_above_sma200" stroke={SMA200_COLOR} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} connectNulls={false} isAnimationActive={false} />
             <Line type="monotone" dataKey="pct_above_sma50" stroke={SMA50_COLOR} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} connectNulls={false} isAnimationActive={false} />
+            <Line type="monotone" dataKey="pct_above_sma20" stroke={SMA20_COLOR} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} connectNulls={false} isAnimationActive={false} />
           </LineChart>
         </ChartContainer>
         <ChartLegend
           items={[
+            { key: "sma20", label: "Above 20-day SMA", color: SMA20_COLOR },
             { key: "sma50", label: "Above 50-day SMA", color: SMA50_COLOR },
             { key: "sma200", label: "Above 200-day SMA", color: SMA200_COLOR },
           ]}

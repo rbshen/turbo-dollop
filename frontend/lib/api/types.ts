@@ -1632,9 +1632,12 @@ export interface SectorHeatmapOut {
 // breadth, one point per session. Percentages are percentage POINTS (27.8 == 27.8%).
 export interface MarketBreadthPointOut {
   as_of_date: string; // "YYYY-MM-DD", an exchange-calendar date
-  // null when that metric's eligible count is 0.
+  // null when that metric's eligible count is 0. The sma20 fields are also null for a row that predates the
+  // 20-day metric and hasn't been backfilled yet.
+  pct_above_sma20: number | null;
   pct_above_sma50: number | null;
   pct_above_sma200: number | null;
+  sma20_above: number | null;
   sma50_above: number;
   sma200_above: number;
   new_highs: number;
@@ -1643,7 +1646,8 @@ export interface MarketBreadthPointOut {
   constituents: number;
   // Constituents with no bar that session; in no count.
   stale_excluded: number;
-  // The denominators (a ticker needs 50/200/252 own bars).
+  // The denominators (a ticker needs 20/50/200/252 own bars).
+  sma20_eligible: number | null;
   sma50_eligible: number;
   sma200_eligible: number;
   hl_eligible: number;
