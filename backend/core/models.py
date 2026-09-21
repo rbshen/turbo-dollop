@@ -1030,7 +1030,7 @@ class SectorEtfReturn(SQLModel, table=True):
 
 class MarketBreadthSnapshot(SQLModel, table=True):
     """One day's market-breadth read for one universe -- the percentage of
-    constituents closing above their 50/200-day SMA, and new 52-week highs
+    constituents closing above their 20/50/200-day SMA, and new 52-week highs
     minus new 52-week lows (see scoring/market_breadth.py for the math,
     data/market_breadth_data.py, pipeline/nightly_market_breadth.py and
     docs/market_breadth_investigation_2026-09-21.md).
@@ -1055,7 +1055,7 @@ class MarketBreadthSnapshot(SQLModel, table=True):
     Every count is over tickers that HAVE a bar on as_of_date only:
     `stale_excluded` (constituents - tickers with a bar that day) records
     how many were dropped, and the *_eligible counts are the denominators
-    (a ticker needs 50/200/252 own bars for SMA50/SMA200/52-week), so a
+    (a ticker needs 20/50/200/252 own bars for SMA20/SMA50/SMA200/52-week), so a
     recent IPO shrinks a denominator instead of silently reading "below".
 
     `is_backfilled` marks rows from the one-time historical backfill
@@ -1069,6 +1069,14 @@ class MarketBreadthSnapshot(SQLModel, table=True):
     computed_at: datetime
     constituents: int
     stale_excluded: int
+    # Added after the table shipped (2026-09-21), so nullable -- core/db.py::
+    # _add_missing_columns can only ADD a nullable column to the existing
+    # table. NULL means "never computed" (a row from before the 20-day metric
+    # existed, until backfill_market_breadth fills it), distinct from a real
+    # 0 eligible / a NULL percentage on a session with no eligible tickers.
+    sma20_eligible: int | None = None
+    sma20_above: int | None = None
+    pct_above_sma20: float | None = None
     sma50_eligible: int
     sma50_above: int
     pct_above_sma50: float | None = None
