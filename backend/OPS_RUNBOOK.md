@@ -198,9 +198,16 @@ total-return windows (1w/1m/3m/6m/9m/YTD/1y), upserting 77 `SectorEtfReturn`
 rows per session (`data/sector_heatmap_data.py`). Yahoo Finance only, one
 batch download, zero FMP calls, unaffected by `FMP_ENABLED`. Runs at 3:30 AM
 and re-derives the same anchor (the last completed session) on weekends and
-holidays, upserting over its own rows -- harmless. Success: a log line
-`Nightly sector heatmap complete. As of: <date>. Processed: 11. Failed: 0.`
-in `backend/logs/nightly_sector_heatmap.log`. The job **raises** (so
+holidays, upserting over its own rows -- harmless. **Scheduled and live** as of
+2026-09-21 (installed via `crontab crontab.txt` from `backend/`; `crontab -l`
+should show the `30 3 * * *` entry -- editing `crontab.txt` alone does
+nothing). After storing, it prunes snapshots older than the rolling
+366-day retention window (`RETENTION_DAYS`, measured from the newest
+snapshot; a failed run never prunes), so the table plateaus around 19k rows
+rather than growing forever. Success: a log line `Nightly sector heatmap
+complete. As of: <date>. Processed: 11. Failed: 0. Pruned: N.` in
+`backend/logs/nightly_sector_heatmap.log` (`Pruned` is 0 every night until
+the first snapshot ages past a year, ~Sep 2027). The job **raises** (so
 `cron-health` shows it failed) only when *nothing* could be computed; a
 single fund that fails is logged as `Sector heatmap: XL? FAILED` and shows
 as a blank row on the page under the new as-of date (never a stale number

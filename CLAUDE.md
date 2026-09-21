@@ -318,7 +318,7 @@ handlers entirely, landing only in stderr/`<job>_cron.log` — invisible
 anywhere in the app itself (real incidents: `sp500_list_refresh`'s
 `sqlite3.IntegrityError` on 07-26/08-02, `backup_db`'s disk-full error on
 08-09). `backend/core/cron_health.py::cron_heartbeat("<job_name>")` wraps
-every one of the 15 real cron jobs' entry points (`if __name__ ==
+every one of the 17 real cron jobs' entry points (`if __name__ ==
 "__main__":` — see `core/cron_health.py::CRON_JOB_NAMES`, the single
 source of truth for the current count), writing a `CronRunLog` row
 regardless of how the job fails.
@@ -3461,8 +3461,9 @@ scoring -- no `FMP_ENABLED` guard needed.
 - **Storage**: `SectorEtfReturn`, long format `(ticker, return_window, as_of_date)` unique, plus
   `base_date`, `return_pct` (percentage POINTS, 4.25 == +4.25%, unlike `MomentumSnapshot`'s
   fractions), `computed_at`. The column is `return_window` because WINDOW is reserved in SQLite.
-  Upserted, so a weekend/holiday re-run is idempotent; history is kept (~77 rows/session, no
-  pruning) and the API reads only the latest `as_of_date`. **Not** `SharedBarsCache` (no adjusted
+  Upserted, so a weekend/holiday re-run is idempotent; a rolling year of daily snapshots is kept
+  (~77 rows/session, pruned nightly -- see Retention below) and the API reads only the latest
+  `as_of_date`. **Not** `SharedBarsCache` (no adjusted
   close; Yahoo rescales `Adj Close` retroactively at every ex-dividend) and **not**
   `MomentumSnapshot` (required `moat`, no universe discriminator).
 - **Job**: `pipeline.nightly_sector_heatmap`, 3:30 AM (the free slot between Liquidity Zones 3:25
@@ -3470,8 +3471,22 @@ scoring -- no `FMP_ENABLED` guard needed.
   `_EXPECTED_CADENCE_HOURS`/`JOB_METADATA`/`crontab.txt`/`OPS_RUNBOOK.md`. Raises (heartbeat
   "failure") only if NOTHING computed; one failed fund is logged, reported in the summary, and
   shows blank under the new as-of date on the page rather than a stale number under a fresh date.
-  **`crontab crontab.txt` must be reinstalled** for it to actually run nightly -- editing the file
-  changes nothing on this box.
+  **Active**: installed in the live crontab 2026-09-21 (`crontab crontab.txt` from `backend/`;
+  `crontab -l` confirmed byte-identical to the file, and the only diff beforehand was this entry, so
+  nothing outside the file was dropped). The first cron-triggered run was due 03:30 UTC (server
+  time) that night -- check `CronRunLog`/`nightly_sector_heatmap.log` for it. Any later
+  `crontab.txt` edit still needs the same reinstall; editing the file alone changes nothing.
+- **Retention** (2026-09-21): the same job, after storing tonight's rows, deletes `SectorEtfReturn`
+  rows whose `as_of_date` is more than `RETENTION_DAYS` (366) before the newest snapshot just
+  written (`data/sector_heatmap_data.py::prune_sector_etf_returns`; a row exactly 366 days old is
+  kept). Measured from that snapshot, not the wall clock, and only reached after a successful
+  compute, so a failed run never prunes. Steady state ~19k rows (~252 trading-day snapshots x 77; weekend/holiday re-runs upsert onto the same anchor). Backend-only: no past-date UI
+  exists; this just keeps the data one would need. Two things worth knowing: (1) every snapshot row
+  already carries its own 1w..1y/YTD returns, so the *current* heatmap's 1Y/YTD columns never
+  depend on retention -- it only decides how far back a *past* snapshot can be read; (2) history
+  starts 2026-09-18, so a full year of snapshots doesn't exist until Sep 2027, and a "same date one
+  year ago" lookup that lands on a weekend/holiday resolves to the prior session, which can be
+  369-370 days old and already pruned -- bump `RETENTION_DAYS` by ~4 if a date picker needs that.
 - **API**: `GET /api/sector-heatmap` -> `{as_of_date, computed_at, windows, rows:[{ticker, name,
   cells:{<window>:{return_pct, base_date}}}]}`, fixed universe order; before any run,
   `as_of_date: null, rows: []` (never a 404). Display names are a hand-written constant
