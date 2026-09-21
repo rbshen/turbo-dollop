@@ -21,7 +21,7 @@ def _fresh_engine(monkeypatch):
 def _row(as_of: date, universe="sp500", **overrides) -> MarketBreadthSnapshot:
     fields = dict(
         universe=universe, as_of_date=as_of, computed_at=datetime(2026, 9, 21, 3, 35), constituents=503, stale_excluded=1,
-        sma50_eligible=502, sma50_above=140, pct_above_sma50=27.9, sma200_eligible=501, sma200_above=247, pct_above_sma200=49.3,
+        sma20_eligible=503, sma20_above=90, pct_above_sma20=17.9, sma50_eligible=502, sma50_above=140, pct_above_sma50=27.9, sma200_eligible=501, sma200_above=247, pct_above_sma200=49.3,
         hl_eligible=499, new_highs=5, new_lows=29, net_new_highs=-24, is_backfilled=False,
     )
     fields.update(overrides)
@@ -43,6 +43,8 @@ def test_serves_the_whole_series_oldest_first_with_latest_and_flags(monkeypatch)
         session.add(_row(date(2026, 9, 18)))
         session.add(_row(date(2026, 9, 16), is_backfilled=True, pct_above_sma50=None, net_new_highs=3))
         session.add(_row(date(2026, 9, 17), is_backfilled=True))
+        # A row from before the 20-day metric existed, not yet backfilled.
+        session.add(_row(date(2026, 9, 15), is_backfilled=True, sma20_eligible=None, sma20_above=None, pct_above_sma20=None))
         session.add(_row(date(2026, 9, 18), universe="dow", pct_above_sma50=99.0))
         session.commit()
 
@@ -50,11 +52,16 @@ def test_serves_the_whole_series_oldest_first_with_latest_and_flags(monkeypatch)
         body = client.get("/api/market-breadth").json()
 
     assert body["universe"] == "sp500" and body["as_of_date"] == "2026-09-18"
-    assert [p["as_of_date"] for p in body["series"]] == ["2026-09-16", "2026-09-17", "2026-09-18"]
-    assert [p["is_backfilled"] for p in body["series"]] == [True, True, False]
-    assert body["series"][0]["pct_above_sma50"] is None and body["series"][0]["net_new_highs"] == 3
+    assert [p["as_of_date"] for p in body["series"]] == ["2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18"]
+    assert [p["is_backfilled"] for p in body["series"]] == [True, True, True, False]
+    # Both history and latest carry the 20-day fields; a not-yet-backfilled row reads null, not 0.
+    assert [p["pct_above_sma20"] for p in body["series"]] == [None, 17.9, 17.9, 17.9]
+    assert body["series"][0]["sma20_above"] is None and body["series"][0]["sma20_eligible"] is None
+    assert body["series"][1]["sma20_above"] == 90 and body["series"][1]["sma20_eligible"] == 503
+    assert body["series"][1]["pct_above_sma50"] is None and body["series"][1]["net_new_highs"] == 3
     latest = body["latest"]
     assert latest == body["series"][-1]
+    assert latest["pct_above_sma20"] == 17.9 and latest["sma20_above"] == 90 and latest["sma20_eligible"] == 503
     assert latest["pct_above_sma50"] == 27.9 and latest["pct_above_sma200"] == 49.3
     assert latest["sma50_above"] == 140 and latest["sma200_above"] == 247
     assert latest["new_highs"] == 5 and latest["new_lows"] == 29 and latest["net_new_highs"] == -24

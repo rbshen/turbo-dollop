@@ -308,8 +308,10 @@ def build_backfill_rows(
 def _point(row: MarketBreadthSnapshot) -> MarketBreadthPointOut:
     return MarketBreadthPointOut(
         as_of_date=row.as_of_date,
+        pct_above_sma20=row.pct_above_sma20,
         pct_above_sma50=row.pct_above_sma50,
         pct_above_sma200=row.pct_above_sma200,
+        sma20_above=row.sma20_above,
         sma50_above=row.sma50_above,
         sma200_above=row.sma200_above,
         new_highs=row.new_highs,
@@ -317,6 +319,7 @@ def _point(row: MarketBreadthSnapshot) -> MarketBreadthPointOut:
         net_new_highs=row.net_new_highs,
         constituents=row.constituents,
         stale_excluded=row.stale_excluded,
+        sma20_eligible=row.sma20_eligible,
         sma50_eligible=row.sma50_eligible,
         sma200_eligible=row.sma200_eligible,
         hl_eligible=row.hl_eligible,

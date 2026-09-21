@@ -1597,8 +1597,12 @@ class MarketBreadthPointOut(BaseModel):
     date (survivorship-biased); live nightly rows are point-in-time."""
 
     as_of_date: date
+    # None for a row that predates the 20-day metric and hasn't been backfilled yet (a NULL column),
+    # as well as for a session with no eligible tickers -- the UI renders both as "no reading".
+    pct_above_sma20: float | None
     pct_above_sma50: float | None
     pct_above_sma200: float | None
+    sma20_above: int | None
     sma50_above: int
     sma200_above: int
     new_highs: int
@@ -1606,6 +1610,7 @@ class MarketBreadthPointOut(BaseModel):
     net_new_highs: int  # new_highs - new_lows
     constituents: int
     stale_excluded: int
+    sma20_eligible: int | None
     sma50_eligible: int
     sma200_eligible: int
     hl_eligible: int
