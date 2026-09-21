@@ -1627,3 +1627,36 @@ export interface SectorHeatmapOut {
   // Fixed universe order; sorting is the client's job.
   rows: SectorHeatmapRowOut[];
 }
+
+// GET /api/market-breadth -- see backend/core/schemas.py::MarketBreadthOut. S&P 500
+// breadth, one point per session. Percentages are percentage POINTS (27.8 == 27.8%).
+export interface MarketBreadthPointOut {
+  as_of_date: string; // "YYYY-MM-DD", an exchange-calendar date
+  // null when that metric's eligible count is 0.
+  pct_above_sma50: number | null;
+  pct_above_sma200: number | null;
+  sma50_above: number;
+  sma200_above: number;
+  new_highs: number;
+  new_lows: number;
+  net_new_highs: number; // new_highs - new_lows
+  constituents: number;
+  // Constituents with no bar that session; in no count.
+  stale_excluded: number;
+  // The denominators (a ticker needs 50/200/252 own bars).
+  sma50_eligible: number;
+  sma200_eligible: number;
+  hl_eligible: number;
+  // true: today's constituents applied to a past date (survivorship-biased).
+  is_backfilled: boolean;
+}
+
+export interface MarketBreadthOut {
+  universe: string;
+  // All null (with series == []) before any row exists.
+  as_of_date: string | null;
+  computed_at: string | null;
+  latest: MarketBreadthPointOut | null;
+  // Oldest first.
+  series: MarketBreadthPointOut[];
+}
