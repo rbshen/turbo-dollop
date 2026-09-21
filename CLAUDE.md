@@ -318,10 +318,10 @@ handlers entirely, landing only in stderr/`<job>_cron.log` — invisible
 anywhere in the app itself (real incidents: `sp500_list_refresh`'s
 `sqlite3.IntegrityError` on 07-26/08-02, `backup_db`'s disk-full error on
 08-09). `backend/core/cron_health.py::cron_heartbeat("<job_name>")` wraps
-every one of the 17 real cron jobs' entry points (`if __name__ ==
-"__main__":` — see `core/cron_health.py::CRON_JOB_NAMES`, the single
-source of truth for the current count), writing a `CronRunLog` row
-regardless of how the job fails.
+every real cron job's entry point (`if __name__ == "__main__":` — see
+`core/cron_health.py::CRON_JOB_NAMES`, the single source of truth for
+which jobs exist), writing a `CronRunLog` row regardless of how the job
+fails.
 Purely additive — on failure the original exception is always re-raised
 unchanged, so existing stderr/`_cron.log` capture and exit codes are
 untouched; the heartbeat's own DB writes are independently
