@@ -57,11 +57,13 @@ def test_stores_one_row_for_the_anchor_session(monkeypatch):
     (row,) = _rows(engine)
     assert row.universe == "sp500" and row.as_of_date == COMPLETED and row.is_backfilled is False
     assert row.constituents == 10 and row.stale_excluded == 0
+    assert row.sma20_eligible == 10 and row.sma20_above == 6 and row.pct_above_sma20 == 60.0
     assert row.sma50_eligible == 10 and row.sma50_above == 6 and row.pct_above_sma50 == 60.0
     assert row.sma200_eligible == 10 and row.pct_above_sma200 == 60.0
     # Six rising tickers close on their 52-week high, four falling ones on their low.
     assert row.hl_eligible == 10 and row.new_highs == 6 and row.new_lows == 4 and row.net_new_highs == 2
     assert summary["as_of_date"] == "2026-09-18" and summary["with_bar"] == 10 and summary["net_new_highs"] == 2
+    assert summary["pct_above_sma20"] == 60.0
 
 
 def test_a_bar_after_the_last_completed_session_is_ignored(monkeypatch):
@@ -86,11 +88,25 @@ def test_coverage_gate_boundary_at_503_constituents(monkeypatch, missing, ok):
         summary = _run(tickers)
         (row,) = _rows(engine)
         assert row.stale_excluded == missing and summary["stale_excluded"] == missing
-        assert row.sma50_eligible == 503 - missing  # excluded from every count, not counted as "below"
+        # Excluded from every count, not counted as "below" -- the 20-day metric under the same gate as 50/200.
+        assert row.sma20_eligible == 503 - missing and row.sma50_eligible == 503 - missing and row.sma200_eligible == 503 - missing
+        assert row.sma20_above == 503 - missing  # every live ticker is on a rising series
     else:
         with pytest.raises(mbd.InsufficientCoverageError, match="coverage gate"):
             _run(tickers)
         assert _rows(engine) == []  # nothing written below the gate
+
+
+def test_a_thin_history_ticker_shrinks_the_sma20_denominator_but_is_not_a_gate_miss(monkeypatch):
+    # The gate is bar PRESENCE on the anchor session, identical for every SMA: a young ticker (30 bars)
+    # counts toward coverage and is sma20-eligible, yet is absent from the 50/200-day denominators.
+    engine = _fresh_engine(monkeypatch)
+    tickers = _tickers(10)
+    _patch_bars(monkeypatch, {t: _frame(periods=30 if i == 0 else 300) for i, t in enumerate(tickers)})
+    _run(tickers)
+    (row,) = _rows(engine)
+    assert row.stale_excluded == 0
+    assert row.sma20_eligible == 10 and row.sma50_eligible == 9 and row.sma200_eligible == 9
 
 
 def test_gate_failure_names_the_missing_tickers(monkeypatch):
@@ -117,7 +133,8 @@ def test_nightly_overwrites_a_backfilled_row_but_a_backfill_never_overwrites(mon
     _patch_bars(monkeypatch, {t: _frame() for t in tickers})
     now = datetime(2026, 9, 21, 3, 35)
     backfilled = dict(
-        universe="sp500", as_of_date=COMPLETED, computed_at=now, constituents=4, stale_excluded=0, sma50_eligible=4, sma50_above=0,
+        universe="sp500", as_of_date=COMPLETED, computed_at=now, constituents=4, stale_excluded=0, sma20_eligible=4, sma20_above=0,
+        pct_above_sma20=0.0, sma50_eligible=4, sma50_above=0,
         pct_above_sma50=0.0, sma200_eligible=4, sma200_above=0, pct_above_sma200=0.0, hl_eligible=4, new_highs=0, new_lows=0,
         net_new_highs=0, is_backfilled=True,
     )
@@ -125,7 +142,7 @@ def test_nightly_overwrites_a_backfilled_row_but_a_backfill_never_overwrites(mon
 
     _run(tickers)
     (row,) = _rows(engine)
-    assert row.is_backfilled is False and row.pct_above_sma50 == 100.0
+    assert row.is_backfilled is False and row.pct_above_sma50 == 100.0 and row.pct_above_sma20 == 100.0
 
     # Re-running the backfill leaves the live row alone.
     mbd.store_snapshots([backfilled], overwrite=False)

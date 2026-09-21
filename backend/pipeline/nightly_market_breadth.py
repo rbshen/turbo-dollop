@@ -1,5 +1,5 @@
 """Standalone script: nightly market-breadth recompute -- the % of S&P 500
-constituents above their 50-/200-day SMA and net new 52-week highs minus
+constituents above their 20-/50-/200-day SMA and net new 52-week highs minus
 lows, one MarketBreadthSnapshot row per session. See
 data/market_breadth_data.py for the compute/gate/persist logic and
 scoring/market_breadth.py for the pure math. Makes ZERO FMP calls (Yahoo

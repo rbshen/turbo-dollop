@@ -1,5 +1,5 @@
 """Orchestration layer for the market-breadth signal -- % of S&P 500
-constituents above their 50/200-day SMA and net new 52-week highs. Same
+constituents above their 20/50/200-day SMA and net new 52-week highs. Same
 shape as data/sector_heatmap_data.py: resolve the anchor session, run the
 pure math (scoring/market_breadth.py), gate on coverage, persist
 (models.py::MarketBreadthSnapshot), and a read path that never computes
@@ -60,6 +60,9 @@ _STORED_COLUMNS = (
     "computed_at",
     "constituents",
     "stale_excluded",
+    "sma20_eligible",
+    "sma20_above",
+    "pct_above_sma20",
     "sma50_eligible",
     "sma50_above",
     "pct_above_sma50",
@@ -106,6 +109,9 @@ def _row_values(snapshot: pd.Series, as_of: pd.Timestamp, computed_at: datetime,
         "computed_at": computed_at,
         "constituents": int(snapshot["constituents"]),
         "stale_excluded": int(snapshot["stale_excluded"]),
+        "sma20_eligible": int(snapshot["sma20_eligible"]),
+        "sma20_above": int(snapshot["sma20_above"]),
+        "pct_above_sma20": pct("pct_above_sma20"),
         "sma50_eligible": int(snapshot["sma50_eligible"]),
         "sma50_above": int(snapshot["sma50_above"]),
         "pct_above_sma50": pct("pct_above_sma50"),
@@ -188,6 +194,7 @@ async def compute_and_store_market_breadth(tickers: list[str], completed_date: d
         "with_bar": with_bar,
         "stale_excluded": len(missing),
         "missing": missing[:MISSING_SAMPLE],
+        "pct_above_sma20": values["pct_above_sma20"],
         "pct_above_sma50": values["pct_above_sma50"],
         "pct_above_sma200": values["pct_above_sma200"],
         "new_highs": values["new_highs"],
@@ -195,8 +202,9 @@ async def compute_and_store_market_breadth(tickers: list[str], completed_date: d
         "net_new_highs": values["net_new_highs"],
     }
     logger.info(
-        "Market breadth complete for %s: %d/%d constituents, %%>SMA50 %s, %%>SMA200 %s, net new highs %d.",
+        "Market breadth complete for %s: %d/%d constituents, %%>SMA20 %s, %%>SMA50 %s, %%>SMA200 %s, net new highs %d.",
         anchor.date(), with_bar, len(tickers),
+        None if values["pct_above_sma20"] is None else round(values["pct_above_sma20"], 1),
         None if values["pct_above_sma50"] is None else round(values["pct_above_sma50"], 1),
         None if values["pct_above_sma200"] is None else round(values["pct_above_sma200"], 1),
         values["net_new_highs"],

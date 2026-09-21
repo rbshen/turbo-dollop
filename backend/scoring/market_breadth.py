@@ -3,9 +3,10 @@ scoring/etf_returns.py. See data/market_breadth_data.py for orchestration
 (universe, fetch, anchor resolution, coverage gate, persistence) and
 docs/market_breadth_investigation_2026-09-21.md for the design.
 
-Three metrics per session, each over the constituents that HAVE a bar that
+Four metrics per session, each over the constituents that HAVE a bar that
 session:
-  - % of constituents whose close is above their own 50-day SMA,
+  - % of constituents whose close is above their own 20-day SMA,
+  - the same for the 50-day SMA,
   - the same for the 200-day SMA,
   - new 52-week highs minus new 52-week lows (a count, not a percentage).
 
@@ -21,7 +22,7 @@ denominator's absence -- never as "below".
 today, ties count, a full 252-bar window required** -- a new high is
 `high >= max(last 252 highs)`, a new low `low <= min(last 252 lows)`.
 SMA position is `close > SMA` (strict, SMA includes today), matching how
-TrendAnalysis.sma{50,200}_position_pct is signed.
+TrendAnalysis.sma{20,50,200}_position_pct is signed.
 
 Bars are expected as lowercase-column frames (what clients/
 shared_bars_cache.py hands back), with split-adjusted-but-not-dividend-
@@ -29,13 +30,16 @@ adjusted prices (auto_adjust=False), like every other technical consumer."""
 
 import pandas as pd
 
-SMA_SHORT = 50
-SMA_LONG = 200
+# Prefix -> window. Every prefix owns `<prefix>_eligible` / `<prefix>_above`
+# count columns and (in snapshot_frame) a `pct_above_<prefix>`.
+SMA_WINDOWS = {"sma20": 20, "sma50": 50, "sma200": 200}
 HL_WINDOW = 252
 
 # One row per session, one column per running total across tickers.
 COUNT_COLUMNS = (
     "with_bar",
+    "sma20_eligible",
+    "sma20_above",
     "sma50_eligible",
     "sma50_above",
     "sma200_eligible",
@@ -70,24 +74,19 @@ def ticker_flags(bars: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
         if own.empty:
             continue
         close, high, low = own["close"], own["high"], own["low"]
-        sma50 = close.rolling(SMA_SHORT).mean()
-        sma200 = close.rolling(SMA_LONG).mean()
+        columns: dict = {"with_bar": 1}
+        for prefix, window in SMA_WINDOWS.items():
+            sma = close.rolling(window).mean()
+            has_sma = sma.notna()
+            columns[f"{prefix}_eligible"] = has_sma
+            columns[f"{prefix}_above"] = has_sma & (close > sma)
         high_252 = high.rolling(HL_WINDOW).max()
         low_252 = low.rolling(HL_WINDOW).min()
-        has50, has200, has_hl = sma50.notna(), sma200.notna(), high_252.notna()
-        flags[ticker] = pd.DataFrame(
-            {
-                "with_bar": 1,
-                "sma50_eligible": has50,
-                "sma50_above": has50 & (close > sma50),
-                "sma200_eligible": has200,
-                "sma200_above": has200 & (close > sma200),
-                "hl_eligible": has_hl,
-                "new_highs": has_hl & (high >= high_252),
-                "new_lows": has_hl & (low <= low_252),
-            },
-            index=own.index,
-        ).astype(int)
+        has_hl = high_252.notna()
+        columns["hl_eligible"] = has_hl
+        columns["new_highs"] = has_hl & (high >= high_252)
+        columns["new_lows"] = has_hl & (low <= low_252)
+        flags[ticker] = pd.DataFrame(columns, index=own.index).astype(int)
     return flags
 
 
@@ -107,7 +106,7 @@ def snapshot_frame(counts: pd.DataFrame, constituents: int) -> pd.DataFrame:
     out = pd.DataFrame(index=counts.index)
     out["constituents"] = constituents
     out["stale_excluded"] = constituents - counts["with_bar"]
-    for prefix in ("sma50", "sma200"):
+    for prefix in SMA_WINDOWS:
         out[f"{prefix}_eligible"] = counts[f"{prefix}_eligible"]
         out[f"{prefix}_above"] = counts[f"{prefix}_above"]
         eligible = counts[f"{prefix}_eligible"].where(counts[f"{prefix}_eligible"] > 0)
