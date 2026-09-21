@@ -134,3 +134,54 @@ def test_nightly_overwrites_a_backfilled_row_but_a_backfill_never_overwrites(mon
     # And a weekend/holiday re-run of the same anchor is idempotent.
     _run(tickers)
     assert len(_rows(engine)) == 1
+
+
+def test_backfill_rows_only_span_sessions_with_full_universe_coverage():
+    tickers = _tickers(10)
+    # One of 10 constituents is young (120 bars), so at most 9/10 = 90% are ever
+    # eligible for the 52-week window -- under the 97% gate on every session.
+    bars = {t: _frame(periods=500) for t in tickers[:9]}
+    bars[tickers[9]] = _frame(periods=120)
+    values, summary = mbd.build_backfill_rows(bars, constituents=10, completed_date=COMPLETED)
+    assert values == [] and summary["kept"] == 0
+
+    # With all 10 fully seeded, the first kept session is the one whose
+    # 252-bar window first fills (the 252nd bar).
+    values, summary = mbd.build_backfill_rows({t: _frame(periods=500) for t in tickers}, constituents=10, completed_date=COMPLETED)
+    index = pd.bdate_range(end="2026-09-18", periods=500)
+    assert summary["first_date"] == index[251].date().isoformat() and summary["last_date"] == "2026-09-18"
+    assert summary["kept"] == 500 - 251 and summary["sessions_seen"] == 500
+    assert all(v["is_backfilled"] is True and v["universe"] == "sp500" for v in values)
+    assert all(v["constituents"] == 10 and v["stale_excluded"] == 0 for v in values)
+
+
+def test_backfill_rows_drop_sessions_after_the_completed_date():
+    tickers = _tickers(4)
+    values, summary = mbd.build_backfill_rows(
+        {t: _frame(end="2026-09-21", periods=300) for t in tickers}, constituents=4, completed_date=COMPLETED
+    )
+    assert summary["last_date"] == "2026-09-18"
+    assert max(v["as_of_date"] for v in values) == COMPLETED
+
+
+def test_backfill_rows_are_plain_python_values_sqlite_can_bind(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    tickers = _tickers(4)
+    values, _ = mbd.build_backfill_rows({t: _frame(periods=300) for t in tickers}, constituents=4, completed_date=COMPLETED)
+    assert mbd.store_snapshots(values, overwrite=False) == len(values)
+    assert len(_rows(engine)) == len(values)
+
+
+def test_load_cached_daily_bars_is_a_read_only_view_of_shared_bars_cache(monkeypatch):
+    from core.models import SharedBarsCache
+
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        for day in pd.bdate_range(end="2026-09-18", periods=5):
+            session.add(SharedBarsCache(ticker="AAA", interval="1d", bar_time=day.to_pydatetime(), open=1, high=2, low=0.5, close=1.5,
+                                        volume=10, fetched_at=datetime(2026, 9, 19)))
+        session.add(SharedBarsCache(ticker="AAA", interval="60m", bar_time=datetime(2026, 9, 18, 9, 30), open=1, high=2, low=0.5,
+                                    close=1.5, volume=10, fetched_at=datetime(2026, 9, 19)))
+        session.commit()
+    frames = mbd.load_cached_daily_bars(["AAA", "MISSING"])
+    assert set(frames) == {"AAA"} and len(frames["AAA"]) == 5

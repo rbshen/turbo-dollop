@@ -33,7 +33,7 @@ from sqlalchemy import func
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
-from clients.shared_bars_cache import DAILY_INTERVAL, _most_recent_completed_trading_date, get_or_fetch_bars_batch
+from clients.shared_bars_cache import DAILY_INTERVAL, _load_frames, _most_recent_completed_trading_date, get_or_fetch_bars_batch
 from core.db import engine
 from core.models import MarketBreadthSnapshot
 from scoring.market_breadth import aggregate_flags, snapshot_frame, ticker_flags
@@ -201,3 +201,42 @@ async def compute_and_store_market_breadth(tickers: list[str], completed_date: d
         values["net_new_highs"],
     )
     return summary
+
+
+def load_cached_daily_bars(tickers: list[str]) -> dict[str, pd.DataFrame]:
+    """Every daily bar SharedBarsCache already holds for `tickers` -- a pure
+    READ. Unlike get_or_fetch_bars_batch this never fetches and never
+    writes, which is the point for the backfill: it must not widen or
+    refresh the shared cache (widening 409 tickers from 2y to 5y would make
+    every later nightly refetch pull 5y for them)."""
+    with Session(engine) as session:
+        return _load_frames(session, tickers, DAILY_INTERVAL, date(1970, 1, 1))
+
+
+def build_backfill_rows(
+    bars: dict[str, pd.DataFrame], constituents: int, completed_date: date, computed_at: datetime | None = None
+) -> tuple[list[dict], dict]:
+    """Snapshot rows for every historical session `bars` can support, plus a
+    summary. A session is kept only if bars exist for >= MIN_COVERAGE of the
+    constituents AND the same fraction is eligible for the 52-week window
+    (the hardest to satisfy -- 252 own bars -- so it also implies SMA50/
+    SMA200 eligibility): earlier sessions would be a subset of the universe,
+    not the index, and a curve stitched across that boundary is misleading.
+    Sessions after `completed_date` (an in-progress bar) are dropped."""
+    computed_at = computed_at or datetime.now()
+    counts = aggregate_flags(ticker_flags(bars))
+    counts = counts[counts.index <= pd.Timestamp(completed_date)]
+    if counts.empty:
+        return [], {"sessions_seen": 0, "kept": 0, "first_date": None, "last_date": None}
+
+    snapshot = snapshot_frame(counts, constituents)
+    keep = (counts["with_bar"] / constituents >= MIN_COVERAGE) & (counts["hl_eligible"] / constituents >= MIN_COVERAGE)
+    kept = snapshot[keep]
+    values = [_row_values(row, as_of, computed_at, is_backfilled=True) for as_of, row in kept.iterrows()]
+    summary = {
+        "sessions_seen": len(counts),
+        "kept": len(values),
+        "first_date": kept.index.min().date().isoformat() if len(kept) else None,
+        "last_date": kept.index.max().date().isoformat() if len(kept) else None,
+    }
+    return values, summary
