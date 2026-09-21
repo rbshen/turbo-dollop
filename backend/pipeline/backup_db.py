@@ -14,6 +14,7 @@ import logging
 import re
 import shutil
 import sqlite3
+import time
 from datetime import date, datetime
 from pathlib import Path
 
@@ -48,6 +49,14 @@ BACKUP_KEEP_WEEKLY = 4
 # "database or disk is full" mid-copy, leaving a partial file behind.
 BACKUP_FREE_SPACE_FACTOR = 1.25
 
+# A run's temp files that are older than this are stranded by a killed process
+# (SIGKILL/power loss skip the `finally` cleanup) and are swept at the start of
+# the next run. Well above a run's real duration (a minute or two) so a
+# concurrent live run's temp file is never touched, and well below the 24h
+# cadence so a stranded ~1.2GB copy is gone before the next preflight needs
+# the space.
+STALE_TEMP_MIN_AGE_HOURS = 6
+
 DEFAULT_DB_PATH = (BASE_DIR / settings.database_path).resolve()
 DEFAULT_BACKUP_DIR = BASE_DIR / "backups"
 
@@ -67,6 +76,36 @@ def _remove_quietly(path: Path) -> None:
         path.unlink(missing_ok=True)
     except OSError:
         logger.warning("Could not remove temporary backup file %s", path, exc_info=True)
+
+
+def _sweep_stale_temp_files(
+    backup_dir: Path, stem: str, min_age_hours: float = STALE_TEMP_MIN_AGE_HOURS
+) -> list[Path]:
+    """Removes this job's own temp files stranded by a killed run. Matches only
+    the exact names create_backup writes (`.<stem>_<ts>.db.tmp`, `.<stem>_<ts>.
+    db.gz.tmp`, plus SQLite's `-journal` sidecar), and only when older than
+    `min_age_hours`, so finished backups and anything else in the directory --
+    or a run still in progress -- are never touched."""
+    temp_re = re.compile(rf"^\.{re.escape(stem)}_\d{{8}}_\d{{6}}\.db(\.gz)?\.tmp(-journal)?$")
+    cutoff = time.time() - min_age_hours * 3600
+    removed = []
+    for path in backup_dir.iterdir():
+        if not temp_re.match(path.name):
+            continue
+        try:
+            if path.stat().st_mtime >= cutoff:
+                continue
+        except OSError:
+            continue
+        _remove_quietly(path)
+        removed.append(path)
+    if removed:
+        logger.warning(
+            "Removed %d stale temp file(s) from a previous interrupted run: %s",
+            len(removed),
+            ", ".join(p.name for p in removed),
+        )
+    return removed
 
 
 def _free_bytes(path: Path) -> int:
@@ -98,6 +137,7 @@ def create_backup(
     CLAUDE.md's "Ad-hoc reproduction scripts must not touch the real
     database"."""
     backup_dir.mkdir(parents=True, exist_ok=True)
+    _sweep_stale_temp_files(backup_dir, db_path.stem)
     _check_free_space(db_path, backup_dir)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest_path = backup_dir / f"{db_path.stem}_{timestamp}.db.gz"
@@ -110,8 +150,8 @@ def create_backup(
     # a valid backup. Both temp files are removed on ANY exit from this block
     # -- success (the uncompressed copy; the gz temp was already renamed away)
     # or failure at any step -- so a failed run leaves nothing behind. (A
-    # SIGKILL/power loss skips `finally` entirely and can still strand a temp
-    # file; nothing here covers that.)
+    # SIGKILL/power loss skips `finally` entirely; `_sweep_stale_temp_files`
+    # above clears anything that strands, at the start of the next run.)
     try:
         source_conn = sqlite3.connect(str(db_path))
         try:

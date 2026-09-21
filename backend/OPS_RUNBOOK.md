@@ -264,6 +264,10 @@ The compressed copy is written under a dot-prefixed temp name and renamed
 into place only once complete, and both temp files are removed on any
 exception, so a failed run leaves no temp file and no truncated
 `fathom_*.db.gz` behind.
+A run killed outright (SIGKILL/power loss) skips that cleanup, so each run
+first sweeps its own stranded `.fathom_<ts>.db.tmp` / `.db.gz.tmp` files older
+than 6 hours (`STALE_TEMP_MIN_AGE_HOURS`) — before the disk-space check, since a
+stranded ~1.2GB copy counts against it — and logs a warning naming what it removed.
 If it fails, check disk space first
 (`df -h`) — a full disk is the most likely cause. To restore: `gunzip
 -k backend/backups/fathom_<timestamp>.db.gz` and copy the result over

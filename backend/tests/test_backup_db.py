@@ -1,5 +1,7 @@
 import gzip
+import os
 import sqlite3
+import time
 from pathlib import Path
 
 import pytest
@@ -253,3 +255,73 @@ def test_success_leaves_only_the_finished_backup(tmp_path):
 
     assert [p.name for p in backup_dir.iterdir()] == [result.name]
     assert _leftovers(backup_dir) == []
+
+
+def _age(path: Path, hours: float) -> None:
+    ts = time.time() - hours * 3600
+    os.utime(path, (ts, ts))
+
+
+def test_stale_temp_files_from_a_killed_run_are_swept(tmp_path):
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    stranded = [
+        backup_dir / ".fathom_20260921_035503.db.tmp",
+        backup_dir / ".fathom_20260921_035503.db.gz.tmp",
+        backup_dir / ".fathom_20260921_035503.db.tmp-journal",  # SQLite hot journal
+    ]
+    for f in stranded:
+        f.write_bytes(b"x")
+        _age(f, 20)
+
+    removed = backup_db._sweep_stale_temp_files(backup_dir, "fathom")
+
+    assert sorted(removed) == sorted(stranded)
+    assert list(backup_dir.iterdir()) == []
+
+
+def test_sweep_never_touches_a_fresh_temp_a_finished_backup_or_unrelated_files(tmp_path):
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    fresh_temp = backup_dir / ".fathom_20260922_035503.db.tmp"  # a run still in progress
+    finished = backup_dir / "fathom_20200101_035503.db.gz"
+    other_db_temp = backup_dir / ".other_20200101_035503.db.tmp"
+    unrelated = [
+        backup_dir / ".DS_Store",
+        backup_dir / ".fathom_notes.tmp",  # not this job's naming
+        backup_dir / "fathom_20200101_035503.db.gz.tmp",  # no leading dot: not ours
+        other_db_temp,
+    ]
+    for f in [fresh_temp, finished, *unrelated]:
+        f.write_bytes(b"x")
+        _age(f, 500)  # old -- only the naming (or freshness) should protect them
+    fresh_temp.write_bytes(b"x")
+    _age(fresh_temp, 0.1)
+
+    assert backup_db._sweep_stale_temp_files(backup_dir, "fathom") == []
+    assert sorted(p.name for p in backup_dir.iterdir()) == sorted(
+        p.name for p in [fresh_temp, finished, *unrelated]
+    )
+
+
+def test_create_backup_sweeps_a_stranded_temp_before_the_free_space_check(tmp_path, monkeypatch):
+    """A stranded ~1.2GB temp counts against free space, so the sweep has to run
+    first or the preflight could fail on space the sweep would have freed."""
+    db_path = _make_db(tmp_path / "fathom.db", "x")
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    stranded = backup_dir / ".fathom_20200101_035503.db.tmp"
+    stranded.write_bytes(b"x")
+    _age(stranded, 30)
+
+    seen_at_preflight = []
+    real_check = backup_db._check_free_space
+    monkeypatch.setattr(
+        backup_db, "_check_free_space",
+        lambda db, d: (seen_at_preflight.append(stranded.exists()), real_check(db, d))[1],
+    )
+
+    result = backup_db.create_backup(db_path=db_path, backup_dir=backup_dir)
+
+    assert seen_at_preflight == [False]  # already gone when the preflight ran
+    assert [p.name for p in backup_dir.iterdir()] == [result.name]
