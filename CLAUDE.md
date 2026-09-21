@@ -3506,8 +3506,10 @@ scoring -- no `FMP_ENABLED` guard needed.
 
 ## Market Breadth (`/breadth`, 2026-09-21)
 
-S&P 500 breadth, one row per session: % of constituents closing above their own 50-day SMA,
-% above their 200-day SMA, and net new 52-week highs minus lows. Design and measurements:
+S&P 500 breadth, one row per session: % of constituents closing above their own 20-day SMA,
+% above their 50-day SMA, % above their 200-day SMA, and net new 52-week highs minus lows. (The
+20-day metric was added later the same day -- see "20-day SMA metric" below; everything else in
+this section applies to it identically unless that entry says otherwise.) Design and measurements:
 `docs/market_breadth_investigation_2026-09-21.md`. Yahoo-only (via `SharedBarsCache`), zero FMP
 calls, independent of Step 1-5/Overall Assessment scoring -- no `FMP_ENABLED` guard needed.
 
@@ -3515,15 +3517,17 @@ calls, independent of Step 1-5/Overall Assessment scoring -- no `FMP_ENABLED` gu
   **own** bars, never on a shared date index -- the investigation's FISV case (500 real bars, one
   gap) was dropped from the 52-week count by a strict `min_periods` on a date-union frame; rolling
   per ticker keeps it (the live 52-week denominator is 500, not the investigation's 499). SMA
-  position is `close > SMA` (strict, SMA includes today). **52-week = intraday High/Low** (a
+  position is `close > SMA` (strict, SMA includes today); the windows live in one place,
+  `SMA_WINDOWS = {"sma20": 20, "sma50": 50, "sma200": 200}`, which drives the flags, counts and
+  snapshot columns alike. **52-week = intraday High/Low** (a
   confirmed decision, not close-based) over the trailing **252 sessions including today, ties
   count, a full 252-bar window required**: new high = `high >= max(last 252 highs)`, new low =
   `low <= min(last 252 lows)`. A ticker too young for a window is absent from that metric's
   `*_eligible` denominator, never counted as "below". Computed from `SharedBarsCache` raw bars,
   **not** `TrendAnalysis` (latest-only, no 52-week fields, a failed fetch leaves an old row).
 - **Table** `MarketBreadthSnapshot` (`core/models.py`): WIDE, PK `(universe, as_of_date)`, each
-  metric its own column plus the numerators/denominators (`sma50_above`/`sma50_eligible`, ...,
-  `hl_eligible`, `new_highs`, `new_lows`, `net_new_highs`) and `stale_excluded` (constituents with
+  metric its own column plus the numerators/denominators (`sma20_above`/`sma20_eligible`,
+  `sma50_above`/`sma50_eligible`, ..., `hl_eligible`, `new_highs`, `new_lows`, `net_new_highs`) and `stale_excluded` (constituents with
   no bar that session, in no count). `universe` is in the key though only `"sp500"` exists:
   `_add_missing_columns` cannot change a PK. **The value is `"sp500"`, matching
   `IndexConstituent.index_name`** (the request said "SP500" in passing; the investigation doc and
@@ -3549,9 +3553,13 @@ calls, independent of Step 1-5/Overall Assessment scoring -- no `FMP_ENABLED` gu
     only -- thin-history tickers are handled by the eligible counts, not the gate.
   - **Live overwrites backfilled, never the reverse**: `store_snapshots(overwrite=True)` is a
     full upsert (a live row is point-in-time); the backfill uses `on_conflict_do_nothing`.
-  - **Not active until the crontab is reinstalled** (`crontab crontab.txt` from `backend/`;
-    editing `crontab.txt` alone does nothing -- the exact gap the fixture-contamination section
-    documents). At the time of writing it had NOT been reinstalled.
+  - **Active: crontab reinstalled 2026-09-21** (`crontab crontab.txt` from `backend/`; `crontab -l`
+    confirmed byte-identical to the file, and the only diff beforehand was this job's entry, so
+    nothing else was dropped). The first cron-triggered run is 3:35 UTC on 2026-09-22 -- check
+    `CronRunLog`/`nightly_market_breadth.log`. Any later `crontab.txt` edit still needs the same
+    reinstall; editing the file alone does nothing (the fixture-contamination section's gap).
+    Note `crontab.txt`'s comment above this entry still says "50-/200-day" (left as-is on purpose:
+    editing it would put the live crontab out of sync with the file for a comment-only change).
 - **Backfill** `pipeline/backfills/backfill_market_breadth.py` (one-time, `--dry-run` supported),
   deliberately NOT part of the nightly job's fetch. **Read-only against `SharedBarsCache`** -- no
   fetch, no writes -- because widening the shared cache (409 tickers 2y -> 5y) would make every
@@ -3563,27 +3571,67 @@ calls, independent of Step 1-5/Overall Assessment scoring -- no `FMP_ENABLED` gu
   page footnote. **Run 2026-09-21 against the real DB: 503/503 tickers had cached bars, 1,255
   sessions seen, 250 inserted (2025-09-22 .. 2026-09-18), 0 already present, 0 failures, 6.4s.**
   Latest row reproduces the investigation's numbers exactly (27.8% / 49.3%; intraday 5 highs /
-  29 lows = -24). Re-running is a no-op.
+  29 lows = -24). Re-running is a no-op. (The 250 rows were then given their 20-day values by a
+  second pass -- see below.)
+- **20-day SMA metric (2026-09-21)**: `pct_above_sma20`/`sma20_above`/`sma20_eligible`, the fast
+  companion to the 50/200-day pair. Same per-ticker own-bars rolling math and strict `close > SMA`
+  rule; nothing else about the feature changed.
+  - **Schema: additive migration, not a rebuild.** `init_db()` is `create_all` (creates missing
+    tables only) plus `_add_missing_columns` (adds any missing nullable column to an existing table),
+    so the three columns are nullable (`int | None = None`) and were ALTER-added to the live table.
+    A rebuild would have dropped the 250 stored rows (and any live nightly row, which cannot be
+    recomputed). NULL therefore means "never computed" -- a pre-existing row -- distinct from
+    `sma20_eligible = 0` / a NULL percentage on a session with no eligible tickers. The API/TS types
+    carry the same nullability and the UI renders it as a gap / "Not computed yet", never 0.
+  - **Coverage gate: unchanged and applies to it identically**, because the gate is bar PRESENCE on
+    the anchor session, not per-metric eligibility (488/503 passes, 487 fails, now also asserted on
+    `sma20_eligible`). A 20-day window needs fewer bars than 50/200/252, so `sma20_eligible` is always a
+    superset of `sma50_eligible` (tested; on the real 250 rows it is never lower) and can never be the
+    binding constraint. The backfill's own keep-rule (>=97% 252-bar eligible) likewise already implies it,
+    so the 20-day metric neither adds sessions nor drops any -- the 250-row range is unchanged.
+  - **Backfill fill pass** (`data/market_breadth_data.py::fill_missing_sma20`). The insert-only
+    `on_conflict_do_nothing` skips an existing date entirely, so it can never give the 250 existing rows
+    the new columns. A second pass UPDATEs ONLY the three sma20 columns, ONLY where `sma20_eligible IS
+    NULL`, ONLY on `is_backfilled` rows: no other column is touched, a row that already has a 20-day
+    value is never overwritten, and a live (point-in-time) row is never filled from today's constituents
+    -- so the "never overwrite" guarantee holds, just via a targeted fill instead of an insert. A re-run
+    fills 0. **Run 2026-09-21 against the real DB: 250 pending, 250 filled, 0 left NULL; a fingerprint of
+    every pre-existing column was byte-identical before/after; the latest (2026-09-18, 96 of 503 =
+    19.1%) and a mid-history (2026-03-17, 132 of 501 = 26.3%) session were recomputed independently
+    from raw `SharedBarsCache` closes and matched exactly. 20-day eligible 499-503 per session (never
+    below the 50-day's), 12.4%-80.0% range, mean 52.2%.**
+  - **Line color: `chart-1` (green), chosen with the dataviz palette validator against the dark
+    surface.** 50-day is `chart-4` (blue) and 200-day `chart-2` (amber), so neither could be reused.
+    Purple (`chart-5`) hard-fails the normal-vision floor against the blue (DeltaE 11.6 < 15); red
+    (`chart-3`) is the app's `--fathom-negative` hue and would read as "bad". Green on the adjacent
+    series pairs (20<->50, 50<->200) passes CVD separation (24.0), normal-vision distance (25.8) and
+    contrast. Known, accepted: green<->amber (20<->200, non-adjacent) is only DeltaE 5.2 under protan
+    simulation, and the lightness-band check flags green marginally (0.681 vs the 0.67 dark ceiling; the
+    existing amber fails it too) -- the legend and the labelled tooltip rows are the secondary encoding.
 - **API** `GET /api/market-breadth` (`core/main.py`, `data/market_breadth_data.py::
   get_market_breadth`, `MarketBreadthOut`): the whole history oldest-first plus `latest`; before
   any row, `as_of_date: null, latest: null, series: []` (never a 404). No `universe`/range query
   params yet (YAGNI -- ~250 rows/year; add when a second universe exists).
 - **UI** (`app/breadth/page.tsx`, `components/breadth/`, `lib/marketBreadth.ts`): top-nav
-  "Breadth" (new tab, like Sectors/Momentum). Three latest-reading stat tiles (with denominators),
-  then **two** recharts panels with a synced hover: a two-line 0-100% chart (50% reference line)
+  "Breadth" (new tab, like Sectors/Momentum). Four latest-reading stat tiles (with denominators; order:
+  20-day, 50-day, 200-day, net new highs; `sm:grid-cols-2 lg:grid-cols-4`), then **two** recharts
+  panels with a synced hover: a three-line 0-100% chart (50% reference line)
   and a diverging net-new-highs bar chart. **UI choices left to judgment, open to revision**: (1)
   two panels rather than one chart -- the lines are percentages and the bars a signed count, and a
-  shared/dual axis would misread one as the other's scale; (2) 50-day = `chart-4` (blue),
-  200-day = `chart-2` (amber), bars `positive`/`negative` (sign is also encoded by position about
+  shared/dual axis would misread one as the other's scale; (2) 20-day = `chart-1` (green, see
+  the 20-day entry above), 50-day = `chart-4` (blue), 200-day = `chart-2` (amber), lines drawn
+  slowest-first so the volatile 20-day sits on top, bars `positive`/`negative` (sign is also encoded by position about
   the zero line, so it isn't color-only); (3) unlike the app's usual hidden-Y convention the axes
   are visible (0/25/50/75/100%; nice ticks for the count) since a breadth level is read in
   absolute terms; (4) a dashed "Live ->" marker at the first non-backfilled session appears only
   once there is one (all 250 rows are backfilled today, so it does not yet render); (5) no range
   selector -- the full series always shows.
-- **Verified without a browser**: pytest (1,796 backend tests pass), vitest (364 frontend), tsc,
-  eslint, and a throwaway jsdom render of the real 250-row payload with `ResponsiveContainer`
-  mocked to a fixed size (2 line series, 42 negative / 206 positive bars matching the data, 8
-  x-ticks per panel). **Not verified on screen**: layout, colors/contrast, label collisions, the
+- **Verified without a browser**: pytest (1,803 backend tests pass), vitest (373 frontend), tsc,
+  eslint, and jsdom renders with `ResponsiveContainer` mocked to a fixed size (a throwaway one of the
+  real 250-row payload for the original page: 42 negative / 206 positive bars matching the data, 8
+  x-ticks per panel; the kept `MarketBreadthCharts.test.tsx` asserts 3 line series with distinct
+  strokes, the legend order, the dashed 50% line and the axis ticks, and was mutation-checked --
+  removing the 20-day line fails it). **Not verified on screen**: layout, colors/contrast, label collisions, the
   hover tooltip and cross-panel sync, narrow widths.
 - **Known limits**: not holiday-aware (a holiday costs one extra harmless refetch, as for every
   `SharedBarsCache` consumer); `constituents` is today's count from the weekly Wikipedia scrape

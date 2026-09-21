@@ -225,7 +225,7 @@ shortfall is Yahoo reachability or a renamed symbol, not FMP.
 
 **`nightly_market_breadth`** — computes one `MarketBreadthSnapshot` row per
 session for the S&P 500 (`IndexConstituent` `sp500`, via `load_sp500_tickers`):
-the % of constituents closing above their own 50- and 200-day SMA, and new
+the % of constituents closing above their own 20-, 50- and 200-day SMA, and new
 52-week highs minus new 52-week lows (intraday High/Low, 252 sessions,
 ties count) — `data/market_breadth_data.py`, `scoring/market_breadth.py`.
 Yahoo Finance bars only (from `SharedBarsCache`), zero FMP calls, unaffected
@@ -245,10 +245,12 @@ Constituents: 503. With bar: 503. Excluded: 0.` in
 `backend/logs/nightly_market_breadth.log`. A recurring handful of names in
 the `Excluded` list is a renamed/delisted symbol Yahoo no longer serves; a
 large number is Yahoo reachability, not FMP. The table is never pruned.
-**Not active until the crontab is reinstalled** (`crontab crontab.txt` from
-`backend/`; `crontab -l` should show the `35 3 * * *` entry) — editing
-`crontab.txt` alone changes nothing. The one-time history seed is
-`pipeline/backfills/backfill_market_breadth.py` (see its docstring).
+**Installed in the live crontab 2026-09-21** (`crontab -l` shows the
+`35 3 * * *` entry, byte-identical to `crontab.txt`); a later `crontab.txt`
+edit still needs `crontab crontab.txt` from `backend/` to take effect. The
+one-time history seed is `pipeline/backfills/backfill_market_breadth.py` (see
+its docstring; it also fills the 20-day columns onto rows that predate them,
+only where NULL, and is safe to re-run).
 
 **`prune_cache`** — deletes `FundamentalsCache` rows older than
 `Settings.cache_retention_days` (180 days by default; distinct from the
