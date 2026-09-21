@@ -59,6 +59,16 @@ class InsufficientDiskSpaceError(RuntimeError):
     temporary uncompressed copy."""
 
 
+def _remove_quietly(path: Path) -> None:
+    """Best-effort unlink for cleanup paths. Never raises: this runs in a
+    `finally`, and a cleanup failure (e.g. a permissions error) must not mask
+    the original exception that got us here."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("Could not remove temporary backup file %s", path, exc_info=True)
+
+
 def _free_bytes(path: Path) -> int:
     return shutil.disk_usage(path).free
 
@@ -92,20 +102,33 @@ def create_backup(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest_path = backup_dir / f"{db_path.stem}_{timestamp}.db.gz"
     tmp_path = backup_dir / f".{db_path.stem}_{timestamp}.db.tmp"
+    gz_tmp_path = backup_dir / f".{db_path.stem}_{timestamp}.db.gz.tmp"
 
-    source_conn = sqlite3.connect(str(db_path))
+    # The compressed file is written under a dot-prefixed temp name and only
+    # renamed to its final `fathom_<ts>.db.gz` name once complete, so a
+    # truncated file can never sit under a name that retention would count as
+    # a valid backup. Both temp files are removed on ANY exit from this block
+    # -- success (the uncompressed copy; the gz temp was already renamed away)
+    # or failure at any step -- so a failed run leaves nothing behind. (A
+    # SIGKILL/power loss skips `finally` entirely and can still strand a temp
+    # file; nothing here covers that.)
     try:
-        dest_conn = sqlite3.connect(str(tmp_path))
+        source_conn = sqlite3.connect(str(db_path))
         try:
-            source_conn.backup(dest_conn)
+            dest_conn = sqlite3.connect(str(tmp_path))
+            try:
+                source_conn.backup(dest_conn)
+            finally:
+                dest_conn.close()
         finally:
-            dest_conn.close()
-    finally:
-        source_conn.close()
+            source_conn.close()
 
-    with open(tmp_path, "rb") as src, gzip.open(dest_path, "wb") as dst:
-        shutil.copyfileobj(src, dst)
-    tmp_path.unlink()
+        with open(tmp_path, "rb") as src, gzip.open(gz_tmp_path, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+        gz_tmp_path.replace(dest_path)
+    finally:
+        _remove_quietly(tmp_path)
+        _remove_quietly(gz_tmp_path)
 
     pruned = _prune_old_backups(backup_dir, db_path.stem, keep_daily, keep_weekly)
     if pruned:

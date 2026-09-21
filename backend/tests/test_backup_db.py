@@ -188,3 +188,68 @@ def test_free_space_requirement_scales_with_the_db_size(tmp_path, monkeypatch):
 
     monkeypatch.setattr(backup_db, "_free_bytes", lambda _path: needed)
     backup_db._check_free_space(db_path, backup_dir)  # exactly enough passes
+
+
+def _leftovers(backup_dir: Path) -> list[str]:
+    """Everything in backup_dir that isn't a finished backup."""
+    return sorted(p.name for p in backup_dir.iterdir() if not p.name.endswith(".db.gz") or p.name.startswith("."))
+
+
+def test_failure_while_compressing_leaves_no_temp_or_partial_backup(tmp_path, monkeypatch):
+    """Fails AFTER the uncompressed copy is fully written -- the worst case:
+    a ~1.2GB temp plus a half-written gzip."""
+    db_path = _make_db(tmp_path / "fathom.db", "x")
+    backup_dir = tmp_path / "backups"
+    existing = _touch_backups(backup_dir, ["20200101", "20200102", "20200103"])
+
+    def fail_mid_copy(src, dst, *args, **kwargs):
+        dst.write(b"partial")  # the gzip temp now exists with content
+        raise OSError("simulated failure mid-write")
+
+    monkeypatch.setattr(backup_db.shutil, "copyfileobj", fail_mid_copy)
+
+    with pytest.raises(OSError, match="simulated failure mid-write"):
+        # keep_daily=1 would prune two of the three if it got that far.
+        backup_db.create_backup(db_path=db_path, backup_dir=backup_dir, keep_daily=1, keep_weekly=0)
+
+    # The original exception propagated, and the directory holds exactly the
+    # pre-existing backups: no .tmp, no truncated fathom_<ts>.db.gz, no pruning.
+    assert sorted(p.name for p in backup_dir.iterdir()) == sorted(p.name for p in existing)
+
+
+def test_failure_while_copying_the_database_leaves_no_temp_file(tmp_path):
+    db_path = tmp_path / "fathom.db"
+    db_path.write_bytes(b"this is not a sqlite database" * 100)
+    backup_dir = tmp_path / "backups"
+
+    with pytest.raises(sqlite3.DatabaseError):
+        backup_db.create_backup(db_path=db_path, backup_dir=backup_dir)
+
+    assert list(backup_dir.iterdir()) == []
+
+
+def test_a_cleanup_failure_does_not_mask_the_original_error(tmp_path, monkeypatch):
+    db_path = _make_db(tmp_path / "fathom.db", "x")
+    backup_dir = tmp_path / "backups"
+
+    def fail_copy(*args, **kwargs):
+        raise OSError("the real problem")
+
+    def fail_unlink(self, missing_ok=False):
+        raise PermissionError("cleanup also fails")
+
+    monkeypatch.setattr(backup_db.shutil, "copyfileobj", fail_copy)
+    monkeypatch.setattr(Path, "unlink", fail_unlink)
+
+    with pytest.raises(OSError, match="the real problem"):
+        backup_db.create_backup(db_path=db_path, backup_dir=backup_dir)
+
+
+def test_success_leaves_only_the_finished_backup(tmp_path):
+    db_path = _make_db(tmp_path / "fathom.db", "x")
+    backup_dir = tmp_path / "backups"
+
+    result = backup_db.create_backup(db_path=db_path, backup_dir=backup_dir)
+
+    assert [p.name for p in backup_dir.iterdir()] == [result.name]
+    assert _leftovers(backup_dir) == []

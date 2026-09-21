@@ -260,6 +260,10 @@ free (`BACKUP_FREE_SPACE_FACTOR` — the run briefly holds an uncompressed copy
 of the DB next to the backups) and otherwise fails immediately with
 `InsufficientDiskSpaceError: Refusing to start backup: ... Nothing was
 written.`, recorded as a `pipeline.backup_db` failure by the cron heartbeat.
+The compressed copy is written under a dot-prefixed temp name and renamed
+into place only once complete, and both temp files are removed on any
+exception, so a failed run leaves no temp file and no truncated
+`fathom_*.db.gz` behind.
 If it fails, check disk space first
 (`df -h`) — a full disk is the most likely cause. To restore: `gunzip
 -k backend/backups/fathom_<timestamp>.db.gz` and copy the result over
