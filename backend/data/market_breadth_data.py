@@ -36,6 +36,7 @@ from sqlmodel import Session, select
 from clients.shared_bars_cache import DAILY_INTERVAL, _load_frames, _most_recent_completed_trading_date, get_or_fetch_bars_batch
 from core.db import engine
 from core.models import MarketBreadthSnapshot
+from core.schemas import MarketBreadthOut, MarketBreadthPointOut
 from scoring.market_breadth import aggregate_flags, snapshot_frame, ticker_flags
 
 logger = logging.getLogger(__name__)
@@ -240,3 +241,39 @@ def build_backfill_rows(
         "last_date": kept.index.max().date().isoformat() if len(kept) else None,
     }
     return values, summary
+
+
+def _point(row: MarketBreadthSnapshot) -> MarketBreadthPointOut:
+    return MarketBreadthPointOut(
+        as_of_date=row.as_of_date,
+        pct_above_sma50=row.pct_above_sma50,
+        pct_above_sma200=row.pct_above_sma200,
+        sma50_above=row.sma50_above,
+        sma200_above=row.sma200_above,
+        new_highs=row.new_highs,
+        new_lows=row.new_lows,
+        net_new_highs=row.net_new_highs,
+        constituents=row.constituents,
+        stale_excluded=row.stale_excluded,
+        sma50_eligible=row.sma50_eligible,
+        sma200_eligible=row.sma200_eligible,
+        hl_eligible=row.hl_eligible,
+        is_backfilled=row.is_backfilled,
+    )
+
+
+def get_market_breadth() -> MarketBreadthOut:
+    """Reads the persisted history -- never computes live. Empty (latest/
+    as_of_date/computed_at None, series []) before any row exists, never an
+    error. The whole series is returned, oldest first: a row is ~100 bytes
+    and the table is never pruned, so a few thousand points at most."""
+    with Session(engine) as session:
+        rows = session.exec(
+            select(MarketBreadthSnapshot).where(MarketBreadthSnapshot.universe == UNIVERSE).order_by(MarketBreadthSnapshot.as_of_date)
+        ).all()
+    if not rows:
+        return MarketBreadthOut(universe=UNIVERSE, as_of_date=None, computed_at=None, latest=None, series=[])
+    series = [_point(row) for row in rows]
+    return MarketBreadthOut(
+        universe=UNIVERSE, as_of_date=rows[-1].as_of_date, computed_at=rows[-1].computed_at, latest=series[-1], series=series
+    )

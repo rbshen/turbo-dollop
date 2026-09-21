@@ -27,6 +27,7 @@ from core.logging_config import apply_redaction_filters
 from data.insider_activity_data import get_insider_activity_data
 from data.liquidity_zone_data import get_liquidity_zone_data
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
+from data.market_breadth_data import get_market_breadth
 from data.momentum_data import get_momentum_snapshot
 from data.sector_heatmap_data import get_sector_heatmap
 from helpers.liquidity_zone_config import get_liquidity_zone_config, update_liquidity_zone_config
@@ -56,6 +57,7 @@ from core.schemas import (
     LiquidityZoneConfigOut,
     LiquidityZonesOut,
     MoatScoreConfigIn,
+    MarketBreadthOut,
     MoatScoreConfigOut,
     MomentumOut,
     MomentumPeriod,
@@ -189,6 +191,11 @@ def momentum(period: MomentumPeriod = "current") -> MomentumOut:
 @app.get("/api/sector-heatmap", response_model=SectorHeatmapOut)
 def sector_heatmap() -> SectorHeatmapOut:
     return get_sector_heatmap()
+
+
+@app.get("/api/market-breadth", response_model=MarketBreadthOut)
+def market_breadth() -> MarketBreadthOut:
+    return get_market_breadth()
 
 
 @app.get("/api/config/discount-rate", response_model=DiscountRateConfigOut)

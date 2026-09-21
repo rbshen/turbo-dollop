@@ -1588,6 +1588,43 @@ class SectorHeatmapOut(BaseModel):
     rows: list[SectorHeatmapRowOut]
 
 
+class MarketBreadthPointOut(BaseModel):
+    """One session of market breadth -- see models.py::MarketBreadthSnapshot.
+    Percentages are in percentage POINTS (27.8 == 27.8%) and None when that
+    metric's eligible count is 0. `stale_excluded` constituents had no bar
+    that session and are in no count; the *_eligible fields are the
+    denominators. `is_backfilled` rows apply today's constituents to a past
+    date (survivorship-biased); live nightly rows are point-in-time."""
+
+    as_of_date: date
+    pct_above_sma50: float | None
+    pct_above_sma200: float | None
+    sma50_above: int
+    sma200_above: int
+    new_highs: int
+    new_lows: int
+    net_new_highs: int  # new_highs - new_lows
+    constituents: int
+    stale_excluded: int
+    sma50_eligible: int
+    sma200_eligible: int
+    hl_eligible: int
+    is_backfilled: bool
+
+
+class MarketBreadthOut(BaseModel):
+    """The S&P 500 market-breadth history. `series` is every stored session,
+    oldest first (the table is never pruned and a row is ~100 bytes);
+    `latest` is its last element. All of `as_of_date`/`computed_at`/`latest`
+    are None (with series == []) before any row exists, never a 404."""
+
+    universe: str
+    as_of_date: date | None
+    computed_at: datetime | None
+    latest: MarketBreadthPointOut | None
+    series: list[MarketBreadthPointOut]
+
+
 class WatchlistTickerIn(BaseModel):
     ticker: str
 
