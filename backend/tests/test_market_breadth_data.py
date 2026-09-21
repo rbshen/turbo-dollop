@@ -172,6 +172,33 @@ def test_backfill_rows_only_span_sessions_with_full_universe_coverage():
     assert all(v["constituents"] == 10 and v["stale_excluded"] == 0 for v in values)
 
 
+def test_backfilled_sma20_matches_an_independent_calculation_for_every_kept_session():
+    # Phase-shifted oscillating series, so the share of tickers above their 20-day SMA genuinely varies per
+    # session; checked against a plain "last 20 closes" loop rather than the vectorized rolling code under test.
+    tickers = _tickers(9)
+    bars = {}
+    for i, t in enumerate(tickers):
+        frame = _frame(periods=320)
+        wave = 8 * np.sin(2 * np.pi * np.arange(320) / 30 + i**1.5)
+        frame["close"] = frame["close"] + wave
+        frame["high"], frame["low"] = frame["close"] + 1, frame["close"] - 1
+        bars[t] = frame
+    values, summary = mbd.build_backfill_rows(bars, constituents=9, completed_date=COMPLETED)
+    assert summary["kept"] > 0
+
+    for v in values:
+        day = pd.Timestamp(v["as_of_date"])
+        above = eligible = 0
+        for frame in bars.values():
+            window = frame["close"].loc[:day].iloc[-20:]
+            if len(window) == 20:
+                eligible += 1
+                above += int(window.iloc[-1] > window.mean())
+        assert (v["sma20_eligible"], v["sma20_above"]) == (eligible, above)
+        assert v["pct_above_sma20"] == pytest.approx(above / eligible * 100)
+    assert len({v["pct_above_sma20"] for v in values}) > 2  # the check is not vacuous
+
+
 def test_backfill_rows_drop_sessions_after_the_completed_date():
     tickers = _tickers(4)
     values, summary = mbd.build_backfill_rows(

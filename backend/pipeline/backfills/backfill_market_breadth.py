@@ -14,7 +14,7 @@ never writes to that table.
 **Which sessions get a row.** Computed from each ticker's own bars over
 every session the cache supports, then kept only where >= 97% of the
 constituents have a bar AND >= 97% are eligible for the 52-week window (252
-own bars -- the hardest requirement, so it implies SMA50/SMA200
+own bars -- the hardest requirement, so it implies SMA20/SMA50/SMA200
 eligibility). Earlier sessions would be a subset of the index rather than
 the index, and a curve stitched across that boundary is misleading. With
 the cache's usual ~2y depth that yields roughly the last year (first
@@ -35,6 +35,13 @@ does not already exist (on_conflict_do_nothing), so a re-run is a no-op
 and can never replace a live nightly row; a later nightly run for the same
 date replaces the backfilled one (see store_snapshots).
 
+**The 20-day columns (added 2026-09-21) are filled onto existing rows.** The
+insert above skips a date that already has a row, so the ~250 rows written
+before the 20-day metric existed would never gain it. A second pass
+(data.market_breadth_data.fill_missing_sma20) writes ONLY the three sma20
+columns, ONLY where they are still NULL, ONLY on is_backfilled rows -- every
+other column and every live row stays untouched, and a re-run fills nothing.
+
 Run (previews the row count/date range, writes nothing):
     uv run python -m pipeline.backfills.backfill_market_breadth --dry-run
 
@@ -52,7 +59,7 @@ from sqlmodel import Session
 from clients.shared_bars_cache import _most_recent_completed_trading_date
 from core.db import engine, init_db
 from core.logging_config import configure_logging
-from data.market_breadth_data import build_backfill_rows, load_cached_daily_bars, store_snapshots
+from data.market_breadth_data import build_backfill_rows, fill_missing_sma20, load_cached_daily_bars, store_snapshots
 from pipeline.nightly_fundamentals_fetch import load_sp500_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent.parent / "logs" / "backfill_market_breadth.log"
@@ -75,6 +82,9 @@ def main(dry_run: bool = False) -> dict:
     missing = sorted(set(tickers) - set(bars))
     values, summary = build_backfill_rows(bars, len(tickers), _most_recent_completed_trading_date())
     inserted = 0 if dry_run else store_snapshots(values, overwrite=False)
+    # After the insert, so freshly inserted rows (which already carry sma20) are not "pending".
+    sma20_pending = fill_missing_sma20(values, dry_run=True)
+    sma20_filled = 0 if dry_run else fill_missing_sma20(values)
 
     summary.update(
         {
@@ -83,15 +93,18 @@ def main(dry_run: bool = False) -> dict:
             "tickers_without_cached_bars": missing,
             "inserted": inserted,
             "already_present": 0 if dry_run else len(values) - inserted,
+            "sma20_pending": sma20_pending,
+            "sma20_filled": sma20_filled,
             "dry_run": dry_run,
             "duration_seconds": time.monotonic() - start_time,
         }
     )
     logger.info(
-        "Market breadth backfill%s: %d/%d tickers had cached bars; %d sessions seen, %d kept (%s .. %s); inserted %d, already present %d. "
+        "Market breadth backfill%s: %d/%d tickers had cached bars; %d sessions seen, %d kept (%s .. %s); inserted %d, already present %d; sma20 columns needing a fill %d, filled %d. "
         "Survivorship-biased: today's constituents applied to past dates.",
         " (DRY RUN)" if dry_run else "", summary["tickers_with_cached_bars"], summary["constituents"], summary["sessions_seen"],
         summary["kept"], summary["first_date"], summary["last_date"], inserted, summary["already_present"],
+        sma20_pending, sma20_filled,
     )
     if missing:
         logger.warning("Market breadth backfill: no cached daily bars for %d ticker(s): %s", len(missing), missing)

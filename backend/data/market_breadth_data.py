@@ -29,7 +29,7 @@ import logging
 from datetime import date, datetime
 
 import pandas as pd
-from sqlalchemy import func
+from sqlalchemy import bindparam, func, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
@@ -152,6 +152,58 @@ def store_snapshots(values: list[dict], overwrite: bool) -> int:
         return session.exec(select(func.count()).select_from(MarketBreadthSnapshot)).one() - before
 
 
+def fill_missing_sma20(values: list[dict], dry_run: bool = False) -> int:
+    """Fills the three sma20 columns on EXISTING backfilled rows that predate
+    the 20-day metric (`sma20_eligible IS NULL`), from `values` (the
+    backfill's own rows for the same dates). store_snapshots(overwrite=False)
+    cannot do this -- on_conflict_do_nothing skips an existing row entirely,
+    so those rows would stay NULL forever.
+
+    The never-overwrite guarantee is kept in the UPDATE itself: it writes ONLY
+    the three sma20 columns, ONLY where sma20_eligible is still NULL, and ONLY
+    on `is_backfilled` rows. A row that already has a sma20 value is never
+    touched (a re-run is a no-op), no other column is ever touched, and a
+    LIVE nightly row is left alone even if it were NULL -- it is
+    point-in-time, and filling it from today's constituents would put
+    survivorship bias into a row that is otherwise free of it (in practice a
+    live row always has sma20, since the nightly job writes it).
+
+    Returns the number of rows filled (with dry_run: the number that would be)."""
+    if not values:
+        return 0
+    with Session(engine) as session:
+        pending = set(
+            session.exec(
+                select(MarketBreadthSnapshot.as_of_date).where(
+                    MarketBreadthSnapshot.universe == UNIVERSE,
+                    MarketBreadthSnapshot.is_backfilled == True,  # noqa: E712
+                    MarketBreadthSnapshot.sma20_eligible.is_(None),  # type: ignore[union-attr]
+                )
+            ).all()
+        )
+        rows = [
+            {"b_date": v["as_of_date"], "b_eligible": v["sma20_eligible"], "b_above": v["sma20_above"], "b_pct": v["pct_above_sma20"]}
+            for v in values
+            if v["as_of_date"] in pending
+        ]
+        if dry_run or not rows:
+            return len(rows)
+        table = MarketBreadthSnapshot.__table__
+        stmt = (
+            update(table)
+            .where(
+                table.c.universe == UNIVERSE,
+                table.c.as_of_date == bindparam("b_date"),
+                table.c.is_backfilled == True,  # noqa: E712
+                table.c.sma20_eligible.is_(None),
+            )
+            .values(sma20_eligible=bindparam("b_eligible"), sma20_above=bindparam("b_above"), pct_above_sma20=bindparam("b_pct"))
+        )
+        session.connection().execute(stmt, rows)
+        session.commit()
+    return len(rows)
+
+
 async def compute_and_store_market_breadth(tickers: list[str], completed_date: date | None = None) -> dict:
     """Computes the latest completed session's breadth row for `tickers`
     (the caller resolves the universe -- pipeline/nightly_market_breadth.py
@@ -231,6 +283,8 @@ def build_backfill_rows(
     (the hardest to satisfy -- 252 own bars -- so it also implies SMA50/
     SMA200 eligibility): earlier sessions would be a subset of the universe,
     not the index, and a curve stitched across that boundary is misleading.
+    The 20-day SMA needs fewer bars than the 52-week window, so this gate
+    already implies sma20 eligibility -- it adds no constraint of its own.
     Sessions after `completed_date` (an in-progress bar) are dropped."""
     computed_at = computed_at or datetime.now()
     counts = aggregate_flags(ticker_flags(bars))
