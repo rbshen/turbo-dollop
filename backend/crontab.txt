@@ -66,6 +66,18 @@
 # pipeline/nightly_sector_heatmap.py.
 30 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_sector_heatmap >> /home/shen/fathom/backend/logs/nightly_sector_heatmap_cron.log 2>&1
 
+# Nightly market-breadth recompute (S&P 500: % of constituents above their
+# 50-/200-day SMA, net new 52-week highs minus lows), 3:35 AM server time --
+# AFTER the 3:10 trend job, which fetches all 503 constituents' 2y daily bars
+# into SharedBarsCache, so this is a warm-cache read (~3s, zero incremental
+# Yahoo requests); before Warren (3:40). Run any earlier, or after a failed
+# trend job, it self-heals with one live ~503-request batch (~30s-5min) that
+# could spill into Warren's start -- SQLite writer-lock contention only, they
+# touch different tables. Zero FMP calls, no fmp_enabled guard. Raises (heartbeat
+# failure) rather than saving a row when <97% of constituents have a bar.
+# Nothing else reads its output. See pipeline/nightly_market_breadth.py.
+35 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_market_breadth >> /home/shen/fathom/backend/logs/nightly_market_breadth_cron.log 2>&1
+
 # Nightly Warren RSI/ADX/WVF (2h) technical entry-signal calculation, 3:40
 # AM server time -- placed AFTER Liquidity Zone's own full 3:25-3:35
 # window (not squeezed into the gap before it), with its own dedicated

@@ -94,6 +94,7 @@ configured):
 | Nightly BB+RSI entry-signal calculation | `nightly_entry_signal_calculation.log` / `_cron.log` |
 | Nightly Liquidity Zone (LP) calculation | `nightly_liquidity_zone_calculation.log` / `_cron.log` |
 | Nightly Sector ETF heatmap | `nightly_sector_heatmap.log` / `_cron.log` |
+| Nightly market breadth | `nightly_market_breadth.log` / `_cron.log` |
 | Nightly Warren RSI/ADX/WVF entry-signal calculation | `nightly_warren_signal_calculation.log` / `_cron.log` |
 | Weekly S&P 500 list refresh | `sp500_list_refresh.log` / `_cron.log` |
 | Weekly Dow list refresh | `dow_list_refresh.log` / `_cron.log` |
@@ -221,6 +222,33 @@ as a blank row on the page under the new as-of date (never a stale number
 under a fresh date). The page prints its own as-of date, so a job that has
 quietly stopped reads as an old date. Check `Processed` first -- a
 shortfall is Yahoo reachability or a renamed symbol, not FMP.
+
+**`nightly_market_breadth`** — computes one `MarketBreadthSnapshot` row per
+session for the S&P 500 (`IndexConstituent` `sp500`, via `load_sp500_tickers`):
+the % of constituents closing above their own 50- and 200-day SMA, and new
+52-week highs minus new 52-week lows (intraday High/Low, 252 sessions,
+ties count) — `data/market_breadth_data.py`, `scoring/market_breadth.py`.
+Yahoo Finance bars only (from `SharedBarsCache`), zero FMP calls, unaffected
+by `FMP_ENABLED`. Runs at 3:35 AM, **after** the 3:10 trend job that warms
+`SharedBarsCache` with all 503 tickers' 2y daily bars, so the normal run is a
+~3s warm-cache read. If the trend job failed or overran it self-heals with one
+live batch (~30s–5min), which could overlap Warren's 3:40 start (writer-lock
+contention only). A weekend/holiday run re-derives the same anchor and
+upserts over its own row. **Coverage gate:** if fewer than 97% of constituents
+(i.e. more than 15 of 503 missing) have a bar on the anchor session, the job
+**raises** — `cron-health` shows it failed — and writes nothing, rather than
+saving percentages computed over a shrunken universe; the error names the
+missing tickers. Below the gate a row is saved even with a few tickers missing
+(`stale_excluded` on the row records how many, and the log warns with their
+names). Success: a log line `Nightly market breadth complete. As of: <date>.
+Constituents: 503. With bar: 503. Excluded: 0.` in
+`backend/logs/nightly_market_breadth.log`. A recurring handful of names in
+the `Excluded` list is a renamed/delisted symbol Yahoo no longer serves; a
+large number is Yahoo reachability, not FMP. The table is never pruned.
+**Not active until the crontab is reinstalled** (`crontab crontab.txt` from
+`backend/`; `crontab -l` should show the `35 3 * * *` entry) — editing
+`crontab.txt` alone changes nothing. The one-time history seed is
+`pipeline/backfills/backfill_market_breadth.py` (see its docstring).
 
 **`prune_cache`** — deletes `FundamentalsCache` rows older than
 `Settings.cache_retention_days` (180 days by default; distinct from the
