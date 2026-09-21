@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # the real FMP API key gets read from backend/.env, and db.py's DB_PATH is
 # built from this same BASE_DIR -- a stray .parent here would silently
 # point the running app at a fresh, empty backend/core/fathom.db instead
-# of the real ~800MB backend/fathom.db, with no error at startup.
+# of the real backend/fathom.db (~1.2GB as of 2026-09), with no error at startup.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
