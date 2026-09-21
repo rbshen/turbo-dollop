@@ -29,8 +29,9 @@ part of the Overall Assessment blend (no `step3` key exists in
 ## Running the app
 
 `./bin/start.sh` from the repo root brings up both servers (preflight
-checks, explicit `init_db()`, an FMP connectivity check, then backend +
-frontend, each in its own process group) — see `backend/OPS_RUNBOOK.md`'s
+checks, explicit `init_db()`, an FMP connectivity check, a `next build`,
+then backend + frontend in production mode — no hot reload, so code changes
+need a stop/start — each in its own process group) — see `backend/OPS_RUNBOOK.md`'s
 "Starting / stopping the app" section for what success/failure look like.
 `./bin/stop.sh` stops both, safe to run anytime including when nothing is
 running.

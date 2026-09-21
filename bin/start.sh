@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Brings up the whole Fathom app: preflight checks, explicit DB init, an FMP
-# connectivity check, then both the backend (uvicorn --reload) and frontend
-# (next dev) servers, each in its own process group so Ctrl-C here can stop
-# both cleanly (see the trap near the bottom). Safe to re-run: refuses to
-# double-start if bin/stop.sh hasn't been run against a still-live prior run.
+# connectivity check, a production frontend build, then both the backend
+# (uvicorn, no --reload) and frontend (next start) servers, each in its own
+# process group so Ctrl-C here can stop both cleanly (see the trap near the
+# bottom). Production mode, not dev mode, to keep the memory footprint down
+# on this small VPS: there is no hot reload, so a code change to either app
+# needs a ./bin/stop.sh + ./bin/start.sh (which rebuilds the frontend).
+# Safe to re-run: refuses to double-start if bin/stop.sh hasn't been run
+# against a still-live prior run.
 #
 # Run:
 #   ./bin/start.sh
@@ -21,6 +25,7 @@ REQUIRED_ENV_KEYS=(FMP_API_KEY DATABASE_PATH CACHE_STALENESS_DAYS SEC_EDGAR_USER
 
 BACKEND_READY_TIMEOUT_SECONDS=30
 FRONTEND_READY_TIMEOUT_SECONDS=45
+FRONTEND_BUILD_TIMEOUT_SECONDS=900
 
 log() { echo "[start.sh] $*"; }
 fail() {
@@ -114,24 +119,40 @@ asyncio.run(main())
 }
 
 # ---------------------------------------------------------------------------
-# 4-6. Start both servers
+# 4. Frontend production build
+# ---------------------------------------------------------------------------
+
+# Runs before either server starts, not alongside them: `next build` has by
+# far the highest memory peak of anything here, and on this VPS overlapping
+# it with a live backend is what risks an OOM kill. It also means a failed
+# build aborts startup with nothing yet running to clean up. Its output
+# starts the frontend log, which start_frontend then appends to.
+build_frontend() {
+  mkdir -p "$FRONTEND_LOG_DIR"
+  : > "$FRONTEND_LOG"
+  log "Building frontend (next build, timeout ${FRONTEND_BUILD_TIMEOUT_SECONDS}s) -> $FRONTEND_LOG"
+  (cd "$FRONTEND_DIR" && timeout "$FRONTEND_BUILD_TIMEOUT_SECONDS" npm run build >>"$FRONTEND_LOG" 2>&1 </dev/null) \
+    || fail "Frontend build failed or timed out -- see $FRONTEND_LOG."
+  log "Frontend build complete."
+}
+
+# ---------------------------------------------------------------------------
+# 5-7. Start both servers
 # ---------------------------------------------------------------------------
 
 start_backend() {
   mkdir -p "$(dirname "$BACKEND_LOG")"
   : > "$BACKEND_LOG"
-  log "Starting backend (uvicorn --reload, host $BACKEND_HOST, port $BACKEND_PORT) -> $BACKEND_LOG"
-  (cd "$BACKEND_DIR" && exec setsid uv run uvicorn core.main:app --reload --host "$BACKEND_HOST" --port "$BACKEND_PORT" >>"$BACKEND_LOG" 2>&1 </dev/null) &
+  log "Starting backend (uvicorn, host $BACKEND_HOST, port $BACKEND_PORT) -> $BACKEND_LOG"
+  (cd "$BACKEND_DIR" && exec setsid uv run uvicorn core.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" >>"$BACKEND_LOG" 2>&1 </dev/null) &
   BACKEND_PID=$!
   mkdir -p "$PID_DIR"
   echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
 }
 
 start_frontend() {
-  mkdir -p "$FRONTEND_LOG_DIR"
-  : > "$FRONTEND_LOG"
-  log "Starting frontend (next dev, port $FRONTEND_PORT) -> $FRONTEND_LOG"
-  (cd "$FRONTEND_DIR" && exec setsid npm run dev -- -p "$FRONTEND_PORT" >>"$FRONTEND_LOG" 2>&1 </dev/null) &
+  log "Starting frontend (next start, port $FRONTEND_PORT) -> $FRONTEND_LOG"
+  (cd "$FRONTEND_DIR" && exec setsid npm run start -- -p "$FRONTEND_PORT" >>"$FRONTEND_LOG" 2>&1 </dev/null) &
   FRONTEND_PID=$!
   mkdir -p "$PID_DIR"
   echo "$FRONTEND_PID" > "$FRONTEND_PID_FILE"
@@ -167,9 +188,10 @@ wait_for_frontend() {
     sleep 0.5
     waited=$((waited + 1))
   done
-  # Soft failure only -- next dev's first-compile time varies a lot and
-  # isn't itself a sign of misconfiguration the way a dead backend is.
-  log "WARNING: frontend hasn't responded yet after ${FRONTEND_READY_TIMEOUT_SECONDS}s -- it may still be compiling. Check $FRONTEND_LOG."
+  # Soft failure only -- startup time on a memory-starved (swapping) box
+  # varies a lot and isn't itself a sign of misconfiguration the way a dead
+  # backend is.
+  log "WARNING: frontend hasn't responded yet after ${FRONTEND_READY_TIMEOUT_SECONDS}s -- it may still be starting. Check $FRONTEND_LOG."
 }
 
 # ---------------------------------------------------------------------------
@@ -195,6 +217,7 @@ main() {
   preflight
   init_database
   check_fmp_connectivity
+  build_frontend
   start_backend
   wait_for_backend
   start_frontend
