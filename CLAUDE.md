@@ -3477,16 +3477,16 @@ scoring -- no `FMP_ENABLED` guard needed.
   time) that night -- check `CronRunLog`/`nightly_sector_heatmap.log` for it. Any later
   `crontab.txt` edit still needs the same reinstall; editing the file alone changes nothing.
 - **Retention** (2026-09-21): the same job, after storing tonight's rows, deletes `SectorEtfReturn`
-  rows whose `as_of_date` is more than `RETENTION_DAYS` (366) before the newest snapshot just
-  written (`data/sector_heatmap_data.py::prune_sector_etf_returns`; a row exactly 366 days old is
+  rows whose `as_of_date` is more than `RETENTION_DAYS` (370) before the newest snapshot just
+  written (`data/sector_heatmap_data.py::prune_sector_etf_returns`; a row exactly 370 days old is
   kept). Measured from that snapshot, not the wall clock, and only reached after a successful
-  compute, so a failed run never prunes. Steady state ~19k rows (~252 trading-day snapshots x 77; weekend/holiday re-runs upsert onto the same anchor). Backend-only: no past-date UI
+  compute, so a failed run never prunes. Steady state ~20k rows (~255 trading-day snapshots x 77; weekend/holiday re-runs upsert onto the same anchor). Backend-only: no past-date UI
   exists; this just keeps the data one would need. Two things worth knowing: (1) every snapshot row
   already carries its own 1w..1y/YTD returns, so the *current* heatmap's 1Y/YTD columns never
   depend on retention -- it only decides how far back a *past* snapshot can be read; (2) history
-  starts 2026-09-18, so a full year of snapshots doesn't exist until Sep 2027, and a "same date one
-  year ago" lookup that lands on a weekend/holiday resolves to the prior session, which can be
-  369-370 days old and already pruned -- bump `RETENTION_DAYS` by ~4 if a date picker needs that.
+  starts 2026-09-18, so a full year of snapshots doesn't exist until Sep 2027. 370 (originally 366,
+  widened 2026-09-21) is so a "same date one year ago" lookup still finds its row: when that date
+  lands on a weekend/holiday it resolves to the prior session, up to 369-370 days back.
 - **API**: `GET /api/sector-heatmap` -> `{as_of_date, computed_at, windows, rows:[{ticker, name,
   cells:{<window>:{return_pct, base_date}}}]}`, fixed universe order; before any run,
   `as_of_date: null, rows: []` (never a 404). Display names are a hand-written constant

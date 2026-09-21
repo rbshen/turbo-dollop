@@ -237,22 +237,22 @@ def _seed_snapshot(engine, as_of: date, tickers=("XLK", "XLE"), windows=("1m", "
     return len(tickers) * len(windows)
 
 
-def test_retention_is_a_rolling_366_days():
-    assert RETENTION_DAYS == 366
+def test_retention_is_a_rolling_370_days():
+    assert RETENTION_DAYS == 370
 
 
-def test_prune_keeps_a_row_exactly_366_days_old_and_deletes_367(monkeypatch):
+def test_prune_keeps_a_row_exactly_370_days_old_and_deletes_371(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     newest = date(2026, 9, 18)
-    per_snapshot = _seed_snapshot(engine, newest - timedelta(days=366))  # exactly at the limit -> kept
-    _seed_snapshot(engine, newest - timedelta(days=367))  # one day past -> pruned
+    per_snapshot = _seed_snapshot(engine, newest - timedelta(days=370))  # exactly at the limit -> kept
+    _seed_snapshot(engine, newest - timedelta(days=371))  # one day past -> pruned
     _seed_snapshot(engine, newest)
 
     deleted = prune_sector_etf_returns(newest)
 
     assert deleted == per_snapshot
     remaining = {r.as_of_date for r in _stored(engine)}
-    assert remaining == {newest - timedelta(days=366), newest}
+    assert remaining == {newest - timedelta(days=370), newest}
 
 
 def test_prune_is_measured_from_the_newest_snapshot_not_the_wall_clock(monkeypatch):

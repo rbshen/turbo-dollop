@@ -14,7 +14,7 @@ computed; individual funds failing are logged and reported in the summary,
 same per-item isolation the other nightly jobs use.
 
 After storing tonight's rows it prunes snapshots older than the rolling
-retention window (data.sector_heatmap_data.RETENTION_DAYS, 366 days) -- a
+retention window (data.sector_heatmap_data.RETENTION_DAYS, 370 days) -- a
 step of this job rather than its own cron entry, same as the other nightly
 jobs' prune calls. It is skipped when the compute raises.
 

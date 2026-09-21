@@ -53,12 +53,14 @@ FETCH_PERIOD = "2y"
 
 # Rolling window of daily snapshots kept in SectorEtfReturn: rows whose as_of_date
 # is MORE than this many days before the newest snapshot are pruned (see
-# prune_sector_etf_returns). 366 (not 365) so "the same calendar date one
-# year back" survives a leap year. Deliberately not a fetch limit -- each
+# prune_sector_etf_returns). 370 (not 365) so "the same calendar date one
+# year back" is still on file: a leap year adds a day, and when that date
+# falls on a weekend/holiday the lookup resolves to the prior trading day,
+# which can be up to 369-370 days back. Deliberately not a fetch limit -- each
 # snapshot row already carries its own 1w..1y/YTD returns, computed from the
 # 2y bar fetch, so retention only decides how far back a past snapshot can
 # still be read.
-RETENTION_DAYS = 366
+RETENTION_DAYS = 370
 
 
 def _adj_close(frame: pd.DataFrame) -> pd.Series:

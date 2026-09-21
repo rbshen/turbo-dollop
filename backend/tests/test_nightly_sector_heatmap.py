@@ -76,8 +76,8 @@ def _patch_fetch(monkeypatch, frames_available: bool):
 def test_main_prunes_snapshots_older_than_the_rolling_window_after_storing(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
     anchor = date(2026, 9, 18)
-    _seed_snapshot(engine, anchor - timedelta(days=367))  # expired
-    _seed_snapshot(engine, anchor - timedelta(days=366))  # exactly at the limit: kept
+    _seed_snapshot(engine, anchor - timedelta(days=371))  # expired
+    _seed_snapshot(engine, anchor - timedelta(days=370))  # exactly at the limit: kept
     _seed_snapshot(engine, anchor - timedelta(days=30))
     _patch_fetch(monkeypatch, frames_available=True)
 
@@ -86,7 +86,7 @@ def test_main_prunes_snapshots_older_than_the_rolling_window_after_storing(monke
     assert summary["pruned"] == 77
     with Session(engine) as session:
         dates = {r.as_of_date for r in session.exec(select(SectorEtfReturn)).all()}
-    assert dates == {anchor - timedelta(days=366), anchor - timedelta(days=30), anchor}
+    assert dates == {anchor - timedelta(days=370), anchor - timedelta(days=30), anchor}
 
 
 def test_main_keeps_a_one_year_back_snapshot_queryable(monkeypatch, tmp_path):

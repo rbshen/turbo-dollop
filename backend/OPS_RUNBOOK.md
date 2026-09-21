@@ -202,8 +202,8 @@ holidays, upserting over its own rows -- harmless. **Scheduled and live** as of
 2026-09-21 (installed via `crontab crontab.txt` from `backend/`; `crontab -l`
 should show the `30 3 * * *` entry -- editing `crontab.txt` alone does
 nothing). After storing, it prunes snapshots older than the rolling
-366-day retention window (`RETENTION_DAYS`, measured from the newest
-snapshot; a failed run never prunes), so the table plateaus around 19k rows
+370-day retention window (`RETENTION_DAYS`, measured from the newest
+snapshot; a failed run never prunes), so the table plateaus around 20k rows
 rather than growing forever. Success: a log line `Nightly sector heatmap
 complete. As of: <date>. Processed: 11. Failed: 0. Pruned: N.` in
 `backend/logs/nightly_sector_heatmap.log` (`Pruned` is 0 every night until

@@ -1002,7 +1002,7 @@ class SectorEtfReturn(SQLModel, table=True):
     instead of latest-only: the nightly job upserts, so a weekend/holiday
     re-run of the same anchor day is idempotent, each new session adds ~77
     tiny rows, and the same job then prunes snapshots more than
-    data/sector_heatmap_data.py::RETENTION_DAYS (366) older than the newest
+    data/sector_heatmap_data.py::RETENTION_DAYS (370) older than the newest
     one. The API only ever reads the latest as_of_date.
 
     `return_pct` is in percentage POINTS (4.25 == +4.25%), unlike
