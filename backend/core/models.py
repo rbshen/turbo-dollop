@@ -1028,6 +1028,60 @@ class SectorEtfReturn(SQLModel, table=True):
     computed_at: datetime
 
 
+class MarketBreadthSnapshot(SQLModel, table=True):
+    """One day's market-breadth read for one universe -- the percentage of
+    constituents closing above their 50/200-day SMA, and new 52-week highs
+    minus new 52-week lows (see scoring/market_breadth.py for the math,
+    data/market_breadth_data.py, pipeline/nightly_market_breadth.py and
+    docs/market_breadth_investigation_2026-09-21.md).
+
+    WIDE, one row per (universe, as_of_date), each metric its own column --
+    unlike SectorEtfReturn's long format -- so a row reads on its own and
+    carries its own numerators/denominators. A new metric later is a
+    nullable column via core/db.py::_add_missing_columns.
+
+    `universe` is part of the composite PK even though only "sp500" (the
+    same name IndexConstituent.index_name uses) exists today: _add_missing_
+    columns is additive-only and cannot change a primary key, so adding a
+    second universe to a table keyed on as_of_date alone would mean a table
+    recreate (the reason WarrenSignalEvent is its own table). Cost now: one
+    column.
+
+    No pruning, unlike SectorEtfReturn -- the accumulating history IS the
+    product for a breadth chart, and a row is ~100 bytes (~365/year).
+
+    Percentages are in percentage POINTS (27.8 == 27.8%), matching
+    SectorEtfReturn.return_pct; None when that metric's eligible count is 0.
+    Every count is over tickers that HAVE a bar on as_of_date only:
+    `stale_excluded` (constituents - tickers with a bar that day) records
+    how many were dropped, and the *_eligible counts are the denominators
+    (a ticker needs 50/200/252 own bars for SMA50/SMA200/52-week), so a
+    recent IPO shrinks a denominator instead of silently reading "below".
+
+    `is_backfilled` marks rows from the one-time historical backfill
+    (pipeline/backfills/backfill_market_breadth.py), which applies TODAY's
+    constituents to past dates (survivorship bias). Live nightly rows are
+    point-in-time by construction, and a nightly run overwrites a backfilled
+    row for the same date (never the reverse)."""
+
+    universe: str = Field(primary_key=True)  # "sp500"
+    as_of_date: date = Field(primary_key=True)
+    computed_at: datetime
+    constituents: int
+    stale_excluded: int
+    sma50_eligible: int
+    sma50_above: int
+    pct_above_sma50: float | None = None
+    sma200_eligible: int
+    sma200_above: int
+    pct_above_sma200: float | None = None
+    hl_eligible: int
+    new_highs: int
+    new_lows: int
+    net_new_highs: int  # new_highs - new_lows
+    is_backfilled: bool = False
+
+
 class CronRunLog(SQLModel, table=True):
     """One row per cron job invocation, written by core.cron_health.cron_heartbeat
     -- deliberately append-only (no UniqueConstraint, no upsert), same
