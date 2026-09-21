@@ -240,9 +240,21 @@ below) — a broken sync can make otherwise-active tickers look
 **`backup_db`** — writes a compressed, timestamped snapshot of
 `fathom.db` to `backend/backups/` (gitignored, not synced anywhere else
 — this is on-disk-only insurance, not an off-site backup) via SQLite's
-own `Connection.backup()` API, and prunes anything beyond the last 14.
-Success: `Backup created: .../backups/fathom_<timestamp>.db.gz (N MB).`
-in `backend/logs/backup_db.log`. If it fails, check disk space first
+own `Connection.backup()` API, then prunes with a tiered retention rule
+(changed 2026-09-21 from a flat "last 14"): the **newest 7 backup dates**
+(daily tier) plus **4 weekly copies** from before that window (weekly tier)
+— 11 dates at steady state, reaching back ~5 weeks. A week's copy is that
+ISO week's (Mon–Sun) last backup: the Sunday one normally, the latest
+earlier day if a Sunday run failed. Both tiers count backups actually on
+disk, not calendar days, so a multi-day outage never shrinks retention below
+7 copies. Every file on a kept date is kept (a manual same-day re-run doesn't
+displace anything); files that don't match `fathom_YYYYMMDD_HHMMSS.db.gz`
+exactly are never pruned. Tunable via `BACKUP_KEEP_DAILY`/`BACKUP_KEEP_WEEKLY`
+in `pipeline/backup_db.py`; the constants apply on the next run, and
+already-on-disk files are judged against them then (nothing is force-deleted
+out-of-band). Success: `Backup created: .../backups/fathom_<timestamp>.db.gz
+(N MB). Retention: 7 daily + 4 weekly kept.` in `backend/logs/backup_db.log`,
+plus a `Pruned N old backup(s): ...` line whenever anything was deleted. If it fails, check disk space first
 (`df -h`) — a full disk is the most likely cause. To restore: `gunzip
 -k backend/backups/fathom_<timestamp>.db.gz` and copy the result over
 `backend/fathom.db` (stop the app first).

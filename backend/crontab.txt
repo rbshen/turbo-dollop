@@ -182,5 +182,5 @@
 # that job's own crontab comment for why) -- after the 2 AM nightly fetch,
 # with a comfortable margin even for a cold-cache run. Compressed,
 # timestamped copy of fathom.db to backend/backups/ (gitignored); keeps
-# the last 14 (two weeks). See pipeline/backup_db.py.
+# the newest 7 daily + 4 weekly copies. See pipeline/backup_db.py.
 55 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.backup_db >> /home/shen/fathom/backend/logs/backup_db_cron.log 2>&1
