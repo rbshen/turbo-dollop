@@ -13,6 +13,11 @@ Raises (so cron_heartbeat records a failed run) only when NOTHING could be
 computed; individual funds failing are logged and reported in the summary,
 same per-item isolation the other nightly jobs use.
 
+After storing tonight's rows it prunes snapshots older than the rolling
+retention window (data.sector_heatmap_data.RETENTION_DAYS, 366 days) -- a
+step of this job rather than its own cron entry, same as the other nightly
+jobs' prune calls. It is skipped when the compute raises.
+
 Run:
     uv run python -m pipeline.nightly_sector_heatmap
 """
@@ -20,12 +25,13 @@ Run:
 import asyncio
 import logging
 import time
+from datetime import date
 from pathlib import Path
 
 from core.cron_health import cron_heartbeat
 from core.db import init_db
 from core.logging_config import configure_logging
-from data.sector_heatmap_data import compute_and_store_sector_returns
+from data.sector_heatmap_data import compute_and_store_sector_returns, prune_sector_etf_returns
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_sector_heatmap.log"
 
@@ -41,12 +47,16 @@ async def main() -> dict:
     logger.info("Starting nightly sector heatmap calculation.")
     start_time = time.monotonic()
     summary = await compute_and_store_sector_returns()
+    # Only reached after a successful compute (it raises when nothing could be
+    # computed), so a failed run never prunes -- see prune_sector_etf_returns.
+    summary["pruned"] = prune_sector_etf_returns(date.fromisoformat(summary["as_of_date"]))
     summary["duration_seconds"] = time.monotonic() - start_time
     logger.info(
-        "Nightly sector heatmap complete. As of: %s. Processed: %d. Failed: %d. Duration: %.1fs.",
+        "Nightly sector heatmap complete. As of: %s. Processed: %d. Failed: %d. Pruned: %d. Duration: %.1fs.",
         summary["as_of_date"],
         summary["processed"],
         summary["failed"],
+        summary["pruned"],
         summary["duration_seconds"],
     )
     return summary

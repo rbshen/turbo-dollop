@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import pytest
@@ -7,7 +7,13 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import data.sector_heatmap_data as sector_heatmap_data
 from core.models import SectorEtfReturn
-from data.sector_heatmap_data import SECTOR_ETFS, compute_and_store_sector_returns, get_sector_heatmap
+from data.sector_heatmap_data import (
+    RETENTION_DAYS,
+    SECTOR_ETFS,
+    compute_and_store_sector_returns,
+    get_sector_heatmap,
+    prune_sector_etf_returns,
+)
 from scoring.etf_returns import WINDOWS
 
 TICKERS = [t for t, _ in SECTOR_ETFS]
@@ -219,3 +225,61 @@ def test_a_ticker_missing_from_the_latest_run_reads_blank_not_stale(monkeypatch)
     assert all(cell.return_pct is None and cell.base_date is None for cell in xlu.cells.values())
     xlk = next(r for r in result.rows if r.ticker == "XLK")
     assert xlk.cells["1m"].return_pct == pytest.approx(10.0)
+
+
+def _seed_snapshot(engine, as_of: date, tickers=("XLK", "XLE"), windows=("1m", "1y")) -> int:
+    with Session(engine) as session:
+        for ticker in tickers:
+            for window in windows:
+                session.add(SectorEtfReturn(ticker=ticker, return_window=window, as_of_date=as_of, base_date=as_of - timedelta(days=30),
+                                            return_pct=1.0, computed_at=datetime(2026, 1, 1)))
+        session.commit()
+    return len(tickers) * len(windows)
+
+
+def test_retention_is_a_rolling_366_days():
+    assert RETENTION_DAYS == 366
+
+
+def test_prune_keeps_a_row_exactly_366_days_old_and_deletes_367(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    newest = date(2026, 9, 18)
+    per_snapshot = _seed_snapshot(engine, newest - timedelta(days=366))  # exactly at the limit -> kept
+    _seed_snapshot(engine, newest - timedelta(days=367))  # one day past -> pruned
+    _seed_snapshot(engine, newest)
+
+    deleted = prune_sector_etf_returns(newest)
+
+    assert deleted == per_snapshot
+    remaining = {r.as_of_date for r in _stored(engine)}
+    assert remaining == {newest - timedelta(days=366), newest}
+
+
+def test_prune_is_measured_from_the_newest_snapshot_not_the_wall_clock(monkeypatch):
+    # Every seeded date is years before "today"; a wall-clock cutoff would
+    # delete all of it. Measured from `as_of`, nothing here is old.
+    engine = _fresh_engine(monkeypatch)
+    as_of = date(2020, 6, 30)
+    _seed_snapshot(engine, as_of)
+    _seed_snapshot(engine, as_of - timedelta(days=200))
+
+    assert prune_sector_etf_returns(as_of) == 0
+    assert len({r.as_of_date for r in _stored(engine)}) == 2
+
+
+def test_prune_is_idempotent_and_safe_on_an_empty_table(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    assert prune_sector_etf_returns(COMPLETED) == 0
+    _seed_snapshot(engine, COMPLETED - timedelta(days=400))
+    assert prune_sector_etf_returns(COMPLETED) > 0
+    assert prune_sector_etf_returns(COMPLETED) == 0
+
+
+def test_prune_removes_every_ticker_and_window_of_an_expired_snapshot(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    expired = COMPLETED - timedelta(days=500)
+    n = _seed_snapshot(engine, expired, tickers=TICKERS, windows=WINDOWS)
+    assert n == 77
+
+    assert prune_sector_etf_returns(COMPLETED) == 77
+    assert _stored(engine) == []

@@ -998,10 +998,12 @@ class SectorEtfReturn(SQLModel, table=True):
     subtly wrong between refetches. A return is a self-contained number
     that never needs re-adjusting.
 
-    Keeps history (as_of_date is part of the key) instead of latest-only:
-    the nightly job upserts, so a weekend/holiday re-run of the same anchor
-    day is idempotent, and each new session adds ~77 tiny rows. The API
-    only ever reads the latest as_of_date.
+    Keeps a rolling window of history (as_of_date is part of the key)
+    instead of latest-only: the nightly job upserts, so a weekend/holiday
+    re-run of the same anchor day is idempotent, each new session adds ~77
+    tiny rows, and the same job then prunes snapshots more than
+    data/sector_heatmap_data.py::RETENTION_DAYS (366) older than the newest
+    one. The API only ever reads the latest as_of_date.
 
     `return_pct` is in percentage POINTS (4.25 == +4.25%), unlike
     MomentumSnapshot's fractions -- matches lib/format.ts::fmtPct's own

@@ -14,9 +14,10 @@ return (bond/income funds differ from their price return by up to ~6pp over
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pandas as pd
+from sqlalchemy import delete
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
@@ -49,6 +50,15 @@ SECTOR_ETFS: list[tuple[str, str]] = [
 # 1y is the longest window; 2y leaves a full year of slack for the base
 # bar's on-or-before lookup and keeps one request in yfinance's "2y" tier.
 FETCH_PERIOD = "2y"
+
+# Rolling window of daily snapshots kept in SectorEtfReturn: rows whose as_of_date
+# is MORE than this many days before the newest snapshot are pruned (see
+# prune_sector_etf_returns). 366 (not 365) so "the same calendar date one
+# year back" survives a leap year. Deliberately not a fetch limit -- each
+# snapshot row already carries its own 1w..1y/YTD returns, computed from the
+# 2y bar fetch, so retention only decides how far back a past snapshot can
+# still be read.
+RETENTION_DAYS = 366
 
 
 def _adj_close(frame: pd.DataFrame) -> pd.Series:
@@ -173,3 +183,22 @@ def get_sector_heatmap() -> SectorHeatmapOut:
         rows.append(SectorHeatmapRowOut(ticker=ticker, name=name, cells=cells))
 
     return SectorHeatmapOut(as_of_date=latest, computed_at=max(row.computed_at for row in stored), windows=windows, rows=rows)
+
+
+def prune_sector_etf_returns(as_of: date, retention_days: int = RETENTION_DAYS) -> int:
+    """Deletes SectorEtfReturn rows whose as_of_date is more than
+    `retention_days` before `as_of` (a row exactly `retention_days` old is
+    kept). Genuinely deleted, not cleared -- an old snapshot is a plain time
+    series point with no "last known" marker worth preserving. Returns the
+    number of rows deleted.
+
+    `as_of` is the newest snapshot just written by the same run (not the
+    wall clock), so a run can never prune relative to a date newer than the
+    data the table holds -- and this is only ever reached after a successful
+    compute_and_store_sector_returns, so a stalled/failed job never eats
+    history without also writing something new."""
+    cutoff = as_of - timedelta(days=retention_days)
+    with Session(engine) as session:
+        result = session.execute(delete(SectorEtfReturn).where(SectorEtfReturn.as_of_date < cutoff))
+        session.commit()
+        return result.rowcount
