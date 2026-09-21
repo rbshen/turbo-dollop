@@ -3504,6 +3504,93 @@ scoring -- no `FMP_ENABLED` guard needed.
   return math was checked against an independent calculation on live Yahoo data (max difference
   1.5e-5pp) and the endpoint against the real DB.
 
+## Market Breadth (`/breadth`, 2026-09-21)
+
+S&P 500 breadth, one row per session: % of constituents closing above their own 50-day SMA,
+% above their 200-day SMA, and net new 52-week highs minus lows. Design and measurements:
+`docs/market_breadth_investigation_2026-09-21.md`. Yahoo-only (via `SharedBarsCache`), zero FMP
+calls, independent of Step 1-5/Overall Assessment scoring -- no `FMP_ENABLED` guard needed.
+
+- **Definitions** (`scoring/market_breadth.py`, pure). Every window is counted in each ticker's
+  **own** bars, never on a shared date index -- the investigation's FISV case (500 real bars, one
+  gap) was dropped from the 52-week count by a strict `min_periods` on a date-union frame; rolling
+  per ticker keeps it (the live 52-week denominator is 500, not the investigation's 499). SMA
+  position is `close > SMA` (strict, SMA includes today). **52-week = intraday High/Low** (a
+  confirmed decision, not close-based) over the trailing **252 sessions including today, ties
+  count, a full 252-bar window required**: new high = `high >= max(last 252 highs)`, new low =
+  `low <= min(last 252 lows)`. A ticker too young for a window is absent from that metric's
+  `*_eligible` denominator, never counted as "below". Computed from `SharedBarsCache` raw bars,
+  **not** `TrendAnalysis` (latest-only, no 52-week fields, a failed fetch leaves an old row).
+- **Table** `MarketBreadthSnapshot` (`core/models.py`): WIDE, PK `(universe, as_of_date)`, each
+  metric its own column plus the numerators/denominators (`sma50_above`/`sma50_eligible`, ...,
+  `hl_eligible`, `new_highs`, `new_lows`, `net_new_highs`) and `stale_excluded` (constituents with
+  no bar that session, in no count). `universe` is in the key though only `"sp500"` exists:
+  `_add_missing_columns` cannot change a PK. **The value is `"sp500"`, matching
+  `IndexConstituent.index_name`** (the request said "SP500" in passing; the investigation doc and
+  the existing convention say `sp500`). Percentages are percentage POINTS; NULL when eligible is 0.
+  Never pruned (~100 B/row, ~365 rows/year). `is_backfilled` marks backfill rows.
+- **Nightly job** `pipeline.nightly_market_breadth`, **3:35 AM** (after the 3:10 trend job, before
+  Warren's 3:40): `data/market_breadth_data.py::compute_and_store_market_breadth`, universe =
+  `load_sp500_tickers` strictly (not `load_universe_tickers`' S&P+Dow union). Makes the SAME
+  `get_or_fetch_bars_batch(tickers, "1d", 730, auto_adjust=False)` call the trend job makes, so
+  after it that is a warm-cache read (~3s, zero Yahoo requests); if the trend job failed it
+  self-heals with one live ~503-request fetch (30s-5min) that could overlap Warren's start
+  (writer-lock contention only). The 18th job in `cron_health.py` (`CRON_JOB_NAMES`/
+  `_EXPECTED_CADENCE_HOURS`/`JOB_METADATA`/`crontab.txt`/`OPS_RUNBOOK.md` all wired;
+  `test_cron_wiring.py` enforces it). Anchor = latest session across the fetched bars that is
+  `<=` the last completed session (sector heatmap's rule); a weekend/holiday run upserts the same
+  anchor idempotently.
+  - **Coverage gate**: `MIN_COVERAGE = 0.97` of constituents must have a bar on the anchor
+    session -- **488/503 passes (15 missing), 487 fails** (pinned by a boundary test). Below it
+    the job raises `InsufficientCoverageError` (heartbeat failure), names the missing tickers, and
+    **writes nothing**, so the page's as-of date visibly falls behind instead of showing plausible
+    percentages over a shrunken universe. At/above it, missing tickers are excluded from every
+    count and recorded in `stale_excluded` (and warned in the log). The gate checks bar presence
+    only -- thin-history tickers are handled by the eligible counts, not the gate.
+  - **Live overwrites backfilled, never the reverse**: `store_snapshots(overwrite=True)` is a
+    full upsert (a live row is point-in-time); the backfill uses `on_conflict_do_nothing`.
+  - **Not active until the crontab is reinstalled** (`crontab crontab.txt` from `backend/`;
+    editing `crontab.txt` alone does nothing -- the exact gap the fixture-contamination section
+    documents). At the time of writing it had NOT been reinstalled.
+- **Backfill** `pipeline/backfills/backfill_market_breadth.py` (one-time, `--dry-run` supported),
+  deliberately NOT part of the nightly job's fetch. **Read-only against `SharedBarsCache`** -- no
+  fetch, no writes -- because widening the shared cache (409 tickers 2y -> 5y) would make every
+  later nightly refetch pull the wider window (~+300k rows, permanently). A session gets a row
+  only if >=97% of constituents have a bar AND >=97% are 252-bar eligible (which implies SMA
+  eligibility), so it never stitches a subset-universe curve onto the index curve. **Survivorship-
+  biased**: today's 503 constituents applied to every past date (a recent joiner counts in earlier
+  months; removals aren't tracked anywhere) -- hence `is_backfilled`, the tooltip tag, and the
+  page footnote. **Run 2026-09-21 against the real DB: 503/503 tickers had cached bars, 1,255
+  sessions seen, 250 inserted (2025-09-22 .. 2026-09-18), 0 already present, 0 failures, 6.4s.**
+  Latest row reproduces the investigation's numbers exactly (27.8% / 49.3%; intraday 5 highs /
+  29 lows = -24). Re-running is a no-op.
+- **API** `GET /api/market-breadth` (`core/main.py`, `data/market_breadth_data.py::
+  get_market_breadth`, `MarketBreadthOut`): the whole history oldest-first plus `latest`; before
+  any row, `as_of_date: null, latest: null, series: []` (never a 404). No `universe`/range query
+  params yet (YAGNI -- ~250 rows/year; add when a second universe exists).
+- **UI** (`app/breadth/page.tsx`, `components/breadth/`, `lib/marketBreadth.ts`): top-nav
+  "Breadth" (new tab, like Sectors/Momentum). Three latest-reading stat tiles (with denominators),
+  then **two** recharts panels with a synced hover: a two-line 0-100% chart (50% reference line)
+  and a diverging net-new-highs bar chart. **UI choices left to judgment, open to revision**: (1)
+  two panels rather than one chart -- the lines are percentages and the bars a signed count, and a
+  shared/dual axis would misread one as the other's scale; (2) 50-day = `chart-4` (blue),
+  200-day = `chart-2` (amber), bars `positive`/`negative` (sign is also encoded by position about
+  the zero line, so it isn't color-only); (3) unlike the app's usual hidden-Y convention the axes
+  are visible (0/25/50/75/100%; nice ticks for the count) since a breadth level is read in
+  absolute terms; (4) a dashed "Live ->" marker at the first non-backfilled session appears only
+  once there is one (all 250 rows are backfilled today, so it does not yet render); (5) no range
+  selector -- the full series always shows.
+- **Verified without a browser**: pytest (1,796 backend tests pass), vitest (364 frontend), tsc,
+  eslint, and a throwaway jsdom render of the real 250-row payload with `ResponsiveContainer`
+  mocked to a fixed size (2 line series, 42 negative / 206 positive bars matching the data, 8
+  x-ticks per panel). **Not verified on screen**: layout, colors/contrast, label collisions, the
+  hover tooltip and cross-panel sync, narrow widths.
+- **Known limits**: not holiday-aware (a holiday costs one extra harmless refetch, as for every
+  `SharedBarsCache` consumer); `constituents` is today's count from the weekly Wikipedia scrape
+  (a same-week index change is picked up a week late); imports `_load_frames`/
+  `_most_recent_completed_trading_date` from `clients/shared_bars_cache.py` (private, but
+  `sector_heatmap_data.py` already sets that precedent).
+
 ## Insider Activity (ticker-page tab, 2026-09-19) -- SHELVED 2026-09-20
 
 **Shelved, not deleted.** `Settings.insider_activity_enabled`
