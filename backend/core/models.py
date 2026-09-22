@@ -259,6 +259,45 @@ class TrendAnalysis(SQLModel, table=True):
     # pre-existing row reads NULL, which the freshness check treats as
     # stale, so it is recomputed once on its next on-demand read.
     bars_as_of: date | None = None
+    # Weinstein Stage Analysis: "pending confirmation" + ETA (see
+    # analysis/trend_structure/weinstein_pending.py and
+    # docs/weinstein_pending_confirmation_investigation_2026-09-22.md) -- a
+    # purely additive read on top of weinstein_stage above, never touching
+    # weinstein.py's own sState transition logic. weinstein_pending_direction
+    # ("advance" | "decline" | None) is None whenever the ticker isn't
+    # currently pending a Stage 2/Stage 4 transition; every other
+    # weinstein_pending_* field is None too in that case. Nullable for the
+    # same _add_missing_columns-has-no-backfill reason as every other
+    # Weinstein/technical field on this table: a pre-existing row reads NULL
+    # (indistinguishable from "not pending") until the next nightly run
+    # rewrites every field.
+    weinstein_pending_direction: str | None = None
+    # First week the pending state has held continuously, walked back from
+    # the latest week -- same "lower bound if constant across all available
+    # history" convention as weinstein_stage_since_date/_is_lower_bound
+    # above.
+    weinstein_pending_since_date: date | None = None
+    weinstein_pending_since_is_lower_bound: bool | None = None
+    # Snapshot fragility diagnostic (not a scenario): how far past the band
+    # threshold price closed, in percentage points, versus the standard
+    # deviation of the last 13 weekly returns (also in percentage points).
+    # A thin cushion (cushion < typical move) means one ordinary-sized move
+    # the other way could un-clear the band before slope ever gets a chance
+    # to confirm -- see weinstein_pending.py::_band_cushion_pct's own
+    # docstring. Heuristic, single-ticker-validated, never a gate on
+    # weinstein_pending_direction itself.
+    weinstein_pending_band_cushion_pct: float | None = None
+    weinstein_pending_typical_weekly_move_pct: float | None = None
+    # All three ETA scenarios (flat/trend_5/trend_13), one JSON blob rather
+    # than 12 separate columns -- same convention as
+    # last_confirmed_swing_json/broken_support_json (see this table's own
+    # class docstring): the whole object is always read/written together
+    # and never queried field-by-field. Shape: {"<scenario>": {"weeks_away":
+    # int | null, "projected_date": "YYYY-MM-DD" | null,
+    # "band_lapsed_before_confirmation": bool, "growth_rate_pct": float,
+    # "horizon_exceeded": bool}, ...} for each of SCENARIOS. None whenever
+    # weinstein_pending_direction is None.
+    weinstein_pending_eta_json: str | None = None
 
 
 class TechnicalEntrySignal(SQLModel, table=True):
