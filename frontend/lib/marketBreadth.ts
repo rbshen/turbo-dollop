@@ -6,6 +6,37 @@ export function firstLiveIndex(series: MarketBreadthPointOut[]): number {
   return series.findIndex((p) => !p.is_backfilled);
 }
 
+/** The 11 SPDR sector ETFs, in the same order/display names as the Sector Heatmap
+ * (backend/data/sector_heatmap_data.py::SECTOR_ETFS) -- kept in sync by hand, since the
+ * frontend has no reason to fetch the heatmap just to read this fixed, rarely-changing list. */
+export const SECTOR_ETFS: { ticker: string; name: string }[] = [
+  { ticker: "XLK", name: "Technology" },
+  { ticker: "XLF", name: "Financials" },
+  { ticker: "XLV", name: "Health Care" },
+  { ticker: "XLE", name: "Energy" },
+  { ticker: "XLI", name: "Industrials" },
+  { ticker: "XLY", name: "Consumer Discretionary" },
+  { ticker: "XLP", name: "Consumer Staples" },
+  { ticker: "XLU", name: "Utilities" },
+  { ticker: "XLB", name: "Materials" },
+  { ticker: "XLRE", name: "Real Estate" },
+  { ticker: "XLC", name: "Communication Services" },
+];
+
+/** "sector:XLK" -- matches backend/data/market_breadth_data.py::sector_universe exactly. */
+export function sectorUniverse(ticker: string): string {
+  return `sector:${ticker}`;
+}
+
+export function isKnownSectorTicker(ticker: string): boolean {
+  return SECTOR_ETFS.some((s) => s.ticker === ticker);
+}
+
+/** The sector's display name, or undefined for an unrecognized ticker. */
+export function sectorDisplayName(ticker: string): string | undefined {
+  return SECTOR_ETFS.find((s) => s.ticker === ticker)?.name;
+}
+
 /** "+78" / "-24" / "0" -- a signed count (net new highs minus lows). */
 export function fmtSignedCount(n: number): string {
   if (n === 0) return "0";

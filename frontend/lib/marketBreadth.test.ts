@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import type { MarketBreadthPointOut } from "@/lib/api/types";
-import { firstLiveIndex, fmtAxisMonth, fmtBreadthPct, fmtSignedCount } from "@/lib/marketBreadth";
+import {
+  firstLiveIndex,
+  fmtAxisMonth,
+  fmtBreadthPct,
+  fmtSignedCount,
+  isKnownSectorTicker,
+  SECTOR_ETFS,
+  sectorDisplayName,
+  sectorUniverse,
+} from "@/lib/marketBreadth";
 
 const point = (as_of_date: string, is_backfilled: boolean): MarketBreadthPointOut => ({
   as_of_date, pct_above_sma20: 50, pct_above_sma50: 50, pct_above_sma200: 50, sma20_above: 1, sma50_above: 1, sma200_above: 1, new_highs: 0, new_lows: 0,
@@ -33,5 +42,24 @@ describe("formatters", () => {
     expect(fmtAxisMonth("2026-09-01")).toBe("Sep '26");
     expect(fmtAxisMonth("2026-12-31")).toBe("Dec '26");
     expect(fmtAxisMonth("garbage")).toBe("garbage");
+  });
+});
+
+describe("sector helpers", () => {
+  it("lists all 11 SPDR sectors with no duplicates, XLK first", () => {
+    expect(SECTOR_ETFS).toHaveLength(11);
+    expect(new Set(SECTOR_ETFS.map((s) => s.ticker)).size).toBe(11);
+    expect(SECTOR_ETFS[0]).toEqual({ ticker: "XLK", name: "Technology" });
+  });
+  it("builds the sector universe string exactly as the backend does", () => {
+    expect(sectorUniverse("XLK")).toBe("sector:XLK");
+  });
+  it("recognizes a known ticker and rejects an unknown one", () => {
+    expect(isKnownSectorTicker("XLK")).toBe(true);
+    expect(isKnownSectorTicker("ZZZZ")).toBe(false);
+  });
+  it("looks up a display name, or undefined for an unknown ticker", () => {
+    expect(sectorDisplayName("XLV")).toBe("Health Care");
+    expect(sectorDisplayName("ZZZZ")).toBeUndefined();
   });
 });

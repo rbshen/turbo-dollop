@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { MarketBreadthCharts } from "@/components/breadth/MarketBreadthCharts";
 import { MarketBreadthStats } from "@/components/breadth/MarketBreadthStats";
 import { PageContainer } from "@/components/layout/PageContainer";
@@ -22,6 +24,9 @@ export default function BreadthPage() {
             {data.computed_at && ` · Computed ${new Date(data.computed_at).toLocaleString()}`}
           </p>
         )}
+        <Link href="/breadth/XLK" className="text-xs text-brand hover:underline">
+          Browse by sector →
+        </Link>
       </div>
 
       {error && <p className="text-sm text-negative">Failed to load market breadth.</p>}
