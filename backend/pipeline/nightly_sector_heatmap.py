@@ -1,5 +1,5 @@
 """Standalone script: nightly Sector Heatmap recompute -- the 11 SPDR sector
-ETFs x 7 trailing total-return windows (1w/1m/3m/6m/9m/YTD/1y). See
+ETFs x 8 trailing total-return windows (1d/1w/1m/3m/6m/9m/YTD/1y). See
 data/sector_heatmap_data.py for the fetch/compute/persist logic and
 scoring/etf_returns.py for the pure return math. Makes ZERO FMP calls
 (Yahoo Finance only, one batch download, ~3-4s), so like

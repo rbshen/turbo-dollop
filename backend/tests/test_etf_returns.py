@@ -25,11 +25,12 @@ def test_windows_come_back_in_fixed_order():
 
 
 def test_each_window_measures_from_its_own_calendar_offset_base():
-    # Anchor Fri 2026-09-18. Calendar targets: 1w 09-11, 1m 08-18, 3m 06-18,
-    # 6m 03-18, 9m 2025-12-18, 1y 2025-09-18; YTD base is 2025-12-31.
+    # Anchor Fri 2026-09-18. Calendar targets: 1d 09-17, 1w 09-11, 1m 08-18,
+    # 3m 06-18, 6m 03-18, 9m 2025-12-18, 1y 2025-09-18; YTD base is 2025-12-31.
     series = _flat_series("2024-01-01", "2026-09-18")
     series[pd.Timestamp("2026-09-18")] = 110.0
     bases = {
+        "2026-09-17": 105.0,  # 1d  -> ~+4.76%
         "2026-09-11": 100.0,  # 1w  -> +10%
         "2026-08-18": 50.0,  # 1m  -> +120%
         "2026-06-18": 200.0,  # 3m  -> -45%
@@ -43,9 +44,19 @@ def test_each_window_measures_from_its_own_calendar_offset_base():
 
     got = _by_window(compute_window_returns(series, pd.Timestamp("2026-09-18")))
 
-    expected = {"1w": 10.0, "1m": 120.0, "3m": -45.0, "6m": 0.0, "9m": 100.0, "ytd": 25.0, "1y": -50.0}
+    expected = {
+        "1d": (110.0 / 105.0 - 1.0) * 100.0,
+        "1w": 10.0,
+        "1m": 120.0,
+        "3m": -45.0,
+        "6m": 0.0,
+        "9m": 100.0,
+        "ytd": 25.0,
+        "1y": -50.0,
+    }
     for window, pct in expected.items():
         assert got[window].return_pct == approx(pct, abs=1e-9), window
+    assert got["1d"].base_date.isoformat() == "2026-09-17"
     assert got["1w"].base_date.isoformat() == "2026-09-11"
     assert got["1m"].base_date.isoformat() == "2026-08-18"
     assert got["3m"].base_date.isoformat() == "2026-06-18"
@@ -53,6 +64,34 @@ def test_each_window_measures_from_its_own_calendar_offset_base():
     assert got["9m"].base_date.isoformat() == "2025-12-18"
     assert got["ytd"].base_date.isoformat() == "2025-12-31"
     assert got["1y"].base_date.isoformat() == "2025-09-18"
+
+
+def test_1d_measures_from_the_prior_trading_day_not_a_calendar_offset():
+    # Anchor Mon 2026-09-21: "1 calendar day back" is Sun 09-20 (no bar), so
+    # 1D must fall back to Friday 09-18's close -- the actual prior trading
+    # day -- never the following Monday and never a straight 24h lookback.
+    series = _flat_series("2024-01-01", "2026-09-21")
+    series[pd.Timestamp("2026-09-18")] = 80.0  # Fri close (the real "prior day")
+    series[pd.Timestamp("2026-09-21")] = 100.0  # Mon anchor
+
+    one_day = _by_window(compute_window_returns(series, pd.Timestamp("2026-09-21")))["1d"]
+
+    assert one_day.base_date.isoformat() == "2026-09-18"
+    assert one_day.return_pct == approx(25.0, abs=1e-9)
+
+
+def test_1d_falls_back_across_a_holiday_to_the_prior_session():
+    # 1d from Tue 2026-09-08 (day after Labor Day, Mon 2026-09-07) targets
+    # Mon 2026-09-07 itself -- a real calendar day, but a holiday with no bar
+    # -- so it must fall back one more step to Fri 2026-09-04.
+    series = _flat_series("2025-01-01", "2026-09-08").drop(pd.Timestamp("2026-09-07"))
+    series[pd.Timestamp("2026-09-04")] = 90.0
+    series[pd.Timestamp("2026-09-08")] = 99.0
+
+    one_day = _by_window(compute_window_returns(series, pd.Timestamp("2026-09-08")))["1d"]
+
+    assert one_day.base_date.isoformat() == "2026-09-04"
+    assert one_day.return_pct == approx(10.0, abs=1e-9)
 
 
 def test_weekend_target_falls_back_to_the_prior_trading_bar():

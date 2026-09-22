@@ -26,7 +26,7 @@ def test_empty_before_the_job_has_ever_run(monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["as_of_date"] is None and body["computed_at"] is None and body["rows"] == []
-    assert body["windows"] == ["1w", "1m", "3m", "6m", "9m", "ytd", "1y"]
+    assert body["windows"] == ["1d", "1w", "1m", "3m", "6m", "9m", "ytd", "1y"]
 
 
 def test_serves_the_latest_as_of_date_with_return_pct_and_base_date(monkeypatch):

@@ -1060,7 +1060,7 @@ class SectorEtfReturn(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     ticker: str = Field(index=True)
-    return_window: str  # "1w" | "1m" | "3m" | "6m" | "9m" | "ytd" | "1y"
+    return_window: str  # "1d" | "1w" | "1m" | "3m" | "6m" | "9m" | "ytd" | "1y"
     as_of_date: date = Field(index=True)
     base_date: date | None = None
     return_pct: float | None = None

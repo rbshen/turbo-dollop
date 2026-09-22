@@ -279,7 +279,7 @@ def test_prune_removes_every_ticker_and_window_of_an_expired_snapshot(monkeypatc
     engine = _fresh_engine(monkeypatch)
     expired = COMPLETED - timedelta(days=500)
     n = _seed_snapshot(engine, expired, tickers=TICKERS, windows=WINDOWS)
-    assert n == 77
+    assert n == 88
 
-    assert prune_sector_etf_returns(COMPLETED) == 77
+    assert prune_sector_etf_returns(COMPLETED) == 88
     assert _stored(engine) == []

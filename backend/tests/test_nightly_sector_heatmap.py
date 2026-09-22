@@ -40,7 +40,7 @@ def test_main_computes_persists_and_returns_a_summary(monkeypatch, tmp_path):
     assert summary["processed"] == 11 and summary["failed"] == 0
     assert summary["duration_seconds"] >= 0
     with Session(engine) as session:
-        assert len(session.exec(select(SectorEtfReturn)).all()) == 77
+        assert len(session.exec(select(SectorEtfReturn)).all()) == 88
 
 
 def test_main_propagates_a_total_failure_so_the_heartbeat_sees_it(monkeypatch, tmp_path):

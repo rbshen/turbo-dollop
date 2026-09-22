@@ -1,4 +1,4 @@
-"""Orchestration layer for the Sector Heatmap -- the 11 SPDR sector ETFs x 7
+"""Orchestration layer for the Sector Heatmap -- the 11 SPDR sector ETFs x 8
 trailing total-return windows. Same shape as data/momentum_data.py: fetch
 via clients/yahoo_client.py, run the pure math (scoring/etf_returns.py),
 persist (models.py::SectorEtfReturn), and a read path that never computes
