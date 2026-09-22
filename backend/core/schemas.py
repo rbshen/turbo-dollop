@@ -1138,6 +1138,47 @@ class ReversalCandidateOut(BaseModel):
     ad_divergence_swing_date: date | None = None
 
 
+class WeinsteinPendingEtaScenarioOut(BaseModel):
+    """One projected-confirmation scenario (flat / trend_5 / trend_13) --
+    see analysis/trend_structure/weinstein_pending.py::
+    WeinsteinPendingEtaScenario for the full mechanism.
+
+    horizon_exceeded=True means this scenario's assumption never lets the
+    slope and band conditions coincide within the 2-year projection
+    window (weeks_away/projected_date are then null). This is NOT specific
+    to the flat scenario -- ANY scenario with a nonzero-but-constant
+    growth rate can hit this once real history has fully rolled out of
+    the 30-week lookback (see docs/
+    weinstein_pending_confirmation_investigation_2026-09-22.md's round-2
+    validation, which found this on trend_5/trend_13 scenarios too, not
+    just flat)."""
+
+    weeks_away: int | None = None
+    projected_date: date | None = None
+    band_lapsed_before_confirmation: bool = False
+    growth_rate_pct: float
+    horizon_exceeded: bool
+
+
+class WeinsteinPendingOut(BaseModel):
+    """Weinstein Stage Analysis: "pending confirmation" + ETA -- present
+    only when the ticker currently has one of the two conditions (slope,
+    band) for a Stage 2/Stage 4 transition met and the other still open.
+    See analysis/trend_structure/weinstein_pending.py's own module
+    docstring for the full design. Nested under TrendAnalysisOut.pending
+    (null when not currently pending) rather than flattened onto
+    TrendAnalysisOut directly, so a non-pending ticker's payload is
+    unchanged."""
+
+    direction: Literal["advance", "decline"]
+    since_date: date | None = None
+    since_is_lower_bound: bool = False
+    band_cushion_pct: float | None = None
+    typical_weekly_move_pct: float | None = None
+    # Keyed by scenario name ("flat", "trend_5", "trend_13").
+    eta: dict[str, WeinsteinPendingEtaScenarioOut]
+
+
 class TrendAnalysisOut(BaseModel):
     """Latest trend-structure analysis for one ticker -- see
     analysis/trend_structure/ for the full swing/BOS/blended-score
@@ -1224,6 +1265,10 @@ class TrendAnalysisOut(BaseModel):
     weinstein_volume_ratio: float | None = None
     weinstein_mansfield_rs: float | None = None
     weinstein_breakout_confirmed: bool | None = None
+    # "Pending confirmation" + ETA -- see WeinsteinPendingOut's own
+    # docstring. Null whenever the ticker isn't currently pending a Stage
+    # 2/Stage 4 transition (the common case).
+    pending: WeinsteinPendingOut | None = None
 
 
 class TechnicalEntrySignalOut(BaseModel):

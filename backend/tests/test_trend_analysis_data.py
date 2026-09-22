@@ -32,6 +32,21 @@ def _empty_frame() -> pd.DataFrame:
     return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
 
+def _daily_from_weekly(weekly_closes: list[float], start: str = "2020-01-06") -> pd.DataFrame:
+    """Same construction as analysis/trend_structure/test_weinstein.py's own
+    _daily_from_weekly (business-day daily bars, 5 identical days per
+    target weekly close) -- used here instead of _frame_from_closes above
+    (a plain calendar-day index) whenever a test needs a PRECISE, known
+    weekly-close series (e.g. to land exactly in a pending-confirmation
+    window), since a calendar-day index folds weekends into
+    resample_to_weekly's W-FRI bucketing in a way that would make the
+    weekly values this needs to hit exactly less predictable."""
+    n = len(weekly_closes)
+    dates = pd.bdate_range(start=start, periods=n * 5)
+    closes = np.repeat(np.asarray(weekly_closes, dtype=float), 5)
+    return pd.DataFrame({"open": closes, "high": closes, "low": closes, "close": closes, "volume": 1000.0}, index=dates)
+
+
 def _synthetic_rows(n: int = 150, ticker: str = "AAPL", seed: int = 3) -> pd.DataFrame:
     """A reproducible noisy uptrend -- enough real zigzag to produce genuine
     swings, ATR(14), and the 60-day efficiency ratio (never persisted to
@@ -365,6 +380,15 @@ def test_ad_bullish_divergence_reads_as_none_on_a_legacy_pre_migration_row():
     assert row.weinstein_volume_ratio is None
     assert row.weinstein_mansfield_rs is None
     assert row.weinstein_breakout_confirmed is None
+    assert row.weinstein_pending_direction is None
+    assert row.weinstein_pending_since_date is None
+    assert row.weinstein_pending_since_is_lower_bound is None
+    assert row.weinstein_pending_band_cushion_pct is None
+    assert row.weinstein_pending_typical_weekly_move_pct is None
+    assert row.weinstein_pending_eta_json is None
+
+    reread = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
+    assert reread.pending is None
 
 
 def test_weinstein_stage_fields_round_trip_through_a_real_compute(monkeypatch):
@@ -451,6 +475,83 @@ def test_weinstein_stage_changed_reflects_a_real_difference_from_the_prior_store
     third = asyncio.run(compute_and_store_trend_analysis("AAPL"))
     assert third.weinstein_stage == first.weinstein_stage  # deterministic recompute, same real answer
     assert third.weinstein_stage_changed is True  # ...but it now differs from the mutated stored value
+
+
+# ---------------------------------------------------------------------------
+# Weinstein "pending confirmation" + ETA -- see analysis/trend_structure/
+# weinstein_pending.py and its own test file (test_weinstein_pending.py) for
+# the pure-calculation coverage. These round-trip the persisted/API shape
+# through a real compute_and_store_trend_analysis call, the same pattern as
+# the weinstein_stage_* tests directly above.
+# ---------------------------------------------------------------------------
+
+# A long decline followed by a sharp rally that clears the +5% band while
+# the 30-week MA slope is still negative -- same fixture shape as
+# analysis/trend_structure/test_weinstein_pending.py's own
+# _PENDING_ADVANCE_CLOSES, duplicated here (not imported) so this file's own
+# tests stay self-contained, matching this file's existing convention of
+# defining its own synthetic fixtures rather than importing another test
+# module's.
+_PENDING_ADVANCE_CLOSES = [200.0 * (0.985**i) for i in range(60)] + [200.0 * (0.985**59) * (1.03**i) for i in range(1, 15)]
+
+
+def test_weinstein_pending_fields_round_trip_through_a_real_compute(monkeypatch):
+    engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
+        return _empty_frame() if ticker == WEINSTEIN_BENCHMARK_TICKER else _daily_from_weekly(_PENDING_ADVANCE_CLOSES[:70])
+
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
+
+    result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
+
+    assert result.pending is not None
+    assert result.pending.direction == "advance"
+    assert result.pending.since_date is not None
+    assert result.pending.band_cushion_pct is not None
+    assert result.pending.typical_weekly_move_pct is not None
+    assert set(result.pending.eta) == {"flat", "trend_5", "trend_13"}
+    for scenario in result.pending.eta.values():
+        assert scenario.weeks_away is not None and scenario.weeks_away > 0
+
+    reread = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
+    assert reread.pending is not None
+    assert reread.pending.direction == result.pending.direction
+    assert reread.pending.since_date == result.pending.since_date
+    assert reread.pending.band_cushion_pct == result.pending.band_cushion_pct
+    assert reread.pending.typical_weekly_move_pct == result.pending.typical_weekly_move_pct
+    assert reread.pending.eta.keys() == result.pending.eta.keys()
+    for scenario_name, scenario in result.pending.eta.items():
+        reread_scenario = reread.pending.eta[scenario_name]
+        assert reread_scenario.weeks_away == scenario.weeks_away
+        assert reread_scenario.projected_date == scenario.projected_date
+        assert reread_scenario.growth_rate_pct == scenario.growth_rate_pct
+        assert reread_scenario.horizon_exceeded == scenario.horizon_exceeded
+        assert reread_scenario.band_lapsed_before_confirmation == scenario.band_lapsed_before_confirmation
+
+
+def test_weinstein_pending_is_none_when_the_ticker_is_not_currently_pending(monkeypatch):
+    """A long, quietly-flat series (no band-clearing/slope-lag transient at
+    all) -- direction stays None and every persisted pending column is
+    None, same "no fabricated neutral result" convention as weinstein_stage
+    itself."""
+    engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
+        return _empty_frame() if ticker == WEINSTEIN_BENCHMARK_TICKER else _daily_from_weekly([100.0] * 60)
+
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
+
+    result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
+
+    assert result.pending is None
+
+    with Session(engine) as session:
+        row = session.exec(select(TrendAnalysis).where(TrendAnalysis.ticker == "AAPL")).first()
+    assert row.weinstein_pending_direction is None
+    assert row.weinstein_pending_eta_json is None
 
 
 # ---------------------------------------------------------------------------

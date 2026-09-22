@@ -16,10 +16,11 @@ from sqlmodel import Session, select
 from analysis.trend_structure.engine import compute_trend_structure
 from analysis.trend_structure.types import PullbackCycle, ReversalCandidate, SwingDetail, TrendStructureResult, WeinsteinStageResult
 from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER, compute_weinstein_stage
+from analysis.trend_structure.weinstein_pending import WeinsteinPendingEtaScenario, WeinsteinPendingResult, compute_weinstein_pending
 from clients.shared_bars_cache import DAILY_INTERVAL, _most_recent_completed_trading_date, get_or_fetch_bars
 from core.db import engine
 from core.models import TrendAnalysis
-from core.schemas import PullbackCycleOut, ReversalCandidateOut, SwingDetailOut, TrendAnalysisOut
+from core.schemas import PullbackCycleOut, ReversalCandidateOut, SwingDetailOut, TrendAnalysisOut, WeinsteinPendingEtaScenarioOut, WeinsteinPendingOut
 from core.tickers import normalize_ticker
 
 # 2 calendar years of daily bars -- unchanged from the period="2y" this
@@ -142,8 +143,87 @@ def _reversal_history_out(history: list[ReversalCandidate]) -> list[ReversalCand
     ]
 
 
+def _pending_eta_to_json(eta: dict[str, WeinsteinPendingEtaScenario] | None) -> str | None:
+    if eta is None:
+        return None
+    return json.dumps(
+        {
+            scenario: {
+                "weeks_away": s.weeks_away,
+                "projected_date": s.projected_date.isoformat() if s.projected_date else None,
+                "band_lapsed_before_confirmation": s.band_lapsed_before_confirmation,
+                "growth_rate_pct": s.growth_rate_pct,
+                "horizon_exceeded": s.horizon_exceeded,
+            }
+            for scenario, s in eta.items()
+        }
+    )
+
+
+def _pending_eta_from_json(raw: str | None) -> dict[str, WeinsteinPendingEtaScenarioOut] | None:
+    if raw is None:
+        return None
+    return {
+        scenario: WeinsteinPendingEtaScenarioOut(
+            weeks_away=payload["weeks_away"],
+            projected_date=date.fromisoformat(payload["projected_date"]) if payload["projected_date"] else None,
+            band_lapsed_before_confirmation=payload["band_lapsed_before_confirmation"],
+            growth_rate_pct=payload["growth_rate_pct"],
+            horizon_exceeded=payload["horizon_exceeded"],
+        )
+        for scenario, payload in json.loads(raw).items()
+    }
+
+
+def _pending_out_from_row(row: TrendAnalysis) -> WeinsteinPendingOut | None:
+    """Built from the persisted columns (see models.py::TrendAnalysis's own
+    weinstein_pending_* comment) -- None whenever
+    weinstein_pending_direction is None, same "no fabricated neutral
+    result" convention as weinstein_stage itself."""
+    if row.weinstein_pending_direction is None:
+        return None
+    return WeinsteinPendingOut(
+        direction=row.weinstein_pending_direction,
+        since_date=row.weinstein_pending_since_date,
+        since_is_lower_bound=row.weinstein_pending_since_is_lower_bound or False,
+        band_cushion_pct=row.weinstein_pending_band_cushion_pct,
+        typical_weekly_move_pct=row.weinstein_pending_typical_weekly_move_pct,
+        eta=_pending_eta_from_json(row.weinstein_pending_eta_json) or {},
+    )
+
+
+def _pending_out_from_result(pending_result: WeinsteinPendingResult) -> WeinsteinPendingOut | None:
+    """Built straight from a freshly computed WeinsteinPendingResult (the
+    fresh-compute return path) -- mirrors _pending_out_from_row above,
+    which builds the same shape from persisted columns instead."""
+    if pending_result.direction is None:
+        return None
+    return WeinsteinPendingOut(
+        direction=pending_result.direction,
+        since_date=pending_result.since_date,
+        since_is_lower_bound=pending_result.since_is_lower_bound,
+        band_cushion_pct=pending_result.band_cushion_pct,
+        typical_weekly_move_pct=pending_result.typical_weekly_move_pct,
+        eta={
+            scenario: WeinsteinPendingEtaScenarioOut(
+                weeks_away=s.weeks_away,
+                projected_date=s.projected_date,
+                band_lapsed_before_confirmation=s.band_lapsed_before_confirmation,
+                growth_rate_pct=s.growth_rate_pct,
+                horizon_exceeded=s.horizon_exceeded,
+            )
+            for scenario, s in (pending_result.eta or {}).items()
+        },
+    )
+
+
 def _upsert(
-    ticker: str, result: TrendStructureResult, weinstein_result: WeinsteinStageResult, computed_at: datetime, bars_as_of: date
+    ticker: str,
+    result: TrendStructureResult,
+    weinstein_result: WeinsteinStageResult,
+    pending_result: WeinsteinPendingResult,
+    computed_at: datetime,
+    bars_as_of: date,
 ) -> bool:
     """Returns weinstein_stage_changed -- computed HERE, not in the pure
     engine, since it's an ACROSS-NIGHTLY-RUNS comparison (today's freshly
@@ -194,6 +274,12 @@ def _upsert(
             "weinstein_volume_ratio": weinstein_result.volume_ratio,
             "weinstein_mansfield_rs": weinstein_result.mansfield_rs,
             "weinstein_breakout_confirmed": weinstein_result.breakout_confirmed,
+            "weinstein_pending_direction": pending_result.direction,
+            "weinstein_pending_since_date": pending_result.since_date,
+            "weinstein_pending_since_is_lower_bound": pending_result.since_is_lower_bound,
+            "weinstein_pending_band_cushion_pct": pending_result.band_cushion_pct,
+            "weinstein_pending_typical_weekly_move_pct": pending_result.typical_weekly_move_pct,
+            "weinstein_pending_eta_json": _pending_eta_to_json(pending_result.eta),
         }
         stmt = sqlite_insert(TrendAnalysis).values(ticker=ticker, **fields)
         stmt = stmt.on_conflict_do_update(index_elements=["ticker"], set_=fields)
@@ -241,6 +327,7 @@ def _row_to_out(row: TrendAnalysis) -> TrendAnalysisOut:
         weinstein_volume_ratio=row.weinstein_volume_ratio,
         weinstein_mansfield_rs=row.weinstein_mansfield_rs,
         weinstein_breakout_confirmed=row.weinstein_breakout_confirmed,
+        pending=_pending_out_from_row(row),
     )
 
 
@@ -272,8 +359,9 @@ def compute_and_store_from_frames(
     weinstein_result = compute_weinstein_stage(
         ohlcv, benchmark_ohlcv if benchmark_ohlcv is not None else pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
     )
+    pending_result = compute_weinstein_pending(ohlcv)
     computed_at = datetime.now()
-    weinstein_stage_changed = _upsert(ticker, result, weinstein_result, computed_at, ohlcv.index.max().date())
+    weinstein_stage_changed = _upsert(ticker, result, weinstein_result, pending_result, computed_at, ohlcv.index.max().date())
 
     return TrendAnalysisOut(
         ticker=ticker,
@@ -312,6 +400,7 @@ def compute_and_store_from_frames(
         weinstein_volume_ratio=weinstein_result.volume_ratio,
         weinstein_mansfield_rs=weinstein_result.mansfield_rs,
         weinstein_breakout_confirmed=weinstein_result.breakout_confirmed,
+        pending=_pending_out_from_result(pending_result),
     )
 
 
