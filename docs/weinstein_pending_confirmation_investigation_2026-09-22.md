@@ -289,6 +289,89 @@ window" so the contradiction is explained, not just displayed as a scary "never.
 - Backtesting the band-cushion diagnostic beyond this single-ticker illustration.
 - A dedicated mean-reversion/downside scenario.
 
+## Full pending-universe validation, round 2 (2026-09-22, later same day)
+
+Extends the spot-check above from META/LYB alone to **every currently-pending ticker**, using
+the prototype's own functions unmodified (`stage_flags`, `eta_report`, `band_cushion_pct`, etc.)
+against the live cache. No production code touched; validation only.
+
+**Universe re-scan: unchanged.** 579 tickers with cached weekly-eligible history, **38 pending**,
+identical combo breakdown to Part A: `{('advance','decline'): 24, ('decline','advance'): 8,
+('top','advance'): 3, ('base','decline'): 2, ('base','advance'): 1}`. Same-day re-run, so no
+change was expected; confirmed rather than assumed.
+
+**Ran all three ETA scenarios for all 38.** Summary stats: flat median 3wk (max 13), trend_5
+median 2wk (max 9), trend_13 median 3wk (max 9) — comfortably inside the historical-episode
+bounds this round was asked to check against (median ~2wk, 90th pct 5–6wk, max 12–13). **Zero
+negative `weeks_away` anywhere, zero exceptions.**
+
+### Spot-check (a): nonsensical results — none found
+
+No negative weeks, no scenario producing an unexplainable number. 5 of 38 tickers show scenarios
+disagreeing by ≥3 weeks (ACN, CTSH, FDX, MGM, TTWO) — the same ~13% rate Part A reported (which
+named MGM as its own example; MGM's own numbers drifted slightly, 10/4/5 → 13/5/6, expected
+intraday cache drift, not a concern). Every one of the 5 resolves intuitively: in each case the
+ticker's *current* slope is meaningfully non-zero in the "wrong" direction (e.g. FDX/MGM/TTWO are
+already below the decline band but slope is still solidly positive, +0.9 to +2.6%/wk), so a flat
+price takes visibly longer to walk that slope down through zero than a scenario that actively
+trends in the confirming direction does. Mechanical, not a bug.
+
+### Spot-check (b): LYB-shaped "chase never converges" cases — 3 found, fix confirmed uniform
+
+**AXON** (`trend_13`), **CDE** (`trend_5`), **CTSH** (`trend_5`) all hit
+`horizon_exceeded=True` + `band_lapsed_before_confirmation=True` — the same shape as LYB's flat
+scenario in Part A, just triggered by a different scenario for each, and on two different
+(stage, direction) pairs: AXON is Advance→Decline (same pair as LYB), CDE/CTSH are
+Decline→Advance (the mirror pair). Traced all three week-by-week: in every case, band-clear and
+slope-flip genuinely alternate without ever landing in the same week, and — confirmed by tracing
+AXON's `trend_13` out past week 30, where the projection window becomes 100% synthetic — the
+series converges to a **fixed steady-state offset** between close and MA once real history has
+fully rolled out from the 30-week lookback, at which point slope locks onto the scenario's own
+constant growth rate and permanently keeps its sign. That's mathematically exact, not
+approximate: any nonzero-but-constant compounding growth rate converges the same way, so `flat`
+isn't privileged here — a mild `trend_13` of +0.29%/wk hits the identical non-convergence AXON's
+flat case would have if flat itself had been assumed.
+
+This confirms the band-vs-slope simultaneity fix **is applied uniformly** — the ETA/confirm check
+in `project_confirmation_eta` never branches on current stage at all, only on direction, and
+`compute_stage_series`'s own transition table uses the literal same `(rising and above_band)` /
+`(falling and below_band)` condition regardless of whether the source stage is Base, Top, or
+Decline (for Advance) / Base, Top, or Advance (for Decline) — so this class of edge case is
+structurally guaranteed to be caught the same way for every one of the six non-trivial transition
+pairs, not just the one LYB happened to surface. Two of those six pairs were directly observed
+hitting it today (Advance→Decline, Decline→Advance); the other four were not exercised by live
+data this round but share the identical code path.
+
+**Not a new bug — this generalizes an existing, already-documented caveat, not something new.**
+Caveat #3 in the design proposal above should be reworded before the next round to say "under its
+stated growth assumption" rather than singling out the flat scenario specifically — the mechanism
+is scenario-agnostic, `flat` was just the scenario that happened to trigger it for LYB.
+
+### Spot-check (c): band-cushion vs. ETA disagreement — a real, explainable divergence worth a UX note
+
+4 tickers (**JBL, IONQ, MPWR, TTWO**) combine a razor-thin band cushion (6–21% of a typical
+weekly move — i.e., one ordinary week could erase the band clearance) with a long flat-scenario
+ETA (8–10 weeks). This is not a bug: the cushion diagnostic measures *price-level* fragility
+(distance past the band threshold), while the ETA measures *slope inertia* (how long a currently
+strongly-trending MA slope takes to fully reverse under a frozen price) — two genuinely different
+quantities that can point in different directions for a ticker whose price already cleared the
+band by a hair while its trailing slope is still running hot in the old direction. All 4 cases
+have the same explanation confirmed directly: current slope is meaningfully non-zero (+0.9 to
++2.6%/wk) working against the pending direction. **Worth carrying into the next round's UI
+caveats** (these two numbers can tell different stories for the same ticker and both should be
+shown, not reconciled into one), but not a defect in either calculation.
+
+### Verdict
+
+**35 of 38 (92%) pending tickers produced a clean, fully self-consistent 3-scenario estimate.**
+The remaining 3 (AXON, CDE, CTSH) hit the known LYB-shaped edge case, correctly flagged by
+`horizon_exceeded`/`band_lapsed_before_confirmation` exactly as designed — not silently wrong.
+5 tickers (overlapping with the "clean" 35) show a ≥3-week scenario spread, and 4 tickers show a
+thin-cushion/long-ETA divergence between the two diagnostics — both real, both explainable,
+neither a defect. **No new bug found this round.** One documentation fix recommended for the
+next round: broaden caveat #3's wording from "flat scenario" to "any scenario," since the
+non-convergence mechanism isn't flat-specific.
+
 ## Reproducing this
 
 `cd backend && uv run python ../docs/weinstein_pending_confirmation_prototype.py` — read-only
