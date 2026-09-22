@@ -1,4 +1,4 @@
-import type { TrendAnalysisOut } from "@/lib/api/types";
+import type { TrendAnalysisOut, WeinsteinPendingEtaScenarioOut, WeinsteinPendingOut } from "@/lib/api/types";
 
 export type WeinsteinStage = NonNullable<TrendAnalysisOut["weinstein_stage"]>;
 
@@ -70,4 +70,114 @@ export type WeinsteinUnavailableReason = "not_yet_computed" | "insufficient_hist
 
 export function weinsteinUnavailableReason(weeksAvailable: number | null): WeinsteinUnavailableReason {
   return weeksAvailable == null ? "not_yet_computed" : "insufficient_history";
+}
+
+// ---------------------------------------------------------------------------
+// "Pending confirmation" + ETA -- see docs/
+// weinstein_pending_confirmation_investigation_2026-09-22.md for the full
+// design and backend/analysis/trend_structure/weinstein_pending.py for the
+// calculation this formats. All logic (never just presentation) lives here,
+// matching the rest of this file's convention -- WeinsteinStagePill/
+// WeinsteinStageCard stay thin renderers.
+// ---------------------------------------------------------------------------
+
+export type WeinsteinPendingDirection = WeinsteinPendingOut["direction"];
+export type WeinsteinPendingScenarioKey = "flat" | "trend_5" | "trend_13";
+
+// Same numbering convention as WEINSTEIN_STAGE_LABEL -- the stage a
+// "pending_advance"/"pending_decline" flag is heading toward, not the
+// ticker's current stage.
+export const WEINSTEIN_PENDING_TARGET_LABEL: Record<WeinsteinPendingDirection, string> = {
+  advance: "Stage 2 (Advance)",
+  decline: "Stage 4 (Decline)",
+};
+
+// Order matters for display -- flat first (the literal ask), then the two
+// momentum reads from most to least reactive.
+export const WEINSTEIN_PENDING_SCENARIO_ORDER: WeinsteinPendingScenarioKey[] = ["flat", "trend_5", "trend_13"];
+
+export const WEINSTEIN_PENDING_SCENARIO_LABEL: Record<WeinsteinPendingScenarioKey, string> = {
+  flat: "If price holds near today's level (flat)",
+  trend_5: "If price keeps its recent 5-week pace",
+  trend_13: "If price keeps its recent 13-week pace",
+};
+
+const PROJECTION_HORIZON_WEEKS = 104; // mirrors weinstein_pending.py's own PROJECTION_HORIZON_WEEKS (2y)
+
+// weeks_away=1 means "the next full weekly close," not exactly 7 calendar
+// days -- the engine always treats the latest (possibly partial) week as
+// "today" (see the design doc's caveat #4). Kept as plain "~N week(s) away"
+// text rather than a calendar-day count for this reason.
+export function formatWeinsteinPendingEtaScenario(scenario: WeinsteinPendingEtaScenarioOut, fmtDate: (iso: string) => string): string {
+  if (scenario.horizon_exceeded) {
+    // Round-2 validation finding (2026-09-22): this is NOT flat-specific --
+    // any scenario whose assumed growth rate has the wrong sign/shape for
+    // the pending direction can hit the identical "chase never converges"
+    // shape once the projection window is fully synthetic (confirmed on
+    // trend_5/trend_13 scenarios too, e.g. AXON/CDE/CTSH), so the wording
+    // below deliberately says "under this assumption," never "under a flat
+    // price."
+    return scenario.band_lapsed_before_confirmation
+      ? `Doesn't confirm within ${PROJECTION_HORIZON_WEEKS} weeks — under this assumption, an older price move ages out of the 30-week window before the trend math ever catches up.`
+      : `Doesn't confirm within ${PROJECTION_HORIZON_WEEKS} weeks.`;
+  }
+  const weeks = scenario.weeks_away ?? 0;
+  const weekWord = weeks === 1 ? "week" : "weeks";
+  const dateSuffix = scenario.projected_date ? ` (week of ${fmtDate(scenario.projected_date)})` : "";
+  return `~${weeks} ${weekWord} away${dateSuffix}`;
+}
+
+// Thin cushion = one ordinary-sized weekly move could un-clear the band
+// (see weinstein_pending.py::_band_cushion_pct's own docstring).
+export function weinsteinPendingCushionIsThin(pending: WeinsteinPendingOut): boolean {
+  return (
+    pending.band_cushion_pct != null && pending.typical_weekly_move_pct != null && pending.band_cushion_pct < pending.typical_weekly_move_pct
+  );
+}
+
+export function formatWeinsteinPendingCushion(pending: WeinsteinPendingOut): string | null {
+  if (pending.band_cushion_pct == null || pending.typical_weekly_move_pct == null) return null;
+  const thinness = weinsteinPendingCushionIsThin(pending) ? "thin" : "comfortable";
+  return `Band cushion: ${pending.band_cushion_pct >= 0 ? "+" : ""}${pending.band_cushion_pct.toFixed(1)}pp past threshold vs. a typical weekly move of ~${pending.typical_weekly_move_pct.toFixed(1)}pp (${thinness}).`;
+}
+
+// A "long" flat-scenario ETA, for the cushion-vs-ETA divergence note below --
+// picked from the round-2 validation's own named divergence cases (JBL,
+// IONQ, MPWR, TTWO), whose flat ETAs ran 8-10 weeks. Not a precise
+// threshold, just the boundary past which a thin cushion reading
+// "one bad week could erase this" alongside "but confirmation is still
+// N weeks out" starts to look contradictory rather than merely cautious.
+export const WEINSTEIN_PENDING_LONG_ETA_WEEKS = 8;
+
+// The band-cushion diagnostic (price-level fragility) and the ETA
+// (slope inertia) measure genuinely different things and can legitimately
+// disagree for the same ticker -- confirmed on JBL/IONQ/MPWR/TTWO in
+// the round-2 validation, all of which combine a razor-thin cushion with a
+// long flat-scenario ETA because their current slope is still running hard
+// in the OLD (non-pending) direction. Surfaced as its own note, distinct
+// from the pending state itself, so it doesn't read as contradictory.
+export function weinsteinPendingHasCushionEtaDivergence(pending: WeinsteinPendingOut): boolean {
+  const flat = pending.eta.flat;
+  if (!weinsteinPendingCushionIsThin(pending)) return false;
+  if (!flat || flat.weeks_away == null) return false;
+  return flat.weeks_away >= WEINSTEIN_PENDING_LONG_ETA_WEEKS;
+}
+
+export const WEINSTEIN_PENDING_CUSHION_ETA_DIVERGENCE_NOTE =
+  "The cushion above looks thin, but the estimate below still runs several weeks out — these measure different things (how close price already is to the threshold, vs. how long the current MA slope trend takes to reverse) and can genuinely disagree for the same ticker. Neither reading is wrong.";
+
+export const WEINSTEIN_PENDING_NOT_A_PREDICTION_NOTE =
+  "These estimates say how long the slope math would need under each stated price assumption — not a forecast of what price will actually do.";
+
+export const WEINSTEIN_PENDING_CANCELS_NOT_PAUSES_NOTE =
+  "A move back under the band cancels the pending state outright rather than pausing the countdown — this can happen well before any of the estimates above.";
+
+// The pill's own tooltip line -- kept short (a header pill's tooltip is
+// plain text, not a rich block like the Technical tab's card). Only the
+// flat scenario is surfaced here; the full 3-scenario breakdown lives on
+// the Technical tab's WeinsteinStageCard instead.
+export function weinsteinPendingTooltipLine(pending: WeinsteinPendingOut, fmtDate: (iso: string) => string): string {
+  const flat = pending.eta.flat;
+  const etaText = flat ? formatWeinsteinPendingEtaScenario(flat, fmtDate) : "";
+  return `⚠ Pending ${WEINSTEIN_PENDING_TARGET_LABEL[pending.direction]} — price has cleared the band but the MA slope hasn't turned yet. ${etaText} (flat-price estimate; not a prediction).`;
 }

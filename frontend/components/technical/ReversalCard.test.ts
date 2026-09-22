@@ -47,6 +47,7 @@ function trendAnalysis(overrides: Partial<TrendAnalysisOut>): TrendAnalysisOut {
     weinstein_volume_ratio: null,
     weinstein_mansfield_rs: null,
     weinstein_breakout_confirmed: null,
+    pending: null,
     ...overrides,
   };
 }

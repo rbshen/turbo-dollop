@@ -1,6 +1,7 @@
 import { fmtSwingDate } from "@/components/technical/ChecklistCard";
 import {
   formatWeinsteinSince,
+  weinsteinPendingTooltipLine,
   WEINSTEIN_LOWER_BOUND_CAVEAT,
   WEINSTEIN_STAGE_LABEL,
   WEINSTEIN_STAGE_STYLES_CHIP,
@@ -15,11 +16,17 @@ import type { TrendAnalysisOut } from "@/lib/api/types";
 // directly (which carries the same 5 denormalized field names/types, see
 // CLAUDE.md's Weinstein Screener-surfacing note) with no adapter object,
 // since TypeScript structural typing accepts a wider-typed variable
-// wherever a narrower shape is expected.
+// wherever a narrower shape is expected. `pending` is optional (not part of
+// the Pick) for the same reason -- TickerScoreOut has no pending-confirmation
+// fields at all (out of scope for Screener/Watchlist per the design doc), so
+// this pill only ever shows the pending tooltip line for a caller (the
+// ticker header) that actually passes a full TrendAnalysisOut.
 type WeinsteinStagePillData = Pick<
   TrendAnalysisOut,
   "weinstein_stage" | "weinstein_stage_since_date" | "weinstein_stage_since_is_lower_bound" | "weinstein_ma_slope_pct" | "weinstein_vs_ma_pct"
->;
+> & {
+  pending?: TrendAnalysisOut["pending"];
+};
 
 // Screener card: compact "S1"-"S4" text to fit alongside the other 3 pills
 // at the narrower card width. Unlike Moat/PerfVsSpy's own "screener" tier
@@ -60,6 +67,9 @@ function buildTooltip(data: WeinsteinStagePillData): string {
   }
   if (data.weinstein_vs_ma_pct != null) {
     lines.push(`vs. 30-wk MA: ${data.weinstein_vs_ma_pct >= 0 ? "+" : ""}${data.weinstein_vs_ma_pct.toFixed(1)}%`);
+  }
+  if (data.pending) {
+    lines.push(weinsteinPendingTooltipLine(data.pending, fmtSwingDate));
   }
   return lines.join("\n");
 }

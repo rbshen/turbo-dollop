@@ -1252,6 +1252,44 @@ export interface TrendAnalysisOut {
   weinstein_volume_ratio: number | null;
   weinstein_mansfield_rs: number | null;
   weinstein_breakout_confirmed: boolean | null;
+  // "Pending confirmation" + ETA -- see backend's core/schemas.py::
+  // WeinsteinPendingOut. null whenever the ticker isn't currently pending a
+  // Stage 2/Stage 4 transition (one condition -- slope or band -- met, the
+  // other still open), which is the common case.
+  pending: WeinsteinPendingOut | null;
+}
+
+// One projected-confirmation scenario (flat / trend_5 / trend_13) -- see
+// backend's core/schemas.py::WeinsteinPendingEtaScenarioOut.
+//
+// horizon_exceeded=true means this scenario's assumption never lets the
+// slope and band conditions coincide within the 2-year projection window
+// (weeks_away/projected_date are then null). NOT specific to the flat
+// scenario -- any scenario with a nonzero-but-constant growth rate can hit
+// this once real history has fully rolled out of the 30-week lookback (see
+// docs/weinstein_pending_confirmation_investigation_2026-09-22.md's round-2
+// validation).
+export interface WeinsteinPendingEtaScenarioOut {
+  weeks_away: number | null;
+  projected_date: string | null;
+  band_lapsed_before_confirmation: boolean;
+  growth_rate_pct: number;
+  horizon_exceeded: boolean;
+}
+
+// Weinstein Stage Analysis: "pending confirmation" + ETA -- present only
+// when the ticker currently has one of the two conditions (slope, band) for
+// a Stage 2/Stage 4 transition met and the other still open. See backend's
+// core/schemas.py::WeinsteinPendingOut and analysis/trend_structure/
+// weinstein_pending.py's own module docstring for the full design.
+export interface WeinsteinPendingOut {
+  direction: "advance" | "decline";
+  since_date: string | null;
+  since_is_lower_bound: boolean;
+  band_cushion_pct: number | null;
+  typical_weekly_move_pct: number | null;
+  // Keyed by scenario name ("flat", "trend_5", "trend_13").
+  eta: Record<string, WeinsteinPendingEtaScenarioOut>;
 }
 
 // Latest BB+RSI (2h) technical entry-signal read for one ticker -- see
