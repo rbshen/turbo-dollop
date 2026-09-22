@@ -9,7 +9,8 @@ import pipeline.backfills.backfill_market_breadth as backfill
 from core.models import IndexConstituent, MarketBreadthSnapshot, SharedBarsCache
 
 
-def _seed(monkeypatch, tmp_path, tickers, periods=320):
+def _seed(monkeypatch, tmp_path, tickers, periods=320, sectors: dict[str, str] | None = None):
+    sectors = sectors or {}
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(market_breadth_data, "engine", engine)
@@ -20,7 +21,11 @@ def _seed(monkeypatch, tmp_path, tickers, periods=320):
     index = pd.bdate_range(end="2026-09-18", periods=periods)
     with Session(engine) as session:
         for ticker in tickers:
-            session.add(IndexConstituent(index_name="sp500", ticker=ticker, company_name=ticker, last_synced_at=datetime(2026, 9, 20)))
+            session.add(
+                IndexConstituent(
+                    index_name="sp500", ticker=ticker, company_name=ticker, sector=sectors.get(ticker), last_synced_at=datetime(2026, 9, 20)
+                )
+            )
             for day, price in zip(index, np.linspace(100, 150, periods)):
                 session.add(SharedBarsCache(ticker=ticker, interval="1d", bar_time=day.to_pydatetime(), open=price, high=price + 1,
                                             low=price - 1, close=price, volume=1, fetched_at=datetime(2026, 9, 19)))
@@ -121,3 +126,32 @@ def test_a_ticker_with_no_cached_bars_is_reported(monkeypatch, tmp_path):
     assert summary["tickers_without_cached_bars"] == ["NOBARS"] and summary["constituents"] == 3
     # 2 of 3 constituents = 67% < 97%: no session qualifies rather than a skewed subset.
     assert summary["kept"] == 0
+
+
+def test_backfill_also_inserts_sector_rows_read_only_and_idempotent(monkeypatch, tmp_path):
+    tickers = ["AAA", "BBB", "CCC"]
+    sectors = {"AAA": "Technology", "BBB": "Technology", "CCC": "Energy"}
+    engine, index = _seed(monkeypatch, tmp_path, tickers, sectors=sectors)
+    bars_before = _bar_count(engine)
+
+    dry = backfill.main(dry_run=True)
+    assert dry["sectors"]["XLK"]["kept"] > 0 and dry["sectors"]["XLE"]["kept"] > 0
+    assert dry["sector_inserted"] == 0  # a dry run writes nothing
+    with Session(engine) as session:
+        assert session.exec(select(MarketBreadthSnapshot)).all() == []
+
+    summary = backfill.main()
+    assert summary["sector_inserted"] == summary["sectors"]["XLK"]["kept"] + summary["sectors"]["XLE"]["kept"]
+    with Session(engine) as session:
+        rows = session.exec(select(MarketBreadthSnapshot)).all()
+    xlk_rows = [r for r in rows if r.universe == "sector:XLK"]
+    xle_rows = [r for r in rows if r.universe == "sector:XLE"]
+    assert len(xlk_rows) == summary["sectors"]["XLK"]["kept"] and all(r.is_backfilled and r.constituents == 2 for r in xlk_rows)
+    assert len(xle_rows) == summary["sectors"]["XLE"]["kept"] and all(r.constituents == 1 for r in xle_rows)
+    assert xlk_rows[0].as_of_date == index[251].date()  # same 252-bar-window first-kept-session rule as sp500
+    assert _bar_count(engine) == bars_before  # read-only against SharedBarsCache, sectors included
+
+    again = backfill.main()
+    assert again["sector_inserted"] == 0 and again["sector_already_present"] == again["sectors"]["XLK"]["kept"] + again["sectors"]["XLE"]["kept"]
+    with Session(engine) as session:
+        assert len(session.exec(select(MarketBreadthSnapshot)).all()) == len(rows)  # unchanged -- a re-run never clobbers a live/backfilled row

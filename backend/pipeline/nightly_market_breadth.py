@@ -20,6 +20,13 @@ constituents have a bar on the anchor session, writing nothing -- see
 data/market_breadth_data.py's coverage-gate note. A weekend/holiday run
 re-derives the same anchor and upserts over its own row, harmless.
 
+Also computes and stores one row per GICS/SPDR sector (universe
+"sector:<ETF>"), bucketed via load_sector_buckets and reusing the same
+bars/flags already fetched/computed above -- no second fetch. A sector's own
+gate is more permissive (sector_coverage_ok) and isolated: a refused sector
+is logged and skipped, never raised, so it can't block the other sectors'
+rows that night. See data/market_breadth_data.py's "Sector breadth" note.
+
 Run:
     uv run python -m pipeline.nightly_market_breadth
 """
@@ -34,7 +41,7 @@ from sqlmodel import Session
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
-from data.market_breadth_data import compute_and_store_market_breadth
+from data.market_breadth_data import compute_and_store_market_breadth, load_sector_buckets
 from pipeline.nightly_fundamentals_fetch import load_sp500_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_market_breadth.log"
@@ -50,17 +57,22 @@ async def main() -> dict:
 
     with Session(engine) as session:
         tickers = load_sp500_tickers(session)
+        sector_tickers = load_sector_buckets(session)
 
-    logger.info("Starting nightly market breadth calculation for %d S&P 500 constituents.", len(tickers))
+    logger.info("Starting nightly market breadth calculation for %d S&P 500 constituents across %d sectors.", len(tickers), len(sector_tickers))
     start_time = time.monotonic()
-    summary = await compute_and_store_market_breadth(tickers)
+    summary = await compute_and_store_market_breadth(tickers, sector_tickers=sector_tickers)
     summary["duration_seconds"] = time.monotonic() - start_time
+    sectors = summary.get("sectors", {})
+    sectors_passed = sum(1 for r in sectors.values() if r["passed"])
     logger.info(
-        "Nightly market breadth complete. As of: %s. Constituents: %d. With bar: %d. Excluded: %d. Duration: %.1fs.",
+        "Nightly market breadth complete. As of: %s. Constituents: %d. With bar: %d. Excluded: %d. Sectors: %d/%d passed. Duration: %.1fs.",
         summary["as_of_date"],
         summary["constituents"],
         summary["with_bar"],
         summary["stale_excluded"],
+        sectors_passed,
+        len(sectors),
         summary["duration_seconds"],
     )
     return summary

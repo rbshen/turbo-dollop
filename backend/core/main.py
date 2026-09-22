@@ -194,8 +194,8 @@ def sector_heatmap() -> SectorHeatmapOut:
 
 
 @app.get("/api/market-breadth", response_model=MarketBreadthOut)
-def market_breadth() -> MarketBreadthOut:
-    return get_market_breadth()
+def market_breadth(universe: str = "sp500") -> MarketBreadthOut:
+    return get_market_breadth(universe)
 
 
 @app.get("/api/config/discount-rate", response_model=DiscountRateConfigOut)

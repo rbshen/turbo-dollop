@@ -42,6 +42,14 @@ before the 20-day metric existed would never gain it. A second pass
 columns, ONLY where they are still NULL, ONLY on is_backfilled rows -- every
 other column and every live row stays untouched, and a re-run fills nothing.
 
+**Also backfills one row per GICS/SPDR sector (2026-09-22)** -- same
+read-only SharedBarsCache reuse (the SAME `bars` this script already loads
+for the sp500 pass is sliced per sector, no second read), same
+never-overwrites-a-live-row insert-only convention, via
+data.market_breadth_data.build_sector_backfill_rows/load_sector_buckets. No
+sma20-fill pass is needed for these -- they're brand-new rows created after
+the 20-day metric already existed, so they can never be missing it.
+
 Run (previews the row count/date range, writes nothing):
     uv run python -m pipeline.backfills.backfill_market_breadth --dry-run
 
@@ -59,7 +67,14 @@ from sqlmodel import Session
 from clients.shared_bars_cache import _most_recent_completed_trading_date
 from core.db import engine, init_db
 from core.logging_config import configure_logging
-from data.market_breadth_data import build_backfill_rows, fill_missing_sma20, load_cached_daily_bars, store_snapshots
+from data.market_breadth_data import (
+    build_backfill_rows,
+    build_sector_backfill_rows,
+    fill_missing_sma20,
+    load_cached_daily_bars,
+    load_sector_buckets,
+    store_snapshots,
+)
 from pipeline.nightly_fundamentals_fetch import load_sp500_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent.parent / "logs" / "backfill_market_breadth.log"
@@ -74,17 +89,23 @@ def main(dry_run: bool = False) -> dict:
 
     with Session(engine) as session:
         tickers = load_sp500_tickers(session)
+        sector_tickers = load_sector_buckets(session)
     if not tickers:
         raise RuntimeError("No S&P 500 constituents -- run scrapers.refresh_sp500_list first")
 
     start_time = time.monotonic()
+    completed = _most_recent_completed_trading_date()
     bars = load_cached_daily_bars(tickers)
     missing = sorted(set(tickers) - set(bars))
-    values, summary = build_backfill_rows(bars, len(tickers), _most_recent_completed_trading_date())
+    values, summary = build_backfill_rows(bars, len(tickers), completed)
     inserted = 0 if dry_run else store_snapshots(values, overwrite=False)
     # After the insert, so freshly inserted rows (which already carry sma20) are not "pending".
     sma20_pending = fill_missing_sma20(values, dry_run=True)
     sma20_filled = 0 if dry_run else fill_missing_sma20(values)
+
+    # Sector rows -- reuses the SAME `bars` just loaded above, no second read.
+    sector_values, sector_summary = build_sector_backfill_rows(bars, sector_tickers, completed)
+    sector_inserted = 0 if dry_run else store_snapshots(sector_values, overwrite=False)
 
     summary.update(
         {
@@ -95,16 +116,20 @@ def main(dry_run: bool = False) -> dict:
             "already_present": 0 if dry_run else len(values) - inserted,
             "sma20_pending": sma20_pending,
             "sma20_filled": sma20_filled,
+            "sectors": sector_summary,
+            "sector_inserted": sector_inserted,
+            "sector_already_present": 0 if dry_run else len(sector_values) - sector_inserted,
             "dry_run": dry_run,
             "duration_seconds": time.monotonic() - start_time,
         }
     )
     logger.info(
         "Market breadth backfill%s: %d/%d tickers had cached bars; %d sessions seen, %d kept (%s .. %s); inserted %d, already present %d; sma20 columns needing a fill %d, filled %d. "
+        "Sectors: %d rows inserted across %d sectors, %d already present. "
         "Survivorship-biased: today's constituents applied to past dates.",
         " (DRY RUN)" if dry_run else "", summary["tickers_with_cached_bars"], summary["constituents"], summary["sessions_seen"],
         summary["kept"], summary["first_date"], summary["last_date"], inserted, summary["already_present"],
-        sma20_pending, sma20_filled,
+        sma20_pending, sma20_filled, sector_inserted, len(sector_summary), summary["sector_already_present"],
     )
     if missing:
         logger.warning("Market breadth backfill: no cached daily bars for %d ticker(s): %s", len(missing), missing)

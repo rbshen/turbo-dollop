@@ -1129,6 +1129,40 @@ class MarketBreadthSnapshot(SQLModel, table=True):
     is_backfilled: bool = False
 
 
+class MarketBreadthGateLog(SQLModel, table=True):
+    """Append-only trace of every market-breadth coverage-gate check, written
+    for EVERY universe checked each night ("sp500" and every "sector:<ETF>")
+    regardless of whether the check passed -- see data/market_breadth_data.py::
+    _gate_rule/_log_gate_check and docs/market_breadth_investigation_2026-09-21.md.
+
+    Exists specifically because a REFUSED day gets no MarketBreadthSnapshot row
+    to attach anything to -- without this table there would be no record a
+    check even happened, only a silently-stale as_of_date on the page. The
+    goal is a queryable record of real gate behavior (in particular the
+    sector gate's provisional two-condition "percentage OR at-most-1-missing"
+    policy, see sector_coverage_ok) accumulated over real nights, so that
+    policy can be revisited from data rather than guessed at again.
+
+    Deliberately its own table, not a column on MarketBreadthSnapshot: a
+    passed day's own numerator/denominator is already fully visible there
+    (with_bar = constituents - stale_excluded), so this table's job is
+    specifically to also capture the REFUSED case, which has no row there at
+    all. No UniqueConstraint/upsert -- same append-only, run-history
+    convention as CronRunLog above -- so nightly re-checks accumulate rather
+    than overwrite, which is the point for a trend-over-weeks analysis."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    universe: str = Field(index=True)  # "sp500" or "sector:<ETF>"
+    as_of_date: date = Field(index=True)
+    checked_at: datetime
+    constituents: int
+    with_bar: int
+    missing_count: int
+    missing_tickers_json: str  # JSON list[str], capped at MISSING_SAMPLE
+    passed: bool
+    passed_via: str | None = None  # "percentage" | "floor" | "both" | None (refused)
+
+
 class CronRunLog(SQLModel, table=True):
     """One row per cron job invocation, written by core.cron_health.cron_heartbeat
     -- deliberately append-only (no UniqueConstraint, no upsert), same

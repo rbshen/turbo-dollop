@@ -67,3 +67,25 @@ def test_serves_the_whole_series_oldest_first_with_latest_and_flags(monkeypatch)
     assert latest["new_highs"] == 5 and latest["new_lows"] == 29 and latest["net_new_highs"] == -24
     assert latest["constituents"] == 503 and latest["stale_excluded"] == 1 and latest["hl_eligible"] == 499
     assert body["computed_at"] == "2026-09-21T03:35:00"
+
+
+def test_universe_query_param_scopes_to_a_sector_and_never_leaks_sp500(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(_row(date(2026, 9, 18), universe="sp500", pct_above_sma50=27.9))
+        session.add(_row(date(2026, 9, 17), universe="sector:XLK", constituents=85, pct_above_sma50=61.2))
+        session.add(_row(date(2026, 9, 18), universe="sector:XLK", constituents=85, pct_above_sma50=63.4))
+        session.commit()
+
+    with TestClient(app) as client:
+        default_body = client.get("/api/market-breadth").json()
+        sector_body = client.get("/api/market-breadth", params={"universe": "sector:XLK"}).json()
+        unknown_body = client.get("/api/market-breadth", params={"universe": "sector:ZZZZ"}).json()
+
+    assert default_body["universe"] == "sp500" and len(default_body["series"]) == 1
+    assert sector_body["universe"] == "sector:XLK"
+    assert [p["as_of_date"] for p in sector_body["series"]] == ["2026-09-17", "2026-09-18"]
+    assert all(p["constituents"] == 85 for p in sector_body["series"])
+    assert sector_body["latest"]["pct_above_sma50"] == 63.4
+    # An unrecognized universe reads empty, never a 404 or an error.
+    assert unknown_body == {"universe": "sector:ZZZZ", "as_of_date": None, "computed_at": None, "latest": None, "series": []}

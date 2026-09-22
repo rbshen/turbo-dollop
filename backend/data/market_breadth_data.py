@@ -23,8 +23,24 @@ failed run, the same "raise only when the output can't be trusted" contract
 nightly_sector_heatmap uses for total failure. Below the gate nothing is
 written, so an older date stays the latest one and the page's own as-of
 date shows the job has fallen behind. At or above it, `stale_excluded`
-records the tickers that were dropped from every count."""
+records the tickers that were dropped from every count.
 
+**Sector breadth (2026-09-22).** The same 4 metrics, computed per GICS/SPDR
+sector (universe "sector:<ETF>", e.g. "sector:XLK") by bucketing the SAME
+503 S&P 500 tickers -- and reusing the SAME already-fetched bars/already-
+computed per-ticker flags from the sp500 pass, never a second fetch or a
+second per-ticker rolling computation -- via SECTOR_TO_ETF/load_sector_
+buckets. A sector's own coverage gate (sector_coverage_ok) is deliberately
+more permissive than the sp500-level one: it passes on EITHER >=97%
+coverage OR at most 1 ticker missing, whichever is more permissive, so a
+small sector (~20 names) isn't blocked by a single stale/missing ticker.
+One sector failing its gate is isolated -- logged and skipped, never raised
+-- so it doesn't block the other 10 sectors' rows that night. Every gate
+check (sp500 and every sector, passed or refused) is additionally logged to
+MarketBreadthGateLog so the sector gate's provisional policy can be
+revisited from real data later -- see models.py::MarketBreadthGateLog."""
+
+import json
 import logging
 from datetime import date, datetime
 
@@ -35,13 +51,47 @@ from sqlmodel import Session, select
 
 from clients.shared_bars_cache import DAILY_INTERVAL, _load_frames, _most_recent_completed_trading_date, get_or_fetch_bars_batch
 from core.db import engine
-from core.models import MarketBreadthSnapshot
+from core.models import IndexConstituent, MarketBreadthGateLog, MarketBreadthSnapshot
 from core.schemas import MarketBreadthOut, MarketBreadthPointOut
+from data.sector_heatmap_data import SECTOR_ETFS
 from scoring.market_breadth import aggregate_flags, snapshot_frame, ticker_flags
 
 logger = logging.getLogger(__name__)
 
 UNIVERSE = "sp500"  # the same name IndexConstituent.index_name uses
+
+# IndexConstituent.sector (scraped from Wikipedia) -> the SPDR ETF whose
+# sector it belongs to. This text is verbatim-different from
+# data/sector_heatmap_data.py::SECTOR_ETFS's own pretty display names (e.g.
+# "Financial Services" here vs. "Financials" there) even though both cover
+# the same 11 GICS sectors 1:1 -- confirmed via a full distinct-value scan
+# of the real DB (2026-09-22): exactly 11 distinct sector strings for
+# index_name="sp500", summing to exactly 503 constituents, matching the 11
+# SPDR sectors one-to-one (Technology 85, Industrials 77, Financial
+# Services 70, Healthcare 59, Consumer Cyclical 53, Consumer Defensive 33,
+# Utilities 32, Real Estate 30, Communication Services 22, Energy 22, Basic
+# Materials 20).
+SECTOR_TO_ETF: dict[str, str] = {
+    "Technology": "XLK",
+    "Industrials": "XLI",
+    "Financial Services": "XLF",
+    "Healthcare": "XLV",
+    "Consumer Cyclical": "XLY",
+    "Consumer Defensive": "XLP",
+    "Utilities": "XLU",
+    "Real Estate": "XLRE",
+    "Communication Services": "XLC",
+    "Energy": "XLE",
+    "Basic Materials": "XLB",
+}
+
+# A sector's coverage gate: passes on the sp500-level >=97% rule OR at most
+# this many tickers missing, whichever is more permissive -- rescues a
+# small sector (e.g. Basic Materials, 20 names, where 1/20 = 5% > 3%) from
+# a single stale/missing ticker, while a large sector (e.g. Technology, 85
+# names) is already permitted 1-2 missing under the percentage rule alone,
+# so the floor is a no-op for it.
+SECTOR_COVERAGE_FLOOR_MISSING = 1
 
 # Same call the trend job makes, so this reads the cache it just warmed. 730
 # days is the "2y" yfinance tier; "1y" would return 251 bars, one short of a
@@ -85,6 +135,85 @@ def coverage_ok(with_bar: int, constituents: int) -> bool:
     return constituents > 0 and with_bar / constituents >= MIN_COVERAGE
 
 
+def sector_coverage_ok(with_bar: int, constituents: int) -> bool:
+    """A sector's own gate: >=97% coverage (coverage_ok) OR at most
+    SECTOR_COVERAGE_FLOOR_MISSING missing, whichever is more permissive."""
+    if constituents <= 0:
+        return False
+    missing = constituents - with_bar
+    return missing <= SECTOR_COVERAGE_FLOOR_MISSING or coverage_ok(with_bar, constituents)
+
+
+def _gate_rule(with_bar: int, constituents: int, floor_missing: int | None) -> str | None:
+    """Which rule a coverage check passes under -- "both" | "percentage" |
+    "floor" | None (refused) -- used both to decide pass/fail and to record
+    *why* in MarketBreadthGateLog. `floor_missing=None` means no floor rule
+    applies at all (the sp500-level gate, unchanged from before this
+    existed: only ever "percentage" or None)."""
+    if constituents <= 0:
+        return None
+    missing = constituents - with_bar
+    pct_ok = coverage_ok(with_bar, constituents)
+    floor_ok = floor_missing is not None and missing <= floor_missing
+    if pct_ok and floor_ok:
+        return "both"
+    if pct_ok:
+        return "percentage"
+    if floor_ok:
+        return "floor"
+    return None
+
+
+def _log_gate_check(
+    universe: str, as_of_date: date, constituents: int, with_bar: int, missing_tickers: list[str], passed: bool, passed_via: str | None
+) -> None:
+    """Writes one MarketBreadthGateLog row -- called for every universe
+    checked each night (sp500 and every sector), whether it passed or was
+    refused, so the sector gate's provisional policy has a real trace to be
+    revisited from later. Own Session/commit, mirroring store_snapshots'
+    style; deliberately never raises on its own (a logging failure must
+    never mask or replace the actual gate outcome)."""
+    with Session(engine) as session:
+        session.add(
+            MarketBreadthGateLog(
+                universe=universe,
+                as_of_date=as_of_date,
+                checked_at=datetime.now(),
+                constituents=constituents,
+                with_bar=with_bar,
+                missing_count=len(missing_tickers),
+                missing_tickers_json=json.dumps(missing_tickers[:MISSING_SAMPLE]),
+                passed=passed,
+                passed_via=passed_via,
+            )
+        )
+        session.commit()
+
+
+def load_sector_buckets(session: Session) -> dict[str, list[str]]:
+    """S&P 500 constituents bucketed by SPDR sector ETF (via SECTOR_TO_ETF),
+    keyed and ordered per data/sector_heatmap_data.py::SECTOR_ETFS so sector
+    processing order and the frontend's tab order agree. A constituent whose
+    `sector` text isn't a recognized key is logged and skipped -- defensive;
+    never hit against the real, fully-scanned DB (see SECTOR_TO_ETF)."""
+    rows = session.exec(select(IndexConstituent).where(IndexConstituent.index_name == "sp500")).all()
+    buckets: dict[str, list[str]] = {etf: [] for etf, _ in SECTOR_ETFS}
+    unmapped: list[str] = []
+    for row in rows:
+        etf = SECTOR_TO_ETF.get(row.sector or "")
+        if etf is None:
+            unmapped.append(f"{row.ticker} ({row.sector!r})")
+            continue
+        buckets[etf].append(row.ticker)
+    if unmapped:
+        logger.warning("Market breadth: %d constituent(s) have an unrecognized sector, excluded from every sector bucket: %s", len(unmapped), unmapped[:MISSING_SAMPLE])
+    return buckets
+
+
+def sector_universe(etf: str) -> str:
+    return f"sector:{etf}"
+
+
 def _resolve_anchor(session_dates: pd.DatetimeIndex, completed_date: date) -> pd.Timestamp | None:
     """The latest session, across every fetched ticker, that is not after
     the last COMPLETED session -- the sector heatmap's rule: taking it from
@@ -95,16 +224,17 @@ def _resolve_anchor(session_dates: pd.DatetimeIndex, completed_date: date) -> pd
     return eligible.max() if len(eligible) else None
 
 
-def _row_values(snapshot: pd.Series, as_of: pd.Timestamp, computed_at: datetime, is_backfilled: bool) -> dict:
+def _row_values(snapshot: pd.Series, as_of: pd.Timestamp, computed_at: datetime, is_backfilled: bool, universe: str = UNIVERSE) -> dict:
     """One snapshot_frame row as plain-Python column values (numpy scalars
-    cannot be bound by sqlite3; a NaN percentage becomes NULL)."""
+    cannot be bound by sqlite3; a NaN percentage becomes NULL). `universe`
+    defaults to "sp500"; the sector path passes sector_universe(etf)."""
 
     def pct(name: str) -> float | None:
         value = snapshot[name]
         return None if pd.isna(value) else float(value)
 
     return {
-        "universe": UNIVERSE,
+        "universe": universe,
         "as_of_date": as_of.date(),
         "computed_at": computed_at,
         "constituents": int(snapshot["constituents"]),
@@ -204,15 +334,27 @@ def fill_missing_sma20(values: list[dict], dry_run: bool = False) -> int:
     return len(rows)
 
 
-async def compute_and_store_market_breadth(tickers: list[str], completed_date: date | None = None) -> dict:
+async def compute_and_store_market_breadth(
+    tickers: list[str], completed_date: date | None = None, sector_tickers: dict[str, list[str]] | None = None
+) -> dict:
     """Computes the latest completed session's breadth row for `tickers`
     (the caller resolves the universe -- pipeline/nightly_market_breadth.py
     passes load_sp500_tickers) and upserts it. `completed_date` (default:
     derived from the clock) is a testing/manual-run seam.
 
+    `sector_tickers` (default None -- every existing caller/test that omits
+    it is unaffected) additionally computes and stores a "sector:<ETF>" row
+    per entry, reusing the SAME bars/flags already fetched/computed for
+    `tickers` above -- no second fetch, no second per-ticker rolling pass,
+    see load_sector_buckets. Each sector is gated independently
+    (sector_coverage_ok) and isolated: a refused sector is logged and
+    skipped, never raised, so it can't block the other sectors' rows that
+    night -- see _process_sectors.
+
     Raises RuntimeError when there are no tickers or no bars at all, and
     InsufficientCoverageError when fewer than MIN_COVERAGE of the tickers
-    have a bar on the anchor session -- in both cases nothing is written."""
+    have a bar on the anchor session -- in both cases nothing is written,
+    including no sector rows (the sp500-level gate runs first)."""
     if not tickers:
         raise RuntimeError("Market breadth: empty universe -- run scrapers.refresh_sp500_list first")
     completed = completed_date or _most_recent_completed_trading_date()
@@ -227,15 +369,18 @@ async def compute_and_store_market_breadth(tickers: list[str], completed_date: d
 
     missing = sorted(t for t in tickers if t not in flags or anchor not in flags[t].index)
     with_bar = len(tickers) - len(missing)
-    if not coverage_ok(with_bar, len(tickers)):
+    rule = _gate_rule(with_bar, len(tickers), floor_missing=None)
+    _log_gate_check(UNIVERSE, anchor.date(), len(tickers), with_bar, missing, passed=rule is not None, passed_via=rule)
+    if rule is None:
         raise InsufficientCoverageError(
             f"Market breadth: only {with_bar}/{len(tickers)} constituents ({with_bar / len(tickers):.1%}) have a bar on "
             f"{anchor.date()}, below the {MIN_COVERAGE:.0%} coverage gate -- not saving a skewed row. "
             f"Missing: {missing[:MISSING_SAMPLE]}{' ...' if len(missing) > MISSING_SAMPLE else ''}"
         )
 
+    computed_at = datetime.now()
     snapshot = snapshot_frame(counts.loc[[anchor]], len(tickers)).iloc[0]
-    values = _row_values(snapshot, anchor, datetime.now(), is_backfilled=False)
+    values = _row_values(snapshot, anchor, computed_at, is_backfilled=False)
     store_snapshots([values], overwrite=True)
 
     if missing:
@@ -261,7 +406,48 @@ async def compute_and_store_market_breadth(tickers: list[str], completed_date: d
         None if values["pct_above_sma200"] is None else round(values["pct_above_sma200"], 1),
         values["net_new_highs"],
     )
+
+    if sector_tickers:
+        summary["sectors"] = _process_sectors(sector_tickers, flags, anchor, computed_at)
     return summary
+
+
+def _process_sectors(sector_tickers: dict[str, list[str]], flags: dict[str, pd.DataFrame], anchor: pd.Timestamp, computed_at: datetime) -> dict:
+    """One sector:<ETF> row per entry in `sector_tickers`, reusing the
+    already-computed `flags` (sliced per sector, then aggregated -- cheap
+    summation, no re-fetch/re-roll). Each sector is gated and logged
+    independently; a refused sector is skipped (never raised) so it can't
+    block the others. Returns {etf: {passed, constituents, with_bar,
+    gate_rule|missing}}."""
+    results: dict[str, dict] = {}
+    for etf, tickers in sector_tickers.items():
+        universe = sector_universe(etf)
+        constituents = len(tickers)
+        sub_flags = {t: flags[t] for t in tickers if t in flags}
+        counts = aggregate_flags(sub_flags)
+        with_bar = int(counts.loc[anchor, "with_bar"]) if anchor in counts.index else 0
+        missing = sorted(t for t in tickers if t not in flags or anchor not in flags[t].index)
+
+        rule = _gate_rule(with_bar, constituents, floor_missing=SECTOR_COVERAGE_FLOOR_MISSING)
+        _log_gate_check(universe, anchor.date(), constituents, with_bar, missing, passed=rule is not None, passed_via=rule)
+
+        if rule is None or anchor not in counts.index:
+            results[etf] = {"passed": False, "constituents": constituents, "with_bar": with_bar, "missing": missing[:MISSING_SAMPLE]}
+            logger.warning(
+                "Market breadth (%s): refused -- %d/%d constituents have a bar on %s. Missing: %s",
+                universe, with_bar, constituents, anchor.date(), missing[:MISSING_SAMPLE],
+            )
+            continue
+
+        snapshot = snapshot_frame(counts.loc[[anchor]], constituents).iloc[0]
+        values = _row_values(snapshot, anchor, computed_at, is_backfilled=False, universe=universe)
+        store_snapshots([values], overwrite=True)
+        results[etf] = {"passed": True, "constituents": constituents, "with_bar": with_bar, "gate_rule": rule, "pct_above_sma50": values["pct_above_sma50"]}
+
+    refused = [etf for etf, r in results.items() if not r["passed"]]
+    if refused:
+        logger.warning("Market breadth: %d/%d sector(s) refused this run: %s", len(refused), len(results), refused)
+    return results
 
 
 def load_cached_daily_bars(tickers: list[str]) -> dict[str, pd.DataFrame]:
@@ -305,6 +491,63 @@ def build_backfill_rows(
     return values, summary
 
 
+def _sector_keep_mask(present: pd.Series, constituents: int) -> pd.Series:
+    """Vectorized counterpart to sector_coverage_ok, for the backfill's
+    per-session keep mask: passes where at most SECTOR_COVERAGE_FLOOR_MISSING
+    are missing OR coverage is >= MIN_COVERAGE, whichever is more permissive."""
+    missing = constituents - present
+    return (missing <= SECTOR_COVERAGE_FLOOR_MISSING) | (present / constituents >= MIN_COVERAGE)
+
+
+def build_sector_backfill_rows(
+    bars: dict[str, pd.DataFrame], sector_tickers: dict[str, list[str]], completed_date: date, computed_at: datetime | None = None
+) -> tuple[list[dict], dict[str, dict]]:
+    """Per-sector counterpart to build_backfill_rows, reusing the SAME
+    already-loaded `bars` (no separate read -- bars is typically the full
+    sp500 load_cached_daily_bars() result, sliced per sector here) and
+    `sector_tickers` (load_sector_buckets). A session is kept only if it
+    clears the sector's own more-permissive OR-gate (sector_coverage_ok) on
+    BOTH legs build_backfill_rows already gates on: bar presence AND
+    52-week eligibility -- the same AND-of-two-legs shape, just each leg is
+    the sector's own OR condition instead of a flat percentage. Not logged
+    to MarketBreadthGateLog -- that table tracks the nightly job's ongoing
+    gate behavior, not this one-time historical backfill's own (already
+    reported, in this summary) keep-mask.
+
+    Returns (every kept row across every sector, combined into one list for
+    store_snapshots), {etf: {sessions_seen, kept, first_date, last_date}})."""
+    computed_at = computed_at or datetime.now()
+    all_values: list[dict] = []
+    summaries: dict[str, dict] = {}
+    for etf, tickers in sector_tickers.items():
+        constituents = len(tickers)
+        if constituents == 0:
+            summaries[etf] = {"sessions_seen": 0, "kept": 0, "first_date": None, "last_date": None}
+            continue
+        sub_bars = {t: bars[t] for t in tickers if t in bars}
+        counts = aggregate_flags(ticker_flags(sub_bars))
+        if counts.empty:  # no bars at all for this sector -- checked before the date filter, whose index dtype assumes a real DatetimeIndex
+            summaries[etf] = {"sessions_seen": 0, "kept": 0, "first_date": None, "last_date": None}
+            continue
+        counts = counts[counts.index <= pd.Timestamp(completed_date)]
+        if counts.empty:
+            summaries[etf] = {"sessions_seen": 0, "kept": 0, "first_date": None, "last_date": None}
+            continue
+
+        snapshot = snapshot_frame(counts, constituents)
+        keep = _sector_keep_mask(counts["with_bar"], constituents) & _sector_keep_mask(counts["hl_eligible"], constituents)
+        kept = snapshot[keep]
+        values = [_row_values(row, as_of, computed_at, is_backfilled=True, universe=sector_universe(etf)) for as_of, row in kept.iterrows()]
+        all_values.extend(values)
+        summaries[etf] = {
+            "sessions_seen": len(counts),
+            "kept": len(values),
+            "first_date": kept.index.min().date().isoformat() if len(kept) else None,
+            "last_date": kept.index.max().date().isoformat() if len(kept) else None,
+        }
+    return all_values, summaries
+
+
 def _point(row: MarketBreadthSnapshot) -> MarketBreadthPointOut:
     return MarketBreadthPointOut(
         as_of_date=row.as_of_date,
@@ -327,18 +570,20 @@ def _point(row: MarketBreadthSnapshot) -> MarketBreadthPointOut:
     )
 
 
-def get_market_breadth() -> MarketBreadthOut:
-    """Reads the persisted history -- never computes live. Empty (latest/
-    as_of_date/computed_at None, series []) before any row exists, never an
-    error. The whole series is returned, oldest first: a row is ~100 bytes
-    and the table is never pruned, so a few thousand points at most."""
+def get_market_breadth(universe: str = UNIVERSE) -> MarketBreadthOut:
+    """Reads the persisted history for `universe` ("sp500" or a
+    "sector:<ETF>" value) -- never computes live. Empty (latest/as_of_date/
+    computed_at None, series []) before any row exists for that universe,
+    never an error -- including an unrecognized universe string. The whole
+    series is returned, oldest first: a row is ~100 bytes and the table is
+    never pruned, so a few thousand points at most."""
     with Session(engine) as session:
         rows = session.exec(
-            select(MarketBreadthSnapshot).where(MarketBreadthSnapshot.universe == UNIVERSE).order_by(MarketBreadthSnapshot.as_of_date)
+            select(MarketBreadthSnapshot).where(MarketBreadthSnapshot.universe == universe).order_by(MarketBreadthSnapshot.as_of_date)
         ).all()
     if not rows:
-        return MarketBreadthOut(universe=UNIVERSE, as_of_date=None, computed_at=None, latest=None, series=[])
+        return MarketBreadthOut(universe=universe, as_of_date=None, computed_at=None, latest=None, series=[])
     series = [_point(row) for row in rows]
     return MarketBreadthOut(
-        universe=UNIVERSE, as_of_date=rows[-1].as_of_date, computed_at=rows[-1].computed_at, latest=series[-1], series=series
+        universe=universe, as_of_date=rows[-1].as_of_date, computed_at=rows[-1].computed_at, latest=series[-1], series=series
     )

@@ -5,7 +5,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from core.models import MarketBreadthSnapshot
+from core.models import MarketBreadthGateLog, MarketBreadthSnapshot
 
 
 def _row(universe="sp500", as_of=date(2026, 9, 18), **overrides) -> MarketBreadthSnapshot:
@@ -96,3 +96,34 @@ def test_init_db_style_sweep_adds_the_sma20_columns_to_a_table_that_predates_the
     with Session(engine) as session:
         row = session.exec(select(MarketBreadthSnapshot)).one()
     assert row.pct_above_sma50 == 27.8 and row.sma20_eligible is None  # existing data untouched, new columns NULL
+
+
+def _log(universe="sp500", as_of=date(2026, 9, 22), **overrides) -> MarketBreadthGateLog:
+    fields = dict(
+        universe=universe, as_of_date=as_of, checked_at=datetime(2026, 9, 22, 3, 35), constituents=20, with_bar=19, missing_count=1,
+        missing_tickers_json="[\"AAA\"]", passed=True, passed_via="floor",
+    )
+    fields.update(overrides)
+    return MarketBreadthGateLog(**fields)
+
+
+def test_gate_log_is_append_only_and_allows_repeated_universe_date_pairs():
+    # No UniqueConstraint -- a run history, not a dedup'd table -- so two rows for the same
+    # (universe, as_of_date) (e.g. a re-checked run) can coexist rather than colliding.
+    engine = create_engine("sqlite://")
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(_log())
+        session.add(_log())
+        session.commit()
+        assert len(session.exec(select(MarketBreadthGateLog)).all()) == 2
+
+
+def test_gate_log_passed_via_is_nullable_for_a_refused_check():
+    engine = create_engine("sqlite://")
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(_log(passed=False, passed_via=None, missing_count=5, missing_tickers_json="[]"))
+        session.commit()
+        stored = session.exec(select(MarketBreadthGateLog)).one()
+    assert stored.passed is False and stored.passed_via is None

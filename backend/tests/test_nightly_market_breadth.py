@@ -9,9 +9,15 @@ from sqlmodel import Session, SQLModel, create_engine, select
 import data.market_breadth_data as market_breadth_data
 import pipeline.nightly_market_breadth as nightly_market_breadth
 from core.models import IndexConstituent, MarketBreadthSnapshot
+from data.sector_heatmap_data import SECTOR_ETFS
 
 
-def _fresh_engine(monkeypatch, tmp_path, constituents: list[tuple[str, str]]):
+def _fresh_engine(monkeypatch, tmp_path, constituents: list[tuple[str, str]], sectors: dict[str, str] | None = None):
+    """`sectors` optionally maps ticker -> a real IndexConstituent.sector string (e.g. "Technology") so
+    load_sector_buckets has something real to bucket; omitted entirely, every row's `sector` stays NULL
+    (unmapped, so load_sector_buckets returns 11 empty buckets -- fine for tests that don't care about
+    sectors at all)."""
+    sectors = sectors or {}
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(market_breadth_data, "engine", engine)
@@ -21,7 +27,11 @@ def _fresh_engine(monkeypatch, tmp_path, constituents: list[tuple[str, str]]):
     monkeypatch.setattr(market_breadth_data, "_most_recent_completed_trading_date", lambda: date(2026, 9, 18))
     with Session(engine) as session:
         for index_name, ticker in constituents:
-            session.add(IndexConstituent(index_name=index_name, ticker=ticker, company_name=ticker, last_synced_at=datetime(2026, 9, 20)))
+            session.add(
+                IndexConstituent(
+                    index_name=index_name, ticker=ticker, company_name=ticker, sector=sectors.get(ticker), last_synced_at=datetime(2026, 9, 20)
+                )
+            )
         session.commit()
     return engine
 
@@ -68,3 +78,22 @@ def test_main_propagates_a_coverage_failure_so_the_heartbeat_sees_it(monkeypatch
         asyncio.run(nightly_market_breadth.main())
     with Session(engine) as session:
         assert session.exec(select(MarketBreadthSnapshot)).all() == []
+
+
+def test_main_also_computes_and_stores_sector_rows(monkeypatch, tmp_path):
+    constituents = [("sp500", "AAA"), ("sp500", "BBB"), ("sp500", "CCC")]
+    sectors = {"AAA": "Technology", "BBB": "Technology", "CCC": "Energy"}
+    engine = _fresh_engine(monkeypatch, tmp_path, constituents, sectors=sectors)
+    _patch_bars(monkeypatch, [])
+
+    summary = asyncio.run(nightly_market_breadth.main())
+
+    assert summary["sectors"]["XLK"]["passed"] is True and summary["sectors"]["XLK"]["constituents"] == 2
+    assert summary["sectors"]["XLE"]["passed"] is True and summary["sectors"]["XLE"]["constituents"] == 1
+    # Every other one of the 11 SPDR ETFs is present too, just empty (0 constituents) -- refused, not crashed.
+    assert set(summary["sectors"]) == {etf for etf, _ in SECTOR_ETFS}
+
+    with Session(engine) as session:
+        universes = {row.universe for row in session.exec(select(MarketBreadthSnapshot)).all()}
+    assert {"sp500", "sector:XLK", "sector:XLE"} <= universes
+    assert "sector:XLF" not in universes  # empty bucket -- 0 constituents, refused, no row
