@@ -1,3 +1,5 @@
+import { Warning } from "@phosphor-icons/react";
+
 import { fmtSwingDate } from "@/components/technical/ChecklistCard";
 import {
   formatWeinsteinSince,
@@ -88,6 +90,14 @@ export function WeinsteinStagePill({ data, variant = "chip", labelSet = "full" }
       title={buildTooltip(data)}
     >
       {LABEL_SETS[labelSet][stage]}
+      {/* Pending confirmation -- without this, the extra tooltip line
+          buildTooltip appends is invisible (a native `title` attribute
+          gives no visual cue at all that there's more to hover for), so
+          the pill would silently disagree with the fuller pending block on
+          the Technical tab. A plain amber glyph, not colored to match the
+          pill's own stage color, since "pending" is a caution independent
+          of whatever stage is currently showing. */}
+      {data.pending && <Warning size={12} weight="fill" className="shrink-0 text-warn" aria-hidden="true" />}
     </span>
   );
 }
