@@ -8,7 +8,7 @@ import type { SectorHeatmapOut } from "@/lib/api/types";
 
 afterEach(cleanup);
 
-const WINDOWS = ["1w", "1m", "3m", "6m", "9m", "ytd", "1y"];
+const WINDOWS = ["1d", "1w", "1m", "3m", "6m", "9m", "ytd", "1y"];
 const cells = () => Object.fromEntries(WINDOWS.map((w) => [w, { return_pct: 4.25, base_date: "2025-12-31" }]));
 
 const LOADED: SectorHeatmapOut = {

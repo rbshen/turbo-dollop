@@ -7,7 +7,7 @@ import type { SectorHeatmapOut } from "@/lib/api/types";
 
 afterEach(cleanup);
 
-const WINDOWS = ["1w", "1m", "3m", "6m", "9m", "ytd", "1y"];
+const WINDOWS = ["1d", "1w", "1m", "3m", "6m", "9m", "ytd", "1y"];
 
 function makeRow(ticker: string, name: string, byWindow: Record<string, number | null>) {
   return {
@@ -38,7 +38,7 @@ describe("SectorHeatmapGrid", () => {
   it("renders one column header per window plus Sector, and one row per ETF", () => {
     render(<SectorHeatmapGrid data={DATA} />);
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent?.replace(/\s*[↑↓]$/, ""))).toEqual([
-      "Sector", "1W", "1M", "3M", "6M", "9M", "YTD", "1Y",
+      "Sector", "1D", "1W", "1M", "3M", "6M", "9M", "YTD", "1Y",
     ]);
     expect(screen.getAllByRole("rowheader")).toHaveLength(3);
   });

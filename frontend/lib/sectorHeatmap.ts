@@ -11,7 +11,16 @@ export interface HeatmapSort {
 // lagging as 1Y. Open to revision -- header clicks re-sort on any window.
 export const DEFAULT_HEATMAP_SORT: HeatmapSort = { window: "3m", direction: "desc" };
 
-const WINDOW_LABELS: Record<string, string> = { "1w": "1W", "1m": "1M", "3m": "3M", "6m": "6M", "9m": "9M", ytd: "YTD", "1y": "1Y" };
+const WINDOW_LABELS: Record<string, string> = {
+  "1d": "1D",
+  "1w": "1W",
+  "1m": "1M",
+  "3m": "3M",
+  "6m": "6M",
+  "9m": "9M",
+  ytd: "YTD",
+  "1y": "1Y",
+};
 
 export function windowLabel(window: string): string {
   return WINDOW_LABELS[window] ?? window.toUpperCase();

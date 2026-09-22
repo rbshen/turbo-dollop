@@ -23,7 +23,9 @@ const ROWS = [row("AAA", { "1m": 5, "3m": -10 }), row("BBB", { "1m": -2, "3m": 2
 
 describe("windowLabel", () => {
   it("upper-cases the window keys and spells YTD", () => {
-    expect(["1w", "1m", "3m", "6m", "9m", "ytd", "1y"].map(windowLabel)).toEqual(["1W", "1M", "3M", "6M", "9M", "YTD", "1Y"]);
+    expect(["1d", "1w", "1m", "3m", "6m", "9m", "ytd", "1y"].map(windowLabel)).toEqual([
+      "1D", "1W", "1M", "3M", "6M", "9M", "YTD", "1Y",
+    ]);
   });
 });
 
