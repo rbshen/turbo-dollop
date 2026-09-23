@@ -48,6 +48,7 @@ from core.logging_config import configure_logging
 from core.tickers import normalize_ticker
 from data.trend_analysis_data import LOOKBACK_DAYS, compute_and_store_from_frames
 from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
+from pipeline.stale_data_health_check import load_delisted_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_trend_calculation.log"
 
@@ -57,20 +58,32 @@ logger = logging.getLogger(__name__)
 async def main(tickers: list[str] | None = None) -> dict:
     """`tickers=None` means "use the full tracked universe" -- passing an
     explicit list (used by the CLI's --limit/--tickers and by tests)
-    bypasses the DB lookup entirely. Returns the run summary dict so tests
-    can assert on it directly rather than scraping the log."""
+    bypasses the DB lookup entirely, including the delisted-ticker skip
+    below. Returns the run summary dict so tests can assert on it directly
+    rather than scraping the log."""
     configure_logging(LOG_PATH)
     init_db()
 
+    skipped_delisted: list[str] = []
     if tickers is None:
         with Session(engine) as session:
             tickers = load_full_tracked_universe(session)
+            delisted = load_delisted_tickers(session)
+        if delisted:
+            skipped_delisted = sorted(set(tickers) & delisted)
+            tickers = [t for t in tickers if t not in delisted]
 
     if not tickers:
         logger.error("No tickers to process -- run refresh_sp500_list.py/refresh_dow_list.py first, or pass an explicit ticker list.")
-        return {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "stale_count": 0, "fallback_count": 0}
+        return {
+            "processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "stale_count": 0,
+            "fallback_count": 0, "skipped_delisted_count": len(skipped_delisted),
+        }
 
-    logger.info("Starting nightly trend-structure calculation for %d tickers.", len(tickers))
+    logger.info(
+        "Starting nightly trend-structure calculation for %d tickers (%d skipped as delisted).",
+        len(tickers), len(skipped_delisted),
+    )
     start_time = time.monotonic()
 
     # WEINSTEIN_BENCHMARK_TICKER (SPY) rides along in the SAME batch fetch
@@ -128,6 +141,7 @@ async def main(tickers: list[str] | None = None) -> dict:
         "failures": failures,
         "stale_count": stale_count,
         "fallback_count": len(fallback_tickers),
+        "skipped_delisted_count": len(skipped_delisted),
     }
 
 
@@ -157,5 +171,5 @@ if __name__ == "__main__":
         summary = asyncio.run(main(_resolve_cli_tickers(cli_args)))
         run.message = (
             f"{summary['processed']} tickers, {summary['stale_count']} still stale after fetch, "
-            f"{summary['fallback_count']} fell back to Yahoo"
+            f"{summary['fallback_count']} fell back to Yahoo, {summary['skipped_delisted_count']} skipped as delisted"
         )

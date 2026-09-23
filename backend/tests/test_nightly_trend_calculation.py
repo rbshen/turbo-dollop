@@ -70,6 +70,45 @@ def test_main_sweeps_the_full_tracked_universe_when_no_tickers_passed(monkeypatc
     assert {t for t, _ in store_calls} == {"IREN", "SEZL"}
     assert summary["processed"] == 2
     assert summary["failed"] == 0
+    assert summary["skipped_delisted_count"] == 0
+
+
+def test_main_skips_a_ticker_flagged_as_delisted(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="TWTR", overall_score=50, computed_at=datetime.now(), delisted_at=datetime.now()))
+        session.add(TickerScore(ticker="AAPL", overall_score=90, computed_at=datetime.now()))
+        session.commit()
+
+    batch_calls = _patch_batch_fetch(monkeypatch, {"AAPL": [1]})
+    store_calls = _patch_store(monkeypatch)
+
+    summary = asyncio.run(nightly_trend.main(tickers=None))
+
+    # TWTR must never reach the batch fetch or the per-ticker compute step.
+    assert "TWTR" not in batch_calls[0][0]
+    assert {t for t, _ in store_calls} == {"AAPL"}
+    assert summary["processed"] == 1
+    assert summary["skipped_delisted_count"] == 1
+
+
+def test_explicit_ticker_list_bypasses_the_delisted_skip(monkeypatch, tmp_path):
+    # An explicit --tickers/--limit override is a deliberate manual/test
+    # escape hatch (see main's own docstring) -- it bypasses the DB-derived
+    # universe entirely, including the delisted skip.
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="TWTR", overall_score=50, computed_at=datetime.now(), delisted_at=datetime.now()))
+        session.commit()
+
+    batch_calls = _patch_batch_fetch(monkeypatch, {"TWTR": [1]})
+    _patch_store(monkeypatch)
+
+    summary = asyncio.run(nightly_trend.main(tickers=["TWTR"]))
+
+    assert "TWTR" in batch_calls[0][0]
+    assert summary["processed"] == 1
+    assert summary["skipped_delisted_count"] == 0
 
 
 def test_main_uses_explicit_ticker_list_when_passed(monkeypatch, tmp_path):
@@ -137,6 +176,7 @@ def test_empty_universe_returns_zero_summary_without_calling_batch_fetch(monkeyp
 
     assert summary == {
         "processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "stale_count": 0, "fallback_count": 0,
+        "skipped_delisted_count": 0,
     }
     assert batch_calls == []
 
