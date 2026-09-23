@@ -259,7 +259,17 @@ def _write_rows(session: Session, ticker: str, interval: str, df: pd.DataFrame, 
     execute loop, the shape YahooPriceCache._write_rows uses for a few
     hundred daily rows, was measured to dominate this module's cost at
     intraday volumes -- ~3,500 rows/ticker x ~100 tickers -- so it's
-    batched here.)"""
+    batched here.)
+
+    `df` must already have lowercase open/high/low/close/volume columns --
+    this module's single normalized contract for every source (matching
+    _load_frames' own read-side shape) since the 2026-09-23 Massive
+    migration added a second provider whose own natural casing
+    (clients/massive_client.py) differs from yfinance's native
+    Open/High/Low/Close/Volume. Every caller of this function (both the
+    "1d" DailyBarSource path, clients/daily_bar_sources.py, and the "60m"
+    Yahoo-only path below) lowercases at its own fetch boundary before
+    reaching here, so this function itself never branches on source."""
     index = pd.DatetimeIndex(df.index)
     if index.tz is not None:
         # Re-express in Eastern wall-clock time before dropping tzinfo --
@@ -267,15 +277,15 @@ def _write_rows(session: Session, ticker: str, interval: str, df: pd.DataFrame, 
         # is a no-op in practice, but guards against a future caller
         # whose raw fetch came back in a different tz.
         index = index.tz_convert(_EASTERN).tz_localize(None)
-    volume = df["Volume"].fillna(0).astype("int64").tolist()
+    volume = df["volume"].fillna(0).astype("int64").tolist()
     values = [
         {
             "ticker": ticker, "interval": interval, "bar_time": bar_time, "open": o, "high": h, "low": low,
             "close": c, "volume": v, "fetched_at": fetched_at,
         }
         for bar_time, o, h, low, c, v in zip(
-            index.to_pydatetime(), df["Open"].astype(float).tolist(), df["High"].astype(float).tolist(),
-            df["Low"].astype(float).tolist(), df["Close"].astype(float).tolist(), volume,
+            index.to_pydatetime(), df["open"].astype(float).tolist(), df["high"].astype(float).tolist(),
+            df["low"].astype(float).tolist(), df["close"].astype(float).tolist(), volume,
         )
     ]
     if not values:
@@ -427,7 +437,11 @@ async def get_or_fetch_bars_batch(
                 by_period.setdefault(_period_for(interval, days), []).append(ticker)
             for period, group in by_period.items():
                 batch = await yahoo_client.get_history(group, period=period, interval=interval, auto_adjust=auto_adjust)
-                fetched.update(batch)
+                # yfinance's own native Open/High/Low/Close/Volume casing ->
+                # this module's lowercase write-boundary contract (see
+                # _write_rows' own docstring) -- unrelated to the values
+                # themselves, which are completely unchanged.
+                fetched.update({t: df.rename(columns=str.lower) for t, df in batch.items()})
         with Session(engine) as session:
             for ticker, df in fetched.items():
                 if df is not None and not df.empty:

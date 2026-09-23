@@ -113,7 +113,13 @@ class YahooDailySource:
         result: dict[str, pd.DataFrame] = {}
         for period, group in by_period.items():
             fetched = await yahoo_client.get_history(group, period=period, interval=DAILY_INTERVAL, auto_adjust=auto_adjust)
-            result.update(fetched)
+            # yfinance's own native Open/High/Low/Close/Volume casing ->
+            # this Protocol's normalized lowercase contract (see
+            # DailyBarSource's own docstring) -- MassiveDailySource's
+            # underlying clients/massive_client.py already returns
+            # lowercase natively, so this is the one source that needs an
+            # explicit rename to honor the shared contract.
+            result.update({t: df.rename(columns=str.lower) for t, df in fetched.items()})
         return result
 
 
