@@ -501,11 +501,16 @@ class LiquidityZoneAnalysis(SQLModel, table=True):
 
 
 class IndexConstituent(SQLModel, table=True):
-    """A ticker's membership in a named index (e.g. "sp500"), scraped from
-    Wikipedia since FMP's own constituents endpoint is unavailable on this
-    plan (see sp500_scraper.py). Refreshed weekly, independent of the
-    nightly per-ticker fundamentals fetch -- index membership changes a
-    handful of times a year, not nightly."""
+    """A ticker's membership in a named index ("sp500" / "dow" / "nasdaq").
+    Populated directly from FMP's own dedicated constituent endpoints
+    (/sp500-constituent, /dowjones-constituent, /nasdaq-constituent) via the
+    shared scrapers/index_scraper.py pipeline -- not scraped from Wikipedia;
+    that was the original approach before FMP Ultimate's constituent
+    endpoints became available on this plan (confirmed live 2026-09-15 for
+    sp500/dow, 2026-09-23 for nasdaq -- see git history for the Wikipedia
+    implementation). Refreshed weekly (see crontab.txt), gated by
+    FMP_ENABLED, independent of the nightly per-ticker fundamentals fetch --
+    index membership changes a handful of times a year, not nightly."""
 
     __table_args__ = (UniqueConstraint("index_name", "ticker", name="uq_index_constituent"),)
 
@@ -515,9 +520,8 @@ class IndexConstituent(SQLModel, table=True):
     company_name: str
     sector: str | None = None
     sub_industry: str | None = None
-    # Wikipedia's own text for this column -- not always a clean single
-    # date (some rows note a re-added date or a range), stored verbatim
-    # rather than force-parsed.
+    # FMP's own dateFirstAdded text for this column, stored verbatim rather
+    # than force-parsed (not always present for every row).
     date_added: str | None = None
     last_synced_at: datetime
 

@@ -13,6 +13,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import core.cron_health as cron_health
 import scrapers.refresh_dow_list as refresh_dow_list
+import scrapers.refresh_nasdaq_list as refresh_nasdaq_list
 import scrapers.refresh_sp500_list as refresh_sp500_list
 from core.models import CronRunLog
 from scrapers.index_scraper import SyncResult
@@ -31,6 +32,7 @@ def _fresh_engine(monkeypatch, *modules):
     [
         (refresh_dow_list, "refresh_dow_constituents", "scrapers.refresh_dow_list"),
         (refresh_sp500_list, "refresh_sp500_constituents", "scrapers.refresh_sp500_list"),
+        (refresh_nasdaq_list, "refresh_nasdaq_constituents", "scrapers.refresh_nasdaq_list"),
     ],
 )
 def test_main_raises_when_sync_result_is_failure(monkeypatch, module, refresh_attr, job_name):
@@ -50,6 +52,7 @@ def test_main_raises_when_sync_result_is_failure(monkeypatch, module, refresh_at
     [
         (refresh_dow_list, "refresh_dow_constituents", "scrapers.refresh_dow_list"),
         (refresh_sp500_list, "refresh_sp500_constituents", "scrapers.refresh_sp500_list"),
+        (refresh_nasdaq_list, "refresh_nasdaq_constituents", "scrapers.refresh_nasdaq_list"),
     ],
 )
 def test_cron_heartbeat_records_failure_when_sync_result_is_failure(monkeypatch, module, refresh_attr, job_name):
@@ -76,6 +79,7 @@ def test_cron_heartbeat_records_failure_when_sync_result_is_failure(monkeypatch,
     [
         (refresh_dow_list, "refresh_dow_constituents", "scrapers.refresh_dow_list"),
         (refresh_sp500_list, "refresh_sp500_constituents", "scrapers.refresh_sp500_list"),
+        (refresh_nasdaq_list, "refresh_nasdaq_constituents", "scrapers.refresh_nasdaq_list"),
     ],
 )
 def test_cron_heartbeat_records_success_when_sync_result_is_success(monkeypatch, module, refresh_attr, job_name):
@@ -101,6 +105,7 @@ def test_cron_heartbeat_records_success_when_sync_result_is_success(monkeypatch,
     [
         (refresh_dow_list, "refresh_dow_constituents", "scrapers.refresh_dow_list"),
         (refresh_sp500_list, "refresh_sp500_constituents", "scrapers.refresh_sp500_list"),
+        (refresh_nasdaq_list, "refresh_nasdaq_constituents", "scrapers.refresh_nasdaq_list"),
     ],
 )
 def test_main_skips_cleanly_without_calling_refresh_when_fmp_disabled(monkeypatch, module, refresh_attr, job_name):
@@ -125,6 +130,7 @@ def test_main_skips_cleanly_without_calling_refresh_when_fmp_disabled(monkeypatc
     [
         (refresh_dow_list, "refresh_dow_constituents", "scrapers.refresh_dow_list"),
         (refresh_sp500_list, "refresh_sp500_constituents", "scrapers.refresh_sp500_list"),
+        (refresh_nasdaq_list, "refresh_nasdaq_constituents", "scrapers.refresh_nasdaq_list"),
     ],
 )
 def test_cron_heartbeat_records_success_when_fmp_disabled(monkeypatch, module, refresh_attr, job_name):

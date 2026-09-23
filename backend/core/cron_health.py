@@ -44,6 +44,7 @@ CRON_JOB_NAMES: list[str] = [
     "pipeline.nightly_sector_heatmap",
     "pipeline.nightly_market_breadth",
     "scrapers.refresh_sp500_list",
+    "scrapers.refresh_nasdaq_list",
     "scrapers.refresh_dow_list",
     "pipeline.prune_cache",
     "pipeline.rotate_logs",
@@ -76,6 +77,7 @@ _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.nightly_market_breadth": _DAILY_HOURS,
     "pipeline.backup_db": _DAILY_HOURS,
     "scrapers.refresh_sp500_list": _WEEKLY_HOURS,
+    "scrapers.refresh_nasdaq_list": _WEEKLY_HOURS,
     "scrapers.refresh_dow_list": _WEEKLY_HOURS,
     "pipeline.prune_cache": _WEEKLY_HOURS,
     "pipeline.rotate_logs": _WEEKLY_HOURS,
@@ -132,17 +134,18 @@ JOB_METADATA: dict[str, JobMetadata] = {
     ),
     "pipeline.backup_db": JobMetadata("Nightly SQLite backup + rotation", "daily", "3:55 AM", 3 * 60 + 55),
     "scrapers.refresh_sp500_list": JobMetadata("Keeps your S&P 500 stock list up to date", "weekly", "Sun 1:00 AM", 60),
-    "scrapers.refresh_dow_list": JobMetadata("Keeps your Dow Jones stock list up to date", "weekly", "Sun 1:05 AM", 65),
-    "pipeline.prune_cache": JobMetadata("Clears out old cached data to save space", "weekly", "Sun 1:10 AM", 70),
-    "pipeline.rotate_logs": JobMetadata("Rotate/archive backend/logs/ files", "weekly", "Sun 1:15 AM", 75),
+    "scrapers.refresh_nasdaq_list": JobMetadata("Keeps your Nasdaq-100 stock list up to date", "weekly", "Sun 1:05 AM", 65),
+    "scrapers.refresh_dow_list": JobMetadata("Keeps your Dow Jones stock list up to date", "weekly", "Sun 1:10 AM", 70),
+    "pipeline.prune_cache": JobMetadata("Clears out old cached data to save space", "weekly", "Sun 1:15 AM", 75),
+    "pipeline.rotate_logs": JobMetadata("Rotate/archive backend/logs/ files", "weekly", "Sun 1:20 AM", 80),
     "pipeline.audit_fixture_contamination": JobMetadata(
-        "Checks that no test/fake data snuck into the real data", "weekly", "Sun 1:20 AM", 80
+        "Checks that no test/fake data snuck into the real data", "weekly", "Sun 1:25 AM", 85
     ),
     "pipeline.stale_data_health_check": JobMetadata(
-        "Flags stocks whose data hasn't been refreshed recently", "weekly", "Sun 1:25 AM", 85
+        "Flags stocks whose data hasn't been refreshed recently", "weekly", "Sun 1:30 AM", 90
     ),
     "pipeline.purge_invalid_tickers": JobMetadata(
-        "Delete cache rows for confirmed-invalid tickers", "weekly", "Sun 1:30 AM", 90
+        "Delete cache rows for confirmed-invalid tickers", "weekly", "Sun 1:35 AM", 95
     ),
     "pipeline.monthly_price_target_snapshot": JobMetadata(
         "Archive analyst price-target consensus", "monthly", "1st, 3:00 AM", 3 * 60

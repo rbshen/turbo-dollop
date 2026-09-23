@@ -1,6 +1,6 @@
 """Standalone script: nightly fundamentals refresh for every ticker in the
-full tracked universe -- index constituents (S&P 500 + Dow, see
-sp500_scraper.py / dow_scraper.py / IndexConstituent) UNION any ticker with
+full tracked universe -- index constituents (S&P 500 + Dow + Nasdaq-100, see
+sp500_scraper.py / dow_scraper.py / nasdaq_scraper.py / IndexConstituent) UNION any ticker with
 cached FMP data, an existing TickerScore row, or a Watchlist entry (the
 2026-08-06 "index + ever-viewed + watchlisted" decision, see
 load_full_tracked_universe below) -- via the app's existing cache-aware
@@ -85,15 +85,20 @@ def load_dow_tickers(session: Session) -> list[str]:
     return [row.ticker for row in rows]
 
 
+def load_nasdaq_tickers(session: Session) -> list[str]:
+    rows = session.exec(select(IndexConstituent).where(IndexConstituent.index_name == "nasdaq")).all()
+    return [row.ticker for row in rows]
+
+
 def load_universe_tickers(session: Session) -> list[str]:
-    """Union of every index this pipeline covers -- today all 30 Dow
+    """Union of every index this pipeline covers -- most Dow/Nasdaq-100
     constituents also happen to be S&P 500 members, but that's not
-    guaranteed to stay true, and a Dow-only ticker must still get fetched
-    nightly (and get a TickerScore row) once the Screener can filter to a
-    Dow universe. load_sp500_tickers itself stays untouched/sp500-only --
+    guaranteed to stay true, and a Dow- or Nasdaq-only ticker must still get
+    fetched nightly (and get a TickerScore row) once the Screener can filter
+    to that universe. load_sp500_tickers itself stays untouched/sp500-only --
     other callers (bulk_refresh_step4_annual.py) depend on that exact
     scope."""
-    return sorted(set(load_sp500_tickers(session)) | set(load_dow_tickers(session)))
+    return sorted(set(load_sp500_tickers(session)) | set(load_dow_tickers(session)) | set(load_nasdaq_tickers(session)))
 
 
 def load_full_tracked_universe(session: Session) -> list[str]:

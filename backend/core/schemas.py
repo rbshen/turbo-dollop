@@ -1061,7 +1061,7 @@ class SavedScreenerFilterOut(BaseModel):
     updated_at: datetime
 
 
-Universe = Literal["sp500", "dow", "all"]
+Universe = Literal["sp500", "dow", "nasdaq", "all"]
 
 MomentumPeriod = Literal["current", "previous"]
 

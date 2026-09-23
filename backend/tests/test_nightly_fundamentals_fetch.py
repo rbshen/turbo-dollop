@@ -57,19 +57,23 @@ def test_load_sp500_tickers_reads_from_the_index_constituent_table(monkeypatch, 
     assert set(tickers) == {"AAPL", "MSFT"}
 
 
-def test_load_universe_tickers_unions_sp500_and_dow_without_duplicates(monkeypatch, tmp_path):
+def test_load_universe_tickers_unions_sp500_dow_and_nasdaq_without_duplicates(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
     with Session(engine) as session:
         session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime.now()))
-        # AMGN is in both lists today -- must appear once, not twice.
+        # AMGN is in both sp500 and dow today -- must appear once, not twice.
         session.add(IndexConstituent(index_name="sp500", ticker="AMGN", company_name="Amgen", last_synced_at=datetime.now()))
         session.add(IndexConstituent(index_name="dow", ticker="AMGN", company_name="Amgen", last_synced_at=datetime.now()))
         session.add(IndexConstituent(index_name="dow", ticker="MMM", company_name="3M", last_synced_at=datetime.now()))
+        # ADBE: nasdaq-only, not in sp500 or dow at all -- must still show up.
+        session.add(IndexConstituent(index_name="nasdaq", ticker="ADBE", company_name="Adobe", last_synced_at=datetime.now()))
+        # AAPL is also in nasdaq -- confirms the union dedupes across all three, not just two.
+        session.add(IndexConstituent(index_name="nasdaq", ticker="AAPL", company_name="Apple", last_synced_at=datetime.now()))
         session.commit()
 
         tickers = nightly.load_universe_tickers(session)
 
-    assert sorted(tickers) == ["AAPL", "AMGN", "MMM"]
+    assert sorted(tickers) == ["AAPL", "ADBE", "AMGN", "MMM"]
 
 
 def test_load_full_tracked_universe_unions_index_score_cache_and_watchlist_tickers(monkeypatch, tmp_path):

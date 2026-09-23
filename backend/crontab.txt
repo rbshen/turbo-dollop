@@ -116,41 +116,54 @@
 # worst case) and the 3:55 backup.
 50 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_score_recompute >> /home/shen/fathom/backend/logs/nightly_score_recompute_cron.log 2>&1
 
-# Weekly S&P 500 constituent list refresh (Wikipedia scrape), Sundays at
-# 1:00 AM server time -- runs before the nightly fetch above so a freshly
-# added/removed ticker is reflected the same night. Index membership only
-# changes a handful of times a year, hence weekly rather than nightly.
+# Weekly S&P 500 constituent list refresh, Sundays at 1:00 AM server time --
+# runs before the nightly fetch above so a freshly added/removed ticker is
+# reflected the same night. Index membership only changes a handful of
+# times a year, hence weekly rather than nightly. Sourced from FMP's own
+# /sp500-constituent endpoint (see sp500_scraper.py) -- not a Wikipedia
+# scrape, since FMP Ultimate's constituent endpoints became available on
+# this plan (confirmed live 2026-09-15).
 0 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m scrapers.refresh_sp500_list >> /home/shen/fathom/backend/logs/sp500_list_refresh_cron.log 2>&1
 
-# Weekly Dow Jones constituent list refresh (Wikipedia scrape), Sundays at
-# 1:05 AM server time -- staggered a few minutes after the S&P 500 refresh
-# above (both still run before the 2 AM nightly fetch) so the two Wikipedia
-# scrapes don't overlap.
-5 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m scrapers.refresh_dow_list >> /home/shen/fathom/backend/logs/dow_list_refresh_cron.log 2>&1
+# Weekly Nasdaq-100 constituent list refresh, Sundays at 1:05 AM server time
+# -- staggered a few minutes after the S&P 500 refresh above (both still run
+# before the 2 AM nightly fetch) so the FMP fetches don't overlap. Sourced
+# from FMP's own /nasdaq-constituent endpoint (see nasdaq_scraper.py,
+# confirmed live 2026-09-23).
+5 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m scrapers.refresh_nasdaq_list >> /home/shen/fathom/backend/logs/nasdaq_list_refresh_cron.log 2>&1
 
-# Weekly maintenance window, Sundays 1:10-1:25 AM -- staggered 5 minutes
-# apart (same pattern as the two list refreshes above), all still ahead of
+# Weekly Dow Jones constituent list refresh, Sundays at 1:10 AM server time
+# -- staggered a few minutes after the S&P 500/Nasdaq-100 refreshes above
+# (both still run before the 2 AM nightly fetch) so the FMP fetches don't
+# overlap. Sourced from FMP's own /dowjones-constituent endpoint (see
+# dow_scraper.py) -- not a Wikipedia scrape, since FMP Ultimate's
+# constituent endpoints became available on this plan (confirmed live
+# 2026-09-15).
+10 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m scrapers.refresh_dow_list >> /home/shen/fathom/backend/logs/dow_list_refresh_cron.log 2>&1
+
+# Weekly maintenance window, Sundays 1:15-1:35 AM -- staggered 5 minutes
+# apart (same pattern as the three list refreshes above), all still ahead of
 # the 2 AM nightly fetch. See backend/OPS_RUNBOOK.md for what each of these
 # does and what to check if one fails.
 
 # Cache pruning: deletes FundamentalsCache rows older than
 # Settings.cache_retention_days (default 180) -- distinct from the 7-day
 # staleness window, which only controls refetching. See pipeline/prune_cache.py.
-10 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.prune_cache >> /home/shen/fathom/backend/logs/prune_cache_cron.log 2>&1
+15 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.prune_cache >> /home/shen/fathom/backend/logs/prune_cache_cron.log 2>&1
 
 # Log rotation for backend/logs/ -- no system logrotate involved, see
 # pipeline/rotate_logs.py's own docstring for why.
-15 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.rotate_logs >> /home/shen/fathom/backend/logs/rotate_logs_cron.log 2>&1
+20 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.rotate_logs >> /home/shen/fathom/backend/logs/rotate_logs_cron.log 2>&1
 
 # Fixture-contamination audit -- promoted from manual-only to a weekly
 # scheduled job (built after the 2026-07-28 PEP/"Acme Corp" incident, see
 # CLAUDE.md's "Ad-hoc reproduction scripts must not touch the real
 # database"). Read-only, never deletes/modifies anything.
-20 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.audit_fixture_contamination >> /home/shen/fathom/backend/logs/audit_fixture_contamination_cron.log 2>&1
+25 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.audit_fixture_contamination >> /home/shen/fathom/backend/logs/audit_fixture_contamination_cron.log 2>&1
 
 # Stale-data health check: reports (not silently) how many universe tickers
 # haven't had a fresh nightly refresh recently. See pipeline/stale_data_health_check.py.
-25 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.stale_data_health_check >> /home/shen/fathom/backend/logs/stale_data_health_check_cron.log 2>&1
+30 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.stale_data_health_check >> /home/shen/fathom/backend/logs/stale_data_health_check_cron.log 2>&1
 
 # Invalid-ticker purge: deletes FundamentalsCache (and any TickerScore) rows
 # for tickers with a confirmed-empty FMP profile fetch (FMP responded, but
@@ -160,7 +173,7 @@
 # permanent dead weight. See pipeline/purge_invalid_tickers.py for the exact
 # criteria and why a real-but-temporarily-unreachable ticker (an FMP outage,
 # a real access-tier gap like BRK.B's known 402) is never a match.
-30 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.purge_invalid_tickers >> /home/shen/fathom/backend/logs/purge_invalid_tickers_cron.log 2>&1
+35 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.purge_invalid_tickers >> /home/shen/fathom/backend/logs/purge_invalid_tickers_cron.log 2>&1
 
 # Monthly price-target-consensus snapshot, 3:00 AM server time on the 1st of
 # each month -- FMP has no historical price-target series of its own (unlike

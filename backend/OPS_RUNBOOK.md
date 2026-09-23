@@ -97,6 +97,7 @@ configured):
 | Nightly market breadth | `nightly_market_breadth.log` / `_cron.log` |
 | Nightly Warren RSI/ADX/WVF entry-signal calculation | `nightly_warren_signal_calculation.log` / `_cron.log` |
 | Weekly S&P 500 list refresh | `sp500_list_refresh.log` / `_cron.log` |
+| Weekly Nasdaq-100 list refresh | `nasdaq_list_refresh.log` / `_cron.log` |
 | Weekly Dow list refresh | `dow_list_refresh.log` / `_cron.log` |
 | Cache pruning | `prune_cache.log` / `_cron.log` |
 | Log rotation | `rotate_logs.log` / `_cron.log` |
@@ -126,7 +127,7 @@ health monitoring" below.
 ## Maintenance scripts (`backend/pipeline/`)
 
 All of the scripts below are wired into `crontab.txt`'s weekly maintenance
-window (Sundays 1:10–1:30 AM), the daily backup at 3:55 AM, or the daily
+window (Sundays 1:15–1:35 AM), the daily backup at 3:55 AM, or the daily
 3:50 AM full-universe score recompute (deliberately last -- it copies the trend/Weinstein, BB+RSI and Warren
 outputs onto `TickerScore`, so it has to run after all three). Each can also be run manually with
 `uv run python -m pipeline.<name>` from `backend/`.
@@ -392,10 +393,11 @@ is a display kill-switch, not a pause of the monitoring itself, useful for
 an extended `FMP_ENABLED=false` window where a second banner alongside
 `FmpPausedBanner` would just be noise the operator already knows about.
 
-## Weekly index constituent refresh (S&P 500 / Dow)
+## Weekly index constituent refresh (S&P 500 / Nasdaq-100 / Dow)
 
-Cron: `crontab.txt`, Sundays 1:00 AM (S&P 500) and 1:05 AM (Dow). Scripts:
-`scrapers/refresh_sp500_list.py`, `scrapers/refresh_dow_list.py`.
+Cron: `crontab.txt`, Sundays 1:00 AM (S&P 500), 1:05 AM (Nasdaq-100), and
+1:10 AM (Dow). Scripts: `scrapers/refresh_sp500_list.py`,
+`scrapers/refresh_nasdaq_list.py`, `scrapers/refresh_dow_list.py`.
 
 **Known failure mode (2026-08-02 -- 2026-08-05): silent `IntegrityError`
 rollback.** A bug in `scrapers/index_scraper.py::sync_index_constituents`
@@ -413,20 +415,21 @@ silently stopped updating, for over two weeks, with no alert.
    succeeded: N tickers stored"` from `scrapers.index_scraper`:
    ```
    tail -20 backend/logs/sp500_list_refresh_cron.log
+   tail -20 backend/logs/nasdaq_list_refresh_cron.log
    tail -20 backend/logs/dow_list_refresh_cron.log
    ```
    A run that instead shows a Python traceback (e.g.
    `sqlalchemy.exc.IntegrityError`) or an `ERROR` line means the sync
    failed and the stored list was left unchanged.
 2. Check `last_synced_at` directly against today's date -- it should
-   never be more than ~7 days stale (both jobs run weekly):
+   never be more than ~7 days stale (all three jobs run weekly):
    ```
    uv run python -c "
    from sqlmodel import Session, select
    from core.db import engine
    from core.models import IndexConstituent
    with Session(engine) as session:
-       for idx in ['sp500', 'dow']:
+       for idx in ['sp500', 'nasdaq', 'dow']:
            rows = session.exec(select(IndexConstituent).where(IndexConstituent.index_name == idx)).all()
            synced = sorted(r.last_synced_at for r in rows)
            print(idx, 'count=', len(rows), 'last_synced_at=', synced[-1] if synced else 'EMPTY')
