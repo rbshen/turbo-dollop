@@ -516,6 +516,27 @@ async def get_or_fetch_bars(
     return result.get(ticker, pd.DataFrame(columns=["open", "high", "low", "close", "volume"]))
 
 
+def last_bar_ages_days(tickers: list[str], interval: str, reference: datetime | None = None) -> dict[str, int | None]:
+    """Calendar days since each ticker's most recent cached bar for
+    `interval`, as of `reference` (default: now, US/Eastern calendar date).
+    A ticker with no cached bars at all reads None -- never fetched, an
+    ambiguous state (brand new, or never processed) distinct from "has a
+    real but old last bar."
+
+    Unlike stale_ticker_count's session-aware _is_stale (a same-or-later-
+    session bit: any gap past the most recently completed session already
+    counts as stale), this returns the actual magnitude in days --
+    pipeline/stale_data_health_check.py's delisted-ticker check needs a
+    real age to threshold against (30+ days), not a same-session freshness
+    flag that goes true for every ticker on the very first missed night."""
+    if not tickers:
+        return {}
+    today = _eastern_today(reference)
+    with Session(engine) as session:
+        span_by_ticker = _cache_span(session, tickers, interval)
+    return {t: (today - span_by_ticker[t][1].date()).days if t in span_by_ticker else None for t in tickers}
+
+
 def stale_ticker_count(tickers: list[str], interval: str, reference: datetime | None = None) -> tuple[int, list[str]]:
     """Read-only, call AFTER a get_or_fetch_bars_batch attempt: how many of
     `tickers` still don't reflect the most recently completed session/bar

@@ -929,6 +929,21 @@ class TickerScore(SQLModel, table=True):
     # every ticker outside W1-W5, same as warren_active_signal_kind
     # above).
     warren_last_buy_fired_at: datetime | None = None
+    # Set when pipeline/stale_data_health_check.py::sync_delisted_flags
+    # confirms this ticker's last SharedBarsCache interval="1d" bar is more
+    # than DELISTED_STALE_THRESHOLD_DAYS (30) old on BOTH Massive and Yahoo
+    # -- never set from a single provider's own gap (see that function's
+    # docstring for the exact dual-provider requirement). Nightly daily-bar
+    # jobs (Trend/Weinstein, Liquidity Zones, Momentum) skip a flagged
+    # ticker's fetch/compute entirely rather than retrying a doomed
+    # Massive+Yahoo lookup every night. Auto-cleared back to None (logged)
+    # the moment a fresh bar reappears -- symbol reuse or relisting under
+    # the same ticker. None for the overwhelming majority of tickers,
+    # including every row computed before this column existed (see
+    # _add_missing_columns). Nothing else about a flagged ticker changes:
+    # this row, FundamentalsCache, Screener, Watchlist, and ticker-page
+    # history all stay fully intact.
+    delisted_at: datetime | None = None
 
 
 class TickerCustomValuation(SQLModel, table=True):
