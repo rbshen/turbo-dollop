@@ -71,6 +71,7 @@ export function TickerHeader({ symbol, data }: Props) {
               {data.ticker}
               {data.exchange && <> · {data.exchange}</>}
             </span>
+            <IndexMembershipPill memberships={data.index_memberships} />
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -89,10 +90,7 @@ export function TickerHeader({ symbol, data }: Props) {
         <PriceChange change={data.change} changePercent={data.change_percent} currency={data.quote_currency} />
       </div>
 
-      {/* Row 2.5: Assessment/Valuation/Moat/etc. chips, plus which of the
-          three tracked named indices (S&P 500/Nasdaq/Dow 30) this ticker
-          belongs to -- moved into its own row beneath price+change so the
-          new index-membership pill has a natural home alongside the rest. */}
+      {/* Row 2.5: Assessment/Valuation/Moat/etc. chips. */}
       <div className="flex flex-wrap items-center gap-3">
         <AssessmentChip symbol={symbol} />
         <MoatPill moat={moatData?.moat} variant="flat" />
@@ -116,7 +114,6 @@ export function TickerHeader({ symbol, data }: Props) {
           variant="flat"
         />
         <WeinsteinStagePill data={trendData} variant="flat" />
-        <IndexMembershipPill memberships={data.index_memberships} variant="flat" />
       </div>
 
       {/* Row 3: next earnings -- always shown so a null date reads as
