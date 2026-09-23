@@ -19,7 +19,7 @@ def _fresh_engine(monkeypatch, tmp_path):
 
 def _series(price_at_anchor: float) -> pd.DataFrame:
     index = pd.bdate_range(start="2024-08-01", end="2026-08-31")
-    return pd.DataFrame({"Close": [100.0] * (len(index) - 1) + [price_at_anchor]}, index=index)
+    return pd.DataFrame({"close": [100.0] * (len(index) - 1) + [price_at_anchor]}, index=index)
 
 
 def test_non_anchor_day_is_a_no_op_but_still_a_successful_run(monkeypatch, tmp_path):
@@ -36,6 +36,13 @@ def test_non_anchor_day_is_a_no_op_but_still_a_successful_run(monkeypatch, tmp_p
     assert summary == {"processed": 0, "skipped": True, "reason": "not the first trading day of the month"}
 
 
+def _stub_stale_count(monkeypatch):
+    # stale_ticker_count reads clients.shared_bars_cache's OWN engine
+    # directly (not momentum_data's) -- stubbed here so it never falls
+    # through to a real (potentially on-disk) engine.
+    monkeypatch.setattr(momentum_data, "stale_ticker_count", lambda tickers, interval, reference=None: (0, []))
+
+
 def test_anchor_day_computes_and_persists_a_snapshot(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
     with Session(engine) as session:
@@ -43,11 +50,12 @@ def test_anchor_day_computes_and_persists_a_snapshot(monkeypatch, tmp_path):
         session.commit()
 
     monkeypatch.setattr(momentum_data, "load_full_tracked_universe", lambda session: ["AAA"])
+    _stub_stale_count(monkeypatch)
 
-    async def fake_get_history(tickers, period, interval):
+    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
         return {"AAA": _series(130.0)}
 
-    monkeypatch.setattr(momentum_data.yahoo_client, "get_history", fake_get_history)
+    monkeypatch.setattr(momentum_data, "get_or_fetch_bars_batch", fake_get_bars_batch)
 
     summary = asyncio.run(monthly_momentum.main(force_anchor=date(2026, 8, 31)))
 

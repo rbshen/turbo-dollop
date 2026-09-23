@@ -32,7 +32,7 @@ def _price_on_or_before(df: pd.DataFrame, target: pd.Timestamp) -> float | None:
     eligible = df.loc[df.index <= target]
     if eligible.empty:
         return None
-    return float(eligible["Close"].iloc[-1])
+    return float(eligible["close"].iloc[-1])
 
 
 def compute_momentum_ranking(

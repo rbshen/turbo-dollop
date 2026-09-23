@@ -18,17 +18,23 @@ def _fresh_engine(monkeypatch):
 def _series(price_at_anchor: float) -> pd.DataFrame:
     # Flat, 2 years of daily history so every ticker clears the 12mo
     # lookback window -- composite score varies only via `price_at_anchor`.
+    # Lowercase column, matching what clients/shared_bars_cache.py::
+    # get_or_fetch_bars_batch returns.
     index = pd.bdate_range(start="2024-08-01", end="2026-08-31")
-    return pd.DataFrame({"Close": [100.0] * (len(index) - 1) + [price_at_anchor]}, index=index)
+    return pd.DataFrame({"close": [100.0] * (len(index) - 1) + [price_at_anchor]}, index=index)
 
 
 def _patch_universe_and_prices(monkeypatch, tickers: list[str], histories: dict[str, pd.DataFrame]):
     monkeypatch.setattr(momentum_data, "load_full_tracked_universe", lambda session: tickers)
 
-    async def fake_get_history(requested_tickers, period, interval):
+    async def fake_get_bars_batch(requested_tickers, interval, lookback_days, auto_adjust=True, **kwargs):
         return {t: histories[t] for t in requested_tickers if t in histories}
 
-    monkeypatch.setattr(momentum_data.yahoo_client, "get_history", fake_get_history)
+    monkeypatch.setattr(momentum_data, "get_or_fetch_bars_batch", fake_get_bars_batch)
+    # stale_ticker_count reads clients.shared_bars_cache's OWN engine
+    # directly -- stubbed here too, same reasoning as
+    # tests/test_nightly_trend_calculation.py's own _patch_batch_fetch.
+    monkeypatch.setattr(momentum_data, "stale_ticker_count", lambda tickers, interval, reference=None: (0, []))
 
 
 def test_tickers_without_a_moat_set_are_excluded_from_the_universe(monkeypatch):

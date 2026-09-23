@@ -2,7 +2,8 @@
 price-momentum signal (3mo/6mo/12mo trailing return average) over Fathom's
 Moat-rated universe. See data/momentum_data.py for the compute/persist
 logic and scoring/momentum.py for the pure ranking engine. Makes ZERO FMP
-calls (Yahoo Finance only, via clients/yahoo_client.py), same framing as
+calls (a shared-bars-cache batch fetch -- Massive/Polygon with an
+automatic Yahoo fallback per clients/daily_bar_sources.py), same framing as
 nightly_trend_calculation.py -- no FMP_ENABLED guard needed.
 
 Scheduled to *try* daily across the first several days of the month
@@ -83,5 +84,9 @@ def _parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     cli_args = _parse_args()
     forced = date.fromisoformat(cli_args.force_anchor) if cli_args.force_anchor else None
-    with cron_heartbeat("pipeline.monthly_momentum_snapshot"):
-        asyncio.run(main(forced))
+    with cron_heartbeat("pipeline.monthly_momentum_snapshot") as run:
+        summary = asyncio.run(main(forced))
+        if summary.get("skipped"):
+            run.message = summary.get("reason", "skipped")
+        else:
+            run.message = f"{summary['processed']}/{summary['universe_size']} tickers, {summary['stale_count']} still stale after fetch"

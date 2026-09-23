@@ -14,7 +14,7 @@ def _series(start: str, end: str, start_price: float, end_price: float) -> pd.Da
         [start_price + (end_price - start_price) * i / (len(index) - 1) for i in range(len(index))],
         index=index,
     )
-    return pd.DataFrame({"Close": prices})
+    return pd.DataFrame({"close": prices})
 
 
 def test_composite_is_simple_average_of_three_raw_returns():
