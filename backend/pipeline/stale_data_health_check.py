@@ -36,6 +36,27 @@ load_full_tracked_universe on a weekly cadence and was already the
 needed -- see CLAUDE.md's "Delisted-ticker handling" section for the full
 design.
 
+**Live-probe revival check (2026-09-24), the one deliberate exception to
+this script's otherwise cache-only convention.** The nightly Trend/
+Liquidity Zone/Momentum jobs all SKIP a flagged ticker's own fetch
+entirely (load_delisted_tickers), which was a real bug found before
+shipping this: it means a flagged ticker's SharedBarsCache row can NEVER
+refresh on its own again through the normal nightly path, so
+sync_delisted_flags' own cache-based auto-clear (still checked first,
+since it's free) was permanently starved for any ticker actually flagged
+by this job -- a reused or relisted symbol would stay flagged forever.
+Fixed by probing whatever's STILL flagged after the cheap cache check
+directly and live: one short (~10-day) Massive range call per ticker,
+Yahoo as a second opinion only when Massive returns nothing (mirrors the
+manual dual-source verification the original 5 tickers were confirmed
+with) -- see _probe_ticker_for_fresh_bar. Any ticker either source shows
+a bar within DELISTED_STALE_THRESHOLD_DAYS for gets a full re-backfill,
+through the NORMAL DailyBarSource path (get_or_fetch_bars_batch,
+force=True) -- not just the probe's own narrow window, which would leave
+a gap between the old cached history and today -- so SharedBarsCache
+holds a clean, contiguous series again before the flag is cleared and the
+nightly jobs pick the ticker back up.
+
 Run:
     uv run python -m pipeline.stale_data_health_check
 
@@ -44,19 +65,23 @@ Override the staleness threshold for one run:
 """
 
 import argparse
+import asyncio
 import logging
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import pandas as pd
 from sqlmodel import Session, select
 
-from clients.shared_bars_cache import DAILY_INTERVAL, last_bar_ages_days
+from clients.massive_client import massive_client
+from clients.shared_bars_cache import DAILY_INTERVAL, get_or_fetch_bars_batch, last_bar_ages_days
+from clients.yahoo_client import yahoo_client
 from core.config import settings
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from core.models import FundamentalsCache, TickerScore
-from core.tickers import is_non_us_ticker
+from core.tickers import is_non_us_ticker, to_massive_symbol
 from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "stale_data_health_check.log"
@@ -78,6 +103,21 @@ DEFAULT_STALE_THRESHOLD_DAYS = 10
 # consecutive nightly attempts qualifies -- a real, durable gap, not a
 # transient outage or a single missed run.
 DELISTED_STALE_THRESHOLD_DAYS = 30
+
+# Live-probe revival check (see sync_delisted_flags): a short window is
+# plenty to answer "has this ticker traded again recently at all" cheaply,
+# one per-ticker Massive range call at a time -- not the full multi-year
+# history a genuine backfill needs (that only happens, via the normal
+# DailyBarSource path, for whichever tickers this probe actually revives).
+PROBE_WINDOW_DAYS = 10
+
+# Once a probe confirms a ticker is genuinely back, its full history is
+# re-fetched through the normal get_or_fetch_bars_batch(force=True) path at
+# this width -- wide enough to reconstruct a real, contiguous multi-year
+# series (matching the LOOKBACK_DAYS territory the nightly Trend/Liquidity
+# Zone jobs themselves request), not just the probe's own narrow window,
+# which would leave a gap between the old cached history and today.
+REVIVAL_BACKFILL_LOOKBACK_DAYS = 730
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +163,52 @@ def find_delisted_candidates(tickers: list[str], threshold_days: int = DELISTED_
     return _delisted_candidates_from_ages(ages, threshold_days)
 
 
+async def _probe_ticker_for_fresh_bar(ticker: str, today: date, threshold_days: int) -> bool:
+    """True if a direct live check finds a bar within `threshold_days` of
+    `today` for `ticker` -- Massive first (skipped entirely when
+    settings.massive_enabled is False, respecting the same kill switch
+    get_daily_bar_source() honors elsewhere), Yahoo as a second opinion
+    only when Massive was skipped or came back empty. The one deliberate
+    live-call exception to this script's otherwise cache-only convention
+    -- see sync_delisted_flags' own docstring for why it's needed."""
+    start = today - timedelta(days=PROBE_WINDOW_DAYS)
+    df: pd.DataFrame | None = None
+    if settings.massive_enabled:
+        try:
+            df = await massive_client.get_daily_bars(to_massive_symbol(ticker), start, today, adjusted=False)
+        except Exception:
+            logger.warning("Delisted-flag revival probe: Massive lookup failed for %s", ticker)
+            df = None
+    if df is None or df.empty:
+        try:
+            batch = await yahoo_client.get_history([ticker], period="1mo", interval="1d", auto_adjust=False)
+        except Exception:
+            logger.warning("Delisted-flag revival probe: Yahoo lookup failed for %s", ticker)
+            batch = {}
+        df = batch.get(ticker)
+    if df is None or df.empty:
+        return False
+    last_bar_date = pd.DatetimeIndex(df.index).max().date()
+    return (today - last_bar_date).days <= threshold_days
+
+
+async def _probe_and_revive(flagged_tickers: list[str], threshold_days: int) -> list[str]:
+    """Probes every (US-eligible) currently-flagged ticker live and
+    re-backfills whichever come back positive through the normal
+    DailyBarSource path -- see this module's own docstring and
+    sync_delisted_flags' for the full reasoning. Returns the revived
+    tickers (unsorted)."""
+    us_tickers = [t for t in flagged_tickers if not is_non_us_ticker(t)]
+    if not us_tickers:
+        return []
+    today = date.today()
+    results = await asyncio.gather(*(_probe_ticker_for_fresh_bar(t, today, threshold_days) for t in us_tickers))
+    revived = [t for t, is_fresh in zip(us_tickers, results) if is_fresh]
+    if revived:
+        await get_or_fetch_bars_batch(revived, DAILY_INTERVAL, REVIVAL_BACKFILL_LOOKBACK_DAYS, auto_adjust=False, force=True)
+    return revived
+
+
 def sync_delisted_flags(tickers: list[str], threshold_days: int = DELISTED_STALE_THRESHOLD_DAYS) -> dict:
     """Sets/clears TickerScore.delisted_at from a fresh daily-bar staleness
     read. Returns {"newly_flagged": [...], "newly_cleared": [...]}
@@ -149,7 +235,18 @@ def sync_delisted_flags(tickers: list[str], threshold_days: int = DELISTED_STALE
     fresh bar from even a single provider (Yahoo-only mode included)
     already disproves "still delisted" outright, e.g. a symbol reuse or
     relisting under the same ticker (cf. the earlier PARA symbol-
-    reassignment case)."""
+    reassignment case).
+
+    This cache-based clear is checked first because it's free, but it can
+    only ever fire for a ticker some OTHER path happened to refresh (e.g.
+    an on-demand ticker-page Technical-tab view) -- the nightly Trend/
+    Liquidity Zone/Momentum jobs all SKIP a flagged ticker's own fetch
+    entirely (see load_delisted_tickers), so relying on this alone would
+    leave a reused/relisted symbol flagged forever. Whatever's still
+    flagged after the cache check gets a direct live probe instead (see
+    _probe_and_revive) -- the one live-call exception to this script's
+    otherwise cache-only convention, and the reason this function makes
+    network calls at all despite reading like a pure DB sync."""
     if not tickers:
         return {"newly_flagged": [], "newly_cleared": []}
 
@@ -159,6 +256,7 @@ def sync_delisted_flags(tickers: list[str], threshold_days: int = DELISTED_STALE
 
     newly_flagged: list[str] = []
     newly_cleared: list[str] = []
+    still_flagged: list[str] = []
     now = datetime.now()
     with Session(engine) as session:
         rows = session.exec(select(TickerScore).where(TickerScore.ticker.in_(tickers))).all()
@@ -167,11 +265,25 @@ def sync_delisted_flags(tickers: list[str], threshold_days: int = DELISTED_STALE
             if row.ticker in candidates and row.delisted_at is None:
                 row.delisted_at = now
                 newly_flagged.append(row.ticker)
-            elif age is not None and age <= threshold_days and row.delisted_at is not None:
-                row.delisted_at = None
-                newly_cleared.append(row.ticker)
+            elif row.delisted_at is not None:
+                if age is not None and age <= threshold_days:
+                    row.delisted_at = None
+                    newly_cleared.append(row.ticker)
+                else:
+                    still_flagged.append(row.ticker)
         if newly_flagged or newly_cleared:
             session.commit()
+
+    revived = asyncio.run(_probe_and_revive(still_flagged, threshold_days)) if still_flagged else []
+    if revived:
+        with Session(engine) as session:
+            rows = session.exec(select(TickerScore).where(TickerScore.ticker.in_(revived))).all()
+            for row in rows:
+                if row.delisted_at is not None:
+                    row.delisted_at = None
+                    newly_cleared.append(row.ticker)
+            session.commit()
+
     return {"newly_flagged": sorted(newly_flagged), "newly_cleared": sorted(newly_cleared)}
 
 

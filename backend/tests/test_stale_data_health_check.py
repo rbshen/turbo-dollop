@@ -1,5 +1,7 @@
+import asyncio
 from datetime import datetime, timedelta
 
+import pandas as pd
 from sqlmodel import Session, SQLModel, create_engine
 
 import clients.shared_bars_cache as shared_bars_cache
@@ -21,7 +23,28 @@ def _fresh_engine(monkeypatch, tmp_path):
     # patched, not just the caller's).
     monkeypatch.setattr(shared_bars_cache, "engine", engine)
     monkeypatch.setattr(health_check, "LOG_PATH", tmp_path / "test_stale.log")
+    # Default safety net: sync_delisted_flags' live-probe revival check
+    # (_probe_and_revive) makes real Massive/Yahoo network calls for
+    # whatever's still flagged after the cache-based check -- patched here
+    # to a no-op ("nothing revived") by default so no test accidentally
+    # reaches the network; tests that specifically exercise the probe
+    # override this via _patch_probe.
+    _patch_probe(monkeypatch, revives=[])
     return engine
+
+
+def _patch_probe(monkeypatch, revives: list[str]):
+    """Stubs health_check._probe_and_revive wholesale -- `revives` is
+    exactly what the fake reports as revived, bypassing the real per-
+    ticker Massive/Yahoo probe and the internal revival-backfill call
+    entirely. Tests that need to verify the probe's own dual-provider
+    ordering or the revival backfill call itself patch at the lower level
+    instead (see test_probe_ticker_for_fresh_bar_* / test_probe_and_revive_*)."""
+
+    async def fake_probe_and_revive(flagged_tickers, threshold_days):
+        return revives
+
+    monkeypatch.setattr(health_check, "_probe_and_revive", fake_probe_and_revive)
 
 
 def _seed_daily_bar(session, ticker, days_old):
@@ -234,6 +257,7 @@ def test_non_us_ticker_never_flagged_even_when_very_stale(monkeypatch, tmp_path)
 def test_already_flagged_ticker_is_not_re_flagged_or_touched(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
     monkeypatch.setattr(health_check.settings, "massive_enabled", True)
+    _patch_probe(monkeypatch, revives=[])  # still stale -- must fall through to the live probe, which finds nothing
     original_flagged_at = datetime.now() - timedelta(days=10)
     with Session(engine) as session:
         session.add(TickerScore(ticker="TWTR", overall_score=50, computed_at=datetime.now(), delisted_at=original_flagged_at))
@@ -270,6 +294,204 @@ def test_auto_clears_when_a_fresh_bar_reappears(monkeypatch, tmp_path):
     with Session(engine) as session:
         row = session.get(TickerScore, "PARA")
     assert row.delisted_at is None
+
+
+# --- Live-probe revival check (_probe_ticker_for_fresh_bar / _probe_and_revive) ---
+
+
+class _FakeDf:
+    """Minimal stand-in for a pandas OHLCV frame -- only .empty and .index
+    (consumed via pd.DatetimeIndex(df.index).max()) are ever touched by
+    _probe_ticker_for_fresh_bar."""
+
+    def __init__(self, bar_dates):
+        self.empty = not bar_dates
+        self.index = pd.DatetimeIndex(bar_dates)
+
+
+def test_probe_finds_a_fresh_bar_via_massive_alone(monkeypatch):
+    monkeypatch.setattr(health_check.settings, "massive_enabled", True)
+    calls = {"massive": 0, "yahoo": 0}
+
+    async def fake_massive_get_daily_bars(symbol, start, end, adjusted=False):
+        calls["massive"] += 1
+        return _FakeDf([datetime.now()])
+
+    async def fake_yahoo_get_history(tickers, period="1mo", interval="1d", auto_adjust=False):
+        calls["yahoo"] += 1
+        return {}
+
+    monkeypatch.setattr(health_check.massive_client, "get_daily_bars", fake_massive_get_daily_bars)
+    monkeypatch.setattr(health_check.yahoo_client, "get_history", fake_yahoo_get_history)
+
+    found = asyncio.run(health_check._probe_ticker_for_fresh_bar("TWTR", health_check.date.today(), 30))
+
+    assert found is True
+    assert calls == {"massive": 1, "yahoo": 0}  # Yahoo never consulted -- Massive alone was conclusive
+
+
+def test_probe_falls_back_to_yahoo_when_massive_returns_nothing(monkeypatch):
+    monkeypatch.setattr(health_check.settings, "massive_enabled", True)
+    calls = {"massive": 0, "yahoo": 0}
+
+    async def fake_massive_get_daily_bars(symbol, start, end, adjusted=False):
+        calls["massive"] += 1
+        return _FakeDf([])
+
+    async def fake_yahoo_get_history(tickers, period="1mo", interval="1d", auto_adjust=False):
+        calls["yahoo"] += 1
+        return {tickers[0]: _FakeDf([datetime.now()])}
+
+    monkeypatch.setattr(health_check.massive_client, "get_daily_bars", fake_massive_get_daily_bars)
+    monkeypatch.setattr(health_check.yahoo_client, "get_history", fake_yahoo_get_history)
+
+    found = asyncio.run(health_check._probe_ticker_for_fresh_bar("TWTR", health_check.date.today(), 30))
+
+    assert found is True
+    assert calls == {"massive": 1, "yahoo": 1}  # Massive tried first, Yahoo consulted only because it was empty
+
+
+def test_probe_returns_false_when_neither_provider_has_a_fresh_bar(monkeypatch):
+    monkeypatch.setattr(health_check.settings, "massive_enabled", True)
+
+    async def fake_massive_get_daily_bars(symbol, start, end, adjusted=False):
+        return _FakeDf([])
+
+    async def fake_yahoo_get_history(tickers, period="1mo", interval="1d", auto_adjust=False):
+        return {}
+
+    monkeypatch.setattr(health_check.massive_client, "get_daily_bars", fake_massive_get_daily_bars)
+    monkeypatch.setattr(health_check.yahoo_client, "get_history", fake_yahoo_get_history)
+
+    found = asyncio.run(health_check._probe_ticker_for_fresh_bar("TWTR", health_check.date.today(), 30))
+
+    assert found is False
+
+
+def test_probe_skips_massive_entirely_when_disabled(monkeypatch):
+    monkeypatch.setattr(health_check.settings, "massive_enabled", False)
+    calls = {"massive": 0, "yahoo": 0}
+
+    async def fake_massive_get_daily_bars(symbol, start, end, adjusted=False):
+        calls["massive"] += 1
+        return _FakeDf([datetime.now()])
+
+    async def fake_yahoo_get_history(tickers, period="1mo", interval="1d", auto_adjust=False):
+        calls["yahoo"] += 1
+        return {tickers[0]: _FakeDf([datetime.now()])}
+
+    monkeypatch.setattr(health_check.massive_client, "get_daily_bars", fake_massive_get_daily_bars)
+    monkeypatch.setattr(health_check.yahoo_client, "get_history", fake_yahoo_get_history)
+
+    found = asyncio.run(health_check._probe_ticker_for_fresh_bar("0700.HK", health_check.date.today(), 30))
+
+    assert found is True
+    assert calls == {"massive": 0, "yahoo": 1}  # Massive never called -- respects the kill switch
+
+
+def test_probe_and_revive_backfills_only_the_revived_tickers_through_the_normal_path(monkeypatch):
+    async def fake_probe_ticker(ticker, today, threshold_days):
+        return ticker == "TWTR"  # TWTR revived, WBA still gone
+
+    backfill_calls = []
+
+    async def fake_get_or_fetch_bars_batch(tickers, interval, lookback_days, auto_adjust=False, force=False, **kwargs):
+        backfill_calls.append((list(tickers), interval, lookback_days, force))
+        return {}
+
+    monkeypatch.setattr(health_check, "_probe_ticker_for_fresh_bar", fake_probe_ticker)
+    monkeypatch.setattr(health_check, "get_or_fetch_bars_batch", fake_get_or_fetch_bars_batch)
+
+    revived = asyncio.run(health_check._probe_and_revive(["TWTR", "WBA"], 30))
+
+    assert revived == ["TWTR"]
+    assert backfill_calls == [(["TWTR"], "1d", health_check.REVIVAL_BACKFILL_LOOKBACK_DAYS, True)]
+
+
+def test_probe_and_revive_skips_the_backfill_call_when_nothing_revived(monkeypatch):
+    async def fake_probe_ticker(ticker, today, threshold_days):
+        return False
+
+    backfill_calls = []
+
+    async def fake_get_or_fetch_bars_batch(tickers, interval, lookback_days, auto_adjust=False, force=False, **kwargs):
+        backfill_calls.append(tickers)
+        return {}
+
+    monkeypatch.setattr(health_check, "_probe_ticker_for_fresh_bar", fake_probe_ticker)
+    monkeypatch.setattr(health_check, "get_or_fetch_bars_batch", fake_get_or_fetch_bars_batch)
+
+    revived = asyncio.run(health_check._probe_and_revive(["TWTR"], 30))
+
+    assert revived == []
+    assert backfill_calls == []
+
+
+# --- sync_delisted_flags' use of the live probe (the cache path alone can never fire for a skipped ticker) ---
+
+
+def test_sync_delisted_flags_clears_via_live_probe_when_cache_cannot(monkeypatch, tmp_path):
+    # The cache-based check alone can never see a fresh bar here -- the
+    # nightly jobs skip a flagged ticker's fetch entirely, so
+    # SharedBarsCache's last bar stays frozen at 45 days old regardless.
+    # Only the live probe (stubbed here to simulate finding one) can clear it.
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    monkeypatch.setattr(health_check.settings, "massive_enabled", True)
+    _patch_probe(monkeypatch, revives=["TWTR"])
+    with Session(engine) as session:
+        session.add(
+            TickerScore(ticker="TWTR", overall_score=50, computed_at=datetime.now(), delisted_at=datetime.now() - timedelta(days=5))
+        )
+        _seed_daily_bar(session, "TWTR", days_old=45)
+        session.commit()
+
+    result = health_check.sync_delisted_flags(["TWTR"])
+
+    assert result == {"newly_flagged": [], "newly_cleared": ["TWTR"]}
+    with Session(engine) as session:
+        row = session.get(TickerScore, "TWTR")
+    assert row.delisted_at is None
+
+
+def test_sync_delisted_flags_stays_flagged_when_live_probe_finds_nothing(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    monkeypatch.setattr(health_check.settings, "massive_enabled", True)
+    _patch_probe(monkeypatch, revives=[])
+    flagged_at = datetime.now() - timedelta(days=5)
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="TWTR", overall_score=50, computed_at=datetime.now(), delisted_at=flagged_at))
+        _seed_daily_bar(session, "TWTR", days_old=45)
+        session.commit()
+
+    result = health_check.sync_delisted_flags(["TWTR"])
+
+    assert result == {"newly_flagged": [], "newly_cleared": []}
+    with Session(engine) as session:
+        row = session.get(TickerScore, "TWTR")
+    assert row.delisted_at == flagged_at
+
+
+def test_sync_delisted_flags_never_probes_a_ticker_that_isnt_currently_flagged(monkeypatch, tmp_path):
+    # A ticker with no delisted_at at all (never flagged, or a plain fresh
+    # one) must never reach the live probe -- only whatever's still
+    # flagged after the cache check does.
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    monkeypatch.setattr(health_check.settings, "massive_enabled", False)  # candidates={} -- nothing gets newly flagged either
+    probed: list[str] = []
+
+    async def spying_probe_and_revive(flagged_tickers, threshold_days):
+        probed.extend(flagged_tickers)
+        return []
+
+    monkeypatch.setattr(health_check, "_probe_and_revive", spying_probe_and_revive)
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="AAPL", overall_score=90, computed_at=datetime.now()))
+        _seed_daily_bar(session, "AAPL", days_old=1)
+        session.commit()
+
+    health_check.sync_delisted_flags(["AAPL"])
+
+    assert probed == []
 
 
 def test_sync_delisted_flags_never_touches_other_ticker_score_fields(monkeypatch, tmp_path):
