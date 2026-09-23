@@ -49,6 +49,7 @@ from sqlalchemy import delete, func
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
+from clients.daily_bar_sources import YahooDailySource, get_daily_bar_source, route_by_source
 from clients.yahoo_client import yahoo_client
 from core.db import engine
 from core.models import SharedBarsCache
@@ -396,23 +397,41 @@ async def get_or_fetch_bars_batch(
             to_fetch[t] = max(lookback_days, existing_width_days)
 
     if to_fetch:
-        # yfinance's multi-ticker download takes ONE period per call, so
-        # tickers are grouped by the period their own need snaps to -- one
-        # call per distinct period (in practice at most two or three), not
-        # one call per ticker and not one call at the widest period for
-        # everyone. The latter would make a full-universe Trend run
-        # re-download ~570 tickers at 5y just because the ~100 that are
-        # also Liquidity Zone tickers happen to be that wide.
-        by_period: dict[str, list[str]] = {}
-        for ticker, days in to_fetch.items():
-            by_period.setdefault(_period_for(interval, days), []).append(ticker)
         fetched_at = datetime.now()
-        for period, group in by_period.items():
-            fetched = await yahoo_client.get_history(group, period=period, interval=interval, auto_adjust=auto_adjust)
-            with Session(engine) as session:
-                for ticker, df in fetched.items():
-                    if df is not None and not df.empty:
-                        _write_rows(session, ticker, interval, df, fetched_at)
+        fetched: dict[str, pd.DataFrame] = {}
+        if interval == DAILY_INTERVAL:
+            # Massive/Polygon is now the primary daily-bar source for every
+            # US-listed ticker (clients/daily_bar_sources.py), with an
+            # automatic per-ticker Yahoo fallback baked into
+            # get_daily_bar_source()'s own result when settings.
+            # massive_enabled -- non-US tickers (route_by_source's dot-suffix
+            # check) always go straight to a plain YahooDailySource,
+            # regardless of that flag.
+            us_tickers, non_us_tickers = route_by_source(to_fetch)
+            if us_tickers:
+                fetched.update(await get_daily_bar_source().get_daily_bars(us_tickers, auto_adjust, reference=today))
+            if non_us_tickers:
+                fetched.update(await YahooDailySource().get_daily_bars(non_us_tickers, auto_adjust, reference=today))
+        else:
+            # interval == INTRADAY_INTERVAL -- unchanged, always Yahoo.
+            # Warren/BB+RSI are a separate, later migration phase (see
+            # clients/daily_bar_sources.py's own module docstring for why
+            # intraday session-anchoring is a materially different problem).
+            # yfinance's multi-ticker download takes ONE period per call, so
+            # tickers are grouped by the period their own need snaps to --
+            # one call per distinct period (in practice at most two or
+            # three), not one call per ticker and not one call at the
+            # widest period for everyone.
+            by_period: dict[str, list[str]] = {}
+            for ticker, days in to_fetch.items():
+                by_period.setdefault(_period_for(interval, days), []).append(ticker)
+            for period, group in by_period.items():
+                batch = await yahoo_client.get_history(group, period=period, interval=interval, auto_adjust=auto_adjust)
+                fetched.update(batch)
+        with Session(engine) as session:
+            for ticker, df in fetched.items():
+                if df is not None and not df.empty:
+                    _write_rows(session, ticker, interval, df, fetched_at)
 
     with Session(engine) as session:
         return _load_frames(session, tickers, interval, needed_start)
@@ -464,3 +483,32 @@ async def get_or_fetch_bars(
         [ticker], interval, lookback_days, auto_adjust=auto_adjust, force=force, reference=reference
     )
     return result.get(ticker, pd.DataFrame(columns=["open", "high", "low", "close", "volume"]))
+
+
+def stale_ticker_count(tickers: list[str], interval: str, reference: datetime | None = None) -> tuple[int, list[str]]:
+    """Read-only, call AFTER a get_or_fetch_bars_batch attempt: how many of
+    `tickers` still don't reflect the most recently completed session/bar
+    for `interval`, despite that fetch attempt (Massive down AND its Yahoo
+    fallback also came up empty, a data-provider-wide gap like the
+    2026-09-22 Yahoo Close incident, or simply a ticker never requested).
+
+    This is the stale-data guard every migrated nightly job (Trend,
+    Liquidity Zones, Sector Heatmap, Momentum) calls right after its own
+    get_or_fetch_bars_batch call, reporting the result via the existing
+    CronRunContext.message (see core/cron_health.py) -- no schema or
+    frontend change, this reuses the message field the Settings "Status"
+    Scheduled Jobs table already renders. Deliberately does NOT escalate to
+    a heartbeat failure on its own -- a handful of stale tickers is normal
+    (delistings, a thin provider gap); Market Breadth's own MIN_COVERAGE/
+    InsufficientCoverageError gate is untouched and stays the one job that
+    fails loudly on genuine insufficiency. Closes the "4 of 5 jobs silently
+    reported cron success while computing on a session-old bar" gap found
+    in docs/yahoo_close_data_gap_investigation_2026-09-23.md, without the
+    materially bigger bars_as_of-to-frontend wiring that doc's own fix
+    option 3 flagged as a separate follow-up."""
+    if not tickers:
+        return 0, []
+    with Session(engine) as session:
+        span_by_ticker = _cache_span(session, tickers, interval)
+    stale = [t for t in tickers if _is_stale(span_by_ticker.get(t, (None, None))[1], interval, reference)]
+    return len(stale), stale

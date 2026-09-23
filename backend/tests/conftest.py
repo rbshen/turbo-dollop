@@ -181,3 +181,25 @@ def _default_flags_enabled(monkeypatch):
     # INSIDER_ACTIVITY_ENABLED=true can't leak in. Tests that exercise the
     # feature itself set it True explicitly (test_insider_activity_data.py).
     monkeypatch.setattr(settings, "insider_activity_enabled", False)
+    # massive_enabled's documented default is True (unlike
+    # insider_activity_enabled above), but pinned False here anyway: the
+    # ~50+ pre-existing tests exercising clients/shared_bars_cache.py's
+    # interval="1d" fetch path (test_shared_bars_cache.py,
+    # test_market_breadth_data.py, test_liquidity_zone_data.py,
+    # test_nightly_trend_calculation.py, etc.) were all written entirely
+    # around Yahoo behavior and mock only yahoo_client -- with
+    # massive_enabled left at its True default, get_or_fetch_bars_batch
+    # would route through clients/daily_bar_sources.py::MassiveWithYahooFallback,
+    # which tries a REAL live Massive/Polygon API call (using the real
+    # MASSIVE_API_KEY in backend/.env) before ever falling back to the
+    # mocked Yahoo path. In this sandbox that call simply fails fast (no
+    # outbound network), so those tests still pass -- but that's an
+    # accident of this environment, not a guarantee, and a CI/dev machine
+    # WITH network access would make real, non-hermetic API calls on every
+    # test run. Pinned False here so the whole suite stays hermetic by
+    # default; clients/test_massive_client.py and
+    # clients/test_daily_bar_sources.py (which test Massive's own behavior
+    # directly, against fully-fake clients/sources) are unaffected, and any
+    # test that specifically wants the enabled routing sets it True itself,
+    # same last-write-wins convention as every flag above.
+    monkeypatch.setattr(settings, "massive_enabled", False)
