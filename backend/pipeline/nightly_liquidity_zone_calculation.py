@@ -56,6 +56,7 @@ from core.tickers import resolve_daily_bar_source_label
 from data.liquidity_zone_data import LOOKBACK_DAYS, compute_and_store_liquidity_zones, sweep_stale_liquidity_zones
 from data.watchlists import list_tickers_across_watchlists
 from helpers.liquidity_zone_config import get_liquidity_zone_config
+from pipeline.stale_data_health_check import load_delisted_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_liquidity_zone_calculation.log"
 
@@ -74,19 +75,27 @@ async def main() -> dict:
     with Session(engine) as session:
         tickers, matched_names = list_tickers_across_watchlists(session, WATCHLIST_NAME_PATTERN)
         config = get_liquidity_zone_config(session)
+        delisted = load_delisted_tickers(session)
 
     if not matched_names:
         logger.warning("No watchlist matching %s exists.", WATCHLIST_NAME_PATTERN.pattern)
+
+    skipped_delisted = sorted(set(tickers) & delisted)
+    if skipped_delisted:
+        tickers = [t for t in tickers if t not in delisted]
 
     if not tickers:
         logger.error("No tickers found across %s -- nothing to process.", matched_names or WATCHLIST_NAME_PATTERN.pattern)
         swept = sweep_stale_liquidity_zones()
         return {
             "processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "swept": swept,
-            "stale_count": 0, "fallback_count": 0,
+            "stale_count": 0, "fallback_count": 0, "skipped_delisted_count": len(skipped_delisted),
         }
 
-    logger.info("Starting nightly liquidity-zone calculation for %d tickers across %s.", len(tickers), matched_names)
+    logger.info(
+        "Starting nightly liquidity-zone calculation for %d tickers across %s (%d skipped as delisted).",
+        len(tickers), matched_names, len(skipped_delisted),
+    )
     start_time = time.monotonic()
 
     fallback_tickers: list[str] = []
@@ -133,6 +142,7 @@ async def main() -> dict:
         "swept": swept,
         "stale_count": stale_count,
         "fallback_count": len(fallback_tickers),
+        "skipped_delisted_count": len(skipped_delisted),
     }
 
 
@@ -141,5 +151,5 @@ if __name__ == "__main__":
         summary = asyncio.run(main())
         run.message = (
             f"{summary['processed']} tickers, {summary['stale_count']} still stale after fetch, "
-            f"{summary['fallback_count']} fell back to Yahoo"
+            f"{summary['fallback_count']} fell back to Yahoo, {summary['skipped_delisted_count']} skipped as delisted"
         )

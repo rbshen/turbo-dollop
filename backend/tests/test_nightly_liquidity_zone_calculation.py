@@ -6,7 +6,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 import data.liquidity_zone_data as liquidity_zone_data
 import pipeline.nightly_liquidity_zone_calculation as nightly_lz
-from core.models import LiquidityZoneAnalysis, Watchlist, WatchlistTicker
+from core.models import LiquidityZoneAnalysis, TickerScore, Watchlist, WatchlistTicker
 
 
 def _fake_bars() -> pd.DataFrame:
@@ -96,6 +96,24 @@ def test_main_processes_the_union_of_w1_and_w2_deduped(monkeypatch, tmp_path):
     assert sorted(t for t, _ in store_calls) == ["AAPL", "GOOG", "MSFT"]  # each processed exactly once
     assert summary["processed"] == 3
     assert summary["failed"] == 0
+
+
+def test_main_skips_a_ticker_flagged_as_delisted(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_watchlist(engine, "W1", ["AAPL", "AVB"])
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="AVB", overall_score=60, computed_at=datetime.now(), delisted_at=datetime.now()))
+        session.commit()
+
+    batch_calls = _patch_bar_source(monkeypatch, {"AAPL": _fake_bars(), "AVB": _fake_bars()})
+    store_calls = _patch_store(monkeypatch)
+
+    summary = asyncio.run(nightly_lz.main())
+
+    assert set(batch_calls[0]) == {"AAPL"}
+    assert sorted(t for t, _ in store_calls) == ["AAPL"]
+    assert summary["processed"] == 1
+    assert summary["skipped_delisted_count"] == 1
 
 
 def test_main_also_includes_a_third_watchlist_named_w3(monkeypatch, tmp_path):
