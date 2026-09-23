@@ -8,6 +8,8 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import core.main as main
 import pipeline.refresh as refresh
+import data.step2_data as step2_data
+import data.step3_data as step3_data
 import data.step5_data as step5_data
 import data.ticker_score as ticker_score
 import data.ticker_summary as ticker_summary
@@ -113,7 +115,14 @@ def test_fmp_failure_right_after_refresh_degrades_gracefully_not_a_crash(monkeyp
     safe_fetch mechanism (unchanged by this feature) must degrade each
     field to null rather than raising, so the user sees a mostly-empty
     response instead of a crash or a blank page."""
-    _fresh_engine(monkeypatch, refresh, ticker_summary)
+    # get_summary() also calls get_step2_data()/get_active_valuation() (which
+    # wraps get_step3_data()), each of which manages its own Session(engine)
+    # bound to step2_data's/step3_data's own module-level import -- patching
+    # only ticker_summary's engine leaves those pointed at the real db (see
+    # CLAUDE.md's "Ad-hoc reproduction scripts must not touch the real
+    # database", and test_debt_metrics.py's/test_ticker_summary.py's own
+    # identical fix for this exact pattern).
+    _fresh_engine(monkeypatch, refresh, ticker_summary, step2_data, step3_data)
 
     async def failing_fetch(*args, **kwargs):
         raise httpx.HTTPError("FMP is down")
