@@ -55,9 +55,20 @@ async def compute_and_store_momentum_snapshot(anchor_date: date) -> dict:
         tickers = load_full_tracked_universe(session)
         scored_rows = session.exec(select(TickerScore).where(TickerScore.ticker.in_(tickers))).all()
 
-    moat_by_ticker = {row.ticker: row.moat for row in scored_rows if row.moat in MOAT_VALUES}
+    # Delisted (TickerScore.delisted_at set -- see pipeline/
+    # stale_data_health_check.py::sync_delisted_flags) tickers are excluded
+    # from the universe here, the same way a missing Moat rating already
+    # is -- no separate skip step needed, since scored_rows already carries
+    # both fields off the one query above.
+    moat_by_ticker = {row.ticker: row.moat for row in scored_rows if row.moat in MOAT_VALUES and row.delisted_at is None}
+    skipped_delisted = sorted(
+        row.ticker for row in scored_rows if row.moat in MOAT_VALUES and row.delisted_at is not None
+    )
     universe = sorted(moat_by_ticker)
-    logger.info("Momentum snapshot: %d Moat-rated tickers in universe for anchor %s.", len(universe), anchor_date)
+    logger.info(
+        "Momentum snapshot: %d Moat-rated tickers in universe for anchor %s (%d skipped as delisted).",
+        len(universe), anchor_date, len(skipped_delisted),
+    )
 
     fallback_tickers: list[str] = []
     price_histories = await get_or_fetch_bars_batch(
@@ -97,6 +108,7 @@ async def compute_and_store_momentum_snapshot(anchor_date: date) -> dict:
         "dropped": len(universe) - len(ranked),
         "stale_count": stale_count,
         "fallback_count": len(fallback_tickers),
+        "skipped_delisted_count": len(skipped_delisted),
     }
     logger.info(
         "Momentum snapshot complete for %s: %d/%d tickers scored, %d dropped for insufficient price history.",

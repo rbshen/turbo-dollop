@@ -63,6 +63,29 @@ def test_tickers_without_a_moat_set_are_excluded_from_the_universe(monkeypatch):
     assert rows[0].moat == "wide_moat"
 
 
+def test_delisted_tickers_are_excluded_from_the_universe(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="WIDE", moat="wide_moat", company_name="Wide Co", overall_score=80, computed_at=datetime.now()))
+        session.add(
+            TickerScore(
+                ticker="TWTR", moat="narrow_moat", company_name="Twitter Inc", overall_score=60, computed_at=datetime.now(),
+                delisted_at=datetime.now(),
+            )
+        )
+        session.commit()
+
+    _patch_universe_and_prices(monkeypatch, ["WIDE", "TWTR"], {"WIDE": _series(150.0), "TWTR": _series(50.0)})
+
+    summary = asyncio.run(momentum_data.compute_and_store_momentum_snapshot(date(2026, 8, 31)))
+
+    assert summary["universe_size"] == 1
+    assert summary["skipped_delisted_count"] == 1
+    with Session(engine) as session:
+        rows = session.exec(select(MomentumSnapshot)).all()
+    assert [r.ticker for r in rows] == ["WIDE"]
+
+
 def test_summary_reports_the_fallback_count_from_the_batch_fetch(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     with Session(engine) as session:

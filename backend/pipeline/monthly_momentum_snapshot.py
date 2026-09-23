@@ -91,5 +91,5 @@ if __name__ == "__main__":
         else:
             run.message = (
                 f"{summary['processed']}/{summary['universe_size']} tickers, {summary['stale_count']} still stale after fetch, "
-                f"{summary['fallback_count']} fell back to Yahoo"
+                f"{summary['fallback_count']} fell back to Yahoo, {summary['skipped_delisted_count']} skipped as delisted"
             )
