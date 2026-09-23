@@ -4,6 +4,7 @@ from datetime import date, timedelta
 import httpx
 from sqlmodel import Session, select
 
+from clients.massive_client import massive_client
 from clients.yahoo_cache import get_or_fetch_price_history
 from core.cache import force_fetch, get_or_fetch, get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
@@ -15,7 +16,7 @@ from helpers.earnings import most_recent_reported_earnings_date
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.schemas import OutlierWarning, TickerSummaryOut
-from core.tickers import normalize_ticker
+from core.tickers import is_non_us_ticker, normalize_ticker, to_massive_symbol
 from helpers.shares import compute_shares_outstanding, is_implausible_magnitude_shift
 from data.step2_data import get_step2_data
 from data.step3_data import get_active_valuation
@@ -95,20 +96,58 @@ def _avg_dollar_volume_20d(daily_prices: list[dict]) -> float | None:
     return sum(row["close"] * row["volume"] for row in window) / len(window)
 
 
+async def _fetch_massive_latest_price(ticker: str) -> float | None:
+    """Live Massive/Polygon snapshot close -- the primary attempt when
+    FMP_ENABLED=False (see get_summary's quote-fetch block below), ahead of
+    the Yahoo fallback below (_fetch_yahoo_latest_close). Deliberately
+    uncached, unlike the Yahoo path it now takes priority over: Massive's
+    confirmed rate-limit headroom (300 sequential requests, zero
+    throttling -- docs/massive_feasibility_investigation_2026-09-23.md)
+    makes a session-aware TTL cache unnecessary here, a plain live call per
+    view mirrors the Chart tab's own already-working zero-cache convention
+    (data/chart_data.py).
+
+    Prefers `min.c` (the latest available bar, real data whether the
+    session is open or not) over `day.c` (the current session's own
+    aggregate -- confirmed to read all-zero pre-market) over `prevDay.c`
+    (the last completed session's close), taking the first present,
+    non-zero value. Returns None for a non-US ticker (never attempted,
+    same core/tickers.py::is_non_us_ticker routing every other daily-bar
+    consumer uses), when Massive is disabled, on any fetch error, or when
+    Massive has no snapshot at all for this ticker -- the caller falls
+    back to _fetch_yahoo_latest_close in every one of those cases."""
+    if is_non_us_ticker(ticker) or not settings.massive_enabled:
+        return None
+    try:
+        snapshot = await massive_client.get_snapshot(to_massive_symbol(ticker))
+    except Exception:
+        return None
+    if snapshot is None:
+        return None
+    for key in ("min", "day", "prevDay"):
+        value = (snapshot.get(key) or {}).get("c")
+        if value:
+            return float(value)
+    return None
+
+
 async def _fetch_yahoo_latest_close(ticker: str) -> float | None:
-    """Live Yahoo Finance close price -- used only when FMP_ENABLED=False
-    (see get_summary's quote-fetch block below), reversing the previously-
-    documented behavior where a paused FMP subscription left price/quote
-    serving only the last cached FMP value with no live alternate feed at
-    all (see CLAUDE.md's "Pausing the FMP subscription" section). A short
-    5-day lookback is enough to always have at least one real bar even
-    across a long weekend/holiday; clients.yahoo_cache._is_stale still
-    governs whether this is a live fetch or a cache hit: while the session
-    is open the close is the live last trade (fresh for
-    Settings.yahoo_quote_intraday_ttl_seconds), after the close it is the
-    final close (fresh until the next session's close). Returns None if Yahoo has no data at all for this
-    ticker -- callers keep whatever price the existing cached-FMP-quote
-    path already resolved (stale is still better than nothing)."""
+    """Live Yahoo Finance close price -- the fallback when
+    _fetch_massive_latest_price above returns None (a non-US ticker,
+    Massive disabled, or a Massive fetch failure), used only when
+    FMP_ENABLED=False (see get_summary's quote-fetch block below),
+    reversing the previously-documented behavior where a paused FMP
+    subscription left price/quote serving only the last cached FMP value
+    with no live alternate feed at all (see CLAUDE.md's "Pausing the FMP
+    subscription" section). A short 5-day lookback is enough to always
+    have at least one real bar even across a long weekend/holiday;
+    clients.yahoo_cache._is_stale still governs whether this is a live
+    fetch or a cache hit: while the session is open the close is the live
+    last trade (fresh for Settings.yahoo_quote_intraday_ttl_seconds), after
+    the close it is the final close (fresh until the next session's
+    close). Returns None if Yahoo has no data at all for this ticker --
+    callers keep whatever price the existing cached-FMP-quote path already
+    resolved (stale is still better than nothing)."""
     rows = await get_or_fetch_price_history(ticker, period="5d")
     if not rows:
         return None
@@ -262,14 +301,17 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
             # FMP paused: the three-way branch above already degraded to
             # serving the last cached FMP quote (get_or_fetch/force_fetch's
             # own settings.fmp_enabled handling) -- only override `price`
-            # with a live Yahoo close, leaving every other quote-derived
-            # field (change/marketCap/yearHigh/yearLow) as whatever was last
-            # cached, since Yahoo's OHLCV has no equivalent for those. Not
-            # applied under cache_only (the Screener recompute sweep), whose
-            # whole contract is zero live calls of any kind, not just FMP.
-            yahoo_price = await _fetch_yahoo_latest_close(ticker)
-            if yahoo_price is not None:
-                quote = {**quote, "price": yahoo_price}
+            # with a live Massive (falling back to Yahoo) close, leaving
+            # every other quote-derived field (change/marketCap/yearHigh/
+            # yearLow) as whatever was last cached, since neither source's
+            # OHLCV has an equivalent for those. Not applied under
+            # cache_only (the Screener recompute sweep), whose whole
+            # contract is zero live calls of any kind, not just FMP.
+            live_price = await _fetch_massive_latest_price(ticker)
+            if live_price is None:
+                live_price = await _fetch_yahoo_latest_close(ticker)
+            if live_price is not None:
+                quote = {**quote, "price": live_price}
         price_change = _first(
             await safe_fetch(
                 "price_change",
