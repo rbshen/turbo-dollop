@@ -59,7 +59,7 @@ export interface CronHealthOut {
 }
 
 export interface DataSourceStatusOut {
-  source: "fmp" | "yahoo";
+  source: "fmp" | "yahoo" | "massive";
   enabled: boolean;
   status: "healthy" | "disabled_or_failing" | "stale";
   last_success_at: string | null;

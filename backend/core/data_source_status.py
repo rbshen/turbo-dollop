@@ -59,6 +59,7 @@ def get_data_source_health() -> DataSourceHealthOut:
 
     fmp_last_success = _last_success_at("fmp")
     yahoo_last_success = _last_success_at("yahoo")
+    massive_last_success = _last_success_at("massive")
 
     return DataSourceHealthOut(
         sources=[
@@ -67,6 +68,12 @@ def get_data_source_health() -> DataSourceHealthOut:
                 enabled=settings.fmp_enabled,
                 status=_status_for(settings.fmp_enabled, fmp_last_success, now),
                 last_success_at=fmp_last_success,
+            ),
+            DataSourceStatusOut(
+                source="massive",
+                enabled=settings.massive_enabled,
+                status=_status_for(settings.massive_enabled, massive_last_success, now),
+                last_success_at=massive_last_success,
             ),
             DataSourceStatusOut(
                 source="yahoo",

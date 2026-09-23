@@ -62,12 +62,23 @@ def test_get_data_source_health_yahoo_has_no_kill_switch(monkeypatch, _isolate_d
     assert yahoo.status == "healthy"
 
 
-def test_data_source_health_endpoint_returns_both_sources(monkeypatch, _isolate_data_source_health_engine):
+def test_data_source_health_endpoint_returns_all_three_sources(monkeypatch, _isolate_data_source_health_engine):
     engine = _isolate_data_source_health_engine
     _seed(engine, "fmp", timedelta(minutes=5))
     _seed(engine, "yahoo", timedelta(minutes=5))
+    _seed(engine, "massive", timedelta(minutes=5))
     with TestClient(app) as client:
         response = client.get("/api/config/data-source-health")
     assert response.status_code == 200
     body = response.json()
-    assert {s["source"] for s in body["sources"]} == {"fmp", "yahoo"}
+    assert {s["source"] for s in body["sources"]} == {"fmp", "yahoo", "massive"}
+
+
+def test_get_data_source_health_reflects_massive_enabled_flag(monkeypatch, _isolate_data_source_health_engine):
+    import core.data_source_status as data_source_status
+
+    monkeypatch.setattr(data_source_status.settings, "massive_enabled", False)
+    result = get_data_source_health()
+    massive = next(s for s in result.sources if s.source == "massive")
+    assert massive.enabled is False
+    assert massive.status == "disabled_or_failing"

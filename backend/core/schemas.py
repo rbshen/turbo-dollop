@@ -819,12 +819,13 @@ class CronHealthOut(BaseModel):
 
 class DataSourceStatusOut(BaseModel):
     """One data source's health, for the Settings "Status" section's Data
-    Sources cards -- computed purely from an enabled/kill-switch flag (FMP
-    only; Yahoo has none, see clients/yahoo_client.py's own docstring for
-    why) plus DataSourceHealth.last_success_at, NEVER a live reachability
-    ping (see core/data_source_status.py)."""
+    Sources cards -- computed purely from an enabled/kill-switch flag (FMP's
+    FMP_ENABLED, Massive's MASSIVE_ENABLED; Yahoo has none, see
+    clients/yahoo_client.py's own docstring for why) plus
+    DataSourceHealth.last_success_at, NEVER a live reachability ping (see
+    core/data_source_status.py)."""
 
-    source: Literal["fmp", "yahoo"]
+    source: Literal["fmp", "yahoo", "massive"]
     enabled: bool
     status: Literal["healthy", "disabled_or_failing", "stale"]
     last_success_at: datetime | None = None
