@@ -15,7 +15,7 @@ def _fresh_engine(monkeypatch, tmp_path):
     return engine
 
 
-def _patch_batch_fetch(monkeypatch, rows_by_ticker: dict):
+def _patch_batch_fetch(monkeypatch, rows_by_ticker: dict, stale_tickers: list[str] | None = None):
     calls: list[tuple[list[str], bool, str, int]] = []
 
     async def fake_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
@@ -23,6 +23,13 @@ def _patch_batch_fetch(monkeypatch, rows_by_ticker: dict):
         return rows_by_ticker
 
     monkeypatch.setattr(nightly_trend, "get_or_fetch_bars_batch", fake_batch)
+
+    # stale_ticker_count reads clients.shared_bars_cache's OWN engine
+    # directly (not nightly_trend's) -- stubbed here too, alongside the
+    # batch-fetch fake above, so a test's real in-memory engine (or the
+    # absence of one) never leaks into a real on-disk DB read.
+    stale = stale_tickers or []
+    monkeypatch.setattr(nightly_trend, "stale_ticker_count", lambda tickers, interval, reference=None: (len(stale), stale))
     return calls
 
 
@@ -123,7 +130,7 @@ def test_empty_universe_returns_zero_summary_without_calling_batch_fetch(monkeyp
 
     summary = asyncio.run(nightly_trend.main(tickers=[]))
 
-    assert summary == {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": []}
+    assert summary == {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "stale_count": 0}
     assert batch_calls == []
 
 

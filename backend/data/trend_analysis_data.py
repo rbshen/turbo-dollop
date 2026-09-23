@@ -346,8 +346,8 @@ def compute_and_store_from_frames(
     triggering its own separate live fetch. Raises ValueError if `ohlcv`
     is empty (no Yahoo data at all for this ticker) -- callers (the nightly
     job's per-ticker loop) treat this like any other per-ticker failure,
-    never aborting the whole batch. benchmark_ohlcv (^GSPC's own daily
-    OHLCV) is optional -- absent/empty degrades Weinstein's Mansfield
+    never aborting the whole batch. benchmark_ohlcv (WEINSTEIN_BENCHMARK_TICKER's
+    own daily OHLCV, SPY as of the 2026-09-23 Massive migration) is optional -- absent/empty degrades Weinstein's Mansfield
     RS/breakout fields to None/False rather than raising (see
     compute_weinstein_stage's own na()-passes-through handling), so this
     stays backward compatible with any caller that doesn't pass it."""
@@ -409,7 +409,7 @@ async def compute_and_store_trend_analysis(ticker: str, lookback_days: int = LOO
     API endpoint (a one-off, on-demand request), where fetching just this
     one ticker's history is the right cost, unlike the nightly job's
     whole-universe batch (see compute_and_store_from_frames above). Also
-    fetches ^GSPC for Weinstein's Mansfield RS. Both reads go through the
+    fetches WEINSTEIN_BENCHMARK_TICKER (SPY) for Weinstein's Mansfield RS. Both reads go through the
     shared bars cache (clients/shared_bars_cache.py): the nightly job keeps
     both warm and close-fresh, so this is a cache hit in the overwhelming
     majority of on-demand calls, and a genuinely-stale row (last bar behind

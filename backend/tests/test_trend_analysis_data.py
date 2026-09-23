@@ -636,7 +636,7 @@ def test_a_row_computed_minutes_ago_is_still_recomputed_when_a_newer_session_has
     second = asyncio.run(get_trend_analysis_data("AAPL"))
 
     assert (datetime.now() - first.computed_at) < timedelta(minutes=5)  # old timer: nowhere near expired
-    assert calls == ["AAPL", "^GSPC"]  # ...but it recomputed anyway
+    assert calls == ["AAPL", WEINSTEIN_BENCHMARK_TICKER]  # ...but it recomputed anyway
     with Session(engine) as session:
         assert session.get(TrendAnalysis, "AAPL").bars_as_of == _SESSION
     assert second.computed_at > first.computed_at
@@ -666,7 +666,7 @@ def test_a_row_from_before_the_column_existed_is_recomputed_once(monkeypatch):
     calls = _count_fetches(monkeypatch, _ending_on(_synthetic_rows(), _SESSION))
 
     asyncio.run(get_trend_analysis_data("AAPL"))
-    assert calls == ["AAPL", "^GSPC"]
+    assert calls == ["AAPL", WEINSTEIN_BENCHMARK_TICKER]
 
     calls.clear()
     asyncio.run(get_trend_analysis_data("AAPL"))  # now stamped -- steady state, no more recomputes

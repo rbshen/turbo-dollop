@@ -43,7 +43,7 @@ def _seed_watchlist(engine, name: str, tickers: list[str]) -> None:
         session.commit()
 
 
-def _patch_bar_source(monkeypatch, bars_by_ticker: dict):
+def _patch_bar_source(monkeypatch, bars_by_ticker: dict, stale_tickers: list[str] | None = None):
     calls: list[list[str]] = []
 
     async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
@@ -51,6 +51,12 @@ def _patch_bar_source(monkeypatch, bars_by_ticker: dict):
         return bars_by_ticker
 
     monkeypatch.setattr(nightly_lz, "get_or_fetch_bars_batch", fake_get_bars_batch)
+
+    # stale_ticker_count reads clients.shared_bars_cache's OWN engine
+    # directly (not nightly_lz's) -- stubbed here too, same reasoning as
+    # tests/test_nightly_trend_calculation.py's own _patch_batch_fetch.
+    stale = stale_tickers or []
+    monkeypatch.setattr(nightly_lz, "stale_ticker_count", lambda tickers, interval, reference=None: (len(stale), stale))
     return calls
 
 
@@ -169,11 +175,11 @@ def test_a_failing_ticker_does_not_abort_the_sweep(monkeypatch, tmp_path):
     assert summary["failed"] == 1
 
 
-def test_source_is_always_yahoo_regardless_of_fmp_enabled(monkeypatch, tmp_path):
+def test_source_is_never_fmp_regardless_of_fmp_enabled(monkeypatch, tmp_path):
     """Regression test for the 2026-09-18 Yahoo-consolidation change: this
-    job no longer has an FMP branch at all, so the recorded source stays
-    "yahoo" whether or not FMP_ENABLED is set -- confirmed by flipping the
-    flag both ways and asserting the outcome never changes."""
+    job has no FMP branch at all, so the recorded source is never "fmp"
+    whether or not FMP_ENABLED is set -- confirmed by flipping the flag
+    both ways and asserting the outcome never changes."""
     from core.config import settings
 
     engine = _fresh_engine(monkeypatch, tmp_path)
@@ -181,13 +187,33 @@ def test_source_is_always_yahoo_regardless_of_fmp_enabled(monkeypatch, tmp_path)
     _patch_bar_source(monkeypatch, {"AAPL": _fake_bars()})
     store_calls = _patch_store(monkeypatch)
 
-    monkeypatch.setattr(settings, "fmp_enabled", True)
-    asyncio.run(nightly_lz.main())
-    assert store_calls[-1] == ("AAPL", "yahoo")
+    for fmp_enabled in (True, False):
+        monkeypatch.setattr(settings, "fmp_enabled", fmp_enabled)
+        asyncio.run(nightly_lz.main())
+        assert store_calls[-1][1] != "fmp"
 
-    monkeypatch.setattr(settings, "fmp_enabled", False)
+
+def test_source_label_reflects_massive_enabled_per_ticker(monkeypatch, tmp_path):
+    """2026-09-23 Massive migration: the recorded source is now a
+    per-ticker core/tickers.py::resolve_daily_bar_source_label call
+    (massive/yahoo split), not the old hardcoded module constant --
+    "massive" for a US ticker when Massive is enabled, "yahoo" for a
+    non-US ticker or when Massive is disabled."""
+    from core.config import settings
+
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_watchlist(engine, "W1", ["AAPL", "0700.HK"])
+    _patch_bar_source(monkeypatch, {"AAPL": _fake_bars(), "0700.HK": _fake_bars()})
+    store_calls = _patch_store(monkeypatch)
+
+    monkeypatch.setattr(settings, "massive_enabled", True)
     asyncio.run(nightly_lz.main())
-    assert store_calls[-1] == ("AAPL", "yahoo")
+    assert dict(store_calls) == {"AAPL": "massive", "0700.HK": "yahoo"}
+
+    store_calls.clear()
+    monkeypatch.setattr(settings, "massive_enabled", False)
+    asyncio.run(nightly_lz.main())
+    assert dict(store_calls) == {"AAPL": "yahoo", "0700.HK": "yahoo"}
 
 
 def test_main_sweeps_a_row_stale_beyond_the_seven_day_window(monkeypatch, tmp_path):

@@ -1,4 +1,5 @@
-from core.tickers import from_massive_symbol, is_non_us_ticker, normalize_ticker, to_massive_symbol
+import core.tickers as tickers_module
+from core.tickers import from_massive_symbol, is_non_us_ticker, normalize_ticker, resolve_daily_bar_source_label, to_massive_symbol
 
 
 def test_normalizes_known_dual_class_share_aliases():
@@ -64,3 +65,18 @@ def test_is_non_us_ticker_does_not_flag_normalized_class_shares_or_plain_tickers
     assert is_non_us_ticker(normalize_ticker("BRK.B")) is False
     assert is_non_us_ticker("AAPL") is False
     assert is_non_us_ticker("CNSWF") is False  # OTC, no dot -- caught by the empty-result fallback instead
+
+
+def test_resolve_daily_bar_source_label_prefers_massive_for_us_tickers(monkeypatch):
+    monkeypatch.setattr(tickers_module.settings, "massive_enabled", True)
+    assert resolve_daily_bar_source_label("AAPL") == "massive"
+
+
+def test_resolve_daily_bar_source_label_is_yahoo_for_non_us_tickers_even_when_massive_enabled(monkeypatch):
+    monkeypatch.setattr(tickers_module.settings, "massive_enabled", True)
+    assert resolve_daily_bar_source_label("0700.HK") == "yahoo"
+
+
+def test_resolve_daily_bar_source_label_is_yahoo_for_every_ticker_when_massive_disabled(monkeypatch):
+    monkeypatch.setattr(tickers_module.settings, "massive_enabled", False)
+    assert resolve_daily_bar_source_label("AAPL") == "yahoo"

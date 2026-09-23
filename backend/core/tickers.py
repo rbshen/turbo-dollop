@@ -14,6 +14,8 @@ through unchanged rather than being silently mangled. These two are the
 only confirmed dot-notation tickers in Fathom's tracked universe (verified
 directly against IndexConstituent -- see investigation notes)."""
 
+from core.config import settings
+
 TICKER_ALIASES = {"BRK.B": "BRK-B", "BF.B": "BF-B"}
 
 # Reverse of TICKER_ALIASES -- Massive/Polygon uses dot notation for class
@@ -56,3 +58,16 @@ def is_non_us_ticker(ticker: str) -> bool:
     and still needs the caller's own per-ticker empty-result fallback (see
     clients/daily_bar_sources.py) to end up on Yahoo."""
     return "." in ticker
+
+
+def resolve_daily_bar_source_label(ticker: str) -> str:
+    """Best-effort label for which provider generally serves this ticker's
+    daily bars -- "yahoo" for a non-US ticker or when Massive is disabled,
+    "massive" otherwise. Informational only (e.g.
+    LiquidityZoneAnalysis.source), NOT a literal per-fetch record of which
+    provider actually answered a specific call: a per-ticker Massive->Yahoo
+    fallback (see clients/daily_bar_sources.py::MassiveWithYahooFallback)
+    could silently make this label wrong for one specific night without
+    anything here knowing, the same tolerance every other informational-
+    only field in this codebase already accepts."""
+    return "yahoo" if is_non_us_ticker(ticker) or not settings.massive_enabled else "massive"

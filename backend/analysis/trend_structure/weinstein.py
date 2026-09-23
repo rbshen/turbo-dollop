@@ -28,7 +28,15 @@ import pandas as pd
 
 from .types import WeinsteinStage, WeinsteinStageResult
 
-WEINSTEIN_BENCHMARK_TICKER = "^GSPC"
+# SPY, not the ^GSPC index itself (2026-09-23 Massive migration decision):
+# Massive/Polygon has no Indices product on the Stocks Starter plan (a
+# separate subscription, confirmed 403 in
+# docs/massive_feasibility_investigation_2026-09-23.md §2d) and, being a
+# pseudo-ticker, ^GSPC was never coverable there regardless. SPY is a
+# confirmed-working substitute -- Mansfield RS's ratio math
+# (compute_mansfield_rs below) is level-invariant, so SPY's different price
+# scale vs. an index level doesn't change the result.
+WEINSTEIN_BENCHMARK_TICKER = "SPY"
 
 MA_LEN = 30
 SLOPE_LOOKBACK = 5
@@ -162,7 +170,7 @@ def compute_weinstein_stage(ohlcv: pd.DataFrame, benchmark_ohlcv: pd.DataFrame) 
     """ohlcv/benchmark_ohlcv are both daily-indexed frames matching
     engine.py::compute_trend_structure's own contract (lowercase
     open/high/low/close/volume). benchmark_ohlcv may be empty (e.g. the
-    ^GSPC fetch failed that run) -- Mansfield RS/breakout's RS gate degrade
+    WEINSTEIN_BENCHMARK_TICKER fetch failed that run) -- Mansfield RS/breakout's RS gate degrade
     gracefully rather than raising, matching the Pine source's own
     na(mansfield)-passes-through convention.
     """
