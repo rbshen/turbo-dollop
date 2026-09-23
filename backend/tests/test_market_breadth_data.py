@@ -26,9 +26,13 @@ def _frame(end="2026-09-18", periods=300, start_price=100.0, end_price=150.0) ->
     return pd.DataFrame({"open": close, "high": close + 1, "low": close - 1, "close": close, "volume": 1000})
 
 
-def _patch_bars(monkeypatch, bars: dict):
-    async def fake(tickers, interval, lookback_days, auto_adjust=False, **_):
+def _patch_bars(monkeypatch, bars: dict, fallback_tickers: list[str] | None = None):
+    fallback = fallback_tickers or []
+
+    async def fake(tickers, interval, lookback_days, auto_adjust=False, fallback_tickers=None, **_):
         assert interval == "1d" and lookback_days == mbd.FETCH_LOOKBACK_DAYS and auto_adjust is False
+        if fallback_tickers is not None:
+            fallback_tickers.extend(fallback)
         return {t: bars[t] for t in tickers if t in bars}
 
     monkeypatch.setattr(mbd, "get_or_fetch_bars_batch", fake)
@@ -65,6 +69,17 @@ def test_stores_one_row_for_the_anchor_session(monkeypatch):
     assert row.hl_eligible == 10 and row.new_highs == 6 and row.new_lows == 4 and row.net_new_highs == 2
     assert summary["as_of_date"] == "2026-09-18" and summary["with_bar"] == 10 and summary["net_new_highs"] == 2
     assert summary["pct_above_sma20"] == 60.0
+
+
+def test_summary_reports_the_fallback_count_from_the_batch_fetch(monkeypatch):
+    _fresh_engine(monkeypatch)
+    tickers = _tickers(10)
+    bars = {t: _frame() for t in tickers}
+    _patch_bars(monkeypatch, bars, fallback_tickers=[tickers[0], tickers[1]])
+
+    summary = _run(tickers)
+
+    assert summary["fallback_count"] == 2
 
 
 def test_a_bar_after_the_last_completed_session_is_ignored(monkeypatch):

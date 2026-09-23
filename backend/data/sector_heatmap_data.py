@@ -113,7 +113,10 @@ async def compute_and_store_sector_returns(completed_date: date | None = None) -
     completed = completed_date or _most_recent_completed_trading_date()
     tickers = [t for t, _ in SECTOR_ETFS]
 
-    histories = await get_or_fetch_bars_batch(tickers, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False)
+    fallback_tickers: list[str] = []
+    histories = await get_or_fetch_bars_batch(
+        tickers, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False, fallback_tickers=fallback_tickers
+    )
 
     failures: list[tuple[str, str]] = []
     closes: dict[str, pd.Series] = {}
@@ -166,6 +169,7 @@ async def compute_and_store_sector_returns(completed_date: date | None = None) -
         "processed": len(closes),
         "failed": len(failures),
         "failures": failures,
+        "fallback_count": len(fallback_tickers),
     }
     logger.info("Sector heatmap complete for %s: %d/%d tickers computed.", anchor.date(), summary["processed"], len(tickers))
     return summary

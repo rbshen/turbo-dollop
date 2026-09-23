@@ -359,7 +359,10 @@ async def compute_and_store_market_breadth(
         raise RuntimeError("Market breadth: empty universe -- run scrapers.refresh_sp500_list first")
     completed = completed_date or _most_recent_completed_trading_date()
 
-    bars = await get_or_fetch_bars_batch(tickers, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False)
+    fallback_tickers: list[str] = []
+    bars = await get_or_fetch_bars_batch(
+        tickers, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False, fallback_tickers=fallback_tickers
+    )
     flags = ticker_flags(bars)
     counts = aggregate_flags(flags)
 
@@ -397,6 +400,7 @@ async def compute_and_store_market_breadth(
         "new_highs": values["new_highs"],
         "new_lows": values["new_lows"],
         "net_new_highs": values["net_new_highs"],
+        "fallback_count": len(fallback_tickers),
     }
     logger.info(
         "Market breadth complete for %s: %d/%d constituents, %%>SMA20 %s, %%>SMA50 %s, %%>SMA200 %s, net new highs %d.",

@@ -68,7 +68,7 @@ async def main(tickers: list[str] | None = None) -> dict:
 
     if not tickers:
         logger.error("No tickers to process -- run refresh_sp500_list.py/refresh_dow_list.py first, or pass an explicit ticker list.")
-        return {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "stale_count": 0}
+        return {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "stale_count": 0, "fallback_count": 0}
 
     logger.info("Starting nightly trend-structure calculation for %d tickers.", len(tickers))
     start_time = time.monotonic()
@@ -84,8 +84,10 @@ async def main(tickers: list[str] | None = None) -> dict:
     # the one live fetch for that ticker and the other reads it back --
     # this job never has to know or care which. auto_adjust=False
     # (2026-09-18 decision): raw, non-dividend-adjusted bars.
+    fallback_tickers: list[str] = []
     bars_by_ticker = await get_or_fetch_bars_batch(
-        tickers + [WEINSTEIN_BENCHMARK_TICKER], DAILY_INTERVAL, LOOKBACK_DAYS, auto_adjust=False
+        tickers + [WEINSTEIN_BENCHMARK_TICKER], DAILY_INTERVAL, LOOKBACK_DAYS, auto_adjust=False,
+        fallback_tickers=fallback_tickers,
     )
     benchmark_ohlcv = bars_by_ticker.get(WEINSTEIN_BENCHMARK_TICKER)
 
@@ -125,6 +127,7 @@ async def main(tickers: list[str] | None = None) -> dict:
         "duration_seconds": duration,
         "failures": failures,
         "stale_count": stale_count,
+        "fallback_count": len(fallback_tickers),
     }
 
 
@@ -152,4 +155,7 @@ if __name__ == "__main__":
     cli_args = _parse_args()
     with cron_heartbeat("pipeline.nightly_trend_calculation") as run:
         summary = asyncio.run(main(_resolve_cli_tickers(cli_args)))
-        run.message = f"{summary['processed']} tickers, {summary['stale_count']} still stale after fetch"
+        run.message = (
+            f"{summary['processed']} tickers, {summary['stale_count']} still stale after fetch, "
+            f"{summary['fallback_count']} fell back to Yahoo"
+        )

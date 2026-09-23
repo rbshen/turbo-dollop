@@ -79,5 +79,6 @@ async def main() -> dict:
 
 
 if __name__ == "__main__":
-    with cron_heartbeat("pipeline.nightly_market_breadth"):
-        asyncio.run(main())
+    with cron_heartbeat("pipeline.nightly_market_breadth") as run:
+        summary = asyncio.run(main())
+        run.message = f"{summary['with_bar']}/{summary['constituents']} constituents, {summary['fallback_count']} fell back to Yahoo"

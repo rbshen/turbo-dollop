@@ -348,6 +348,7 @@ async def get_or_fetch_bars_batch(
     auto_adjust: bool = False,
     force: bool = False,
     reference: datetime | None = None,
+    fallback_tickers: list[str] | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Batch, cache-first read of raw OHLCV bars for `interval`
     ("1d"/"60m"), growing the cache to whatever the widest requester has
@@ -372,7 +373,19 @@ async def get_or_fetch_bars_batch(
     reference overrides "now" (default: datetime.now(timezone.utc)) -- a
     plain testability seam, matching the same parameter every other
     "as-of" function in this module already takes, rather than needing to
-    monkeypatch this module's own `datetime` import."""
+    monkeypatch this module's own `datetime` import.
+
+    fallback_tickers, when passed a list, gets extended with every "1d"
+    ticker this call served from Yahoo because Massive errored or returned
+    no data for it (clients/daily_bar_sources.py::MassiveWithYahooFallback)
+    -- an out-parameter, not a return-shape change, so this function's
+    `dict[str, pd.DataFrame]` return type (many callers) is unaffected.
+    Ignored for interval="60m" (always Yahoo, never a fallback) and for
+    non-US "1d" tickers (routed straight to Yahoo by design, not a
+    fallback). Lets a caller report a per-run fallback count -- e.g. via
+    its own cron_heartbeat message, alongside stale_ticker_count below --
+    without this module needing to know anything about cron reporting
+    itself."""
     if not tickers:
         return {}
 
@@ -419,7 +432,11 @@ async def get_or_fetch_bars_batch(
             # regardless of that flag.
             us_tickers, non_us_tickers = route_by_source(to_fetch)
             if us_tickers:
-                fetched.update(await get_daily_bar_source().get_daily_bars(us_tickers, auto_adjust, reference=today))
+                fetched.update(
+                    await get_daily_bar_source().get_daily_bars(
+                        us_tickers, auto_adjust, reference=today, fallback_tickers=fallback_tickers
+                    )
+                )
             if non_us_tickers:
                 fetched.update(await YahooDailySource().get_daily_bars(non_us_tickers, auto_adjust, reference=today))
         else:

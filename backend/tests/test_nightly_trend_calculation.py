@@ -15,11 +15,16 @@ def _fresh_engine(monkeypatch, tmp_path):
     return engine
 
 
-def _patch_batch_fetch(monkeypatch, rows_by_ticker: dict, stale_tickers: list[str] | None = None):
+def _patch_batch_fetch(
+    monkeypatch, rows_by_ticker: dict, stale_tickers: list[str] | None = None, fallback_tickers: list[str] | None = None
+):
     calls: list[tuple[list[str], bool, str, int]] = []
+    fallback = fallback_tickers or []
 
-    async def fake_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
+    async def fake_batch(tickers, interval, lookback_days, auto_adjust=True, fallback_tickers=None, **kwargs):
         calls.append((list(tickers), auto_adjust, interval, lookback_days))
+        if fallback_tickers is not None:
+            fallback_tickers.extend(fallback)
         return rows_by_ticker
 
     monkeypatch.setattr(nightly_trend, "get_or_fetch_bars_batch", fake_batch)
@@ -130,7 +135,9 @@ def test_empty_universe_returns_zero_summary_without_calling_batch_fetch(monkeyp
 
     summary = asyncio.run(nightly_trend.main(tickers=[]))
 
-    assert summary == {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "stale_count": 0}
+    assert summary == {
+        "processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "stale_count": 0, "fallback_count": 0,
+    }
     assert batch_calls == []
 
 
@@ -171,3 +178,18 @@ def test_benchmark_rows_are_passed_through_to_every_ticker_compute(monkeypatch, 
     asyncio.run(nightly_trend.main(tickers=["AAPL"]))
 
     assert received == [benchmark_rows]
+
+
+def test_summary_reports_the_fallback_count_from_the_batch_fetch(monkeypatch, tmp_path):
+    """get_or_fetch_bars_batch's fallback_tickers out-param (populated by
+    MassiveWithYahooFallback whenever a ticker falls back from Massive to
+    Yahoo this run) must be threaded through into the run summary -- this
+    is what lets the cron heartbeat message surface a per-run fallback
+    count in Settings -> Status, rather than only ever appearing in logs."""
+    _fresh_engine(monkeypatch, tmp_path)
+    _patch_batch_fetch(monkeypatch, {"AAPL": [1], "MSFT": [1]}, fallback_tickers=["MSFT"])
+    _patch_store(monkeypatch)
+
+    summary = asyncio.run(nightly_trend.main(tickers=["AAPL", "MSFT"]))
+
+    assert summary["fallback_count"] == 1

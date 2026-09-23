@@ -49,7 +49,11 @@ __all__ = [
 
 class DailyBarSource(Protocol):
     async def get_daily_bars(
-        self, tickers_with_days: dict[str, int], auto_adjust: bool, reference: date | None = None
+        self,
+        tickers_with_days: dict[str, int],
+        auto_adjust: bool,
+        reference: date | None = None,
+        fallback_tickers: list[str] | None = None,
     ) -> dict[str, pd.DataFrame]:
         """`tickers_with_days`: {ticker: how many calendar days of daily
         history this ticker needs, counting back from today}. `reference`
@@ -60,7 +64,16 @@ class DailyBarSource(Protocol):
         ticker real bars were found for -- a bad/delisted/no-data ticker is
         simply absent, not an error, matching
         clients/yahoo_client.py::YahooClient.get_history's own
-        per-ticker-tolerant convention."""
+        per-ticker-tolerant convention.
+
+        `fallback_tickers`, when passed a list, gets extended with every
+        ticker THIS call served from Yahoo instead of Massive (see
+        MassiveWithYahooFallback below) -- an out-parameter rather than a
+        return-shape change, so get_or_fetch_bars_batch's existing
+        `dict[str, pd.DataFrame]` return type (many callers) doesn't need
+        to change to thread this through. Only MassiveWithYahooFallback
+        ever populates it; YahooDailySource/MassiveDailySource accept and
+        ignore it -- neither is itself a fallback."""
         ...
 
 
@@ -103,7 +116,11 @@ class YahooDailySource:
     couldn't serve."""
 
     async def get_daily_bars(
-        self, tickers_with_days: dict[str, int], auto_adjust: bool, reference: date | None = None
+        self,
+        tickers_with_days: dict[str, int],
+        auto_adjust: bool,
+        reference: date | None = None,
+        fallback_tickers: list[str] | None = None,
     ) -> dict[str, pd.DataFrame]:
         if not tickers_with_days:
             return {}
@@ -155,7 +172,11 @@ class MassiveDailySource:
         self._client = client
 
     async def get_daily_bars(
-        self, tickers_with_days: dict[str, int], auto_adjust: bool, reference: date | None = None
+        self,
+        tickers_with_days: dict[str, int],
+        auto_adjust: bool,
+        reference: date | None = None,
+        fallback_tickers: list[str] | None = None,
     ) -> dict[str, pd.DataFrame]:
         if not tickers_with_days:
             return {}
@@ -261,7 +282,11 @@ class MassiveWithYahooFallback:
         self._yahoo = yahoo or YahooDailySource()
 
     async def get_daily_bars(
-        self, tickers_with_days: dict[str, int], auto_adjust: bool, reference: date | None = None
+        self,
+        tickers_with_days: dict[str, int],
+        auto_adjust: bool,
+        reference: date | None = None,
+        fallback_tickers: list[str] | None = None,
     ) -> dict[str, pd.DataFrame]:
         try:
             result = await self._massive.get_daily_bars(tickers_with_days, auto_adjust, reference=reference)
@@ -270,11 +295,15 @@ class MassiveWithYahooFallback:
                 "Massive daily-bar fetch failed entirely for %d ticker(s); falling back to Yahoo for all of them",
                 len(tickers_with_days),
             )
+            if fallback_tickers is not None:
+                fallback_tickers.extend(tickers_with_days)
             return await self._yahoo.get_daily_bars(tickers_with_days, auto_adjust, reference=reference)
 
         missing = {t: d for t, d in tickers_with_days.items() if t not in result or result[t].empty}
         if missing:
             logger.info("Massive returned no data for %d ticker(s); falling back to Yahoo for them", len(missing))
+            if fallback_tickers is not None:
+                fallback_tickers.extend(missing)
             fallback = await self._yahoo.get_daily_bars(missing, auto_adjust, reference=reference)
             result.update(fallback)
         return result

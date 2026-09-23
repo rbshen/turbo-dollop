@@ -227,6 +227,55 @@ def test_total_massive_failure_falls_back_to_yahoo_for_everything(monkeypatch):
     assert yahoo_calls == [{"AAPL": 30, "MSFT": 30}]
 
 
+def test_total_massive_failure_records_every_ticker_in_fallback_tickers():
+    class FailingMassive:
+        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None):
+            raise RuntimeError("Massive is down")
+
+    class FakeYahoo:
+        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None):
+            return {t: _bar_frame(TODAY) for t in tickers_with_days}
+
+    source = MassiveWithYahooFallback(massive=FailingMassive(), yahoo=FakeYahoo())
+    fallback_tickers: list[str] = []
+    asyncio.run(source.get_daily_bars({"AAPL": 30, "MSFT": 30}, auto_adjust=False, fallback_tickers=fallback_tickers))
+
+    assert sorted(fallback_tickers) == ["AAPL", "MSFT"]
+
+
+def test_partial_massive_result_records_only_the_missing_tickers_in_fallback_tickers():
+    class PartialMassive:
+        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None):
+            return {"AAPL": _bar_frame(TODAY)}  # MSFT missing entirely
+
+    class FakeYahoo:
+        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None):
+            return {t: _bar_frame(TODAY) for t in tickers_with_days}
+
+    source = MassiveWithYahooFallback(massive=PartialMassive(), yahoo=FakeYahoo())
+    fallback_tickers: list[str] = []
+    asyncio.run(source.get_daily_bars({"AAPL": 30, "MSFT": 30}, auto_adjust=False, fallback_tickers=fallback_tickers))
+
+    assert fallback_tickers == ["MSFT"]
+
+
+def test_fallback_tickers_left_none_by_default_does_not_error():
+    """The out-param is optional -- every existing caller that doesn't pass
+    it (get_or_fetch_bars_batch's default) must be unaffected."""
+    class PartialMassive:
+        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None):
+            return {}
+
+    class FakeYahoo:
+        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None):
+            return {t: _bar_frame(TODAY) for t in tickers_with_days}
+
+    source = MassiveWithYahooFallback(massive=PartialMassive(), yahoo=FakeYahoo())
+    result = asyncio.run(source.get_daily_bars({"AAPL": 30}, auto_adjust=False))
+
+    assert "AAPL" in result
+
+
 def test_partial_massive_result_falls_back_to_yahoo_only_for_missing_tickers():
     class PartialMassive:
         async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None):

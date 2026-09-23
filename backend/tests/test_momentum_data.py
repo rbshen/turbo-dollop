@@ -24,10 +24,15 @@ def _series(price_at_anchor: float) -> pd.DataFrame:
     return pd.DataFrame({"close": [100.0] * (len(index) - 1) + [price_at_anchor]}, index=index)
 
 
-def _patch_universe_and_prices(monkeypatch, tickers: list[str], histories: dict[str, pd.DataFrame]):
+def _patch_universe_and_prices(
+    monkeypatch, tickers: list[str], histories: dict[str, pd.DataFrame], fallback_tickers: list[str] | None = None
+):
     monkeypatch.setattr(momentum_data, "load_full_tracked_universe", lambda session: tickers)
+    fallback = fallback_tickers or []
 
-    async def fake_get_bars_batch(requested_tickers, interval, lookback_days, auto_adjust=True, **kwargs):
+    async def fake_get_bars_batch(requested_tickers, interval, lookback_days, auto_adjust=True, fallback_tickers=None, **kwargs):
+        if fallback_tickers is not None:
+            fallback_tickers.extend(fallback)
         return {t: histories[t] for t in requested_tickers if t in histories}
 
     monkeypatch.setattr(momentum_data, "get_or_fetch_bars_batch", fake_get_bars_batch)
@@ -56,6 +61,19 @@ def test_tickers_without_a_moat_set_are_excluded_from_the_universe(monkeypatch):
         rows = session.exec(select(MomentumSnapshot)).all()
     assert [r.ticker for r in rows] == ["WIDE"]
     assert rows[0].moat == "wide_moat"
+
+
+def test_summary_reports_the_fallback_count_from_the_batch_fetch(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="WIDE", moat="wide_moat", company_name="Wide Co", overall_score=80, computed_at=datetime.now()))
+        session.commit()
+
+    _patch_universe_and_prices(monkeypatch, ["WIDE"], {"WIDE": _series(150.0)}, fallback_tickers=["WIDE"])
+
+    summary = asyncio.run(momentum_data.compute_and_store_momentum_snapshot(date(2026, 8, 31)))
+
+    assert summary["fallback_count"] == 1
 
 
 def test_rerun_on_same_anchor_date_replaces_rather_than_duplicates(monkeypatch):

@@ -81,12 +81,18 @@ async def main() -> dict:
     if not tickers:
         logger.error("No tickers found across %s -- nothing to process.", matched_names or WATCHLIST_NAME_PATTERN.pattern)
         swept = sweep_stale_liquidity_zones()
-        return {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "swept": swept, "stale_count": 0}
+        return {
+            "processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "swept": swept,
+            "stale_count": 0, "fallback_count": 0,
+        }
 
     logger.info("Starting nightly liquidity-zone calculation for %d tickers across %s.", len(tickers), matched_names)
     start_time = time.monotonic()
 
-    bars_by_ticker = await get_or_fetch_bars_batch(tickers, DAILY_INTERVAL, LOOKBACK_DAYS, auto_adjust=False)
+    fallback_tickers: list[str] = []
+    bars_by_ticker = await get_or_fetch_bars_batch(
+        tickers, DAILY_INTERVAL, LOOKBACK_DAYS, auto_adjust=False, fallback_tickers=fallback_tickers
+    )
 
     # Stale-data guard (docs/yahoo_close_data_gap_investigation_2026-09-23.md)
     # -- see pipeline/nightly_trend_calculation.py's own equivalent comment
@@ -126,10 +132,14 @@ async def main() -> dict:
         "failures": failures,
         "swept": swept,
         "stale_count": stale_count,
+        "fallback_count": len(fallback_tickers),
     }
 
 
 if __name__ == "__main__":
     with cron_heartbeat("pipeline.nightly_liquidity_zone_calculation") as run:
         summary = asyncio.run(main())
-        run.message = f"{summary['processed']} tickers, {summary['stale_count']} still stale after fetch"
+        run.message = (
+            f"{summary['processed']} tickers, {summary['stale_count']} still stale after fetch, "
+            f"{summary['fallback_count']} fell back to Yahoo"
+        )

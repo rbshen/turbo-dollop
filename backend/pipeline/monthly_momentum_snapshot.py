@@ -89,4 +89,7 @@ if __name__ == "__main__":
         if summary.get("skipped"):
             run.message = summary.get("reason", "skipped")
         else:
-            run.message = f"{summary['processed']}/{summary['universe_size']} tickers, {summary['stale_count']} still stale after fetch"
+            run.message = (
+                f"{summary['processed']}/{summary['universe_size']} tickers, {summary['stale_count']} still stale after fetch, "
+                f"{summary['fallback_count']} fell back to Yahoo"
+            )

@@ -39,11 +39,14 @@ def _frame(end: str = "2026-09-18", *, close: float = 100.0, anchor_close: float
     return frame
 
 
-def _patch_history(monkeypatch, histories: dict[str, pd.DataFrame]):
+def _patch_history(monkeypatch, histories: dict[str, pd.DataFrame], fallback_tickers: list[str] | None = None):
     calls = []
+    fallback = fallback_tickers or []
 
-    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
+    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, fallback_tickers=None, **kwargs):
         calls.append({"tickers": list(tickers), "interval": interval, "lookback_days": lookback_days, "auto_adjust": auto_adjust})
+        if fallback_tickers is not None:
+            fallback_tickers.extend(fallback)
         return {t: histories[t] for t in tickers if t in histories}
 
     monkeypatch.setattr(sector_heatmap_data, "get_or_fetch_bars_batch", fake_get_bars_batch)
@@ -82,6 +85,15 @@ def test_stores_every_window_for_every_ticker_via_one_unadjusted_batch_fetch(mon
     assert len(calls) == 1
     assert calls[0]["tickers"] == TICKERS
     assert calls[0]["auto_adjust"] is False and calls[0]["interval"] == "1d"
+
+
+def test_summary_reports_the_fallback_count_from_the_batch_fetch(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_history(monkeypatch, _all_histories(), fallback_tickers=["XLK", "XLF"])
+
+    summary = asyncio.run(compute_and_store_sector_returns(completed_date=COMPLETED))
+
+    assert summary["fallback_count"] == 2
 
 
 def test_return_is_plain_price_return_off_close_not_dividend_adjusted(monkeypatch):

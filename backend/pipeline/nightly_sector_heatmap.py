@@ -72,4 +72,7 @@ async def main() -> dict:
 if __name__ == "__main__":
     with cron_heartbeat("pipeline.nightly_sector_heatmap") as run:
         summary = asyncio.run(main())
-        run.message = f"{summary['processed']}/{len(SECTOR_ETFS)} funds, {summary['stale_count']} still stale after fetch"
+        run.message = (
+            f"{summary['processed']}/{len(SECTOR_ETFS)} funds, {summary['stale_count']} still stale after fetch, "
+            f"{summary['fallback_count']} fell back to Yahoo"
+        )

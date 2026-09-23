@@ -59,7 +59,10 @@ async def compute_and_store_momentum_snapshot(anchor_date: date) -> dict:
     universe = sorted(moat_by_ticker)
     logger.info("Momentum snapshot: %d Moat-rated tickers in universe for anchor %s.", len(universe), anchor_date)
 
-    price_histories = await get_or_fetch_bars_batch(universe, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False)
+    fallback_tickers: list[str] = []
+    price_histories = await get_or_fetch_bars_batch(
+        universe, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False, fallback_tickers=fallback_tickers
+    )
 
     # Stale-data guard (docs/yahoo_close_data_gap_investigation_2026-09-23.md)
     # -- see pipeline/nightly_trend_calculation.py's own equivalent comment
@@ -93,6 +96,7 @@ async def compute_and_store_momentum_snapshot(anchor_date: date) -> dict:
         "processed": len(ranked),
         "dropped": len(universe) - len(ranked),
         "stale_count": stale_count,
+        "fallback_count": len(fallback_tickers),
     }
     logger.info(
         "Momentum snapshot complete for %s: %d/%d tickers scored, %d dropped for insufficient price history.",

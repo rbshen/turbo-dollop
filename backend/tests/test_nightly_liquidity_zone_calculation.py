@@ -43,11 +43,16 @@ def _seed_watchlist(engine, name: str, tickers: list[str]) -> None:
         session.commit()
 
 
-def _patch_bar_source(monkeypatch, bars_by_ticker: dict, stale_tickers: list[str] | None = None):
+def _patch_bar_source(
+    monkeypatch, bars_by_ticker: dict, stale_tickers: list[str] | None = None, fallback_tickers: list[str] | None = None
+):
     calls: list[list[str]] = []
+    fallback = fallback_tickers or []
 
-    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
+    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, fallback_tickers=None, **kwargs):
         calls.append(list(tickers))
+        if fallback_tickers is not None:
+            fallback_tickers.extend(fallback)
         return bars_by_ticker
 
     monkeypatch.setattr(nightly_lz, "get_or_fetch_bars_batch", fake_get_bars_batch)
@@ -107,6 +112,17 @@ def test_main_also_includes_a_third_watchlist_named_w3(monkeypatch, tmp_path):
     assert set(batch_calls[0]) == {"AAPL", "GOOG"}
     assert sorted(t for t, _ in store_calls) == ["AAPL", "GOOG"]
     assert summary["processed"] == 2
+
+
+def test_summary_reports_the_fallback_count_from_the_batch_fetch(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_watchlist(engine, "W1", ["AAPL", "MSFT"])
+    _patch_bar_source(monkeypatch, {"AAPL": _fake_bars(), "MSFT": _fake_bars()}, fallback_tickers=["MSFT"])
+    _patch_store(monkeypatch)
+
+    summary = asyncio.run(nightly_lz.main())
+
+    assert summary["fallback_count"] == 1
 
 
 def test_main_returns_empty_summary_when_no_matching_watchlist_exists(monkeypatch, tmp_path):
@@ -258,7 +274,7 @@ def test_reads_daily_bars_through_the_shared_cache_with_the_documented_request_s
     _seed_watchlist(engine, "W1", ["AAPL"])
     seen: dict = {}
 
-    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
+    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, fallback_tickers=None, **kwargs):
         seen.update(interval=interval, lookback_days=lookback_days, auto_adjust=auto_adjust, kwargs=kwargs)
         return {"AAPL": _fake_bars()}
 
