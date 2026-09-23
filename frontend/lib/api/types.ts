@@ -169,6 +169,10 @@ export interface TickerSummaryOut {
   // when unavailable. revenue_growth_yoy/net_income_growth_yoy/total_debt/
   // ebitda_ttm/etc. on this model stay raw/un-converted in this currency.
   reported_currency: string | null;
+  // Which of the three tracked named indices ("sp500"/"nasdaq"/"dow") this
+  // ticker is currently a constituent of, in that fixed display order --
+  // empty for a ticker in none of them. Drives IndexMembershipPill.
+  index_memberships: string[];
 }
 
 export interface Step1TrendComponent {

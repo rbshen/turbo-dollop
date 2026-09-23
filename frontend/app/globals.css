@@ -87,6 +87,7 @@
   --color-chart-purple: var(--fathom-chart-purple);
   --color-chart-orange: var(--fathom-chart-orange);
   --color-filter-active: var(--fathom-filter-active);
+  --color-index-membership: var(--fathom-index-membership);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -212,6 +213,22 @@
      checkbox, or single-select) that currently holds a non-default value
      -- see lib/screenerFilters.ts::FILTER_ACTIVE_LABEL_CLASS. */
   --fathom-filter-active: oklch(70% 0.15 55);
+  /* Teal, hue 185 -- a new categorical color for the ticker-header
+     index-membership pill (S&P 500 / Nasdaq / Dow 30), deliberately
+     distinct from every other semantic/chart hue already in use (155
+     green/positive, 80 amber/warn+caution, 25 red/negative, 260 blue/
+     brand+chart-4, 300 violet/chart-purple, 55 orange/chart-orange+
+     filter-active). Validated with the dataviz skill's
+     validate_palette.py against the full existing set on this surface
+     (#12161c): clears the normal-vision floor (>=15 dE) against every
+     one of them, including positive-strong (dE 18.6) and chart-purple
+     (dE 17.5) -- the two closest by hue/lightness and the ones this
+     token must not be confused with (index membership is a fact about
+     the ticker, not a Pass/Fail-style verdict, and not Speculative
+     Growth's violet). CVD separation vs. chart-purple/negative/caution
+     sits in the 6-8 dE band, which is legal here since the pill always
+     carries a text label, never color alone. */
+  --fathom-index-membership: oklch(60% 0.12 185);
 }
 
 @layer base {

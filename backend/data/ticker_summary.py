@@ -2,13 +2,14 @@ import logging
 from datetime import date, timedelta
 
 import httpx
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from clients.yahoo_cache import get_or_fetch_price_history
 from core.cache import force_fetch, get_or_fetch, get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
 from core.db import engine
 from core.exceptions import TickerNotFoundError
+from core.models import IndexConstituent
 from helpers.debt_metrics import compute_debt_metrics
 from helpers.earnings import most_recent_reported_earnings_date
 from helpers.first import _first
@@ -44,6 +45,11 @@ FAIR_VALUE_METHOD_LABELS = {
     "PRICE_TO_BOOK_STANDARD": "P/B (standard)",
     "PSG": "PSG",
 }
+
+# Fixed left-to-right display order for the ticker-header index-membership
+# pill (frontend/components/ticker/IndexMembershipPill.tsx) -- a ticker's
+# actual IndexConstituent rows carry no ordering of their own.
+INDEX_MEMBERSHIP_ORDER = ("sp500", "nasdaq", "dow")
 
 
 def _next_earnings_date(earnings: list[dict]) -> date | None:
@@ -430,6 +436,14 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
                 cache_only,
             ),
         )
+        # Cheap local-DB read (no FMP call either way, so no cache_only
+        # branch needed) -- which of the three tracked indices this ticker
+        # is a constituent of, for the ticker-header pill. See
+        # INDEX_MEMBERSHIP_ORDER above for the fixed display order.
+        member_index_names = set(
+            session.exec(select(IndexConstituent.index_name).where(IndexConstituent.ticker == ticker)).all()
+        )
+        index_memberships = [name for name in INDEX_MEMBERSHIP_ORDER if name in member_index_names]
 
     earnings = earnings_data if isinstance(earnings_data, list) else []
     price = quote.get("price")
@@ -538,4 +552,5 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
         fair_value_reported_currency=step3_out.inputs.reported_currency,
         quote_currency=quote_currency,
         reported_currency=reported_currency,
+        index_memberships=index_memberships,
     )

@@ -2,6 +2,7 @@
 
 import { AddToWatchlistButton } from "@/components/ticker/AddToWatchlistButton";
 import { FairValuePill } from "@/components/ticker/FairValuePill";
+import { IndexMembershipPill } from "@/components/ticker/IndexMembershipPill";
 import { MoatPill } from "@/components/ticker/MoatPill";
 import { PerfVsSpyPill } from "@/components/ticker/PerfVsSpyPill";
 import { PriceChange } from "@/components/ticker/PriceChange";
@@ -78,7 +79,7 @@ export function TickerHeader({ symbol, data }: Props) {
         </div>
       </div>
 
-      {/* Row 2: price + change + Assessment/Valuation/Moat chips */}
+      {/* Row 2: price + change only. */}
       <div className="flex flex-wrap items-center gap-3">
         {data.price != null && (
           <span className="font-mono text-xl font-bold tabular-nums text-text-primary">
@@ -86,6 +87,13 @@ export function TickerHeader({ symbol, data }: Props) {
           </span>
         )}
         <PriceChange change={data.change} changePercent={data.change_percent} currency={data.quote_currency} />
+      </div>
+
+      {/* Row 2.5: Assessment/Valuation/Moat/etc. chips, plus which of the
+          three tracked named indices (S&P 500/Nasdaq/Dow 30) this ticker
+          belongs to -- moved into its own row beneath price+change so the
+          new index-membership pill has a natural home alongside the rest. */}
+      <div className="flex flex-wrap items-center gap-3">
         <AssessmentChip symbol={symbol} />
         <MoatPill moat={moatData?.moat} variant="flat" />
         <FairValuePill
@@ -108,6 +116,7 @@ export function TickerHeader({ symbol, data }: Props) {
           variant="flat"
         />
         <WeinsteinStagePill data={trendData} variant="flat" />
+        <IndexMembershipPill memberships={data.index_memberships} variant="flat" />
       </div>
 
       {/* Row 3: next earnings -- always shown so a null date reads as

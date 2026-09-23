@@ -165,6 +165,11 @@ class TickerSummaryOut(BaseModel):
     # model, which stay raw/un-converted (same convention as
     # FinancialsOut.reported_currency).
     reported_currency: str | None = None
+    # Which of the three tracked named indices ("sp500"/"nasdaq"/"dow") this
+    # ticker is currently a constituent of, in that fixed display order --
+    # see data/ticker_summary.py::INDEX_MEMBERSHIP_ORDER. Empty for a ticker
+    # in none of them (drives the ticker-header pill, hidden when empty).
+    index_memberships: list[str] = []
 
 
 class Step1Out(BaseModel):

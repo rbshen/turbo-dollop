@@ -8,7 +8,7 @@ from sqlmodel import Session, SQLModel, create_engine
 import data.step2_data as step2_data
 import data.ticker_summary as ticker_summary
 from core.exceptions import TickerNotFoundError
-from core.models import FundamentalsCache
+from core.models import FundamentalsCache, IndexConstituent
 from core.schemas import Step3Inputs, Step3Out
 from data.ticker_summary import get_summary
 from helpers.ttm import TOTAL_QUARTERS_NEEDED
@@ -267,6 +267,9 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     # convention FinancialsOut/RatiosOut already use).
     assert summary.quote_currency == "USD"
     assert summary.reported_currency is None
+    # No IndexConstituent rows seeded in this test's fresh engine -- AAPL
+    # isn't a member of any tracked index here.
+    assert summary.index_memberships == []
     expected_call_count = {
         "profile": 1,
         "quote": 1,
@@ -1220,3 +1223,37 @@ def test_get_summary_is_etf_reads_the_profile_isetf_or_isfund_flag(monkeypatch, 
     summary = asyncio.run(get_summary("aapl"))
 
     assert summary.is_etf is expected
+
+
+def test_get_summary_index_memberships_empty_when_not_a_constituent_of_any(monkeypatch):
+    _fresh_summary_engine(monkeypatch)
+
+    async def fake_quote(ticker):
+        return FAKE_QUOTE
+
+    _patch_all_but_quote(monkeypatch, fake_quote)
+
+    summary = asyncio.run(get_summary("aapl"))
+
+    assert summary.index_memberships == []
+
+
+def test_get_summary_index_memberships_ordered_sp500_nasdaq_dow(monkeypatch):
+    # Seeded out of order (dow, then nasdaq) and with an unrelated index
+    # name thrown in -- the result must still read back in the fixed
+    # sp500/nasdaq/dow display order, filtered to only real matches.
+    test_engine = _fresh_summary_engine(monkeypatch)
+    with Session(test_engine) as session:
+        session.add(IndexConstituent(index_name="dow", ticker="AAPL", company_name="Apple", last_synced_at=datetime.now()))
+        session.add(IndexConstituent(index_name="nasdaq", ticker="AAPL", company_name="Apple", last_synced_at=datetime.now()))
+        session.add(IndexConstituent(index_name="other-index", ticker="AAPL", company_name="Apple", last_synced_at=datetime.now()))
+        session.commit()
+
+    async def fake_quote(ticker):
+        return FAKE_QUOTE
+
+    _patch_all_but_quote(monkeypatch, fake_quote)
+
+    summary = asyncio.run(get_summary("aapl"))
+
+    assert summary.index_memberships == ["nasdaq", "dow"]
