@@ -1499,7 +1499,7 @@ export interface ChartOut {
   earnings_markers: ChartEarningsMarkerOut[];
   dividend_markers: ChartDividendMarkerOut[];
   events_source: "fmp" | "yahoo" | null;
-  source: string; // "fmp" | "yahoo"
+  source: string; // "massive" | "yahoo" (D_6M/D_1Y/D_2Y try Massive first with an automatic Yahoo fallback; W_4Y is always "yahoo")
   chart_available: boolean; // false only for a genuinely bad/delisted ticker with no bars at all
 }
 

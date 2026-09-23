@@ -182,6 +182,116 @@ def _patch_yahoo_bars(monkeypatch, df: pd.DataFrame) -> None:
     monkeypatch.setattr(chart_data.yahoo_client, "get_history", fake_get_history)
 
 
+def _patch_massive_bars(monkeypatch, df: pd.DataFrame | None, *, raises: bool = False) -> list[str]:
+    """Patches massive_client.get_daily_bars (D_6M/D_1Y/D_2Y's primary
+    source per the 2026-09-23 migration). `df=None` simulates an empty
+    Massive result (falls back to Yahoo); `raises=True` simulates a total
+    Massive failure (also falls back to Yahoo). Returns the list of
+    symbols Massive was actually called with, for assertions."""
+    calls: list[str] = []
+
+    async def fake_get_daily_bars(symbol, start, end, adjusted=False):
+        calls.append(symbol)
+        if raises:
+            raise RuntimeError("Massive is down")
+        return df if df is not None else pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+
+    monkeypatch.setattr(chart_data.massive_client, "get_daily_bars", fake_get_daily_bars)
+    return calls
+
+
+def test_daily_range_uses_massive_when_enabled(monkeypatch):
+    monkeypatch.setattr(chart_data.settings, "massive_enabled", True)
+    massive_calls = _patch_massive_bars(monkeypatch, _daily_df(600))
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("Yahoo must not be called when Massive succeeds")
+
+    monkeypatch.setattr(chart_data.yahoo_client, "get_history", fail_if_called)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+
+    out = asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y"))
+
+    assert out.source == "massive"
+    assert out.chart_available is True
+    assert massive_calls == ["AAPL"]
+
+
+def test_daily_range_falls_back_to_yahoo_when_massive_returns_empty(monkeypatch):
+    monkeypatch.setattr(chart_data.settings, "massive_enabled", True)
+    _patch_massive_bars(monkeypatch, None)
+    _patch_yahoo_bars(monkeypatch, _daily_df(600))
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+
+    out = asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y"))
+
+    assert out.source == "yahoo"
+    assert out.chart_available is True
+
+
+def test_daily_range_falls_back_to_yahoo_when_massive_raises(monkeypatch):
+    monkeypatch.setattr(chart_data.settings, "massive_enabled", True)
+    _patch_massive_bars(monkeypatch, None, raises=True)
+    _patch_yahoo_bars(monkeypatch, _daily_df(600))
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+
+    out = asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y"))
+
+    assert out.source == "yahoo"
+    assert out.chart_available is True
+
+
+def test_non_us_ticker_never_tries_massive_even_when_enabled(monkeypatch):
+    monkeypatch.setattr(chart_data.settings, "massive_enabled", True)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("Massive must never be tried for a non-US ticker")
+
+    monkeypatch.setattr(chart_data.massive_client, "get_daily_bars", fail_if_called)
+    _patch_yahoo_bars(monkeypatch, _daily_df(600))
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+
+    out = asyncio.run(chart_data.get_chart_data("0700.HK", "D_1Y"))
+
+    assert out.source == "yahoo"
+
+
+def test_w_4y_stays_on_yahoo_even_when_massive_enabled(monkeypatch):
+    monkeypatch.setattr(chart_data.settings, "massive_enabled", True)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("Massive must never be tried for W_4Y (beyond its ~5y coverage)")
+
+    monkeypatch.setattr(chart_data.massive_client, "get_daily_bars", fail_if_called)
+    _patch_yahoo_bars(monkeypatch, _daily_df(600))
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+
+    out = asyncio.run(chart_data.get_chart_data("AAPL", "W_4Y"))
+
+    assert out.source == "yahoo"
+
+
+def test_daily_range_uses_yahoo_directly_when_massive_disabled(monkeypatch):
+    monkeypatch.setattr(chart_data.settings, "massive_enabled", False)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("Massive must never be tried when massive_enabled is False")
+
+    monkeypatch.setattr(chart_data.massive_client, "get_daily_bars", fail_if_called)
+    _patch_yahoo_bars(monkeypatch, _daily_df(600))
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+
+    out = asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y"))
+
+    assert out.source == "yahoo"
+
+
 def test_chart_available_false_when_fetch_returns_no_bars(monkeypatch):
     _patch_yahoo_bars(monkeypatch, pd.DataFrame())
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)

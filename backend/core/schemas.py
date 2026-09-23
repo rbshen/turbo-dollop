@@ -1488,8 +1488,8 @@ class ChartOut(BaseModel):
     data/chart_data.py for the fetch/compute mechanism. Computed fully
     on-demand (no persisted table, no nightly job -- confirmed fast enough
     for a page load in the Chart tab latency investigation), so this always
-    reflects a live Yahoo Finance read (2026-09-18 -- FMP is no longer a
-    data source here at all), never a stale precomputed row.
+    reflects a live read (2026-09-18 -- FMP is no longer a data source here
+    at all), never a stale precomputed row.
 
     `zones`/`zones_available` overlay the separately-computed, nightly-cron
     -backed Liquidity Zone (LP) feature (data/liquidity_zone_data.py) --
@@ -1544,7 +1544,10 @@ class ChartOut(BaseModel):
     earnings_markers: list[ChartEarningsMarkerOut] = []
     dividend_markers: list[ChartDividendMarkerOut] = []
     events_source: str | None = None
-    source: str  # always "yahoo" (2026-09-18 -- Chart dropped FMP as a data source entirely)
+    # "massive" | "yahoo" (2026-09-23 -- D_6M/D_1Y/D_2Y moved to
+    # Massive/Polygon with an automatic per-ticker Yahoo fallback; W_4Y
+    # stays "yahoo" unconditionally, beyond Massive's ~5y coverage).
+    source: str
     chart_available: bool  # False only for a genuinely bad/delisted ticker with no bars at all
 
 
