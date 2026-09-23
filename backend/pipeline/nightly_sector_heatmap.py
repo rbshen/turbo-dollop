@@ -1,9 +1,10 @@
 """Standalone script: nightly Sector Heatmap recompute -- the 11 SPDR sector
 ETFs x 8 trailing total-return windows (1d/1w/1m/3m/6m/9m/YTD/1y). See
 data/sector_heatmap_data.py for the fetch/compute/persist logic and
-scoring/etf_returns.py for the pure return math. Makes ZERO FMP calls
-(Yahoo Finance only, one batch download, ~3-4s), so like
-nightly_trend_calculation.py it needs no FMP_ENABLED guard.
+scoring/etf_returns.py for the pure return math. Makes ZERO FMP calls (a
+single shared-bars-cache batch fetch -- Massive/Polygon with an automatic
+Yahoo fallback per clients/daily_bar_sources.py -- ~3-4s on a warm cache),
+so like nightly_trend_calculation.py it needs no FMP_ENABLED guard.
 
 Recomputes every window for every fund on every run -- there is no gate on
 "is today a trading day": a weekend/holiday run re-derives the same anchor
@@ -28,10 +29,11 @@ import time
 from datetime import date
 from pathlib import Path
 
+from clients.shared_bars_cache import DAILY_INTERVAL, stale_ticker_count
 from core.cron_health import cron_heartbeat
 from core.db import init_db
 from core.logging_config import configure_logging
-from data.sector_heatmap_data import compute_and_store_sector_returns, prune_sector_etf_returns
+from data.sector_heatmap_data import SECTOR_ETFS, compute_and_store_sector_returns, prune_sector_etf_returns
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_sector_heatmap.log"
 
@@ -50,18 +52,24 @@ async def main() -> dict:
     # Only reached after a successful compute (it raises when nothing could be
     # computed), so a failed run never prunes -- see prune_sector_etf_returns.
     summary["pruned"] = prune_sector_etf_returns(date.fromisoformat(summary["as_of_date"]))
+    # Stale-data guard (docs/yahoo_close_data_gap_investigation_2026-09-23.md)
+    # -- see pipeline/nightly_trend_calculation.py's own equivalent comment
+    # for the full reasoning.
+    summary["stale_count"], _ = stale_ticker_count([t for t, _ in SECTOR_ETFS], DAILY_INTERVAL)
     summary["duration_seconds"] = time.monotonic() - start_time
     logger.info(
-        "Nightly sector heatmap complete. As of: %s. Processed: %d. Failed: %d. Pruned: %d. Duration: %.1fs.",
+        "Nightly sector heatmap complete. As of: %s. Processed: %d. Failed: %d. Pruned: %d. Stale: %d. Duration: %.1fs.",
         summary["as_of_date"],
         summary["processed"],
         summary["failed"],
         summary["pruned"],
+        summary["stale_count"],
         summary["duration_seconds"],
     )
     return summary
 
 
 if __name__ == "__main__":
-    with cron_heartbeat("pipeline.nightly_sector_heatmap"):
-        asyncio.run(main())
+    with cron_heartbeat("pipeline.nightly_sector_heatmap") as run:
+        summary = asyncio.run(main())
+        run.message = f"{summary['processed']}/{len(SECTOR_ETFS)} funds, {summary['stale_count']} still stale after fetch"

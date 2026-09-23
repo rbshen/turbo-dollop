@@ -20,25 +20,36 @@ def _fresh_engine(monkeypatch, tmp_path):
 
 def _frame() -> pd.DataFrame:
     index = pd.bdate_range(start="2024-01-01", end="2026-09-18")
-    frame = pd.DataFrame({"Close": [100.0] * len(index), "Adj Close": [100.0] * len(index)}, index=index)
-    frame.iloc[-1] = [110.0, 110.0]
+    frame = pd.DataFrame({"close": [100.0] * len(index)}, index=index)
+    frame.iloc[-1] = [110.0]
     return frame
+
+
+def _stub_stale_count(monkeypatch):
+    # stale_ticker_count reads clients.shared_bars_cache's OWN engine
+    # directly -- stubbed here so it never falls through to a real
+    # (potentially on-disk) engine in a test that doesn't otherwise care
+    # about it, mirroring test_nightly_trend_calculation.py's own
+    # _patch_batch_fetch convention.
+    monkeypatch.setattr(nightly_sector_heatmap, "stale_ticker_count", lambda tickers, interval, reference=None: (0, []))
 
 
 def test_main_computes_persists_and_returns_a_summary(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
     monkeypatch.setattr(sector_heatmap_data, "_most_recent_completed_trading_date", lambda: date(2026, 9, 18))
+    _stub_stale_count(monkeypatch)
 
-    async def fake_get_history(tickers, period, interval, auto_adjust):
+    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
         return {t: _frame() for t in tickers}
 
-    monkeypatch.setattr(sector_heatmap_data.yahoo_client, "get_history", fake_get_history)
+    monkeypatch.setattr(sector_heatmap_data, "get_or_fetch_bars_batch", fake_get_bars_batch)
 
     summary = asyncio.run(nightly_sector_heatmap.main())
 
     assert summary["as_of_date"] == "2026-09-18"
     assert summary["processed"] == 11 and summary["failed"] == 0
     assert summary["duration_seconds"] >= 0
+    assert summary["stale_count"] == 0
     with Session(engine) as session:
         assert len(session.exec(select(SectorEtfReturn)).all()) == 88
 
@@ -47,10 +58,10 @@ def test_main_propagates_a_total_failure_so_the_heartbeat_sees_it(monkeypatch, t
     _fresh_engine(monkeypatch, tmp_path)
     monkeypatch.setattr(sector_heatmap_data, "_most_recent_completed_trading_date", lambda: date(2026, 9, 18))
 
-    async def fake_get_history(tickers, period, interval, auto_adjust):
+    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
         return {}
 
-    monkeypatch.setattr(sector_heatmap_data.yahoo_client, "get_history", fake_get_history)
+    monkeypatch.setattr(sector_heatmap_data, "get_or_fetch_bars_batch", fake_get_bars_batch)
 
     with pytest.raises(RuntimeError):
         asyncio.run(nightly_sector_heatmap.main())
@@ -66,11 +77,12 @@ def _seed_snapshot(engine, as_of: date, per_snapshot_rows: int = 77) -> None:
 
 def _patch_fetch(monkeypatch, frames_available: bool):
     monkeypatch.setattr(sector_heatmap_data, "_most_recent_completed_trading_date", lambda: date(2026, 9, 18))
+    _stub_stale_count(monkeypatch)
 
-    async def fake_get_history(tickers, period, interval, auto_adjust):
+    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
         return {t: _frame() for t in tickers} if frames_available else {}
 
-    monkeypatch.setattr(sector_heatmap_data.yahoo_client, "get_history", fake_get_history)
+    monkeypatch.setattr(sector_heatmap_data, "get_or_fetch_bars_batch", fake_get_bars_batch)
 
 
 def test_main_prunes_snapshots_older_than_the_rolling_window_after_storing(monkeypatch, tmp_path):

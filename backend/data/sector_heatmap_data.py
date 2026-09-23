@@ -1,16 +1,27 @@
 """Orchestration layer for the Sector Heatmap -- the 11 SPDR sector ETFs x 8
 trailing total-return windows. Same shape as data/momentum_data.py: fetch
-via clients/yahoo_client.py, run the pure math (scoring/etf_returns.py),
-persist (models.py::SectorEtfReturn), and a read path that never computes
-live. Independent of FMP and of Step 1-5/Overall Assessment scoring
-entirely -- zero FMP calls, no FMP_ENABLED guard needed.
+through the shared bars cache (clients/shared_bars_cache.py), run the pure
+math (scoring/etf_returns.py), persist (models.py::SectorEtfReturn), and a
+read path that never computes live. Independent of FMP and of Step 1-5/
+Overall Assessment scoring entirely -- zero FMP calls, no FMP_ENABLED guard
+needed.
 
-**Total return, not price return**: fetched with auto_adjust=False so the
-frame carries both raw `Close` and dividend-adjusted `Adj Close`, and the
-returns are computed off `Adj Close` explicitly -- a frame without that
-column is a hard per-ticker failure, never a silent fallback to price
-return (bond/income funds differ from their price return by up to ~6pp over
-1y, see docs/etf_heatmap_momentum_investigation_2026-09-20.md, section 2.5).
+**Plain split-adjusted Close, not total return (2026-09-23 Massive
+migration decision)** -- a deliberate accepted one-time step change in
+every window's value, not a bug. Previously fetched with auto_adjust=False
+so the frame carried both raw `Close` and dividend-adjusted `Adj Close`,
+computing returns off `Adj Close` (bond/income funds differ from their
+price return by up to ~6pp over 1y, see
+docs/etf_heatmap_momentum_investigation_2026-09-20.md, section 2.5).
+Massive/Polygon's `/v2/aggs` has no `Adj Close`-equivalent field (see
+docs/massive_feasibility_investigation_2026-09-23.md §2c) -- reconstructing
+one via its dividends endpoint was scoped out by this decision rather than
+built, matching Market Breadth's own long-standing plain-Close convention.
+This also means this module can now go through the SAME shared bars cache
+(clients/shared_bars_cache.py) every other daily-bar consumer uses, instead
+of its own standalone Yahoo fetch -- the only reason it avoided that cache
+before (needing a dividend-adjusted column the cache never carried) no
+longer applies.
 """
 
 import logging
@@ -21,8 +32,7 @@ from sqlalchemy import delete
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
-from clients.shared_bars_cache import _most_recent_completed_trading_date
-from clients.yahoo_client import yahoo_client
+from clients.shared_bars_cache import DAILY_INTERVAL, _most_recent_completed_trading_date, get_or_fetch_bars_batch
 from core.db import engine
 from core.models import SectorEtfReturn
 from core.schemas import SectorHeatmapCellOut, SectorHeatmapOut, SectorHeatmapRowOut
@@ -47,9 +57,9 @@ SECTOR_ETFS: list[tuple[str, str]] = [
     ("XLC", "Communication Services"),
 ]
 
-# 1y is the longest window; 2y leaves a full year of slack for the base
-# bar's on-or-before lookup and keeps one request in yfinance's "2y" tier.
-FETCH_PERIOD = "2y"
+# 1y is the longest window; 730 days (2y) leaves a full year of slack for
+# the base bar's on-or-before lookup.
+FETCH_LOOKBACK_DAYS = 730
 
 # Rolling window of daily snapshots kept in SectorEtfReturn: rows whose as_of_date
 # is MORE than this many days before the newest snapshot are pruned (see
@@ -63,22 +73,21 @@ FETCH_PERIOD = "2y"
 RETENTION_DAYS = 370
 
 
-def _adj_close(frame: pd.DataFrame) -> pd.Series:
-    if "Adj Close" not in frame.columns:
-        raise ValueError("Yahoo frame has no 'Adj Close' column -- refusing to fall back to price return")
-    return frame["Adj Close"]
+def _close(frame: pd.DataFrame) -> pd.Series:
+    if "close" not in frame.columns:
+        raise ValueError("Bar frame has no 'close' column")
+    return frame["close"]
 
 
-def _resolve_anchor(adj_closes: dict[str, pd.Series], completed_date: date) -> pd.Timestamp | None:
+def _resolve_anchor(closes: dict[str, pd.Series], completed_date: date) -> pd.Timestamp | None:
     """The latest bar date, across every fetched fund, that is not after the
     last COMPLETED session. Taking it from the data (rather than using the
     weekday-aware `completed_date` directly, which is not holiday-aware)
     means a market holiday anchors to the real last trading day, and the
-    `<= completed_date` cap drops the in-progress bar yfinance returns
-    during market hours -- its "close" would be a live price."""
+    `<= completed_date` cap drops an in-progress/live bar."""
     cap = pd.Timestamp(completed_date)
     latest: pd.Timestamp | None = None
-    for series in adj_closes.values():
+    for series in closes.values():
         index = series.dropna().index
         if index.tz is not None:
             index = index.tz_localize(None)
@@ -104,21 +113,21 @@ async def compute_and_store_sector_returns(completed_date: date | None = None) -
     completed = completed_date or _most_recent_completed_trading_date()
     tickers = [t for t, _ in SECTOR_ETFS]
 
-    histories = await yahoo_client.get_history(tickers, period=FETCH_PERIOD, interval="1d", auto_adjust=False)
+    histories = await get_or_fetch_bars_batch(tickers, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False)
 
     failures: list[tuple[str, str]] = []
-    adj_closes: dict[str, pd.Series] = {}
+    closes: dict[str, pd.Series] = {}
     for ticker in tickers:
         frame = histories.get(ticker)
         if frame is None or frame.empty:
             failures.append((ticker, "no bars returned"))
             continue
         try:
-            adj_closes[ticker] = _adj_close(frame)
+            closes[ticker] = _close(frame)
         except ValueError as exc:
             failures.append((ticker, str(exc)))
 
-    anchor = _resolve_anchor(adj_closes, completed)
+    anchor = _resolve_anchor(closes, completed)
     if anchor is None:
         raise RuntimeError(
             f"Sector heatmap: no usable bars for any of {len(tickers)} tickers on/before {completed} "
@@ -127,7 +136,7 @@ async def compute_and_store_sector_returns(completed_date: date | None = None) -
 
     computed_at = datetime.now()
     values = []
-    for ticker, series in adj_closes.items():
+    for ticker, series in closes.items():
         for result in compute_window_returns(series, anchor):
             values.append(
                 {
@@ -154,7 +163,7 @@ async def compute_and_store_sector_returns(completed_date: date | None = None) -
 
     summary = {
         "as_of_date": anchor.date().isoformat(),
-        "processed": len(adj_closes),
+        "processed": len(closes),
         "failed": len(failures),
         "failures": failures,
     }

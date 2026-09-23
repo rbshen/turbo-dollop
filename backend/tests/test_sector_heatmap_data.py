@@ -10,6 +10,7 @@ from core.models import SectorEtfReturn
 from data.sector_heatmap_data import (
     RETENTION_DAYS,
     SECTOR_ETFS,
+    _close,
     compute_and_store_sector_returns,
     get_sector_heatmap,
     prune_sector_etf_returns,
@@ -27,24 +28,25 @@ def _fresh_engine(monkeypatch):
     return engine
 
 
-def _frame(end: str = "2026-09-18", *, close: float = 100.0, adj_close: float = 100.0, anchor_close: float = 110.0,
-           anchor_adj: float = 110.0, start: str = "2024-01-01") -> pd.DataFrame:
-    """Flat history at `close`/`adj_close`, then the last bar at the anchor
-    values -- so 1w..1y all measure (anchor / flat) - 1."""
+def _frame(end: str = "2026-09-18", *, close: float = 100.0, anchor_close: float = 110.0,
+           start: str = "2024-01-01") -> pd.DataFrame:
+    """Flat history at `close`, then the last bar at `anchor_close` -- so
+    1w..1y all measure (anchor / flat) - 1. Lowercase columns, matching what
+    clients/shared_bars_cache.py::get_or_fetch_bars_batch returns."""
     index = pd.bdate_range(start=start, end=end)
-    frame = pd.DataFrame({"Close": [close] * len(index), "Adj Close": [adj_close] * len(index)}, index=index)
-    frame.iloc[-1] = [anchor_close, anchor_adj]
+    frame = pd.DataFrame({"close": [close] * len(index)}, index=index)
+    frame.iloc[-1] = [anchor_close]
     return frame
 
 
 def _patch_history(monkeypatch, histories: dict[str, pd.DataFrame]):
     calls = []
 
-    async def fake_get_history(tickers, period, interval, auto_adjust):
-        calls.append({"tickers": list(tickers), "period": period, "interval": interval, "auto_adjust": auto_adjust})
+    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
+        calls.append({"tickers": list(tickers), "interval": interval, "lookback_days": lookback_days, "auto_adjust": auto_adjust})
         return {t: histories[t] for t in tickers if t in histories}
 
-    monkeypatch.setattr(sector_heatmap_data.yahoo_client, "get_history", fake_get_history)
+    monkeypatch.setattr(sector_heatmap_data, "get_or_fetch_bars_batch", fake_get_bars_batch)
     return calls
 
 
@@ -55,6 +57,11 @@ def _all_histories(**kwargs) -> dict[str, pd.DataFrame]:
 def _stored(engine) -> list[SectorEtfReturn]:
     with Session(engine) as session:
         return list(session.exec(select(SectorEtfReturn)).all())
+
+
+def test_close_raises_on_a_frame_with_no_close_column():
+    with pytest.raises(ValueError, match="close"):
+        _close(pd.DataFrame({"open": [1.0]}))
 
 
 def test_universe_is_the_eleven_spdr_sectors_in_fixed_order():
@@ -74,15 +81,14 @@ def test_stores_every_window_for_every_ticker_via_one_unadjusted_batch_fetch(mon
     assert {r.as_of_date for r in rows} == {COMPLETED}
     assert len(calls) == 1
     assert calls[0]["tickers"] == TICKERS
-    # auto_adjust=False is what puts `Adj Close` in the frame at all.
     assert calls[0]["auto_adjust"] is False and calls[0]["interval"] == "1d"
 
 
-def test_return_is_total_return_off_adj_close_not_price_return_off_close(monkeypatch):
+def test_return_is_plain_price_return_off_close_not_dividend_adjusted(monkeypatch):
+    """2026-09-23 Massive migration decision: plain split-adjusted Close,
+    no dividend/total-return reconstruction."""
     engine = _fresh_engine(monkeypatch)
-    # Price fell 100 -> 95 (-5%) but distributions more than made up for it:
-    # adjusted 100 -> 104 (+4%).
-    _patch_history(monkeypatch, _all_histories(anchor_close=95.0, anchor_adj=104.0))
+    _patch_history(monkeypatch, _all_histories(anchor_close=104.0))
 
     asyncio.run(compute_and_store_sector_returns(completed_date=COMPLETED))
 
@@ -91,24 +97,28 @@ def test_return_is_total_return_off_adj_close_not_price_return_off_close(monkeyp
     assert one_year.base_date == date(2025, 9, 18)
 
 
-def test_frame_without_adj_close_is_a_failure_never_a_silent_price_return(monkeypatch):
+def test_frame_without_close_column_is_a_failure_not_a_crash(monkeypatch):
+    # _close()'s defensive column check (dropping the only column makes the
+    # frame itself register as .empty, so this actually exercises the
+    # earlier "no bars returned" branch -- both paths land in `failures`
+    # rather than raising, which is the behavior under test here).
     engine = _fresh_engine(monkeypatch)
     histories = _all_histories()
-    histories["XLE"] = histories["XLE"].drop(columns=["Adj Close"])
+    histories["XLE"] = histories["XLE"].drop(columns=["close"])
     _patch_history(monkeypatch, histories)
 
     summary = asyncio.run(compute_and_store_sector_returns(completed_date=COMPLETED))
 
     assert summary["processed"] == 10 and summary["failed"] == 1
-    assert summary["failures"][0][0] == "XLE" and "Adj Close" in summary["failures"][0][1]
+    assert summary["failures"][0][0] == "XLE"
     assert not [r for r in _stored(engine) if r.ticker == "XLE"]
 
 
 def test_rerun_on_the_same_anchor_overwrites_instead_of_duplicating(monkeypatch):
     engine = _fresh_engine(monkeypatch)
-    _patch_history(monkeypatch, _all_histories(anchor_adj=110.0))
+    _patch_history(monkeypatch, _all_histories(anchor_close=110.0))
     asyncio.run(compute_and_store_sector_returns(completed_date=COMPLETED))
-    _patch_history(monkeypatch, _all_histories(anchor_adj=120.0))
+    _patch_history(monkeypatch, _all_histories(anchor_close=120.0))
     asyncio.run(compute_and_store_sector_returns(completed_date=COMPLETED))
 
     rows = _stored(engine)
@@ -122,7 +132,7 @@ def test_in_progress_bar_after_the_last_completed_session_is_dropped(monkeypatch
     for ticker in TICKERS:
         frame = _frame(end="2026-09-18")
         # A live Monday bar yfinance returned mid-session; completed session is Friday.
-        frame.loc[pd.Timestamp("2026-09-21")] = [5000.0, 5000.0]
+        frame.loc[pd.Timestamp("2026-09-21")] = [5000.0]
         histories[ticker] = frame
     _patch_history(monkeypatch, histories)
 
@@ -191,9 +201,9 @@ def test_get_sector_heatmap_is_empty_before_any_run(monkeypatch):
 
 def test_get_sector_heatmap_reads_only_the_latest_as_of_date_in_universe_order(monkeypatch):
     engine = _fresh_engine(monkeypatch)
-    _patch_history(monkeypatch, _all_histories(end="2026-09-17", anchor_adj=101.0))
+    _patch_history(monkeypatch, _all_histories(end="2026-09-17", anchor_close=101.0))
     asyncio.run(compute_and_store_sector_returns(completed_date=date(2026, 9, 17)))
-    _patch_history(monkeypatch, _all_histories(anchor_adj=110.0))
+    _patch_history(monkeypatch, _all_histories(anchor_close=110.0))
     asyncio.run(compute_and_store_sector_returns(completed_date=COMPLETED))
 
     result = get_sector_heatmap()
@@ -212,7 +222,7 @@ def test_get_sector_heatmap_reads_only_the_latest_as_of_date_in_universe_order(m
 
 def test_a_ticker_missing_from_the_latest_run_reads_blank_not_stale(monkeypatch):
     _fresh_engine(monkeypatch)
-    _patch_history(monkeypatch, _all_histories(end="2026-09-17", anchor_adj=150.0))
+    _patch_history(monkeypatch, _all_histories(end="2026-09-17", anchor_close=150.0))
     asyncio.run(compute_and_store_sector_returns(completed_date=date(2026, 9, 17)))
     histories = _all_histories()
     del histories["XLU"]
