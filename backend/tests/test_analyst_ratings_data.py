@@ -1,14 +1,32 @@
 import asyncio
 from datetime import date, datetime
 
+import pandas as pd
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
 import data.analyst_ratings_data as analyst_ratings_data
-from data.analyst_ratings_data import _months_ago, get_analyst_ratings_data
+from data.analyst_ratings_data import _months_ago, _price_on_or_before, get_analyst_ratings_data
 from core.models import PriceTargetSnapshot
 
 TODAY = date.today()
+
+
+@pytest.fixture(autouse=True)
+def _no_live_price_fetch(monkeypatch):
+    """Every test in this file predates the price-overlay feature and has
+    no expectations about it -- stub out the one genuinely live external
+    call get_analyst_ratings_data can make (Yahoo Finance has no cache
+    layer here to fall back to, see _fetch_price_history's own docstring)
+    so these tests stay fast and network-free by default, mirroring
+    test_chart_data.py's own `_default_no_warren_signal`-style autouse
+    fixture for a similarly bolted-on dependency. Tests exercising the
+    overlay itself override this."""
+
+    async def _empty(_ticker):
+        return pd.Series(dtype=float)
+
+    monkeypatch.setattr(analyst_ratings_data, "_fetch_price_history", _empty)
 
 
 def _fresh_engine(monkeypatch):
@@ -16,6 +34,10 @@ def _fresh_engine(monkeypatch):
     SQLModel.metadata.create_all(test_engine)
     monkeypatch.setattr(analyst_ratings_data, "engine", test_engine)
     return test_engine
+
+
+def _fail_if_called(_ticker):
+    raise AssertionError("_fetch_price_history should not have been called")
 
 
 def _grades_historical_row(d: date, strong_buy=0, buy=0, hold=0, sell=0, strong_sell=0) -> dict:
@@ -338,3 +360,181 @@ def test_price_target_by_recency_defaults_when_fmp_returns_nothing(monkeypatch):
     for bucket in result.price_target_by_recency:
         assert bucket.avg_price_target is None
         assert bucket.analyst_count == 0
+
+
+def _price_series(pairs: list[tuple[date, float]]) -> pd.Series:
+    idx = pd.DatetimeIndex([pd.Timestamp(d) for d, _ in pairs])
+    return pd.Series([v for _, v in pairs], index=idx).sort_index()
+
+
+def test_price_on_or_before_finds_the_last_close_at_or_before_target_and_none_if_too_early():
+    series = _price_series([(date(2024, 1, 2), 10.0), (date(2024, 1, 3), 11.0), (date(2024, 1, 5), 12.0)])
+
+    # Exact match.
+    assert _price_on_or_before(series, pd.Timestamp(2024, 1, 3)) == pytest.approx(11.0)
+    # No bar on 1/4 (e.g. a weekend) -- falls back to the last real bar before it.
+    assert _price_on_or_before(series, pd.Timestamp(2024, 1, 4)) == pytest.approx(11.0)
+    # Nothing on or before this date at all.
+    assert _price_on_or_before(series, pd.Timestamp(2024, 1, 1)) is None
+
+
+def test_price_overlay_populates_from_the_targets_own_first_real_point_onward(monkeypatch):
+    test_engine = _fresh_engine(monkeypatch)
+    three_months_ago = _months_ago(TODAY, 3)
+    one_month_ago = _months_ago(TODAY, 1)
+    grades_historical = [
+        _grades_historical_row(three_months_ago, strong_buy=1),
+        _grades_historical_row(one_month_ago, strong_buy=1),
+    ]
+    _patch_fmp(
+        monkeypatch,
+        grades_consensus={"strongBuy": 1, "buy": 0, "hold": 0, "sell": 0, "strongSell": 0, "consensus": "Buy"},
+        price_target_consensus={"targetConsensus": 100, "targetHigh": 100, "targetLow": 100, "targetMedian": 100},
+        grades_historical=grades_historical,
+        quote={"price": 100},
+    )
+    with Session(test_engine) as session:
+        session.add(
+            PriceTargetSnapshot(
+                ticker="TEST", snapshot_date=one_month_ago, target_consensus=88.0, target_high=100.0,
+                target_low=70.0, target_median=85.0, fetched_at=datetime.now(),
+            )
+        )
+        session.commit()
+
+    # Real price data exists for the one row that has a real target
+    # (one_month_ago) but not for the earlier row (three_months_ago) --
+    # confirming the overlay never reaches back before the target series'
+    # own first plotted point, and reads None (not extrapolated) where
+    # Yahoo genuinely has no data.
+    async def fake_prices(_ticker):
+        return _price_series([(one_month_ago, 95.5)])
+
+    monkeypatch.setattr(analyst_ratings_data, "_fetch_price_history", fake_prices)
+
+    result = asyncio.run(get_analyst_ratings_data("TEST"))
+
+    assert len(result.history) == 2
+    assert result.history[0].avg_price_target is None
+    assert result.history[0].price_on_date is None  # never populated before the target line's own start
+    assert result.history[1].avg_price_target == pytest.approx(88.0)
+    assert result.history[1].price_on_date == pytest.approx(95.5)
+
+
+def test_price_overlay_skipped_entirely_when_no_history_row_has_a_real_target(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(
+        monkeypatch,
+        grades_consensus={"strongBuy": 1, "buy": 0, "hold": 0, "sell": 0, "strongSell": 0, "consensus": "Buy"},
+        price_target_consensus={"targetConsensus": 100, "targetHigh": 100, "targetLow": 100, "targetMedian": 100},
+        grades_historical=[_grades_historical_row(_months_ago(TODAY, 2), strong_buy=1)],
+        quote={"price": 100},
+    )
+    # No PriceTargetSnapshot at all -- avg_price_target stays None for every
+    # row, so there's nothing to overlay against. _fetch_price_history must
+    # never even be called.
+    monkeypatch.setattr(analyst_ratings_data, "_fetch_price_history", _fail_if_called)
+
+    result = asyncio.run(get_analyst_ratings_data("TEST"))
+
+    assert len(result.history) == 1
+    assert result.history[0].avg_price_target is None
+    assert result.history[0].price_on_date is None
+
+
+def test_price_overlay_skipped_when_cache_only(monkeypatch):
+    test_engine = _fresh_engine(monkeypatch)
+    two_months_ago = _months_ago(TODAY, 2)
+    _patch_fmp(
+        monkeypatch,
+        grades_consensus={"strongBuy": 1, "buy": 0, "hold": 0, "sell": 0, "strongSell": 0, "consensus": "Buy"},
+        price_target_consensus={"targetConsensus": 100, "targetHigh": 100, "targetLow": 100, "targetMedian": 100},
+        grades_historical=[_grades_historical_row(two_months_ago, strong_buy=1)],
+        quote={"price": 100},
+    )
+    with Session(test_engine) as session:
+        session.add(
+            PriceTargetSnapshot(
+                ticker="TEST", snapshot_date=two_months_ago, target_consensus=88.0, target_high=100.0,
+                target_low=70.0, target_median=85.0, fetched_at=datetime.now(),
+            )
+        )
+        session.commit()
+
+    # Warm the FundamentalsCache first (cache_only=True never calls FMP
+    # either, so grades_historical/etc. must already be cached for this
+    # ticker or the whole result comes back empty regardless of the price
+    # overlay). Only then re-request with cache_only=True and confirm the
+    # one genuinely live call left (Yahoo) still never fires.
+    asyncio.run(get_analyst_ratings_data("TEST"))
+    monkeypatch.setattr(analyst_ratings_data, "_fetch_price_history", _fail_if_called)
+
+    result = asyncio.run(get_analyst_ratings_data("TEST", cache_only=True))
+
+    assert result.history[0].avg_price_target == pytest.approx(88.0)
+    assert result.history[0].price_on_date is None
+
+
+def test_price_overlay_all_none_when_yahoo_has_zero_overlap_with_the_target_window(monkeypatch):
+    """The real-world shape of "zero overlap" for a live, full-window Yahoo
+    fetch: Yahoo returns data, but none of it falls on or before any of the
+    target series' own plotted dates (e.g. a ticker Yahoo only recently
+    picked up, or a symbol mismatch) -- every price_on_date must stay None,
+    which is exactly what the frontend reads as "don't render the toggle"."""
+    test_engine = _fresh_engine(monkeypatch)
+    two_months_ago = _months_ago(TODAY, 2)
+    _patch_fmp(
+        monkeypatch,
+        grades_consensus={"strongBuy": 1, "buy": 0, "hold": 0, "sell": 0, "strongSell": 0, "consensus": "Buy"},
+        price_target_consensus={"targetConsensus": 100, "targetHigh": 100, "targetLow": 100, "targetMedian": 100},
+        grades_historical=[_grades_historical_row(two_months_ago, strong_buy=1)],
+        quote={"price": 100},
+    )
+    with Session(test_engine) as session:
+        session.add(
+            PriceTargetSnapshot(
+                ticker="TEST", snapshot_date=two_months_ago, target_consensus=88.0, target_high=100.0,
+                target_low=70.0, target_median=85.0, fetched_at=datetime.now(),
+            )
+        )
+        session.commit()
+
+    async def fake_prices(_ticker):
+        # Only data from tomorrow onward -- strictly after the plotted row.
+        return _price_series([(TODAY + pd.Timedelta(days=1), 50.0)])
+
+    monkeypatch.setattr(analyst_ratings_data, "_fetch_price_history", fake_prices)
+
+    result = asyncio.run(get_analyst_ratings_data("TEST"))
+
+    assert result.history[0].avg_price_target == pytest.approx(88.0)
+    assert result.history[0].price_on_date is None
+
+
+def test_price_overlay_handles_a_fully_empty_yahoo_response(monkeypatch):
+    test_engine = _fresh_engine(monkeypatch)
+    two_months_ago = _months_ago(TODAY, 2)
+    _patch_fmp(
+        monkeypatch,
+        grades_consensus={"strongBuy": 1, "buy": 0, "hold": 0, "sell": 0, "strongSell": 0, "consensus": "Buy"},
+        price_target_consensus={"targetConsensus": 100, "targetHigh": 100, "targetLow": 100, "targetMedian": 100},
+        grades_historical=[_grades_historical_row(two_months_ago, strong_buy=1)],
+        quote={"price": 100},
+    )
+    with Session(test_engine) as session:
+        session.add(
+            PriceTargetSnapshot(
+                ticker="TEST", snapshot_date=two_months_ago, target_consensus=88.0, target_high=100.0,
+                target_low=70.0, target_median=85.0, fetched_at=datetime.now(),
+            )
+        )
+        session.commit()
+
+    async def empty_prices(_ticker):
+        return pd.Series(dtype=float)
+
+    monkeypatch.setattr(analyst_ratings_data, "_fetch_price_history", empty_prices)
+
+    result = asyncio.run(get_analyst_ratings_data("TEST"))
+
+    assert result.history[0].price_on_date is None

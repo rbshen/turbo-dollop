@@ -990,6 +990,12 @@ export interface RatingHistoryPoint {
   // this month -- FMP has no historical price-target series of its own, so
   // this line starts empty and fills in going forward.
   avg_price_target: number | null;
+  // Yahoo Finance split/dividend-adjusted close "on or before" this row's
+  // own date -- feeds the Price Target Trend chart's optional price
+  // overlay. Only ever populated from the first row where
+  // avg_price_target itself is non-null onward, and null past that if
+  // Yahoo's history doesn't reach back this far.
+  price_on_date: number | null;
 }
 
 export interface RecommendationDetailsColumn {

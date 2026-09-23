@@ -1908,6 +1908,17 @@ class RatingHistoryPoint(BaseModel):
     # for/near this month -- FMP has no historical price-target series of
     # its own, so this line starts empty and fills in going forward.
     avg_price_target: float | None = None
+    # Yahoo Finance split/dividend-adjusted close "on or before" this row's
+    # own `date` (see analyst_ratings_data.py::_price_on_or_before) --
+    # feeds the Price Target Trend chart's optional price overlay. Only
+    # ever populated from the first row where avg_price_target itself is
+    # non-null onward (never before -- the overlay isn't meant to show
+    # price for a stretch the target line doesn't cover), and stays None
+    # past that point too if Yahoo's own history doesn't reach back this
+    # far -- the frontend reads a None run right after the target series'
+    # own first real point as "price data starts later than this" and
+    # marks it accordingly, rather than this being a distinct flag.
+    price_on_date: float | None = None
 
 
 class RecommendationDetailsColumn(BaseModel):

@@ -1,6 +1,7 @@
 import calendar
 from datetime import date, datetime
 
+import pandas as pd
 from sqlmodel import Session, select
 
 from core.cache import get_or_fetch, safe_fetch
@@ -8,6 +9,7 @@ from core.config import settings
 from core.db import engine
 from helpers.first import _first
 from clients.fmp_client import fmp_client
+from clients.yahoo_client import yahoo_client
 from core.models import FundamentalsCache, PriceTargetSnapshot
 from core.schemas import (
     AnalystRatingsOut,
@@ -31,6 +33,13 @@ CONSENSUS_BANDS = [(4.5, "Buy"), (3.5, "Outperform"), (2.5, "Hold"), (1.5, "Unde
 # avoids a sparsely-covered ticker's stale/missing month silently reading as
 # a much older or newer one.
 SNAPSHOT_TOLERANCE_DAYS = 45
+
+# Fetch period for the Price Target Trend chart's optional price overlay --
+# same value data/chart_data.py's own widest range (W_4Y) already uses,
+# comfortably covering PriceTargetSnapshot's full backfilled history
+# (2021-04 on, per CLAUDE.md) with room to spare, without introducing a new
+# yfinance period tier of its own.
+PRICE_OVERLAY_FETCH_PERIOD = "10y"
 
 
 def _counts_from_grades_consensus(raw: dict) -> dict:
@@ -98,6 +107,61 @@ def _nearest_by_date(rows: list, target_date: date, date_key: str):
     if best_row is None or best_diff > SNAPSHOT_TOLERANCE_DAYS:
         return None
     return best_row
+
+
+async def _fetch_price_history(ticker: str) -> pd.Series:
+    """Split/dividend-adjusted daily close series for the Price Target Trend
+    chart's optional price overlay -- date-indexed (tz-naive, normalized),
+    ascending, empty (never raised) if Yahoo has nothing for this ticker.
+
+    Deliberately NOT read from clients/shared_bars_cache.py's SharedBarsCache
+    (the table every other technical-analysis feature shares): every current
+    consumer of that table fetches with auto_adjust=False specifically to
+    match FMP's raw, non-split-adjusted close (see SharedBarsCache's own
+    docstring) -- exactly wrong here, since PriceTargetSnapshot's own
+    reconstruction is built on FMP's split-ADJUSTED adjPriceTarget (see
+    helpers/price_target_history.py's docstring, and its own GOOGL
+    2022-07 20:1-split example). A raw close would show a false multi-x
+    discontinuity at any split inside the (multi-year) price-target window
+    -- e.g. NVDA's 2024-06 10:1 split -- even though the two lines are
+    genuinely comparable once both are on a split-adjusted basis. Fetched
+    with auto_adjust=False and read off the resulting `Adj Close` column
+    (not the default auto_adjust=True) -- the same convention data/
+    sector_heatmap_data.py already established for its own total-return
+    math, chosen there (and reused here) because yfinance's auto_adjust=True
+    silently drops the split-only-adjusted `Close` column entirely, leaving
+    no way to fall back if `Adj Close` were ever absent.
+
+    No persistent cache of its own -- a live call on every request that
+    needs it, same "zero-cache on-demand fetch" precedent data/
+    chart_data.py's own _fetch_bars already established for this exact
+    shape of ask (a multi-year, single-ticker, page-view-scoped read)."""
+    result = await yahoo_client.get_history([ticker], period=PRICE_OVERLAY_FETCH_PERIOD, interval="1d", auto_adjust=False)
+    frame = result.get(ticker)
+    if frame is None or frame.empty or "Adj Close" not in frame.columns:
+        return pd.Series(dtype=float)
+    series = frame["Adj Close"].dropna()
+    if series.empty:
+        return series
+    index = pd.DatetimeIndex(series.index)
+    if index.tz is not None:
+        index = index.tz_localize(None)
+    series.index = index.normalize()
+    return series.sort_index()
+
+
+def _price_on_or_before(series: pd.Series, target: pd.Timestamp) -> float | None:
+    """Last close at or before `target` -- the same "on or before" nearest-
+    trading-day convention already used for this kind of date alignment
+    elsewhere in this codebase (see scoring/etf_returns.py::
+    _last_bar_on_or_before, scoring/momentum.py::_price_on_or_before).
+    None if `series` has nothing that old yet (a young ticker, or a live
+    fetch that simply doesn't reach back this far) -- never extrapolated
+    or imputed."""
+    eligible = series.loc[series.index <= target]
+    if eligible.empty:
+        return None
+    return float(eligible.iloc[-1])
 
 
 def _recency_buckets(raw: dict) -> list[PriceTargetRecencyBucket]:
@@ -261,6 +325,23 @@ async def get_analyst_ratings_data(ticker: str, cache_only: bool = False) -> Ana
                 avg_price_target=snapshot.target_consensus if snapshot else None,
             )
         )
+
+    # Price overlay (only attempted at all when there's a real price-target
+    # line to overlay against -- and only ever populated from that line's
+    # OWN first real point onward, never before it: see
+    # RatingHistoryPoint.price_on_date's own comment for why a None run
+    # right after that point, rather than a separate flag, is how "Yahoo's
+    # history doesn't reach back this far" is represented). cache_only
+    # skips this the same way it skips every other live external call in
+    # this function -- Yahoo has no cache layer of its own here to fall
+    # back to (see _fetch_price_history's own docstring), so cache_only
+    # means "don't fetch" rather than "read the cache instead".
+    target_start = next((i for i, point in enumerate(history) if point.avg_price_target is not None), None)
+    if target_start is not None and not cache_only:
+        price_series = await _fetch_price_history(ticker)
+        if not price_series.empty:
+            for point in history[target_start:]:
+                point.price_on_date = _price_on_or_before(price_series, pd.Timestamp(point.date))
 
     columns = [
         _details_column(
