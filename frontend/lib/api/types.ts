@@ -607,7 +607,7 @@ export interface TickerScoreOut {
   warren_last_buy_fired_at: string | null;
 }
 
-export type ScreenerUniverse = "sp500" | "dow" | "all";
+export type ScreenerUniverse = "sp500" | "dow" | "nasdaq" | "all";
 
 export interface ScreenerMeta {
   universe: ScreenerUniverse;

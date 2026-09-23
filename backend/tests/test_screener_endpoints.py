@@ -87,19 +87,23 @@ def test_screener_list_filters_by_universe_query_param(monkeypatch):
     with Session(engine) as session:
         session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime(2026, 1, 1)))
         session.add(IndexConstituent(index_name="dow", ticker="MMM", company_name="3M", last_synced_at=datetime(2026, 1, 1)))
+        session.add(IndexConstituent(index_name="nasdaq", ticker="ADBE", company_name="Adobe", last_synced_at=datetime(2026, 1, 1)))
         session.add(TickerScore(ticker="AAPL", company_name="Apple Inc.", computed_at=datetime(2026, 1, 1)))
         session.add(TickerScore(ticker="MMM", company_name="3M Co.", computed_at=datetime(2026, 1, 1)))
+        session.add(TickerScore(ticker="ADBE", company_name="Adobe Inc.", computed_at=datetime(2026, 1, 1)))
         session.commit()
 
     with TestClient(main.app) as client:
         default_response = client.get("/api/screener")
         sp500_response = client.get("/api/screener", params={"universe": "sp500"})
         dow_response = client.get("/api/screener", params={"universe": "dow"})
+        nasdaq_response = client.get("/api/screener", params={"universe": "nasdaq"})
         invalid_response = client.get("/api/screener", params={"universe": "qqq"})
 
     assert {row["ticker"] for row in default_response.json()} == {"AAPL"}  # defaults to sp500
     assert {row["ticker"] for row in sp500_response.json()} == {"AAPL"}
     assert {row["ticker"] for row in dow_response.json()} == {"MMM"}
+    assert {row["ticker"] for row in nasdaq_response.json()} == {"ADBE"}
     assert invalid_response.status_code == 422
 
 

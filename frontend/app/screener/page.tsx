@@ -38,6 +38,7 @@ const PAGE_SIZE = 18;
 
 const UNIVERSE_LABELS: Record<ScreenerUniverse, string> = {
   sp500: "S&P 500",
+  nasdaq: "Nasdaq",
   dow: "Dow 30",
   all: "All",
 };
