@@ -317,3 +317,271 @@ directly comparable until Massive gets the same load test.
 - Full 45-ticker ETF momentum universe (not enumerated in the codebase — see §1); the ~36
   named tickers tested/reasoned about are all ordinary US-listed funds, same class as the 11
   sector ETFs directly confirmed in §2e.
+
+## Free-tier follow-up + decisions (2026-09-23)
+
+Follow-up pass on the same live `MASSIVE_API_KEY` (still on the free "Stocks Basic" tier — see
+§0), answering the questions left open above before a paid subscription. **16 live requests
+total, 0 rate-limit (429) responses**, throttled at a strict ≥13s between requests (full log
+kept in this run's scratch dir and deleted afterward per the task's cleanup instruction — every
+status code is transcribed below). No production code, config, cron, or DB rows changed; the
+key value was never printed or logged.
+
+### Decisions recorded (not re-investigated here)
+
+- **Sector Heatmap and Momentum will switch to plain split-adjusted closes (no dividend
+  adjustment).** Market Breadth already uses plain closes. **This closes the "no native
+  total-return field" gap from §2c/§4 by decision, not by building the dividend-reinvestment
+  reconstruction** that section sketched — that code is no longer needed for a Massive
+  migration.
+- **Chart tab's W_4Y view and the Analyst Ratings 10-year price overlay stay on Yahoo
+  Finance** (both need ~8–10y of history, beyond Starter's marketed 5y). Every other Chart
+  view (D_6M/D_1Y/D_2Y) moves to Massive.
+- **`^GSPC` is replaced by SPY** for Weinstein Mansfield RS — Indices is a separate Massive
+  product (confirmed gated in §2d); SPY already confirmed working and level-invariant for this
+  use (§2d).
+- **Target plan: Stocks Starter ($29/mo)**, pending this follow-up's Part 1 result below.
+
+### Part 1 — Intraday page-size cap: confirmed, and worse than Alpaca's
+
+**This key has the same class of undocumented per-page cap Alpaca had — a real blocker for
+Warren/BB+RSI as currently designed, not a hypothetical risk.** Full detail:
+
+**(a) AAPL, 60-minute bars, `/v2/aggs/ticker/AAPL/range/1/hour/2024-01-01/2026-09-23`,
+`limit=50000`, requested full ~730-day window.** `200`, but **silently clipped to the same
+730-day entitlement window §0 already found for daily bars** (first bar `2024-09-23`, matching
+exactly), and — the new finding — **paginated despite `limit=50000`**: first page returned
+only **1,125 bars** (`2024-09-23` → `2025-01-02`, 80 distinct trading days, 16 bars/day) with
+`next_url` present. Followed the cursor twice more (pages 2–3, 1 request each): **page 2
+returned 108 bars (9 days), page 3 returned 99 bars (10 days)** — a sharp drop from page 1's
+80-day page to ~9–10-day pages thereafter. Decoding the `next_url` cursor's own embedded query
+string is revealing: page 1's cursor still carries `limit=50000` (what we sent), but **page
+2's cursor has silently rewritten it to `limit=5000`** — the server is overriding the
+requested limit internally, and even a nominal `limit=5000` produces two consecutive ~100-bar
+pages, confirming the real constraint isn't the `limit` param at all. Response byte size also
+doesn't explain it directly: page 1 was 130KB, pages 2–3 were only ~12KB each — nowhere near a
+fixed byte ceiling. The shape (large, ticker-dependent first page; small, consistent
+~9–10-trading-day pages after) looks like an internal server-side compute-time/complexity
+budget per request, not a documented bar/byte/day limit.
+
+**(b) MSFT and AAOI (small-cap, one of the W1–W5 tickers), same request shape, first page
+only** (pagination not re-chased for these two, to conserve the request budget — see the
+extrapolation below for why full per-ticker chasing wasn't attempted at scale): MSFT 1,326
+bars/97 days; AAOI 1,660 bars/132 days. Extended to **7 more W1–W5 tickers** for Part 2's
+accuracy sample (AVGO, AMD, ASML, ABNB, BKNG, ANET, AMAT — all `200`, all paginated on first
+page): first-page sizes ranged from **1,022 bars/72 days (AMD) to 2,678 bars/316 days
+(BKNG)** — a >4x spread in trading-days-per-first-page across 10 real tickers, confirming the
+cap is highly ticker-dependent and not predictable from the request alone. Chased AMD's page 2
+as a second data point beyond AAPL for the "does it shrink to ~9–10 days after page 1"
+question: **AMD page 2 = 98 bars/9 days — matches AAPL's pattern almost exactly.** (2 of 10
+tickers traced past page 1; not exhaustive, but the two that were traced agree closely.)
+
+**(c) Extended hours: yes, every hourly bar from this endpoint spans the full 04:00–19:00 ET
+extended session** (AAPL page 1: 16 distinct UTC hours/day, 08:00–23:00 UTC = 04:00–19:00 ET
+during EDT — pre-market + regular + after-hours all included, confirming §2i's minute-agg
+finding also holds for hourly bars), **but bars are calendar-hour-anchored (00-minutes,
+`08:00`, `09:00`, …), not session-anchored the way Yahoo's 60m bars are (`09:30`, `10:30`, …,
+a final 30-minute `15:30` bar).** This is a second, independent problem from the extended-hours
+question: a plain UTC-hour-range filter (e.g. "keep hours 13–19") approximates "regular
+session" but is off by up to 30 minutes on every single bucket versus what Warren's engine
+currently consumes. **Matching Yahoo's grid exactly would require re-bucketing from Massive's
+1-minute bars (confirmed working via `/v1/open-close` and minute aggs in the original §2i),
+not merely filtering the native hourly endpoint** — and 1-minute granularity has roughly 60x
+the bar density of hourly, so it would hit this same page-cap trap far harder (not
+load-tested here — see "what's still untested" below).
+
+**(d) Extrapolation to the real W1–W5 union (104 tickers, counted live from the DB — `W1`
+through `W5`, deduped).** Using the 10-ticker first-page sample (mean 130.5 trading
+days/first page, median 127) and the ~9–10-trading-day-per-page steady state confirmed on 2
+of those 10 tickers (AAPL, AMD) past page 1:
+
+| Window | Trading days (≈252/yr) | Pages/ticker (≈1 + remaining/9.5) | Requests/night (×104 tickers) | Wall-clock, **unthrottled** (×~1.4s/req, sequential) | Wall-clock, **this key's observed throttle** (×13s/req) |
+|---|---|---|---|---|---|
+| 730d (2y) — Warren's current window | ~504 | ~40 | **~4,160** | **~97 min (1.6 hr)** | **~15.0 hr** |
+| ~1,095d (3y) — proposed longer warm-up | ~756 | ~67 | **~6,968** | **~163 min (2.7 hr)** | **~25.2 hr** |
+
+Both figures are **far beyond Warren's current 3:40–3:55 AM (15-min) cron slot even in the
+best case** (unlimited plan, no artificial throttle, purely sequential — concurrency wasn't
+tested, since the task's hard throttle instruction ruled out any concurrent-request
+experiment) — a ~6.5–11x overrun on the 2y window alone, before even considering the 3y
+option. Under this key's own observed real rate limit (the ~13s/request pace this whole run
+needed to avoid a repeat of the original investigation's ~2.5–3min 429 lockout), the numbers
+are categorically infeasible (15–25 **hours**, not minutes) — reinforcing §0/§2k's "verify the
+real rate limit on the dashboard" as the single most important open question, now with a
+concrete cost attached if it turns out not to be materially higher than what this key shows.
+
+**BB+RSI is a materially smaller problem, by contrast, though not fully verified at scale
+either**: it only needs a 60-day (~42 trading day) window, which sits below every first-page
+size observed in the 10-ticker sample (min 72 days/AMD) — suggesting most/all BB+RSI
+single-ticker fetches would complete in **one page**, i.e. ~104 requests/night, ~146s
+unthrottled or ~22.5min at this key's throttle. Plausible, not proven — page-1 size is
+ticker-dependent and BB+RSI's actual 104-ticker behavior wasn't directly tested (would cost
+~104 more requests, judged not worth it against the budget once Warren's own number already
+settled Part 1's core question).
+
+**Daily-granularity consumers (Trend/Weinstein, Liquidity Zones, Market Breadth, Sector
+Heatmap, Momentum) are inferred unaffected by this specific trap**, not re-verified fresh in
+this pass: §0's original daily-bar test (501 bars for a 730-day AAPL request) reported no
+`next_url`, and even Liquidity Zones' widest daily window (1,460 days ≈ 1,008 daily bars) sits
+below every 60m first-page bar count observed here (min 1,022). This is a reasonable inference
+from bar count alone, not a fresh confirmation that daily requests never paginate — flagged as
+inferred, not verified in this pass.
+
+### Part 2 — 60m accuracy vs Yahoo + RSI/signal impact
+
+**(a) Accuracy.** Extended to 10 W1–W5 tickers total (AAPL, MSFT, AAOI + the 7 above).
+Because Massive's hourly bars are calendar-hour-anchored and Yahoo's are session-anchored
+(§1c), a true bar-for-bar comparison isn't well-defined without minute-level re-bucketing (out
+of budget here) — so, as a defensible proxy, each source's **last regular-session bar of the
+day** was compared (Massive: the `15:00–16:00 ET` bucket close; Yahoo: the `15:30–16:00 ET`
+final bar close — both approximate the real market close). **8 of the 10 tickers (AAPL, MSFT,
+AAOI, AVGO, AMD, ASML, ABNB, AMAT) matched almost exactly: 738 comparable day-closes, mean
+diff 0.0035%, median 0.0000024%, max 0.17%** — consistent with §2g's original 640-bar/16-ticker
+daily-bar finding (mean 0.0000051%, max 0.0013%), just slightly noisier here purely because of
+the ~30-minute bucket-boundary mismatch between the two "last bar of day" proxies, not a real
+accuracy gap.
+
+**BKNG and ANET were excluded from that clean sample and are reported separately — they
+surfaced a real, previously-unknown bug, not a Massive accuracy problem.** Both showed absurd
+"differences" (BKNG ~2,400%, ANET ~140% mean) that traced to **Yahoo's cached 60m bars being
+silently split-adjusted despite `auto_adjust=False`** (`clients/shared_bars_cache.py`'s
+documented convention for every consumer in this codebase): Massive's `adjusted=false` shows
+real historical BKNG prices (~$4,300–5,600 across 2024–2025, matching Booking Holdings' actual
+unadjusted share price before whatever split has evidently occurred since this session's
+January-2026 knowledge cutoff), while `SharedBarsCache`'s "unadjusted" BKNG bars for the same
+historical dates read ~$220–230 — internally consistent (no discontinuity across the real split
+date) but retroactively split-adjusted, contradicting what every one of the six CLAUDE.md
+features consuming this table (Trend, Liquidity Zones, Warren, BB+RSI, Weinstein, Market
+Breadth) assumes it's getting. ANET's smaller (~140%) mismatch is consistent with its known
+Dec 2024 4:1 split — confirmed via yfinance's live `BKNG` quote (`$164.22`, itself only
+sensible post-split) and a direct check that Yahoo's cached ANET series shows no gap across its
+own real split date. **This is a genuine Fathom-side (Yahoo/`yfinance`) data-quality bug worth
+its own dedicated investigation — flagged here, not fixed, per this task's investigation-only
+scope; it does not reflect on Massive's accuracy, which is what §2a/here actually measured for
+these two tickers once the real (Massive) values are used as ground truth.**
+
+**(b) Wilder RSI(14) threshold-crossing comparison, 3 tickers (AAPL, MSFT, AAOI), computed
+identically to `analysis/warren_signal/indicators.py::compute_rsi_wilder`** (same seeding,
+same recursion) on each source's own regular-session-range series over their overlapping
+window: crossing counts for the 5 Warren thresholds (12/30/70/80.81/84.75) **do differ** —
+e.g. AAPL's 30-threshold: 3 (Massive) vs. 6 (Yahoo); AAOI's 30-threshold: 15 vs. 11. **This
+comparison is confounded by the same bucket-alignment issue from §1c** (the "regular-session"
+Massive series used here is a UTC-hour filter, not a true 9:30-anchored series, so it has a
+different bar count and different bar boundaries than Yahoo's), so these numbers measure "what
+happens if you naively point Warren's math at Massive's native hourly grid," not "how much
+does RSI change from genuinely equivalent price data." Given §2a's own accuracy result (closes
+agree to ~0.0035%), the crossing-count differences here are attributable almost entirely to
+bucket alignment, not price divergence — which is itself the important finding: **grid
+alignment, not data accuracy, is the real integration cost.**
+
+**(c) Full Warren signal replay, 2 tickers (AAPL, MSFT)**, feeding each source's OHLCV
+(Massive: UTC-hour-filtered; Yahoo: native) directly through the actual
+`analysis/entry_signal/resample.py::build_2h_session_candles` and
+`analysis/warren_signal/state_machine.py::replay` — no reimplementation, the real production
+code. Result: **AAPL — 211 Massive 2h candles vs. 283 Yahoo (25% fewer); 4 Massive events vs.
+3 Yahoo, zero common event dates. MSFT — 248 vs. 333 candles; 4 vs. 7 events, zero common
+dates.** `build_2h_session_candles`'s own `between_time("09:30", "16:00")` filter, written for
+a 9:30-anchored grid, drops or reshapes buckets when fed Massive's 00-anchored bars, producing
+a genuinely different candle series, not just a shifted one — confirming §1c's finding in the
+most concrete terms available: **a real migration cannot just point the existing resampler at
+Massive's native hourly endpoint; it needs minute-level re-bucketing anchored to the real
+9:30 ET session open first.** This is a fixable integration problem (the ingredients — accurate
+prices, real extended-hours minute data — are all there per §2a/§2i), not a data-quality
+verdict on Massive itself.
+
+### Part 3 — Grouped daily: works, and directly closes the triggering incident's gap
+
+**(a) `/v2/aggs/grouped/locale/us/market/stocks/2026-09-22`** (the incident date): `200`,
+**12,601 tickers in one call** (matches §2e). Checked against the **full, real 503-ticker
+S&P 500 constituent list from `IndexConstituent`** (not the original investigation's 32-ticker
+spot-check): **all 503 have a valid, non-null close** (using the hyphen→dot class-share mapping
+from §2a — `BRK.B`, `BF.B`, etc. all resolved correctly). **All 11 SPDR sector ETFs and SPY are
+present with real closes** — confirmed here directly rather than inferred from §2e's separate
+sector-ETF check.
+
+**(b) `/v2/aggs/grouped/locale/us/market/stocks/2026-09-18`**, compared against
+`SharedBarsCache`'s `1d` closes for the same 503 constituents (BKNG/ANET excluded per Part 2a's
+split-adjustment finding): **501 comparable, 0 missing on either side, mean diff 0.0000173%,
+median 0.0000020%, max 0.0076%** (worst: LNT at 0.0076%) — essentially bit-identical, matching
+§2g/Part 2a's accuracy findings at full S&P 500 scale via a single call.
+
+**(d) Implication**: yes — **Market Breadth, Trend (daily leg), and Sector Heatmap could all
+be fed by one grouped-daily call per trading day** (plus a one-time historical backfill via
+the same endpoint, date by date, within the 730-day entitlement window this key has — genuine
+5y depth on a correctly-provisioned Starter key would extend that). **And yes, Massive had the
+2026-09-22 data Yahoo lost** — directly confirmed at full S&P 500 + sector-ETF scale here,
+extending §2f's smaller spot-check. This is the strongest, most directly actionable result of
+this whole follow-up: the daily-bar path (unlike the intraday path) looks both cheap (1
+call/day) and accurate at the exact scale Fathom needs, with no pagination trap encountered
+anywhere in Part 3.
+
+### Updated coverage matrix (supersedes §3 rows below, given the decisions + new findings above)
+
+| Consumer | Original §3 verdict | Updated verdict | Why |
+|---|---|---|---|
+| Warren signal (730d, 60m) | ❓ untested at scale | ❌ **not viable as designed** | Part 1d: ~4,160 requests/night, ~97min best case / ~15hr at this key's real throttle — both blow the 15-min cron slot; would also need a resampler rewrite per Part 2c |
+| BB+RSI (60d, 60m) | ❓ untested at scale | ⚠️ **plausible, not confirmed at scale** | Part 1d: likely 1 page/ticker (~104 req/night, ~22.5min at this key's throttle) — inferred from page-1 sizes, not directly tested for BB+RSI's own 104-ticker run |
+| Sector Heatmap (2y daily) | ⚠️ covered with change (Adj Close gap) | ✅ **fully covered** | Decision: plain closes, no total-return reconstruction needed |
+| Momentum snapshot (2y daily, adjusted) | ⚠️ covered with change (Adj Close gap) | ✅ **fully covered** | Same decision |
+| Market Breadth (730d daily, S&P 500) | ⚠️ covered with change | ✅ **fully covered, confirmed at full scale** | Part 3a/b: all 503 constituents, 0 missing, ~0% diff |
+| Trend/BOS + Weinstein (730d daily + benchmark) | ⚠️ covered with change | ✅ **fully covered** | `^GSPC`→SPY decision; daily depth inferred unaffected by the pagination trap (not re-verified fresh) |
+| Liquidity Zones (1460d daily) | ⚠️/❌ depending on entitlement | ⚠️ **unchanged — still needs genuine 5y (or the shorter window kept at 730d)** | Not re-tested this pass; daily bar-count (~1,008) inferred below the pagination threshold, but the 730d hard clip (§0) still applies on this key regardless of pagination |
+| Chart D_6M/D_1Y/D_2Y | ⚠️ covered with change | ⚠️ **unchanged** | Not re-tested this pass |
+| Chart W_4Y / Analyst Ratings 10y overlay | ❌ not covered | ❌ **unchanged, now by decision** | Explicitly kept on Yahoo per the decisions above, not a gap to close |
+
+### What's still proven-on-free-tier vs. still-needs-a-paid-key
+
+**Proven on this free-tier key in this follow-up:**
+- The intraday per-page cap is real, severe, and ticker-dependent (Part 1).
+- Regular vs. extended-hours bar coverage and the calendar-hour-vs-session-anchor mismatch
+  (Part 1c).
+- 60m and daily accuracy vs. Yahoo, at both a 10-ticker/asymmetric-day-close scale (Part 2a)
+  and a full-503-ticker grouped-daily scale (Part 3b).
+- Grouped-daily works, covers 100% of the S&P 500 + sector ETFs + SPY, and has the exact
+  session Yahoo lost (Part 3a/c).
+- The Yahoo split-adjustment bug (a Fathom-side finding, not a Massive one).
+
+**Still requires a correctly-provisioned/paid key to verify** (unchanged from §0/§6, not
+re-resolved by this follow-up):
+- Whether genuine Starter entitlements (5y depth, a real rate limit far above ~5 req/min,
+  Snapshot access) differ from what this specific free-tier key shows — **this follow-up did
+  not touch a paid key at all**, so every number above (including the severe pagination cap)
+  could theoretically be a free-tier-only restriction; there is no dashboard-accessible way to
+  confirm this from the API alone (§0). **This is now the single highest-priority thing to
+  verify before purchasing**, since Part 1's finding is bad enough that "does Starter fix
+  this" is a real go/no-go question, not a minor unknown.
+- Whether the pagination cap scales differently under concurrent (non-sequential) requests —
+  not tested here, since the task's hard sequential throttle ruled it out.
+- 1-minute-granularity pagination behavior at multi-day scale (needed for the proper
+  session-anchored re-bucketing Part 2c's finding calls for) — only a single day was ever
+  spot-checked (§2i of the original investigation), never a multi-week window.
+- BB+RSI's actual 104-ticker nightly cost — inferred from page-1 sizes, not directly measured.
+
+### Recommendation (updated)
+
+**Do not commit to Starter based on this key's numbers alone — but the reason has sharpened.**
+The original recommendation (§6) treated Warren/BB+RSI's intraday cost as an open question.
+It no longer is: **on this key, Warren's current 730d/60m design is categorically infeasible**
+(15–25 hours/night at this key's own observed rate limit; 1.6–2.7 hours even assuming an
+unlimited plan with zero throttling) — a worse finding than Alpaca's own ~25min–2hr equivalent
+result. **The single purchase-decision question is now: does genuine Stocks Starter (a)
+actually extend history to 5y, (b) actually raise the rate limit well above ~5/min, and (c) —
+untested by either provider's investigation — remove or substantially raise the intraday
+per-page cap found here.** If (c) doesn't improve on a paid key, Warren's design would need to
+change regardless of which tier is purchased (e.g., a much shorter warm-up window, a
+different intraday source kept alongside Massive, or accepting a multi-hour nightly job on a
+separate schedule from the rest of the pipeline).
+
+**Everything daily-granularity is a strong, largely de-risked "yes"**: Market Breadth, Sector
+Heatmap (now that total-return reconstruction is off the table by decision), Momentum, and
+Trend's daily leg are all confirmed accurate at full or near-full production scale (Parts 3a/b,
+2a), grouped-daily is confirmed to have solved the actual triggering incident (Part 3a/d), and
+none of this pass's testing surfaced a daily-side blocker. **The daily migration and the
+intraday (Warren/BB+RSI) migration should be treated as two separable decisions** — there is no
+reason the daily consumers need to wait on resolving Warren's pagination question, and no
+reason a bad answer on (c) above should block moving Trend/Breadth/Heatmap/Momentum to Massive
+if the rest of Starter's entitlements check out.
+
+**Total requests used this follow-up: 16** (all logged with status codes; 15×`200`, 1×`403`
+expected/informative — zero `429`s, zero lockouts). Scratch scripts, response JSON, and the
+request log were all deleted after this section was written; only this doc update remains.
