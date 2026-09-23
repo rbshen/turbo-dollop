@@ -28,6 +28,21 @@ class Settings(BaseSettings):
     # requires a backend restart to take effect, same as every other
     # Settings field.
     fmp_enabled: bool = True
+    # Massive.com (a Polygon.io rebrand) -- the daily-bar price-data
+    # provider replacing Yahoo Finance for every US-listed daily-bar
+    # consumer (see docs/massive_feasibility_investigation_2026-09-23.md).
+    # Same read-once-at-process-start / global-kill-switch convention as
+    # fmp_enabled: False routes every ticker straight to Yahoo
+    # (clients/daily_bar_sources.py::YahooDailySource), zero Massive calls,
+    # the full rollback lever with no code revert needed. Unlike
+    # fmp_enabled, Yahoo stays wired in regardless (non-US tickers always
+    # need it, see core/tickers.py::is_non_us_ticker), so there is no
+    # equivalent of FMP_ENABLED=false's "serve stale cache, no live calls"
+    # degrade mode here -- disabling Massive just means "use Yahoo for
+    # everything," a live source either way.
+    massive_enabled: bool = True
+    massive_api_key: str = ""
+    massive_base_url: str = "https://api.polygon.io"
     # Gates only GET /api/config/cron-health's reporting and the frontend
     # banner -- CronRunLog rows keep being written regardless (see
     # core/cron_health.py::cron_heartbeat), so history isn't lost and

@@ -16,7 +16,43 @@ directly against IndexConstituent -- see investigation notes)."""
 
 TICKER_ALIASES = {"BRK.B": "BRK-B", "BF.B": "BF-B"}
 
+# Reverse of TICKER_ALIASES -- Massive/Polygon uses dot notation for class
+# shares (confirmed live, see docs/massive_feasibility_investigation_2026-09-23.md
+# §2a: "BRK.B (dot) works; BRK-B ... returns 200 with resultsCount: 0"), the
+# opposite of Fathom's own hyphen canonical form. Deliberately the same
+# narrow two-entry allowlist as TICKER_ALIASES, not a blanket hyphen->dot
+# replace -- a genuinely non-US/OTC ticker could contain a hyphen for an
+# unrelated reason and must never be mangled into a bogus Massive symbol.
+MASSIVE_TICKER_ALIASES = {v: k for k, v in TICKER_ALIASES.items()}  # {"BRK-B": "BRK.B", "BF-B": "BF.B"}
+
 
 def normalize_ticker(ticker: str) -> str:
     cleaned = ticker.strip().upper()
     return TICKER_ALIASES.get(cleaned, cleaned)
+
+
+def to_massive_symbol(ticker: str) -> str:
+    """Fathom canonical (hyphen) -> Massive/Polygon's own symbol (dot) for
+    the two known class shares; every other ticker passes through
+    unchanged. Call with an already-normalize_ticker'd symbol."""
+    return MASSIVE_TICKER_ALIASES.get(ticker, ticker)
+
+
+def from_massive_symbol(symbol: str) -> str:
+    """Inverse of to_massive_symbol -- used when reading a ticker column
+    back out of a Massive response (e.g. grouped-daily, which is indexed by
+    Massive's own dot-notation symbol)."""
+    return TICKER_ALIASES.get(symbol, symbol)
+
+
+def is_non_us_ticker(ticker: str) -> bool:
+    """True for a ticker Massive/Polygon (US-market-only, confirmed in the
+    feasibility investigation §2j) can never serve -- routed straight to
+    Yahoo. A normalized ticker containing '.' is a foreign-primary-listing
+    suffix (e.g. 0700.HK, MC.PA) -- the two dot-notation US class shares are
+    already normalized to their hyphen form by normalize_ticker before this
+    is ever called, so this can't misfire on them. This is a necessary but
+    not sufficient check -- a US OTC ticker (CNSWF, EVVTY, SINGY) has no dot
+    and still needs the caller's own per-ticker empty-result fallback (see
+    clients/daily_bar_sources.py) to end up on Yahoo."""
+    return "." in ticker
