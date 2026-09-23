@@ -3693,6 +3693,21 @@ backfill call on both providers, every single night, forever.
   (Yahoo alone included) already disproves "still delisted," e.g. a symbol reuse or relisting
   under the same ticker (cf. the earlier PARA symbol-reassignment case). Logged via the
   `newly_cleared` list in the run's own report/heartbeat message, same as a new flag.
+- **Auto-clear deadlock, found and fixed the same day (2026-09-24) before this shipped further.**
+  The cache-based auto-clear above reads `SharedBarsCache` for a fresh bar -- but a flagged
+  ticker's own fetch is exactly what the nightly Trend/Liquidity Zone/Momentum skip (next bullet),
+  so that row can never refresh again on its own; a reused/relisted symbol would have stayed
+  flagged forever. Fixed with a direct live probe for whatever's *still* flagged after the free
+  cache check (`_probe_ticker_for_fresh_bar`/`_probe_and_revive`): one short (~10-day) Massive
+  range call per ticker, Yahoo as a second opinion only when Massive returns nothing (mirrors the
+  manual dual-source check the original 5 tickers were confirmed with; Massive skipped entirely
+  when `massive_enabled` is False). Either source showing a recent bar triggers a full re-backfill
+  through the normal DailyBarSource path (`get_or_fetch_bars_batch(force=True)`) *before* the flag
+  clears -- not just the probe's own narrow window, which would leave a gap between the old cached
+  history and today. This is the one deliberate live-call exception to this script's otherwise
+  cache-only convention. `tests/test_delisted_ticker_revival.py` is the end-to-end regression test
+  proving the full loop (flagged → skipped by Trend → cleared by the probe → picked up by the next
+  Trend run) closes correctly.
 - **Nightly daily-bar jobs skip a flagged ticker's fetch/compute entirely**, via a new
   `pipeline/stale_data_health_check.py::load_delisted_tickers(session)` helper (mirrors
   `nightly_fundamentals_fetch.py::load_full_tracked_universe`'s own "defined once, imported
