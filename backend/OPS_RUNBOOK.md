@@ -319,16 +319,44 @@ cleanly rather than leaving a gap. The only real caveat (shared with
 `logrotate`'s own copytruncate mode) is a narrow race window where a
 line written by a live process exactly during the rotation is lost.
 
-**`stale_data_health_check`** — reports how many S&P 500/Dow universe
-tickers haven't had their `profile` cache row refreshed within 10 days
-(a 3-day buffer past the 7-day staleness window, to tolerate one missed
-nightly run without a false alarm). Prints a readable report (fresh /
-stale / never-fetched counts, plus the actual stale ticker list) to both
-stdout and `backend/logs/stale_data_health_check.log` — never silent. A
-large "stale" count is the first place to check the nightly fetch job
+**`stale_data_health_check`** — reports how many tickers in the full
+tracked universe (not just S&P 500/Dow — widened 2026-09-11, see the
+script's own module docstring) haven't had their `profile` cache row
+refreshed within 10 days (a 3-day buffer past the 7-day staleness window,
+to tolerate one missed nightly run without a false alarm). Prints a
+readable report (fresh / stale / never-fetched counts, plus the actual
+stale ticker list) to both stdout and
+`backend/logs/stale_data_health_check.log` — never silent. A large "stale"
+count is the first place to check the nightly fetch job
 (`nightly_fundamentals_fetch_cron.log`) for a crash or an FMP outage; a
 large "never fetched" count usually means the S&P 500/Dow constituent
 sync hasn't run successfully (see below).
+
+**Also flags delisted tickers (2026-09-23), a second, independent write
+this same run performs** — see `CLAUDE.md`'s "Delisted-ticker handling"
+section for the full design and the real 2026-09-23 flagged list. In
+short: any US-eligible ticker whose `SharedBarsCache` interval="1d" last
+bar is more than 30 days old, confirmed via `settings.massive_enabled`
+(dual-provider — Massive+Yahoo fallback; never flags off a single-provider
+gap), gets `TickerScore.delisted_at` set; a previously-flagged ticker with
+a fresh bar again gets it auto-cleared. Nightly Trend/Liquidity
+Zone/Momentum skip a flagged ticker's fetch/compute entirely. Nothing is
+ever deleted. The cron heartbeat message names anything newly flagged or
+cleared that run (`Settings → Status`). **To manually clear a flag**
+(e.g. a bad flag, or before Massive/Yahoo both regain coverage):
+```
+uv run python -c "
+from sqlmodel import Session
+from core.db import engine
+from core.models import TickerScore
+with Session(engine) as s:
+    row = s.get(TickerScore, 'TICKER')
+    row.delisted_at = None
+    s.add(row); s.commit()
+"
+```
+It re-flags on the next weekly run if the ticker is still genuinely stale
+on both providers.
 
 **`audit_fixture_contamination`** — see the incident this script was
 built for in `CLAUDE.md`'s "Ad-hoc reproduction scripts must not touch

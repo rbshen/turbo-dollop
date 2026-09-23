@@ -3639,6 +3639,93 @@ calls, independent of Step 1-5/Overall Assessment scoring -- no `FMP_ENABLED` gu
   `_most_recent_completed_trading_date` from `clients/shared_bars_cache.py` (private, but
   `sector_heatmap_data.py` already sets that precedent).
 
+## Delisted-ticker handling (2026-09-23)
+
+A small, independent maintenance feature closing a real, confirmed cost: **TWTR, WBA, EA, AVB,
+EQR** are genuinely delisted (Massive's `/v3/reference/tickers` 404s; Yahoo reports "possibly
+delisted") and already absent from `IndexConstituent`, but stay in `load_full_tracked_universe`
+forever (any ticker that ever got a `TickerScore` row never drops out). Every night, the
+Trend/Liquidity Zone/Momentum jobs re-attempt a full Massive-then-Yahoo-fallback fetch for each
+of them anyway (`clients/shared_bars_cache.py::get_or_fetch_bars_batch` retries any ticker whose
+last bar isn't from the most recently completed session, unconditionally), wasting a per-ticker
+backfill call on both providers, every single night, forever.
+
+- **Hosted in `pipeline/stale_data_health_check.py`, not a new script.** Evaluated all three
+  existing maintenance jobs before choosing: `audit_fixture_contamination.py` is read-only
+  test-fixture-leakage detection (substring/shape matching against `FundamentalsCache`, e.g.
+  "acme"/"test"/"sample" in a company name) — a completely different concern, no natural
+  extension point. `purge_invalid_tickers.py` **deletes** `FundamentalsCache`/`TickerScore`
+  rows for tickers FMP confirms never existed — the opposite of what this feature needs (history
+  must never be deleted for a genuinely-once-real, now-delisted ticker). `stale_data_health_check.py`
+  was the right fit: it already computes `load_full_tracked_universe` on a weekly cadence (Sunday
+  1:30 AM, `crontab.txt`), was already the one "read-only report, occasionally with a small
+  write" shaped job of the three, and needed no new cron entry, `CRON_JOB_NAMES` wiring, or
+  `_EXPECTED_CADENCE_HOURS` entry at all — this is a second, independent check it performs in
+  the same run (over `SharedBarsCache`, not `FundamentalsCache` — an unrelated table, so the two
+  checks share nothing but the universe and the weekly cadence), not a widening of its existing
+  "profile" freshness report.
+- **New nullable `TickerScore.delisted_at: datetime | None`** (`core/models.py`,
+  `_add_missing_columns`-backfilled, no migration). None for the overwhelming majority of
+  tickers. Set/cleared by `pipeline/stale_data_health_check.py::sync_delisted_flags`.
+- **Flagging rule: last `SharedBarsCache` interval="1d" bar more than
+  `DELISTED_STALE_THRESHOLD_DAYS` (30) days old, genuinely dual-provider.** Rather than issue
+  fresh, bespoke Massive+Yahoo calls from a maintenance script (breaking every other maintenance
+  job's "cache-only, zero live calls, safe to run anytime" convention), this reads
+  `clients/shared_bars_cache.py`'s existing cache directly, via a new `last_bar_ages_days`
+  helper there (a plain calendar-day-age query, unlike the existing `stale_ticker_count`'s
+  same-session freshness *bit* — this needs an actual magnitude to threshold 30 days against).
+  This is genuinely dual-provider evidence, not a single cached read: with
+  `settings.massive_enabled` (the normal case), every ticker in `load_full_tracked_universe`
+  gets a fresh Massive-then-Yahoo-fallback attempt from the nightly Trend job's own
+  `get_or_fetch_bars_batch` call *every single night* regardless of its current staleness — so a
+  last bar still >30 days old means neither provider has produced a newer bar across ~30
+  consecutive nightly dual-provider attempts, the same real-world signal as the manual
+  `/v3/reference/tickers` 404 + Yahoo "possibly delisted" check that confirmed the 5 tickers
+  above. **`sync_delisted_flags` only ever flags when `settings.massive_enabled` is true** —
+  with Massive off, every bar in scope reflects Yahoo alone (`clients/daily_bar_sources.py::
+  get_daily_bar_source`), single-provider evidence, so no flagging happens at all that run
+  (existing flags are left untouched, not force-cleared, since this run didn't genuinely
+  re-check both providers). Also excludes non-US tickers (`core.tickers.is_non_us_ticker`) —
+  Massive is US-market-only by design (`route_by_source`), so a non-US ticker's staleness is
+  single-provider evidence regardless of the flag above, and a ticker with **no** cached bars at
+  all (never fetched) is excluded too — ambiguous, not evidence of delisting.
+- **Auto-clear is unconditional on `massive_enabled`** — a fresh bar from even one provider
+  (Yahoo alone included) already disproves "still delisted," e.g. a symbol reuse or relisting
+  under the same ticker (cf. the earlier PARA symbol-reassignment case). Logged via the
+  `newly_cleared` list in the run's own report/heartbeat message, same as a new flag.
+- **Nightly daily-bar jobs skip a flagged ticker's fetch/compute entirely**, via a new
+  `pipeline/stale_data_health_check.py::load_delisted_tickers(session)` helper (mirrors
+  `nightly_fundamentals_fetch.py::load_full_tracked_universe`'s own "defined once, imported
+  everywhere" convention) — `pipeline/nightly_trend_calculation.py`,
+  `pipeline/nightly_liquidity_zone_calculation.py`, and `data/momentum_data.py::
+  compute_and_store_momentum_snapshot` all exclude a flagged ticker from the tickers passed into
+  `get_or_fetch_bars_batch` and from their own per-ticker compute loop, and each summary dict
+  gains a `skipped_delisted_count` field (surfaced in each job's own `cron_heartbeat` message
+  alongside the existing stale/fallback counts). **Deliberately scoped to the DB-derived
+  universe only** — `nightly_trend_calculation.py`'s own `--tickers`/`--limit` CLI override (an
+  explicit manual/test escape hatch) bypasses the skip entirely, same as it already bypasses
+  `load_full_tracked_universe` itself. Market Breadth and Sector Heatmap need no equivalent
+  change — both are already scoped away from `load_full_tracked_universe` (`IndexConstituent`
+  `sp500` and a fixed 11-ETF list respectively), so none of the 5 confirmed-delisted tickers
+  (already absent from `IndexConstituent`) could ever reach either job regardless.
+- **Nothing is ever deleted.** `TickerScore` (the flagged row itself, every other field
+  untouched), `FundamentalsCache`, Screener, Watchlist, and ticker-page history all stay fully
+  intact for a flagged ticker — the flag only changes which nightly jobs bother re-fetching its
+  price bars.
+- **The `/v3/reference/splits` redundant-call collapse (optional per the original ask) was
+  evaluated and skipped.** `MassiveDailySource._recently_split_tickers` calls
+  `massive_client.get_recent_splits` once per `get_daily_bar_source().get_daily_bars()`
+  invocation whenever any ticker in that call's batch needs fetching — in practice once per
+  night per job that reads through `get_or_fetch_bars_batch` with interval="1d" (Trend,
+  Liquidity Zones, Momentum, Sector Heatmap, Market Breadth — up to 5 calls some nights). Each of
+  these runs as its own separate `uv run python -m pipeline.X` **process**, so collapsing this
+  into one shared result per night would need either a new persistent, DB-backed cache
+  (`FundamentalsCache`-shaped, with its own staleness/key convention) or restructuring cron
+  ordering with real inter-job coordination — both meaningfully larger than "small and clean,"
+  and both touch `massive_client.py`/`daily_bar_sources.py`, which just shipped in Phase 1 and
+  deserve a dedicated follow-up rather than being bundled into this unrelated feature. Left as a
+  known, minor inefficiency, not fixed here.
+
 ## Insider Activity (ticker-page tab, 2026-09-19) -- SHELVED 2026-09-20
 
 **Shelved, not deleted.** `Settings.insider_activity_enabled`
