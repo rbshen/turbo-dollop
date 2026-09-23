@@ -585,3 +585,302 @@ if the rest of Starter's entitlements check out.
 **Total requests used this follow-up: 16** (all logged with status codes; 15×`200`, 1×`403`
 expected/informative — zero `429`s, zero lockouts). Scratch scripts, response JSON, and the
 request log were all deleted after this section was written; only this doc update remains.
+
+## Starter paid-plan verification (2026-09-23)
+
+The live `MASSIVE_API_KEY` in `backend/.env` (confirmed the correct variable name — not a
+`MASSIV_API_KEY` typo) has now been upgraded to the paid Stocks Starter plan ($29/mo). This
+section re-runs the two open questions the free-tier follow-up above left unresolved (§0/Part 1
+of that section) directly against the paid key, then goes further: a full accuracy/parity test
+against real cached Yahoo data and, for the first time, an actual production-code replay of both
+Warren and BB+RSI on Massive-built data. **~467 live requests used across this pass** (300 of
+them the deliberate Part 1b burst test below), **zero 429s anywhere, at any pace** — a
+categorical change from the free tier's ~2.5–3min lockout after ~10 requests. No production code,
+config, cron, or DB rows were changed; every DB read was read-only (`sqlite3` URI `mode=ro`, or a
+fresh, never-committed script). The API key's value was never printed, logged, or written to any
+file — every script below used `python-dotenv` to load it directly into `os.environ` and referenced
+it only inside the `requests` call.
+
+**Flat files were not tested.** `backend/.env` has no S3-style access key/secret for Massive's
+flat-file product (only `MASSIVE_API_KEY`, confirmed via `grep -oE '^[A-Z_]+=' backend/.env`) — per
+this task's own safety constraint, this was treated as a hard stop rather than guessed at. Part
+1(d) and the flat-file half of Part 4(a) are **blocked**, not attempted.
+
+### Part 1 — Entitlement check
+
+| Check | Result | Detail |
+|---|---|---|
+| (a) 5y daily history | ✅ **PASS** | AAPL daily bars, 6y-back request → `200`, 1,253 bars, `2021-09-24 → 2026-09-22` (1,824 calendar days ≈ 5.0 years), **no clipping** — a direct reversal of §0's free-tier finding (which silently clipped to exactly 730 days) |
+| (b) 300 sequential requests, rate limits | ✅ **PASS** | 300 AAPL daily-bar requests, natural back-to-back pacing (no artificial sleep): **201.0s wall-clock (0.67s/req avg), 300×`200`, 0×`429`**. No rate-limit-related response headers observed on any response (checked every header for `rate`/`limit`/`retry` substrings). Categorically different from the free-tier key, which 429'd after ~10 requests with a ~2.5–3min lockout |
+| (c) Snapshot endpoint | ✅ **PASS** (with one caveat) | Both single-ticker (`/v2/snapshot/.../tickers/AAPL`) and full-market (`/v2/snapshot/.../tickers`) snapshot now return `200` (13,194 tickers on the full-market call) — a direct reversal of §0/§2h's hard `403 NOT_AUTHORIZED` on the free-tier key. `day` (regular-session OHLCV, all zero — pre-market, session not yet open at test time), `min` (latest available bar, real data: `t`, `o/h/l/c/v` all populated), and `prevDay` (real OHLCV) are all populated. **`lastTrade`/`lastQuote` are NOT populated** (`None`) on either endpoint — consistent with the original brief's own speculation that tick-level trade/quote data needs a higher (Advanced/Developer) tier; aggregated bar-level snapshot fields (`day`/`min`/`prevDay`), which is everything Fathom's design would actually consume, work fully |
+| (d) Flat files | ⛔ **BLOCKED** | No S3-style credentials in `backend/.env` for Massive's flat-file product. Per the task's own instruction, this was not attempted, not guessed, not fabricated — flagged as blocked, not silently skipped. If flat-file access matters for a future decision, this needs the separate S3 access key/secret from the Massive dashboard first |
+
+**Net: 3 of 4 Part-1 checks pass cleanly, reversing both of §0's original hard blockers**
+(730-day clip → genuine 5y; ~5–10 req/min real limit → 300 requests with zero 429s). The
+snapshot gap that remains (`lastTrade`/`lastQuote`) doesn't affect anything in Fathom's current
+or planned design, which only ever needs bar-level data.
+
+### Part 2 — Pagination cap: same class of behavior, ~10x larger budget, and the mechanism is now provable
+
+Repeated the free-tier AAPL 60m/730-day `limit=50000` request, chased to full completion (not
+just 3 pages), and added a 30-minute-bar version at the same window plus a 1-minute version (both
+a 730-day full chase and an initial 30-day density sample):
+
+| Request | Pages to complete | Total bars | Page sizes (chronological) |
+|---|---|---|---|
+| AAPL 60m, 730d, `limit=50000` | **8** | 7,993 | 1125, 1041, 991, 1077, 1128, 1094, 948, 589 |
+| AAPL 30m, 730d, `limit=50000` | **8** | 15,974 | 2246, 2082, 1982, 2154, 2252, 2189, 1896, 1173 |
+| AAPL 1m, 30d (density sample) | **1** | 17,950 | 17950 (no pagination at all) |
+| AAPL 1m, 730d, `limit=50000` | **8** | 381,518 | 50000 ×7, then 31518 |
+
+**This directly answers the task's open hypothesis: pagination is plan-independent in mechanism
+(limit counts underlying 1-minute base aggregates), but the per-page minute-equivalent BUDGET is
+plan-dependent and dramatically larger on Starter.** Evidence, not inference:
+- Decoding the paid key's `next_url` cursor (base64) gives `adjusted=false&limit=50000&sort=asc`
+  — **the requested `limit=50000` is preserved verbatim in the cursor**, unlike the free-tier
+  key, whose cursor the original follow-up found had been silently rewritten to `limit=5000`.
+  So Starter does *not* downgrade the numeric limit the way Basic does.
+- Despite that, actual page sizes still land far below 50,000 for 60m/30m requests (~1,000–1,100
+  for 60m, ~2,000–2,200 for 30m) — converting each to minute-equivalents (`bars × timespan_minutes`)
+  gives **~60,000–66,000 minute-equivalents/page for 60m and ~60,000–68,000 for 30m**, both
+  converging on the same rough budget regardless of which timespan was requested — and the literal
+  1-minute request honors `limit=50000` exactly (50,000 minute-equivalents/page). All three
+  converge on the same order-of-magnitude per-page budget (~50,000–65,000 minute base aggregates),
+  which is exactly what "limit counts underlying minute base aggregates" predicts.
+- The free-tier follow-up's own 60m page sizes (~100–108 bars/page after page 1) convert to
+  ~6,000–6,500 minute-equivalents/page — **roughly 10x smaller** than Starter's ~60,000. That 10x
+  is the plan-dependent part: same mechanism, an order-of-magnitude larger budget.
+- **730-day full-window page count dropped from the free tier's ~40 pages/ticker (extrapolated)
+  to 8 actually-measured pages/ticker for AAPL** at 60m — matching the ~10x budget increase
+  almost exactly (a ~5x reduction in requests was measured directly; the free-tier number was
+  itself an extrapolation from a partial 3-page chase, not a completed count, so the two aren't
+  perfectly apples-to-apples, but the direction and rough magnitude agree).
+
+**Practical implication**: a full 730-day 60m or 30m backfill for one ticker now costs **8
+requests worst-case** (liquid/large-cap names — AAPL, MSFT both hit 8), **5 requests for
+lower-turnover names** (JPM, KO, COST all completed in 5) — see Part 4 for the full-universe
+extrapolation. This is the single most consequential change from the free-tier findings: the
+free-tier follow-up concluded Warren's design was "categorically infeasible" at 15–25 hours/night;
+that conclusion no longer holds on Starter (see Part 4).
+
+### Part 3 — Session-anchored bars → Warren/BB+RSI signal parity (the key question)
+
+**Tickers**: AAPL, MSFT (as directed) + JPM, KO, COST — 3 more names pulled live from the real
+W1–W5 watchlist union (`data/watchlists.py::list_tickers_across_watchlists` pattern,
+`^W[1-5]$`, read-only query against `backend/fathom.db`: **104 tickers total**, matching the
+free-tier follow-up's own count exactly). BKNG, ANET, and NVDA were deliberately avoided — BKNG/
+ANET per the free-tier follow-up's own flagged `SharedBarsCache` split-adjustment bug (out of
+scope to solve here), and NVDA because its 2024-06-10 10:1 split (confirmed via `/v3/reference/
+splits`) sits close enough to the comparison window's edges to risk contaminating the comparison
+for no real benefit — JPM/KO/COST have no splits in the window and are still genuinely
+representative (2 mega-cap tech names + a bank + 2 consumer staples).
+
+**(a) Building session-anchored 60m bars, both methods.** Window matched exactly to what
+`SharedBarsCache` actually holds for `interval='60m'` (read live from the DB): `2024-09-19` →
+`2026-09-22` (the real 730-day Warren/BB+RSI fetch window). Both methods used the **aggregates
+endpoint** (not flat files — blocked, see Part 1d):
+- **(i) 30-min pairing**: fetch `/v2/aggs/.../range/30/minute/...`, then bucket into the same
+  4 session windows Yahoo's 60m grid uses (`09:30–10:30`, ..., `15:30–16:00`), labeling each
+  bucket by its **window start** (confirmed by directly reading real `SharedBarsCache` rows:
+  `09:30:00`, `10:30:00`, ... — this is the one bug caught and fixed mid-investigation, see below).
+- **(ii) 1-minute resampling**: same bucketing logic, fed 1-minute aggregates instead.
+- Extended-hours bars are dropped in both (`between_time("09:30", "16:00")`, matching
+  `analysis/entry_signal/resample.py::build_2h_session_candles`'s own convention).
+- **One real bug, caught via a first-pass comparison and fixed before any of the numbers below
+  were produced**: the first implementation labeled each 60-minute bucket by its *last raw
+  sub-bar's own timestamp* (mirroring `build_2h_session_candles`'s own internal convention for
+  building *its* 2h candles) — which for a 30-min-paired 60m bucket is `window_start + 30min`,
+  not `window_start`. This produced a **near-total timestamp mismatch against `SharedBarsCache`**
+  (497 of ~3,500 bars aligning, not ~3,490) on the first comparison run. Fixed by labeling each
+  bucket by its **window start** instead (verified directly against real `SharedBarsCache` rows
+  first, not assumed) — `SharedBarsCache`'s Yahoo bars are start-labeled (`09:30`, `10:30`, ...),
+  and `build_2h_session_candles`'s "label by last sub-bar" convention, while correct for *its own*
+  purpose (building 2h candles from 60m bars, where it's never compared to an external source),
+  is the wrong choice for reconstructing a bar series meant to match one. Recorded here because
+  it's exactly the kind of subtle labeling-convention bug this whole investigation's premise (§1c)
+  warned about, and it would have silently produced a near-zero match rate if not caught.
+- **Methods (i) and (ii) produce byte-identical 60m OHLCV series** for all 5 tickers (verified
+  directly, not assumed) — expected, since 2h/60m session windows are exact multiples of both 30
+  and 1 minutes and OHLC aggregation is associative across nested, aligned time windows. This
+  means the choice between them is a pure cost/complexity question, not an accuracy one — see the
+  recommendation below.
+
+**(b) Bar-level comparison vs. real cached `SharedBarsCache` Yahoo 60m bars** (read-only query,
+same DB, same window):
+
+| Ticker | Massive bars | Yahoo bars | Common (matched timestamp) | Only-in-Massive | Only-in-Yahoo | Mean \|diff%\| (O/H/L/C) | Max \|diff%\| (O/H/L/C) |
+|---|---|---|---|---|---|---|---|
+| AAPL | 3,506 | 3,492 | 3,492 | 14 | 0 | 0.0086 / 0.0034 / 0.0064 / 0.0016 | 0.90 / 0.77 / 2.56 / 0.69 |
+| MSFT | 3,506 | 3,492 | 3,492 | 14 | 0 | 0.0098 / 0.0048 / 0.0051 / 0.0017 | 1.56 / 2.26 / 2.36 / 0.46 |
+| JPM | 3,506 | 3,491 | 3,491 | 15 | 0 | 0.0017 / 0.0005 / 0.0009 / 0.0015 | 0.97 / 0.46 / 0.57 / 0.12 |
+| KO | 3,506 | 3,491 | 3,491 | 15 | 0 | 0.0020 / 0.0010 / 0.0015 / 0.0008 | 2.06 / 0.86 / 1.39 / 0.16 |
+| COST | 3,506 | 3,492 | 3,492 | 14 | 0 | 0.0113 / 0.0035 / 0.0044 / 0.0034 | 1.36 / 1.11 / 1.80 / 0.17 |
+
+**Every bar present in `SharedBarsCache` has a matching Massive bar (0 "only-in-Yahoo" across all
+5 tickers) — Massive has strictly more bars** (14–15 extra per ticker; not investigated further,
+plausibly session days Yahoo's own cache is missing or holidays handled slightly differently).
+Mean diffs are tiny (0.0005%–0.011%, close to §2g's original daily-bar accuracy finding of
+~0.000005% mean but about 1,000x looser, consistent with genuine intraday microstructure
+differences between data providers rather than a bug) and max diffs (up to ~2.6% on isolated
+Low/Open values, one bar out of ~3,500 per ticker) are typical single-bar outliers, not a systemic
+skew — no field shows a directional bias. Neither method (paired vs. resampled) differs from the
+other in this comparison, confirming the byte-identical finding above. **No split-adjustment
+contamination observed for any of the 5 chosen tickers** (BKNG/ANET's known issue was avoided by
+ticker selection, not fixed).
+
+**(c) The real test: actual production Warren + BB+RSI code, replayed on both sources.** Called
+`analysis.entry_signal.resample.build_2h_session_candles` →
+`analysis.warren_signal.state_machine.replay` (Warren) and
+`analysis.entry_signal.engine.compute_historical_entry_signals` (BB+RSI) directly — the real
+production functions, unmodified, no reimplementation. Both Massive-built 60m series (paired and
+resampled — identical results, so reported once) were fed through the same code as the real Yahoo
+`SharedBarsCache` series for the same ticker/window:
+
+| Ticker | Warren: Massive events | Warren: Yahoo events | Common dates | Warren date-level match | BB+RSI: Massive fired days | BB+RSI: Yahoo fired days | Common dates | BB+RSI date-level match |
+|---|---|---|---|---|---|---|---|---|
+| AAPL | 34 (32 dates) | 30 (28 dates) | 27 | 27/33 = **0.818** | 23 | 23 | 23 | 23/23 = **1.000** |
+| MSFT | 35 (31 dates) | 35 (31 dates) | 31 | 31/31 = **1.000** | 30 | 30 | 29 | 29/31 = **0.935** |
+| JPM | 18 (15 dates) | 18 (15 dates) | 14 | 14/16 = **0.875** | 19 | 20 | 19 | 19/20 = **0.950** |
+| KO | 29 (27 dates) | 29 (26 dates) | 26 | 26/27 = **0.963** | 20 | 20 | 20 | 20/20 = **1.000** |
+| COST | 26 (23 dates) | 25 (22 dates) | 22 | 22/23 = **0.957** | 24 | 24 | 23 | 23/24 = **0.920** |
+| **Pooled (5 tickers)** | | | **120** | **120/130 = 0.923** | | | **114** | **114/119 = 0.958** |
+
+("Match" = Jaccard similarity of the two sources' *unique event dates* — `|common| / |union|` —
+not a raw count ratio, so both missed and spurious dates penalize the score equally.)
+
+**This is the headline result of this entire investigation.** The free-tier follow-up found
+**zero common Warren event dates** for AAPL/MSFT when naively pointing the resampler at Massive's
+native calendar-hour-anchored bars (25% fewer 2h candles than Yahoo, entirely different bucket
+boundaries). Building genuinely session-anchored 60m bars first — the fix that follow-up called
+for but didn't attempt — closes almost all of that gap: **92.3% Warren date-match, 95.8% BB+RSI
+date-match, pooled across 5 real tickers**, using the actual production replay code unmodified.
+The remaining ~5–8% mismatch is plausibly attributable to the same small intraday OHLC
+differences quantified in (b) above (a few basis points on Close, up to ~2.6% on isolated
+Low/Open values) occasionally landing a threshold-crossing indicator (RSI/ADX/WVF/Bollinger %B)
+on the adjacent bar or day rather than a structural grid problem — not confirmed by a dedicated
+root-cause trace (out of scope for this pass), but consistent with the bar-level accuracy numbers
+already measured in (b).
+
+### Part 4 — Nightly operational cost for a realistic incremental design
+
+**W1–W5 union: 104 tickers** (read live from `backend/fathom.db`, read-only — matches the
+free-tier follow-up's own count).
+
+**(a) One-time backfill cost, measured directly (not just estimated) for the 5-ticker sample,
+then extrapolated to 104:**
+
+| Method | Pages/ticker observed | Wall-clock/ticker observed (incl. 0.8s/page courtesy sleep) | Extrapolated total requests (104 tickers, weighted 40% AAPL/MSFT-shape @ 8pg / 60% JPM/KO/COST-shape @ 5pg → avg 6.2pg/ticker) | Extrapolated wall-clock, courteous pacing | Extrapolated wall-clock, unthrottled (~1.35s/req 30m/60m, ~3.35s/req 1m — both back out the courtesy sleep from the measured totals above) |
+|---|---|---|---|---|---|
+| 30-min pairing (730d / Warren's current window) | 5–8 (avg 6.2) | 10.0–16.3s | **~645 requests** | **~25 min** | **~14.5 min** |
+| 1-min resampling (730d) | 5–8 (avg 6.2, identical page count to 30-min) | 19.0–32.1s (payload-bound, ~2x slower per page) | **~645 requests** | **~47 min** | **~36 min** |
+| 30-min pairing, 1,095d (3y) — scaled from the measured 730d page counts, not independently measured | ~9.3 (avg, linear extrapolation) | — | **~967 requests** | ~36 min | ~22 min |
+| Flat files | — | — | ⛔ **blocked** (Part 1d) | — | — |
+
+Peak memory during the live 5-ticker run stayed well within budget: processed and discarded one
+ticker's raw 1-minute frame (up to 383,094 rows, ~380KB pickled at 60m-resampled size) at a time,
+never holding more than one ticker's raw intraday data in memory simultaneously — confirmed via
+`free -h` spot-checks during the run (available memory never dropped below ~140MB of the VPS's
+939MB). No temporary disk was used beyond the small (<200KB/ticker) pickled 60m outputs in the
+scratch dir, all deleted at the end of this task.
+
+**Both real backfill numbers (14.5–47 min) fit comfortably inside a single dedicated cron
+window**, a dramatic reversal from the free-tier follow-up's 1.6–25 **hour** range for the
+identical 730-day/104-ticker workload. **30-min pairing is the clear choice over 1-min
+resampling**: byte-identical output (Part 3a), same request count, but roughly half the
+wall-clock and payload size per request.
+
+**(b) Nightly incremental cost** (fetching only bars after the last cached bar — one trading
+day's worth, ~7–14 bars depending on method): trivially fits in a single page for every ticker
+regardless of method (smallest page-1 size observed anywhere in this investigation was AAPL's
+1m/30d sample at 17,950 bars for a *whole month*; one day is a small fraction of that). **104
+requests/night, one per ticker** — at Part 1b's confirmed-safe natural pace (0.67s/req for small
+payloads), **~70s unthrottled**, comfortably under a minute even with a courteous 1s/req pace
+(~104s). This is the design a real migration should use — full-history refetch only on backfill/
+recovery, incremental single-day fetches thereafter — not a nightly full-replay-from-scratch
+against Massive (Warren's own state-machine replay design doesn't require re-fetching history
+from the source every night, only re-running its own replay logic against whatever's cached
+locally, exactly as it already does against `SharedBarsCache` today).
+
+**(c) Split-handling rule, sanity-checked against real data.** `/v3/reference/splits?ticker=X`
+(tested live, `200`, real data) is the detection mechanism: a scheduled nightly (or pre-backfill)
+check for any split with `execution_date` since the last successful fetch triggers a full
+refetch for that one ticker only (cheap — 5–8 requests per Part 4a, not a universe-wide re-pull).
+Sanity-checked against two real, confirmed splits: **NVDA, 2024-06-10, 10:1** (falls outside
+Warren's current 730-day window as of today, `2024-09-19`–`2026-09-22`, but would fall inside a
+3-year window — exactly the kind of case this rule needs to catch for a longer warm-up) and
+**SMCI, 2024-10-01, 10:1** (inside the current window — this is the same split the original §2c
+adjustment test used, confirmed clean via `adjusted=true` producing a continuous back-adjusted
+series across the boundary). Both real splits returned correctly from the endpoint with exact
+dates, confirming the mechanism is viable, not just theoretically sound.
+
+### Updated coverage matrix
+
+| Consumer | Free-tier verdict (prior section) | Starter (paid) verdict | Why |
+|---|---|---|---|
+| Warren signal (730d, 60m) | ❌ not viable as designed | ✅ **viable — backfill ~14.5–25min, nightly incremental ~70–104s** | Part 2 (8 pages/ticker, not ~40) + Part 4 (real measured cost, not extrapolated-from-a-worse-key) |
+| BB+RSI (60d, 60m) | ⚠️ plausible, not confirmed at scale | ✅ **viable, same reasoning, smaller window** | Subsumed by Warren's own 730d measurement — BB+RSI's 60d window is a strict subset |
+| Session-anchored 60m bar construction | ❓ not attempted (free-tier follow-up only flagged the problem) | ✅ **solved — 30-min pairing, window-start labeling** | Part 3a — byte-identical to 1-min resampling, ~half the cost |
+| Warren signal accuracy (vs. real Yahoo, real production code) | ❌ 0% date match (AAPL/MSFT, calendar-hour-anchored bars) | ✅ **92.3% pooled date-level match, 5 tickers, real replay code** | Part 3c — the headline result |
+| BB+RSI signal accuracy (same basis) | not tested | ✅ **95.8% pooled date-level match, 5 tickers, real replay code** | Part 3c |
+| Snapshot endpoint | ❌ untested this pass (403'd on the original free-tier key) | ✅ **works (day/min/prevDay populated); lastTrade/lastQuote still gated** | Part 1c |
+| Rate limits | ❌ ~5–10 req/min, multi-min lockout | ✅ **300 sequential requests, 0.67s/req, 0×429** | Part 1b |
+| History depth | ❌ hard-clipped to 730d | ✅ **genuine ~5y (1,824 calendar days), no clipping** | Part 1a |
+| Flat files | not reached (free tier) | ⛔ **blocked — no S3 credentials in `.env`** | Part 1d |
+| Everything else in the original §3/updated §"Updated coverage matrix" (Sector Heatmap, Momentum, Market Breadth, Trend/Weinstein, Chart D_6M/D_1Y/D_2Y, Chart W_4Y/Analyst Ratings 10y, non-US) | — | **unchanged, not re-tested this pass** | Out of this pass's scope — this section is scoped to Warren/BB+RSI per the task |
+
+### Recommendation
+
+**Move Warren and BB+RSI to Massive, using 30-minute-bar pairing (not 1-minute resampling, not
+flat files) to build session-anchored 60m bars.** This reverses the free-tier follow-up's
+recommendation outright, on genuinely new evidence, not a re-assertion:
+
+1. **Cost is no longer a blocker.** The free-tier follow-up's categorical rejection rested on an
+   observed 15–25 hour/night worst case; the same workload on Starter, measured directly (not
+   re-extrapolated from a worse key), costs **~14.5–25 minutes for a one-time 730d/3y backfill**
+   and **~70–104 seconds/night thereafter** with an incremental (fetch-only-new-bars) design —
+   comfortably inside Warren's existing dedicated 3:40–3:55 AM cron slot, with room to spare for
+   BB+RSI's much smaller 60-day window in the same or an adjacent slot.
+2. **Accuracy is strong and directly measured against real production code**, not a proxy: 92.3%
+   Warren / 95.8% BB+RSI pooled date-level match across 5 real tickers, using the actual
+   `state_machine.replay`/`compute_historical_entry_signals` functions Fathom runs in production
+   every night, fed genuinely session-anchored (9:30-anchored) 60m bars — not the free tier's
+   naive calendar-hour-anchored attempt that produced 0% match. The residual ~5–8% gap is
+   consistent with ordinary cross-provider intraday microstructure noise (Part 3b: sub-0.02% mean
+   OHLC diffs, occasional single-bar outliers up to ~2.6%) landing a threshold-crossing indicator
+   on an adjacent bar/day, not a structural integration problem.
+3. **30-min pairing over 1-min resampling**: the two methods are **provably equivalent** (Part
+   3a — byte-identical 60m output across all 5 tickers) but 30-min pairing needs half the
+   wall-clock and roughly 1/24th the raw payload volume per request (30-min bars vs. 1-min bars
+   at the same 8-page cap), with no accuracy tradeoff. There is no reason to choose the more
+   expensive method.
+4. **Rate limits are no longer a design constraint.** 300 sequential requests at natural pace
+   produced zero 429s — Warren + BB+RSI's combined nightly footprint (~104–208 requests/night
+   incremental, ~1,300–1,900 for an occasional full-universe backfill) is a small fraction of
+   what this key just sustained cleanly.
+5. **What's still open, deliberately not resolved here**: this pass is scoped to Warren/BB+RSI
+   only, per the task — it does not re-verify or change the recommendation for Sector Heatmap,
+   Momentum, Market Breadth, Trend/Weinstein, Chart tab ranges, or non-US tickers, all of which
+   the free-tier follow-up already reasoned through separately and which this pass didn't
+   re-test. Flat-file access remains genuinely unverified (blocked on missing credentials, not
+   ruled out) — if a future cost comparison matters (e.g. if per-request pricing or a lower rate
+   ceiling is discovered on a much larger universe), that gap should be closed with the correct
+   S3 credentials from the Massive dashboard before concluding flat files aren't worth it. The
+   ~5–8% Warren/BB+RSI date-mismatch residual was not root-caused to a specific bar or indicator
+   — acceptable for a go/no-go decision at this level of confidence, but worth a closer look if a
+   specific missed/spurious signal date ever matters operationally.
+
+**Disk before this pass: `/` 25G, 18G used, 5.4G available (77%); `/tmp` 470M, 78M used, 393M
+available (17%). Disk after: unchanged to the byte at the filesystem level** (all scratch
+artifacts — `.pkl` files, JSON summaries, Python scripts, logs — lived under the session
+scratchpad outside the repo and were deleted before finishing; peak scratch-dir size was 1.8MB).
+Peak memory observed during the heaviest step (5-ticker 1-minute-bar fetch/build): ~650–780MB
+used of 939MB total, ~140–290MB available — never critical, no swap pressure introduced beyond
+what was already resident before this task started.
+
+**Total requests used this pass: ~467** (1 history-depth check, 300 the deliberate Part 1b burst,
+2 snapshot, 2 splits, ~30 assorted pagination-mechanism probes, ~124 for the 5-ticker×2-method
+bar-fetch, run twice after the labeling-bug fix — ~62 wasted on the first, buggy pass, kept in
+this count for honesty rather than only counting the corrected run). Zero `429`s across the
+entire pass, at any pace. Scratch scripts, pickled intermediate DataFrames, and JSON outputs were
+all deleted from the session scratchpad after this section was written; only this doc update
+remains.
