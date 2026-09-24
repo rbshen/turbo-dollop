@@ -860,7 +860,7 @@ class CronHealthOut(BaseModel):
 class DataSourceStatusOut(BaseModel):
     """One data source's health, for the Settings "Status" section's Data
     Sources cards -- computed purely from an enabled/kill-switch flag (FMP's
-    FMP_ENABLED, Massive's MASSIVE_ENABLED; Yahoo has none, see
+    the FMP master switch, Massive's MASSIVE_ENABLED; Yahoo has none, see
     clients/yahoo_client.py's own docstring for why) plus
     DataSourceHealth.last_success_at, NEVER a live reachability ping (see
     core/data_source_status.py)."""
@@ -1578,7 +1578,7 @@ class ChartOut(BaseModel):
     # Earnings-report dates / dividend ex-dates within this response's visible
     # window (see data/chart_events_data.py + chart_data.py). Unlike every
     # other overlay above these are fetched live per request, from FMP when
-    # FMP_ENABLED and Yahoo otherwise. `events_source` is "fmp" | "yahoo", or
+    # the corporate_events group live, Yahoo otherwise. `events_source` is "fmp" | "yahoo", or
     # None when every source failed -- the only way to tell "couldn't fetch"
     # from a genuinely empty list (a non-dividend payer). The UI omits both
     # marker types silently in either case.

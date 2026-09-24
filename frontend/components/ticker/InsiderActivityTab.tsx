@@ -21,7 +21,7 @@ interface Props {
 }
 
 const EMPTY_MESSAGE = "No insider trading data available for this ticker";
-const DISABLED_MESSAGE = "Insider Activity is turned off (INSIDER_ACTIVITY_ENABLED is false on the backend).";
+const DISABLED_MESSAGE = "Insider Activity is turned off (the Insider data group is off in Settings > Status).";
 const NOT_CACHED_MESSAGE =
   "Insider activity hasn't been cached for this ticker yet. FMP may be paused, or the fetch hasn't succeeded yet — check back after the next successful refresh.";
 

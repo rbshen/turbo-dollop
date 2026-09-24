@@ -7,7 +7,7 @@ Zone (LP) detection (Technical)" section for the full methodology.
 
 **FMP-independent, unconditionally (2026-09-18).** This job used to have a
 real FMP<->Yahoo branch (clients/daily_price_sources.py, since deleted,
-gated on the ordinary settings.fmp_enabled toggle) -- unlike
+gated on the ordinary the FMP data-group state toggle) -- unlike
 nightly_entry_signal_calculation.py's BB+RSI feed, FMP's daily EOD endpoint
 was never plan-restricted, so that branch was the normal degrade pattern
 rather than BB+RSI's hard-forced single source. That branch is now

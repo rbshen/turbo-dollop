@@ -6,7 +6,7 @@ separate from core/cache.py, which is hard-wired to FundamentalsCache's
 (ticker, statement_type, period) + raw_json-blob shape (see
 core/models.py::YahooPriceCache's own docstring for why this needed its own
 table and, by extension, its own small set of helpers rather than reuse).
-No FMP_ENABLED-style kill-switch check anywhere here -- see
+No FMP-data-group-style kill-switch check anywhere here -- see
 clients/yahoo_client.py's docstring for why none is needed.
 """
 

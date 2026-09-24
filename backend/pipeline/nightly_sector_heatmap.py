@@ -4,7 +4,7 @@ data/sector_heatmap_data.py for the fetch/compute/persist logic and
 scoring/etf_returns.py for the pure return math. Makes ZERO FMP calls (a
 single shared-bars-cache batch fetch -- Massive/Polygon with an automatic
 Yahoo fallback per clients/daily_bar_sources.py -- ~3-4s on a warm cache),
-so like nightly_trend_calculation.py it needs no FMP_ENABLED guard.
+so like nightly_trend_calculation.py it needs no data-group guard.
 
 Recomputes every window for every fund on every run -- there is no gate on
 "is today a trading day": a weekend/holiday run re-derives the same anchor

@@ -34,11 +34,29 @@ the failure message).
 "nothing to stop" per service, exits 0). Use this from a second shell, or
 after a `start.sh` session was disconnected without a clean Ctrl-C.
 
-**Pausing the FMP subscription**: set `FMP_ENABLED=false` in `backend/.env`
-and restart (`./bin/stop.sh` then `./bin/start.sh`) — the app runs entirely
-cache-only, and `start.sh`'s own FMP connectivity preflight check is
-skipped rather than blocking startup. See CLAUDE.md's "Pausing the FMP
-subscription" section for what degrades and what stays unaffected.
+**Pausing the FMP subscription** (no restart, no `.env` edit): Settings > Status >
+"FMP master switch", or from a shell
+
+```
+cd backend
+uv run python -m pipeline.data_groups status      # per-group state
+uv run python -m pipeline.data_groups pause-all   # master OFF: cache-only everywhere, nothing wiped
+uv run python -m pipeline.data_groups resume      # master ON (per-group settings untouched)
+```
+
+Takes effect within ~5 s in every process (state is in the DB). Individual
+groups (fundamentals, news, ...) can be toggled in Settings > Status; `start.sh`'s
+FMP preflight is skipped when the master or `profile_quote` is off, and a 402
+there only warns. A nightly job whose group is off records a **skipped** run
+(blue dot in Scheduled Jobs, "Skipped since <date>") -- if a job shows skipped
+for longer than you intended, a group is still off. See CLAUDE.md's "Data groups"
+section for the full mechanism, the 402 safety net and what degrades.
+
+**FMP plan-restriction / key problems:** a group showing "Restricted by FMP" was
+canary-confirmed to return HTTP 402 (re-checked weekly by
+`pipeline.stale_data_health_check` and when you edit "My FMP plan"); "Failing" means
+3+ consecutive non-402 errors; a red "FMP rejected the API key" line means 401/403.
+The 402 path has only been tested against simulated responses.
 
 ## Checking logs
 
@@ -182,7 +200,7 @@ trend-structure engine (`backend/analysis/trend_structure/`) for the same
 full tracked universe `nightly_fundamentals_fetch`/`nightly_score_recompute`
 use, upserting one `TrendAnalysis` row per ticker
 (`data/trend_analysis_data.py`). Sourced entirely from Yahoo Finance, not
-FMP — makes zero FMP calls, unaffected by `FMP_ENABLED`. Fetches the whole
+FMP — makes zero FMP calls, unaffected by any FMP data-group state. Fetches the whole
 universe's OHLCV in **one** `yfinance` multi-ticker batch download
 (`clients.shared_bars_cache.get_or_fetch_bars_batch`), not one call per
 ticker. Success: a log line `Nightly trend calculation complete.
@@ -205,7 +223,7 @@ a reason to see it in the failure list.
 sector ETFs (`XLK XLF XLV XLE XLI XLY XLP XLU XLB XLRE XLC`) x 7 trailing
 total-return windows (1w/1m/3m/6m/9m/YTD/1y), upserting 77 `SectorEtfReturn`
 rows per session (`data/sector_heatmap_data.py`). Yahoo Finance only, one
-batch download, zero FMP calls, unaffected by `FMP_ENABLED`. Runs at 3:30 AM
+batch download, zero FMP calls, unaffected by any FMP data-group state. Runs at 3:30 AM
 and re-derives the same anchor (the last completed session) on weekends and
 holidays, upserting over its own rows -- harmless. **Scheduled and live** as of
 2026-09-21 (installed via `crontab crontab.txt` from `backend/`; `crontab -l`
@@ -413,12 +431,12 @@ stops calling `cron_heartbeat(...)`, so a future 16th cron job can't ship
 unmonitored by accident.
 
 **`CRON_HEALTH_ENABLED=false`** (`.env`, default `true`, requires a
-backend restart — same convention as `FMP_ENABLED`) mutes the endpoint and
+backend restart — same read-once convention) mutes the endpoint and
 banner without touching heartbeat writes: `GET /api/config/cron-health`
 returns `{"enabled": false, "jobs": []}` and `CronHealthBanner` renders
 nothing. `CronRunLog` rows keep accumulating normally the whole time — this
 is a display kill-switch, not a pause of the monitoring itself, useful for
-an extended `FMP_ENABLED=false` window where a second banner alongside
+an extended FMP pause where a second banner alongside
 `FmpPausedBanner` would just be noise the operator already knows about.
 
 ## Weekly index constituent refresh (S&P 500 / Nasdaq-100 / Dow)
@@ -614,6 +632,5 @@ Doc-drift sweep (CLAUDE.md, this file, `docs/*.md`) as of the 2026-08-15
 draft found no other discrepancies: no lingering Alpha Vantage/
 News-Sentiment references, `STEP_WEIGHTS`/`MOAT_WEIGHT` match byte-for-byte
 between `backend/scoring/overall.py` and `frontend/lib/overallScore.ts`,
-and the `FMP_ENABLED` pause mechanism (kill switch, cache gating, 503 on
-refresh, site-wide banner) is all in place as CLAUDE.md describes -- not
+and the FMP pause mechanism (superseded 2026-09-24 by per-group data toggles) was all in place as CLAUDE.md describes -- not
 re-run for this pass, carried forward as still current.

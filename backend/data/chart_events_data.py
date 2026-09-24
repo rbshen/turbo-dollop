@@ -8,10 +8,10 @@ core/cache.py's FundamentalsCache -- the existing "earnings"/"latest" cache
 key holds a limit=8 response used for next-earnings-date logic, and reusing
 it would either collide with that shape or silently cap the chart at 2 years.
 
-Source is FMP when FMP_ENABLED, Yahoo Finance otherwise (or when the FMP calls
+Source is FMP when the corporate_events group is live, Yahoo Finance otherwise (or when the FMP calls
 fail), the app's normal degrade pattern for corporate-actions data. This is
 intentionally different from the Chart tab's PRICE candles, which are
-Yahoo-only regardless of FMP_ENABLED (chart_data.py docstring point 3): that
+Yahoo-only regardless of FMP data-group state (chart_data.py docstring point 3): that
 decision was about keeping technical-analysis inputs independent of the FMP
 subscription, and event markers are decoration on top of the candles, not an
 input to any indicator. FMP is preferred because its coverage is deeper for

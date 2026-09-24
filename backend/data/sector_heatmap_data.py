@@ -3,7 +3,7 @@ trailing total-return windows. Same shape as data/momentum_data.py: fetch
 through the shared bars cache (clients/shared_bars_cache.py), run the pure
 math (scoring/etf_returns.py), persist (models.py::SectorEtfReturn), and a
 read path that never computes live. Independent of FMP and of Step 1-5/
-Overall Assessment scoring entirely -- zero FMP calls, no FMP_ENABLED guard
+Overall Assessment scoring entirely -- zero FMP calls, no data-group guard
 needed.
 
 **Plain split-adjusted Close, not total return (2026-09-23 Massive

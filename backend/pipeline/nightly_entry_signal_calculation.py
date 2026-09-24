@@ -9,7 +9,7 @@ on.
 Runs entirely on Yahoo Finance (clients/technical_sources.py) -- FMP's
 intraday endpoints return HTTP 402 under the current subscription plan
 (confirmed 2026-09-09), so this makes ZERO FMP calls and needs no `if not
-settings.fmp_enabled: ...` guard, the same reasoning
+the FMP data-group state: ...` guard, the same reasoning
 nightly_trend_calculation.py's own docstring gives for its own Yahoo-only
 fetches.
 

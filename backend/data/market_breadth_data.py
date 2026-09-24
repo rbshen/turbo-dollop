@@ -4,7 +4,7 @@ shape as data/sector_heatmap_data.py: resolve the anchor session, run the
 pure math (scoring/market_breadth.py), gate on coverage, persist
 (models.py::MarketBreadthSnapshot), and a read path that never computes
 live. Independent of FMP and of Step 1-5/Overall Assessment scoring --
-zero FMP calls, no FMP_ENABLED guard needed.
+zero FMP calls, no data-group guard needed.
 
 Bars come from SharedBarsCache via clients.shared_bars_cache.
 get_or_fetch_bars_batch with the SAME call the 3:10 trend job makes

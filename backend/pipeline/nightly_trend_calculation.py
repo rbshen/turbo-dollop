@@ -5,7 +5,7 @@ reused here rather than duplicated).
 Runs entirely on Yahoo Finance (clients/yahoo_client.py, clients/shared_bars_cache.py)
 -- makes ZERO FMP calls, so it's scheduled independently of the FMP-dependent
 job above it in crontab.txt (nightly_fundamentals_fetch) and needs no
-`if not settings.fmp_enabled: ...` early-return guard
+`if not the FMP data-group state: ...` early-return guard
 the way that job does -- that guard exists specifically to skip a job whose EVERY
 fetch is FMP-gated; this job's fetches are never FMP-gated at all, so an
 analogous guard here would be checking a condition this job doesn't have, not

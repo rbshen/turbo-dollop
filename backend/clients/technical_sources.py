@@ -1,14 +1,14 @@
 """Dual data-source adapter for intraday OHLCV bars, feeding the technical
 entry-signal feature (see analysis/entry_signal/, data/entry_signal_data.py).
 Mirrors clients/fmp_client.py's/clients/yahoo_client.py's thin-client-class
-shape, and the rest of this app's FMP_ENABLED-gated source-selection
+shape, and the rest of this app's data-group-gated source-selection
 pattern -- with one deliberate deviation, explained on get_technical_source
 below.
 
 Investigated 2026-09-09: every FMP intraday interval
 (/stable/historical-chart/{1min,5min,15min,30min,1hour,4hour}) returns HTTP
 402 "Restricted Endpoint" under Fathom's current subscription tier -- a hard
-plan gate, not a coverage/quality gap and not something fmp_enabled pauses
+plan gate, not a coverage/quality gap and not something data-group pauses
 and resumes. FMPTechnicalSource below exists so a future plan upgrade has
 somewhere to land, but it is never wired into the live selector today.
 """
@@ -77,9 +77,9 @@ class FMPTechnicalSource:
 
 def get_technical_source() -> IntradayBarSource:
     """Always returns Yahoo -- unlike the rest of this app's
-    fmp_enabled-gated degrade pattern, FMP intraday isn't paused, it's
+    data-group-gated degrade pattern, FMP intraday isn't paused, it's
     outright unavailable on the current plan (see module docstring), so
-    this is deliberately NOT `FMPTechnicalSource() if settings.fmp_enabled
+    this is deliberately NOT `FMPTechnicalSource() if the FMP data-group state
     else YahooTechnicalSource()`. Revisit this function, not the call
     sites, if the FMP plan is ever upgraded to include intraday data."""
     return YahooTechnicalSource()

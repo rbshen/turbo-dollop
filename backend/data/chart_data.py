@@ -17,11 +17,11 @@ this module embodies:
    read as "fresh" even when this feature needs up to 10y of history for
    W_4Y).
 3. **FMP-independent, unconditionally, non-dividend-adjusted (2026-09-18).**
-   Previously this module branched on `settings.fmp_enabled` -- FMP's
+   Previously this module branched on the FMP data-group state -- FMP's
    `/historical-price-eod/full` when enabled, Yahoo as the fallback. That
    branch is removed entirely: Chart is one of six technical-analysis
    features (alongside Weinstein Stage, Trend, Liquidity Zones, Warren,
-   BB+RSI) moved off FMP, regardless of FMP_ENABLED, so a paused FMP
+   BB+RSI) moved off FMP, regardless of FMP data-group state, so a paused FMP
    subscription can never affect what candles this tab shows.
    `auto_adjust=False` is passed explicitly to every price fetch below --
    Yahoo's own default (True, still used by Price/Quote's unrelated
@@ -50,7 +50,7 @@ this module embodies:
 
 4. **Earnings/dividend markers (2026-09-20)** are the one part of this
    module NOT Yahoo-only: data/chart_events_data.py fetches them live from FMP
-   when FMP_ENABLED (Yahoo otherwise, or on FMP failure). Point 3's decision
+   when the corporate_events group is live (Yahoo otherwise, or on FMP failure). Point 3's decision
    was about keeping technical-analysis INPUTS independent of the FMP
    subscription; event markers feed no indicator, and FMP's coverage is
    deeper for foreign issuers. Fetched concurrently with the candles and

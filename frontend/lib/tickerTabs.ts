@@ -24,7 +24,7 @@ export interface TickerTabDef {
 //
 // Insider Activity is shelved (2026-09-20) -- deliberately absent here and
 // from TickerTabsContainer, with the backend gated off by
-// INSIDER_ACTIVITY_ENABLED. Its components (components/ticker/
+// the `insider` data group (seeded off). Its components (components/ticker/
 // InsiderActivityTab.tsx, components/insiderActivity/, lib/insiderActivity.ts,
 // lib/hooks/useInsiderActivity.ts) are left in place, disconnected. To revive
 // it: re-add "insiderActivity" to the TickerTab union and an entry here

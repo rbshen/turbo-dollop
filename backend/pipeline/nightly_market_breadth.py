@@ -4,7 +4,7 @@ lows, one MarketBreadthSnapshot row per session. See
 data/market_breadth_data.py for the compute/gate/persist logic and
 scoring/market_breadth.py for the pure math. Makes ZERO FMP calls (Yahoo
 Finance bars only, via SharedBarsCache), so like nightly_trend_calculation.py
-and nightly_sector_heatmap.py it needs no FMP_ENABLED guard.
+and nightly_sector_heatmap.py it needs no data-group guard.
 
 Scheduled at 3:35 AM, AFTER the 3:10 trend job that fetches every S&P 500
 ticker's 2y daily bars into SharedBarsCache: this reads that warm cache

@@ -99,7 +99,7 @@ def _avg_dollar_volume_20d(daily_prices: list[dict]) -> float | None:
 
 async def _fetch_massive_latest_price(ticker: str) -> float | None:
     """Live Massive/Polygon snapshot close -- the primary attempt when
-    FMP_ENABLED=False (see get_summary's quote-fetch block below), ahead of
+    the profile_quote group is off (see get_summary's quote-fetch block below), ahead of
     the Yahoo fallback below (_fetch_yahoo_latest_close). Deliberately
     uncached, unlike the Yahoo path it now takes priority over: Massive's
     confirmed rate-limit headroom (300 sequential requests, zero
@@ -136,7 +136,7 @@ async def _fetch_yahoo_latest_close(ticker: str) -> float | None:
     """Live Yahoo Finance close price -- the fallback when
     _fetch_massive_latest_price above returns None (a non-US ticker,
     Massive disabled, or a Massive fetch failure), used only when
-    FMP_ENABLED=False (see get_summary's quote-fetch block below),
+    the profile_quote group is off (see get_summary's quote-fetch block below),
     reversing the previously-documented behavior where a paused FMP
     subscription left price/quote serving only the last cached FMP value
     with no live alternate feed at all (see CLAUDE.md's "Pausing the FMP

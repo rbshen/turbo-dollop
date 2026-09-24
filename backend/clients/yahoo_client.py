@@ -2,7 +2,7 @@
 data source powering trend-structure analysis (see analysis/trend_structure/)
 and, when FMP is paused, the price/quote fallback (see data/ticker_summary.py).
 Mirrors clients/fmp_client.py's shape (a thin client class + module-level
-singleton), but deliberately has no FMP_ENABLED-style kill switch: nothing in
+singleton), but deliberately has no FMP-data-group-style kill switch: nothing in
 this app's design asks for one, and Yahoo Finance is a free/unauthenticated
 endpoint with no subscription to pause the way FMP's paid tier needs -- a
 considered-and-rejected symmetry, not an oversight.

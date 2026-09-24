@@ -21,7 +21,7 @@ investigation found unreliable at this magnitude; see pipeline/backfills/
 backfill_entry_signal_events.py's own comment). Runs entirely on Yahoo
 Finance, zero FMP calls -- FMP's intraday endpoints return HTTP 402 under
 the current subscription plan (confirmed 2026-09-09), so this needs no
-`if not settings.fmp_enabled: ...` guard either, same reasoning
+`if not the FMP data-group state: ...` guard either, same reasoning
 nightly_entry_signal_calculation.py's own docstring gives.
 
 Unlike BB+RSI, there is no separate one-time backfill script for this

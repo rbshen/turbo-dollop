@@ -4,7 +4,7 @@ Moat-rated universe. See data/momentum_data.py for the compute/persist
 logic and scoring/momentum.py for the pure ranking engine. Makes ZERO FMP
 calls (a shared-bars-cache batch fetch -- Massive/Polygon with an
 automatic Yahoo fallback per clients/daily_bar_sources.py), same framing as
-nightly_trend_calculation.py -- no FMP_ENABLED guard needed.
+nightly_trend_calculation.py -- no data-group guard needed.
 
 Scheduled to *try* daily across the first several days of the month
 (crontab.txt: `0 3 1-5 * *`) rather than on the literal 1st, because the

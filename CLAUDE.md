@@ -127,7 +127,7 @@ As of the trend-structure feature (see "Trend structure analysis
 source: Yahoo Finance (`backend/clients/yahoo_client.py`, via the `yfinance`
 package), used for the swing/BOS trend engine (deliberately decoupled from
 the FMP subscription) and as a live fallback for the ticker header's
-current price when `FMP_ENABLED=false` (see "Pausing the FMP subscription"
+current price when `FMP_ENABLED=false` (see "Data groups: pausing FMP"
 below). No other data on this app comes from Yahoo -- fundamentals,
 classification, and every score still come from FMP alone.
 
@@ -161,58 +161,95 @@ the configurable staleness window — `Settings.cache_staleness_days` in
 `CACHE_STALENESS_DAYS` env var. Never hardcode the staleness window at a call
 site.
 
-### Pausing the FMP subscription
+### Data groups: pausing FMP (per-group toggles, replaces `FMP_ENABLED`)
 
-`Settings.fmp_enabled` (`FMP_ENABLED` in `.env`, default `true`) is a global
-kill switch for pausing the FMP subscription without hangs or unhandled
-errors. Read once at process start — toggling it requires a backend
-restart, not a live/runtime toggle. Enforced at two layers: `FMPClient.get`
-(`backend/clients/fmp_client.py`) is the literal single choke point every
-FMP call passes through, and raises immediately instead of attempting a
-network call when disabled; `core/cache.py`'s `get_or_fetch`/
-`get_or_fetch_earnings_aware`/`force_fetch` additionally check the same
-flag directly, so a stale cached row is served (matching `cache_only=True`
-semantics) rather than the read just failing. Together, no call site under
-`data/` needs any change for the common path.
+**2026-09-24: the global `FMP_ENABLED` env flag and `INSIDER_ACTIVITY_ENABLED` were
+deleted** (no `.env` shim; only `FMP_API_KEY`/`FMP_BASE_URL` remain in `.env`).
+FMP on/off is now per **data group**, stored in the DB (`core/data_groups.py`,
+tables `DataGroupSetting` -- one row per group -- and the singleton
+`DataGroupGlobal`; lazy-seeded like `LiquidityZoneConfig`, 5 s in-process cache
+invalidated on write) and edited live from Settings > Status, with no restart.
+Cron jobs are separate processes and read the same DB.
 
-**What degrades while paused:**
-- Cold search for a ticker not yet in cache falls back to matching against
-  the app's own tracked-ticker universe (symbol only, no company name —
-  materially narrower than FMP's live search) instead of calling FMP.
-- `POST /api/tickers/{ticker}/refresh` returns 503 and does nothing else —
-  no cache clear, no live call. (Clearing the cache and then failing to
-  repopulate it would be the one genuinely destructive path this flag
-  guards against.)
-- News (`GET /.../news`) serves the last cached articles, however stale,
-  instead of refreshing — never wiped/replaced by a failed fetch attempt.
-- Insider Activity is **shelved** (see its own section below) -- off by
-  default, so this bullet only applies if it's revived. When enabled, (`GET /.../insider-activity`) serves whatever is cached,
-  however stale (`get_or_fetch`'s own disabled-FMP behavior, no special
-  casing); a ticker never cached reads `has_data: false, as_of: null` -> the
-  tab's distinct "Not cached yet" state, never the "no data" one.
-- Price/quote **now has a live alternate feed** (built as part of the
-  trend-structure feature — see "Trend structure analysis (Technical)"
-  below): `get_summary()`'s quote-fetch block still runs the same
-  `force_fetch`/`get_or_fetch` gating as everything else, but when
-  `not settings.fmp_enabled` (and not `cache_only`, whose own contract is
-  zero live calls of any kind), the resolved `price` field is overridden
-  with a live Yahoo Finance close (`data/ticker_summary.py::
-  _fetch_yahoo_latest_close`, via `clients/yahoo_client.py`/
-  `clients/yahoo_cache.py`) rather than staying pinned to the last cached
-  FMP value. Every other quote-derived field (`change`, `marketCap`,
-  `yearHigh`, `yearLow`) is untouched — Yahoo's OHLCV has no equivalent for
-  those, so they still degrade to the last cached FMP value exactly as
-  before. This corrects an earlier version of this note, which (accurately,
-  at the time) said no such feed existed and that an even-earlier project
-  note referencing a planned Yahoo/Google Finance migration had never
-  actually been built — that migration is what this entry now documents as
-  done, scoped specifically to price, not a general Yahoo takeover of every
-  quote field.
+- **Groups:** `fundamentals`, `profile_quote`, `analyst_ratings`, `segmentation`,
+  `news`, `insider` (seeded **off** -- the shelved feature), `index_membership`,
+  `corporate_events`, plus four seeded-but-unwired rows for the price migration:
+  `daily_prices` (P2), `daily_prices_intl` (P3), `intraday_bars` (P4),
+  `extended_hours` (P5). Only the first eight are live in P1.
+- **Effective state** = master switch on AND group enabled AND required tier <= my
+  plan AND status != `plan_restricted`. Off means **cache-only**: the last cached
+  row is served (even if stale), nothing is ever wiped.
+- **Required tier per group is a user-editable value** (Starter/Premium/Ultimate) with
+  a "verified" tick the user sets after checking FMP's pricing page -- the seeded
+  values are unverified guesses from the 2026-09-24 investigation. "My FMP plan"
+  is one more editable value (seeded Ultimate); a group above the plan reads
+  "Not on plan" and is treated as off. Editing a group's tier clears its verified tick.
+- **Master switch** ("disable all FMP", same semantics the old `FMP_ENABLED=false` had):
+  Settings > Status, or `uv run python -m pipeline.data_groups pause-all | resume |
+  status` when the API is down.
+- **Single gate, two layers.** `FMPClient.get` maps endpoint -> group
+  (`ENDPOINT_GROUP`; the two endpoints shared by two features pass an explicit
+  `group=`: `/earnings`, `/quote`) and raises `FMPGroupDisabledError`, a
+  `FMPDisabledError` subclass, so existing `except httpx.HTTPError`/`safe_fetch` sites
+  need no edits. `core/cache.py`'s `get_or_fetch`/`get_or_fetch_earnings_aware`/
+  `force_fetch` gate per `statement_type` -> group (`STATEMENT_TYPE_GROUP`) with the
+  original cache-only semantics (stale row served; `force_fetch` raises if nothing
+  cached). `tests/test_data_groups_registry.py` **fails if any FMP endpoint or cached
+  statement_type used in the code is unmapped**, and pins that any bulk/batch endpoint
+  must be Ultimate (none is used; never call one). An unmapped endpoint fails closed.
+  `historical_price_eod` rides with `fundamentals` for now (TODO P2: split to `daily_prices`).
+  `sec_company_facts` (SEC, not FMP) rides with `fundamentals` to keep its old pause behaviour.
+- **What degrades when a group is off:**
+  - `profile_quote`: search falls back to the tracked-ticker universe (symbol only);
+    the ticker header's `price` uses the Massive/Yahoo fallback (unchanged), every other
+    quote field stays at the last cached FMP value; `/refresh` 503s.
+  - `analyst_ratings` / `news` / `segmentation` / `fundamentals`: their tabs/scores serve
+    cached data; the nightly fundamentals fetch, the monthly price-target snapshot and
+    the index-list refresh jobs skip.
+  - `corporate_events`: chart E/D markers fall back to Yahoo (as before).
+  - `insider`: the user toggle is the *shelving* switch (off = distinct `enabled:false`
+    payload, no cache read); master-off/restricted still serve cached rows.
+- **`POST /api/tickers/{t}/refresh`** returns **503** if any group it would clear (the
+  ticker's cached statement types) or must re-fetch through (`profile_quote`,
+  `fundamentals`, always needed by the immediate score recompute) is not live --
+  never a partial clear (`pipeline/refresh.py::groups_blocking_refresh`).
+- **402 safety net** (`FMPClient._handle_plan_restriction`): on HTTP 402 it probes a
+  canary (AAPL, same endpoint); only if the canary also 402s is the group marked
+  `plan_restricted` (a symbol-scoped 402 leaves it live). 401/403 = a *key* problem
+  (global warning in Settings, no group blamed); 429 never marks anything; 5xx/transport
+  errors count toward a "Failing" chip after 3 in a row and never disable a group.
+  Restricted groups are re-probed weekly (`pipeline.stale_data_health_check`) and
+  whenever the plan is edited. **Built and tested against simulated responses only --
+  no real 402 has ever been observed on our key**, so the real response body is unverified.
+- **Nightly jobs** whose group is off log `skipped (group X ...)` and record a real
+  **`skipped` cron status** (`run.skip(reason)` -> `CronRunLog.status="skipped"`; health
+  view `skipped` with `skipped_since` = start of the current streak; never `ok`/`overdue`
+  while skipped, `last_success_at` still shows the last real run). Jobs guarded in P1:
+  `nightly_fundamentals_fetch` (fundamentals), `monthly_price_target_snapshot`
+  (analyst_ratings), the three index-list scrapers (index_membership). The Trend/
+  Liquidity/Warren/BB+RSI/Heatmap/Breadth/Momentum jobs make no FMP calls today and get
+  their standard group guard when their groups go live in P2-P5.
+- **API/UI:** `GET /api/config/data-groups` (+ `PUT .../master`, `.../plan`, `.../{group}`)
+  replaces `/api/config/fmp-status`. Settings > Status shows one row per group (toggle,
+  chip Live / Cached only / Not on plan / Restricted by FMP / Failing, last success,
+  tier + verified tick, "feeds:" list; disabling warns with the dependent features).
+  Massive/Yahoo cards stay until P2/P6. Ticker-page tabs show a "not refreshing -- as of
+  [date]" badge for off groups (`GroupOffBadge`; date = the group's last recorded live
+  success, which only starts accumulating from this change).
+- `bin/start.sh` skips the AAPL `/quote` preflight when master or `profile_quote` is not
+  live; a 402 there warns and startup continues.
+- Tests get a fresh in-memory group config per test (`conftest._isolate_data_groups_engine`:
+  master on, plan Ultimate, everything live except `insider`); a test wanting an off state
+  calls `core.data_groups.set_master`/`set_group_enabled`.
 
 **What stays unaffected:** `pipeline/nightly_score_recompute.py` (already
-`cache_only=True` throughout, zero FMP calls regardless of this flag), and
+`cache_only=True` throughout, zero FMP calls regardless of any group state), and
 any read whose cache is still within its normal staleness window — which,
 on a warm cache, is most of the app most of the time.
+
+*Historical note: the sections below written before 2026-09-24 refer to
+`FMP_ENABLED`/`settings.fmp_enabled`; read those as "the FMP master switch is off
+(or the relevant group is)".*
 
 ### Ad-hoc reproduction scripts must not touch the real database
 
@@ -3765,9 +3802,9 @@ backfill call on both providers, every single night, forever.
 
 ## Insider Activity (ticker-page tab, 2026-09-19) -- SHELVED 2026-09-20
 
-**Shelved, not deleted.** `Settings.insider_activity_enabled`
-(`INSIDER_ACTIVITY_ENABLED`, default **`false`**, read once at process start like
-`fmp_enabled`/`cron_health_enabled`) gates `get_insider_activity_data` --
+**Shelved, not deleted.** The `insider` data group's user toggle (seeded **off**;
+`INSIDER_ACTIVITY_ENABLED` was deleted 2026-09-24, see "Data groups" above)
+gates `get_insider_activity_data` --
 checked first, ahead of `cache_only`, so when off there is no FMP call and no
 cache read or write. The route just calls that function and inherits the gate;
 it returns 200 with `enabled: false` and every other field empty (mirroring
@@ -3779,11 +3816,11 @@ yet" (`as_of` null). The tab is off the ticker page (dropped from
 cron job, so Scheduled Jobs needed nothing. All backend/frontend code and its
 tests are left in the tree. The two cache keys (`insider_trading_search`,
 `insider_trading_statistics`) were purged from `FundamentalsCache` 2026-09-20
-(22 rows, 11 tickers). **To revive:** set `INSIDER_ACTIVITY_ENABLED=true`
-(restart the backend), re-add `"insiderActivity"` to the `TickerTab` union and
+(22 rows, 11 tickers). **To revive:** turn the `insider` group on in Settings > Status
+(no restart), re-add `"insiderActivity"` to the `TickerTab` union and
 `TICKER_TABS` (between Analyst Ratings and Technical), the
 `InsiderActivityTab` branch in `TickerTabsContainer`, and the `FMP_POWERS`
-entry. `tests/conftest.py` pins the flag to False; the feature's own tests
+entry. The seeded conftest state has `insider` off; the feature's own tests
 turn it on explicitly. Everything below describes the feature as built.
 
 A read-only lens on Form 4 insider trading -- never touches Step 1-5/Overall

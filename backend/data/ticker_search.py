@@ -56,7 +56,7 @@ def _rank_key(index: int, symbol: str, name: str | None, query: str) -> tuple[in
 
 
 def _search_tracked_universe(query: str) -> list[TickerSearchResult]:
-    """FMP_ENABLED=False fallback -- prefix/substring match against the
+    """the profile_quote group is off fallback -- prefix/substring match against the
     app's own tracked ticker universe (index constituents + ever-viewed +
     watchlisted, see load_full_tracked_universe) instead of FMP's live
     symbol/name search. That function returns bare ticker symbols only, no

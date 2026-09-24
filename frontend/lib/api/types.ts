@@ -1663,7 +1663,7 @@ export interface InsiderSummary {
 
 export interface InsiderActivityOut {
   ticker: string;
-  // false = the feature is shelved backend-side (INSIDER_ACTIVITY_ENABLED off):
+  // false = the feature is shelved backend-side (the `insider` data group is off):
   // every other field is empty. Distinct from has_data false (empty/not cached).
   enabled: boolean;
   // Newest first.

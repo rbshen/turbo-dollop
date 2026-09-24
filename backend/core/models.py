@@ -31,14 +31,14 @@ class YahooPriceCache(SQLModel, table=True):
     clients/yahoo_cache.py) -- deliberately its own table, not a
     FundamentalsCache row, for the same reason NewsCache is its own table
     above: this is a different provider entirely (decoupled from the
-    FMP_ENABLED kill switch on purpose) and a different shape (one row per
+    FMP master kill switch on purpose) and a different shape (one row per
     ticker per trading day, typed OHLCV columns, not a single raw_json blob
     per statement-type/period). Refreshed by market session, not a flat
     window -- see clients/yahoo_cache.py::_is_stale.
 
     **As of the 2026-09-19 shared-bars-cache build, this table's only
     remaining consumer is data/ticker_summary.py::_fetch_yahoo_latest_close**
-    (Price/Quote's Yahoo fallback when FMP_ENABLED=false) -- Trend/Weinstein
+    (Price/Quote's Yahoo fallback when the FMP master switch is off) -- Trend/Weinstein
     Stage and Liquidity Zones, its two other former readers, both moved to
     SharedBarsCache below, which also serves Warren/BB+RSI. Kept as its own
     table rather than folded in: ticker_summary's own use case (a handful
@@ -509,7 +509,7 @@ class IndexConstituent(SQLModel, table=True):
     endpoints became available on this plan (confirmed live 2026-09-15 for
     sp500/dow, 2026-09-23 for nasdaq -- see git history for the Wikipedia
     implementation). Refreshed weekly (see crontab.txt), gated by
-    FMP_ENABLED, independent of the nightly per-ticker fundamentals fetch --
+    the FMP master switch, independent of the nightly per-ticker fundamentals fetch --
     index membership changes a handful of times a year, not nightly."""
 
     __table_args__ = (UniqueConstraint("index_name", "ticker", name="uq_index_constituent"),)

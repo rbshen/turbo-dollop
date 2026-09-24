@@ -23,6 +23,8 @@
 # backend/ (via the `cd` below) does that; `python pipeline/foo.py` does
 # not -- it puts pipeline/ on sys.path instead and fails with
 # ModuleNotFoundError. Confirmed by actually running both forms.
+# When the `fundamentals` data group (or the FMP master switch) is off, this job
+# records a real "skipped" run (not a success) -- see CLAUDE.md "Data groups".
 0 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_fundamentals_fetch >> /home/shen/fathom/backend/logs/nightly_fundamentals_fetch_cron.log 2>&1
 
 # (The nightly full-universe TickerScore recompute is deliberately NOT
@@ -43,7 +45,7 @@
 # calculation's universe-wide sweep, comfortably fits this window. Runs
 # entirely on Yahoo Finance, zero FMP calls -- FMP's intraday endpoints
 # return HTTP 402 under the current subscription plan (confirmed
-# 2026-09-09), not merely paused, so this needs no fmp_enabled guard either.
+# 2026-09-09), not merely paused, so this needs no data-group guard either.
 # See pipeline/nightly_entry_signal_calculation.py.
 20 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_entry_signal_calculation >> /home/shen/fathom/backend/logs/nightly_entry_signal_calculation_cron.log 2>&1
 
@@ -60,7 +62,7 @@
 # Nightly Sector ETF heatmap recompute (11 SPDR sector ETFs x 7 trailing
 # total-return windows), 3:30 AM server time -- the free minute between
 # Liquidity Zones (3:25) and Warren (3:40). One Yahoo batch download of 11
-# tickers (~4s), zero FMP calls, so it needs no fmp_enabled guard and the
+# tickers (~4s), zero FMP calls, so it needs no data-group guard and the
 # 10-minute gap is ample. Nothing else reads its output, so its position
 # relative to the score recompute (3:50) does not matter. See
 # pipeline/nightly_sector_heatmap.py.
@@ -73,7 +75,7 @@
 # Yahoo requests); before Warren (3:40). Run any earlier, or after a failed
 # trend job, it self-heals with one live ~503-request batch (~30s-5min) that
 # could spill into Warren's start -- SQLite writer-lock contention only, they
-# touch different tables. Zero FMP calls, no fmp_enabled guard. Raises (heartbeat
+# touch different tables. Zero FMP calls, no data-group guard. Raises (heartbeat
 # failure) rather than saving a row when <97% of constituents have a bar.
 # Nothing else reads its output. See pipeline/nightly_market_breadth.py.
 35 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_market_breadth >> /home/shen/fathom/backend/logs/nightly_market_breadth_cron.log 2>&1
@@ -123,6 +125,8 @@
 # /sp500-constituent endpoint (see sp500_scraper.py) -- not a Wikipedia
 # scrape, since FMP Ultimate's constituent endpoints became available on
 # this plan (confirmed live 2026-09-15).
+# The three index-list refreshes below skip (recorded as "skipped") while the
+# `index_membership` data group is off.
 0 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m scrapers.refresh_sp500_list >> /home/shen/fathom/backend/logs/sp500_list_refresh_cron.log 2>&1
 
 # Weekly Nasdaq-100 constituent list refresh, Sundays at 1:05 AM server time
@@ -183,6 +187,7 @@
 # empty and fill in as this job runs. Monthly (not nightly) to match
 # grades-historical's own monthly grain and keep the snapshot table's growth
 # bounded.
+# Skips (recorded as "skipped") while the `analyst_ratings` data group is off.
 0 3 1 * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.monthly_price_target_snapshot >> /home/shen/fathom/backend/logs/monthly_price_target_snapshot_cron.log 2>&1
 
 # Monthly Momentum snapshot (3mo/6mo/12mo composite trailing-return ranking
