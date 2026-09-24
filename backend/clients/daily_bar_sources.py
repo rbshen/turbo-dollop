@@ -447,6 +447,13 @@ def fmp_rows_to_frame(rows) -> pd.DataFrame:
     return df[_OHLCV]
 
 
+def _completed_session() -> date:
+    # Lazy import: clients.shared_bars_cache imports this module.
+    from clients.shared_bars_cache import _most_recent_completed_trading_date
+
+    return _most_recent_completed_trading_date()
+
+
 class _Pacer:
     """Spaces request STARTS at least `interval` seconds apart across
     concurrent tasks (the shared FMPClient singleton's own pacing is left
@@ -526,6 +533,11 @@ class FMPDailySource:
                     logger.warning("FMP daily-bar fetch failed for %s; falling back", ticker)
                     return None
             frame = fmp_rows_to_frame(rows)
+            if frame.empty:
+                return None
+            # A bar dated after the most recent COMPLETED session is a live,
+            # partial one (FMP serves it mid-session): never store it as a bar.
+            frame = frame[frame.index <= pd.Timestamp(_completed_session())]
             return frame if not frame.empty else None
 
         async def one(ticker: str, days: int) -> None:

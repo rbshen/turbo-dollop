@@ -481,3 +481,11 @@ def test_fmp_with_fallback_survives_the_fmp_layer_raising(monkeypatch):
 
     result = asyncio.run(FMPWithFallback(fmp=Boom(), fallback=Chain()).get_daily_bars({"AAPL": 30}, False, reference=TODAY))
     assert set(result) == {"AAPL"}
+
+
+def test_fmp_source_drops_a_partial_bar_dated_after_the_last_completed_session(monkeypatch):
+    _fresh_engine(monkeypatch)
+    monkeypatch.setattr(daily_bar_sources, "_completed_session", lambda: TODAY)
+    series = {**_series(TODAY - timedelta(days=60), 61), TODAY + timedelta(days=1): 999.0}  # mid-session bar for "tomorrow"
+    result = asyncio.run(FMPDailySource(client=FakeFMP({"AAPL": series})).get_daily_bars({"AAPL": 90}, False, reference=TODAY + timedelta(days=1)))
+    assert result["AAPL"].index.max() == pd.Timestamp(TODAY)
