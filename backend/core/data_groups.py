@@ -56,7 +56,7 @@ class GroupMeta:
     default_tier: str
     default_enabled: bool
     # Wired to real FMP calls. The others are seeded rows only
-    # (daily_prices_intl / intraday_bars / extended_hours land in P3-P5).
+    # (intraday_bars / extended_hours land in P4-P5).
     live: bool
     feeds: tuple[str, ...]
     # A group with a non-FMP fallback provider still wired (daily_prices while
@@ -95,7 +95,23 @@ GROUPS: dict[str, GroupMeta] = {
         ),
         falls_back=True,
     ),
-    "daily_prices_intl": GroupMeta("Daily prices (international)", "Ultimate", True, False, ("(not wired yet -- P3)",)),
+    # P3: US history beyond the nightly ~5y -- fetched on demand into the
+    # dedicated long-history table (clients/long_history_bars.py).
+    "daily_prices_long": GroupMeta(
+        "Daily prices (long history)", "Premium", True, True,
+        ("Chart tab (weekly 4y range)", "Analyst Ratings price overlay (10y)"),
+        falls_back=True,
+    ),
+    # P3: every non-US listing (HKSE today): nightly bars, on-demand long
+    # history, Chart and the analyst overlay. US tickers never consult it.
+    "daily_prices_intl": GroupMeta(
+        "Daily prices (international)", "Ultimate", True, True,
+        (
+            "Non-US tickers' Trend / Weinstein stage and Liquidity Zones", "Chart tab (non-US tickers)",
+            "Analyst Ratings price overlay (non-US tickers)",
+        ),
+        falls_back=True,
+    ),
     "intraday_bars": GroupMeta("Intraday bars", "Premium", True, False, ("(not wired yet -- P4)",)),
     "extended_hours": GroupMeta("Extended hours", "Premium", True, False, ("(not wired yet -- P5)",)),
 }
@@ -128,6 +144,9 @@ ENDPOINT_GROUP: dict[str, str] = {
     # P2: daily EOD (split- AND spin-off-adjusted, not dividend-adjusted) feeds the
     # shared bars cache, the Chart tab's daily ranges and the header's
     # avg-volume tiles (ticker_summary's `historical_price_eod` cache key).
+    # P3: the same endpoint also serves `daily_prices_long` (US history beyond the
+    # nightly window) and `daily_prices_intl` (non-US); each caller passes an
+    # explicit `group=` (see ENDPOINT_GROUP_OVERRIDES_USED).
     "/historical-price-eod/full": "daily_prices",
     "/dividends": "corporate_events",
     "/revenue-product-segmentation": "segmentation",
@@ -154,6 +173,10 @@ ENDPOINT_GROUP_OVERRIDES_USED: dict[str, dict[str, str]] = {
     "/earnings": {"get_earnings": "fundamentals", "get_earnings_history": "corporate_events"},
     # /quote: profile_quote's live quote vs the Valuation tab's `<CCY>USD` FX rate.
     "/quote": {"get_quote": "profile_quote", "get_forex_quote": "fundamentals"},
+    # /historical-price-eod/full: `get_historical_price_eod` takes the group as a
+    # parameter (default "daily_prices"; long-history and non-US callers pass
+    # "daily_prices_long" / "daily_prices_intl") -- see FMPClient.
+    "/historical-price-eod/full": {"get_historical_price_eod": "daily_prices"},
 }
 
 # Canary request per live group, used by FMPClient.probe_group (weekly and on
@@ -169,7 +192,14 @@ PROBE_ENDPOINTS: dict[str, tuple[str, dict]] = {
     "index_membership": ("/dowjones-constituent", {}),
     "corporate_events": ("/dividends", {"symbol": "AAPL", "limit": 1}),
     "daily_prices": ("/historical-price-eod/full", {"symbol": "AAPL", "from": "2024-01-02", "to": "2024-01-05"}),
+    # A long-history canary: a window older than the 5y Starter horizon.
+    "daily_prices_long": ("/historical-price-eod/full", {"symbol": "AAPL", "from": "2016-01-04", "to": "2016-01-08"}),
+    # The one group whose canary is deliberately NOT AAPL: it must be a non-US symbol.
+    "daily_prices_intl": ("/historical-price-eod/full", {"symbol": "0005.HK", "from": "2024-01-02", "to": "2024-01-05"}),
 }
+
+# Groups whose 402 canary is a non-US symbol (PROBE_ENDPOINTS) instead of AAPL.
+NON_US_CANARY_GROUPS: frozenset[str] = frozenset({"daily_prices_intl"})
 
 # Bulk/batch endpoints (none are used today -- Rule: never call them). If one
 # is ever added it must be listed here AND be Ultimate; the registry test

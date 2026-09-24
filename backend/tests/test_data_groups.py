@@ -32,7 +32,10 @@ def test_above_plan_is_off():
     assert dg.effective_state("profile_quote") == (True, "live")
     dg.set_fmp_plan("Premium")
     assert dg.effective_state("daily_prices_intl") == (False, "above_plan")
+    assert dg.effective_state("daily_prices_long") == (True, "live")  # Premium
     assert dg.group_live("fundamentals")
+    dg.set_fmp_plan("Starter")
+    assert dg.effective_state("daily_prices_long") == (False, "above_plan")
 
 
 def test_editing_required_tier_resets_verified_unless_stated():

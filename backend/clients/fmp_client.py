@@ -6,6 +6,7 @@ import httpx
 
 from core.config import settings
 from core.data_groups import (
+    NON_US_CANARY_GROUPS,
     PROBE_ENDPOINTS,
     clear_restricted,
     describe_off,
@@ -179,7 +180,15 @@ class FMPClient:
         if the canary ALSO gets a 402. An endpoint with no symbol/query
         parameter has no canary to vary -- the failing call is its own
         canary."""
-        canary = _canary_params(params)
+        if group in NON_US_CANARY_GROUPS:
+            # A non-US group's own restriction (a plan without global coverage) is
+            # symbol-scoped BY DEFINITION, so swapping in AAPL would always read
+            # "symbol-scoped, left live". Its canary is another non-US symbol.
+            canary = dict(PROBE_ENDPOINTS[group][1])
+            if str(params["symbol"] if "symbol" in params else "").upper() == str(canary["symbol"]).upper():
+                canary = None  # the failing call is already the canary
+        else:
+            canary = _canary_params(params)
         if canary is None:
             confirmed = True
         else:
@@ -299,8 +308,16 @@ class FMPClient:
     async def get_enterprise_values(self, ticker: str, period: str = "quarter", limit: int = 1) -> dict | list:
         return await self.get("/enterprise-values", {"symbol": ticker, "period": period, "limit": limit})
 
-    async def get_historical_price_eod(self, ticker: str, from_date: str, to_date: str) -> dict | list:
-        return await self.get("/historical-price-eod/full", {"symbol": ticker, "from": from_date, "to": to_date})
+    async def get_historical_price_eod(
+        self, ticker: str, from_date: str, to_date: str, group: str = "daily_prices"
+    ) -> dict | list:
+        # One endpoint, three data groups: `daily_prices` (US nightly / Chart daily),
+        # `daily_prices_long` (US on-demand long history) and `daily_prices_intl`
+        # (any non-US listing). The caller says which; the default keeps every
+        # pre-P3 call site on `daily_prices`.
+        return await self.get(
+            "/historical-price-eod/full", {"symbol": ticker, "from": from_date, "to": to_date}, group=group
+        )
 
     async def get_revenue_product_segmentation(self, ticker: str) -> dict | list:
         return await self.get("/revenue-product-segmentation", {"symbol": ticker})
