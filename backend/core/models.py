@@ -113,6 +113,36 @@ class SharedBarsCache(SQLModel, table=True):
     fetched_at: datetime
 
 
+class LongHistoryBars(SQLModel, table=True):
+    """On-demand ~10-year daily OHLCV history, one full copy per ticker, for the two
+    views that need more than the nightly 5y window (FMP Phase 3, 2026-09-25): the
+    Chart tab's weekly 4y range (SMA200 warm-up needs ~8y of dailies) and the
+    Analyst Ratings price overlay. Filled and topped up LAZILY on a ticker-page view by
+    clients/long_history_bars.py -- no nightly job ever reads or writes it.
+
+    A separate table on purpose (see docs/fmp_phase3_long_history_non_us_investigation_
+    2026-09-25.md section 9): SharedBarsCache["1d"] is pruned weekly to 6y
+    (prune_old_bars would trim a 10y row back and force a refetch loop),
+    _preserved_lookback_days would ratchet every nightly refetch of that ticker to the
+    10y tier, and the Trend/LZ/Breadth jobs assume "5y everyone". This table is exempt
+    from prune_old_bars by construction (nothing prunes it) and is never consulted when
+    the nightly jobs decide what to fetch. Same basis as the nightly rows: FMP
+    `/historical-price-eod/full`, split- and spin-off-adjusted, not dividend-adjusted;
+    non-US rows are phantom-bar-filtered before they are stored.
+
+    Rows are only appended/overwritten by a top-up, or wholesale replaced when FMP
+    restates history, so a ticker's stored span grows ~1 year per year."""
+
+    ticker: str = Field(primary_key=True)
+    bar_time: datetime = Field(primary_key=True)  # naive, midnight of the trading day
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    fetched_at: datetime
+
+
 class TrendAnalysis(SQLModel, table=True):
     """Latest trend-structure analysis per ticker (swing/BOS/blended-score
     engine, see analysis/trend_structure/ and data/trend_analysis_data.py)
