@@ -3572,9 +3572,17 @@ fallback until P6. Plan/decisions: `docs/fmp_phase2_daily_prices_plan_2026-09-24
   print differences; 15 moved by > 0.5%, of which only 5 (AME, BKNG, DIS, GL, TECH) are NOT
   traceable to spin-off / stitched / extra history / a bad old print (IVZ 2026-04-27 low, MA
   2023-01-24 low) -- they are swing-detection flips from tiny H/L differences (swing_bars=2).
-  The dry-run gate (>= 99% of days within 0.1%) is therefore not met literally (98.14%); the
-  post-backfill recomputes were held for review, and the nightly jobs recompute everything on
-  the new cache from 3:10 UTC on 2026-09-25 regardless.
+  The dry-run gate (>= 99% of days within 0.1%) was not met literally (98.14%) and was
+  **accepted by the user** (two more known buckets: bad 2023-05-30 / 2023-02-08 prints in the old
+  cache, and small SINGY/EVVTY OTC vendor differences).
+- **Recomputes run 2026-09-24** on the new cache: trend/Weinstein 586 tickers (0 failed, 54 s),
+  Liquidity Zones 100 (0 failed, 5 s), `recompute_ticker_scores` 591 (0 failed, 25 s), Sector
+  Heatmap re-run for the stored dates 2026-09-18/21/23 (XLK 1Y -30% -> +39%),
+  `backfill_market_breadth --rebuild` (2,911 old backfilled rows replaced by 10,775; **the
+  backfilled history now spans 2022-09-26..2026-09-23 (~4y) instead of ~1y, because the cache
+  now holds 5y** -- still survivorship-biased), Momentum re-run for the 2026-08-31 anchor only
+  (a stray 2026-09-23 snapshot from a manual run is still on the old basis). BDX and FDX read
+  Advance and SPCX reads no stage (16 weeks of history) in `TickerScore`.
 
 ## Sector Heatmap (`/sectors`, 2026-09-20)
 
