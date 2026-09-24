@@ -22,13 +22,45 @@ export interface OutlierWarning {
   sec_cross_check: SecCrossCheck | null;
 }
 
-export interface FmpStatusOut {
+export type DataGroupState = "live" | "cached_only" | "not_on_plan" | "restricted" | "failing";
+
+export interface DataGroupOut {
+  key: string;
+  label: string;
+  /** False for groups seeded for later phases (nothing reads them yet). */
+  wired: boolean;
+  /** The user's own toggle. */
   enabled: boolean;
+  state: DataGroupState;
+  reason: "live" | "master_off" | "user_off" | "above_plan" | "restricted";
+  required_tier: string;
+  tier_verified: boolean;
+  restricted_since: string | null;
+  last_success_at: string | null;
+  last_error: string | null;
+  feeds: string[];
+  can_toggle: boolean;
+}
+
+export interface DataGroupsOut {
+  master_on: boolean;
+  fmp_plan: string;
+  tiers: string[];
+  /** Global key problem (HTTP 401/403) -- no group is blamed. */
+  key_problem_at: string | null;
+  key_problem_detail: string | null;
+  groups: DataGroupOut[];
+}
+
+export interface DataGroupUpdateIn {
+  enabled?: boolean;
+  required_tier?: string;
+  tier_verified?: boolean;
 }
 
 export interface CronRunOut {
   // Raw per-run value -- see CronJobHealthOut.health_status for the
-  // computed ok/overdue/failed/unknown state a job as a whole is in.
+  // computed ok/overdue/failed/unknown/skipped state a job as a whole is in.
   job_name: string;
   started_at: string;
   finished_at: string | null;
@@ -38,10 +70,12 @@ export interface CronRunOut {
 
 export interface CronJobHealthOut {
   job_name: string;
-  health_status: "ok" | "overdue" | "failed" | "unknown";
+  health_status: "ok" | "overdue" | "failed" | "unknown" | "skipped";
   message: string | null;
   last_run: CronRunOut | null;
   last_success_at: string | null;
+  // Set only when health_status === "skipped": start of the current streak of skipped runs.
+  skipped_since: string | null;
   // Static display metadata (core/cron_health.py::JOB_METADATA), sourced
   // from crontab.txt -- not derived from any live state.
   description: string;
@@ -51,7 +85,7 @@ export interface CronJobHealthOut {
 }
 
 export interface CronHealthOut {
-  // Mirrors FmpStatusOut.enabled. False (with jobs always []) when
+  // Mirrors the cron_health_enabled setting. False (with jobs always []) when
   // CRON_HEALTH_ENABLED is off -- a distinct, explicit "not checking"
   // state, never conflated with "checked and everything's ok".
   enabled: boolean;

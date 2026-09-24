@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { PageContainer } from "@/components/layout/PageContainer";
+import { GroupOffBadge } from "@/components/shared/GroupOffBadge";
 import { AnalysisTab } from "@/components/ticker/AnalysisTab";
 import { AnalystRatingsTab } from "@/components/ticker/AnalystRatingsTab";
 import { ChartTab } from "@/components/ticker/ChartTab";
@@ -15,6 +16,7 @@ import { TickerHeader } from "@/components/ticker/TickerHeader";
 import { TickerNotFound } from "@/components/ticker/TickerNotFound";
 import { TickerTabs } from "@/components/ticker/TickerTabs";
 import { ValuationTab } from "@/components/ticker/ValuationTab";
+import { TAB_GROUPS } from "@/lib/dataGroups";
 import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
 import { DEFAULT_TICKER_TAB, type TickerTab } from "@/lib/tickerTabs";
 
@@ -64,6 +66,7 @@ export function TickerTabsContainer({ ticker }: Props) {
       </div>
 
       <PageContainer className="space-y-2 pb-12">
+        <GroupOffBadge groups={TAB_GROUPS[tab] ?? []} />
         {tab === "summary" && <SummaryTab ticker={ticker} />}
         {tab === "financials" && <FinancialsTab ticker={ticker} />}
         {tab === "ratios" && <RatiosTab ticker={ticker} />}

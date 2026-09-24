@@ -766,12 +766,49 @@ class TickerCustomValuationOut(Step3ManualParams):
     active_verdict: Step3ManualOut
 
 
-class FmpStatusOut(BaseModel):
-    # Read once at process start from settings.fmp_enabled -- toggling
-    # FMP_ENABLED requires a backend restart, so this never changes mid-
-    # session; the frontend banner (see FmpPausedBanner) that reads this
-    # doesn't poll for that reason.
-    enabled: bool
+class DataGroupOut(BaseModel):
+    key: str
+    label: str
+    # False for groups seeded for later phases (daily_prices*, intraday_bars,
+    # extended_hours): shown in Settings but nothing reads them yet.
+    wired: bool
+    enabled: bool  # the user's own toggle
+    # Chip: live | cached_only (master off or user off) | not_on_plan |
+    # restricted (FMP 402, canary-confirmed) | failing (still live, calls erroring)
+    state: Literal["live", "cached_only", "not_on_plan", "restricted", "failing"]
+    reason: Literal["live", "master_off", "user_off", "above_plan", "restricted"]
+    required_tier: str
+    tier_verified: bool
+    restricted_since: datetime | None = None
+    last_success_at: datetime | None = None
+    last_error: str | None = None
+    feeds: list[str]
+    # False when the toggle can't take effect right now (master off / not on plan)
+    can_toggle: bool
+
+
+class DataGroupsOut(BaseModel):
+    master_on: bool
+    fmp_plan: str
+    tiers: list[str]
+    # Global key problem (HTTP 401/403): no group is blamed.
+    key_problem_at: datetime | None = None
+    key_problem_detail: str | None = None
+    groups: list[DataGroupOut]
+
+
+class DataGroupUpdateIn(BaseModel):
+    enabled: bool | None = None
+    required_tier: str | None = None
+    tier_verified: bool | None = None
+
+
+class DataGroupMasterIn(BaseModel):
+    master_on: bool
+
+
+class DataGroupPlanIn(BaseModel):
+    fmp_plan: str
 
 
 class CronRunOut(BaseModel):
@@ -810,9 +847,9 @@ class CronJobHealthOut(BaseModel):
 
 
 class CronHealthOut(BaseModel):
-    # Unlike FmpStatusOut, jobs changes live every night with no backend
+    # Unlike the data-group config, jobs changes live every night with no backend
     # restart -- the frontend hook (useCronHealth) polls it for that reason.
-    # `enabled` mirrors FmpStatusOut.enabled -- False (with jobs always [])
+    # `enabled` mirrors the cron_health_enabled setting -- False (with jobs always [])
     # when Settings.cron_health_enabled is False, a distinct, explicit
     # "not checking" state that must never be conflated with "checked and
     # everything's ok" (enabled=True, every job's health_status == "ok").

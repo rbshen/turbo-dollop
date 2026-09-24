@@ -15,7 +15,9 @@ from data.analyst_ratings_data import get_analyst_ratings_data
 from helpers.bank_capital_metrics import get_ticker_bank_capital_metrics, set_ticker_bank_capital_metrics
 from core.config import settings  # noqa: F401  (tests patch main.settings)
 from core.cron_health import get_cron_health
-from core.data_groups import master_on
+from clients.fmp_client import fmp_client
+import core.data_groups as dg
+from core.data_groups_status import build_data_groups_out
 from core.data_source_status import get_data_source_health
 from core.db import engine, init_db
 from core.exceptions import TickerNotFoundError
@@ -52,7 +54,10 @@ from core.schemas import (
     DiscountRateConfigIn,
     DiscountRateConfigOut,
     FinancialsOut,
-    FmpStatusOut,
+    DataGroupMasterIn,
+    DataGroupPlanIn,
+    DataGroupUpdateIn,
+    DataGroupsOut,
     InsiderActivityOut,
     LiquidityZoneConfigIn,
     LiquidityZoneConfigOut,
@@ -158,15 +163,47 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-# Backs the site-wide paused banner (FmpPausedBanner) -- read once at
-# process start from the master switch (replaced by data-groups), so the frontend doesn't need to
-# poll this beyond SWR's own default revalidate-on-focus behavior.
-@app.get("/api/config/fmp-status", response_model=FmpStatusOut)
-def fmp_status() -> FmpStatusOut:
-    return FmpStatusOut(enabled=master_on())
+# Per-data-group FMP toggles (core/data_groups.py) -- replaces the old
+# /api/config/fmp-status flag. Changes apply live (no restart).
+@app.get("/api/config/data-groups", response_model=DataGroupsOut)
+def data_groups() -> DataGroupsOut:
+    return build_data_groups_out()
 
 
-# Backs the site-wide CronHealthBanner. Unlike fmp_status above, this
+@app.put("/api/config/data-groups/master", response_model=DataGroupsOut)
+def update_data_groups_master(body: DataGroupMasterIn) -> DataGroupsOut:
+    dg.set_master(body.master_on)
+    return build_data_groups_out()
+
+
+@app.put("/api/config/data-groups/plan", response_model=DataGroupsOut)
+async def update_data_groups_plan(body: DataGroupPlanIn) -> DataGroupsOut:
+    if body.fmp_plan not in dg.TIERS:
+        raise HTTPException(status_code=422, detail=f"fmp_plan must be one of {list(dg.TIERS)}")
+    dg.set_fmp_plan(body.fmp_plan)
+    # A plan edit (an upgrade, typically) re-probes restricted groups so they
+    # self-heal without waiting for the weekly sweep.
+    await fmp_client.reprobe_restricted_groups()
+    return build_data_groups_out()
+
+
+@app.put("/api/config/data-groups/{group}", response_model=DataGroupsOut)
+def update_data_group(group: str, body: DataGroupUpdateIn) -> DataGroupsOut:
+    if group not in dg.GROUPS:
+        raise HTTPException(status_code=404, detail=f"Unknown data group: {group}")
+    if body.required_tier is not None and body.required_tier not in dg.TIERS:
+        raise HTTPException(status_code=422, detail=f"required_tier must be one of {list(dg.TIERS)}")
+    if body.enabled is not None:
+        dg.set_group_enabled(group, body.enabled)
+    if body.required_tier is not None:
+        dg.set_required_tier(group, body.required_tier, verified=body.tier_verified)
+    elif body.tier_verified is not None:
+        dg.set_tier_verified(group, body.tier_verified)
+    return build_data_groups_out()
+
+
+# Backs the Settings Status section's Scheduled Jobs table. Unlike the
+# data-group config above, this
 # changes live every night with no backend restart, so the frontend hook
 # (useCronHealth) polls it rather than relying on SWR's default
 # revalidate-on-focus alone -- see core/cron_health.py for the underlying

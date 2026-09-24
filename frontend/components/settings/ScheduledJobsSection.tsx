@@ -18,6 +18,7 @@ const STATUS_DOT: Record<CronJobHealthOut["health_status"], string> = {
   failed: "bg-negative",
   overdue: "bg-warn",
   unknown: "bg-zinc-600",
+  skipped: "bg-sky-500",
 };
 
 /** Settings "Status" section's Scheduled Jobs table -- one row per cron
@@ -47,6 +48,9 @@ export function ScheduledJobsSection() {
           </span>
           <span className="flex items-center gap-1.5">
             <span className="size-2 rounded-full bg-warn" /> Overdue
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-sky-500" /> Skipped
           </span>
           <span className="flex items-center gap-1.5">
             <span className="size-2 rounded-full bg-zinc-600" /> Unknown
@@ -122,7 +126,9 @@ export function ScheduledJobsSection() {
                           ? "text-negative"
                           : job.health_status === "overdue"
                             ? "text-warn"
-                            : "text-zinc-500"
+                            : job.health_status === "skipped"
+                              ? "text-sky-400"
+                              : "text-zinc-500"
                       )}
                     >
                       {job.message ?? "—"}
