@@ -31,10 +31,11 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from sqlalchemy import func
 from sqlmodel import Session, SQLModel, select
 
 from core.db import engine
-from core.models import DataGroupGlobal, DataGroupSetting
+from core.models import DataGroupGlobal, DataGroupSetting, FundamentalsCache
 
 logger = logging.getLogger(__name__)
 
@@ -540,3 +541,39 @@ def record_group_failure(group: str | None, error: str) -> None:
         _write(fn)
     except Exception:
         logger.warning("data_groups: could not record failure for %s", group, exc_info=True)
+
+
+def backfill_last_success_from_cache() -> dict[str, datetime | None]:
+    """Idempotent one-time-style step: seed each group's last_success_at from
+    the newest `fetched_at` among that group's FundamentalsCache rows (its
+    statement types per STATEMENT_TYPE_GROUP). Never moves a value backwards
+    (max of existing and cache), leaves a group with no cache rows untouched
+    (still empty), and is safe to re-run. Returns {group: value written or
+    None if nothing to write}. CLI: `pipeline.data_groups backfill-last-success`."""
+    types_by_group: dict[str, list[str]] = {}
+    for statement_type, group in STATEMENT_TYPE_GROUP.items():
+        types_by_group.setdefault(group, []).append(statement_type)
+
+    SQLModel.metadata.create_all(engine, tables=[DataGroupSetting.__table__, DataGroupGlobal.__table__])
+    result: dict[str, datetime | None] = {}
+    with Session(engine) as session:
+        _seed(session)
+        for group in GROUPS:
+            types = types_by_group.get(group)
+            newest = (
+                session.exec(
+                    select(func.max(FundamentalsCache.fetched_at)).where(FundamentalsCache.statement_type.in_(types))
+                ).one()
+                if types
+                else None
+            )
+            row = session.get(DataGroupSetting, group)
+            if newest is None or (row.last_success_at is not None and row.last_success_at >= newest):
+                result[group] = None
+                continue
+            row.last_success_at = newest
+            session.add(row)
+            result[group] = newest
+        session.commit()
+    invalidate_cache()
+    return result

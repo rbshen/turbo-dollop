@@ -4,6 +4,7 @@ way to flip the master switch when the API/UI is down.
     uv run python -m pipeline.data_groups pause-all   # master OFF: cache-only everywhere, nothing wiped
     uv run python -m pipeline.data_groups resume      # master ON (per-group settings untouched)
     uv run python -m pipeline.data_groups status      # one line per group
+    uv run python -m pipeline.data_groups backfill-last-success  # seed 'last success' from cache fetched_at (idempotent)
 
 Takes effect live -- no backend restart (the API/cron processes re-read the
 DB within a few seconds). Not a cron job (no cron_heartbeat / CRON_JOB_NAMES
@@ -46,13 +47,16 @@ def format_status() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Manage FMP data-group toggles.")
-    parser.add_argument("command", choices=["pause-all", "resume", "status"])
+    parser.add_argument("command", choices=["pause-all", "resume", "status", "backfill-last-success"])
     args = parser.parse_args(argv)
 
     init_db()
     if args.command == "pause-all":
         dg.set_master(False)
         print("FMP master switch OFF -- every group is cache-only. Nothing was wiped.")
+    elif args.command == "backfill-last-success":
+        for group, value in dg.backfill_last_success_from_cache().items():
+            print(f"{group:<19} {_fmt_dt(value) if value else 'unchanged / no cache rows'}")
     elif args.command == "resume":
         dg.set_master(True)
         print("FMP master switch ON -- each group follows its own setting again.")
