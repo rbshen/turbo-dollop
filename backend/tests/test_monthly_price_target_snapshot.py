@@ -34,7 +34,15 @@ def test_fmp_disabled_skips_the_run_before_any_fetch_or_universe_lookup(monkeypa
 
     summary = asyncio.run(monthly.main())  # tickers=None -- would normally resolve the full universe
 
-    assert summary == {"processed": 0, "failed": 0, "calls_made": 0, "duration_seconds": 0.0, "failures": [], "skipped": True}
+    assert summary == {
+        "processed": 0,
+        "failed": 0,
+        "calls_made": 0,
+        "duration_seconds": 0.0,
+        "failures": [],
+        "skipped": True,
+        "skip_reason": "skipped (FMP master switch off)",
+    }
 
 
 def test_fmp_disabled_skips_even_with_an_explicit_ticker_list(monkeypatch, tmp_path):

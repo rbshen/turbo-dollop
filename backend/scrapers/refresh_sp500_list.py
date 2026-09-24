@@ -18,7 +18,7 @@ but shares the exact same `if result.success: ... else: logger.error(...)`
 shape with nothing propagating to cron_heartbeat, so it's fixed here too
 rather than left to fail the same way later.
 
-FMP_ENABLED=false (2026-09-15): skipped cleanly before any fetch is
+the index_membership data group not live (2026-09-15): skipped cleanly before any fetch is
 attempted, via the same early-return guard nightly_fundamentals_fetch.py/
 monthly_price_target_snapshot.py use -- checked here rather than left to
 FMPDisabledError propagating up through refresh_sp500_constituents, since
@@ -73,4 +73,7 @@ async def main() -> int | None:
 if __name__ == "__main__":
     with cron_heartbeat("scrapers.refresh_sp500_list") as run:
         count = asyncio.run(main())
-        run.message = "Skipped — FMP disabled" if count is None else f"{count} tickers synced"
+        if count is None:
+            run.skip(job_skip_reason("index_membership") or "skipped")
+        else:
+            run.message = f"{count} tickers synced"

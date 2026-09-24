@@ -378,7 +378,9 @@ def job_skip_reason(*groups: str) -> str | None:
     nightly job should log and report."""
     parts = []
     for g in groups:
-        live, _ = effective_state(g)
+        live, reason = effective_state(g)
+        if reason == "master_off":
+            return "skipped (FMP master switch off)"
         if not live:
             parts.append(f"group {g} {describe_off(g)}")
     if not parts:

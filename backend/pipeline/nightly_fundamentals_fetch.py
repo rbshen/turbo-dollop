@@ -177,7 +177,7 @@ async def main(tickers: list[str] | None = None) -> dict:
         # no benefit. nightly_score_recompute.py needs no equivalent check;
         # it's already cache_only=True throughout, zero FMP calls.
         logger.info("Nightly fundamentals fetch %s.", skip_reason)
-        return {"processed": 0, "failed": 0, "calls_made": 0, "duration_seconds": 0.0, "failures": [], "skipped": True}
+        return {"processed": 0, "failed": 0, "calls_made": 0, "duration_seconds": 0.0, "failures": [], "skipped": True, "skip_reason": skip_reason}
 
     if tickers is None:
         with Session(engine) as session:
@@ -255,4 +255,4 @@ if __name__ == "__main__":
     with cron_heartbeat("pipeline.nightly_fundamentals_fetch") as run:
         result = asyncio.run(main(_resolve_cli_tickers(cli_args)))
         if result.get("skipped"):
-            run.message = "Skipped — FMP disabled"
+            run.skip(result["skip_reason"])

@@ -100,7 +100,7 @@ async def main(tickers: list[str] | None = None) -> dict:
         # apart from "ran normally and genuinely snapshotted nothing" --
         # same convention nightly_fundamentals_fetch.py already uses.
         logger.info("Monthly price-target snapshot %s.", skip_reason)
-        return {"processed": 0, "failed": 0, "calls_made": 0, "duration_seconds": 0.0, "failures": [], "skipped": True}
+        return {"processed": 0, "failed": 0, "calls_made": 0, "duration_seconds": 0.0, "failures": [], "skipped": True, "skip_reason": skip_reason}
 
     if tickers is None:
         with Session(engine) as session:
@@ -180,4 +180,4 @@ if __name__ == "__main__":
     with cron_heartbeat("pipeline.monthly_price_target_snapshot") as run:
         result = asyncio.run(main(_resolve_cli_tickers(cli_args)))
         if result.get("skipped"):
-            run.message = "Skipped — FMP disabled"
+            run.skip(result["skip_reason"])

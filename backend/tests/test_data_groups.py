@@ -77,3 +77,13 @@ def test_unknown_group_write_rejected():
         dg.set_group_enabled("nope", True)
     with pytest.raises(ValueError):
         dg.set_fmp_plan("Gold")
+
+
+def test_job_skip_reason_master_off_and_per_group_wording():
+    dg.set_master(False)
+    assert dg.job_skip_reason("fundamentals") == "skipped (FMP master switch off)"
+    dg.set_master(True)
+    dg.set_group_enabled("analyst_ratings", False)
+    assert dg.job_skip_reason("analyst_ratings") == "skipped (group analyst_ratings disabled)"
+    dg.mark_restricted("news", "402")
+    assert dg.job_skip_reason("news") == "skipped (group news restricted by FMP (plan))"

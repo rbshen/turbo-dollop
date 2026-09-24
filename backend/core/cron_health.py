@@ -172,12 +172,22 @@ class CronRunContext:
     exception summary instead."""
 
     message: str | None = None
+    skipped: bool = False
+
+    def skip(self, reason: str) -> None:
+        """Mark this run as intentionally skipped (e.g. "skipped (group
+        fundamentals disabled)") -- stored as status "skipped", never
+        "success", so a job that stays skipped for weeks cannot read as
+        healthy. `reason` is stored as the run's message."""
+        self.skipped = True
+        self.message = reason
 
 
 @contextmanager
 def cron_heartbeat(job_name: str) -> Iterator[CronRunContext]:
     """Wrap a cron script's job-execution call with this: writes a
-    "running" CronRunLog row at start, "success"/"failure" at exit.
+    "running" CronRunLog row at start, "success"/"failure"/"skipped" at exit
+    ("skipped" only if the script called run.skip(reason)).
 
     Yields a CronRunContext the wrapped script can write a short summary
     message into (see CronRunContext's own docstring) -- e.g.:
@@ -239,7 +249,7 @@ def cron_heartbeat(job_name: str) -> Iterator[CronRunContext]:
                 with Session(engine) as session:
                     row = session.get(CronRunLog, row_id)
                     if row is not None:
-                        row.status = "success"
+                        row.status = "skipped" if run_context.skipped else "success"
                         row.finished_at = datetime.now()
                         row.error_summary = run_context.message
                         session.add(row)
@@ -256,6 +266,23 @@ def _run_out(row: CronRunLog) -> CronRunOut:
         status=row.status,
         error_summary=row.error_summary,
     )
+
+
+def _skipped_since(job_name: str, session: Session, most_recent: CronRunLog) -> datetime:
+    """Start of the current uninterrupted streak of skipped runs: the first
+    "skipped" run after the most recent run that was not skipped (or the
+    earliest skipped run on record if nothing else ever ran)."""
+    last_real = session.exec(
+        select(CronRunLog)
+        .where(CronRunLog.job_name == job_name, CronRunLog.status != "skipped")
+        .order_by(CronRunLog.started_at.desc())
+        .limit(1)
+    ).first()
+    query = select(CronRunLog).where(CronRunLog.job_name == job_name, CronRunLog.status == "skipped")
+    if last_real is not None:
+        query = query.where(CronRunLog.started_at > last_real.started_at)
+    first = session.exec(query.order_by(CronRunLog.started_at.asc()).limit(1)).first()
+    return (first or most_recent).started_at
 
 
 def _job_health(job_name: str, session: Session, now: datetime) -> CronJobHealthOut:
@@ -285,6 +312,21 @@ def _job_health(job_name: str, session: Session, now: datetime) -> CronJobHealth
         )
 
     last_run = _run_out(most_recent)
+
+    if most_recent.status == "skipped":
+        since = _skipped_since(job_name, session, most_recent)
+        return CronJobHealthOut(
+            job_name=job_name,
+            health_status="skipped",
+            message=f"Skipped since {since.date().isoformat()}: {most_recent.error_summary or 'group not live'}",
+            last_run=last_run,
+            last_success_at=last_success_at,
+            skipped_since=since,
+            description=metadata.description,
+            cadence_group=metadata.cadence_group,
+            time_label=metadata.time_label,
+            sort_minutes=metadata.sort_minutes,
+        )
 
     if most_recent.status == "failure":
         return CronJobHealthOut(

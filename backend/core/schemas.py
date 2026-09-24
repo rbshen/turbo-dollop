@@ -776,8 +776,8 @@ class FmpStatusOut(BaseModel):
 
 class CronRunOut(BaseModel):
     """Mirrors CronRunLog. `status` here is the raw per-run value
-    ("running"/"success"/"failure") -- see CronJobHealthOut.health_status
-    for the computed ok/overdue/failed/unknown state a job as a whole is in."""
+    ("running"/"success"/"failure"/"skipped") -- see CronJobHealthOut.health_status
+    for the computed ok/overdue/failed/unknown/skipped state a job as a whole is in."""
 
     job_name: str
     started_at: datetime
@@ -789,12 +789,15 @@ class CronRunOut(BaseModel):
 class CronJobHealthOut(BaseModel):
     # Named health_status, not status, to avoid colliding with
     # CronRunOut.status's different vocabulary (running/success/failure vs.
-    # this field's ok/overdue/failed/unknown).
+    # this field's ok/overdue/failed/unknown/skipped).
     job_name: str
-    health_status: Literal["ok", "overdue", "failed", "unknown"]
+    health_status: Literal["ok", "overdue", "failed", "unknown", "skipped"]
     message: str | None = None
     last_run: CronRunOut | None = None
     last_success_at: datetime | None = None
+    # Set only when health_status == "skipped": when the current streak of
+    # skipped runs began (a long-off group must stay visible).
+    skipped_since: datetime | None = None
     # Static display metadata from core/cron_health.py::JOB_METADATA --
     # sourced from crontab.txt, not derived from any live state. Added for
     # the Settings "Status" section's Scheduled Jobs table (job/

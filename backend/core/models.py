@@ -1197,7 +1197,7 @@ class CronRunLog(SQLModel, table=True):
     job_name: str = Field(index=True)  # dotted module path, e.g. "pipeline.backup_db" -- matches crontab.txt's `-m` invocation exactly
     started_at: datetime
     finished_at: datetime | None = None
-    status: str  # "running" | "success" | "failure"
+    status: str  # "running" | "success" | "failure" | "skipped"
     error_summary: str | None = None
 
 

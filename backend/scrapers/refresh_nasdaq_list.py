@@ -14,7 +14,7 @@ refresh_dow_list.py's own fix (2026-09-11) -- since cron_heartbeat only
 distinguishes success/failure by whether an exception escapes the `with`
 block, a failed run must never be recorded as a "success" CronRunLog row.
 
-FMP_ENABLED=false: skipped cleanly before any fetch is attempted, via the
+The index_membership data group not live: skipped cleanly before any fetch is attempted, via the
 same early-return guard refresh_dow_list.py/refresh_sp500_list.py use --
 checked here rather than left to FMPDisabledError propagating up through
 refresh_nasdaq_constituents, since that path would return a failed
@@ -68,4 +68,7 @@ async def main() -> int | None:
 if __name__ == "__main__":
     with cron_heartbeat("scrapers.refresh_nasdaq_list") as run:
         count = asyncio.run(main())
-        run.message = "Skipped — FMP disabled" if count is None else f"{count} tickers synced"
+        if count is None:
+            run.skip(job_skip_reason("index_membership") or "skipped")
+        else:
+            run.message = f"{count} tickers synced"
