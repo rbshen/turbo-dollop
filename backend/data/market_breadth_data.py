@@ -45,7 +45,7 @@ import logging
 from datetime import date, datetime
 
 import pandas as pd
-from sqlalchemy import bindparam, func, update
+from sqlalchemy import bindparam, delete, func, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
@@ -281,6 +281,37 @@ def store_snapshots(values: list[dict], overwrite: bool) -> int:
         session.execute(stmt, values)
         session.commit()
         return session.exec(select(func.count()).select_from(MarketBreadthSnapshot)).one() - before
+
+
+def delete_backfilled_rows_in_range(values: list[dict], dry_run: bool = False) -> int:
+    """`--rebuild` support: deletes the EXISTING `is_backfilled` rows for each
+    (universe) in `values`, within that universe's own date range, so a
+    following store_snapshots(overwrite=False) re-inserts them from freshly
+    computed values. Live (point-in-time) rows are never touched -- the
+    predicate is `is_backfilled` itself -- so a rebuild can restate history
+    (e.g. after the bars underneath it were re-sourced) without ever
+    clobbering a nightly row. Returns rows deleted (would-be, with dry_run)."""
+    if not values:
+        return 0
+    ranges: dict[str, tuple] = {}
+    for v in values:
+        lo, hi = ranges.get(v["universe"], (v["as_of_date"], v["as_of_date"]))
+        ranges[v["universe"]] = (min(lo, v["as_of_date"]), max(hi, v["as_of_date"]))
+    deleted = 0
+    with Session(engine) as session:
+        for universe, (lo, hi) in ranges.items():
+            where = (
+                MarketBreadthSnapshot.universe == universe,
+                MarketBreadthSnapshot.is_backfilled == True,  # noqa: E712 -- SQL boolean
+                MarketBreadthSnapshot.as_of_date >= lo,
+                MarketBreadthSnapshot.as_of_date <= hi,
+            )
+            if dry_run:
+                deleted += session.exec(select(func.count()).select_from(MarketBreadthSnapshot).where(*where)).one()
+            else:
+                deleted += session.execute(delete(MarketBreadthSnapshot).where(*where)).rowcount
+        session.commit()
+    return deleted
 
 
 def fill_missing_sma20(values: list[dict], dry_run: bool = False) -> int:

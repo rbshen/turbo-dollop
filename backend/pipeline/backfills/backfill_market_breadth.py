@@ -50,6 +50,13 @@ data.market_breadth_data.build_sector_backfill_rows/load_sector_buckets. No
 sma20-fill pass is needed for these -- they're brand-new rows created after
 the 20-day metric already existed, so they can never be missing it.
 
+**`--rebuild` (2026-09-24)** replaces the EXISTING `is_backfilled` rows (sp500
+and every sector universe, within each one's recomputed date range) with
+freshly computed ones -- needed once, after the daily bars under them were
+re-sourced (FMP Phase 2: split/spin-off-adjusted basis, stitched symbols
+fixed). It deletes ONLY `is_backfilled` rows, never a live nightly row, then
+inserts as usual; an ordinary run without the flag stays insert-only.
+
 Run (previews the row count/date range, writes nothing):
     uv run python -m pipeline.backfills.backfill_market_breadth --dry-run
 
@@ -70,6 +77,7 @@ from core.logging_config import configure_logging
 from data.market_breadth_data import (
     build_backfill_rows,
     build_sector_backfill_rows,
+    delete_backfilled_rows_in_range,
     fill_missing_sma20,
     load_cached_daily_bars,
     load_sector_buckets,
@@ -82,7 +90,7 @@ LOG_PATH = Path(__file__).resolve().parent.parent.parent / "logs" / "backfill_ma
 logger = logging.getLogger(__name__)
 
 
-def main(dry_run: bool = False) -> dict:
+def main(dry_run: bool = False, rebuild: bool = False) -> dict:
     """Returns a summary dict so tests/manual runs can assert on it directly."""
     configure_logging(LOG_PATH)
     init_db()
@@ -98,13 +106,14 @@ def main(dry_run: bool = False) -> dict:
     bars = load_cached_daily_bars(tickers)
     missing = sorted(set(tickers) - set(bars))
     values, summary = build_backfill_rows(bars, len(tickers), completed)
+    sector_values, sector_summary = build_sector_backfill_rows(bars, sector_tickers, completed)
+    rebuild_deleted = delete_backfilled_rows_in_range(values + sector_values, dry_run=dry_run) if rebuild else 0
     inserted = 0 if dry_run else store_snapshots(values, overwrite=False)
     # After the insert, so freshly inserted rows (which already carry sma20) are not "pending".
     sma20_pending = fill_missing_sma20(values, dry_run=True)
     sma20_filled = 0 if dry_run else fill_missing_sma20(values)
 
     # Sector rows -- reuses the SAME `bars` just loaded above, no second read.
-    sector_values, sector_summary = build_sector_backfill_rows(bars, sector_tickers, completed)
     sector_inserted = 0 if dry_run else store_snapshots(sector_values, overwrite=False)
 
     summary.update(
@@ -119,6 +128,8 @@ def main(dry_run: bool = False) -> dict:
             "sectors": sector_summary,
             "sector_inserted": sector_inserted,
             "sector_already_present": 0 if dry_run else len(sector_values) - sector_inserted,
+            "rebuild": rebuild,
+            "rebuild_deleted": rebuild_deleted,
             "dry_run": dry_run,
             "duration_seconds": time.monotonic() - start_time,
         }
@@ -139,5 +150,6 @@ def main(dry_run: bool = False) -> dict:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--dry-run", action="store_true", help="compute and report, write nothing")
+    parser.add_argument("--rebuild", action="store_true", help="replace existing is_backfilled rows (never live rows)")
     args = parser.parse_args()
-    print(main(dry_run=args.dry_run))
+    print(main(dry_run=args.dry_run, rebuild=args.rebuild))

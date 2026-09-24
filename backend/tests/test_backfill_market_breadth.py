@@ -155,3 +155,35 @@ def test_backfill_also_inserts_sector_rows_read_only_and_idempotent(monkeypatch,
     assert again["sector_inserted"] == 0 and again["sector_already_present"] == again["sectors"]["XLK"]["kept"] + again["sectors"]["XLE"]["kept"]
     with Session(engine) as session:
         assert len(session.exec(select(MarketBreadthSnapshot)).all()) == len(rows)  # unchanged -- a re-run never clobbers a live/backfilled row
+
+
+def test_rebuild_replaces_backfilled_rows_but_never_a_live_row(monkeypatch, tmp_path):
+    engine, index = _seed(monkeypatch, tmp_path, ["AAA", "BBB", "CCC"])
+    backfill.main()
+    kept = 320 - 251
+    live_date = index[-1].date()
+    with Session(engine) as session:
+        for row in session.exec(select(MarketBreadthSnapshot)).all():
+            row.pct_above_sma50 = -1.0  # sentinel: a stale, pre-re-source value
+            if row.as_of_date == live_date:
+                row.is_backfilled = False  # a live nightly row
+            session.add(row)
+        session.commit()
+
+    plain = backfill.main()  # no --rebuild: insert-only, nothing is restated
+    assert plain["inserted"] == 0 and plain["rebuild_deleted"] == 0
+    with Session(engine) as session:
+        assert all(r.pct_above_sma50 == -1.0 for r in session.exec(select(MarketBreadthSnapshot)).all())
+
+    dry = backfill.main(dry_run=True, rebuild=True)
+    assert dry["rebuild_deleted"] == kept - 1
+    with Session(engine) as session:
+        assert all(r.pct_above_sma50 == -1.0 for r in session.exec(select(MarketBreadthSnapshot)).all())  # dry run wrote nothing
+
+    summary = backfill.main(rebuild=True)
+    assert summary["rebuild_deleted"] == kept - 1 and summary["inserted"] == kept - 1  # the live date's row conflicts and is skipped
+    with Session(engine) as session:
+        rows = {r.as_of_date: r for r in session.exec(select(MarketBreadthSnapshot)).all()}
+    assert len(rows) == kept
+    assert rows[live_date].pct_above_sma50 == -1.0 and rows[live_date].is_backfilled is False  # untouched
+    assert all(r.pct_above_sma50 != -1.0 for d, r in rows.items() if d != live_date)
