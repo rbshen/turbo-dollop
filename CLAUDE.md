@@ -173,9 +173,10 @@ Cron jobs are separate processes and read the same DB.
 
 - **Groups:** `fundamentals`, `profile_quote`, `analyst_ratings`, `segmentation`,
   `news`, `insider` (seeded **off** -- the shelved feature), `index_membership`,
-  `corporate_events`, plus four seeded-but-unwired rows for the price migration:
-  `daily_prices` (P2), `daily_prices_intl` (P3), `intraday_bars` (P4),
-  `extended_hours` (P5). Only the first eight are live in P1.
+  `corporate_events`, **`daily_prices`** (live since P2, 2026-09-24 -- see "Daily prices:
+  FMP" below; it is the one group whose OFF state is a fallback, not cache-only), plus
+  three seeded-but-unwired rows for the price migration: `daily_prices_intl` (P3),
+  `intraday_bars` (P4), `extended_hours` (P5).
 - **Effective state** = master switch on AND group enabled AND required tier <= my
   plan AND status != `plan_restricted`. Off means **cache-only**: the last cached
   row is served (even if stale), nothing is ever wiped.
@@ -197,7 +198,10 @@ Cron jobs are separate processes and read the same DB.
   cached). `tests/test_data_groups_registry.py` **fails if any FMP endpoint or cached
   statement_type used in the code is unmapped**, and pins that any bulk/batch endpoint
   must be Ultimate (none is used; never call one). An unmapped endpoint fails closed.
-  `historical_price_eod` rides with `fundamentals` for now (TODO P2: split to `daily_prices`).
+  `/historical-price-eod/full` and the `historical_price_eod` cache key are in `daily_prices`
+  (P2; previously they rode with `fundamentals`). Side effect: the ticker header's
+  avg-volume / dollar-volume tiles (ticker_summary's nightly `daily` row) follow that group
+  -- off serves the cached row, and `/refresh` 503s while it is off.
   `sec_company_facts` (SEC, not FMP) rides with `fundamentals` to keep its old pause behaviour.
 - **What degrades when a group is off:**
   - `profile_quote`: search falls back to the tracked-ticker universe (symbol only);
@@ -228,12 +232,15 @@ Cron jobs are separate processes and read the same DB.
   `nightly_fundamentals_fetch` (fundamentals), `monthly_price_target_snapshot`
   (analyst_ratings), the three index-list scrapers (index_membership). The Trend/
   Liquidity/Warren/BB+RSI/Heatmap/Breadth/Momentum jobs make no FMP calls today and get
-  their standard group guard when their groups go live in P2-P5.
+  their standard group guard when their groups go live in P3-P5. **The daily-bar jobs
+  (Trend/LZ/Heatmap/Breadth/Momentum) deliberately have NO `daily_prices` skip guard**:
+  with the group off they fall through to Massive -> Yahoo instead of skipping.
 - **API/UI:** `GET /api/config/data-groups` (+ `PUT .../master`, `.../plan`, `.../{group}`)
   replaces `/api/config/fmp-status`. Settings > Status shows one row per group (toggle,
-  chip Live / Cached only / Not on plan / Restricted by FMP / Failing, last success,
+  chip Live / Cached only / **Off — using fallback** (`daily_prices` only, while
+  Massive/Yahoo still exist) / Not on plan / Restricted by FMP / Failing, last success,
   tier + verified tick, "feeds:" list; disabling warns with the dependent features).
-  Massive/Yahoo cards stay until P2/P6. Ticker-page tabs show a "not refreshing -- as of
+  Massive/Yahoo cards stay until P6. Ticker-page tabs show a "not refreshing -- as of
   [date]" badge for off groups (`GroupOffBadge`; date = the group's last recorded live
   success, which only starts accumulating from this change).
 - `bin/start.sh` skips the AAPL `/quote` preflight when master or `profile_quote` is not

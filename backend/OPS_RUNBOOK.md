@@ -399,6 +399,31 @@ radius even for a rare false positive — unlike the fabricated-data
 footprint; a wrongly-purged real ticker simply re-fetches from FMP on
 its next view.
 
+### Daily prices: FMP-first (P2, 2026-09-24)
+
+Daily bars (`SharedBarsCache` "1d") come from FMP `/historical-price-eod/full` for US-listed
+tickers (data group `daily_prices`), then Massive, then Yahoo, per ticker. Non-US tickers stay on
+Yahoo. Only `pipeline.nightly_trend_calculation` (3:10) fetches; LZ/Sector/Breadth/Momentum read
+its warm cache.
+
+- **Nightly:** per ticker one call from `last cached bar - 7d` (overlap). The last cached bar is
+  overwritten; any earlier overlapping close off by > 0.5% means FMP restated history (split,
+  spin-off, symbol reuse) and that ticker is refetched over its full window and REPLACED. ~600
+  calls, ~1-2 min. **Sundays (UTC)** the trend job passes `force=True` -> every ticker gets a full
+  refetch + replace (the weekly resync).
+- **Heartbeat message** of each daily-bar job: `N fell back from FMP (Massive M, Yahoo Y)`.
+  A large N means FMP is failing/empty for those tickers or the group is off.
+- **Group off / master off / not on plan / restricted:** FMP is skipped and the whole batch falls
+  through to Massive -> Yahoo (chip "Off — using fallback"). Nothing is skipped or wiped. A
+  `MASSIVE_ENABLED=false` shortens the fallback to Yahoo only.
+- **Re-backfill (already run once, 2026-09-24):** `uv run python -m pipeline.backfills.
+  backfill_fmp_daily_bars [--dry-run] [--report out.json]` (replace per ticker, one
+  transaction; a ticker FMP cannot serve keeps its rows). Take `pipeline.backup_db` first and
+  check free disk. `pipeline.backfills.backfill_market_breadth --rebuild` re-derives the
+  `is_backfilled` breadth rows (never a live row).
+- **Basis:** FMP `full` is split- AND spin-off-adjusted (not dividend-adjusted); see CLAUDE.md
+  "Daily prices: FMP".
+
 ### Cron job heartbeat / health monitoring
 
 Cross-cutting, not one specific script — `core/cron_health.py` wraps every
