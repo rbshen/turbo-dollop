@@ -65,6 +65,7 @@ __all__ = [
     "FMPDailySource",
     "FMPWithFallback",
     "FallbackTickers",
+    "drop_phantom_bars",
     "describe_fallback",
     "YahooDailySource",
     "MassiveDailySource",
@@ -432,11 +433,39 @@ FMP_CONCURRENCY = 10
 _OHLCV = ["open", "high", "low", "close", "volume"]
 
 
-def fmp_rows_to_frame(rows) -> pd.DataFrame:
+# Non-US phantom-bar filter (P3, docs/fmp_phase3_long_history_non_us_investigation_2026-09-25.md
+# section 6): FMP's HKSE series carries days the exchange was closed -- weekend dates
+# (Sunday 2025-10-26, 0883's Sundays in 2024-09) and copies of the previous session
+# (Good Friday 2025-04-18 on every HK name, ~30 flat copies on 0857/0883). Yahoo has none.
+# Volume tolerance for "same as the previous bar": FMP's Good Friday copies carry the prior
+# day's OHLC but a volume revised by 0.005%-0.09% (measured on 0005/0857/0883), so the
+# literal "identical volume" test would keep the very case that motivated the filter; every
+# other flat copy is exactly identical. 0.5% sits well above that and far below any real
+# day-to-day volume change on a bar whose OHLC also happens to repeat exactly.
+PHANTOM_VOLUME_TOLERANCE = 0.005
+
+
+def drop_phantom_bars(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove non-trading-day rows from a non-US OHLCV frame (ascending index):
+    (a) any bar dated Saturday/Sunday; (b) any bar whose open/high/low/close are
+    ALL identical to the previous RAW bar's and whose volume is zero or within
+    PHANTOM_VOLUME_TOLERANCE of it. The previous bar is compared before any
+    dropping, so the Monday copy of a phantom Sunday bar goes too. Never applied
+    to US tickers (their series have none of these)."""
+    if df.empty:
+        return df
+    prev = df.shift(1)
+    flat = (df[["open", "high", "low", "close"]] == prev[["open", "high", "low", "close"]]).all(axis=1)
+    vol_same = (df["volume"] == 0) | ((df["volume"] - prev["volume"]).abs() <= prev["volume"].abs() * PHANTOM_VOLUME_TOLERANCE)
+    return df[~((df.index.dayofweek >= 5) | (flat & vol_same))]
+
+
+def fmp_rows_to_frame(rows, non_us: bool = False) -> pd.DataFrame:
     """FMP /historical-price-eod/full rows (newest first: date, open, high,
     low, close, volume, ...) -> the DailyBarSource contract (lowercase OHLCV,
     naive ascending DatetimeIndex). Rows without a usable close are dropped;
-    an unusable/empty payload is an empty frame."""
+    an unusable/empty payload is an empty frame. `non_us=True` also removes
+    phantom (non-trading-day) bars -- see drop_phantom_bars."""
     if not isinstance(rows, list) or not rows:
         return pd.DataFrame(columns=_OHLCV)
     df = pd.DataFrame(rows)
@@ -449,7 +478,8 @@ def fmp_rows_to_frame(rows) -> pd.DataFrame:
     df = df.drop_duplicates(subset="date").set_index("date").sort_index()
     df.index = pd.DatetimeIndex(df.index)
     df["volume"] = df["volume"].fillna(0)
-    return df[_OHLCV]
+    df = df[_OHLCV]
+    return drop_phantom_bars(df) if non_us else df
 
 
 def _completed_session() -> date:
