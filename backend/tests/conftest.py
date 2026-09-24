@@ -88,6 +88,25 @@ def _isolate_data_source_health_engine(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_data_groups_engine(monkeypatch):
+    """core.data_groups reads/lazy-seeds its DB-backed group toggles on the
+    first FMPClient.get / cache gate check, so every test needs its own
+    fresh in-memory engine for it (same reasoning as
+    _isolate_data_source_health_engine). The lazy seed gives the documented
+    defaults: master on, plan Ultimate, every group live except `insider`
+    (shelved, default off) -- a test exercising the insider feature turns it
+    on via data_groups.set_group_enabled("insider", True)."""
+    import core.data_groups as data_groups
+
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    monkeypatch.setattr(data_groups, "engine", test_engine)
+    data_groups.invalidate_cache()
+    data_groups._last_success_write.clear()
+    yield test_engine
+    data_groups.invalidate_cache()
+
+
+@pytest.fixture(autouse=True)
 def _default_earnings_fetch(monkeypatch):
     """Every statement-grain data module (step1-5_data.py, ratios_data.py,
     segmentation_data.py, financials_data.py, ticker_summary.py) now resolves

@@ -1216,3 +1216,37 @@ class DataSourceHealth(SQLModel, table=True):
 
     source: str = Field(primary_key=True)  # "fmp" | "yahoo"
     last_success_at: datetime
+
+
+class DataGroupSetting(SQLModel, table=True):
+    """Per-data-group FMP toggle, one row per group key in
+    core/data_groups.py::GROUPS. Lazy-seeded (same convention as
+    LiquidityZoneConfig/DiscountRateConfig). `required_tier` is a
+    user-editable value (`tier_verified` = the user has checked it against
+    FMP's site), not a hardcoded fact. `status` is auto-managed:
+    "ok" / "plan_restricted" (set only after a canary probe also got a 402)
+    / "failing" (consecutive non-402 live failures)."""
+
+    group_key: str = Field(primary_key=True)
+    enabled: bool = True
+    required_tier: str = "Premium"
+    tier_verified: bool = False
+    status: str = "ok"
+    restricted_since: datetime | None = None
+    last_success_at: datetime | None = None
+    last_error: str | None = None
+    consecutive_failures: int = 0
+    updated_at: datetime | None = None
+
+
+class DataGroupGlobal(SQLModel, table=True):
+    """Singleton (key="default") holding the master "disable all FMP" switch,
+    the user's current FMP plan tier, and the global key-problem marker set
+    on a 401/403 (never blames a group)."""
+
+    key: str = Field(primary_key=True, default="default")
+    master_on: bool = True
+    fmp_plan: str = "Ultimate"
+    key_problem_at: datetime | None = None
+    key_problem_detail: str | None = None
+    updated_at: datetime | None = None
