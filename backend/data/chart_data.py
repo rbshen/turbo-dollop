@@ -48,6 +48,14 @@ this module embodies:
     `ChartOut.source` reflects whichever source actually answered
     ("massive" or "yahoo"), per-request -- not a fixed literal any more.
 
+3b. **D_6M/D_1Y/D_2Y are FMP-first for US-listed tickers (P2, 2026-09-24).**
+    `/historical-price-eod/full` (daily_prices group; split- AND spin-off-
+    adjusted, not dividend-adjusted) is tried first, live and uncached like
+    everything else here; an empty answer, an error, or the group being off
+    (or a non-US listing) falls through to the Massive -> Yahoo chain of 3a.
+    `ChartOut.source` is "fmp" | "massive" | "yahoo". W_4Y stays Yahoo-only
+    (P3).
+
 4. **Earnings/dividend markers (2026-09-20)** are the one part of this
    module NOT Yahoo-only: data/chart_events_data.py fetches them live from FMP
    when the corporate_events group is live (Yahoo otherwise, or on FMP failure). Point 3's decision
@@ -73,14 +81,18 @@ import asyncio
 import logging
 from datetime import date, datetime, time, timedelta
 
+import httpx
 import pandas as pd
 from sqlmodel import Session, select
 
 from analysis.entry_signal.indicators import BB_LENGTH, BB_STD, compute_rsi
 from analysis.trend_structure.stochastic import compute_stochastic
+from clients.daily_bar_sources import _profile_exchanges, fmp_rows_to_frame
+from clients.fmp_client import fmp_client
 from clients.massive_client import massive_client
 from clients.yahoo_client import yahoo_client
 from core.config import settings
+from core.data_groups import group_live
 from core.db import engine
 from core.models import TechnicalEntrySignalEvent, WarrenSignalEvent
 from core.schemas import (
@@ -95,7 +107,7 @@ from core.schemas import (
     ChartZoneOut,
     LiquidityZoneOut,
 )
-from core.tickers import is_non_us_ticker, normalize_ticker, to_massive_symbol
+from core.tickers import is_non_us_ticker, is_us_listed, normalize_ticker, to_massive_symbol
 from data.chart_events_data import DividendEvent, EarningsEvent, fetch_chart_events
 from data.entry_signal_data import get_entry_signal_data
 from data.liquidity_zone_data import get_liquidity_zone_data
@@ -163,7 +175,7 @@ async def _fetch_yahoo_bars(ticker: str, range_key: str) -> pd.DataFrame:
 
 
 async def _fetch_bars(ticker: str, range_key: str) -> tuple[pd.DataFrame, str]:
-    """Returns (lowercase-column OHLCV DataFrame, "massive" | "yahoo").
+    """Returns (lowercase-column OHLCV DataFrame, "fmp" | "massive" | "yahoo").
     Empty DataFrame (never None/raised) for a bad/delisted ticker or a
     fetch that returned nothing from every source tried -- get_chart_data
     below is the single place that turns that into chart_available=False.
@@ -185,9 +197,19 @@ async def _fetch_bars(ticker: str, range_key: str) -> tuple[pd.DataFrame, str]:
         df = await _fetch_yahoo_bars(ticker, range_key)
         return df, "yahoo"
 
+    end = date.today()
+    start = end - timedelta(days=cfg["massive_lookback_days"])
+
+    if is_us_listed(ticker, _profile_exchanges([ticker]).get(ticker)) and group_live("daily_prices"):
+        try:
+            df = fmp_rows_to_frame(await fmp_client.get_historical_price_eod(ticker, start.isoformat(), end.isoformat()))
+        except (httpx.HTTPError, ValueError):
+            logger.warning("FMP daily-bar fetch failed for %s (%s); falling back", ticker, range_key)
+            df = pd.DataFrame()
+        if not df.empty:
+            return df[_EMPTY_OHLCV_COLUMNS], "fmp"
+
     if not is_non_us_ticker(ticker) and settings.massive_enabled:
-        end = date.today()
-        start = end - timedelta(days=cfg["massive_lookback_days"])
         try:
             df = await massive_client.get_daily_bars(to_massive_symbol(ticker), start, end, adjusted=True)
         except Exception:

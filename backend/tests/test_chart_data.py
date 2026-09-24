@@ -1,6 +1,7 @@
 import asyncio
 from datetime import date, datetime, timedelta
 
+import httpx
 import pandas as pd
 import pytest
 
@@ -198,6 +199,85 @@ def _patch_massive_bars(monkeypatch, df: pd.DataFrame | None, *, raises: bool = 
 
     monkeypatch.setattr(chart_data.massive_client, "get_daily_bars", fake_get_daily_bars)
     return calls
+
+
+@pytest.fixture(autouse=True)
+def _no_profile_lookup(monkeypatch):
+    # _profile_exchanges reads the REAL engine's cached profiles; tests route by
+    # the dot-suffix rule alone (a symbol with no cached profile).
+    monkeypatch.setattr(chart_data, "_profile_exchanges", lambda tickers: {})
+
+
+def _fmp_rows(n: int = 600) -> list[dict]:
+    d = _daily_df(n)
+    return [
+        {"date": ts.strftime("%Y-%m-%d"), "open": r["open"], "high": r["high"], "low": r["low"], "close": r["close"], "volume": r["volume"]}
+        for ts, r in d.iloc[::-1].iterrows()
+    ]
+
+
+def _patch_fmp_bars(monkeypatch, rows, *, raises: bool = False) -> list[str]:
+    calls: list[str] = []
+
+    async def fake(ticker, from_date, to_date):
+        calls.append(ticker)
+        if raises:
+            raise httpx.ConnectError("boom")
+        return rows
+
+    monkeypatch.setattr(chart_data.fmp_client, "get_historical_price_eod", fake)
+    return calls
+
+
+def _no_other_sources(monkeypatch):
+    async def fail_if_called(*args, **kwargs):
+        raise AssertionError("must not be reached when FMP answered")
+
+    monkeypatch.setattr(chart_data.massive_client, "get_daily_bars", fail_if_called)
+    monkeypatch.setattr(chart_data.yahoo_client, "get_history", fail_if_called)
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+
+
+def test_daily_range_is_fmp_first_for_us_tickers(monkeypatch):
+    monkeypatch.setattr(chart_data.settings, "massive_enabled", True)
+    calls = _patch_fmp_bars(monkeypatch, _fmp_rows())
+    _no_other_sources(monkeypatch)
+    out = asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y"))
+    assert out.source == "fmp" and out.chart_available and calls == ["AAPL"]
+
+
+def test_daily_range_falls_through_to_massive_when_fmp_is_empty_or_errors(monkeypatch):
+    monkeypatch.setattr(chart_data.settings, "massive_enabled", True)
+    for kwargs, rows in (({}, []), ({"raises": True}, [])):
+        _patch_fmp_bars(monkeypatch, rows, **kwargs)
+        _patch_massive_bars(monkeypatch, _daily_df(600))
+        monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+        monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+        assert asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y")).source == "massive"
+
+
+def test_daily_range_skips_fmp_when_daily_prices_is_off(monkeypatch):
+    import core.data_groups as dg
+
+    dg.set_group_enabled("daily_prices", False)
+    monkeypatch.setattr(chart_data.settings, "massive_enabled", True)
+    calls = _patch_fmp_bars(monkeypatch, _fmp_rows())
+    _patch_massive_bars(monkeypatch, _daily_df(600))
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    assert asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y")).source == "massive" and calls == []
+
+
+def test_non_us_ticker_and_w_4y_never_try_fmp(monkeypatch):
+    calls = _patch_fmp_bars(monkeypatch, _fmp_rows())
+    monkeypatch.setattr(chart_data.settings, "massive_enabled", True)
+    _patch_yahoo_bars(monkeypatch, _daily_df(600))
+    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    assert asyncio.run(chart_data.get_chart_data("0700.HK", "D_1Y")).source == "yahoo"
+    assert asyncio.run(chart_data.get_chart_data("AAPL", "W_4Y")).source == "yahoo"
+    assert calls == []
 
 
 def test_daily_range_uses_massive_when_enabled(monkeypatch):
