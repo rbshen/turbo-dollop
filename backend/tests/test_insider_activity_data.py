@@ -1,3 +1,4 @@
+import core.data_groups as _dg
 import asyncio
 import json
 from datetime import date, datetime, timedelta
@@ -32,7 +33,7 @@ def _insider_activity_enabled(monkeypatch):
     in this module exercises the feature itself, so it turns the flag on
     explicitly; the disabled-state tests at the bottom set it back to
     False -- same object, last write wins."""
-    monkeypatch.setattr(insider_data.settings, "insider_activity_enabled", True)
+    _dg.set_group_enabled("insider", True)
 
 
 def _fresh_engine(monkeypatch):
@@ -556,7 +557,7 @@ def test_cached_and_genuinely_empty_has_as_of_but_no_data(monkeypatch):
 
 def test_cold_miss_with_fmp_disabled_has_no_as_of(monkeypatch):
     _fresh_engine(monkeypatch)
-    monkeypatch.setattr(settings, "fmp_enabled", False)
+    _dg.set_master(False)
     calls = _patch_fmp(monkeypatch, search=[_row()])
 
     result = asyncio.run(get_insider_activity_data("TEST"))
@@ -597,7 +598,7 @@ def test_fetch_failure_leaves_no_as_of_so_it_reads_as_not_cached(monkeypatch):
 
 def test_fmp_disabled_serves_a_stale_cached_row_with_its_original_as_of(monkeypatch):
     engine = _fresh_engine(monkeypatch)
-    monkeypatch.setattr(settings, "fmp_enabled", False)
+    _dg.set_master(False)
     long_ago = datetime.now() - timedelta(days=30)
     _seed_cache(engine, "insider_trading_search", [_row()], long_ago)
     _seed_cache(engine, "insider_trading_statistics", [_stat(2026, 2, purchases=1)], long_ago)
@@ -666,7 +667,7 @@ def test_endpoint_returns_the_normalized_shape(monkeypatch):
 
 def test_endpoint_reports_not_cached_yet_when_fmp_is_paused(monkeypatch):
     _fresh_engine(monkeypatch)
-    monkeypatch.setattr(settings, "fmp_enabled", False)
+    _dg.set_master(False)
 
     with TestClient(main.app) as client:
         response = client.get("/api/tickers/TEST/insider-activity")
@@ -961,15 +962,17 @@ def _cache_rows(engine):
 
 
 def test_the_documented_default_is_disabled():
-    from core.config import Settings
+    _dg.set_group_enabled("insider", False)  # undo the module's autouse enable
+    _dg.invalidate_cache()
+    import core.data_groups as dg
 
-    assert Settings.model_fields["insider_activity_enabled"].default is False
+    assert dg.GROUPS["insider"].default_enabled is False
 
 
 def test_disabled_returns_a_distinct_payload_with_no_fmp_call_and_no_cache_write(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     calls = _fmp_must_not_be_called(monkeypatch)
-    monkeypatch.setattr(insider_data.settings, "insider_activity_enabled", False)
+    _dg.set_group_enabled("insider", False)
 
     out = asyncio.run(get_insider_activity_data("test"))
 
@@ -988,7 +991,7 @@ def test_disabled_ignores_an_already_cached_row_entirely(monkeypatch):
     _seed_cache(engine, "insider_trading_search", [_row()], datetime.now())
     _seed_cache(engine, "insider_trading_statistics", [_stat(2026, 3, purchases=5)], datetime.now())
     _fmp_must_not_be_called(monkeypatch)
-    monkeypatch.setattr(insider_data.settings, "insider_activity_enabled", False)
+    _dg.set_group_enabled("insider", False)
 
     out = asyncio.run(get_insider_activity_data("TEST", cache_only=True))
 
@@ -1002,7 +1005,7 @@ def test_disabled_is_distinguishable_from_genuinely_empty_and_not_cached(monkeyp
     empty = asyncio.run(get_insider_activity_data("TEST"))  # enabled, cached and genuinely empty
     assert empty.enabled is True and empty.has_data is False and empty.as_of is not None
 
-    monkeypatch.setattr(insider_data.settings, "insider_activity_enabled", False)
+    _dg.set_group_enabled("insider", False)
     disabled = asyncio.run(get_insider_activity_data("TEST"))
     assert disabled.enabled is False and disabled.as_of is None
     assert len(_cache_rows(engine)) == 2  # only the enabled call wrote anything
@@ -1011,7 +1014,7 @@ def test_disabled_is_distinguishable_from_genuinely_empty_and_not_cached(monkeyp
 def test_disabled_endpoint_returns_the_disabled_shape_not_a_404(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     _fmp_must_not_be_called(monkeypatch)
-    monkeypatch.setattr(insider_data.settings, "insider_activity_enabled", False)
+    _dg.set_group_enabled("insider", False)
 
     response = TestClient(main.app).get("/api/tickers/AAPL/insider-activity")
 

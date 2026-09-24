@@ -1,3 +1,4 @@
+import core.data_groups as _dg
 import asyncio
 from datetime import datetime
 
@@ -186,7 +187,7 @@ def test_fmp_disabled_falls_back_to_tracked_universe_without_calling_fmp(monkeyp
         session.commit()
 
     monkeypatch.setattr(ticker_search, "engine", engine)
-    monkeypatch.setattr(ticker_search.settings, "fmp_enabled", False)
+    _dg.set_master(False)
 
     async def fail_if_called(query, limit):
         raise AssertionError("must not call FMP while FMP_ENABLED is False")
@@ -204,7 +205,7 @@ def test_fmp_disabled_falls_back_to_tracked_universe_without_calling_fmp(monkeyp
 
 
 def test_fmp_disabled_empty_query_returns_empty_without_touching_the_db(monkeypatch):
-    monkeypatch.setattr(ticker_search.settings, "fmp_enabled", False)
+    _dg.set_master(False)
 
     def fail_if_called(session):
         raise AssertionError("should not reach the tracked-universe fallback for an empty query")

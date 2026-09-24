@@ -1,3 +1,4 @@
+import core.data_groups as _dg
 import asyncio
 from datetime import datetime, timedelta
 
@@ -222,7 +223,7 @@ def test_source_is_never_fmp_regardless_of_fmp_enabled(monkeypatch, tmp_path):
     store_calls = _patch_store(monkeypatch)
 
     for fmp_enabled in (True, False):
-        monkeypatch.setattr(settings, "fmp_enabled", fmp_enabled)
+        _dg.set_master(fmp_enabled)
         asyncio.run(nightly_lz.main())
         assert store_calls[-1][1] != "fmp"
 

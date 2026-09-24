@@ -176,6 +176,10 @@ STATEMENT_TYPE_GROUP: dict[str, str] = {
     "insider_trading_search": "insider",
     "insider_trading_statistics": "insider",
     "news": "news",
+    # Not an FMP call (SEC EDGAR), but cached through the same gate and feeds
+    # the Debt/fundamentals cross-check; it was paused by the old global flag,
+    # so it rides with `fundamentals` to keep that behaviour.
+    "sec_company_facts": "fundamentals",
 }
 
 
@@ -325,6 +329,14 @@ def group_live(group: str) -> bool:
 
 def master_on() -> bool:
     return get_snapshot().master_on
+
+
+def group_user_enabled(group: str) -> bool:
+    """The user's own toggle only (ignores master/plan/restriction). For a
+    feature that is *shelved* rather than merely paused: master-off or a
+    restriction still serve cached rows, a user-off group serves nothing."""
+    state = get_snapshot().groups.get(group)
+    return bool(state and state.enabled)
 
 
 def statement_type_live(statement_type: str) -> bool:

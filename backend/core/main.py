@@ -13,8 +13,9 @@ from sqlmodel import Session, func, select
 
 from data.analyst_ratings_data import get_analyst_ratings_data
 from helpers.bank_capital_metrics import get_ticker_bank_capital_metrics, set_ticker_bank_capital_metrics
-from core.config import settings
+from core.config import settings  # noqa: F401  (tests patch main.settings)
 from core.cron_health import get_cron_health
+from core.data_groups import master_on
 from core.data_source_status import get_data_source_health
 from core.db import engine, init_db
 from core.exceptions import TickerNotFoundError
@@ -36,7 +37,7 @@ from core.models import IndexConstituent, SavedScreenerFilter, TickerCustomValua
 from core.tickers import normalize_ticker
 from data.news_data import get_news_data
 from pipeline.recompute_ticker_scores import recompute_all
-from pipeline.refresh import clear_ticker_cache
+from pipeline.refresh import clear_ticker_cache, groups_blocking_refresh
 from data.financials_data import get_cash_flow_cell_sec_check, get_financials_data
 from data.ratios_data import get_ratios_data
 from data.saved_screener_filters import delete_saved_filter, list_saved_filters, upsert_saved_filter
@@ -158,11 +159,11 @@ def health() -> dict:
 
 
 # Backs the site-wide paused banner (FmpPausedBanner) -- read once at
-# process start from settings.fmp_enabled, so the frontend doesn't need to
+# process start from the master switch (replaced by data-groups), so the frontend doesn't need to
 # poll this beyond SWR's own default revalidate-on-focus behavior.
 @app.get("/api/config/fmp-status", response_model=FmpStatusOut)
 def fmp_status() -> FmpStatusOut:
-    return FmpStatusOut(enabled=settings.fmp_enabled)
+    return FmpStatusOut(enabled=master_on())
 
 
 # Backs the site-wide CronHealthBanner. Unlike fmp_status above, this
@@ -644,14 +645,17 @@ async def ticker_news(ticker: str) -> NewsOut:
 
 @app.post("/api/tickers/{ticker}/refresh", response_model=RefreshResult)
 async def ticker_refresh(ticker: str) -> RefreshResult:
-    if not settings.fmp_enabled:
-        # Must not proceed to clear_ticker_cache below while FMP is paused:
-        # that would wipe the ticker's real cache and then be unable to
-        # repopulate it (the live re-fetch two lines down would just fail),
-        # leaving the ticker genuinely empty until FMP comes back -- the one
-        # destructive path in this whole feature, so it's blocked outright
-        # rather than just degraded.
-        raise HTTPException(status_code=503, detail="Refresh disabled while FMP is paused")
+    blocked = groups_blocking_refresh(ticker)
+    if blocked:
+        # Must not proceed to clear_ticker_cache below while any group it
+        # would clear (or that the immediate re-fetch below needs) is not
+        # live: that would wipe real cache rows and then be unable to
+        # repopulate them -- the one destructive path in the data-group
+        # feature, so it's blocked outright (never a partial clear).
+        raise HTTPException(
+            status_code=503,
+            detail="Refresh disabled: data group(s) not live: " + ", ".join(blocked),
+        )
     result = clear_ticker_cache(ticker)
     # cache_only=False (not the moat/CET1 endpoints' pattern below): the
     # cache was just cleared, so a cache_only read would see nothing and

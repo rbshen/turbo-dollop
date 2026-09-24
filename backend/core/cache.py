@@ -7,8 +7,8 @@ import httpx
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
-from clients.fmp_client import FMPDisabledError
-from core.config import settings
+from clients.fmp_client import FMPGroupDisabledError
+from core.data_groups import describe_off, group_for_statement_type, statement_type_live
 from core.models import FundamentalsCache
 
 logger = logging.getLogger(__name__)
@@ -71,10 +71,11 @@ async def get_or_fetch(
     if row and now - row.fetched_at < timedelta(days=staleness_days):
         return json.loads(row.raw_json)
 
-    if cache_only or not settings.fmp_enabled:
+    if cache_only or not statement_type_live(statement_type):
         # cache_only=True: used by ticker_score.py's recompute path, which
-        # must make zero FMP calls. settings.fmp_enabled=False: the FMP
-        # subscription is paused -- every caller must behave as if
+        # must make zero FMP calls. Group not live (master switch off,
+        # group disabled, above plan, or restricted -- core/data_groups.py):
+        # the FMP data group is paused -- every caller must behave as if
         # cache_only were forced True, without needing its own change (see
         # CLAUDE.md's FMP-pause investigation). Either way, returns
         # whatever's cached (even if stale) rather than nothing, since a
@@ -139,7 +140,7 @@ async def get_or_fetch_earnings_aware(
     if row and not _is_earnings_aware_stale(row, most_recent_earnings_date, fallback_staleness_days):
         return json.loads(row.raw_json)
 
-    if cache_only or not settings.fmp_enabled:
+    if cache_only or not statement_type_live(statement_type):
         # See get_or_fetch's own comment on this same condition.
         return json.loads(row.raw_json) if row else None
 
@@ -163,18 +164,21 @@ async def force_fetch(
     the freshest possible price on every interactive view rather than
     respecting the flat staleness window).
 
-    When settings.fmp_enabled is False, "force a live fetch" has no meaning
+    When the statement type's data group is not live, "force a live fetch" has no meaning
     -- falls back to serving the existing cached row instead (same
     stale-is-better-than-nothing semantics as get_or_fetch's own cache_only
-    branch), or raises FMPDisabledError if nothing is cached yet, which
+    branch), or raises FMPGroupDisabledError if nothing is cached yet, which
     every caller already reaches through safe_fetch and treats like any
     other fetch failure."""
-    if not settings.fmp_enabled:
+    if not statement_type_live(statement_type):
         row = _load_cache_row(session, ticker, statement_type, period)
         if row:
             return json.loads(row.raw_json)
-        raise FMPDisabledError(
-            f"FMP_ENABLED is False and no cached {statement_type}/{period} exists for {ticker}"
+        group = group_for_statement_type(statement_type) or "fmp"
+        raise FMPGroupDisabledError(
+            f"data group {group} is off ({describe_off(group) if group != 'fmp' else 'master switch off'}) "
+            f"and no cached {statement_type}/{period} exists for {ticker}",
+            group=group,
         )
 
     data = await fetch_fn()

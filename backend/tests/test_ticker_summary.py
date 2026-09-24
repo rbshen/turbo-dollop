@@ -1,3 +1,4 @@
+import core.data_groups as _dg
 import asyncio
 from datetime import date, datetime, timedelta
 
@@ -1097,7 +1098,7 @@ def test_get_summary_uses_yahoo_price_when_fmp_disabled(monkeypatch):
     the board, EXCEPT price, which must come from a live Yahoo close
     instead of staying null/stale."""
     _fresh_summary_engine(monkeypatch)
-    monkeypatch.setattr(ticker_summary.settings, "fmp_enabled", False)
+    _dg.set_master(False)
 
     async def fake_get_or_fetch_price_history(ticker, period="2y", cache_only=False):
         return [_FakeYahooRow(close=123.45)]
@@ -1118,7 +1119,7 @@ def test_get_summary_yahoo_fallback_never_fires_when_fmp_enabled(monkeypatch):
     any fmp_client method unmocked while forcing fmp_enabled=True here would
     otherwise fall through to a real, slow, flaky HTTP attempt."""
     _fresh_summary_engine(monkeypatch)
-    monkeypatch.setattr(ticker_summary.settings, "fmp_enabled", True)
+    _dg.set_master(True)
 
     async def fake_quote(ticker):
         return FAKE_QUOTE
@@ -1159,7 +1160,7 @@ def test_get_summary_cache_only_never_consults_yahoo_even_when_fmp_disabled(monk
     FMP -- the Yahoo fallback must not fire under cache_only=True even
     while FMP is paused."""
     _fresh_summary_engine(monkeypatch)
-    monkeypatch.setattr(ticker_summary.settings, "fmp_enabled", False)
+    _dg.set_master(False)
 
     async def fail_if_called(ticker, period="2y", cache_only=False):
         raise AssertionError("cache_only must never call Yahoo live")
@@ -1186,7 +1187,7 @@ def test_get_summary_yahoo_fallback_keeps_stale_price_when_yahoo_has_no_data(mon
         )
         session.commit()
 
-    monkeypatch.setattr(ticker_summary.settings, "fmp_enabled", False)
+    _dg.set_master(False)
 
     async def fake_empty(ticker, period="2y", cache_only=False):
         return []
@@ -1268,7 +1269,7 @@ def test_fetch_massive_latest_price_is_none_when_no_snapshot_exists(monkeypatch)
 
 def test_get_summary_prefers_massive_price_over_yahoo_when_both_available(monkeypatch):
     _fresh_summary_engine(monkeypatch)
-    monkeypatch.setattr(ticker_summary.settings, "fmp_enabled", False)
+    _dg.set_master(False)
     monkeypatch.setattr(ticker_summary.settings, "massive_enabled", True)
 
     async def fake_snapshot(symbol):
@@ -1288,7 +1289,7 @@ def test_get_summary_prefers_massive_price_over_yahoo_when_both_available(monkey
 
 def test_get_summary_falls_back_to_yahoo_when_massive_has_no_price(monkeypatch):
     _fresh_summary_engine(monkeypatch)
-    monkeypatch.setattr(ticker_summary.settings, "fmp_enabled", False)
+    _dg.set_master(False)
     monkeypatch.setattr(ticker_summary.settings, "massive_enabled", True)
 
     async def fake_snapshot_none(symbol):

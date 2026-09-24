@@ -42,7 +42,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from core.config import settings
+from core.data_groups import job_skip_reason
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from scrapers.dow_scraper import refresh_dow_constituents
@@ -59,8 +59,9 @@ async def main() -> int | None:
     logger = logging.getLogger(__name__)
     init_db()
 
-    if not settings.fmp_enabled:
-        logger.info("Dow constituent list refresh skipped: FMP paused (FMP_ENABLED=False).")
+    skip_reason = job_skip_reason("index_membership")
+    if skip_reason:
+        logger.info("Dow constituent list refresh %s.", skip_reason)
         return None
 
     with Session(engine) as session:

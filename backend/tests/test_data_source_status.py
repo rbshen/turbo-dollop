@@ -1,3 +1,4 @@
+import core.data_groups as _dg
 from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
@@ -46,7 +47,7 @@ def test_status_for_very_stale_success_is_disabled_or_failing():
 def test_get_data_source_health_reflects_fmp_enabled_flag(monkeypatch, _isolate_data_source_health_engine):
     import core.data_source_status as data_source_status
 
-    monkeypatch.setattr(data_source_status.settings, "fmp_enabled", False)
+    _dg.set_master(False)
     result = get_data_source_health()
     fmp = next(s for s in result.sources if s.source == "fmp")
     assert fmp.enabled is False

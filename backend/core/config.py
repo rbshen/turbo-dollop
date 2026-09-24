@@ -17,28 +17,18 @@ class Settings(BaseSettings):
 
     fmp_api_key: str = ""
     fmp_base_url: str = "https://financialmodelingprep.com/stable"
-    # Global kill switch for pausing the FMP subscription -- when False, the
-    # app must run entirely cache-only, no live network attempts. Enforced
-    # at two layers: clients.fmp_client.FMPClient.get (the literal choke
-    # point every FMP call passes through, guaranteeing zero network
-    # attempts) and core.cache's get_or_fetch/get_or_fetch_earnings_aware/
-    # force_fetch (which additionally preserve stale-cache-serving
-    # semantics, rather than just failing like a genuine fetch error would).
-    # Read once at process start -- toggling the FMP_ENABLED env var
-    # requires a backend restart to take effect, same as every other
-    # Settings field.
-    fmp_enabled: bool = True
+    # FMP on/off is no longer an env flag: per-data-group toggles, the master
+    # "disable all FMP" switch and the user's FMP plan live in the DB
+    # (core/data_groups.py), editable in Settings and via
+    # `python -m pipeline.data_groups`. Only the key/base URL stay here.
     # Massive.com (a Polygon.io rebrand) -- the daily-bar price-data
     # provider replacing Yahoo Finance for every US-listed daily-bar
     # consumer (see docs/massive_feasibility_investigation_2026-09-23.md).
-    # Same read-once-at-process-start / global-kill-switch convention as
-    # fmp_enabled: False routes every ticker straight to Yahoo
+    # Read once at process start, global kill switch (replaced in P2): False routes every ticker straight to Yahoo
     # (clients/daily_bar_sources.py::YahooDailySource), zero Massive calls,
-    # the full rollback lever with no code revert needed. Unlike
-    # fmp_enabled, Yahoo stays wired in regardless (non-US tickers always
+    # the full rollback lever with no code revert needed. Yahoo stays wired in regardless (non-US tickers always
     # need it, see core/tickers.py::is_non_us_ticker), so there is no
-    # equivalent of FMP_ENABLED=false's "serve stale cache, no live calls"
-    # degrade mode here -- disabling Massive just means "use Yahoo for
+    # "serve stale cache, no live calls" degrade mode here -- disabling Massive just means "use Yahoo for
     # everything," a live source either way.
     massive_enabled: bool = True
     massive_api_key: str = ""
@@ -47,21 +37,11 @@ class Settings(BaseSettings):
     # banner -- CronRunLog rows keep being written regardless (see
     # core/cron_health.py::cron_heartbeat), so history isn't lost and
     # nothing needs to be gated at the write layer. Useful for muting
-    # cron-health surfacing during an extended FMP_ENABLED=false pause,
+    # cron-health surfacing during an extended FMP pause,
     # where the operator already knows the situation and doesn't need a
     # second banner competing with FmpPausedBanner. Read once at process
     # start, same as every other Settings field.
     cron_health_enabled: bool = True
-    # Insider Activity is shelved (2026-09-20): the tab is off the ticker
-    # page and the feature makes no FMP calls and touches no cache while
-    # this is False. The code (data/insider_activity_data.py, the route, and
-    # the frontend components) is deliberately left in place so it can be
-    # revived by setting INSIDER_ACTIVITY_ENABLED=true and re-adding the tab
-    # (frontend/lib/tickerTabs.ts + TickerTabsContainer.tsx). Gated in
-    # get_insider_activity_data itself, so the route inherits it -- same
-    # shape as cron_health_enabled/get_cron_health(). Read once at process
-    # start, same as every other Settings field.
-    insider_activity_enabled: bool = False
     database_path: str = "fathom.db"
     cache_staleness_days: int = 7
     # YahooPriceCache (the FMP-paused Price/Quote fallback) is judged by

@@ -1,3 +1,4 @@
+import core.data_groups as _dg
 from fastapi.testclient import TestClient
 
 import core.main as main
@@ -19,7 +20,7 @@ def test_fmp_status_reports_enabled_true_by_default():
 
 
 def test_fmp_status_reflects_the_flag_when_disabled(monkeypatch):
-    monkeypatch.setattr(main.settings, "fmp_enabled", False)
+    _dg.set_master(False)
     with TestClient(app) as client:
         response = client.get("/api/config/fmp-status")
     assert response.status_code == 200

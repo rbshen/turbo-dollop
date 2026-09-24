@@ -41,7 +41,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from core.config import settings
+from core.data_groups import job_skip_reason
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from helpers.first import _first
@@ -83,7 +83,8 @@ async def main(tickers: list[str] | None = None) -> dict:
     logger = logging.getLogger(__name__)
     init_db()
 
-    if not settings.fmp_enabled:
+    skip_reason = job_skip_reason("analyst_ratings")
+    if skip_reason:
         # Same rationale as nightly_fundamentals_fetch.py's equivalent guard
         # (check first, before even resolving the ticker universe) -- but
         # this script's own reason is slightly different: it doesn't go
@@ -98,7 +99,7 @@ async def main(tickers: list[str] | None = None) -> dict:
         # consumer) can still tell "gated no-op, 0 processed by design"
         # apart from "ran normally and genuinely snapshotted nothing" --
         # same convention nightly_fundamentals_fetch.py already uses.
-        logger.info("Monthly price-target snapshot skipped: FMP paused (FMP_ENABLED=False).")
+        logger.info("Monthly price-target snapshot %s.", skip_reason)
         return {"processed": 0, "failed": 0, "calls_made": 0, "duration_seconds": 0.0, "failures": [], "skipped": True}
 
     if tickers is None:

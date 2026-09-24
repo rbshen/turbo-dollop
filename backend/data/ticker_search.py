@@ -3,7 +3,7 @@ import asyncio
 from sqlmodel import Session
 
 from clients.fmp_client import fmp_client
-from core.config import settings
+from core.data_groups import group_live
 from core.db import engine
 from core.schemas import TickerSearchResult
 from core.tickers import normalize_ticker
@@ -101,7 +101,7 @@ async def search_tickers(query: str) -> list[TickerSearchResult]:
     Deduped by symbol (best-ranked occurrence wins, not first-seen-in-
     FMP's-raw-order), capped at SEARCH_RESULT_LIMIT total.
 
-    While FMP is paused (settings.fmp_enabled=False), falls back to
+    While the profile_quote group is not live, falls back to
     _search_tracked_universe instead of calling FMP directly -- this
     function is the one call site in the app that never went through
     core.cache (deliberately uncached, see above), so it needs its own
@@ -111,7 +111,7 @@ async def search_tickers(query: str) -> list[TickerSearchResult]:
     if not query:
         return []
 
-    if not settings.fmp_enabled:
+    if not group_live("profile_quote"):
         return _search_tracked_universe(query)
 
     symbol_matches, name_matches = await asyncio.gather(

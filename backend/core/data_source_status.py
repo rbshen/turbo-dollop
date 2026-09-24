@@ -16,6 +16,7 @@ from sqlmodel import Session
 
 import core.data_source_health as data_source_health
 from core.config import settings
+from core.data_groups import master_on
 from core.models import DataSourceHealth
 from core.schemas import DataSourceHealthOut, DataSourceStatusOut
 
@@ -65,8 +66,8 @@ def get_data_source_health() -> DataSourceHealthOut:
         sources=[
             DataSourceStatusOut(
                 source="fmp",
-                enabled=settings.fmp_enabled,
-                status=_status_for(settings.fmp_enabled, fmp_last_success, now),
+                enabled=master_on(),
+                status=_status_for(master_on(), fmp_last_success, now),
                 last_success_at=fmp_last_success,
             ),
             DataSourceStatusOut(

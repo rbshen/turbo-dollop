@@ -1,3 +1,4 @@
+import core.data_groups as _dg
 import asyncio
 
 import pandas as pd
@@ -51,8 +52,8 @@ def test_get_technical_source_always_returns_yahoo(monkeypatch):
     # pattern.
     from core.config import settings
 
-    monkeypatch.setattr(settings, "fmp_enabled", True)
+    _dg.set_master(True)
     assert isinstance(get_technical_source(), YahooTechnicalSource)
 
-    monkeypatch.setattr(settings, "fmp_enabled", False)
+    _dg.set_master(False)
     assert isinstance(get_technical_source(), YahooTechnicalSource)

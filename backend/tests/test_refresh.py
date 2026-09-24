@@ -1,3 +1,4 @@
+import core.data_groups as _dg
 import asyncio
 from datetime import datetime
 
@@ -277,7 +278,7 @@ def test_ticker_refresh_disabled_while_fmp_is_paused_leaves_cache_untouched(monk
     would wipe a ticker's real cache and never get it back until FMP
     returns."""
     engine = _fresh_shared_engine(monkeypatch)
-    monkeypatch.setattr(main.settings, "fmp_enabled", False)
+    _dg.set_master(False)
 
     with Session(engine) as session:
         _seed(session, "AAPL", "profile", "latest")
@@ -292,6 +293,40 @@ def test_ticker_refresh_disabled_while_fmp_is_paused_leaves_cache_untouched(monk
     with Session(engine) as session:
         remaining = session.exec(select(FundamentalsCache).where(FundamentalsCache.ticker == "AAPL")).all()
     assert len(remaining) == 1  # cache untouched -- clear_ticker_cache never ran
+
+
+def test_ticker_refresh_503s_when_any_cached_group_is_off_and_never_partially_clears(monkeypatch):
+    """Per-group version of the guard above: news is off, the ticker has a
+    cached news row (plus live-group rows) -> 503, NOTHING cleared."""
+    engine = _fresh_shared_engine(monkeypatch)
+    _dg.set_group_enabled("news", False)
+
+    with Session(engine) as session:
+        _seed(session, "AAPL", "profile", "latest")
+        _seed(session, "AAPL", "news", "latest")
+        session.commit()
+
+    with TestClient(main.app) as client:
+        response = client.post("/api/tickers/AAPL/refresh")
+
+    assert response.status_code == 503
+    assert "news" in response.json()["detail"]
+    with Session(engine) as session:
+        remaining = session.exec(select(FundamentalsCache).where(FundamentalsCache.ticker == "AAPL")).all()
+    assert len(remaining) == 2
+
+
+def test_groups_blocking_refresh_ignores_off_groups_with_no_cached_rows(monkeypatch):
+    from pipeline.refresh import groups_blocking_refresh
+
+    engine = _fresh_shared_engine(monkeypatch)
+    _dg.set_group_enabled("news", False)
+    with Session(engine) as session:
+        _seed(session, "AAPL", "profile", "latest")
+        session.commit()
+    assert groups_blocking_refresh("AAPL") == []
+    _dg.set_group_enabled("fundamentals", False)  # always needed by the recompute
+    assert groups_blocking_refresh("AAPL") == ["fundamentals"]
 
 
 def test_ticker_refresh_survives_a_failing_step_during_the_post_clear_recompute(monkeypatch):

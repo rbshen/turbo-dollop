@@ -1,3 +1,4 @@
+import core.data_groups as _dg
 import asyncio
 import time
 
@@ -84,7 +85,7 @@ def test_disabled_raises_without_ever_touching_the_network(monkeypatch):
         raise AssertionError("must not attempt a network call while FMP_ENABLED is False")
 
     _install_mock_transport(monkeypatch, fail_if_called)
-    monkeypatch.setattr(fmp_client_module.settings, "fmp_enabled", False)
+    _dg.set_master(False)
     client = FMPClient(api_key="x")
 
     with pytest.raises(FMPDisabledError):
@@ -179,3 +180,85 @@ def test_get_earnings_history_and_dividends_request_the_deeper_limits(monkeypatc
     # base_url carries a /stable prefix; only the endpoint suffix matters here.
     assert seen[0][0].endswith("/earnings") and (seen[0][1]["symbol"], seen[0][1]["limit"]) == ("AAPL", "40")
     assert seen[1][0].endswith("/dividends") and (seen[1][1]["symbol"], seen[1][1]["limit"]) == ("AAPL", "400")
+
+
+def _recording_transport(monkeypatch):
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.path)
+        return httpx.Response(200, json=[{"ok": True}])
+
+    _install_mock_transport(monkeypatch, handler)
+    return seen
+
+
+def test_only_the_endpoints_own_group_is_gated(monkeypatch):
+    from clients.fmp_client import FMPGroupDisabledError
+
+    seen = _recording_transport(monkeypatch)
+    _dg.set_group_enabled("fundamentals", False)
+    client = FMPClient(api_key="x")
+
+    with pytest.raises(FMPGroupDisabledError) as exc:
+        asyncio.run(client.get_income_statement("AAPL", "annual", 1))
+    assert exc.value.group == "fundamentals"
+    assert isinstance(exc.value, FMPDisabledError)  # existing except sites keep working
+    assert seen == []
+
+    asyncio.run(client.get_profile("AAPL"))  # profile_quote still live
+    assert seen == ["/stable/profile"]
+
+
+def test_forex_quote_follows_fundamentals_not_profile_quote(monkeypatch):
+    from clients.fmp_client import FMPGroupDisabledError
+
+    seen = _recording_transport(monkeypatch)
+    _dg.set_group_enabled("profile_quote", False)
+    client = FMPClient(api_key="x")
+
+    asyncio.run(client.get_forex_quote("EUR"))  # fundamentals live -> allowed
+    with pytest.raises(FMPGroupDisabledError):
+        asyncio.run(client.get_quote("AAPL"))
+    assert seen == ["/stable/quote"]
+
+
+def test_earnings_history_follows_corporate_events_not_fundamentals(monkeypatch):
+    from clients.fmp_client import FMPGroupDisabledError
+
+    _recording_transport(monkeypatch)
+    _dg.set_group_enabled("corporate_events", False)
+    client = FMPClient(api_key="x")
+
+    asyncio.run(client.get_earnings("AAPL"))
+    with pytest.raises(FMPGroupDisabledError):
+        asyncio.run(client.get_earnings_history("AAPL"))
+
+
+def test_above_plan_and_restricted_groups_refuse_live_calls(monkeypatch):
+    from clients.fmp_client import FMPGroupDisabledError
+
+    _recording_transport(monkeypatch)
+    _dg.set_fmp_plan("Starter")
+    client = FMPClient(api_key="x")
+    with pytest.raises(FMPGroupDisabledError):
+        asyncio.run(client.get_ratios("AAPL"))  # fundamentals needs Premium
+    _dg.set_fmp_plan("Ultimate")
+    _dg.mark_restricted("news", "402")
+    with pytest.raises(FMPGroupDisabledError):
+        asyncio.run(client.get_stock_news("AAPL"))
+
+
+def test_unmapped_endpoint_fails_closed(monkeypatch):
+    from clients.fmp_client import FMPGroupDisabledError
+
+    seen = _recording_transport(monkeypatch)
+    with pytest.raises(FMPGroupDisabledError):
+        asyncio.run(FMPClient(api_key="x").get("/brand-new-endpoint", {"symbol": "AAPL"}))
+    assert seen == []
+
+
+def test_successful_call_records_group_success(monkeypatch):
+    _recording_transport(monkeypatch)
+    asyncio.run(FMPClient(api_key="x").get_profile("AAPL"))
+    assert _dg.get_snapshot().groups["profile_quote"].last_success_at is not None

@@ -90,7 +90,7 @@ async def get_cik(session: Session, ticker: str, staleness_days: int, cache_only
     hardcoded to the get_or_fetch default of False) -- now threaded through
     like every other FMP-backed fetch in this codebase, so a caller that
     needs a cache-only read can actually get one. In practice this is
-    covered automatically whenever settings.fmp_enabled is False too, via
+    covered automatically whenever the profile_quote group is not live too, via
     get_or_fetch's own check -- this parameter exists for the same explicit
     per-call cache_only control every other module already has."""
     ticker = normalize_ticker(ticker)
@@ -239,7 +239,7 @@ async def _cross_check(
 
         facts = await get_company_facts(session, ticker, cik, staleness_days)
         if facts is None:
-            # Only reachable when FMP_ENABLED is False and this ticker's
+            # Only reachable when the fundamentals group is not live and this ticker's
             # sec_company_facts row has never been cached (get_or_fetch
             # returns None rather than fetching live) -- degrade the same
             # way a missing CIK does, don't let finder() below blow up on a

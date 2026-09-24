@@ -1,3 +1,4 @@
+import core.data_groups as _dg
 import asyncio
 import json
 from datetime import date, datetime
@@ -317,7 +318,7 @@ def test_cross_check_degrades_gracefully_when_fmp_paused_and_company_facts_never
     # clean unavailable result, not blow up inside finder() on a None facts
     # dict.
     engine = _fresh_engine(monkeypatch)
-    monkeypatch.setattr(sec_edgar.settings, "fmp_enabled", False)
+    _dg.set_master(False)
 
     with Session(engine) as session:
         session.add(

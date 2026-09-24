@@ -1,3 +1,4 @@
+import core.data_groups as _dg
 import asyncio
 from datetime import date
 
@@ -178,7 +179,7 @@ def _patch_yahoo(monkeypatch, *, earnings_error: Exception | None = None, divide
 
 
 def test_uses_fmp_when_enabled_and_never_touches_yahoo(monkeypatch):
-    monkeypatch.setattr(ced.settings, "fmp_enabled", True)
+    _dg.set_master(True)
     fmp_calls = _patch_fmp(monkeypatch)
     yahoo_calls = _patch_yahoo(monkeypatch)
 
@@ -192,7 +193,7 @@ def test_uses_fmp_when_enabled_and_never_touches_yahoo(monkeypatch):
 
 
 def test_fmp_disabled_goes_straight_to_yahoo_with_zero_fmp_calls(monkeypatch):
-    monkeypatch.setattr(ced.settings, "fmp_enabled", False)
+    _dg.set_master(False)
     fmp_calls = _patch_fmp(monkeypatch)
     _patch_yahoo(monkeypatch)
 
@@ -205,7 +206,7 @@ def test_fmp_disabled_goes_straight_to_yahoo_with_zero_fmp_calls(monkeypatch):
 
 
 def test_fmp_http_error_falls_back_to_yahoo(monkeypatch):
-    monkeypatch.setattr(ced.settings, "fmp_enabled", True)
+    _dg.set_master(True)
     _patch_fmp(monkeypatch, error=httpx.HTTPError("402 Payment Required"))
     _patch_yahoo(monkeypatch)
 
@@ -216,7 +217,7 @@ def test_fmp_http_error_falls_back_to_yahoo(monkeypatch):
 
 
 def test_fmp_error_payload_falls_back_to_yahoo(monkeypatch):
-    monkeypatch.setattr(ced.settings, "fmp_enabled", True)
+    _dg.set_master(True)
     _patch_fmp(monkeypatch, earnings={"Error Message": "bad"})
     _patch_yahoo(monkeypatch)
 
@@ -226,7 +227,7 @@ def test_fmp_error_payload_falls_back_to_yahoo(monkeypatch):
 def test_fmp_empty_lists_are_a_real_answer_not_a_reason_to_fall_back(monkeypatch):
     # TSLA-shape: no dividends. An empty FMP result is authoritative -- calling
     # Yahoo for every non-payer would just double the calls.
-    monkeypatch.setattr(ced.settings, "fmp_enabled", True)
+    _dg.set_master(True)
     _patch_fmp(monkeypatch, dividends=[])
     yahoo_calls = _patch_yahoo(monkeypatch)
 
@@ -238,7 +239,7 @@ def test_fmp_empty_lists_are_a_real_answer_not_a_reason_to_fall_back(monkeypatch
 
 
 def test_yahoo_tolerates_one_kind_failing(monkeypatch):
-    monkeypatch.setattr(ced.settings, "fmp_enabled", False)
+    _dg.set_master(False)
     _patch_yahoo(monkeypatch, earnings_error=RuntimeError("no earnings calendar"))
 
     out = asyncio.run(fetch_chart_events("SPY"))
@@ -249,7 +250,7 @@ def test_yahoo_tolerates_one_kind_failing(monkeypatch):
 
 
 def test_every_source_failing_yields_source_none_and_never_raises(monkeypatch):
-    monkeypatch.setattr(ced.settings, "fmp_enabled", True)
+    _dg.set_master(True)
     _patch_fmp(monkeypatch, error=httpx.ConnectError("boom"))
     _patch_yahoo(monkeypatch, earnings_error=RuntimeError("x"), dividends_error=RuntimeError("y"))
 
@@ -259,7 +260,7 @@ def test_every_source_failing_yields_source_none_and_never_raises(monkeypatch):
 
 
 def test_a_hung_source_is_cut_off_by_the_timeout(monkeypatch):
-    monkeypatch.setattr(ced.settings, "fmp_enabled", True)
+    _dg.set_master(True)
     monkeypatch.setattr(ced, "EVENTS_FETCH_TIMEOUT_SECONDS", 0.05)
 
     async def hang(ticker, limit=40):
@@ -275,7 +276,7 @@ def test_a_hung_source_is_cut_off_by_the_timeout(monkeypatch):
 
 def test_failure_log_never_includes_the_exception_message(monkeypatch, caplog):
     # httpx error messages embed the request URL (apikey included).
-    monkeypatch.setattr(ced.settings, "fmp_enabled", True)
+    _dg.set_master(True)
     _patch_fmp(monkeypatch, error=httpx.HTTPError("https://x/earnings?apikey=SECRET"))
     _patch_yahoo(monkeypatch)
 

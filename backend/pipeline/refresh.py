@@ -1,9 +1,36 @@
 from sqlmodel import Session, select
 
+from core.data_groups import group_for_statement_type, group_live, master_on
 from core.db import engine
 from core.models import FundamentalsCache
 from core.schemas import RefreshResult
 from core.tickers import normalize_ticker
+
+
+# The score recompute that ticker_refresh runs right after the clear always
+# needs these two groups live, whether or not they have cached rows yet.
+_REFRESH_ALWAYS_NEEDS = ("profile_quote", "fundamentals")
+
+
+def groups_blocking_refresh(ticker: str) -> list[str]:
+    """Data groups that are not live but that a refresh of `ticker` would
+    clear rows from (or re-fetch through). Empty list = safe to refresh.
+    If anything is blocking, the refresh must 503 rather than clear only
+    part of the cache: a cleared row in an off group can never be
+    re-fetched."""
+    ticker = normalize_ticker(ticker)
+    with Session(engine) as session:
+        cached_types = set(
+            session.exec(select(FundamentalsCache.statement_type).where(FundamentalsCache.ticker == ticker)).all()
+        )
+    if not master_on():
+        return ["master switch (FMP paused)"]
+    needed = set(_REFRESH_ALWAYS_NEEDS)
+    for statement_type in cached_types:
+        group = group_for_statement_type(statement_type)
+        if group is not None:  # unmapped types are only subject to the master switch
+            needed.add(group)
+    return sorted(g for g in needed if not group_live(g))
 
 
 def clear_ticker_cache(ticker: str) -> RefreshResult:

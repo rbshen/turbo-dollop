@@ -1,3 +1,4 @@
+import core.data_groups as _dg
 import asyncio
 from datetime import date, datetime, timedelta
 
@@ -364,7 +365,7 @@ def test_earnings_aware_cache_only_never_calls_fetch_fn_even_when_stale():
 
 
 def test_fmp_disabled_serves_stale_row_without_calling_fetch_fn(monkeypatch):
-    monkeypatch.setattr(cache_module.settings, "fmp_enabled", False)
+    _dg.set_master(False)
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
 
@@ -396,7 +397,7 @@ def test_fmp_disabled_serves_stale_row_without_calling_fetch_fn(monkeypatch):
 
 
 def test_fmp_disabled_returns_none_when_no_row_exists(monkeypatch):
-    monkeypatch.setattr(cache_module.settings, "fmp_enabled", False)
+    _dg.set_master(False)
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
 
@@ -412,7 +413,7 @@ def test_fmp_disabled_returns_none_when_no_row_exists(monkeypatch):
 
 
 def test_fmp_disabled_earnings_aware_serves_stale_row(monkeypatch):
-    monkeypatch.setattr(cache_module.settings, "fmp_enabled", False)
+    _dg.set_master(False)
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
 
@@ -450,7 +451,7 @@ def test_fmp_disabled_earnings_aware_serves_stale_row(monkeypatch):
 
 
 def test_fmp_disabled_force_fetch_serves_existing_row_instead_of_fetching(monkeypatch):
-    monkeypatch.setattr(cache_module.settings, "fmp_enabled", False)
+    _dg.set_master(False)
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
 
@@ -478,7 +479,7 @@ def test_fmp_disabled_force_fetch_serves_existing_row_instead_of_fetching(monkey
 
 
 def test_fmp_disabled_force_fetch_raises_when_no_row_exists(monkeypatch):
-    monkeypatch.setattr(cache_module.settings, "fmp_enabled", False)
+    _dg.set_master(False)
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
 
@@ -514,3 +515,65 @@ def test_earnings_aware_fetches_when_no_row_exists():
 
     result = asyncio.run(run())
     assert result == [{"value": 1}]
+
+
+
+def _seed_row(engine, statement_type, ticker="AAPL"):
+    with Session(engine) as session:
+        session.add(
+            FundamentalsCache(
+                ticker=ticker,
+                statement_type=statement_type,
+                period="latest",
+                fetched_at=datetime.now() - timedelta(days=30),
+                raw_json='{"cached": true}',
+            )
+        )
+        session.commit()
+
+
+def test_cache_gate_is_per_statement_type_group_not_global():
+    """news is off: a stale `news` row is served without calling fetch_fn,
+    while a stale `profile` row (profile_quote group, still live) refetches."""
+    _dg.set_group_enabled("news", False)
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+    _seed_row(engine, "news")
+    _seed_row(engine, "profile")
+
+    async def must_not_fetch():
+        raise AssertionError("group is off -- no live fetch")
+
+    async def fresh():
+        return {"fresh": True}
+
+    async def run():
+        with Session(engine) as session:
+            news = await get_or_fetch(session, "AAPL", "news", "latest", must_not_fetch, staleness_days=7)
+            profile = await get_or_fetch(session, "AAPL", "profile", "latest", fresh, staleness_days=7)
+            return news, profile
+
+    news, profile = asyncio.run(run())
+    assert news == {"cached": True}
+    assert profile == {"fresh": True}
+
+
+def test_force_fetch_group_off_serves_cache_or_raises_group_error():
+    from clients.fmp_client import FMPGroupDisabledError
+
+    _dg.set_group_enabled("profile_quote", False)
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+    _seed_row(engine, "quote")
+
+    async def must_not_fetch():
+        raise AssertionError("no live fetch")
+
+    async def run():
+        with Session(engine) as session:
+            cached = await force_fetch(session, "AAPL", "quote", "latest", must_not_fetch)
+            with pytest.raises(FMPGroupDisabledError):
+                await force_fetch(session, "MSFT", "quote", "latest", must_not_fetch)
+            return cached
+
+    assert asyncio.run(run()) == {"cached": True}

@@ -5,6 +5,7 @@ import time
 import httpx
 
 from core.config import settings
+from core.data_groups import describe_off, effective_state, group_for_endpoint, record_group_success
 from core.data_source_health import record_success
 
 logger = logging.getLogger(__name__)
@@ -19,15 +20,27 @@ RATE_LIMIT_RETRY_BACKOFF_SECONDS = 65.0
 
 
 class FMPDisabledError(httpx.HTTPError):
-    """Raised by FMPClient.get instead of attempting a network call when
-    settings.fmp_enabled is False -- subclasses httpx.HTTPError so every
+    """Raised by FMPClient.get instead of attempting a network call when the
+    endpoint's data group is not live -- subclasses httpx.HTTPError so every
     existing safe_fetch/except-httpx.HTTPError call site already treats
     this exactly like any other fetch failure, no changes needed there.
     core.cache's get_or_fetch/get_or_fetch_earnings_aware/force_fetch check
-    the same flag directly (see their own comments) so a stale cached row
-    is served instead of this ever needing to be caught in practice for
-    those call sites -- this exists as the literal single choke point that
-    guarantees zero network attempts regardless of caller."""
+    the same per-group state directly (see their own comments) so a stale
+    cached row is served instead of this ever needing to be caught in
+    practice for those call sites -- this exists as the literal single
+    choke point that guarantees zero network attempts regardless of
+    caller."""
+
+
+class FMPGroupDisabledError(FMPDisabledError):
+    """The specific FMPDisabledError FMPClient.get raises for a group that
+    is not live (master switch off, group disabled, required tier above the
+    user's plan, or restricted by FMP) -- see core/data_groups.py.
+    `group` names the data group so callers/logs can say which."""
+
+    def __init__(self, message: str, group: str | None = None) -> None:
+        super().__init__(message)
+        self.group = group
 
 
 class FMPClient:
@@ -61,9 +74,20 @@ class FMPClient:
                     await asyncio.sleep(wait)
             self._last_request_at = time.monotonic()
 
-    async def get(self, endpoint: str, params: dict | None = None) -> dict | list:
-        if not settings.fmp_enabled:
-            raise FMPDisabledError(f"FMP_ENABLED is False -- refusing live call to {endpoint}")
+    async def get(self, endpoint: str, params: dict | None = None, group: str | None = None) -> dict | list:
+        """`group` overrides the endpoint's default data group -- only for an
+        endpoint that serves two features (see
+        core.data_groups.ENDPOINT_GROUP_OVERRIDES_USED)."""
+        group = group or group_for_endpoint(endpoint)
+        if group is None:
+            # Fail closed: an unmapped endpoint must never bypass the gate
+            # (tests/test_data_groups_registry.py keeps this unreachable).
+            raise FMPGroupDisabledError(f"no data group mapped for endpoint {endpoint}", group=None)
+        live, _reason = effective_state(group)
+        if not live:
+            raise FMPGroupDisabledError(
+                f"data group {group} is off ({describe_off(group)}) -- refusing live call to {endpoint}", group=group
+            )
         query = {**(params or {}), "apikey": self.api_key}
         for attempt in range(RATE_LIMIT_MAX_RETRIES + 1):
             await self._pace()
@@ -82,6 +106,7 @@ class FMPClient:
                 continue
             response.raise_for_status()
             record_success("fmp")
+            record_group_success(group)
             return response.json()
         raise AssertionError("unreachable")  # loop always returns or raises above
 
@@ -104,7 +129,7 @@ class FMPClient:
         for which side is "normal." Used by step3_data.py's non-USD
         reported-currency conversion; never called for a USD-reporting
         ticker."""
-        return await self.get("/quote", {"symbol": f"{from_currency}USD"})
+        return await self.get("/quote", {"symbol": f"{from_currency}USD"}, group="fundamentals")
 
     async def get_price_change(self, ticker: str) -> dict | list:
         return await self.get("/stock-price-change", {"symbol": ticker})
@@ -124,7 +149,7 @@ class FMPClient:
         # including the next scheduled (not-yet-reported) date with null actuals --
         # see data/chart_events_data.py, the only consumer. 40 rows ~ 10 years,
         # comfortably past the Chart tab's widest (4y) window.
-        return await self.get("/earnings", {"symbol": ticker, "limit": limit})
+        return await self.get("/earnings", {"symbol": ticker, "limit": limit}, group="corporate_events")
 
     async def get_dividends(self, ticker: str, limit: int = 400) -> dict | list:
         # One row per declared dividend, newest first, INCLUDING declared-but-

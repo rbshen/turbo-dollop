@@ -6,6 +6,7 @@ records a "failure" CronRunLog row instead of a false "success" -- the
 confirmed root cause of the Dow constituent list silently going stale for
 weeks while GET /api/config/cron-health kept reporting it as healthy."""
 
+import core.data_groups as _dg
 import asyncio
 
 import pytest
@@ -115,7 +116,7 @@ def test_main_skips_cleanly_without_calling_refresh_when_fmp_disabled(monkeypatc
     SyncResult and trip the RuntimeError re-raise these jobs already have,
     misrecording a deliberate no-op as a real failure."""
     _fresh_engine(monkeypatch, module)
-    monkeypatch.setattr(module.settings, "fmp_enabled", False)
+    _dg.set_master(False)
 
     async def fail_if_called(session):
         raise AssertionError("refresh must not be attempted while FMP_ENABLED is False")
@@ -136,7 +137,7 @@ def test_main_skips_cleanly_without_calling_refresh_when_fmp_disabled(monkeypatc
 def test_cron_heartbeat_records_success_when_fmp_disabled(monkeypatch, module, refresh_attr, job_name):
     _fresh_engine(monkeypatch, module)
     cron_engine = _fresh_engine(monkeypatch, cron_health)
-    monkeypatch.setattr(module.settings, "fmp_enabled", False)
+    _dg.set_master(False)
 
     async def fail_if_called(session):
         raise AssertionError("refresh must not be attempted while FMP_ENABLED is False")

@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 from clients.fmp_client import fmp_client
 from core.cache import get_or_fetch, safe_fetch
 from core.config import settings
+from core.data_groups import group_user_enabled
 from core.db import engine
 from core.models import FundamentalsCache
 from core.schemas import (
@@ -491,14 +492,14 @@ async def get_insider_activity_data(ticker: str, cache_only: bool = False) -> In
     handled the same way by get_or_fetch itself (serves any cached row,
     however stale; a cold miss returns None) -- no special-casing here.
 
-    Shelved feature: when Settings.insider_activity_enabled is False this
+    Shelved feature: when the `insider` data group is not live (seeded off; see core/data_groups.py) this
     returns a distinct `enabled=False` payload before touching FMP, the
     cache or the DB at all -- checked first, ahead of `cache_only`, so not
     even a cache read happens. The GET route just calls this function, so it
     inherits the gate.
     """
     ticker = normalize_ticker(ticker)
-    if not settings.insider_activity_enabled:
+    if not group_user_enabled("insider"):
         return InsiderActivityOut(
             ticker=ticker,
             enabled=False,

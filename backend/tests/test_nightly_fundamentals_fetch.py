@@ -1,3 +1,4 @@
+import core.data_groups as _dg
 import asyncio
 from datetime import datetime
 
@@ -267,7 +268,7 @@ def test_empty_ticker_list_is_handled_without_crashing(monkeypatch, tmp_path):
 
 def test_fmp_disabled_skips_the_run_before_any_fetch_or_universe_lookup(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
-    monkeypatch.setattr(nightly.settings, "fmp_enabled", False)
+    _dg.set_master(False)
 
     calls: list[tuple[str, str]] = []
     _patch_all_steps(monkeypatch, calls)

@@ -1,3 +1,4 @@
+import core.data_groups as _dg
 import asyncio
 
 from sqlmodel import SQLModel, create_engine
@@ -19,7 +20,7 @@ def _fresh_engine(monkeypatch, tmp_path):
 
 def test_fmp_disabled_skips_the_run_before_any_fetch_or_universe_lookup(monkeypatch, tmp_path):
     _fresh_engine(monkeypatch, tmp_path)
-    monkeypatch.setattr(monthly.settings, "fmp_enabled", False)
+    _dg.set_master(False)
 
     def fail_if_queried(*args, **kwargs):
         raise AssertionError("must not resolve the ticker universe while FMP is paused")
@@ -41,7 +42,7 @@ def test_fmp_disabled_skips_even_with_an_explicit_ticker_list(monkeypatch, tmp_p
     # equivalent -- an explicit ticker list (e.g. from --tickers/--limit)
     # doesn't bypass it.
     _fresh_engine(monkeypatch, tmp_path)
-    monkeypatch.setattr(monthly.settings, "fmp_enabled", False)
+    _dg.set_master(False)
 
     async def fail_if_called(*args, **kwargs):
         raise AssertionError("must not fetch price targets while FMP is paused")

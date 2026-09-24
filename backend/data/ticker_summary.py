@@ -8,6 +8,7 @@ from clients.massive_client import massive_client
 from clients.yahoo_cache import get_or_fetch_price_history
 from core.cache import force_fetch, get_or_fetch, get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
+from core.data_groups import group_live
 from core.db import engine
 from core.exceptions import TickerNotFoundError
 from core.models import IndexConstituent
@@ -297,10 +298,10 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
                     ),
                 )
             )
-        if not settings.fmp_enabled and not cache_only:
+        if not group_live("profile_quote") and not cache_only:
             # FMP paused: the three-way branch above already degraded to
             # serving the last cached FMP quote (get_or_fetch/force_fetch's
-            # own settings.fmp_enabled handling) -- only override `price`
+            # own per-group handling) -- only override `price`
             # with a live Massive (falling back to Yahoo) close, leaving
             # every other quote-derived field (change/marketCap/yearHigh/
             # yearLow) as whatever was last cached, since neither source's

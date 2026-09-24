@@ -31,7 +31,7 @@ import pandas as pd
 
 from clients.fmp_client import fmp_client
 from clients.yahoo_client import yahoo_client
-from core.config import settings
+from core.data_groups import group_live
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +184,7 @@ async def _fetch_yahoo(ticker: str) -> tuple[list[EarningsEvent], list[DividendE
 
 
 async def _fetch_events(ticker: str) -> ChartEvents:
-    if settings.fmp_enabled:
+    if group_live("corporate_events"):
         try:
             earnings, dividends = await _fetch_fmp(ticker)
             return ChartEvents(earnings, dividends, "fmp")
