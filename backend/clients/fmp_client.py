@@ -5,7 +5,18 @@ import time
 import httpx
 
 from core.config import settings
-from core.data_groups import describe_off, effective_state, group_for_endpoint, record_group_success
+from core.data_groups import (
+    PROBE_ENDPOINTS,
+    clear_restricted,
+    describe_off,
+    effective_state,
+    get_snapshot,
+    group_for_endpoint,
+    mark_restricted,
+    record_group_failure,
+    record_group_success,
+    set_key_problem,
+)
 from core.data_source_health import record_success
 
 logger = logging.getLogger(__name__)
@@ -41,6 +52,34 @@ class FMPGroupDisabledError(FMPDisabledError):
     def __init__(self, message: str, group: str | None = None) -> None:
         super().__init__(message)
         self.group = group
+
+
+_CANARY_SYMBOL = "AAPL"
+
+
+def _canary_params(params: dict) -> dict | None:
+    """The same request with the symbol swapped for AAPL, or None when
+    there is nothing to swap (symbol-less endpoint, or already AAPL -- the
+    failing call itself then IS the canary)."""
+    for key in ("symbol", "symbols", "query"):
+        if key in params:
+            if str(params[key]).upper() == _CANARY_SYMBOL:
+                return None
+            return {**params, key: _CANARY_SYMBOL}
+    return None
+
+
+def _safe(fn, *args) -> None:
+    """Bookkeeping writes must never mask the real fetch outcome."""
+    try:
+        fn(*args)
+    except Exception:
+        logger.warning("data-group bookkeeping failed (%s)", getattr(fn, "__name__", fn), exc_info=True)
+
+
+def _clear_key_problem_if_set() -> None:
+    if get_snapshot().key_problem_at is not None:
+        _safe(set_key_problem, None)  # a successful call proves the key works
 
 
 class FMPClient:
@@ -89,6 +128,32 @@ class FMPClient:
                 f"data group {group} is off ({describe_off(group)}) -- refusing live call to {endpoint}", group=group
             )
         query = {**(params or {}), "apikey": self.api_key}
+        try:
+            response = await self._send(endpoint, query)
+        except httpx.HTTPError as exc:  # transport-level (timeout/connect): a failing group, never a restriction
+            record_group_failure(group, type(exc).__name__)
+            raise
+        status = response.status_code
+        if status < 400:
+            record_success("fmp")
+            record_group_success(group)
+            _clear_key_problem_if_set()
+            return response.json()
+        if status in (401, 403):
+            # A key problem, not a plan restriction: global warning, no group blamed.
+            _safe(set_key_problem, f"HTTP {status} from {endpoint}")
+        elif status == 402:
+            await self._handle_plan_restriction(group, endpoint, params or {})
+        elif status == 429:
+            pass  # rate limit: never marks anything
+        else:
+            record_group_failure(group, f"HTTP {status}")
+        response.raise_for_status()
+        raise AssertionError("unreachable")  # status >= 400 always raises above
+
+    async def _send(self, endpoint: str, query: dict) -> httpx.Response:
+        """One paced request with the bounded 429 retry. Never raises for an
+        HTTP error status -- the caller decides what each status means."""
         for attempt in range(RATE_LIMIT_MAX_RETRIES + 1):
             await self._pace()
             self.request_count += 1
@@ -104,11 +169,64 @@ class FMPClient:
                 )
                 await asyncio.sleep(RATE_LIMIT_RETRY_BACKOFF_SECONDS)
                 continue
-            response.raise_for_status()
-            record_success("fmp")
-            record_group_success(group)
-            return response.json()
-        raise AssertionError("unreachable")  # loop always returns or raises above
+            return response
+        raise AssertionError("unreachable")  # loop always returns above
+
+    async def _handle_plan_restriction(self, group: str, endpoint: str, params: dict) -> None:
+        """A 402 can be symbol-scoped (e.g. a non-US symbol on a US-only
+        plan), so the failing call alone never disables a group: probe a
+        canary (AAPL, same endpoint) and mark the group plan_restricted only
+        if the canary ALSO gets a 402. An endpoint with no symbol/query
+        parameter has no canary to vary -- the failing call is its own
+        canary."""
+        canary = _canary_params(params)
+        if canary is None:
+            confirmed = True
+        else:
+            try:
+                response = await self._send(endpoint, {**canary, "apikey": self.api_key})
+                confirmed = response.status_code == 402
+            except httpx.HTTPError:
+                confirmed = False  # inconclusive -- never mark on a failed probe
+        if confirmed:
+            logger.warning("FMP 402 confirmed by canary for %s: marking group %s plan_restricted", endpoint, group)
+            _safe(mark_restricted, group, f"HTTP 402 on {endpoint} (canary confirmed)")
+        else:
+            logger.warning("FMP 402 for %s was symbol-scoped (canary OK); group %s left live", endpoint, group)
+
+    async def probe_group(self, group: str) -> str:
+        """Re-probe one group with its canary endpoint (AAPL), bypassing the
+        gate (a restricted group is gated off by definition). Returns
+        "ok" (200: restriction cleared), "restricted" (402), or
+        "inconclusive" (anything else -- state left untouched)."""
+        target = PROBE_ENDPOINTS.get(group)
+        if target is None:
+            return "inconclusive"
+        endpoint, params = target
+        try:
+            response = await self._send(endpoint, {**params, "apikey": self.api_key})
+        except httpx.HTTPError:
+            return "inconclusive"
+        if response.status_code < 400:
+            _safe(clear_restricted, group)
+            return "ok"
+        if response.status_code == 402:
+            _safe(mark_restricted, group, f"HTTP 402 on {endpoint} (re-probe)")
+            return "restricted"
+        if response.status_code in (401, 403):
+            _safe(set_key_problem, f"HTTP {response.status_code} from {endpoint} (re-probe)")
+        return "inconclusive"
+
+    async def reprobe_restricted_groups(self) -> dict[str, str]:
+        """Re-probe every group currently plan_restricted (weekly, and when the
+        user edits their plan). No-op while the master switch is off (zero
+        live calls)."""
+        snap = get_snapshot()
+        if not snap.master_on:
+            return {}
+        return {
+            g: await self.probe_group(g) for g, st in snap.groups.items() if st.status == "plan_restricted"
+        }
 
     async def get_profile(self, ticker: str) -> dict | list:
         return await self.get("/profile", {"symbol": ticker})

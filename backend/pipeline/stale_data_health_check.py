@@ -73,6 +73,7 @@ from pathlib import Path
 import pandas as pd
 from sqlmodel import Session, select
 
+from clients.fmp_client import fmp_client
 from clients.massive_client import massive_client
 from clients.shared_bars_cache import DAILY_INTERVAL, get_or_fetch_bars_batch, last_bar_ages_days
 from clients.yahoo_client import yahoo_client
@@ -318,6 +319,17 @@ def _format_report(result: dict, total: int, threshold_days: int) -> str:
     return "\n".join(lines)
 
 
+def _reprobe_restricted_groups() -> dict[str, str]:
+    """Weekly re-probe of any FMP data group marked plan_restricted (canary
+    AAPL call) so a plan upgrade self-heals without a manual step. Never
+    fails the job: a probe error just leaves the group as it was."""
+    try:
+        return asyncio.run(fmp_client.reprobe_restricted_groups())
+    except Exception:
+        logger.warning("Restricted-group re-probe failed", exc_info=True)
+        return {}
+
+
 def main(threshold_days: int = DEFAULT_STALE_THRESHOLD_DAYS) -> dict:
     configure_logging(LOG_PATH)
     init_db()
@@ -325,6 +337,7 @@ def main(threshold_days: int = DEFAULT_STALE_THRESHOLD_DAYS) -> dict:
         tickers = load_full_tracked_universe(session)
     result = check_staleness(tickers, threshold_days)
     result["delisted"] = sync_delisted_flags(tickers)
+    result["reprobe"] = _reprobe_restricted_groups()
     report = _format_report(result, len(tickers), threshold_days)
     logger.info("\n%s", report)
     print(report)
@@ -347,4 +360,7 @@ if __name__ == "__main__":
             message += f"; newly delisted: {', '.join(delisted['newly_flagged'])}"
         if delisted["newly_cleared"]:
             message += f"; delisted cleared: {', '.join(delisted['newly_cleared'])}"
+        reprobe = result.get("reprobe") or {}
+        if reprobe:
+            message += "; FMP re-probe: " + ", ".join(f"{g}={v}" for g, v in reprobe.items())
         run.message = message

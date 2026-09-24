@@ -144,6 +144,20 @@ ENDPOINT_GROUP_OVERRIDES_USED: dict[str, dict[str, str]] = {
     "/quote": {"get_quote": "profile_quote", "get_forex_quote": "fundamentals"},
 }
 
+# Canary request per live group, used by FMPClient.probe_group (weekly and on
+# plan edit) to see whether a plan_restricted group works again. Always AAPL
+# and always a cheap single-row call.
+PROBE_ENDPOINTS: dict[str, tuple[str, dict]] = {
+    "fundamentals": ("/income-statement", {"symbol": "AAPL", "period": "annual", "limit": 1}),
+    "profile_quote": ("/quote", {"symbol": "AAPL"}),
+    "analyst_ratings": ("/grades-consensus", {"symbol": "AAPL"}),
+    "segmentation": ("/revenue-product-segmentation", {"symbol": "AAPL"}),
+    "news": ("/news/stock", {"symbols": "AAPL", "limit": 1}),
+    "insider": ("/insider-trading/statistics", {"symbol": "AAPL"}),
+    "index_membership": ("/dowjones-constituent", {}),
+    "corporate_events": ("/dividends", {"symbol": "AAPL", "limit": 1}),
+}
+
 # Bulk/batch endpoints (none are used today -- Rule: never call them). If one
 # is ever added it must be listed here AND be Ultimate; the registry test
 # enforces that every listed path is in ENDPOINT_GROUP's Ultimate-tier group.
