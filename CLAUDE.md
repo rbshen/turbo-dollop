@@ -3580,8 +3580,9 @@ fallback until P6. Plan/decisions: `docs/fmp_phase2_daily_prices_plan_2026-09-24
   Heatmap re-run for the stored dates 2026-09-18/21/23 (XLK 1Y -30% -> +39%),
   `backfill_market_breadth --rebuild` (2,911 old backfilled rows replaced by 10,775; **the
   backfilled history now spans 2022-09-26..2026-09-23 (~4y) instead of ~1y, because the cache
-  now holds 5y** -- still survivorship-biased), Momentum re-run for the 2026-08-31 anchor only
-  (a stray 2026-09-23 snapshot from a manual run is still on the old basis). BDX and FDX read
+  now holds 5y** -- kept uncapped by decision, still survivorship-biased), Momentum re-run for
+  the 2026-08-31 anchor and the stray manual 2026-09-23 snapshot (BNY, whose stitched series had
+  ranked it 2nd, dropped out of the top 5; 404/405 scored). BDX and FDX read
   Advance and SPCX reads no stage (16 weeks of history) in `TickerScore`.
 
 ## Sector Heatmap (`/sectors`, 2026-09-20)
