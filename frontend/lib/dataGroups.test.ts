@@ -48,6 +48,16 @@ describe("offGroupsFor", () => {
   });
 });
 
+describe("fallback groups", () => {
+  it("do not read as not-refreshing when off, and word the reason/warning around the fallback", () => {
+    const g = group({ key: "daily_prices", falls_back: true, state: "using_fallback", reason: "user_off" });
+    expect(offGroupsFor(wrap([g]), ["daily_prices"])).toEqual([]);
+    expect(reasonText(g)).toContain("fallback");
+    expect(disableWarning(g)).toContain("Massive");
+    expect(disableWarning(g)).not.toContain("cached data only");
+  });
+});
+
 describe("text helpers", () => {
   it("asOfText uses the last success date, else a fallback", () => {
     expect(asOfText(group({ last_success_at: "2026-09-20T03:00:00" }))).toBe("2026-09-20");

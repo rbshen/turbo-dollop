@@ -22,13 +22,15 @@ export interface OutlierWarning {
   sec_cross_check: SecCrossCheck | null;
 }
 
-export type DataGroupState = "live" | "cached_only" | "not_on_plan" | "restricted" | "failing";
+export type DataGroupState = "live" | "cached_only" | "using_fallback" | "not_on_plan" | "restricted" | "failing";
 
 export interface DataGroupOut {
   key: string;
   label: string;
   /** False for groups seeded for later phases (nothing reads them yet). */
   wired: boolean;
+  /** A non-FMP provider still backs this group: off = skip FMP and use the fallback chain. */
+  falls_back?: boolean;
   /** The user's own toggle. */
   enabled: boolean;
   state: DataGroupState;

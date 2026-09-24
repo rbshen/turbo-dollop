@@ -55,10 +55,15 @@ class GroupMeta:
     label: str
     default_tier: str
     default_enabled: bool
-    # Wired to real FMP calls in P1. The others are seeded rows only
-    # (daily_prices* / intraday_bars / extended_hours land in P2-P5).
+    # Wired to real FMP calls. The others are seeded rows only
+    # (daily_prices_intl / intraday_bars / extended_hours land in P3-P5).
     live: bool
     feeds: tuple[str, ...]
+    # A group with a non-FMP fallback provider still wired (daily_prices while
+    # Massive/Yahoo exist, P2-P5): turning it off does NOT mean cache-only --
+    # its consumers skip FMP and fall through to the fallback chain. Its chip
+    # reads "Off -- using fallback" instead of "Cached only". Removed in P6.
+    falls_back: bool = False
 
 
 GROUPS: dict[str, GroupMeta] = {
@@ -82,7 +87,14 @@ GROUPS: dict[str, GroupMeta] = {
         ("S&P 500 / Dow / Nasdaq constituent lists", "Screener universe", "Weekly index refresh jobs"),
     ),
     "corporate_events": GroupMeta("Corporate events", "Premium", True, True, ("Chart earnings/dividend markers",)),
-    "daily_prices": GroupMeta("Daily prices", "Premium", True, False, ("(not wired yet -- P2)",)),
+    "daily_prices": GroupMeta(
+        "Daily prices", "Premium", True, True,
+        (
+            "Trend / Weinstein stage", "Liquidity Zones", "Sector Heatmap", "Market Breadth", "Momentum",
+            "Chart tab (daily ranges)", "Header avg-volume / dollar-volume",
+        ),
+        falls_back=True,
+    ),
     "daily_prices_intl": GroupMeta("Daily prices (international)", "Ultimate", True, False, ("(not wired yet -- P3)",)),
     "intraday_bars": GroupMeta("Intraday bars", "Premium", True, False, ("(not wired yet -- P4)",)),
     "extended_hours": GroupMeta("Extended hours", "Premium", True, False, ("(not wired yet -- P5)",)),
@@ -113,11 +125,10 @@ ENDPOINT_GROUP: dict[str, str] = {
     "/financial-growth": "fundamentals",
     "/financial-statement-full-as-reported": "fundamentals",
     "/earnings": "fundamentals",
-    # TODO(P2): daily EOD moves to `daily_prices` when the price migration
-    # lands. Until then its only consumer is the fundamentals job's
-    # price-based ratios (ticker_summary's `historical_price_eod` cache key),
-    # so it rides with `fundamentals`.
-    "/historical-price-eod/full": "fundamentals",
+    # P2: daily EOD (split- AND spin-off-adjusted, not dividend-adjusted) feeds the
+    # shared bars cache, the Chart tab's daily ranges and the header's
+    # avg-volume tiles (ticker_summary's `historical_price_eod` cache key).
+    "/historical-price-eod/full": "daily_prices",
     "/dividends": "corporate_events",
     "/revenue-product-segmentation": "segmentation",
     "/revenue-geographic-segmentation": "segmentation",
@@ -157,6 +168,7 @@ PROBE_ENDPOINTS: dict[str, tuple[str, dict]] = {
     "insider": ("/insider-trading/statistics", {"symbol": "AAPL"}),
     "index_membership": ("/dowjones-constituent", {}),
     "corporate_events": ("/dividends", {"symbol": "AAPL", "limit": 1}),
+    "daily_prices": ("/historical-price-eod/full", {"symbol": "AAPL", "from": "2024-01-02", "to": "2024-01-05"}),
 }
 
 # Bulk/batch endpoints (none are used today -- Rule: never call them). If one
@@ -180,7 +192,7 @@ STATEMENT_TYPE_GROUP: dict[str, str] = {
     "financial_statement_full_as_reported": "fundamentals",
     "analyst_estimates": "fundamentals",
     "earnings": "fundamentals",
-    "historical_price_eod": "fundamentals",  # TODO(P2): -> daily_prices
+    "historical_price_eod": "daily_prices",
     "revenue_product_segmentation": "segmentation",
     "revenue_geographic_segmentation": "segmentation",
     "grades_consensus": "analyst_ratings",

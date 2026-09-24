@@ -769,13 +769,17 @@ class TickerCustomValuationOut(Step3ManualParams):
 class DataGroupOut(BaseModel):
     key: str
     label: str
-    # False for groups seeded for later phases (daily_prices*, intraday_bars,
+    # False for groups seeded for later phases (daily_prices_intl, intraday_bars,
     # extended_hours): shown in Settings but nothing reads them yet.
     wired: bool
+    # True while a non-FMP provider still backs this group: off means "skip FMP,
+    # use the fallback chain" (chip "using_fallback"), not cache-only.
+    falls_back: bool = False
     enabled: bool  # the user's own toggle
-    # Chip: live | cached_only (master off or user off) | not_on_plan |
+    # Chip: live | cached_only (master off or user off) | using_fallback (same, but
+    # the group has a fallback provider) | not_on_plan |
     # restricted (FMP 402, canary-confirmed) | failing (still live, calls erroring)
-    state: Literal["live", "cached_only", "not_on_plan", "restricted", "failing"]
+    state: Literal["live", "cached_only", "using_fallback", "not_on_plan", "restricted", "failing"]
     reason: Literal["live", "master_off", "user_off", "above_plan", "restricted"]
     required_tier: str
     tier_verified: bool

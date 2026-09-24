@@ -22,7 +22,7 @@ def test_get_lists_every_group_with_defaults():
     assert groups["fundamentals"]["required_tier"] == "Premium"
     assert groups["fundamentals"]["tier_verified"] is False
     assert groups["insider"]["state"] == "cached_only" and groups["insider"]["enabled"] is False
-    assert groups["daily_prices"]["wired"] is False and groups["news"]["wired"] is True
+    assert groups["daily_prices"]["wired"] is True and groups["intraday_bars"]["wired"] is False
     assert "News tab" in groups["news"]["feeds"]
 
 
@@ -36,7 +36,7 @@ def test_master_switch_makes_every_group_cached_only_and_untoggleable():
         body = client.put("/api/config/data-groups/master", json={"master_on": False}).json()
         assert body["master_on"] is False
         for g in body["groups"]:
-            assert g["state"] == "cached_only" and g["reason"] == "master_off" and g["can_toggle"] is False
+            assert g["state"] == ("using_fallback" if g["key"] == "daily_prices" else "cached_only") and g["reason"] == "master_off" and g["can_toggle"] is False
         body = client.put("/api/config/data-groups/master", json={"master_on": True}).json()
     assert _by_key(body)["fundamentals"]["state"] == "live"
 
@@ -90,3 +90,18 @@ def test_editing_the_plan_reprobes_restricted_groups(monkeypatch):
     with TestClient(app) as client:
         body = client.put("/api/config/data-groups/plan", json={"fmp_plan": "Ultimate"}).json()
     assert _by_key(body)["news"]["state"] == "live"
+
+
+def test_daily_prices_off_reads_using_fallback_not_cached_only():
+    """daily_prices has a live fallback chain (Massive -> Yahoo) until P6, so off
+    means "skip FMP, use the fallback", never the cache-only chip."""
+    with TestClient(app) as client:
+        body = client.get("/api/config/data-groups").json()
+        assert _by_key(body)["daily_prices"]["state"] == "live"
+        body = client.put("/api/config/data-groups/daily_prices", json={"enabled": False}).json()
+        g = _by_key(body)["daily_prices"]
+        assert g["state"] == "using_fallback" and g["falls_back"] is True and g["reason"] == "user_off"
+        client.put("/api/config/data-groups/daily_prices", json={"enabled": True})
+        body = client.put("/api/config/data-groups/master", json={"master_on": False}).json()
+        assert _by_key(body)["daily_prices"]["state"] == "using_fallback"
+        assert _by_key(body)["news"]["state"] == "cached_only"
