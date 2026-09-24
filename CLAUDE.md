@@ -2364,7 +2364,7 @@ to display.
   support this new 5-bar indicator without a duplicate component.
 - **Price fallback**: `data/ticker_summary.py::get_summary()`'s quote-fetch block now overrides
   just the `price` field with a live Yahoo close when `FMP_ENABLED=false` (and not `cache_only`) --
-  see "Pausing the FMP subscription" above for the full mechanism and what stays untouched.
+  see "Data groups: pausing FMP" above for the full mechanism and what stays untouched.
 - **A/D Bullish Divergence (2026-08-23)**: a validated (ticker-clustered p<0.01, replicated on two
   separate backtest universes, ~+2pp hit rate / ~+2% mean-median return to the eventual confirmed
   HH) minor conviction signal layered on top of the swing engine above -- never a standalone entry
