@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 import clients.shared_bars_cache as shared_bars_cache
 from clients.shared_bars_cache import (
@@ -576,3 +576,178 @@ def test_a_last_bar_written_after_the_close_is_trusted(monkeypatch):
     calls = _patch_fetch(monkeypatch, {"AAPL": _daily_df([_TODAY.isoformat()])})
     asyncio.run(get_or_fetch_bars_batch(["AAPL"], DAILY_INTERVAL, lookback_days=3, reference=_REFERENCE))
     assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# P3: non-US tickers route FMP (daily_prices_intl) -> Yahoo, phantom bars removed
+# ---------------------------------------------------------------------------
+
+import clients.daily_bar_sources as _dbs  # noqa: E402
+import core.data_groups as _dg  # noqa: E402
+from clients.fmp_client import fmp_client as _fmp_singleton  # noqa: E402
+
+_HK = "0005.HK"
+
+
+def _weekdays(n: int, end: date = _TODAY) -> list[date]:
+    out, d = [], end
+    while len(out) < n:
+        if d.weekday() < 5:
+            out.append(d)
+        d -= timedelta(days=1)
+    return sorted(out)
+
+
+def _fmp_rows(days: list[date], base: float = 100.0, extra: list[dict] | None = None) -> list[dict]:
+    rows = [
+        {"symbol": "X", "date": d.isoformat(), "open": base + i, "high": base + i + 1, "low": base + i - 1,
+         "close": base + i + 0.5, "volume": 1000 + i}
+        for i, d in enumerate(days)
+    ]
+    return sorted(rows + (extra or []), key=lambda r: r["date"], reverse=True)
+
+
+class _RoutingHarness:
+    """Real routing + real FMP/Yahoo source classes, fake network at the two clients."""
+
+    def __init__(self, monkeypatch, engine, fmp_rows: dict[str, list[dict]], fmp_fail=(), yahoo_frames=None):
+        self.fmp_calls: list[tuple[str, str, str]] = []  # (ticker, from, group)
+        self.yahoo_calls: list[list[str]] = []
+        self.fmp_rows, self.fmp_fail = fmp_rows, set(fmp_fail)
+        self.yahoo_frames = yahoo_frames or {}
+
+        async def fake_fmp(ticker, from_date, to_date, group="daily_prices"):
+            self.fmp_calls.append((ticker, from_date, group))
+            if ticker in self.fmp_fail:
+                import httpx
+
+                raise httpx.ConnectError("boom")
+            return [r for r in self.fmp_rows.get(ticker, []) if r["date"] >= from_date]
+
+        async def fake_yahoo(tickers, period="2y", interval="1d", auto_adjust=True):
+            self.yahoo_calls.append(list(tickers))
+            return {t: self.yahoo_frames[t] for t in tickers if t in self.yahoo_frames}
+
+        monkeypatch.setattr(_fmp_singleton, "get_historical_price_eod", fake_fmp)
+        monkeypatch.setattr(_dbs.yahoo_client, "get_history", fake_yahoo)
+        monkeypatch.setattr(_dbs, "engine", engine)
+        monkeypatch.setattr(_dbs, "_completed_session", lambda: _TODAY)
+        monkeypatch.setattr(_dbs.settings, "massive_enabled", False)
+
+
+def _run_batch(tickers, **kw):
+    fb = _dbs.FallbackTickers()
+    frames = asyncio.run(
+        get_or_fetch_bars_batch(tickers, DAILY_INTERVAL, lookback_days=30, reference=_REFERENCE, fallback_tickers=fb, **kw)
+    )
+    return frames, fb
+
+
+def test_non_us_ticker_is_served_by_fmp_intl_and_never_touches_yahoo(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    h = _RoutingHarness(monkeypatch, engine, {_HK: _fmp_rows(_weekdays(40))})
+    frames, fb = _run_batch([_HK])
+    assert [c[2] for c in h.fmp_calls] == ["daily_prices_intl"] and h.yahoo_calls == []
+    assert len(frames[_HK]) >= 20 and list(fb) == []
+
+
+def test_phantom_bars_never_reach_the_cache(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    days = _weekdays(40)
+    sunday = _TODAY - timedelta(days=_TODAY.weekday() + 1)  # the Sunday before this week
+    prev = days[-3]
+    phantoms = [
+        {"symbol": "X", "date": sunday.isoformat(), "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 777},
+        # a copy of `prev`'s OHLC with volume revised +0.01%, dated on a weekday holiday
+    ]
+    rows = _fmp_rows(days, extra=phantoms)
+    h = _RoutingHarness(monkeypatch, engine, {_HK: rows})
+    frames, _ = _run_batch([_HK])
+    assert pd.Timestamp(sunday) not in frames[_HK].index
+    with Session(engine) as session:
+        stored = session.exec(select(SharedBarsCache).where(SharedBarsCache.ticker == _HK)).all()
+    assert stored and all(r.bar_time.weekday() < 5 for r in stored) and 1.5 not in {r.close for r in stored}
+
+
+def test_group_off_matrix_us_and_non_us_are_independent(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    rows = {"AAPL": _fmp_rows(_weekdays(40)), _HK: _fmp_rows(_weekdays(40))}
+    yahoo = {_HK: _daily_df([d.isoformat() for d in _weekdays(40)]), "AAPL": _daily_df([d.isoformat() for d in _weekdays(40)])}
+
+    # intl off, US live: AAPL on FMP(daily_prices), HK falls back to Yahoo and is counted as such
+    _dg.set_group_enabled("daily_prices_intl", False)
+    h = _RoutingHarness(monkeypatch, engine, rows, yahoo_frames=yahoo)
+    frames, fb = _run_batch(["AAPL", _HK])
+    assert [(c[0], c[2]) for c in h.fmp_calls] == [("AAPL", "daily_prices")]
+    assert h.yahoo_calls == [[_HK]] and list(fb) == [_HK] and fb.yahoo == [_HK]
+    assert fb.describe() == "1 fell back from FMP (Massive 0, Yahoo 1)"
+    assert set(frames) == {"AAPL", _HK}
+
+    # US off, intl live: AAPL falls to Yahoo, HK stays on FMP(daily_prices_intl)
+    engine2 = _fresh_engine(monkeypatch)
+    _dg.set_group_enabled("daily_prices_intl", True)
+    _dg.set_group_enabled("daily_prices", False)
+    h = _RoutingHarness(monkeypatch, engine2, rows, yahoo_frames=yahoo)
+    _, fb = _run_batch(["AAPL", _HK])
+    assert [(c[0], c[2]) for c in h.fmp_calls] == [(_HK, "daily_prices_intl")]
+    assert h.yahoo_calls == [["AAPL"]] and list(fb) == ["AAPL"]
+
+    # master switch off: everything on Yahoo
+    engine3 = _fresh_engine(monkeypatch)
+    _dg.set_group_enabled("daily_prices", True)
+    _dg.set_master(False)
+    h = _RoutingHarness(monkeypatch, engine3, rows, yahoo_frames=yahoo)
+    _run_batch(["AAPL", _HK])
+    assert h.fmp_calls == [] and sorted(sum(h.yahoo_calls, [])) == ["0005.HK", "AAPL"]
+
+
+def test_non_us_fmp_empty_or_error_falls_through_to_yahoo(monkeypatch):
+    for fmp_rows, fail in (({_HK: []}, ()), ({}, (_HK,))):
+        engine = _fresh_engine(monkeypatch)
+        yahoo = {_HK: _daily_df([d.isoformat() for d in _weekdays(40)])}
+        h = _RoutingHarness(monkeypatch, engine, fmp_rows, fmp_fail=fail, yahoo_frames=yahoo)
+        frames, fb = _run_batch([_HK])
+        assert h.yahoo_calls == [[_HK]] and list(fb) == [_HK] and not frames[_HK].empty
+
+
+def _seed_clean_hk_cache(engine, days: list[date], fetched_at: datetime):
+    for i, d in enumerate(days):
+        _seed_row(engine, _HK, DAILY_INTERVAL, datetime.combine(d, datetime.min.time()), fetched_at, close=100.5 + i)
+
+
+def test_incremental_top_up_with_phantom_bars_present_is_not_read_as_a_restatement(monkeypatch):
+    """The cache holds the CLEAN series; FMP's overlap window still contains phantom bars
+    (which have no cached counterpart) -- they are filtered, and the overlap check
+    compares shared dates only, so no full refetch/replace is triggered."""
+    engine = _fresh_engine(monkeypatch)
+    days = _weekdays(40)
+    old_days = days[:-1]  # cache is one session behind
+    _seed_clean_hk_cache(engine, old_days, datetime(2026, 9, 16, 3, 0))
+    sunday = old_days[-1] + timedelta(days=1)
+    while sunday.weekday() != 6:
+        sunday += timedelta(days=1)
+    phantom = {"symbol": "X", "date": sunday.isoformat(), "open": 9.0, "high": 9.0, "low": 9.0, "close": 9.0, "volume": 5}
+    # FMP's close for shared dates equals the cache's (100.5 + i)
+    h = _RoutingHarness(monkeypatch, engine, {_HK: _fmp_rows(days, extra=[phantom])})
+    frames, _ = _run_batch([_HK])
+    assert len(h.fmp_calls) == 1  # one incremental call, no full-window refetch
+    assert h.fmp_calls[0][1] > (days[0]).isoformat()
+    assert pd.Timestamp(sunday) not in frames[_HK].index and frames[_HK].index.max() == pd.Timestamp(_TODAY)
+
+
+def test_sunday_force_resync_refetches_the_full_window_and_replaces_stale_phantoms(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    days = _weekdays(40)
+    _seed_clean_hk_cache(engine, days, datetime(2026, 9, 18, 3, 0))
+    # a legacy (Yahoo-era or pre-filter) junk row on a weekend date sits in the cache
+    junk = days[-5] + timedelta(days=(5 - days[-5].weekday()))  # the Saturday after days[-5]
+    _seed_row(engine, _HK, DAILY_INTERVAL, datetime.combine(junk, datetime.min.time()), datetime(2026, 9, 18, 3, 0), close=1.0)
+    n_before = _count_rows(engine, _HK)
+    h = _RoutingHarness(monkeypatch, engine, {_HK: _fmp_rows(days)})
+    _run_batch([_HK], force=True)
+    assert len(h.fmp_calls) == 1
+    assert h.fmp_calls[0][1] < days[-2].isoformat()  # the full window, not the ~7-day overlap
+    with Session(engine) as session:
+        stored = {r.bar_time.date() for r in session.exec(select(SharedBarsCache).where(SharedBarsCache.ticker == _HK)).all()}
+    assert junk not in stored and stored and all(d.weekday() < 5 for d in stored)  # replaced, not upserted over
+    assert _count_rows(engine, _HK) < n_before

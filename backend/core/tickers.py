@@ -83,9 +83,9 @@ def is_us_listed(ticker: str, exchange: str | None = None) -> bool:
 
 def resolve_daily_bar_source_label(ticker: str) -> str:
     """Best-effort label for which provider generally serves this ticker's
-    daily bars -- "yahoo" for a non-US ticker, "fmp" for a US one while the
-    daily_prices group is live, else "massive" (or "yahoo" when Massive is
-    disabled too). Informational only (e.g. LiquidityZoneAnalysis.source),
+    daily bars -- "fmp" for a non-US ticker while daily_prices_intl is live (else
+    "yahoo"), "fmp" for a US one while the daily_prices group is live, else
+    "massive" (or "yahoo" when Massive is disabled too). Informational only (e.g. LiquidityZoneAnalysis.source),
     NOT a literal per-fetch record of which provider actually answered a
     specific call: a per-ticker FMP->Massive->Yahoo fallback (see
     clients/daily_bar_sources.py::FMPWithFallback) could silently make this
@@ -95,7 +95,7 @@ def resolve_daily_bar_source_label(ticker: str) -> str:
     from core.data_groups import group_live
 
     if is_non_us_ticker(ticker):
-        return "yahoo"
+        return "fmp" if group_live("daily_prices_intl") else "yahoo"
     if group_live("daily_prices"):
         return "fmp"
     return "massive" if settings.massive_enabled else "yahoo"

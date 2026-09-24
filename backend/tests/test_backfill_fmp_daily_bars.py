@@ -18,7 +18,7 @@ class FakeFMP:
     def __init__(self, series, failing=()):
         self.series, self.failing = series, set(failing)
 
-    async def get_historical_price_eod(self, ticker, from_date, to_date):
+    async def get_historical_price_eod(self, ticker, from_date, to_date, group="daily_prices"):
         if ticker in self.failing:
             raise httpx.ConnectError("boom")
         return [

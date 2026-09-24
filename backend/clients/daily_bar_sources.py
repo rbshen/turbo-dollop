@@ -14,9 +14,9 @@ exchange per the cached FMP profile, see core/tickers.py::is_us_listed --
 not company domicile). Per ticker the chain is FMP -> Massive -> Yahoo
 (FMPWithFallback): an FMP error or empty answer for a ticker falls through
 to Massive/Polygon (clients/massive_client.py), which itself falls back to
-Yahoo Finance (MassiveWithYahooFallback, unchanged). Non-US tickers never
-touch FMP/Massive here -- they stay on Yahoo exactly as before. The
-daily_prices toggle OFF (or master switch off) does NOT mean cache-only
+Yahoo Finance (MassiveWithYahooFallback, unchanged). Non-US tickers (P3) go FMP (group
+`daily_prices_intl`, phantom holiday/weekend bars removed) -> Yahoo, never
+Massive (US-only). The daily_prices toggle OFF (or master switch off) does NOT mean cache-only
 during P2-P5: FMP is skipped and the rest of the chain serves (removed in
 P6). Auto-fallback, never a hard job failure -- paired with
 clients/shared_bars_cache.py's stale_ticker_count guard so a still-stale
@@ -172,9 +172,8 @@ def route_by_source(tickers_with_days: dict[str, int]) -> tuple[dict[str, int], 
     not company domicile: an NYSE-listed ADR is US, an HKSE listing is not.
     A ticker with no cached profile falls back to the dot-suffix check
     (so sector ETFs and ^GSPC are US). Non-US tickers are never attempted on
-    FMP or Massive here (Massive is US-market-only, confirmed in the
-    feasibility investigation §2j; FMP's plan tier for this group covers US
-    only)."""
+    Massive (US-market-only, feasibility investigation §2j); they use FMP's
+    `daily_prices_intl` group, then Yahoo."""
     exchanges = _profile_exchanges(list(tickers_with_days))
     us: dict[str, int] = {}
     non_us: dict[str, int] = {}
@@ -511,7 +510,10 @@ class _Pacer:
 
 
 class FMPDailySource:
-    """FMP-backed DailyBarSource for US-listed tickers. Per ticker:
+    """FMP-backed DailyBarSource. `group` names the data group whose toggle gates
+    it -- `daily_prices` (default; US-listed tickers) or `daily_prices_intl`
+    (`non_us=True`: every non-US listing, whose rows are also stripped of
+    phantom non-trading-day bars before they can reach the cache). Per ticker:
 
     - full window (`from = today - days`): never cached, cached history
       narrower than requested, or `full_refresh` (the weekly resync). The
@@ -523,15 +525,17 @@ class FMPDailySource:
       restated history (split, spin-off, symbol reuse) and the ticker is
       refetched over its full window and replaced.
 
-    Returns {} outright while the daily_prices group is not live (off, master
+    Returns {} outright while its group is not live (off, master
     off, above plan, restricted) -- FMPWithFallback then serves the whole
-    batch from Massive/Yahoo. An empty 200 (delisted symbol) or an HTTP error
+    batch from its fallback (Massive/Yahoo for US, Yahoo for non-US). An empty 200 (delisted symbol) or an HTTP error
     for a ticker just leaves it out of the result (its fallback decides);
     error accounting toward the group's Failing chip is FMPClient.get's job.
     Requests are paced to FMP_RATE_FRACTION of the plan's documented rate."""
 
-    def __init__(self, client=fmp_client) -> None:
+    def __init__(self, client=fmp_client, group: str = "daily_prices", non_us: bool = False) -> None:
         self._client = client
+        self._group = group
+        self._non_us = non_us
 
     async def get_daily_bars(
         self,
@@ -542,7 +546,7 @@ class FMPDailySource:
         replace_tickers: list[str] | None = None,
         full_refresh: bool = False,
     ) -> dict[str, pd.DataFrame]:
-        if not tickers_with_days or not effective_state("daily_prices")[0]:
+        if not tickers_with_days or not effective_state(self._group)[0]:
             return {}
         today = reference or date.today()
         span = MassiveDailySource._existing_span(list(tickers_with_days))
@@ -560,14 +564,16 @@ class FMPDailySource:
             async with sem:
                 await pacer.wait()
                 try:
-                    rows = await self._client.get_historical_price_eod(ticker, start.isoformat(), today.isoformat())
+                    rows = await self._client.get_historical_price_eod(
+                        ticker, start.isoformat(), today.isoformat(), group=self._group
+                    )
                 except FMPGroupDisabledError:
                     stop = True  # group went off mid-run: everything left falls through
                     return None
                 except (httpx.HTTPError, ValueError):
                     logger.warning("FMP daily-bar fetch failed for %s; falling back", ticker)
                     return None
-            frame = fmp_rows_to_frame(rows)
+            frame = fmp_rows_to_frame(rows, non_us=self._non_us)
             if frame.empty:
                 return None
             # A bar dated after the most recent COMPLETED session is a live,
@@ -633,7 +639,17 @@ class FMPWithFallback:
     in its `.yahoo`, when the caller passed a FallbackTickers) so the job's
     heartbeat can say "N fell back from FMP (Massive M, Yahoo Y)"."""
 
-    def __init__(self, fmp: DailyBarSource | None = None, fallback: DailyBarSource | None = None) -> None:
+    def __init__(
+        self, fmp: DailyBarSource | None = None, fallback: DailyBarSource | None = None, non_us: bool = False
+    ) -> None:
+        # non_us: FMP gated on `daily_prices_intl` (phantom bars filtered), and a
+        # Yahoo-only fallback -- Massive is US-market-only, so every ticker that
+        # falls back is Yahoo's.
+        if non_us:
+            self._fmp = fmp or FMPDailySource(group="daily_prices_intl", non_us=True)
+            self._massive_enabled = False
+            self._fallback = fallback or YahooDailySource()
+            return
         self._fmp = fmp or FMPDailySource()
         self._massive_enabled = settings.massive_enabled if fallback is None else True
         self._fallback = fallback or (MassiveWithYahooFallback() if settings.massive_enabled else YahooDailySource())
@@ -671,10 +687,9 @@ class FMPWithFallback:
         return result
 
 
-def get_daily_bar_source() -> DailyBarSource:
-    """FMP first (daily_prices group, US-listed only -- see route_by_source),
-    then Massive->Yahoo when settings.massive_enabled, else Yahoo (the
-    MASSIVE_ENABLED=false lever now only shapes the fallback chain). Only
-    ever called for US-listed tickers -- non-US tickers always go straight
-    to a plain YahooDailySource, regardless of any flag."""
-    return FMPWithFallback()
+def get_daily_bar_source(non_us: bool = False) -> DailyBarSource:
+    """US-listed (default): FMP first (daily_prices group), then Massive->Yahoo
+    when settings.massive_enabled, else Yahoo (the MASSIVE_ENABLED=false lever
+    only shapes the fallback chain). `non_us=True` (P3): FMP first (daily_prices_intl
+    group, phantom bars removed), then Yahoo -- Massive never sees a non-US symbol."""
+    return FMPWithFallback(non_us=non_us)

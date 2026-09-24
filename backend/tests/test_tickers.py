@@ -79,8 +79,13 @@ def test_resolve_daily_bar_source_label_prefers_massive_for_us_tickers_when_dail
     assert resolve_daily_bar_source_label("AAPL") == "massive"
 
 
-def test_resolve_daily_bar_source_label_is_yahoo_for_non_us_tickers_even_when_fmp_live():
+def test_resolve_daily_bar_source_label_for_non_us_tickers_follows_daily_prices_intl():
+    import core.data_groups as dg
+
+    assert resolve_daily_bar_source_label("0700.HK") == "fmp"
+    dg.set_group_enabled("daily_prices_intl", False)
     assert resolve_daily_bar_source_label("0700.HK") == "yahoo"
+    assert resolve_daily_bar_source_label("AAPL") == "fmp"  # the US group is independent
 
 
 def test_resolve_daily_bar_source_label_is_yahoo_when_daily_prices_off_and_massive_disabled(monkeypatch):

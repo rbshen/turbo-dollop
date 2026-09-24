@@ -214,7 +214,7 @@ def test_source_label_follows_the_daily_prices_group_per_ticker(monkeypatch, tmp
     """P2: the recorded source is a per-ticker core/tickers.py::
     resolve_daily_bar_source_label call -- "fmp" for a US ticker while the
     daily_prices group is live, "massive"/"yahoo" (per MASSIVE_ENABLED) when it
-    is off, and "yahoo" for a non-US ticker regardless."""
+    is off; a non-US ticker is "fmp" while daily_prices_intl is live, else "yahoo"."""
     from core.config import settings
 
     engine = _fresh_engine(monkeypatch, tmp_path)
@@ -223,9 +223,10 @@ def test_source_label_follows_the_daily_prices_group_per_ticker(monkeypatch, tmp
     store_calls = _patch_store(monkeypatch)
 
     asyncio.run(nightly_lz.main())
-    assert dict(store_calls) == {"AAPL": "fmp", "0700.HK": "yahoo"}
+    assert dict(store_calls) == {"AAPL": "fmp", "0700.HK": "fmp"}
 
     _dg.set_group_enabled("daily_prices", False)
+    _dg.set_group_enabled("daily_prices_intl", False)
     store_calls.clear()
     monkeypatch.setattr(settings, "massive_enabled", True)
     asyncio.run(nightly_lz.main())
