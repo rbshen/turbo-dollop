@@ -433,30 +433,42 @@ _OHLCV = ["open", "high", "low", "close", "volume"]
 
 
 # Non-US phantom-bar filter (P3, docs/fmp_phase3_long_history_non_us_investigation_2026-09-25.md
-# section 6): FMP's HKSE series carries days the exchange was closed -- weekend dates
-# (Sunday 2025-10-26, 0883's Sundays in 2024-09) and copies of the previous session
-# (Good Friday 2025-04-18 on every HK name, ~30 flat copies on 0857/0883). Yahoo has none.
-# Volume tolerance for "same as the previous bar": FMP's Good Friday copies carry the prior
-# day's OHLC but a volume revised by 0.005%-0.09% (measured on 0005/0857/0883), so the
-# literal "identical volume" test would keep the very case that motivated the filter; every
-# other flat copy is exactly identical. 0.5% sits well above that and far below any real
-# day-to-day volume change on a bar whose OHLC also happens to repeat exactly.
+# section 6, refined against 5y of live Yahoo bars for all six HKSE names): FMP's HK series
+# carries dates the exchange was closed, in three shapes --
+#   * weekend dates (Sunday 2025-10-26; 0883's Sundays in 2024-09): always dropped;
+#   * a holiday/weekend bar that is an exact copy (OHLC AND volume, to the share) of the NEXT
+#     trading day's bar (0883 2024-09-18 -> the real 09-19; 28 of them on 0857, 29 on 0883 over 5y).
+#     The LATER bar is the real one (present on Yahoo), so the EARLIER copy is dropped;
+#   * a copy of the PREVIOUS session (Good Friday 2025-04-18 on every HK name) whose volume FMP
+#     revised slightly (+0.005%..+0.09% on 0005/0857/0883): the later bar is the phantom.
+# Identical OHLC alone is NOT enough: real consecutive days do repeat OHLC exactly (0728 on
+# 2021-11-15, 2024-05-24, 2026-01-14; 3988 on 2021-11-18 -- all on Yahoo, all with different
+# volume), so volume has to agree. PHANTOM_VOLUME_TOLERANCE is the "same volume" band for the
+# previous-session shape; 0.5% is far above the observed revisions and far below the real
+# repeats' 14%+ volume differences. Known residual: 3988's Good Friday copy carries -8.1%
+# volume, which is inside the real-repeat range, so that one phantom survives.
 PHANTOM_VOLUME_TOLERANCE = 0.005
 
 
 def drop_phantom_bars(df: pd.DataFrame) -> pd.DataFrame:
-    """Remove non-trading-day rows from a non-US OHLCV frame (ascending index):
-    (a) any bar dated Saturday/Sunday; (b) any bar whose open/high/low/close are
-    ALL identical to the previous RAW bar's and whose volume is zero or within
-    PHANTOM_VOLUME_TOLERANCE of it. The previous bar is compared before any
-    dropping, so the Monday copy of a phantom Sunday bar goes too. Never applied
-    to US tickers (their series have none of these)."""
+    """Remove non-trading-day rows from a non-US OHLCV frame (ascending index) per the
+    rules above. Weekend rows go first and every later comparison is between the
+    remaining consecutive bars. Never applied to US tickers (their series have none of
+    these)."""
     if df.empty:
         return df
-    prev = df.shift(1)
-    flat = (df[["open", "high", "low", "close"]] == prev[["open", "high", "low", "close"]]).all(axis=1)
-    vol_same = (df["volume"] == 0) | ((df["volume"] - prev["volume"]).abs() <= prev["volume"].abs() * PHANTOM_VOLUME_TOLERANCE)
-    return df[~((df.index.dayofweek >= 5) | (flat & vol_same))]
+    df = df[df.index.dayofweek < 5]
+    ohlc = ["open", "high", "low", "close"]
+    vol = df["volume"]
+    prev, nxt = df.shift(1), df.shift(-1)
+    flat_prev = (df[ohlc] == prev[ohlc]).all(axis=1)
+    flat_next = (df[ohlc] == nxt[ohlc]).all(axis=1)
+    # shape 2: exact copy of the next bar -> the earlier one is the phantom
+    earlier_is_phantom = flat_next & (vol == nxt["volume"]) & (vol != 0)
+    # shape 3 (and zero-volume flats): copy of the previous bar with a revised/zero volume
+    near_prev = (vol - prev["volume"]).abs() <= prev["volume"].abs() * PHANTOM_VOLUME_TOLERANCE
+    later_is_phantom = flat_prev & ((vol == 0) | ((vol != prev["volume"]) & near_prev))
+    return df[~(earlier_is_phantom | later_is_phantom)]
 
 
 def fmp_rows_to_frame(rows, non_us: bool = False) -> pd.DataFrame:
@@ -536,6 +548,9 @@ class FMPDailySource:
         self._client = client
         self._group = group
         self._non_us = non_us
+        # {ticker: phantom bars dropped from its latest fetch} -- non-US only; read by
+        # the backfill's dry-run report.
+        self.phantom_dropped: dict[str, int] = {}
 
     async def get_daily_bars(
         self,
@@ -574,6 +589,8 @@ class FMPDailySource:
                     logger.warning("FMP daily-bar fetch failed for %s; falling back", ticker)
                     return None
             frame = fmp_rows_to_frame(rows, non_us=self._non_us)
+            if self._non_us:
+                self.phantom_dropped[ticker] = len(fmp_rows_to_frame(rows)) - len(frame)
             if frame.empty:
                 return None
             # A bar dated after the most recent COMPLETED session is a live,

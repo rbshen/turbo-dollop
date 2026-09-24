@@ -32,10 +32,20 @@ cache -- share of days within 0.1%, days off by more than 1% (excluding the
 last bar), dates only one side has -- which is the parity check that gates the
 real run.
 
+NON-US (FMP Phase 3, 2026-09-25): `--scope non-us` does the same for every non-US
+listing (HKSE today) through the `daily_prices_intl` group, with FMP's phantom
+holiday/weekend bars removed first (clients/daily_bar_sources.py::drop_phantom_bars).
+It reports the per-ticker phantom-bar drop counts and is GATED: it refuses to
+write unless every ticker has >= GATE_MIN_WITHIN_PCT of its shared-date closes
+within GATE_TOLERANCE of the cache (a dry run reports the same numbers, plus every
+date that differs by more than the tolerance, so each cluster can be traced by
+hand before the real run). `--scope us` (default) is the Phase 2 behaviour,
+untouched; `--scope all` does both.
+
 Run (writes nothing):
-    uv run python -m pipeline.backfills.backfill_fmp_daily_bars --dry-run [--report out.json]
+    uv run python -m pipeline.backfills.backfill_fmp_daily_bars --dry-run [--scope us|non-us|all] [--report out.json]
 Run for real (take a backup first):
-    uv run python -m pipeline.backfills.backfill_fmp_daily_bars
+    uv run python -m pipeline.backfills.backfill_fmp_daily_bars [--scope ...]
 """
 
 import argparse
@@ -67,6 +77,9 @@ SHRINK_FLAG_DAYS = 30
 # A ticker counts as a >1% mismatch day when its close differs from FMP's by more than this.
 MISMATCH_TOLERANCE = 0.01
 CLOSE_PARITY_TOLERANCE = 0.001
+# Non-US parity gate (P3): every ticker needs >= 99% of its shared-date closes within 0.5%.
+GATE_TOLERANCE = 0.005
+GATE_MIN_WITHIN_PCT = 99.0
 
 logger = logging.getLogger(__name__)
 
@@ -94,18 +107,40 @@ def compare_to_cache(new: pd.DataFrame, old: pd.DataFrame | None) -> dict:
         "within_0.1pct": int((rel < CLOSE_PARITY_TOLERANCE).sum()),
         "days_off_gt_1pct": int((inner > MISMATCH_TOLERANCE).sum()),
         "max_diff_pct_ex_last": float(inner.max() * 100) if len(inner) else 0.0,
+        "within_0.5pct_pct": round(float((rel <= GATE_TOLERANCE).mean() * 100), 3) if len(rel) else None,
+        "dates_off_gt_0.5pct": {
+            str(d.date()): round(float(v * 100), 3) for d, v in rel[rel > GATE_TOLERANCE].items()
+        },
         "last_bar_diff_pct": float(rel.loc[last] * 100) if last is not None else 0.0,
         "cache_only_dates": int((~old.index.isin(new.index)).sum()),
         "fmp_only_dates": int(((~new.index.isin(old.index)) & (new.index >= old.index.min())).sum()),
     }
 
 
-async def main(tickers: list[str] | None = None, dry_run: bool = False, report_path: Path | None = None) -> dict:
+class ParityGateError(RuntimeError):
+    """A non-US ticker failed the parity gate; nothing was written."""
+
+
+def parity_gate_failures(per_ticker: dict[str, dict]) -> dict[str, float | None]:
+    """{ticker: share of shared-date closes within GATE_TOLERANCE} for every ticker
+    below GATE_MIN_WITHIN_PCT. A ticker with no cached history has nothing to compare
+    against and passes vacuously (reported separately as new_tickers)."""
+    return {
+        t: c["within_0.5pct_pct"] for t, c in per_ticker.items()
+        if c.get("within_0.5pct_pct") is not None and c["within_0.5pct_pct"] < GATE_MIN_WITHIN_PCT
+    }
+
+
+async def main(
+    tickers: list[str] | None = None, dry_run: bool = False, report_path: Path | None = None, scope: str = "us"
+) -> dict:
     configure_logging(LOG_PATH)
     init_db()
-    live, reason = effective_state("daily_prices")
-    if not live:
-        raise RuntimeError(f"daily_prices group is not live ({reason}) -- turn it on before backfilling from FMP")
+    do_us, do_non_us = scope in ("us", "all"), scope in ("non-us", "all")
+    for wanted, group in ((do_us, "daily_prices"), (do_non_us, "daily_prices_intl")):
+        live, reason = effective_state(group)
+        if wanted and not live:
+            raise RuntimeError(f"{group} group is not live ({reason}) -- turn it on before backfilling from FMP")
 
     with Session(engine) as session:
         universe = tickers if tickers is not None else sorted(set(_resolve_universe(session)) | _cached_tickers())
@@ -113,15 +148,29 @@ async def main(tickers: list[str] | None = None, dry_run: bool = False, report_p
     universe = [t for t in universe if t not in delisted]
     us, non_us = route_by_source({t: LOOKBACK_DAYS for t in universe})
     logger.info(
-        "FMP daily-bar backfill%s: %d US-listed ticker(s), %d non-US left on Yahoo, %d delisted-flagged skipped.",
-        " (DRY RUN)" if dry_run else "", len(us), len(non_us), len(delisted),
+        "FMP daily-bar backfill%s (scope %s): %d US-listed ticker(s), %d non-US, %d delisted-flagged skipped.",
+        " (DRY RUN)" if dry_run else "", scope, len(us), len(non_us), len(delisted),
     )
 
     start = time.monotonic()
     replaced: list[str] = []
-    frames = await FMPDailySource().get_daily_bars(us, False, reference=_eastern_today(), replace_tickers=replaced, full_refresh=True)
+    frames: dict[str, pd.DataFrame] = {}
+    wanted_tickers: dict[str, int] = {}
+    phantom_dropped: dict[str, int] = {}
+    if do_us:
+        wanted_tickers.update(us)
+        frames.update(
+            await FMPDailySource().get_daily_bars(us, False, reference=_eastern_today(), replace_tickers=replaced, full_refresh=True)
+        )
+    if do_non_us:
+        wanted_tickers.update(non_us)
+        intl = FMPDailySource(group="daily_prices_intl", non_us=True)
+        frames.update(
+            await intl.get_daily_bars(non_us, False, reference=_eastern_today(), replace_tickers=replaced, full_refresh=True)
+        )
+        phantom_dropped = dict(intl.phantom_dropped)
     fetch_seconds = time.monotonic() - start
-    kept = sorted(set(us) - set(frames))
+    kept = sorted(set(wanted_tickers) - set(frames))
 
     with Session(engine) as session:
         old_frames = _load_frames(session, list(frames), DAILY_INTERVAL, datetime(1990, 1, 1).date())
@@ -140,8 +189,9 @@ async def main(tickers: list[str] | None = None, dry_run: bool = False, report_p
     within = sum(c.get("within_0.1pct", 0) for c in per_ticker.values())
     summary = {
         "dry_run": dry_run,
+        "scope": scope,
         "us_routed": len(us),
-        "non_us_left_on_yahoo": len(non_us),
+        "non_us_routed": len(non_us),
         "delisted_skipped": sorted(delisted),
         "served_by_fmp": len(frames),
         "kept_not_served": kept,
@@ -152,9 +202,18 @@ async def main(tickers: list[str] | None = None, dry_run: bool = False, report_p
         "grown": grown,
         "new_tickers": new_tickers,
         "fetch_seconds": round(fetch_seconds, 1),
+        "phantom_bars_dropped": phantom_dropped,
     }
+    gate_failures = parity_gate_failures(per_ticker) if do_non_us else {}
+    if do_non_us:
+        summary["parity_gate_failures"] = gate_failures
 
     written = 0
+    if gate_failures and not dry_run:
+        # Write nothing at all -- not even the US half of an `all` run.
+        if report_path:
+            report_path.write_text(json.dumps({"summary": summary, "per_ticker": per_ticker}, indent=1, default=str))
+        raise ParityGateError(f"parity gate failed (nothing written): {gate_failures}")
     if not dry_run:
         fetched_at = datetime.now()
         with Session(engine) as session:
@@ -174,6 +233,7 @@ async def main(tickers: list[str] | None = None, dry_run: bool = False, report_p
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--dry-run", action="store_true", help="fetch from FMP and compare against the cache, write nothing")
+    parser.add_argument("--scope", choices=("us", "non-us", "all"), default="us", help="which listings to backfill (default: us)")
     parser.add_argument("--tickers", type=str, default=None, help="comma-separated explicit list (testing)")
     parser.add_argument("--report", type=Path, default=None, help="write the per-ticker JSON report here")
     return parser.parse_args()
@@ -182,4 +242,4 @@ def _parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = _parse_args()
     explicit = [normalize_ticker(t) for t in args.tickers.split(",") if t.strip()] if args.tickers else None
-    print(json.dumps(asyncio.run(main(explicit, args.dry_run, args.report)), indent=1, default=str))
+    print(json.dumps(asyncio.run(main(explicit, args.dry_run, args.report, args.scope)), indent=1, default=str))
