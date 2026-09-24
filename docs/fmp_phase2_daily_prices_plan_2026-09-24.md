@@ -102,3 +102,20 @@ HKSE tickers stay non-US.
 5. Header price fallback deferred (Massive snapshot first). Chart D_6M/1Y/2Y move to FMP now.
 Also: header avg-volume/dollar-volume tiles follow `daily_prices`; keep Premium label with
 verified tick unset; "no profile + no dot" = US; add `--rebuild` to the Breadth backfill.
+
+## Gate outcome (2026-09-24) -- ACCEPTED
+
+The post-backfill parity check measured 98.14% of days within 0.1% (717,171 days; 99.81-99.90% on
+the 550 tickers with no day off by > 1%), below the 99% bar. The user accepted the gate. Besides
+the three planned buckets (spin-off basis, stitched symbols, longer FMP history) two new known
+buckets were found and are recorded here:
+
+- **Bad prints in the OLD cache:** a single bad 2023-05-30 bar across BABA, CCJ, GOOGL, NUE, PCG,
+  QCOM, RVTY, SYK, TECL, TME, VST, and GNRC on 2023-02-08 (also IVZ low 2026-04-27, MA low
+  2023-01-24). FMP is right; the old Massive/Yahoo-era rows were wrong.
+- **Small OTC vendor differences:** SINGY and EVVTY (thin OTC trading, <= ~2%).
+
+Weinstein: 3 stage changes (BDX, FDX decline -> advance on spin-off basis; SPCX -> insufficient
+history) + 6 since-date-only changes. Liquidity Zones: 215 of 592 tickers moved (193 of the 550
+unflagged are 2-decimal jitter; AME, BKNG, DIS, GL, TECH are swing-detection flips from sub-0.5%
+high/low differences, swing_bars=2).
