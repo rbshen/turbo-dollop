@@ -306,6 +306,28 @@ isn't a real ticker; PEP's `TickerScore` recomputed.
 `audit_fixture_contamination.py` confirmed clean after all three fixes,
 with the full suite (589 tests) passing.
 
+**Follow-up investigation (2026-09-23) found the 2026-08-05 manual
+remediation above likely missed two cache rows.** `ratios`/`annual_10y`
+and `analyst_estimates`/`latest` are cache keys only `step2_data.py`/
+`step3_data.py` write (added by the same Step 3 rollout, `2a8a3ac`, that
+opened this whole vulnerability window) — not part of the original
+2026-07-28 incident's known-endpoint fingerprint, so the person doing the
+2026-08-05 cleanup likely didn't know to force-refresh them. Live-DB
+evidence: every other PEP row this bug could have touched shows
+`fetched_at` from the 2026-08-05 15:21 remediation batch, but these two
+show `fetched_at` of 2026-08-06 03:30 and 2026-08-13 00:45 respectively —
+consistent with them being left on contaminated (empty-list) data that
+only self-healed once each row's own 7-day `cache_staleness_days` window
+naturally expired, rather than being explicitly purged. Circumstantial
+only — no DB backup survives from that far back (retention currently
+starts 2026-09-13) to directly confirm what those rows held beforehand —
+and moot for current correctness, since both rows hold genuine PEP data
+today. **Lesson for any future contamination remediation: force-refresh
+every cache key the leaking code path can write, not just the keys in the
+incident's own known fingerprint** — a code path can grow new cache keys
+(as this one did) between when a fingerprint list was first written and
+when it's next relied on.
+
 `backend/pipeline/audit_fixture_contamination.py` (read-only, safe to run
 anytime) scans `FundamentalsCache` for the same class of fingerprint and
 should be run if this is ever suspected again — now genuinely running
