@@ -93,7 +93,7 @@ async def _backfill_one_ticker(session: Session, ticker: str, fetched_at: dateti
     this ticker -- not an error, just recorded as such in the summary)."""
     end = date.today()
     start = end - timedelta(days=LOOKBACK_DAYS)
-    df = await massive_client.get_daily_bars(to_massive_symbol(ticker), start, end, adjusted=False)
+    df = await massive_client.get_daily_bars(to_massive_symbol(ticker), start, end, adjusted=True)
     if df.empty:
         return 0
     _write_rows(session, ticker, DAILY_INTERVAL, df, fetched_at)

@@ -35,6 +35,14 @@ logger = logging.getLogger(__name__)
 # (Unix ms, UTC), o/h/l/c=open/high/low/close, v=volume. Grouped-daily
 # additionally carries the ticker symbol itself under "T" (capital, to
 # avoid colliding with "t").
+# `adjusted` on every /v2/aggs endpoint means SPLIT-adjusted (Polygon never
+# folds dividends into it): adjusted=false returns RAW, un-split-adjusted
+# prices. That is NOT the meaning of yfinance's auto_adjust=False (still
+# split-adjusted, just not dividend-adjusted), so a caller's own
+# auto_adjust flag must never be forwarded here -- every Fathom consumer
+# needs split-adjusted, non-dividend-adjusted closes, i.e. adjusted=true,
+# always (2026-09-24 fix: forwarding auto_adjust=False cached raw prices
+# and produced fake split cliffs on ~60 tickers).
 _BAR_COLUMNS = ["t", "o", "h", "l", "c", "v"]
 
 # Confirmed live (feasibility investigation §Part 1b): 300 sequential
@@ -140,7 +148,7 @@ class MassiveClient:
             next_url = body.get("next_url")
         return results
 
-    async def get_daily_bars(self, ticker: str, start: date, end: date, adjusted: bool = False) -> pd.DataFrame:
+    async def get_daily_bars(self, ticker: str, start: date, end: date, adjusted: bool = True) -> pd.DataFrame:
         """One ticker's daily OHLCV bars over [start, end] (inclusive).
         Empty frame (never raises) for a symbol Massive has no data for."""
         url = f"/v2/aggs/ticker/{ticker}/range/1/day/{start.isoformat()}/{end.isoformat()}"
@@ -152,7 +160,7 @@ class MassiveClient:
             raise
         return _bars_to_frame(results)
 
-    async def get_grouped_daily(self, day: date, adjusted: bool = False) -> dict[str, pd.DataFrame]:
+    async def get_grouped_daily(self, day: date, adjusted: bool = True) -> dict[str, pd.DataFrame]:
         """Whole US market, one call -- {Massive ticker symbol: one-row
         OHLCV DataFrame}. Callers translate symbols back to Fathom's
         canonical form via core/tickers.py::from_massive_symbol."""

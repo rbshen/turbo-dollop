@@ -189,7 +189,7 @@ async def _fetch_bars(ticker: str, range_key: str) -> tuple[pd.DataFrame, str]:
         end = date.today()
         start = end - timedelta(days=cfg["massive_lookback_days"])
         try:
-            df = await massive_client.get_daily_bars(to_massive_symbol(ticker), start, end, adjusted=False)
+            df = await massive_client.get_daily_bars(to_massive_symbol(ticker), start, end, adjusted=True)
         except Exception:
             logger.warning("Massive daily-bar fetch failed for %s (%s); falling back to Yahoo", ticker, range_key)
             df = pd.DataFrame()

@@ -36,6 +36,12 @@ logger = logging.getLogger(__name__)
 
 DAILY_INTERVAL = "1d"
 
+# Massive's `adjusted` flag means split-adjusted (see clients/massive_client.py),
+# unlike yfinance's auto_adjust (dividend-adjusted). The DailyBarSource
+# `auto_adjust` parameter is therefore deliberately NOT forwarded to Massive:
+# the required basis is always split-adjusted, non-dividend-adjusted.
+MASSIVE_SPLIT_ADJUSTED = True
+
 __all__ = [
     "DAILY_INTERVAL",
     "DailyBarSource",
@@ -201,7 +207,7 @@ class MassiveDailySource:
         for ticker in needs_backfill:
             days = tickers_with_days[ticker]
             df = await self._client.get_daily_bars(
-                to_massive_symbol(ticker), today - timedelta(days=days), today, adjusted=auto_adjust
+                to_massive_symbol(ticker), today - timedelta(days=days), today, adjusted=MASSIVE_SPLIT_ADJUSTED
             )
             if not df.empty:
                 result[ticker] = df
@@ -220,7 +226,7 @@ class MassiveDailySource:
         by_ticker: dict[str, list[pd.DataFrame]] = {}
         for day in candidate_days:
             try:
-                grouped = await self._client.get_grouped_daily(day, adjusted=auto_adjust)
+                grouped = await self._client.get_grouped_daily(day, adjusted=MASSIVE_SPLIT_ADJUSTED)
             except Exception:
                 logger.warning("Massive grouped-daily fetch failed for %s; %d ticker(s) stay stale this run", day, len(tickers))
                 continue

@@ -175,7 +175,7 @@ async def _probe_ticker_for_fresh_bar(ticker: str, today: date, threshold_days: 
     df: pd.DataFrame | None = None
     if settings.massive_enabled:
         try:
-            df = await massive_client.get_daily_bars(to_massive_symbol(ticker), start, today, adjusted=False)
+            df = await massive_client.get_daily_bars(to_massive_symbol(ticker), start, today, adjusted=True)
         except Exception:
             logger.warning("Delisted-flag revival probe: Massive lookup failed for %s", ticker)
             df = None

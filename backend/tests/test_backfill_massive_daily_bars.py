@@ -164,5 +164,5 @@ def test_massive_client_is_called_with_the_massive_symbol_and_five_year_window(m
     asyncio.run(backfill.main(tickers=["BRK-B"]))
 
     assert seen["symbol"] == "BRK.B"  # Massive's own dot notation for the class share
-    assert seen["adjusted"] is False
+    assert seen["adjusted"] is True  # split-adjusted (see clients/massive_client.py)
     assert (seen["end"] - seen["start"]).days == backfill.LOOKBACK_DAYS
