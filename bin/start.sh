@@ -87,24 +87,37 @@ check_fmp_connectivity() {
 import asyncio
 import sys
 
+import httpx
+
 from clients.fmp_client import fmp_client
 from core.config import settings
+from core.data_groups import effective_state
 
 
 async def main() -> None:
-    if not settings.fmp_enabled:
-        # FMP is deliberately paused -- the app must still be startable
-        # cache-only (that is the whole point of FMP_ENABLED), so this
-        # check is skipped rather than blocking startup on a live call
-        # that would just be refused anyway. See the "Pausing the FMP
-        # subscription" section in CLAUDE.md.
-        print("FMP connectivity check skipped: FMP paused (FMP_ENABLED=false).")
+    # The AAPL /quote check belongs to the profile_quote data group. Skip it
+    # when that group is not live for any reason (master switch off, group
+    # disabled, above plan, restricted) -- the app must still be startable
+    # cache-only, and a live call would just be refused anyway. See the
+    # "Data groups" section in CLAUDE.md.
+    live, reason = effective_state("profile_quote")
+    if not live:
+        print(f"FMP connectivity check skipped: profile_quote group not live ({reason}).")
         return
     if not settings.fmp_api_key:
         print("FMP_API_KEY is empty in backend/.env", file=sys.stderr)
         sys.exit(1)
     try:
         result = await fmp_client.get_quote("AAPL")
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 402:
+            # A plan restriction, not a broken key: warn, never fail startup.
+            # (FMPClient has already run its canary logic and, if confirmed,
+            # marked the group restricted -- visible in Settings > Status.)
+            print("WARNING: FMP returned 402 (plan restriction) for /quote -- continuing startup.")
+            return
+        print(f"FMP request failed: {exc}", file=sys.stderr)
+        sys.exit(1)
     except Exception as exc:  # noqa: BLE001 -- any failure here should fail startup with a clear message
         print(f"FMP request failed: {exc}", file=sys.stderr)
         sys.exit(1)
