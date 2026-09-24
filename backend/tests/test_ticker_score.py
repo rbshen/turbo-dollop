@@ -696,3 +696,23 @@ def test_a_single_erroring_step_does_not_abort_the_whole_row(monkeypatch):
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
     assert row.step1_score == 90  # the other 3 steps still computed fine
+
+
+def test_recompute_preserves_delisted_at(monkeypatch):
+    """delisted_at is set by stale_data_health_check; a score recompute (which
+    rewrites the whole row) must never clear it -- and must still update
+    everything else."""
+    engine = _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch)
+    flagged_at = datetime(2026, 9, 23, 21, 49)
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="AAPL", delisted_at=flagged_at, overall_score=1, computed_at=datetime(2020, 1, 1)))
+        session.commit()
+
+    result = asyncio.run(compute_ticker_score("AAPL"))
+
+    assert result is not None and result.overall_score == 76
+    with Session(engine) as session:
+        row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).one()
+    assert row.delisted_at == flagged_at
+    assert row.overall_score == 76  # the rest of the row did update

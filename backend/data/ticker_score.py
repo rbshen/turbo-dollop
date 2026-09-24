@@ -67,6 +67,9 @@ def _snapshot(key: str, result, has_error: bool) -> StepSnapshot:
     )
 
 
+# TickerScore columns written by other jobs, never overwritten by a score upsert.
+PRESERVED_ON_UPSERT = ("delisted_at",)
+
 async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerScore | None:
     """Builds and upserts one ticker's TickerScore row for the Screener page
     -- the same 5 functions Step 1/2/4/5 and the ticker header already call,
@@ -209,7 +212,11 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         stmt = sqlite_insert(TickerScore).values(**values)
         stmt = stmt.on_conflict_do_update(
             index_elements=["ticker"],
-            set_={k: v for k, v in values.items() if k != "ticker"},
+            # delisted_at is owned by pipeline.stale_data_health_check, not by a
+            # score recompute: `values` carries it as None, so including it here
+            # wiped the flag on every recompute (2026-09-24: EA/EQR/TWTR/WBA
+            # flagged at 21:49, cleared by the next recompute).
+            set_={k: v for k, v in values.items() if k not in ("ticker", *PRESERVED_ON_UPSERT)},
         )
         session.execute(stmt)
         session.commit()
