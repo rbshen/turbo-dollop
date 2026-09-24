@@ -3504,6 +3504,78 @@ Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
   session's date at 00:00 for `1d` and that session's 15:30 for `60m`; `min(bar_time)` should be
   ~2y back (`60m`, Warren/BB+RSI), ~2y (`1d`, Trend-only tickers) or ~5y (`1d`, LZ tickers).
 
+## Daily prices: FMP (Phase 2, 2026-09-24)
+
+FMP `/historical-price-eod/full` (data group `daily_prices`) is now the primary source of the
+`SharedBarsCache` "1d" bars for **US-listed** tickers; Massive then Yahoo remain as a per-ticker
+fallback until P6. Plan/decisions: `docs/fmp_phase2_daily_prices_plan_2026-09-24.md`.
+
+- **BASIS CHANGE -- read this before comparing prices to another chart.** FMP `full` is split-
+  **and spin-off**-adjusted (not dividend-adjusted). Massive/Yahoo were split-only. For ~30 tickers
+  pre-spin-off history therefore differs from split-only sources such as TradingView by a constant
+  factor that ends on the spin-off date (T +32.5% before 2022-04-11, EXC +40%, WDC +32%, FDX +24%,
+  DHR +13%, O +3.3%, plus BDX, J, LEN, ILMN, ZBH, APTV, FLEX, SPGI, CMCSA, HON, IP, TRI). It removes
+  the artificial cliff a spin-off leaves in a raw series; it is not a data error. No splits-only FMP
+  endpoint exists (`non-split-adjusted` is raw, `dividend-adjusted` is split+dividend).
+- **Routing = listing exchange, not domicile** (`core/tickers.py::is_us_listed`, exchange read from
+  the cached FMP profile by `daily_bar_sources.py::_profile_exchanges`): NYSE, NASDAQ, AMEX (FMP's
+  name for NYSE Arca ETFs such as SPY), CBOE and **OTC** (by decision: CNSWF/EVVTY/SINGY) are US; a
+  ticker with no cached profile (the sector ETFs, `^GSPC`) is US unless its symbol has a dot;
+  HKSE etc. are non-US and stay on Yahoo. 54 US-listed tickers have a foreign domicile (ACN, TSM,
+  BABA, NVO, HSBC ...) and are US. After the re-backfill: 592 tickers routed to FMP, 6 HKSE on
+  Yahoo, 5 delisted-flagged (AVB, EA, EQR, TWTR, WBA) skipped.
+- **Chain and toggle** (`clients/daily_bar_sources.py`): `FMPWithFallback` = `FMPDailySource` then
+  `MassiveWithYahooFallback` (or Yahoo only when `MASSIVE_ENABLED=false`). A ticker FMP returns
+  nothing for (empty 200, error) falls through per ticker; `daily_prices` off / master off /
+  above plan / restricted skips FMP for the whole batch and **falls through -- it is NOT
+  cache-only** (chip "Off — using fallback"; the daily-bar jobs have no skip guard). Heartbeat
+  message: `N fell back from FMP (Massive M, Yahoo Y)` (`FallbackTickers`, `describe_fallback`).
+- **Nightly incremental** (only the 3:10 trend job actually fetches; LZ/Heatmap/Breadth/Momentum
+  read its warm cache): per ticker one `full?from=<last cached bar - 7d>` call. The last cached bar is
+  always overwritten; any EARLIER overlapping close that differs from the cache by > 0.5%
+  (`FMP_OVERLAP_TOLERANCE`) means FMP restated history (split / spin-off / symbol reuse) and that
+  ticker is refetched over its full window and **replaced** (delete + insert in one transaction,
+  `_write_rows(replace=True)`). No splits-calendar or bulk endpoint (`eod-bulk` etc. are Ultimate).
+  A cache starting within 10 days of the window start counts as covering it; a young listing
+  (< 5y of history, ~22 tickers) is refetched in full each night (cheap: short histories).
+  **Sunday (UTC) run = weekly full resync**: the trend job passes `force=True`, so every ticker is
+  refetched and replaced (closes the sub-0.5% restatement gap). Measured (2026-09-24 simulation
+  against the live cache): 592 calls, ~62 s at concurrency 10, paced to 50% of the plan's documented
+  rate (`FMP_PLAN_REQUESTS_PER_MIN`); a full 5y backfill is ~88 s of fetching.
+- **Partial bars.** A bar dated after the last completed session is dropped by the FMP source, and
+  `shared_bars_cache._provisional_last_bar_tickers` treats a row whose newest write predates the
+  close (+10 min) of its last bar's own session as stale (the 2026-09-23 15:50 ET incident: a
+  date-only freshness check kept mid-session bars forever). Applies to every provider.
+- **Chart tab** D_6M/D_1Y/D_2Y: FMP first for US-listed tickers while the group is live, then
+  Massive, then Yahoo (`ChartOut.source` = "fmp"|"massive"|"yahoo"); W_4Y, non-US and the Analyst
+  Ratings 10y overlay are unchanged (Yahoo, P3). Header price fallback (Massive snapshot -> Yahoo)
+  and the delisted probe are deliberately unchanged.
+- **Re-backfill (run 2026-09-24)** `pipeline/backfills/backfill_fmp_daily_bars.py`: replaces each
+  routed ticker's 1d rows with a fresh 5y FMP series (728,231 rows); a ticker FMP cannot serve
+  keeps its rows; `--dry-run` fetches and compares without writing. Stitched-symbol results:
+  META, B, BNY, COHR, CNSWF, DOC, ECHO, PSKY now continuous (FMP max 1-day moves <= 30%);
+  **PARA** is FMP's PARA = Banzai International (matches the cached profile), so the
+  Paramount->Banzai stitch is gone; **SPCX** shrank from 1,135 stitched bars to 71 (SpaceX IPO
+  2026-06-12) and now reads `stage=None` (< 40 weeks); **AVB is NOT fixed** (FMP carries the same
+  2026-08-17 -64% cliff; delisted-flagged, left as is). COR, FISV, ECHO and SEZL gained
+  history. `backfill_market_breadth --rebuild` replaces `is_backfilled` breadth rows only.
+- **Parity (old cache vs FMP, 592 tickers, 717,171 overlapping days):** 98.14% of closes within
+  0.1% (the shortfall is entirely the 42 tickers below); on the 550 unflagged tickers open/high/low/
+  close/volume are within tolerance 99.81/99.81/99.84/99.84/99.90%. The 42 tickers with days off by
+  > 1%: spin-off basis (HON, FDX, BDX, WDC, J, LEN, ILMN, DHR, T, ZBH, EXC, O, SPGI, CMCSA, APTV, FLEX,
+  IP, TRI), stitched/renamed symbols (BNY, PARA, B, CNSWF, COHR, META, DOC, ECHO, PSKY), a single bad
+  2023-05-30 (+GNRC 2023-02-08) print in the OLD cache (BABA, CCJ, GNRC, GOOGL, NUE, PCG, QCOM, RVTY,
+  SYK, TECL, TME, VST), OTC thin-trading differences (SINGY, EVVTY) and longer FMP history (COR, ...).
+  Weinstein: 3 stage changes (BDX decline->advance, FDX decline->advance -- both spin-off basis --
+  and SPCX advance->None), 6 since-date-only changes, all in those buckets. **Liquidity Zones moved
+  for 215 of 592 tickers** but 193 of the 550 unflagged are 2-decimal jitter from sub-0.1% high/low
+  print differences; 15 moved by > 0.5%, of which only 5 (AME, BKNG, DIS, GL, TECH) are NOT
+  traceable to spin-off / stitched / extra history / a bad old print (IVZ 2026-04-27 low, MA
+  2023-01-24 low) -- they are swing-detection flips from tiny H/L differences (swing_bars=2).
+  The dry-run gate (>= 99% of days within 0.1%) is therefore not met literally (98.14%); the
+  post-backfill recomputes were held for review, and the nightly jobs recompute everything on
+  the new cache from 3:10 UTC on 2026-09-25 regardless.
+
 ## Sector Heatmap (`/sectors`, 2026-09-20)
 
 The 11 SPDR sector ETFs (XLK XLF XLV XLE XLI XLY XLP XLU XLB XLRE XLC) x 7 trailing

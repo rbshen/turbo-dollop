@@ -419,6 +419,11 @@ class MassiveWithYahooFallback:
 # (split / spin-off / symbol reuse) and that ticker gets a full refetch.
 FMP_OVERLAP_DAYS = 7
 FMP_OVERLAP_TOLERANCE = 0.005  # 0.5% -- finalised bars agree to ~0.1%; any real restatement is far larger
+# A cache whose first bar starts within this many days of the requested window's
+# start still counts as covering it (weekends/holidays at the boundary; a row
+# fetched at "5y" starts a few days short of 1825 days, and the boundary moves a
+# day every night) -- otherwise every ticker would be refetched in full nightly.
+FMP_COVERAGE_SLACK_DAYS = 10
 FMP_MIN_FULL_BARS = 20  # a "full" answer with fewer bars never replaces existing rows
 # Fraction of the plan's documented per-minute cap we allow ourselves.
 FMP_RATE_FRACTION = 0.5
@@ -543,7 +548,7 @@ class FMPDailySource:
         async def one(ticker: str, days: int) -> None:
             full_start = today - timedelta(days=days)
             first_bar, last_bar = span.get(ticker, (None, None))
-            needed_start = today - timedelta(days=max(days - 1, 0))
+            needed_start = today - timedelta(days=max(days - 1, 0) - FMP_COVERAGE_SLACK_DAYS)
             if full_refresh or first_bar is None or first_bar > needed_start:
                 frame = await fetch(ticker, full_start)
                 full = True

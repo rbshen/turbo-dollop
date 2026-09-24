@@ -489,3 +489,13 @@ def test_fmp_source_drops_a_partial_bar_dated_after_the_last_completed_session(m
     series = {**_series(TODAY - timedelta(days=60), 61), TODAY + timedelta(days=1): 999.0}  # mid-session bar for "tomorrow"
     result = asyncio.run(FMPDailySource(client=FakeFMP({"AAPL": series})).get_daily_bars({"AAPL": 90}, False, reference=TODAY + timedelta(days=1)))
     assert result["AAPL"].index.max() == pd.Timestamp(TODAY)
+
+
+def test_fmp_source_a_cache_a_few_days_short_of_the_window_still_counts_as_covering_it(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    cached = _series(TODAY - timedelta(days=88), 89)  # 3 days short of a 90-day window: boundary slack, not a narrow cache
+    _seed_series(engine, "AAPL", cached)
+    fmp = FakeFMP({"AAPL": cached})
+    replace: list[str] = []
+    asyncio.run(FMPDailySource(client=fmp).get_daily_bars({"AAPL": 90}, False, reference=TODAY, replace_tickers=replace))
+    assert replace == [] and len(fmp.calls) == 1 and fmp.calls[0][1] > (TODAY - timedelta(days=30)).isoformat()
