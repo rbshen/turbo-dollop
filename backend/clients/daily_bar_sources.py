@@ -8,29 +8,46 @@ docs/massive_feasibility_investigation_2026-09-23.md's own "Starter
 paid-plan verification" section for why intraday session-anchoring is a
 materially different problem).
 
-Massive/Polygon (clients/massive_client.py) is now the primary daily-bar
-source for every US-listed ticker; Yahoo Finance stays wired in for
-non-US tickers (core/tickers.py::is_non_us_ticker) and as an automatic
-per-ticker fallback whenever Massive errors or returns no data for a
-ticker it should otherwise cover (confirmed with the user: auto-fallback,
-not a hard job failure -- paired with clients/shared_bars_cache.py's
-stale_ticker_count guard so a still-stale ticker after both sources tried
-is visible in the nightly job's own cron_heartbeat message, not silent)."""
+FMP (`/historical-price-eod/full`, data group `daily_prices`) is the primary
+daily-bar source for every US-LISTED ticker (P2, 2026-09-24; US = listing
+exchange per the cached FMP profile, see core/tickers.py::is_us_listed --
+not company domicile). Per ticker the chain is FMP -> Massive -> Yahoo
+(FMPWithFallback): an FMP error or empty answer for a ticker falls through
+to Massive/Polygon (clients/massive_client.py), which itself falls back to
+Yahoo Finance (MassiveWithYahooFallback, unchanged). Non-US tickers never
+touch FMP/Massive here -- they stay on Yahoo exactly as before. The
+daily_prices toggle OFF (or master switch off) does NOT mean cache-only
+during P2-P5: FMP is skipped and the rest of the chain serves (removed in
+P6). Auto-fallback, never a hard job failure -- paired with
+clients/shared_bars_cache.py's stale_ticker_count guard so a still-stale
+ticker after every source tried is visible in the nightly job's own
+cron_heartbeat message, not silent.
 
+BASIS: FMP `full` is split- AND spin-off-adjusted (not dividend-adjusted).
+Massive/Yahoo are split-only, so ~30 tickers' pre-spin-off history differs
+from split-only sources (see CLAUDE.md "Daily prices: FMP").
+"""
+
+import asyncio
+import json
 import logging
+import time
 from datetime import date, timedelta
 from typing import Protocol
 
+import httpx
 import pandas as pd
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from clients.fmp_client import FMPGroupDisabledError, fmp_client
 from clients.massive_client import massive_client
 from clients.yahoo_client import yahoo_client
 from core.config import settings
+from core.data_groups import effective_state, get_snapshot
 from core.db import engine
-from core.models import SharedBarsCache
-from core.tickers import from_massive_symbol, is_non_us_ticker, to_massive_symbol
+from core.models import FundamentalsCache, SharedBarsCache
+from core.tickers import from_massive_symbol, is_us_listed, to_massive_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -45,12 +62,39 @@ MASSIVE_SPLIT_ADJUSTED = True
 __all__ = [
     "DAILY_INTERVAL",
     "DailyBarSource",
+    "FMPDailySource",
+    "FMPWithFallback",
+    "FallbackTickers",
+    "describe_fallback",
     "YahooDailySource",
     "MassiveDailySource",
     "MassiveWithYahooFallback",
     "get_daily_bar_source",
     "route_by_source",
 ]
+
+
+class FallbackTickers(list):
+    """Out-parameter for DailyBarSource.get_daily_bars' `fallback_tickers`:
+    every ticker in this call NOT served by the primary provider (FMP while
+    the daily_prices group is live -- so the whole batch when it is off), with
+    `.yahoo` the subset that ended up on Yahoo (the rest were served by
+    Massive). A plain list to every existing caller (`len()`, `.extend()`);
+    `describe()` is the one-line breakdown the nightly jobs put in their
+    cron_heartbeat message."""
+
+    def __init__(self, *args) -> None:
+        super().__init__(*args)
+        self.yahoo: list[str] = []
+
+    def describe(self) -> str:
+        return describe_fallback(len(self), len(self.yahoo))
+
+
+def describe_fallback(count: int, yahoo: int) -> str:
+    """The heartbeat phrase for a run's FMP fallbacks: `count` tickers not
+    served by FMP, `yahoo` of them ended on Yahoo, the rest on Massive."""
+    return f"{count} fell back from FMP (Massive {max(count - yahoo, 0)}, Yahoo {yahoo})"
 
 
 class DailyBarSource(Protocol):
@@ -60,6 +104,8 @@ class DailyBarSource(Protocol):
         auto_adjust: bool,
         reference: date | None = None,
         fallback_tickers: list[str] | None = None,
+        replace_tickers: list[str] | None = None,
+        full_refresh: bool = False,
     ) -> dict[str, pd.DataFrame]:
         """`tickers_with_days`: {ticker: how many calendar days of daily
         history this ticker needs, counting back from today}. `reference`
@@ -79,19 +125,60 @@ class DailyBarSource(Protocol):
         `dict[str, pd.DataFrame]` return type (many callers) doesn't need
         to change to thread this through. Only MassiveWithYahooFallback
         ever populates it; YahooDailySource/MassiveDailySource accept and
-        ignore it -- neither is itself a fallback."""
+        ignore it -- neither is itself a fallback.
+
+        `replace_tickers` (out-parameter, FMPWithFallback only): tickers whose
+        returned frame is a COMPLETE fresh history that must REPLACE the cached
+        rows (delete-then-insert) rather than be upserted over them -- a full
+        FMP refetch after a split/spin-off/symbol-reuse restated the past.
+        `full_refresh` (input): FMP path only -- skip the incremental overlap
+        check and refetch every ticker's full window (the weekly resync).
+        Every other source accepts and ignores both."""
         ...
 
 
+def _profile_exchanges(tickers: list[str]) -> dict[str, str]:
+    """{ticker: listing exchange} from the cached FMP /profile rows
+    (FundamentalsCache "profile"/"latest") -- a pure local read, no FMP call.
+    A ticker with no cached profile (sector ETFs, ^GSPC, a never-viewed
+    symbol) is simply absent."""
+    out: dict[str, str] = {}
+    if not tickers:
+        return out
+    with Session(engine) as session:
+        for i in range(0, len(tickers), 400):
+            chunk = tickers[i : i + 400]
+            stmt = select(FundamentalsCache.ticker, FundamentalsCache.raw_json).where(
+                FundamentalsCache.statement_type == "profile",
+                FundamentalsCache.period == "latest",
+                FundamentalsCache.ticker.in_(chunk),
+            )
+            for ticker, raw in session.exec(stmt).all():
+                try:
+                    payload = json.loads(raw)
+                except (TypeError, ValueError):
+                    continue
+                row = payload[0] if isinstance(payload, list) and payload else payload
+                exchange = row.get("exchange") if isinstance(row, dict) else None
+                if exchange:
+                    out[ticker] = str(exchange)
+    return out
+
+
 def route_by_source(tickers_with_days: dict[str, int]) -> tuple[dict[str, int], dict[str, int]]:
-    """Splits a {ticker: days} map into (us_eligible, non_us) using
-    core/tickers.py::is_non_us_ticker -- the dot-suffix check. Non-US
-    tickers are never attempted on Massive at all (confirmed US-market-only
-    in the feasibility investigation §2j)."""
+    """Splits a {ticker: days} map into (us_listed, non_us) by LISTING
+    EXCHANGE (core/tickers.py::is_us_listed, off the cached FMP profile) --
+    not company domicile: an NYSE-listed ADR is US, an HKSE listing is not.
+    A ticker with no cached profile falls back to the dot-suffix check
+    (so sector ETFs and ^GSPC are US). Non-US tickers are never attempted on
+    FMP or Massive here (Massive is US-market-only, confirmed in the
+    feasibility investigation §2j; FMP's plan tier for this group covers US
+    only)."""
+    exchanges = _profile_exchanges(list(tickers_with_days))
     us: dict[str, int] = {}
     non_us: dict[str, int] = {}
     for ticker, days in tickers_with_days.items():
-        (non_us if is_non_us_ticker(ticker) else us)[ticker] = days
+        (us if is_us_listed(ticker, exchanges.get(ticker)) else non_us)[ticker] = days
     return us, non_us
 
 
@@ -127,6 +214,8 @@ class YahooDailySource:
         auto_adjust: bool,
         reference: date | None = None,
         fallback_tickers: list[str] | None = None,
+        replace_tickers: list[str] | None = None,
+        full_refresh: bool = False,
     ) -> dict[str, pd.DataFrame]:
         if not tickers_with_days:
             return {}
@@ -183,6 +272,8 @@ class MassiveDailySource:
         auto_adjust: bool,
         reference: date | None = None,
         fallback_tickers: list[str] | None = None,
+        replace_tickers: list[str] | None = None,
+        full_refresh: bool = False,
     ) -> dict[str, pd.DataFrame]:
         if not tickers_with_days:
             return {}
@@ -293,6 +384,8 @@ class MassiveWithYahooFallback:
         auto_adjust: bool,
         reference: date | None = None,
         fallback_tickers: list[str] | None = None,
+        replace_tickers: list[str] | None = None,
+        full_refresh: bool = False,
     ) -> dict[str, pd.DataFrame]:
         try:
             result = await self._massive.get_daily_bars(tickers_with_days, auto_adjust, reference=reference)
@@ -315,10 +408,226 @@ class MassiveWithYahooFallback:
         return result
 
 
+# ---------------------------------------------------------------------------
+# FMP (primary for US-listed tickers)
+# ---------------------------------------------------------------------------
+
+# Days of already-cached history re-requested each night so the new call
+# OVERLAPS what we hold: the last cached bar is always overwritten (it may
+# have been written mid-session), and every earlier overlapping close is
+# compared to the cache -- a mismatch means the provider restated history
+# (split / spin-off / symbol reuse) and that ticker gets a full refetch.
+FMP_OVERLAP_DAYS = 7
+FMP_OVERLAP_TOLERANCE = 0.005  # 0.5% -- finalised bars agree to ~0.1%; any real restatement is far larger
+FMP_MIN_FULL_BARS = 20  # a "full" answer with fewer bars never replaces existing rows
+# Fraction of the plan's documented per-minute cap we allow ourselves.
+FMP_RATE_FRACTION = 0.5
+FMP_PLAN_REQUESTS_PER_MIN = {"Starter": 300, "Premium": 750, "Ultimate": 3000}
+FMP_CONCURRENCY = 10
+_OHLCV = ["open", "high", "low", "close", "volume"]
+
+
+def fmp_rows_to_frame(rows) -> pd.DataFrame:
+    """FMP /historical-price-eod/full rows (newest first: date, open, high,
+    low, close, volume, ...) -> the DailyBarSource contract (lowercase OHLCV,
+    naive ascending DatetimeIndex). Rows without a usable close are dropped;
+    an unusable/empty payload is an empty frame."""
+    if not isinstance(rows, list) or not rows:
+        return pd.DataFrame(columns=_OHLCV)
+    df = pd.DataFrame(rows)
+    if "date" not in df or "close" not in df:
+        return pd.DataFrame(columns=_OHLCV)
+    for col in _OHLCV:
+        if col not in df:
+            df[col] = 0 if col == "volume" else df["close"]
+    df = df.assign(date=pd.to_datetime(df["date"]).dt.normalize()).dropna(subset=["close"])
+    df = df.drop_duplicates(subset="date").set_index("date").sort_index()
+    df.index = pd.DatetimeIndex(df.index)
+    df["volume"] = df["volume"].fillna(0)
+    return df[_OHLCV]
+
+
+class _Pacer:
+    """Spaces request STARTS at least `interval` seconds apart across
+    concurrent tasks (the shared FMPClient singleton's own pacing is left
+    alone -- other jobs use it)."""
+
+    def __init__(self, interval: float) -> None:
+        self._interval = interval
+        self._lock = asyncio.Lock()
+        self._next = 0.0
+
+    async def wait(self) -> None:
+        if self._interval <= 0:
+            return
+        async with self._lock:
+            now = time.monotonic()
+            delay = self._next - now
+            self._next = max(now, self._next) + self._interval
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+
+class FMPDailySource:
+    """FMP-backed DailyBarSource for US-listed tickers. Per ticker:
+
+    - full window (`from = today - days`): never cached, cached history
+      narrower than requested, or `full_refresh` (the weekly resync). The
+      result is reported in `replace_tickers` so the cache REPLACES that
+      ticker's rows.
+    - otherwise incremental, OVERLAPPING: `from = last cached bar - 7d`. The
+      overlapping closes (all but the last cached bar, which is always
+      overwritten) must match the cache within 0.5%; if not, the provider has
+      restated history (split, spin-off, symbol reuse) and the ticker is
+      refetched over its full window and replaced.
+
+    Returns {} outright while the daily_prices group is not live (off, master
+    off, above plan, restricted) -- FMPWithFallback then serves the whole
+    batch from Massive/Yahoo. An empty 200 (delisted symbol) or an HTTP error
+    for a ticker just leaves it out of the result (its fallback decides);
+    error accounting toward the group's Failing chip is FMPClient.get's job.
+    Requests are paced to FMP_RATE_FRACTION of the plan's documented rate."""
+
+    def __init__(self, client=fmp_client) -> None:
+        self._client = client
+
+    async def get_daily_bars(
+        self,
+        tickers_with_days: dict[str, int],
+        auto_adjust: bool,
+        reference: date | None = None,
+        fallback_tickers: list[str] | None = None,
+        replace_tickers: list[str] | None = None,
+        full_refresh: bool = False,
+    ) -> dict[str, pd.DataFrame]:
+        if not tickers_with_days or not effective_state("daily_prices")[0]:
+            return {}
+        today = reference or date.today()
+        span = MassiveDailySource._existing_span(list(tickers_with_days))
+        plan_rate = FMP_PLAN_REQUESTS_PER_MIN.get(get_snapshot().fmp_plan, 300)
+        pacer = _Pacer(60.0 / (plan_rate * FMP_RATE_FRACTION))
+        sem = asyncio.Semaphore(FMP_CONCURRENCY)
+        stop = False
+        result: dict[str, pd.DataFrame] = {}
+        replaced: list[str] = []
+
+        async def fetch(ticker: str, start: date) -> pd.DataFrame | None:
+            nonlocal stop
+            if stop:
+                return None
+            async with sem:
+                await pacer.wait()
+                try:
+                    rows = await self._client.get_historical_price_eod(ticker, start.isoformat(), today.isoformat())
+                except FMPGroupDisabledError:
+                    stop = True  # group went off mid-run: everything left falls through
+                    return None
+                except (httpx.HTTPError, ValueError):
+                    logger.warning("FMP daily-bar fetch failed for %s; falling back", ticker)
+                    return None
+            frame = fmp_rows_to_frame(rows)
+            return frame if not frame.empty else None
+
+        async def one(ticker: str, days: int) -> None:
+            full_start = today - timedelta(days=days)
+            first_bar, last_bar = span.get(ticker, (None, None))
+            needed_start = today - timedelta(days=max(days - 1, 0))
+            if full_refresh or first_bar is None or first_bar > needed_start:
+                frame = await fetch(ticker, full_start)
+                full = True
+            else:
+                frame = await fetch(ticker, last_bar - timedelta(days=FMP_OVERLAP_DAYS))
+                full = False
+                if frame is not None and self._restated(ticker, frame, last_bar):
+                    logger.info("FMP restated %s's overlapping history; refetching its full window", ticker)
+                    frame = await fetch(ticker, full_start)
+                    full = True
+            if frame is None:
+                return
+            if full and len(frame) < FMP_MIN_FULL_BARS and first_bar is not None:
+                logger.warning("FMP full history for %s has only %d bars; keeping cached rows", ticker, len(frame))
+                return
+            result[ticker] = frame
+            if full:
+                replaced.append(ticker)
+
+        await asyncio.gather(*(one(t, d) for t, d in tickers_with_days.items()))
+        if replace_tickers is not None:
+            replace_tickers.extend(replaced)
+        return result
+
+    @staticmethod
+    def _restated(ticker: str, frame: pd.DataFrame, last_bar: date) -> bool:
+        """True if any bar the frame shares with the cache (other than the
+        cache's own last bar) differs by more than FMP_OVERLAP_TOLERANCE."""
+        start = pd.Timestamp(last_bar) - pd.Timedelta(days=FMP_OVERLAP_DAYS)
+        with Session(engine) as session:
+            stmt = select(SharedBarsCache.bar_time, SharedBarsCache.close).where(
+                SharedBarsCache.interval == DAILY_INTERVAL,
+                SharedBarsCache.ticker == ticker,
+                SharedBarsCache.bar_time >= start.to_pydatetime(),
+            )
+            cached = {pd.Timestamp(bt).normalize(): close for bt, close in session.exec(stmt).all()}
+        last_ts = pd.Timestamp(last_bar)
+        for ts, close in frame["close"].items():
+            old = cached.get(ts)
+            if old is None or ts >= last_ts or not old:
+                continue
+            if abs(float(close) / float(old) - 1.0) > FMP_OVERLAP_TOLERANCE:
+                return True
+        return False
+
+
+class FMPWithFallback:
+    """FMP first, then the existing Massive->Yahoo chain, per ticker (see the
+    module docstring). Every ticker FMP did not deliver -- an empty/erroring
+    answer, or the whole batch while the daily_prices group is off -- goes to
+    the fallback and is recorded in `fallback_tickers` (with the Yahoo subset
+    in its `.yahoo`, when the caller passed a FallbackTickers) so the job's
+    heartbeat can say "N fell back from FMP (Massive M, Yahoo Y)"."""
+
+    def __init__(self, fmp: DailyBarSource | None = None, fallback: DailyBarSource | None = None) -> None:
+        self._fmp = fmp or FMPDailySource()
+        self._massive_enabled = settings.massive_enabled if fallback is None else True
+        self._fallback = fallback or (MassiveWithYahooFallback() if settings.massive_enabled else YahooDailySource())
+
+    async def get_daily_bars(
+        self,
+        tickers_with_days: dict[str, int],
+        auto_adjust: bool,
+        reference: date | None = None,
+        fallback_tickers: list[str] | None = None,
+        replace_tickers: list[str] | None = None,
+        full_refresh: bool = False,
+    ) -> dict[str, pd.DataFrame]:
+        try:
+            result = await self._fmp.get_daily_bars(
+                tickers_with_days, auto_adjust, reference=reference, replace_tickers=replace_tickers,
+                full_refresh=full_refresh,
+            )
+        except Exception:
+            logger.warning("FMP daily-bar fetch failed entirely for %d ticker(s); falling back", len(tickers_with_days), exc_info=True)
+            result = {}
+        missing = {t: d for t, d in tickers_with_days.items() if t not in result or result[t].empty}
+        if not missing:
+            return result
+        logger.info("FMP served %d/%d ticker(s); %d fall back to Massive/Yahoo", len(result), len(tickers_with_days), len(missing))
+        yahoo: list[str] = []
+        fallback = await self._fallback.get_daily_bars(missing, auto_adjust, reference=reference, fallback_tickers=yahoo)
+        if not self._massive_enabled:
+            yahoo = list(missing)  # Yahoo-only fallback: everything missing is Yahoo's
+        if fallback_tickers is not None:
+            fallback_tickers.extend(missing)
+            if isinstance(fallback_tickers, FallbackTickers):
+                fallback_tickers.yahoo.extend(yahoo)
+        result.update(fallback)
+        return result
+
+
 def get_daily_bar_source() -> DailyBarSource:
-    """Massive+Yahoo-fallback when settings.massive_enabled, else Yahoo
-    outright -- the MASSIVE_ENABLED=false rollback lever, no code revert
-    needed. Only ever called for US-eligible tickers (see route_by_source)
-    -- non-US tickers always go straight to a plain YahooDailySource,
-    regardless of this flag."""
-    return MassiveWithYahooFallback() if settings.massive_enabled else YahooDailySource()
+    """FMP first (daily_prices group, US-listed only -- see route_by_source),
+    then Massive->Yahoo when settings.massive_enabled, else Yahoo (the
+    MASSIVE_ENABLED=false lever now only shapes the fallback chain). Only
+    ever called for US-listed tickers -- non-US tickers always go straight
+    to a plain YahooDailySource, regardless of any flag."""
+    return FMPWithFallback()

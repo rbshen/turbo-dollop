@@ -67,16 +67,35 @@ def test_is_non_us_ticker_does_not_flag_normalized_class_shares_or_plain_tickers
     assert is_non_us_ticker("CNSWF") is False  # OTC, no dot -- caught by the empty-result fallback instead
 
 
-def test_resolve_daily_bar_source_label_prefers_massive_for_us_tickers(monkeypatch):
+def test_resolve_daily_bar_source_label_is_fmp_for_us_tickers_while_daily_prices_is_live():
+    assert resolve_daily_bar_source_label("AAPL") == "fmp"
+
+
+def test_resolve_daily_bar_source_label_prefers_massive_for_us_tickers_when_daily_prices_off(monkeypatch):
+    import core.data_groups as dg
+
+    dg.set_group_enabled("daily_prices", False)
     monkeypatch.setattr(tickers_module.settings, "massive_enabled", True)
     assert resolve_daily_bar_source_label("AAPL") == "massive"
 
 
-def test_resolve_daily_bar_source_label_is_yahoo_for_non_us_tickers_even_when_massive_enabled(monkeypatch):
-    monkeypatch.setattr(tickers_module.settings, "massive_enabled", True)
+def test_resolve_daily_bar_source_label_is_yahoo_for_non_us_tickers_even_when_fmp_live():
     assert resolve_daily_bar_source_label("0700.HK") == "yahoo"
 
 
-def test_resolve_daily_bar_source_label_is_yahoo_for_every_ticker_when_massive_disabled(monkeypatch):
+def test_resolve_daily_bar_source_label_is_yahoo_when_daily_prices_off_and_massive_disabled(monkeypatch):
+    import core.data_groups as dg
+
+    dg.set_group_enabled("daily_prices", False)
     monkeypatch.setattr(tickers_module.settings, "massive_enabled", False)
     assert resolve_daily_bar_source_label("AAPL") == "yahoo"
+
+
+def test_is_us_listed_uses_exchange_not_domicile_and_falls_back_to_the_dot_rule():
+    from core.tickers import is_us_listed
+
+    for exchange in ("NYSE", "NASDAQ", "AMEX", "CBOE", "OTC", "nasdaq"):
+        assert is_us_listed("X", exchange) is True  # ADRs / foreign-domiciled US listings are US
+    assert is_us_listed("0005.HK", "HKSE") is False
+    assert is_us_listed("XLK", None) is True and is_us_listed("^GSPC", None) is True  # no profile, no dot
+    assert is_us_listed("0700.HK", None) is False

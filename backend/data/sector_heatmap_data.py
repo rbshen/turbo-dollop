@@ -32,6 +32,7 @@ from sqlalchemy import delete
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
+from clients.daily_bar_sources import FallbackTickers, describe_fallback
 from clients.shared_bars_cache import DAILY_INTERVAL, _most_recent_completed_trading_date, get_or_fetch_bars_batch
 from core.db import engine
 from core.models import SectorEtfReturn
@@ -113,7 +114,7 @@ async def compute_and_store_sector_returns(completed_date: date | None = None) -
     completed = completed_date or _most_recent_completed_trading_date()
     tickers = [t for t, _ in SECTOR_ETFS]
 
-    fallback_tickers: list[str] = []
+    fallback_tickers = FallbackTickers()
     histories = await get_or_fetch_bars_batch(
         tickers, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False, fallback_tickers=fallback_tickers
     )
@@ -169,7 +170,7 @@ async def compute_and_store_sector_returns(completed_date: date | None = None) -
         "processed": len(closes),
         "failed": len(failures),
         "failures": failures,
-        "fallback_count": len(fallback_tickers),
+        "fallback_count": len(fallback_tickers), "fallback_yahoo_count": len(fallback_tickers.yahoo),
     }
     logger.info("Sector heatmap complete for %s: %d/%d tickers computed.", anchor.date(), summary["processed"], len(tickers))
     return summary

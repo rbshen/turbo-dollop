@@ -210,30 +210,11 @@ def test_a_failing_ticker_does_not_abort_the_sweep(monkeypatch, tmp_path):
     assert summary["failed"] == 1
 
 
-def test_source_is_never_fmp_regardless_of_fmp_enabled(monkeypatch, tmp_path):
-    """Regression test for the 2026-09-18 Yahoo-consolidation change: this
-    job has no FMP branch at all, so the recorded source is never "fmp"
-    whether or not FMP_ENABLED is set -- confirmed by flipping the flag
-    both ways and asserting the outcome never changes."""
-    from core.config import settings
-
-    engine = _fresh_engine(monkeypatch, tmp_path)
-    _seed_watchlist(engine, "W1", ["AAPL"])
-    _patch_bar_source(monkeypatch, {"AAPL": _fake_bars()})
-    store_calls = _patch_store(monkeypatch)
-
-    for fmp_enabled in (True, False):
-        _dg.set_master(fmp_enabled)
-        asyncio.run(nightly_lz.main())
-        assert store_calls[-1][1] != "fmp"
-
-
-def test_source_label_reflects_massive_enabled_per_ticker(monkeypatch, tmp_path):
-    """2026-09-23 Massive migration: the recorded source is now a
-    per-ticker core/tickers.py::resolve_daily_bar_source_label call
-    (massive/yahoo split), not the old hardcoded module constant --
-    "massive" for a US ticker when Massive is enabled, "yahoo" for a
-    non-US ticker or when Massive is disabled."""
+def test_source_label_follows_the_daily_prices_group_per_ticker(monkeypatch, tmp_path):
+    """P2: the recorded source is a per-ticker core/tickers.py::
+    resolve_daily_bar_source_label call -- "fmp" for a US ticker while the
+    daily_prices group is live, "massive"/"yahoo" (per MASSIVE_ENABLED) when it
+    is off, and "yahoo" for a non-US ticker regardless."""
     from core.config import settings
 
     engine = _fresh_engine(monkeypatch, tmp_path)
@@ -241,6 +222,11 @@ def test_source_label_reflects_massive_enabled_per_ticker(monkeypatch, tmp_path)
     _patch_bar_source(monkeypatch, {"AAPL": _fake_bars(), "0700.HK": _fake_bars()})
     store_calls = _patch_store(monkeypatch)
 
+    asyncio.run(nightly_lz.main())
+    assert dict(store_calls) == {"AAPL": "fmp", "0700.HK": "yahoo"}
+
+    _dg.set_group_enabled("daily_prices", False)
+    store_calls.clear()
     monkeypatch.setattr(settings, "massive_enabled", True)
     asyncio.run(nightly_lz.main())
     assert dict(store_calls) == {"AAPL": "massive", "0700.HK": "yahoo"}

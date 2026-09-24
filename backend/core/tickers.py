@@ -60,14 +60,42 @@ def is_non_us_ticker(ticker: str) -> bool:
     return "." in ticker
 
 
+# FMP /profile `exchange` values that count as a US listing for the daily-price
+# migration (P2). US = listed/traded on a US venue, NOT company domicile: an
+# NYSE-listed Irish ADR is US, an HKSE listing of a British bank is not. FMP
+# reports NYSE Arca ETFs (SPY, TECL) as "AMEX"; OTC is treated as US by
+# decision (CNSWF/EVVTY/SINGY route to FMP with the Massive/Yahoo fallback).
+US_EXCHANGES = frozenset(
+    {"NYSE", "NASDAQ", "AMEX", "NYSE ARCA", "NYSEARCA", "ARCA", "NYSE AMERICAN", "CBOE", "BATS", "OTC"}
+)
+
+
+def is_us_listed(ticker: str, exchange: str | None = None) -> bool:
+    """True when `ticker` should route to the US daily-price path. With a
+    known listing `exchange` (the cached FMP profile's field) it decides
+    alone; with none -- sector ETFs and indices like ^GSPC have no cached
+    profile -- a symbol with no dot suffix is US (same rule as the previous
+    dot-only routing, which this is a strict refinement of)."""
+    if exchange:
+        return exchange.strip().upper() in US_EXCHANGES
+    return not is_non_us_ticker(ticker)
+
+
 def resolve_daily_bar_source_label(ticker: str) -> str:
     """Best-effort label for which provider generally serves this ticker's
-    daily bars -- "yahoo" for a non-US ticker or when Massive is disabled,
-    "massive" otherwise. Informational only (e.g.
-    LiquidityZoneAnalysis.source), NOT a literal per-fetch record of which
-    provider actually answered a specific call: a per-ticker Massive->Yahoo
-    fallback (see clients/daily_bar_sources.py::MassiveWithYahooFallback)
-    could silently make this label wrong for one specific night without
-    anything here knowing, the same tolerance every other informational-
-    only field in this codebase already accepts."""
-    return "yahoo" if is_non_us_ticker(ticker) or not settings.massive_enabled else "massive"
+    daily bars -- "yahoo" for a non-US ticker, "fmp" for a US one while the
+    daily_prices group is live, else "massive" (or "yahoo" when Massive is
+    disabled too). Informational only (e.g. LiquidityZoneAnalysis.source),
+    NOT a literal per-fetch record of which provider actually answered a
+    specific call: a per-ticker FMP->Massive->Yahoo fallback (see
+    clients/daily_bar_sources.py::FMPWithFallback) could silently make this
+    label wrong for one specific night without anything here knowing, the
+    same tolerance every other informational-only field in this codebase
+    already accepts. Uses the dot-suffix rule only (no DB lookup)."""
+    from core.data_groups import group_live
+
+    if is_non_us_ticker(ticker):
+        return "yahoo"
+    if group_live("daily_prices"):
+        return "fmp"
+    return "massive" if settings.massive_enabled else "yahoo"

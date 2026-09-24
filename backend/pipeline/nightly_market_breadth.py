@@ -38,6 +38,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
+from clients.daily_bar_sources import describe_fallback
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
@@ -81,4 +82,4 @@ async def main() -> dict:
 if __name__ == "__main__":
     with cron_heartbeat("pipeline.nightly_market_breadth") as run:
         summary = asyncio.run(main())
-        run.message = f"{summary['with_bar']}/{summary['constituents']} constituents, {summary['fallback_count']} fell back to Yahoo"
+        run.message = f"{summary['with_bar']}/{summary['constituents']} constituents, {describe_fallback(summary['fallback_count'], summary['fallback_yahoo_count'])}"

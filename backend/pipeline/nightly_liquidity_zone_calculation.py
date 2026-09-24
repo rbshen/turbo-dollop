@@ -48,6 +48,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
+from clients.daily_bar_sources import FallbackTickers, describe_fallback
 from clients.shared_bars_cache import DAILY_INTERVAL, get_or_fetch_bars_batch, stale_ticker_count
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
@@ -89,7 +90,7 @@ async def main() -> dict:
         swept = sweep_stale_liquidity_zones()
         return {
             "processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "swept": swept,
-            "stale_count": 0, "fallback_count": 0, "skipped_delisted_count": len(skipped_delisted),
+            "stale_count": 0, "fallback_count": 0, "fallback_yahoo_count": 0, "skipped_delisted_count": len(skipped_delisted),
         }
 
     logger.info(
@@ -98,7 +99,7 @@ async def main() -> dict:
     )
     start_time = time.monotonic()
 
-    fallback_tickers: list[str] = []
+    fallback_tickers = FallbackTickers()
     bars_by_ticker = await get_or_fetch_bars_batch(
         tickers, DAILY_INTERVAL, LOOKBACK_DAYS, auto_adjust=False, fallback_tickers=fallback_tickers
     )
@@ -141,7 +142,7 @@ async def main() -> dict:
         "failures": failures,
         "swept": swept,
         "stale_count": stale_count,
-        "fallback_count": len(fallback_tickers),
+        "fallback_count": len(fallback_tickers), "fallback_yahoo_count": len(fallback_tickers.yahoo),
         "skipped_delisted_count": len(skipped_delisted),
     }
 
@@ -151,5 +152,5 @@ if __name__ == "__main__":
         summary = asyncio.run(main())
         run.message = (
             f"{summary['processed']} tickers, {summary['stale_count']} still stale after fetch, "
-            f"{summary['fallback_count']} fell back to Yahoo, {summary['skipped_delisted_count']} skipped as delisted"
+            f"{describe_fallback(summary['fallback_count'], summary['fallback_yahoo_count'])}, {summary['skipped_delisted_count']} skipped as delisted"
         )

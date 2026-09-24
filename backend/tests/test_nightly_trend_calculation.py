@@ -175,7 +175,7 @@ def test_empty_universe_returns_zero_summary_without_calling_batch_fetch(monkeyp
     summary = asyncio.run(nightly_trend.main(tickers=[]))
 
     assert summary == {
-        "processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "stale_count": 0, "fallback_count": 0,
+        "processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "stale_count": 0, "fallback_count": 0, "fallback_yahoo_count": 0,
         "skipped_delisted_count": 0,
     }
     assert batch_calls == []

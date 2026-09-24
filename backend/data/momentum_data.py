@@ -22,6 +22,7 @@ import pandas as pd
 from sqlalchemy import delete
 from sqlmodel import Session, select
 
+from clients.daily_bar_sources import FallbackTickers, describe_fallback
 from clients.shared_bars_cache import DAILY_INTERVAL, get_or_fetch_bars_batch, stale_ticker_count
 from core.db import engine
 from core.models import MomentumSnapshot, TickerScore
@@ -70,7 +71,7 @@ async def compute_and_store_momentum_snapshot(anchor_date: date) -> dict:
         len(universe), anchor_date, len(skipped_delisted),
     )
 
-    fallback_tickers: list[str] = []
+    fallback_tickers = FallbackTickers()
     price_histories = await get_or_fetch_bars_batch(
         universe, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False, fallback_tickers=fallback_tickers
     )
@@ -107,7 +108,7 @@ async def compute_and_store_momentum_snapshot(anchor_date: date) -> dict:
         "processed": len(ranked),
         "dropped": len(universe) - len(ranked),
         "stale_count": stale_count,
-        "fallback_count": len(fallback_tickers),
+        "fallback_count": len(fallback_tickers), "fallback_yahoo_count": len(fallback_tickers.yahoo),
         "skipped_delisted_count": len(skipped_delisted),
     }
     logger.info(

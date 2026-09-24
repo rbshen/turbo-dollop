@@ -69,7 +69,7 @@ def _weekday_bars(ticker: str, interval: str, days_back: int) -> list[dict]:
         for stamp in stamps:
             rows.append(
                 {"ticker": ticker, "interval": interval, "bar_time": stamp, "open": 1.0, "high": 2.0, "low": 0.5,
-                 "close": 1.5, "volume": 10, "fetched_at": datetime(2026, 9, 17, 5, 0)}
+                 "close": 1.5, "volume": 10, "fetched_at": datetime(2026, 9, 18, 3, 0)}
             )
     return rows
 

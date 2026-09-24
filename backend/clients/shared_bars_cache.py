@@ -254,7 +254,9 @@ def _cache_span(session: Session, tickers: list[str], interval: str) -> dict[str
     return span
 
 
-def _write_rows(session: Session, ticker: str, interval: str, df: pd.DataFrame, fetched_at: datetime) -> None:
+def _write_rows(
+    session: Session, ticker: str, interval: str, df: pd.DataFrame, fetched_at: datetime, replace: bool = False
+) -> None:
     """Upserts every bar in `df` in ONE executemany round trip. (A per-row
     execute loop, the shape YahooPriceCache._write_rows uses for a few
     hundred daily rows, was measured to dominate this module's cost at
@@ -290,6 +292,11 @@ def _write_rows(session: Session, ticker: str, interval: str, df: pd.DataFrame, 
     ]
     if not values:
         return
+    if replace:
+        # A complete fresh history (FMP restated the past -- split, spin-off,
+        # symbol reuse): drop this ticker's old rows and insert the new ones in
+        # ONE transaction, so a failed insert never leaves a half-empty ticker.
+        session.execute(delete(SharedBarsCache).where(SharedBarsCache.ticker == ticker, SharedBarsCache.interval == interval))
     stmt = sqlite_insert(SharedBarsCache)
     stmt = stmt.on_conflict_do_update(
         index_elements=["ticker", "interval", "bar_time"],
@@ -297,6 +304,36 @@ def _write_rows(session: Session, ticker: str, interval: str, df: pd.DataFrame, 
     )
     session.execute(stmt, values)
     session.commit()
+
+
+# A bar is only final once the session has closed. A row whose last bar is dated
+# the most recently completed session but was WRITTEN before that session's close
+# (+ settle) holds a provisional/partial bar (the 2026-09-23 15:50 ET run) and
+# must be refetched -- the date-only check in _is_stale can't see that.
+_CLOSE_SETTLE = timedelta(minutes=10)
+
+
+def _provisional_last_bar_tickers(
+    session: Session, tickers: list[str], span: dict[str, tuple[datetime, datetime]], reference: datetime
+) -> set[str]:
+    """Tickers (daily interval) whose newest write predates the close of their
+    last bar's own session. max(fetched_at) stands in for "when the last bar
+    was written": bars are only ever appended or overwritten by a fetch, so
+    the newest write is the one that produced the last bar."""
+    completed = _most_recent_completed_trading_date(reference)
+    candidates = [t for t in tickers if t in span and span[t][1].date() >= completed]
+    out: set[str] = set()
+    for chunk in _chunks(candidates):
+        stmt = (
+            select(SharedBarsCache.ticker, func.max(SharedBarsCache.fetched_at))
+            .where(SharedBarsCache.interval == DAILY_INTERVAL, SharedBarsCache.ticker.in_(chunk))
+            .group_by(SharedBarsCache.ticker)
+        )
+        for ticker, fetched_at in session.exec(stmt).all():
+            close = datetime.combine(span[ticker][1].date(), time(_MARKET_CLOSE_HOUR_ET), tzinfo=_EASTERN) + _CLOSE_SETTLE
+            if fetched_at.astimezone(_EASTERN) < close:  # naive fetched_at = server-local time
+                out.add(ticker)
+    return out
 
 
 def _load_frames(session: Session, tickers: list[str], interval: str, start: date) -> dict[str, pd.DataFrame]:
@@ -376,8 +413,9 @@ async def get_or_fetch_bars_batch(
     monkeypatch this module's own `datetime` import.
 
     fallback_tickers, when passed a list, gets extended with every "1d"
-    ticker this call served from Yahoo because Massive errored or returned
-    no data for it (clients/daily_bar_sources.py::MassiveWithYahooFallback)
+    US-listed ticker this call did NOT get from FMP (Massive or Yahoo served
+    it instead; pass a clients.daily_bar_sources.FallbackTickers to also get
+    the Yahoo subset) -- clients/daily_bar_sources.py::FMPWithFallback
     -- an out-parameter, not a return-shape change, so this function's
     `dict[str, pd.DataFrame]` return type (many callers) is unaffected.
     Ignored for interval="60m" (always Yahoo, never a fallback) and for
@@ -403,6 +441,9 @@ async def get_or_fetch_bars_batch(
 
     with Session(engine) as session:
         span_by_ticker = _cache_span(session, tickers, interval)
+        provisional = (
+            _provisional_last_bar_tickers(session, tickers, span_by_ticker, now) if interval == DAILY_INTERVAL else set()
+        )
 
     to_fetch: dict[str, int] = {}
     for t in tickers:
@@ -414,7 +455,7 @@ async def get_or_fetch_bars_batch(
         if last_bar is None:
             to_fetch[t] = lookback_days
             continue
-        stale = _is_stale(last_bar, interval, now)
+        stale = _is_stale(last_bar, interval, now) or t in provisional
         insufficient = first_bar.date() > needed_start
         if stale or insufficient:
             to_fetch[t] = max(lookback_days, existing_width_days)
@@ -422,19 +463,22 @@ async def get_or_fetch_bars_batch(
     if to_fetch:
         fetched_at = datetime.now()
         fetched: dict[str, pd.DataFrame] = {}
+        replace_tickers: list[str] = []
         if interval == DAILY_INTERVAL:
-            # Massive/Polygon is now the primary daily-bar source for every
-            # US-listed ticker (clients/daily_bar_sources.py), with an
-            # automatic per-ticker Yahoo fallback baked into
-            # get_daily_bar_source()'s own result when settings.
-            # massive_enabled -- non-US tickers (route_by_source's dot-suffix
-            # check) always go straight to a plain YahooDailySource,
-            # regardless of that flag.
+            # FMP is the primary daily-bar source for every US-LISTED ticker
+            # (clients/daily_bar_sources.py::FMPWithFallback), with a per-
+            # ticker Massive -> Yahoo fallback (whole-batch while the
+            # daily_prices group is off). Non-US tickers (route_by_source:
+            # listing exchange off the cached profile, dot-suffix when there
+            # is none) always go straight to a plain YahooDailySource. force
+            # (e.g. the weekly Sunday resync) makes FMP refetch each ticker's
+            # full window instead of the incremental overlap.
             us_tickers, non_us_tickers = route_by_source(to_fetch)
             if us_tickers:
                 fetched.update(
                     await get_daily_bar_source().get_daily_bars(
-                        us_tickers, auto_adjust, reference=today, fallback_tickers=fallback_tickers
+                        us_tickers, auto_adjust, reference=today, fallback_tickers=fallback_tickers,
+                        replace_tickers=replace_tickers, full_refresh=force,
                     )
                 )
             if non_us_tickers:
@@ -462,7 +506,7 @@ async def get_or_fetch_bars_batch(
         with Session(engine) as session:
             for ticker, df in fetched.items():
                 if df is not None and not df.empty:
-                    _write_rows(session, ticker, interval, df, fetched_at)
+                    _write_rows(session, ticker, interval, df, fetched_at, replace=ticker in replace_tickers)
 
     with Session(engine) as session:
         return _load_frames(session, tickers, interval, needed_start)

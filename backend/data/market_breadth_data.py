@@ -49,6 +49,7 @@ from sqlalchemy import bindparam, func, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
+from clients.daily_bar_sources import FallbackTickers, describe_fallback
 from clients.shared_bars_cache import DAILY_INTERVAL, _load_frames, _most_recent_completed_trading_date, get_or_fetch_bars_batch
 from core.db import engine
 from core.models import IndexConstituent, MarketBreadthGateLog, MarketBreadthSnapshot
@@ -359,7 +360,7 @@ async def compute_and_store_market_breadth(
         raise RuntimeError("Market breadth: empty universe -- run scrapers.refresh_sp500_list first")
     completed = completed_date or _most_recent_completed_trading_date()
 
-    fallback_tickers: list[str] = []
+    fallback_tickers = FallbackTickers()
     bars = await get_or_fetch_bars_batch(
         tickers, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False, fallback_tickers=fallback_tickers
     )
@@ -400,7 +401,7 @@ async def compute_and_store_market_breadth(
         "new_highs": values["new_highs"],
         "new_lows": values["new_lows"],
         "net_new_highs": values["net_new_highs"],
-        "fallback_count": len(fallback_tickers),
+        "fallback_count": len(fallback_tickers), "fallback_yahoo_count": len(fallback_tickers.yahoo),
     }
     logger.info(
         "Market breadth complete for %s: %d/%d constituents, %%>SMA20 %s, %%>SMA50 %s, %%>SMA200 %s, net new highs %d.",

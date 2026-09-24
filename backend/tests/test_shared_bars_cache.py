@@ -507,3 +507,72 @@ def test_upsert_is_idempotent_and_overwrites_the_same_bar(monkeypatch):
 
     assert len(result["AAPL"]) == 1  # same (ticker, interval, bar_time) key -- updated, not duplicated
     assert result["AAPL"]["close"].iloc[0] == 555.0
+
+
+# ---------------------------------------------------------------------------
+# P2: FMP full-history replace, provisional last bar
+# ---------------------------------------------------------------------------
+
+
+def _count_rows(engine, ticker: str) -> int:
+    from sqlalchemy import func
+    from sqlmodel import select
+
+    with Session(engine) as session:
+        return session.exec(
+            select(func.count()).select_from(SharedBarsCache).where(SharedBarsCache.ticker == ticker, SharedBarsCache.interval == DAILY_INTERVAL)
+        ).one()
+
+
+def test_a_full_history_result_replaces_the_tickers_old_rows_instead_of_upserting_over_them(monkeypatch):
+    """Symbol-reuse / restated history: rows on dates the new series lacks must not survive."""
+    engine = _fresh_engine(monkeypatch)
+    old_first = _TODAY - timedelta(days=40)
+    for i in range(41):  # a stitched/stale history, fresh last bar
+        _seed_row(engine, "META", DAILY_INTERVAL, datetime.combine(old_first + timedelta(days=i), datetime.min.time()), datetime(2026, 9, 18, 3, 0), close=14.0)
+    new_dates = [_TODAY - timedelta(days=d) for d in range(29, -1, -1)]
+
+    class FullReplaceSource:
+        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None, replace_tickers=None, full_refresh=False):
+            replace_tickers.extend(tickers_with_days)
+            return {t: _daily_df([d.isoformat() for d in new_dates]).rename(columns=str.lower) for t in tickers_with_days}
+
+    monkeypatch.setattr(shared_bars_cache, "get_daily_bar_source", lambda: FullReplaceSource())
+    asyncio.run(get_or_fetch_bars_batch(["META"], DAILY_INTERVAL, lookback_days=60, reference=_REFERENCE))  # 41 bars < 60d: insufficient -> fetch
+    assert _count_rows(engine, "META") == 30  # the old 41 rows are gone, only the new 30 remain
+
+
+def test_force_is_passed_to_the_daily_source_as_full_refresh(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    seen = {}
+
+    class Src:
+        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None, replace_tickers=None, full_refresh=False):
+            seen["full_refresh"] = full_refresh
+            return {}
+
+    monkeypatch.setattr(shared_bars_cache, "get_daily_bar_source", lambda: Src())
+    asyncio.run(get_or_fetch_bars_batch(["AAPL"], DAILY_INTERVAL, lookback_days=5, force=True, reference=_REFERENCE))
+    assert seen["full_refresh"] is True
+
+
+def test_a_last_bar_written_before_its_sessions_close_is_refetched(monkeypatch):
+    """The 2026-09-23 15:50 ET incident: a bar dated the most recent session but
+    written mid-session is provisional, and a date-only freshness check kept it forever."""
+    engine = _fresh_engine(monkeypatch)
+    written_mid_session = datetime.combine(_TODAY, datetime(2026, 1, 1, 19, 50).time())  # 19:50 UTC = 15:50 ET
+    for i in range(5):
+        _seed_row(engine, "AAPL", DAILY_INTERVAL, datetime.combine(_TODAY - timedelta(days=4 - i), datetime.min.time()), written_mid_session)
+    calls = _patch_fetch(monkeypatch, {"AAPL": _daily_df([_TODAY.isoformat()])})
+    asyncio.run(get_or_fetch_bars_batch(["AAPL"], DAILY_INTERVAL, lookback_days=3, reference=_REFERENCE))
+    assert len(calls) == 1
+
+
+def test_a_last_bar_written_after_the_close_is_trusted(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    after_close = datetime.combine(_TODAY + timedelta(days=1), datetime(2026, 1, 1, 3, 10).time())  # 03:10 UTC next day
+    for i in range(5):
+        _seed_row(engine, "AAPL", DAILY_INTERVAL, datetime.combine(_TODAY - timedelta(days=4 - i), datetime.min.time()), after_close)
+    calls = _patch_fetch(monkeypatch, {"AAPL": _daily_df([_TODAY.isoformat()])})
+    asyncio.run(get_or_fetch_bars_batch(["AAPL"], DAILY_INTERVAL, lookback_days=3, reference=_REFERENCE))
+    assert calls == []

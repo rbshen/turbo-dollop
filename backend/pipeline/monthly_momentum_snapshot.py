@@ -32,6 +32,7 @@ import logging
 from datetime import date
 from pathlib import Path
 
+from clients.daily_bar_sources import describe_fallback
 from core.cron_health import cron_heartbeat
 from core.db import init_db
 from core.logging_config import configure_logging
@@ -91,5 +92,5 @@ if __name__ == "__main__":
         else:
             run.message = (
                 f"{summary['processed']}/{summary['universe_size']} tickers, {summary['stale_count']} still stale after fetch, "
-                f"{summary['fallback_count']} fell back to Yahoo, {summary['skipped_delisted_count']} skipped as delisted"
+                f"{describe_fallback(summary['fallback_count'], summary['fallback_yahoo_count'])}, {summary['skipped_delisted_count']} skipped as delisted"
             )

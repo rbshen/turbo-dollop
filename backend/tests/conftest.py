@@ -107,6 +107,24 @@ def _isolate_data_groups_engine(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _block_live_fmp_daily_bars(monkeypatch):
+    """The shared-bars-cache daily path now tries FMP first (FMPDailySource ->
+    fmp_client.get_historical_price_eod). Legacy tests written against the
+    Massive/Yahoo chain must never reach the real network through it: by
+    default that call fails as a transport error, so every ticker falls
+    through to the fallback chain exactly as before. A test exercising FMP
+    builds FMPDailySource(client=<fake>) or patches the method itself."""
+    import httpx
+
+    from clients.fmp_client import fmp_client
+
+    async def _blocked(*_args, **_kwargs):
+        raise httpx.ConnectError("live FMP daily-bar fetch blocked in tests")
+
+    monkeypatch.setattr(fmp_client, "get_historical_price_eod", _blocked)
+
+
+@pytest.fixture(autouse=True)
 def _default_earnings_fetch(monkeypatch):
     """Every statement-grain data module (step1-5_data.py, ratios_data.py,
     segmentation_data.py, financials_data.py, ticker_summary.py) now resolves

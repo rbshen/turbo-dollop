@@ -29,6 +29,7 @@ import time
 from datetime import date
 from pathlib import Path
 
+from clients.daily_bar_sources import describe_fallback
 from clients.shared_bars_cache import DAILY_INTERVAL, stale_ticker_count
 from core.cron_health import cron_heartbeat
 from core.db import init_db
@@ -74,5 +75,5 @@ if __name__ == "__main__":
         summary = asyncio.run(main())
         run.message = (
             f"{summary['processed']}/{len(SECTOR_ETFS)} funds, {summary['stale_count']} still stale after fetch, "
-            f"{summary['fallback_count']} fell back to Yahoo"
+            f"{describe_fallback(summary['fallback_count'], summary['fallback_yahoo_count'])}"
         )
