@@ -3795,9 +3795,9 @@ The 11 SPDR sector ETFs (XLK XLF XLV XLE XLI XLY XLP XLU XLB XLRE XLC) x 7 trail
 trailing-return windows (1w/1m/3m/6m/9m/YTD/1y). Round 1 of the ETF work in
 `docs/etf_heatmap_momentum_investigation_2026-09-20.md`; the ETF momentum ranking is a separate,
 later round and is **not** built. Price-only, zero FMP *fundamentals* calls, independent of Step 1-5
-scoring. Bars come through `SharedBarsCache` (`get_or_fetch_bars_batch`), so FMP `daily_prices` first, then Massive, then Yahoo per ticker (see "Daily prices: FMP").
+scoring. Bars come from FMP, through `SharedBarsCache` (`get_or_fetch_bars_batch`; see "Daily prices: FMP").
 
-- **Plain split-adjusted Close, NOT total return (since the 2026-09-23 Massive migration)**: `data/sector_heatmap_data.py` reads the cache's `close` column (`auto_adjust` is not forwarded to Massive/FMP). Returns exclude dividends, so bond/income-heavy funds read up to ~6pp lower over 1y than the original Yahoo `Adj Close` design (XLE 1y was +47.8% total vs +43.4% price). Accepted one-time step change.
+- **Split-adjusted close, NO dividend adjustment (NOT total return)**: `data/sector_heatmap_data.py` reads the cache's `close` column. Returns exclude dividends, so bond/income-heavy funds read up to ~6pp lower over 1y than the original total-return design (XLE 1y was +47.8% total vs +43.4% price). Deliberate: the app is used for options trading, not holding the underlying, so dividend-adjusted/total-return pricing is not the relevant basis.
 - **Windows** (`scoring/etf_returns.py`, pure): CALENDAR offsets back from the anchor, base = the
   last close on/before the target (so a weekend/holiday target uses the prior session). 1w = 7
   days, 1m/3m/6m/9m/1y = `DateOffset`. YTD base = the last close on/before Dec 31 of the prior
@@ -3858,7 +3858,7 @@ S&P 500 breadth, one row per session: % of constituents closing above their own 
 % above their 50-day SMA, % above their 200-day SMA, and net new 52-week highs minus lows. (The
 20-day metric was added later the same day -- see "20-day SMA metric" below; everything else in
 this section applies to it identically unless that entry says otherwise.) Design and measurements:
-`docs/market_breadth_investigation_2026-09-21.md`. Bars via `SharedBarsCache` (FMP `daily_prices` first, Massive/Yahoo fallback; plain split-adjusted close/high/low), zero FMP fundamentals
+`docs/market_breadth_investigation_2026-09-21.md`. Bars from FMP via `SharedBarsCache` (split-adjusted close/high/low, no dividend adjustment -- same basis and rationale as Sector Heatmap), zero FMP fundamentals
 calls, independent of Step 1-5/Overall Assessment scoring -- no `FMP_ENABLED` guard needed.
 
 - **Definitions** (`scoring/market_breadth.py`, pure). Every window is counted in each ticker's
