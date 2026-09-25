@@ -125,6 +125,21 @@ def _block_live_fmp_daily_bars(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_long_history_engine(monkeypatch):
+    """clients/long_history_bars.py reads/writes its own table (LongHistoryBars) on its own
+    `engine` reference: every test gets a fresh in-memory one, so none can touch (or depend on
+    the existence of that table in) the real database. Tests of modules that call it
+    (chart_data, analyst_ratings_data) reach FMP only through the blocked singleton above."""
+    import clients.daily_bar_sources as daily_bar_sources
+    import clients.long_history_bars as long_history_bars
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(engine)
+    monkeypatch.setattr(long_history_bars, "engine", engine)
+    monkeypatch.setattr(daily_bar_sources, "engine", engine)  # the exchange lookup route_by_source/group_for read
+
+
+@pytest.fixture(autouse=True)
 def _default_earnings_fetch(monkeypatch):
     """Every statement-grain data module (step1-5_data.py, ratios_data.py,
     segmentation_data.py, financials_data.py, ticker_summary.py) now resolves

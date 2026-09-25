@@ -10,8 +10,9 @@ this module embodies:
    request computes fresh.
 2. Zero persistent caching (deliberately reverted 2026-09-18 -- see
    CLAUDE.md's Chart tab entries for the FMP-cache staleness bug that
-   caused this). `_fetch_bars` calls clients/yahoo_client.py directly on
-   every request, with no persistence at all -- not
+   caused this). `_fetch_bars` calls its provider directly on
+   every request, with no persistence at all (the one exception, W_4Y's
+   long-history store, is point 3c below) -- not
    clients/yahoo_cache.py's YahooPriceCache table (that cache's staleness
    check is coverage-blind: a row freshened by the 2y/4y nightly jobs would
    read as "fresh" even when this feature needs up to 10y of history for
@@ -30,6 +31,17 @@ this module embodies:
    Raw prices match what FMP was already showing, so this was also a
    continuity improvement for anyone who used this tab while FMP was still
    the default source.
+
+3c. **W_4Y is FMP-first (P3, 2026-09-25).** FMP has no weekly endpoint, so the weekly bars are
+    the ticker's ~10y of daily bars (clients/long_history_bars.py -- its OWN table, filled
+    lazily on first view, topped up on a later stale view, gated on `daily_prices_long` for a
+    US listing / `daily_prices_intl` for a non-US one) resampled with the existing
+    analysis/trend_structure/weinstein.py::resample_to_weekly (Monday labels, first/max/min/
+    last/sum -- verified identical to Yahoo's native `1wk` bars). This is the ONE place the
+    Chart tab now persists anything (point 2's "zero caching" still holds for the daily ranges);
+    the long-history table is refreshed close-aware, so it cannot show the stale-bar bug that
+    motivated point 2. The Yahoo `1wk` fetch stays as the fall-through (group off with no row,
+    FMP error, empty answer) and `ChartOut.source` says which one answered.
 
 3a. **D_6M/D_1Y/D_2Y moved to Massive/Polygon, with an automatic per-ticker
     Yahoo fallback (2026-09-23 migration).** W_4Y (10y weekly) stays Yahoo
@@ -87,8 +99,10 @@ from sqlmodel import Session, select
 
 from analysis.entry_signal.indicators import BB_LENGTH, BB_STD, compute_rsi
 from analysis.trend_structure.stochastic import compute_stochastic
+from analysis.trend_structure.weinstein import resample_to_weekly
 from clients.daily_bar_sources import _profile_exchanges, fmp_rows_to_frame
 from clients.fmp_client import fmp_client
+from clients.long_history_bars import get_long_history
 from clients.massive_client import massive_client
 from clients.yahoo_client import yahoo_client
 from core.config import settings
@@ -147,10 +161,9 @@ RANGE_CONFIG: dict[str, dict] = {
     "D_6M": {"timeframe": "daily", "yahoo_period": "2y", "massive_lookback_days": 730, "visible_days": 365 // 2},
     "D_1Y": {"timeframe": "daily", "yahoo_period": "2y", "massive_lookback_days": 730, "visible_days": 365},
     "D_2Y": {"timeframe": "daily", "yahoo_period": "5y", "massive_lookback_days": 1825, "visible_days": 365 * 2},
-    # interval="1wk" is fetched directly (confirmed bit-identical to
-    # resampling daily bars, and faster/simpler, in the latency
-    # investigation) -- see _fetch_bars below. Yahoo-only (see point 3a).
-    "W_4Y": {"timeframe": "weekly", "yahoo_period": "10y", "visible_days": 365 * 4},
+    # FMP-first (point 3c): the long-history daily bars trimmed to `history_days` and resampled
+    # to weekly; the Yahoo native interval="1wk" fetch (`yahoo_period`) is the fall-through.
+    "W_4Y": {"timeframe": "weekly", "yahoo_period": "10y", "history_days": 3650, "visible_days": 365 * 4},
 }
 
 
@@ -174,14 +187,30 @@ async def _fetch_yahoo_bars(ticker: str, range_key: str) -> pd.DataFrame:
     return raw.rename(columns=str.lower)[_EMPTY_OHLCV_COLUMNS]
 
 
+async def _fetch_fmp_weekly_bars(ticker: str, history_days: int) -> pd.DataFrame | None:
+    """Weekly bars from the FMP long-history store, or None to fall through to Yahoo. Never
+    raises: a store/FMP problem must degrade to the Yahoo fetch, not fail the chart. The
+    in-progress week is emitted as a partial bar labelled by its Monday, as Yahoo does."""
+    try:
+        daily = await get_long_history(ticker)
+    except Exception as exc:  # noqa: BLE001 -- fail soft, log the type only
+        logger.warning("FMP long-history read failed for %s (%s); falling back to Yahoo", ticker, type(exc).__name__)
+        return None
+    if daily is None or daily.empty:
+        return None
+    daily = daily[daily.index >= pd.Timestamp.today().normalize() - pd.Timedelta(days=history_days)]
+    weekly = resample_to_weekly(daily[_EMPTY_OHLCV_COLUMNS])
+    return weekly if not weekly.empty else None
+
+
 async def _fetch_bars(ticker: str, range_key: str) -> tuple[pd.DataFrame, str]:
     """Returns (lowercase-column OHLCV DataFrame, "fmp" | "massive" | "yahoo").
     Empty DataFrame (never None/raised) for a bad/delisted ticker or a
     fetch that returned nothing from every source tried -- get_chart_data
     below is the single place that turns that into chart_available=False.
 
-    W_4Y (weekly) is Yahoo-only, unconditionally -- see module docstring
-    point 3a. The three daily ranges (D_6M/D_1Y/D_2Y) try Massive/Polygon
+    W_4Y (weekly) is FMP-first via the long-history store, Yahoo native
+    weekly as the fall-through -- see module docstring point 3c. The three daily ranges (D_6M/D_1Y/D_2Y) try Massive/Polygon
     first (when the ticker isn't a known non-US listing and
     settings.massive_enabled), falling back to Yahoo on any Massive error
     or an empty result -- the same policy
@@ -194,6 +223,9 @@ async def _fetch_bars(ticker: str, range_key: str) -> tuple[pd.DataFrame, str]:
     cfg = RANGE_CONFIG[range_key]
 
     if cfg["timeframe"] == "weekly":
+        weekly = await _fetch_fmp_weekly_bars(ticker, cfg["history_days"])
+        if weekly is not None:
+            return weekly, "fmp"
         df = await _fetch_yahoo_bars(ticker, range_key)
         return df, "yahoo"
 
