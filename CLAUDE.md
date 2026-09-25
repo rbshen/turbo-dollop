@@ -3120,6 +3120,8 @@ since 2021, no recency cutoff -- not comparable to FMP's ~180-day live consensus
 initially split the two into dashed/solid series but that was reverted; it draws one continuous line and ignores `methodology`). Details, migration counts and the UI checklist:
 `docs/price_target_daily_snapshot_implementation_2026-09-26.md`. Crontab reinstall still needed to activate.
 
+**Universe (2026-09-25): every US-LISTED tracked ticker** (`load_us_price_target_universe`: `load_full_tracked_universe` filtered by `core.tickers.is_us_listed` off the cached profile exchange, minus `delisted_at`-flagged) -- 580 tickers, not the 518 S&P 500 + Dow. **BF-B**: FMP's three `/price-target-*` endpoints only know it as `BF.B` (`fmp_client.PRICE_TARGET_SYMBOL_OVERRIDES`, a one-entry allowlist -- BRK-B must NOT be remapped, its dot form returns different data); `/profile` and `/grades-consensus` still want the hyphen. Tickers FMP has no price target for (ERIE, L, NWS, SPY, TECL, PARA, OTC ADRs) fail harmlessly every night, so a run reports ~8 failures normally.
+
 ## Warren RSI/ADX/WVF entry signal (2h) (Technical)
 
 A fifth, fully independent technical entry-signal lens -- alongside BB+RSI, this is the

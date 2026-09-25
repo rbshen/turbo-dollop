@@ -25,7 +25,7 @@ def test_fmp_disabled_skips_the_run_before_any_fetch_or_universe_lookup(monkeypa
     def fail_if_queried(*args, **kwargs):
         raise AssertionError("must not resolve the ticker universe while FMP is paused")
 
-    monkeypatch.setattr(monthly, "load_universe_tickers", fail_if_queried)
+    monkeypatch.setattr(monthly, "load_us_price_target_universe", fail_if_queried)
 
     async def fail_if_called(*args, **kwargs):
         raise AssertionError("must not fetch price targets while FMP is paused")
@@ -213,3 +213,28 @@ def test_normal_run_is_success_with_summary(monkeypatch):
     row = _heartbeat_row(monkeypatch, {"processed": 10, "failed": 1, "failures": []})
     assert row.status == "success"
     assert row.error_summary == "9 written, 1 failed"
+
+
+def test_universe_is_us_listed_tracked_tickers_minus_delisted(monkeypatch, tmp_path):
+    import json
+
+    from core.models import TickerScore
+
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    now = datetime(2026, 9, 25)
+
+    def profile(ticker, exchange):
+        return FundamentalsCache(ticker=ticker, statement_type="profile", period="latest", fetched_at=now, raw_json=json.dumps([{"exchange": exchange}]))
+
+    with Session(engine) as session:
+        session.add_all([
+            profile("AAPL", "NASDAQ"),
+            profile("TSM", "NYSE"),  # foreign domicile, US listing -> in
+            profile("SPY", "AMEX"),
+            profile("0005.HK", "HKSE"),  # non-US listing -> out
+            profile("TWTR", "NYSE"),  # delisted-flagged -> out
+        ])
+        session.add(TickerScore(ticker="TWTR", computed_at=now, delisted_at=now))
+        session.commit()
+        monkeypatch.setattr(monthly, "_profile_exchanges", lambda tickers: {"AAPL": "NASDAQ", "TSM": "NYSE", "SPY": "AMEX", "0005.HK": "HKSE", "TWTR": "NYSE"})
+        assert monthly.load_us_price_target_universe(session) == ["AAPL", "SPY", "TSM"]

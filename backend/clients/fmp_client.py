@@ -83,6 +83,19 @@ def _clear_key_problem_if_set() -> None:
         _safe(set_key_problem, None)  # a successful call proves the key works
 
 
+# FMP's three /price-target-* endpoints know Brown-Forman's class B shares only
+# as "BF.B" -- "BF-B" returns an empty list there (confirmed live 2026-09-25),
+# although /profile and /grades-consensus want the hyphen form. Deliberately a
+# one-entry allowlist, not a blanket hyphen->dot replace: BRK-B answers under
+# both spellings but with DIFFERENT data (604 vs 575), so remapping it would
+# silently change its values, and BF-A only exists hyphenated.
+PRICE_TARGET_SYMBOL_OVERRIDES = {"BF-B": "BF.B"}
+
+
+def _price_target_symbol(ticker: str) -> str:
+    return PRICE_TARGET_SYMBOL_OVERRIDES.get(ticker, ticker)
+
+
 class FMPClient:
     """Thin wrapper around the Financial Modeling Prep REST API.
 
@@ -338,7 +351,7 @@ class FMPClient:
         return await self.get("/grades-historical", {"symbol": ticker, "limit": limit})
 
     async def get_price_target_consensus(self, ticker: str) -> dict | list:
-        return await self.get("/price-target-consensus", {"symbol": ticker})
+        return await self.get("/price-target-consensus", {"symbol": _price_target_symbol(ticker)})
 
     async def get_price_target_news(self, ticker: str, page: int = 0, limit: int = 100) -> dict | list:
         # One row per individual analyst price-target action (not a
@@ -347,12 +360,12 @@ class FMPClient:
         # FMP caps this endpoint's own page size at 100 regardless of a
         # higher requested `limit` (confirmed live); callers must paginate
         # via `page` until an empty list comes back.
-        return await self.get("/price-target-news", {"symbol": ticker, "page": page, "limit": limit})
+        return await self.get("/price-target-news", {"symbol": _price_target_symbol(ticker), "page": page, "limit": limit})
 
     async def get_price_target_summary(self, ticker: str) -> dict | list:
         # Ready-made recency-bucketed averages (last month/quarter/year/
         # all-time) -- see data/analyst_ratings_data.py's price_target_by_recency.
-        return await self.get("/price-target-summary", {"symbol": ticker})
+        return await self.get("/price-target-summary", {"symbol": _price_target_symbol(ticker)})
 
     async def get_insider_trading_search(self, ticker: str, limit: int = 100, page: int = 0) -> dict | list:
         # One row per Form 4 transaction line, ordered by FILING date newest

@@ -1,6 +1,6 @@
 """Standalone script: DAILY price-target-consensus snapshot for every
-ticker in the stored S&P 500 + Dow constituent lists (see
-nightly_fundamentals_fetch.py's load_universe_tickers, reused here).
+US-listed ticker the app tracks (see load_us_price_target_universe below).
+Widened on 2026-09-25 from the S&P 500 + Dow constituent lists.
 
 (Renamed from monthly_price_target_snapshot on 2026-09-27, when it went from
 monthly to daily; older CronRunLog rows keep the old job name.)
@@ -22,7 +22,7 @@ day's row instead of duplicating it (unique index on the pair).
 Default schedule: 2:10am server time daily (see crontab.txt in this
 directory), after nightly_fundamentals_fetch and before the 3:10 trend job.
 
-Run manually against the full stored list:
+Run manually against the full US universe:
     uv run python -m pipeline.nightly_price_target_snapshot
 
 Run against a small subset first:
@@ -47,14 +47,28 @@ from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.logging_config import configure_logging
 from core.models import PriceTargetSnapshot
-from core.tickers import normalize_ticker
-from pipeline.nightly_fundamentals_fetch import load_universe_tickers
+from clients.daily_bar_sources import _profile_exchanges
+from core.tickers import is_us_listed, normalize_ticker
+from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
+from pipeline.stale_data_health_check import load_delisted_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_price_target_snapshot.log"
 
 # Same empirically-derived pacing as nightly_fundamentals_fetch.py -- see
 # that module's comment for the underlying rate-limit investigation.
 TARGET_REQUESTS_PER_MINUTE = 220
+
+
+def load_us_price_target_universe(session: Session) -> list[str]:
+    """The full tracked universe (`load_full_tracked_universe`: index + ever-viewed
+    + scored + watchlisted) narrowed to US-LISTED tickers -- listing exchange off
+    the cached FMP profile via `core.tickers.is_us_listed`, the same rule that
+    routes daily bars, not domicile (TSM/BABA count, HKSE names don't) -- minus
+    tickers flagged delisted, which would only fail every night."""
+    tracked = load_full_tracked_universe(session)
+    exchanges = _profile_exchanges(tracked)
+    delisted = load_delisted_tickers(session)
+    return [t for t in tracked if t not in delisted and is_us_listed(t, exchanges.get(t))]
 
 
 LIVE_METHODOLOGY = "live_consensus"
@@ -98,7 +112,7 @@ async def _snapshot_one_ticker(session: Session, ticker: str, snapshot_date: dat
 
 
 async def main(tickers: list[str] | None = None) -> dict:
-    """`tickers=None` means "use the full stored S&P 500 + Dow list" --
+    """`tickers=None` means "use the full US-listed tracked universe" --
     passing an explicit list (used by the CLI's --limit/--tickers and by
     tests) bypasses the DB lookup entirely. Returns the run summary dict so
     tests can assert on it directly rather than scraping the log."""
@@ -118,10 +132,10 @@ async def main(tickers: list[str] | None = None) -> dict:
 
     if tickers is None:
         with Session(engine) as session:
-            tickers = load_universe_tickers(session)
+            tickers = load_us_price_target_universe(session)
 
     if not tickers:
-        logger.error("No tickers to process -- run refresh_sp500_list.py/refresh_dow_list.py first, or pass an explicit ticker list.")
+        logger.error("No tickers to process -- no tracked US-listed tickers -- pass an explicit ticker list.")
         return {"processed": 0, "failed": 0, "calls_made": 0, "duration_seconds": 0.0, "failures": []}
 
     fmp_client.min_request_interval = 60.0 / TARGET_REQUESTS_PER_MINUTE
@@ -184,7 +198,7 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     if args.limit:
         init_db()
         with Session(engine) as session:
-            all_tickers = load_universe_tickers(session)
+            all_tickers = load_us_price_target_universe(session)
         return all_tickers[: args.limit]
     return None
 

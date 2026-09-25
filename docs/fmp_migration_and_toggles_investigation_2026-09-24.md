@@ -1,5 +1,7 @@
 # FMP price-data migration + per-data-group toggles — Phase 0 investigation (2026-09-24)
 
+> **Note:** the job this doc calls `monthly_price_target_snapshot` was renamed to `nightly_price_target_snapshot` and moved to a daily cadence on 2026-09-26 -- see `docs/price_target_daily_snapshot_implementation_2026-09-26.md`. The text below is left as written and describes the job as it was at the time.
+
 Investigation only. No application code, config, crontab or `.env` was changed. All FMP/Massive
 calls were small, made from a scratch folder (deleted afterwards); DB access was read-only
 (`file:...?mode=ro`); the Weinstein/Liquidity Zone engines were run in memory only. Times are ET

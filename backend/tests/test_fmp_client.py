@@ -294,3 +294,36 @@ def test_historical_price_eod_defaults_to_the_daily_prices_group(monkeypatch):
     with pytest.raises(FMPGroupDisabledError) as exc:
         asyncio.run(FMPClient(api_key="x").get_historical_price_eod("AAPL", "2020-01-01", "2020-02-01"))
     assert exc.value.group == "daily_prices"
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("get_price_target_consensus", "/stable/price-target-consensus"),
+        ("get_price_target_summary", "/stable/price-target-summary"),
+        ("get_price_target_news", "/stable/price-target-news"),
+    ],
+)
+def test_price_target_endpoints_send_bf_b_in_dot_form_but_leave_other_tickers_alone(monkeypatch, method, path):
+    seen: list[tuple[str, str]] = []
+
+    def handler(request):
+        seen.append((request.url.path, request.url.params["symbol"]))
+        return httpx.Response(200, json=[])
+
+    _install_mock_transport(monkeypatch, handler)
+    client = FMPClient(api_key="x")
+
+    async def run():
+        for symbol in ("BF-B", "BRK-B", "AAPL"):
+            await getattr(client, method)(symbol)
+
+    asyncio.run(run())
+    assert [s for _, s in seen] == ["BF.B", "BRK-B", "AAPL"]  # BRK-B must NOT be remapped: dot form returns different data
+
+
+def test_grades_consensus_keeps_the_hyphen_for_bf_b(monkeypatch):
+    seen: list[str] = []
+    _install_mock_transport(monkeypatch, lambda r: (seen.append(r.url.params["symbol"]), httpx.Response(200, json=[]))[1])
+    asyncio.run(FMPClient(api_key="x").get_grades_consensus("BF-B"))
+    assert seen == ["BF-B"]

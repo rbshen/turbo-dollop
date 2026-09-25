@@ -1,5 +1,7 @@
 # Cron Job Audit — 2026-09-11
 
+> **Note:** the job this doc calls `monthly_price_target_snapshot` was renamed to `nightly_price_target_snapshot` and moved to a daily cadence on 2026-09-26 -- see `docs/price_target_daily_snapshot_implementation_2026-09-26.md`. The text below is left as written and describes the job as it was at the time.
+
 Phase 1/2 of a requested cron audit: inventory every scheduled job against
 what's actually installed and running, report findings, and scope (but not
 implement) consolidation/optimization candidates. Read-only investigation —

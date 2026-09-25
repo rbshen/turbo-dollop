@@ -1,5 +1,7 @@
 # Price-target trend vs. At-a-Glance gap (GOOGL, 2026-09) -- investigation, 2026-09-25
 
+> **Note:** the job this doc calls `monthly_price_target_snapshot` was renamed to `nightly_price_target_snapshot` and moved to a daily cadence on 2026-09-26 -- see `docs/price_target_daily_snapshot_implementation_2026-09-26.md`. The text below is left as written and describes the job as it was at the time.
+
 Investigation only. No production code or data was changed. The only external I/O was
 read-only `sqlite` queries (`mode=ro`) against `backend/fathom.db` and 4 live, un-persisted
 `GET /price-target-news` reads (GOOGL, AAPL, JPM, KO) through plain `httpx`, not `fmp_client`, so

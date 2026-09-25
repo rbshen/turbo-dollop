@@ -119,3 +119,79 @@ The dashed/solid methodology split and its caption were removed from `PriceTarge
 single continuous area chart, plus the "daily" wording in the empty-state text). This was a deliberate decision: the legacy/live
 jump now renders as an undifferentiated move. `methodology` remains in the column, API and TS type but the chart no longer reads it.
 The "Frontend" bullet above and checklist items 3-5 no longer apply.
+
+## Addendum 3 (2026-09-25 server date): failed fetches, full US universe, doc sweep, Sept 22 spike
+
+### 1. The four failed fetches (BF-B, ERIE, L, NWS)
+
+Live, un-cached `fmp_client.get` probes (no DB writes).
+
+- **BF-B was a symbol-format bug, now fixed.** `/price-target-consensus`, `/price-target-summary` and `/price-target-news` return `[]` for `BF-B`
+  and real data for `BF.B` (consensus 55, high 67, low 48, median 50; 4 news rows). The other endpoints are the reverse: `/profile` and
+  `/grades-consensus` answer to `BF-B` (36 analyst grades) and `BF.B` gives a thinner row (4). Other forms (`BF/B`, `BF_B`, `BFB`) return nothing; `BF-A` only exists hyphenated.
+  **BRK-B answers under both spellings with different data** (604 hyphen vs 575 dot), so a blanket hyphen-to-dot replace would silently change it.
+  Existing dot-mapping in the repo (`core.tickers.MASSIVE_TICKER_ALIASES`) is for Massive and also covers BRK-B, so it was not reused.
+  **Fix:** `clients/fmp_client.py::PRICE_TARGET_SYMBOL_OVERRIDES = {"BF-B": "BF.B"}`, applied to the three price-target methods only. The cache key and
+  stored ticker stay `BF-B`. Live check through the real job: BF-B row written (target 55 / 67 / 48 / 50, `live_consensus`). This also fixes
+  the Analyst Ratings tab's target for BF-B, which reads the same client method.
+  One-off data fix: the first run had cached an empty `[]` for BF-B (`price_target_consensus`/`latest`, 1-day staleness), which would have made tomorrow's
+  02:10 run fail too (about 19 h old, still "fresh"). That one row was deleted and the ticker re-fetched.
+- **ERIE, L, NWS are genuinely uncovered for price targets** (harmless recurring no-ops): all three return `[]` from `/price-target-consensus`,
+  `/price-target-summary` and `/price-target-news`. Grade coverage differs: **ERIE** has none at all (`/grades-consensus` `[]`; `/profile` fine),
+  **L** has 4 grades (2 buy / 2 hold) and **NWS** 33 (21 buy / 9 hold / 3 sell) but neither has any price target. NWS's sibling NWSA does have targets (consensus 32.2),
+  so it is FMP publishing targets on one share class only, not a symbol problem.
+
+### 2. Full US universe
+
+`pipeline/nightly_price_target_snapshot.py::load_us_price_target_universe`: `load_full_tracked_universe` (index + ever-viewed + scored + watchlisted)
+filtered with `core.tickers.is_us_listed` using the cached profile exchange (`daily_bar_sources._profile_exchanges`) -- the same rule that routes daily
+bars: listing exchange, not domicile (TSM/BABA/HSBC/NVO count). Also excludes `TickerScore.delisted_at` tickers (AVB, EA, EQR, TWTR, WBA), which the other nightly jobs already skip and which would only fail nightly. The `--limit` CLI path uses the same selector.
+
+| | count |
+|---|---|
+| Full tracked universe | 591 |
+| Non-US listing (HKSE: 0005, 0728, 0857, 0883, 0941, 3988) | 6, excluded |
+| Delisted-flagged (all US-listed) | 5, excluded |
+| **New job universe** | **580** (was 518: all 518 retained, **+62 new**) |
+| Exchange mix | NYSE 379, NASDAQ 199, OTC 3, AMEX 3, CBOE 1 |
+
+The 62 new tickers (measured by running them live, plus BF-B): 62 calls, 61 s (about 1 call/s, latency-bound). 5 of the 62 returned no consensus:
+**SPY, TECL** (ETFs), **PARA** (FMP's PARA is Banzai, no coverage), **EVVTY, SINGY** (OTC ADRs). 57 written, 0 duplicates; rows for 2026-09-25 now 571 (later joined by BF-B's re-fetch).
+Steady state expectation: 580 tickers, about 8 harmless failures (the 5 above + ERIE, L, NWS), so `record_outcome` still reads `success` ("572 written, 8 failed").
+**Additional FMP calls/day: +62** (516 -> about 578; a ticker with a still-fresh cache row costs none).
+
+**Rate-limit headroom.** Pacing is unchanged at 220 req/min, below the Starter-tier documented 300 req/min (`FMP_PLAN_REQUESTS_PER_MIN`; Premium 750, Ultimate 3000), so the ceiling never moves with ticker count. The real rate is latency-bound at about 60 req/min (61 calls in 61 s just now; 516 calls in 8.6 min on the first full run).
+Extrapolated full run: 580 calls at about 1 s = **about 10 min**, 02:10 -> about 02:20, well before the 03:10 trend job. The 02:00 fundamentals fetch is a separate process on the same key; that overlap already existed at 518 tickers and adds only 62 calls.
+The full 580-ticker run has **not** been executed end to end (only the 62 new ones + BF-B, to avoid duplicating tomorrow's cron); the ~10 min figure is an extrapolation from these two measured runs.
+Unique index / upsert: unchanged; a run over the 62 new tickers plus a second BF-B run produced 0 duplicate `(ticker, snapshot_date)` pairs.
+
+Tests: 2,147 passed (full suite). New: BF-B remap on all three endpoints and BRK-B/AAPL left alone; `grades-consensus` keeps the hyphen; universe = US-listed minus delisted (foreign-domicile US listing in, HKSE out).
+
+### 3. Older docs annotated (a forward-reference note under each title; prose untouched)
+
+- `docs/cron_audit_2026-09.md`
+- `docs/fmp_migration_and_toggles_investigation_2026-09-24.md`
+- `docs/price_target_daily_refresh_feasibility_2026-09-26.md`
+- `docs/price_target_trend_sept_gap_investigation_2026-09-25.md`
+- `docs/price_target_trend_signal_investigation_2026-09-22.md`
+
+(This doc and `CLAUDE.md` also mention the old name, but as the rename record itself, so they were left as they are; `CLAUDE.md` gained a short universe/BF-B note.)
+
+### 4. The 2026-09-22 `grades_consensus` spike: mechanism found, actor untraceable
+
+`grades_consensus` fetched_at on 2026-09-22: 538 rows (99 Watchlist tickers by today's lists, not the 132 noted before). By time (server clock = UTC):
+**440 rows 21:26-21:35, of which 438 in about 80 s (21:34 and 21:35)**; 81 rows 15:01-15:21; 11 at 05:44 (a burst of 11 within 2 s: CRWD, SEZL, DOCN, PLTR, MRVL...); 1 at 03:19 (META).
+
+- **The big burst is a one-off sweep of the tracked universe through `get_or_fetch` with the normal 7-day staleness.** It ran alphabetically from A (after NKE and CELH, likely two manual page views), about 290 tickers/min, far faster than page browsing or any cron. It covered the tracked universe as of that day: 387 of 440 are current index tickers, 53 are extras (delisted AVB/EA/EQR, BABA, CCJ...).
+  The 43 current index tickers it did not hit are fully explained by that 7-day rule and by Nasdaq-100 having been added later (2026-09-23): 34 already had a fresh row from 09-17 to 09-19 (26 + 5 + 2), 8 are Nasdaq-only tickers that have no row at all, and 2 were re-fetched on 09-23/09-24.
+  The surrounding rows in that minute (one each of earnings, profile, quote, price_change, ratios, historical_price_eod, grades_historical, price_target_summary) are a single ticker-page view, not part of the sweep.
+- **Not the cron:** no `CronRunLog` row between 15:00 and 22:30 that day, and no cron job calls the Analyst Ratings data function (its only production caller is `GET /api/tickers/{t}/analyst-ratings`).
+- **Actor: untraceable.** Ruled out or exhausted: the uvicorn log (`backend/logs/uvicorn_dev.log`) was reset when the app was restarted today and carries no timestamps; `~/.bash_history` has no timestamp lines; no Claude Code session transcript on this box spans 2026-09-22 21:00-22:00 UTC; no commit falls within 21:00-22:16 UTC (the closest are the 22:16 signal-investigation doc, which describes no FMP sweep, and 15:57 UTC). The most likely explanation is a one-off script or session that iterated the tracked universe through the analyst-ratings data path; that is an inference from the access pattern, not something confirmed.
+- Not a problem to fix: it explains why `grades_consensus` rows cluster on 09-22 and 09-17 (an earlier, smaller sweep, 27 rows), and it means most grades rows are on a ~7-day staleness cycle set by that day.
+
+### Manual UI checklist
+1. Restart the app (`./bin/stop.sh && ./bin/start.sh`) to pick up the `fmp_client` change (production build, no hot reload).
+2. Open `/tickers/BF-B` -> Analyst Ratings: the At-a-Glance price target now shows about $55 (previously empty).
+3. Price Target Trend chart for BF-B: a live point dated today appears at the right edge (legacy history may be sparse).
+4. Open `/tickers/ERIE` (or L, NWS) -> Analyst Ratings: no target, as before; no error.
+5. Tomorrow after 02:30 UTC: `CronRunLog` for `pipeline.nightly_price_target_snapshot` is `success` with about "572 written, 8 failed", finished before 03:10.
