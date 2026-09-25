@@ -160,7 +160,7 @@ export function ChartTab({ ticker }: Props) {
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Chart</h2>
           <p className="mt-1 text-sm text-text-secondary">
-            OHLC price chart with EMA(21), SMA(50/200), Bollinger Bands(20, 2), Full Stochastic(5, 3, 3), and RSI(14). Informational only.
+            OHLC price chart with EMA(21), SMA(50/200), Bollinger Bands(20, 2), Full Stochastic(5, 3, 3, EMA), and RSI(14). Informational only.
           </p>
         </div>
         <div className="flex items-center gap-1">

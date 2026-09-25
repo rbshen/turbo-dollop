@@ -1,5 +1,5 @@
 """Orchestration layer for the ticker-page Chart tab -- OHLC candles plus
-EMA21, SMA50/200, Bollinger(20,2, EMA basis), Full Stochastic(5,3,3), and
+EMA21, SMA50/200, Bollinger(20,2, EMA basis), Full Stochastic(5,3,3, EMA), and
 RSI(14), across four fixed views (D/6M, D/1Y, D/2Y, W/4Y). See CLAUDE.md's
 Chart tab investigation notes for the full design history; the decisions
 this module embodies:

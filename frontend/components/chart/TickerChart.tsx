@@ -1172,7 +1172,7 @@ export function TickerChart({
             className="absolute left-3 z-10 text-[10px] font-mono text-zinc-500 select-none pointer-events-none"
             style={{ top: stochLabelTop }} // placeholder; corrected from real pane geometry in the layout effect above
           >
-            Full Stochastic (5, 3, 3)
+            Full Stochastic (5, 3, 3) EMA
           </div>
         )}
 
