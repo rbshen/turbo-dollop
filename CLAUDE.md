@@ -3116,8 +3116,8 @@ independent of price (TradingView's convention) -- see "Fixed-row placement" bel
 `pipeline.nightly_price_target_snapshot` (renamed from `monthly_price_target_snapshot` 2026-09-27) now runs **daily 02:10**, fetches through the shared
 `price_target_consensus` cache (1-day staleness), upserts one row per `(ticker, snapshot_date)` (unique index),
 and tags rows `methodology='live_consensus'`. The 32,764 backfill rows are `legacy_all_analysts` (all analysts
-since 2021, no recency cutoff -- not comparable to FMP's ~180-day live consensus), and the Price Target Trend chart
-draws the two as separate dashed/solid series. Details, migration counts and the UI checklist:
+since 2021, no recency cutoff -- not comparable to FMP's ~180-day live consensus), (the Price Target Trend chart
+initially split the two into dashed/solid series but that was reverted; it draws one continuous line and ignores `methodology`). Details, migration counts and the UI checklist:
 `docs/price_target_daily_snapshot_implementation_2026-09-26.md`. Crontab reinstall still needed to activate.
 
 ## Warren RSI/ADX/WVF entry signal (2h) (Technical)

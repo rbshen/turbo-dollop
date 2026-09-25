@@ -112,3 +112,10 @@ seam step is ~+$108, as predicted.)
 
 Manual UI checklist: the checklist above applies as-is, and step 3 (running the job for GOOGL/AAPL) is no longer needed since live rows exist.
 The app is still the old production build until restarted (`./bin/stop.sh && ./bin/start.sh`), so the split chart and methodology field won't show until then.
+
+## Addendum 2: chart split reverted
+
+The dashed/solid methodology split and its caption were removed from `PriceTargetTrendChart.tsx` (restored to its pre-`3913b19`
+single continuous area chart, plus the "daily" wording in the empty-state text). This was a deliberate decision: the legacy/live
+jump now renders as an undifferentiated move. `methodology` remains in the column, API and TS type but the chart no longer reads it.
+The "Frontend" bullet above and checklist items 3-5 no longer apply.

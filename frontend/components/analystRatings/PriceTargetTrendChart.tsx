@@ -23,15 +23,8 @@ interface Props {
 const TARGET_COLOR = "var(--color-brand)";
 const PRICE_COLOR = "var(--color-chart-1)";
 
-// The target line is drawn as two series split by methodology (never joined,
-// so the seam reads as a definition change rather than a market move):
-// legacy = dashed, live = solid, same hue.
-export const LEGACY = "legacy_all_analysts";
-export const LIVE = "live_consensus";
-
 const CHART_CONFIG: ChartConfig = {
-  targetLegacy: { label: "Avg. Price Target (all analysts)", color: TARGET_COLOR },
-  targetLive: { label: "Price Target (live consensus)", color: TARGET_COLOR },
+  target: { label: "Avg. Price Target", color: TARGET_COLOR },
   price: { label: "Stock Price", color: PRICE_COLOR },
 };
 
@@ -49,9 +42,6 @@ export function PriceTargetTrendChart({ history, currency = "USD" }: Props) {
   // data available doesn't land on/before any plotted date. No separate
   // check/request needed: this falls straight out of the one field already
   // returned by the same request this chart already consumes.
-  // Only when BOTH methodologies are present is there a seam to mark; a
-  // single-methodology history keeps the original smooth area chart.
-  const hasSplit = history.some((p) => p.methodology === LEGACY) && history.some((p) => p.methodology === LIVE);
   const hasPriceOverlay = history.some((point) => point.price_on_date != null);
 
   if (!hasPriceTargetHistory) {
@@ -77,8 +67,8 @@ export function PriceTargetTrendChart({ history, currency = "USD" }: Props) {
           </button>
         </div>
       )}
-      {(showPriceOverlay && hasPriceOverlay) || hasSplit ? (
-        <TargetLineChart history={history} currency={currency} showPrice={showPriceOverlay && hasPriceOverlay} />
+      {showPriceOverlay && hasPriceOverlay ? (
+        <PriceOverlayChart history={history} currency={currency} />
       ) : (
         <RechartsAreaChart
           categories={history.map((point) => point.date.slice(0, 7))}
@@ -87,33 +77,20 @@ export function PriceTargetTrendChart({ history, currency = "USD" }: Props) {
           height={216}
         />
       )}
-      {hasSplit && <MethodologyNote />}
     </div>
   );
 }
 
-function MethodologyNote() {
-  return (
-    <p className="text-xs text-text-tertiary" data-testid="methodology-note">
-      <span className="font-medium text-text-secondary">Dashed line:</span> historical average of every analyst price target since 2021 (no
-      recency cutoff). <span className="font-medium text-text-secondary">Solid line:</span> live consensus from daily snapshots, which
-      reflects only recent analyst activity (about the last 6 months). The two are defined differently, so a step where they meet is a
-      methodology change, not a market move.
-    </p>
-  );
-}
-
-function TargetLineChart({ history, currency, showPrice }: { history: RatingHistoryPoint[]; currency: string; showPrice: boolean }) {
+function PriceOverlayChart({ history, currency }: { history: RatingHistoryPoint[]; currency: string }) {
   const categories = history.map((point) => point.date.slice(0, 7));
   const chartData = history.map((point, i) => ({
     category: categories[i],
-    targetLegacy: point.methodology === LIVE ? null : point.avg_price_target,
-    targetLive: point.methodology === LIVE ? point.avg_price_target : null,
-    price: showPrice ? point.price_on_date : null,
+    target: point.avg_price_target,
+    price: point.price_on_date,
   }));
 
   const targetValues = history.map((p) => p.avg_price_target).filter((v): v is number => v != null);
-  const priceValues = (showPrice ? history : []).map((p) => p.price_on_date).filter((v): v is number => v != null);
+  const priceValues = history.map((p) => p.price_on_date).filter((v): v is number => v != null);
   const allValues = [...targetValues, ...priceValues];
   const yTicks = computeNiceTicksRange(Math.min(0, ...allValues, 0), Math.max(0, ...allValues, 0));
   const domain: [number, number] = [yTicks[0] ?? 0, yTicks[yTicks.length - 1] ?? 1];
@@ -123,11 +100,9 @@ function TargetLineChart({ history, currency, showPrice }: { history: RatingHist
   // -- if it starts LATER, Yahoo's history didn't reach back as far as the
   // target series does, and that gap is marked here rather than left to be
   // silently read as "the two lines just happen to line up".
-  const hasLive = history.some((p) => p.avg_price_target != null && p.methodology === LIVE);
-  const hasLegacy = history.some((p) => p.avg_price_target != null && p.methodology !== LIVE);
   const targetStart = history.findIndex((p) => p.avg_price_target != null);
   const priceStart = history.findIndex((p) => p.price_on_date != null);
-  const showPriceStartMarker = showPrice && priceStart > targetStart;
+  const showPriceStartMarker = priceStart > targetStart;
 
   return (
     <div className="space-y-3">
@@ -165,50 +140,32 @@ function TargetLineChart({ history, currency, showPrice }: { history: RatingHist
               />
             }
           />
-          {hasLegacy && (
-            <Line
-              type="monotone"
-              dataKey="targetLegacy"
-              stroke={TARGET_COLOR}
-              strokeWidth={2}
-              strokeDasharray="5 4"
-              dot={false}
-              activeDot={{ r: 4, strokeWidth: 0 }}
-              connectNulls={false}
-              isAnimationActive={false}
-            />
-          )}
-          {hasLive && (
-            <Line
-              type="monotone"
-              dataKey="targetLive"
-              stroke={TARGET_COLOR}
-              strokeWidth={2}
-              dot={{ r: 2, strokeWidth: 0, fill: TARGET_COLOR }}
-              activeDot={{ r: 4, strokeWidth: 0 }}
-              connectNulls={false}
-              isAnimationActive={false}
-            />
-          )}
-          {showPrice && (
-            <Line
-              type="monotone"
-              dataKey="price"
-              stroke={PRICE_COLOR}
-              strokeWidth={2}
-              dot={false}
-              activeDot={{ r: 4, strokeWidth: 0 }}
-              connectNulls={false}
-              isAnimationActive={false}
-            />
-        
-          )}
+          <Line
+            type="monotone"
+            dataKey="target"
+            stroke={TARGET_COLOR}
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 4, strokeWidth: 0 }}
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="price"
+            stroke={PRICE_COLOR}
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 4, strokeWidth: 0 }}
+            connectNulls={false}
+            isAnimationActive={false}
+          />
         </LineChart>
       </ChartContainer>
       <ChartLegend
         items={[
           { key: "target", label: "Avg. Price Target", color: TARGET_COLOR },
-          ...(showPrice ? [{ key: "price", label: "Stock Price", color: PRICE_COLOR }] : []),
+          { key: "price", label: "Stock Price", color: PRICE_COLOR },
         ]}
       />
     </div>
