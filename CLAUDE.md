@@ -2771,6 +2771,20 @@ liquidity_zone_data.py`, `pipeline/nightly_liquidity_zone_calculation.py`) neede
 real re-fetch), so this was left to happen on its normal schedule rather than forced
 out-of-band.
 
+### Chart Stochastic: 5/3/3 EMA, ThinkOrSwim parity (2026-09-25)
+
+The Chart tab's Full Stochastic (`analysis/trend_structure/stochastic.py::compute_stochastic`) now
+matches ThinkOrSwim's `StochasticFull` / the user's TradingView "Stoch" at K=5, slowing=3, D=3,
+EXPONENTIAL. It was SMA-smoothed, which read ~5-7 points off on average (up to ~23 on a bar).
+`FullK = EMA(FastK, 3)`, `FullD = EMA(FullK, 3)`, recursive alpha 0.5 (`ewm(adjust=False)`, first-value
+seed; seed/history depth verified immaterial). **A zero-range 5-bar window reads FastK = 0**, not NaN
+(TOS's `else 0`), so no NaN enters the EMA. Ratio-then-smooth order and the current-bar-inclusive window
+are unchanged. Applies to all four ranges; label is "Full Stochastic (5, 3, 3) EMA". The live/partial
+last bar is deliberately kept (as TOS shows it). K/slowing/D/type stay constants (configurable Settings
+deferred). Nothing server-side caches the chart payload (computed per request), so nothing needed
+invalidating. Eye-check confirmed by the user 2026-09-24: AAPL 43.33/56.65, SPY 62.99/68.96.
+Details: `docs/stochastic_divergence_investigation_2026-09-25.md`.
+
 ### Chart tab reverted to zero-cache on-demand fetch (2026-09-18)
 
 **The fix directly above wasn't enough for the Chart tab** -- `daily_bar_staleness_days` being

@@ -1,6 +1,6 @@
 # Full Stochastic divergence vs ThinkOrSwim / TradingView (2026-09-25)
 
-Investigation only -- no production code changed. Reference = thinkScript `StochasticFull` with the user's live
+**Status (2026-09-25): fixes 1, 2, 4 implemented -- Stochastic is now 5/3/3 EMA, TOS-parity, zero-range = 0. Fix 3 deferred, fix 5 rejected (keep the live bar). The tables below describe the PRE-fix SMA behaviour.** Original investigation was read-only. Reference = thinkScript `StochasticFull` with the user's live
 settings: **K=5, slowing=3, D=3, EXPONENTIAL**; `FastK = c2 != 0 ? c1/c2*100 : 0`; `FullK = EMA(FastK,3)`;
 `FullD = EMA(FullK,3)`; classic recursive EMA, alpha = 2/(n+1).
 
