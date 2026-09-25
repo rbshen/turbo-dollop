@@ -13,24 +13,29 @@ interface Props {
 // the old 3-stat-block (Low/Average/High) layout. The "+X% vs. current"
 // figure below is the same calculation PriceTargetsCard always had, just
 // relocated here.
-export function PriceTargetRangeSlider({ low, avg, high, currentPrice, upsidePct, currency = "USD" }: Props) {
+export function PriceTargetRangeSlider({ low, avg, high, upsidePct, currency = "USD" }: Props) {
   const hasRange = low != null && avg != null && high != null;
   const markerPct = hasRange && high !== low ? Math.min(100, Math.max(0, ((avg! - low!) / (high! - low!)) * 100)) : 50;
 
   return (
     <div className="space-y-4">
-      <p className="text-xs uppercase tracking-widest text-text-tertiary">
-        Price Target Range
-        {currentPrice != null && (
-          <span className="normal-case text-text-secondary"> — current price {fmtMoney(currentPrice, currency)}</span>
-        )}
-      </p>
+      <div>
+        <p className="text-xs uppercase tracking-widest text-text-tertiary">Price Target Range</p>
+        {/* h-9 == ConsensusBanner's text-3xl line box, so the bar below lands on the same row as its bar. */}
+        <div className="h-9">
+          {upsidePct != null ? (
+            <p className={`text-sm ${pnlClass(upsidePct)}`}>{fmtPct(upsidePct, 1)} vs. current</p>
+          ) : (
+            <p className="text-sm text-text-tertiary">Current price unavailable</p>
+          )}
+        </div>
+      </div>
 
       {hasRange ? (
         <>
-          <div className="relative mt-8 mb-2">
+          <div className="relative">
             <div
-              className="h-1.5 rounded-full"
+              className="h-2 rounded-full"
               style={{ background: "linear-gradient(90deg, var(--color-negative), var(--color-warn), var(--color-positive))" }}
             />
             <div className="absolute -top-6 -translate-x-1/2" style={{ left: `${markerPct}%` }}>
@@ -50,14 +55,6 @@ export function PriceTargetRangeSlider({ low, avg, high, currentPrice, upsidePct
         <p className="text-sm text-text-tertiary">Price target range unavailable</p>
       )}
 
-      <div>
-        <p className="text-xs text-text-tertiary">Average</p>
-        {upsidePct != null ? (
-          <p className={`text-sm ${pnlClass(upsidePct)}`}>{fmtPct(upsidePct, 1)} vs. current</p>
-        ) : (
-          <p className="text-sm text-text-tertiary">Current price unavailable</p>
-        )}
-      </div>
     </div>
   );
 }
