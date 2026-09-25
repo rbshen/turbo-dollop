@@ -1961,6 +1961,12 @@ class RatingHistoryPoint(BaseModel):
     # for/near this month -- FMP has no historical price-target series of
     # its own, so this line starts empty and fills in going forward.
     avg_price_target: float | None = None
+    # How avg_price_target was derived: "legacy_all_analysts" (historical
+    # reconstruction, every analyst since 2021, no recency cutoff) or
+    # "live_consensus" (FMP's ~180-day consensus, from the daily snapshot
+    # job). None when there is no target or the row is untagged. The two are
+    # not comparable, so the chart draws them as separate segments.
+    methodology: str | None = None
     # Yahoo Finance split/dividend-adjusted close "on or before" this row's
     # own `date` (see analyst_ratings_data.py::_price_on_or_before) --
     # feeds the Price Target Trend chart's optional price overlay. Only

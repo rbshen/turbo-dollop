@@ -53,6 +53,13 @@ const HISTORY_TRUNCATED: RatingHistoryPoint[] = [
   point("2024-12-01", { avg_price_target: 120, price_on_date: 118 }), // price data first appears here
 ];
 
+const HISTORY_SPLIT: RatingHistoryPoint[] = [
+  point("2024-01-01", { avg_price_target: 100, methodology: "legacy_all_analysts" }),
+  point("2024-06-01", { avg_price_target: 110, methodology: "legacy_all_analysts" }),
+  point("2024-12-01", { avg_price_target: 140, methodology: "live_consensus" }),
+  point("2025-01-01", { avg_price_target: 142, methodology: "live_consensus" }),
+];
+
 function chartPanel(): HTMLElement {
   return screen.getByRole("img");
 }
@@ -112,5 +119,26 @@ describe("PriceTargetTrendChart", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     expect(chartPanel().querySelectorAll("path.recharts-area-area")).toHaveLength(1);
     expect(chartPanel().querySelectorAll("path.recharts-line-curve")).toHaveLength(0);
+  });
+
+  it("splits the target line into a dashed legacy series and a solid live series, with an explanatory note", () => {
+    render(<PriceTargetTrendChart history={HISTORY_SPLIT} />);
+    const curves = Array.from(chartPanel().querySelectorAll("path.recharts-line-curve"));
+    expect(curves).toHaveLength(2);
+    expect(curves.map((el) => el.getAttribute("stroke-dasharray"))).toEqual(["5 4", null]);
+    expect(screen.getByTestId("methodology-note")).toHaveTextContent(/methodology change, not a market move/);
+  });
+
+  it("keeps both segments (and the note) when the price overlay is on", () => {
+    const history = HISTORY_SPLIT.map((p, i) => ({ ...p, price_on_date: 90 + i }));
+    render(<PriceTargetTrendChart history={history} />);
+    fireEvent.click(screen.getByRole("button", { name: "Overlay stock price" }));
+    expect(chartPanel().querySelectorAll("path.recharts-line-curve")).toHaveLength(3);
+    expect(screen.getByTestId("methodology-note")).toBeInTheDocument();
+  });
+
+  it("shows no methodology note when only one methodology is present", () => {
+    render(<PriceTargetTrendChart history={HISTORY_FULL_OVERLAP} />);
+    expect(screen.queryByTestId("methodology-note")).not.toBeInTheDocument();
   });
 });

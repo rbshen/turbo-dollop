@@ -3111,6 +3111,15 @@ independent of price (TradingView's convention) -- see "Fixed-row placement" bel
   dividends but no earnings; non-payers and recent IPOs have earnings only; a foreign issuer on the
   Yahoo fallback can have far fewer earnings dates than on FMP.
 
+## Price-target snapshot: daily + methodology (2026-09-26)
+
+`pipeline.monthly_price_target_snapshot` (name kept) now runs **daily 02:10**, fetches through the shared
+`price_target_consensus` cache (1-day staleness), upserts one row per `(ticker, snapshot_date)` (unique index),
+and tags rows `methodology='live_consensus'`. The 32,764 backfill rows are `legacy_all_analysts` (all analysts
+since 2021, no recency cutoff -- not comparable to FMP's ~180-day live consensus), and the Price Target Trend chart
+draws the two as separate dashed/solid series. Details, migration counts and the UI checklist:
+`docs/price_target_daily_snapshot_implementation_2026-09-26.md`. Crontab reinstall still needed to activate.
+
 ## Warren RSI/ADX/WVF entry signal (2h) (Technical)
 
 A fifth, fully independent technical entry-signal lens -- alongside BB+RSI, this is the

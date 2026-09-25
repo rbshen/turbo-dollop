@@ -1,33 +1,32 @@
-"""Standalone script: monthly price-target-consensus snapshot for every
+"""Standalone script: DAILY price-target-consensus snapshot for every
 ticker in the stored S&P 500 + Dow constituent lists (see
 nightly_fundamentals_fetch.py's load_universe_tickers, reused here).
 
-FMP's own /price-target-consensus is a live-only value with no historical
-series attached to it -- unlike grades-historical, which already ships a
-ready-made monthly series -- so this script exists to keep accumulating one
-PriceTargetSnapshot row per ticker per run, going forward from whenever it
-first ran. (An earlier version of this comment claimed FMP has no
-historical price-target data at all -- that's false: /price-target-news has
-real per-analyst target actions back to 2021+ for well-covered names, which
-pipeline/backfills/backfill_price_target_snapshots.py one-time-reconstructs
-into this same table's shape -- see that script's own docstring. This
-ongoing monthly job is unchanged by that backfill; it still just appends
-FMP's live current consensus each run.) It deliberately does NOT go through
-cache.get_or_fetch: that cache overwrites the latest value in place, but
-this table's whole purpose is to preserve every past snapshot (see
-PriceTargetSnapshot's docstring in models.py). The Analyst Ratings tab's
-price-target history line and its Recommendation Details table's "N ago"
-Target column, once seeded by the backfill above, fill in further as this
-script accumulates monthly runs.
+(The file name still says "monthly" -- it was monthly until 2026-09-26 and was
+deliberately not renamed to keep the diff small; the cron job name
+`pipeline.monthly_price_target_snapshot` is likewise unchanged.)
 
-Default schedule: 3am server time, first of the month (see crontab.txt in
-this directory).
+FMP's own /price-target-consensus is a live-only value with no historical
+series attached to it, so this script keeps accumulating one
+PriceTargetSnapshot row per ticker per day, going forward. (The older history
+was one-time-reconstructed from /price-target-news by
+pipeline/backfills/backfill_price_target_snapshots.py using a different,
+all-analysts methodology -- see PriceTargetSnapshot.methodology.) Every row
+written here is tagged `live_consensus`.
+
+The fetch goes through cache.get_or_fetch (`price_target_consensus`/`latest`,
+1-day staleness), the same cache row the Analyst Ratings tab reads, so the
+job and tab views share one fetch. The snapshot table itself still keeps
+every past day: a re-run on the same (ticker, snapshot_date) updates that
+day's row instead of duplicating it (unique index on the pair).
+
+Default schedule: 2:10am server time daily (see crontab.txt in this
+directory), after nightly_fundamentals_fetch and before the 3:10 trend job.
 
 Run manually against the full stored list:
     uv run python -m pipeline.monthly_price_target_snapshot
 
-Run against a small subset first (recommended before ever doing a first
-full run):
+Run against a small subset first:
     uv run python -m pipeline.monthly_price_target_snapshot --limit 15
     uv run python -m pipeline.monthly_price_target_snapshot --tickers AAPL,MSFT,ZZZZINVALID
 """
@@ -39,10 +38,11 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from core.data_groups import job_skip_reason
 from core.cron_health import cron_heartbeat
+from core.cache import get_or_fetch
 from core.db import engine, init_db
 from helpers.first import _first
 from clients.fmp_client import fmp_client
@@ -58,19 +58,43 @@ LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "monthly_price_targ
 TARGET_REQUESTS_PER_MINUTE = 220
 
 
+LIVE_METHODOLOGY = "live_consensus"
+
+# 1 day, not settings.cache_staleness_days: this is a daily reading.
+PRICE_TARGET_STALENESS_DAYS = 1
+
+
 async def _snapshot_one_ticker(session: Session, ticker: str, snapshot_date: date) -> None:
-    raw = _first(await fmp_client.get_price_target_consensus(ticker))
-    session.add(
-        PriceTargetSnapshot(
-            ticker=ticker,
-            snapshot_date=snapshot_date,
-            target_consensus=raw.get("targetConsensus"),
-            target_high=raw.get("targetHigh"),
-            target_low=raw.get("targetLow"),
-            target_median=raw.get("targetMedian"),
-            fetched_at=datetime.now(),
-        )
+    data = await get_or_fetch(
+        session,
+        ticker,
+        "price_target_consensus",
+        "latest",
+        lambda: fmp_client.get_price_target_consensus(ticker),
+        PRICE_TARGET_STALENESS_DAYS,
     )
+    raw = _first(data)
+    if not raw:
+        # Group went off mid-run with nothing cached, or FMP returned an empty
+        # body: nothing to record. Raising keeps it in the failure count
+        # rather than writing an all-null row.
+        raise ValueError("no price-target consensus available")
+    values = dict(
+        target_consensus=raw.get("targetConsensus"),
+        target_high=raw.get("targetHigh"),
+        target_low=raw.get("targetLow"),
+        target_median=raw.get("targetMedian"),
+        fetched_at=datetime.now(),
+        methodology=LIVE_METHODOLOGY,
+    )
+    existing = session.exec(
+        select(PriceTargetSnapshot).where(PriceTargetSnapshot.ticker == ticker, PriceTargetSnapshot.snapshot_date == snapshot_date)
+    ).first()
+    if existing:
+        for key, value in values.items():
+            setattr(existing, key, value)
+    else:
+        session.add(PriceTargetSnapshot(ticker=ticker, snapshot_date=snapshot_date, **values))
     session.commit()
 
 
@@ -85,21 +109,12 @@ async def main(tickers: list[str] | None = None) -> dict:
 
     skip_reason = job_skip_reason("analyst_ratings")
     if skip_reason:
-        # Same rationale as nightly_fundamentals_fetch.py's equivalent guard
-        # (check first, before even resolving the ticker universe) -- but
-        # this script's own reason is slightly different: it doesn't go
-        # through cache.get_or_fetch at all (see the module docstring), so
-        # there's no cache_only distinction to make here -- every fetch this
-        # script makes is a direct, always-live fmp_client call, full stop.
-        # Without this guard the loop below still "completes successfully"
-        # (each per-ticker failure is caught individually, same as always),
-        # so cron_heartbeat correctly logs a "success" CronRunLog row either
-        # way -- gated no-op is a legitimate success. The `skipped: True`
-        # key exists so a human reading the log (or a future summary-dict
-        # consumer) can still tell "gated no-op, 0 processed by design"
-        # apart from "ran normally and genuinely snapshotted nothing" --
-        # same convention nightly_fundamentals_fetch.py already uses.
-        logger.info("Monthly price-target snapshot %s.", skip_reason)
+        # Check first, before resolving the ticker universe. get_or_fetch
+        # itself degrades to cache-only when the group is off, which would
+        # "succeed" while writing stale values under today's date -- so a
+        # gated run must not fetch at all. `skipped: True` lets __main__
+        # record CronRunLog status "skipped" instead of "success".
+        logger.info("Daily price-target snapshot %s.", skip_reason)
         return {"processed": 0, "failed": 0, "calls_made": 0, "duration_seconds": 0.0, "failures": [], "skipped": True, "skip_reason": skip_reason}
 
     if tickers is None:
@@ -112,7 +127,7 @@ async def main(tickers: list[str] | None = None) -> dict:
 
     fmp_client.min_request_interval = 60.0 / TARGET_REQUESTS_PER_MINUTE
     logger.info(
-        "Starting monthly price-target snapshot for %d tickers (pacing %.3fs/request, target %d req/min).",
+        "Starting daily price-target snapshot for %d tickers (pacing %.3fs/request, target %d req/min).",
         len(tickers),
         fmp_client.min_request_interval,
         TARGET_REQUESTS_PER_MINUTE,
@@ -136,7 +151,7 @@ async def main(tickers: list[str] | None = None) -> dict:
     calls_made = fmp_client.request_count - start_request_count
 
     logger.info(
-        "Monthly snapshot complete. Processed: %d. Failed: %d. FMP calls made: %d. Duration: %.1fs (%.1f min).",
+        "Daily snapshot complete. Processed: %d. Failed: %d. FMP calls made: %d. Duration: %.1fs (%.1f min).",
         len(tickers),
         len(failures),
         calls_made,
@@ -156,7 +171,7 @@ async def main(tickers: list[str] | None = None) -> dict:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Monthly price-target-consensus snapshot.")
+    parser = argparse.ArgumentParser(description="Daily price-target-consensus snapshot.")
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N stored tickers (for testing).")
     parser.add_argument(
         "--tickers", type=str, default=None, help="Comma-separated explicit ticker list, overrides the stored list (for testing)."
@@ -175,9 +190,21 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     return None
 
 
+def record_outcome(result: dict, run) -> None:
+    """Map a main() summary onto the heartbeat: a gated run is "skipped", a run
+    where every ticker failed raises (heartbeat "failure"), anything else is a
+    "success" with a short written/failed message."""
+    if result.get("skipped"):
+        run.skip(result["skip_reason"])
+    elif result["processed"] and result["failed"] == result["processed"]:
+        # FMP down, key revoked, group flipped off mid-run: nothing was
+        # written, so this must not read "success".
+        raise RuntimeError(f"price-target snapshot wrote nothing: all {result['failed']} tickers failed")
+    else:
+        run.message = f"{result['processed'] - result['failed']} written, {result['failed']} failed"
+
+
 if __name__ == "__main__":
     cli_args = _parse_args()
     with cron_heartbeat("pipeline.monthly_price_target_snapshot") as run:
-        result = asyncio.run(main(_resolve_cli_tickers(cli_args)))
-        if result.get("skipped"):
-            run.skip(result["skip_reason"])
+        record_outcome(asyncio.run(main(_resolve_cli_tickers(cli_args))), run)

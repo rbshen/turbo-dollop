@@ -337,6 +337,7 @@ async def get_analyst_ratings_data(ticker: str, cache_only: bool = False) -> Ana
                 sell_pct=counts["strong_sell"] / total * 100,
                 avg_rating=_weighted_score(counts),
                 avg_price_target=snapshot.target_consensus if snapshot else None,
+                methodology=snapshot.methodology if snapshot else None,
             )
         )
 

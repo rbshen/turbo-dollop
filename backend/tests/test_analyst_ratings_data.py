@@ -566,3 +566,25 @@ def test_overlay_end_to_end_reads_split_only_closes_from_the_long_history_store(
     result = asyncio.run(get_analyst_ratings_data("TEST"))
     assert result.history[0].price_on_date == pytest.approx(97.0)
 
+
+
+def test_history_points_carry_the_matched_snapshots_methodology(monkeypatch):
+    test_engine = _fresh_engine(monkeypatch)
+    old, recent = _months_ago(TODAY, 12), _months_ago(TODAY, 1)
+    _patch_fmp(
+        monkeypatch,
+        grades_consensus={"strongBuy": 1, "buy": 0, "hold": 0, "sell": 0, "strongSell": 0, "consensus": "Buy"},
+        price_target_consensus={"targetConsensus": 100, "targetHigh": 100, "targetLow": 100, "targetMedian": 100},
+        grades_historical=[_grades_historical_row(old, strong_buy=1), _grades_historical_row(recent, strong_buy=1), _grades_historical_row(_months_ago(TODAY, 6), strong_buy=1)],
+        quote={"price": 100},
+    )
+    with Session(test_engine) as session:
+        session.add(PriceTargetSnapshot(ticker="TEST", snapshot_date=old, target_consensus=50.0, fetched_at=datetime.now(), methodology="legacy_all_analysts"))
+        session.add(PriceTargetSnapshot(ticker="TEST", snapshot_date=recent, target_consensus=80.0, fetched_at=datetime.now(), methodology="live_consensus"))
+        session.commit()
+
+    result = asyncio.run(get_analyst_ratings_data("TEST"))
+    by_target = {p.avg_price_target: p.methodology for p in result.history}
+    assert by_target[50.0] == "legacy_all_analysts"
+    assert by_target[80.0] == "live_consensus"
+    assert by_target[None] is None  # no snapshot near the 6M point -> no methodology either

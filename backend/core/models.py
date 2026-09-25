@@ -1,5 +1,6 @@
 from datetime import date, datetime
 
+from sqlalchemy import Index
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
 
@@ -1002,8 +1003,9 @@ class TickerCustomValuation(SQLModel, table=True):
 
 
 class PriceTargetSnapshot(SQLModel, table=True):
-    """Monthly point-in-time snapshot of FMP's price-target-consensus per
-    ticker, written by monthly_price_target_snapshot.py. FMP's own
+    """Point-in-time snapshot of FMP's price-target-consensus per
+    ticker, written daily by monthly_price_target_snapshot.py (originally
+    monthly; the file name was kept). FMP's own
     /price-target-consensus is a live-only value with no historical series
     attached (unlike grades-historical, which is already a ready-made
     monthly series), so this table exists to accumulate one going forward.
@@ -1015,11 +1017,14 @@ class PriceTargetSnapshot(SQLModel, table=True):
     shape, feeding the Analyst Ratings tab's price-target history line and
     the Recommendation Details table's "N ago" Target column.
 
-    Deliberately append-only, unlike every other table in this file: no
-    UniqueConstraint, plain session.add()/commit() inserts (see
-    monthly_price_target_snapshot.py), never upserted via cache.get_or_fetch
-    -- the whole point is to preserve every past snapshot, not overwrite the
-    latest value the way FundamentalsCache/TickerScore do."""
+    History-preserving: one row per (ticker, snapshot_date), enforced by the
+    unique index `uq_pricetargetsnapshot_ticker_date` (created by
+    core/db.py::_ensure_unique_indexes on existing DBs, since
+    _add_missing_columns can't add indexes). A same-day re-run updates that
+    day's row rather than appending; earlier days are never overwritten, so
+    every past snapshot is still preserved."""
+
+    __table_args__ = (Index("uq_pricetargetsnapshot_ticker_date", "ticker", "snapshot_date", unique=True),)
 
     id: int | None = Field(default=None, primary_key=True)
     ticker: str = Field(index=True)
@@ -1029,6 +1034,12 @@ class PriceTargetSnapshot(SQLModel, table=True):
     target_low: float | None = None
     target_median: float | None = None
     fetched_at: datetime
+    # How target_consensus was derived: "legacy_all_analysts" (one-time
+    # /price-target-news reconstruction averaging every analyst since 2021,
+    # no recency cutoff) or "live_consensus" (FMP's own /price-target-
+    # consensus, a ~180-day analyst-activity window). NULL = untagged. The
+    # two are different numbers by design, so the chart splits on this.
+    methodology: str | None = None
 
 
 class MomentumSnapshot(SQLModel, table=True):

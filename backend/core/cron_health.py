@@ -59,7 +59,7 @@ CRON_JOB_NAMES: list[str] = [
 # Expected cadence per job, with slack -- daily jobs (2:00 AM through 3:55 AM)
 # flagged overdue past ~36h (tolerates one missed run without a false
 # alarm the next morning); weekly-Sunday jobs (1:00-1:30 AM) past ~8 days;
-# the one monthly job past ~35 days (safely past any month length). First-
+# the one monthly job (momentum) past ~35 days (safely past any month length). First-
 # pass, judgment-call values -- easy to retune per job if a real false
 # alarm shows up.
 _DAILY_HOURS = 36
@@ -84,7 +84,7 @@ _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.audit_fixture_contamination": _WEEKLY_HOURS,
     "pipeline.stale_data_health_check": _WEEKLY_HOURS,
     "pipeline.purge_invalid_tickers": _WEEKLY_HOURS,
-    "pipeline.monthly_price_target_snapshot": _MONTHLY_HOURS,
+    "pipeline.monthly_price_target_snapshot": _DAILY_HOURS,
     "pipeline.monthly_momentum_snapshot": _MONTHLY_HOURS,
 }
 
@@ -148,7 +148,7 @@ JOB_METADATA: dict[str, JobMetadata] = {
         "Delete cache rows for confirmed-invalid tickers", "weekly", "Sun 1:35 AM", 95
     ),
     "pipeline.monthly_price_target_snapshot": JobMetadata(
-        "Archive analyst price-target consensus", "monthly", "1st, 3:00 AM", 3 * 60
+        "Archive analyst price-target consensus", "daily", "2:10 AM", 2 * 60 + 10
     ),
     "pipeline.monthly_momentum_snapshot": JobMetadata(
         "3/6/12mo momentum ranking snapshot", "monthly", "1st–5th, 3:05 AM", 3 * 60 + 5

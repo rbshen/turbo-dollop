@@ -58,7 +58,26 @@ def _add_missing_columns() -> None:
                 conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {column_type}'))
 
 
+# (index name, table, columns). _add_missing_columns is add-column-only and
+# create_all skips indexes on pre-existing tables, so a unique index that must
+# exist on an already-populated DB is created here, idempotently.
+_UNIQUE_INDEXES: list[tuple[str, str, tuple[str, ...]]] = [
+    ("uq_pricetargetsnapshot_ticker_date", "pricetargetsnapshot", ("ticker", "snapshot_date")),
+]
+
+
+def _ensure_unique_indexes() -> None:
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for name, table, columns in _UNIQUE_INDEXES:
+            if not inspector.has_table(table):
+                continue
+            cols = ", ".join(f'"{c}"' for c in columns)
+            conn.execute(text(f'CREATE UNIQUE INDEX IF NOT EXISTS "{name}" ON "{table}" ({cols})'))
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _add_missing_columns()
+    _ensure_unique_indexes()
     _drop_obsolete_columns()

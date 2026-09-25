@@ -1030,6 +1030,10 @@ export interface RatingHistoryPoint {
   // this month -- FMP has no historical price-target series of its own, so
   // this line starts empty and fills in going forward.
   avg_price_target: number | null;
+  // How avg_price_target was derived: "legacy_all_analysts" (historical
+  // reconstruction, every analyst since 2021) or "live_consensus" (FMP's
+  // ~180-day consensus, daily snapshots). Null when no target / untagged.
+  methodology?: string | null;
   // Yahoo Finance split/dividend-adjusted close "on or before" this row's
   // own date -- feeds the Price Target Trend chart's optional price
   // overlay. Only ever populated from the first row where
