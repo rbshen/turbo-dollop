@@ -10,6 +10,7 @@ from data.analyst_ratings_data import _months_ago, _price_on_or_before, get_anal
 from core.models import PriceTargetSnapshot
 
 TODAY = date.today()
+_REAL_FETCH_PRICE_HISTORY = analyst_ratings_data._fetch_price_history  # captured before the autouse stub below
 
 
 @pytest.fixture(autouse=True)
@@ -538,3 +539,30 @@ def test_price_overlay_handles_a_fully_empty_yahoo_response(monkeypatch):
     result = asyncio.run(get_analyst_ratings_data("TEST"))
 
     assert result.history[0].price_on_date is None
+
+
+def test_overlay_end_to_end_reads_split_only_closes_from_the_long_history_store(monkeypatch):
+    """get_analyst_ratings_data -> the real _fetch_price_history -> the FMP long-history store."""
+    import clients.long_history_bars as lhb
+    from core.models import LongHistoryBars
+
+    test_engine = _fresh_engine(monkeypatch)
+    one_month_ago = _months_ago(TODAY, 1)
+    _patch_fmp(
+        monkeypatch,
+        grades_consensus={"strongBuy": 1, "buy": 0, "hold": 0, "sell": 0, "strongSell": 0, "consensus": "Buy"},
+        price_target_consensus={"targetConsensus": 100, "targetHigh": 100, "targetLow": 100, "targetMedian": 100},
+        grades_historical=[_grades_historical_row(one_month_ago, strong_buy=1)],
+        quote={"price": 100},
+    )
+    with Session(test_engine) as session:
+        session.add(PriceTargetSnapshot(ticker="TEST", snapshot_date=one_month_ago, target_consensus=88.0, target_high=100.0, target_low=70.0, target_median=85.0, fetched_at=datetime.now()))
+        session.commit()
+    with Session(lhb.engine) as session:
+        session.add(LongHistoryBars(ticker="TEST", bar_time=datetime.combine(one_month_ago, datetime.min.time()), open=97.0, high=97.0, low=97.0, close=97.0, volume=1, fetched_at=datetime.now()))
+        session.commit()
+    monkeypatch.setattr(analyst_ratings_data, "_fetch_price_history", _REAL_FETCH_PRICE_HISTORY)
+
+    result = asyncio.run(get_analyst_ratings_data("TEST"))
+    assert result.history[0].price_on_date == pytest.approx(97.0)
+

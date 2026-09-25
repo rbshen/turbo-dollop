@@ -1,4 +1,5 @@
 import calendar
+import logging
 from datetime import date, datetime
 
 import pandas as pd
@@ -9,6 +10,7 @@ from core.config import settings
 from core.db import engine
 from helpers.first import _first
 from clients.fmp_client import fmp_client
+from clients.long_history_bars import get_long_history
 from clients.yahoo_client import yahoo_client
 from core.models import FundamentalsCache, PriceTargetSnapshot
 from core.schemas import (
@@ -34,7 +36,10 @@ CONSENSUS_BANDS = [(4.5, "Buy"), (3.5, "Outperform"), (2.5, "Hold"), (1.5, "Unde
 # a much older or newer one.
 SNAPSHOT_TOLERANCE_DAYS = 45
 
-# Fetch period for the Price Target Trend chart's optional price overlay --
+logger = logging.getLogger(__name__)
+
+# Fetch period for the Price Target Trend chart's optional price overlay's YAHOO FALL-THROUGH
+# (the FMP path reads the long-history store's own 10y window) --
 # same value data/chart_data.py's own widest range (W_4Y) already uses,
 # comfortably covering PriceTargetSnapshot's full backfilled history
 # (2021-04 on, per CLAUDE.md) with room to spare, without introducing a new
@@ -110,32 +115,40 @@ def _nearest_by_date(rows: list, target_date: date, date_key: str):
 
 
 async def _fetch_price_history(ticker: str) -> pd.Series:
-    """Split/dividend-adjusted daily close series for the Price Target Trend
-    chart's optional price overlay -- date-indexed (tz-naive, normalized),
-    ascending, empty (never raised) if Yahoo has nothing for this ticker.
+    """Daily close series for the Price Target Trend chart's optional price overlay --
+    date-indexed (tz-naive, normalized), ascending, empty (never raised) if no source has
+    anything for this ticker.
 
-    Deliberately NOT read from clients/shared_bars_cache.py's SharedBarsCache
-    (the table every other technical-analysis feature shares): every current
-    consumer of that table fetches with auto_adjust=False specifically to
-    match FMP's raw, non-split-adjusted close (see SharedBarsCache's own
-    docstring) -- exactly wrong here, since PriceTargetSnapshot's own
-    reconstruction is built on FMP's split-ADJUSTED adjPriceTarget (see
-    helpers/price_target_history.py's docstring, and its own GOOGL
-    2022-07 20:1-split example). A raw close would show a false multi-x
-    discontinuity at any split inside the (multi-year) price-target window
-    -- e.g. NVDA's 2024-06 10:1 split -- even though the two lines are
-    genuinely comparable once both are on a split-adjusted basis. Fetched
-    with auto_adjust=False and read off the resulting `Adj Close` column
-    (not the default auto_adjust=True) -- the same convention data/
-    sector_heatmap_data.py already established for its own total-return
-    math, chosen there (and reused here) because yfinance's auto_adjust=True
-    silently drops the split-only-adjusted `Close` column entirely, leaving
-    no way to fall back if `Adj Close` were ever absent.
+    **Basis (FMP Phase 3, 2026-09-25): FMP `/historical-price-eod/full` closes -- split- (and
+    spin-off-) adjusted, NOT dividend-adjusted.** Read from the ticker's on-demand long-history
+    store (clients/long_history_bars.py: ~10y, its own table, filled on first view and topped up
+    when stale; gated on `daily_prices_long` for a US listing, `daily_prices_intl` for a non-US
+    one). Split-only is the right comparison for this chart: PriceTargetSnapshot's own
+    reconstruction is built on FMP's split-adjusted `adjPriceTarget` (see helpers/
+    price_target_history.py's docstring, and its GOOGL 2022-07 20:1-split example), and an
+    analyst's nominal target is a statement about the price that actually traded -- a
+    dividend-adjusted close deflates every earlier price by the dividends paid since, moving the
+    price line away from the target line it is compared to (measured before this change: KO up to
+    36% lower in 2016, SPY 17%, AAPL 9%). It also matches the Chart tab. **The visible change:
+    for dividend payers the overlay's historical prices are now higher than the Yahoo `Adj Close`
+    it used to show.** Not routed through SharedBarsCache (nightly, ~5y, pruned).
 
-    No persistent cache of its own -- a live call on every request that
-    needs it, same "zero-cache on-demand fetch" precedent data/
-    chart_data.py's own _fetch_bars already established for this exact
-    shape of ask (a multi-year, single-ticker, page-view-scoped read)."""
+    FALL-THROUGH (until Yahoo is removed in P6): when the group is off with no stored row, or FMP
+    errors / answers empty, the previous Yahoo path runs unchanged -- `Adj Close` (dividend- AND
+    split-adjusted, auto_adjust=False read explicitly because yfinance's auto_adjust=True drops
+    the split-only `Close` column) -- so a Yahoo-served overlay is on the OLD basis. If that has
+    nothing either the overlay is simply empty."""
+    try:
+        daily = await get_long_history(ticker)
+    except Exception as exc:  # noqa: BLE001 -- the overlay must never fail the tab; log the type only
+        logger.warning("FMP long-history read failed for %s (%s); falling back to Yahoo", ticker, type(exc).__name__)
+        daily = None
+    if daily is not None and not daily.empty:
+        series = daily["close"].dropna().astype(float)
+        if not series.empty:
+            series.index = pd.DatetimeIndex(series.index).normalize()
+            return series.sort_index()
+
     result = await yahoo_client.get_history([ticker], period=PRICE_OVERLAY_FETCH_PERIOD, interval="1d", auto_adjust=False)
     frame = result.get(ticker)
     if frame is None or frame.empty or "Adj Close" not in frame.columns:
@@ -335,7 +348,8 @@ async def get_analyst_ratings_data(ticker: str, cache_only: bool = False) -> Ana
     # skips this the same way it skips every other live external call in
     # this function -- Yahoo has no cache layer of its own here to fall
     # back to (see _fetch_price_history's own docstring), so cache_only
-    # means "don't fetch" rather than "read the cache instead".
+    # means "don't fetch" rather than "read the cache instead" -- and it must
+    # not fetch INTO the long-history store either.
     target_start = next((i for i, point in enumerate(history) if point.avg_price_target is not None), None)
     if target_start is not None and not cache_only:
         price_series = await _fetch_price_history(ticker)
