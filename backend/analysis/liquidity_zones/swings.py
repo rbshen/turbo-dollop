@@ -1,4 +1,4 @@
-"""Fractal swing-low/swing-high detection + same-kind-only breach
+"""Fractal swing-low/swing-high detection + any-later-bar breach
 annotation for Liquidity Zone (LP) detection.
 
 Deliberately NOT analysis/trend_structure/swings.py: that module detects
@@ -8,9 +8,8 @@ LOW/HIGH (not Close) with a caller-configurable window, so this is a
 small, independent implementation using the same vectorized shift
 technique.
 
-See engine.py's own module docstring for the breach-semantics
-clarification versus the reference lp_detector_polygon_clustered.py this
-was adapted from.
+Breach semantics follow the reference "Left Precedence" Pine script: any
+later bar crossing the level breaches it (see annotate_swings).
 """
 
 import numpy as np
@@ -40,27 +39,24 @@ def find_swing_highs(high: pd.Series, k: int) -> pd.Series:
 
 def annotate_swings(prices: pd.Series, is_swing: pd.Series, kind: str) -> list[SwingEvent]:
     """Builds the ordered list of swing events and, for each, the position
-    of the first LATER SWING of the SAME kind that breaches it -- for
-    kind="low" (support), a later swing low with a strictly lower price;
-    for kind="high" (resistance), a later swing high with a strictly
-    higher price.
-
-    This is the one deliberate divergence from the reference script
-    (lp_detector_polygon_clustered.py's annotate_swing_lows), which
-    actually checks every later BAR, not just later swings -- the locked
-    spec here is explicit that an ordinary non-swing bar must never
-    invalidate a level, only a later swing can.
+    of the first LATER BAR (swing or not) that breaches it -- for
+    kind="low" (support), a bar whose Low is strictly below the level; for
+    kind="high" (resistance), a bar whose High is strictly above it.
+    `prices` is the Low series for "low" and the High series for "high".
+    Once breached, a level stays breached (only the first breach is
+    recorded). Matches the reference Pine script's per-bar
+    `if not breached and low < price` check.
     """
     positions = np.where(is_swing.values)[0]
-    swing_prices = prices.values[positions]
+    values = prices.values
     index = prices.index
 
     events: list[SwingEvent] = []
-    for i, pos in enumerate(positions):
-        price = swing_prices[i]
-        later = swing_prices[i + 1 :]
-        breaches = np.where(later < price)[0] if kind == "low" else np.where(later > price)[0]
-        breach_pos = int(positions[i + 1 + breaches[0]]) if len(breaches) else None
+    for pos in positions:
+        price = values[pos]
+        later = values[pos + 1 :]
+        hits = np.flatnonzero(later < price) if kind == "low" else np.flatnonzero(later > price)
+        breach_pos = int(pos + 1 + hits[0]) if len(hits) else None
         bar_date = index[pos].date() if hasattr(index[pos], "date") else index[pos]
         events.append(SwingEvent(pos=int(pos), date=bar_date, price=float(price), breach_pos=breach_pos))
     return events

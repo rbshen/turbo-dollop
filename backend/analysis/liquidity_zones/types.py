@@ -6,6 +6,7 @@ full methodology.
 
 from dataclasses import dataclass
 from datetime import date
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -70,3 +71,23 @@ class LiquidityZoneResult:
     resistance: list[Zone]
     broken_support: BrokenZone | None = None
     broken_resistance: BrokenZone | None = None
+
+
+OverCapPriority = Literal["nearest_price", "most_recent"]
+
+
+@dataclass(frozen=True)
+class LiquidityZoneSettings:
+    """Detection settings shared by the Daily and Weekly computations --
+    the "Detection" and "Last breached LP" input groups of the reference
+    Pine script (cosmetic inputs deliberately not ported).
+    `breach_recency_bars` is in each timeframe's own native bars."""
+
+    swing_bars_each_side: int = 2
+    cluster_pct: float = 2.0  # 0 disables clustering
+    max_lps_per_side: int = 10
+    over_cap_priority: OverCapPriority = "nearest_price"
+    keep_last_breached_support: bool = True
+    keep_last_breached_resistance: bool = True
+    only_keep_if_breached_recently: bool = True
+    breach_recency_bars: int = 5

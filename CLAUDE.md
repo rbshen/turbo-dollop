@@ -2629,6 +2629,30 @@ to display.
 
 ## Liquidity Zone (LP) detection (Technical)
 
+**2026-09-25 -- breach rule, kept-broken rule and settings aligned with the reference "Left
+Precedence" Pine script; this SUPERSEDES the "LOCKED" breach semantics, the most-recently-
+breached tracking (2026-09-17) and the per-timeframe settings described in the bullets below
+(kept as history).** Current behavior (`analysis/liquidity_zones/engine.py` docstring is the
+source of truth):
+- **Breach = ANY later bar** whose Low (support) / High (resistance) crosses the level,
+  strictly; once breached, always breached (`swings.py::annotate_swings`).
+- **Kept-broken level (one per side)**: threshold = best valid zone on that side (highest
+  support / lowest resistance, from the full clustered set before the cap); candidates are
+  breached swings beyond it (support price > threshold, resistance price < threshold; all if no
+  valid zone), optionally only those breached within `breach_recency_bars` of the last bar
+  (measured from the BREACH bar, inclusive); the one closest to the threshold wins (lowest
+  support / highest resistance).
+- **One shared settings block** for Daily and Weekly: table `LiquidityZoneSettings`
+  (`swing_bars_each_side` 2, `cluster_pct` 2.0, `max_lps_per_side` 10, `over_cap_priority`
+  nearest_price|most_recent, `keep_last_breached_support/resistance` true,
+  `only_keep_if_breached_recently` true, `breach_recency_bars` 5), lazy-seeded with those defaults.
+  It replaced the per-timeframe `LiquidityZoneConfig` table, which is orphaned on disk (a new
+  table, since `_add_missing_columns` can't relax its NOT NULL columns); old tuned values were
+  not carried over. Cluster -> cap order; cosmetic Pine inputs not ported. The Technical card
+  sizes its ladder to the most zones any side has (capped), not the cap itself.
+- Stored `LiquidityZoneAnalysis` rows keep old-rule zones until the next 3:25 nightly run.
+- Implemented from the written spec; the Pine source itself was not available.
+
 A fourth, fully independent technical-analysis lens on the ticker page's Technical tab --
 unbreached swing-low support and swing-high resistance levels, clustered into zones, on
 both Daily (1yr) and Weekly (4yr, resampled from the same fetched daily frame) timeframes.

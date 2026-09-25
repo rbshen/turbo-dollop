@@ -70,7 +70,7 @@ def _patch_store(monkeypatch, fail_for: set[str] | None = None):
     fail_for = fail_for or set()
     calls: list[tuple[str, str]] = []
 
-    def fake_store(ticker, ohlcv, source, config):
+    def fake_store(ticker, ohlcv, source, settings):
         calls.append((ticker, source))
         if ticker in fail_for:
             raise RuntimeError(f"simulated failure computing {ticker}")

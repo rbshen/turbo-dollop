@@ -179,13 +179,18 @@ function EmptyTimeframe({ label }: { label: string }) {
 }
 
 export function LiquidityZonesCard({ data }: Props) {
-  // Independent per-timeframe caps (daily_num_zones/weekly_num_zones CAN
-  // differ -- see the settings form) -- fixed-slot alignment across the two
-  // columns below only holds when they're set to the same value. Falls back
-  // to DEFAULT_NUM_ZONES while config is still loading.
+  // One shared cap for both timeframes (max_lps_per_side). Slots are sized to
+  // the most zones any side actually has (capped), not the cap itself, so a
+  // default cap of 10 doesn't pad every ladder with blank rows -- and the
+  // Daily/Weekly columns stay aligned. Falls back to DEFAULT_NUM_ZONES
+  // while config is still loading.
   const { data: config } = useLiquidityZoneConfig();
-  const dailyNumSlots = config?.daily_num_zones ?? DEFAULT_NUM_ZONES;
-  const weeklyNumSlots = config?.weekly_num_zones ?? DEFAULT_NUM_ZONES;
+  const cap = config?.max_lps_per_side ?? DEFAULT_NUM_ZONES;
+  const mostZones = Math.max(
+    0,
+    ...[data?.daily, data?.weekly].flatMap((tf) => (tf ? [tf.support_zones.length, tf.resistance_zones.length] : [])),
+  );
+  const numSlots = Math.max(1, Math.min(cap, mostZones));
 
   if (!data || (!data.daily && !data.weekly)) {
     return (
@@ -213,12 +218,12 @@ export function LiquidityZonesCard({ data }: Props) {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {data.daily ? (
-          <TimeframeSection label="Daily" tf={data.daily} numSlots={dailyNumSlots} />
+          <TimeframeSection label="Daily" tf={data.daily} numSlots={numSlots} />
         ) : (
           <EmptyTimeframe label="Daily" />
         )}
         {data.weekly ? (
-          <TimeframeSection label="Weekly" tf={data.weekly} numSlots={weeklyNumSlots} />
+          <TimeframeSection label="Weekly" tf={data.weekly} numSlots={numSlots} />
         ) : (
           <EmptyTimeframe label="Weekly" />
         )}

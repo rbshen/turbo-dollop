@@ -634,40 +634,31 @@ class ReitDividendYieldConfig(SQLModel, table=True):
     updated_at: datetime
 
 
-class LiquidityZoneConfig(SQLModel, table=True):
-    """Per-timeframe Liquidity Zone (LP) detection settings -- editable via
-    /settings, same lazy-seed get-or-create pattern as MoatScoreConfig/
-    ReitDividendYieldConfig (see helpers/liquidity_zone_config.py).
-    Singleton row, keyed on a fixed `key`. Daily and Weekly each get their
-    own independent swing_bars/cluster_pct/num_zones/breach_recency_bars --
-    deliberately not shared, since the two timeframes' lookback windows and
-    typical price ranges call for different tuning. A change here only
-    takes effect on the next nightly run
-    (pipeline/nightly_liquidity_zone_calculation.py), not retroactively --
-    this feature has no live-recompute path the way Step 3's discount rate
-    does.
+class LiquidityZoneSettings(SQLModel, table=True):
+    """Liquidity Zone (LP) detection settings, ONE block shared by the Daily
+    and Weekly computations -- editable via /settings, same lazy-seed
+    get-or-create pattern as MoatScoreConfig/ReitDividendYieldConfig (see
+    helpers/liquidity_zone_config.py). Singleton row, keyed on a fixed
+    `key`. Fields mirror the reference Pine script's "Detection" and "Last
+    breached LP" input groups (see analysis/liquidity_zones/engine.py).
+    A change only takes effect on the next nightly run
+    (pipeline/nightly_liquidity_zone_calculation.py), not retroactively.
 
-    daily_breach_recency_bars/weekly_breach_recency_bars (added for the
-    most-recently-breached-zone tracking feature) control how many bars
-    back from the current bar a breach can have occurred and still qualify
-    for display -- see analysis/liquidity_zones/engine.py's own module
-    docstring. Nullable (unlike the six original fields above, which
-    predate this column and were always populated by the lazy-seed path)
-    purely for the usual _add_missing_columns-has-no-backfill reason: an
-    existing on-disk row reads NULL for these two until the next save;
-    helpers/liquidity_zone_config.py::get_liquidity_zone_config coalesces
-    that back to DEFAULT_BREACH_RECENCY_BARS at read time so a stale row
-    never silently passes None into the engine."""
+    Replaces the earlier per-timeframe `LiquidityZoneConfig` table (daily_*/
+    weekly_* columns, all NOT NULL). That table is no longer read or
+    written and is left orphaned on disk -- a new table rather than a
+    reshaped one because _add_missing_columns is additive-only and cannot
+    relax the old NOT NULL columns."""
 
     key: str = Field(primary_key=True, default="default")
-    daily_swing_bars: int
-    daily_cluster_pct: float
-    daily_num_zones: int
-    weekly_swing_bars: int
-    weekly_cluster_pct: float
-    weekly_num_zones: int
-    daily_breach_recency_bars: int | None = None
-    weekly_breach_recency_bars: int | None = None
+    swing_bars_each_side: int
+    cluster_pct: float
+    max_lps_per_side: int
+    over_cap_priority: str  # "nearest_price" | "most_recent"
+    keep_last_breached_support: bool
+    keep_last_breached_resistance: bool
+    only_keep_if_breached_recently: bool
+    breach_recency_bars: int
     updated_at: datetime
 
 
@@ -1262,7 +1253,7 @@ class DataSourceHealth(SQLModel, table=True):
 class DataGroupSetting(SQLModel, table=True):
     """Per-data-group FMP toggle, one row per group key in
     core/data_groups.py::GROUPS. Lazy-seeded (same convention as
-    LiquidityZoneConfig/DiscountRateConfig). `required_tier` is a
+    LiquidityZoneSettings/DiscountRateConfig). `required_tier` is a
     user-editable value (`tier_verified` = the user has checked it against
     FMP's site), not a hardcoded fact. `status` is auto-managed:
     "ok" / "plan_restricted" (set only after a canary probe also got a 402)

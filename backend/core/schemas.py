@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints
 
 
 class SecCrossCheck(BaseModel):
@@ -1598,26 +1598,26 @@ class ChartOut(BaseModel):
 
 class LiquidityZoneConfigOut(BaseModel):
     key: str
-    daily_swing_bars: int
-    daily_cluster_pct: float
-    daily_num_zones: int
-    weekly_swing_bars: int
-    weekly_cluster_pct: float
-    weekly_num_zones: int
-    daily_breach_recency_bars: int
-    weekly_breach_recency_bars: int
+    swing_bars_each_side: int
+    cluster_pct: float
+    max_lps_per_side: int
+    over_cap_priority: Literal["nearest_price", "most_recent"]
+    keep_last_breached_support: bool
+    keep_last_breached_resistance: bool
+    only_keep_if_breached_recently: bool
+    breach_recency_bars: int
     updated_at: datetime
 
 
 class LiquidityZoneConfigIn(BaseModel):
-    daily_swing_bars: int
-    daily_cluster_pct: float
-    daily_num_zones: int
-    weekly_swing_bars: int
-    weekly_cluster_pct: float
-    weekly_num_zones: int
-    daily_breach_recency_bars: int
-    weekly_breach_recency_bars: int
+    swing_bars_each_side: int = Field(ge=1)
+    cluster_pct: float = Field(ge=0)
+    max_lps_per_side: int = Field(ge=1)
+    over_cap_priority: Literal["nearest_price", "most_recent"]
+    keep_last_breached_support: bool
+    keep_last_breached_resistance: bool
+    only_keep_if_breached_recently: bool
+    breach_recency_bars: int = Field(ge=0)
 
 
 class MomentumSnapshotRowOut(BaseModel):

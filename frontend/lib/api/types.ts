@@ -1545,14 +1545,14 @@ export interface ChartOut {
 
 export interface LiquidityZoneConfigOut {
   key: string;
-  daily_swing_bars: number;
-  daily_cluster_pct: number;
-  daily_num_zones: number;
-  weekly_swing_bars: number;
-  weekly_cluster_pct: number;
-  weekly_num_zones: number;
-  daily_breach_recency_bars: number;
-  weekly_breach_recency_bars: number;
+  swing_bars_each_side: number;
+  cluster_pct: number;
+  max_lps_per_side: number;
+  over_cap_priority: "nearest_price" | "most_recent";
+  keep_last_breached_support: boolean;
+  keep_last_breached_resistance: boolean;
+  only_keep_if_breached_recently: boolean;
+  breach_recency_bars: number;
   updated_at: string;
 }
 

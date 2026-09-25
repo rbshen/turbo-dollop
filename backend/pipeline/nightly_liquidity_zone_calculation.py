@@ -56,7 +56,7 @@ from core.logging_config import configure_logging
 from core.tickers import resolve_daily_bar_source_label
 from data.liquidity_zone_data import LOOKBACK_DAYS, compute_and_store_liquidity_zones, sweep_stale_liquidity_zones
 from data.watchlists import list_tickers_across_watchlists
-from helpers.liquidity_zone_config import get_liquidity_zone_config
+from helpers.liquidity_zone_config import get_liquidity_zone_settings, to_engine_settings
 from pipeline.stale_data_health_check import load_delisted_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_liquidity_zone_calculation.log"
@@ -75,7 +75,7 @@ async def main() -> dict:
 
     with Session(engine) as session:
         tickers, matched_names = list_tickers_across_watchlists(session, WATCHLIST_NAME_PATTERN)
-        config = get_liquidity_zone_config(session)
+        settings = to_engine_settings(get_liquidity_zone_settings(session))
         delisted = load_delisted_tickers(session)
 
     if not matched_names:
@@ -115,7 +115,7 @@ async def main() -> dict:
             ohlcv = bars_by_ticker.get(ticker)
             if ohlcv is None or ohlcv.empty:
                 raise ValueError("No daily OHLC bars returned")
-            compute_and_store_liquidity_zones(ticker, ohlcv, source=resolve_daily_bar_source_label(ticker), config=config)
+            compute_and_store_liquidity_zones(ticker, ohlcv, source=resolve_daily_bar_source_label(ticker), settings=settings)
             logger.info("[%d/%d] %s: ok", i, len(tickers), ticker)
         except Exception as exc:  # noqa: BLE001 -- a single bad ticker must never abort the whole run
             logger.error("[%d/%d] %s: FAILED - %s", i, len(tickers), ticker, exc)

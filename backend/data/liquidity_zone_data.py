@@ -20,10 +20,10 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session
 
 from analysis.liquidity_zones.engine import compute_liquidity_zones
-from analysis.liquidity_zones.types import BrokenZone, Zone
+from analysis.liquidity_zones.types import BrokenZone, LiquidityZoneSettings, Zone
 from analysis.trend_structure.weinstein import resample_to_weekly
 from core.db import engine
-from core.models import LiquidityZoneAnalysis, LiquidityZoneConfig
+from core.models import LiquidityZoneAnalysis
 from core.schemas import BrokenZoneOut, LiquidityZoneOut, LiquidityZonesOut, ZoneOut
 from core.tickers import normalize_ticker
 
@@ -101,7 +101,7 @@ def _row_to_out(row: LiquidityZoneAnalysis) -> LiquidityZoneOut:
     )
 
 
-def compute_and_store_liquidity_zones(ticker: str, ohlcv: pd.DataFrame, source: str, config: LiquidityZoneConfig) -> None:
+def compute_and_store_liquidity_zones(ticker: str, ohlcv: pd.DataFrame, source: str, settings: LiquidityZoneSettings) -> None:
     """Runs the pure calculation engine against an already-fetched daily
     OHLC frame (see clients/shared_bars_cache.py) and upserts both the
     Daily and Weekly rows -- no fetch of its own, so the nightly job's one
@@ -116,12 +116,8 @@ def compute_and_store_liquidity_zones(ticker: str, ohlcv: pd.DataFrame, source: 
     daily_df = ohlcv[ohlcv.index >= daily_cutoff]
     weekly_df = resample_to_weekly(ohlcv)
 
-    daily_result = compute_liquidity_zones(
-        daily_df, config.daily_swing_bars, config.daily_cluster_pct, config.daily_num_zones, config.daily_breach_recency_bars
-    )
-    weekly_result = compute_liquidity_zones(
-        weekly_df, config.weekly_swing_bars, config.weekly_cluster_pct, config.weekly_num_zones, config.weekly_breach_recency_bars
-    )
+    daily_result = compute_liquidity_zones(daily_df, settings)
+    weekly_result = compute_liquidity_zones(weekly_df, settings)
 
     computed_at = datetime.now()
     with Session(engine) as session:

@@ -32,63 +32,35 @@ def test_detects_a_genuine_swing_low_and_high():
     assert highs.iloc[4] and highs.sum() == 1
 
 
-def test_ordinary_bar_does_not_breach_a_level_only_a_later_swing_does():
-    # A confirmed swing low at pos 2 (price 90). Positions 5-6 dip to 80
-    # (BELOW 90) but tie with each other, so neither clears the strict
-    # "<" test against its own neighbor -- neither is ever confirmed as a
-    # swing low, despite being the lowest values in the series. Per the
-    # locked spec, only a LATER SWING low can breach an earlier one -- an
-    # ordinary (non-swing) dip below the level, like this one, must not --
-    # unlike the reference script's any-later-BAR semantics. The later
-    # confirmed swing low at pos 9 (price 95) is HIGHER than 90, so it
-    # doesn't breach it either.
+def test_ordinary_non_swing_bar_breaches_a_level():
+    # Swing low at pos 2 (90). Positions 5-6 dip to 80 and tie, so neither is
+    # ever a confirmed swing low -- but under the reference script's any-
+    # later-bar rule an ordinary bar trading below the level still breaches
+    # it, at the FIRST such bar (pos 5).
     values = [100, 100, 90, 100, 100, 80, 80, 100, 100, 95, 100, 100, 100]
     low = _series(values)
     is_low = find_swing_lows(low, k=2)
 
-    assert is_low.iloc[2]  # price 90 confirmed
-    assert not is_low.iloc[5] and not is_low.iloc[6]  # the tied 80/80 dip never confirms
+    assert is_low.iloc[2]
+    assert not is_low.iloc[5] and not is_low.iloc[6]
 
     events = annotate_swings(low, is_low, kind="low")
     swing_at_2 = next(e for e in events if e.pos == 2)
-    assert swing_at_2.breach_pos is None  # never breached -- the deeper 80 dip was never a swing to begin with
-    assert swing_at_2 in valid_prices_at(events, as_of_pos=len(values) - 1)
+    assert swing_at_2.breach_pos == 5
+    assert swing_at_2 not in valid_prices_at(events, as_of_pos=len(values) - 1)
 
 
-def test_a_later_swing_low_breaches_an_earlier_higher_one():
-    values = [100, 100, 90, 100, 100, 100, 100, 80, 100, 100, 100, 100]
+def test_touching_the_level_exactly_does_not_breach():
+    values = [100, 100, 90, 100, 100, 90, 100, 100, 100, 100]
     low = _series(values)
-    is_low = find_swing_lows(low, k=2)
-    events = annotate_swings(low, is_low, kind="low")
+    events = annotate_swings(low, find_swing_lows(low, k=2), kind="low")
 
-    swing_at_2 = next(e for e in events if e.pos == 2)
-    swing_at_7 = next(e for e in events if e.pos == 7)
-    assert swing_at_2.breach_pos == 7
-    assert swing_at_7.breach_pos is None
-
-    valid_at_end = valid_prices_at(events, as_of_pos=len(values) - 1)
-    assert swing_at_2 not in valid_at_end
-    assert swing_at_7 in valid_at_end
+    assert next(e for e in events if e.pos == 2).breach_pos is None
 
 
-def test_a_later_swing_high_breaches_an_earlier_lower_one():
-    values = [1, 1, 110, 1, 1, 1, 1, 130, 1, 1, 1, 1]
+def test_a_later_bar_high_breaches_a_resistance_level():
+    values = [1, 1, 110, 1, 1, 1, 120, 120, 1, 1, 1, 1]
     high = _series(values)
-    is_high = find_swing_highs(high, k=2)
-    events = annotate_swings(high, is_high, kind="high")
+    events = annotate_swings(high, find_swing_highs(high, k=2), kind="high")
 
-    swing_at_2 = next(e for e in events if e.pos == 2)
-    swing_at_7 = next(e for e in events if e.pos == 7)
-    assert swing_at_2.breach_pos == 7
-    assert swing_at_7.breach_pos is None
-
-
-def test_valid_prices_at_respects_confirmation_time_too():
-    # A swing not yet reached (as_of_pos before its own pos) is never valid.
-    values = [100, 100, 90, 100, 100, 100, 100, 100, 100, 100]
-    low = _series(values)
-    is_low = find_swing_lows(low, k=2)
-    events = annotate_swings(low, is_low, kind="low")
-
-    assert valid_prices_at(events, as_of_pos=1) == []
-    assert len(valid_prices_at(events, as_of_pos=2)) == 1
+    assert next(e for e in events if e.pos == 2).breach_pos == 6

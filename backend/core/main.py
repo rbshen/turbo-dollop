@@ -33,7 +33,7 @@ from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, u
 from data.market_breadth_data import get_market_breadth
 from data.momentum_data import get_momentum_snapshot
 from data.sector_heatmap_data import get_sector_heatmap
-from helpers.liquidity_zone_config import get_liquidity_zone_config, update_liquidity_zone_config
+from helpers.liquidity_zone_config import get_liquidity_zone_settings, update_liquidity_zone_settings
 from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config, update_reit_dividend_yield_config
 from core.models import IndexConstituent, SavedScreenerFilter, TickerCustomValuation, TickerScore, Watchlist
 from core.tickers import normalize_ticker
@@ -293,24 +293,14 @@ def update_reit_dividend_yield(body: ReitDividendYieldConfigIn) -> ReitDividendY
 @app.get("/api/config/liquidity-zones", response_model=LiquidityZoneConfigOut)
 def liquidity_zone_config() -> LiquidityZoneConfigOut:
     with Session(engine) as session:
-        row = get_liquidity_zone_config(session)
+        row = get_liquidity_zone_settings(session)
     return LiquidityZoneConfigOut(**row.model_dump())
 
 
 @app.put("/api/config/liquidity-zones", response_model=LiquidityZoneConfigOut)
 def update_liquidity_zones(body: LiquidityZoneConfigIn) -> LiquidityZoneConfigOut:
     with Session(engine) as session:
-        row = update_liquidity_zone_config(
-            session,
-            body.daily_swing_bars,
-            body.daily_cluster_pct,
-            body.daily_num_zones,
-            body.weekly_swing_bars,
-            body.weekly_cluster_pct,
-            body.weekly_num_zones,
-            body.daily_breach_recency_bars,
-            body.weekly_breach_recency_bars,
-        )
+        row = update_liquidity_zone_settings(session, **body.model_dump())
     return LiquidityZoneConfigOut(**row.model_dump())
 
 

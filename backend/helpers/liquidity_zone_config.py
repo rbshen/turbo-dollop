@@ -2,82 +2,82 @@ from datetime import datetime
 
 from sqlmodel import Session
 
-from core.models import LiquidityZoneConfig
+from analysis.liquidity_zones.types import LiquidityZoneSettings as EngineSettings
+from core.models import LiquidityZoneSettings
 
-# swing_bars=2 (5-bar window) and cluster_pct=2.0 match the reference
-# lp_detector_polygon_clustered.py's own defaults; num_zones=3 matches
-# this app's existing 3-item bar-indicator convention (see
-# frontend/components/watchlist/SignalBars.tsx's default maxBars).
+# Defaults match the reference Pine script's own input defaults.
 DEFAULT_SWING_BARS = 2
 DEFAULT_CLUSTER_PCT = 2.0
-DEFAULT_NUM_ZONES = 3
-# Default recency window (in bars native to each timeframe) for the
-# most-recently-breached-zone tracking feature -- see
-# analysis/liquidity_zones/engine.py's own module docstring.
-DEFAULT_BREACH_RECENCY_BARS = 6
+DEFAULT_MAX_LPS_PER_SIDE = 10
+DEFAULT_OVER_CAP_PRIORITY = "nearest_price"
+DEFAULT_BREACH_RECENCY_BARS = 5
+
+OVER_CAP_PRIORITIES = ("nearest_price", "most_recent")
 
 _CONFIG_KEY = "default"
 
 
-def get_liquidity_zone_config(session: Session) -> LiquidityZoneConfig:
+def get_liquidity_zone_settings(session: Session) -> LiquidityZoneSettings:
     """Get-or-create -- this app has no migration tooling (see
     DiscountRateConfig's own comment), so a first-boot default row is
-    seeded lazily on first read rather than via a separate seed script.
-    Also coalesces a NULL daily_breach_recency_bars/weekly_breach_recency_bars
-    (an existing row from before this feature shipped, only ever added via
-    _add_missing_columns with no backfill) back to
-    DEFAULT_BREACH_RECENCY_BARS, so a stale row never silently passes None
-    into the engine."""
-    row = session.get(LiquidityZoneConfig, _CONFIG_KEY)
+    seeded lazily on first read rather than via a separate seed script."""
+    row = session.get(LiquidityZoneSettings, _CONFIG_KEY)
     if row is None:
-        row = LiquidityZoneConfig(
+        row = LiquidityZoneSettings(
             key=_CONFIG_KEY,
-            daily_swing_bars=DEFAULT_SWING_BARS,
-            daily_cluster_pct=DEFAULT_CLUSTER_PCT,
-            daily_num_zones=DEFAULT_NUM_ZONES,
-            weekly_swing_bars=DEFAULT_SWING_BARS,
-            weekly_cluster_pct=DEFAULT_CLUSTER_PCT,
-            weekly_num_zones=DEFAULT_NUM_ZONES,
-            daily_breach_recency_bars=DEFAULT_BREACH_RECENCY_BARS,
-            weekly_breach_recency_bars=DEFAULT_BREACH_RECENCY_BARS,
+            swing_bars_each_side=DEFAULT_SWING_BARS,
+            cluster_pct=DEFAULT_CLUSTER_PCT,
+            max_lps_per_side=DEFAULT_MAX_LPS_PER_SIDE,
+            over_cap_priority=DEFAULT_OVER_CAP_PRIORITY,
+            keep_last_breached_support=True,
+            keep_last_breached_resistance=True,
+            only_keep_if_breached_recently=True,
+            breach_recency_bars=DEFAULT_BREACH_RECENCY_BARS,
             updated_at=datetime.now(),
         )
         session.add(row)
         session.commit()
         session.refresh(row)
-        return row
-
-    if row.daily_breach_recency_bars is None or row.weekly_breach_recency_bars is None:
-        row.daily_breach_recency_bars = row.daily_breach_recency_bars or DEFAULT_BREACH_RECENCY_BARS
-        row.weekly_breach_recency_bars = row.weekly_breach_recency_bars or DEFAULT_BREACH_RECENCY_BARS
-        session.add(row)
-        session.commit()
-        session.refresh(row)
     return row
 
 
-def update_liquidity_zone_config(
+def update_liquidity_zone_settings(
     session: Session,
-    daily_swing_bars: int,
-    daily_cluster_pct: float,
-    daily_num_zones: int,
-    weekly_swing_bars: int,
-    weekly_cluster_pct: float,
-    weekly_num_zones: int,
-    daily_breach_recency_bars: int,
-    weekly_breach_recency_bars: int,
-) -> LiquidityZoneConfig:
-    row = get_liquidity_zone_config(session)
-    row.daily_swing_bars = daily_swing_bars
-    row.daily_cluster_pct = daily_cluster_pct
-    row.daily_num_zones = daily_num_zones
-    row.weekly_swing_bars = weekly_swing_bars
-    row.weekly_cluster_pct = weekly_cluster_pct
-    row.weekly_num_zones = weekly_num_zones
-    row.daily_breach_recency_bars = daily_breach_recency_bars
-    row.weekly_breach_recency_bars = weekly_breach_recency_bars
+    swing_bars_each_side: int,
+    cluster_pct: float,
+    max_lps_per_side: int,
+    over_cap_priority: str,
+    keep_last_breached_support: bool,
+    keep_last_breached_resistance: bool,
+    only_keep_if_breached_recently: bool,
+    breach_recency_bars: int,
+) -> LiquidityZoneSettings:
+    row = get_liquidity_zone_settings(session)
+    row.swing_bars_each_side = swing_bars_each_side
+    row.cluster_pct = cluster_pct
+    row.max_lps_per_side = max_lps_per_side
+    row.over_cap_priority = over_cap_priority
+    row.keep_last_breached_support = keep_last_breached_support
+    row.keep_last_breached_resistance = keep_last_breached_resistance
+    row.only_keep_if_breached_recently = only_keep_if_breached_recently
+    row.breach_recency_bars = breach_recency_bars
     row.updated_at = datetime.now()
     session.add(row)
     session.commit()
     session.refresh(row)
     return row
+
+
+def to_engine_settings(row: LiquidityZoneSettings) -> EngineSettings:
+    """Row -> the pure engine's frozen dataclass (the engine never sees a
+    SQLModel table)."""
+    return EngineSettings(
+        swing_bars_each_side=row.swing_bars_each_side,
+        cluster_pct=row.cluster_pct,
+        max_lps_per_side=row.max_lps_per_side,
+        over_cap_priority=row.over_cap_priority,  # type: ignore[arg-type]
+        keep_last_breached_support=row.keep_last_breached_support,
+        keep_last_breached_resistance=row.keep_last_breached_resistance,
+        only_keep_if_breached_recently=row.only_keep_if_breached_recently,
+        breach_recency_bars=row.breach_recency_bars,
+    )
