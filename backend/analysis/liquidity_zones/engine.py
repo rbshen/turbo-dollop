@@ -20,9 +20,10 @@ recently formed (`most_recent`). The wrong-side-of-price filter is now
 only a guard: with any-bar breach a valid support can never sit above the
 last close (or a valid resistance below it).
 
-Kept breached level (one per side, optional): threshold = the best valid
-zone on that side from the FULL clustered set (before the cap) -- highest
-support / lowest resistance. Candidates are breached swings on the far
+Kept breached level (one per side, optional): threshold = the best RAW
+valid swing price on that side (before clustering and the cap, as in the
+reference script's findKeptBreached) -- highest support / lowest
+resistance. Candidates are breached swings on the far
 side of it (support: price > threshold; resistance: price < threshold; all
 qualify with no threshold), optionally restricted to breaches within
 `breach_recency_bars` of the last bar; the one closest to the threshold
@@ -120,8 +121,10 @@ def compute_liquidity_zones(df: pd.DataFrame, settings: LiquidityZoneSettings) -
     resistance_zones = [z for z in all_resistance_zones if z.price >= last_price]
     resistance_zones.sort(key=lambda z: z.price)  # nearest (lowest) first
 
-    highest_valid_support = max((z.price for z in all_support_zones), default=None)
-    lowest_valid_resistance = min((z.price for z in all_resistance_zones), default=None)
+    # Raw (unclustered) valid swings: a cluster's representative is its
+    # LOWEST support member, which would understate the true highest valid support.
+    highest_valid_support = max((e.price for e in valid_lows), default=None)
+    lowest_valid_resistance = min((e.price for e in valid_highs), default=None)
 
     broken_support = (
         _select_broken_zone(low_events, last_pos, settings, highest_valid_support, "low", df.index)

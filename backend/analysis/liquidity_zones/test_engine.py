@@ -137,3 +137,16 @@ def test_keep_flags_disable_each_side_independently():
     assert both.broken_support is not None and both.broken_resistance is not None
     assert no_support.broken_support is None and no_support.broken_resistance is not None
     assert no_resistance.broken_resistance is None and no_resistance.broken_support is not None
+
+
+def test_kept_breached_threshold_uses_raw_valid_swings_not_cluster_representatives():
+    # Valid supports 94 (pos 14) and 95 (pos 20) cluster at 2% into a zone
+    # represented by 94, but the raw highest valid support is 95. The breached
+    # 94.5 (pos 2, broken by the 90 at pos 8) sits above the cluster rep (94)
+    # yet BELOW the raw threshold (95) -> must not be kept.
+    low = [100.0] * 30
+    low[2], low[8], low[14], low[20] = 94.5, 90.0, 94.0, 95.0
+    result = compute_liquidity_zones(_ohlc(low), _s(cluster_pct=2.0, breach_recency_bars=50))
+
+    assert 94.0 in [z.price for z in result.support]  # 94/95 clustered to 94
+    assert result.broken_support is None

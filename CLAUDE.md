@@ -2636,8 +2636,8 @@ breached tracking (2026-09-17) and the per-timeframe settings described in the b
 source of truth):
 - **Breach = ANY later bar** whose Low (support) / High (resistance) crosses the level,
   strictly; once breached, always breached (`swings.py::annotate_swings`).
-- **Kept-broken level (one per side)**: threshold = best valid zone on that side (highest
-  support / lowest resistance, from the full clustered set before the cap); candidates are
+- **Kept-broken level (one per side)**: threshold = best RAW valid swing price on that side (highest
+  support / lowest resistance, before clustering and the cap, per the Pine `findKeptBreached`); candidates are
   breached swings beyond it (support price > threshold, resistance price < threshold; all if no
   valid zone), optionally only those breached within `breach_recency_bars` of the last bar
   (measured from the BREACH bar, inclusive); the one closest to the threshold wins (lowest
@@ -2651,7 +2651,7 @@ source of truth):
   not carried over. Cluster -> cap order; cosmetic Pine inputs not ported. The Technical card
   sizes its ladder to the most zones any side has (capped), not the cap itself.
 - Stored `LiquidityZoneAnalysis` rows keep old-rule zones until the next 3:25 nightly run.
-- Implemented from the written spec; the Pine source itself was not available.
+- Verified line by line against the reference Pine script (swing detection, breach timing, clustering walk, cap priority, kept-breached rule).
 
 A fourth, fully independent technical-analysis lens on the ticker page's Technical tab --
 unbreached swing-low support and swing-high resistance levels, clustered into zones, on
