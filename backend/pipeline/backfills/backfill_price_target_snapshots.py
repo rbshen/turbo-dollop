@@ -1,11 +1,11 @@
 """One-time standalone script: backfills PriceTargetSnapshot with a
 reconstructed monthly price-target-consensus history, for every ticker in
 the full tracked universe (see load_full_tracked_universe -- deliberately
-broader than monthly_price_target_snapshot.py's own ongoing
+broader than nightly_price_target_snapshot.py's own ongoing
 load_universe_tickers scope, since a backfill's whole point is maximal
 historical coverage; the monthly cron itself is unchanged by this script).
 
-Why this exists: monthly_price_target_snapshot.py only ever appends a row
+Why this exists: nightly_price_target_snapshot.py only ever appends a row
 going forward from whenever it first ran -- confirmed live, only 2 rows
 exist in production as of this script's own investigation, both dated
 2026-07-27. FMP's own /price-target-consensus has no historical series of

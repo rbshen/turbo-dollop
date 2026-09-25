@@ -1957,7 +1957,7 @@ class RatingHistoryPoint(BaseModel):
     # analysts in that month's grades-historical snapshot -- see
     # analyst_ratings_data.py's _weighted_score.
     avg_rating: float
-    # None until monthly_price_target_snapshot.py has captured a snapshot
+    # None until nightly_price_target_snapshot.py has captured a snapshot
     # for/near this month -- FMP has no historical price-target series of
     # its own, so this line starts empty and fills in going forward.
     avg_price_target: float | None = None

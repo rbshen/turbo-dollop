@@ -15,7 +15,7 @@ Implements Option A of `price_target_daily_refresh_feasibility_2026-09-26.md`. C
 - Migration: `pipeline/backfills/tag_price_target_methodology.py` (idempotent SQL; only touches rows with
   `methodology IS NULL`): `fetched_at` date 2026-09-16 -> `legacy_all_analysts`; 2026-07-27 -> `live_consensus`.
 
-**Job** (`pipeline/monthly_price_target_snapshot.py`; file/job name deliberately unchanged)
+**Job** (`pipeline/nightly_price_target_snapshot.py`; renamed afterwards, see addendum)
 - Fetches via `get_or_fetch("price_target_consensus", "latest", staleness 1 day)`, the same cache row the
   Analyst Ratings tab uses, so tab views and the job share one fetch (and the tab's At-a-Glance target is now
   at most 1 day old after a nightly run).
@@ -67,12 +67,48 @@ Frontend: vitest 425 passed (3 new for the split, note, and overlay); tsc and es
 ## Manual UI checklist (no browser verification was done)
 1. Restart the app (`./bin/stop.sh && ./bin/start.sh`).
 2. Before any live rows exist: open Analyst Ratings for GOOGL: the target chart looks as before (single area chart, no note).
-3. To see the split before the cron runs, run `uv run python -m pipeline.monthly_price_target_snapshot --tickers GOOGL,AAPL`
+3. To see the split before the cron runs, run `uv run python -m pipeline.nightly_price_target_snapshot --tickers GOOGL,AAPL`
    (writes today's live row for those two), reload.
 4. GOOGL, AAPL: chart shows a dashed segment (history) and a solid dotted segment (live) with a visible break, and the
    note under the chart. Hover shows the correct label per segment.
 5. Toggle "Overlay stock price": both target segments plus the price line, legend lists Target/Stock Price, note still shown.
 6. A thin-coverage ticker with few history points: no layout break; with only one methodology, no note and the original chart.
 7. A ticker with no snapshots: still "hasn't accumulated yet" message (now says "daily").
-8. Next morning: `CronRunLog` for `pipeline.monthly_price_target_snapshot` is `success` ("N written, M failed"), run finished
+8. Next morning: `CronRunLog` for `pipeline.nightly_price_target_snapshot` is `success` ("N written, M failed"), run finished
    before 03:10; Settings > Status lists it as daily, 2:10 AM.
+
+## Addendum (2026-09-25 server date): rename, index confirmation, first full run
+
+**Rename** `monthly_price_target_snapshot` -> `nightly_price_target_snapshot`: `pipeline/` module, its test file
+(`tests/test_nightly_price_target_snapshot.py`), the `cron_health.py` entries (`CRON_JOB_NAMES`, cadence, `JOB_METADATA`),
+`crontab.txt`, the Settings > Status feature label in `core/data_groups.py` ("Nightly price-target snapshot"), log file names
+(`nightly_price_target_snapshot.log` / `_cron.log`), `OPS_RUNBOOK.md`, CLAUDE.md, and code comments/docstrings.
+Historical `CronRunLog` rows and the old `monthly_*` log files are untouched. Older dated investigation docs
+(`docs/cron_audit_2026-09.md`, the 09-22/09-25/09-26 investigations, `fmp_migration_...`) still say `monthly_...`
+on purpose: they describe the code as it was. Because the name changed, the Status page shows this job as having no
+history until its first run under the new name (now recorded, below).
+
+**Index.** `uq_pricetargetsnapshot_ticker_date` was already present in the real DB: the tagging script calls `init_db()`
+during the earlier migration, which creates it. Re-confirmed via `sqlite_master` (`CREATE UNIQUE INDEX ... ("ticker", "snapshot_date")`).
+No restart was needed; `init_db()` was invoked directly (idempotent).
+
+**First full run** (07:12-07:21 UTC, 8.6 min, 516 FMP calls; `CronRunLog`: `success`, "514 written, 4 failed"):
+- Universe is **518** (S&P 500 + Dow, `load_universe_tickers`), not the 566 estimated in the feasibility doc (566 was the distinct
+  ticker count in the backfilled table, which had a wider universe). Tomorrow's cost estimate falls to ~518 calls.
+- Written: 514 rows, all `live_consensus`, none with null values.
+- Failed: BF-B, ERIE, L, NWS: FMP returned an empty consensus for them (no data, not an error).
+- 516 calls for 518 tickers: some tickers were served from a still-fresh (<1 day) `price_target_consensus` cache row (e.g. AAPL).
+- Duplicate `(ticker, snapshot_date)` pairs: 0.
+- Pacing was ~0.27 s/request as configured; the run took longer than the 2.6 min estimate because per-call latency (~1 s) dominates.
+  It finishes well before 03:10 either way (02:10 + ~9 min).
+
+**Spot check** (snapshot vs the `price_target_consensus` cache row At-a-Glance reads): identical.
+GOOGL 431.57 / high 485 / low 350 / median 425; AAPL 342.13 / 400 / 245 / 362. (GOOGL's legacy 2026-08-31 point was ~323.80, so the
+seam step is ~+$108, as predicted.)
+
+**Note:** the server date is 2026-09-25, so "today's" rows are dated 2026-09-25, not 09-27.
+
+**Crontab** reinstalled; `crontab -l` is byte-identical to `backend/crontab.txt`. First scheduled run: 02:10 UTC tomorrow.
+
+Manual UI checklist: the checklist above applies as-is, and step 3 (running the job for GOOGL/AAPL) is no longer needed since live rows exist.
+The app is still the old production build until restarted (`./bin/stop.sh && ./bin/start.sh`), so the split chart and methodology field won't show until then.

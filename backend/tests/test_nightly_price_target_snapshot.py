@@ -3,7 +3,7 @@ import asyncio
 
 from sqlmodel import SQLModel, create_engine
 
-import pipeline.monthly_price_target_snapshot as monthly
+import pipeline.nightly_price_target_snapshot as monthly
 
 
 def _fresh_engine(monkeypatch, tmp_path):
@@ -13,8 +13,8 @@ def _fresh_engine(monkeypatch, tmp_path):
     # main() calls configure_logging(LOG_PATH) with force=True, which
     # reconfigures the ROOT logger for the rest of this pytest process --
     # pointing it at a tmp_path file instead of the real production log
-    # keeps test runs from polluting backend/logs/monthly_price_target_snapshot.log.
-    monkeypatch.setattr(monthly, "LOG_PATH", tmp_path / "test_monthly_price_target_snapshot.log")
+    # keeps test runs from polluting backend/logs/nightly_price_target_snapshot.log.
+    monkeypatch.setattr(monthly, "LOG_PATH", tmp_path / "test_nightly_price_target_snapshot.log")
     return engine
 
 
@@ -190,7 +190,7 @@ def _heartbeat_row(monkeypatch, result):
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(cron_health, "engine", engine)
     try:
-        with cron_heartbeat("pipeline.monthly_price_target_snapshot") as run:
+        with cron_heartbeat("pipeline.nightly_price_target_snapshot") as run:
             monthly.record_outcome(result, run)
     except RuntimeError:
         pass

@@ -31,7 +31,7 @@ _ERROR_SUMMARY_MAX_CHARS = 500
 # Dotted module paths, copied verbatim from crontab.txt's `-m` invocations --
 # this is every job actually scheduled there, not just the ones with a
 # plain (non-_cron) log file: audit_fixture_contamination never calls
-# configure_logging so it has no plain log, and monthly_price_target_snapshot
+# configure_logging so it has no plain log, and nightly_price_target_snapshot
 # hasn't fired on a real schedule yet, but both are real cron jobs that need
 # the same monitoring as every other one here.
 CRON_JOB_NAMES: list[str] = [
@@ -51,7 +51,7 @@ CRON_JOB_NAMES: list[str] = [
     "pipeline.audit_fixture_contamination",
     "pipeline.stale_data_health_check",
     "pipeline.purge_invalid_tickers",
-    "pipeline.monthly_price_target_snapshot",
+    "pipeline.nightly_price_target_snapshot",
     "pipeline.monthly_momentum_snapshot",
     "pipeline.backup_db",
 ]
@@ -84,7 +84,7 @@ _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.audit_fixture_contamination": _WEEKLY_HOURS,
     "pipeline.stale_data_health_check": _WEEKLY_HOURS,
     "pipeline.purge_invalid_tickers": _WEEKLY_HOURS,
-    "pipeline.monthly_price_target_snapshot": _DAILY_HOURS,
+    "pipeline.nightly_price_target_snapshot": _DAILY_HOURS,
     "pipeline.monthly_momentum_snapshot": _MONTHLY_HOURS,
 }
 
@@ -147,7 +147,7 @@ JOB_METADATA: dict[str, JobMetadata] = {
     "pipeline.purge_invalid_tickers": JobMetadata(
         "Delete cache rows for confirmed-invalid tickers", "weekly", "Sun 1:35 AM", 95
     ),
-    "pipeline.monthly_price_target_snapshot": JobMetadata(
+    "pipeline.nightly_price_target_snapshot": JobMetadata(
         "Archive analyst price-target consensus", "daily", "2:10 AM", 2 * 60 + 10
     ),
     "pipeline.monthly_momentum_snapshot": JobMetadata(

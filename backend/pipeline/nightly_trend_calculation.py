@@ -9,7 +9,7 @@ job above it in crontab.txt (nightly_fundamentals_fetch) and needs no
 the way that job does -- that guard exists specifically to skip a job whose EVERY
 fetch is FMP-gated; this job's fetches are never FMP-gated at all, so an
 analogous guard here would be checking a condition this job doesn't have, not
-a missing safety net (see CLAUDE.md's note on monthly_price_target_snapshot.py's
+a missing safety net (see CLAUDE.md's note on nightly_price_target_snapshot.py's
 actual missing-guard bug, which this is deliberately not a repeat of).
 
 Fetches the whole universe's OHLCV in ONE yfinance multi-ticker batch call

@@ -1004,7 +1004,7 @@ class TickerCustomValuation(SQLModel, table=True):
 
 class PriceTargetSnapshot(SQLModel, table=True):
     """Point-in-time snapshot of FMP's price-target-consensus per
-    ticker, written daily by monthly_price_target_snapshot.py (originally
+    ticker, written daily by nightly_price_target_snapshot.py (originally
     monthly; the file name was kept). FMP's own
     /price-target-consensus is a live-only value with no historical series
     attached (unlike grades-historical, which is already a ready-made

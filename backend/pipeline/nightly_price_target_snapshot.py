@@ -2,9 +2,8 @@
 ticker in the stored S&P 500 + Dow constituent lists (see
 nightly_fundamentals_fetch.py's load_universe_tickers, reused here).
 
-(The file name still says "monthly" -- it was monthly until 2026-09-26 and was
-deliberately not renamed to keep the diff small; the cron job name
-`pipeline.monthly_price_target_snapshot` is likewise unchanged.)
+(Renamed from monthly_price_target_snapshot on 2026-09-27, when it went from
+monthly to daily; older CronRunLog rows keep the old job name.)
 
 FMP's own /price-target-consensus is a live-only value with no historical
 series attached to it, so this script keeps accumulating one
@@ -24,11 +23,11 @@ Default schedule: 2:10am server time daily (see crontab.txt in this
 directory), after nightly_fundamentals_fetch and before the 3:10 trend job.
 
 Run manually against the full stored list:
-    uv run python -m pipeline.monthly_price_target_snapshot
+    uv run python -m pipeline.nightly_price_target_snapshot
 
 Run against a small subset first:
-    uv run python -m pipeline.monthly_price_target_snapshot --limit 15
-    uv run python -m pipeline.monthly_price_target_snapshot --tickers AAPL,MSFT,ZZZZINVALID
+    uv run python -m pipeline.nightly_price_target_snapshot --limit 15
+    uv run python -m pipeline.nightly_price_target_snapshot --tickers AAPL,MSFT,ZZZZINVALID
 """
 
 import argparse
@@ -51,7 +50,7 @@ from core.models import PriceTargetSnapshot
 from core.tickers import normalize_ticker
 from pipeline.nightly_fundamentals_fetch import load_universe_tickers
 
-LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "monthly_price_target_snapshot.log"
+LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_price_target_snapshot.log"
 
 # Same empirically-derived pacing as nightly_fundamentals_fetch.py -- see
 # that module's comment for the underlying rate-limit investigation.
@@ -206,5 +205,5 @@ def record_outcome(result: dict, run) -> None:
 
 if __name__ == "__main__":
     cli_args = _parse_args()
-    with cron_heartbeat("pipeline.monthly_price_target_snapshot") as run:
+    with cron_heartbeat("pipeline.nightly_price_target_snapshot") as run:
         record_outcome(asyncio.run(main(_resolve_cli_tickers(cli_args))), run)

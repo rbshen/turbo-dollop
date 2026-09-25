@@ -13,7 +13,7 @@ confirmed real staleness bug: TSM/ASML/MELI are watchlist-only (not index
 members), so a Speculative Growth scoring fix that shipped the same day
 never reached their TickerScore rows via this path -- see CLAUDE.md's
 Speculative Growth section. `load_universe_tickers` (S&P 500 + Dow only)
-is still used as-is by monthly_price_target_snapshot.py and
+is still used as-is by nightly_price_target_snapshot.py and
 stale_data_health_check.py, which have their own, deliberately narrower
 index-only scope -- this module no longer uses it.
 

@@ -25,7 +25,7 @@ visible to the heartbeat.
 
 the index_membership data group not live (2026-09-15): skipped cleanly before any fetch is
 attempted, via the same early-return guard nightly_fundamentals_fetch.py/
-monthly_price_target_snapshot.py use -- checked here rather than left to
+nightly_price_target_snapshot.py use -- checked here rather than left to
 FMPDisabledError propagating up through refresh_dow_constituents, since that
 path would return a failed SyncResult and hit the RuntimeError re-raise
 above, recording a false "failure" in cron_heartbeat for what is actually a

@@ -100,7 +100,7 @@ def test_recovered_job_goes_back_to_ok(monkeypatch):
 
 @pytest.mark.parametrize(
     "module,attr",
-    [("pipeline.nightly_fundamentals_fetch", "cron_heartbeat"), ("pipeline.monthly_price_target_snapshot", "cron_heartbeat")],
+    [("pipeline.nightly_fundamentals_fetch", "cron_heartbeat"), ("pipeline.nightly_price_target_snapshot", "cron_heartbeat")],
 )
 def test_guarded_jobs_report_skip_through_run_skip(module, attr):
     """The jobs call run.skip(...) (not run.message) on a gated no-op."""

@@ -122,7 +122,7 @@ configured):
 | Fixture-contamination audit | `_cron.log` only — the script itself prints to stdout rather than calling `configure_logging()`, so there's no separate plain `.log` file, just the cron redirect |
 | Stale-data health check | `stale_data_health_check.log` / `_cron.log` |
 | Invalid-ticker purge | `purge_invalid_tickers.log` / `_cron.log` |
-| Daily price-target snapshot (job name still `monthly_...`) | `monthly_price_target_snapshot.log` / `_cron.log` |
+| Nightly price-target snapshot | `nightly_price_target_snapshot.log` / `_cron.log` |
 | Monthly Momentum snapshot | `monthly_momentum_snapshot.log` / `_cron.log` |
 | Daily SQLite backup | `backup_db.log` / `_cron.log` |
 

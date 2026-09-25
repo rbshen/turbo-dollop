@@ -87,7 +87,7 @@ backend/     FastAPI app, organized into packages by role (2026-08-05
                real DB: nightly_fundamentals_fetch.py,
                nightly_trend_calculation.py, nightly_entry_signal_calculation.py,
                nightly_liquidity_zone_calculation.py,
-               monthly_price_target_snapshot.py, monthly_momentum_snapshot.py,
+               nightly_price_target_snapshot.py, monthly_momentum_snapshot.py,
                recompute_ticker_scores.py,
                audit_fixture_contamination.py, refresh.py, prune_cache.py,
                backup_db.py, rotate_logs.py, stale_data_health_check.py --
@@ -209,7 +209,7 @@ Cron jobs are separate processes and read the same DB.
     the ticker header's `price` uses the Massive/Yahoo fallback (unchanged), every other
     quote field stays at the last cached FMP value; `/refresh` 503s.
   - `analyst_ratings` / `news` / `segmentation` / `fundamentals`: their tabs/scores serve
-    cached data; the nightly fundamentals fetch, the monthly price-target snapshot and
+    cached data; the nightly fundamentals fetch, the nightly price-target snapshot and
     the index-list refresh jobs skip.
   - `corporate_events`: chart E/D markers fall back to Yahoo (as before).
   - `insider`: the user toggle is the *shelving* switch (off = distinct `enabled:false`
@@ -230,7 +230,7 @@ Cron jobs are separate processes and read the same DB.
   **`skipped` cron status** (`run.skip(reason)` -> `CronRunLog.status="skipped"`; health
   view `skipped` with `skipped_since` = start of the current streak; never `ok`/`overdue`
   while skipped, `last_success_at` still shows the last real run). Jobs guarded in P1:
-  `nightly_fundamentals_fetch` (fundamentals), `monthly_price_target_snapshot`
+  `nightly_fundamentals_fetch` (fundamentals), `nightly_price_target_snapshot`
   (analyst_ratings), the three index-list scrapers (index_membership). The Trend/
   Liquidity/Warren/BB+RSI/Heatmap/Breadth/Momentum jobs make no FMP calls today and get
   their standard group guard when their groups go live in P3-P5. **The daily-bar jobs
@@ -421,7 +421,7 @@ heartbeat change was needed for this flag. (The 12th job,
 feature, needs no equivalent reasoning at all — it makes zero FMP calls,
 so `FMP_ENABLED` never affects it either way; see "Trend structure
 analysis (Technical)" below.)
-(Separately found, and fixed the same day: `monthly_price_target_snapshot.py`
+(Separately found, and fixed the same day: `nightly_price_target_snapshot.py`
 was missing the equivalent `if not settings.fmp_enabled: ...` early-return
 guard `nightly_fundamentals_fetch.py` already had, so during an FMP pause
 it still looped the full ticker list and reported a misleading `"success"`
@@ -2358,7 +2358,7 @@ to display.
   (`load_full_tracked_universe`, shared with the fundamentals/score-recompute jobs) via **one**
   `yfinance` multi-ticker batch download (now `clients.shared_bars_cache.get_or_fetch_bars_batch` -- see "Shared Yahoo bars cache" below; originally `yahoo_cache.get_or_fetch_price_history_batch`),
   then runs the engine and upserts per ticker -- never one live fetch per ticker. Makes zero FMP
-  calls, so unlike `nightly_fundamentals_fetch.py`/`monthly_price_target_snapshot.py` it needs no
+  calls, so unlike `nightly_fundamentals_fetch.py`/`nightly_price_target_snapshot.py` it needs no
   `if not settings.fmp_enabled: ...` guard at all (there's no FMP-gated work to skip). Wired into
   `core/cron_health.py`'s `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS` as the 12th job.
 - **API / Watchlist surfacing**: `GET /api/tickers/{ticker}/trend-analysis` (standalone endpoint,
@@ -3113,7 +3113,7 @@ independent of price (TradingView's convention) -- see "Fixed-row placement" bel
 
 ## Price-target snapshot: daily + methodology (2026-09-26)
 
-`pipeline.monthly_price_target_snapshot` (name kept) now runs **daily 02:10**, fetches through the shared
+`pipeline.nightly_price_target_snapshot` (renamed from `monthly_price_target_snapshot` 2026-09-27) now runs **daily 02:10**, fetches through the shared
 `price_target_consensus` cache (1-day staleness), upserts one row per `(ticker, snapshot_date)` (unique index),
 and tags rows `methodology='live_consensus'`. The 32,764 backfill rows are `legacy_all_analysts` (all analysts
 since 2021, no recency cutoff -- not comparable to FMP's ~180-day live consensus), and the Price Target Trend chart

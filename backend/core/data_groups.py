@@ -77,7 +77,7 @@ GROUPS: dict[str, GroupMeta] = {
     ),
     "analyst_ratings": GroupMeta(
         "Analyst ratings", "Premium", True, True,
-        ("Analyst Ratings tab", "Watchlist rating column", "Monthly price-target snapshot"),
+        ("Analyst Ratings tab", "Watchlist rating column", "Nightly price-target snapshot"),
     ),
     "segmentation": GroupMeta("Segmentation", "Premium", True, True, ("Segmentation card",)),
     "news": GroupMeta("News", "Starter", True, True, ("News tab",)),

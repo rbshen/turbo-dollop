@@ -180,7 +180,7 @@
 35 1 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.purge_invalid_tickers >> /home/shen/fathom/backend/logs/purge_invalid_tickers_cron.log 2>&1
 
 # Daily price-target-consensus snapshot, 2:10 AM server time (was monthly,
-# 3:00 on the 1st, until 2026-09-26; the module/job name keeps "monthly").
+# 3:00 on the 1st, until 2026-09-26; renamed from monthly_price_target_snapshot 2026-09-27).
 # FMP has no historical price-target series of its own, so this accumulates
 # one for the Analyst Ratings tab's price-target history line and
 # Recommendation Details "N ago" Target column. ~566 calls at 220 req/min
@@ -188,7 +188,7 @@
 # before the 3:10 trend job. Fetches through the shared price_target_consensus
 # cache (1-day staleness); a same-day re-run updates that day's row.
 # Skips (recorded as "skipped") while the `analyst_ratings` data group is off.
-10 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.monthly_price_target_snapshot >> /home/shen/fathom/backend/logs/monthly_price_target_snapshot_cron.log 2>&1
+10 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_price_target_snapshot >> /home/shen/fathom/backend/logs/nightly_price_target_snapshot_cron.log 2>&1
 
 # Monthly Momentum snapshot (3mo/6mo/12mo composite trailing-return ranking
 # over the Moat-rated universe), 3:05 AM server time -- staggered from the
