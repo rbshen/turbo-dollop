@@ -14,18 +14,17 @@ with no flat band; the +/-1% flat band here is new).
 Rules (all thresholds are named parameters, see SimParams):
   Slope of each MA: 5-week % change; within +/-flat_band_pct = flat, above =
     rising, below = falling.
-  Volume baseline: trailing vol_avg_weeks average, EXCLUDING the current week.
+  Volume baseline: trailing vol_avg_weeks average, EXCLUDING the current week (only the 2->3 rule uses it).
   Swing high/low: fractal, strictly greater/lower than the `swing_n` weeks
     before AND after; confirmed swing_n weeks late (no lookahead).
   1->2 breakout: close > highest swing high formed since the Stage-1 run began,
-    volume >= breakout_vol_mult x avg, close above all three MAs, all three
-    MAs flat or rising.
+    close above all three MAs, all three MAs flat or rising (no volume test).
   2->3: close < 10wk MA and volume >= breakdown_vol_mult x avg.
   3->4: close < lowest swing low formed since the Stage-3 run began.
   4->1: 30wk MA slope becomes flat.
   1->4 failed base: in Stage 1, close < lowest close of the preceding Stage-4 run.
   3->2 failed top: in Stage 3, close > highest high since the Stage-3 run began
-    (prior weeks only) on volume >= breakout_vol_mult x avg.
+    (prior weeks only); no volume test.
   Nothing else moves the stage. Startup: above all 3 MAs and none falling -> 2;
   below all 3 and none rising -> 4; else 3 if close > 30wk MA else 1.
 
@@ -57,9 +56,8 @@ class SimParams:
     ma_long_len: int = 40
     ma_type: str = "SMA"
     slope_lookback_weeks: int = 5
-    flat_band_pct: float = 1.0
+    flat_band_pct: float = 5.0
     vol_avg_weeks: int = 10
-    breakout_vol_mult: float = 2.0
     breakdown_vol_mult: float = 1.0
     swing_n: int = 3
 
@@ -144,7 +142,7 @@ def run_state_machine(weekly: pd.DataFrame, p: SimParams) -> tuple[pd.DataFrame,
                 if not idx:
                     stats["no_swing_yet_weeks"] += 1
                 elif (
-                    c[i] > max(h[j] for j in idx) and vol_ok(p.breakout_vol_mult) and above_all
+                    c[i] > max(h[j] for j in idx) and above_all
                     and all(x in ("flat", "rising") for x in s)
                 ):
                     new, why = 2, "1->2 breakout"
@@ -152,7 +150,7 @@ def run_state_machine(weekly: pd.DataFrame, p: SimParams) -> tuple[pd.DataFrame,
             if c[i] < ma10.iloc[i] and vol_ok(p.breakdown_vol_mult):
                 new, why = 3, "2->3 close < 10wk MA on volume"
         elif stage == 3:
-            if i > run_start and c[i] > h[run_start:i].max() and vol_ok(p.breakout_vol_mult):
+            if i > run_start and c[i] > h[run_start:i].max():
                 new, why = 2, "3->2 failed-top edge case"
             else:
                 idx = [j for j in range(run_start, lim + 1) if swing_lo[j]] if lim >= run_start else []
