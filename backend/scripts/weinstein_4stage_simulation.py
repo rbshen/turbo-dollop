@@ -1,32 +1,20 @@
-"""Standalone research script: a sticky Weinstein 4-stage STATE MACHINE on
-weekly bars, compared against production's `weinstein_stage`.
+"""Standalone research script: a faithful port of a Pine Script `sState` Weinstein
+stage engine (sticky branch only, tsMode=false) on weekly bars, compared -- as
+data only -- against production's `weinstein_stage`.
 
 NOT wired into any cron job, API route, or the app. Read-only against the real
 DB (SharedBarsCache for bars, TrendAnalysis for the production stage) -- it
-never writes. Refinement of the per-week snapshot classifier in ddaabda.
+never writes. Full rewrite; replaces the earlier three-MA/swing-based version.
 
-Shared with production: bars come from the same daily SharedBarsCache rows the
-nightly trend job reads, resampled by production's resample_to_weekly. The
-"5-week % change of the MA" slope matches production's definition (production
-only applies it to the 30-week MA, and calls slope > 0 rising / < 0 falling
-with no flat band; the +/-1% flat band here is new).
-
-Rules (all thresholds are named parameters, see SimParams):
-  Slope of each MA: 5-week % change; within +/-flat_band_pct = flat, above =
-    rising, below = falling.
-  Volume baseline: trailing vol_avg_weeks average, EXCLUDING the current week (only the 2->3 rule uses it).
-  Swing high/low: fractal, strictly greater/lower than the `swing_n` weeks
-    before AND after; confirmed swing_n weeks late (no lookahead).
-  1->2 breakout: close > highest swing high formed since the Stage-1 run began,
-    close above all three MAs, all three MAs flat or rising (no volume test).
-  2->3: close < 10wk MA and volume >= breakdown_vol_mult x avg.
-  3->4: close < lowest swing low formed since the Stage-3 run began.
-  4->1: 30wk MA slope becomes flat.
-  1->4 failed base: in Stage 1, close < lowest close of the preceding Stage-4 run.
-  3->2 failed top: in Stage 3, close > highest high since the Stage-3 run began
-    (prior weeks only); no volume test.
-  Nothing else moves the stage. Startup: above all 3 MAs and none falling -> 2;
-  below all 3 and none rising -> 4; else 3 if close > 30wk MA else 1.
+Stage engine (weekly):
+  m = MA(close, ma_length); m_prev = m shifted slope_lookback weeks;
+  valid = m and m_prev both present; slope_pct = (m - m_prev)/m_prev*100;
+  rising/falling = slope_pct >/< 0; above/below_band = close beyond
+  m*(1 +/- within_range_pct/100). Next state is a function of the previous
+  state (1 Base, 2 Advance, 3 Top, 4 Decline); nothing is assigned until valid.
+Volume/RS never gate the state machine. They only produce `confirmed_breakout`:
+  a transition INTO Advance with volume_ratio >= volume_mult AND
+  (mansfield_rs is NaN OR > 0). Mansfield RS is measured against SPY.
 
 Run from backend/:  uv run python -m scripts.weinstein_4stage_simulation
 """
@@ -45,21 +33,22 @@ from core.db import engine
 from core.models import TrendAnalysis
 
 TICKERS = ["META", "AAPL", "HWM", "BKNG", "GOOGL"]
-STAGE_NAMES = {1: "S1 Basing", 2: "S2 Advancing", 3: "S3 Topping", 4: "S4 Declining"}
+STAGE_NAMES = {1: "S1 Base", 2: "S2 Advance", 3: "S3 Top", 4: "S4 Decline"}
 PROD_TO_NUM = {"base": 1, "advance": 2, "top": 3, "decline": 4}
 
 
 @dataclass
 class SimParams:
-    ma_short_len: int = 10
-    ma_mid_len: int = 30
-    ma_long_len: int = 40
-    ma_type: str = "SMA"
-    slope_lookback_weeks: int = 5
-    flat_band_pct: float = 5.0
-    vol_avg_weeks: int = 10
-    breakdown_vol_mult: float = 1.0
-    swing_n: int = 3
+    ma_length: int = 30
+    ma_type: str = "EMA"
+    within_range_pct: float = 5.0
+    slope_lookback: int = 5
+    use_volume_confirmation: bool = True
+    volume_mult: float = 2.0
+    volume_avg_length: int = 50
+    use_rs_confirmation: bool = True
+    rs_benchmark: str = "SPY"
+    rs_smoothing_length: int = 52
 
 
 def compute_ma(close: pd.Series, length: int, ma_type: str) -> pd.Series:
@@ -70,113 +59,91 @@ def compute_ma(close: pd.Series, length: int, ma_type: str) -> pd.Series:
     raise ValueError(f"ma_type must be SMA or EMA, got {ma_type!r}")
 
 
-def slope_class(ma: pd.Series, lookback: int, band: float) -> pd.Series:
-    pct = (ma / ma.shift(lookback) - 1.0) * 100.0
-    out = pd.Series(np.where(pct > band, "rising", np.where(pct < -band, "falling", "flat")), index=ma.index)
-    return out.where(pct.notna())
+def next_state(prev: int | None, rising: bool, falling: bool, above: bool, below: bool) -> int:
+    if prev is None:  # first valid week
+        if rising and above:
+            return 2
+        if falling and below:
+            return 4
+        return 3 if (rising or above) else 1
+    if prev == 2:
+        if falling and below:
+            return 4
+        return 3 if not rising else 2
+    if prev == 3:
+        if rising and above:
+            return 2
+        if falling and below:
+            return 4
+        return 3
+    if prev == 4:
+        if rising and above:
+            return 2
+        return 1 if not falling else 4
+    # prev == 1
+    if falling and below:
+        return 4
+    if rising and above:
+        return 2
+    return 1
 
 
-def find_swings(high: pd.Series, low: pd.Series, n: int) -> tuple[np.ndarray, np.ndarray]:
-    """Fractal swing flags by ITS OWN week index. Index i is a swing only if it
-    beats the n weeks before and n after; the caller must not act on it until
-    week i+n (see confirmed_at usage in run_state_machine)."""
-    h, l = high.to_numpy(), low.to_numpy()
-    sh, sl = np.zeros(len(h), bool), np.zeros(len(h), bool)
-    for i in range(n, len(h) - n):
-        nb_h = np.r_[h[i - n : i], h[i + 1 : i + n + 1]]
-        nb_l = np.r_[l[i - n : i], l[i + 1 : i + n + 1]]
-        sh[i] = h[i] > nb_h.max()
-        sl[i] = l[i] < nb_l.min()
-    return sh, sl
+def run_engine(weekly: pd.DataFrame, bench_close: pd.Series | None, p: SimParams) -> tuple[pd.DataFrame, list[dict]]:
+    close, vol = weekly["close"], weekly["volume"]
+    m = compute_ma(close, p.ma_length, p.ma_type)
+    m_prev = m.shift(p.slope_lookback)
+    valid = (m.notna() & m_prev.notna()).to_numpy()
+    slope = (m - m_prev) / m_prev * 100.0
+    band = p.within_range_pct / 100.0
+    rising = (slope > 0).to_numpy() & valid
+    falling = (slope < 0).to_numpy() & valid
+    above = (close > m * (1 + band)).to_numpy() & valid
+    below = (close < m * (1 - band)).to_numpy() & valid
 
+    vol_avg = vol.rolling(p.volume_avg_length, min_periods=p.volume_avg_length).mean()
+    vol_ratio = vol / vol_avg
+    vol_ok = (vol_ratio >= p.volume_mult).to_numpy() if p.use_volume_confirmation else np.ones(len(close), bool)
 
-def run_state_machine(weekly: pd.DataFrame, p: SimParams) -> tuple[pd.DataFrame, list[dict], dict]:
-    close, high, low, vol = weekly["close"], weekly["high"], weekly["low"], weekly["volume"]
-    ma10 = compute_ma(close, p.ma_short_len, p.ma_type)
-    ma30 = compute_ma(close, p.ma_mid_len, p.ma_type)
-    ma40 = compute_ma(close, p.ma_long_len, p.ma_type)
-    sl10, sl30, sl40 = (slope_class(m, p.slope_lookback_weeks, p.flat_band_pct) for m in (ma10, ma30, ma40))
-    vol_avg = vol.shift(1).rolling(p.vol_avg_weeks, min_periods=p.vol_avg_weeks).mean()
-    swing_hi, swing_lo = find_swings(high, low, p.swing_n)
+    if bench_close is not None:
+        rs_ratio = close / bench_close.reindex(close.index)
+        rs_sma = rs_ratio.rolling(p.rs_smoothing_length, min_periods=p.rs_smoothing_length).mean()
+        mansfield = (rs_ratio / rs_sma - 1.0) * 100.0
+    else:
+        mansfield = pd.Series(np.nan, index=close.index)
+    rs_ok = (mansfield.isna() | (mansfield > 0)).to_numpy() if p.use_rs_confirmation else np.ones(len(close), bool)
 
-    valid = (sl10.notna() & sl30.notna() & sl40.notna()).to_numpy()
-    c, h, lo = close.to_numpy(), high.to_numpy(), low.to_numpy()
-    n = len(weekly)
+    n = len(close)
     stages = np.full(n, np.nan)
+    breakout = np.zeros(n, bool)
     transitions: list[dict] = []
-    stats = {"no_swing_yet_weeks": 0, "no_prior_s4_weeks": 0, "flipflops": 0}
-
-    stage, run_start, prev_s4_trough = None, 0, None
+    state: int | None = None
     for i in range(n):
         if not valid[i]:
             continue
-        above_all = c[i] > max(ma10.iloc[i], ma30.iloc[i], ma40.iloc[i])
-        below_all = c[i] < min(ma10.iloc[i], ma30.iloc[i], ma40.iloc[i])
-        s = (sl10.iloc[i], sl30.iloc[i], sl40.iloc[i])
-        vavg = vol_avg.iloc[i]
-        vol_ok = lambda mult: bool(pd.notna(vavg) and vavg > 0 and vol.iloc[i] >= mult * vavg)  # noqa: E731
+        new = next_state(state, bool(rising[i]), bool(falling[i]), bool(above[i]), bool(below[i]))
+        if state is not None and new != state:
+            conf = new == 2 and bool(vol_ok[i]) and bool(rs_ok[i])
+            breakout[i] = conf
+            transitions.append({"date": weekly.index[i], "from": state, "to": new, "confirmed": conf})
+        state = new
+        stages[i] = state
 
-        if stage is None:  # startup
-            if above_all and "falling" not in s:
-                stage, why = 2, "startup: above all MAs, none falling"
-            elif below_all and "rising" not in s:
-                stage, why = 4, "startup: below all MAs, none rising"
-            else:
-                stage, why = (3, "startup: nearest-zone, above 30wk") if c[i] > ma30.iloc[i] else (1, "startup: nearest-zone, below 30wk")
-            run_start = i
-            transitions.append({"date": weekly.index[i], "from": None, "to": stage, "trigger": why})
-            stages[i] = stage
-            continue
-
-        new, why = stage, None
-        # swings usable now: formed at or after run start, confirmed (idx + swing_n) <= i
-        lim = i - p.swing_n
-        if stage == 1:
-            failed_base = prev_s4_trough is not None and c[i] < prev_s4_trough
-            if prev_s4_trough is None:
-                stats["no_prior_s4_weeks"] += 1
-            if failed_base:
-                new, why = 4, "1->4 failed-base edge case"
-            else:
-                idx = [j for j in range(run_start, lim + 1) if swing_hi[j]] if lim >= run_start else []
-                if not idx:
-                    stats["no_swing_yet_weeks"] += 1
-                elif (
-                    c[i] > max(h[j] for j in idx) and above_all
-                    and all(x in ("flat", "rising") for x in s)
-                ):
-                    new, why = 2, "1->2 breakout"
-        elif stage == 2:
-            if c[i] < ma10.iloc[i] and vol_ok(p.breakdown_vol_mult):
-                new, why = 3, "2->3 close < 10wk MA on volume"
-        elif stage == 3:
-            if i > run_start and c[i] > h[run_start:i].max():
-                new, why = 2, "3->2 failed-top edge case"
-            else:
-                idx = [j for j in range(run_start, lim + 1) if swing_lo[j]] if lim >= run_start else []
-                if not idx:
-                    stats["no_swing_yet_weeks"] += 1
-                elif c[i] < min(lo[j] for j in idx):
-                    new, why = 4, "3->4 break below swing low"
-        elif stage == 4 and sl30.iloc[i] == "flat":
-            new, why = 1, "4->1 30wk MA slope flat"
-
-        if new != stage:
-            if stage == 4:  # leaving Stage 4: remember its lowest close
-                prev_s4_trough = float(c[run_start : i + 1].min())
-            if why == "1->4 failed-base edge case" and transitions and transitions[-1]["trigger"].startswith("4->1") and transitions[-1]["date"] == weekly.index[i - 1]:
-                stats["flipflops"] += 1
-            transitions.append({"date": weekly.index[i], "from": stage, "to": new, "trigger": why})
-            stage, run_start = new, i
-        stages[i] = stage
-
-    df = pd.DataFrame({"close": close, "ma10": ma10, "ma30": ma30, "ma40": ma40, "sl30": sl30, "stage": stages}, index=weekly.index)
-    return df, transitions, stats
+    df = pd.DataFrame(
+        {"close": close, "ma": m, "slope_pct": slope, "stage": stages, "volume_ratio": vol_ratio,
+         "mansfield_rs": mansfield, "confirmed_breakout": breakout},
+        index=weekly.index,
+    )
+    return df, transitions
 
 
-def load_weekly(session: Session, tickers: list[str]) -> dict[str, pd.DataFrame]:
+def load_weekly(session: Session, tickers: list[str], years: int) -> dict[str, pd.DataFrame]:
     frames = _load_frames(session, tickers, "1d", date(1990, 1, 1))
-    return {t: resample_to_weekly(f) for t, f in frames.items()}
+    cutoff = pd.Timestamp(datetime.now() - timedelta(days=365 * years))
+    out = {}
+    for t, f in frames.items():
+        w = resample_to_weekly(f)
+        out[t] = w[w.index >= cutoff]
+    return out
 
 
 def production_stage(session: Session, ticker: str):
@@ -192,14 +159,23 @@ def main() -> None:
     ap.add_argument("--years", type=int, default=5)
     d = SimParams()
     for f, v in d.__dict__.items():
-        ap.add_argument("--" + f.replace("_", "-"), type=type(v), default=v)
+        if isinstance(v, bool):
+            ap.add_argument("--" + f.replace("_", "-"), type=lambda s: s.lower() in ("1", "true", "yes"), default=v)
+        else:
+            ap.add_argument("--" + f.replace("_", "-"), type=type(v), default=v)
     a = ap.parse_args()
     p = SimParams(**{f: getattr(a, f) for f in d.__dict__})
 
     print(f"params: {p}")
-    cutoff = pd.Timestamp(datetime.now() - timedelta(days=365 * a.years))
     with Session(engine) as session:
-        weeklies = load_weekly(session, a.tickers)
+        weeklies = load_weekly(session, a.tickers + [p.rs_benchmark], a.years)
+        bench = weeklies.get(p.rs_benchmark)
+        if bench is None or bench.empty:
+            print(f"DATA ISSUE: no {p.rs_benchmark} bars; Mansfield RS will be NaN (counts as OK)")
+            bench_close = None
+        else:
+            bench_close = bench["close"]
+            print(f"benchmark {p.rs_benchmark}: {bench.index[0].date()}..{bench.index[-1].date()} ({len(bench)} weeks)")
         for t in a.tickers:
             print(f"\n=== {t} ===")
             weekly = weeklies.get(t)
@@ -207,34 +183,39 @@ def main() -> None:
                 print("  DATA ISSUE: no cached daily bars")
                 continue
             gaps = int((weekly.index.to_series().diff().dt.days > 10).sum())
-            v = weekly["volume"]
+            missing_bench = int(bench_close.reindex(weekly.index).isna().sum()) if bench_close is not None else len(weekly)
             print(
-                f"  bars: {weekly.index[0].date()}..{weekly.index[-1].date()} ({len(weekly)} weeks), "
-                f"gaps>10d: {gaps}, volume NaN/zero weeks: {int(v.isna().sum())}/{int((v == 0).sum())}"
+                f"  bars: {weekly.index[0].date()}..{weekly.index[-1].date()} ({len(weekly)} weeks), gaps>10d: {gaps}, "
+                f"weeks without {p.rs_benchmark} bar: {missing_bench}, volume NaN/zero weeks: "
+                f"{int(weekly['volume'].isna().sum())}/{int((weekly['volume'] == 0).sum())}"
             )
-            df, trans, stats = run_state_machine(weekly, p)
-            classified = df.dropna(subset=["stage"])
-            print(f"  classified weeks: {len(classified)} of {len(weekly)} (first: {classified.index[0].date() if len(classified) else 'none'})")
-            if classified.empty:
+            df, trans = run_engine(weekly, bench_close, p)
+            cl = df.dropna(subset=["stage"])
+            if cl.empty:
                 print("  DATA ISSUE: insufficient history")
                 continue
+            print(f"  first classifiable week: {cl.index[0].date()} ({len(cl)} classified of {len(weekly)})")
+            print(f"  first volume-ratio week: {df['volume_ratio'].first_valid_index().date() if df['volume_ratio'].notna().any() else 'never'}; "
+                  f"first Mansfield RS week: {df['mansfield_rs'].first_valid_index().date() if df['mansfield_rs'].notna().any() else 'never'}")
+            print(f"  first classified stage: {STAGE_NAMES[int(cl['stage'].iloc[0])]}")
             for tr in trans:
-                old = STAGE_NAMES[tr["from"]] if tr["from"] else "start"
-                print(f"    {tr['date'].date()}  {old} -> {STAGE_NAMES[tr['to']]}   [{tr['trigger']}]")
-            print(
-                f"  transitions (excl. startup): {len(trans) - 1}; weeks a swing-based trigger couldn't be evaluated "
-                f"(no confirmed swing yet): {stats['no_swing_yet_weeks']}; weeks in S1 with no prior S4 trough: "
-                f"{stats['no_prior_s4_weeks']}; 4->1->4 immediate flip-flops: {stats['flipflops']}"
-            )
-            sim_now = int(classified["stage"].iloc[-1])
-            last = classified.iloc[-1]
-            print(f"  current sim stage: {STAGE_NAMES[sim_now]} (close {last['close']:.2f}, 30wk MA {last['ma30']:.2f}, 30wk slope {last['sl30']})")
+                print(f"    {tr['date'].date()}  {STAGE_NAMES[tr['from']]} -> {STAGE_NAMES[tr['to']]}{'  [confirmed breakout]' if tr['confirmed'] else ''}")
+            print(f"  transitions (excl. startup): {len(trans)}")
+            bo = df[df["confirmed_breakout"]]
+            if bo.empty:
+                print("  confirmed breakouts: none")
+            for dt, r in bo.iterrows():
+                rs = "NaN" if pd.isna(r["mansfield_rs"]) else f"{r['mansfield_rs']:.2f}"
+                print(f"  confirmed breakout {dt.date()}: volume_ratio={r['volume_ratio']:.2f}, mansfield_rs={rs}")
+            sim_now = int(cl["stage"].iloc[-1])
+            last = cl.iloc[-1]
+            print(f"  current sim stage: {STAGE_NAMES[sim_now]} (close {last['close']:.2f}, MA {last['ma']:.2f}, slope {last['slope_pct']:.2f}%)")
             prod = production_stage(session, t)
             if prod is None or prod[0] is None:
                 print(f"  production: no weinstein_stage on record ({prod})")
             else:
                 pnum = PROD_TO_NUM[prod[0]]
-                print(f"  production: {STAGE_NAMES[pnum]} since {prod[1]} -> {'agree' if pnum == sim_now else '*** DISAGREE ***'}")
+                print(f"  production: {STAGE_NAMES[pnum]} since {prod[1]} (informational)")
 
 
 if __name__ == "__main__":
