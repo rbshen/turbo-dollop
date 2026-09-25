@@ -60,11 +60,13 @@ this module embodies:
     `ChartOut.source` reflects whichever source actually answered
     ("massive" or "yahoo"), per-request -- not a fixed literal any more.
 
-3b. **D_6M/D_1Y/D_2Y are FMP-first for US-listed tickers (P2, 2026-09-24).**
-    `/historical-price-eod/full` (daily_prices group; split- AND spin-off-
-    adjusted, not dividend-adjusted) is tried first, live and uncached like
-    everything else here; an empty answer, an error, or the group being off
-    (or a non-US listing) falls through to the Massive -> Yahoo chain of 3a.
+3b. **D_6M/D_1Y/D_2Y are FMP-first (P2 US, 2026-09-24; non-US added in P3, 2026-09-25).**
+    `/historical-price-eod/full` (`daily_prices` group for a US listing,
+    `daily_prices_intl` for a non-US one, whose phantom holiday/weekend bars are
+    dropped; split- AND spin-off-adjusted, not dividend-adjusted) is tried first,
+    live and uncached like everything else here; an empty answer, an error, or
+    the group being off falls through to the Massive -> Yahoo chain of 3a (Massive
+    is skipped for a non-US listing, as before).
     `ChartOut.source` is "fmp" | "massive" | "yahoo". W_4Y stays Yahoo-only
     (P3).
 
@@ -232,9 +234,16 @@ async def _fetch_bars(ticker: str, range_key: str) -> tuple[pd.DataFrame, str]:
     end = date.today()
     start = end - timedelta(days=cfg["massive_lookback_days"])
 
-    if is_us_listed(ticker, _profile_exchanges([ticker]).get(ticker)) and group_live("daily_prices"):
+    # FMP first, for US AND non-US listings (P3): a US listing is gated on `daily_prices`, a
+    # non-US one on `daily_prices_intl` (whose rows also lose FMP's phantom holiday/weekend bars).
+    us_listed = is_us_listed(ticker, _profile_exchanges([ticker]).get(ticker))
+    fmp_group = "daily_prices" if us_listed else "daily_prices_intl"
+    if group_live(fmp_group):
         try:
-            df = fmp_rows_to_frame(await fmp_client.get_historical_price_eod(ticker, start.isoformat(), end.isoformat()))
+            df = fmp_rows_to_frame(
+                await fmp_client.get_historical_price_eod(ticker, start.isoformat(), end.isoformat(), group=fmp_group),
+                non_us=not us_listed,
+            )
         except (httpx.HTTPError, ValueError):
             logger.warning("FMP daily-bar fetch failed for %s (%s); falling back", ticker, range_key)
             df = pd.DataFrame()
