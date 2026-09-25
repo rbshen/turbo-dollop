@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import type { MarketBreadthPointOut } from "@/lib/api/types";
 import {
+  clampWindowStart,
   defaultWindowStart,
   firstLiveIndex,
   fmtAxisMonth,
   fmtBreadthPct,
   fmtSignedCount,
+  panWindowStart,
   isKnownSectorTicker,
   SECTOR_ETFS,
   sectorDisplayName,
@@ -75,4 +77,26 @@ describe("defaultWindowStart", () => {
     expect(defaultWindowStart(mk(["2026-02-13", "2026-09-25"]))).toBe(0);
   });
   it("handles empty", () => expect(defaultWindowStart([])).toBe(0));
+});
+
+describe("clampWindowStart / panWindowStart", () => {
+  it("clamps to [0, length - width]", () => {
+    expect(clampWindowStart(-5, 100, 40)).toBe(0);
+    expect(clampWindowStart(99, 100, 40)).toBe(60);
+    expect(clampWindowStart(30, 100, 40)).toBe(30);
+  });
+  it("a window as wide as the history can only start at 0", () => {
+    expect(clampWindowStart(7, 154, 154)).toBe(0);
+    expect(panWindowStart(0, -500, 5, 154, 154)).toBe(0);
+    expect(panWindowStart(0, 500, 5, 154, 154)).toBe(0);
+  });
+  it("drag left reveals older rows, drag right moves toward now", () => {
+    expect(panWindowStart(60, -50, 5, 100, 40)).toBe(50);
+    expect(panWindowStart(50, 25, 5, 100, 40)).toBe(55);
+  });
+  it("clamps at both edges and tolerates a zero-width measurement", () => {
+    expect(panWindowStart(10, -1000, 5, 100, 40)).toBe(0);
+    expect(panWindowStart(50, 1000, 5, 100, 40)).toBe(60);
+    expect(panWindowStart(30, 99, 0, 100, 40)).toBe(30);
+  });
 });

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { cloneElement, type ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -72,3 +72,91 @@ describe("MarketBreadthCharts", () => {
     expect(linePanel().querySelectorAll("path.recharts-line-curve")).toHaveLength(3);
   });
 });
+
+// A daily series (weekends included -- only the ordering matters) of `n` rows ending 2026-09-24, so the
+// trailing-year window is 366 rows when n > 366.
+function longSeries(n: number): MarketBreadthPointOut[] {
+  const end = Date.UTC(2026, 8, 24);
+  return Array.from({ length: n }, (_, i) =>
+    point(new Date(end - (n - 1 - i) * 86_400_000).toISOString().slice(0, 10), { net_new_highs: i % 2 ? 3 : -3 })
+  );
+}
+
+function netPanel(): HTMLElement {
+  return screen.getByRole("img", { name: /Net new 52-week highs/ });
+}
+const bars = () => netPanel().querySelectorAll(".recharts-bar-rectangle").length;
+const ticks = (el: HTMLElement) => Array.from(el.querySelectorAll(".recharts-xAxis .recharts-cartesian-axis-tick-value")).map((t) => t.textContent);
+const windowOf = (c: HTMLElement) => (c.firstElementChild as HTMLElement).dataset.window!;
+
+function renderPannable(n: number) {
+  const { container } = render(<MarketBreadthCharts series={longSeries(n)} />);
+  const root = container.firstElementChild as HTMLElement;
+  root.getBoundingClientRect = () => ({ width: 800, height: 500, x: 0, y: 0, top: 0, left: 0, right: 800, bottom: 500, toJSON() {} });
+  return { container, root };
+}
+const drag = (root: HTMLElement, dx: number) => {
+  fireEvent.pointerDown(root, { clientX: 400, button: 0, pointerId: 1 });
+  fireEvent.pointerMove(root, { clientX: 400 + dx, pointerId: 1 });
+  fireEvent.pointerUp(root, { pointerId: 1 });
+};
+
+// 366-bar charts re-render on every pointer move under jsdom, so these are slow.
+vi.setConfig({ testTimeout: 30_000 });
+
+describe("MarketBreadthCharts drag-to-pan", () => {
+  it("opens on the trailing year and the bar panel draws a bar for every visible row (the empty-panel regression)", () => {
+    const { container } = renderPannable(800);
+    const [first, last] = windowOf(container).split("..");
+    expect(last).toBe("2026-09-24");
+    expect(first).toBe("2025-09-24");
+    expect(bars()).toBe(366);
+  });
+
+  it("drag left pans to older rows, drag right pans back; both panels stay on the same slice", () => {
+    const { container, root } = renderPannable(800);
+    const before = windowOf(container);
+    drag(root, -400); // 400px at 800px / 366 rows ~ 183 rows older
+    const older = windowOf(container);
+    expect(older).not.toBe(before);
+    expect(older.split("..")[1] < before.split("..")[1]).toBe(true);
+    expect(bars()).toBe(366);
+    expect(ticks(netPanel())).toEqual(ticks(linePanel()));
+    drag(root, 400);
+    expect(windowOf(container)).toBe(before);
+  });
+
+  it("clamps at the oldest stored session and at now", () => {
+    const { container, root } = renderPannable(800);
+    drag(root, -100_000);
+    expect(windowOf(container).split("..")[0]).toBe(longSeries(800)[0].as_of_date);
+    expect(bars()).toBe(366);
+    drag(root, 100_000);
+    expect(windowOf(container).split("..")[1]).toBe("2026-09-24");
+    expect(bars()).toBe(366);
+  });
+
+  it("a short-history universe shows everything and has nothing to pan", () => {
+    const { container, root } = renderPannable(154);
+    const before = windowOf(container);
+    expect(bars()).toBe(154);
+    drag(root, -500);
+    drag(root, 500);
+    expect(windowOf(container)).toBe(before);
+    expect(bars()).toBe(154);
+  });
+
+  it("a background refresh that appends a session keeps an in-progress pan; a new universe resets", () => {
+    const s = longSeries(800);
+    const { container, rerender } = render(<MarketBreadthCharts series={s} />);
+    const root = container.firstElementChild as HTMLElement;
+    root.getBoundingClientRect = () => ({ width: 800, height: 500, x: 0, y: 0, top: 0, left: 0, right: 800, bottom: 500, toJSON() {} });
+    drag(root, -400);
+    const panned = windowOf(container);
+    rerender(<MarketBreadthCharts series={[...s, point("2026-09-25")]} />);
+    expect(windowOf(container).split("..")[0]).toBe(panned.split("..")[0]);
+    rerender(<MarketBreadthCharts series={longSeries(500).map((p) => ({ ...p, as_of_date: p.as_of_date.replace("2026", "2027") }))} />);
+    expect(windowOf(container).split("..")[1]).toBe("2027-09-24");
+  });
+});
+

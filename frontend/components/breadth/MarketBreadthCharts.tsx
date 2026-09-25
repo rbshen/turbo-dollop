@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { Bar, BarChart, Brush, CartesianGrid, Cell, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from "recharts";
+import { useRef, useState } from "react";
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from "recharts";
 
 import { ChartLegend } from "@/components/charts/ChartLegend";
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 import type { MarketBreadthPointOut } from "@/lib/api/types";
 import { fmtEventDate } from "@/lib/chartEventMarkers";
 import { capXAxisTickInterval, computeNiceTicksRange } from "@/lib/charts";
-import { defaultWindowStart, firstLiveIndex, fmtAxisMonth, fmtBreadthPct, fmtSignedCount } from "@/lib/marketBreadth";
+import { clampWindowStart, defaultWindowStart, firstLiveIndex, fmtAxisMonth, fmtBreadthPct, fmtSignedCount, panWindowStart } from "@/lib/marketBreadth";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -106,19 +106,49 @@ function Panel({ title, subtitle, className, children }: { title: string; subtit
 // signed count, and a dual-axis chart would let either one masquerade as the other's scale. `syncId` links
 // the hover across both so one date reads across the whole page.
 //
-// Opens on the trailing year; the Brush under the SMA panel pans (drag the slide) or resizes the window over
-// the full history. Keyed by the series' first date so switching universe resets to that universe's own year.
+// Opens on the trailing year (or all history if shorter) and pans by dragging on the charts. The window is a
+// FIXED number of rows; ONE piece of state (`startDate`) positions it, and both panels are handed the very
+// same `visible` slice, so they cannot disagree. (A recharts <Brush> used to do this and broke the bar
+// panel: with `syncId` it broadcasts its start/end indices to the sibling chart, which applied them to its
+// own already-sliced data -- indices past the slice's end -- and drew no bars.) Keyed by the series' first
+// date so switching universe resets to that universe's own default.
 export function MarketBreadthCharts({ series }: Props) {
   return <BreadthChartsInner key={series[0]?.as_of_date ?? "empty"} series={series} />;
 }
 
 function BreadthChartsInner({ series }: Props) {
-  const [range, setRange] = useState<{ start: number; end: number } | null>(null);
-  const last = Math.max(0, series.length - 1);
-  const start = Math.min(range?.start ?? defaultWindowStart(series), last);
-  const end = Math.min(range?.end ?? last, last);
-  const visible = series.slice(start, end + 1);
+  // The pan position is held as a DATE (null = follow the newest session), not an index, so a background
+  // refresh that appends a session leaves an in-progress pan where the user put it.
+  const [startDate, setStartDate] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const drag = useRef<{ x: number; start: number; pxPerRow: number } | null>(null);
 
+  const length = series.length;
+  const width = length - defaultWindowStart(series); // fixed window size, in rows
+  const maxStart = Math.max(0, length - width);
+  const pinned = startDate === null ? -1 : series.findIndex((p) => p.as_of_date >= startDate);
+  const start = clampWindowStart(startDate === null || pinned < 0 ? maxStart : pinned, length, width);
+  const visible = series.slice(start, start + width);
+
+  const setStart = (i: number) => setStartDate(i >= maxStart ? null : series[i].as_of_date);
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || maxStart === 0) return; // nothing to pan
+    const w = e.currentTarget.getBoundingClientRect().width;
+    if (!(w > 0) || width === 0) return;
+    drag.current = { x: e.clientX, start, pxPerRow: w / width };
+    setDragging(true);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    if (!d) return;
+    setStart(panWindowStart(d.start, e.clientX - d.x, d.pxPerRow, length, width));
+  };
+  const endDrag = () => {
+    drag.current = null;
+    setDragging(false);
+  };
   const liveAt = firstLiveIndex(series);
   // Only a boundary worth marking when there IS a backfilled past before the first live session.
   const boundaryDate = liveAt > 0 ? series[liveAt].as_of_date : null;
@@ -138,7 +168,10 @@ function BreadthChartsInner({ series }: Props) {
       tick={TICK}
     />
   );
-  const boundary = boundaryDate && boundaryDate >= (visible[0]?.as_of_date ?? "") && (
+  const boundary = boundaryDate &&
+    visible.length > 0 &&
+    boundaryDate >= visible[0].as_of_date &&
+    boundaryDate <= visible[visible.length - 1].as_of_date && (
     <ReferenceLine
       x={boundaryDate}
       stroke="var(--color-text-tertiary)"
@@ -148,10 +181,18 @@ function BreadthChartsInner({ series }: Props) {
   );
 
   return (
-    <div className="space-y-4">
+    <div
+      className={cn("space-y-4 select-none", maxStart > 0 && (dragging ? "cursor-grabbing" : "cursor-grab"))}
+      style={{ touchAction: "pan-y" }}
+      data-window={`${visible[0]?.as_of_date ?? ""}..${visible[visible.length - 1]?.as_of_date ?? ""}`}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+    >
       <Panel title="Constituents above their moving average" subtitle="% of S&P 500 stocks closing above their own 20-, 50- and 200-day SMA">
         <ChartContainer config={config} className="aspect-auto w-full" style={{ height: CHART_HEIGHT }} role="img" aria-label="Percent of S&P 500 constituents above their 20-day, 50-day and 200-day moving averages over time">
-          <LineChart data={series} syncId={SYNC_ID} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+          <LineChart data={visible} syncId={SYNC_ID} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} stroke={GRID_COLOR} />
             {xAxis}
             <YAxis domain={[0, 100]} ticks={PCT_TICKS} width={Y_AXIS_WIDTH} tickLine={false} axisLine={false} tick={TICK} tickFormatter={(v: number) => `${v}%`} />
@@ -161,18 +202,6 @@ function BreadthChartsInner({ series }: Props) {
             <Line type="monotone" dataKey="pct_above_sma200" stroke={SMA200_COLOR} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} connectNulls={false} isAnimationActive={false} />
             <Line type="monotone" dataKey="pct_above_sma50" stroke={SMA50_COLOR} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} connectNulls={false} isAnimationActive={false} />
             <Line type="monotone" dataKey="pct_above_sma20" stroke={SMA20_COLOR} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} connectNulls={false} isAnimationActive={false} />
-            <Brush
-              dataKey="as_of_date"
-              height={24}
-              startIndex={start}
-              endIndex={end}
-              onChange={(r) => {
-                if (r.startIndex != null && r.endIndex != null) setRange({ start: r.startIndex, end: r.endIndex });
-              }}
-              tickFormatter={fmtAxisMonth}
-              stroke="var(--color-text-tertiary)"
-              fill="transparent"
-            />
           </LineChart>
         </ChartContainer>
         <ChartLegend
@@ -194,7 +223,7 @@ function BreadthChartsInner({ series }: Props) {
             {boundary}
             <Tooltip cursor={{ fill: "var(--color-text-tertiary)", fillOpacity: 0.12 }} content={<BreadthTooltip kind="net" />} isAnimationActive={false} />
             <Bar dataKey="net_new_highs" isAnimationActive={false}>
-              {series.map((p) => (
+              {visible.map((p) => (
                 <Cell key={p.as_of_date} fill={p.net_new_highs >= 0 ? "var(--color-positive)" : "var(--color-negative)"} />
               ))}
             </Bar>

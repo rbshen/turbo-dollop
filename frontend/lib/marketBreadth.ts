@@ -20,6 +20,19 @@ export function defaultWindowStart(series: MarketBreadthPointOut[]): number {
   return idx < 0 ? 0 : idx;
 }
 
+/** Clamp a window's first-row index so a `width`-row window stays inside `length` rows. When the whole
+ * history fits in one window (short-history universe) the only valid start is 0. */
+export function clampWindowStart(start: number, length: number, width: number): number {
+  return Math.max(0, Math.min(start, length - width));
+}
+
+/** New window start after a horizontal drag of `dxPx`. Dragging left (negative dx) reveals OLDER rows, so
+ * the start moves earlier; dragging right moves toward the newest session. Clamped at both ends. */
+export function panWindowStart(startAtDown: number, dxPx: number, pxPerRow: number, length: number, width: number): number {
+  if (!(pxPerRow > 0)) return clampWindowStart(startAtDown, length, width);
+  return clampWindowStart(startAtDown + Math.round(dxPx / pxPerRow), length, width);
+}
+
 /** The 11 SPDR sector ETFs, in the same order/display names as the Sector Heatmap
  * (backend/data/sector_heatmap_data.py::SECTOR_ETFS) -- kept in sync by hand, since the
  * frontend has no reason to fetch the heatmap just to read this fixed, rarely-changing list. */
