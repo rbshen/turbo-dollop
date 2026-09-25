@@ -3715,8 +3715,8 @@ new table; the real DB already has it from the smoke check).
   **For dividend payers the overlay's historical prices are higher than before** -- measured in the
   investigation: KO up to 36% (2016), SPY 17%, AAPL 9%; live KO 2016-12-30: **41.46 now vs 30.67
   before** (Yahoo `Close` 41.46, `Adj Close` 30.666). The Yahoo fall-through (group off with no
-  row, FMP error/empty) still returns `Adj Close`, i.e. the OLD basis, until P6 removes it; the
-  overlay is empty rather than an error if nothing answers. The dividend-adjusted endpoint was
+  row, FMP error/empty) reads Yahoo's split-only `Close` (auto_adjust=False; P3.7b), so the overlay
+  has the same basis whichever source answers; it is empty rather than an error if nothing answers. The dividend-adjusted endpoint was
   deliberately NOT added to the registry.
 - **10y views show FMP's spin-off-adjusted history** (T, WDC, FDX, EXC ... -- same accepted basis as
   Phase 2's nightly bars; see the P2 section's BASIS CHANGE). No splits-only endpoint exists.
@@ -3726,8 +3726,8 @@ new table; the real DB already has it from the smoke check).
   long-history HK row -- until its next bar exists. `_provisional_last_bar_tickers`'s 16:00 ET close
   makes an HK bar fetched between HK close and 16:10 ET read as provisional (irrelevant for the
   03:10 UTC cron). The trend job still asks for 2y of HK dailies (`weeks_available` stays 105);
-  the backfilled 5y rows are simply retained. Mixed history in the Yahoo fall-through
-  for the overlay (old basis) is documented above.
+  the backfilled 5y rows are simply retained. The overlay's Yahoo fall-through is on
+  the same split-only basis (see above).
 - **Smoke check (2026-09-25, direct function calls against the real DB and live FMP -- the running
   API is an old production build until restarted, so curl would exercise old code):** AAPL `W_4Y`
   cold: source `fmp`, 209 weekly bars 2022-09-26..2026-09-21, **1 FMP call**, 1.94 s; warm: same

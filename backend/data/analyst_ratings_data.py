@@ -131,12 +131,13 @@ async def _fetch_price_history(ticker: str) -> pd.Series:
     price line away from the target line it is compared to (measured before this change: KO up to
     36% lower in 2016, SPY 17%, AAPL 9%). It also matches the Chart tab. **The visible change:
     for dividend payers the overlay's historical prices are now higher than the Yahoo `Adj Close`
-    it used to show.** Not routed through SharedBarsCache (nightly, ~5y, pruned).
+    it used to show.** (Yahoo `Adj Close` was the pre-P3.7 basis; no path reads it any more.)
+    Not routed through SharedBarsCache (nightly, ~5y, pruned).
 
     FALL-THROUGH (until Yahoo is removed in P6): when the group is off with no stored row, or FMP
-    errors / answers empty, the previous Yahoo path runs unchanged -- `Adj Close` (dividend- AND
-    split-adjusted, auto_adjust=False read explicitly because yfinance's auto_adjust=True drops
-    the split-only `Close` column) -- so a Yahoo-served overlay is on the OLD basis. If that has
+    errors / answers empty, the Yahoo path runs, reading `Close` (split-only; auto_adjust=False is
+    passed explicitly because yfinance's auto_adjust=True rescales `Close` for dividends) -- so the
+    overlay has the same split-only basis whether FMP or Yahoo answers (P3.7b). If that has
     nothing either the overlay is simply empty."""
     try:
         daily = await get_long_history(ticker)
@@ -151,9 +152,9 @@ async def _fetch_price_history(ticker: str) -> pd.Series:
 
     result = await yahoo_client.get_history([ticker], period=PRICE_OVERLAY_FETCH_PERIOD, interval="1d", auto_adjust=False)
     frame = result.get(ticker)
-    if frame is None or frame.empty or "Adj Close" not in frame.columns:
+    if frame is None or frame.empty or "Close" not in frame.columns:
         return pd.Series(dtype=float)
-    series = frame["Adj Close"].dropna()
+    series = frame["Close"].dropna()
     if series.empty:
         return series
     index = pd.DatetimeIndex(series.index)

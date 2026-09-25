@@ -1,5 +1,5 @@
 """Analyst Ratings price overlay on FMP (P3.7): the long-history store's split-only closes,
-Yahoo `Adj Close` only as the fall-through."""
+Yahoo split-only `Close` (never `Adj Close`) as the fall-through."""
 
 import asyncio
 import json
@@ -63,11 +63,11 @@ def test_overlay_is_the_stores_split_only_close_and_yahoo_is_never_asked(monkeyp
 
 
 def test_basis_is_pinned_to_split_only_not_the_yahoo_adjusted_close(monkeypatch):
-    """The same day on both paths: FMP path says 60.0, the Yahoo fall-through says 40.0."""
+    """The same day on both paths: FMP path and the Yahoo fall-through both say 60.0 (Close, not the 40.0 Adj Close)."""
     monkeypatch.setattr(ard, "yahoo_client", _Yahoo(_yahoo_frame()))
     dg.set_group_enabled("daily_prices_long", False)  # no row -> Yahoo fall-through
     fallback = _run()
-    assert fallback.loc[pd.Timestamp("2016-06-01")] == 40.0
+    assert fallback.loc[pd.Timestamp("2016-06-01")] == 60.0
     _seed("KO", {date(2016, 6, 1): 60.0})
     dg.set_group_enabled("daily_prices_long", True)
     assert _run().loc[pd.Timestamp("2016-06-01")] == 60.0
@@ -108,7 +108,29 @@ def test_a_failing_store_falls_back_to_yahoo(monkeypatch):
 
     monkeypatch.setattr(ard, "get_long_history", boom)
     monkeypatch.setattr(ard, "yahoo_client", _Yahoo(_yahoo_frame()))
-    assert _run().loc[pd.Timestamp("2016-06-01")] == 40.0
+    assert _run().loc[pd.Timestamp("2016-06-01")] == 60.0
+
+
+def test_yahoo_fall_through_reads_close_and_requests_unadjusted(monkeypatch):
+    y = _Yahoo(_yahoo_frame())
+    seen = {}
+    orig = y.get_history
+
+    async def spy(tickers, period="2y", interval="1d", auto_adjust=True):
+        seen["auto_adjust"] = auto_adjust
+        return await orig(tickers, period=period, interval=interval, auto_adjust=auto_adjust)
+
+    y.get_history = spy
+    monkeypatch.setattr(ard, "yahoo_client", y)
+    dg.set_group_enabled("daily_prices_long", False)
+    series = _run()
+    assert seen["auto_adjust"] is False
+    assert list(series.values) == [60.0, 61.0]  # the Close column, never Adj Close
+
+    # A frame with only Adj Close is unusable, not silently substituted.
+    idx = pd.DatetimeIndex([pd.Timestamp("2016-06-01")])
+    monkeypatch.setattr(ard, "yahoo_client", _Yahoo(pd.DataFrame({"Adj Close": [40.0]}, index=idx)))
+    assert _run().empty
 
 
 def test_hk_ticker_overlay_works_through_the_intl_group(monkeypatch):
