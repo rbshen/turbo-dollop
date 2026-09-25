@@ -6,6 +6,20 @@ export function firstLiveIndex(series: MarketBreadthPointOut[]): number {
   return series.findIndex((p) => !p.is_backfilled);
 }
 
+/** Index of the first session inside the trailing year ending at the newest session (oldest-first rows).
+ * 0 when the whole history is a year or less -- a short-history universe just shows everything it has,
+ * never a padded window. */
+export function defaultWindowStart(series: MarketBreadthPointOut[]): number {
+  if (series.length === 0) return 0;
+  const last = new Date(`${series[series.length - 1].as_of_date}T00:00:00Z`);
+  if (Number.isNaN(last.getTime())) return 0;
+  const cutoff = new Date(last);
+  cutoff.setUTCFullYear(cutoff.getUTCFullYear() - 1);
+  const iso = cutoff.toISOString().slice(0, 10);
+  const idx = series.findIndex((p) => p.as_of_date >= iso);
+  return idx < 0 ? 0 : idx;
+}
+
 /** The 11 SPDR sector ETFs, in the same order/display names as the Sector Heatmap
  * (backend/data/sector_heatmap_data.py::SECTOR_ETFS) -- kept in sync by hand, since the
  * frontend has no reason to fetch the heatmap just to read this fixed, rarely-changing list. */

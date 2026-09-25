@@ -1,13 +1,14 @@
 "use client";
 
-import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from "recharts";
+import { useState } from "react";
+import { Bar, BarChart, Brush, CartesianGrid, Cell, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from "recharts";
 
 import { ChartLegend } from "@/components/charts/ChartLegend";
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 import type { MarketBreadthPointOut } from "@/lib/api/types";
 import { fmtEventDate } from "@/lib/chartEventMarkers";
 import { capXAxisTickInterval, computeNiceTicksRange } from "@/lib/charts";
-import { firstLiveIndex, fmtAxisMonth, fmtBreadthPct, fmtSignedCount } from "@/lib/marketBreadth";
+import { defaultWindowStart, firstLiveIndex, fmtAxisMonth, fmtBreadthPct, fmtSignedCount } from "@/lib/marketBreadth";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -104,11 +105,24 @@ function Panel({ title, subtitle, className, children }: { title: string; subtit
 // Two panels, never one shared axis: the three SMA lines are percentages (0-100) while net new highs is a
 // signed count, and a dual-axis chart would let either one masquerade as the other's scale. `syncId` links
 // the hover across both so one date reads across the whole page.
+//
+// Opens on the trailing year; the Brush under the SMA panel pans (drag the slide) or resizes the window over
+// the full history. Keyed by the series' first date so switching universe resets to that universe's own year.
 export function MarketBreadthCharts({ series }: Props) {
+  return <BreadthChartsInner key={series[0]?.as_of_date ?? "empty"} series={series} />;
+}
+
+function BreadthChartsInner({ series }: Props) {
+  const [range, setRange] = useState<{ start: number; end: number } | null>(null);
+  const last = Math.max(0, series.length - 1);
+  const start = Math.min(range?.start ?? defaultWindowStart(series), last);
+  const end = Math.min(range?.end ?? last, last);
+  const visible = series.slice(start, end + 1);
+
   const liveAt = firstLiveIndex(series);
   // Only a boundary worth marking when there IS a backfilled past before the first live session.
   const boundaryDate = liveAt > 0 ? series[liveAt].as_of_date : null;
-  const tickInterval = capXAxisTickInterval(series.length, 8);
+  const tickInterval = capXAxisTickInterval(visible.length, 8);
 
   const nets = series.map((p) => p.net_new_highs);
   const netTicks = computeNiceTicksRange(Math.min(0, ...nets), Math.max(0, ...nets));
@@ -124,7 +138,7 @@ export function MarketBreadthCharts({ series }: Props) {
       tick={TICK}
     />
   );
-  const boundary = boundaryDate && (
+  const boundary = boundaryDate && boundaryDate >= (visible[0]?.as_of_date ?? "") && (
     <ReferenceLine
       x={boundaryDate}
       stroke="var(--color-text-tertiary)"
@@ -147,6 +161,18 @@ export function MarketBreadthCharts({ series }: Props) {
             <Line type="monotone" dataKey="pct_above_sma200" stroke={SMA200_COLOR} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} connectNulls={false} isAnimationActive={false} />
             <Line type="monotone" dataKey="pct_above_sma50" stroke={SMA50_COLOR} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} connectNulls={false} isAnimationActive={false} />
             <Line type="monotone" dataKey="pct_above_sma20" stroke={SMA20_COLOR} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} connectNulls={false} isAnimationActive={false} />
+            <Brush
+              dataKey="as_of_date"
+              height={24}
+              startIndex={start}
+              endIndex={end}
+              onChange={(r) => {
+                if (r.startIndex != null && r.endIndex != null) setRange({ start: r.startIndex, end: r.endIndex });
+              }}
+              tickFormatter={fmtAxisMonth}
+              stroke="var(--color-text-tertiary)"
+              fill="transparent"
+            />
           </LineChart>
         </ChartContainer>
         <ChartLegend
@@ -160,7 +186,7 @@ export function MarketBreadthCharts({ series }: Props) {
 
       <Panel title="Net new 52-week highs" subtitle="Stocks at a new 52-week high minus stocks at a new 52-week low (intraday), per session">
         <ChartContainer config={config} className="aspect-auto w-full" style={{ height: CHART_HEIGHT }} role="img" aria-label="Net new 52-week highs minus lows for S&P 500 constituents over time">
-          <BarChart data={series} syncId={SYNC_ID} barCategoryGap="10%" margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+          <BarChart data={visible} syncId={SYNC_ID} barCategoryGap="10%" margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} stroke={GRID_COLOR} />
             {xAxis}
             <YAxis domain={netDomain} ticks={netTicks} width={Y_AXIS_WIDTH} tickLine={false} axisLine={false} tick={TICK} />

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { MarketBreadthPointOut } from "@/lib/api/types";
 import {
+  defaultWindowStart,
   firstLiveIndex,
   fmtAxisMonth,
   fmtBreadthPct,
@@ -62,4 +63,16 @@ describe("sector helpers", () => {
     expect(sectorDisplayName("XLV")).toBe("Health Care");
     expect(sectorDisplayName("ZZZZ")).toBeUndefined();
   });
+});
+
+describe("defaultWindowStart", () => {
+  const mk = (dates: string[]) => dates.map((d) => ({ as_of_date: d }) as MarketBreadthPointOut);
+  it("starts at the first session within the trailing year", () => {
+    const s = mk(["2025-01-02", "2025-09-24", "2025-09-25", "2026-09-25"]);
+    expect(defaultWindowStart(s)).toBe(2);
+  });
+  it("shows everything when history is under a year", () => {
+    expect(defaultWindowStart(mk(["2026-02-13", "2026-09-25"]))).toBe(0);
+  });
+  it("handles empty", () => expect(defaultWindowStart([])).toBe(0));
 });
