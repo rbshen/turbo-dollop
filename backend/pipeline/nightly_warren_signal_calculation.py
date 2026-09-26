@@ -15,14 +15,9 @@ run on the same W1-W5 union.
 Reads every watchlist ticker's intraday bars through the shared bars cache
 (clients/shared_bars_cache.py, interval "60m", one batch call for whatever
 needs a live fetch) rather than fetching independently -- the cache maps a
-730-day request to yfinance's confirmed-reliable period="2y" enum value
-(NOT an f"{days}d" string, which the historical BB+RSI backfill
-investigation found unreliable at this magnitude; see pipeline/backfills/
-backfill_entry_signal_events.py's own comment). Runs entirely on Yahoo
-Finance, zero FMP calls -- FMP's intraday endpoints return HTTP 402 under
-the current subscription plan (confirmed 2026-09-09), so this needs no
-`if not the FMP data-group state: ...` guard either, same reasoning
-nightly_entry_signal_calculation.py's own docstring gives.
+730-day request to FMP `/historical-chart/1hour` (data group `intraday_bars`; the only
+provider since Yahoo's removal in Phase 6b). Skipped -- a real `skipped` cron status -- while
+that group is off, same as nightly_entry_signal_calculation.py.
 
 Unlike BB+RSI, there is no separate one-time backfill script for this
 signal (see data/warren_signal_data.py's own module docstring) -- running
@@ -56,8 +51,9 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from clients.shared_bars_cache import INTRADAY_INTERVAL, get_or_fetch_bars_batch, intraday_source_labels
+from clients.shared_bars_cache import INTRADAY_INTERVAL, get_or_fetch_bars_batch
 from core.cron_health import cron_heartbeat
+from core.data_groups import job_skip_reason
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from data.warren_signal_data import compute_and_store_warren_signal, prune_warren_signal_events, sweep_stale_warren_signals
@@ -66,7 +62,7 @@ from data.watchlists import list_tickers_across_watchlists
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_warren_signal_calculation.log"
 
 WATCHLIST_NAME_PATTERN = re.compile(r"^W[1-5]$")
-# 2 calendar years -- Yahoo's real 60m-interval history limit (~730 days).
+# 2 calendar years -- the 60m-interval history window (~730 days).
 LOOKBACK_DAYS = 730
 
 logger = logging.getLogger(__name__)
@@ -78,6 +74,13 @@ async def main() -> dict:
     nightly_entry_signal_calculation.py::main."""
     configure_logging(LOG_PATH)
     init_db()
+
+    skip_reason = job_skip_reason("intraday_bars")
+    if skip_reason:
+        # Data group off (no fallback provider since Phase 6b): computing on stale cached bars
+        # would only look healthy. __main__ records CronRunLog status "skipped".
+        logger.info("Nightly Warren signal calculation %s.", skip_reason)
+        return {"skipped": True, "skip_reason": skip_reason}
 
     with Session(engine) as session:
         tickers, matched_names = list_tickers_across_watchlists(session, WATCHLIST_NAME_PATTERN)
@@ -102,16 +105,13 @@ async def main() -> dict:
     # returns lowercase columns and an America/New_York tz-aware index.
     bars_by_ticker = await get_or_fetch_bars_batch(tickers, INTRADAY_INTERVAL, LOOKBACK_DAYS, auto_adjust=False)
 
-    # Label each row with what its bars actually are ("fmp"/"yahoo"), not a constant.
-    source_by_ticker = intraday_source_labels(tickers)
-
     failures: list[tuple[str, str]] = []
     for i, ticker in enumerate(tickers, start=1):
         try:
             bars = bars_by_ticker.get(ticker)
             if bars is None or bars.empty:
                 raise ValueError("No intraday bars returned")
-            compute_and_store_warren_signal(ticker, bars, source=source_by_ticker[ticker])
+            compute_and_store_warren_signal(ticker, bars, source="fmp")
             logger.info("[%d/%d] %s: ok", i, len(tickers), ticker)
         except Exception as exc:  # noqa: BLE001 -- a single bad ticker must never abort the whole run
             logger.error("[%d/%d] %s: FAILED - %s", i, len(tickers), ticker, exc)
@@ -143,5 +143,7 @@ async def main() -> dict:
 
 
 if __name__ == "__main__":
-    with cron_heartbeat("pipeline.nightly_warren_signal_calculation"):
-        asyncio.run(main())
+    with cron_heartbeat("pipeline.nightly_warren_signal_calculation") as run:
+        summary = asyncio.run(main())
+        if summary.get("skipped"):
+            run.skip(summary["skip_reason"])

@@ -45,15 +45,15 @@ def _seed_watchlist(engine, name: str, tickers: list[str]) -> None:
 
 
 def _patch_bar_source(
-    monkeypatch, bars_by_ticker: dict, stale_tickers: list[str] | None = None, fallback_tickers: list[str] | None = None
+    monkeypatch, bars_by_ticker: dict, stale_tickers: list[str] | None = None, unserved_tickers: list[str] | None = None
 ):
     calls: list[list[str]] = []
-    fallback = fallback_tickers or []
+    fallback = unserved_tickers or []
 
-    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, fallback_tickers=None, **kwargs):
+    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, unserved_tickers=None, **kwargs):
         calls.append(list(tickers))
-        if fallback_tickers is not None:
-            fallback_tickers.extend(fallback)
+        if unserved_tickers is not None:
+            unserved_tickers.extend(fallback)
         return bars_by_ticker
 
     monkeypatch.setattr(nightly_lz, "get_or_fetch_bars_batch", fake_get_bars_batch)
@@ -133,15 +133,15 @@ def test_main_also_includes_a_third_watchlist_named_w3(monkeypatch, tmp_path):
     assert summary["processed"] == 2
 
 
-def test_summary_reports_the_fallback_count_from_the_batch_fetch(monkeypatch, tmp_path):
+def test_summary_reports_the_unserved_count_from_the_batch_fetch(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
     _seed_watchlist(engine, "W1", ["AAPL", "MSFT"])
-    _patch_bar_source(monkeypatch, {"AAPL": _fake_bars(), "MSFT": _fake_bars()}, fallback_tickers=["MSFT"])
+    _patch_bar_source(monkeypatch, {"AAPL": _fake_bars(), "MSFT": _fake_bars()}, unserved_tickers=["MSFT"])
     _patch_store(monkeypatch)
 
     summary = asyncio.run(nightly_lz.main())
 
-    assert summary["fallback_count"] == 1
+    assert summary["unserved_count"] == 1
 
 
 def test_main_returns_empty_summary_when_no_matching_watchlist_exists(monkeypatch, tmp_path):
@@ -210,10 +210,7 @@ def test_a_failing_ticker_does_not_abort_the_sweep(monkeypatch, tmp_path):
     assert summary["failed"] == 1
 
 
-def test_source_label_follows_the_daily_prices_group_per_ticker(monkeypatch, tmp_path):
-    """P2: the recorded source is a per-ticker core/tickers.py::
-    resolve_daily_bar_source_label call -- "fmp" for a US ticker while the
-    daily_prices group is live, "yahoo" when it is off."""
+def test_rows_are_always_labelled_fmp(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
     _seed_watchlist(engine, "W1", ["AAPL", "MSFT"])
     _patch_bar_source(monkeypatch, {"AAPL": _fake_bars(), "MSFT": _fake_bars()})
@@ -222,10 +219,18 @@ def test_source_label_follows_the_daily_prices_group_per_ticker(monkeypatch, tmp
     asyncio.run(nightly_lz.main())
     assert dict(store_calls) == {"AAPL": "fmp", "MSFT": "fmp"}
 
+
+def test_a_run_is_skipped_while_daily_prices_is_off_and_computes_nothing(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_watchlist(engine, "W1", ["AAPL", "MSFT"])
+    _patch_bar_source(monkeypatch, {"AAPL": _fake_bars(), "MSFT": _fake_bars()})
+    store_calls = _patch_store(monkeypatch)
     _dg.set_group_enabled("daily_prices", False)
-    store_calls.clear()
-    asyncio.run(nightly_lz.main())
-    assert dict(store_calls) == {"AAPL": "yahoo", "MSFT": "yahoo"}
+
+    summary = asyncio.run(nightly_lz.main())
+
+    assert summary["skipped"] is True and "daily_prices" in summary["skip_reason"]
+    assert store_calls == []
 
 
 def test_main_sweeps_a_row_stale_beyond_the_seven_day_window(monkeypatch, tmp_path):
@@ -270,7 +275,7 @@ def test_reads_daily_bars_through_the_shared_cache_with_the_documented_request_s
     _seed_watchlist(engine, "W1", ["AAPL"])
     seen: dict = {}
 
-    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, fallback_tickers=None, **kwargs):
+    async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, unserved_tickers=None, **kwargs):
         seen.update(interval=interval, lookback_days=lookback_days, auto_adjust=auto_adjust, kwargs=kwargs)
         return {"AAPL": _fake_bars()}
 

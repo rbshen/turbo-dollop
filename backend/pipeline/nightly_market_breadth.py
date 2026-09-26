@@ -2,13 +2,13 @@
 constituents above their 20-/50-/200-day SMA and net new 52-week highs minus
 lows, one MarketBreadthSnapshot row per session. See
 data/market_breadth_data.py for the compute/gate/persist logic and
-scoring/market_breadth.py for the pure math. Makes ZERO FMP calls (Yahoo
-Finance bars only, via SharedBarsCache), so like nightly_trend_calculation.py
-and nightly_sector_heatmap.py it needs no data-group guard.
+scoring/market_breadth.py for the pure math. Bars come from SharedBarsCache (FMP-sourced); like
+nightly_trend_calculation.py it is skipped -- a real `skipped` cron status -- while the
+`daily_prices` group is off (Phase 6b: no fallback provider).
 
 Scheduled at 3:35 AM, AFTER the 3:10 trend job that fetches every S&P 500
 ticker's 2y daily bars into SharedBarsCache: this reads that warm cache
-(~3s, zero incremental Yahoo requests). Run before it -- or after a failed
+(~3s, zero incremental FMP requests). Run before it -- or after a failed
 trend job -- it self-heals with one live ~503-request batch (~30s-5min) and
 writes through the shared cache like any other consumer.
 
@@ -38,8 +38,9 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from clients.daily_bar_sources import describe_fallback
+from clients.daily_bar_sources import describe_unserved
 from core.cron_health import cron_heartbeat
+from core.data_groups import job_skip_reason
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from data.market_breadth_data import compute_and_store_market_breadth, load_sector_buckets
@@ -55,6 +56,13 @@ async def main() -> dict:
     directly rather than scraping the log."""
     configure_logging(LOG_PATH)
     init_db()
+
+    skip_reason = job_skip_reason("daily_prices")
+    if skip_reason:
+        # Data group off (no fallback provider since Phase 6b): computing on stale cached bars
+        # would only look healthy. __main__ records CronRunLog status "skipped".
+        logger.info("Nightly market breadth %s.", skip_reason)
+        return {"skipped": True, "skip_reason": skip_reason}
 
     with Session(engine) as session:
         tickers = load_sp500_tickers(session)
@@ -82,4 +90,7 @@ async def main() -> dict:
 if __name__ == "__main__":
     with cron_heartbeat("pipeline.nightly_market_breadth") as run:
         summary = asyncio.run(main())
-        run.message = f"{summary['with_bar']}/{summary['constituents']} constituents, {describe_fallback(summary['fallback_count'], summary['fallback_yahoo_count'])}"
+        if summary.get("skipped"):
+            run.skip(summary["skip_reason"])
+        else:
+            run.message = f"{summary['with_bar']}/{summary['constituents']} constituents, {describe_unserved(summary['unserved_count'])}"

@@ -1,10 +1,9 @@
 """Standalone script: nightly Sector Heatmap recompute -- the 11 SPDR sector
 ETFs x 8 trailing total-return windows (1d/1w/1m/3m/6m/9m/YTD/1y). See
 data/sector_heatmap_data.py for the fetch/compute/persist logic and
-scoring/etf_returns.py for the pure return math. Makes ZERO FMP calls (a
-single shared-bars-cache batch fetch -- FMP daily bars with an automatic
-Yahoo fallback per clients/daily_bar_sources.py -- ~3-4s on a warm cache),
-so like nightly_trend_calculation.py it needs no data-group guard.
+scoring/etf_returns.py for the pure return math. A single shared-bars-cache batch fetch (FMP
+daily bars, ~3-4s on a warm cache); like nightly_trend_calculation.py it is skipped -- a real
+`skipped` cron status -- while the `daily_prices` group is off (Phase 6b: no fallback).
 
 Recomputes every window for every fund on every run -- there is no gate on
 "is today a trading day": a weekend/holiday run re-derives the same anchor
@@ -29,9 +28,10 @@ import time
 from datetime import date
 from pathlib import Path
 
-from clients.daily_bar_sources import describe_fallback
+from clients.daily_bar_sources import describe_unserved
 from clients.shared_bars_cache import DAILY_INTERVAL, stale_ticker_count
 from core.cron_health import cron_heartbeat
+from core.data_groups import job_skip_reason
 from core.db import init_db
 from core.logging_config import configure_logging
 from data.sector_heatmap_data import SECTOR_ETFS, compute_and_store_sector_returns, prune_sector_etf_returns
@@ -46,6 +46,13 @@ async def main() -> dict:
     directly rather than scraping the log."""
     configure_logging(LOG_PATH)
     init_db()
+
+    skip_reason = job_skip_reason("daily_prices")
+    if skip_reason:
+        # Data group off (no fallback provider since Phase 6b): computing on stale cached bars
+        # would only look healthy. __main__ records CronRunLog status "skipped".
+        logger.info("Nightly sector heatmap %s.", skip_reason)
+        return {"skipped": True, "skip_reason": skip_reason}
 
     logger.info("Starting nightly sector heatmap calculation.")
     start_time = time.monotonic()
@@ -73,7 +80,10 @@ async def main() -> dict:
 if __name__ == "__main__":
     with cron_heartbeat("pipeline.nightly_sector_heatmap") as run:
         summary = asyncio.run(main())
-        run.message = (
-            f"{summary['processed']}/{len(SECTOR_ETFS)} funds, {summary['stale_count']} still stale after fetch, "
-            f"{describe_fallback(summary['fallback_count'], summary['fallback_yahoo_count'])}"
-        )
+        if summary.get("skipped"):
+            run.skip(summary["skip_reason"])
+        else:
+            run.message = (
+                f"{summary['processed']}/{len(SECTOR_ETFS)} funds, {summary['stale_count']} still stale after fetch, "
+                f"{describe_unserved(summary['unserved_count'])}"
+            )

@@ -21,7 +21,7 @@ vs ~530 tickers) as a direct, intended consequence.
 **Also hosts the delisted-ticker flag, a second, independent check over the same
 universe -- not a "profile" freshness thing at all.** sync_delisted_flags pages FMP's
 `/delisted-companies` list (Phase 6a, 2026-09-26; replaced the earlier dual-provider
-"last bar > 30 days old on both Massive and Yahoo" heuristic, which is gone) and sets
+"last bar > 30 days old on both Massive and Yahoo" heuristic, which is gone; both providers are since removed) and sets
 TickerScore.delisted_at for any tracked ticker that appears in it with a delisted date
 on/before today -- genuinely delisted tickers (confirmed cases: TWTR, WBA, EA, AVB, EQR)
 that the nightly Trend/Liquidity Zone/Momentum jobs would otherwise keep retrying

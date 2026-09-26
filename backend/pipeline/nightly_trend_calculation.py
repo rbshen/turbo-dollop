@@ -2,20 +2,14 @@
 tracked universe (see nightly_fundamentals_fetch.py::load_full_tracked_universe,
 reused here rather than duplicated).
 
-Runs entirely on Yahoo Finance (clients/yahoo_client.py, clients/shared_bars_cache.py)
--- makes ZERO FMP calls, so it's scheduled independently of the FMP-dependent
-job above it in crontab.txt (nightly_fundamentals_fetch) and needs no
-`if not the FMP data-group state: ...` early-return guard
-the way that job does -- that guard exists specifically to skip a job whose EVERY
-fetch is FMP-gated; this job's fetches are never FMP-gated at all, so an
-analogous guard here would be checking a condition this job doesn't have, not
-a missing safety net (see CLAUDE.md's note on nightly_price_target_snapshot.py's
-actual missing-guard bug, which this is deliberately not a repeat of).
+Reads daily bars through the shared bars cache (clients/shared_bars_cache.py), which fetches
+from FMP `/historical-price-eod/full` (data group `daily_prices`). Yahoo Finance was removed in
+Phase 6b: Skipped (a real `skipped` cron status) while the `daily_prices` data group is off -- Phase 6b removed the
+Yahoo fallback, so there is nothing to compute on but stale cached bars (core/data_groups.py::job_skip_reason).
 
-Fetches the whole universe's OHLCV in ONE yfinance multi-ticker batch call
-(clients.shared_bars_cache.get_or_fetch_bars_batch) -- per this feature's
-explicit "use yfinance's multi-ticker download, not one call per ticker"
-requirement -- then runs the pure calculation engine and upserts per ticker
+Fetches the whole universe's OHLCV in ONE batch call
+(clients.shared_bars_cache.get_or_fetch_bars_batch) -- one incremental call per ticker, not a
+loop over compute_and_store_trend_analysis -- then runs the pure calculation engine and upserts per ticker
 (data.trend_analysis_data.compute_and_store_from_frames), rather than looping
 compute_and_store_trend_analysis (which would fetch one ticker at a time).
 The Weinstein RS benchmark (Settings > Weinstein, default SPY -- see
@@ -41,9 +35,10 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from clients.daily_bar_sources import FallbackTickers, describe_fallback
+from clients.daily_bar_sources import UnservedTickers, describe_unserved
 from clients.shared_bars_cache import DAILY_INTERVAL, get_or_fetch_bars_batch, stale_ticker_count
 from core.cron_health import cron_heartbeat
+from core.data_groups import job_skip_reason
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from core.tickers import normalize_ticker
@@ -69,6 +64,13 @@ async def main(tickers: list[str] | None = None) -> dict:
     configure_logging(LOG_PATH)
     init_db()
 
+    skip_reason = job_skip_reason("daily_prices")
+    if skip_reason:
+        # Data group off (no fallback provider since Phase 6b): computing on stale cached bars
+        # would only look healthy. __main__ records CronRunLog status "skipped".
+        logger.info("Nightly trend calculation %s.", skip_reason)
+        return {"skipped": True, "skip_reason": skip_reason}
+
     skipped_delisted: list[str] = []
     if tickers is None:
         with Session(engine) as session:
@@ -82,7 +84,7 @@ async def main(tickers: list[str] | None = None) -> dict:
         logger.error("No tickers to process -- run refresh_sp500_list.py/refresh_dow_list.py first, or pass an explicit ticker list.")
         return {
             "processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "stale_count": 0,
-            "fallback_count": 0, "fallback_yahoo_count": 0, "skipped_delisted_count": len(skipped_delisted),
+            "unserved_count": 0, "skipped_delisted_count": len(skipped_delisted),
         }
 
     logger.info(
@@ -107,7 +109,7 @@ async def main(tickers: list[str] | None = None) -> dict:
     with Session(engine) as session:
         weinstein_params = load_weinstein_params(session)
     benchmark_ticker = weinstein_params.rs_benchmark
-    fallback_tickers = FallbackTickers()
+    unserved_tickers = UnservedTickers()
     # Sunday (UTC) run = the weekly full resync: force makes the FMP daily
     # source refetch every ticker's whole 5y window instead of the nightly
     # overlap check, so a sub-0.5% provider restatement (e.g. a small
@@ -117,13 +119,12 @@ async def main(tickers: list[str] | None = None) -> dict:
     weekly_resync = datetime.now(timezone.utc).weekday() == WEEKLY_RESYNC_WEEKDAY_UTC
     bars_by_ticker = await get_or_fetch_bars_batch(
         tickers + [benchmark_ticker], DAILY_INTERVAL, WEINSTEIN_LOOKBACK_DAYS, auto_adjust=False,
-        fallback_tickers=fallback_tickers, force=weekly_resync,
+        unserved_tickers=unserved_tickers, force=weekly_resync,
     )
     benchmark_ohlcv = bars_by_ticker.get(benchmark_ticker)
 
     # Stale-data guard (docs/yahoo_close_data_gap_investigation_2026-09-23.md):
-    # after the fetch attempt above (FMP, with an automatic per-ticker
-    # Yahoo fallback -- see clients/daily_bar_sources.py), how many tickers
+    # after the fetch attempt above (FMP only -- see clients/daily_bar_sources.py), how many tickers
     # still don't reflect the most recently completed session. Reported via
     # this run's own cron_heartbeat message below rather than escalated to a
     # heartbeat failure -- a handful of stale tickers is normal (delistings,
@@ -157,7 +158,7 @@ async def main(tickers: list[str] | None = None) -> dict:
         "duration_seconds": duration,
         "failures": failures,
         "stale_count": stale_count,
-        "fallback_count": len(fallback_tickers), "fallback_yahoo_count": len(fallback_tickers.yahoo),
+        "unserved_count": len(unserved_tickers),
         "skipped_delisted_count": len(skipped_delisted),
     }
 
@@ -186,7 +187,10 @@ if __name__ == "__main__":
     cli_args = _parse_args()
     with cron_heartbeat("pipeline.nightly_trend_calculation") as run:
         summary = asyncio.run(main(_resolve_cli_tickers(cli_args)))
-        run.message = (
-            f"{summary['processed']} tickers, {summary['stale_count']} still stale after fetch, "
-            f"{describe_fallback(summary['fallback_count'], summary['fallback_yahoo_count'])}, {summary['skipped_delisted_count']} skipped as delisted"
-        )
+        if summary.get("skipped"):
+            run.skip(summary["skip_reason"])
+        else:
+            run.message = (
+                f"{summary['processed']} tickers, {summary['stale_count']} still stale after fetch, "
+                f"{describe_unserved(summary['unserved_count'])}, {summary['skipped_delisted_count']} skipped as delisted"
+            )

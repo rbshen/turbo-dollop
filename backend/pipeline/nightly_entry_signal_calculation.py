@@ -7,10 +7,9 @@ section for the full methodology and Phase 1 investigation this is built
 on.
 
 Reads 60m bars through the shared bars cache (clients/shared_bars_cache.py):
-FMP `/historical-chart/1hour` first for US-listed tickers, Yahoo as the
-fallback (P4, 2026-09-26; the old "FMP intraday is 402" note is stale). The
-signal rows it writes are labelled with the source their bars actually came
-from ("fmp"/"yahoo"), not a constant.
+FMP `/historical-chart/1hour` (data group `intraday_bars`) for US-listed tickers, the only
+provider (Yahoo was removed in Phase 6b). Skipped -- a real `skipped` cron status -- while that
+group is off. The signal rows it writes are labelled "fmp".
 
 Fetches every tracked ticker's intraday bars in ONE batch call (see
 clients/technical_sources.py::get_technical_source().get_intraday_bars),
@@ -41,9 +40,9 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from clients.shared_bars_cache import intraday_source_labels
 from clients.technical_sources import get_technical_source
 from core.cron_health import cron_heartbeat
+from core.data_groups import job_skip_reason
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from data.entry_signal_data import compute_and_store_entry_signal, prune_entry_signal_events, sweep_stale_entry_signals
@@ -64,6 +63,13 @@ async def main() -> dict:
     configure_logging(LOG_PATH)
     init_db()
 
+    skip_reason = job_skip_reason("intraday_bars")
+    if skip_reason:
+        # Data group off (no fallback provider since Phase 6b): computing on stale cached bars
+        # would only look healthy. __main__ records CronRunLog status "skipped".
+        logger.info("Nightly entry-signal calculation %s.", skip_reason)
+        return {"skipped": True, "skip_reason": skip_reason}
+
     with Session(engine) as session:
         tickers, matched_names = list_tickers_across_watchlists(session, WATCHLIST_NAME_PATTERN)
 
@@ -81,16 +87,13 @@ async def main() -> dict:
 
     bars_by_ticker = await get_technical_source().get_intraday_bars(tickers, LOOKBACK_DAYS)
 
-    # Label each row with what its bars actually are ("fmp"/"yahoo"), not a constant.
-    source_by_ticker = intraday_source_labels(tickers)
-
     failures: list[tuple[str, str]] = []
     for i, ticker in enumerate(tickers, start=1):
         try:
             bars = bars_by_ticker.get(ticker)
             if bars is None or bars.empty:
                 raise ValueError("No intraday bars returned")
-            compute_and_store_entry_signal(ticker, bars, source=source_by_ticker[ticker])
+            compute_and_store_entry_signal(ticker, bars, source="fmp")
             logger.info("[%d/%d] %s: ok", i, len(tickers), ticker)
         except Exception as exc:  # noqa: BLE001 -- a single bad ticker must never abort the whole run
             logger.error("[%d/%d] %s: FAILED - %s", i, len(tickers), ticker, exc)
@@ -122,5 +125,7 @@ async def main() -> dict:
 
 
 if __name__ == "__main__":
-    with cron_heartbeat("pipeline.nightly_entry_signal_calculation"):
-        asyncio.run(main())
+    with cron_heartbeat("pipeline.nightly_entry_signal_calculation") as run:
+        summary = asyncio.run(main())
+        if summary.get("skipped"):
+            run.skip(summary["skip_reason"])

@@ -2,9 +2,9 @@
 price-momentum signal (3mo/6mo/12mo trailing return average) over Fathom's
 Moat-rated universe. See data/momentum_data.py for the compute/persist
 logic and scoring/momentum.py for the pure ranking engine. Makes ZERO FMP
-calls (a shared-bars-cache batch fetch -- FMP daily bars with an
-automatic Yahoo fallback per clients/daily_bar_sources.py), same framing as
-nightly_trend_calculation.py -- no data-group guard needed.
+fundamentals calls (a shared-bars-cache batch fetch of FMP daily bars); skipped -- a real
+`skipped` cron status -- while the `daily_prices` group is off, same as
+nightly_trend_calculation.py.
 
 Scheduled to *try* daily across the first several days of the month
 (crontab.txt: `0 3 1-5 * *`) rather than on the literal 1st, because the
@@ -32,8 +32,9 @@ import logging
 from datetime import date
 from pathlib import Path
 
-from clients.daily_bar_sources import describe_fallback
+from clients.daily_bar_sources import describe_unserved
 from core.cron_health import cron_heartbeat
+from core.data_groups import job_skip_reason
 from core.db import init_db
 from core.logging_config import configure_logging
 from data.momentum_data import compute_and_store_momentum_snapshot
@@ -58,6 +59,13 @@ async def main(force_anchor: date | None = None) -> dict:
     if anchor_date is None:
         logger.info("Momentum snapshot skipped: today is not the first NYSE trading day of the month.")
         return {"processed": 0, "skipped": True, "reason": "not the first trading day of the month"}
+
+    skip_reason = job_skip_reason("daily_prices")
+    if skip_reason:
+        # Data group off (no fallback provider since Phase 6b): computing on stale cached bars
+        # would only look healthy. __main__ records CronRunLog status "skipped".
+        logger.info("Momentum snapshot %s.", skip_reason)
+        return {"processed": 0, "skipped": True, "reason": skip_reason, "group_skipped": True}
 
     logger.info("Starting Momentum snapshot for anchor date %s.", anchor_date)
     summary = await compute_and_store_momentum_snapshot(anchor_date)
@@ -87,10 +95,12 @@ if __name__ == "__main__":
     forced = date.fromisoformat(cli_args.force_anchor) if cli_args.force_anchor else None
     with cron_heartbeat("pipeline.monthly_momentum_snapshot") as run:
         summary = asyncio.run(main(forced))
-        if summary.get("skipped"):
+        if summary.get("group_skipped"):
+            run.skip(summary["reason"])
+        elif summary.get("skipped"):
             run.message = summary.get("reason", "skipped")
         else:
             run.message = (
                 f"{summary['processed']}/{summary['universe_size']} tickers, {summary['stale_count']} still stale after fetch, "
-                f"{describe_fallback(summary['fallback_count'], summary['fallback_yahoo_count'])}, {summary['skipped_delisted_count']} skipped as delisted"
+                f"{describe_unserved(summary['unserved_count'])}, {summary['skipped_delisted_count']} skipped as delisted"
             )
