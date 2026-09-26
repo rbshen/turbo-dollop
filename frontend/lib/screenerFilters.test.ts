@@ -20,7 +20,6 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     sector: "Technology",
     industry: "Consumer Electronics",
     company_type: "Standard",
-    country: "US",
     is_etf: false,
     step1_score: 90,
     step1_verdict: "Strong Pass",
@@ -88,29 +87,6 @@ describe("filterTickerScores", () => {
     const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, overallScore: { min: 70, max: null } };
     const result = filterTickerScores(rows, filters, new Set(["IN_LIST_HIGH", "IN_LIST_LOW"]));
     expect(result.map((r) => r.ticker)).toEqual(["IN_LIST_HIGH"]);
-  });
-
-  it("does not filter by country when country is null (default)", () => {
-    const rows = [row({ ticker: "AAPL", country: "US" }), row({ ticker: "0700.HK", country: "HK" })];
-    expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(2);
-  });
-
-  it("narrows to a country when one is passed", () => {
-    const rows = [row({ ticker: "AAPL", country: "US" }), row({ ticker: "0700.HK", country: "HK" })];
-    const result = filterTickerScores(rows, DEFAULT_FILTER_STATE, null, "HK");
-    expect(result.map((r) => r.ticker)).toEqual(["0700.HK"]);
-  });
-
-  it("treats a null country as US, not excluded, when the US filter is active", () => {
-    const rows = [row({ ticker: "LEGACY_ROW", country: null })];
-    const result = filterTickerScores(rows, DEFAULT_FILTER_STATE, null, "US");
-    expect(result.map((r) => r.ticker)).toEqual(["LEGACY_ROW"]);
-  });
-
-  it("excludes a null-country row when the HK filter is active", () => {
-    const rows = [row({ ticker: "LEGACY_ROW", country: null })];
-    const result = filterTickerScores(rows, DEFAULT_FILTER_STATE, null, "HK");
-    expect(result).toHaveLength(0);
   });
 
   it("filters by an Overall score range", () => {
@@ -547,12 +523,12 @@ describe("excludeEtfs", () => {
     expect(isEtfRow(row({ is_etf: null, company_type: null }))).toBe(false);
   });
 
-  it("makes ETFs invisible to Country=US and to the Company type options", () => {
+  it("makes ETFs invisible to the filters and to the Company type options", () => {
     const rows = excludeEtfs([
-      row({ ticker: "AAPL", country: "US" }),
-      row({ ticker: "SPY", country: "US", is_etf: true, company_type: "ETF" }),
+      row({ ticker: "AAPL" }),
+      row({ ticker: "SPY", is_etf: true, company_type: "ETF" }),
     ]);
-    expect(filterTickerScores(rows, DEFAULT_FILTER_STATE, null, "US").map((r) => r.ticker)).toEqual(["AAPL"]);
+    expect(filterTickerScores(rows, DEFAULT_FILTER_STATE).map((r) => r.ticker)).toEqual(["AAPL"]);
     expect(extractCompanyTypes(rows)).toEqual(["Standard"]);
   });
 });

@@ -82,3 +82,23 @@ def test_is_a_no_op_when_the_table_does_not_exist_yet(monkeypatch):
     _fresh_engine(monkeypatch)  # no tables created at all
 
     _drop_obsolete_columns()  # must not raise
+
+
+def test_drops_the_removed_screener_country_columns(monkeypatch):
+    # Screener Country filter removal (2026-09-26): both columns must be
+    # dropped from an already-populated DB, twice-run safe.
+    engine = create_engine("sqlite://")
+    monkeypatch.setattr(db_module, "engine", engine)
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE tickerscore (ticker TEXT PRIMARY KEY, country TEXT)"))
+        conn.execute(text("CREATE TABLE savedscreenerfilter (id INTEGER PRIMARY KEY, name TEXT, country TEXT)"))
+        conn.execute(text("INSERT INTO tickerscore VALUES ('AAPL', 'US')"))
+
+    _drop_obsolete_columns()
+    _drop_obsolete_columns()
+
+    with engine.connect() as conn:
+        for table in ("tickerscore", "savedscreenerfilter"):
+            cols = [r[1] for r in conn.execute(text(f"PRAGMA table_info({table})"))]
+            assert "country" not in cols
+        assert conn.execute(text("SELECT ticker FROM tickerscore")).scalar_one() == "AAPL"

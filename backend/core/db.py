@@ -21,6 +21,9 @@ engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread"
 # 3.35+ (bundled with Python 3.12's sqlite3 well past that).
 _OBSOLETE_COLUMNS: list[tuple[str, str]] = [
     ("technicalentrysignal", "fired"),
+    # Screener Country filter removed with non-US ticker support (2026-09-26).
+    ("tickerscore", "country"),
+    ("savedscreenerfilter", "country"),
 ]
 
 

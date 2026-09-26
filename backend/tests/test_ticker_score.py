@@ -219,38 +219,9 @@ def test_reported_currency_is_copied_from_summary_for_a_non_usd_ticker(monkeypat
     assert row.reported_currency == "CNY"
 
 
-def test_country_resolves_to_hk_for_a_hkse_listing(monkeypatch):
-    # 0700.HK-shaped: country is derived from summary.exchange ("HKSE"),
-    # NOT FMP /profile's own domicile `country` field -- see
-    # TickerScore.country's own docstring for why (confirmed via real
-    # cached data that the two disagree for most tracked .HK tickers).
-    engine = _fresh_engine(monkeypatch)
-    _patch_all(monkeypatch, summary=_summary(quote_currency="HKD", exchange="HKSE"))
-
-    result = asyncio.run(compute_ticker_score("0700.HK"))
-
-    assert result is not None
-    assert result.country == "HK"
-
-    with Session(engine) as session:
-        row = session.exec(select(TickerScore).where(TickerScore.ticker == "0700.HK")).first()
-    assert row is not None
-    assert row.country == "HK"
-
-
-def test_country_defaults_to_us_for_a_us_exchange_listing(monkeypatch):
-    _fresh_engine(monkeypatch)
-    _patch_all(monkeypatch, summary=_summary(exchange="NYSE"))
-
-    result = asyncio.run(compute_ticker_score("AAPL"))
-
-    assert result is not None
-    assert result.country == "US"
-
-
 def test_is_etf_is_persisted_true_for_an_etf_profile_and_false_for_a_stock(monkeypatch):
     # Lifted straight from summary.is_etf (FMP profile isEtf/isFund) -- a
-    # pure field-mapping test, same shape as country/exchange above. The
+    # pure field-mapping test, same shape as the other profile-lifted fields. The
     # ETF's company_type deliberately stays whatever step4/5 say ("ETF" in
     # real life) -- is_etf must not depend on it.
     engine = _fresh_engine(monkeypatch)

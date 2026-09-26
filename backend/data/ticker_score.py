@@ -32,18 +32,6 @@ STEP_LABELS = {"step1": "Step 1", "step2": "Step 2", "step4": "Step 4", "step5":
 
 T = TypeVar("T")
 
-# The one exchange value seen across the tracked universe that isn't a US
-# one -- confirmed via a real cache scan (575 profiles): exchange is one of
-# {NYSE, NASDAQ, OTC, AMEX, CBOE, HKSE}, never anything else. See
-# TickerScore.country's own docstring for why this (not FMP /profile's own
-# `country` field, which is company domicile) is what the Screener's
-# Country filter is built on.
-_HK_EXCHANGE = "HKSE"
-
-
-def _resolve_screener_country(exchange: str | None) -> str:
-    return "HK" if exchange == _HK_EXCHANGE else "US"
-
 
 async def _safe_step(ticker: str, label: str, coro: Awaitable[T]) -> tuple[T | None, bool]:
     """One step's data function failing (a genuine bug, not a missing-data
@@ -168,7 +156,6 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         sector=sector,
         industry=summary.industry,
         company_type=company_type,
-        country=_resolve_screener_country(summary.exchange),
         is_etf=summary.is_etf,
         step1_score=step1.score if step1 else None,
         step1_verdict=step1.verdict if step1 else None,
