@@ -35,6 +35,14 @@ because it already computes load_full_tracked_universe weekly. This is the one l
 call this otherwise cache-only script makes (~160 sequential pages of 100 rows; the
 endpoint's page size is capped at 100), under the `corporate_events` data group.
 
+**Also removes any non-US ticker** (weekly safety net, `pipeline/non_us_purge.py`): Fathom
+supports US-listed tickers only, so a ticker whose cached profile exchange is not a US venue (or,
+with no profile, whose symbol is dotted) is deleted from every table, however it got in (search is
+filtered too, but a manual add or a stale row can still slip through). Local-only, no FMP call. It
+refuses to delete anything when the hit list exceeds `DEFAULT_MAX_FRACTION` (2%) of the tracked
+universe -- that would mean an exchange-name mismatch, not real non-US tickers -- and reports
+`refused` instead.
+
 Run:
     uv run python -m pipeline.stale_data_health_check
 
@@ -59,6 +67,7 @@ from core.logging_config import configure_logging
 from core.models import FundamentalsCache, TickerScore
 from core.data_groups import group_live
 from core.tickers import normalize_ticker
+from pipeline.non_us_purge import DEFAULT_MAX_FRACTION, purge_non_us_tickers
 from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "stale_data_health_check.log"
@@ -218,6 +227,13 @@ def _format_report(result: dict, total: int, threshold_days: int) -> str:
         lines.append("  Delisted-flag sync: skipped (corporate_events group not live)")
     elif delisted.get("newly_flagged"):
         lines.append(f"  Newly flagged delisted: {', '.join(delisted['newly_flagged'])}")
+    non_us = result.get("non_us") or {}
+    if non_us.get("refused"):
+        lines.append(f"  Non-US purge: REFUSED ({len(non_us['tickers'])} candidates, over the safety cap -- see log)")
+    elif non_us.get("error"):
+        lines.append("  Non-US purge: failed (see log)")
+    elif non_us.get("tickers"):
+        lines.append(f"  Removed non-US tickers: {', '.join(non_us['tickers'])}")
     return "\n".join(lines)
 
 
@@ -232,12 +248,23 @@ def _reprobe_restricted_groups() -> dict[str, str]:
         return {}
 
 
+def _purge_non_us() -> dict:
+    """Never fails the job: a purge error is logged and reported, not raised."""
+    try:
+        return purge_non_us_tickers(engine, max_fraction=DEFAULT_MAX_FRACTION)
+    except Exception:
+        logger.warning("Non-US ticker purge failed", exc_info=True)
+        return {"tickers": [], "rows": {}, "refused": False, "error": True}
+
+
 def main(threshold_days: int = DEFAULT_STALE_THRESHOLD_DAYS) -> dict:
     configure_logging(LOG_PATH)
     init_db()
+    non_us = _purge_non_us()
     with Session(engine) as session:
         tickers = load_full_tracked_universe(session)
     result = check_staleness(tickers, threshold_days)
+    result["non_us"] = non_us
     result["delisted"] = sync_delisted_flags(tickers)
     result["reprobe"] = _reprobe_restricted_groups()
     report = _format_report(result, len(tickers), threshold_days)
@@ -264,6 +291,13 @@ if __name__ == "__main__":
             message += "; delisted sync skipped (corporate_events off)"
         elif not delisted.get("complete", True):
             message += "; delisted list incomplete"
+        non_us = result.get("non_us") or {}
+        if non_us.get("refused"):
+            message += f"; non-US purge REFUSED ({len(non_us['tickers'])} candidates over the cap)"
+        elif non_us.get("error"):
+            message += "; non-US purge failed"
+        elif non_us.get("tickers"):
+            message += f"; removed non-US: {', '.join(non_us['tickers'])}"
         reprobe = result.get("reprobe") or {}
         if reprobe:
             message += "; FMP re-probe: " + ", ".join(f"{g}={v}" for g, v in reprobe.items())

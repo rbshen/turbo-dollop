@@ -374,6 +374,14 @@ count is the first place to check the nightly fetch job
 large "never fetched" count usually means the S&P 500/Dow constituent
 sync hasn't run successfully (see below).
 
+**Also removes non-US tickers (2026-09-26 safety net).** Fathom supports US-listed tickers only, so at the start
+of each run any tracked ticker whose cached profile `exchange` is not a US venue (or, with no profile, whose
+symbol is dotted) is deleted from every table with a `ticker` column (`pipeline/non_us_purge.py`; local-only, no
+FMP call). Ordinary ADRs (NYSE/NASDAQ) and OTC names are US and untouched. If more than 2% of the tracked
+universe would go, it **refuses**, deletes nothing and says so in the report and the heartbeat message
+("non-US purge REFUSED") -- that means an exchange-name mismatch (check `core/tickers.py::US_EXCHANGES`), not
+real non-US tickers. Removal is irreversible short of a `backups/` restore.
+
 **Also flags delisted tickers, a second, independent write this same run performs**
 (rewritten Phase 6a, 2026-09-26 — see `CLAUDE.md`'s "Phase 6a" section). It pages FMP's
 `/delisted-companies` (group `corporate_events`, ~157 sequential calls of 100 rows) and sets
