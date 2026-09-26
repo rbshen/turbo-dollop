@@ -4029,6 +4029,34 @@ but the file and the installed copy now differ until it is.
 still unit-tested); the Weinstein/`resample_to_weekly` docstrings that cite Yahoo's native weekly bars as the
 validation reference; non-US routing helpers (`route_by_source`, `is_us_listed`).
 
+## Non-US cleanup (2026-09-26)
+
+Fathom supports **US-listed tickers only** (listing venue decides, not domicile: NYSE/NASDAQ ADRs and OTC names are US --
+`core/tickers.py::is_us_listed`). The earlier HK/France expansion is fully shelved; this is the record of what was removed and kept.
+
+- **Kept: the general reported->quote FX conversion (Step 3).** 14 US-listed ADRs (ASML, BABA, CCEP, CCJ, CNI, EVVTY, FER, MFC,
+  NVO, PDD, RY, SINGY, TME, TSM) report in a non-USD currency but quote in USD, so `_resolve_fx_rate` still converts
+  reported->quote (checked against cached profiles/income statements, not assumed). Only the HK/FR-specific layer went:
+  `SUPPORTED_REGIONS` is now `{"US"}` (an ADR's domicile `country` such as CN/CA/TW redirects to the US discount-rate row, as it
+  already did), the `HKD` currency prefix and HK wording are gone, and the leftover `HK` `DiscountRateConfig` row was deleted.
+  The multi-region seeding code in `helpers/discount_rate_config.py` is generic and kept (tests use a synthetic second region).
+- **Ticker search returns US-listed results only** (`data/ticker_search.py`, `is_us_listed` off each result's `exchange`), so a
+  non-US ticker can't be added by search. The leveraged-ETP ranking stays (it applies to US ETPs too).
+- **Screener Country filter removed**: `CountryFilter.tsx`, `TickerScore.country`, `SavedScreenerFilter.country`, the
+  exchange->country derivation and the API fields. Both columns are dropped from existing DBs by `core/db.py::_OBSOLETE_COLUMNS`
+  at startup. (The ETF section's "Country=US" remarks above are history.)
+- **Weekly safety net**: `pipeline.stale_data_health_check` first runs `pipeline/non_us_purge.py`, deleting any tracked ticker whose
+  cached profile exchange is not a US venue (or, with no profile, whose symbol is dotted) from every table with a `ticker` column.
+  Local-only. **Refuses (deletes nothing) if more than 2% of the tracked universe would go** -- that signals an exchange-name
+  mismatch in `US_EXCHANGES`, not real non-US tickers; the report and heartbeat say "REFUSED".
+- **One-time cleanup** `pipeline/backfills/non_us_cleanup.py` (`--dry-run`, idempotent), run 2026-09-26 after
+  `backups/fathom_20260926_220334.db.gz`. The six HK tickers (0005/0728/0857/0883/0941/3988) were **already absent** (purged
+  after the earlier removal commit); the real run only deleted the `HK` discount-rate row and dropped the two Country columns.
+- **Yahoo/Massive leftovers swept**: orphaned `DataSourceCard.tsx`, the Alpaca/Massive/Yahoo-gap investigation docs and the
+  EODHD script deleted; the weekly-parity fixture/test renamed to `weekly_parity_fmp_daily_vs_native_1wk.json` (it still pins
+  Monday-anchored weekly resampling). Legacy `source="yahoo"` handling in the shared bars cache is behaviour, not a stray
+  reference, and stays.
+
 ## Insider Activity (ticker-page tab, 2026-09-19) -- SHELVED 2026-09-20
 
 **Shelved, not deleted.** The `insider` data group's user toggle (seeded **off**;
