@@ -199,27 +199,14 @@ def test_single_flight_is_per_ticker_and_survives_a_new_event_loop_each_run(db):
     assert fmp.calls == []
 
 
-def test_non_us_ticker_uses_the_intl_group_and_is_phantom_filtered(db):
-    _seed_profile(db, "0005.HK", "HKSE")
+def test_a_non_us_symbol_uses_the_long_group_like_any_other_and_is_not_filtered(db):
     series = _series(400)
     sunday = SESSION - timedelta(days=SESSION.weekday() + 1)  # a Sunday inside the window
     series[sunday] = 1.0
     fmp = FakeFMP({"0005.HK": series})
     frame = _run(get_long_history("0005.HK", reference=REF, client=fmp))
-    assert [c[2] for c in fmp.calls] == ["daily_prices_intl"]
-    assert pd.Timestamp(sunday) not in frame.index and (frame.index.dayofweek < 5).all()
-
-
-def test_us_and_intl_groups_gate_independently(db):
-    _seed_profile(db, "0005.HK", "HKSE")
-    fmp = FakeFMP({"KO": _series(300), "0005.HK": _series(300)})
-    dg.set_group_enabled("daily_prices_intl", False)
-    assert _run(get_long_history("0005.HK", reference=REF, client=fmp)) is None
-    assert _run(get_long_history("KO", reference=REF, client=fmp)) is not None
-    dg.set_group_enabled("daily_prices_intl", True)
-    dg.set_group_enabled("daily_prices_long", False)
-    assert _run(get_long_history("0005.HK", reference=REF, client=fmp)) is not None
-    assert _run(get_long_history("AAPL", reference=REF, client=fmp)) is None
+    assert [c[2] for c in fmp.calls] == ["daily_prices_long"]
+    assert pd.Timestamp(sunday) in frame.index  # no phantom filter any more
 
 
 def test_a_partial_bar_dated_after_the_last_completed_session_is_never_stored(db):

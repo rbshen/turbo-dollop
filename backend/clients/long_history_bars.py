@@ -26,16 +26,12 @@ Behaviour (per ticker, single-flight -- concurrent first opens make ONE FMP call
                                    existing row (same basis, a few days behind) rather
                                    than switching the chart onto Yahoo's basis.
 
-The group is `daily_prices_long` (Premium) for a US-listed ticker and `daily_prices_intl`
-(Ultimate) for any non-US listing, whose bars are also phantom-bar-filtered
-(clients/daily_bar_sources.py::drop_phantom_bars). FMP caps a response at 5,000 rows
+The group is `daily_prices_long` (Premium). FMP caps a response at 5,000 rows
 (~19.9y), so a 10y request fits in one call and no paging exists. Never logged: the
 request URL (it embeds the API key); only the exception TYPE.
 
-The freshness clock is the US session for every ticker, HK included -- a known limit
-(docs/fmp_phase3_long_history_non_us_investigation_2026-09-25.md section 6): an HK-only
-holiday leaves the last bar behind the US "completed session", so that ticker reads stale
-and costs one redundant (idempotent) top-up per view until its next bar exists.
+The freshness clock is the US session for every ticker (a non-US ticker on a local-only
+holiday reads stale and costs one redundant, idempotent top-up per view).
 """
 
 import asyncio
@@ -52,20 +48,17 @@ from sqlmodel import Session, select
 from clients.daily_bar_sources import (
     FMP_OVERLAP_DAYS,
     FMP_OVERLAP_TOLERANCE,
-    _profile_exchanges,
     fmp_rows_to_frame,
 )
 from clients.fmp_client import FMPGroupDisabledError, fmp_client
 from core.data_groups import effective_state
 from core.db import engine
 from core.models import LongHistoryBars
-from core.tickers import is_us_listed
 
 logger = logging.getLogger(__name__)
 
 LONG_HISTORY_YEARS = 10
-GROUP_US = "daily_prices_long"
-GROUP_INTL = "daily_prices_intl"
+GROUP = "daily_prices_long"
 _OHLCV = ["open", "high", "low", "close", "volume"]
 
 # One lock per (event loop, ticker): asyncio.Lock binds to the loop it is first contended
@@ -76,14 +69,6 @@ _locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.
 def _lock_for(ticker: str) -> asyncio.Lock:
     per_loop = _locks.setdefault(asyncio.get_running_loop(), {})
     return per_loop.setdefault(ticker, asyncio.Lock())
-
-
-def group_for(ticker: str) -> tuple[str, bool]:
-    """(data group, is_non_us). Listing exchange decides (core/tickers.py::is_us_listed off
-    the cached profile), exactly as the nightly routing does."""
-    exchange = _profile_exchanges([ticker]).get(ticker)
-    non_us = not is_us_listed(ticker, exchange)
-    return (GROUP_INTL if non_us else GROUP_US), non_us
 
 
 def _completed_session(reference: datetime | None) -> date:
@@ -164,16 +149,16 @@ def _restated(cached: pd.DataFrame, fresh: pd.DataFrame) -> bool:
     return False
 
 
-async def _fetch(client, ticker: str, start: date, end: date, group: str, non_us: bool, reference: datetime | None):
+async def _fetch(client, ticker: str, start: date, end: date, reference: datetime | None):
     """Frame of completed sessions, or None on any failure/empty answer (logged by type only)."""
     try:
-        rows = await client.get_historical_price_eod(ticker, start.isoformat(), end.isoformat(), group=group)
+        rows = await client.get_historical_price_eod(ticker, start.isoformat(), end.isoformat(), group=GROUP)
     except FMPGroupDisabledError:
         return None
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("FMP long-history fetch failed for %s (%s); falling back", ticker, type(exc).__name__)
         return None
-    frame = fmp_rows_to_frame(rows, non_us=non_us)
+    frame = fmp_rows_to_frame(rows)
     if frame.empty:
         return None
     # A bar dated after the last COMPLETED session is a live, partial one: never store it.
@@ -185,10 +170,9 @@ async def get_long_history(
     ticker: str, reference: datetime | None = None, client=fmp_client
 ) -> pd.DataFrame | None:
     """See the module docstring. `reference` overrides "now" (a testability seam)."""
-    group, non_us = group_for(ticker)
     async with _lock_for(ticker):
         cached, fetched_at = _read(ticker)
-        if not effective_state(group)[0]:
+        if not effective_state(GROUP)[0]:
             return cached if not cached.empty else None  # cached-only: served as-is, never wiped
         from clients.shared_bars_cache import _eastern_today
 
@@ -197,18 +181,18 @@ async def get_long_history(
         if not cached.empty and _is_fresh(cached, fetched_at, reference):
             return cached
         if cached.empty:
-            full = await _fetch(client, ticker, today - timedelta(days=365 * LONG_HISTORY_YEARS + 2), today, group, non_us, reference)
+            full = await _fetch(client, ticker, today - timedelta(days=365 * LONG_HISTORY_YEARS + 2), today, reference)
             if full is None:
                 return None
             _write(ticker, full, datetime.now(), replace=True)
             return _read(ticker)[0]
         # stale warm row: incremental top-up
-        top_up = await _fetch(client, ticker, cached.index.max().date() - timedelta(days=FMP_OVERLAP_DAYS), today, group, non_us, reference)
+        top_up = await _fetch(client, ticker, cached.index.max().date() - timedelta(days=FMP_OVERLAP_DAYS), today, reference)
         if top_up is None:
             return cached  # FMP down / empty: the same-basis row a few days behind beats switching basis
         if _restated(cached, top_up):
             logger.info("FMP restated %s's history; refetching its full long-history window", ticker)
-            full = await _fetch(client, ticker, today - timedelta(days=365 * LONG_HISTORY_YEARS + 2), today, group, non_us, reference)
+            full = await _fetch(client, ticker, today - timedelta(days=365 * LONG_HISTORY_YEARS + 2), today, reference)
             if full is None:
                 return cached
             _write(ticker, full, datetime.now(), replace=True)

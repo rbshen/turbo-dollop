@@ -54,7 +54,7 @@ describe("fallback groups", () => {
     expect(offGroupsFor(wrap([g]), ["daily_prices"])).toEqual([]);
     expect(reasonText(g)).toContain("fallback");
     // Yahoo is the only fallback left, for every fallback group alike; Massive is gone.
-    for (const key of ["daily_prices", "intraday_bars", "daily_prices_long", "daily_prices_intl"]) {
+    for (const key of ["daily_prices", "intraday_bars", "daily_prices_long"]) {
       const off = group({ key, falls_back: true, state: "using_fallback", reason: "user_off" });
       expect(disableWarning(off)).toContain("(Yahoo)");
       expect(disableWarning(off)).not.toContain("Massive");

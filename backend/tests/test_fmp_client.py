@@ -265,15 +265,14 @@ def test_successful_call_records_group_success(monkeypatch):
 
 
 def test_historical_price_eod_is_gated_by_the_group_the_caller_names(monkeypatch):
-    """One endpoint, three groups: turning one off refuses only calls that name it."""
+    """One endpoint, two groups: turning one off refuses only calls that name it."""
     from clients.fmp_client import FMPGroupDisabledError
 
     seen = _recording_transport(monkeypatch)
     client = FMPClient(api_key="x")
     for off, still_live in (
-        ("daily_prices", ("daily_prices_long", "daily_prices_intl")),
-        ("daily_prices_long", ("daily_prices", "daily_prices_intl")),
-        ("daily_prices_intl", ("daily_prices", "daily_prices_long")),
+        ("daily_prices", ("daily_prices_long",)),
+        ("daily_prices_long", ("daily_prices",)),
     ):
         _dg.set_group_enabled(off, False)
         seen.clear()
@@ -282,7 +281,7 @@ def test_historical_price_eod_is_gated_by_the_group_the_caller_names(monkeypatch
         assert exc.value.group == off and seen == []
         for other in still_live:
             asyncio.run(client.get_historical_price_eod("AAPL", "2020-01-01", "2020-02-01", group=other))
-        assert seen == ["/stable/historical-price-eod/full"] * 2
+        assert seen == ["/stable/historical-price-eod/full"]
         _dg.set_group_enabled(off, True)
 
 

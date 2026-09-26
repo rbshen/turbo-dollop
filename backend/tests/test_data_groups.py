@@ -7,7 +7,7 @@ def test_lazy_seed_defaults():
     assert snap.fmp_plan == "Ultimate"
     assert set(snap.groups) == set(dg.GROUPS)
     assert snap.groups["fundamentals"].required_tier == "Premium"
-    assert snap.groups["daily_prices_intl"].required_tier == "Ultimate"
+    assert "daily_prices_intl" not in snap.groups
     assert all(not g.tier_verified for g in snap.groups.values())
     assert dg.group_live("fundamentals")
     assert not dg.group_live("insider")  # shelved, seeded off
@@ -31,7 +31,6 @@ def test_above_plan_is_off():
     assert dg.effective_state("fundamentals") == (False, "above_plan")
     assert dg.effective_state("profile_quote") == (True, "live")
     dg.set_fmp_plan("Premium")
-    assert dg.effective_state("daily_prices_intl") == (False, "above_plan")
     assert dg.effective_state("daily_prices_long") == (True, "live")  # Premium
     assert dg.group_live("fundamentals")
     dg.set_fmp_plan("Starter")

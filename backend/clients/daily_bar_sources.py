@@ -12,8 +12,9 @@ daily-bar source for every US-LISTED ticker (P2, 2026-09-24; US = listing
 exchange per the cached FMP profile, see core/tickers.py::is_us_listed --
 not company domicile). Per ticker the chain is FMP -> Yahoo (FMPWithFallback): an FMP
 error or empty answer for a ticker falls through to Yahoo Finance. Massive/Polygon was
-removed in Phase 6a (2026-09-26). Non-US tickers (P3) go FMP (group `daily_prices_intl`,
-phantom holiday/weekend bars removed) -> Yahoo. The daily_prices toggle OFF (or master
+removed in Phase 6a (2026-09-26). Non-US support (the P3 `daily_prices_intl` group and its
+phantom-bar filter) was removed in the Phase 6a follow-up: non-US listings get no nightly
+daily bars (route_by_source drops them). The daily_prices toggle OFF (or master
 switch off) does NOT mean cache-only during P2-P5: FMP is skipped and Yahoo serves
 (removed in P6b). Auto-fallback, never a hard job failure -- paired with
 clients/shared_bars_cache.py's stale_ticker_count guard so a still-stale ticker after
@@ -59,7 +60,6 @@ __all__ = [
     "find_short_sessions",
     "fmp_intraday_rows_to_frame",
     "FallbackTickers",
-    "drop_phantom_bars",
     "describe_fallback",
     "YahooDailySource",
     "get_daily_bar_source",
@@ -162,8 +162,8 @@ def route_by_source(tickers_with_days: dict[str, int]) -> tuple[dict[str, int], 
     EXCHANGE (core/tickers.py::is_us_listed, off the cached FMP profile) --
     not company domicile: an NYSE-listed ADR is US, an HKSE listing is not.
     A ticker with no cached profile falls back to the dot-suffix check
-    (so sector ETFs and ^GSPC are US). Non-US tickers use FMP's
-    `daily_prices_intl` group, then Yahoo."""
+    (so sector ETFs and ^GSPC are US). Callers fetch only the US half; non-US
+    tickers are no longer supported by the bar jobs."""
     exchanges = _profile_exchanges(list(tickers_with_days))
     us: dict[str, int] = {}
     non_us: dict[str, int] = {}
@@ -259,51 +259,11 @@ FMP_CONCURRENCY = 10
 _OHLCV = ["open", "high", "low", "close", "volume"]
 
 
-# Non-US phantom-bar filter (P3, docs/fmp_phase3_long_history_non_us_investigation_2026-09-25.md
-# section 6, refined against 5y of live Yahoo bars for all six HKSE names): FMP's HK series
-# carries dates the exchange was closed, in three shapes --
-#   * weekend dates (Sunday 2025-10-26; 0883's Sundays in 2024-09): always dropped;
-#   * a holiday/weekend bar that is an exact copy (OHLC AND volume, to the share) of the NEXT
-#     trading day's bar (0883 2024-09-18 -> the real 09-19; 28 of them on 0857, 29 on 0883 over 5y).
-#     The LATER bar is the real one (present on Yahoo), so the EARLIER copy is dropped;
-#   * a copy of the PREVIOUS session (Good Friday 2025-04-18 on every HK name) whose volume FMP
-#     revised slightly (+0.005%..+0.09% on 0005/0857/0883): the later bar is the phantom.
-# Identical OHLC alone is NOT enough: real consecutive days do repeat OHLC exactly (0728 on
-# 2021-11-15, 2024-05-24, 2026-01-14; 3988 on 2021-11-18 -- all on Yahoo, all with different
-# volume), so volume has to agree. PHANTOM_VOLUME_TOLERANCE is the "same volume" band for the
-# previous-session shape; 0.5% is far above the observed revisions and far below the real
-# repeats' 14%+ volume differences. Known residual: 3988's Good Friday copy carries -8.1%
-# volume, which is inside the real-repeat range, so that one phantom survives.
-PHANTOM_VOLUME_TOLERANCE = 0.005
-
-
-def drop_phantom_bars(df: pd.DataFrame) -> pd.DataFrame:
-    """Remove non-trading-day rows from a non-US OHLCV frame (ascending index) per the
-    rules above. Weekend rows go first and every later comparison is between the
-    remaining consecutive bars. Never applied to US tickers (their series have none of
-    these)."""
-    if df.empty:
-        return df
-    df = df[df.index.dayofweek < 5]
-    ohlc = ["open", "high", "low", "close"]
-    vol = df["volume"]
-    prev, nxt = df.shift(1), df.shift(-1)
-    flat_prev = (df[ohlc] == prev[ohlc]).all(axis=1)
-    flat_next = (df[ohlc] == nxt[ohlc]).all(axis=1)
-    # shape 2: exact copy of the next bar -> the earlier one is the phantom
-    earlier_is_phantom = flat_next & (vol == nxt["volume"]) & (vol != 0)
-    # shape 3 (and zero-volume flats): copy of the previous bar with a revised/zero volume
-    near_prev = (vol - prev["volume"]).abs() <= prev["volume"].abs() * PHANTOM_VOLUME_TOLERANCE
-    later_is_phantom = flat_prev & ((vol == 0) | ((vol != prev["volume"]) & near_prev))
-    return df[~(earlier_is_phantom | later_is_phantom)]
-
-
-def fmp_rows_to_frame(rows, non_us: bool = False) -> pd.DataFrame:
+def fmp_rows_to_frame(rows) -> pd.DataFrame:
     """FMP /historical-price-eod/full rows (newest first: date, open, high,
     low, close, volume, ...) -> the DailyBarSource contract (lowercase OHLCV,
     naive ascending DatetimeIndex). Rows without a usable close are dropped;
-    an unusable/empty payload is an empty frame. `non_us=True` also removes
-    phantom (non-trading-day) bars -- see drop_phantom_bars."""
+    an unusable/empty payload is an empty frame."""
     if not isinstance(rows, list) or not rows:
         return pd.DataFrame(columns=_OHLCV)
     df = pd.DataFrame(rows)
@@ -316,8 +276,7 @@ def fmp_rows_to_frame(rows, non_us: bool = False) -> pd.DataFrame:
     df = df.drop_duplicates(subset="date").set_index("date").sort_index()
     df.index = pd.DatetimeIndex(df.index)
     df["volume"] = df["volume"].fillna(0)
-    df = df[_OHLCV]
-    return drop_phantom_bars(df) if non_us else df
+    return df[_OHLCV]
 
 
 def _completed_session() -> date:
@@ -350,9 +309,7 @@ class _Pacer:
 
 class FMPDailySource:
     """FMP-backed DailyBarSource. `group` names the data group whose toggle gates
-    it -- `daily_prices` (default; US-listed tickers) or `daily_prices_intl`
-    (`non_us=True`: every non-US listing, whose rows are also stripped of
-    phantom non-trading-day bars before they can reach the cache). Per ticker:
+    it (`daily_prices` by default). Per ticker:
 
     - full window (`from = today - days`): never cached, cached history
       narrower than requested, or `full_refresh` (the weekly resync). The
@@ -371,13 +328,9 @@ class FMPDailySource:
     error accounting toward the group's Failing chip is FMPClient.get's job.
     Requests are paced to FMP_RATE_FRACTION of the plan's documented rate."""
 
-    def __init__(self, client=fmp_client, group: str = "daily_prices", non_us: bool = False) -> None:
+    def __init__(self, client=fmp_client, group: str = "daily_prices") -> None:
         self._client = client
         self._group = group
-        self._non_us = non_us
-        # {ticker: phantom bars dropped from its latest fetch} -- non-US only; read by
-        # the backfill's dry-run report.
-        self.phantom_dropped: dict[str, int] = {}
 
     async def get_daily_bars(
         self,
@@ -415,9 +368,7 @@ class FMPDailySource:
                 except (httpx.HTTPError, ValueError):
                     logger.warning("FMP daily-bar fetch failed for %s; falling back", ticker)
                     return None
-            frame = fmp_rows_to_frame(rows, non_us=self._non_us)
-            if self._non_us:
-                self.phantom_dropped[ticker] = len(fmp_rows_to_frame(rows)) - len(frame)
+            frame = fmp_rows_to_frame(rows)
             if frame.empty:
                 return None
             # A bar dated after the most recent COMPLETED session is a live,
@@ -483,14 +434,8 @@ class FMPWithFallback:
     in its `.yahoo`, when the caller passed a FallbackTickers) so the job's
     heartbeat can say "N fell back from FMP to Yahoo"."""
 
-    def __init__(
-        self, fmp: DailyBarSource | None = None, fallback: DailyBarSource | None = None, non_us: bool = False
-    ) -> None:
-        # non_us: FMP gated on `daily_prices_intl` (phantom bars filtered).
-        if non_us:
-            self._fmp = fmp or FMPDailySource(group="daily_prices_intl", non_us=True)
-        else:
-            self._fmp = fmp or FMPDailySource()
+    def __init__(self, fmp: DailyBarSource | None = None, fallback: DailyBarSource | None = None) -> None:
+        self._fmp = fmp or FMPDailySource()
         self._fallback = fallback or YahooDailySource()
 
     async def get_daily_bars(
@@ -523,10 +468,9 @@ class FMPWithFallback:
         return result
 
 
-def get_daily_bar_source(non_us: bool = False) -> DailyBarSource:
-    """US-listed (default): FMP first (daily_prices group), then Yahoo. `non_us=True` (P3):
-    FMP first (daily_prices_intl group, phantom bars removed), then Yahoo."""
-    return FMPWithFallback(non_us=non_us)
+def get_daily_bar_source() -> DailyBarSource:
+    """FMP first (daily_prices group), then Yahoo."""
+    return FMPWithFallback()
 
 
 # ---------------------------------------------------------------------------

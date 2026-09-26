@@ -527,21 +527,14 @@ async def get_or_fetch_bars_batch(
             # ticker Yahoo fallback (whole-batch while the
             # daily_prices group is off). Non-US tickers (route_by_source:
             # listing exchange off the cached profile, dot-suffix when there
-            # is none) go FMP (daily_prices_intl, phantom bars removed) -> Yahoo. force
+            # is none) are no longer fetched (non-US support removed, as for 60m). force
             # (e.g. the weekly Sunday resync) makes FMP refetch each ticker's
             # full window instead of the incremental overlap.
-            us_tickers, non_us_tickers = route_by_source(to_fetch)
+            us_tickers, _non_us_ignored = route_by_source(to_fetch)
             if us_tickers:
                 fetched.update(
                     await get_daily_bar_source().get_daily_bars(
                         us_tickers, auto_adjust, reference=today, fallback_tickers=fallback_tickers,
-                        replace_tickers=replace_tickers, full_refresh=force,
-                    )
-                )
-            if non_us_tickers:
-                fetched.update(
-                    await get_daily_bar_source(non_us=True).get_daily_bars(
-                        non_us_tickers, auto_adjust, reference=today, fallback_tickers=fallback_tickers,
                         replace_tickers=replace_tickers, full_refresh=force,
                     )
                 )

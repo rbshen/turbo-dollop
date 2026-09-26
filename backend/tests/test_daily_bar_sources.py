@@ -269,34 +269,7 @@ def test_fmp_source_a_cache_a_few_days_short_of_the_window_still_counts_as_cover
     assert replace == [] and len(fmp.calls) == 1 and fmp.calls[0][1] > (TODAY - timedelta(days=30)).isoformat()
 
 
-def test_get_daily_bar_source_non_us_is_intl_fmp_then_yahoo():
-    source = get_daily_bar_source(non_us=True)
+def test_get_daily_bar_source_is_fmp_then_yahoo_on_the_daily_prices_group():
+    source = get_daily_bar_source()
     assert isinstance(source, FMPWithFallback) and isinstance(source._fallback, YahooDailySource)
-    assert source._fmp._group == "daily_prices_intl" and source._fmp._non_us is True
-    assert get_daily_bar_source()._fmp._group == "daily_prices"
-
-
-def test_intl_fmp_source_is_gated_by_its_own_group_only(monkeypatch):
-    import core.data_groups as dg
-
-    _fresh_engine(monkeypatch)
-    monkeypatch.setattr(daily_bar_sources, "_completed_session", lambda: TODAY)
-    series = _series(TODAY - timedelta(days=60), 61)
-    dg.set_group_enabled("daily_prices", False)  # the US group being off must not matter
-    fmp = FakeFMP({"0005.HK": series})
-    out = asyncio.run(FMPDailySource(client=fmp, group="daily_prices_intl", non_us=True).get_daily_bars({"0005.HK": 90}, False, reference=TODAY))
-    assert "0005.HK" in out
-    dg.set_group_enabled("daily_prices_intl", False)
-    fmp = FakeFMP({"0005.HK": series})
-    assert asyncio.run(FMPDailySource(client=fmp, group="daily_prices_intl", non_us=True).get_daily_bars({"0005.HK": 90}, False, reference=TODAY)) == {}
-    assert fmp.calls == []
-
-
-def test_non_us_fmp_source_strips_weekend_rows_but_the_us_source_does_not(monkeypatch):
-    _fresh_engine(monkeypatch)
-    monkeypatch.setattr(daily_bar_sources, "_completed_session", lambda: TODAY)
-    # _series is one bar per calendar day, so it includes weekend dates
-    series = _series(TODAY - timedelta(days=13), 14)
-    us = asyncio.run(FMPDailySource(client=FakeFMP({"X": series})).get_daily_bars({"X": 90}, False, reference=TODAY))
-    intl = asyncio.run(FMPDailySource(client=FakeFMP({"X": series}), group="daily_prices_intl", non_us=True).get_daily_bars({"X": 90}, False, reference=TODAY))
-    assert len(us["X"]) == 14 and len(intl["X"]) == 10 and (intl["X"].index.dayofweek < 5).all()
+    assert source._fmp._group == "daily_prices"

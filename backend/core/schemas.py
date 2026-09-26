@@ -769,7 +769,7 @@ class TickerCustomValuationOut(Step3ManualParams):
 class DataGroupOut(BaseModel):
     key: str
     label: str
-    # False for groups seeded for later phases (daily_prices_intl, intraday_bars,
+    # False for groups seeded for later phases (intraday_bars,
     # extended_hours): shown in Settings but nothing reads them yet.
     wired: bool
     # True while a non-FMP provider still backs this group: off means "skip FMP,

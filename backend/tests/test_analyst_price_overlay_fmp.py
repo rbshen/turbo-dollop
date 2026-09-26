@@ -133,12 +133,3 @@ def test_yahoo_fall_through_reads_close_and_requests_unadjusted(monkeypatch):
     assert _run().empty
 
 
-def test_hk_ticker_overlay_works_through_the_intl_group(monkeypatch):
-    monkeypatch.setattr(ard, "yahoo_client", _Yahoo())
-    _profile("0005.HK", "HKSE")
-    _seed("0005.HK", {date(2024, 1, 2): 60.5, date(2024, 1, 3): 61.0})
-    assert _run("0005.HK").loc[pd.Timestamp("2024-01-03")] == 61.0
-    dg.set_group_enabled("daily_prices_long", False)  # the US long group is irrelevant for HK
-    assert not _run("0005.HK").empty
-    dg.set_group_enabled("daily_prices_intl", False)  # the intl group off: stored row still served
-    assert not _run("0005.HK").empty

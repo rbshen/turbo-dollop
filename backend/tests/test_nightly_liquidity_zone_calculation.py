@@ -213,20 +213,19 @@ def test_a_failing_ticker_does_not_abort_the_sweep(monkeypatch, tmp_path):
 def test_source_label_follows_the_daily_prices_group_per_ticker(monkeypatch, tmp_path):
     """P2: the recorded source is a per-ticker core/tickers.py::
     resolve_daily_bar_source_label call -- "fmp" for a US ticker while the
-    daily_prices group is live, "yahoo" when it is off; a non-US ticker is "fmp" while daily_prices_intl is live, else "yahoo"."""
+    daily_prices group is live, "yahoo" when it is off."""
     engine = _fresh_engine(monkeypatch, tmp_path)
-    _seed_watchlist(engine, "W1", ["AAPL", "0700.HK"])
-    _patch_bar_source(monkeypatch, {"AAPL": _fake_bars(), "0700.HK": _fake_bars()})
+    _seed_watchlist(engine, "W1", ["AAPL", "MSFT"])
+    _patch_bar_source(monkeypatch, {"AAPL": _fake_bars(), "MSFT": _fake_bars()})
     store_calls = _patch_store(monkeypatch)
 
     asyncio.run(nightly_lz.main())
-    assert dict(store_calls) == {"AAPL": "fmp", "0700.HK": "fmp"}
+    assert dict(store_calls) == {"AAPL": "fmp", "MSFT": "fmp"}
 
     _dg.set_group_enabled("daily_prices", False)
-    _dg.set_group_enabled("daily_prices_intl", False)
     store_calls.clear()
     asyncio.run(nightly_lz.main())
-    assert dict(store_calls) == {"AAPL": "yahoo", "0700.HK": "yahoo"}
+    assert dict(store_calls) == {"AAPL": "yahoo", "MSFT": "yahoo"}
 
 
 def test_main_sweeps_a_row_stale_beyond_the_seven_day_window(monkeypatch, tmp_path):

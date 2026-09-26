@@ -246,11 +246,14 @@ shortfall is Yahoo reachability or a renamed symbol, not FMP.
 
 **`nightly_corporate_events`** (3:12 AM, Phase 6a) — refreshes the FMP-backed earnings /
 dividends / splits cache (`CorporateEvent`, `CorporateEventFetch`; `data/corporate_events_data.py`)
-for every US-listed tracked ticker: three calls per ticker (`/earnings`, `/dividends`, `/splits`,
-group `corporate_events`), each **replacing** that ticker's rows of that type with FMP's current full
-history, so the first run is the backfill. ~1,770 calls, ~1-2 min. Feeds the Chart tab's E/D markers,
+for every US-listed tracked ticker: two calls per ticker nightly (`/earnings`, `/dividends`, group
+`corporate_events`) plus `/splits` weekly (when never fetched or last fetched >= 6 days ago), each
+**upserting** by (ticker, type, date) -- a stored row is never deleted because FMP omitted it (safe
+against a plan downgrade to a shorter history window) -- so the first run is the backfill. The run then
+prunes rows whose event date is older than 4 years (`RETENTION_DAYS`, independent of FMP/plan; the log
+line shows `Pruned`). ~1,180 calls on an ordinary night, ~1,770 on a splits night, ~1-2 min. Feeds the Chart tab's E/D markers,
 which read this cache first. Success: `Corporate-events refresh complete. Processed: N. With a failed
-endpoint: M.` in `backend/logs/nightly_corporate_events.log`. A failed endpoint keeps that ticker's
+endpoint: M. ... FMP calls: C. Pruned ...` in `backend/logs/nightly_corporate_events.log`. A failed endpoint keeps that ticker's
 old rows for that type (listed under `Tickers with failures`); the job raises (heartbeat "failure")
 only if **every** ticker failed. Skipped (real `skipped` status) while `corporate_events` is off — the
 cache then keeps serving. Check it: `select event_type, count(*) from corporateevent group by 1` and
@@ -423,8 +426,8 @@ its next view.
 
 Daily bars (`SharedBarsCache` "1d") come from FMP `/historical-price-eod/full` for US-listed
 tickers (data group `daily_prices`), then Yahoo, per ticker (Massive was removed in Phase 6a). Non-US
-tickers (HKSE today) go FMP (data group `daily_prices_intl`, phantom holiday/weekend bars removed)
-then Yahoo (P3, 2026-09-25). Only `pipeline.nightly_trend_calculation` (3:10) fetches; LZ/Sector/Breadth/Momentum read
+listings get no nightly bars (the P3 `daily_prices_intl` group and phantom-bar filter were removed in
+the Phase 6a follow-up, 2026-09-26). Only `pipeline.nightly_trend_calculation` (3:10) fetches; LZ/Sector/Breadth/Momentum read
 its warm cache.
 
 - **Nightly:** per ticker one call from `last cached bar - 7d` (overlap). The last cached bar is
@@ -444,26 +447,18 @@ its warm cache.
 - **Basis:** FMP `full` is split- AND spin-off-adjusted (not dividend-adjusted); see CLAUDE.md
   "Daily prices: FMP".
 
-#### Long history + non-US (P3, 2026-09-25)
+#### Long history (P3, 2026-09-25)
 
-- **Two new groups** (Settings > Status): `daily_prices_long` (US history beyond the nightly ~5y:
-  Chart W_4Y and the Analyst overlay) and `daily_prices_intl` (every non-US use). Off = cached-only for
-  an existing long-history row, otherwise fall through to Yahoo; the nightly non-US bars fall through
-  to Yahoo. Their 402 canaries are AAPL (long) and `0005.HK` (intl); `pipeline.stale_data_health_check`
-  re-probes a restricted one weekly like any other group.
+- **`daily_prices_long`** (Settings > Status; history beyond the nightly ~5y: Chart W_4Y and the
+  Analyst overlay). Off = cached-only for an existing long-history row, otherwise fall through to
+  Yahoo. Its 402 canary is AAPL; `pipeline.stale_data_health_check` re-probes a restricted one weekly.
+  (`daily_prices_intl` was removed 2026-09-26.)
 - **`LongHistoryBars` table** (~10y/ticker, filled lazily on a ticker-page view, ~1.6-2.1 s the first
   time): no cron job touches it and `prune_cache` never trims it. It only grows (~250 rows/yr/ticker,
   ~0.6 MB each). To force a re-fetch of one ticker (e.g. after a suspected restatement) delete its rows:
   `DELETE FROM longhistorybars WHERE ticker = 'KO'` -- the next view refetches 10y. Nothing else depends
   on it.
-- **HK backfill** (already run once, 2026-09-25): `uv run python -m pipeline.backfills.
-  backfill_fmp_daily_bars --scope non-us [--dry-run] [--report out.json]`. It is parity-gated (every
-  ticker needs >= 99% of shared closes within 0.5% of the cache, else it raises and writes nothing).
-  Recompute afterwards with `nightly_trend_calculation --tickers ...` and `recompute_ticker_scores
-  --tickers ...` (plus `nightly_liquidity_zone_calculation` if any is on W1-W5).
-- **Known limit:** HK freshness uses the US session clock, so an HK-only holiday costs one redundant
-  incremental call per nightly run until the next HK bar exists. One known phantom survives the
-  filter (3988.HK 2025-04-18). Both are documented in CLAUDE.md "Daily prices: FMP, Phase 3".
+- `backfill_fmp_daily_bars` no longer has `--scope`/a parity gate (US only; non-US tickers are skipped).
 
 ### Cron job heartbeat / health monitoring
 

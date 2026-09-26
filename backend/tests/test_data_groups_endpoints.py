@@ -36,7 +36,7 @@ def test_master_switch_makes_every_group_cached_only_and_untoggleable():
         body = client.put("/api/config/data-groups/master", json={"master_on": False}).json()
         assert body["master_on"] is False
         for g in body["groups"]:
-            assert g["state"] == ("using_fallback" if g["key"] in ("daily_prices", "daily_prices_long", "daily_prices_intl", "intraday_bars") else "cached_only") and g["reason"] == "master_off" and g["can_toggle"] is False
+            assert g["state"] == ("using_fallback" if g["key"] in ("daily_prices", "daily_prices_long", "intraday_bars") else "cached_only") and g["reason"] == "master_off" and g["can_toggle"] is False
         body = client.put("/api/config/data-groups/master", json={"master_on": True}).json()
     assert _by_key(body)["fundamentals"]["state"] == "live"
 

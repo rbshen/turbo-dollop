@@ -53,12 +53,11 @@ def is_us_listed(ticker: str, exchange: str | None = None) -> bool:
 
 def resolve_daily_bar_source_label(ticker: str) -> str:
     """Best-effort label for which provider generally serves this ticker's daily bars --
-    "fmp" while the matching data group is live (`daily_prices_intl` for a non-US
-    ticker, `daily_prices` for a US one), else "yahoo" (the per-ticker fallback).
+    "fmp" while the `daily_prices` group is live, else "yahoo" (the per-ticker fallback).
     Informational only (e.g. LiquidityZoneAnalysis.source), NOT a literal per-fetch
     record: a per-ticker FMP->Yahoo fallback (clients/daily_bar_sources.py::
     FMPWithFallback) could silently make it wrong for one specific night. Uses the
     dot-suffix rule only (no DB lookup)."""
     from core.data_groups import group_live
 
-    return "fmp" if group_live("daily_prices_intl" if is_non_us_ticker(ticker) else "daily_prices") else "yahoo"
+    return "fmp" if group_live("daily_prices") else "yahoo"

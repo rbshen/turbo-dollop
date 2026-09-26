@@ -115,22 +115,20 @@ def test_every_cached_statement_type_is_mapped():
 def test_group_metadata_is_complete():
     assert list(dg.GROUPS) == [
         "fundamentals", "profile_quote", "analyst_ratings", "segmentation", "news", "insider",
-        "index_membership", "corporate_events", "daily_prices", "daily_prices_long", "daily_prices_intl", "intraday_bars", "extended_hours",
+        "index_membership", "corporate_events", "daily_prices", "daily_prices_long", "intraday_bars", "extended_hours",
     ]
     for meta in dg.GROUPS.values():
         assert meta.default_tier in dg.TIERS
 
 
-def test_p3_groups_are_live_falling_back_and_have_canaries():
-    long_, intl = dg.GROUPS["daily_prices_long"], dg.GROUPS["daily_prices_intl"]
-    assert (long_.default_tier, intl.default_tier) == ("Premium", "Ultimate")
-    assert long_.live and intl.live and long_.falls_back and intl.falls_back
-    assert long_.default_enabled and intl.default_enabled
-    for g in ("daily_prices", "daily_prices_long", "daily_prices_intl"):
+def test_p3_long_group_is_live_falling_back_and_has_a_canary():
+    long_ = dg.GROUPS["daily_prices_long"]
+    assert long_.default_tier == "Premium"
+    assert long_.live and long_.falls_back and long_.default_enabled
+    for g in ("daily_prices", "daily_prices_long"):
         assert dg.PROBE_ENDPOINTS[g][0] == "/historical-price-eod/full"
-    assert dg.PROBE_ENDPOINTS["daily_prices_intl"][1]["symbol"].endswith(".HK")
     assert dg.PROBE_ENDPOINTS["daily_prices_long"][1]["symbol"] == "AAPL"
-    assert dg.NON_US_CANARY_GROUPS == {"daily_prices_intl"}
+    assert "daily_prices_intl" not in dg.GROUPS and not hasattr(dg, "NON_US_CANARY_GROUPS")
 
 
 def test_every_live_group_has_a_probe_canary():

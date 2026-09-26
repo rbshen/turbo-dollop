@@ -122,8 +122,7 @@ async def _fetch_price_history(ticker: str) -> pd.Series:
     **Basis (FMP Phase 3, 2026-09-25): FMP `/historical-price-eod/full` closes -- split- (and
     spin-off-) adjusted, NOT dividend-adjusted.** Read from the ticker's on-demand long-history
     store (clients/long_history_bars.py: ~10y, its own table, filled on first view and topped up
-    when stale; gated on `daily_prices_long` for a US listing, `daily_prices_intl` for a non-US
-    one). Split-only is the right comparison for this chart: PriceTargetSnapshot's own
+    when stale; gated on `daily_prices_long`). Split-only is the right comparison for this chart: PriceTargetSnapshot's own
     reconstruction is built on FMP's split-adjusted `adjPriceTarget` (see helpers/
     price_target_history.py's docstring, and its GOOGL 2022-07 20:1-split example), and an
     analyst's nominal target is a statement about the price that actually traded -- a

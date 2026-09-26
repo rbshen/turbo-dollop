@@ -92,19 +92,6 @@ def test_the_in_progress_week_is_a_partial_bar_labelled_by_its_monday():
     assert len(wk) == 3
 
 
-def test_hk_ticker_weekly_view_uses_the_intl_group():
-    _seed_profile("0005.HK", "HKSE")
-    idx = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=400)
-    daily = pd.DataFrame({"open": 80.0, "high": 81.0, "low": 79.0, "close": [80.0 + (i % 7) for i in range(400)], "volume": 5000}, index=idx)
-    _seed("0005.HK", daily)
-    bars, source = asyncio.run(chart_data._fetch_bars("0005.HK", "W_4Y"))
-    assert source == "fmp" and not bars.empty
-    # intl OFF still serves the stored row (cached-only) ...
-    dg.set_group_enabled("daily_prices_intl", False)
-    _, source = asyncio.run(chart_data._fetch_bars("0005.HK", "W_4Y"))
-    assert source == "fmp"
-
-
 def test_group_off_without_a_row_falls_through_to_yahoo_weekly(monkeypatch):
     dg.set_group_enabled("daily_prices_long", False)
     idx = pd.date_range("2024-01-01", periods=30, freq="W-MON")

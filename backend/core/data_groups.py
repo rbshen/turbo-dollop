@@ -102,16 +102,6 @@ GROUPS: dict[str, GroupMeta] = {
         ("Chart tab (weekly 4y range)", "Analyst Ratings price overlay (10y)"),
         falls_back=True,
     ),
-    # P3: every non-US listing (HKSE today): nightly bars, on-demand long
-    # history, Chart and the analyst overlay. US tickers never consult it.
-    "daily_prices_intl": GroupMeta(
-        "Daily prices (international)", "Ultimate", True, True,
-        (
-            "Non-US tickers' Trend / Weinstein stage and Liquidity Zones", "Chart tab (non-US tickers)",
-            "Analyst Ratings price overlay (non-US tickers)",
-        ),
-        falls_back=True,
-    ),
     # P4 (2026-09-26): FMP `/historical-chart/1hour` (RTH-only, split- not dividend-adjusted)
     # feeds the shared "60m" bars behind Warren and BB+RSI for US-listed tickers. Off falls
     # through to Yahoo (NOT cache-only), like the daily groups.
@@ -152,8 +142,8 @@ ENDPOINT_GROUP: dict[str, str] = {
     # shared bars cache, the Chart tab's daily ranges and the header's
     # avg-volume tiles (ticker_summary's `historical_price_eod` cache key).
     # P3: the same endpoint also serves `daily_prices_long` (US history beyond the
-    # nightly window) and `daily_prices_intl` (non-US); each caller passes an
-    # explicit `group=` (see ENDPOINT_GROUP_OVERRIDES_USED).
+    # nightly window); each caller passes an explicit `group=` (see
+    # ENDPOINT_GROUP_OVERRIDES_USED).
     "/historical-price-eod/full": "daily_prices",
     # P4: hourly RTH bars (naive ET timestamps, newest first) for the shared "60m" cache.
     "/historical-chart/1hour": "intraday_bars",
@@ -186,7 +176,7 @@ ENDPOINT_GROUP_OVERRIDES_USED: dict[str, dict[str, str]] = {
     "/quote": {"get_quote": "profile_quote", "get_forex_quote": "fundamentals"},
     # /historical-price-eod/full: `get_historical_price_eod` takes the group as a
     # parameter (default "daily_prices"; long-history and non-US callers pass
-    # "daily_prices_long" / "daily_prices_intl") -- see FMPClient.
+    # "daily_prices_long") -- see FMPClient.
     "/historical-price-eod/full": {"get_historical_price_eod": "daily_prices"},
 }
 
@@ -206,12 +196,7 @@ PROBE_ENDPOINTS: dict[str, tuple[str, dict]] = {
     # A long-history canary: a window older than the 5y Starter horizon.
     "daily_prices_long": ("/historical-price-eod/full", {"symbol": "AAPL", "from": "2016-01-04", "to": "2016-01-08"}),
     "intraday_bars": ("/historical-chart/1hour", {"symbol": "AAPL", "from": "2024-01-02", "to": "2024-01-03"}),
-    # The one group whose canary is deliberately NOT AAPL: it must be a non-US symbol.
-    "daily_prices_intl": ("/historical-price-eod/full", {"symbol": "0005.HK", "from": "2024-01-02", "to": "2024-01-05"}),
 }
-
-# Groups whose 402 canary is a non-US symbol (PROBE_ENDPOINTS) instead of AAPL.
-NON_US_CANARY_GROUPS: frozenset[str] = frozenset({"daily_prices_intl"})
 
 # Bulk/batch endpoints (none are used today -- Rule: never call them). If one
 # is ever added it must be listed here AND be Ultimate; the registry test

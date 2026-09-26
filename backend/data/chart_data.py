@@ -34,8 +34,8 @@ this module embodies:
 
 3c. **W_4Y is FMP-first (P3, 2026-09-25).** FMP has no weekly endpoint, so the weekly bars are
     the ticker's ~10y of daily bars (clients/long_history_bars.py -- its OWN table, filled
-    lazily on first view, topped up on a later stale view, gated on `daily_prices_long` for a
-    US listing / `daily_prices_intl` for a non-US one) resampled with the existing
+    lazily on first view, topped up on a later stale view, gated on `daily_prices_long`)
+    resampled with the existing
     analysis/trend_structure/weinstein.py::resample_to_weekly (Monday labels, first/max/min/
     last/sum -- verified identical to Yahoo's native `1wk` bars). This is the ONE place the
     Chart tab now persists anything (point 2's "zero caching" still holds for the daily ranges);
@@ -43,10 +43,9 @@ this module embodies:
     motivated point 2. The Yahoo `1wk` fetch stays as the fall-through (group off with no row,
     FMP error, empty answer) and `ChartOut.source` says which one answered.
 
-3b. **D_6M/D_1Y/D_2Y are FMP-first (P2 US, 2026-09-24; non-US added in P3, 2026-09-25).**
-    `/historical-price-eod/full` (`daily_prices` group for a US listing,
-    `daily_prices_intl` for a non-US one, whose phantom holiday/weekend bars are
-    dropped; split- AND spin-off-adjusted, not dividend-adjusted) is tried first,
+3b. **D_6M/D_1Y/D_2Y are FMP-first (P2, 2026-09-24).**
+    `/historical-price-eod/full` (`daily_prices` group, for every ticker -- the
+    P3 non-US branch was removed; split- AND spin-off-adjusted, not dividend-adjusted) is tried first,
     live and uncached like everything else here; an empty answer, an error, or
     the group being off falls through to a live Yahoo fetch (Massive/Polygon, the
     middle tier of the 2026-09-23..2026-09-26 chain, was removed in Phase 6a).
@@ -84,7 +83,7 @@ from sqlmodel import Session, select
 from analysis.entry_signal.indicators import BB_LENGTH, BB_STD, compute_rsi
 from analysis.trend_structure.stochastic import compute_stochastic
 from analysis.trend_structure.weinstein import compute_stage_series, resample_to_weekly
-from clients.daily_bar_sources import _profile_exchanges, fmp_rows_to_frame
+from clients.daily_bar_sources import fmp_rows_to_frame
 from clients.fmp_client import fmp_client
 from clients.long_history_bars import get_long_history
 from clients.yahoo_client import yahoo_client
@@ -104,7 +103,7 @@ from core.schemas import (
     ChartZoneOut,
     LiquidityZoneOut,
 )
-from core.tickers import is_us_listed, normalize_ticker
+from core.tickers import normalize_ticker
 from data.chart_events_data import DividendEvent, EarningsEvent, fetch_chart_events
 from data.entry_signal_data import get_entry_signal_data
 from data.liquidity_zone_data import get_liquidity_zone_data
@@ -209,15 +208,11 @@ async def _fetch_bars(ticker: str, range_key: str) -> tuple[pd.DataFrame, str]:
     end = date.today()
     start = end - timedelta(days=cfg["lookback_days"])
 
-    # FMP first, for US AND non-US listings (P3): a US listing is gated on `daily_prices`, a
-    # non-US one on `daily_prices_intl` (whose rows also lose FMP's phantom holiday/weekend bars).
-    us_listed = is_us_listed(ticker, _profile_exchanges([ticker]).get(ticker))
-    fmp_group = "daily_prices" if us_listed else "daily_prices_intl"
-    if group_live(fmp_group):
+    # FMP first, gated on `daily_prices`.
+    if group_live("daily_prices"):
         try:
             df = fmp_rows_to_frame(
-                await fmp_client.get_historical_price_eod(ticker, start.isoformat(), end.isoformat(), group=fmp_group),
-                non_us=not us_listed,
+                await fmp_client.get_historical_price_eod(ticker, start.isoformat(), end.isoformat(), group="daily_prices")
             )
         except (httpx.HTTPError, ValueError):
             logger.warning("FMP daily-bar fetch failed for %s (%s); falling back", ticker, range_key)

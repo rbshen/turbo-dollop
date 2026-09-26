@@ -3877,6 +3877,38 @@ non-US tickers. Both consumers share the rows, so they moved together; neither e
   `FMPTechnicalSource` no longer raises; it and `YahooTechnicalSource` are both thin readers of the
   shared cache (provider choice lives there).
 
+## Phase 6a follow-up: corporate-events upsert/retention/weekly splits + non-US removal (2026-09-26)
+
+- **Corporate-events cache is an UPSERT, never delete-and-replace** (`data/corporate_events_data.py::
+  upsert_events`): natural key (ticker, event_type, event_date); new events inserted, existing ones
+  updated in place, a stored row never removed because FMP's response omitted it -- so a plan
+  downgrade (Starter/Premium return ~1y of history where Ultimate returns everything) can't wipe cached
+  history. `CorporateEventFetch.row_count` is the STORED count after the upsert. Regression tests:
+  `test_a_narrower_second_response_never_deletes_cached_rows`.
+- **4-year trailing retention** (`RETENTION_DAYS = 365 * 4`, `prune_old_events`, run at the end of every
+  `nightly_corporate_events` run; incoming rows older than the cutoff are not stored either). By EVENT
+  date, all three types, independent of FMP/plan; a row exactly on the cutoff is kept. **Equals the Chart
+  tab's longest view** (`RANGE_CONFIG["W_4Y"]["visible_days"]` = 365*4 = 1460, pinned by
+  `test_retention_matches_the_chart_tabs_longest_view`); the chart drops events before its first visible
+  bar anyway (`_marker_bar_time`), so the cap removes nothing any range can show.
+- **Splits weekly** (`SPLITS_REFRESH_DAYS = 6`, `splits_due`): due when never fetched or last successfully
+  fetched >= 6 days ago (judged off `CorporateEventFetch`, not the weekday -- a missed run self-heals).
+  Nightly calls/ticker 3 -> 2: ~1,770 -> ~1,180 on an ordinary night, ~1,770 on the weekly splits night.
+  No chart marker reads splits, so Chart correctness is unaffected. The run summary carries `fmp_calls`/`pruned`.
+- **Non-US support removed.** Deleted: the `daily_prices_intl` data group (registry, canary,
+  `NON_US_CANARY_GROUPS`, 402 non-US canary branch), `drop_phantom_bars`/`PHANTOM_VOLUME_TOLERANCE` and every
+  `non_us=` parameter (the filter was only ever applied to non-US series -- US was never filtered, so nothing
+  US-facing lost it), the Chart tab's non-US branch (every ticker now uses `daily_prices` then Yahoo),
+  `long_history_bars.group_for` (always `daily_prices_long`), the nightly non-US daily-bar fetch
+  (`shared_bars_cache` now fetches only the US half of `route_by_source`, as 60m already did), and the
+  backfill's `--scope`/parity gate. Kept, deliberately: `route_by_source`/`is_us_listed`/`_profile_exchanges`
+  (they scope the price-target/last-close/corporate-events universes and the bar fetches).
+  **Consequence:** a non-US ticker viewed later gets a `TickerScore` and fundamentals but no nightly bars; its
+  Chart tab works on demand (FMP `daily_prices`, unfiltered, else Yahoo), and its long-history/overlay bars come
+  from the same group with no phantom filtering. The 6 HKSE tickers were purged from the real DB (see the
+  2026-09-26 cleanup record in the commit message/report); nothing prevents a user re-adding one.
+  Sections above describing `daily_prices_intl`, phantom bars, `--scope non-us` and the HK backfill are history.
+
 ## Sector Heatmap (`/sectors`, 2026-09-20)
 
 The 11 SPDR sector ETFs (XLK XLF XLV XLE XLI XLY XLP XLU XLB XLRE XLC) x 7 trailing

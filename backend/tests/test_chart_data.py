@@ -195,13 +195,6 @@ def _patch_yahoo_bars(monkeypatch, df: pd.DataFrame) -> None:
     monkeypatch.setattr(chart_data.yahoo_client, "get_history", fake_get_history)
 
 
-@pytest.fixture(autouse=True)
-def _no_profile_lookup(monkeypatch):
-    # _profile_exchanges reads the REAL engine's cached profiles; tests route by
-    # the dot-suffix rule alone (a symbol with no cached profile).
-    monkeypatch.setattr(chart_data, "_profile_exchanges", lambda tickers: {})
-
-
 def _fmp_rows(n: int = 600) -> list[dict]:
     d = _daily_df(n)
     return [
@@ -260,64 +253,6 @@ def test_daily_range_skips_fmp_when_daily_prices_is_off(monkeypatch):
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     assert asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y")).source == "yahoo" and calls == []
-
-
-def _hk_rows(n: int = 600) -> list[dict]:
-    """FMP-shaped HK rows (newest first) plus one phantom Sunday bar that must be dropped."""
-    rows = _fmp_rows(n)
-    newest = date.fromisoformat(rows[0]["date"])
-    sunday = newest - timedelta(days=newest.weekday() + 1)
-    rows.append({"date": sunday.isoformat(), "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 3})
-    return rows
-
-
-def _isolate_hk(monkeypatch):
-    monkeypatch.setattr(chart_data, "_profile_exchanges", lambda tickers: {t: "HKSE" for t in tickers})
-    monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
-    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
-
-
-@pytest.mark.parametrize("range_key", ["D_6M", "D_1Y", "D_2Y"])
-def test_non_us_daily_ranges_are_fmp_first_via_the_intl_group_with_phantoms_dropped(monkeypatch, range_key):
-    _isolate_hk(monkeypatch)
-    groups: list[str] = []
-    calls = _patch_fmp_bars(monkeypatch, _hk_rows(), groups=groups)
-    _no_other_sources(monkeypatch)
-    out = asyncio.run(chart_data.get_chart_data("0005.HK", range_key))
-    assert out.source == "fmp" and out.chart_available and calls == ["0005.HK"] and groups == ["daily_prices_intl"]
-    assert all(date.fromisoformat(b.time).weekday() < 5 for b in out.bars)  # the phantom Sunday never plots
-    assert 1.0 not in {b.close for b in out.bars}
-
-
-def test_non_us_daily_range_falls_through_to_yahoo_when_the_intl_group_is_off_or_fmp_fails(monkeypatch):
-    import core.data_groups as dg
-
-    _isolate_hk(monkeypatch)
-
-    _patch_yahoo_bars(monkeypatch, _daily_df(600))
-    dg.set_group_enabled("daily_prices_intl", False)
-    calls = _patch_fmp_bars(monkeypatch, _hk_rows())
-    assert asyncio.run(chart_data.get_chart_data("0005.HK", "D_1Y")).source == "yahoo" and calls == []
-    dg.set_group_enabled("daily_prices_intl", True)
-    _patch_fmp_bars(monkeypatch, [], raises=True)
-    assert asyncio.run(chart_data.get_chart_data("0005.HK", "D_1Y")).source == "yahoo"
-    _patch_fmp_bars(monkeypatch, [])  # empty answer
-    assert asyncio.run(chart_data.get_chart_data("0005.HK", "D_1Y")).source == "yahoo"
-
-
-def test_the_us_and_intl_daily_groups_do_not_gate_each_other_on_the_chart(monkeypatch):
-    import core.data_groups as dg
-
-    _isolate_hk(monkeypatch)
-    monkeypatch.setattr(chart_data, "_profile_exchanges", lambda tickers: {"AAPL": "NASDAQ", "0005.HK": "HKSE"})
-    groups: list[str] = []
-    _patch_fmp_bars(monkeypatch, _fmp_rows(), groups=groups)
-    dg.set_group_enabled("daily_prices", False)  # US off -> HK still FMP
-    assert asyncio.run(chart_data.get_chart_data("0005.HK", "D_1Y")).source == "fmp"
-    dg.set_group_enabled("daily_prices", True)
-    dg.set_group_enabled("daily_prices_intl", False)  # intl off -> AAPL still FMP
-    assert asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y")).source == "fmp"
-    assert groups == ["daily_prices_intl", "daily_prices"]
 
 
 def test_w_4y_reads_the_long_history_store_through_the_same_fmp_client(monkeypatch):

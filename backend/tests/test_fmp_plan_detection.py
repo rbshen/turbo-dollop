@@ -163,9 +163,9 @@ def test_reprobe_is_a_noop_while_master_is_off(monkeypatch):
 
 
 def test_every_probe_endpoint_is_mapped_to_its_own_group():
-    # /historical-price-eod/full is shared by three groups (the caller names one), so
+    # /historical-price-eod/full is shared by two groups (the caller names one), so
     # its default mapping only has to match `daily_prices`.
-    shared = {"daily_prices_long", "daily_prices_intl"}
+    shared = {"daily_prices_long"}
     for group, (endpoint, _params) in dg.PROBE_ENDPOINTS.items():
         if group in shared:
             assert endpoint in dg.ENDPOINT_GROUP_OVERRIDES_USED
@@ -173,41 +173,11 @@ def test_every_probe_endpoint_is_mapped_to_its_own_group():
         assert dg.ENDPOINT_GROUP[endpoint] == group, (group, endpoint)
 
 
-# --- P3: daily_prices_long / daily_prices_intl share /historical-price-eod/full -------------------
+# --- P3: daily_prices_long shares /historical-price-eod/full -------------------
 
 
 def _get_bars(symbol, group):
     return asyncio.run(FMPClient(api_key="x").get_historical_price_eod(symbol, "2016-01-01", "2016-02-01", group=group))
-
-
-def test_intl_402_canary_is_a_non_us_symbol_not_aapl(monkeypatch):
-    """A plan without global coverage 402s non-US symbols only, so AAPL (200) must NOT
-    make the group read 'symbol-scoped, left live' -- its canary is 0005.HK."""
-    h = _status_by_symbol({"3988.HK": 402, "0005.HK": 402})  # AAPL -> 200
-    _install(monkeypatch, h)
-    with pytest.raises(httpx.HTTPStatusError):
-        _get_bars("3988.HK", "daily_prices_intl")
-    assert h.seen == ["3988.HK", "0005.HK"]
-    assert dg.effective_state("daily_prices_intl") == (False, "restricted")
-    assert dg.effective_state("daily_prices") == (True, "live")  # sibling groups untouched
-    assert dg.effective_state("daily_prices_long") == (True, "live")
-
-
-def test_intl_402_on_one_symbol_only_leaves_the_group_live(monkeypatch):
-    h = _status_by_symbol({"3988.HK": 402})  # canary 0005.HK -> 200
-    _install(monkeypatch, h)
-    with pytest.raises(httpx.HTTPStatusError):
-        _get_bars("3988.HK", "daily_prices_intl")
-    assert dg.effective_state("daily_prices_intl") == (True, "live")
-
-
-def test_intl_402_on_the_canary_symbol_is_its_own_canary(monkeypatch):
-    h = _status_by_symbol({"0005.HK": 402})
-    _install(monkeypatch, h)
-    with pytest.raises(httpx.HTTPStatusError):
-        _get_bars("0005.HK", "daily_prices_intl")
-    assert h.seen == ["0005.HK"]
-    assert dg.effective_state("daily_prices_intl") == (False, "restricted")
 
 
 def test_long_402_with_aapl_canary_restricts_only_the_long_group(monkeypatch):
@@ -220,7 +190,7 @@ def test_long_402_with_aapl_canary_restricts_only_the_long_group(monkeypatch):
     assert dg.effective_state("daily_prices") == (True, "live")
 
 
-@pytest.mark.parametrize("group,canary", [("daily_prices_long", "AAPL"), ("daily_prices_intl", "0005.HK")])
+@pytest.mark.parametrize("group,canary", [("daily_prices_long", "AAPL")])
 def test_reprobe_clears_a_restricted_p3_group(monkeypatch, group, canary):
     h = _status_by_symbol({})
     _install(monkeypatch, h)
@@ -232,6 +202,6 @@ def test_reprobe_clears_a_restricted_p3_group(monkeypatch, group, canary):
 
 def test_reprobe_keeps_a_group_restricted_on_402(monkeypatch):
     _install(monkeypatch, _status_by_symbol({}, default=402))
-    dg.mark_restricted("daily_prices_intl", "simulated 402")
-    assert asyncio.run(FMPClient(api_key="x").reprobe_restricted_groups()) == {"daily_prices_intl": "restricted"}
-    assert dg.effective_state("daily_prices_intl") == (False, "restricted")
+    dg.mark_restricted("daily_prices_long", "simulated 402")
+    assert asyncio.run(FMPClient(api_key="x").reprobe_restricted_groups()) == {"daily_prices_long": "restricted"}
+    assert dg.effective_state("daily_prices_long") == (False, "restricted")
