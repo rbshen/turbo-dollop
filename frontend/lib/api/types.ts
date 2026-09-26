@@ -1302,6 +1302,10 @@ export interface TrendAnalysisOut {
   weinstein_volume_ratio: number | null;
   weinstein_mansfield_rs: number | null;
   weinstein_breakout_confirmed: boolean | null;
+  // The engine parameters this row was computed with (Settings > Weinstein
+  // at compute time) -- UI labels read this so they describe the row itself.
+  // null on a row computed before the configurable engine existed.
+  weinstein_params: WeinsteinParamsOut | null;
   // "Pending confirmation" + ETA -- see backend's core/schemas.py::
   // WeinsteinPendingOut. null whenever the ticker isn't currently pending a
   // Stage 2/Stage 4 transition (one condition -- slope or band -- met, the
@@ -1541,6 +1545,22 @@ export interface ChartOut {
   events_source: "fmp" | "yahoo" | null;
   source: string; // "massive" | "yahoo" (D_6M/D_1Y/D_2Y try Massive first with an automatic Yahoo fallback; W_4Y is always "yahoo")
   chart_available: boolean; // false only for a genuinely bad/delisted ticker with no bars at all
+}
+
+export interface WeinsteinParamsOut {
+  ma_length: number;
+  ma_type: "SMA" | "EMA";
+  within_range_pct: number;
+  slope_lookback: number;
+  breakout_volume_mult: number;
+  volume_avg_length: number;
+  rs_benchmark: string;
+  rs_smoothing_length: number;
+}
+
+export interface WeinsteinConfigOut extends WeinsteinParamsOut {
+  key: string;
+  updated_at: string;
 }
 
 export interface LiquidityZoneConfigOut {

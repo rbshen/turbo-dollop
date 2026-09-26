@@ -8,6 +8,7 @@ import { LiquidityZoneSettingsForm } from "@/components/settings/LiquidityZoneSe
 import { MoatSettingsForm } from "@/components/settings/MoatSettingsForm";
 import { ReitDividendYieldSettingsForm } from "@/components/settings/ReitDividendYieldSettingsForm";
 import { StatusSection } from "@/components/settings/StatusSection";
+import { WeinsteinSettingsForm } from "@/components/settings/WeinsteinSettingsForm";
 import { cn } from "@/lib/utils";
 
 const SECTIONS = [
@@ -16,6 +17,7 @@ const SECTIONS = [
   { key: "economic-moat", label: "Economic Moat", Component: MoatSettingsForm },
   { key: "reit", label: "REIT", Component: ReitDividendYieldSettingsForm },
   { key: "liquidity", label: "Liquidity", Component: LiquidityZoneSettingsForm },
+  { key: "weinstein", label: "Weinstein", Component: WeinsteinSettingsForm },
 ] as const;
 
 type SectionKey = (typeof SECTIONS)[number]["key"];
