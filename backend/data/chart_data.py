@@ -43,32 +43,14 @@ this module embodies:
     motivated point 2. The Yahoo `1wk` fetch stays as the fall-through (group off with no row,
     FMP error, empty answer) and `ChartOut.source` says which one answered.
 
-3a. **D_6M/D_1Y/D_2Y moved to Massive/Polygon, with an automatic per-ticker
-    Yahoo fallback (2026-09-23 migration).** W_4Y (10y weekly) stays Yahoo
-    -only, unconditionally -- it needs more history than Massive's Starter
-    plan covers (~5y, confirmed in
-    docs/massive_feasibility_investigation_2026-09-23.md), and the
-    Analyst Ratings 10y price overlay (data/analyst_ratings_data.py) stays
-    on Yahoo for the identical reason. Deliberately NOT routed through
-    clients/shared_bars_cache.py (point 2 above: this module stays
-    zero-cache, always a fresh live call) -- a small, direct
-    massive_client.get_daily_bars call per request instead, with the same
-    "try Massive, fall back to Yahoo on an error or an empty result"
-    policy clients/daily_bar_sources.py uses for every other daily-bar
-    consumer, and the same core/tickers.py::is_non_us_ticker routing (a
-    dotted ticker goes straight to Yahoo, never attempted on Massive).
-    `ChartOut.source` reflects whichever source actually answered
-    ("massive" or "yahoo"), per-request -- not a fixed literal any more.
-
 3b. **D_6M/D_1Y/D_2Y are FMP-first (P2 US, 2026-09-24; non-US added in P3, 2026-09-25).**
     `/historical-price-eod/full` (`daily_prices` group for a US listing,
     `daily_prices_intl` for a non-US one, whose phantom holiday/weekend bars are
     dropped; split- AND spin-off-adjusted, not dividend-adjusted) is tried first,
     live and uncached like everything else here; an empty answer, an error, or
-    the group being off falls through to the Massive -> Yahoo chain of 3a (Massive
-    is skipped for a non-US listing, as before).
-    `ChartOut.source` is "fmp" | "massive" | "yahoo". W_4Y stays Yahoo-only
-    (P3).
+    the group being off falls through to a live Yahoo fetch (Massive/Polygon, the
+    middle tier of the 2026-09-23..2026-09-26 chain, was removed in Phase 6a).
+    `ChartOut.source` is "fmp" | "yahoo".
 
 4. **Earnings/dividend markers (2026-09-20)** are the one part of this
    module NOT Yahoo-only: data/chart_events_data.py fetches them live from FMP
@@ -105,9 +87,7 @@ from analysis.trend_structure.weinstein import compute_stage_series, resample_to
 from clients.daily_bar_sources import _profile_exchanges, fmp_rows_to_frame
 from clients.fmp_client import fmp_client
 from clients.long_history_bars import get_long_history
-from clients.massive_client import massive_client
 from clients.yahoo_client import yahoo_client
-from core.config import settings
 from core.data_groups import group_live
 from core.db import engine
 from core.models import TechnicalEntrySignalEvent, WarrenSignalEvent
@@ -124,7 +104,7 @@ from core.schemas import (
     ChartZoneOut,
     LiquidityZoneOut,
 )
-from core.tickers import is_non_us_ticker, is_us_listed, normalize_ticker, to_massive_symbol
+from core.tickers import is_us_listed, normalize_ticker
 from data.chart_events_data import DividendEvent, EarningsEvent, fetch_chart_events
 from data.entry_signal_data import get_entry_signal_data
 from data.liquidity_zone_data import get_liquidity_zone_data
@@ -153,18 +133,16 @@ logger = logging.getLogger(__name__)
 # little extra fetched history costs nothing (indicators are computed on
 # the full series and sliced afterward regardless), so it's snapped to the
 # nearest covering value rather than fetched at exact precision.
-# `massive_lookback_days` is the equivalent exact-days figure used for the
-# daily ranges' Massive/Polygon request (point 3a above) -- Massive takes an
-# explicit start/end date range, not a period enum, so there's no tiering
-# to snap to; only D_6M/D_1Y/D_2Y (the three daily ranges) have one, W_4Y
-# stays Yahoo-only and never reads this key.
+# `lookback_days` is the equivalent exact-days figure used for the daily
+# ranges' FMP request (an explicit from/to date range, not a period enum);
+# only D_6M/D_1Y/D_2Y (the three daily ranges) have one.
 RANGE_CONFIG: dict[str, dict] = {
     # Same yahoo_period as D_1Y -- already comfortably covers the ~1.3y
     # actually needed (182 visible days + ~200-bar SMA200 warm-up + margin);
     # only visible_days is halved.
-    "D_6M": {"timeframe": "daily", "yahoo_period": "2y", "massive_lookback_days": 730, "visible_days": 365 // 2},
-    "D_1Y": {"timeframe": "daily", "yahoo_period": "2y", "massive_lookback_days": 730, "visible_days": 365},
-    "D_2Y": {"timeframe": "daily", "yahoo_period": "5y", "massive_lookback_days": 1825, "visible_days": 365 * 2},
+    "D_6M": {"timeframe": "daily", "yahoo_period": "2y", "lookback_days": 730, "visible_days": 365 // 2},
+    "D_1Y": {"timeframe": "daily", "yahoo_period": "2y", "lookback_days": 730, "visible_days": 365},
+    "D_2Y": {"timeframe": "daily", "yahoo_period": "5y", "lookback_days": 1825, "visible_days": 365 * 2},
     # FMP-first (point 3c): the long-history daily bars trimmed to `history_days` and resampled
     # to weekly; the Yahoo native interval="1wk" fetch (`yahoo_period`) is the fall-through.
     "W_4Y": {"timeframe": "weekly", "yahoo_period": "10y", "history_days": 3650, "visible_days": 365 * 4},
@@ -208,22 +186,17 @@ async def _fetch_fmp_weekly_bars(ticker: str, history_days: int) -> pd.DataFrame
 
 
 async def _fetch_bars(ticker: str, range_key: str) -> tuple[pd.DataFrame, str]:
-    """Returns (lowercase-column OHLCV DataFrame, "fmp" | "massive" | "yahoo").
+    """Returns (lowercase-column OHLCV DataFrame, "fmp" | "yahoo").
     Empty DataFrame (never None/raised) for a bad/delisted ticker or a
     fetch that returned nothing from every source tried -- get_chart_data
     below is the single place that turns that into chart_available=False.
 
     W_4Y (weekly) is FMP-first via the long-history store, Yahoo native
-    weekly as the fall-through -- see module docstring point 3c. The three daily ranges (D_6M/D_1Y/D_2Y) try Massive/Polygon
-    first (when the ticker isn't a known non-US listing and
-    settings.massive_enabled), falling back to Yahoo on any Massive error
-    or an empty result -- the same policy
-    clients/daily_bar_sources.py::MassiveWithYahooFallback uses for every
-    other daily-bar consumer, reimplemented directly here (not via that
-    class or clients/shared_bars_cache.py) since this module stays
-    zero-cache by design (point 2 above) and a single-ticker, no-state
-    direct call is simpler than routing through the batch/cache-oriented
-    machinery built for the nightly jobs."""
+    weekly as the fall-through -- see module docstring point 3c. The three daily ranges (D_6M/D_1Y/D_2Y) try FMP first, then a live Yahoo
+    fetch -- reimplemented directly here (not via clients/daily_bar_sources.py or
+    clients/shared_bars_cache.py) since this module stays zero-cache by design
+    (point 2 above) and a single-ticker, no-state direct call is simpler than routing
+    through the batch/cache-oriented machinery built for the nightly jobs."""
     cfg = RANGE_CONFIG[range_key]
 
     if cfg["timeframe"] == "weekly":
@@ -234,7 +207,7 @@ async def _fetch_bars(ticker: str, range_key: str) -> tuple[pd.DataFrame, str]:
         return df, "yahoo"
 
     end = date.today()
-    start = end - timedelta(days=cfg["massive_lookback_days"])
+    start = end - timedelta(days=cfg["lookback_days"])
 
     # FMP first, for US AND non-US listings (P3): a US listing is gated on `daily_prices`, a
     # non-US one on `daily_prices_intl` (whose rows also lose FMP's phantom holiday/weekend bars).
@@ -251,15 +224,6 @@ async def _fetch_bars(ticker: str, range_key: str) -> tuple[pd.DataFrame, str]:
             df = pd.DataFrame()
         if not df.empty:
             return df[_EMPTY_OHLCV_COLUMNS], "fmp"
-
-    if not is_non_us_ticker(ticker) and settings.massive_enabled:
-        try:
-            df = await massive_client.get_daily_bars(to_massive_symbol(ticker), start, end, adjusted=True)
-        except Exception:
-            logger.warning("Massive daily-bar fetch failed for %s (%s); falling back to Yahoo", ticker, range_key)
-            df = pd.DataFrame()
-        if not df.empty:
-            return df[_EMPTY_OHLCV_COLUMNS], "massive"
 
     df = await _fetch_yahoo_bars(ticker, range_key)
     return df, "yahoo"

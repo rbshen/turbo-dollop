@@ -9,18 +9,13 @@ export const STATE_LABEL: Record<DataGroupState, string> = {
   failing: "Failing",
 };
 
-/** What actually serves a fallback group while FMP is skipped. Only US daily
- * bars go Massive -> Yahoo; long history, non-US and intraday (60m) bars have
- * no Massive leg (Massive is US-daily-only) and fall straight to Yahoo. */
-const FALLBACK_PROVIDERS: Record<string, string> = {
-  daily_prices: "the fallback providers (Massive, then Yahoo)",
-};
+/** What serves a fallback group while FMP is skipped: Yahoo, the only fallback left. */
 const DEFAULT_FALLBACK_PROVIDERS = "the fallback provider (Yahoo)";
 
 /** Why a group is not live, in words -- for tooltips/captions. */
 export function reasonText(group: DataGroupOut): string {
   if (group.falls_back && (group.reason === "master_off" || group.reason === "user_off")) {
-    const providers = FALLBACK_PROVIDERS[group.key] ?? DEFAULT_FALLBACK_PROVIDERS;
+    const providers = DEFAULT_FALLBACK_PROVIDERS;
     return group.reason === "master_off"
       ? `The FMP master switch is off: FMP is skipped and this data comes from ${providers}.`
       : `Turned off in Settings: FMP is skipped and this data comes from ${providers}.`;
@@ -43,7 +38,7 @@ export function reasonText(group: DataGroupOut): string {
 export function disableWarning(group: DataGroupOut): string {
   const wired = group.wired ? group.feeds : [];
   if (group.falls_back && wired.length > 0) {
-    const providers = FALLBACK_PROVIDERS[group.key] ?? DEFAULT_FALLBACK_PROVIDERS;
+    const providers = DEFAULT_FALLBACK_PROVIDERS;
     return `Turn off ${group.label}? FMP will be skipped and ${providers} will serve:\n\n• ${wired.join("\n• ")}`;
   }
   if (wired.length === 0) return `Turn off ${group.label}? Nothing reads it yet.`;

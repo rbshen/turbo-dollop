@@ -1066,18 +1066,11 @@ def test_resolve_perf_vs_spy_exact_match_returns_match_status():
     assert insufficient is False
 
 
-class _FakeYahooRow:
-    def __init__(self, close: float):
-        self.close = close
-
-
 def _fresh_summary_engine(monkeypatch):
     """Full engine isolation per CLAUDE.md's documented two-incident
     convention: get_summary transitively reaches step2_data's own engine
-    (via the direct get_step2_data call) and, with this feature, the Yahoo
-    fallback's own get_or_fetch_price_history -- monkeypatched directly on
-    ticker_summary's imported reference below rather than needing a third
-    engine patch for clients.yahoo_cache."""
+    (via the direct get_step2_data call). The last-close fallback read is
+    patched per test (conftest defaults it to "nothing cached")."""
     test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(test_engine)
     monkeypatch.setattr(ticker_summary, "engine", test_engine)
@@ -1090,95 +1083,70 @@ def _fresh_summary_engine(monkeypatch):
     return test_engine
 
 
-def test_get_summary_uses_yahoo_price_when_fmp_disabled(monkeypatch):
-    """FMP paused: every fmp_client call raises FMPDisabledError internally
-    (settings.fmp_enabled is a true shared singleton, so setting it False
-    here affects fmp_client.get() too, same as test_fmp_client.py's own
-    convention) -- safe_fetch degrades those to {}/empty defaults across
-    the board, EXCEPT price, which must come from a live Yahoo close
-    instead of staying null/stale."""
+def _cached_close(monkeypatch, close: float | None):
+    """Stub the header's last-close fallback read (data/last_close_data.py)."""
+    calls: list[str] = []
+
+    def fake(ticker):
+        calls.append(ticker)
+        return None if close is None else (close, date(2026, 9, 25))
+
+    monkeypatch.setattr(ticker_summary, "get_cached_last_close", fake)
+    return calls
+
+
+def test_get_summary_serves_the_cached_last_close_when_profile_quote_is_off(monkeypatch):
+    """profile_quote off: every FMP call degrades (safe_fetch -> {}), so the header price
+    comes from the last close cached nightly from FMP -- no Massive, no Yahoo."""
     _fresh_summary_engine(monkeypatch)
-    _dg.set_master(False)
+    _dg.set_group_enabled("profile_quote", False)
+    _cached_close(monkeypatch, 123.45)
 
-    async def fake_get_or_fetch_price_history(ticker, period="2y", cache_only=False):
-        return [_FakeYahooRow(close=123.45)]
-
-    monkeypatch.setattr(ticker_summary, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
-
-    summary = asyncio.run(get_summary("aapl"))
-
-    assert summary.price == 123.45
+    assert asyncio.run(get_summary("aapl")).price == 123.45
 
 
-def test_get_summary_yahoo_fallback_never_fires_when_fmp_enabled(monkeypatch):
-    """Regression guard: the FMP-enabled path must stay byte-for-byte
-    unchanged -- the Yahoo adapter is never consulted at all when FMP is
-    up, regardless of what fmp_client.get_quote returns. Every FMP call is
-    mocked (not just get_quote) so this test never attempts a real network
-    call -- this environment's own .env has FMP_ENABLED=false, so leaving
-    any fmp_client method unmocked while forcing fmp_enabled=True here would
-    otherwise fall through to a real, slow, flaky HTTP attempt."""
+def test_get_summary_serves_the_cached_last_close_when_the_live_quote_fails(monkeypatch):
     _fresh_summary_engine(monkeypatch)
-    _dg.set_master(True)
+    _cached_close(monkeypatch, 123.45)
+
+    async def failing_quote(ticker):
+        raise httpx.ConnectError("FMP unreachable")
+
+    _patch_all_but_quote(monkeypatch, failing_quote)
+
+    assert asyncio.run(get_summary("aapl")).price == 123.45
+
+
+def test_get_summary_live_fmp_quote_wins_and_the_cache_is_never_read(monkeypatch):
+    """Regression guard: with the group live and the quote fetch working, the header
+    price is FMP's live quote and the last-close cache is not consulted."""
+    _fresh_summary_engine(monkeypatch)
+    calls = _cached_close(monkeypatch, 1.0)
 
     async def fake_quote(ticker):
         return FAKE_QUOTE
 
-    async def fake_empty_list(*args, **kwargs):
-        return []
+    _patch_all_but_quote(monkeypatch, fake_quote)
 
-    async def fake_empty_dict(*args, **kwargs):
-        return {}
-
-    async def fail_if_called(ticker, period="2y", cache_only=False):
-        raise AssertionError("Yahoo must never be consulted while FMP is enabled")
-
-    async def fake_profile(ticker):
-        return FAKE_PROFILE
-
-    monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", fake_profile)
-    monkeypatch.setattr(ticker_summary.fmp_client, "get_quote", fake_quote)
-    monkeypatch.setattr(ticker_summary.fmp_client, "get_price_change", fake_empty_dict)
-    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios", fake_empty_list)
-    monkeypatch.setattr(ticker_summary.fmp_client, "get_analyst_estimates", fake_empty_list)
-    monkeypatch.setattr(ticker_summary.fmp_client, "get_earnings", fake_empty_list)
-    monkeypatch.setattr(ticker_summary.fmp_client, "get_balance_sheet_statement", fake_empty_list)
-    monkeypatch.setattr(ticker_summary.fmp_client, "get_income_statement", fake_empty_list)
-    monkeypatch.setattr(ticker_summary.fmp_client, "get_enterprise_values", fake_empty_list)
-    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios_ttm", fake_empty_dict)
-    monkeypatch.setattr(ticker_summary.fmp_client, "get_historical_price_eod", fake_empty_list)
-    monkeypatch.setattr(ticker_summary.fmp_client, "get_financial_growth", fake_empty_dict)
-    monkeypatch.setattr(ticker_summary, "get_or_fetch_price_history", fail_if_called)
-
-    summary = asyncio.run(get_summary("aapl"))
-
-    assert summary.price == 190.5  # FAKE_QUOTE's own price, not a Yahoo value
+    assert asyncio.run(get_summary("aapl")).price == 190.5  # FAKE_QUOTE's own price
+    assert calls == []
 
 
-def test_get_summary_cache_only_never_consults_yahoo_even_when_fmp_disabled(monkeypatch):
-    """cache_only's whole contract is zero live calls of any kind, not just
-    FMP -- the Yahoo fallback must not fire under cache_only=True even
-    while FMP is paused."""
+def test_get_summary_cache_only_never_reads_the_last_close_even_when_profile_quote_is_off(monkeypatch):
+    """cache_only's whole contract is zero live calls of any kind."""
     _fresh_summary_engine(monkeypatch)
-    _dg.set_master(False)
-
-    async def fail_if_called(ticker, period="2y", cache_only=False):
-        raise AssertionError("cache_only must never call Yahoo live")
-
-    monkeypatch.setattr(ticker_summary, "get_or_fetch_price_history", fail_if_called)
+    _dg.set_group_enabled("profile_quote", False)
+    calls = _cached_close(monkeypatch, 1.0)
 
     summary = asyncio.run(get_summary("aapl", cache_only=True))
 
-    assert summary.price is None  # no cached FMP quote, no Yahoo fallback either
+    assert summary.price is None and calls == []  # no cached FMP quote, no fallback either
 
 
-def test_get_summary_yahoo_fallback_keeps_stale_price_when_yahoo_has_no_data(monkeypatch):
-    """A Yahoo fetch returning nothing (delisted/typo'd symbol) must not
-    null out whatever price the (possibly stale) cached FMP quote already
-    had -- stale is still better than nothing, same convention used
-    throughout this codebase."""
+def test_get_summary_keeps_the_stale_cached_quote_price_when_no_last_close_is_cached(monkeypatch):
+    """Nothing cached by the nightly job (a ticker outside its universe) must not null out
+    whatever price the (possibly stale) cached FMP quote already had."""
     _fresh_summary_engine(monkeypatch)
-
     with Session(ticker_summary.engine) as session:
         session.add(
             FundamentalsCache(
@@ -1186,125 +1154,10 @@ def test_get_summary_yahoo_fallback_keeps_stale_price_when_yahoo_has_no_data(mon
             )
         )
         session.commit()
+    _dg.set_group_enabled("profile_quote", False)
+    _cached_close(monkeypatch, None)
 
-    _dg.set_master(False)
-
-    async def fake_empty(ticker, period="2y", cache_only=False):
-        return []
-
-    monkeypatch.setattr(ticker_summary, "get_or_fetch_price_history", fake_empty)
-
-    summary = asyncio.run(get_summary("aapl"))
-
-    assert summary.price == 111.0  # served the stale cached FMP quote's price
-
-
-def test_fetch_massive_latest_price_prefers_min_over_day_over_prevday(monkeypatch):
-    monkeypatch.setattr(ticker_summary.settings, "massive_enabled", True)
-
-    async def fake_snapshot(symbol):
-        return {"min": {"c": 340.5}, "day": {"c": 341.0}, "prevDay": {"c": 339.0}}
-
-    monkeypatch.setattr(ticker_summary.massive_client, "get_snapshot", fake_snapshot)
-
-    price = asyncio.run(ticker_summary._fetch_massive_latest_price("AAPL"))
-    assert price == 340.5
-
-
-def test_fetch_massive_latest_price_falls_through_to_day_then_prevday_when_earlier_fields_are_zero(monkeypatch):
-    monkeypatch.setattr(ticker_summary.settings, "massive_enabled", True)
-
-    async def fake_snapshot_no_min(symbol):
-        return {"min": {"c": 0.0}, "day": {"c": 0.0}, "prevDay": {"c": 339.0}}
-
-    monkeypatch.setattr(ticker_summary.massive_client, "get_snapshot", fake_snapshot_no_min)
-
-    price = asyncio.run(ticker_summary._fetch_massive_latest_price("AAPL"))
-    assert price == 339.0
-
-
-def test_fetch_massive_latest_price_is_none_for_a_non_us_ticker(monkeypatch):
-    monkeypatch.setattr(ticker_summary.settings, "massive_enabled", True)
-
-    async def fail_if_called(symbol):
-        raise AssertionError("Massive must never be tried for a non-US ticker")
-
-    monkeypatch.setattr(ticker_summary.massive_client, "get_snapshot", fail_if_called)
-
-    assert asyncio.run(ticker_summary._fetch_massive_latest_price("0700.HK")) is None
-
-
-def test_fetch_massive_latest_price_is_none_when_massive_disabled(monkeypatch):
-    monkeypatch.setattr(ticker_summary.settings, "massive_enabled", False)
-
-    async def fail_if_called(symbol):
-        raise AssertionError("Massive must never be tried when massive_enabled is False")
-
-    monkeypatch.setattr(ticker_summary.massive_client, "get_snapshot", fail_if_called)
-
-    assert asyncio.run(ticker_summary._fetch_massive_latest_price("AAPL")) is None
-
-
-def test_fetch_massive_latest_price_is_none_on_a_fetch_error(monkeypatch):
-    monkeypatch.setattr(ticker_summary.settings, "massive_enabled", True)
-
-    async def fake_raises(symbol):
-        raise RuntimeError("Massive is down")
-
-    monkeypatch.setattr(ticker_summary.massive_client, "get_snapshot", fake_raises)
-
-    assert asyncio.run(ticker_summary._fetch_massive_latest_price("AAPL")) is None
-
-
-def test_fetch_massive_latest_price_is_none_when_no_snapshot_exists(monkeypatch):
-    monkeypatch.setattr(ticker_summary.settings, "massive_enabled", True)
-
-    async def fake_none(symbol):
-        return None
-
-    monkeypatch.setattr(ticker_summary.massive_client, "get_snapshot", fake_none)
-
-    assert asyncio.run(ticker_summary._fetch_massive_latest_price("AAPL")) is None
-
-
-def test_get_summary_prefers_massive_price_over_yahoo_when_both_available(monkeypatch):
-    _fresh_summary_engine(monkeypatch)
-    _dg.set_master(False)
-    monkeypatch.setattr(ticker_summary.settings, "massive_enabled", True)
-
-    async def fake_snapshot(symbol):
-        return {"min": {"c": 250.0}}
-
-    monkeypatch.setattr(ticker_summary.massive_client, "get_snapshot", fake_snapshot)
-
-    async def fail_if_called(ticker, period="2y", cache_only=False):
-        raise AssertionError("Yahoo must not be consulted when Massive already answered")
-
-    monkeypatch.setattr(ticker_summary, "get_or_fetch_price_history", fail_if_called)
-
-    summary = asyncio.run(get_summary("aapl"))
-
-    assert summary.price == 250.0
-
-
-def test_get_summary_falls_back_to_yahoo_when_massive_has_no_price(monkeypatch):
-    _fresh_summary_engine(monkeypatch)
-    _dg.set_master(False)
-    monkeypatch.setattr(ticker_summary.settings, "massive_enabled", True)
-
-    async def fake_snapshot_none(symbol):
-        return None
-
-    monkeypatch.setattr(ticker_summary.massive_client, "get_snapshot", fake_snapshot_none)
-
-    async def fake_get_or_fetch_price_history(ticker, period="2y", cache_only=False):
-        return [_FakeYahooRow(close=123.45)]
-
-    monkeypatch.setattr(ticker_summary, "get_or_fetch_price_history", fake_get_or_fetch_price_history)
-
-    summary = asyncio.run(get_summary("aapl"))
-
-    assert summary.price == 123.45
+    assert asyncio.run(get_summary("aapl")).price == 111.0
 
 
 @pytest.mark.parametrize(

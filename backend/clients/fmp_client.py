@@ -300,6 +300,15 @@ class FMPClient:
         # only lever -- 400 covers the 4y Chart window even for a weekly payer.
         return await self.get("/dividends", {"symbol": ticker, "limit": limit})
 
+    async def get_splits(self, ticker: str) -> dict | list:
+        # One row per split, newest first (`numerator`/`denominator`, e.g. 4/1).
+        return await self.get("/splits", {"symbol": ticker})
+
+    async def get_delisted_companies(self, page: int, limit: int = 100) -> dict | list:
+        # The whole market's delisted list, newest first. FMP clamps `limit` to 100, so the
+        # full list (~15.6k rows) is ~157 pages; a symbol can appear more than once (reuse).
+        return await self.get("/delisted-companies", {"page": page, "limit": limit})
+
     async def get_income_statement(self, ticker: str, period: str, limit: int) -> dict | list:
         return await self.get("/income-statement", {"symbol": ticker, "period": period, "limit": limit})
 

@@ -987,16 +987,13 @@ class TickerScore(SQLModel, table=True):
     # every ticker outside W1-W5, same as warren_active_signal_kind
     # above).
     warren_last_buy_fired_at: datetime | None = None
-    # Set when pipeline/stale_data_health_check.py::sync_delisted_flags
-    # confirms this ticker's last SharedBarsCache interval="1d" bar is more
-    # than DELISTED_STALE_THRESHOLD_DAYS (30) old on BOTH Massive and Yahoo
-    # -- never set from a single provider's own gap (see that function's
-    # docstring for the exact dual-provider requirement). Nightly daily-bar
+    # Set when pipeline/stale_data_health_check.py::sync_delisted_flags finds
+    # this ticker in FMP's /delisted-companies list (Phase 6a; it replaced the
+    # old dual-provider stale-bar heuristic). Never cleared automatically --
+    # absence from that list is not evidence. Nightly daily-bar
     # jobs (Trend/Weinstein, Liquidity Zones, Momentum) skip a flagged
     # ticker's fetch/compute entirely rather than retrying a doomed
-    # Massive+Yahoo lookup every night. Auto-cleared back to None (logged)
-    # the moment a fresh bar reappears -- symbol reuse or relisting under
-    # the same ticker. None for the overwhelming majority of tickers,
+    # lookup every night. None for the overwhelming majority of tickers,
     # including every row computed before this column existed (see
     # _add_missing_columns). Nothing else about a flagged ticker changes:
     # this row, FundamentalsCache, Screener, Watchlist, and ticker-page
@@ -1318,3 +1315,61 @@ class DataGroupGlobal(SQLModel, table=True):
     key_problem_at: datetime | None = None
     key_problem_detail: str | None = None
     updated_at: datetime | None = None
+
+
+class TickerLastClose(SQLModel, table=True):
+    """Latest official closing price per ticker from FMP `/historical-price-eod/full`,
+    written nightly (after the US close) by pipeline/nightly_last_close_snapshot.py.
+    The fallback tier for the ticker header's price (data/ticker_summary.py): served
+    when the live FMP quote fails or the `profile_quote` group is off. Latest-only,
+    upserted per run (TickerScore convention); `as_of_date` is the session the close
+    belongs to, `fetched_at` when we wrote it."""
+
+    ticker: str = Field(primary_key=True)
+    close: float
+    as_of_date: date
+    fetched_at: datetime
+
+
+class CorporateEvent(SQLModel, table=True):
+    """FMP-sourced earnings dates, dividends and splits per ticker (Phase 6a), refreshed
+    nightly by pipeline/nightly_corporate_events.py with a full-history REPLACE per
+    (ticker, event_type) -- so this is a mirror of FMP's current answer, never a
+    layered history. Feeds the Chart tab's E/D markers (data/chart_events_data.py).
+
+    event_type: "earnings" (event_date = report date; rows FMP lists with null actuals
+    -- the next scheduled report, ETF placeholders -- are stored as-is and filtered at
+    read time), "dividend" (event_date = ex-dividend date; `adj_dividend` split-adjusted,
+    `dividend` as declared), "split" (event_date = split date, numerator/denominator).
+    Columns not used by a type stay NULL."""
+
+    __table_args__ = (UniqueConstraint("ticker", "event_type", "event_date", name="uq_corporate_event_key"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    ticker: str = Field(index=True)
+    event_type: str
+    event_date: date
+    eps_actual: float | None = None
+    eps_estimated: float | None = None
+    revenue_actual: float | None = None
+    revenue_estimated: float | None = None
+    dividend: float | None = None
+    adj_dividend: float | None = None
+    record_date: date | None = None
+    payment_date: date | None = None
+    declaration_date: date | None = None
+    frequency: str | None = None
+    split_numerator: float | None = None
+    split_denominator: float | None = None
+
+
+class CorporateEventFetch(SQLModel, table=True):
+    """One row per (ticker, event_type) recording the last SUCCESSFUL FMP refresh of
+    CorporateEvent -- what distinguishes "fetched, FMP has none" (TSLA pays no
+    dividend) from "never fetched" (a ticker outside the nightly universe), so the
+    Chart tab only trusts the cache where it was actually populated."""
+
+    ticker: str = Field(primary_key=True)
+    event_type: str = Field(primary_key=True)
+    fetched_at: datetime
+    row_count: int = 0

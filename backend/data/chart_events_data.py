@@ -1,12 +1,13 @@
 """Earnings-report dates and dividend ex-dates for the ticker-page Chart tab's
 event markers -- see data/chart_data.py for how these become markers.
 
-Fully ON-DEMAND, zero persistent caching, exactly like the rest of the Chart
-tab (see chart_data.py's module docstring for why the cache was dropped there):
-every chart request makes two live calls. Deliberately does NOT go through
-core/cache.py's FundamentalsCache -- the existing "earnings"/"latest" cache
-key holds a limit=8 response used for next-earnings-date logic, and reusing
-it would either collide with that shape or silently cap the chart at 2 years.
+**Phase 6a: reads the FMP-backed CorporateEvent cache first**
+(data/corporate_events_data.py, refreshed nightly, full history) and only for a
+ticker that cache has never covered falls through to the on-demand path below --
+two live calls per chart request, zero persistence. That path deliberately does NOT
+go through core/cache.py's FundamentalsCache: the existing "earnings"/"latest" key
+holds a limit=8 response used for next-earnings-date logic, and reusing it would
+either collide with that shape or silently cap the chart at 2 years.
 
 Source is FMP when the corporate_events group is live, Yahoo Finance otherwise (or when the FMP calls
 fail), the app's normal degrade pattern for corporate-actions data. This is
@@ -184,6 +185,19 @@ async def _fetch_yahoo(ticker: str) -> tuple[list[EarningsEvent], list[DividendE
 
 
 async def _fetch_events(ticker: str) -> ChartEvents:
+    # Phase 6a: the FMP-backed cache (data/corporate_events_data.py) answers first for any
+    # ticker the nightly job has populated -- no network call at all. Below is the
+    # fallback for a ticker never cached (outside the nightly universe) or a cache read
+    # error; the Yahoo leg is dead code for cached tickers and is removed in Phase 6b.
+    # (Lazy import: corporate_events_data imports this module's normalizers.)
+    try:
+        from data.corporate_events_data import read_cached_chart_events
+
+        cached = read_cached_chart_events(ticker)
+        if cached is not None:
+            return cached
+    except Exception as exc:  # noqa: BLE001 -- a cache problem must degrade to the live path
+        logger.warning("Corporate-events cache read failed for %s (%s); using the live path", ticker, type(exc).__name__)
     if group_live("corporate_events"):
         try:
             earnings, dividends = await _fetch_fmp(ticker)

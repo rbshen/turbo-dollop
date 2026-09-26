@@ -2,7 +2,7 @@
 ETFs x 8 trailing total-return windows (1d/1w/1m/3m/6m/9m/YTD/1y). See
 data/sector_heatmap_data.py for the fetch/compute/persist logic and
 scoring/etf_returns.py for the pure return math. Makes ZERO FMP calls (a
-single shared-bars-cache batch fetch -- Massive/Polygon with an automatic
+single shared-bars-cache batch fetch -- FMP daily bars with an automatic
 Yahoo fallback per clients/daily_bar_sources.py -- ~3-4s on a warm cache),
 so like nightly_trend_calculation.py it needs no data-group guard.
 

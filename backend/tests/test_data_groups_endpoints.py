@@ -93,7 +93,7 @@ def test_editing_the_plan_reprobes_restricted_groups(monkeypatch):
 
 
 def test_daily_prices_off_reads_using_fallback_not_cached_only():
-    """daily_prices has a live fallback chain (Massive -> Yahoo) until P6, so off
+    """daily_prices has a live Yahoo fallback until P6b, so off
     means "skip FMP, use the fallback", never the cache-only chip."""
     with TestClient(app) as client:
         body = client.get("/api/config/data-groups").json()

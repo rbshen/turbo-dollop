@@ -16,8 +16,8 @@ removed: Liquidity Zones is one of six technical-analysis features
 entirely, so a paused FMP subscription can never affect what price levels
 this feature detects.
 
-**Massive.com/Polygon (Phase 1 migration, 2026-09-23), with an automatic
-per-ticker Yahoo fallback.** Reads every tracked ticker's ~4yr daily OHLC
+**FMP daily bars (Phase 2, 2026-09-24; Massive/Polygon before it, removed in
+Phase 6a), with an automatic per-ticker Yahoo fallback.** Reads every tracked ticker's ~4yr daily OHLC
 through the shared bars cache (clients/shared_bars_cache.py, interval
 "1d" -- the same row Trend/Weinstein Stage reads at a narrower 2y width,
 so whichever of the two nightly jobs runs first does the one live fetch

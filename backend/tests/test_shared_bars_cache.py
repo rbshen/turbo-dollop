@@ -642,7 +642,6 @@ class _RoutingHarness:
         monkeypatch.setattr(_dbs.yahoo_client, "get_history", fake_yahoo)
         monkeypatch.setattr(_dbs, "engine", engine)
         monkeypatch.setattr(_dbs, "_completed_session", lambda: _TODAY)
-        monkeypatch.setattr(_dbs.settings, "massive_enabled", False)
 
 
 def _run_batch(tickers, **kw):
@@ -690,7 +689,7 @@ def test_group_off_matrix_us_and_non_us_are_independent(monkeypatch):
     frames, fb = _run_batch(["AAPL", _HK])
     assert [(c[0], c[2]) for c in h.fmp_calls] == [("AAPL", "daily_prices")]
     assert h.yahoo_calls == [[_HK]] and list(fb) == [_HK] and fb.yahoo == [_HK]
-    assert fb.describe() == "1 fell back from FMP (Massive 0, Yahoo 1)"
+    assert fb.describe() == "1 fell back from FMP to Yahoo"
     assert set(frames) == {"AAPL", _HK}
 
     # US off, intl live: AAPL falls to Yahoo, HK stays on FMP(daily_prices_intl)

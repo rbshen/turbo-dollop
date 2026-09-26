@@ -1,5 +1,5 @@
 import core.tickers as tickers_module
-from core.tickers import from_massive_symbol, is_non_us_ticker, normalize_ticker, resolve_daily_bar_source_label, to_massive_symbol
+from core.tickers import is_non_us_ticker, normalize_ticker, resolve_daily_bar_source_label
 
 
 def test_normalizes_known_dual_class_share_aliases():
@@ -36,22 +36,6 @@ def test_unlisted_dotted_string_is_not_mangled():
     assert normalize_ticker("VOD.L") == "VOD.L"
 
 
-def test_to_massive_symbol_converts_known_class_shares_to_dot_notation():
-    assert to_massive_symbol("BRK-B") == "BRK.B"
-    assert to_massive_symbol("BF-B") == "BF.B"
-
-
-def test_to_massive_symbol_passes_through_unaliased_tickers_unchanged():
-    assert to_massive_symbol("AAPL") == "AAPL"
-    assert to_massive_symbol("0700.HK") == "0700.HK"
-
-
-def test_from_massive_symbol_is_the_inverse_of_to_massive_symbol():
-    assert from_massive_symbol("BRK.B") == "BRK-B"
-    assert from_massive_symbol("BF.B") == "BF-B"
-    assert from_massive_symbol("AAPL") == "AAPL"
-
-
 def test_is_non_us_ticker_flags_dotted_foreign_listings():
     assert is_non_us_ticker("0700.HK") is True
     assert is_non_us_ticker("MC.PA") is True
@@ -71,14 +55,6 @@ def test_resolve_daily_bar_source_label_is_fmp_for_us_tickers_while_daily_prices
     assert resolve_daily_bar_source_label("AAPL") == "fmp"
 
 
-def test_resolve_daily_bar_source_label_prefers_massive_for_us_tickers_when_daily_prices_off(monkeypatch):
-    import core.data_groups as dg
-
-    dg.set_group_enabled("daily_prices", False)
-    monkeypatch.setattr(tickers_module.settings, "massive_enabled", True)
-    assert resolve_daily_bar_source_label("AAPL") == "massive"
-
-
 def test_resolve_daily_bar_source_label_for_non_us_tickers_follows_daily_prices_intl():
     import core.data_groups as dg
 
@@ -88,11 +64,10 @@ def test_resolve_daily_bar_source_label_for_non_us_tickers_follows_daily_prices_
     assert resolve_daily_bar_source_label("AAPL") == "fmp"  # the US group is independent
 
 
-def test_resolve_daily_bar_source_label_is_yahoo_when_daily_prices_off_and_massive_disabled(monkeypatch):
+def test_resolve_daily_bar_source_label_is_yahoo_when_daily_prices_is_off():
     import core.data_groups as dg
 
     dg.set_group_enabled("daily_prices", False)
-    monkeypatch.setattr(tickers_module.settings, "massive_enabled", False)
     assert resolve_daily_bar_source_label("AAPL") == "yahoo"
 
 

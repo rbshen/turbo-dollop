@@ -406,8 +406,7 @@ def intraday_source_labels(tickers: list[str]) -> dict[str, str]:
 
 
 async def _fetch_yahoo_intraday(to_fetch: dict[str, int], auto_adjust: bool) -> dict[str, pd.DataFrame]:
-    """The Yahoo 60m fetch (the fallback for FMP intraday, and the only source for non-US
-    tickers). yfinance's multi-ticker download takes ONE period per call, so tickers are grouped
+    """The Yahoo 60m fetch -- the fallback for FMP intraday. yfinance's multi-ticker download takes ONE period per call, so tickers are grouped
     by the period their own need snaps to -- one call per distinct period, not one per ticker."""
     by_period: dict[str, list[str]] = {}
     for ticker, days in to_fetch.items():
@@ -456,14 +455,13 @@ async def get_or_fetch_bars_batch(
     monkeypatch this module's own `datetime` import.
 
     fallback_tickers, when passed a list, gets extended with every "1d"
-    US-listed ticker this call did NOT get from FMP (Massive or Yahoo served
+    US-listed ticker this call did NOT get from FMP (Yahoo served
     it instead; pass a clients.daily_bar_sources.FallbackTickers to also get
     the Yahoo subset) -- clients/daily_bar_sources.py::FMPWithFallback
     -- an out-parameter, not a return-shape change, so this function's
     `dict[str, pd.DataFrame]` return type (many callers) is unaffected.
     For interval="60m" it likewise gets the US-listed tickers FMP intraday
-    did not serve (Yahoo did). Ignored for non-US tickers (routed straight to Yahoo by design, not a
-    fallback). Lets a caller report a per-run fallback count -- e.g. via
+    did not serve (Yahoo did). Non-US tickers are not fetched at all. Lets a caller report a per-run fallback count -- e.g. via
     its own cron_heartbeat message, alongside stale_ticker_count below --
     without this module needing to know anything about cron reporting
     itself."""
@@ -509,7 +507,7 @@ async def get_or_fetch_bars_batch(
         # fresh and wide -- FMPIntradaySource then replaces it in full. Self-completing and
         # loop-free: a successful replace leaves every row "fmp", so the ticker drops out.
         # Skipped while the group is off (everything would fall to Yahoo and re-tag "yahoo"
-        # every run) and for non-US tickers (Yahoo-only by design, never tagged "fmp").
+        # every run) and for non-US tickers (no 60m bars at all since Phase 6a).
         candidates = [t for t in tickers if t in span_by_ticker and t not in to_fetch]
         with Session(engine) as session:
             legacy = non_fmp_intraday_tickers(session, candidates)
@@ -526,7 +524,7 @@ async def get_or_fetch_bars_batch(
         if interval == DAILY_INTERVAL:
             # FMP is the primary daily-bar source for every US-LISTED ticker
             # (clients/daily_bar_sources.py::FMPWithFallback), with a per-
-            # ticker Massive -> Yahoo fallback (whole-batch while the
+            # ticker Yahoo fallback (whole-batch while the
             # daily_prices group is off). Non-US tickers (route_by_source:
             # listing exchange off the cached profile, dot-suffix when there
             # is none) go FMP (daily_prices_intl, phantom bars removed) -> Yahoo. force
@@ -551,10 +549,11 @@ async def get_or_fetch_bars_batch(
             # interval == INTRADAY_INTERVAL (P4): FMP `/historical-chart/1hour` first for
             # US-listed tickers (clients/daily_bar_sources.py::FMPIntradayWithFallback), Yahoo
             # per ticker when FMP delivers nothing and for the whole batch while `intraday_bars`
-            # is off. Non-US tickers stay on Yahoo (their FMP hours would be a separate
-            # decision). Every write is tagged with its provenance so a ticker whose cached
+            # is off. Non-US tickers get NO 60m bars (Phase 6a: non-US support dropped; their
+            # Yahoo-only 60m path was removed) -- a cached non-US row is left as is, never
+            # refreshed. Every write is tagged with its provenance so a ticker whose cached
             # rows are not all FMP's is fully replaced on its next FMP fetch.
-            us_tickers, non_us_tickers = route_by_source(to_fetch)
+            us_tickers, _non_us_ignored = route_by_source(to_fetch)
             if us_tickers:
                 fetched.update(
                     await FMPIntradayWithFallback(fallback=_fetch_yahoo_intraday).get_intraday_bars(
@@ -562,8 +561,6 @@ async def get_or_fetch_bars_batch(
                         replace_tickers=replace_tickers, full_refresh=force, fmp_served=fmp_served,
                     )
                 )
-            if non_us_tickers:
-                fetched.update(await _fetch_yahoo_intraday(non_us_tickers, auto_adjust))
         with Session(engine) as session:
             for ticker, df in fetched.items():
                 if df is not None and not df.empty:
@@ -624,31 +621,10 @@ async def get_or_fetch_bars(
     return result.get(ticker, pd.DataFrame(columns=["open", "high", "low", "close", "volume"]))
 
 
-def last_bar_ages_days(tickers: list[str], interval: str, reference: datetime | None = None) -> dict[str, int | None]:
-    """Calendar days since each ticker's most recent cached bar for
-    `interval`, as of `reference` (default: now, US/Eastern calendar date).
-    A ticker with no cached bars at all reads None -- never fetched, an
-    ambiguous state (brand new, or never processed) distinct from "has a
-    real but old last bar."
-
-    Unlike stale_ticker_count's session-aware _is_stale (a same-or-later-
-    session bit: any gap past the most recently completed session already
-    counts as stale), this returns the actual magnitude in days --
-    pipeline/stale_data_health_check.py's delisted-ticker check needs a
-    real age to threshold against (30+ days), not a same-session freshness
-    flag that goes true for every ticker on the very first missed night."""
-    if not tickers:
-        return {}
-    today = _eastern_today(reference)
-    with Session(engine) as session:
-        span_by_ticker = _cache_span(session, tickers, interval)
-    return {t: (today - span_by_ticker[t][1].date()).days if t in span_by_ticker else None for t in tickers}
-
-
 def stale_ticker_count(tickers: list[str], interval: str, reference: datetime | None = None) -> tuple[int, list[str]]:
     """Read-only, call AFTER a get_or_fetch_bars_batch attempt: how many of
     `tickers` still don't reflect the most recently completed session/bar
-    for `interval`, despite that fetch attempt (Massive down AND its Yahoo
+    for `interval`, despite that fetch attempt (FMP down AND its Yahoo
     fallback also came up empty, a data-provider-wide gap like the
     2026-09-22 Yahoo Close incident, or simply a ticker never requested).
 

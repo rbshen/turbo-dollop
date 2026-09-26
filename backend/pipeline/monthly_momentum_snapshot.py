@@ -2,7 +2,7 @@
 price-momentum signal (3mo/6mo/12mo trailing return average) over Fathom's
 Moat-rated universe. See data/momentum_data.py for the compute/persist
 logic and scoring/momentum.py for the pure ranking engine. Makes ZERO FMP
-calls (a shared-bars-cache batch fetch -- Massive/Polygon with an
+calls (a shared-bars-cache batch fetch -- FMP daily bars with an
 automatic Yahoo fallback per clients/daily_bar_sources.py), same framing as
 nightly_trend_calculation.py -- no data-group guard needed.
 

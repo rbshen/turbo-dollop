@@ -38,6 +38,8 @@ CRON_JOB_NAMES: list[str] = [
     "pipeline.nightly_fundamentals_fetch",
     "pipeline.nightly_score_recompute",
     "pipeline.nightly_trend_calculation",
+    "pipeline.nightly_corporate_events",
+    "pipeline.nightly_last_close_snapshot",
     "pipeline.nightly_entry_signal_calculation",
     "pipeline.nightly_warren_signal_calculation",
     "pipeline.nightly_liquidity_zone_calculation",
@@ -70,6 +72,8 @@ _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.nightly_fundamentals_fetch": _DAILY_HOURS,
     "pipeline.nightly_score_recompute": _DAILY_HOURS,
     "pipeline.nightly_trend_calculation": _DAILY_HOURS,
+    "pipeline.nightly_corporate_events": _DAILY_HOURS,
+    "pipeline.nightly_last_close_snapshot": _DAILY_HOURS,
     "pipeline.nightly_entry_signal_calculation": _DAILY_HOURS,
     "pipeline.nightly_warren_signal_calculation": _DAILY_HOURS,
     "pipeline.nightly_liquidity_zone_calculation": _DAILY_HOURS,
@@ -116,6 +120,12 @@ JOB_METADATA: dict[str, JobMetadata] = {
     ),
     "pipeline.nightly_trend_calculation": JobMetadata(
         "Trend structure + Weinstein stage, weekly resample", "daily", "3:10 AM", 3 * 60 + 10
+    ),
+    "pipeline.nightly_corporate_events": JobMetadata(
+        "Earnings / dividends / splits cache from FMP (Chart E/D markers)", "daily", "3:12 AM", 3 * 60 + 12
+    ),
+    "pipeline.nightly_last_close_snapshot": JobMetadata(
+        "Last official close per ticker from FMP (header price fallback)", "daily", "3:15 AM", 3 * 60 + 15
     ),
     "pipeline.nightly_entry_signal_calculation": JobMetadata(
         "BB+RSI (2h) entry signal, W1-W5 watchlists", "daily", "3:20 AM", 3 * 60 + 20

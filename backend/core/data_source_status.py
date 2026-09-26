@@ -15,7 +15,6 @@ from datetime import datetime, timedelta
 from sqlmodel import Session
 
 import core.data_source_health as data_source_health
-from core.config import settings
 from core.data_groups import master_on
 from core.models import DataSourceHealth
 from core.schemas import DataSourceHealthOut, DataSourceStatusOut
@@ -60,7 +59,6 @@ def get_data_source_health() -> DataSourceHealthOut:
 
     fmp_last_success = _last_success_at("fmp")
     yahoo_last_success = _last_success_at("yahoo")
-    massive_last_success = _last_success_at("massive")
 
     return DataSourceHealthOut(
         sources=[
@@ -69,12 +67,6 @@ def get_data_source_health() -> DataSourceHealthOut:
                 enabled=master_on(),
                 status=_status_for(master_on(), fmp_last_success, now),
                 last_success_at=fmp_last_success,
-            ),
-            DataSourceStatusOut(
-                source="massive",
-                enabled=settings.massive_enabled,
-                status=_status_for(settings.massive_enabled, massive_last_success, now),
-                last_success_at=massive_last_success,
             ),
             DataSourceStatusOut(
                 source="yahoo",

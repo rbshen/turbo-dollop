@@ -18,7 +18,7 @@ empty for, or errors on, keeps its existing rows untouched (reported as
 (a young/renamed listing whose cache was stitched -- SPCX) is reported under
 "shrunk" so it can be reviewed in the dry run before the real one.
 
-Universe: the same union the Massive backfill used (tracked universe, S&P 500,
+Universe: the union of every daily-bar consumer's own universe (tracked universe, S&P 500,
 W1-W5 watchlists, sector ETFs + SPY, Moat-rated), plus every ticker already
 holding "1d" rows (^GSPC), routed by LISTING EXCHANGE
 (clients/daily_bar_sources.py::route_by_source: NYSE/NASDAQ/AMEX/CBOE/OTC = US;
@@ -56,6 +56,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import re
+
 import pandas as pd
 from sqlmodel import Session, select
 
@@ -64,12 +66,36 @@ from clients.shared_bars_cache import DAILY_INTERVAL, _eastern_today, _load_fram
 from core.data_groups import effective_state
 from core.db import engine, init_db
 from core.logging_config import configure_logging
-from core.models import SharedBarsCache
+from core.models import SharedBarsCache, TickerScore
 from core.tickers import normalize_ticker
-from pipeline.backfills.backfill_massive_daily_bars import LOOKBACK_DAYS, _resolve_universe
+from data.sector_heatmap_data import SECTOR_ETFS
+from data.watchlists import list_tickers_across_watchlists
+from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe, load_sp500_tickers
 from pipeline.stale_data_health_check import load_delisted_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent.parent / "logs" / "backfill_fmp_daily_bars.log"
+
+# Covers every daily-bar consumer's own window (Chart D_2Y's 5y is the widest).
+LOOKBACK_DAYS = 5 * 365
+
+WATCHLIST_NAME_PATTERN = re.compile(r"^W[1-5]$")
+# Same set data/momentum_data.py::MOAT_VALUES uses -- a ticker with no moat set at all is
+# excluded, never included with a fabricated default.
+MOAT_VALUES = {"wide_moat", "narrow_moat", "no_moat"}
+
+
+def _resolve_universe(session: Session) -> list[str]:
+    """Union of every daily-bar consumer's own universe, deduped and normalized (callers
+    route/filter US vs non-US themselves)."""
+    tickers: set[str] = set(load_full_tracked_universe(session))
+    tickers.update(load_sp500_tickers(session))
+    lz_tickers, _ = list_tickers_across_watchlists(session, WATCHLIST_NAME_PATTERN)
+    tickers.update(lz_tickers)
+    tickers.update(t for t, _ in SECTOR_ETFS)
+    tickers.add("SPY")
+    moat_rows = session.exec(select(TickerScore.ticker, TickerScore.moat)).all()
+    tickers.update(t for t, moat in moat_rows if moat in MOAT_VALUES)
+    return sorted(normalize_ticker(t) for t in tickers)
 
 # New history starting more than this many days after the old first bar is
 # flagged "shrunk" (reviewed in the dry run).

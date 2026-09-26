@@ -22,7 +22,7 @@ const STATUS_LABEL: Record<DataSourceStatusOut["status"], string> = {
 
 interface Props {
   title: string;
-  /** e.g. "MASSIVE_ENABLED" -- shown next to the title. Yahoo has
+  /** e.g. an env flag name -- shown next to the title. Yahoo has
    * no kill-switch flag at all (see clients/yahoo_client.py's own
    * docstring), so this is omitted for that card. */
   flagLabel?: string;

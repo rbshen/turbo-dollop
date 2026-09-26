@@ -37,6 +37,12 @@
 # the FMP-dependent fetch above it, doesn't need to wait on it, just
 # staggered into a free slot. See pipeline/nightly_trend_calculation.py.
 10 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_trend_calculation >> /home/shen/fathom/backend/logs/nightly_trend_calculation_cron.log 2>&1
+# Nightly FMP earnings/dividends/splits cache (Phase 6a), 3:12 AM -- full-history replace
+# per ticker; feeds the Chart tab's E/D markers. See pipeline/nightly_corporate_events.py.
+# And the nightly last-close cache, 3:15 AM -- the ticker header's price fallback when the
+# live FMP quote is unavailable. See pipeline/nightly_last_close_snapshot.py.
+12 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_corporate_events >> /home/shen/fathom/backend/logs/nightly_corporate_events_cron.log 2>&1
+15 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_last_close_snapshot >> /home/shen/fathom/backend/logs/nightly_last_close_snapshot_cron.log 2>&1
 
 # Nightly BB+RSI (2h) technical entry-signal calculation, 3:20 AM server
 # time -- after trend-structure (3:10) above, before the 3:30 backup.

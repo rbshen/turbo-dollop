@@ -122,7 +122,7 @@ async def main(tickers: list[str] | None = None) -> dict:
     benchmark_ohlcv = bars_by_ticker.get(benchmark_ticker)
 
     # Stale-data guard (docs/yahoo_close_data_gap_investigation_2026-09-23.md):
-    # after the fetch attempt above (Massive, with an automatic per-ticker
+    # after the fetch attempt above (FMP, with an automatic per-ticker
     # Yahoo fallback -- see clients/daily_bar_sources.py), how many tickers
     # still don't reflect the most recently completed session. Reported via
     # this run's own cron_heartbeat message below rather than escalated to a

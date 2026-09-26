@@ -4077,6 +4077,11 @@ calls, independent of Step 1-5/Overall Assessment scoring -- no `FMP_ENABLED` gu
 
 ## Delisted-ticker handling (2026-09-23)
 
+**Detection superseded 2026-09-26 (Phase 6a): the dual-provider stale-bar heuristic, the Massive+Yahoo
+live-probe revival and the auto-clear described below are gone -- see "Phase 6a" below. What still
+holds: the `TickerScore.delisted_at` column, the nightly jobs skipping a flagged ticker, and nothing
+ever being deleted.**
+
 A small, independent maintenance feature closing a real, confirmed cost: **TWTR, WBA, EA, AVB,
 EQR** are genuinely delisted (Massive's `/v3/reference/tickers` 404s; Yahoo reports "possibly
 delisted") and already absent from `IndexConstituent`, but stay in `load_full_tracked_universe`
@@ -4176,6 +4181,64 @@ backfill call on both providers, every single night, forever.
   and both touch `massive_client.py`/`daily_bar_sources.py`, which just shipped in Phase 1 and
   deserve a dedicated follow-up rather than being bundled into this unrelated feature. Left as a
   known, minor inefficiency, not fixed here.
+
+## Phase 6a: Massive removed; FMP last-close, corporate-events and delisted-companies (2026-09-26)
+
+Massive/Polygon is **deleted** (client, `MassiveDailySource`/`MassiveWithYahooFallback`, `massive_enabled`/
+`massive_api_key`/`massive_base_url`, the ticker-alias helpers, the one-time Massive backfill, their tests, and
+`MASSIVE_API_KEY`/unused `EODHD_*`/`APCA_*` from `backend/.env`). It was confirmed fallback-only beforehand (bars:
+only after FMP fails or `daily_prices` is off; Chart: only after FMP; header price: only when `profile_quote`
+was off). The fallback chain is now **FMP -> Yahoo**. `FallbackTickers.yahoo` is kept (it now equals the whole
+fallback set) and `describe_fallback` reads "N fell back from FMP to Yahoo". `ChartOut.source` is
+`"fmp" | "yahoo"`; `DataSourceStatusOut.source` is `"fmp" | "yahoo"`; the Settings > Status Massive card is gone.
+Yahoo code itself is untouched (Phase 6b).
+
+- **Header price** (`data/ticker_summary.py`): a live FMP `/quote` on every view (unchanged). When the
+  `profile_quote` group is off **or** the live fetch failed, only `price` is overridden with the last official
+  close cached nightly by `pipeline.nightly_last_close_snapshot` (3:15 AM UTC; table `TickerLastClose`, latest-only,
+  `data/last_close_data.py`). One `/historical-price-eod/full` call per US-listed tracked ticker (group
+  `daily_prices`; skipped with a real `skipped` status while it is off), newest bar on/before the last completed
+  session. No cached close -> the stale cached FMP quote price stays. `cache_only` never reads it. The Yahoo
+  header fallback (`_fetch_yahoo_latest_close`) is removed; `clients/yahoo_cache.py`/`YahooPriceCache` now have
+  **no consumer** (drop in 6b).
+- **Earnings / dividends / splits cache** (`CorporateEvent` + `CorporateEventFetch`, `data/corporate_events_data.py`,
+  `pipeline.nightly_corporate_events`, 3:12 AM UTC): FMP `/earnings` (limit 1000), `/dividends` (limit 2000),
+  `/splits` (new `FMPClient.get_splits`, in `corporate_events`), **full-history REPLACE per (ticker, type)** each
+  night, so the first run is the backfill (~590 tickers x 3 calls, ~1-2 min, paced to half the plan rate). A failed
+  endpoint (or a 200 error body) keeps that type's old rows. `CorporateEventFetch` records the last *successful*
+  fetch per (ticker, type) so "fetched, FMP has none" (TSLA dividends) differs from "never fetched". Cadence
+  choice: nightly for all three (earnings actuals fill in day to day; splits ride along for one cheap call).
+  **Chart tab**: `chart_events_data._fetch_events` reads the cache first (rebuilds FMP-shaped rows and reuses the
+  live path's own normalizers, so the marker rules are identical) and only falls through to the live FMP -> Yahoo
+  path for a ticker whose earnings+dividends were never cached. The cache is served however old, including
+  while `corporate_events` is off. The Yahoo functions in `chart_events_data.py` are kept but unreachable for
+  cached tickers (delete in 6b). Splits are stored but no marker reads them yet.
+- **Delisted flags** (`pipeline/stale_data_health_check.py::sync_delisted_flags`, weekly Sun 1:30): pages FMP
+  `/delisted-companies` (group `corporate_events`; **page size capped at 100, ~157 pages / ~15.6k rows / ~15.4k
+  unique symbols on 2026-09-26**, so ~157 sequential calls/week) and sets `TickerScore.delisted_at` for tracked
+  tickers listed with a delisted date on/before today. Verified against the live endpoint: all five
+  known-delisted tickers (TWTR, WBA, EA, AVB, EQR) are in it and are the only 5 of 591 tracked tickers that are.
+  **Absence is never evidence: no flag for an unlisted ticker, and an existing flag is never cleared** (the old
+  staleness heuristic, live-probe revival and auto-clear are removed). Guards on a hit: a delisted date in the
+  future is a scheduled delisting (ignored); a symbol whose cached profile `ipoDate` is after the delisted date is a
+  reused symbol (ignored); FMP's `BF.B` matches our `BF-B`. A page error uses what was fetched and reports
+  "delisted list incomplete" (paging ties can also drop a row at a page boundary; the weekly rerun catches it).
+  `last_bar_ages_days` (shared_bars_cache) was removed as dead. **Open decision:** a relisted symbol stays
+  flagged until someone clears `delisted_at` by hand.
+- **Non-US support (partial, by design):** the Yahoo-only non-US **60m** path in `shared_bars_cache` is removed
+  (non-US tickers get no 60m bars; a cached non-US row is left as is). **Not removed, held for a decision**: the
+  `daily_prices_intl` group and its UI/registry/402-canary, the phantom-bar filter, non-US long history, Chart's
+  non-US FMP path and the `backfill_fmp_daily_bars --scope non-us`, `is_us_listed`/`is_non_us_ticker`/`route_by_source`
+  (still live: they route US vs non-US and `is_us_listed` scopes the price-target/last-close/corporate-events
+  universes), and the 6 HKSE tickers still in the tracked universe (0005/0728/0857/0883/0941/3988.HK -- none
+  on any watchlist; there are no non-US tickers on any watchlist).
+- **`^GSPC` cleanup (run 2026-09-26, after `pipeline.backup_db` -> `fathom_20260926_105650.db.gz`):** confirmed
+  `WeinsteinSettings.rs_benchmark` is `SPY` and no `weinstein_params_json` names `^GSPC`, then deleted 1,253
+  `sharedbarscache` and 510 `yahoopricecache` `^GSPC` rows. `weinsteinBenchmarkLabel` no longer special-cases
+  `^GSPC` (a user could still type it into Settings; it now just displays as `^GSPC`). `YahooPriceCache` itself
+  is not dropped.
+- **To activate:** reinstall the crontab (`crontab crontab.txt` from `backend/`; two new jobs) and restart the
+  app (`./bin/stop.sh && ./bin/start.sh`; production build). Ops details: `backend/OPS_RUNBOOK.md`.
 
 ## Insider Activity (ticker-page tab, 2026-09-19) -- SHELVED 2026-09-20
 

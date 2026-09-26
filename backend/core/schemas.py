@@ -864,12 +864,12 @@ class CronHealthOut(BaseModel):
 class DataSourceStatusOut(BaseModel):
     """One data source's health, for the Settings "Status" section's Data
     Sources cards -- computed purely from an enabled/kill-switch flag (FMP's
-    the FMP master switch, Massive's MASSIVE_ENABLED; Yahoo has none, see
+    master switch; Yahoo has none, see
     clients/yahoo_client.py's own docstring for why) plus
     DataSourceHealth.last_success_at, NEVER a live reachability ping (see
     core/data_source_status.py)."""
 
-    source: Literal["fmp", "yahoo", "massive"]
+    source: Literal["fmp", "yahoo"]
     enabled: bool
     status: Literal["healthy", "disabled_or_failing", "stale"]
     last_success_at: datetime | None = None
@@ -1622,9 +1622,7 @@ class ChartOut(BaseModel):
     earnings_markers: list[ChartEarningsMarkerOut] = []
     dividend_markers: list[ChartDividendMarkerOut] = []
     events_source: str | None = None
-    # "massive" | "yahoo" (2026-09-23 -- D_6M/D_1Y/D_2Y moved to
-    # Massive/Polygon with an automatic per-ticker Yahoo fallback; W_4Y
-    # stays "yahoo" unconditionally, beyond Massive's ~5y coverage).
+    # "fmp" | "yahoo" -- whichever source actually answered this request.
     source: str
     chart_available: bool  # False only for a genuinely bad/delisted ticker with no bars at all
 

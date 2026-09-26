@@ -18,44 +18,22 @@ in nightly_score_recompute.py/recompute_ticker_scores.py (see CLAUDE.md's
 Speculative Growth section). The report is expected to get noisier (~572
 vs ~530 tickers) as a direct, intended consequence.
 
-**Also hosts the delisted-ticker flag (2026-09-23), a second, independent
-check over the same universe -- not a "profile" freshness thing at all.**
-sync_delisted_flags reads clients/shared_bars_cache.py's SharedBarsCache
-("1d" interval) instead of FundamentalsCache, and unlike the report above
-it DOES write: it sets/clears TickerScore.delisted_at for any ticker whose
-daily bars have gone stale on both Massive and Yahoo for
-DELISTED_STALE_THRESHOLD_DAYS (30) straight days -- genuinely delisted
-tickers (confirmed cases: TWTR, WBA, EA, AVB, EQR) that the nightly Trend/
-Liquidity Zone/Momentum jobs would otherwise keep retrying forever. Chosen
-as the host for this check (over audit_fixture_contamination.py, which is
-about test-fixture leakage and unrelated, and purge_invalid_tickers.py,
-which deletes rows -- the opposite of this feature's "never delete
-history" requirement) specifically because it already computes
-load_full_tracked_universe on a weekly cadence and was already the
-"read-only-report-with-an-optional-write" shape closest to what this
-needed -- see CLAUDE.md's "Delisted-ticker handling" section for the full
-design.
-
-**Live-probe revival check (2026-09-24), the one deliberate exception to
-this script's otherwise cache-only convention.** The nightly Trend/
-Liquidity Zone/Momentum jobs all SKIP a flagged ticker's own fetch
-entirely (load_delisted_tickers), which was a real bug found before
-shipping this: it means a flagged ticker's SharedBarsCache row can NEVER
-refresh on its own again through the normal nightly path, so
-sync_delisted_flags' own cache-based auto-clear (still checked first,
-since it's free) was permanently starved for any ticker actually flagged
-by this job -- a reused or relisted symbol would stay flagged forever.
-Fixed by probing whatever's STILL flagged after the cheap cache check
-directly and live: one short (~10-day) Massive range call per ticker,
-Yahoo as a second opinion only when Massive returns nothing (mirrors the
-manual dual-source verification the original 5 tickers were confirmed
-with) -- see _probe_ticker_for_fresh_bar. Any ticker either source shows
-a bar within DELISTED_STALE_THRESHOLD_DAYS for gets a full re-backfill,
-through the NORMAL DailyBarSource path (get_or_fetch_bars_batch,
-force=True) -- not just the probe's own narrow window, which would leave
-a gap between the old cached history and today -- so SharedBarsCache
-holds a clean, contiguous series again before the flag is cleared and the
-nightly jobs pick the ticker back up.
+**Also hosts the delisted-ticker flag, a second, independent check over the same
+universe -- not a "profile" freshness thing at all.** sync_delisted_flags pages FMP's
+`/delisted-companies` list (Phase 6a, 2026-09-26; replaced the earlier dual-provider
+"last bar > 30 days old on both Massive and Yahoo" heuristic, which is gone) and sets
+TickerScore.delisted_at for any tracked ticker that appears in it with a delisted date
+on/before today -- genuinely delisted tickers (confirmed cases: TWTR, WBA, EA, AVB, EQR)
+that the nightly Trend/Liquidity Zone/Momentum jobs would otherwise keep retrying
+forever. **Absence is NOT evidence: a ticker the endpoint does not list is left exactly
+as it is (no flag, and an existing flag is never cleared here).** The one guard on a hit:
+a symbol whose cached profile `ipoDate` is AFTER the listed delisted date is a reused
+symbol (a different, newer company) and is not flagged. Chosen as the host (over
+audit_fixture_contamination.py, which is about test-fixture leakage, and
+purge_invalid_tickers.py, which deletes rows -- the opposite of "never delete history")
+because it already computes load_full_tracked_universe weekly. This is the one live-FMP
+call this otherwise cache-only script makes (~160 sequential pages of 100 rows; the
+endpoint's page size is capped at 100), under the `corporate_events` data group.
 
 Run:
     uv run python -m pipeline.stale_data_health_check
@@ -66,23 +44,21 @@ Override the staleness threshold for one run:
 
 import argparse
 import asyncio
+import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
-import pandas as pd
+import httpx
 from sqlmodel import Session, select
 
 from clients.fmp_client import fmp_client
-from clients.massive_client import massive_client
-from clients.shared_bars_cache import DAILY_INTERVAL, get_or_fetch_bars_batch, last_bar_ages_days
-from clients.yahoo_client import yahoo_client
-from core.config import settings
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from core.models import FundamentalsCache, TickerScore
-from core.tickers import is_non_us_ticker, to_massive_symbol
+from core.data_groups import group_live
+from core.tickers import normalize_ticker
 from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "stale_data_health_check.log"
@@ -92,33 +68,11 @@ LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "stale_data_health_
 # before flagging a ticker, so ordinary jitter doesn't read as a real outage.
 DEFAULT_STALE_THRESHOLD_DAYS = 10
 
-# How stale a ticker's SharedBarsCache "1d" last bar must be, on BOTH
-# Massive and Yahoo, before it's flagged as delisted (TickerScore.
-# delisted_at) -- see sync_delisted_flags' own docstring for why this is a
-# genuinely dual-provider signal despite being read from one cache table.
-# 30 days comfortably clears the nightly Trend/Liquidity Zone/Momentum
-# jobs' own routine retry cadence (every ticker in scope gets a fresh
-# Massive+Yahoo attempt every single night regardless of staleness -- see
-# clients/shared_bars_cache.py::get_or_fetch_bars_batch), so only a ticker
-# that has failed BOTH providers on essentially every one of ~30
-# consecutive nightly attempts qualifies -- a real, durable gap, not a
-# transient outage or a single missed run.
-DELISTED_STALE_THRESHOLD_DAYS = 30
-
-# Live-probe revival check (see sync_delisted_flags): a short window is
-# plenty to answer "has this ticker traded again recently at all" cheaply,
-# one per-ticker Massive range call at a time -- not the full multi-year
-# history a genuine backfill needs (that only happens, via the normal
-# DailyBarSource path, for whichever tickers this probe actually revives).
-PROBE_WINDOW_DAYS = 10
-
-# Once a probe confirms a ticker is genuinely back, its full history is
-# re-fetched through the normal get_or_fetch_bars_batch(force=True) path at
-# this width -- wide enough to reconstruct a real, contiguous multi-year
-# series (matching the LOOKBACK_DAYS territory the nightly Trend/Liquidity
-# Zone jobs themselves request), not just the probe's own narrow window,
-# which would leave a gap between the old cached history and today.
-REVIVAL_BACKFILL_LOOKBACK_DAYS = 730
+# FMP caps /delisted-companies at 100 rows per page (larger `limit`s are silently
+# clamped); ~157 pages held the whole ~15.6k-row list on 2026-09-26. The cap only
+# stops a runaway loop.
+DELISTED_PAGE_SIZE = 100
+DELISTED_MAX_PAGES = 400
 
 logger = logging.getLogger(__name__)
 
@@ -147,152 +101,99 @@ def check_staleness(tickers: list[str], threshold_days: int) -> dict:
     return {"fresh": fresh, "stale": stale, "never_fetched": never_fetched}
 
 
-def _delisted_candidates_from_ages(ages: dict[str, int | None], threshold_days: int) -> dict[str, int]:
-    return {t: age for t, age in ages.items() if age is not None and age > threshold_days}
-
-
-def find_delisted_candidates(tickers: list[str], threshold_days: int = DELISTED_STALE_THRESHOLD_DAYS) -> dict[str, int]:
-    """{ticker: age_days} for every ticker whose SharedBarsCache
-    interval="1d" last bar is more than `threshold_days` old. Restricted to
-    US-eligible tickers (core.tickers.is_non_us_ticker) -- a non-US ticker
-    is routed to Yahoo alone by design (clients/daily_bar_sources.py::
-    route_by_source), so its own staleness is never dual-provider evidence
-    and must never flag it. A ticker with no cached bars at all (never
-    fetched) is excluded -- ambiguous, not evidence of delisting."""
-    us_tickers = [t for t in tickers if not is_non_us_ticker(t)]
-    ages = last_bar_ages_days(us_tickers, DAILY_INTERVAL)
-    return _delisted_candidates_from_ages(ages, threshold_days)
-
-
-async def _probe_ticker_for_fresh_bar(ticker: str, today: date, threshold_days: int) -> bool:
-    """True if a direct live check finds a bar within `threshold_days` of
-    `today` for `ticker` -- Massive first (skipped entirely when
-    settings.massive_enabled is False, respecting the same kill switch
-    get_daily_bar_source() honors elsewhere), Yahoo as a second opinion
-    only when Massive was skipped or came back empty. The one deliberate
-    live-call exception to this script's otherwise cache-only convention
-    -- see sync_delisted_flags' own docstring for why it's needed."""
-    start = today - timedelta(days=PROBE_WINDOW_DAYS)
-    df: pd.DataFrame | None = None
-    if settings.massive_enabled:
+async def _fetch_delisted_companies() -> tuple[list[dict], bool]:
+    """Every page of FMP's /delisted-companies, (rows, complete). A page error
+    stops paging and returns what was fetched so far with complete=False --
+    harmless, since only hits ever flag anything and the weekly rerun retries."""
+    rows: list[dict] = []
+    for page in range(DELISTED_MAX_PAGES):
         try:
-            df = await massive_client.get_daily_bars(to_massive_symbol(ticker), start, today, adjusted=True)
-        except Exception:
-            logger.warning("Delisted-flag revival probe: Massive lookup failed for %s", ticker)
-            df = None
-    if df is None or df.empty:
+            batch = await fmp_client.get_delisted_companies(page, DELISTED_PAGE_SIZE)
+        except httpx.HTTPError as exc:
+            logger.warning("Delisted-companies fetch stopped at page %d (%s)", page, type(exc).__name__)
+            return rows, False
+        if not isinstance(batch, list) or not batch:
+            return rows, True
+        rows.extend(r for r in batch if isinstance(r, dict))
+    return rows, False
+
+
+def _profile_ipo_dates(tickers: list[str]) -> dict[str, date]:
+    """{ticker: profile ipoDate} from the cached FMP profile rows (local read)."""
+    out: dict[str, date] = {}
+    with Session(engine) as session:
+        stmt = select(FundamentalsCache.ticker, FundamentalsCache.raw_json).where(
+            FundamentalsCache.statement_type == "profile", FundamentalsCache.period == "latest"
+        )
+        wanted = set(tickers)
+        for ticker, raw in session.exec(stmt).all():
+            if ticker not in wanted:
+                continue
+            try:
+                payload = json.loads(raw)
+                row = payload[0] if isinstance(payload, list) and payload else payload
+                out[ticker] = date.fromisoformat(str(row["ipoDate"])[:10])
+            except (TypeError, ValueError, KeyError, IndexError):
+                continue
+    return out
+
+
+def find_delisted_hits(tickers: list[str], listed: list[dict], today: date | None = None) -> dict[str, date]:
+    """{tracked ticker: delisted date} for every tracked ticker FMP lists as delisted
+    on/before `today` (a future date is a scheduled delisting, not a delisting). A symbol
+    whose cached profile ipoDate is after the delisted date is a reused symbol and is
+    skipped. Several rows for one symbol: the latest qualifying date wins."""
+    today = today or date.today()
+    tracked = set(tickers)
+    ipo_dates = _profile_ipo_dates(tickers)
+    hits: dict[str, date] = {}
+    for row in listed:
+        ticker = normalize_ticker(str(row.get("symbol") or ""))
+        if ticker not in tracked:
+            continue
         try:
-            batch = await yahoo_client.get_history([ticker], period="1mo", interval="1d", auto_adjust=False)
-        except Exception:
-            logger.warning("Delisted-flag revival probe: Yahoo lookup failed for %s", ticker)
-            batch = {}
-        df = batch.get(ticker)
-    if df is None or df.empty:
-        return False
-    last_bar_date = pd.DatetimeIndex(df.index).max().date()
-    return (today - last_bar_date).days <= threshold_days
+            delisted_on = date.fromisoformat(str(row.get("delistedDate"))[:10])
+        except ValueError:
+            continue
+        if delisted_on > today:
+            continue
+        ipo = ipo_dates.get(ticker)
+        if ipo is not None and ipo > delisted_on:
+            continue
+        if ticker not in hits or delisted_on > hits[ticker]:
+            hits[ticker] = delisted_on
+    return hits
 
 
-async def _probe_and_revive(flagged_tickers: list[str], threshold_days: int) -> list[str]:
-    """Probes every (US-eligible) currently-flagged ticker live and
-    re-backfills whichever come back positive through the normal
-    DailyBarSource path -- see this module's own docstring and
-    sync_delisted_flags' for the full reasoning. Returns the revived
-    tickers (unsorted)."""
-    us_tickers = [t for t in flagged_tickers if not is_non_us_ticker(t)]
-    if not us_tickers:
-        return []
-    today = date.today()
-    results = await asyncio.gather(*(_probe_ticker_for_fresh_bar(t, today, threshold_days) for t in us_tickers))
-    revived = [t for t, is_fresh in zip(us_tickers, results) if is_fresh]
-    if revived:
-        await get_or_fetch_bars_batch(revived, DAILY_INTERVAL, REVIVAL_BACKFILL_LOOKBACK_DAYS, auto_adjust=False, force=True)
-    return revived
-
-
-def sync_delisted_flags(tickers: list[str], threshold_days: int = DELISTED_STALE_THRESHOLD_DAYS) -> dict:
-    """Sets/clears TickerScore.delisted_at from a fresh daily-bar staleness
-    read. Returns {"newly_flagged": [...], "newly_cleared": [...]}
-    (both sorted).
-
-    Flagging requires settings.massive_enabled: with Massive off,
-    clients/daily_bar_sources.py::get_daily_bar_source() returns a plain
-    YahooDailySource, so every SharedBarsCache "1d" bar in the tracked
-    universe would only ever reflect Yahoo's own attempts -- single-
-    provider evidence, which must never flag a ticker (an existing flag is
-    left untouched in that case too, not force-cleared, since this run
-    genuinely didn't re-check both providers). With Massive on (the normal
-    case, confirmed via clients/daily_bar_sources.py's own Phase-1 module
-    docstring), every ticker in `tickers` gets a fresh Massive-then-
-    Yahoo-fallback attempt from the nightly Trend/Liquidity Zone/Momentum
-    jobs regardless of its current staleness (get_or_fetch_bars_batch
-    always retries a stale row), so a last bar still >threshold_days old
-    genuinely means neither provider has produced a newer bar across many
-    consecutive dual-provider attempts -- the same real-world signal as the
-    manual /v3/reference/tickers 404 + Yahoo "possibly delisted" check this
-    mirrors.
-
-    Auto-clearing is safe regardless of settings.massive_enabled -- a
-    fresh bar from even a single provider (Yahoo-only mode included)
-    already disproves "still delisted" outright, e.g. a symbol reuse or
-    relisting under the same ticker (cf. the earlier PARA symbol-
-    reassignment case).
-
-    This cache-based clear is checked first because it's free, but it can
-    only ever fire for a ticker some OTHER path happened to refresh (e.g.
-    an on-demand ticker-page Technical-tab view) -- the nightly Trend/
-    Liquidity Zone/Momentum jobs all SKIP a flagged ticker's own fetch
-    entirely (see load_delisted_tickers), so relying on this alone would
-    leave a reused/relisted symbol flagged forever. Whatever's still
-    flagged after the cache check gets a direct live probe instead (see
-    _probe_and_revive) -- the one live-call exception to this script's
-    otherwise cache-only convention, and the reason this function makes
-    network calls at all despite reading like a pure DB sync."""
+def sync_delisted_flags(tickers: list[str]) -> dict:
+    """Sets TickerScore.delisted_at for tracked tickers FMP lists as delisted. Returns
+    {"newly_flagged": [...sorted], "skipped": bool, "complete": bool}. Never clears a
+    flag and never acts on a ticker the endpoint does not list (see the module
+    docstring). Skipped (nothing fetched) while the `corporate_events` group is not live."""
     if not tickers:
-        return {"newly_flagged": [], "newly_cleared": []}
-
-    us_tickers = [t for t in tickers if not is_non_us_ticker(t)]
-    ages = last_bar_ages_days(us_tickers, DAILY_INTERVAL)
-    candidates = _delisted_candidates_from_ages(ages, threshold_days) if settings.massive_enabled else {}
-
+        return {"newly_flagged": [], "skipped": False, "complete": True}
+    if not group_live("corporate_events"):
+        logger.info("Delisted-flag sync skipped (group corporate_events is not live)")
+        return {"newly_flagged": [], "skipped": True, "complete": False}
+    listed, complete = asyncio.run(_fetch_delisted_companies())
+    hits = find_delisted_hits(tickers, listed)
     newly_flagged: list[str] = []
-    newly_cleared: list[str] = []
-    still_flagged: list[str] = []
     now = datetime.now()
     with Session(engine) as session:
-        rows = session.exec(select(TickerScore).where(TickerScore.ticker.in_(tickers))).all()
-        for row in rows:
-            age = ages.get(row.ticker)
-            if row.ticker in candidates and row.delisted_at is None:
+        for row in session.exec(select(TickerScore).where(TickerScore.ticker.in_(list(hits)))).all():
+            if row.delisted_at is None:
                 row.delisted_at = now
                 newly_flagged.append(row.ticker)
-            elif row.delisted_at is not None:
-                if age is not None and age <= threshold_days:
-                    row.delisted_at = None
-                    newly_cleared.append(row.ticker)
-                else:
-                    still_flagged.append(row.ticker)
-        if newly_flagged or newly_cleared:
+        if newly_flagged:
             session.commit()
-
-    revived = asyncio.run(_probe_and_revive(still_flagged, threshold_days)) if still_flagged else []
-    if revived:
-        with Session(engine) as session:
-            rows = session.exec(select(TickerScore).where(TickerScore.ticker.in_(revived))).all()
-            for row in rows:
-                if row.delisted_at is not None:
-                    row.delisted_at = None
-                    newly_cleared.append(row.ticker)
-            session.commit()
-
-    return {"newly_flagged": sorted(newly_flagged), "newly_cleared": sorted(newly_cleared)}
+    return {"newly_flagged": sorted(newly_flagged), "skipped": False, "complete": complete}
 
 
 def load_delisted_tickers(session: Session) -> set[str]:
     """Tickers currently flagged via TickerScore.delisted_at (see
     sync_delisted_flags) -- imported by the nightly daily-bar jobs (Trend/
     Weinstein, Liquidity Zones, Momentum) to skip a flagged ticker's own
-    fetch/compute entirely, rather than retrying a doomed Massive+Yahoo
+    fetch/compute entirely, rather than retrying a doomed provider
     lookup for it every night. Mirrors nightly_fundamentals_fetch.py::
     load_full_tracked_universe's own "defined once, imported everywhere"
     convention."""
@@ -313,9 +214,10 @@ def _format_report(result: dict, total: int, threshold_days: int) -> str:
     if result["never_fetched"]:
         lines.append("  Never-fetched tickers: " + ", ".join(sorted(result["never_fetched"])))
     delisted = result.get("delisted") or {}
-    if delisted.get("newly_flagged") or delisted.get("newly_cleared"):
-        lines.append(f"  Newly flagged delisted: {', '.join(delisted.get('newly_flagged', [])) or 'none'}")
-        lines.append(f"  Newly cleared delisted: {', '.join(delisted.get('newly_cleared', [])) or 'none'}")
+    if delisted.get("skipped"):
+        lines.append("  Delisted-flag sync: skipped (corporate_events group not live)")
+    elif delisted.get("newly_flagged"):
+        lines.append(f"  Newly flagged delisted: {', '.join(delisted['newly_flagged'])}")
     return "\n".join(lines)
 
 
@@ -354,12 +256,14 @@ if __name__ == "__main__":
     cli_args = _parse_args()
     with cron_heartbeat("pipeline.stale_data_health_check") as run:
         result = main(cli_args.days)
-        delisted = result.get("delisted") or {"newly_flagged": [], "newly_cleared": []}
+        delisted = result.get("delisted") or {"newly_flagged": []}
         message = f"{len(result['stale'])} stale, {len(result['never_fetched'])} never-fetched"
         if delisted["newly_flagged"]:
             message += f"; newly delisted: {', '.join(delisted['newly_flagged'])}"
-        if delisted["newly_cleared"]:
-            message += f"; delisted cleared: {', '.join(delisted['newly_cleared'])}"
+        if delisted.get("skipped"):
+            message += "; delisted sync skipped (corporate_events off)"
+        elif not delisted.get("complete", True):
+            message += "; delisted list incomplete"
         reprobe = result.get("reprobe") or {}
         if reprobe:
             message += "; FMP re-probe: " + ", ".join(f"{g}={v}" for g, v in reprobe.items())

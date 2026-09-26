@@ -113,6 +113,8 @@ configured):
 | Nightly Liquidity Zone (LP) calculation | `nightly_liquidity_zone_calculation.log` / `_cron.log` |
 | Nightly Sector ETF heatmap | `nightly_sector_heatmap.log` / `_cron.log` |
 | Nightly market breadth | `nightly_market_breadth.log` / `_cron.log` |
+| Nightly corporate-events cache (earnings/dividends/splits) | `nightly_corporate_events.log` / `_cron.log` |
+| Nightly last-close cache (header price fallback) | `nightly_last_close_snapshot.log` / `_cron.log` |
 | Nightly Warren RSI/ADX/WVF entry-signal calculation | `nightly_warren_signal_calculation.log` / `_cron.log` |
 | Weekly S&P 500 list refresh | `sp500_list_refresh.log` / `_cron.log` |
 | Weekly Nasdaq-100 list refresh | `nasdaq_list_refresh.log` / `_cron.log` |
@@ -242,6 +244,26 @@ under a fresh date). The page prints its own as-of date, so a job that has
 quietly stopped reads as an old date. Check `Processed` first -- a
 shortfall is Yahoo reachability or a renamed symbol, not FMP.
 
+**`nightly_corporate_events`** (3:12 AM, Phase 6a) — refreshes the FMP-backed earnings /
+dividends / splits cache (`CorporateEvent`, `CorporateEventFetch`; `data/corporate_events_data.py`)
+for every US-listed tracked ticker: three calls per ticker (`/earnings`, `/dividends`, `/splits`,
+group `corporate_events`), each **replacing** that ticker's rows of that type with FMP's current full
+history, so the first run is the backfill. ~1,770 calls, ~1-2 min. Feeds the Chart tab's E/D markers,
+which read this cache first. Success: `Corporate-events refresh complete. Processed: N. With a failed
+endpoint: M.` in `backend/logs/nightly_corporate_events.log`. A failed endpoint keeps that ticker's
+old rows for that type (listed under `Tickers with failures`); the job raises (heartbeat "failure")
+only if **every** ticker failed. Skipped (real `skipped` status) while `corporate_events` is off — the
+cache then keeps serving. Check it: `select event_type, count(*) from corporateevent group by 1` and
+`select max(fetched_at) from corporateeventfetch`.
+
+**`nightly_last_close_snapshot`** (3:15 AM, Phase 6a) — caches each US-listed tracked ticker's last
+official close (`TickerLastClose`, latest-only; `data/last_close_data.py`), one
+`/historical-price-eod/full` call each (group `daily_prices`). It is the ticker header's price
+fallback: served when the live FMP quote fails or `profile_quote` is off. Success: `Last-close
+snapshot complete (as of <date>). Processed: N. Written: N. Failed: M.`; a few failures (a symbol FMP
+has no bars for) are normal; the job raises only if it wrote nothing at all. Skipped while
+`daily_prices` is off. Weekend/holiday runs re-cache the same session idempotently.
+
 **`nightly_market_breadth`** — computes one `MarketBreadthSnapshot` row per
 session for the S&P 500 (`IndexConstituent` `sp500`, via `load_sp500_tickers`):
 the % of constituents closing above their own 20-, 50- and 200-day SMA, and new
@@ -350,18 +372,17 @@ count is the first place to check the nightly fetch job
 large "never fetched" count usually means the S&P 500/Dow constituent
 sync hasn't run successfully (see below).
 
-**Also flags delisted tickers (2026-09-23), a second, independent write
-this same run performs** — see `CLAUDE.md`'s "Delisted-ticker handling"
-section for the full design and the real 2026-09-23 flagged list. In
-short: any US-eligible ticker whose `SharedBarsCache` interval="1d" last
-bar is more than 30 days old, confirmed via `settings.massive_enabled`
-(dual-provider — Massive+Yahoo fallback; never flags off a single-provider
-gap), gets `TickerScore.delisted_at` set; a previously-flagged ticker with
-a fresh bar again gets it auto-cleared. Nightly Trend/Liquidity
-Zone/Momentum skip a flagged ticker's fetch/compute entirely. Nothing is
-ever deleted. The cron heartbeat message names anything newly flagged or
-cleared that run (`Settings → Status`). **To manually clear a flag**
-(e.g. a bad flag, or before Massive/Yahoo both regain coverage):
+**Also flags delisted tickers, a second, independent write this same run performs**
+(rewritten Phase 6a, 2026-09-26 — see `CLAUDE.md`'s "Phase 6a" section). It pages FMP's
+`/delisted-companies` (group `corporate_events`, ~157 sequential calls of 100 rows) and sets
+`TickerScore.delisted_at` for any tracked ticker listed with a delisted date on/before today (a
+reused symbol — profile `ipoDate` after the delisted date — is ignored). **A ticker the endpoint
+does not list is never flagged and an existing flag is never cleared**; the old
+stale-bar/Massive+Yahoo heuristic and auto-clear are gone. Nightly Trend/Liquidity
+Zone/Momentum skip a flagged ticker's fetch/compute entirely. Nothing is ever deleted. The cron
+heartbeat message names anything newly flagged, or says `delisted sync skipped
+(corporate_events off)` / `delisted list incomplete` (a page failed; the next weekly run retries).
+**To manually clear a flag** (a relisted symbol stays flagged until you do this):
 ```
 uv run python -c "
 from sqlmodel import Session
@@ -373,8 +394,7 @@ with Session(engine) as s:
     s.add(row); s.commit()
 "
 ```
-It re-flags on the next weekly run if the ticker is still genuinely stale
-on both providers.
+It re-flags on the next weekly run only if FMP still lists the ticker as delisted.
 
 **`audit_fixture_contamination`** — see the incident this script was
 built for in `CLAUDE.md`'s "Ad-hoc reproduction scripts must not touch
@@ -402,9 +422,9 @@ its next view.
 ### Daily prices: FMP-first (P2, 2026-09-24)
 
 Daily bars (`SharedBarsCache` "1d") come from FMP `/historical-price-eod/full` for US-listed
-tickers (data group `daily_prices`), then Massive, then Yahoo, per ticker. Non-US tickers (HKSE
-today) go FMP (data group `daily_prices_intl`, phantom holiday/weekend bars removed) then Yahoo --
-never Massive (P3, 2026-09-25). Only `pipeline.nightly_trend_calculation` (3:10) fetches; LZ/Sector/Breadth/Momentum read
+tickers (data group `daily_prices`), then Yahoo, per ticker (Massive was removed in Phase 6a). Non-US
+tickers (HKSE today) go FMP (data group `daily_prices_intl`, phantom holiday/weekend bars removed)
+then Yahoo (P3, 2026-09-25). Only `pipeline.nightly_trend_calculation` (3:10) fetches; LZ/Sector/Breadth/Momentum read
 its warm cache.
 
 - **Nightly:** per ticker one call from `last cached bar - 7d` (overlap). The last cached bar is
@@ -412,11 +432,10 @@ its warm cache.
   spin-off, symbol reuse) and that ticker is refetched over its full window and REPLACED. ~600
   calls, ~1-2 min. **Sundays (UTC)** the trend job passes `force=True` -> every ticker gets a full
   refetch + replace (the weekly resync).
-- **Heartbeat message** of each daily-bar job: `N fell back from FMP (Massive M, Yahoo Y)`.
+- **Heartbeat message** of each daily-bar job: `N fell back from FMP to Yahoo`.
   A large N means FMP is failing/empty for those tickers or the group is off.
 - **Group off / master off / not on plan / restricted:** FMP is skipped and the whole batch falls
-  through to Massive -> Yahoo (chip "Off — using fallback"). Nothing is skipped or wiped. A
-  `MASSIVE_ENABLED=false` shortens the fallback to Yahoo only.
+  through to Yahoo (chip "Off — using fallback"). Nothing is skipped or wiped.
 - **Re-backfill (already run once, 2026-09-24):** `uv run python -m pipeline.backfills.
   backfill_fmp_daily_bars [--dry-run] [--report out.json]` (replace per ticker, one
   transaction; a ticker FMP cannot serve keeps its rows). Take `pipeline.backup_db` first and

@@ -110,9 +110,9 @@ def _isolate_data_groups_engine(monkeypatch):
 def _block_live_fmp_daily_bars(monkeypatch):
     """The shared-bars-cache daily path now tries FMP first (FMPDailySource ->
     fmp_client.get_historical_price_eod). Legacy tests written against the
-    Massive/Yahoo chain must never reach the real network through it: by
+    Yahoo path must never reach the real network through it: by
     default that call fails as a transport error, so every ticker falls
-    through to the fallback chain exactly as before. A test exercising FMP
+    through to the Yahoo fallback exactly as before. A test exercising FMP
     builds FMPDailySource(client=<fake>) or patches the method itself."""
     import httpx
 
@@ -165,24 +165,29 @@ def _default_earnings_fetch(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _default_yahoo_price_history(monkeypatch):
-    """get_summary's FMP-disabled price fallback (data/ticker_summary.py)
-    calls clients.yahoo_cache.get_or_fetch_price_history whenever
-    the profile_quote group is not live and cache_only is False, so any
-    test calling get_summary() non-cache_only would otherwise silently
-    reach the real Yahoo fetch / real core.db.engine (caught by
-    _forbid_writes_to_real_db above) purely because it doesn't itself care
-    about this feature. Defaults to an empty list (same "no Yahoo data,
-    fall back to whatever's already resolved" degradation
-    compute_and_store_trend_analysis's own callers already handle) so
-    existing tests are unaffected; a test that DOES care sets its own
-    monkeypatch.setattr(ticker_summary, "get_or_fetch_price_history", ...)
-    afterward, which simply overrides this default."""
+def _default_last_close_cache(monkeypatch):
+    """get_summary's price fallback (data/ticker_summary.py) reads the nightly last-close
+    cache (data.last_close_data.get_cached_last_close) whenever the live FMP quote is
+    unavailable and cache_only is False. That read goes to the real core.db.engine, so any
+    test calling get_summary() with a failing/absent quote would otherwise see whatever the
+    real DB holds. Defaults to "nothing cached"; a test that cares patches
+    ticker_summary.get_cached_last_close itself."""
+    monkeypatch.setattr(ticker_summary, "get_cached_last_close", lambda ticker: None)
 
-    async def _default_get_or_fetch_price_history(ticker, period="2y", cache_only=False):
-        return []
 
-    monkeypatch.setattr(ticker_summary, "get_or_fetch_price_history", _default_get_or_fetch_price_history)
+@pytest.fixture(autouse=True)
+def _isolate_corporate_events_engine(monkeypatch):
+    """data/chart_events_data.py reads the FMP-backed CorporateEvent cache first
+    (data.corporate_events_data.read_cached_chart_events), which would otherwise see the
+    REAL core.db.engine's populated cache from any test reaching fetch_chart_events. Every
+    test gets an empty in-memory cache; the cache's own tests seed theirs on top."""
+    from sqlmodel import SQLModel, create_engine
+
+    import data.corporate_events_data as corporate_events_data
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+    monkeypatch.setattr(corporate_events_data, "engine", engine)
 
 
 @pytest.fixture(autouse=True)
@@ -196,25 +201,3 @@ def _default_flags_enabled(monkeypatch):
     shelved `insider`). A test wanting a disabled state calls
     core.data_groups.set_master/set_group_enabled itself."""
     monkeypatch.setattr(settings, "cron_health_enabled", True)
-    # massive_enabled's documented default is True (unlike
-    # insider_activity_enabled above), but pinned False here anyway: the
-    # ~50+ pre-existing tests exercising clients/shared_bars_cache.py's
-    # interval="1d" fetch path (test_shared_bars_cache.py,
-    # test_market_breadth_data.py, test_liquidity_zone_data.py,
-    # test_nightly_trend_calculation.py, etc.) were all written entirely
-    # around Yahoo behavior and mock only yahoo_client -- with
-    # massive_enabled left at its True default, get_or_fetch_bars_batch
-    # would route through clients/daily_bar_sources.py::MassiveWithYahooFallback,
-    # which tries a REAL live Massive/Polygon API call (using the real
-    # MASSIVE_API_KEY in backend/.env) before ever falling back to the
-    # mocked Yahoo path. In this sandbox that call simply fails fast (no
-    # outbound network), so those tests still pass -- but that's an
-    # accident of this environment, not a guarantee, and a CI/dev machine
-    # WITH network access would make real, non-hermetic API calls on every
-    # test run. Pinned False here so the whole suite stays hermetic by
-    # default; clients/test_massive_client.py and
-    # clients/test_daily_bar_sources.py (which test Massive's own behavior
-    # directly, against fully-fake clients/sources) are unaffected, and any
-    # test that specifically wants the enabled routing sets it True itself,
-    # same last-write-wins convention as every flag above.
-    monkeypatch.setattr(settings, "massive_enabled", False)

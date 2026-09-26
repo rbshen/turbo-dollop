@@ -224,7 +224,7 @@ def test_benchmark_rows_are_passed_through_to_every_ticker_compute(monkeypatch, 
 
 def test_summary_reports_the_fallback_count_from_the_batch_fetch(monkeypatch, tmp_path):
     """get_or_fetch_bars_batch's fallback_tickers out-param (populated by
-    MassiveWithYahooFallback whenever a ticker falls back from Massive to
+    FMPWithFallback whenever a ticker falls back from FMP to
     Yahoo this run) must be threaded through into the run summary -- this
     is what lets the cron heartbeat message surface a per-run fallback
     count in Settings -> Status, rather than only ever appearing in logs."""

@@ -318,13 +318,16 @@ def test_cache_60m_cutover_replaces_yahoo_history_with_fmp(monkeypatch, _engine)
     assert out["AAPL"]["close"].max() < 200  # none of the 500-based Yahoo-era bars survive
 
 
-def test_cache_60m_non_us_ticker_stays_on_yahoo(monkeypatch, _engine):
+def test_cache_60m_non_us_ticker_gets_no_bars_at_all(monkeypatch, _engine):
+    """Phase 6a: non-US support is dropped, so the old Yahoo-only non-US 60m path is gone --
+    neither FMP nor Yahoo is asked and nothing is cached."""
     yahoo_calls: list = []
     fake = FakeChart(_bars(date(2026, 6, 1), TODAY))
     _patch_chain(monkeypatch, fake, yahoo_calls)
-    asyncio.run(cache.get_or_fetch_bars_batch(["0005.HK"], "60m", 90, reference=REF))
-    assert fake.calls == [] and yahoo_calls
-    assert _sources(_engine, "0005.HK") == {"yahoo"}
+    out = asyncio.run(cache.get_or_fetch_bars_batch(["0005.HK"], "60m", 90, reference=REF))
+    assert fake.calls == [] and yahoo_calls == []
+    assert _sources(_engine, "0005.HK") == set()
+    assert "0005.HK" not in out or out["0005.HK"].empty
 
 
 # ---- provenance trigger in the cache's fetch selection (fix to the P4 cutover) ----

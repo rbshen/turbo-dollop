@@ -12,8 +12,6 @@ from clients.daily_bar_sources import (
     FMPDailySource,
     FMPWithFallback,
     FallbackTickers,
-    MassiveDailySource,
-    MassiveWithYahooFallback,
     YahooDailySource,
     get_daily_bar_source,
     route_by_source,
@@ -78,242 +76,12 @@ def test_yahoo_daily_source_groups_tickers_by_period_tier(monkeypatch):
     assert (("SPY",), "5y") in calls
 
 
-# ---- MassiveDailySource ----
-
-
-def test_never_cached_ticker_goes_through_backfill_range_call(monkeypatch):
-    _fresh_engine(monkeypatch)
-
-    class FakeClient:
-        async def get_recent_splits(self, since):
-            return []
-
-        async def get_daily_bars(self, symbol, start, end, adjusted):
-            assert symbol == "AAPL"
-            assert end == TODAY
-            return _bar_frame(TODAY)
-
-        async def get_grouped_daily(self, day, adjusted):
-            raise AssertionError("should not be called -- no incremental tickers")
-
-    source = MassiveDailySource(client=FakeClient())
-    result = asyncio.run(source.get_daily_bars({"AAPL": 30}, auto_adjust=False, reference=TODAY))
-
-    assert "AAPL" in result
-    assert not result["AAPL"].empty
-
-
-def test_insufficient_existing_depth_forces_backfill_not_incremental(monkeypatch):
-    engine = _fresh_engine(monkeypatch)
-    _seed_row(engine, "AAPL", TODAY - timedelta(days=2))  # only 3 days of history
-
-    class FakeClient:
-        async def get_recent_splits(self, since):
-            return []
-
-        async def get_daily_bars(self, symbol, start, end, adjusted):
-            return _bar_frame(TODAY)
-
-        async def get_grouped_daily(self, day, adjusted):
-            raise AssertionError("should not be called -- ticker needed backfill, not incremental")
-
-    source = MassiveDailySource(client=FakeClient())
-    # 730 days requested, but only 3 days cached -- insufficient, must backfill.
-    result = asyncio.run(source.get_daily_bars({"AAPL": 730}, auto_adjust=False, reference=TODAY))
-
-    assert "AAPL" in result
-
-
-def test_sufficient_depth_and_recent_last_bar_uses_grouped_daily_incremental(monkeypatch):
-    engine = _fresh_engine(monkeypatch)
-    _seed_row(engine, "AAPL", TODAY - timedelta(days=800))
-    _seed_row(engine, "AAPL", TODAY - timedelta(days=1))  # last bar just 1 day stale
-
-    class FakeClient:
-        async def get_recent_splits(self, since):
-            return []
-
-        async def get_daily_bars(self, symbol, start, end, adjusted):
-            raise AssertionError("should not be called -- ticker is merely stale, not insufficient")
-
-        async def get_grouped_daily(self, day, adjusted):
-            assert day == TODAY  # the one missing trading day
-            return {"AAPL": _bar_frame(TODAY, close=345.0)}
-
-    source = MassiveDailySource(client=FakeClient())
-    result = asyncio.run(source.get_daily_bars({"AAPL": 730}, auto_adjust=False, reference=TODAY))
-
-    assert result["AAPL"].iloc[-1]["close"] == 345.0
-
-
-def test_stale_beyond_recency_slack_falls_back_to_full_backfill(monkeypatch):
-    engine = _fresh_engine(monkeypatch)
-    _seed_row(engine, "AAPL", TODAY - timedelta(days=800))
-    _seed_row(engine, "AAPL", TODAY - timedelta(days=10))  # stale beyond _BACKFILL_RECENCY_SLACK_DAYS (5)
-
-    class FakeClient:
-        async def get_recent_splits(self, since):
-            return []
-
-        async def get_daily_bars(self, symbol, start, end, adjusted):
-            return _bar_frame(TODAY)
-
-        async def get_grouped_daily(self, day, adjusted):
-            raise AssertionError("should not be called -- too stale, must backfill instead")
-
-    source = MassiveDailySource(client=FakeClient())
-    result = asyncio.run(source.get_daily_bars({"AAPL": 730}, auto_adjust=False, reference=TODAY))
-
-    assert "AAPL" in result
-
-
-def test_recently_split_ticker_forces_backfill_even_if_otherwise_incremental(monkeypatch):
-    engine = _fresh_engine(monkeypatch)
-    _seed_row(engine, "SMCI", TODAY - timedelta(days=800))
-    _seed_row(engine, "SMCI", TODAY - timedelta(days=1))
-
-    class FakeClient:
-        async def get_recent_splits(self, since):
-            return [{"ticker": "SMCI", "execution_date": TODAY.isoformat()}]
-
-        async def get_daily_bars(self, symbol, start, end, adjusted):
-            assert symbol == "SMCI"
-            return _bar_frame(TODAY)
-
-        async def get_grouped_daily(self, day, adjusted):
-            raise AssertionError("should not be called -- split forces backfill")
-
-    source = MassiveDailySource(client=FakeClient())
-    result = asyncio.run(source.get_daily_bars({"SMCI": 730}, auto_adjust=False, reference=TODAY))
-
-    assert "SMCI" in result
-
-
-def test_grouped_daily_failure_for_one_day_is_tolerated_not_fatal(monkeypatch):
-    engine = _fresh_engine(monkeypatch)
-    _seed_row(engine, "AAPL", TODAY - timedelta(days=800))
-    _seed_row(engine, "AAPL", TODAY - timedelta(days=1))
-
-    class FakeClient:
-        async def get_recent_splits(self, since):
-            return []
-
-        async def get_daily_bars(self, symbol, start, end, adjusted):
-            raise AssertionError("should not be called")
-
-        async def get_grouped_daily(self, day, adjusted):
-            raise RuntimeError("Massive is down")
-
-    source = MassiveDailySource(client=FakeClient())
-    result = asyncio.run(source.get_daily_bars({"AAPL": 730}, auto_adjust=False, reference=TODAY))
-
-    # Tolerated, not raised -- ticker just stays absent from the result (still stale this run).
-    assert "AAPL" not in result
-
-
-# ---- MassiveWithYahooFallback ----
-
-
-def test_total_massive_failure_falls_back_to_yahoo_for_everything(monkeypatch):
-    class FailingMassive:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None):
-            raise RuntimeError("Massive is down")
-
-    yahoo_calls = []
-
-    class FakeYahoo:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None):
-            yahoo_calls.append(dict(tickers_with_days))
-            return {t: _bar_frame(TODAY) for t in tickers_with_days}
-
-    source = MassiveWithYahooFallback(massive=FailingMassive(), yahoo=FakeYahoo())
-    result = asyncio.run(source.get_daily_bars({"AAPL": 30, "MSFT": 30}, auto_adjust=False))
-
-    assert set(result) == {"AAPL", "MSFT"}
-    assert yahoo_calls == [{"AAPL": 30, "MSFT": 30}]
-
-
-def test_total_massive_failure_records_every_ticker_in_fallback_tickers():
-    class FailingMassive:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None):
-            raise RuntimeError("Massive is down")
-
-    class FakeYahoo:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None):
-            return {t: _bar_frame(TODAY) for t in tickers_with_days}
-
-    source = MassiveWithYahooFallback(massive=FailingMassive(), yahoo=FakeYahoo())
-    fallback_tickers: list[str] = []
-    asyncio.run(source.get_daily_bars({"AAPL": 30, "MSFT": 30}, auto_adjust=False, fallback_tickers=fallback_tickers))
-
-    assert sorted(fallback_tickers) == ["AAPL", "MSFT"]
-
-
-def test_partial_massive_result_records_only_the_missing_tickers_in_fallback_tickers():
-    class PartialMassive:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None):
-            return {"AAPL": _bar_frame(TODAY)}  # MSFT missing entirely
-
-    class FakeYahoo:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None):
-            return {t: _bar_frame(TODAY) for t in tickers_with_days}
-
-    source = MassiveWithYahooFallback(massive=PartialMassive(), yahoo=FakeYahoo())
-    fallback_tickers: list[str] = []
-    asyncio.run(source.get_daily_bars({"AAPL": 30, "MSFT": 30}, auto_adjust=False, fallback_tickers=fallback_tickers))
-
-    assert fallback_tickers == ["MSFT"]
-
-
-def test_fallback_tickers_left_none_by_default_does_not_error():
-    """The out-param is optional -- every existing caller that doesn't pass
-    it (get_or_fetch_bars_batch's default) must be unaffected."""
-    class PartialMassive:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None):
-            return {}
-
-    class FakeYahoo:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None):
-            return {t: _bar_frame(TODAY) for t in tickers_with_days}
-
-    source = MassiveWithYahooFallback(massive=PartialMassive(), yahoo=FakeYahoo())
-    result = asyncio.run(source.get_daily_bars({"AAPL": 30}, auto_adjust=False))
-
-    assert "AAPL" in result
-
-
-def test_partial_massive_result_falls_back_to_yahoo_only_for_missing_tickers():
-    class PartialMassive:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None):
-            return {"AAPL": _bar_frame(TODAY)}  # MSFT missing entirely
-
-    yahoo_calls = []
-
-    class FakeYahoo:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None):
-            yahoo_calls.append(dict(tickers_with_days))
-            return {t: _bar_frame(TODAY) for t in tickers_with_days}
-
-    source = MassiveWithYahooFallback(massive=PartialMassive(), yahoo=FakeYahoo())
-    result = asyncio.run(source.get_daily_bars({"AAPL": 30, "MSFT": 30}, auto_adjust=False))
-
-    assert set(result) == {"AAPL", "MSFT"}
-    assert yahoo_calls == [{"MSFT": 30}]
-
-
 # ---- get_daily_bar_source ----
 
 
-def test_get_daily_bar_source_is_fmp_first_with_yahoo_only_fallback_when_massive_disabled(monkeypatch):
-    monkeypatch.setattr(daily_bar_sources.settings, "massive_enabled", False)
+def test_get_daily_bar_source_is_fmp_first_with_a_yahoo_only_fallback():
     source = get_daily_bar_source()
     assert isinstance(source, FMPWithFallback) and isinstance(source._fallback, YahooDailySource)
-
-
-def test_get_daily_bar_source_is_fmp_then_massive_yahoo_when_massive_enabled(monkeypatch):
-    monkeypatch.setattr(daily_bar_sources.settings, "massive_enabled", True)
-    source = get_daily_bar_source()
-    assert isinstance(source, FMPWithFallback) and isinstance(source._fallback, MassiveWithYahooFallback)
 
 
 # ---- exchange-based routing (P2) ----
@@ -455,10 +223,9 @@ def test_fmp_with_fallback_serves_the_rest_from_the_fallback_and_reports_the_spl
     class Chain:
         async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None, **_):
             if fallback_tickers is not None:
-                fallback_tickers.append("ZZZ")  # Massive gave nothing for ZZZ -> Yahoo served it
+                fallback_tickers.append("ZZZ")
             return {t: _bar_frame(TODAY, 50.0) for t in tickers_with_days}
 
-    monkeypatch.setattr(daily_bar_sources.settings, "massive_enabled", True)
     out = FallbackTickers()
     result = asyncio.run(
         FMPWithFallback(fmp=FMPOnlyAAPL(), fallback=Chain()).get_daily_bars(
@@ -466,8 +233,9 @@ def test_fmp_with_fallback_serves_the_rest_from_the_fallback_and_reports_the_spl
         )
     )
     assert set(result) == {"AAPL", "MSFT", "ZZZ"} and result["AAPL"]["close"].iloc[0] == 200.0
-    assert sorted(out) == ["MSFT", "ZZZ"] and out.yahoo == ["ZZZ"]
-    assert out.describe() == "2 fell back from FMP (Massive 1, Yahoo 1)"
+    # Yahoo is the only fallback, so every ticker FMP did not serve is Yahoo's.
+    assert sorted(out) == ["MSFT", "ZZZ"] and sorted(out.yahoo) == ["MSFT", "ZZZ"]
+    assert out.describe() == "2 fell back from FMP to Yahoo"
 
 
 def test_fmp_with_fallback_survives_the_fmp_layer_raising(monkeypatch):
@@ -501,8 +269,7 @@ def test_fmp_source_a_cache_a_few_days_short_of_the_window_still_counts_as_cover
     assert replace == [] and len(fmp.calls) == 1 and fmp.calls[0][1] > (TODAY - timedelta(days=30)).isoformat()
 
 
-def test_get_daily_bar_source_non_us_is_intl_fmp_then_yahoo_only_whatever_massive_says(monkeypatch):
-    monkeypatch.setattr(daily_bar_sources.settings, "massive_enabled", True)
+def test_get_daily_bar_source_non_us_is_intl_fmp_then_yahoo():
     source = get_daily_bar_source(non_us=True)
     assert isinstance(source, FMPWithFallback) and isinstance(source._fallback, YahooDailySource)
     assert source._fmp._group == "daily_prices_intl" and source._fmp._non_us is True

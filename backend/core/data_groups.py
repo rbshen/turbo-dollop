@@ -60,7 +60,7 @@ class GroupMeta:
     live: bool
     feeds: tuple[str, ...]
     # A group with a non-FMP fallback provider still wired (daily_prices while
-    # Massive/Yahoo exist, P2-P5): turning it off does NOT mean cache-only --
+    # Yahoo exists, P2-P5): turning it off does NOT mean cache-only --
     # its consumers skip FMP and fall through to the fallback chain. Its chip
     # reads "Off -- using fallback" instead of "Cached only". Removed in P6.
     falls_back: bool = False
@@ -86,7 +86,7 @@ GROUPS: dict[str, GroupMeta] = {
         "Index membership", "Starter", True, True,
         ("S&P 500 / Dow / Nasdaq constituent lists", "Screener universe", "Weekly index refresh jobs"),
     ),
-    "corporate_events": GroupMeta("Corporate events", "Premium", True, True, ("Chart earnings/dividend markers",)),
+    "corporate_events": GroupMeta("Corporate events", "Premium", True, True, ("Chart earnings/dividend markers", "Earnings / dividends / splits cache", "Delisted-ticker flags")),
     "daily_prices": GroupMeta(
         "Daily prices", "Premium", True, True,
         (
@@ -158,6 +158,8 @@ ENDPOINT_GROUP: dict[str, str] = {
     # P4: hourly RTH bars (naive ET timestamps, newest first) for the shared "60m" cache.
     "/historical-chart/1hour": "intraday_bars",
     "/dividends": "corporate_events",
+    "/splits": "corporate_events",
+    "/delisted-companies": "corporate_events",
     "/revenue-product-segmentation": "segmentation",
     "/revenue-geographic-segmentation": "segmentation",
     "/news/stock": "news",
