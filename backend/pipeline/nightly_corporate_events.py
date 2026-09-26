@@ -3,14 +3,15 @@ cache (CorporateEvent, Phase 6a) for every US-listed tracked ticker -- the same
 universe as the price-target and last-close jobs (`load_us_price_target_universe`).
 Feeds the Chart tab's E/D markers (data/chart_events_data.py reads the cache first).
 
-Each run REPLACES a ticker's rows with FMP's current full history (three calls:
-`/earnings`, `/dividends`, `/splits`; group `corporate_events`), so the first run after
-deploy IS the full-history backfill and a later run picks up newly announced report
-dates, newly declared dividends and newly filled-in EPS actuals. Nightly because those
-change day to day around earnings season; splits are rare but cost one cheap call, so
-they ride along rather than getting their own cadence. ~590 tickers x 3 calls = ~1,770
-calls/night, paced to half the plan's documented rate (~1-2 min). A failed endpoint keeps
-that ticker's previous rows for that type.
+Each run UPSERTS a ticker's rows from FMP's answer (`/earnings`, `/dividends` nightly;
+`/splits` weekly -- see data/corporate_events_data.py::splits_due; group
+`corporate_events`), so the first run after deploy IS the backfill and a later run picks
+up newly announced report dates, newly declared dividends and newly filled-in EPS
+actuals. Nothing is deleted because FMP's response omitted it (plan-downgrade safe); the
+one deletion is the 4-year trailing prune (`prune_old_events`) that closes each run.
+~590 tickers x 2 calls = ~1,180 calls on an ordinary night (was ~1,770), ~1,770 on the
+week's splits night, paced to half the plan's documented rate (~1-2 min). A failed
+endpoint keeps that ticker's previous rows for that type.
 
 Default schedule: 3:12 AM server time (UTC). Skipped (a real `skipped` cron status)
 while the `corporate_events` group is not live -- the cache then serves as-is.
@@ -34,18 +35,20 @@ from core.data_groups import get_snapshot, job_skip_reason
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from core.tickers import normalize_ticker
-from data.corporate_events_data import EVENT_TYPES, refresh_ticker_events
+from data.corporate_events_data import EVENT_TYPES, NIGHTLY_EVENT_TYPES, prune_old_events, refresh_ticker_events, splits_due
 from pipeline.nightly_price_target_snapshot import load_us_price_target_universe
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_corporate_events.log"
 
 
-async def refresh_all(tickers: list[str]) -> dict:
-    """Refresh every ticker (concurrent across tickers, sequential over a ticker's three
-    endpoints; request starts paced across the whole run). Returns the run summary."""
+async def refresh_all(tickers: list[str], with_splits: set[str] | None = None) -> dict:
+    """Refresh every ticker (concurrent across tickers, sequential over a ticker's
+    endpoints; request starts paced across the whole run). `with_splits` = tickers whose
+    splits are due this run (None = all). Returns the run summary."""
     plan_rate = FMP_PLAN_REQUESTS_PER_MIN.get(get_snapshot().fmp_plan, 300)
-    # A ticker makes len(EVENT_TYPES) requests, so pace ticker STARTS at that multiple.
-    pacer = _Pacer(len(EVENT_TYPES) * 60.0 / (plan_rate * FMP_RATE_FRACTION))
+    # Pace ticker STARTS at the run's average request count per ticker.
+    total_calls = sum(len(NIGHTLY_EVENT_TYPES) + (1 if with_splits is None or t in with_splits else 0) for t in tickers)
+    pacer = _Pacer((total_calls / max(len(tickers), 1)) * 60.0 / (plan_rate * FMP_RATE_FRACTION))
     sem = asyncio.Semaphore(FMP_CONCURRENCY)
     failures: list[tuple[str, str]] = []
     rows_written = 0
@@ -54,14 +57,18 @@ async def refresh_all(tickers: list[str]) -> dict:
         nonlocal rows_written
         async with sem:
             await pacer.wait()
-            result = await refresh_ticker_events(ticker)
+            types = EVENT_TYPES if with_splits is None or ticker in with_splits else NIGHTLY_EVENT_TYPES
+            result = await refresh_ticker_events(ticker, types)
         errors = [f"{k}: {v}" for k, v in result.items() if isinstance(v, str)]
         rows_written += sum(v for v in result.values() if isinstance(v, int))
         if errors:
             failures.append((ticker, "; ".join(errors)))
 
     await asyncio.gather(*(one(t) for t in tickers))
-    return {"processed": len(tickers), "failed": len(failures), "failures": failures, "rows_written": rows_written}
+    return {
+        "processed": len(tickers), "failed": len(failures), "failures": failures, "rows_written": rows_written,
+        "fmp_calls": total_calls,
+    }
 
 
 async def main(tickers: list[str] | None = None) -> dict:
@@ -82,11 +89,12 @@ async def main(tickers: list[str] | None = None) -> dict:
         return {"processed": 0, "failed": 0, "failures": [], "rows_written": 0}
 
     start = time.monotonic()
-    result = await refresh_all(tickers)
+    result = await refresh_all(tickers, splits_due(tickers))
+    result["pruned"] = prune_old_events()
     result["duration_seconds"] = time.monotonic() - start
     logger.info(
-        "Corporate-events refresh complete. Processed: %d. With a failed endpoint: %d. Rows written: %d. Duration: %.1fs.",
-        result["processed"], result["failed"], result["rows_written"], result["duration_seconds"],
+        "Corporate-events refresh complete. Processed: %d. With a failed endpoint: %d. Rows stored: %d. FMP calls: %d. Pruned (older than retention): %d. Duration: %.1fs.",
+        result["processed"], result["failed"], result["rows_written"], result["fmp_calls"], result["pruned"], result["duration_seconds"],
     )
     if result["failures"]:
         logger.info("Tickers with failures: %s", ", ".join(f"{t} ({e})" for t, e in result["failures"]))

@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import httpx
 import pytest
@@ -21,7 +21,7 @@ DIVIDENDS = [
     {"symbol": "AAPL", "date": "2026-05-12", "adjDividend": 0.25, "dividend": 0.25},
     {"symbol": "AAPL", "date": "2026-02-09", "adjDividend": 0, "dividend": 0},
 ]
-SPLITS = [{"symbol": "AAPL", "date": "2020-08-31", "numerator": 4, "denominator": 1, "splitType": "stock-split"}]
+SPLITS = [{"symbol": "AAPL", "date": "2025-08-31", "numerator": 4, "denominator": 1, "splitType": "stock-split"}]
 
 
 @pytest.fixture
@@ -66,21 +66,108 @@ def test_refresh_stores_all_three_types_and_stamps_each_fetch(monkeypatch, engin
     assert (div.adj_dividend, div.dividend, div.payment_date, div.frequency) == (0.26, 1.04, date(2026, 8, 14), "Quarterly")
 
 
-def test_a_refresh_replaces_rather_than_layers_and_keeps_old_rows_on_a_failed_endpoint(monkeypatch, engine):
+def test_a_narrower_second_response_never_deletes_cached_rows(monkeypatch, engine):
+    """Plan-downgrade safety: FMP answering with fewer rows than are cached must not lose any."""
     _fake_fmp(monkeypatch)
     asyncio.run(ce.refresh_ticker_events("AAPL"))
+    with Session(engine) as session:
+        before = {(r.event_type, r.event_date) for r in session.exec(select(CorporateEvent)).all()}
 
-    _fake_fmp(monkeypatch, earnings=EARNINGS[1:], dividends=[], fail=("split",))
+    _fake_fmp(monkeypatch, earnings=EARNINGS[1:2], dividends=[], splits=[])
     result = asyncio.run(ce.refresh_ticker_events("AAPL"))
 
-    assert result["earnings"] == 2 and result["dividend"] == 0 and result["split"] == "error: ConnectError"
     with Session(engine) as session:
-        by_type = {}
-        for r in session.exec(select(CorporateEvent)).all():
-            by_type[r.event_type] = by_type.get(r.event_type, 0) + 1
-        dividend_stamp = session.get(CorporateEventFetch, ("AAPL", "dividend"))
-    assert by_type == {"earnings": 2, "split": 1}  # dividends replaced by "none"; splits kept untouched
-    assert dividend_stamp.row_count == 0  # "fetched, FMP has none" is recorded, not left as "never fetched"
+        after = {(r.event_type, r.event_date) for r in session.exec(select(CorporateEvent)).all()}
+        stamp = session.get(CorporateEventFetch, ("AAPL", "dividend"))
+    assert after == before
+    assert result == {"earnings": 3, "dividend": 3, "split": 1}  # stored counts, not response sizes
+    assert stamp.row_count == 3
+
+
+def test_a_refresh_inserts_new_events_and_updates_existing_ones_in_place(monkeypatch, engine):
+    _fake_fmp(monkeypatch)
+    asyncio.run(ce.refresh_ticker_events("AAPL"))
+    with Session(engine) as session:
+        ids = {r.event_date: r.id for r in session.exec(select(CorporateEvent).where(CorporateEvent.event_type == "earnings")).all()}
+
+    revised = [dict(EARNINGS[0], epsActual=2.05), {"date": "2026-01-29", "epsActual": 1.5, "epsEstimated": 1.4, "revenueActual": 7e10}, *EARNINGS[1:]]
+    _fake_fmp(monkeypatch, earnings=revised)
+    asyncio.run(ce.refresh_ticker_events("AAPL"))
+
+    with Session(engine) as session:
+        rows = {r.event_date: r for r in session.exec(select(CorporateEvent).where(CorporateEvent.event_type == "earnings")).all()}
+    assert len(rows) == 4
+    assert rows[date(2026, 10, 29)].eps_actual == 2.05 and rows[date(2026, 10, 29)].id == ids[date(2026, 10, 29)]
+
+
+def test_a_failed_endpoint_keeps_old_rows(monkeypatch, engine):
+    _fake_fmp(monkeypatch)
+    asyncio.run(ce.refresh_ticker_events("AAPL"))
+    _fake_fmp(monkeypatch, fail=("split",))
+    result = asyncio.run(ce.refresh_ticker_events("AAPL"))
+    assert result["split"] == "error: ConnectError"
+    with Session(engine) as session:
+        assert len(session.exec(select(CorporateEvent).where(CorporateEvent.event_type == "split")).all()) == 1
+
+
+def test_retention_prunes_by_event_date_and_keeps_the_boundary(engine):
+    today = date(2026, 9, 26)
+    cutoff = ce.retention_cutoff(today)
+    assert cutoff == date(2022, 9, 27)  # 1460 days back
+    with Session(engine) as session:
+        for d in (cutoff - timedelta(days=1), cutoff, today):
+            session.add(CorporateEvent(ticker="AAPL", event_type="earnings", event_date=d))
+        session.commit()
+
+    assert ce.prune_old_events(today) == 1
+
+    with Session(engine) as session:
+        assert {r.event_date for r in session.exec(select(CorporateEvent)).all()} == {cutoff, today}
+
+
+def test_incoming_rows_older_than_retention_are_not_stored(monkeypatch, engine):
+    old = {"date": "2015-01-01", "epsActual": 1.0, "epsEstimated": 1.0, "revenueActual": 1.0}
+    _fake_fmp(monkeypatch, earnings=[old, *EARNINGS], dividends=[], splits=[])
+    result = asyncio.run(ce.refresh_ticker_events("AAPL"))
+    assert result["earnings"] == 3
+
+
+def test_prune_is_independent_of_the_fmp_response_and_the_plan(monkeypatch, engine):
+    """Rows older than the cap go even when FMP still returns them (deliberate cap)."""
+    with Session(engine) as session:
+        session.add(CorporateEvent(ticker="AAPL", event_type="dividend", event_date=date(2015, 1, 1)))
+        session.commit()
+    assert ce.prune_old_events() == 1
+
+
+def test_retention_matches_the_chart_tabs_longest_view():
+    from data.chart_data import RANGE_CONFIG
+
+    assert ce.RETENTION_DAYS == max(c["visible_days"] for c in RANGE_CONFIG.values())
+
+
+def test_splits_are_due_only_when_never_fetched_or_a_week_old(engine):
+    now = datetime(2026, 9, 26, 3, 12)
+    with Session(engine) as session:
+        session.add(CorporateEventFetch(ticker="FRESH", event_type="split", fetched_at=now - timedelta(days=2)))
+        session.add(CorporateEventFetch(ticker="WEEKOLD", event_type="split", fetched_at=now - timedelta(days=7, seconds=-30)))
+        session.add(CorporateEventFetch(ticker="STALE", event_type="split", fetched_at=now - timedelta(days=9)))
+        session.add(CorporateEventFetch(ticker="EARNONLY", event_type="earnings", fetched_at=now))
+        session.commit()
+    assert ce.splits_due(["FRESH", "WEEKOLD", "STALE", "EARNONLY", "NEW"], now) == {"WEEKOLD", "STALE", "EARNONLY", "NEW"}
+
+
+def test_a_nightly_run_makes_two_calls_per_ticker_and_the_splits_run_three(monkeypatch, engine, tmp_path):
+    monkeypatch.setattr(job, "LOG_PATH", tmp_path / "x.log")
+    monkeypatch.setattr(job, "init_db", lambda: None)
+    calls = _fake_fmp(monkeypatch)
+
+    first = asyncio.run(job.main(["AAPL", "MSFT"]))  # never fetched -> splits due
+    assert first["fmp_calls"] == 6 and sorted(calls) == ["dividend", "dividend", "earnings", "earnings", "split", "split"]
+
+    calls.clear()
+    second = asyncio.run(job.main(["AAPL", "MSFT"]))  # splits fetched moments ago -> not due
+    assert second["fmp_calls"] == 4 and "split" not in calls
 
 
 def test_an_error_body_served_with_http_200_keeps_the_old_rows(monkeypatch, engine):
@@ -164,7 +251,7 @@ def test_the_job_refreshes_every_ticker_and_records_failures(monkeypatch, engine
     monkeypatch.setattr(job, "init_db", lambda: None)
     _fake_fmp(monkeypatch)
 
-    async def fake_refresh(ticker):
+    async def fake_refresh(ticker, types=None):
         return {"earnings": 1, "dividend": "error: ConnectError", "split": 0} if ticker == "BAD" else {"earnings": 2, "dividend": 1, "split": 0}
 
     monkeypatch.setattr(job, "refresh_ticker_events", fake_refresh)

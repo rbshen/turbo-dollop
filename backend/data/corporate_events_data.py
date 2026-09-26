@@ -1,11 +1,17 @@
 """FMP-backed cache of earnings dates, dividends and splits (Phase 6a).
 
-`refresh_ticker_events` pulls the three FMP endpoints (`/earnings`, `/dividends`,
-`/splits`, all data group `corporate_events`) and REPLACES that ticker's stored rows
-per event type with FMP's current full history -- a mirror, not a layered history. A
-successful refresh also stamps CorporateEventFetch, which is what lets the reader tell
-"fetched, FMP has none" (TSLA pays no dividend) from "never fetched". Refreshed nightly
-by pipeline/nightly_corporate_events.py (the first run is the full-history backfill).
+`refresh_ticker_events` pulls the FMP endpoints (`/earnings`, `/dividends`, `/splits`,
+all data group `corporate_events`) and UPSERTS them by the natural key (ticker,
+event_type, event_date): new events are inserted, existing ones updated, and a stored
+row is NEVER deleted because a response omitted it. That matters for a plan downgrade --
+Starter/Premium answer with ~1 year of history where Ultimate returns everything, and a
+delete-and-replace would silently wipe the older cached rows on the next run. The only
+deletion is the deliberate `prune_old_events` housekeeping (RETENTION_DAYS trailing
+days by EVENT date, independent of FMP's answer or the plan). A successful refresh also
+stamps CorporateEventFetch, which is what lets the reader tell "fetched, FMP has none"
+(TSLA pays no dividend) from "never fetched". Earnings/dividends are refreshed nightly,
+splits weekly (`SPLITS_REFRESH_DAYS`), by pipeline/nightly_corporate_events.py (the first
+run is the backfill).
 
 `read_cached_chart_events` feeds the Chart tab's E/D markers
 (data/chart_events_data.py): it rebuilds FMP-shaped rows from the table and reuses that
@@ -15,7 +21,7 @@ Splits are stored for completeness/future use; no chart marker reads them yet.
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import delete
 from sqlmodel import Session, select
@@ -34,6 +40,19 @@ EVENT_TYPES = (EARNINGS, DIVIDEND, SPLIT)
 # long as `limit` is large enough; these are far above any real ticker's count.
 EARNINGS_LIMIT = 1000
 DIVIDENDS_LIMIT = 2000
+
+# Trailing retention by EVENT date (not fetch date). Equals the Chart tab's longest view
+# (chart_data.RANGE_CONFIG["W_4Y"]["visible_days"] = 365 * 4), which drops events before its
+# first visible bar anyway -- so the cap never removes a marker any range can show
+# (pinned by test_retention_matches_the_chart_tabs_longest_view).
+RETENTION_DAYS = 365 * 4
+
+# Splits are rare next to earnings/dividends: refreshed when never fetched or last fetched
+# at least this long ago (6, not 7, so a nightly run's few seconds of drift never skips
+# the weekly slot). Judged off CorporateEventFetch, not the weekday, so a missed run
+# self-heals the next night.
+SPLITS_REFRESH_DAYS = 6
+NIGHTLY_EVENT_TYPES = (EARNINGS, DIVIDEND)
 
 
 def _num(value: object) -> float | None:
@@ -92,31 +111,83 @@ async def _fetch(ticker: str, event_type: str) -> object:
     return await fmp_client.get_splits(ticker)
 
 
-def replace_events(ticker: str, event_type: str, rows: list[CorporateEvent], now: datetime | None = None) -> None:
-    """Swap `ticker`'s stored rows of this type for `rows` and stamp the fetch, in one
-    transaction (a failure leaves the old rows untouched)."""
+def retention_cutoff(today: date | None = None) -> date:
+    return (today or date.today()) - timedelta(days=RETENTION_DAYS)
+
+
+def upsert_events(ticker: str, event_type: str, rows: list[CorporateEvent], now: datetime | None = None) -> int:
+    """Insert new events and update existing ones (natural key: ticker, type, date) and
+    stamp the fetch, in one transaction. Never deletes: a stored row FMP's response
+    omits (a narrower plan's window, a trimmed history) stays. Incoming rows older than
+    the retention window are not stored (the prune would only delete them). Returns the
+    ticker's stored row count for this type afterwards."""
     now = now or datetime.now()
+    cutoff = retention_cutoff(now.date())
     with Session(engine) as session:
-        session.exec(delete(CorporateEvent).where(CorporateEvent.ticker == ticker, CorporateEvent.event_type == event_type))
-        session.add_all(rows)
+        existing = {
+            r.event_date: r
+            for r in session.exec(
+                select(CorporateEvent).where(CorporateEvent.ticker == ticker, CorporateEvent.event_type == event_type)
+            ).all()
+        }
+        for row in rows:
+            if row.event_date < cutoff:
+                continue
+            current = existing.get(row.event_date)
+            if current is None:
+                session.add(row)
+                continue
+            for field in CorporateEvent.model_fields:
+                if field not in ("id", "ticker", "event_type", "event_date"):
+                    setattr(current, field, getattr(row, field))
+            session.add(current)
+        session.flush()
+        stored = len(
+            session.exec(
+                select(CorporateEvent.id).where(CorporateEvent.ticker == ticker, CorporateEvent.event_type == event_type)
+            ).all()
+        )
         stamp = session.get(CorporateEventFetch, (ticker, event_type))
         if stamp is None:
-            session.add(CorporateEventFetch(ticker=ticker, event_type=event_type, fetched_at=now, row_count=len(rows)))
+            session.add(CorporateEventFetch(ticker=ticker, event_type=event_type, fetched_at=now, row_count=stored))
         else:
-            stamp.fetched_at, stamp.row_count = now, len(rows)
+            stamp.fetched_at, stamp.row_count = now, stored
         session.commit()
+    return stored
 
 
-async def refresh_ticker_events(ticker: str) -> dict[str, int | str]:
-    """Refresh every event type for `ticker`. Returns {event_type: rows written} with a
+def prune_old_events(today: date | None = None) -> int:
+    """Delete every CorporateEvent whose event_date is before the trailing-retention
+    cutoff. Deliberate housekeeping, independent of FMP's response and the plan. A row
+    exactly on the cutoff is kept. Returns the number deleted."""
+    with Session(engine) as session:
+        result = session.exec(delete(CorporateEvent).where(CorporateEvent.event_date < retention_cutoff(today)))
+        session.commit()
+        return result.rowcount or 0
+
+
+def splits_due(tickers: list[str], now: datetime | None = None) -> set[str]:
+    """Tickers whose splits should be refreshed this run: never fetched, or last
+    successfully fetched at least SPLITS_REFRESH_DAYS ago."""
+    now = now or datetime.now()
+    with Session(engine) as session:
+        stamps = {
+            f.ticker: f.fetched_at
+            for f in session.exec(select(CorporateEventFetch).where(CorporateEventFetch.event_type == SPLIT)).all()
+        }
+    limit = timedelta(days=SPLITS_REFRESH_DAYS)
+    return {t for t in tickers if t not in stamps or now - stamps[t] >= limit}
+
+
+async def refresh_ticker_events(ticker: str, event_types: tuple[str, ...] = EVENT_TYPES) -> dict[str, int | str]:
+    """Refresh the given event types for `ticker`. Returns {event_type: rows stored} with a
     failed type reading "error: <ExceptionType>" (its old rows, if any, are kept). Type
     name only -- an httpx error's message embeds the request URL, apikey included."""
     result: dict[str, int | str] = {}
-    for event_type in EVENT_TYPES:
+    for event_type in event_types:
         try:
             rows = build_rows(ticker, event_type, await _fetch(ticker, event_type))
-            replace_events(ticker, event_type, rows)
-            result[event_type] = len(rows)
+            result[event_type] = upsert_events(ticker, event_type, rows)
         except Exception as exc:  # noqa: BLE001 -- one bad endpoint must not abort the ticker
             logger.warning("Corporate events (%s) refresh failed for %s (%s)", event_type, ticker, type(exc).__name__)
             result[event_type] = f"error: {type(exc).__name__}"

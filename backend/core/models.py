@@ -134,8 +134,7 @@ class LongHistoryBars(SQLModel, table=True):
     10y tier, and the Trend/LZ/Breadth jobs assume "5y everyone". This table is exempt
     from prune_old_bars by construction (nothing prunes it) and is never consulted when
     the nightly jobs decide what to fetch. Same basis as the nightly rows: FMP
-    `/historical-price-eod/full`, split- and spin-off-adjusted, not dividend-adjusted;
-    non-US rows are phantom-bar-filtered before they are stored.
+    `/historical-price-eod/full`, split- and spin-off-adjusted, not dividend-adjusted.
 
     Rows are only appended/overwritten by a top-up, or wholesale replaced when FMP
     restates history, so a ticker's stored span grows ~1 year per year."""
@@ -1333,9 +1332,9 @@ class TickerLastClose(SQLModel, table=True):
 
 class CorporateEvent(SQLModel, table=True):
     """FMP-sourced earnings dates, dividends and splits per ticker (Phase 6a), refreshed
-    nightly by pipeline/nightly_corporate_events.py with a full-history REPLACE per
-    (ticker, event_type) -- so this is a mirror of FMP's current answer, never a
-    layered history. Feeds the Chart tab's E/D markers (data/chart_events_data.py).
+    by pipeline/nightly_corporate_events.py with an UPSERT on (ticker, event_type,
+    event_date) -- a row is never deleted because FMP's response omitted it (plan-
+    downgrade safe) -- and pruned to the trailing 4 years by event date. Feeds the Chart tab's E/D markers (data/chart_events_data.py).
 
     event_type: "earnings" (event_date = report date; rows FMP lists with null actuals
     -- the next scheduled report, ETF placeholders -- are stored as-is and filtered at
