@@ -2589,6 +2589,35 @@ to display.
     (`lib/weinsteinStage.ts::weinsteinUnavailableReason`) -- the original "Insufficient..." wording
     is kept only for the genuinely-insufficient case, which is the one case it was ever accurate for.
 
+- **Engine swap: configurable EMA engine (2026-09-26) -- SUPERSEDES the fixed 30-week-SMA/5%-band engine
+  described in the Weinstein bullets above** (their state-machine rules, weekly resample, since-date and
+  pending-ETA notes still hold; the fixed constants, the 2y run-in, the 30-week volume average and the
+  `sTS`-vs-`sState` comparison numbers are history). `analysis/trend_structure/weinstein.py` is now the validated Pine
+  `sState` port (`scripts/weinstein_4stage_simulation.py`, 5f9b604), fully driven by `WeinsteinParams`:
+  `ma_length` 30, `ma_type` EMA (`ewm(span, adjust=False, min_periods=length)`; SMA supported), `within_range_pct` 5.0,
+  `slope_lookback` 5, `breakout_volume_mult` 2.0, `volume_avg_length` 50, `rs_benchmark` SPY, `rs_smoothing_length` 52.
+  Old logic removed outright, no toggle. Volume/RS never gate the stage; they only feed `weinstein_breakout_confirmed`
+  (a transition INTO Advance in the latest week, volume ratio >= mult, RS unavailable or > 0).
+  - **Settings**: singleton `WeinsteinSettings` table (`helpers/weinstein_config.py`, lazy-seeded, LiquidityZoneSettings
+    pattern), `GET/PUT /api/config/weinstein`, Settings > Weinstein. Read LIVE from the DB at compute time (the nightly
+    job once per run, the on-demand path per call) -- a change applies on the next recompute, no restart. Not a
+    `DataGroupSetting` (that is FMP on/off). `TrendAnalysis.weinstein_params_json` records the params each row was
+    computed with; `TrendAnalysisOut.weinstein_params` feeds the UI wording (no hard-coded "30-week"/"SMA"/"2x"; a
+    Screener card has no params, so its pill tooltip says "MA").
+  - **History**: the Weinstein replay now gets ~5y of dailies (`WEINSTEIN_LOOKBACK_DAYS` = 365*5, the trend job's fetch
+    width; the shared cache already held ~5y for US tickers via FMP) instead of 2y, because an EMA/sticky machine needs
+    a long run-in and "since" dates otherwise depended on where the window started. The swing/BOS engine still gets its
+    own 730-day slice (`_trend_window`, cut exactly where the cache used to cut) -- verified byte-identical trend_state/
+    blended_score. The `weinstein_since` date is the most recent real transition of the replay; lower-bound flag kept.
+  - **RS benchmark**: SPY, not ^GSPC. ^GSPC was retired from this job on 2026-09-23 (Massive has no Indices product);
+    the "^GSPC rides the batch fetch" text above is stale. The nightly job fetches whatever `rs_benchmark` names.
+  - **Flip-ETA/pending** (`weinstein_pending.py`) takes the same params, so its band, MA type and projection follow the
+    live engine; `trend_5`/`trend_13` stay fixed-horizon scenario keys.
+  - **Full-universe recompute run 2026-09-26** (586 processed, 0 failed; 5 delisted skipped keep old-engine rows):
+    stage counts advance 311->307, decline 230->226, top 30->43, base 18->13; engine-swap-only effect (old engine
+    replayed on the same data) = 117 of 586 tickers change stage; pending 44->14; 0 breakouts on the latest week.
+    Production matched the simulation script on stage, since-date, lower-bound and breakout for all 586 tickers.
+
 - **Watchlist UI columns removed entirely 2026-09-06** -- the TREND, A/D Div., and 20/50/
   200SMA columns above (and their click-to-sort headers) no longer render on the Watchlist
   table at all, ahead of this data moving to a new per-ticker Technical tab instead (design

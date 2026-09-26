@@ -7,7 +7,7 @@ entirely -- Yahoo Finance is the sole data source for this feature.
 
 import json
 from dataclasses import asdict
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import pandas as pd
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -17,7 +17,7 @@ from analysis.trend_structure.engine import compute_trend_structure
 from analysis.trend_structure.types import PullbackCycle, ReversalCandidate, SwingDetail, TrendStructureResult, WeinsteinStageResult
 from analysis.trend_structure.weinstein import WeinsteinParams, compute_weinstein_stage
 from analysis.trend_structure.weinstein_pending import WeinsteinPendingEtaScenario, WeinsteinPendingResult, compute_weinstein_pending
-from clients.shared_bars_cache import DAILY_INTERVAL, _most_recent_completed_trading_date, get_or_fetch_bars
+from clients.shared_bars_cache import DAILY_INTERVAL, _eastern_today, _most_recent_completed_trading_date, get_or_fetch_bars
 from core.db import engine
 from core.models import TrendAnalysis
 from core.schemas import PullbackCycleOut, ReversalCandidateOut, SwingDetailOut, TrendAnalysisOut, WeinsteinParamsOut, WeinsteinPendingEtaScenarioOut, WeinsteinPendingOut
@@ -353,6 +353,19 @@ def _row_to_out(row: TrendAnalysis) -> TrendAnalysisOut:
     )
 
 
+def _trend_window(ohlcv: pd.DataFrame) -> pd.DataFrame:
+    """The swing/BOS engine's own trailing LOOKBACK_DAYS of `ohlcv`, cut
+    EXACTLY where the shared bars cache used to cut its 730-day request
+    (today - (LOOKBACK_DAYS - 1), inclusive), so widening the fetch for
+    Weinstein leaves this engine's inputs -- and every trend score -- byte-
+    identical. Anchored on the last bar instead when that bar is more than a
+    week behind today (a stale/delisted ticker, or a test fixture)."""
+    last_bar = ohlcv.index.max().normalize()
+    today = pd.Timestamp(_eastern_today(datetime.now(timezone.utc)))
+    anchor = today if 0 <= (today - last_bar).days <= 7 else last_bar
+    return ohlcv[ohlcv.index >= anchor - pd.Timedelta(days=LOOKBACK_DAYS - 1)]
+
+
 def _load_params() -> WeinsteinParams:
     with Session(engine) as session:
         return load_weinstein_params(session)
@@ -394,8 +407,7 @@ def compute_and_store_from_frames(
     if params is None:
         params = _load_params()
 
-    trend_window = ohlcv[ohlcv.index >= ohlcv.index.max() - pd.Timedelta(days=LOOKBACK_DAYS)]
-    result = compute_trend_structure(trend_window)
+    result = compute_trend_structure(_trend_window(ohlcv))
     weinstein_result = compute_weinstein_stage(
         ohlcv, benchmark_ohlcv if benchmark_ohlcv is not None else pd.DataFrame(columns=["open", "high", "low", "close", "volume"]), params
     )

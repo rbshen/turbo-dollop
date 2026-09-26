@@ -750,3 +750,18 @@ def test_swing_engine_only_sees_its_own_trailing_window_while_weinstein_gets_the
     result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
     assert seen["trend_rows"] <= trend_analysis_data_module.LOOKBACK_DAYS + 1
     assert result.weinstein_weeks_available > 200  # ~1500 calendar days of weekly bars, not the 730-day slice
+
+
+def test_trend_window_cuts_exactly_where_the_730_day_cache_request_used_to(monkeypatch):
+    """Widening the fetch for Weinstein must not move the swing engine's
+    inputs: cut = today - (LOOKBACK_DAYS - 1) inclusive, like the shared
+    cache's own `needed_start`."""
+    monkeypatch.setattr(trend_analysis_data_module, "_eastern_today", lambda reference=None: date(2026, 9, 26))
+    idx = pd.date_range("2021-01-01", "2026-09-25", freq="D")
+    frame = pd.DataFrame({"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1}, index=idx)
+    window = trend_analysis_data_module._trend_window(frame)
+    assert window.index.min() == pd.Timestamp("2026-09-26") - pd.Timedelta(days=729)
+    assert window.index.max() == pd.Timestamp("2026-09-25")
+
+    stale = frame[frame.index <= "2024-06-30"]  # last bar far behind today -> anchored on the last bar
+    assert trend_analysis_data_module._trend_window(stale).index.min() == pd.Timestamp("2024-06-30") - pd.Timedelta(days=729)
