@@ -3,9 +3,11 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, create_engine
 
 import core.main as main
+import helpers.discount_rate_config as drc
 
 
 def _fresh_engine(monkeypatch):
+    monkeypatch.setattr(drc, "SUPPORTED_REGIONS", {"US", "XX"})
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(main, "engine", engine)
@@ -41,8 +43,7 @@ def test_put_requires_region_and_updates_that_regions_row(monkeypatch):
 
 
 def test_put_without_region_is_rejected(monkeypatch):
-    # region has no default on DiscountRateConfigIn as of the HK market
-    # support round -- every PUT must say which region it's updating now
+    # region has no default on DiscountRateConfigIn now that more than one region can exist, -- every PUT must say which region it's updating now
     # that this isn't US-only.
     _fresh_engine(monkeypatch)
     client = TestClient(main.app)
@@ -63,22 +64,22 @@ def test_list_endpoint_eagerly_seeds_us_on_a_brand_new_db(monkeypatch):
     assert [row["region"] for row in body] == ["US"]
 
 
-def test_list_endpoint_includes_a_seeded_hk_row_once_one_exists(monkeypatch):
+def test_list_endpoint_includes_a_seeded_xx_row_once_one_exists(monkeypatch):
     _fresh_engine(monkeypatch)
     client = TestClient(main.app)
 
-    # PUT with region="HK" seeds (via get_discount_rate_config's own
-    # get-or-create) and then updates the HK row in one call -- same path
+    # PUT with region="XX" seeds (via get_discount_rate_config's own
+    # get-or-create) and then updates the second region's row in one call -- same path
     # step3_data.py's lazy seeding would take, just triggered explicitly
     # here rather than by a ticker valuation.
     put_response = client.put(
-        "/api/config/discount-rate", json={"region": "HK", "risk_free_rate": 0.05, "market_risk_premium": 0.04}
+        "/api/config/discount-rate", json={"region": "XX", "risk_free_rate": 0.05, "market_risk_premium": 0.04}
     )
     assert put_response.status_code == 200
 
     response = client.get("/api/config/discount-rates")
     body = response.json()
-    assert sorted(row["region"] for row in body) == ["HK", "US"]
-    hk_row = next(row for row in body if row["region"] == "HK")
-    assert hk_row["risk_free_rate"] == 0.05
-    assert hk_row["market_risk_premium"] == 0.04
+    assert sorted(row["region"] for row in body) == ["US", "XX"]
+    xx_row = next(row for row in body if row["region"] == "XX")
+    assert xx_row["risk_free_rate"] == 0.05
+    assert xx_row["market_risk_premium"] == 0.04

@@ -32,10 +32,10 @@ describe("PriceTargetsCard currency", () => {
   });
 
   it("uses the given quote_currency for every price target figure", () => {
-    render(<PriceTargetsCard data={DATA} currency="HKD" />);
-    expect(screen.getByText(/HK\$350\.00/)).toBeInTheDocument();
-    expect(screen.getByText("HK$420.50")).toBeInTheDocument();
-    expect(screen.getByText(/HK\$480\.00/)).toBeInTheDocument();
+    render(<PriceTargetsCard data={DATA} currency="CNY" />);
+    expect(screen.getByText(/CN¥350\.00/)).toBeInTheDocument();
+    expect(screen.getByText("CN¥420.50")).toBeInTheDocument();
+    expect(screen.getByText(/CN¥480\.00/)).toBeInTheDocument();
   });
 });
 

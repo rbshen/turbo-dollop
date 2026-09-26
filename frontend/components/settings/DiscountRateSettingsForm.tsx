@@ -18,15 +18,11 @@ const STATUS_LABELS: Record<Status, string> = {
 };
 
 // A region's own display name, where it differs from its bare code. Only
-// US/HK/FR are supported (backend helpers/discount_rate_config.py::
-// SUPPORTED_REGIONS) -- US always exists by default; HK/FR are lazily
-// seeded the first time a ticker from that country is valued, so either
-// may be absent here until then. A ticker from any other country uses the
-// US rate directly and never gets its own row.
+// US is supported today (backend helpers/discount_rate_config.py::
+// SUPPORTED_REGIONS); a ticker from any other country (an ADR's domicile)
+// uses the US rate directly and never gets its own row.
 const REGION_LABELS: Record<string, string> = {
   US: "United States",
-  HK: "Hong Kong",
-  FR: "France",
 };
 
 function regionLabel(region: string): string {
@@ -51,10 +47,8 @@ export function DiscountRateSettingsForm() {
         <p className="mt-1 text-xs text-zinc-600">
           Risk-Free Rate and Market Risk Premium are 5-year trailing averages from market-risk-premia.com — manually
           maintained here, not auto-fetched (see CLAUDE.md). Beta stays sourced live per-ticker from FMP. Feeds a
-          ticker&apos;s own country&apos;s Valuation discount rate: <span className="font-mono text-zinc-400">Rf + β × MRP</span>. A
-          country appears here once a ticker from it has been valued at least once — its row seeds from the current
-          US values as a placeholder until edited. Only United States, Hong Kong, and France get their own rate; a
-          ticker from any other country uses the US rate directly.
+          ticker&apos;s own country&apos;s Valuation discount rate: <span className="font-mono text-zinc-400">Rf + β × MRP</span>. Only
+          the United States has its own rate; a ticker from any other country (e.g. an ADR) uses the US rate directly.
         </p>
       </div>
 

@@ -21,7 +21,7 @@ describe("RecommendationDetailsTable Target row currency", () => {
   });
 
   it("uses the given quote_currency for the Target row", () => {
-    render(<RecommendationDetailsTable columns={COLUMNS} currency="HKD" />);
-    expect(screen.getByText("HK$420.50")).toBeInTheDocument();
+    render(<RecommendationDetailsTable columns={COLUMNS} currency="CNY" />);
+    expect(screen.getByText("CN¥420.50")).toBeInTheDocument();
   });
 });

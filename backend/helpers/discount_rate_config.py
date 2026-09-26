@@ -14,15 +14,15 @@ DEFAULT_MARKET_RISK_PREMIUM_US = 0.02728
 
 US_REGION = "US"
 
-# The only countries this app maintains a distinct discount rate for --
+# The only regions this app maintains a distinct discount rate for --
 # deliberately capped, not auto-expanding to every FMP profile `country`
-# value seen (2026-09-17 cleanup: 16 regions had accumulated from ordinary
-# valuation traffic, most left un-researched at the US placeholder default
-# and never intentionally reviewed). Any ticker whose country isn't in this
-# set is treated as US_REGION at the get_discount_rate_config call site
-# below -- it uses the US row's live rate directly and never seeds its own
-# region row.
-SUPPORTED_REGIONS = {"US", "HK", "FR"}
+# value seen (an ADR's domicile, e.g. CN/CA/TW, must not seed its own
+# un-researched row). Any ticker whose country isn't in this set is treated
+# as US_REGION at the get_discount_rate_config call site below -- it uses
+# the US row's live rate directly and never seeds its own region row. HK/FR
+# were removed with non-US ticker support; add a region here to reintroduce
+# a per-country rate.
+SUPPORTED_REGIONS = {"US"}
 
 
 def get_discount_rate_config(session: Session, region: str = US_REGION) -> DiscountRateConfig:
@@ -34,14 +34,10 @@ def get_discount_rate_config(session: Session, region: str = US_REGION) -> Disco
     the get-or-create below ever runs, so it's never seeded its own row --
     it simply uses the US row's live rate. US_REGION itself seeds from the
     hardcoded DEFAULT_* constants above, unchanged from before per-country
-    support existed. Any OTHER supported region (e.g. "HK", seeded the
-    first time a Hong Kong-listed ticker's Step 3 valuation runs -- see
-    step3_data.py) seeds instead from the CURRENT live US row's own
-    values, recursively get-or-creating US first -- per the HK market
-    support round's explicit seeding rule: "defaults to whatever the
-    CURRENT single global rate is today," including a value the user has
-    already edited away from DEFAULT_RISK_FREE_RATE_US/DEFAULT_MARKET_
-    RISK_PREMIUM_US, not a fresh, un-researched HK-specific number."""
+    support existed. Any OTHER supported region (none today) seeds instead from
+    the CURRENT live US row's own values, recursively get-or-creating US
+    first, including a value the user has already edited away from
+    DEFAULT_RISK_FREE_RATE_US/DEFAULT_MARKET_RISK_PREMIUM_US."""
     if region not in SUPPORTED_REGIONS:
         region = US_REGION
 

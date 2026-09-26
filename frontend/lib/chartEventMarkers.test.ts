@@ -165,7 +165,7 @@ describe("describeEventMarker", () => {
       lines: ["$0.27 per share"],
     });
     expect(describeEventMarker("dividend:2019-08-05", earnings, dividends, "USD")?.lines).toEqual(["$0.1925 per share"]);
-    expect(describeEventMarker("dividend:2026-08-10", earnings, dividends, "HKD")?.lines[0]).toMatch(/^HK\$0\.27/);
+    expect(describeEventMarker("dividend:2026-08-10", earnings, dividends, "CNY")?.lines[0]).toMatch(/^CN¥0\.27/);
   });
 
   it("returns null for ids that aren't ours or don't resolve", () => {

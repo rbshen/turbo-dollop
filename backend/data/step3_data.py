@@ -140,16 +140,13 @@ async def _resolve_fx_rate(
     cache_only: bool,
 ) -> tuple[float | None, datetime | None]:
     """Resolves a ticker's reportedCurrency -> quote_currency spot rate --
-    NOT always -> USD, generalized from the original TSM-shaped case (a US
-    ADR: reports TWD, quotes USD) to also handle a genuine foreign primary
-    listing (e.g. 0700.HK: reports CNY, quotes HKD; 0005.HK: reports USD,
-    quotes HKD -- the latter used to silently short-circuit to fx_rate=1.0
-    since the old code only ever compared reported_currency against the
-    hardcoded "USD" target, never against the ticker's own actual quote
-    currency). Crosses through USD via two independent `<CCY>USD` legs
+    NOT always -> USD. A US ADR (e.g. TSM: reports TWD, quotes USD) is the
+    live case; the conversion targets the ticker's own quote currency rather
+    than a hardcoded "USD" so a reported == quote pair never converts.
+    Crosses through USD via two independent `<CCY>USD` legs
     (_currency_to_usd_rate) rather than requiring FMP to have a direct
     reported<->quote pair -- FMP quotes nearly everything against USD, but
-    has no guarantee of a direct e.g. CNYHKD pair.
+    has no guarantee of a direct e.g. CNYEUR pair.
 
     None reported_currency is treated as "already in quote_currency" (same
     as the original None/"USD" short-circuit). Returns (None, None) -- never
@@ -211,14 +208,15 @@ async def get_step3_data(
                 ),
             )
         )
-        # Trading/quote currency (e.g. "HKD" for a Hong Kong primary
-        # listing) -- the FX conversion TARGET, generalized from the old
+        # Trading/quote currency (USD for every US listing, ADRs
+        # included, though they may REPORT in another currency) -- the FX conversion TARGET, generalized from the old
         # hardcoded-USD assumption. Defaults to "USD" when /profile has no
         # currency field, matching every ticker's behavior before this
         # existed.
         quote_currency = profile.get("currency") or "USD"
-        # The ticker's domicile/listing country (e.g. "HK"), used below to
-        # look up its own per-country discount-rate config -- deliberately
+        # The ticker's domicile country, used below to look up its own
+        # per-country discount-rate config (only US exists today, so any
+        # other country resolves to the US row) -- deliberately
         # NOT inferred from quote_currency: the two are related but not 1:1
         # (e.g. a USD-quoted ADR of a non-US company, or -- in principle --
         # a US-domiciled company primary-listed on a foreign exchange).

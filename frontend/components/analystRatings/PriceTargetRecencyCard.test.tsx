@@ -33,13 +33,13 @@ describe("PriceTargetRecencyCard", () => {
   });
 
   it("shows a dash and uses the given currency when an average is missing", () => {
-    render(<PriceTargetRecencyCard data={[{ label: "Last Month", avg_price_target: null, analyst_count: 0 }]} currency="HKD" />);
+    render(<PriceTargetRecencyCard data={[{ label: "Last Month", avg_price_target: null, analyst_count: 0 }]} currency="CNY" />);
     expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.getByText("0 analysts")).toBeInTheDocument();
   });
 
   it("uses the given currency for a real average", () => {
-    render(<PriceTargetRecencyCard data={[{ label: "All Time", avg_price_target: 232.59, analyst_count: 260 }]} currency="HKD" />);
-    expect(screen.getByText("HK$232.59")).toBeInTheDocument();
+    render(<PriceTargetRecencyCard data={[{ label: "All Time", avg_price_target: 232.59, analyst_count: 260 }]} currency="CNY" />);
+    expect(screen.getByText("CN¥232.59")).toBeInTheDocument();
   });
 });

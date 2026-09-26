@@ -151,7 +151,7 @@ class TickerSummaryOut(BaseModel):
     # number with no indication otherwise.
     fair_value_reported_currency: str | None = None
     # The ticker's actual trading currency (FMP /profile's `currency`
-    # field, e.g. "HKD"), defaulting to "USD" when /profile has none.
+    # field, e.g. "USD"), defaulting to "USD" when /profile has none.
     # price/market_cap/fair_value_price above, and every other quote-domain
     # figure on this model, are denominated in this currency -- drives the
     # header/Screener/Watchlist currency-aware formatters (see
@@ -532,7 +532,7 @@ class Step3Inputs(BaseModel):
     capm: Step3CapmComponents | None = None
     current_fiscal_year: str | None = None
     # quote_currency: the ticker's FMP `/profile` `currency` field (e.g.
-    # "HKD") -- the currency last_close/intrinsic_value_per_share are
+    # "USD") -- the currency last_close/intrinsic_value_per_share are
     # actually denominated in. Defaults to "USD" when /profile has no
     # currency field, matching every ticker's behavior before this field
     # existed. This is the conversion TARGET fx_rate below converts
@@ -557,7 +557,7 @@ class Step3Inputs(BaseModel):
     reported_currency: str | None = None
     # The resolved reported_currency -> quote_currency spot rate actually
     # used for the conversion above (e.g. 0.0311 for TWD -> USD, or a cross
-    # rate like CNY -> HKD for a Hong Kong-listed, China-reporting ticker),
+    # rate between two non-USD currencies),
     # None when no real conversion was needed (reported_currency ==
     # quote_currency) or when a non-matching conversion couldn't be resolved
     # at all (Valuation reads as insufficient_data instead -- see

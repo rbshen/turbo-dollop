@@ -11,17 +11,16 @@ function signChar(n: number): string {
   return n >= 0 ? "+" : "-";
 }
 
-/** ISO currency code -> an unambiguous prefix, e.g. "$" for USD but "HK$"
- * for HKD and "CN¥" for CNY (never a bare "¥", which is ambiguous between
- * CNY/JPY) -- see CLAUDE.md's HK market support round. Falls back to
+/** ISO currency code -> an unambiguous prefix, e.g. "$" for USD but "CN¥"
+ * for CNY (never a bare "¥", which is ambiguous between
+ * CNY/JPY). Falls back to
  * "<CODE> " for any currency with no dedicated symbol here rather than
  * guessing one. Every fmt*Money function below defaults `currency` to
- * "USD", so every existing call site (most of the app -- HK/foreign
- * tickers are a small minority) renders byte-identical to before this
+ * "USD", so every existing call site (most of the app -- foreign
+ * reporting currencies are a small minority) renders byte-identical to before this
  * parameter existed. */
 const CURRENCY_PREFIXES: Record<string, string> = {
   USD: "$",
-  HKD: "HK$",
   CNY: "CN¥",
   JPY: "¥",
   EUR: "€",
@@ -32,7 +31,7 @@ export function currencyPrefix(currency: string): string {
   return CURRENCY_PREFIXES[currency] ?? `${currency} `;
 }
 
-/** "$1,234.56" / "-$1,234.56" (or "HK$1,234.56" / "CN¥1,234.56" / etc. for a non-USD `currency`) */
+/** "$1,234.56" / "-$1,234.56" (or "CN¥1,234.56" / etc. for a non-USD `currency`) */
 export function fmtMoney(n: number, currency: string = "USD"): string {
   return (n < 0 ? "-" : "") + currencyPrefix(currency) + absLocale(n, 2);
 }
