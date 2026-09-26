@@ -48,19 +48,16 @@ describe("offGroupsFor", () => {
   });
 });
 
-describe("fallback groups", () => {
-  it("do not read as not-refreshing when off, and word the reason/warning around the fallback", () => {
-    const g = group({ key: "daily_prices", falls_back: true, state: "using_fallback", reason: "user_off" });
-    expect(offGroupsFor(wrap([g]), ["daily_prices"])).toEqual([]);
-    expect(reasonText(g)).toContain("fallback");
-    // Yahoo is the only fallback left, for every fallback group alike; Massive is gone.
+describe("price groups (no fallback provider)", () => {
+  it("read as cached-only when off, with the plain cached-data wording", () => {
     for (const key of ["daily_prices", "intraday_bars", "daily_prices_long"]) {
-      const off = group({ key, falls_back: true, state: "using_fallback", reason: "user_off" });
-      expect(disableWarning(off)).toContain("(Yahoo)");
-      expect(disableWarning(off)).not.toContain("Massive");
-      expect(reasonText(off)).not.toContain("Massive");
+      const off = group({ key, state: "cached_only", reason: "user_off", feeds: ["Chart tab"] });
+      expect(offGroupsFor(wrap([off]), [key]).map((g) => g.key)).toEqual([key]);
+      expect(reasonText(off)).toBe("Turned off in Settings.");
+      expect(disableWarning(off)).toContain("serve cached data only");
+      expect(disableWarning(off)).not.toContain("Yahoo");
+      expect(reasonText(off)).not.toContain("fallback");
     }
-    expect(disableWarning(g)).not.toContain("cached data only");
   });
 });
 
@@ -80,7 +77,10 @@ describe("text helpers", () => {
     expect(reasonText(group())).toBe("");
   });
 
-  it("TAB_GROUPS only references real tabs' fundamentals-era groups", () => {
-    expect(TAB_GROUPS.analystRatings).toEqual(["analyst_ratings"]);
+  it("TAB_GROUPS maps each tab to the data groups that feed it", () => {
+    expect(TAB_GROUPS.analystRatings).toEqual(["analyst_ratings", "daily_prices_long"]);
+    // Price groups have no fallback provider: an off one is what explains a stale/empty Chart or Technical tab.
+    expect(TAB_GROUPS.chart).toEqual(expect.arrayContaining(["daily_prices", "daily_prices_long", "intraday_bars"]));
+    expect(TAB_GROUPS.technical).toEqual(["daily_prices", "intraday_bars"]);
   });
 });

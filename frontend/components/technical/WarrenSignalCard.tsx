@@ -12,7 +12,6 @@ const UNAVAILABLE_MESSAGE =
   'No Warren RSI/ADX/WVF entry signal tracked for this ticker -- this check only runs nightly for tickers in a "W1"-"W5" watchlist.';
 
 const SOURCE_LABEL: Record<string, string> = {
-  yahoo: "Yahoo Finance",
   fmp: "Financial Modeling Prep",
 };
 

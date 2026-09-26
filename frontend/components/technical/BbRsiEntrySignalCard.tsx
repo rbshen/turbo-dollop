@@ -12,7 +12,6 @@ const UNAVAILABLE_MESSAGE =
   'No BB+RSI entry signal tracked for this ticker -- this check only runs nightly for tickers in the "W1" or "W2" watchlists.';
 
 const SOURCE_LABEL: Record<string, string> = {
-  yahoo: "Yahoo Finance",
   fmp: "Financial Modeling Prep",
 };
 

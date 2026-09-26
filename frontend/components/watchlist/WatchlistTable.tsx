@@ -171,7 +171,7 @@ function SortableHead({
 // perf_5y_vs_spy_pct/_status are still fetched, just no longer shown or
 // sortable at all (no SortableField entry either, unlike before that
 // redesign). The Trend/A-D-Div/SMA technical-indicators cluster (added
-// alongside the Yahoo-Finance-backed trend-structure feature) was removed
+// alongside the trend-structure feature) was removed
 // from this table entirely on 2026-09-06 -- that data is moving to a
 // per-ticker Technical tab instead (see CLAUDE.md's "Trend structure
 // analysis (Technical)" section); the underlying TrendAnalysis engine/data

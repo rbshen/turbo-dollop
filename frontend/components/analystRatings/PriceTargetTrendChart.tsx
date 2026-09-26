@@ -38,8 +38,8 @@ export function PriceTargetTrendChart({ history, currency = "USD" }: Props) {
   const hasPriceTargetHistory = history.some((point) => point.avg_price_target != null);
   // The toggle itself is only ever rendered when there's at least one point
   // where the price overlay actually has something to show -- e.g. a
-  // delisted ticker (Yahoo has nothing at all) or one where the only Yahoo
-  // data available doesn't land on/before any plotted date. No separate
+  // delisted ticker (no stored price history at all) or one where the only
+  // stored data available doesn't land on/before any plotted date. No separate
   // check/request needed: this falls straight out of the one field already
   // returned by the same request this chart already consumes.
   const hasPriceOverlay = history.some((point) => point.price_on_date != null);
@@ -97,7 +97,7 @@ function PriceOverlayChart({ history, currency }: { history: RatingHistoryPoint[
 
   // The price line only ever starts at or after the target line's own
   // first real point (see RatingHistoryPoint.price_on_date's own comment)
-  // -- if it starts LATER, Yahoo's history didn't reach back as far as the
+  // -- if it starts LATER, the stored price history didn't reach back as far as the
   // target series does, and that gap is marked here rather than left to be
   // silently read as "the two lines just happen to line up".
   const targetStart = history.findIndex((p) => p.avg_price_target != null);

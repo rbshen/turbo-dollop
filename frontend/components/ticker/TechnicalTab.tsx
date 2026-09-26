@@ -47,7 +47,7 @@ export function TechnicalTab({ ticker }: Props) {
 
   // Resolved (not still loading) but null: this ticker has never been
   // through the nightly trend-structure calculation (see
-  // pipeline/nightly_trend_calculation.py) and Yahoo Finance had nothing to
+  // pipeline/nightly_trend_calculation.py) and there were no cached bars to
   // compute from on demand either -- distinct from "still loading," so it
   // gets its own explanatory state rather than the same spinner forever.
   if (!data) {

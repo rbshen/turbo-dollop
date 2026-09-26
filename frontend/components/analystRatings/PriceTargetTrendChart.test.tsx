@@ -64,7 +64,7 @@ describe("PriceTargetTrendChart", () => {
     expect(screen.queryByRole("button", { name: "Overlay stock price" })).not.toBeInTheDocument();
   });
 
-  it("renders the plain single-series chart with no toggle when there's zero overlap with Yahoo price data", () => {
+  it("renders the plain single-series chart with no toggle when there's zero overlap with price data", () => {
     render(<PriceTargetTrendChart history={HISTORY_ZERO_OVERLAP} />);
     expect(screen.queryByRole("button", { name: "Overlay stock price" })).not.toBeInTheDocument();
     expect(chartPanel().querySelectorAll("path.recharts-line-curve, path.recharts-area-area")).toHaveLength(1);

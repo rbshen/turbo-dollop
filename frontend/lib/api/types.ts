@@ -22,15 +22,13 @@ export interface OutlierWarning {
   sec_cross_check: SecCrossCheck | null;
 }
 
-export type DataGroupState = "live" | "cached_only" | "using_fallback" | "not_on_plan" | "restricted" | "failing";
+export type DataGroupState = "live" | "cached_only" | "not_on_plan" | "restricted" | "failing";
 
 export interface DataGroupOut {
   key: string;
   label: string;
   /** False for groups seeded for later phases (nothing reads them yet). */
   wired: boolean;
-  /** A non-FMP provider still backs this group: off = skip FMP and use the fallback chain. */
-  falls_back?: boolean;
   /** The user's own toggle. */
   enabled: boolean;
   state: DataGroupState;
@@ -95,7 +93,7 @@ export interface CronHealthOut {
 }
 
 export interface DataSourceStatusOut {
-  source: "fmp" | "yahoo";
+  source: "fmp";
   enabled: boolean;
   status: "healthy" | "disabled_or_failing" | "stale";
   last_success_at: string | null;
@@ -1036,11 +1034,11 @@ export interface RatingHistoryPoint {
   // reconstruction, every analyst since 2021) or "live_consensus" (FMP's
   // ~180-day consensus, daily snapshots). Null when no target / untagged.
   methodology?: string | null;
-  // Yahoo Finance split/dividend-adjusted close "on or before" this row's
+  // FMP split-adjusted (not dividend-adjusted) close "on or before" this row's
   // own date -- feeds the Price Target Trend chart's optional price
   // overlay. Only ever populated from the first row where
   // avg_price_target itself is non-null onward, and null past that if
-  // Yahoo's history doesn't reach back this far.
+  // the stored history doesn't reach back this far.
   price_on_date: number | null;
 }
 
@@ -1392,7 +1390,7 @@ export interface TechnicalEntrySignalOut {
   // "warren" only -- how many stop-outs have occurred since the last Blue
   // trigger (the count gray_suppressed is thresholded on).
   stop_count: number | null;
-  source: string; // "yahoo" (or "fmp", once that adapter is ever wired in)
+  source: string; // "fmp" (legacy rows may read "yahoo")
   // Timestamp of the last candle actually evaluated, fired or not --
   // updates every nightly run regardless of outcome, so this can
   // legitimately be a more recent date than fired_at.
@@ -1424,7 +1422,7 @@ export interface LiquidityZoneOut {
   last_price: number;
   as_of: string;
   computed_at: string;
-  source: string; // "fmp" | "yahoo"
+  source: string; // "fmp" (legacy rows may read "yahoo")
   // Already the nearest-N, correct-side-of-price, clustered zones -- an
   // empty array means genuinely zero currently-valid zones on that side
   // (sparse history, or price has never pulled back far enough to form
@@ -1548,14 +1546,14 @@ export interface ChartOut {
   // nightly LP job hasn't reached it yet), not "genuinely zero zones".
   zones: ChartZoneOut[];
   zones_available: boolean;
-  // Earnings-report dates / dividend ex-dates in the visible window, fetched live per request (FMP when
-  // enabled, else Yahoo). events_source is null when every source failed -- the only way to tell "couldn't
+  // Earnings-report dates / dividend ex-dates in the visible window, read from the nightly CorporateEvent
+  // cache. events_source is null when the ticker isn't cached -- the only way to tell "couldn't
   // fetch" from a genuinely empty list (a non-dividend payer). The chart omits both marker types silently
   // either way.
   earnings_markers: ChartEarningsMarkerOut[];
   dividend_markers: ChartDividendMarkerOut[];
-  events_source: "fmp" | "yahoo" | null;
-  source: string; // "fmp" | "yahoo" -- whichever source actually answered
+  events_source: "fmp" | null;
+  source: "fmp";
   chart_available: boolean; // false only for a genuinely bad/delisted ticker with no bars at all
 }
 

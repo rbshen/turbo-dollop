@@ -22,9 +22,8 @@ const STATUS_LABEL: Record<DataSourceStatusOut["status"], string> = {
 
 interface Props {
   title: string;
-  /** e.g. an env flag name -- shown next to the title. Yahoo has
-   * no kill-switch flag at all (see clients/yahoo_client.py's own
-   * docstring), so this is omitted for that card. */
+  /** e.g. an env flag name -- shown next to the title. Optional: omit it for a source with no
+   * kill-switch flag. */
   flagLabel?: string;
   status: DataSourceStatusOut | undefined;
   /** Which parts of the app this source feeds -- static, given by the
@@ -32,7 +31,7 @@ interface Props {
   powers: string[];
 }
 
-/** One Data Sources card (FMP or Yahoo Finance) in the Settings "Status"
+/** One Data Sources card in the Settings "Status"
  * section -- health dot + badge computed purely from `status` (never a
  * live reachability ping, see core/data_source_status.py), a "last
  * successful fetch" relative timestamp, the static Powers tag list, and a

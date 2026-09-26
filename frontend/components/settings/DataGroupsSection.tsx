@@ -12,7 +12,6 @@ import { cn } from "@/lib/utils";
 const CHIP: Record<DataGroupState, string> = {
   live: "bg-positive/16 text-positive border-positive/40",
   cached_only: "bg-zinc-700/30 text-zinc-300 border-zinc-600",
-  using_fallback: "bg-warn/16 text-warn border-warn/40",
   not_on_plan: "bg-warn/16 text-warn border-warn/40",
   restricted: "bg-negative/16 text-negative border-negative/40",
   failing: "bg-negative/16 text-negative border-negative/40",
