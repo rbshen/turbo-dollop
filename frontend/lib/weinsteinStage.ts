@@ -55,7 +55,7 @@ export function weinsteinMaLabelShort(params: WeinsteinParamsOut | null | undefi
 
 export function weinsteinBenchmarkLabel(params: WeinsteinParamsOut | null | undefined): string {
   if (!params) return "benchmark";
-  return params.rs_benchmark === "SPY" || params.rs_benchmark === "^GSPC" ? "S&P 500" : params.rs_benchmark;
+  return params.rs_benchmark === "SPY" ? "S&P 500" : params.rs_benchmark;
 }
 
 function fmtNum(n: number): string {

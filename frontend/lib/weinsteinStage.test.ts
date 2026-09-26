@@ -213,6 +213,7 @@ describe("configurable-engine labels", () => {
   it("names the configured benchmark and breakout thresholds", () => {
     expect(weinsteinBenchmarkLabel(params)).toBe("S&P 500");
     expect(weinsteinBenchmarkLabel({ ...params, rs_benchmark: "QQQ" })).toBe("QQQ");
+    expect(weinsteinBenchmarkLabel({ ...params, rs_benchmark: "^GSPC" })).toBe("^GSPC"); // the retired index benchmark has no special label
     expect(weinsteinBreakoutDetail({ ...params, breakout_volume_mult: 1.5, volume_avg_length: 40 })).toContain("volume ≥ 1.5x the 40-week average");
     expect(weinsteinMethodBlurb(params)).toContain("30-week EMA stage classification");
   });
