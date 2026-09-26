@@ -2618,6 +2618,17 @@ to display.
     replayed on the same data) = 117 of 586 tickers change stage; pending 44->14; 0 breakouts on the latest week.
     Production matched the simulation script on stage, since-date, lower-bound and breakout for all 586 tickers.
 
+- **Chart tab W/4Y "Stage" toggle + Screener "Weinstein — Stage Since" sort (2026-09-26).** The Chart tab's weekly
+  view (only; button hidden on D ranges, off by default, sits after SMA 200) draws the live-configured Weinstein MA
+  (`WeinsteinSettings` type+length, labelled e.g. "EMA30", white) and colors each candle by its stage AT THAT WEEK
+  (base #8FD99F / advance #1B9E3E / top #E8A020 / decline #E03A3A). `data/chart_data.py::_weinstein_overlay` calls the
+  engine's own `compute_stage_series` over the FULL fetched weekly history (up to 10y, so the sticky machine is seeded
+  long before the 4y visible window) and slices to the visible weeks -- `ChartOut.weinstein_ma/_ma_label/_stages`,
+  computed on-demand per weekly request (params read live). Weeks before the machine is seeded get no stage (default
+  candle color). Caveat: the nightly job replays ~5y while the chart replays up to 10y; the sticky machine converges
+  (validated at 2y run-in) so the current stage matches, but an old since-date could differ in rare cases. The
+  Screener sort reads the already-persisted `TickerScore.weinstein_stage_since_date` (client-side, no new field).
+
 - **Watchlist UI columns removed entirely 2026-09-06** -- the TREND, A/D Div., and 20/50/
   200SMA columns above (and their click-to-sort headers) no longer render on the Watchlist
   table at all, ahead of this data moving to a new per-ticker Technical tab instead (design

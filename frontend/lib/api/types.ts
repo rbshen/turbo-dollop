@@ -1507,6 +1507,11 @@ export interface ChartDividendMarkerOut {
 
 export type ChartRange = "D_6M" | "D_1Y" | "D_2Y" | "W_4Y";
 
+export interface ChartStagePointOut {
+  time: string; // "YYYY-MM-DD"
+  stage: "base" | "advance" | "top" | "decline";
+}
+
 export interface ChartOut {
   range: ChartRange;
   timeframe: string; // "daily" | "weekly"
@@ -1526,6 +1531,11 @@ export interface ChartOut {
   // tracked at all" from "tracked, nothing fired here".
   entry_signal_markers: ChartMarkerOut[];
   entry_signal_available: boolean;
+  // W_4Y only (empty/null on the daily ranges): the live-configured Weinstein MA line, its "EMA30"-style label, and
+  // each visible week's stage at that week -- for the Chart tab's "Stage" toggle.
+  weinstein_ma: ChartLinePointOut[];
+  weinstein_ma_label: string | null;
+  weinstein_stages: ChartStagePointOut[];
   // Warren's own marker pair, parallel to entry_signal_markers/
   // entry_signal_available above rather than merged into it -- a separate,
   // independent signal with its own tracked/not-tracked state.

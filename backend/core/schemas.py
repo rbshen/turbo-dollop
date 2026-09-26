@@ -1452,6 +1452,14 @@ class ChartBarOut(BaseModel):
     close: float
 
 
+class ChartStagePointOut(BaseModel):
+    """One weekly bar's Weinstein stage AT THAT WEEK (replayed through the
+    sticky state machine, not the ticker's current stage) -- W_4Y only."""
+
+    time: str  # "YYYY-MM-DD"
+    stage: Literal["base", "advance", "top", "decline"]
+
+
 class ChartLinePointOut(BaseModel):
     """One point in a simple line series -- reused for ema21/sma50/sma200/rsi,
     same shared-shape convention Options Tracker's own chart schema uses for
@@ -1578,6 +1586,13 @@ class ChartOut(BaseModel):
     # at all" from "tracked, nothing fired here."
     entry_signal_markers: list[ChartMarkerOut] = []
     entry_signal_available: bool
+    # W_4Y only (empty/None on the daily ranges): the live-configured Weinstein MA
+    # (WeinsteinSettings type+length, e.g. "EMA30") and the per-week stage of every
+    # visible bar, from the same engine functions the nightly job uses. A week
+    # before the state machine is seeded has no entry (uncolored on the chart).
+    weinstein_ma: list[ChartLinePointOut] = []
+    weinstein_ma_label: str | None = None
+    weinstein_stages: list[ChartStagePointOut] = []
     # Warren's own marker pair, parallel to entry_signal_markers/
     # entry_signal_available above rather than merged into it -- keeps
     # BB+RSI's own wire shape/semantics untouched (same "add a new pair

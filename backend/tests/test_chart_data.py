@@ -4,6 +4,8 @@ from datetime import date, datetime, timedelta
 import httpx
 import pandas as pd
 import pytest
+from sqlalchemy.pool import StaticPool
+from sqlmodel import SQLModel, create_engine
 
 import data.chart_data as chart_data
 from analysis.trend_structure.weinstein import resample_to_weekly
@@ -102,6 +104,16 @@ def _default_no_warren_signal(monkeypatch):
     # Tests exercising Warren's own marker behavior override this via their
     # own monkeypatch.setattr call, which takes precedence.
     monkeypatch.setattr(chart_data, "get_warren_signal_data", _no_warren_signal)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_chart_data_engine(monkeypatch):
+    # chart_data reads WeinsteinSettings (lazy-seeded => a WRITE on first read) for
+    # the W_4Y Stage overlay; never let that reach the real core.db.engine.
+    eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(eng)
+    monkeypatch.setattr(chart_data, "engine", eng)
+    return eng
 
 
 @pytest.fixture(autouse=True)
@@ -1164,3 +1176,35 @@ def test_events_are_fetched_concurrently_with_the_bars(monkeypatch):
     out = asyncio.run(chart_data.get_chart_data("TEST", "D_1Y"))
 
     assert out.chart_available is True
+
+
+def test_w4y_weinstein_overlay_matches_engine_and_uses_live_params(monkeypatch, _fresh_chart_data_engine):
+    from sqlmodel import Session
+
+    from analysis.trend_structure.weinstein import WeinsteinParams, compute_stage_series
+    from helpers.weinstein_config import update_weinstein_settings
+
+    df = _daily_df(365 * 9)
+    _patch_yahoo_bars(monkeypatch, df)
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+
+    with Session(_fresh_chart_data_engine) as session:
+        update_weinstein_settings(session, **{**WeinsteinParams().__dict__, "ma_type": "SMA", "ma_length": 20})
+
+    out = asyncio.run(chart_data.get_chart_data("TEST", "W_4Y"))
+
+    assert out.weinstein_ma_label == "SMA20"
+    weekly = resample_to_weekly(df.rename(columns=str.lower))
+    expected = compute_stage_series(weekly["close"], WeinsteinParams(ma_type="SMA", ma_length=20))
+    visible_times = {b.time for b in out.bars}
+    exp_stage = {i.strftime("%Y-%m-%d"): s for i, s in expected["stage"].items() if isinstance(s, str) and i.strftime("%Y-%m-%d") in visible_times}
+    assert exp_stage and {p.time: p.stage for p in out.weinstein_stages} == exp_stage
+    exp_ma = {i.strftime("%Y-%m-%d"): v for i, v in expected["ma"].dropna().items() if i.strftime("%Y-%m-%d") in visible_times}
+    assert {p.time: p.value for p in out.weinstein_ma} == pytest.approx(exp_ma)
+
+
+def test_daily_ranges_have_no_weinstein_overlay(monkeypatch):
+    _patch_yahoo_bars(monkeypatch, _daily_df(400))
+    monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
+    out = asyncio.run(chart_data.get_chart_data("TEST", "D_1Y"))
+    assert out.weinstein_stages == [] and out.weinstein_ma == [] and out.weinstein_ma_label is None

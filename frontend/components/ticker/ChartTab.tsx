@@ -38,6 +38,7 @@ interface SignalToggles {
   ema21: boolean;
   sma50: boolean;
   sma200: boolean;
+  stage: boolean;
 }
 
 const DEFAULT_SIGNAL_TOGGLES: SignalToggles = {
@@ -51,6 +52,8 @@ const DEFAULT_SIGNAL_TOGGLES: SignalToggles = {
   ema21: true,
   sma50: true,
   sma200: true,
+  // Off by default; W/4Y only (see STAGE_TOGGLE_RANGE).
+  stage: false,
 };
 
 const TOGGLE_OPTIONS: { key: keyof SignalToggles; label: string }[] = [
@@ -64,7 +67,11 @@ const TOGGLE_OPTIONS: { key: keyof SignalToggles; label: string }[] = [
   { key: "ema21", label: "EMA 21" },
   { key: "sma50", label: "SMA 50" },
   { key: "sma200", label: "SMA 200" },
+  { key: "stage", label: "Stage" },
 ];
+
+// The Weinstein "Stage" toggle only exists on the weekly view -- the daily ranges neither show the button nor apply it.
+const STAGE_TOGGLE_RANGE: ChartRange = "W_4Y";
 
 function loadSignalToggles(): SignalToggles {
   if (typeof window === "undefined") return DEFAULT_SIGNAL_TOGGLES;
@@ -180,7 +187,7 @@ export function ChartTab({ ticker }: Props) {
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1">
-          {TOGGLE_OPTIONS.map((opt) => (
+          {TOGGLE_OPTIONS.filter((opt) => opt.key !== "stage" || range === STAGE_TOGGLE_RANGE).map((opt) => (
             <button
               key={opt.key}
               onClick={() => handleToggleChange(opt.key)}
@@ -236,6 +243,7 @@ export function ChartTab({ ticker }: Props) {
           showEma21={signalToggles.ema21}
           showSma50={signalToggles.sma50}
           showSma200={signalToggles.sma200}
+          showStage={range === STAGE_TOGGLE_RANGE && signalToggles.stage}
           zoomIndex={zoomIndex}
           onZoomBoundsChange={handleZoomBoundsChange}
         />

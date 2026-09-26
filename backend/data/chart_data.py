@@ -101,7 +101,7 @@ from sqlmodel import Session, select
 
 from analysis.entry_signal.indicators import BB_LENGTH, BB_STD, compute_rsi
 from analysis.trend_structure.stochastic import compute_stochastic
-from analysis.trend_structure.weinstein import resample_to_weekly
+from analysis.trend_structure.weinstein import compute_stage_series, resample_to_weekly
 from clients.daily_bar_sources import _profile_exchanges, fmp_rows_to_frame
 from clients.fmp_client import fmp_client
 from clients.long_history_bars import get_long_history
@@ -119,6 +119,7 @@ from core.schemas import (
     ChartLinePointOut,
     ChartMarkerOut,
     ChartOut,
+    ChartStagePointOut,
     ChartStochasticPointOut,
     ChartZoneOut,
     LiquidityZoneOut,
@@ -128,6 +129,7 @@ from data.chart_events_data import DividendEvent, EarningsEvent, fetch_chart_eve
 from data.entry_signal_data import get_entry_signal_data
 from data.liquidity_zone_data import get_liquidity_zone_data
 from data.warren_signal_data import get_warren_signal_data
+from helpers.weinstein_config import load_weinstein_params
 
 # Human-readable label per Warren signal_kind -- everything else about a
 # marker (color/shape/position) is a frontend styling decision keyed off
@@ -290,6 +292,21 @@ def _stochastic_points(full_k: pd.Series, full_d: pd.Series, mask: pd.Series) ->
             continue
         out.append(ChartStochasticPointOut(time=_fmt(idx), k=float(k), d=float(d)))
     return out
+
+
+def _weinstein_overlay(bars_df: pd.DataFrame, mask: pd.Series) -> tuple[list[ChartLinePointOut], str, list[ChartStagePointOut]]:
+    """W_4Y's "Stage" toggle data: the live-configured Weinstein MA line plus
+    each visible week's stage. `bars_df` is already the weekly series (same
+    Monday-labelled bars the engine resamples to), so this calls the engine's
+    own compute_stage_series over the FULL fetched history -- the warm-up
+    weeks before the visible window seed the sticky machine -- and only then
+    slices to the visible window. Params are read live, never cached."""
+    with Session(engine) as session:
+        params = load_weinstein_params(session)
+    stage_df = compute_stage_series(bars_df["close"], params)
+    visible = stage_df[mask]
+    stages = [ChartStagePointOut(time=_fmt(idx), stage=stage) for idx, stage in visible["stage"].items() if isinstance(stage, str)]
+    return _line_points(stage_df["ma"], mask), f"{params.ma_type.upper()}{params.ma_length}", stages
 
 
 def _bar_points(df: pd.DataFrame, mask: pd.Series) -> list[ChartBarOut]:
@@ -598,6 +615,8 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
 
     bars = _bar_points(bars_df, mask)
 
+    weinstein_ma, weinstein_ma_label, weinstein_stages = _weinstein_overlay(bars_df, mask) if cfg["timeframe"] == "weekly" else ([], None, [])
+
     return ChartOut(
         range=range_key,
         timeframe=cfg["timeframe"],
@@ -610,6 +629,9 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
         rsi=_line_points(rsi_series, mask),
         entry_signal_markers=markers,
         entry_signal_available=entry_signal_available,
+        weinstein_ma=weinstein_ma,
+        weinstein_ma_label=weinstein_ma_label,
+        weinstein_stages=weinstein_stages,
         warren_signal_markers=warren_markers,
         warren_signal_available=warren_signal_available,
         zones=zones,

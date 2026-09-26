@@ -7,6 +7,7 @@ import { buildDividendLabels, buildEarningsLabels, describeEventMarker, eventToo
 import type { TooltipPlacement } from "@/lib/chartEventMarkers";
 import { EventLabelsPrimitive } from "./EventLabelsPrimitive";
 import type { ChartOut } from "@/lib/api/types";
+import { buildStageColoredBars, WEINSTEIN_MA_COLOR } from "@/lib/chartWeinstein";
 
 // Ported from Options Tracker's PositionChart.tsx (lightweight-charts
 // 5.2.0), stripped of everything position/IBKR-specific (position-anchored
@@ -362,6 +363,8 @@ interface OverlayVisibility {
   showEma21: boolean;
   showSma50: boolean;
   showSma200: boolean;
+  /** W/4Y only -- the Weinstein "Stage" toggle: white MA line + stage-colored candles. */
+  showStage?: boolean;
 }
 
 function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisibility) {
@@ -415,6 +418,23 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
     });
     line.setData(pts);
     overlaySeries[key] = line;
+  }
+
+  // Weinstein MA (W/4Y only, data-driven: the daily ranges carry an empty weinstein_ma). Always created when there is
+  // data and shown/hidden via applyOptions like the other overlays; the title puts the live-config label ("EMA30")
+  // on the price axis.
+  let stageMaSeries: ISeriesApi<"Line"> | null = null;
+  if (data.weinstein_ma?.length) {
+    stageMaSeries = chart.addSeries(LineSeries, {
+      color: WEINSTEIN_MA_COLOR,
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      title: data.weinstein_ma_label ?? "",
+      crosshairMarkerVisible: false,
+      visible: !!visibility.showStage,
+    });
+    stageMaSeries.setData(data.weinstein_ma);
   }
 
   const bollingerSeries: ISeriesApi<"Line">[] = [];
@@ -543,6 +563,7 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
     ema21Series: overlaySeries.ema21,
     sma50Series: overlaySeries.sma50,
     sma200Series: overlaySeries.sma200,
+    stageMaSeries,
   };
 }
 
@@ -750,6 +771,7 @@ export function TickerChart({
   showEma21,
   showSma50,
   showSma200,
+  showStage = false,
   zoomIndex,
   onZoomBoundsChange,
 }: Props) {
@@ -793,12 +815,14 @@ export function TickerChart({
     ema21: ISeriesApi<"Line"> | null;
     sma50: ISeriesApi<"Line"> | null;
     sma200: ISeriesApi<"Line"> | null;
-  }>({ lpSupport: [], lpResistance: [], bollinger: [], ema21: null, sma50: null, sma200: null });
+    stageMa: ISeriesApi<"Line"> | null;
+  }>({ lpSupport: [], lpResistance: [], bollinger: [], ema21: null, sma50: null, sma200: null, stageMa: null });
   // Populated by the chart-creation effect below with everything the zoom-level
   // effect (further down) needs to apply a discrete zoom level without recreating
   // the chart: the chart instance itself, and the analytic pan bounds computed
   // once from data.bars.length (see computePanBounds's own comment for why these
   // are never read back off the timeScale).
+  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const chartStateRef = useRef<{ chart: IChartApi; minFrom: number; maxTo: number } | null>(null);
 
   // Pane layout: main is always pane 0; RSI/Stochastic each get the next
@@ -855,6 +879,7 @@ export function TickerChart({
       ema21Series,
       sma50Series,
       sma200Series,
+      stageMaSeries,
     } = addMainSeries(chart, data, {
       showBbRsi,
       showWarren,
@@ -866,6 +891,7 @@ export function TickerChart({
       showEma21,
       showSma50,
       showSma200,
+      showStage,
     });
     chart.priceScale("right", 0).applyOptions({ scaleMargins: PRICE_PANE_SCALE_MARGINS });
     markersApiRef.current = { bbRsi: bbRsiMarkersApi, warren: warrenMarkersApi, earnings: earningsLabelsApi, dividends: dividendLabelsApi };
@@ -876,7 +902,9 @@ export function TickerChart({
       ema21: ema21Series,
       sma50: sma50Series,
       sma200: sma200Series,
+      stageMa: stageMaSeries,
     };
+    candleSeriesRef.current = candle;
     if (rsiPaneIndex !== null) addRsiSeries(chart, data, rsiPaneIndex);
     if (stochPaneIndex !== null) addStochasticSeries(chart, data, stochPaneIndex);
 
@@ -1023,7 +1051,8 @@ export function TickerChart({
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
       chart.remove();
       markersApiRef.current = { bbRsi: null, warren: null, earnings: null, dividends: null };
-      overlayApiRef.current = { lpSupport: [], lpResistance: [], bollinger: [], ema21: null, sma50: null, sma200: null };
+      overlayApiRef.current = { lpSupport: [], lpResistance: [], bollinger: [], ema21: null, sma50: null, sma200: null, stageMa: null };
+      candleSeriesRef.current = null;
       chartStateRef.current = null;
     };
     // Every showXxx toggle is intentionally excluded here: they only set the INITIAL visibility at chart creation
@@ -1128,6 +1157,16 @@ export function TickerChart({
   useEffect(() => {
     overlayApiRef.current.sma200?.applyOptions({ visible: showSma200 });
   }, [showSma200]);
+
+  // Stage toggle: MA line visibility + candle recolor. Recoloring is a setData on the existing candle series (no chart
+  // recreation); off restores the plain data.bars, byte-identical to the non-Stage rendering.
+  useEffect(() => {
+    overlayApiRef.current.stageMa?.applyOptions({ visible: showStage });
+    const candle = candleSeriesRef.current;
+    if (!candle) return;
+    const staged = showStage && data.weinstein_stages?.length > 0;
+    candle.setData((staged ? buildStageColoredBars(data.bars, data.weinstein_stages) : data.bars));
+  }, [showStage, data]);
 
   // Derived at render time from current props (see hoveredEvent's comment above).
   const eventTooltip = hoveredEvent
