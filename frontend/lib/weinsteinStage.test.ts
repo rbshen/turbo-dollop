@@ -4,13 +4,19 @@ import {
   formatWeinsteinPendingCushion,
   formatWeinsteinPendingEtaScenario,
   formatWeinsteinSince,
+  weinsteinBandLabel,
+  weinsteinBenchmarkLabel,
+  weinsteinBreakoutDetail,
+  weinsteinMaLabel,
+  weinsteinMaLabelShort,
+  weinsteinMethodBlurb,
   weinsteinPendingCushionIsThin,
   weinsteinPendingHasCushionEtaDivergence,
   weinsteinPendingTooltipLine,
   weinsteinUnavailableReason,
   WEINSTEIN_PENDING_LONG_ETA_WEEKS,
 } from "@/lib/weinsteinStage";
-import type { WeinsteinPendingEtaScenarioOut, WeinsteinPendingOut } from "@/lib/api/types";
+import type { WeinsteinParamsOut, WeinsteinPendingEtaScenarioOut, WeinsteinPendingOut } from "@/lib/api/types";
 
 const fmtDate = (iso: string) => iso; // identity, so assertions stay simple/exact
 
@@ -175,5 +181,48 @@ describe("weinsteinPendingTooltipLine", () => {
   it("names Stage 4 (Decline) for the mirrored direction", () => {
     const line = weinsteinPendingTooltipLine(pending({ direction: "decline" }), fmtDate);
     expect(line).toContain("Pending Stage 4 (Decline)");
+  });
+});
+
+describe("configurable-engine labels", () => {
+  const params: WeinsteinParamsOut = {
+    ma_length: 30,
+    ma_type: "EMA",
+    within_range_pct: 5,
+    slope_lookback: 5,
+    breakout_volume_mult: 2,
+    volume_avg_length: 50,
+    rs_benchmark: "SPY",
+    rs_smoothing_length: 52,
+  };
+
+  it("describes the MA the row was computed with, never a hard-coded 30-week SMA", () => {
+    expect(weinsteinMaLabel(params)).toBe("30-week EMA");
+    expect(weinsteinMaLabelShort({ ...params, ma_length: 26, ma_type: "SMA" })).toBe("26-wk SMA");
+    expect(weinsteinBandLabel({ ...params, within_range_pct: 4.5 })).toBe("±4.5%");
+    expect(weinsteinBandLabel(params)).toBe("±5%");
+  });
+
+  it("falls back to generic wording for a row with no params (legacy row / Screener card)", () => {
+    expect(weinsteinMaLabel(null)).toBe("MA");
+    expect(weinsteinMaLabelShort(undefined)).toBe("MA");
+    expect(weinsteinBenchmarkLabel(null)).toBe("benchmark");
+    expect(weinsteinBreakoutDetail(null)).not.toMatch(/30|2x/);
+  });
+
+  it("names the configured benchmark and breakout thresholds", () => {
+    expect(weinsteinBenchmarkLabel(params)).toBe("S&P 500");
+    expect(weinsteinBenchmarkLabel({ ...params, rs_benchmark: "QQQ" })).toBe("QQQ");
+    expect(weinsteinBreakoutDetail({ ...params, breakout_volume_mult: 1.5, volume_avg_length: 40 })).toContain("volume ≥ 1.5x the 40-week average");
+    expect(weinsteinMethodBlurb(params)).toContain("30-week EMA stage classification");
+  });
+
+  it("threads the MA length into the horizon-exceeded pending wording", () => {
+    const text = formatWeinsteinPendingEtaScenario(
+      scenario({ horizon_exceeded: true, weeks_away: null, projected_date: null, band_lapsed_before_confirmation: true }),
+      fmtDate,
+      { ...params, ma_length: 20 }
+    );
+    expect(text).toContain("20-week window");
   });
 });

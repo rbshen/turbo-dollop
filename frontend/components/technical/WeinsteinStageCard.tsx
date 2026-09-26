@@ -3,6 +3,10 @@ import {
   formatWeinsteinPendingCushion,
   formatWeinsteinPendingEtaScenario,
   formatWeinsteinSince,
+  weinsteinBenchmarkLabel,
+  weinsteinBreakoutDetail,
+  weinsteinMaLabel,
+  weinsteinMethodBlurb,
   weinsteinPendingHasCushionEtaDivergence,
   weinsteinUnavailableReason,
   WEINSTEIN_LOWER_BOUND_CAVEAT,
@@ -15,7 +19,7 @@ import {
   WEINSTEIN_STAGE_LABEL,
   WEINSTEIN_STAGE_STYLES_CHIP,
 } from "@/lib/weinsteinStage";
-import type { TrendAnalysisOut, WeinsteinPendingOut } from "@/lib/api/types";
+import type { TrendAnalysisOut, WeinsteinParamsOut, WeinsteinPendingOut } from "@/lib/api/types";
 
 interface Props {
   data: TrendAnalysisOut;
@@ -32,7 +36,7 @@ const DISCLAIMER =
 // actually accurate.
 const UNAVAILABLE_MESSAGE: Record<ReturnType<typeof weinsteinUnavailableReason>, string> = {
   not_yet_computed: "Weinstein stage not yet available for this ticker — check back after the next update.",
-  insufficient_history: "Insufficient price history for a 30-week stage read yet.",
+  insufficient_history: "Insufficient price history for a stage read yet.",
 };
 
 function fmtPct(value: number): string {
@@ -46,7 +50,8 @@ function fmtPct(value: number): string {
 // "not yet, but close" caution reading. Rendered via ChecklistCard's `extra`
 // slot, so it appears below the checklist itself, above the disclaimer, only
 // when the ticker is currently pending.
-function WeinsteinPendingBlock({ pending }: { pending: WeinsteinPendingOut }) {
+function WeinsteinPendingBlock({ pending, params }: { pending: WeinsteinPendingOut; params: WeinsteinParamsOut | null }) {
+  const ma = weinsteinMaLabel(params);
   const cushionText = formatWeinsteinPendingCushion(pending);
   const hasDivergence = weinsteinPendingHasCushionEtaDivergence(pending);
 
@@ -55,8 +60,8 @@ function WeinsteinPendingBlock({ pending }: { pending: WeinsteinPendingOut }) {
       <p className="font-semibold text-warn">Pending {WEINSTEIN_PENDING_TARGET_LABEL[pending.direction]}</p>
       <p className="text-text-secondary">
         {pending.since_date
-          ? `Price cleared the band ${formatWeinsteinSince(pending.since_date, pending.since_is_lower_bound, fmtSwingDate).toLowerCase()}, but the 30-week MA slope hasn't turned yet.`
-          : "Price has already cleared the band, but the 30-week MA slope hasn't turned yet."}
+          ? `Price cleared the band ${formatWeinsteinSince(pending.since_date, pending.since_is_lower_bound, fmtSwingDate).toLowerCase()}, but the ${ma} slope hasn't turned yet.`
+          : `Price has already cleared the band, but the ${ma} slope hasn't turned yet.`}
       </p>
       <ul className="space-y-1">
         {WEINSTEIN_PENDING_SCENARIO_ORDER.map((key) => {
@@ -65,7 +70,7 @@ function WeinsteinPendingBlock({ pending }: { pending: WeinsteinPendingOut }) {
           return (
             <li key={key} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
               <span className="text-text-secondary">{WEINSTEIN_PENDING_SCENARIO_LABEL[key]}:</span>
-              <span className="font-medium text-text-primary">{formatWeinsteinPendingEtaScenario(scenario, fmtSwingDate)}</span>
+              <span className="font-medium text-text-primary">{formatWeinsteinPendingEtaScenario(scenario, fmtSwingDate, params)}</span>
             </li>
           );
         })}
@@ -81,6 +86,8 @@ function WeinsteinPendingBlock({ pending }: { pending: WeinsteinPendingOut }) {
 
 export function WeinsteinStageCard({ data }: Props) {
   const stage = data.weinstein_stage;
+  const params = data.weinstein_params;
+  const ma = weinsteinMaLabel(params);
 
   if (!stage) {
     const reason = weinsteinUnavailableReason(data.weinstein_weeks_available);
@@ -89,7 +96,7 @@ export function WeinsteinStageCard({ data }: Props) {
         title="Weinstein Stage Analysis"
         statusLabel={reason === "not_yet_computed" ? "Not yet computed" : "Insufficient history"}
         statusToneClass="border-border-card bg-surface-2 text-text-tertiary"
-        blurb="30-week moving-average stage classification (Base/Advance/Top/Decline), plus supporting volume and relative-strength context."
+        blurb={weinsteinMethodBlurb(params)}
         items={[]}
         disclaimer={UNAVAILABLE_MESSAGE[reason]}
       />
@@ -108,25 +115,25 @@ export function WeinsteinStageCard({ data }: Props) {
     },
     {
       key: "ma-slope",
-      label: "30-week MA slope",
+      label: `${ma} slope`,
       statusText: data.weinstein_ma_slope_pct != null ? fmtPct(data.weinstein_ma_slope_pct) : "—",
       toneClass: "text-text-tertiary",
     },
     {
       key: "vs-ma",
-      label: "Price vs. 30-week MA",
+      label: `Price vs. ${ma}`,
       statusText: data.weinstein_vs_ma_pct != null ? fmtPct(data.weinstein_vs_ma_pct) : "—",
       toneClass: "text-text-tertiary",
     },
     {
       key: "volume-ratio",
-      label: "Volume vs. 30-week avg",
+      label: params ? `Volume vs. ${params.volume_avg_length}-week avg` : "Volume vs. average",
       statusText: data.weinstein_volume_ratio != null ? `${data.weinstein_volume_ratio.toFixed(2)}x` : "—",
       toneClass: "text-text-tertiary",
     },
     {
       key: "mansfield-rs",
-      label: "Mansfield RS vs. S&P 500",
+      label: `Mansfield RS vs. ${weinsteinBenchmarkLabel(params)}`,
       statusText: data.weinstein_mansfield_rs != null ? fmtPct(data.weinstein_mansfield_rs) : "No benchmark data",
       toneClass: data.weinstein_mansfield_rs != null && data.weinstein_mansfield_rs > 0 ? "text-positive" : "text-text-tertiary",
     },
@@ -134,7 +141,7 @@ export function WeinsteinStageCard({ data }: Props) {
       key: "breakout-confirmed",
       label: "Breakout confirmed (Stage 2 entry + volume + RS)",
       met: data.weinstein_breakout_confirmed === true,
-      detail: "Requires a fresh transition into Stage 2/Advance this week, with volume ≥ 2x the 30-week average and positive relative strength.",
+      detail: weinsteinBreakoutDetail(params),
     },
   ];
 
@@ -143,9 +150,9 @@ export function WeinsteinStageCard({ data }: Props) {
       title="Weinstein Stage Analysis"
       statusLabel={WEINSTEIN_STAGE_LABEL[stage]}
       statusToneClass={WEINSTEIN_STAGE_STYLES_CHIP[stage]}
-      blurb="30-week moving-average stage classification (Base/Advance/Top/Decline), plus supporting volume and relative-strength context."
+      blurb={weinsteinMethodBlurb(params)}
       items={items}
-      extra={data.pending ? <WeinsteinPendingBlock pending={data.pending} /> : undefined}
+      extra={data.pending ? <WeinsteinPendingBlock pending={data.pending} params={params} /> : undefined}
       disclaimer={DISCLAIMER}
       collapsible
     />

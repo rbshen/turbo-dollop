@@ -1,4 +1,4 @@
-import type { TrendAnalysisOut, WeinsteinPendingEtaScenarioOut, WeinsteinPendingOut } from "@/lib/api/types";
+import type { TrendAnalysisOut, WeinsteinParamsOut, WeinsteinPendingEtaScenarioOut, WeinsteinPendingOut } from "@/lib/api/types";
 
 export type WeinsteinStage = NonNullable<TrendAnalysisOut["weinstein_stage"]>;
 
@@ -40,6 +40,41 @@ export const WEINSTEIN_STAGE_TEXT_CLASS: Record<WeinsteinStage, string> = {
   top: "text-warn",
   base: "text-text-tertiary",
 };
+
+// The engine is configurable (Settings > Weinstein), so no UI string may
+// hard-code "30-week" or "SMA" -- these helpers build the wording from the
+// params the row was computed with. A row from before the configurable engine
+// (params null) reads as the generic "MA".
+export function weinsteinMaLabel(params: WeinsteinParamsOut | null | undefined): string {
+  return params ? `${params.ma_length}-week ${params.ma_type}` : "MA";
+}
+
+export function weinsteinMaLabelShort(params: WeinsteinParamsOut | null | undefined): string {
+  return params ? `${params.ma_length}-wk ${params.ma_type}` : "MA";
+}
+
+export function weinsteinBenchmarkLabel(params: WeinsteinParamsOut | null | undefined): string {
+  if (!params) return "benchmark";
+  return params.rs_benchmark === "SPY" || params.rs_benchmark === "^GSPC" ? "S&P 500" : params.rs_benchmark;
+}
+
+function fmtNum(n: number): string {
+  return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(2)));
+}
+
+export function weinsteinBandLabel(params: WeinsteinParamsOut | null | undefined): string {
+  return params ? `±${fmtNum(params.within_range_pct)}%` : "the band";
+}
+
+export function weinsteinMethodBlurb(params: WeinsteinParamsOut | null | undefined): string {
+  return `${weinsteinMaLabel(params)} stage classification (Base/Advance/Top/Decline), plus supporting volume and relative-strength context.`;
+}
+
+export function weinsteinBreakoutDetail(params: WeinsteinParamsOut | null | undefined): string {
+  const mult = params ? `${fmtNum(params.breakout_volume_mult)}x` : "the configured multiple of";
+  const avg = params ? `${params.volume_avg_length}-week` : "the";
+  return `Requires a fresh transition into Stage 2/Advance this week, with volume ≥ ${mult} the ${avg} average and positive relative strength.`;
+}
 
 // "since [date]" vs "since at least [date]" -- the lower-bound flag means
 // the stage never changed anywhere in the available (post-bootstrap)
@@ -108,7 +143,11 @@ const PROJECTION_HORIZON_WEEKS = 104; // mirrors weinstein_pending.py's own PROJ
 // days -- the engine always treats the latest (possibly partial) week as
 // "today" (see the design doc's caveat #4). Kept as plain "~N week(s) away"
 // text rather than a calendar-day count for this reason.
-export function formatWeinsteinPendingEtaScenario(scenario: WeinsteinPendingEtaScenarioOut, fmtDate: (iso: string) => string): string {
+export function formatWeinsteinPendingEtaScenario(
+  scenario: WeinsteinPendingEtaScenarioOut,
+  fmtDate: (iso: string) => string,
+  params?: WeinsteinParamsOut | null
+): string {
   if (scenario.horizon_exceeded) {
     // Round-2 validation finding (2026-09-22): this is NOT flat-specific --
     // any scenario whose assumed growth rate has the wrong sign/shape for
@@ -118,7 +157,7 @@ export function formatWeinsteinPendingEtaScenario(scenario: WeinsteinPendingEtaS
     // below deliberately says "under this assumption," never "under a flat
     // price."
     return scenario.band_lapsed_before_confirmation
-      ? `Doesn't confirm within ${PROJECTION_HORIZON_WEEKS} weeks — under this assumption, an older price move ages out of the 30-week window before the trend math ever catches up.`
+      ? `Doesn't confirm within ${PROJECTION_HORIZON_WEEKS} weeks — under this assumption, an older price move ages out of the ${params ? `${params.ma_length}-week` : "moving-average"} window before the trend math ever catches up.`
       : `Doesn't confirm within ${PROJECTION_HORIZON_WEEKS} weeks.`;
   }
   const weeks = scenario.weeks_away ?? 0;
@@ -176,8 +215,12 @@ export const WEINSTEIN_PENDING_CANCELS_NOT_PAUSES_NOTE =
 // plain text, not a rich block like the Technical tab's card). Only the
 // flat scenario is surfaced here; the full 3-scenario breakdown lives on
 // the Technical tab's WeinsteinStageCard instead.
-export function weinsteinPendingTooltipLine(pending: WeinsteinPendingOut, fmtDate: (iso: string) => string): string {
+export function weinsteinPendingTooltipLine(
+  pending: WeinsteinPendingOut,
+  fmtDate: (iso: string) => string,
+  params?: WeinsteinParamsOut | null
+): string {
   const flat = pending.eta.flat;
-  const etaText = flat ? formatWeinsteinPendingEtaScenario(flat, fmtDate) : "";
+  const etaText = flat ? formatWeinsteinPendingEtaScenario(flat, fmtDate, params) : "";
   return `⚠ Pending ${WEINSTEIN_PENDING_TARGET_LABEL[pending.direction]} — price has cleared the band but the MA slope hasn't turned yet. ${etaText} (flat-price estimate; not a prediction).`;
 }

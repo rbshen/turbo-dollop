@@ -3,6 +3,7 @@ import { Warning } from "@phosphor-icons/react";
 import { fmtSwingDate } from "@/components/technical/ChecklistCard";
 import {
   formatWeinsteinSince,
+  weinsteinMaLabelShort,
   weinsteinPendingTooltipLine,
   WEINSTEIN_LOWER_BOUND_CAVEAT,
   WEINSTEIN_STAGE_LABEL,
@@ -28,6 +29,9 @@ type WeinsteinStagePillData = Pick<
   "weinstein_stage" | "weinstein_stage_since_date" | "weinstein_stage_since_is_lower_bound" | "weinstein_ma_slope_pct" | "weinstein_vs_ma_pct"
 > & {
   pending?: TrendAnalysisOut["pending"];
+  // Optional for the same reason as `pending`: a Screener row (TickerScoreOut)
+  // carries no params, so its tooltip falls back to a generic "MA" label.
+  weinstein_params?: TrendAnalysisOut["weinstein_params"];
 };
 
 // Screener card: compact "S1"-"S4" text to fit alongside the other 3 pills
@@ -44,7 +48,7 @@ const LABEL_SETS: Record<"full" | "screener", Record<WeinsteinStage, string>> = 
 
 interface Props {
   // null (or undefined while loading) renders nothing -- a ticker with too
-  // little price history for a 30-week stage read yet isn't "no stage",
+  // little price history for a stage read yet isn't "no stage",
   // it's "not computed," and gets no pill at all rather than a placeholder
   // (same "only show when meaningful" contract as MoatPill/SpeculativeGrowthPill).
   data: WeinsteinStagePillData | null | undefined;
@@ -65,13 +69,13 @@ function buildTooltip(data: WeinsteinStagePillData): string {
     }
   }
   if (data.weinstein_ma_slope_pct != null) {
-    lines.push(`30-wk MA slope: ${data.weinstein_ma_slope_pct >= 0 ? "+" : ""}${data.weinstein_ma_slope_pct.toFixed(1)}%`);
+    lines.push(`${weinsteinMaLabelShort(data.weinstein_params)} slope: ${data.weinstein_ma_slope_pct >= 0 ? "+" : ""}${data.weinstein_ma_slope_pct.toFixed(1)}%`);
   }
   if (data.weinstein_vs_ma_pct != null) {
-    lines.push(`vs. 30-wk MA: ${data.weinstein_vs_ma_pct >= 0 ? "+" : ""}${data.weinstein_vs_ma_pct.toFixed(1)}%`);
+    lines.push(`vs. ${weinsteinMaLabelShort(data.weinstein_params)}: ${data.weinstein_vs_ma_pct >= 0 ? "+" : ""}${data.weinstein_vs_ma_pct.toFixed(1)}%`);
   }
   if (data.pending) {
-    lines.push(weinsteinPendingTooltipLine(data.pending, fmtSwingDate));
+    lines.push(weinsteinPendingTooltipLine(data.pending, fmtSwingDate, data.weinstein_params));
   }
   return lines.join("\n");
 }
