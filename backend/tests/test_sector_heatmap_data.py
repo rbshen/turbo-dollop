@@ -97,7 +97,7 @@ def test_summary_reports_the_unserved_count_from_the_batch_fetch(monkeypatch):
 
 
 def test_return_is_plain_price_return_off_close_not_dividend_adjusted(monkeypatch):
-    """2026-09-23 Massive migration decision: plain split-adjusted Close,
+    """2026-09-23 decision: plain split-adjusted Close,
     no dividend/total-return reconstruction."""
     engine = _fresh_engine(monkeypatch)
     _patch_history(monkeypatch, _all_histories(anchor_close=104.0))
@@ -143,7 +143,7 @@ def test_in_progress_bar_after_the_last_completed_session_is_dropped(monkeypatch
     histories = {}
     for ticker in TICKERS:
         frame = _frame(end="2026-09-18")
-        # A live Monday bar yfinance returned mid-session; completed session is Friday.
+        # A live Monday bar returned mid-session; completed session is Friday.
         frame.loc[pd.Timestamp("2026-09-21")] = [5000.0]
         histories[ticker] = frame
     _patch_history(monkeypatch, histories)

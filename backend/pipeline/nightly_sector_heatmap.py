@@ -60,7 +60,7 @@ async def main() -> dict:
     # Only reached after a successful compute (it raises when nothing could be
     # computed), so a failed run never prunes -- see prune_sector_etf_returns.
     summary["pruned"] = prune_sector_etf_returns(date.fromisoformat(summary["as_of_date"]))
-    # Stale-data guard (docs/yahoo_close_data_gap_investigation_2026-09-23.md)
+    # Stale-data guard
     # -- see pipeline/nightly_trend_calculation.py's own equivalent comment
     # for the full reasoning.
     summary["stale_count"], _ = stale_ticker_count([t for t, _ in SECTOR_ETFS], DAILY_INTERVAL)

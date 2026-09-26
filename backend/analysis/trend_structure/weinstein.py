@@ -5,7 +5,7 @@ section for the surrounding feature.
 
 Weekly bars are derived by resampling the SAME daily OHLCV frame the
 swing/BOS engine already receives (resample_to_weekly), not a second fetch --
-confirmed bit-identical to yfinance's own native interval="1wk" bars once
+confirmed bit-identical to a native weekly feed's bars once
 anchored correctly (see resample_to_weekly's own docstring).
 
 The engine is the sticky `sState` machine of a reviewed Pine Script
@@ -43,10 +43,8 @@ import pandas as pd
 
 from .types import WeinsteinStage, WeinsteinStageResult
 
-# Default Mansfield RS benchmark. SPY, not the ^GSPC index itself (2026-09-23
-# Massive migration decision): Massive/Polygon has no Indices product on the
-# Stocks Starter plan and, being a pseudo-ticker, ^GSPC was never coverable
-# there. The nightly job fetches whatever WeinsteinParams.rs_benchmark names
+# Default Mansfield RS benchmark. SPY, not the ^GSPC index itself (an ETF is
+# an ordinary FMP-covered ticker, an index pseudo-ticker is not). The nightly job fetches whatever WeinsteinParams.rs_benchmark names
 # (default this) in the same batch as the tickers. Mansfield RS's ratio math
 # is level-invariant, so an ETF's different price scale vs an index level
 # doesn't change the result.
@@ -102,13 +100,13 @@ def resample_to_weekly(ohlcv: pd.DataFrame) -> pd.DataFrame:
     """Resamples a daily OHLCV frame (lowercase open/high/low/close/volume
     columns, matching SharedBarsCache's own naming) into weekly bars.
 
-    Confirmed bit-identical (mean/max diff ~0.0000%) to yfinance's own
-    native interval="1wk" bars, PROVIDED weeks are anchored correctly:
-    yfinance labels each weekly bar by its MONDAY (week start), while a
+    Confirmed bit-identical (mean/max diff ~0.0000%) to a native weekly
+    feed's bars, PROVIDED weeks are anchored correctly: a native weekly
+    feed labels each bar by its MONDAY (week start), while a
     naive `resample("W-FRI")` labels by the week's Friday (week end) -- a
     4-day offset. Resampling "W-FRI" (which correctly bins Mon-Fri trading
     days into one bucket, since Sat/Sun have no data anyway) and then
-    shifting the resulting index back 4 days reproduces yfinance's own
+    shifting the resulting index back 4 days reproduces the native
     Monday-anchored label exactly. Do NOT use "W-MON" -- that bins
     Tue-through-Mon, the wrong days entirely for a Mon-Fri trading week.
     """

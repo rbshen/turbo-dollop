@@ -3,9 +3,8 @@ tracked universe (see nightly_fundamentals_fetch.py::load_full_tracked_universe,
 reused here rather than duplicated).
 
 Reads daily bars through the shared bars cache (clients/shared_bars_cache.py), which fetches
-from FMP `/historical-price-eod/full` (data group `daily_prices`). Yahoo Finance was removed in
-Phase 6b: Skipped (a real `skipped` cron status) while the `daily_prices` data group is off -- Phase 6b removed the
-Yahoo fallback, so there is nothing to compute on but stale cached bars (core/data_groups.py::job_skip_reason).
+from FMP `/historical-price-eod/full` (data group `daily_prices`). Skipped (a real `skipped` cron status) while the `daily_prices` data group is off --
+there is no fallback provider, so there is nothing to compute on but stale cached bars (core/data_groups.py::job_skip_reason).
 
 Fetches the whole universe's OHLCV in ONE batch call
 (clients.shared_bars_cache.get_or_fetch_bars_batch) -- one incremental call per ticker, not a
@@ -123,8 +122,7 @@ async def main(tickers: list[str] | None = None) -> dict:
     )
     benchmark_ohlcv = bars_by_ticker.get(benchmark_ticker)
 
-    # Stale-data guard (docs/yahoo_close_data_gap_investigation_2026-09-23.md):
-    # after the fetch attempt above (FMP only -- see clients/daily_bar_sources.py), how many tickers
+    # Stale-data guard: after the fetch attempt above (FMP only -- see clients/daily_bar_sources.py), how many tickers
     # still don't reflect the most recently completed session. Reported via
     # this run's own cron_heartbeat message below rather than escalated to a
     # heartbeat failure -- a handful of stale tickers is normal (delistings,

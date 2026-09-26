@@ -1,5 +1,5 @@
 """One-time standalone script: seed MarketBreadthSnapshot with ~1 year of
-history from the daily bars SharedBarsCache ALREADY holds -- no Yahoo fetch
+history from the daily bars SharedBarsCache ALREADY holds -- no fetch
 at all. Kept out of pipeline/nightly_market_breadth.py on purpose: the
 nightly job's fetch width must not grow to serve a backfill.
 

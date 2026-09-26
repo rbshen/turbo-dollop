@@ -5,26 +5,13 @@ only processed once) -- NOT the full tracked universe, same scoping as
 pipeline/nightly_entry_signal_calculation.py. See CLAUDE.md's "Liquidity
 Zone (LP) detection (Technical)" section for the full methodology.
 
-**FMP-independent, unconditionally (2026-09-18).** This job used to have a
-real FMP<->Yahoo branch (clients/daily_price_sources.py, since deleted,
-gated on the ordinary the FMP data-group state toggle) -- unlike
-nightly_entry_signal_calculation.py's BB+RSI feed, FMP's daily EOD endpoint
-was never plan-restricted, so that branch was the normal degrade pattern
-rather than BB+RSI's hard-forced single source. That branch is now
-removed: Liquidity Zones is one of six technical-analysis features
-(alongside Chart, Weinstein Stage, Trend, Warren, BB+RSI) moved off FMP
-entirely, so a paused FMP subscription can never affect what price levels
-this feature detects.
-
-**FMP daily bars (Phase 2, 2026-09-24; Massive/Polygon before it, removed in
-Phase 6a; Yahoo removed in Phase 6b -- FMP is the only provider, and the job is skipped while
-`daily_prices` is off).** Reads every tracked ticker's ~4yr daily OHLC
+**FMP daily bars (FMP is the only provider; the job is skipped while
+`daily_prices` is off, see core/data_groups.py::job_skip_reason).** Reads every tracked ticker's ~4yr daily OHLC
 through the shared bars cache (clients/shared_bars_cache.py, interval
 "1d" -- the same row Trend/Weinstein Stage reads at a narrower 2y width,
 so whichever of the two nightly jobs runs first does the one live fetch
 per overlapping ticker and the other reads it back; this job needs no
-knowledge of which, or of which underlying provider answered it -- see
-clients/daily_bar_sources.py), then runs the pure calculation engine for
+knowledge of which -- see clients/daily_bar_sources.py), then runs the pure calculation engine for
 both Daily and Weekly off that same fetched frame and upserts per ticker
 (data.liquidity_zone_data.compute_and_store_liquidity_zones), matching
 nightly_entry_signal_calculation.py's own one-fetch-then-per-ticker-compute
@@ -109,7 +96,7 @@ async def main() -> dict:
         tickers, DAILY_INTERVAL, LOOKBACK_DAYS, auto_adjust=False, unserved_tickers=unserved_tickers
     )
 
-    # Stale-data guard (docs/yahoo_close_data_gap_investigation_2026-09-23.md)
+    # Stale-data guard
     # -- see pipeline/nightly_trend_calculation.py's own equivalent comment
     # for the full reasoning.
     stale_count, _ = stale_ticker_count(tickers, DAILY_INTERVAL)

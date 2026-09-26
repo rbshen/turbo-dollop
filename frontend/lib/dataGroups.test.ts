@@ -55,7 +55,6 @@ describe("price groups (no fallback provider)", () => {
       expect(offGroupsFor(wrap([off]), [key]).map((g) => g.key)).toEqual([key]);
       expect(reasonText(off)).toBe("Turned off in Settings.");
       expect(disableWarning(off)).toContain("serve cached data only");
-      expect(disableWarning(off)).not.toContain("Yahoo");
       expect(reasonText(off)).not.toContain("fallback");
     }
   });

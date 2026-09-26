@@ -12,7 +12,7 @@ this module embodies:
    CLAUDE.md's Chart tab entries for the FMP-cache staleness bug that
    caused this). `_fetch_bars` calls FMP directly on every request (the one exception,
    W_4Y's long-history store, is point 3c below).
-3. **FMP is the only provider (Phase 6b, 2026-09-26; Yahoo removed).** There is no
+3. **FMP is the only provider (Phase 6b, 2026-09-26).** There is no
    fallback and no stale-cache substitute: when the needed data group is off, or FMP
    errors / answers empty, the bars are EMPTY and the chart renders empty
    (`chart_available=False`). Prices are FMP's split- AND spin-off-adjusted, NOT
@@ -31,7 +31,7 @@ this module embodies:
     uncached. `ChartOut.source` is always "fmp".
 
 4. **Earnings/dividend markers (2026-09-20)**: data/chart_events_data.py reads them from the
-   nightly CorporateEvent cache (Phase 6a; no live fetch, no Yahoo). Fetched concurrently with
+   nightly CorporateEvent cache (Phase 6a; no live fetch). Fetched concurrently with
    the candles and never able to fail or stall them.
 
 Known, accepted asymmetry that closes over time: W_4Y shows 4 years of price

@@ -34,7 +34,7 @@ def _daily_from_weekly(weekly_closes: list[float], weekly_volumes: list[float], 
     return pd.DataFrame({"open": closes, "high": closes, "low": closes, "close": closes, "volume": volumes}, index=dates)
 
 
-def test_resample_to_weekly_matches_native_yfinance_monday_anchoring():
+def test_resample_to_weekly_matches_native_monday_anchoring():
     # Two full Mon-Fri weeks -- distinct per-day values so aggregation is
     # unambiguous, and the resulting index must land on each week's Monday.
     dates = pd.bdate_range("2024-01-01", periods=10)  # Mon 1/1 .. Fri 1/12

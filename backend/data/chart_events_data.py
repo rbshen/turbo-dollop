@@ -3,7 +3,7 @@ event markers -- see data/chart_data.py for how these become markers.
 
 **The FMP-backed CorporateEvent cache is the sole source** (data/corporate_events_data.py,
 refreshed nightly by pipeline.nightly_corporate_events, full history, served however old --
-including while the `corporate_events` group is off). There is no live fetch and no Yahoo
+including while the `corporate_events` group is off). There is no live fetch and no other provider
 fallback (removed in Phase 6b): a ticker the nightly job has never covered, or a cache read
 error, reads as no markers (`source=None`, empty lists) and the chart simply renders without
 them.

@@ -390,7 +390,7 @@ def compute_and_store_from_frames(
     is empty (no bars at all for this ticker) -- callers (the nightly
     job's per-ticker loop) treat this like any other per-ticker failure,
     never aborting the whole batch. benchmark_ohlcv (WEINSTEIN_BENCHMARK_TICKER's
-    own daily OHLCV, SPY as of the 2026-09-23 Massive migration) is optional -- absent/empty degrades Weinstein's Mansfield
+    own daily OHLCV, SPY) is optional -- absent/empty degrades Weinstein's Mansfield
     RS/breakout fields to None/False rather than raising (see
     compute_weinstein_stage's own na()-passes-through handling), so this
     stays backward compatible with any caller that doesn't pass it.

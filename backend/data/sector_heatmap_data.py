@@ -6,22 +6,15 @@ read path that never computes live. Independent of FMP and of Step 1-5/
 Overall Assessment scoring entirely -- zero FMP calls, no data-group guard
 needed.
 
-**Plain split-adjusted Close, not total return (2026-09-23 Massive
-migration decision)** -- a deliberate accepted one-time step change in
-every window's value, not a bug. Previously fetched with auto_adjust=False
-so the frame carried both raw `Close` and dividend-adjusted `Adj Close`,
-computing returns off `Adj Close` (bond/income funds differ from their
-price return by up to ~6pp over 1y, see
-docs/etf_heatmap_momentum_investigation_2026-09-20.md, section 2.5).
-Massive/Polygon's `/v2/aggs` has no `Adj Close`-equivalent field (see
-docs/massive_feasibility_investigation_2026-09-23.md §2c) -- reconstructing
-one via its dividends endpoint was scoped out by this decision rather than
-built, matching Market Breadth's own long-standing plain-Close convention.
-This also means this module can now go through the SAME shared bars cache
-(clients/shared_bars_cache.py) every other daily-bar consumer uses, instead
-of its own standalone fetch -- the only reason it avoided that cache
-before (needing a dividend-adjusted column the cache never carried) no
-longer applies.
+**Plain split-adjusted Close, not total return (2026-09-23 decision)** --
+a deliberate choice, not a bug. The FMP daily bars the shared bars cache
+carries have no dividend-adjusted column, so returns are price returns
+(bond/income funds differ from their total return by up to ~6pp over 1y, see
+docs/etf_heatmap_momentum_investigation_2026-09-20.md, section 2.5),
+matching Market Breadth's own plain-Close convention. Reconstructing a
+dividend-adjusted series was scoped out rather than built. It also lets this
+module go through the SAME shared bars cache (clients/shared_bars_cache.py)
+every other daily-bar consumer uses, instead of its own standalone fetch.
 """
 
 import logging

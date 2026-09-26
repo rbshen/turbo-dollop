@@ -120,10 +120,10 @@ async def _fetch_price_history(ticker: str) -> pd.Series:
     price line away from the target line it is compared to (measured before this change: KO up to
     36% lower in 2016, SPY 17%, AAPL 9%). It also matches the Chart tab. **The visible change:
     for dividend payers the overlay's historical prices are higher than the old dividend-adjusted
-    Yahoo `Adj Close` it used to show.**
+    prices it used to show.**
     Not routed through SharedBarsCache (nightly, ~5y, pruned).
 
-    No fallback (Yahoo removed in Phase 6b): when the group is off with no stored row, or FMP
+    No fallback provider: when the group is off with no stored row, or FMP
     errors / answers empty with none stored, the overlay is simply empty."""
     try:
         daily = await get_long_history(ticker)

@@ -5,13 +5,11 @@ calls the pure scoring engine (scoring/momentum.py), and persists/reads the
 result (models.py::MomentumSnapshot). Independent of FMP and of Step 1-5/
 Overall Assessment scoring entirely.
 
-**Plain split-adjusted Close, not dividend-adjusted (2026-09-23 Massive
-migration decision)** -- a deliberate accepted one-time step change, not a
-bug. Previously fetched via a standalone Yahoo call whose `Close` column
-was dividend+split adjusted; now routed through the same shared bars cache
-every other daily-bar consumer uses (plain split-adjusted `close`, FMP-sourced
-since Phase 2), matching Sector Heatmap's own identical decision and sharing
-the nightly cache with Trend/Liquidity Zones."""
+**Plain split-adjusted Close, not dividend-adjusted (2026-09-23 decision)**
+-- a deliberate choice, not a bug: routed through the same shared bars cache
+every other daily-bar consumer uses (plain split-adjusted `close`, FMP-sourced),
+matching Sector Heatmap's own identical decision and sharing the nightly cache
+with Trend/Liquidity Zones."""
 
 import logging
 from datetime import date, datetime
@@ -74,7 +72,7 @@ async def compute_and_store_momentum_snapshot(anchor_date: date) -> dict:
         universe, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False, unserved_tickers=unserved_tickers
     )
 
-    # Stale-data guard (docs/yahoo_close_data_gap_investigation_2026-09-23.md, historical)
+    # Stale-data guard
     # -- see pipeline/nightly_trend_calculation.py's own equivalent comment
     # for the full reasoning.
     stale_count, _ = stale_ticker_count(universe, DAILY_INTERVAL)

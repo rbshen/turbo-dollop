@@ -85,7 +85,7 @@ def test_summary_reports_the_unserved_count_from_the_batch_fetch(monkeypatch):
 def test_a_bar_after_the_last_completed_session_is_ignored(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     tickers = _tickers(5)
-    # yfinance's in-progress same-day bar (Mon 9/21) must not become the anchor.
+    # An in-progress same-day bar (Mon 9/21) must not become the anchor.
     _patch_bars(monkeypatch, {t: _frame(end="2026-09-21") for t in tickers})
     _run(tickers)
     assert [r.as_of_date for r in _rows(engine)] == [COMPLETED]

@@ -586,9 +586,8 @@ def stale_ticker_count(tickers: list[str], interval: str, reference: datetime | 
     InsufficientCoverageError gate is untouched and stays the one job that
     fails loudly on genuine insufficiency. Closes the "4 of 5 jobs silently
     reported cron success while computing on a session-old bar" gap found
-    in docs/yahoo_close_data_gap_investigation_2026-09-23.md, without the
-    materially bigger bars_as_of-to-frontend wiring that doc's own fix
-    option 3 flagged as a separate follow-up."""
+    without the materially bigger bars_as_of-to-frontend wiring (a separate
+    follow-up)."""
     if not tickers:
         return 0, []
     with Session(engine) as session:

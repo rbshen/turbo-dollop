@@ -1,6 +1,6 @@
 """Chart W_4Y on FMP (P3.6): weekly bars = the long-history daily store resampled with the
 existing resample_to_weekly. The parity fixture is REAL: FMP /historical-price-eod/full dailies
-and Yahoo native interval="1wk" bars for AAPL/KO/SPY, 2025-06-02..2026-09-18 (captured
+and a native weekly feed's bars (captured from the since-removed prior provider) for AAPL/KO/SPY, 2025-06-02..2026-09-18 (captured
 2026-09-25, complete weeks only)."""
 
 import asyncio
@@ -19,7 +19,7 @@ from analysis.trend_structure.weinstein import resample_to_weekly
 from core.models import FundamentalsCache, LongHistoryBars
 from data.chart_events_data import ChartEvents
 
-FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "weekly_parity_fmp_daily_vs_yahoo_1wk.json").read_text())
+FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "weekly_parity_fmp_daily_vs_native_1wk.json").read_text())
 COLS = ["open", "high", "low", "close", "volume"]
 
 
@@ -56,16 +56,16 @@ def _seed_profile(ticker: str, exchange: str) -> None:
 
 
 @pytest.mark.parametrize("ticker", ["AAPL", "KO", "SPY"])
-def test_resampled_fmp_dailies_match_yahoos_native_weekly_bars(ticker):
+def test_resampled_fmp_dailies_match_the_native_weekly_bars(ticker):
     daily = _frame(FIXTURE[ticker]["fmp_daily"])
-    yahoo = _frame(FIXTURE[ticker]["yahoo_weekly"])
+    native = _frame(FIXTURE[ticker]["native_weekly"])
     ours = resample_to_weekly(daily)
-    assert list(ours.index) == list(yahoo.index)  # identical Monday labels, week for week
+    assert list(ours.index) == list(native.index)  # identical Monday labels, week for week
     for col in ("open", "high", "low", "close"):
-        rel = (ours[col] / yahoo[col] - 1).abs()
+        rel = (ours[col] / native[col] - 1).abs()
         assert (rel <= 0.005).mean() >= 0.98, (ticker, col, rel.max())
-    assert ((ours["close"] / yahoo["close"] - 1).abs() <= 0.005).all()
-    assert ((ours["volume"] / yahoo["volume"] - 1).abs() <= 0.005).mean() >= 0.90  # vendor volume prints differ slightly
+    assert ((ours["close"] / native["close"] - 1).abs() <= 0.005).all()
+    assert ((ours["volume"] / native["volume"] - 1).abs() <= 0.005).mean() >= 0.90  # vendor volume prints differ slightly
 
 
 @pytest.mark.parametrize("ticker", ["AAPL", "KO", "SPY"])
@@ -74,8 +74,8 @@ def test_fetch_bars_serves_w4y_from_the_long_history_store_as_fmp(ticker):
     _seed(ticker, daily)
     bars, source = asyncio.run(chart_data._fetch_bars(ticker, "W_4Y"))
     assert source == "fmp"
-    yahoo = _frame(FIXTURE[ticker]["yahoo_weekly"])
-    assert list(bars.index[: len(yahoo)]) == list(yahoo.index)
+    native = _frame(FIXTURE[ticker]["native_weekly"])
+    assert list(bars.index[: len(native)]) == list(native.index)
     assert list(bars.columns) == COLS
 
 

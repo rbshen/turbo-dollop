@@ -43,7 +43,7 @@ export function asOfText(group: DataGroupOut): string {
 }
 
 /** Which data groups feed each ticker-page tab. Drives the "not refreshing"
- * badge above a tab's content. With no fallback provider (Yahoo removed in P6b) an off price group
+ * badge above a tab's content. With no fallback provider an off price group
  * means cached data only -- and an EMPTY Chart tab when no bars are cached -- so the badge is the
  * explanation for both. */
 export const TAB_GROUPS: Record<string, readonly string[]> = {
