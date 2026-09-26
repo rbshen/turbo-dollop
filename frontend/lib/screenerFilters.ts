@@ -116,11 +116,17 @@ export const VS_SPY_FILTER_OPTIONS: MultiSelectOption[] = [
 // filter is active, same as the existing null-sector/null-valuation
 // convention -- there's no meaningful "no stage" grouping a user would
 // filter *for*.
+export const WEINSTEIN_PENDING_FILTER_VALUE = "pending";
+
 export const WEINSTEIN_STAGE_FILTER_OPTIONS: MultiSelectOption[] = [
   { value: "base", label: WEINSTEIN_STAGE_LABEL.base },
   { value: "advance", label: WEINSTEIN_STAGE_LABEL.advance },
   { value: "top", label: WEINSTEIN_STAGE_LABEL.top },
   { value: "decline", label: WEINSTEIN_STAGE_LABEL.decline },
+  // Not a stage: any ticker with a Flip-ETA prediction (TickerScore.
+  // weinstein_pending_direction non-null), whatever the ETA horizon. OR-combined
+  // with the stage values, like every other value of this multi-select.
+  { value: WEINSTEIN_PENDING_FILTER_VALUE, label: "Pending" },
 ];
 
 // No "not_present" option -- same reasoning as Weinstein Stage above: it's
@@ -303,7 +309,12 @@ export function filterTickerScores(
       return false;
     }
     if (filters.vsSpy.length > 0 && !filters.vsSpy.includes(row.perf_5y_vs_spy_status ?? "no_data")) return false;
-    if (filters.weinsteinStages.length > 0 && !filters.weinsteinStages.includes(row.weinstein_stage ?? "")) return false;
+    if (filters.weinsteinStages.length > 0) {
+      const matchesStage = filters.weinsteinStages.includes(row.weinstein_stage ?? "");
+      const matchesPending =
+        filters.weinsteinStages.includes(WEINSTEIN_PENDING_FILTER_VALUE) && row.weinstein_pending_direction != null;
+      if (!matchesStage && !matchesPending) return false;
+    }
     if (filters.reversalStatuses.length > 0 && !filters.reversalStatuses.includes(row.reversal_status ?? "not_present")) {
       return false;
     }

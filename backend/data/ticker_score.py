@@ -200,6 +200,7 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         weinstein_stage_since_is_lower_bound=trend_analysis.weinstein_stage_since_is_lower_bound if trend_analysis else None,
         weinstein_ma_slope_pct=trend_analysis.weinstein_ma_slope_pct if trend_analysis else None,
         weinstein_vs_ma_pct=trend_analysis.weinstein_vs_ma_pct if trend_analysis else None,
+        weinstein_pending_direction=trend_analysis.weinstein_pending_direction if trend_analysis else None,
         reversal_status=reversal_status,
         pullback_status=pullback_status,
         bb_rsi_entry_signal=is_entry_signal_active(entry_signal.fired_at) if entry_signal else None,

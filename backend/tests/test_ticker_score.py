@@ -335,6 +335,7 @@ def test_weinstein_stage_is_copied_from_trend_analysis(monkeypatch):
                 weinstein_stage_since_is_lower_bound=False,
                 weinstein_ma_slope_pct=1.2,
                 weinstein_vs_ma_pct=8.5,
+                weinstein_pending_direction="decline",
             )
         )
         session.commit()
@@ -348,6 +349,7 @@ def test_weinstein_stage_is_copied_from_trend_analysis(monkeypatch):
     assert result.weinstein_stage_since_is_lower_bound is False
     assert result.weinstein_ma_slope_pct == 1.2
     assert result.weinstein_vs_ma_pct == 8.5
+    assert result.weinstein_pending_direction == "decline"
 
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
@@ -357,6 +359,7 @@ def test_weinstein_stage_is_copied_from_trend_analysis(monkeypatch):
     assert row.weinstein_stage_since_is_lower_bound is False
     assert row.weinstein_ma_slope_pct == 1.2
     assert row.weinstein_vs_ma_pct == 8.5
+    assert row.weinstein_pending_direction == "decline"
 
 
 def test_weinstein_stage_is_none_when_no_trend_analysis_row_exists(monkeypatch):

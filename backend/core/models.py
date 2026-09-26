@@ -922,6 +922,11 @@ class TickerScore(SQLModel, table=True):
     weinstein_stage_since_is_lower_bound: bool | None = None
     weinstein_ma_slope_pct: float | None = None
     weinstein_vs_ma_pct: float | None = None
+    # Copy of TrendAnalysis.weinstein_pending_direction ("advance" | "decline"
+    # | None): non-null exactly when the ticker page's Flip-ETA card shows,
+    # regardless of how far out the ETA is. Backs the Screener Weinstein Stage
+    # filter's "Pending" option. NULL = not pending or not yet recomputed.
+    weinstein_pending_direction: str | None = None
     # Reversal / Trend Continuation ("Pullback") status -- ported from the
     # Technical tab's own ReversalCard.tsx::reversalStatus /
     # TrendContinuationCard.tsx::resolutionStatus (see

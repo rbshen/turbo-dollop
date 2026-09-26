@@ -52,6 +52,7 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     weinstein_stage_since_is_lower_bound: null,
     weinstein_ma_slope_pct: null,
     weinstein_vs_ma_pct: null,
+    weinstein_pending_direction: null,
     reversal_status: null,
     pullback_status: null,
     bb_rsi_entry_signal: null,
@@ -278,6 +279,19 @@ describe("filterTickerScores", () => {
     ];
     const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, weinsteinStages: ["advance", "base"] };
     expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["ADV", "BASE"]);
+  });
+
+  it("Pending matches any Flip-ETA ticker regardless of stage, OR-combined with stages", () => {
+    const rows = [
+      row({ ticker: "ADV", weinstein_stage: "advance" }),
+      row({ ticker: "PEND_ADV", weinstein_stage: "top", weinstein_pending_direction: "decline" }),
+      row({ ticker: "PEND_NOSTAGE", weinstein_stage: null, weinstein_pending_direction: "advance" }),
+      row({ ticker: "PLAIN", weinstein_stage: "base" }),
+    ];
+    const pendingOnly: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, weinsteinStages: ["pending"] };
+    expect(filterTickerScores(rows, pendingOnly).map((r) => r.ticker)).toEqual(["PEND_ADV", "PEND_NOSTAGE"]);
+    const both: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, weinsteinStages: ["advance", "pending"] };
+    expect(filterTickerScores(rows, both).map((r) => r.ticker)).toEqual(["ADV", "PEND_ADV", "PEND_NOSTAGE"]);
   });
 
   it("excludes a ticker with no Weinstein stage once the filter is active", () => {

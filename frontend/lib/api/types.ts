@@ -626,6 +626,8 @@ export interface TickerScoreOut {
   weinstein_stage_since_is_lower_bound: boolean | null;
   weinstein_ma_slope_pct: number | null;
   weinstein_vs_ma_pct: number | null;
+  // See TickerScore.weinstein_pending_direction -- non-null iff the Flip-ETA card shows.
+  weinstein_pending_direction: "advance" | "decline" | null;
   // Reversal / Trend Continuation ("Pullback") status -- same values as
   // ReversalCard.tsx's ReversalStatus / TrendContinuationCard.tsx's
   // ResolutionStatus, just lower_snake_case (backend-computed, see

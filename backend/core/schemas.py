@@ -1066,6 +1066,8 @@ class TickerScoreOut(BaseModel):
     weinstein_stage_since_is_lower_bound: bool | None = None
     weinstein_ma_slope_pct: float | None = None
     weinstein_vs_ma_pct: float | None = None
+    # See models.py::TickerScore.weinstein_pending_direction.
+    weinstein_pending_direction: str | None = None
     # See models.py::TickerScore.reversal_status/pullback_status.
     reversal_status: str | None = None
     pullback_status: str | None = None
