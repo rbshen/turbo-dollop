@@ -56,7 +56,7 @@ class GroupMeta:
     default_tier: str
     default_enabled: bool
     # Wired to real FMP calls. The others are seeded rows only
-    # (intraday_bars / extended_hours land in P4-P5).
+    # (extended_hours lands in P5).
     live: bool
     feeds: tuple[str, ...]
     # A group with a non-FMP fallback provider still wired (daily_prices while
@@ -112,7 +112,14 @@ GROUPS: dict[str, GroupMeta] = {
         ),
         falls_back=True,
     ),
-    "intraday_bars": GroupMeta("Intraday bars", "Premium", True, False, ("(not wired yet -- P4)",)),
+    # P4 (2026-09-26): FMP `/historical-chart/1hour` (RTH-only, split- not dividend-adjusted)
+    # feeds the shared "60m" bars behind Warren and BB+RSI for US-listed tickers. Off falls
+    # through to Yahoo (NOT cache-only), like the daily groups.
+    "intraday_bars": GroupMeta(
+        "Intraday bars", "Premium", True, True,
+        ("Warren RSI/ADX/WVF entry signal (2h)", "BB+RSI entry signal (2h)", "Chart tab entry-signal markers"),
+        falls_back=True,
+    ),
     "extended_hours": GroupMeta("Extended hours", "Premium", True, False, ("(not wired yet -- P5)",)),
 }
 
@@ -148,6 +155,8 @@ ENDPOINT_GROUP: dict[str, str] = {
     # nightly window) and `daily_prices_intl` (non-US); each caller passes an
     # explicit `group=` (see ENDPOINT_GROUP_OVERRIDES_USED).
     "/historical-price-eod/full": "daily_prices",
+    # P4: hourly RTH bars (naive ET timestamps, newest first) for the shared "60m" cache.
+    "/historical-chart/1hour": "intraday_bars",
     "/dividends": "corporate_events",
     "/revenue-product-segmentation": "segmentation",
     "/revenue-geographic-segmentation": "segmentation",
@@ -194,6 +203,7 @@ PROBE_ENDPOINTS: dict[str, tuple[str, dict]] = {
     "daily_prices": ("/historical-price-eod/full", {"symbol": "AAPL", "from": "2024-01-02", "to": "2024-01-05"}),
     # A long-history canary: a window older than the 5y Starter horizon.
     "daily_prices_long": ("/historical-price-eod/full", {"symbol": "AAPL", "from": "2016-01-04", "to": "2016-01-08"}),
+    "intraday_bars": ("/historical-chart/1hour", {"symbol": "AAPL", "from": "2024-01-02", "to": "2024-01-03"}),
     # The one group whose canary is deliberately NOT AAPL: it must be a non-US symbol.
     "daily_prices_intl": ("/historical-price-eod/full", {"symbol": "0005.HK", "from": "2024-01-02", "to": "2024-01-05"}),
 }

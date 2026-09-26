@@ -332,6 +332,12 @@ class FMPClient:
             "/historical-price-eod/full", {"symbol": ticker, "from": from_date, "to": to_date}, group=group
         )
 
+    async def get_historical_chart_1hour(self, ticker: str, from_date: str, to_date: str) -> dict | list:
+        # Regular-trading-hours hourly bars, newest first, timestamps naive ET, labelled by bar
+        # start (09:30..15:30). NEVER `extended=true` (clock-anchored, wrong labelling). The
+        # literal path is what tests/test_data_groups_registry.py scans for.
+        return await self.get("/historical-chart/1hour", {"symbol": ticker, "from": from_date, "to": to_date})
+
     async def get_revenue_product_segmentation(self, ticker: str) -> dict | list:
         return await self.get("/revenue-product-segmentation", {"symbol": ticker})
 

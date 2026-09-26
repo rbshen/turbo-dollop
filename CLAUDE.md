@@ -176,8 +176,9 @@ Cron jobs are separate processes and read the same DB.
   `corporate_events`, **`daily_prices`** (live since P2, 2026-09-24 -- see "Daily prices:
   FMP" below), **`daily_prices_long`** and **`daily_prices_intl`** (both live since P3,
   2026-09-25 -- see "Daily prices: FMP, Phase 3" below; like `daily_prices`, OFF is a fallback /
-  cached-only, not a hard stop), plus two seeded-but-unwired rows for the price migration:
-  `intraday_bars` (P4), `extended_hours` (P5).
+  cached-only, not a hard stop), **`intraday_bars`** (live since P4, 2026-09-26 -- see
+  "Intraday bars: FMP, Phase 4" below; OFF falls back to Yahoo, not cache-only), plus one
+  seeded-but-unwired row for the price migration: `extended_hours` (P5).
 - **Effective state** = master switch on AND group enabled AND required tier <= my
   plan AND status != `plan_restricted`. Off means **cache-only**: the last cached
   row is served (even if stale), nothing is ever wiped.
@@ -2732,7 +2733,8 @@ scoring or any other lens -- a second, parallel read on price structure.
   reading for the card this feeds.
 - **Data source: the ordinary `fmp_enabled` toggle, not BB+RSI's hard-forced Yahoo.**
   Investigated before assuming BB+RSI's pattern applied here: FMP's intraday endpoints
-  return HTTP 402 (a genuine plan restriction -- see BB+RSI's own section below), but
+  returned HTTP 402 at the time (2026-09-09; **stale -- they answer 200 and have fed Warren/BB+RSI
+  since P4, see "Intraday bars: FMP, Phase 4" below**), but
   `FMPClient.get_historical_price_eod` (`/historical-price-eod/full`, already used in
   production by `ticker_summary.py`/`analysis/ma_magnet/data.py`) is a working daily EOD
   endpoint with no equivalent restriction. FMP has no native weekly endpoint (confirmed
@@ -3190,7 +3192,7 @@ initially split the two into dashed/solid series but that was reverted; it draws
 
 A fifth, fully independent technical entry-signal lens -- alongside BB+RSI, this is the
 second entry in the technical-signal family, both scoped to the same W1-W5 watchlist union
-and running on the same Yahoo-only 2h adapter. Ported from a reference Pine script
+and running on the same 2h adapter (Yahoo-only when written; FMP-first since P4). Ported from a reference Pine script
 ("ANY TICKER Δ1,3,4") the user described; buy-side (Blue/Yellow/Gray Up), sell-side
 (Blue/Yellow/Gray Down), the trailing stop line, and the gray-suppression state machine are
 all in scope -- not an entry-only subset.
@@ -3828,6 +3830,52 @@ new table; the real DB already has it from the smoke check).
 - **Live FMP calls this build: 31**, all per-ticker `/historical-price-eod/full` (never bulk): 4 for
   the phantom-bar check, 12 for the two HK dry runs, 3 re-fetches of raw series for tracing, 6 for the real
   HK backfill, 2 for the weekly-parity fixtures (KO, SPY), 4 for the smoke check.
+
+## Intraday bars: FMP, Phase 4 (2026-09-26)
+
+FMP `/historical-chart/1hour` (data group `intraday_bars`, Premium, seeded unverified) is now the
+primary source of the shared **"60m"** `SharedBarsCache` rows behind Warren and BB+RSI, for
+**US-listed** tickers; Yahoo is the per-ticker / group-off fallback and stays the only source for
+non-US tickers. Both consumers share the rows, so they moved together; neither engine changed.
+(The old "FMP intraday returns 402" note, 2026-09-09, is stale: 200 on every interval as of
+2026-09-24/26.)
+
+- **Basis (checked 2026-09-26, live):** split-adjusted, NOT dividend-adjusted -- the endpoint has
+  no adjustment parameter. IBKR (4:1, Jun 2025) and FAST (2:1, May 2025) pre-split bars match the
+  Yahoo 60m cache to <0.05%; VZ/O bars from Oct 2024 match the daily cache (FMP `full`). RTH only,
+  labelled by bar START (09:30..15:30), timestamps naive strings in ET, newest first. **Never
+  `extended=true`** (clock-anchored, wrong labelling).
+- **Client/registry:** `FMPClient.get_historical_chart_1hour` (a literal path -- the registry test
+  scans for literals), `ENDPOINT_GROUP["/historical-chart/1hour"]`, an AAPL canary in
+  `PROBE_ENDPOINTS`.
+- **`FMPIntradaySource` / `FMPIntradayWithFallback`** (`clients/daily_bar_sources.py`, P2's
+  FMPDailySource shape): FULL fetch when never cached, narrower than requested, `force`, or the
+  cached rows are not all FMP's; otherwise INCREMENTAL `from = last bar - 3d` with a 0.5% overlap
+  check (mismatch = restated history -> full refetch + replace). Full fetches page newest-first by
+  moving `to` to the oldest bar returned (~9 pages / 730 days; a window that fits one page costs
+  one call), start no later than the cached first bar (nothing held is lost), and never write a
+  partial history on a mid-paging error. Bars after the last completed bar are dropped. Group off /
+  restricted / error / thin answer -> Yahoo per ticker (**not** cache-only; chip "Off -- using
+  fallback").
+- **Provenance forces the one-time replace.** `SharedBarsCache.source` ("fmp" | "yahoo" | NULL;
+  nullable, no backfill, only "60m" reads it). A ticker whose cached 60m rows are not ALL "fmp" --
+  every pre-cutover row reads NULL -- is fully replaced on its next FMP fetch, so FMP bars are never
+  layered on Yahoo history. There is no separate backfill script: the first nightly run after deploy
+  does it (~9 calls x ~105 W1-W5 tickers, ~945). A Yahoo fallback write re-tags its rows "yahoo", so
+  a later FMP success replaces again rather than leaving a mixed-source seam in Warren's replay window.
+- **Completeness check:** each fetched frame is scanned for sessions with fewer than 7 hourly bars
+  (4 on half-days: day after Thanksgiving, Dec 24, Jul 3); short sessions are logged per ticker
+  (`FMPIntradaySource.short_sessions`). Log-only -- nothing is refetched or dropped. Purpose: learn
+  whether the AAPL March gap (3-5 bars on two dates) recurs. Not in the heartbeat message.
+- **Accepted side effect (reviewed, do not "fix"):** replaying 2y of history through Warren on FMP
+  vs Yahoo prices gives identical signal dates for 4 of 8 tickers tested and 1-4 of ~25 differing
+  dates for the rest (MSFT, NVDA, ASML, GOOGL) -- small OHLC differences crossing indicator
+  thresholds on different bars. No compensating logic.
+- **Cost:** nightly ~105 calls (one overlapping incremental per ticker); a cold full backfill ~945.
+- **Not touched:** extended hours (P5), warm-up buffer / history depth / retention, non-US 60m,
+  `crontab.txt` (no reinstall). The API is a production build: restart to pick this up.
+  `FMPTechnicalSource` no longer raises; it and `YahooTechnicalSource` are both thin readers of the
+  shared cache (provider choice lives there).
 
 ## Sector Heatmap (`/sectors`, 2026-09-20)
 

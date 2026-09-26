@@ -20,6 +20,16 @@ from clients.shared_bars_cache import (
 from core.models import SharedBarsCache
 
 
+@pytest.fixture(autouse=True)
+def _intraday_on_yahoo(_isolate_data_groups_engine):
+    """These tests pin the shared cache's 60m mechanics against a fake Yahoo; P4 made FMP the
+    primary 60m source, so take it out of the chain (group off -> whole batch falls to Yahoo).
+    The FMP-first behaviour is covered in test_fmp_intraday_source.py."""
+    import core.data_groups as dg
+
+    dg.set_group_enabled("intraday_bars", False)
+
+
 def _fresh_engine(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)

@@ -5,12 +5,12 @@ shape, and the rest of this app's data-group-gated source-selection
 pattern -- with one deliberate deviation, explained on get_technical_source
 below.
 
-Investigated 2026-09-09: every FMP intraday interval
-(/stable/historical-chart/{1min,5min,15min,30min,1hour,4hour}) returns HTTP
-402 "Restricted Endpoint" under Fathom's current subscription tier -- a hard
-plan gate, not a coverage/quality gap and not something data-group pauses
-and resumes. FMPTechnicalSource below exists so a future plan upgrade has
-somewhere to land, but it is never wired into the live selector today.
+History: on 2026-09-09 every FMP intraday interval returned HTTP 402 under Fathom's plan,
+so this feature was Yahoo-only. That is stale -- FMP's `/historical-chart/1hour` answers 200
+(re-verified 2026-09-24 and 2026-09-26) and, since P4 (2026-09-26), is the primary source of the
+shared "60m" bars for US-listed tickers (data group `intraday_bars`, see
+clients/daily_bar_sources.py::FMPIntradaySource), with Yahoo as the fallback. Both sources
+are reached through clients/shared_bars_cache.py, so the classes below are thin readers of it.
 """
 
 import logging
@@ -44,7 +44,8 @@ class IntradayBarSource(Protocol):
 
 
 class YahooTechnicalSource:
-    """The only source actually wired in today -- see module docstring.
+    """The reader wired in today -- see module docstring (the name predates P4; the bars it
+    returns are FMP's for US-listed tickers, Yahoo's otherwise/as fallback).
 
     Reads through the shared bars cache (clients/shared_bars_cache.py,
     interval "60m"), NOT its own independent Yahoo fetch: Warren's nightly
@@ -63,23 +64,15 @@ class YahooTechnicalSource:
 
 
 class FMPTechnicalSource:
-    """Unwired placeholder for if/when FMP's intraday endpoints are ever
-    available on Fathom's plan -- see module docstring for the confirmed
-    402 this exists to eventually replace, not paper over."""
+    """Kept for API symmetry only. FMP intraday is no longer unavailable (see module
+    docstring), but source choice now lives inside the shared bars cache
+    (FMP first, Yahoo fallback), so there is nothing separate to select here."""
 
     async def get_intraday_bars(self, tickers: list[str], lookback_days: int) -> dict[str, pd.DataFrame]:
-        raise NotImplementedError(
-            "FMP's intraday historical-chart endpoints (30min/1hour/etc.) return HTTP 402 under Fathom's "
-            "current subscription tier (confirmed 2026-09-09) -- this adapter is a placeholder for a future "
-            "plan upgrade, not wired into get_technical_source() below."
-        )
+        return await get_or_fetch_bars_batch(tickers, INTRADAY_INTERVAL, lookback_days, auto_adjust=False)
 
 
 def get_technical_source() -> IntradayBarSource:
-    """Always returns Yahoo -- unlike the rest of this app's
-    data-group-gated degrade pattern, FMP intraday isn't paused, it's
-    outright unavailable on the current plan (see module docstring), so
-    this is deliberately NOT `FMPTechnicalSource() if the FMP data-group state
-    else YahooTechnicalSource()`. Revisit this function, not the call
-    sites, if the FMP plan is ever upgraded to include intraday data."""
+    """The shared-cache reader. Which provider actually serves the bars (FMP, else Yahoo) is
+    decided inside clients/shared_bars_cache.py per the `intraday_bars` data group, not here."""
     return YahooTechnicalSource()

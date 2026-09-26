@@ -22,7 +22,7 @@ def test_get_lists_every_group_with_defaults():
     assert groups["fundamentals"]["required_tier"] == "Premium"
     assert groups["fundamentals"]["tier_verified"] is False
     assert groups["insider"]["state"] == "cached_only" and groups["insider"]["enabled"] is False
-    assert groups["daily_prices"]["wired"] is True and groups["intraday_bars"]["wired"] is False
+    assert groups["daily_prices"]["wired"] is True and groups["intraday_bars"]["wired"] is True and groups["extended_hours"]["wired"] is False
     assert "News tab" in groups["news"]["feeds"]
 
 
@@ -36,7 +36,7 @@ def test_master_switch_makes_every_group_cached_only_and_untoggleable():
         body = client.put("/api/config/data-groups/master", json={"master_on": False}).json()
         assert body["master_on"] is False
         for g in body["groups"]:
-            assert g["state"] == ("using_fallback" if g["key"] in ("daily_prices", "daily_prices_long", "daily_prices_intl") else "cached_only") and g["reason"] == "master_off" and g["can_toggle"] is False
+            assert g["state"] == ("using_fallback" if g["key"] in ("daily_prices", "daily_prices_long", "daily_prices_intl", "intraday_bars") else "cached_only") and g["reason"] == "master_off" and g["can_toggle"] is False
         body = client.put("/api/config/data-groups/master", json={"master_on": True}).json()
     assert _by_key(body)["fundamentals"]["state"] == "live"
 

@@ -28,7 +28,7 @@ def test_status_lists_every_group_and_marks_unwired(monkeypatch, capsys):
     out = capsys.readouterr().out
     for key in dg.GROUPS:
         assert key in out
-    assert out.count("[not wired yet]") == 2
+    assert out.count("[not wired yet]") == 1
     assert "insider" in out and "user_off" in out
 
 

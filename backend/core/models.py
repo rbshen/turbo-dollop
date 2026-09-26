@@ -112,6 +112,12 @@ class SharedBarsCache(SQLModel, table=True):
     close: float
     volume: int
     fetched_at: datetime
+    # Provenance of the write: "fmp" | "yahoo" | NULL (a row from before this column existed,
+    # or any "1d" row -- only "60m" reads it). The FMP intraday source (P4) replaces a ticker's
+    # whole "60m" history unless every cached row is "fmp", so FMP bars are never layered on
+    # Yahoo history (a mixed-source seam inside Warren's replay window). Nullable: the
+    # ADD COLUMN sweep does no backfill, so every pre-existing row reads NULL == "not FMP".
+    source: str | None = None
 
 
 class LongHistoryBars(SQLModel, table=True):

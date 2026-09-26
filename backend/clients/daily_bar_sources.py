@@ -2,11 +2,10 @@
 clients/shared_bars_cache.py's "1d" fetch step. Mirrors
 clients/technical_sources.py's IntradayBarSource Protocol shape -- same
 idea, applied here to the daily-bar fetch instead of the intraday one.
-The 60m interval (Warren/BB+RSI) is untouched by this module and stays
-exclusively Yahoo -- a separate, later migration phase (see
-docs/massive_feasibility_investigation_2026-09-23.md's own "Starter
-paid-plan verification" section for why intraday session-anchoring is a
-materially different problem).
+The 60m interval (Warren/BB+RSI) is served by FMPIntradaySource /
+FMPIntradayWithFallback at the bottom of this module (P4, 2026-09-26): FMP
+`/historical-chart/1hour` for US-listed tickers, Yahoo as the per-ticker /
+group-off fallback and for non-US tickers.
 
 FMP (`/historical-price-eod/full`, data group `daily_prices`) is the primary
 daily-bar source for every US-LISTED ticker (P2, 2026-09-24; US = listing
@@ -32,12 +31,13 @@ import asyncio
 import json
 import logging
 import time
-from datetime import date, timedelta
-from typing import Protocol
+from datetime import date, datetime, timedelta
+from datetime import time as dtime
+from typing import Awaitable, Callable, Protocol
 
 import httpx
 import pandas as pd
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from clients.fmp_client import FMPGroupDisabledError, fmp_client
@@ -64,6 +64,10 @@ __all__ = [
     "DailyBarSource",
     "FMPDailySource",
     "FMPWithFallback",
+    "FMPIntradaySource",
+    "FMPIntradayWithFallback",
+    "find_short_sessions",
+    "fmp_intraday_rows_to_frame",
     "FallbackTickers",
     "drop_phantom_bars",
     "describe_fallback",
@@ -710,3 +714,282 @@ def get_daily_bar_source(non_us: bool = False) -> DailyBarSource:
     only shapes the fallback chain). `non_us=True` (P3): FMP first (daily_prices_intl
     group, phantom bars removed), then Yahoo -- Massive never sees a non-US symbol."""
     return FMPWithFallback(non_us=non_us)
+
+
+# ---------------------------------------------------------------------------
+# P4: intraday (60m) bars -- Warren and BB+RSI
+# ---------------------------------------------------------------------------
+# FMP `/historical-chart/1hour` (data group `intraday_bars`): regular-trading-hours
+# bars only, labelled by bar START (09:30..15:30 -- the same labelling the Yahoo
+# rows carry), timestamps naive strings in ET, newest first. Prices are split-
+# adjusted and NOT dividend-adjusted (checked against IBKR/FAST splits and VZ/O
+# dividends, 2026-09-26). `extended=true` is never requested (clock-anchored bars).
+
+INTRADAY_MAX_PAGES = 40  # ~9 pages cover 730 days; the cap only stops a runaway loop
+INTRADAY_OVERLAP_DAYS = 3
+INTRADAY_PAGE_DONE_DAYS = 6  # a page whose oldest bar is within this of `from` reached it (weekend/holiday slack)
+INTRADAY_MIN_FULL_BARS = 20
+_RTH_FIRST, _RTH_LAST = dtime(9, 30), dtime(15, 30)
+SESSION_BARS, HALF_DAY_BARS = 7, 4
+
+
+def _is_half_day(d: date) -> bool:
+    """NYSE early close (13:00): the day after Thanksgiving, Dec 24 and Jul 3 when they are
+    weekdays. (Full holidays have no bars, so they never reach the check.)"""
+    if d.weekday() >= 5:
+        return False
+    if (d.month, d.day) in ((12, 24), (7, 3)):
+        return True
+    if d.month == 11 and d.weekday() == 4:  # a Friday in Nov: the day after the 4th Thursday
+        return 23 <= d.day <= 29
+    return False
+
+
+def find_short_sessions(frame: pd.DataFrame, completed_bar_start: datetime | None = None) -> list[tuple[date, int, int]]:
+    """Sessions in a naive-ET hourly frame with fewer bars than expected (7; 4 on half-days) as
+    (date, bars, expected). The session still in progress (its date is `completed_bar_start`'s and
+    that bar isn't the session's last) is skipped -- it is legitimately short."""
+    if frame.empty:
+        return []
+    out: list[tuple[date, int, int]] = []
+    for d, count in pd.Series(1, index=frame.index).groupby(frame.index.date).sum().items():
+        expected = HALF_DAY_BARS if _is_half_day(d) else SESSION_BARS
+        if count >= expected:
+            continue
+        if completed_bar_start is not None and d == completed_bar_start.date():
+            last_start = dtime(9 + expected - 1, 30)
+            if completed_bar_start.time() < last_start:
+                continue
+        out.append((d, int(count), expected))
+    return out
+
+
+def fmp_intraday_rows_to_frame(rows, completed_bar_start: datetime | None = None) -> pd.DataFrame:
+    """FMP /historical-chart/1hour rows (newest first, naive-ET `date` strings) -> the module's
+    lowercase-OHLCV contract, a naive-ET ascending DatetimeIndex. Keeps only weekday RTH bars
+    (09:30..15:30 starts) and drops any bar after `completed_bar_start` (a live/partial one)."""
+    if not isinstance(rows, list) or not rows:
+        return pd.DataFrame(columns=_OHLCV)
+    df = pd.DataFrame(rows)
+    if "date" not in df or "close" not in df:
+        return pd.DataFrame(columns=_OHLCV)
+    for col in _OHLCV:
+        if col not in df:
+            df[col] = 0 if col == "volume" else df["close"]
+    df = df.assign(date=pd.to_datetime(df["date"])).dropna(subset=["close"])
+    df = df.drop_duplicates(subset="date").set_index("date").sort_index()
+    df.index = pd.DatetimeIndex(df.index)
+    df["volume"] = df["volume"].fillna(0)
+    df = df[_OHLCV]
+    tod = df.index.time
+    keep = (df.index.dayofweek < 5) & pd.Series([_RTH_FIRST <= t <= _RTH_LAST for t in tod], index=df.index).to_numpy()
+    df = df[keep]
+    if completed_bar_start is not None:
+        df = df[df.index <= pd.Timestamp(completed_bar_start)]
+    return df
+
+
+class FMPIntradaySource:
+    """FMP-backed 60m source (group `intraday_bars`). Per ticker:
+
+    - FULL fetch (paginated newest-first by moving `to` to the oldest bar returned): never
+      cached, cached history narrower than requested, `full_refresh`, or the cached rows are
+      not ALL FMP-sourced (SharedBarsCache.source != "fmp" -- Yahoo-era rows must be replaced,
+      never layered under FMP bars). Starts at the earlier of the requested window and the
+      cached first bar, so nothing already held is lost. Reported in `replace_tickers`.
+    - otherwise INCREMENTAL, overlapping: `from = last cached bar - 3d`; the overlapping closes
+      (other than the last cached bar) must match the cache within 0.5%, else FMP restated
+      history and the ticker is refetched in full and replaced.
+
+    Returns {} while the group is not live -- FMPIntradayWithFallback then serves the whole batch
+    from Yahoo (never cache-only). A ticker with an error / empty / thin answer is simply left
+    out. Sessions with fewer bars than expected are logged and kept in `short_sessions`."""
+
+    def __init__(self, client=fmp_client) -> None:
+        self._client = client
+        self.short_sessions: dict[str, list[tuple[date, int, int]]] = {}
+
+    @staticmethod
+    def _cache_state(tickers: list[str]) -> tuple[dict[str, tuple[datetime, datetime]], set[str]]:
+        with Session(engine) as session:
+            spans = {
+                t: (lo, hi)
+                for t, lo, hi in session.exec(
+                    select(SharedBarsCache.ticker, func.min(SharedBarsCache.bar_time), func.max(SharedBarsCache.bar_time))
+                    .where(SharedBarsCache.interval == "60m", SharedBarsCache.ticker.in_(tickers))
+                    .group_by(SharedBarsCache.ticker)
+                ).all()
+            }
+            non_fmp = set(
+                session.exec(
+                    select(SharedBarsCache.ticker)
+                    .where(
+                        SharedBarsCache.interval == "60m", SharedBarsCache.ticker.in_(tickers),
+                        or_(SharedBarsCache.source.is_(None), SharedBarsCache.source != "fmp"),
+                    )
+                    .distinct()
+                ).all()
+            )
+        return spans, non_fmp
+
+    async def get_intraday_bars(
+        self,
+        tickers_with_days: dict[str, int],
+        reference: datetime | None = None,
+        replace_tickers: list[str] | None = None,
+        full_refresh: bool = False,
+    ) -> dict[str, pd.DataFrame]:
+        if not tickers_with_days or not effective_state("intraday_bars")[0]:
+            return {}
+        # Lazy import: clients.shared_bars_cache imports this module.
+        from clients.shared_bars_cache import _eastern_today, _most_recent_completed_intraday_bar_start
+
+        today = _eastern_today(reference)
+        completed = _most_recent_completed_intraday_bar_start(reference)
+        spans, non_fmp = self._cache_state(list(tickers_with_days))
+        plan_rate = FMP_PLAN_REQUESTS_PER_MIN.get(get_snapshot().fmp_plan, 300)
+        pacer = _Pacer(60.0 / (plan_rate * FMP_RATE_FRACTION))
+        sem = asyncio.Semaphore(FMP_CONCURRENCY)
+        stop = False
+        result: dict[str, pd.DataFrame] = {}
+        replaced: list[str] = []
+
+        async def fetch(ticker: str, start: date) -> pd.DataFrame | None:
+            nonlocal stop
+            rows_all: list = []
+            to, oldest = today, None
+            for _ in range(INTRADAY_MAX_PAGES):
+                if stop:
+                    return None
+                async with sem:
+                    await pacer.wait()
+                    try:
+                        rows = await self._client.get_historical_chart_1hour(ticker, start.isoformat(), to.isoformat())
+                    except FMPGroupDisabledError:
+                        stop = True  # group went off mid-run: everything left falls through
+                        return None
+                    except (httpx.HTTPError, ValueError):
+                        logger.warning("FMP intraday fetch failed for %s; falling back", ticker)
+                        return None  # never a partial history
+                if not isinstance(rows, list) or not rows:
+                    break
+                rows_all.extend(rows)
+                try:
+                    page_oldest = min(pd.to_datetime(r["date"]) for r in rows)
+                except (KeyError, ValueError, TypeError):
+                    return None
+                if oldest is not None and page_oldest >= oldest:
+                    break  # no progress
+                oldest = page_oldest
+                if (page_oldest.date() - start).days <= INTRADAY_PAGE_DONE_DAYS:
+                    break
+                to = page_oldest.date()
+            else:
+                logger.warning("FMP intraday paging for %s hit the %d-page cap", ticker, INTRADAY_MAX_PAGES)
+            frame = fmp_intraday_rows_to_frame(rows_all, completed)
+            return frame if not frame.empty else None
+
+        def restated(ticker: str, frame: pd.DataFrame, last_bar: datetime) -> bool:
+            start = last_bar - timedelta(days=INTRADAY_OVERLAP_DAYS)
+            with Session(engine) as session:
+                cached = {
+                    pd.Timestamp(bt): close
+                    for bt, close in session.exec(
+                        select(SharedBarsCache.bar_time, SharedBarsCache.close).where(
+                            SharedBarsCache.interval == "60m", SharedBarsCache.ticker == ticker,
+                            SharedBarsCache.bar_time >= start,
+                        )
+                    ).all()
+                }
+            last_ts = pd.Timestamp(last_bar)
+            for ts, close in frame["close"].items():
+                old = cached.get(ts)
+                if old is None or ts >= last_ts or not old:
+                    continue
+                if abs(float(close) / float(old) - 1.0) > FMP_OVERLAP_TOLERANCE:
+                    return True
+            return False
+
+        async def one(ticker: str, days: int) -> None:
+            first_bar, last_bar = spans.get(ticker, (None, None))
+            window_start = today - timedelta(days=days)
+            needed_start = today - timedelta(days=max(days - 1, 0) - FMP_COVERAGE_SLACK_DAYS)
+            full = (
+                full_refresh or first_bar is None or ticker in non_fmp or first_bar.date() > needed_start
+            )
+            if full:
+                start = min(window_start, first_bar.date()) if first_bar is not None else window_start
+                frame = await fetch(ticker, start)
+            else:
+                frame = await fetch(ticker, last_bar.date() - timedelta(days=INTRADAY_OVERLAP_DAYS))
+                if frame is not None and restated(ticker, frame, last_bar):
+                    logger.info("FMP restated %s's overlapping intraday history; refetching in full", ticker)
+                    frame = await fetch(ticker, min(window_start, first_bar.date()))
+                    full = True
+            if frame is None:
+                return
+            if full and len(frame) < INTRADAY_MIN_FULL_BARS:
+                logger.warning("FMP full intraday history for %s has only %d bars; falling back", ticker, len(frame))
+                return
+            short = find_short_sessions(frame, completed)
+            if short:
+                self.short_sessions[ticker] = short
+                logger.warning(
+                    "FMP intraday %s: %d session(s) with fewer bars than expected (e.g. %s)",
+                    ticker, len(short), ", ".join(f"{d} {n}/{e}" for d, n, e in short[:3]),
+                )
+            result[ticker] = frame
+            if full:
+                replaced.append(ticker)
+
+        await asyncio.gather(*(one(t, d) for t, d in tickers_with_days.items()))
+        if replace_tickers is not None:
+            replace_tickers.extend(replaced)
+        return result
+
+
+IntradayFallback = Callable[[dict[str, int], bool], Awaitable[dict[str, pd.DataFrame]]]
+
+
+class FMPIntradayWithFallback:
+    """FMP first, then `fallback` (Yahoo, injected by clients/shared_bars_cache.py, which owns
+    the yfinance period logic) for every ticker FMP did not deliver -- per ticker, and the whole
+    batch while `intraday_bars` is off. Tickers FMP served are added to `fmp_served` so the
+    cache can tag their rows; those that fell back go to `fallback_tickers`."""
+
+    def __init__(self, fallback: IntradayFallback, fmp: FMPIntradaySource | None = None) -> None:
+        self._fmp = fmp or FMPIntradaySource()
+        self._fallback = fallback
+
+    async def get_intraday_bars(
+        self,
+        tickers_with_days: dict[str, int],
+        auto_adjust: bool,
+        reference: datetime | None = None,
+        fallback_tickers: list[str] | None = None,
+        replace_tickers: list[str] | None = None,
+        full_refresh: bool = False,
+        fmp_served: set[str] | None = None,
+    ) -> dict[str, pd.DataFrame]:
+        try:
+            result = await self._fmp.get_intraday_bars(
+                tickers_with_days, reference=reference, replace_tickers=replace_tickers, full_refresh=full_refresh
+            )
+        except Exception:
+            logger.warning("FMP intraday fetch failed entirely for %d ticker(s); falling back", len(tickers_with_days), exc_info=True)
+            result = {}
+            if replace_tickers is not None:
+                replace_tickers.clear()
+        if fmp_served is not None:
+            fmp_served.update(result)
+        missing = {t: d for t, d in tickers_with_days.items() if t not in result or result[t].empty}
+        if not missing:
+            return result
+        logger.info("FMP served %d/%d intraday ticker(s); %d fall back to Yahoo", len(result), len(tickers_with_days), len(missing))
+        fallback = await self._fallback(missing, auto_adjust)
+        if fallback_tickers is not None:
+            fallback_tickers.extend(missing)
+            if isinstance(fallback_tickers, FallbackTickers):
+                fallback_tickers.yahoo.extend(missing)
+        result.update(fallback)
+        return result

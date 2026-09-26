@@ -40,16 +40,20 @@ def test_yahoo_technical_source_reads_through_the_shared_bars_cache(monkeypatch)
     assert not hasattr(technical_sources_module, "yahoo_client")  # no independent fetch path left in this module
 
 
-def test_fmp_technical_source_is_unwired_placeholder():
-    with pytest.raises(NotImplementedError):
-        asyncio.run(FMPTechnicalSource().get_intraday_bars(["AAPL"], lookback_days=60))
+def test_fmp_technical_source_reads_the_shared_cache_like_the_other(monkeypatch):
+    # P4: FMP intraday is live (the 402 note was stale); provider choice lives in the shared
+    # cache, so this reader no longer raises.
+    async def fake_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
+        return {"AAPL": _sample_ohlcv().rename(columns=str.lower)}
+
+    monkeypatch.setattr(technical_sources_module, "get_or_fetch_bars_batch", fake_batch)
+    result = asyncio.run(FMPTechnicalSource().get_intraday_bars(["AAPL"], lookback_days=60))
+    assert "AAPL" in result
 
 
 def test_get_technical_source_always_returns_yahoo(monkeypatch):
-    # Confirmed 2026-09-09: FMP intraday is plan-restricted outright (HTTP
-    # 402 on every interval), not paused -- so this must NOT flip to FMP
-    # even when fmp_enabled is True, unlike the rest of the app's degrade
-    # pattern.
+    # Provider choice (FMP first, Yahoo fallback per the `intraday_bars` group) lives in the
+    # shared bars cache, so the selector never flips on the master switch.
     from core.config import settings
 
     _dg.set_master(True)

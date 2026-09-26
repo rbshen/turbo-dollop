@@ -49,7 +49,7 @@ from sqlalchemy import delete, func
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
-from clients.daily_bar_sources import YahooDailySource, get_daily_bar_source, route_by_source
+from clients.daily_bar_sources import FMPIntradayWithFallback, YahooDailySource, get_daily_bar_source, route_by_source
 from clients.yahoo_client import yahoo_client
 from core.db import engine
 from core.models import SharedBarsCache
@@ -255,7 +255,8 @@ def _cache_span(session: Session, tickers: list[str], interval: str) -> dict[str
 
 
 def _write_rows(
-    session: Session, ticker: str, interval: str, df: pd.DataFrame, fetched_at: datetime, replace: bool = False
+    session: Session, ticker: str, interval: str, df: pd.DataFrame, fetched_at: datetime, replace: bool = False,
+    source: str | None = None,
 ) -> None:
     """Upserts every bar in `df` in ONE executemany round trip. (A per-row
     execute loop, the shape YahooPriceCache._write_rows uses for a few
@@ -271,7 +272,10 @@ def _write_rows(
     Open/High/Low/Close/Volume. Every caller of this function (both the
     "1d" DailyBarSource path, clients/daily_bar_sources.py, and the "60m"
     Yahoo-only path below) lowercases at its own fetch boundary before
-    reaching here, so this function itself never branches on source."""
+    reaching here, so this function itself never branches on source.
+
+    `source` is provenance ("fmp" | "yahoo"), only meaningful for "60m" rows (see
+    SharedBarsCache.source); "1d" callers leave it None."""
     index = pd.DatetimeIndex(df.index)
     if index.tz is not None:
         # Re-express in Eastern wall-clock time before dropping tzinfo --
@@ -283,7 +287,7 @@ def _write_rows(
     values = [
         {
             "ticker": ticker, "interval": interval, "bar_time": bar_time, "open": o, "high": h, "low": low,
-            "close": c, "volume": v, "fetched_at": fetched_at,
+            "close": c, "volume": v, "fetched_at": fetched_at, "source": source,
         }
         for bar_time, o, h, low, c, v in zip(
             index.to_pydatetime(), df["open"].astype(float).tolist(), df["high"].astype(float).tolist(),
@@ -300,7 +304,7 @@ def _write_rows(
     stmt = sqlite_insert(SharedBarsCache)
     stmt = stmt.on_conflict_do_update(
         index_elements=["ticker", "interval", "bar_time"],
-        set_={c: getattr(stmt.excluded, c) for c in ("open", "high", "low", "close", "volume", "fetched_at")},
+        set_={c: getattr(stmt.excluded, c) for c in ("open", "high", "low", "close", "volume", "fetched_at", "source")},
     )
     session.execute(stmt, values)
     session.commit()
@@ -378,6 +382,22 @@ def _eastern_today(reference: datetime | None = None) -> date:
     return ref.astimezone(_EASTERN).date()
 
 
+async def _fetch_yahoo_intraday(to_fetch: dict[str, int], auto_adjust: bool) -> dict[str, pd.DataFrame]:
+    """The Yahoo 60m fetch (the fallback for FMP intraday, and the only source for non-US
+    tickers). yfinance's multi-ticker download takes ONE period per call, so tickers are grouped
+    by the period their own need snaps to -- one call per distinct period, not one per ticker."""
+    by_period: dict[str, list[str]] = {}
+    for ticker, days in to_fetch.items():
+        by_period.setdefault(_period_for(INTRADAY_INTERVAL, days), []).append(ticker)
+    fetched: dict[str, pd.DataFrame] = {}
+    for period, group in by_period.items():
+        batch = await yahoo_client.get_history(group, period=period, interval=INTRADAY_INTERVAL, auto_adjust=auto_adjust)
+        # yfinance's native Open/High/Low/Close/Volume casing -> this module's lowercase
+        # write-boundary contract (see _write_rows).
+        fetched.update({t: df.rename(columns=str.lower) for t, df in batch.items()})
+    return fetched
+
+
 async def get_or_fetch_bars_batch(
     tickers: list[str],
     interval: str,
@@ -418,8 +438,8 @@ async def get_or_fetch_bars_batch(
     the Yahoo subset) -- clients/daily_bar_sources.py::FMPWithFallback
     -- an out-parameter, not a return-shape change, so this function's
     `dict[str, pd.DataFrame]` return type (many callers) is unaffected.
-    Ignored for interval="60m" (always Yahoo, never a fallback) and for
-    non-US "1d" tickers (routed straight to Yahoo by design, not a
+    For interval="60m" it likewise gets the US-listed tickers FMP intraday
+    did not serve (Yahoo did). Ignored for non-US tickers (routed straight to Yahoo by design, not a
     fallback). Lets a caller report a per-run fallback count -- e.g. via
     its own cron_heartbeat message, alongside stale_ticker_count below --
     without this module needing to know anything about cron reporting
@@ -464,6 +484,7 @@ async def get_or_fetch_bars_batch(
         fetched_at = datetime.now()
         fetched: dict[str, pd.DataFrame] = {}
         replace_tickers: list[str] = []
+        fmp_served: set[str] = set()
         if interval == DAILY_INTERVAL:
             # FMP is the primary daily-bar source for every US-LISTED ticker
             # (clients/daily_bar_sources.py::FMPWithFallback), with a per-
@@ -489,29 +510,29 @@ async def get_or_fetch_bars_batch(
                     )
                 )
         else:
-            # interval == INTRADAY_INTERVAL -- unchanged, always Yahoo.
-            # Warren/BB+RSI are a separate, later migration phase (see
-            # clients/daily_bar_sources.py's own module docstring for why
-            # intraday session-anchoring is a materially different problem).
-            # yfinance's multi-ticker download takes ONE period per call, so
-            # tickers are grouped by the period their own need snaps to --
-            # one call per distinct period (in practice at most two or
-            # three), not one call per ticker and not one call at the
-            # widest period for everyone.
-            by_period: dict[str, list[str]] = {}
-            for ticker, days in to_fetch.items():
-                by_period.setdefault(_period_for(interval, days), []).append(ticker)
-            for period, group in by_period.items():
-                batch = await yahoo_client.get_history(group, period=period, interval=interval, auto_adjust=auto_adjust)
-                # yfinance's own native Open/High/Low/Close/Volume casing ->
-                # this module's lowercase write-boundary contract (see
-                # _write_rows' own docstring) -- unrelated to the values
-                # themselves, which are completely unchanged.
-                fetched.update({t: df.rename(columns=str.lower) for t, df in batch.items()})
+            # interval == INTRADAY_INTERVAL (P4): FMP `/historical-chart/1hour` first for
+            # US-listed tickers (clients/daily_bar_sources.py::FMPIntradayWithFallback), Yahoo
+            # per ticker when FMP delivers nothing and for the whole batch while `intraday_bars`
+            # is off. Non-US tickers stay on Yahoo (their FMP hours would be a separate
+            # decision). Every write is tagged with its provenance so a ticker whose cached
+            # rows are not all FMP's is fully replaced on its next FMP fetch.
+            us_tickers, non_us_tickers = route_by_source(to_fetch)
+            if us_tickers:
+                fetched.update(
+                    await FMPIntradayWithFallback(fallback=_fetch_yahoo_intraday).get_intraday_bars(
+                        us_tickers, auto_adjust, reference=now, fallback_tickers=fallback_tickers,
+                        replace_tickers=replace_tickers, full_refresh=force, fmp_served=fmp_served,
+                    )
+                )
+            if non_us_tickers:
+                fetched.update(await _fetch_yahoo_intraday(non_us_tickers, auto_adjust))
         with Session(engine) as session:
             for ticker, df in fetched.items():
                 if df is not None and not df.empty:
-                    _write_rows(session, ticker, interval, df, fetched_at, replace=ticker in replace_tickers)
+                    source = None
+                    if interval == INTRADAY_INTERVAL:
+                        source = "fmp" if ticker in fmp_served else "yahoo"
+                    _write_rows(session, ticker, interval, df, fetched_at, replace=ticker in replace_tickers, source=source)
 
     with Session(engine) as session:
         return _load_frames(session, tickers, interval, needed_start)

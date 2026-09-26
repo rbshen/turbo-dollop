@@ -21,6 +21,16 @@ from data.trend_analysis_data import WEINSTEIN_LOOKBACK_DAYS as TREND_LOOKBACK_D
 from pipeline.nightly_entry_signal_calculation import LOOKBACK_DAYS as BBRSI_LOOKBACK_DAYS
 from pipeline.nightly_warren_signal_calculation import LOOKBACK_DAYS as WARREN_LOOKBACK_DAYS
 
+
+@pytest.fixture(autouse=True)
+def _intraday_on_yahoo(_isolate_data_groups_engine):
+    """These tests pin the shared cache's 60m mechanics against a fake Yahoo; P4 made FMP the
+    primary 60m source, so take it out of the chain (group off -> whole batch falls to Yahoo).
+    The FMP-first behaviour is covered in test_fmp_intraday_source.py."""
+    import core.data_groups as dg
+
+    dg.set_group_enabled("intraday_bars", False)
+
 _PERIOD_DAYS = {"1mo": 30, "3mo": 90, "6mo": 180, "1y": 365, "2y": 730, "5y": 1825, "10y": 3650}
 _SESSION_STARTS = [(9, 30), (10, 30), (11, 30), (12, 30), (13, 30), (14, 30), (15, 30)]
 
