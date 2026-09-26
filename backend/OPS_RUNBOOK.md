@@ -201,16 +201,16 @@ mismatches against 36 for stage alone.)
 trend-structure engine (`backend/analysis/trend_structure/`) for the same
 full tracked universe `nightly_fundamentals_fetch`/`nightly_score_recompute`
 use, upserting one `TrendAnalysis` row per ticker
-(`data/trend_analysis_data.py`). Sourced entirely from Yahoo Finance, not
-FMP — makes zero FMP calls, unaffected by any FMP data-group state. Fetches the whole
-universe's OHLCV in **one** `yfinance` multi-ticker batch download
-(`clients.shared_bars_cache.get_or_fetch_bars_batch`), not one call per
-ticker. Success: a log line `Nightly trend calculation complete.
+(`data/trend_analysis_data.py`). Sourced from FMP daily bars (data group `daily_prices`) through
+the shared bars cache, not fundamentals endpoints. Fetches the whole
+universe's OHLCV in **one** batch
+(`clients.shared_bars_cache.get_or_fetch_bars_batch`). **Skipped (real `skipped` status, Phase 6b)
+while `daily_prices` is off** -- there is no Yahoo fallback any more, so it does not compute on stale
+bars. Success: a log line `Nightly trend calculation complete.
 Processed: N. Failed: M.` in `backend/logs/nightly_trend_calculation.log`.
-A high failed count points at Yahoo Finance reachability/rate-limiting, not
-FMP — check `yfinance`'s own error messages in the log for the specific
-tickers that failed (most commonly a delisted/renamed symbol Yahoo no
-longer recognizes).
+A high failed count points at FMP `/historical-price-eod/full` reachability/rate-limiting or a
+delisted/renamed symbol FMP no longer serves -- the heartbeat message's `N not served by FMP (cached
+bars kept)` names how many; check the log for the specific tickers.
 
 Since 2026-09-06, this same run also computes Weinstein Stage Analysis
 (`analysis/trend_structure/weinstein.py`) on weekly bars resampled from the
@@ -224,8 +224,8 @@ a reason to see it in the failure list.
 **`nightly_sector_heatmap`** — recomputes the Sector Heatmap: the 11 SPDR
 sector ETFs (`XLK XLF XLV XLE XLI XLY XLP XLU XLB XLRE XLC`) x 7 trailing
 total-return windows (1w/1m/3m/6m/9m/YTD/1y), upserting 77 `SectorEtfReturn`
-rows per session (`data/sector_heatmap_data.py`). Yahoo Finance only, one
-batch download, zero FMP calls, unaffected by any FMP data-group state. Runs at 3:30 AM
+rows per session (`data/sector_heatmap_data.py`). One shared-bars-cache batch (FMP daily bars);
+skipped while `daily_prices` is off. Runs at 3:30 AM
 and re-derives the same anchor (the last completed session) on weekends and
 holidays, upserting over its own rows -- harmless. **Scheduled and live** as of
 2026-09-21 (installed via `crontab crontab.txt` from `backend/`; `crontab -l`
@@ -242,7 +242,7 @@ single fund that fails is logged as `Sector heatmap: XL? FAILED` and shows
 as a blank row on the page under the new as-of date (never a stale number
 under a fresh date). The page prints its own as-of date, so a job that has
 quietly stopped reads as an old date. Check `Processed` first -- a
-shortfall is Yahoo reachability or a renamed symbol, not FMP.
+shortfall is FMP not serving a fund or a renamed symbol.
 
 **`nightly_corporate_events`** (3:12 AM, Phase 6a) — refreshes the FMP-backed earnings /
 dividends / splits cache (`CorporateEvent`, `CorporateEventFetch`; `data/corporate_events_data.py`)
@@ -272,8 +272,7 @@ session for the S&P 500 (`IndexConstituent` `sp500`, via `load_sp500_tickers`):
 the % of constituents closing above their own 20-, 50- and 200-day SMA, and new
 52-week highs minus new 52-week lows (intraday High/Low, 252 sessions,
 ties count) — `data/market_breadth_data.py`, `scoring/market_breadth.py`.
-Yahoo Finance bars only (from `SharedBarsCache`), zero FMP calls, unaffected
-by `FMP_ENABLED`. Runs at 3:35 AM, **after** the 3:10 trend job that warms
+FMP bars from `SharedBarsCache`; skipped while `daily_prices` is off. Runs at 3:35 AM, **after** the 3:10 trend job that warms
 `SharedBarsCache` with all 503 tickers' 2y daily bars, so the normal run is a
 ~3s warm-cache read. If the trend job failed or overran it self-heals with one
 live batch (~30s–5min), which could overlap Warren's 3:40 start (writer-lock
@@ -287,8 +286,8 @@ missing tickers. Below the gate a row is saved even with a few tickers missing
 names). Success: a log line `Nightly market breadth complete. As of: <date>.
 Constituents: 503. With bar: 503. Excluded: 0.` in
 `backend/logs/nightly_market_breadth.log`. A recurring handful of names in
-the `Excluded` list is a renamed/delisted symbol Yahoo no longer serves; a
-large number is Yahoo reachability, not FMP. The table is never pruned.
+the `Excluded` list is a renamed/delisted symbol FMP no longer serves; a
+large number is FMP reachability. The table is never pruned.
 **Installed in the live crontab 2026-09-21** (`crontab -l` shows the
 `35 3 * * *` entry, byte-identical to `crontab.txt`); a later `crontab.txt`
 edit still needs `crontab crontab.txt` from `backend/` to take effect. The
@@ -301,7 +300,7 @@ only where NULL, and is safe to re-run).
 7-day staleness window, which only controls refetching, not deletion).
 Success: a log line `Pruned N FundamentalsCache row(s) older than 180
 days.` in `backend/logs/prune_cache.log`. `--dry-run` previews the count
-without deleting. The same job also trims `SharedBarsCache` (Yahoo OHLCV bars)
+without deleting. The same job also trims `SharedBarsCache` (FMP OHLCV bars)
 to 6 years of `1d` / 3 years of `60m` (`clients/shared_bars_cache.py::
 RETENTION_DAYS`) and logs one `SharedBarsCache: N '<interval>' bar(s) older
 than D days deleted.` line per interval — a few thousand bars a week in
@@ -425,7 +424,7 @@ its next view.
 ### Daily prices: FMP-first (P2, 2026-09-24)
 
 Daily bars (`SharedBarsCache` "1d") come from FMP `/historical-price-eod/full` for US-listed
-tickers (data group `daily_prices`), then Yahoo, per ticker (Massive was removed in Phase 6a). Non-US
+tickers (data group `daily_prices`) -- the only provider (Massive was removed in Phase 6a, Yahoo in Phase 6b). Non-US
 listings get no nightly bars (the P3 `daily_prices_intl` group and phantom-bar filter were removed in
 the Phase 6a follow-up, 2026-09-26). Only `pipeline.nightly_trend_calculation` (3:10) fetches; LZ/Sector/Breadth/Momentum read
 its warm cache.
@@ -435,10 +434,12 @@ its warm cache.
   spin-off, symbol reuse) and that ticker is refetched over its full window and REPLACED. ~600
   calls, ~1-2 min. **Sundays (UTC)** the trend job passes `force=True` -> every ticker gets a full
   refetch + replace (the weekly resync).
-- **Heartbeat message** of each daily-bar job: `N fell back from FMP to Yahoo`.
-  A large N means FMP is failing/empty for those tickers or the group is off.
-- **Group off / master off / not on plan / restricted:** FMP is skipped and the whole batch falls
-  through to Yahoo (chip "Off — using fallback"). Nothing is skipped or wiped.
+- **Heartbeat message** of each daily-bar job: `N not served by FMP (cached bars kept)`.
+  A large N means FMP is failing/empty for those tickers. Their cached bars are left as they are.
+- **Group off / master off / not on plan / restricted:** there is no fallback provider (Yahoo removed
+  in Phase 6b). Every daily-bar job (Trend, Liquidity Zones, Sector Heatmap, Market Breadth, Momentum)
+  reports a real `skipped` cron status instead of computing on stale bars; nothing is wiped, the last
+  cached bars keep serving (chip "Cached only"). The Chart tab's daily ranges render EMPTY.
 - **Re-backfill (already run once, 2026-09-24):** `uv run python -m pipeline.backfills.
   backfill_fmp_daily_bars [--dry-run] [--report out.json]` (replace per ticker, one
   transaction; a ticker FMP cannot serve keeps its rows). Take `pipeline.backup_db` first and
@@ -450,8 +451,8 @@ its warm cache.
 #### Long history (P3, 2026-09-25)
 
 - **`daily_prices_long`** (Settings > Status; history beyond the nightly ~5y: Chart W_4Y and the
-  Analyst overlay). Off = cached-only for an existing long-history row, otherwise fall through to
-  Yahoo. Its 402 canary is AAPL; `pipeline.stale_data_health_check` re-probes a restricted one weekly.
+  Analyst overlay). Off = cached-only for an existing long-history row, otherwise an empty chart /
+  overlay (no Yahoo fallback). Its 402 canary is AAPL; `pipeline.stale_data_health_check` re-probes a restricted one weekly.
   (`daily_prices_intl` was removed 2026-09-26.)
 - **`LongHistoryBars` table** (~10y/ticker, filled lazily on a ticker-page view, ~1.6-2.1 s the first
   time): no cron job touches it and `prune_cache` never trims it. It only grows (~250 rows/yr/ticker,

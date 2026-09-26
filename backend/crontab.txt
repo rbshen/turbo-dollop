@@ -33,9 +33,11 @@
 
 # Nightly trend-structure (swing/BOS/blended-score) calculation, 3:10 AM
 # server time -- after the fundamentals fetch (2:00), before the 3:30
-# backup. Runs entirely on Yahoo Finance, zero FMP calls -- independent of
-# the FMP-dependent fetch above it, doesn't need to wait on it, just
-# staggered into a free slot. See pipeline/nightly_trend_calculation.py.
+# backup. Reads FMP daily bars (data group daily_prices) through the shared bars
+# cache -- independent of the FMP fundamentals fetch above it, doesn't need to wait
+# on it, just staggered into a free slot. Reports a real `skipped` status while
+# daily_prices is off (Yahoo, the old fallback, was removed in Phase 6b). See
+# pipeline/nightly_trend_calculation.py.
 10 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_trend_calculation >> /home/shen/fathom/backend/logs/nightly_trend_calculation_cron.log 2>&1
 # Nightly FMP earnings/dividends/splits cache (Phase 6a), 3:12 AM -- full-history replace
 # per ticker; feeds the Chart tab's E/D markers. See pipeline/nightly_corporate_events.py.
@@ -48,27 +50,26 @@
 # time -- after trend-structure (3:10) above, before the 3:30 backup.
 # Scoped to the single named "Watchlist" watchlist only (up to 100
 # tickers), not the full tracked universe -- much smaller than trend
-# calculation's universe-wide sweep, comfortably fits this window. Runs
-# entirely on Yahoo Finance, zero FMP calls -- FMP's intraday endpoints
-# return HTTP 402 under the current subscription plan (confirmed
-# 2026-09-09), not merely paused, so this needs no data-group guard either.
+# calculation's universe-wide sweep, comfortably fits this window. Reads
+# FMP 60m bars (data group intraday_bars) through the shared bars cache; reports a
+# real `skipped` status while that group is off (no Yahoo fallback since Phase 6b).
 # See pipeline/nightly_entry_signal_calculation.py.
 20 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_entry_signal_calculation >> /home/shen/fathom/backend/logs/nightly_entry_signal_calculation_cron.log 2>&1
 
 # Nightly Liquidity Zone (LP) detection recompute, 3:25 AM server time --
 # after BB+RSI (3:20) above, before the (now 3:35) backup. Scoped to the
 # W1-W5 watchlist union only (same scoping as BB+RSI), not the full tracked
-# universe. Reads daily bars through the shared Yahoo bars cache
+# universe. Reads daily bars through the shared bars cache
 # (clients/shared_bars_cache.py, the same "1d" rows the 3:10 trend job
-# fills), zero FMP calls -- backup_db below was moved from 3:30 to 3:35 to
+# fills; skipped while daily_prices is off) -- backup_db below was moved from 3:30 to 3:35 to
 # give this job a full 10-minute window instead of 5. See
 # pipeline/nightly_liquidity_zone_calculation.py.
 25 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_liquidity_zone_calculation >> /home/shen/fathom/backend/logs/nightly_liquidity_zone_calculation_cron.log 2>&1
 
 # Nightly Sector ETF heatmap recompute (11 SPDR sector ETFs x 7 trailing
 # total-return windows), 3:30 AM server time -- the free minute between
-# Liquidity Zones (3:25) and Warren (3:40). One Yahoo batch download of 11
-# tickers (~4s), zero FMP calls, so it needs no data-group guard and the
+# Liquidity Zones (3:25) and Warren (3:40). One shared-bars-cache batch of 11
+# tickers (~4s; skipped while daily_prices is off), so the
 # 10-minute gap is ample. Nothing else reads its output, so its position
 # relative to the score recompute (3:50) does not matter. See
 # pipeline/nightly_sector_heatmap.py.
@@ -78,10 +79,10 @@
 # 50-/200-day SMA, net new 52-week highs minus lows), 3:35 AM server time --
 # AFTER the 3:10 trend job, which fetches all 503 constituents' 2y daily bars
 # into SharedBarsCache, so this is a warm-cache read (~3s, zero incremental
-# Yahoo requests); before Warren (3:40). Run any earlier, or after a failed
+# FMP requests); before Warren (3:40). Run any earlier, or after a failed
 # trend job, it self-heals with one live ~503-request batch (~30s-5min) that
 # could spill into Warren's start -- SQLite writer-lock contention only, they
-# touch different tables. Zero FMP calls, no data-group guard. Raises (heartbeat
+# touch different tables. Skipped while daily_prices is off. Raises (heartbeat
 # failure) rather than saving a row when <97% of constituents have a bar.
 # Nothing else reads its output. See pipeline/nightly_market_breadth.py.
 35 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_market_breadth >> /home/shen/fathom/backend/logs/nightly_market_breadth_cron.log 2>&1

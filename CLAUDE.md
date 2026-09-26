@@ -52,12 +52,10 @@ backend/     FastAPI app, organized into packages by role (2026-08-05
                config.py (Settings/BASE_DIR), cache.py (get_or_fetch/
                safe_fetch), logging_config.py.
   clients/     Thin external API clients: fmp_client.py, sec_edgar.py,
-               yahoo_client.py (Yahoo Finance, the non-FMP data source
-               behind trend-structure analysis and the FMP-disabled price
-               fallback), yahoo_cache.py (YahooPriceCache's own bespoke
-               get-or-fetch helpers, separate from core/cache.py's
-               FundamentalsCache-shaped ones -- see YahooPriceCache's own
-               docstring in models.py).
+               daily_bar_sources.py (the FMP daily/60m bar sources),
+               shared_bars_cache.py (the SharedBarsCache get-or-fetch),
+               long_history_bars.py, technical_sources.py. FMP is the only
+               market-data provider (Phase 6b) -- see that section below.
   helpers/     Shared calculation helpers consumed by data/: ttm.py,
                shares.py, debt_metrics.py, npl.py, bank_capital_metrics.py,
                discount_rate_config.py, first.py.
@@ -122,14 +120,9 @@ both forms during the reorg, not assumed.
 [Financial Modeling Prep (FMP)](https://financialmodelingprep.com) (paid
 tier) is the **sole** data source for fundamentals, company classification,
 and Steps 1-5/Overall Assessment scoring, via `backend/clients/fmp_client.py`.
-As of the trend-structure feature (see "Trend structure analysis
-(Technical)" below), **price/OHLCV data alone** has a second, independent
-source: Yahoo Finance (`backend/clients/yahoo_client.py`, via the `yfinance`
-package), used for the swing/BOS trend engine (deliberately decoupled from
-the FMP subscription) and as a live fallback for the ticker header's
-current price when `FMP_ENABLED=false` (see "Data groups: pausing FMP"
-below). No other data on this app comes from Yahoo -- fundamentals,
-classification, and every score still come from FMP alone.
+Since Phase 6b (2026-09-26) FMP is the **only** external data source for everything,
+price/OHLCV bars included, with no fallback provider anywhere. (SEC EDGAR, `clients/sec_edgar.py`, remains only as a fundamentals
+cross-check source, not a market-data one.) See "Phase 6b" below.
 
 ## Watchlists
 
@@ -175,9 +168,10 @@ Cron jobs are separate processes and read the same DB.
   `news`, `insider` (seeded **off** -- the shelved feature), `index_membership`,
   `corporate_events`, **`daily_prices`** (live since P2, 2026-09-24 -- see "Daily prices:
   FMP" below), **`daily_prices_long`** and **`daily_prices_intl`** (both live since P3,
-  2026-09-25 -- see "Daily prices: FMP, Phase 3" below; like `daily_prices`, OFF is a fallback /
-  cached-only, not a hard stop), **`intraday_bars`** (live since P4, 2026-09-26 -- see
-  "Intraday bars: FMP, Phase 4" below; OFF falls back to Yahoo, not cache-only), plus one
+  2026-09-25 -- see "Daily prices: FMP, Phase 3" below; `daily_prices_intl` was removed in the Phase 6a
+  follow-up), **`intraday_bars`** (live since P4, 2026-09-26 -- see "Intraday bars: FMP, Phase 4"
+  below). **Since Phase 6b none of the price groups has a fallback provider: off = cached-only, and
+  the nightly bar jobs report `skipped`** (see "Phase 6b"). One
   seeded-but-unwired row for the price migration: `extended_hours` (P5).
 - **Effective state** = master switch on AND group enabled AND required tier <= my
   plan AND status != `plan_restricted`. Off means **cache-only**: the last cached
@@ -207,12 +201,12 @@ Cron jobs are separate processes and read the same DB.
   `sec_company_facts` (SEC, not FMP) rides with `fundamentals` to keep its old pause behaviour.
 - **What degrades when a group is off:**
   - `profile_quote`: search falls back to the tracked-ticker universe (symbol only);
-    the ticker header's `price` uses the Massive/Yahoo fallback (unchanged), every other
-    quote field stays at the last cached FMP value; `/refresh` 503s.
+    the ticker header's `price` uses the last official close cached nightly
+    (`TickerLastClose`), every other quote field stays at the last cached FMP value; `/refresh` 503s.
   - `analyst_ratings` / `news` / `segmentation` / `fundamentals`: their tabs/scores serve
     cached data; the nightly fundamentals fetch, the nightly price-target snapshot and
     the index-list refresh jobs skip.
-  - `corporate_events`: chart E/D markers fall back to Yahoo (as before).
+  - `corporate_events`: chart E/D markers are served from the cached `CorporateEvent` rows (however old).
   - `insider`: the user toggle is the *shelving* switch (off = distinct `enabled:false`
     payload, no cache read); master-off/restricted still serve cached rows.
 - **`POST /api/tickers/{t}/refresh`** returns **503** if any group it would clear (the
@@ -233,16 +227,16 @@ Cron jobs are separate processes and read the same DB.
   while skipped, `last_success_at` still shows the last real run). Jobs guarded in P1:
   `nightly_fundamentals_fetch` (fundamentals), `nightly_price_target_snapshot`
   (analyst_ratings), the three index-list scrapers (index_membership). The Trend/
-  Liquidity/Warren/BB+RSI/Heatmap/Breadth/Momentum jobs make no FMP calls today and get
-  their standard group guard when their groups go live in P3-P5. **The daily-bar jobs
-  (Trend/LZ/Heatmap/Breadth/Momentum) deliberately have NO `daily_prices` skip guard**:
-  with the group off they fall through to Massive -> Yahoo instead of skipping.
+  Liquidity/Heatmap/Breadth/Momentum jobs are guarded on `daily_prices` and the Warren/BB+RSI jobs
+  on `intraday_bars` **since Phase 6b**: with the group off (or the master switch)
+  they return `{"skipped": True, "skip_reason": ...}` and the heartbeat records a real `skipped`
+  status instead of computing on stale cached bars.
 - **API/UI:** `GET /api/config/data-groups` (+ `PUT .../master`, `.../plan`, `.../{group}`)
   replaces `/api/config/fmp-status`. Settings > Status shows one row per group (toggle,
-  chip Live / Cached only / **Off — using fallback** (`daily_prices` only, while
-  Massive/Yahoo still exist) / Not on plan / Restricted by FMP / Failing, last success,
+  chip Live / Cached only / Not on plan / Restricted by FMP / Failing, last success,
   tier + verified tick, "feeds:" list; disabling warns with the dependent features).
-  Massive/Yahoo cards stay until P6. Ticker-page tabs show a "not refreshing -- as of
+  (The "Off -- using fallback" chip, `GroupMeta.falls_back`, `DataGroupOut.falls_back` and the
+  `using_fallback` state were removed in Phase 6b, as were the per-provider status cards.) Ticker-page tabs show a "not refreshing -- as of
   [date]" badge for off groups (`GroupOffBadge`; date = the group's last recorded live
   success, which only starts accumulating from this change).
 - `bin/start.sh` skips the AAPL `/quote` preflight when master or `profile_quote` is not
@@ -2320,9 +2314,7 @@ sign/direction, cash runway, and PSG are informational only, never gates.
 ## Trend structure analysis (Technical)
 
 A new, independent, read-only lens on price structure -- swing highs/lows, break-of-structure
-(BOS) flips, and a blended -10..+10 conviction score -- sourced from **Yahoo Finance**
-(`backend/clients/yahoo_client.py`, `yfinance`), not FMP, so it keeps working through an
-`FMP_ENABLED=false` pause. Never touches Step 1-5/Overall Assessment scoring or the existing
+(BOS) flips, and a blended -10..+10 conviction score -- computed from FMP daily bars via the shared bars cache, not the fundamentals pipeline. Never touches Step 1-5/Overall Assessment scoring or the existing
 `FundamentalsCache`/FMP pipeline in any way -- a second, parallel data path from ingestion through
 to display.
 
@@ -2346,9 +2338,8 @@ to display.
     bands at -6/-2/2/6 the table itself documents) -- confirmed with the user that the table is
     authoritative; the code uses `(score+10)/20*5` (equivalently `/4`), which reproduces the table
     exactly. See `analysis/trend_structure/conviction.py`'s own comment for the full derivation.
-- **Data**: `YahooPriceCache` (ticker+date OHLCV, `backend/clients/yahoo_cache.py`'s own bespoke
-  get-or-fetch helpers -- deliberately not routed through `core/cache.py`, which is hard-wired to
-  `FundamentalsCache`'s different (ticker, statement_type, period)+raw_json shape) and
+- **Data**: the shared bars cache (`SharedBarsCache`, see below -- deliberately not `core/cache.py`, which is
+  hard-wired to `FundamentalsCache`'s (ticker, statement_type, period)+raw_json shape) and
   `TrendAnalysis` (ticker-PK, `computed_at`, latest-only, upserted per run -- same convention as
   `TickerScore`; `last_confirmed_swing`/`warning_swing` stored as plain `str` JSON columns, this
   codebase's established convention for a JSON-shaped field, not a native JSON column type, which
@@ -2357,7 +2348,7 @@ to display.
   fundamentals fetch and before the 3:55 AM backup; the 3:50 score recompute then copies its
   `weinstein_*` output onto `TickerScore`): sweeps the full tracked universe
   (`load_full_tracked_universe`, shared with the fundamentals/score-recompute jobs) via **one**
-  `yfinance` multi-ticker batch download (now `clients.shared_bars_cache.get_or_fetch_bars_batch` -- see "Shared Yahoo bars cache" below; originally `yahoo_cache.get_or_fetch_price_history_batch`),
+  batch read (`clients.shared_bars_cache.get_or_fetch_bars_batch` -- see "Shared bars cache" below),
   then runs the engine and upserts per ticker -- never one live fetch per ticker. Makes zero FMP
   calls, so unlike `nightly_fundamentals_fetch.py`/`nightly_price_target_snapshot.py` it needs no
   `if not settings.fmp_enabled: ...` guard at all (there's no FMP-gated work to skip). Wired into
@@ -2371,9 +2362,9 @@ to display.
   column. `SignalBars` (`frontend/components/watchlist/SignalBars.tsx`) was generalized to a
   `maxBars` prop (default 3, so the existing Moat/Value/vs-SPY 3-bar indicators are unaffected) to
   support this new 5-bar indicator without a duplicate component.
-- **Price fallback**: `data/ticker_summary.py::get_summary()`'s quote-fetch block now overrides
-  just the `price` field with a live Yahoo close when `FMP_ENABLED=false` (and not `cache_only`) --
-  see "Data groups: pausing FMP" above for the full mechanism and what stays untouched.
+- **Price fallback**: `data/ticker_summary.py::get_summary()` overrides just the `price` field with the last
+  official close cached nightly (`TickerLastClose`) when the `profile_quote` group is off or the live quote
+  failed (and not `cache_only`) -- see "Phase 6a" below.
 - **A/D Bullish Divergence (2026-08-23)**: a validated (ticker-clustered p<0.01, replicated on two
   separate backtest universes, ~+2pp hit rate / ~+2% mean-median return to the eventual confirmed
   HH) minor conviction signal layered on top of the swing engine above -- never a standalone entry
@@ -2408,7 +2399,7 @@ to display.
     per-ticker fetch** (`classification.py::classify_swings` gained a third `chaikin_osc`
     parameter; the divergence lookup/comparison happens inline exactly where a new "LL" is
     classified, reusing the same in-memory OHLCV series `engine.py` already computes ATR from).
-    Confirmed via a real before/after nightly-job timing comparison (60 tickers, warm Yahoo
+    Confirmed via a real before/after nightly-job timing comparison (60 tickers, warm bars
     cache to isolate compute cost from network variance): 4.4s baseline vs. 3.6s with this
     feature -- no measurable regression, as expected for one extra O(n) EMA pass plus O(1)-ish
     per-LL-swing window lookups.
@@ -2496,16 +2487,13 @@ to display.
   Script v6 reference implementation ("Weinstein Stage Screener") and computed on **weekly** bars,
   not daily -- the only signal in this feature family that operates on a different timeframe than
   the swing/BOS/A-D/SMA engine above.
-  - **Weekly bars are resampled from the SAME 2y daily `YahooPriceCache` history** the nightly job
-    already fetches -- no second Yahoo Finance fetch, no new interval dimension on
-    `YahooPriceCache` (which has no such dimension at all -- its unique key is `(ticker, date)`,
-    so writing native weekly bars into it directly would collide with daily rows on shared
-    calendar dates). Confirmed empirically bit-identical (mean/max diff ~0.0000% across 15 real
-    tickers, decades of history) to yfinance's own native `interval="1wk"` bars, **provided** weeks
-    are anchored correctly: yfinance labels each weekly bar by its Monday (week start); a naive
-    `resample("W-FRI")` labels by the week's Friday (week end) -- resampling `"W-FRI"` (which
-    correctly bins Mon-Fri trading days into one bucket) and then shifting the resulting index back
-    4 days reproduces yfinance's own label exactly. `"W-MON"` is the wrong rule entirely (bins
+  - **Weekly bars are resampled from the SAME daily bars** the nightly job already reads from the shared
+    cache -- no second fetch and no weekly interval dimension on `SharedBarsCache` (its unique key is
+    `(ticker, interval, bar_time)` with only `1d`/`60m`). Weeks must be anchored correctly to match a native
+    weekly feed, which labels each bar by its Monday (week start): a naive `resample("W-FRI")` labels by the
+    week's Friday (week end) -- resampling `"W-FRI"` (which correctly bins Mon-Fri trading days into one bucket)
+    and then shifting the resulting index back 4 days reproduces the Monday label exactly (validated bit-identical
+    across 15 real tickers against a native weekly reference). `"W-MON"` is the wrong rule entirely (bins
     Tue-through-Mon). See `analysis/trend_structure/weinstein.py::resample_to_weekly`.
   - **Engine choice: the Pine source's sticky `sState` state machine, not its own stateless
     per-bar `sTS` quadrant read (`tsMode`'s actual default)** -- decided from real evidence, not
@@ -2555,8 +2543,7 @@ to display.
     transition date the fetch window can't actually see.
   - **Mansfield RS benchmark (`^GSPC`) rides along in the SAME nightly batch fetch**
     (now `clients.shared_bars_cache.get_or_fetch_bars_batch`) as one more symbol -- confirmed
-    `normalize_ticker("^GSPC")` passes through unchanged and `YahooPriceCache.ticker` is just a
-    plain string column, no schema conflict -- but is deliberately never added to the per-ticker
+    a benchmark symbol is just another ticker string to the cache, no schema conflict -- but is deliberately never added to the per-ticker
     processing loop itself, so it never gets its own `TrendAnalysis` row and never counts toward
     `nightly_trend_calculation.py`'s `processed`/`failed` totals. A `^GSPC`-fetch failure that run
     degrades every ticker's Mansfield RS/breakout fields to null/false (same
@@ -2731,20 +2718,12 @@ scoring or any other lens -- a second, parallel read on price structure.
   before taking the nearest `num_zones` per side, since a "support" level above today's
   price (or a "resistance" level below it) isn't a meaningful nearest-support/resistance
   reading for the card this feeds.
-- **Data source: the ordinary `fmp_enabled` toggle, not BB+RSI's hard-forced Yahoo.**
-  Investigated before assuming BB+RSI's pattern applied here: FMP's intraday endpoints
-  returned HTTP 402 at the time (2026-09-09; **stale -- they answer 200 and have fed Warren/BB+RSI
-  since P4, see "Intraday bars: FMP, Phase 4" below**), but
-  `FMPClient.get_historical_price_eod` (`/historical-price-eod/full`, already used in
-  production by `ticker_summary.py`/`analysis/ma_magnet/data.py`) is a working daily EOD
-  endpoint with no equivalent restriction. FMP has no native weekly endpoint (confirmed
-  404 on `/historical-chart/1week`), so Weekly bars are always derived by resampling
-  Daily -- reusing `analysis/trend_structure/weinstein.py::resample_to_weekly` directly
-  (confirmed genuinely data-source-agnostic, not Yahoo-coupled) rather than reimplementing
-  it. (**Superseded 2026-09-19 -- see "Shared Yahoo bars cache" below: Liquidity Zones is Yahoo-only now and `daily_price_sources.py` is deleted; the FMP-vs-Yahoo branch described here and in the two entries that follow is historical.**) `backend/clients/daily_price_sources.py::get_daily_bar_source()` returns
-  `FMPDailyBarSource` when enabled, `YahooDailyBarSource` (one batch call, yfinance's
-  period enum has no "4y" so "5y" is fetched and trimmed) when FMP is paused -- the normal
-  degrade pattern every other FMP-backed feature in this app uses. A single ~4yr fetch per
+- **Data source: FMP daily bars (`daily_prices` group), via the shared bars cache.** FMP has no native weekly
+  endpoint (confirmed 404 on `/historical-chart/1week`), so Weekly bars are always derived by resampling Daily --
+  reusing `analysis/trend_structure/weinstein.py::resample_to_weekly` directly (genuinely data-source-agnostic)
+  rather than reimplementing it. (History: this feature originally read `daily_price_sources.py` with an
+  FMP-vs-second-provider branch; that module was deleted 2026-09-19 when the shared bars cache took over, and
+  the second provider was removed in Phase 6b.) A single ~4yr fetch per
   ticker serves both timeframes: `data/liquidity_zone_data.py` slices the trailing 1yr for
   Daily and resamples the full frame for Weekly.
 - **Data model**: `LiquidityZoneAnalysis`, composite PK `(ticker, timeframe)` -- the closer
@@ -2771,11 +2750,11 @@ scoring or any other lens -- a second, parallel read on price structure.
   see "Main/Secondary watchlist rename + computed_at staleness sweep" below). Every existing
   pipeline script already maps 1:1 to one feature (even the two other W1-W5-scoped/
   full-universe technical jobs are already split despite similar shape); this job also needs
-  a genuine `fmp_enabled` FMP<->Yahoo branch that BB+RSI's script has no equivalent of, and separate
+  a different data group (`daily_prices`, vs BB+RSI's `intraday_bars`), and separate
   `cron_heartbeat` names keep failure attribution clean (an FMP outage affecting Liquidity
   Zones shouldn't read as a BB+RSI health failure or vice versa). Scheduled at **3:25 AM**,
   in the existing 3:20 (BB+RSI) -> 3:30 (backup_db) gap; `backup_db` was moved to **3:35
-  AM** to keep a full 10-minute buffer, since unlike BB+RSI's Yahoo-only fetch, this job
+  AM** to keep a full 10-minute buffer, since this job
   can make live FMP calls on a cold cache. Registered in `core/cron_health.py`'s
   `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS` as the 13th job (`pipeline.nightly_
   liquidity_zone_calculation`).
@@ -2819,8 +2798,8 @@ traced for `WDC` and others (AAPL, AMD, AMAT, AAOI) to the shared `"4y"` cache r
 fetched by the *previous* night's run, under 24h old and so well inside the old 7-day window,
 causing that night's run to skip a live re-fetch entirely and miss the newest close.
 
-**Fix**: added `Settings.daily_bar_staleness_days` (`core/config.py`, default 1, same
-reasoning/precedent as the existing `yahoo_price_cache_staleness_days`), used in place of
+**Fix**: added `Settings.daily_bar_staleness_days` (`core/config.py`, default 1, a
+day-scale window matched to daily-bar cadence), used in place of
 `cache_staleness_days` at this one call site; threaded the caller's real `lookback_years` into
 the cache key (`_fetch_fmp_daily_bars` gained a `lookback_years` parameter, used to build
 `f"{lookback_years}y"`) instead of the `LOOKBACK_YEARS` constant -- `LOOKBACK_YEARS` itself is
@@ -2868,8 +2847,8 @@ Rather than build market-close-aware staleness logic, the Chart tab's FMP branch
 to what its own module docstring's "fully on-demand" framing always claimed but didn't fully
 deliver: `data/chart_data.py::_fetch_fmp_bars` now calls `fmp_client.get_historical_price_eod`
 directly, bypassing `daily_price_sources.py`'s `FMPDailyBarSource`/`get_or_fetch`-backed
-`FundamentalsCache` entirely -- a genuinely live FMP call on every Chart tab request, matching
-what the Yahoo branch (`clients/yahoo_client.py`, no caching layer, unchanged) has always done.
+`FundamentalsCache` entirely -- a genuinely live FMP call on every Chart tab request, the
+same on-demand behavior the tab's other price source had.
 **Scoped to the Chart tab only** -- `daily_price_sources.py` itself, and every other consumer of
 it, are untouched. Liquidity Zone detection (`data/liquidity_zone_data.py`,
 `pipeline/nightly_liquidity_zone_calculation.py`) still reads through the same
@@ -3095,26 +3074,20 @@ actual/estimate/surprise; per-share amount). **Drawn on a fixed row along the pr
 independent of price (TradingView's convention) -- see "Fixed-row placement" below; originally
 (same day) they sat above/below the candle at the bar's price level.**
 
-- **Source is FMP when `FMP_ENABLED`, Yahoo otherwise or on FMP failure
-  (`data/chart_events_data.py`) -- deliberately NOT Yahoo-only like the candles.** The 2026-09-18
-  Yahoo-only decision (`chart_data.py` docstring point 3) was about keeping technical-analysis
-  inputs independent of the FMP subscription; event markers feed no indicator, and FMP is deeper
-  for foreign issuers (HSBC: 39 quarters of earnings vs Yahoo's 6). Live check on AAPL/O/TSLA/
-  HSBC/SPY/CRWV: both sources agree on dates and counts wherever Yahoo has the history.
-  `FMPClient.get_earnings_history` (limit 40) / `get_dividends` (limit 400) are new -- the existing
-  `get_earnings` (limit 8, cached under `earnings`/`latest`) is untouched and is not reused.
-- **Zero persistent caching, matching the rest of the Chart tab**: two live FMP calls per chart
-  request (~1s), run concurrently with the candle fetch (`asyncio.gather`), capped by
-  `EVENTS_FETCH_TIMEOUT_SECONDS` (8s), and `fetch_chart_events` never raises -- a total failure is
-  `events_source=None` with empty lists and the chart just renders without markers. The FMP failure
-  log records the exception TYPE only (httpx messages embed the request URL, apikey included).
-  Fallback is per source-unit, not per kind: any FMP failure (or a non-list error body served with
-  HTTP 200) re-fetches both kinds from Yahoo. An empty FMP list is a real answer (TSLA pays no
-  dividend) and does not trigger a Yahoo call.
+- **Source is FMP (`data/chart_events_data.py`).** (Originally FMP-first with a second provider as fallback; since
+  Phase 6b the nightly `CorporateEvent` cache is the sole source -- see "Phase 6a"/"Phase 6b".) FMP is deep for
+  foreign issuers (HSBC: 39 quarters of earnings). `FMPClient.get_earnings_history` (limit 40) / `get_dividends`
+  (limit 400) were added for this; the existing `get_earnings` (limit 8, cached under `earnings`/`latest`) is
+  untouched and is not reused.
+- **Cached, never live (Phase 6b).** `fetch_chart_events` reads the `CorporateEvent` cache only -- no FMP call
+  per chart request, no timeout wrapper -- and never raises: an uncached ticker or a read error is
+  `events_source=None` with empty lists and the chart just renders without markers. (The original design made two
+  live FMP calls per request with a per-source fallback.) An empty stored list is a real answer (TSLA pays no
+  dividend).
 - **Data gotchas confirmed live**: FMP `/dividends` **ignores `from`/`to`** (full history always;
   `limit` is the only lever). `date` is the ex-date. `dividend` is as-declared and `adjDividend`
   is split-adjusted -- the candles are split-adjusted, so `adjDividend` is used (AAPL 2019:
-  $0.77 declared vs $0.1925 adjusted, matching Yahoo). FMP `/earnings` includes the next
+  $0.77 declared vs $0.1925 adjusted). FMP `/earnings` includes the next
   scheduled date with null actuals, and pure ETFs (SPY) carry a decade of null-actual placeholder
   rows, so only rows with a real `epsActual`/`revenueActual` count (the same rule as
   `helpers/earnings.py`). A report whose actuals FMP hasn't back-filled yet has no marker until
@@ -3174,8 +3147,8 @@ independent of price (TradingView's convention) -- see "Fixed-row placement" bel
     the library source, not by running it), and the tooltip flip.
 - **Degradation**: no note is shown, in either an empty or a failed fetch (the Chart tab has no
   "not tracked" note for its other overlays either); the toggles stay. Sparse cases: ETFs have
-  dividends but no earnings; non-payers and recent IPOs have earnings only; a foreign issuer on the
-  Yahoo fallback can have far fewer earnings dates than on FMP.
+  dividends but no earnings; non-payers and recent IPOs have earnings only; a ticker never cached by
+  the nightly corporate-events job has no markers.
 
 ## Price-target snapshot: daily + methodology (2026-09-26)
 
@@ -3192,7 +3165,7 @@ initially split the two into dashed/solid series but that was reverted; it draws
 
 A fifth, fully independent technical entry-signal lens -- alongside BB+RSI, this is the
 second entry in the technical-signal family, both scoped to the same W1-W5 watchlist union
-and running on the same 2h adapter (Yahoo-only when written; FMP-first since P4). Ported from a reference Pine script
+and running on the same 2h adapter (FMP 60m bars). Ported from a reference Pine script
 ("ANY TICKER Δ1,3,4") the user described; buy-side (Blue/Yellow/Gray Up), sell-side
 (Blue/Yellow/Gray Down), the trailing stop line, and the gray-suppression state machine are
 all in scope -- not an entry-only subset.
@@ -3202,7 +3175,7 @@ all in scope -- not an entry-only subset.
   gray-suppression latch all carry state forward bar-to-bar, so this can't be evaluated
   against a single candle in isolation the way `check_buy_signal` can. Resolved by a **full
   nightly replay from scratch** (`analysis/warren_signal/state_machine.py::replay`) over the
-  full available 2-year Yahoo 60m-interval history (resampled into the same 2h session
+  full available 2-year 60m-interval history (resampled into the same 2h session
   candles BB+RSI already uses, reusing `analysis/entry_signal/resample.py::
   build_2h_session_candles` directly) -- intermediate state is discarded after each run, only
   the resulting events are persisted. This is safe because every input the state machine
@@ -3332,7 +3305,7 @@ all in scope -- not an entry-only subset.
   - **`EVENT_RETENTION_DAYS` was left at 730 in this pass and raised to 1460 right after** -- see
     "Signal-event retention raised" below. The buffer was the prerequisite: raising retention
     without it would have frozen phantom rows permanently (simulated: insert-only accumulates
-    ~3.2x phantom rows vs. correct ones). Yahoo refuses 60m history beyond 730 days, so the buffer
+    ~3.2x phantom rows vs. correct ones). 60m history beyond 730 days cannot be fetched, so the buffer
     can't come from fetching more.
   - **One-time cleanup, run 2026-09-19 against the real DB (script not kept -- see below):**
     deleted every `WarrenSignalEvent` row before tonight's cutoff (window start 2024-09-20
@@ -3355,15 +3328,15 @@ all in scope -- not an entry-only subset.
     inclusive, width driven by the constant, measured from the first candle, latest-state
     unaffected, and an end-to-end two-consecutive-nights replay through the real state machine
     (unbuffered control persists leading-edge events on both nights; buffered persists none).
-    Real-Yahoo spot check on 6 tickers: 45 of 169 replayed events (27%) sit in the first 180d,
+    Real-data spot check on 6 tickers: 45 of 169 replayed events (27%) sit in the first 180d,
     all now unwritten; the old code also persisted 1 fresh leading-edge variant on the
     following week's replay (AMD).
 - **Signal-event retention raised 730 -> 1460 days, both Warren and BB+RSI (2026-09-19).**
   `warren_signal_data.EVENT_RETENTION_DAYS` and `entry_signal_data.EVENT_RETENTION_DAYS` (the
   ceiling `prune_warren_signal_events`/`prune_entry_signal_events` use, called with no argument
   by both nightly jobs -- no call site hardcodes 730) are now 4 years.
-  - **It is a ceiling on stored history, not a fetch limit, and does NOT backfill.** Yahoo serves
-    only ~730 days of 60m/2h bars (the earlier "730" was chosen to match that), so nothing older can
+  - **It is a ceiling on stored history, not a fetch limit, and does NOT backfill.** Only ~730 days of
+    60m/2h bars are fetchable (the earlier "730" was chosen to match that), so nothing older can
     be computed today. Raising it just stops deleting events once they pass 2 years old; depth then
     grows a day per day. **Timeline** (oldest stored event + 1460d): BB+RSI (oldest 2024-09-27)
     reaches a full 4 years around **2028-09-26** (~2.0y out); Warren (oldest 2025-03-24, because
@@ -3399,7 +3372,7 @@ all in scope -- not an entry-only subset.
     are independent: events live in their own tables and no consumer recomputes events beyond the
     730-day fetch window, so bar retention never gates event retention. (Note the 60m window, 3y,
     is *shorter* than 4y; that is fine for exactly this reason -- and 60m bars older than ~730d
-    could not be re-fetched from Yahoo anyway.) `tests/test_shared_bars_cache_prune.py` pins the
+    could not be re-fetched anyway.) `tests/test_shared_bars_cache_prune.py` pins the
     bar windows against the consumers' fetch tiers, not against event retention.
   - `data/chart_data.py`'s module docstring "known asymmetry" (W_4Y shows 4y of price but ~2y of
     markers) now describes it as closing over time rather than a permanent 2-year cap. Tests:
@@ -3423,10 +3396,9 @@ all in scope -- not an entry-only subset.
   `nightly_entry_signal_calculation.py`, for the same "one feature, one script" reasoning the
   Liquidity Zone job's own entry above gives -- doubly justified here since Warren's
   2-year-lookback/full-replay shape is fundamentally different from BB+RSI's
-  60-day/latest-day-only one, even though both share the same W1-W5 scope and Yahoo-only
-  adapter. Talks to `yahoo_client` directly (`period="2y"`) rather than
-  `clients/technical_sources.py`'s own `f"{lookback_days}d"` interpolation, which the BB+RSI
-  historical-backfill investigation already found unreliable at this magnitude. Wired into
+  60-day/latest-day-only one, even though both share the same W1-W5 scope and shared
+  60m bars cache. Reads the cache at the full 730-day width rather than through
+  `clients/technical_sources.py`'s BB+RSI-sized 60-day reader. Wired into
   `core/cron_health.py`'s `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS` as the 16th job.
 - **API/UI**: `GET /api/tickers/{ticker}/entry-signal` gained a `signal_type` query param
   (`"bb_rsi"` default, or `"warren"`) branching to the matching backing read -- one endpoint,
@@ -3460,31 +3432,29 @@ all in scope -- not an entry-only subset.
     `_default_no_warren_signal` fixture (`test_chart_data.py`), mirroring the existing
     per-module engine-isolation helpers exactly.
 
-## Shared Yahoo bars cache (2026-09-19)
+## Shared bars cache (2026-09-19; FMP-only since Phase 6b)
 
-Trend/Weinstein, Liquidity Zones, Warren, and BB+RSI all read Yahoo bars through one table,
-`SharedBarsCache` (`core/models.py`, unique `(ticker, interval, bar_time)`), via
-`clients/shared_bars_cache.py::get_or_fetch_bars_batch`. Follows the round that made all six
-price consumers Yahoo-only, `auto_adjust=False` (`daily_price_sources.py` and its FMP branch are
-deleted). The Chart tab is deliberately NOT a consumer (variable per-request window; same-day
-caching not worth it) and still fetches live. `YahooPriceCache`/`yahoo_cache.py` now only back the
-Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
+Trend/Weinstein, Liquidity Zones, Warren, BB+RSI, Sector Heatmap, Market Breadth and Momentum all read bars through
+one table, `SharedBarsCache` (`core/models.py`, unique `(ticker, interval, bar_time)`), via
+`clients/shared_bars_cache.py::get_or_fetch_bars_batch`; the bars are FMP's (see "Daily prices: FMP" and "Intraday
+bars: FMP" below), raw / non-dividend-adjusted (`auto_adjust=False`). The Chart tab is deliberately NOT a consumer
+(variable per-request window; same-day caching not worth it) and fetches live.
 
 - **Key is `(ticker, "1d" | "60m")`.** Warren and BB+RSI both build their "2h" candles from raw
   60m bars, so they share ONE `"60m"` row; Trend and Liquidity Zones share the `"1d"` row.
 - **Growth to the max window ever requested.** A request is served from cache only if the row is
   fresh AND its earliest bar reaches back to the caller's `lookback_days`; otherwise it refetches
   at `max(requested, preserved width)`. Preserved width is the stored span snapped DOWN to a
-  yfinance period tier (`_preserved_lookback_days`) so a narrow consumer's refetch never shrinks a
+  width tier (`_preserved_lookback_days`) so a narrow consumer's refetch never shrinks a
   wide row and the ever-growing stored span never ratchets the download wider. Tickers are grouped
-  by needed period, one yfinance call per distinct period (a 572-ticker Trend run does not
+  by needed period, one fetch pass per distinct period (a 572-ticker Trend run does not
   re-download everyone at 5y because ~100 are also LZ tickers). Each consumer gets only its own
   window back. Whichever overlapping job runs first each night does the one live fetch; no cron-
   order assumption exists.
 - **Freshness is close-aware, never a flat TTL** (`_is_stale`): a row is trusted only if its LAST
   bar matches the most recently completed session for its interval. Daily:
   `_most_recent_completed_trading_date()` (US/Eastern, weekday-aware, NOT holiday-aware). 60m:
-  `_most_recent_completed_intraday_bar_start()` -- Yahoo labels bars by start (09:30..15:30, the
+  `_most_recent_completed_intraday_bar_start()` -- FMP labels bars by start (09:30..15:30, the
   last only 30 min); before 10:30 ET, on weekends, or pre-open it resolves to the prior trading
   day's 15:30 bar, so overnight/weekend re-runs are not falsely stale. A mismatch forces a live
   refetch. `force=True` still live-fetches unconditionally.
@@ -3505,7 +3475,7 @@ Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
   as too narrow. `tests/test_shared_bars_cache_prune.py` pins both invariants against the
   consumers' real `LOOKBACK_DAYS` constants -- a new consumer needing more than a window retains
   fails CI instead of refetching its full width every night. The 60m window is deliberately wider
-  than any consumer needs: Yahoo only serves 60m history ~730 days back, so a pruned 60m bar can
+  than any consumer needs: the 60m history that can be fetched is ~730 days deep, so a pruned 60m bar can
   never be re-fetched. Simulated (104 watchlist tickers, 469 Trend-only, 176 B/row) five years out:
   unpruned 2.46M rows / ~430 MB vs. pruned 1.47M rows / ~250 MB (plateaus; growth unpruned is
   ~+57 MB/yr forever). A DELETE doesn't shrink the SQLite file -- the freed pages are reused by
@@ -3513,22 +3483,19 @@ Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
 - **Trend's computed row is close-aware too (2026-09-19).** `data/trend_analysis_data.py::
   get_trend_analysis_data` (the on-demand `GET /api/tickers/{t}/trend-analysis` path; the nightly
   job recomputes every ticker unconditionally and has no gate) used to call a stored
-  `TrendAnalysis` row fresh if `computed_at` was under `yahoo_price_cache_staleness_days` (1 day).
+  `TrendAnalysis` row fresh on a flat 1-day `computed_at` timer.
   That served a row a full session behind from the 4pm ET close until the next 3:10 UTC run, and
   recomputed an unchanged row every weekend day. It now compares the new `TrendAnalysis.bars_as_of`
   (date of the last daily bar the row was computed from) with `_most_recent_completed_trading_date()`
   and recomputes only when it is older -- or NULL, i.e. a row from before the column existed,
   which self-heals with one recompute. `cache_only=True` reads are unchanged (never recompute).
-  (`yahoo_price_cache_staleness_days`, which this used to read, was later deleted -- see the
-  Price/Quote fallback entry below.)
 - **Known limits.** Not holiday-aware: a market holiday looks like one missed session and costs
   one extra (harmless) refetch that day -- and, for the trend endpoint above, one recompute per
   on-demand read that day.
 - **Found while auditing for the same flat-timer pattern (2026-09-19):**
   (1) **FIXED, see "Screener's copy of technical fields" below.** `TickerScore.weinstein_*` was
   copied from `TrendAnalysis` at 2:00/2:50, before the 3:10 trend job, so the Screener showed the
-  PREVIOUS night's stage. (2) **FIXED, see "Yahoo price fallback" below.** `YahooPriceCache`'s flat
-  1-day timer on the FMP-paused price fallback. BB+RSI, Warren and Liquidity Zones have no
+  PREVIOUS night's stage. (2) (a flat-timer price fallback that no longer exists.) BB+RSI, Warren and Liquidity Zones have no
   read-time freshness gate at all (cache-only reads, unconditional nightly recompute); their only
   timers are the 7-day `STALE_AFTER_DAYS` abandonment sweeps, which are not freshness checks.
 - **Screener's copy of technical fields was a night behind; score recompute moved 2:50 -> 3:50
@@ -3545,7 +3512,7 @@ Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
   changed -- the exposure was identical. **Fix: reorder, not a second copy** -- the recompute now
   runs at **3:50 AM**, after Warren (3:40, ~2 min today, ~9 min theoretical worst case) and
   before the 3:55 backup (recompute is ~30s, cache-only). Nothing depended on the old order:
-  the trend job reads only Yahoo bars and its own universe, and `crontab.txt` already said it
+  the trend job reads only the shared bars cache and its own universe, and `crontab.txt` already said it
   "doesn't need to wait on" the FMP jobs. Moving the trend job earlier instead would have fixed
   only `weinstein_*`/`reversal_status`/`pullback_status` and left BB+RSI/Warren a night behind
   (they can't all fit before 2:00 next to the Sunday maintenance window). The 2:00 fundamentals
@@ -3563,33 +3530,6 @@ Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
   (2026-09-20, 3:50 UTC); the read-only check is in `backend/OPS_RUNBOOK.md`'s
   `nightly_score_recompute` entry. After any night the trend/BB+RSI/Warren job overruns 3:50, the
   affected tickers just read a night behind as before.
-- **Yahoo price fallback: flat 1-day timer replaced with a market-session check (2026-09-19).**
-  `YahooPriceCache` now backs only `ticker_summary.py::_fetch_yahoo_latest_close` (Price/Quote
-  while `FMP_ENABLED=false`), which reads just the newest bar's close. That is a QUOTE, not
-  bar history: while the session is open Yahoo's latest daily bar is the live last trade, and it
-  only becomes the final close after the bell -- so a flat TTL was wrong in both directions. A
-  fetch at 10am ET was served all day, and after the close, until 10am the next day (a partial
-  price shown as if it were the close); conversely a fetch taken after Friday's close was
-  needlessly refetched by Monday. Not a deliberate looser tolerance: the FMP path this stands in
-  for re-fetches the quote on every ticker-page view (`force_fetch`, see `get_summary`), and
-  nothing in the code or docs argues for a laxer fallback. `clients/yahoo_cache.py::_is_stale`
-  now: **session open** (weekday 9:30-16:00 ET) -> fresh only for
-  `Settings.yahoo_quote_intraday_ttl_seconds` (60; short, not zero, so a refresh loop doesn't
-  hammer Yahoo); **session closed** -> fresh iff `fetched_at` is after the most recent session's
-  close + a 10-minute settle allowance (`_CLOSE_SETTLE`, a conservative guess for the closing
-  auction, NOT a measured Yahoo figure). So a mid-session fetch reads stale from the bell on, and
-  an after-close fetch stays fresh through the night/weekend with zero refetches. Judged off
-  `fetched_at` only, never the last bar's date, so a market holiday can't leave a row permanently
-  stale (it costs one refetch). `yahoo_price_cache_staleness_days` is deleted (nothing read it
-  any more), replaced by the TTL setting. Reuses `shared_bars_cache`'s `_EASTERN`/
-  `_most_recent_completed_trading_date`, inheriting its limits: weekday-aware, not holiday-aware,
-  US-session clock (a foreign-listed symbol is judged on the US clock). Scope: this fallback path
-  only -- FMP's quote path, `cache_only` reads and every `SharedBarsCache` consumer are
-  untouched. `get_or_fetch_price_history` gained a `reference` testability seam (drives both the
-  check and the stored `fetched_at`); `tests/test_yahoo_cache.py` pins a 15-case fetched/read
-  matrix the old rule got wrong on 7. No live damage was ever observed: FMP has been enabled, so
-  the fallback was dormant, and every recorded write landed after the close -- this closes the
-  exposure for the next FMP pause rather than repairing bad data.
 - **Verification after a nightly run** (no `sqlite3` CLI on this box; use python):
   `select ticker, interval, min(bar_time), max(bar_time), count(*), max(fetched_at) from
   sharedbarscache group by ticker, interval`. `max(bar_time)` should be the last completed
@@ -3598,284 +3538,131 @@ Price/Quote fallback in `ticker_summary.py`; nothing else writes to it.
 
 ## Daily prices: FMP (Phase 2, 2026-09-24)
 
-FMP `/historical-price-eod/full` (data group `daily_prices`) is now the primary source of the
-`SharedBarsCache` "1d" bars for **US-listed** tickers; Massive then Yahoo remain as a per-ticker
-fallback until P6. Plan/decisions: `docs/fmp_phase2_daily_prices_plan_2026-09-24.md`.
+FMP `/historical-price-eod/full` (data group `daily_prices`) is the source of the `SharedBarsCache` "1d" bars for
+**US-listed** tickers, and (since Phases 6a/6b) the only one. Plan/decisions:
+`docs/fmp_phase2_daily_prices_plan_2026-09-24.md`.
 
-- **BASIS CHANGE -- read this before comparing prices to another chart.** FMP `full` is split-
-  **and spin-off**-adjusted (not dividend-adjusted). Massive/Yahoo were split-only. For ~30 tickers
-  pre-spin-off history therefore differs from split-only sources such as TradingView by a constant
-  factor that ends on the spin-off date (T +32.5% before 2022-04-11, EXC +40%, WDC +32%, FDX +24%,
-  DHR +13%, O +3.3%, plus BDX, J, LEN, ILMN, ZBH, APTV, FLEX, SPGI, CMCSA, HON, IP, TRI). It removes
-  the artificial cliff a spin-off leaves in a raw series; it is not a data error. No splits-only FMP
-  endpoint exists (`non-split-adjusted` is raw, `dividend-adjusted` is split+dividend).
-- **Routing = listing exchange, not domicile** (`core/tickers.py::is_us_listed`, exchange read from
-  the cached FMP profile by `daily_bar_sources.py::_profile_exchanges`): NYSE, NASDAQ, AMEX (FMP's
-  name for NYSE Arca ETFs such as SPY), CBOE and **OTC** (by decision: CNSWF/EVVTY/SINGY) are US; a
-  ticker with no cached profile (the sector ETFs, `^GSPC`) is US unless its symbol has a dot;
-  HKSE etc. are non-US (Yahoo in P2; **on FMP's `daily_prices_intl` since P3**). 54 US-listed
-  tickers have a foreign domicile (ACN, TSM, BABA, NVO, HSBC ...) and are US. After the re-backfill:
-  592 tickers routed to FMP, 6 HKSE on Yahoo (P2 state), 5 delisted-flagged (AVB, EA, EQR, TWTR,
-  WBA) skipped.
-- **Chain and toggle** (`clients/daily_bar_sources.py`): `FMPWithFallback` = `FMPDailySource` then
-  `MassiveWithYahooFallback` (or Yahoo only when `MASSIVE_ENABLED=false`). A ticker FMP returns
-  nothing for (empty 200, error) falls through per ticker; `daily_prices` off / master off /
-  above plan / restricted skips FMP for the whole batch and **falls through -- it is NOT
-  cache-only** (chip "Off — using fallback"; the daily-bar jobs have no skip guard). Heartbeat
-  message: `N fell back from FMP (Massive M, Yahoo Y)` (`FallbackTickers`, `describe_fallback`).
-- **Nightly incremental** (only the 3:10 trend job actually fetches; LZ/Heatmap/Breadth/Momentum
-  read its warm cache): per ticker one `full?from=<last cached bar - 7d>` call. The last cached bar is
-  always overwritten; any EARLIER overlapping close that differs from the cache by > 0.5%
-  (`FMP_OVERLAP_TOLERANCE`) means FMP restated history (split / spin-off / symbol reuse) and that
-  ticker is refetched over its full window and **replaced** (delete + insert in one transaction,
-  `_write_rows(replace=True)`). No splits-calendar or bulk endpoint (`eod-bulk` etc. are Ultimate).
-  A cache starting within 10 days of the window start counts as covering it; a young listing
-  (< 5y of history, ~22 tickers) is refetched in full each night (cheap: short histories).
-  **Sunday (UTC) run = weekly full resync**: the trend job passes `force=True`, so every ticker is
-  refetched and replaced (closes the sub-0.5% restatement gap). Measured (2026-09-24 simulation
-  against the live cache): 592 calls, ~62 s at concurrency 10, paced to 50% of the plan's documented
+- **BASIS -- read this before comparing prices to another chart.** FMP `full` is split- **and spin-off**-adjusted
+  (not dividend-adjusted). For ~30 tickers pre-spin-off history therefore differs from split-only charts such as
+  TradingView by a constant factor that ends on the spin-off date (T +32.5% before 2022-04-11, EXC +40%, WDC +32%,
+  FDX +24%, DHR +13%, O +3.3%, plus BDX, J, LEN, ILMN, ZBH, APTV, FLEX, SPGI, CMCSA, HON, IP, TRI). It removes the
+  artificial cliff a spin-off leaves in a raw series; it is not a data error. No splits-only FMP endpoint exists
+  (`non-split-adjusted` is raw, `dividend-adjusted` is split+dividend).
+- **Routing = listing exchange, not domicile** (`core/tickers.py::is_us_listed`, exchange read from the cached FMP
+  profile by `daily_bar_sources.py::_profile_exchanges`): NYSE, NASDAQ, AMEX (FMP's name for NYSE Arca ETFs such as
+  SPY), CBOE and **OTC** (by decision: CNSWF/EVVTY/SINGY) are US; a ticker with no cached profile (the sector ETFs)
+  is US unless its symbol has a dot. 54 US-listed tickers have a foreign domicile (ACN, TSM, BABA, NVO, HSBC ...)
+  and are US. Delisted-flagged tickers are skipped.
+- **Source and toggle** (`clients/daily_bar_sources.py`): `get_daily_bar_source()` returns `FMPDailySource`. A ticker
+  FMP returns nothing for (empty 200, error) lands in the `unserved_tickers` out-parameter and keeps its cached
+  bars; `daily_prices` off / master off / above plan / restricted reports the whole batch unserved -- **cache-only,
+  and the daily-bar jobs record `skipped`** (Phase 6b). Heartbeat message: `N not served by FMP (cached bars kept)`.
+- **Nightly incremental** (only the 3:10 trend job actually fetches; LZ/Heatmap/Breadth/Momentum read its warm
+  cache): per ticker one `full?from=<last cached bar - 7d>` call. The last cached bar is always overwritten; any
+  EARLIER overlapping close that differs from the cache by > 0.5% (`FMP_OVERLAP_TOLERANCE`) means FMP restated
+  history (split / spin-off / symbol reuse) and that ticker is refetched over its full window and **replaced**
+  (delete + insert in one transaction, `_write_rows(replace=True)`). No splits-calendar or bulk endpoint (`eod-bulk`
+  etc. are Ultimate). A cache starting within 10 days of the window start counts as covering it; a young listing
+  (< 5y of history, ~22 tickers) is refetched in full each night (cheap: short histories). **Sunday (UTC) run =
+  weekly full resync**: the trend job passes `force=True`, so every ticker is refetched and replaced (closes the
+  sub-0.5% restatement gap). Measured: ~590 calls, ~62 s at concurrency 10, paced to 50% of the plan's documented
   rate (`FMP_PLAN_REQUESTS_PER_MIN`); a full 5y backfill is ~88 s of fetching.
 - **Partial bars.** A bar dated after the last completed session is dropped by the FMP source, and
-  `shared_bars_cache._provisional_last_bar_tickers` treats a row whose newest write predates the
-  close (+10 min) of its last bar's own session as stale (the 2026-09-23 15:50 ET incident: a
-  date-only freshness check kept mid-session bars forever). Applies to every provider.
-- **Chart tab** D_6M/D_1Y/D_2Y: FMP first for US-listed tickers while the group is live, then
-  Massive, then Yahoo (`ChartOut.source` = "fmp"|"massive"|"yahoo"); W_4Y, non-US and the Analyst
-  Ratings 10y overlay were still Yahoo in P2 (**all three moved to FMP in P3**). Header price
-  fallback (Massive snapshot -> Yahoo) and the delisted probe are deliberately unchanged.
-- **Re-backfill (run 2026-09-24)** `pipeline/backfills/backfill_fmp_daily_bars.py`: replaces each
-  routed ticker's 1d rows with a fresh 5y FMP series (728,231 rows); a ticker FMP cannot serve
-  keeps its rows; `--dry-run` fetches and compares without writing. Stitched-symbol results:
-  META, B, BNY, COHR, CNSWF, DOC, ECHO, PSKY now continuous (FMP max 1-day moves <= 30%);
-  **PARA** is FMP's PARA = Banzai International (matches the cached profile), so the
-  Paramount->Banzai stitch is gone; **SPCX** shrank from 1,135 stitched bars to 71 (SpaceX IPO
-  2026-06-12) and now reads `stage=None` (< 40 weeks); **AVB is NOT fixed** (FMP carries the same
-  2026-08-17 -64% cliff; delisted-flagged, left as is). COR, FISV, ECHO and SEZL gained
-  history. `backfill_market_breadth --rebuild` replaces `is_backfilled` breadth rows only.
-- **Parity (old cache vs FMP, 592 tickers, 717,171 overlapping days):** 98.14% of closes within
-  0.1% (the shortfall is entirely the 42 tickers below); on the 550 unflagged tickers open/high/low/
-  close/volume are within tolerance 99.81/99.81/99.84/99.84/99.90%. The 42 tickers with days off by
-  > 1%: spin-off basis (HON, FDX, BDX, WDC, J, LEN, ILMN, DHR, T, ZBH, EXC, O, SPGI, CMCSA, APTV, FLEX,
-  IP, TRI), stitched/renamed symbols (BNY, PARA, B, CNSWF, COHR, META, DOC, ECHO, PSKY), a single bad
-  2023-05-30 (+GNRC 2023-02-08) print in the OLD cache (BABA, CCJ, GNRC, GOOGL, NUE, PCG, QCOM, RVTY,
-  SYK, TECL, TME, VST), OTC thin-trading differences (SINGY, EVVTY) and longer FMP history (COR, ...).
-  Weinstein: 3 stage changes (BDX decline->advance, FDX decline->advance -- both spin-off basis --
-  and SPCX advance->None), 6 since-date-only changes, all in those buckets. **Liquidity Zones moved
-  for 215 of 592 tickers** but 193 of the 550 unflagged are 2-decimal jitter from sub-0.1% high/low
-  print differences; 15 moved by > 0.5%, of which only 5 (AME, BKNG, DIS, GL, TECH) are NOT
-  traceable to spin-off / stitched / extra history / a bad old print (IVZ 2026-04-27 low, MA
-  2023-01-24 low) -- they are swing-detection flips from tiny H/L differences (swing_bars=2).
-  The dry-run gate (>= 99% of days within 0.1%) was not met literally (98.14%) and was
-  **accepted by the user** (two more known buckets: bad 2023-05-30 / 2023-02-08 prints in the old
-  cache, and small SINGY/EVVTY OTC vendor differences).
-- **Recomputes run 2026-09-24** on the new cache: trend/Weinstein 586 tickers (0 failed, 54 s),
-  Liquidity Zones 100 (0 failed, 5 s), `recompute_ticker_scores` 591 (0 failed, 25 s), Sector
-  Heatmap re-run for the stored dates 2026-09-18/21/23 (XLK 1Y -30% -> +39%),
-  `backfill_market_breadth --rebuild` (2,911 old backfilled rows replaced by 10,775; **the
-  backfilled history now spans 2022-09-26..2026-09-23 (~4y) instead of ~1y, because the cache
-  now holds 5y** -- kept uncapped by decision, still survivorship-biased), Momentum re-run for
-  the 2026-08-31 anchor and the stray manual 2026-09-23 snapshot (BNY, whose stitched series had
-  ranked it 2nd, dropped out of the top 5; 404/405 scored). BDX and FDX read
-  Advance and SPCX reads no stage (16 weeks of history) in `TickerScore`.
+  `shared_bars_cache._provisional_last_bar_tickers` treats a row whose newest write predates the close (+10 min) of
+  its last bar's own session as stale (the 2026-09-23 15:50 ET incident: a date-only freshness check kept
+  mid-session bars forever).
+- **Chart tab** D_6M/D_1Y/D_2Y: FMP for every ticker while the group is live; group off or FMP failing/empty -> an
+  empty chart (Phase 6b). `ChartOut.source` is always `"fmp"`.
+- **Re-backfill (run 2026-09-24)** `pipeline/backfills/backfill_fmp_daily_bars.py`: replaces each routed ticker's 1d
+  rows with a fresh 5y FMP series (728,231 rows); a ticker FMP cannot serve keeps its rows; `--dry-run` fetches and
+  compares without writing. Stitched-symbol results: META, B, BNY, COHR, CNSWF, DOC, ECHO, PSKY now continuous;
+  **PARA** is FMP's PARA = Banzai International (matches the cached profile); **SPCX** shrank to 71 bars (IPO
+  2026-06-12) and reads `stage=None` (< 40 weeks); **AVB is NOT fixed** (FMP carries the same 2026-08-17 -64% cliff;
+  delisted-flagged, left as is). `backfill_market_breadth --rebuild` replaces `is_backfilled` breadth rows only.
+- **Parity (old cache vs FMP, 592 tickers, 717,171 overlapping days):** 98.14% of closes within 0.1%; the shortfall
+  is entirely 42 tickers explained by spin-off basis, stitched/renamed symbols, single bad prints in the OLD cache,
+  OTC thin-trading differences and longer FMP history. The dry-run gate (>= 99%) was **accepted by the user** at
+  98.14%. Weinstein: 3 stage changes (BDX, FDX -- spin-off basis -- and SPCX), 6 since-date-only changes.
+  **Liquidity Zones moved for 215 of 592 tickers**, 193 of them 2-decimal jitter from sub-0.1% high/low differences
+  (swing_bars=2 makes swing detection sensitive to that).
+- **Recomputes run 2026-09-24** on the new cache: trend/Weinstein 586 tickers, Liquidity Zones 100,
+  `recompute_ticker_scores` 591, Sector Heatmap re-run for the stored dates, `backfill_market_breadth --rebuild`
+  (2,911 old backfilled rows replaced by 10,775; **the backfilled history now spans 2022-09-26..2026-09-23 (~4y)
+  because the cache now holds 5y** -- kept uncapped by decision, still survivorship-biased), Momentum re-run for the
+  2026-08-31 anchor.
 
-## Daily prices: FMP, Phase 3 -- long history + non-US (2026-09-25)
+## Daily prices: FMP, Phase 3 -- long history (2026-09-25)
 
-Moves the last Phase-3 Yahoo daily/weekly consumers to FMP: the **6 HKSE tickers** (nightly bars
-and Chart), **Chart W_4Y**, and the **Analyst Ratings 10y price overlay**. Investigation:
-`docs/fmp_phase3_long_history_non_us_investigation_2026-09-25.md`. Out of scope and unchanged: the
-60m/intraday path (P4), extended hours (P5), the header price-fallback quote and the delisted-revival
-probe (P6), removing Yahoo/Massive (P6), the orphan `^GSPC` cache rows, per-country tiers in Settings.
-`crontab.txt` unchanged, no crontab reinstall. The API/frontend are production builds with no hot
-reload: **restart (`./bin/stop.sh && ./bin/start.sh`) to pick the code up** (`init_db()` creates the
-new table; the real DB already has it from the smoke check).
+Moved **Chart W_4Y** and the **Analyst Ratings 10y price overlay** to FMP. (This phase also moved non-US tickers and
+added a phantom-bar filter; all non-US support was removed in the Phase 6a follow-up, so that part is gone.)
+Investigation: `docs/fmp_phase3_long_history_non_us_investigation_2026-09-25.md`.
 
-- **Groups / tiers.** `daily_prices_long` (Premium: FMP documents 30y history on Premium, 5y on
-  Starter) = US listings' history beyond the nightly ~5y, feeding W_4Y and the overlay.
-  `daily_prices_intl` (Ultimate: global coverage) = **every** non-US use (nightly bars, non-US
-  long history, non-US Chart D/W and overlay). Both seeded unverified (docs-only -- our key returns
-  10y+ and HKSE with no 402), both `falls_back=True`, both live. `FMPClient.get_historical_price_eod`
-  takes `group=` (default `daily_prices`); `/historical-price-eod/full` is in
-  `ENDPOINT_GROUP_OVERRIDES_USED`; `PROBE_ENDPOINTS` canaries are AAPL (long, a 2016 window) and
-  `0005.HK` (intl). **The 402 canary for `daily_prices_intl` is a non-US symbol, not AAPL**
-  (`NON_US_CANARY_GROUPS`): a plan without global coverage 402s only non-US symbols, so the usual
-  "swap in AAPL" test would always read "symbol-scoped, leave live". Still simulated-only -- no real
-  402 has ever been observed.
-- **FMP caps a response at 5,000 rows (~19.9y), silently** -- no 402. A 10y request (~2,500 rows,
-  ~0.56 MB, 1.6-2.0 s) fits in one call; no paging exists anywhere. (20y+ is not obtainable in one call.)
-- **Non-US phantom bars** (`daily_bar_sources.py::drop_phantom_bars`, applied via
-  `fmp_rows_to_frame(..., non_us=True)` before ANY cache/table write; US is never filtered). FMP's HK
-  series carries dates the exchange was closed. **The rule as first specified (drop weekend bars, drop a
-  bar with OHLC identical to the previous AND identical/zero volume) was checked against the real rows
-  and against 5y of live Yahoo bars for all six names, and refined** -- three real shapes:
-  (1) weekend rows (Sunday 2025-10-26 on 0005; 0883's Sundays in 2024-09) -- dropped;
-  (2) a holiday/weekend bar that is an EXACT copy (OHLC and volume to the share) of the NEXT trading
-  day -- 28 on 0857, 29 on 0883 over 5y (0883 2024-09-18 -> the real 09-19). **The later bar is the
-  real one (it is on Yahoo), so the EARLIER copy is dropped**; the literal rule dropped the real day and
-  kept the phantom, shifting ~30 bars a day early on those two names; the Sunday-then-Monday copy
-  (0005 2025-10-26/27) likewise lost the REAL Monday until weekends were removed first and the copy
-  test made against the remaining bars;
-  (3) Good Friday 2025-04-18 on every HK name: OHLC copied from the previous session with volume
-  *revised* (+0.005% 0005, +0.076% 0883, +0.09% 0857) -- the literal rule KEPT it, so it is dropped when
-  volume is within `PHANTOM_VOLUME_TOLERANCE` (0.5%). **Identical OHLC alone is not enough**: real
-  consecutive days repeat OHLC exactly (0728 on 2021-11-15, 2024-05-24, 2026-01-14; 3988 on 2021-11-18
-  -- all on Yahoo, all with 14%+ different volume), so volume has to agree. Expected-vs-found for
-  the D7 check "no dropped bar has differing non-zero volume": true for shapes 1-2, **false for
-  shape 3** (that is the point of the tolerance). **Result vs 5y live Yahoo: 0 real bars wrongly
-  dropped, 0 Yahoo dates missing, closes within 0.5% on 99.92-100%** (AAPL control: 0 dropped).
-  **Known residual: 3988.HK 2025-04-18** -- its Good Friday copy has -8.1% volume, inside the range of
-  genuine repeats, so it survives (1 bar of 1,228). **Drop counts** (raw 5y window 2021-09-25..
-  2026-09-24): 0005 **2**, 0728 **1**, 0857 **29**, 0883 **35**, 0941 **1**, 3988 **0**.
-- **Non-US nightly path.** `route_by_source` sends non-US to `get_daily_bar_source(non_us=True)` =
-  `FMPWithFallback(non_us=True)`: `FMPDailySource(group="daily_prices_intl", non_us=True)` then a
-  **Yahoo-only** fallback (Massive is US-market-only). Same incremental/overlap/replace/Sunday-resync
-  mechanics as US (the overlap check compares shared dates, so phantom bars in FMP's window are
-  filtered out before it and never read as a restatement). `daily_prices_intl` off/restricted/above
-  plan skips FMP for the non-US batch and **falls through -- not cache-only** (chip "Off -- using
-  fallback"); the US and intl groups gate independently. Heartbeat: HK tickers now count in
-  `N fell back from FMP (Massive M, Yahoo Y)` only when they actually fell back.
-  `resolve_daily_bar_source_label` for a non-US ticker: "fmp" while intl is live else "yahoo".
-  Nightly cost: +6 calls (+6 on the Sunday resync).
-- **HK re-backfill (run 2026-09-25)**: `backfill_fmp_daily_bars --scope non-us` (`--scope us` is the
-  default = Phase 2 behaviour; `all` does both). It is **gated**: it refuses to write (raising
-  `ParityGateError`, nothing written) unless every ticker has >= 99% of shared-date closes within
-  0.5% of the cache; a dry run reports the same numbers plus every date over the tolerance. Dry run
-  (twice -- once with the first filter, once after the refinement above) then the real run: 7,363
-  rows replaced, 5y window (2021-09-27..2026-09-24; was 495 bars/2y each). Parity vs the old (Yahoo)
-  cache, final filter:
-
-  | ticker | FMP rows | shared days | <=0.1% | <=0.5% | max diff | dates >0.5% | cache-only | FMP-only |
-  |---|---|---|---|---|---|---|---|---|
-  | 0005.HK | 1,227 | 495 | 492 | 100% | 0.27% | - | 0 | 1 |
-  | 0728.HK | 1,227 | 495 | 473 | 100% | 0.21% | - | 0 | 1 |
-  | 0857.HK | 1,227 | 495 | 491 | 99.80% | 0.65% | 2026-02-16 | 0 | 1 |
-  | 0883.HK | 1,227 | 495 | 491 | 99.80% | 0.72% | 2026-02-16 | 0 | 1 |
-  | 0941.HK | 1,227 | 495 | 492 | 100% | 0.38% | - | 0 | 1 |
-  | 3988.HK | 1,228 | 495 | 493 | 100% | 0.25% | - | 0 | 2 |
-
-  Every diff traced: **2026-02-16** (0857/0883) -- Lunar-New-Year eve: Yahoo carries a zero-volume flat
-  placeholder bar (9.24 / 25.32) while FMP has the real half-day session (23.2M / 39.8M shares), so the
-  cache was the wrong one; **FMP-only** = 2026-09-24 (the fresh bar) on all six plus 3988's Good Friday
-  residual above; **cache-only** was 1-2 dates per ticker with the first filter (0005 2025-10-27, 0883
-  2024-09-23 -- the real Mondays after a phantom Sunday, and 0883 2024-09-19) and is 0 with the final one.
-  Recomputed: `nightly_trend_calculation --tickers` (6, 0 failed), `recompute_ticker_scores --tickers`
-  (6, 0 failed). **Weinstein before -> after: no stage or since-date changed for any of the six** --
-  0005 advance since 2025-05-19 (lower bound), 0728 decline 2026-01-05, 0857 advance 2025-05-26, 0883
-  decline 2026-09-21, 0941 base 2026-08-17, 3988 advance 2026-03-23 (a weekly resample barely notices a
-  single duplicated day). The tiles moved only because the series now includes the 2026-09-24 bar and
-  lost the phantoms (`vs 30-wk MA`: 0005 7.86 -> 6.17, 0857 -8.48 -> -5.92, 0883 -8.13 -> -6.23, 0728
-  -8.93 -> -8.83, 0941 -2.88 -> -2.76, 3988 14.31 -> 15.03). **None of the six is on any watchlist**
-  (W1-W5 or otherwise) -- no Liquidity Zone rows exist for them, so that job was not run.
+- **Group / tier.** `daily_prices_long` (Premium: FMP documents 30y history on Premium, 5y on Starter) = history
+  beyond the nightly ~5y, feeding W_4Y and the overlay. Seeded unverified (docs-only -- our key returns 10y+ with no
+  402). `FMPClient.get_historical_price_eod` takes `group=` (default `daily_prices`); `/historical-price-eod/full`
+  is in `ENDPOINT_GROUP_OVERRIDES_USED`; the `PROBE_ENDPOINTS` canary is AAPL over a 2016 window.
+- **FMP caps a response at 5,000 rows (~19.9y), silently** -- no 402. A 10y request (~2,500 rows, ~0.56 MB,
+  1.6-2.0 s) fits in one call; no paging exists anywhere.
 - **The long-history table** (`LongHistoryBars`, PK `(ticker, bar_time)`; `clients/long_history_bars.py::
   get_long_history`) -- one full ~10y copy per ticker, FMP `full` basis, `from = today - 10y`. **Not**
-  `SharedBarsCache["1d"]` (its weekly `prune_old_bars` keeps 6y and would trim a 10y row into a refetch
-  loop; `_preserved_lookback_days` would ratchet that ticker's nightly refetch to the 10y tier; the
-  Trend/LZ/Breadth jobs assume "5y everyone") and not a `FundamentalsCache` blob. **Nothing prunes it
-  and nothing nightly reads or writes it** -- pinned by tests (`prune_old_bars` leaves it alone; a
-  10y row beside a nightly row does not change what the nightly job requests). Rows are only appended
-  by a top-up or replaced wholesale, so a ticker's span grows ~250 rows/year (no trim; ~0.6 MB/ticker,
-  worst case all ~600 tickers ~375 MB). **Filled and refreshed lazily on a view**, per ticker, single-
-  flight (an in-process `asyncio.Lock` per (loop, ticker): concurrent first opens make ONE FMP call):
-  cold -> synchronous 10y fetch; warm and fresh (last bar = the last completed US session AND written
-  after that session's close + 10 min, the Phase 2 rule) -> served with no call; warm and stale ->
-  `from = last bar - 7d`, 0.5% overlap check on shared dates, a mismatch refetches the full 10y and
-  REPLACES (no shrink guard); group off / master off / restricted -> an existing row is served as-is
-  (cached-only, never wiped), no row -> `None` (callers fall through to Yahoo); group live but FMP
-  errors/empty -> cold: `None`, nothing written; **warm-stale: the existing row is served** (a
-  same-basis row a few days behind beats silently switching a chart to Yahoo's basis -- a small
-  interpretation of the spec, which only spelled out the cold case). Errors log the exception type
-  only (the URL carries the API key). Group per ticker: `daily_prices_long` for a US listing,
-  `daily_prices_intl` (plus the phantom filter) for a non-US one. Cost: ~1.6-2.1 s cold (comparable to
-  the Yahoo `1wk 10y` call it replaces), ~0.07 s warm.
-- **Chart W_4Y** (`chart_data._fetch_fmp_weekly_bars`): the store's dailies, trimmed to 10y, through
-  the existing `weinstein.resample_to_weekly` (W-FRI, shifted to Monday labels; no new resampler),
-  `ChartOut.source="fmp"`; Yahoo native `1wk` is the fall-through. Verified on real fixtures
-  (`tests/fixtures/weekly_parity_fmp_daily_vs_yahoo_1wk.json`: FMP dailies vs Yahoo `1wk`, AAPL/KO/SPY,
-  68 complete weeks): labels identical week for week, closes within 0.5% on all 68, O/H/L within 0.5% on
-  >=98%, volume >=90% (vendor volume prints differ slightly; the investigation measured 96.7-99.6%
-  on 522 weeks). The in-progress week is a partial bar labelled by its Monday, as Yahoo does. **The
-  Chart tab's "zero persistent caching" now has this one exception** (daily ranges are unchanged and
-  still uncached); it is close-aware, so the 2026-09-18 stale-bar bug cannot recur here.
-- **Chart D_6M/D_1Y/D_2Y for non-US** now go FMP first through `daily_prices_intl` (phantom bars
-  dropped), then Yahoo (Massive is still skipped for a non-US listing); the `is_non_us_ticker`
-  Yahoo short-circuit is gone.
-- **Analyst overlay basis change (visible).** `_fetch_price_history` now reads the store's **FMP `full`
-  closes: split- (and spin-off-) adjusted, NOT dividend-adjusted** -- previously Yahoo `Adj Close`
-  (dividend- AND split-adjusted). Split-only is the faithful comparison: the target line is FMP's
-  split-adjusted `adjPriceTarget`, an analyst's target is a nominal price, and a dividend-adjusted
-  close deflates every earlier price by the dividends paid since (also matches the Chart tab).
-  **For dividend payers the overlay's historical prices are higher than before** -- measured in the
-  investigation: KO up to 36% (2016), SPY 17%, AAPL 9%; live KO 2016-12-30: **41.46 now vs 30.67
-  before** (Yahoo `Close` 41.46, `Adj Close` 30.666). The Yahoo fall-through (group off with no
-  row, FMP error/empty) reads Yahoo's split-only `Close` (auto_adjust=False; P3.7b), so the overlay
-  has the same basis whichever source answers; it is empty rather than an error if nothing answers. The dividend-adjusted endpoint was
-  deliberately NOT added to the registry.
-- **10y views show FMP's spin-off-adjusted history** (T, WDC, FDX, EXC ... -- same accepted basis as
-  Phase 2's nightly bars; see the P2 section's BASIS CHANGE). No splits-only endpoint exists.
-- **Known limits.** Freshness for HK uses the **US-session clock** (D8: no exchange calendar): an
-  HK-only holiday leaves the last bar behind the US "completed session", so that ticker reads stale
-  and costs one redundant, idempotent call per nightly run -- and per ticker-page view for a
-  long-history HK row -- until its next bar exists. `_provisional_last_bar_tickers`'s 16:00 ET close
-  makes an HK bar fetched between HK close and 16:10 ET read as provisional (irrelevant for the
-  03:10 UTC cron). The trend job still asks for 2y of HK dailies (`weeks_available` stays 105);
-  the backfilled 5y rows are simply retained. The overlay's Yahoo fall-through is on
-  the same split-only basis (see above).
-- **Smoke check (2026-09-25, direct function calls against the real DB and live FMP -- the running
-  API is an old production build until restarted, so curl would exercise old code):** AAPL `W_4Y`
-  cold: source `fmp`, 209 weekly bars 2022-09-26..2026-09-21, **1 FMP call**, 1.94 s; warm: same
-  bars, **0 FMP calls**, 0.07 s. KO overlay: 2,513 closes 2016-09-26..2026-09-24, 1 call; `price_on_date`
-  2016-12-30 = **41.46** (split-only; Yahoo `Adj Close` would give 30.67). 0005.HK `W_4Y`: `fmp`, 209
-  bars, 1 call; `D_1Y`: `fmp`, 245 bars 2025-09-25..2026-09-24, 1 call, 0 weekend bars. Chart events
-  were stubbed in the smoke script so it made only the 4 price calls. Tests: 2,049 -> 2,128
-  backend tests, all passing.
-- **Live FMP calls this build: 31**, all per-ticker `/historical-price-eod/full` (never bulk): 4 for
-  the phantom-bar check, 12 for the two HK dry runs, 3 re-fetches of raw series for tracing, 6 for the real
-  HK backfill, 2 for the weekly-parity fixtures (KO, SPY), 4 for the smoke check.
+  `SharedBarsCache["1d"]` (its weekly `prune_old_bars` keeps 6y and would trim a 10y row into a refetch loop) and not
+  a `FundamentalsCache` blob. **Nothing prunes it and nothing nightly reads or writes it** -- pinned by tests. Rows
+  are only appended by a top-up or replaced wholesale (~250 rows/year/ticker, ~0.6 MB/ticker). **Filled and
+  refreshed lazily on a view**, per ticker, single-flight (an in-process `asyncio.Lock` per (loop, ticker)):
+  cold -> synchronous 10y fetch; warm and fresh (last bar = the last completed US session AND written after that
+  session's close + 10 min, the Phase 2 rule) -> served with no call; warm and stale -> `from = last bar - 7d`, 0.5%
+  overlap check on shared dates, a mismatch refetches the full 10y and REPLACES; group off / master off / restricted
+  -> an existing row is served as-is (cached-only, never wiped), no row -> `None`; group live but FMP errors/empty ->
+  cold: `None`, nothing written; **warm-stale: the existing row is served**. Errors log the exception type only (the
+  URL carries the API key). Cost: ~1.6-2.1 s cold, ~0.07 s warm.
+- **Chart W_4Y** (`chart_data._fetch_fmp_weekly_bars`): the store's dailies, trimmed to 10y, through the existing
+  `weinstein.resample_to_weekly` (W-FRI, shifted to Monday labels), `ChartOut.source="fmp"`; no stored row -> empty
+  chart (Phase 6b). Weekly parity was verified against a recorded native-weekly reference
+  (`tests/fixtures/weekly_parity_fmp_daily_vs_yahoo_1wk.json`, kept as that historical record, still used by
+  `test_chart_weekly_fmp.py`): labels identical week for week, closes within 0.5% on all 68 weeks, volume >=90%.
+  The in-progress week is a partial bar labelled by its Monday. **The Chart tab's "zero persistent caching" has this
+  one exception** (daily ranges are uncached); it is close-aware, so the 2026-09-18 stale-bar bug cannot recur here.
+- **Analyst overlay basis.** `_fetch_price_history` reads the store's **FMP `full` closes: split- (and spin-off-)
+  adjusted, NOT dividend-adjusted**. Split-only is the faithful comparison: the target line is FMP's split-adjusted
+  `adjPriceTarget`, an analyst's target is a nominal price, and a dividend-adjusted close deflates every earlier price
+  by the dividends paid since (also matches the Chart tab). No stored row -> an empty overlay, never an error. The
+  dividend-adjusted endpoint is deliberately NOT in the registry.
+- **10y views show FMP's spin-off-adjusted history** (T, WDC, FDX, EXC ... -- same accepted basis as Phase 2's
+  nightly bars; see its BASIS CHANGE). No splits-only endpoint exists.
 
 ## Intraday bars: FMP, Phase 4 (2026-09-26)
 
-FMP `/historical-chart/1hour` (data group `intraday_bars`, Premium, seeded unverified) is now the
-primary source of the shared **"60m"** `SharedBarsCache` rows behind Warren and BB+RSI, for
-**US-listed** tickers; Yahoo is the per-ticker / group-off fallback and stays the only source for
-non-US tickers. Both consumers share the rows, so they moved together; neither engine changed.
-(The old "FMP intraday returns 402" note, 2026-09-09, is stale: 200 on every interval as of
-2026-09-24/26.)
+FMP `/historical-chart/1hour` (data group `intraday_bars`, Premium, seeded unverified) is the source of the shared
+**"60m"** `SharedBarsCache` rows behind Warren and BB+RSI, for **US-listed** tickers (non-US tickers get no 60m bars).
+Both consumers share the rows; neither engine changed. Since Phase 6b there is no fallback provider: with the group
+off, the cached rows keep serving and the Warren/BB+RSI nightly jobs record `skipped`.
 
-- **Basis (checked 2026-09-26, live):** split-adjusted, NOT dividend-adjusted -- the endpoint has
-  no adjustment parameter. IBKR (4:1, Jun 2025) and FAST (2:1, May 2025) pre-split bars match the
-  Yahoo 60m cache to <0.05%; VZ/O bars from Oct 2024 match the daily cache (FMP `full`). RTH only,
-  labelled by bar START (09:30..15:30), timestamps naive strings in ET, newest first. **Never
-  `extended=true`** (clock-anchored, wrong labelling).
-- **Client/registry:** `FMPClient.get_historical_chart_1hour` (a literal path -- the registry test
-  scans for literals), `ENDPOINT_GROUP["/historical-chart/1hour"]`, an AAPL canary in
-  `PROBE_ENDPOINTS`.
-- **`FMPIntradaySource` / `FMPIntradayWithFallback`** (`clients/daily_bar_sources.py`, P2's
-  FMPDailySource shape): FULL fetch when never cached, narrower than requested, `force`, or the
-  cached rows are not all FMP's; otherwise INCREMENTAL `from = last bar - 3d` with a 0.5% overlap
-  check (mismatch = restated history -> full refetch + replace). Full fetches page newest-first by
-  moving `to` to the oldest bar returned (~9 pages / 730 days; a window that fits one page costs
-  one call), start no later than the cached first bar (nothing held is lost), and never write a
-  partial history on a mid-paging error. Bars after the last completed bar are dropped. Group off /
-  restricted / error / thin answer -> Yahoo per ticker (**not** cache-only; chip "Off -- using
-  fallback").
-- **Provenance forces the one-time replace.** `SharedBarsCache.source` ("fmp" | "yahoo" | NULL;
-  nullable, no backfill, only "60m" reads it). A ticker whose cached 60m rows are not ALL "fmp" --
-  every pre-cutover row reads NULL -- is fully replaced on its next FMP fetch, so FMP bars are never
-  layered on Yahoo history. There is no separate backfill script: the first nightly run after deploy
-  does it (~9 calls x ~105 W1-W5 tickers, ~945). A Yahoo fallback write re-tags its rows "yahoo", so
-  a later FMP success replaces again rather than leaving a mixed-source seam in Warren's replay window.
-- **Completeness check:** each fetched frame is scanned for sessions with fewer than 7 hourly bars
-  (4 on half-days: day after Thanksgiving, Dec 24, Jul 3); short sessions are logged per ticker
-  (`FMPIntradaySource.short_sessions`). Log-only -- nothing is refetched or dropped. Purpose: learn
-  whether the AAPL March gap (3-5 bars on two dates) recurs. Not in the heartbeat message.
-- **Accepted side effect (reviewed, do not "fix"):** replaying 2y of history through Warren on FMP
-  vs Yahoo prices gives identical signal dates for 4 of 8 tickers tested and 1-4 of ~25 differing
-  dates for the rest (MSFT, NVDA, ASML, GOOGL) -- small OHLC differences crossing indicator
-  thresholds on different bars. No compensating logic.
+- **Basis (checked 2026-09-26, live):** split-adjusted, NOT dividend-adjusted -- the endpoint has no adjustment
+  parameter. IBKR (4:1, Jun 2025) and FAST (2:1, May 2025) pre-split bars are consistent with the daily cache
+  (FMP `full`). RTH only, labelled by bar START (09:30..15:30), timestamps naive strings in ET, newest first.
+  **Never `extended=true`** (clock-anchored, wrong labelling).
+- **Client/registry:** `FMPClient.get_historical_chart_1hour` (a literal path -- the registry test scans for
+  literals), `ENDPOINT_GROUP["/historical-chart/1hour"]`, an AAPL canary in `PROBE_ENDPOINTS`.
+- **`FMPIntradaySource`** (`clients/daily_bar_sources.py`, P2's FMPDailySource shape): FULL fetch when never cached,
+  narrower than requested, `force`, or the cached rows are not all FMP's; otherwise INCREMENTAL `from = last bar - 3d`
+  with a 0.5% overlap check (mismatch = restated history -> full refetch + replace). Full fetches page newest-first by
+  moving `to` to the oldest bar returned (~9 pages / 730 days), start no later than the cached first bar, and never
+  write a partial history on a mid-paging error. Bars after the last completed bar are dropped. A ticker FMP does not
+  serve (group off / restricted / error / thin answer) lands in the `unserved_tickers` out-parameter and keeps its
+  cached bars.
+- **Provenance forces the one-time replace.** `SharedBarsCache.source` ("fmp" | NULL; nullable, no backfill, only
+  "60m" reads it). A ticker whose cached 60m rows are not ALL "fmp" -- every pre-cutover row reads NULL (or the
+  legacy "yahoo") -- is fully replaced on its next FMP fetch, so FMP bars are never layered on older-provider
+  history. There is no separate backfill script: the first nightly run after the cutover did it.
+- **Completeness check:** each fetched frame is scanned for sessions with fewer than 7 hourly bars (4 on half-days);
+  short sessions are logged per ticker (`FMPIntradaySource.short_sessions`). Log-only -- nothing is refetched or
+  dropped.
+- **Accepted side effect (reviewed, do not "fix"):** replaying 2y of history through Warren on FMP vs the previous
+  provider's prices gave identical signal dates for 4 of 8 tickers tested and 1-4 of ~25 differing dates for the
+  rest -- small OHLC differences crossing indicator thresholds on different bars. No compensating logic.
 - **Cost:** nightly ~105 calls (one overlapping incremental per ticker); a cold full backfill ~945.
-- **Not touched:** extended hours (P5), warm-up buffer / history depth / retention, non-US 60m,
-  `crontab.txt` (no reinstall). The API is a production build: restart to pick this up.
-  `FMPTechnicalSource` no longer raises; it and `YahooTechnicalSource` are both thin readers of the
-  shared cache (provider choice lives there).
+- **Not touched:** extended hours (P5), warm-up buffer / history depth / retention. `FMPTechnicalSource` is a thin
+  reader of the shared cache.
 
 ## Phase 6a follow-up: corporate-events upsert/retention/weekly splits + non-US removal (2026-09-26)
 
@@ -3898,13 +3685,13 @@ non-US tickers. Both consumers share the rows, so they moved together; neither e
 - **Non-US support removed.** Deleted: the `daily_prices_intl` data group (registry, canary,
   `NON_US_CANARY_GROUPS`, 402 non-US canary branch), `drop_phantom_bars`/`PHANTOM_VOLUME_TOLERANCE` and every
   `non_us=` parameter (the filter was only ever applied to non-US series -- US was never filtered, so nothing
-  US-facing lost it), the Chart tab's non-US branch (every ticker now uses `daily_prices` then Yahoo),
+  US-facing lost it), the Chart tab's non-US branch (every ticker now uses `daily_prices`),
   `long_history_bars.group_for` (always `daily_prices_long`), the nightly non-US daily-bar fetch
   (`shared_bars_cache` now fetches only the US half of `route_by_source`, as 60m already did), and the
   backfill's `--scope`/parity gate. Kept, deliberately: `route_by_source`/`is_us_listed`/`_profile_exchanges`
   (they scope the price-target/last-close/corporate-events universes and the bar fetches).
   **Consequence:** a non-US ticker viewed later gets a `TickerScore` and fundamentals but no nightly bars; its
-  Chart tab works on demand (FMP `daily_prices`, unfiltered, else Yahoo), and its long-history/overlay bars come
+  Chart tab works on demand (FMP `daily_prices`, unfiltered), and its long-history/overlay bars come
   from the same group with no phantom filtering. The 6 HKSE tickers were purged from the real DB (see the
   2026-09-26 cleanup record in the commit message/report); nothing prevents a user re-adding one.
   Sections above describing `daily_prices_intl`, phantom bars, `--scope non-us` and the HK backfill are history.
@@ -3925,15 +3712,15 @@ scoring. Bars come from FMP, through `SharedBarsCache` (`get_or_fetch_bars_batch
   whose latest bar is >5 days behind the anchor is all-`None`.
 - **Anchor** (`data/sector_heatmap_data.py::_resolve_anchor`): the latest bar date across the
   fetched funds that is <= the last COMPLETED session (`_most_recent_completed_trading_date`).
-  The cap drops yfinance's in-progress same-day bar; taking it from the data (not the
+  The cap drops an in-progress same-day bar; taking it from the data (not the
   weekday-only helper directly) makes a market holiday anchor to the real last trading day.
 - **Storage**: `SectorEtfReturn`, long format `(ticker, return_window, as_of_date)` unique, plus
   `base_date`, `return_pct` (percentage POINTS, 4.25 == +4.25%, unlike `MomentumSnapshot`'s
   fractions), `computed_at`. The column is `return_window` because WINDOW is reserved in SQLite.
   Upserted, so a weekend/holiday re-run is idempotent; a rolling year of daily snapshots is kept
   (~77 rows/session, pruned nightly -- see Retention below) and the API reads only the latest
-  `as_of_date`. **Not** `SharedBarsCache` (no adjusted
-  close; Yahoo rescales `Adj Close` retroactively at every ex-dividend) and **not**
+  `as_of_date`. **Not** `SharedBarsCache` (that cache holds raw,
+  unadjusted-for-dividends bars) and **not**
   `MomentumSnapshot` (required `moat`, no universe discriminator).
 - **Job**: `pipeline.nightly_sector_heatmap`, 3:30 AM (the free slot between Liquidity Zones 3:25
   and Warren 3:40), one 11-ticker batch (~1-4s). Wired into `CRON_JOB_NAMES`/
@@ -3969,7 +3756,7 @@ scoring. Bars come from FMP, through `SharedBarsCache` (`get_or_fetch_bars_batch
   labels are **not links** -- `/tickers/<ETF>` still renders the stock-shaped page. Nav item
   "Sectors" opens in a new tab like Momentum/Watchlist/Settings.
 - **Not verified on screen** (no browser): layout, tint legibility, narrow-width behavior. The
-  return math was checked against an independent calculation on live Yahoo data (max difference
+  return math was checked against an independent calculation on live bar data (max difference
   1.5e-5pp) and the endpoint against the real DB.
 
 ## Market Breadth (`/breadth`, 2026-09-21)
@@ -4005,7 +3792,7 @@ calls, independent of Step 1-5/Overall Assessment scoring -- no `FMP_ENABLED` gu
   Warren's 3:40): `data/market_breadth_data.py::compute_and_store_market_breadth`, universe =
   `load_sp500_tickers` strictly (not `load_universe_tickers`' S&P+Dow union). Makes the SAME
   `get_or_fetch_bars_batch(tickers, "1d", 730, auto_adjust=False)` call the trend job makes, so
-  after it that is a warm-cache read (~3s, zero Yahoo requests); if the trend job failed it
+  after it that is a warm-cache read (~3s, zero FMP requests); if the trend job failed it
   self-heals with one live ~503-request fetch (30s-5min) that could overlap Warren's start
   (writer-lock contention only). The 18th job in `cron_health.py` (`CRON_JOB_NAMES`/
   `_EXPECTED_CADENCE_HOURS`/`JOB_METADATA`/`crontab.txt`/`OPS_RUNBOOK.md` all wired;
@@ -4107,132 +3894,37 @@ calls, independent of Step 1-5/Overall Assessment scoring -- no `FMP_ENABLED` gu
   `_most_recent_completed_trading_date` from `clients/shared_bars_cache.py` (private, but
   `sector_heatmap_data.py` already sets that precedent).
 
-## Delisted-ticker handling (2026-09-23)
+## Delisted-ticker handling (2026-09-23; detection replaced in Phase 6a)
 
-**Detection superseded 2026-09-26 (Phase 6a): the dual-provider stale-bar heuristic, the Massive+Yahoo
-live-probe revival and the auto-clear described below are gone -- see "Phase 6a" below. What still
-holds: the `TickerScore.delisted_at` column, the nightly jobs skipping a flagged ticker, and nothing
-ever being deleted.**
+**TWTR, WBA, EA, AVB, EQR** are genuinely delisted but stay in `load_full_tracked_universe` forever (any ticker
+that ever got a `TickerScore` row never drops out), so the nightly bar jobs would re-attempt them every night.
 
-A small, independent maintenance feature closing a real, confirmed cost: **TWTR, WBA, EA, AVB,
-EQR** are genuinely delisted (Massive's `/v3/reference/tickers` 404s; Yahoo reports "possibly
-delisted") and already absent from `IndexConstituent`, but stay in `load_full_tracked_universe`
-forever (any ticker that ever got a `TickerScore` row never drops out). Every night, the
-Trend/Liquidity Zone/Momentum jobs re-attempt a full Massive-then-Yahoo-fallback fetch for each
-of them anyway (`clients/shared_bars_cache.py::get_or_fetch_bars_batch` retries any ticker whose
-last bar isn't from the most recently completed session, unconditionally), wasting a per-ticker
-backfill call on both providers, every single night, forever.
-
-- **Hosted in `pipeline/stale_data_health_check.py`, not a new script.** Evaluated all three
-  existing maintenance jobs before choosing: `audit_fixture_contamination.py` is read-only
-  test-fixture-leakage detection (substring/shape matching against `FundamentalsCache`, e.g.
-  "acme"/"test"/"sample" in a company name) — a completely different concern, no natural
-  extension point. `purge_invalid_tickers.py` **deletes** `FundamentalsCache`/`TickerScore`
-  rows for tickers FMP confirms never existed — the opposite of what this feature needs (history
-  must never be deleted for a genuinely-once-real, now-delisted ticker). `stale_data_health_check.py`
-  was the right fit: it already computes `load_full_tracked_universe` on a weekly cadence (Sunday
-  1:30 AM, `crontab.txt`), was already the one "read-only report, occasionally with a small
-  write" shaped job of the three, and needed no new cron entry, `CRON_JOB_NAMES` wiring, or
-  `_EXPECTED_CADENCE_HOURS` entry at all — this is a second, independent check it performs in
-  the same run (over `SharedBarsCache`, not `FundamentalsCache` — an unrelated table, so the two
-  checks share nothing but the universe and the weekly cadence), not a widening of its existing
-  "profile" freshness report.
-- **New nullable `TickerScore.delisted_at: datetime | None`** (`core/models.py`,
-  `_add_missing_columns`-backfilled, no migration). None for the overwhelming majority of
-  tickers. Set/cleared by `pipeline/stale_data_health_check.py::sync_delisted_flags`.
-- **Flagging rule: last `SharedBarsCache` interval="1d" bar more than
-  `DELISTED_STALE_THRESHOLD_DAYS` (30) days old, genuinely dual-provider.** Rather than issue
-  fresh, bespoke Massive+Yahoo calls from a maintenance script (breaking every other maintenance
-  job's "cache-only, zero live calls, safe to run anytime" convention), this reads
-  `clients/shared_bars_cache.py`'s existing cache directly, via a new `last_bar_ages_days`
-  helper there (a plain calendar-day-age query, unlike the existing `stale_ticker_count`'s
-  same-session freshness *bit* — this needs an actual magnitude to threshold 30 days against).
-  This is genuinely dual-provider evidence, not a single cached read: with
-  `settings.massive_enabled` (the normal case), every ticker in `load_full_tracked_universe`
-  gets a fresh Massive-then-Yahoo-fallback attempt from the nightly Trend job's own
-  `get_or_fetch_bars_batch` call *every single night* regardless of its current staleness — so a
-  last bar still >30 days old means neither provider has produced a newer bar across ~30
-  consecutive nightly dual-provider attempts, the same real-world signal as the manual
-  `/v3/reference/tickers` 404 + Yahoo "possibly delisted" check that confirmed the 5 tickers
-  above. **`sync_delisted_flags` only ever flags when `settings.massive_enabled` is true** —
-  with Massive off, every bar in scope reflects Yahoo alone (`clients/daily_bar_sources.py::
-  get_daily_bar_source`), single-provider evidence, so no flagging happens at all that run
-  (existing flags are left untouched, not force-cleared, since this run didn't genuinely
-  re-check both providers). Also excludes non-US tickers (`core.tickers.is_non_us_ticker`) —
-  Massive is US-market-only by design (`route_by_source`), so a non-US ticker's staleness is
-  single-provider evidence regardless of the flag above, and a ticker with **no** cached bars at
-  all (never fetched) is excluded too — ambiguous, not evidence of delisting.
-- **Auto-clear is unconditional on `massive_enabled`** — a fresh bar from even one provider
-  (Yahoo alone included) already disproves "still delisted," e.g. a symbol reuse or relisting
-  under the same ticker (cf. the earlier PARA symbol-reassignment case). Logged via the
-  `newly_cleared` list in the run's own report/heartbeat message, same as a new flag.
-- **Auto-clear deadlock, found and fixed the same day (2026-09-24) before this shipped further.**
-  The cache-based auto-clear above reads `SharedBarsCache` for a fresh bar -- but a flagged
-  ticker's own fetch is exactly what the nightly Trend/Liquidity Zone/Momentum skip (next bullet),
-  so that row can never refresh again on its own; a reused/relisted symbol would have stayed
-  flagged forever. Fixed with a direct live probe for whatever's *still* flagged after the free
-  cache check (`_probe_ticker_for_fresh_bar`/`_probe_and_revive`): one short (~10-day) Massive
-  range call per ticker, Yahoo as a second opinion only when Massive returns nothing (mirrors the
-  manual dual-source check the original 5 tickers were confirmed with; Massive skipped entirely
-  when `massive_enabled` is False). Either source showing a recent bar triggers a full re-backfill
-  through the normal DailyBarSource path (`get_or_fetch_bars_batch(force=True)`) *before* the flag
-  clears -- not just the probe's own narrow window, which would leave a gap between the old cached
-  history and today. This is the one deliberate live-call exception to this script's otherwise
-  cache-only convention. `tests/test_delisted_ticker_revival.py` is the end-to-end regression test
-  proving the full loop (flagged → skipped by Trend → cleared by the probe → picked up by the next
-  Trend run) closes correctly.
-- **Nightly daily-bar jobs skip a flagged ticker's fetch/compute entirely**, via a new
-  `pipeline/stale_data_health_check.py::load_delisted_tickers(session)` helper (mirrors
-  `nightly_fundamentals_fetch.py::load_full_tracked_universe`'s own "defined once, imported
-  everywhere" convention) — `pipeline/nightly_trend_calculation.py`,
-  `pipeline/nightly_liquidity_zone_calculation.py`, and `data/momentum_data.py::
-  compute_and_store_momentum_snapshot` all exclude a flagged ticker from the tickers passed into
-  `get_or_fetch_bars_batch` and from their own per-ticker compute loop, and each summary dict
-  gains a `skipped_delisted_count` field (surfaced in each job's own `cron_heartbeat` message
-  alongside the existing stale/fallback counts). **Deliberately scoped to the DB-derived
-  universe only** — `nightly_trend_calculation.py`'s own `--tickers`/`--limit` CLI override (an
-  explicit manual/test escape hatch) bypasses the skip entirely, same as it already bypasses
-  `load_full_tracked_universe` itself. Market Breadth and Sector Heatmap need no equivalent
-  change — both are already scoped away from `load_full_tracked_universe` (`IndexConstituent`
-  `sp500` and a fixed 11-ETF list respectively), so none of the 5 confirmed-delisted tickers
-  (already absent from `IndexConstituent`) could ever reach either job regardless.
-- **Nothing is ever deleted.** `TickerScore` (the flagged row itself, every other field
-  untouched), `FundamentalsCache`, Screener, Watchlist, and ticker-page history all stay fully
-  intact for a flagged ticker — the flag only changes which nightly jobs bother re-fetching its
-  price bars.
-- **The `/v3/reference/splits` redundant-call collapse (optional per the original ask) was
-  evaluated and skipped.** `MassiveDailySource._recently_split_tickers` calls
-  `massive_client.get_recent_splits` once per `get_daily_bar_source().get_daily_bars()`
-  invocation whenever any ticker in that call's batch needs fetching — in practice once per
-  night per job that reads through `get_or_fetch_bars_batch` with interval="1d" (Trend,
-  Liquidity Zones, Momentum, Sector Heatmap, Market Breadth — up to 5 calls some nights). Each of
-  these runs as its own separate `uv run python -m pipeline.X` **process**, so collapsing this
-  into one shared result per night would need either a new persistent, DB-backed cache
-  (`FundamentalsCache`-shaped, with its own staleness/key convention) or restructuring cron
-  ordering with real inter-job coordination — both meaningfully larger than "small and clean,"
-  and both touch `massive_client.py`/`daily_bar_sources.py`, which just shipped in Phase 1 and
-  deserve a dedicated follow-up rather than being bundled into this unrelated feature. Left as a
-  known, minor inefficiency, not fixed here.
+- **`TickerScore.delisted_at: datetime | None`** (nullable, `_add_missing_columns`-backfilled) is set by
+  `pipeline/stale_data_health_check.py::sync_delisted_flags` (weekly, Sun 1:30) from FMP `/delisted-companies`;
+  the detection rules (absence is never evidence, a flag is never auto-cleared, future-date / reused-symbol
+  guards) are in "Phase 6a" below.
+- **The nightly bar jobs skip a flagged ticker** via `load_delisted_tickers(session)`: Trend, Liquidity Zones and
+  `data/momentum_data.py::compute_and_store_momentum_snapshot` drop it from the fetch and compute loop, and each
+  summary carries `skipped_delisted_count`. Scoped to the DB-derived universe only -- the trend job's
+  `--tickers`/`--limit` escape hatch bypasses it. Market Breadth and Sector Heatmap need no change (their universes,
+  `IndexConstituent` sp500 and 11 fixed ETFs, never contained these).
+- **Nothing is ever deleted**: `TickerScore`, `FundamentalsCache`, Screener/Watchlist and ticker-page history stay
+  intact; the flag only stops price-bar re-fetching.
 
 ## Phase 6a: Massive removed; FMP last-close, corporate-events and delisted-companies (2026-09-26)
 
-Massive/Polygon is **deleted** (client, `MassiveDailySource`/`MassiveWithYahooFallback`, `massive_enabled`/
-`massive_api_key`/`massive_base_url`, the ticker-alias helpers, the one-time Massive backfill, their tests, and
-`MASSIVE_API_KEY`/unused `EODHD_*`/`APCA_*` from `backend/.env`). It was confirmed fallback-only beforehand (bars:
-only after FMP fails or `daily_prices` is off; Chart: only after FMP; header price: only when `profile_quote`
-was off). The fallback chain is now **FMP -> Yahoo**. `FallbackTickers.yahoo` is kept (it now equals the whole
-fallback set) and `describe_fallback` reads "N fell back from FMP to Yahoo". `ChartOut.source` is
-`"fmp" | "yahoo"`; `DataSourceStatusOut.source` is `"fmp" | "yahoo"`; the Settings > Status Massive card is gone.
-Yahoo code itself is untouched (Phase 6b).
+Massive/Polygon is **deleted** (client, `MassiveDailySource`, `massive_enabled`/`massive_api_key`/`massive_base_url`,
+the ticker-alias helpers, the one-time Massive backfill, their tests, and `MASSIVE_API_KEY`/unused `EODHD_*`/`APCA_*`
+from `backend/.env`). It was confirmed fallback-only beforehand. The last remaining provider after it was removed in
+Phase 6b (below), leaving FMP as the only one.
 
 - **Header price** (`data/ticker_summary.py`): a live FMP `/quote` on every view (unchanged). When the
   `profile_quote` group is off **or** the live fetch failed, only `price` is overridden with the last official
   close cached nightly by `pipeline.nightly_last_close_snapshot` (3:15 AM UTC; table `TickerLastClose`, latest-only,
   `data/last_close_data.py`). One `/historical-price-eod/full` call per US-listed tracked ticker (group
   `daily_prices`; skipped with a real `skipped` status while it is off), newest bar on/before the last completed
-  session. No cached close -> the stale cached FMP quote price stays. `cache_only` never reads it. The Yahoo
-  header fallback (`_fetch_yahoo_latest_close`) is removed; `clients/yahoo_cache.py`/`YahooPriceCache` now have
-  **no consumer** (drop in 6b).
+  session. No cached close -> the stale cached FMP quote price stays. `cache_only` never reads it. The old
+  header-price fallback to a second provider is removed.
 - **Earnings / dividends / splits cache** (`CorporateEvent` + `CorporateEventFetch`, `data/corporate_events_data.py`,
   `pipeline.nightly_corporate_events`, 3:12 AM UTC): FMP `/earnings` (limit 1000), `/dividends` (limit 2000),
   `/splits` (new `FMPClient.get_splits`, in `corporate_events`), **full-history REPLACE per (ticker, type)** each
@@ -4241,10 +3933,9 @@ Yahoo code itself is untouched (Phase 6b).
   fetch per (ticker, type) so "fetched, FMP has none" (TSLA dividends) differs from "never fetched". Cadence
   choice: nightly for all three (earnings actuals fill in day to day; splits ride along for one cheap call).
   **Chart tab**: `chart_events_data._fetch_events` reads the cache first (rebuilds FMP-shaped rows and reuses the
-  live path's own normalizers, so the marker rules are identical) and only falls through to the live FMP -> Yahoo
+  live path's own normalizers, so the marker rules are identical) and only falls through to the live FMP
   path for a ticker whose earnings+dividends were never cached. The cache is served however old, including
-  while `corporate_events` is off. The Yahoo functions in `chart_events_data.py` are kept but unreachable for
-  cached tickers (delete in 6b). Splits are stored but no marker reads them yet.
+  while `corporate_events` is off. (The live path was deleted in Phase 6b.) Splits are stored but no marker reads them yet.
 - **Delisted flags** (`pipeline/stale_data_health_check.py::sync_delisted_flags`, weekly Sun 1:30): pages FMP
   `/delisted-companies` (group `corporate_events`; **page size capped at 100, ~157 pages / ~15.6k rows / ~15.4k
   unique symbols on 2026-09-26**, so ~157 sequential calls/week) and sets `TickerScore.delisted_at` for tracked
@@ -4257,20 +3948,86 @@ Yahoo code itself is untouched (Phase 6b).
   "delisted list incomplete" (paging ties can also drop a row at a page boundary; the weekly rerun catches it).
   `last_bar_ages_days` (shared_bars_cache) was removed as dead. **Open decision:** a relisted symbol stays
   flagged until someone clears `delisted_at` by hand.
-- **Non-US support (partial, by design):** the Yahoo-only non-US **60m** path in `shared_bars_cache` is removed
-  (non-US tickers get no 60m bars; a cached non-US row is left as is). **Not removed, held for a decision**: the
-  `daily_prices_intl` group and its UI/registry/402-canary, the phantom-bar filter, non-US long history, Chart's
-  non-US FMP path and the `backfill_fmp_daily_bars --scope non-us`, `is_us_listed`/`is_non_us_ticker`/`route_by_source`
-  (still live: they route US vs non-US and `is_us_listed` scopes the price-target/last-close/corporate-events
-  universes), and the 6 HKSE tickers still in the tracked universe (0005/0728/0857/0883/0941/3988.HK -- none
-  on any watchlist; there are no non-US tickers on any watchlist).
+- **Non-US support** was removed in the follow-up section above: non-US tickers get no nightly daily or 60m bars.
+  `route_by_source`/`is_us_listed`/`_profile_exchanges` remain (they scope the price-target/last-close/corporate-events
+  universes).
 - **`^GSPC` cleanup (run 2026-09-26, after `pipeline.backup_db` -> `fathom_20260926_105650.db.gz`):** confirmed
   `WeinsteinSettings.rs_benchmark` is `SPY` and no `weinstein_params_json` names `^GSPC`, then deleted 1,253
   `sharedbarscache` and 510 `yahoopricecache` `^GSPC` rows. `weinsteinBenchmarkLabel` no longer special-cases
-  `^GSPC` (a user could still type it into Settings; it now just displays as `^GSPC`). `YahooPriceCache` itself
-  is not dropped.
+  `^GSPC` (a user could still type it into Settings; it now just displays as `^GSPC`). The Yahoo price table was dropped in Phase 6b.
 - **To activate:** reinstall the crontab (`crontab crontab.txt` from `backend/`; two new jobs) and restart the
   app (`./bin/stop.sh && ./bin/start.sh`; production build). Ops details: `backend/OPS_RUNBOOK.md`.
+
+## Phase 6b: Yahoo Finance removed entirely (2026-09-26)
+
+Yahoo (`yfinance`) was the last non-FMP market-data source; it had not served a real production ticker
+since the 2026-09-24 FMP cutover, but was still wired as a fallback at 9 call sites. All removed. **FMP is
+now the only external market-data provider and there is no fallback anywhere** -- when a data group is off
+or FMP fails/answers empty, the last cached rows keep serving (nothing is wiped) and features degrade as
+below. The sections above were rewritten to describe the FMP-only behavior; this section is the record of the removal.
+
+**Decisions (user-made, final):**
+1. **Chart tab daily ranges (D_6M/D_1Y/D_2Y)**: group off, or FMP errors/answers empty -> an **EMPTY chart**
+   (`chart_available=False`). No stale-cache substitute, no new caching. W_4Y keeps the long-history store
+   (cached-only when `daily_prices_long` is off; empty when there is no stored row). `ChartOut.source` is
+   always `"fmp"`. The ticker-page tabs' "not refreshing" badge (`lib/dataGroups.ts::TAB_GROUPS`) now also
+   covers `daily_prices`/`daily_prices_long`/`intraday_bars` on the Chart/Technical/Analyst Ratings tabs.
+2. **Nightly bar jobs** (Trend, Liquidity Zones, Sector Heatmap, Market Breadth, Momentum -> `daily_prices`;
+   Warren, BB+RSI -> `intraday_bars`) report a real **`skipped`** cron status while their group (or the master
+   switch) is off, via `core/data_groups.py::job_skip_reason`, instead of "success with N still stale". The
+   Momentum job's ordinary "not the first trading day" no-op is unchanged (still a success).
+3. **`TechnicalEntrySignal.source`** is always `"fmp"` for new rows; the 34 existing `"yahoo"` rows were
+   rewritten (see the cleanup record below). `LiquidityZoneAnalysis.source` (54 legacy `"yahoo"` rows) was
+   not touched -- the nightly LZ job overwrites it on its next run. `SharedBarsCache.source` keeps its
+   provenance role: legacy NULL/`"yahoo"` 60m rows are still fully replaced on the next FMP fetch.
+
+**What changed, per call site:**
+- `clients/yahoo_client.py`, `clients/yahoo_cache.py`, `YahooPriceCache` (model + table), the last references
+  in `ticker_summary`/`stale_data_health_check` (their Yahoo paths were already dead after Phase 6a; header
+  price = live FMP quote, else the nightly last close), `pipeline/backfills/backfill_entry_signal_events.py` (spent one-time script), and
+  `Settings.yahoo_quote_intraday_ttl_seconds` are deleted. `yfinance` is out of `pyproject.toml`/`uv.lock`
+  (transitively `requests`, `urllib3`, `pytz`, `soupsieve`, ... too; nothing imported them directly).
+- `clients/daily_bar_sources.py`: `YahooDailySource`, `FMPWithFallback` and `FMPIntradayWithFallback` are
+  gone. `get_daily_bar_source()` returns `FMPDailySource`; `FMPIntradaySource` is used directly. Both take
+  an `unserved_tickers` out-parameter (the whole batch while the group is off). **Renamed:**
+  `FallbackTickers`->`UnservedTickers` (no `.yahoo` any more), `describe_fallback`->`describe_unserved`
+  (heartbeat text `N not served by FMP (cached bars kept)`), the `fallback_tickers` parameter ->
+  `unserved_tickers`, and the job-summary keys `fallback_count`/`fallback_yahoo_count` -> `unserved_count`.
+- `clients/shared_bars_cache.py`: `_fetch_yahoo_intraday` and `intraday_source_labels` are gone; every 60m
+  write is tagged `source="fmp"`. `_period_for`/the period tiers stay (they pin retention/width logic in
+  tests) but no longer drive a fetch. `clients/technical_sources.py`: `YahooTechnicalSource` ->
+  `FMPTechnicalSource` (the single reader). `core/tickers.py::resolve_daily_bar_source_label` is deleted
+  (jobs write `"fmp"`).
+- `data/chart_events_data.py`: the **`CorporateEvent` cache is the sole source** (no live FMP call, no
+  Yahoo, no timeout wrapper); an uncached ticker or a read error = no markers (`events_source=None`).
+  `data/chart_data.py`, `data/analyst_ratings_data.py`: Yahoo branches removed (see decision 1; the
+  overlay is empty with no stored row).
+- Data groups: `GroupMeta.falls_back`, `DataGroupOut.falls_back` and the `using_fallback` state were removed
+  outright (not set to False) since no group has a fallback. Frontend chip text for an off price group is
+  now the plain "Cached only". `DataSourceStatusOut.source` is `Literal["fmp"]`; `data_source_status.py`
+  builds only the FMP entry; the Yahoo card, `YAHOO_POWERS` and the "no kill switch" comments are gone
+  (`DataSourceCard.tsx` is now unused by the UI but kept). `types.ts`: `events_source: "fmp" | null`,
+  `ChartOut.source: "fmp"`.
+
+**One-time data cleanup (run 2026-09-26)**, `pipeline/backfills/phase6b_yahoo_cleanup.py` (has `--dry-run`;
+idempotent), after `pipeline.backup_db` -> `backups/fathom_20260926_172754.db.gz`: **34**
+`TechnicalEntrySignal` rows `"yahoo"`->`"fmp"`; **2** `DataSourceHealth` rows deleted (`massive` -- Phase 6a had
+left it -- and `yahoo`); `DROP TABLE yahoopricecache` (**375,708** rows). A second run changes nothing.
+
+**Tests:** `test_yahoo_client.py`/`test_yahoo_cache.py` deleted; the shared-cache/consumer/prune/chart/overlay/
+events/group tests now fake at the FMP source boundary (`_FakeBarSource`/`FakeBars`) instead of `yahoo_client`;
+new `test_nightly_jobs_group_skip.py`, `test_phase6b_yahoo_cleanup.py`. `tests/fixtures/
+weekly_parity_fmp_daily_vs_yahoo_1wk.json` is kept as the historical FMP-vs-Yahoo weekly parity record (still
+used by `test_chart_weekly_fmp.py`). Backend 2,087 tests, frontend 442.
+
+**To activate:** restart the app (`./bin/stop.sh && ./bin/start.sh`; production build) and reinstall the
+crontab (`crontab crontab.txt` from `backend/`) -- the crontab.txt change is comments only (no schedule change),
+but the file and the installed copy now differ until it is.
+
+**Left in place, deliberately:** `analysis/entry_signal/engine.py::compute_historical_entry_signals` and
+`data/entry_signal_data.py::record_historical_entry_signal_events` (their only caller was the deleted backfill;
+still unit-tested); the Weinstein/`resample_to_weekly` docstrings that cite Yahoo's native weekly bars as the
+validation reference; non-US routing helpers (`route_by_source`, `is_us_listed`).
 
 ## Insider Activity (ticker-page tab, 2026-09-19) -- SHELVED 2026-09-20
 
