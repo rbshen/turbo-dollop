@@ -1,12 +1,11 @@
-"""Analyst Ratings price overlay on FMP (P3.7): the long-history store's split-only closes,
-Yahoo split-only `Close` (never `Adj Close`) as the fall-through."""
+"""Analyst Ratings price overlay on FMP: the long-history store's split-only closes; nothing else
+(Yahoo was removed in Phase 6b, so no store row means an empty overlay)."""
 
 import asyncio
 import json
 from datetime import date, datetime
 
 import pandas as pd
-import pytest
 from sqlmodel import Session
 
 import clients.long_history_bars as lhb
@@ -29,52 +28,18 @@ def _profile(ticker: str, exchange: str) -> None:
         session.commit()
 
 
-class _Yahoo:
-    """Yahoo stand-in: close 60.0 but the dividend-adjusted `Adj Close` 40.0 (the KO-2016 shape)."""
-
-    def __init__(self, frame=None):
-        self.calls = 0
-        self.frame = frame
-
-    async def get_history(self, tickers, period="2y", interval="1d", auto_adjust=True):
-        self.calls += 1
-        if self.frame is None:
-            return {}
-        return {t: self.frame for t in tickers}
-
-
-def _yahoo_frame():
-    idx = pd.DatetimeIndex([pd.Timestamp("2016-06-01"), pd.Timestamp("2016-06-02")], tz="America/New_York")
-    return pd.DataFrame({"Close": [60.0, 61.0], "Adj Close": [40.0, 41.0]}, index=idx)
-
-
 def _run(ticker="KO"):
     return asyncio.run(ard._fetch_price_history(ticker))
 
 
-def test_overlay_is_the_stores_split_only_close_and_yahoo_is_never_asked(monkeypatch):
-    y = _Yahoo(_yahoo_frame())
-    monkeypatch.setattr(ard, "yahoo_client", y)
+def test_overlay_is_the_stores_split_only_close():
     _seed("KO", {date(2016, 6, 1): 60.0, date(2016, 6, 2): 61.0, date(2016, 6, 3): 61.5})
     series = _run()
-    assert y.calls == 0
-    assert series.loc[pd.Timestamp("2016-06-01")] == 60.0  # split-only close, not the 40.0 Adj Close
+    assert series.loc[pd.Timestamp("2016-06-01")] == 60.0  # split-only close
     assert series.index.is_monotonic_increasing and series.index.tz is None
 
 
-def test_basis_is_pinned_to_split_only_not_the_yahoo_adjusted_close(monkeypatch):
-    """The same day on both paths: FMP path and the Yahoo fall-through both say 60.0 (Close, not the 40.0 Adj Close)."""
-    monkeypatch.setattr(ard, "yahoo_client", _Yahoo(_yahoo_frame()))
-    dg.set_group_enabled("daily_prices_long", False)  # no row -> Yahoo fall-through
-    fallback = _run()
-    assert fallback.loc[pd.Timestamp("2016-06-01")] == 60.0
-    _seed("KO", {date(2016, 6, 1): 60.0})
-    dg.set_group_enabled("daily_prices_long", True)
-    assert _run().loc[pd.Timestamp("2016-06-01")] == 60.0
-
-
-def test_price_on_date_alignment_uses_the_last_close_on_or_before(monkeypatch):
-    monkeypatch.setattr(ard, "yahoo_client", _Yahoo())
+def test_price_on_date_alignment_uses_the_last_close_on_or_before():
     _seed("KO", {date(2016, 6, 1): 60.0, date(2016, 6, 2): 61.0, date(2016, 6, 6): 62.0})
     series = _run()
     assert ard._price_on_or_before(series, pd.Timestamp("2016-06-02")) == 61.0
@@ -82,54 +47,24 @@ def test_price_on_date_alignment_uses_the_last_close_on_or_before(monkeypatch):
     assert ard._price_on_or_before(series, pd.Timestamp("2016-05-31")) is None  # before the first bar: never extrapolated
 
 
-def test_group_off_serves_the_stored_row_without_a_fetch(monkeypatch):
-    monkeypatch.setattr(ard, "yahoo_client", _Yahoo())
+def test_group_off_serves_the_stored_row_without_a_fetch():
     _seed("KO", {date(2016, 6, 1): 60.0})
     dg.set_group_enabled("daily_prices_long", False)
     assert _run().loc[pd.Timestamp("2016-06-01")] == 60.0
 
 
-def test_off_or_failed_with_nothing_anywhere_is_an_empty_overlay_not_an_error(monkeypatch):
-    monkeypatch.setattr(ard, "yahoo_client", _Yahoo())  # Yahoo has nothing either
+def test_group_off_with_no_stored_row_is_an_empty_overlay_not_an_error():
     dg.set_group_enabled("daily_prices_long", False)
     assert _run().empty
 
-    async def boom(_ticker):
-        raise RuntimeError("store exploded")
 
-    dg.set_group_enabled("daily_prices_long", True)
-    monkeypatch.setattr(ard, "get_long_history", boom)
-    assert _run().empty  # falls through to Yahoo, which has nothing
-
-
-def test_a_failing_store_falls_back_to_yahoo(monkeypatch):
+def test_a_failing_store_is_an_empty_overlay_not_an_error(monkeypatch):
     async def boom(_ticker):
         raise RuntimeError("store exploded")
 
     monkeypatch.setattr(ard, "get_long_history", boom)
-    monkeypatch.setattr(ard, "yahoo_client", _Yahoo(_yahoo_frame()))
-    assert _run().loc[pd.Timestamp("2016-06-01")] == 60.0
-
-
-def test_yahoo_fall_through_reads_close_and_requests_unadjusted(monkeypatch):
-    y = _Yahoo(_yahoo_frame())
-    seen = {}
-    orig = y.get_history
-
-    async def spy(tickers, period="2y", interval="1d", auto_adjust=True):
-        seen["auto_adjust"] = auto_adjust
-        return await orig(tickers, period=period, interval=interval, auto_adjust=auto_adjust)
-
-    y.get_history = spy
-    monkeypatch.setattr(ard, "yahoo_client", y)
-    dg.set_group_enabled("daily_prices_long", False)
-    series = _run()
-    assert seen["auto_adjust"] is False
-    assert list(series.values) == [60.0, 61.0]  # the Close column, never Adj Close
-
-    # A frame with only Adj Close is unusable, not silently substituted.
-    idx = pd.DatetimeIndex([pd.Timestamp("2016-06-01")])
-    monkeypatch.setattr(ard, "yahoo_client", _Yahoo(pd.DataFrame({"Adj Close": [40.0]}, index=idx)))
     assert _run().empty
 
 
+def test_the_yahoo_path_is_gone():
+    assert not hasattr(ard, "yahoo_client") and not hasattr(ard, "PRICE_OVERLAY_FETCH_PERIOD")

@@ -58,7 +58,7 @@ _CALM_DAY = [90.0, 91.0, 92.0, 93.0]  # never fires
 def test_a_fire_creates_a_row_with_all_five_fired_fields_populated(monkeypatch):
     engine = _fresh_engine(monkeypatch)
 
-    out = compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY), source="yahoo")
+    out = compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY), source="fmp")
 
     assert out.active is True
     assert out.fired_at is not None
@@ -75,7 +75,7 @@ def test_a_fire_creates_a_row_with_all_five_fired_fields_populated(monkeypatch):
 
 def test_a_quiet_run_leaves_a_prior_fire_untouched_but_still_advances_the_heartbeat(monkeypatch):
     engine = _fresh_engine(monkeypatch)
-    compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY), source="yahoo")
+    compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY), source="fmp")
 
     with Session(engine) as session:
         before = session.exec(select(TechnicalEntrySignal).where(TechnicalEntrySignal.ticker == "AAPL")).first()
@@ -83,7 +83,7 @@ def test_a_quiet_run_leaves_a_prior_fire_untouched_but_still_advances_the_heartb
 
     # A second, later run whose OWN newest day never fires -- must not wipe
     # out the still-relevant prior fire.
-    out = compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY + _CALM_DAY), source="yahoo")
+    out = compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY + _CALM_DAY), source="fmp")
 
     assert out.fired_at == before.fired_at
     assert out.pct_b == before.pct_b
@@ -100,14 +100,14 @@ def test_a_quiet_run_leaves_a_prior_fire_untouched_but_still_advances_the_heartb
 
 def test_a_newer_fire_advances_all_five_fired_fields_together(monkeypatch):
     engine = _fresh_engine(monkeypatch)
-    compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY), source="yahoo")
+    compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY), source="fmp")
     with Session(engine) as session:
         before = session.exec(select(TechnicalEntrySignal).where(TechnicalEntrySignal.ticker == "AAPL")).first()
 
     # A later run whose newest day fires again, with a different price --
     # must replace the old fired-bar snapshot, not merge with it.
     second_firing_day = [80.0, 60.0, 40.0, 20.0]
-    out = compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY + _CALM_DAY + second_firing_day), source="yahoo")
+    out = compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY + _CALM_DAY + second_firing_day), source="fmp")
 
     assert out.fired_at > before.fired_at
     assert out.close != before.close
@@ -118,8 +118,8 @@ def test_re_evaluating_an_already_recorded_fire_does_not_regress(monkeypatch):
     # backward or duplicate.
     engine = _fresh_engine(monkeypatch)
     bars = _bars(_WARMUP + _FIRING_DAY)
-    first = compute_and_store_entry_signal("AAPL", bars, source="yahoo")
-    second = compute_and_store_entry_signal("AAPL", bars, source="yahoo")
+    first = compute_and_store_entry_signal("AAPL", bars, source="fmp")
+    second = compute_and_store_entry_signal("AAPL", bars, source="fmp")
 
     assert second.fired_at == first.fired_at
     assert second.close == first.close
@@ -132,7 +132,7 @@ def test_re_evaluating_an_already_recorded_fire_does_not_regress(monkeypatch):
 def test_a_fire_also_creates_a_technicalentrysignalevent_row(monkeypatch):
     engine = _fresh_engine(monkeypatch)
 
-    out = compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY), source="yahoo")
+    out = compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY), source="fmp")
 
     with Session(engine) as session:
         events = session.exec(select(TechnicalEntrySignalEvent).where(TechnicalEntrySignalEvent.ticker == "AAPL")).all()
@@ -153,7 +153,7 @@ def test_a_quiet_run_does_not_create_an_event_row(monkeypatch):
     # move is what "quiet" actually needs here.
     engine = _fresh_engine(monkeypatch)
 
-    compute_and_store_entry_signal("AAPL", _bars(_WARMUP + [100.0, 100.1, 100.2, 100.3]), source="yahoo")
+    compute_and_store_entry_signal("AAPL", _bars(_WARMUP + [100.0, 100.1, 100.2, 100.3]), source="fmp")
 
     with Session(engine) as session:
         events = session.exec(select(TechnicalEntrySignalEvent).where(TechnicalEntrySignalEvent.ticker == "AAPL")).all()
@@ -170,8 +170,8 @@ def test_rerunning_the_same_fire_does_not_duplicate_the_event_row(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     bars = _bars(_WARMUP + _FIRING_DAY)
 
-    compute_and_store_entry_signal("AAPL", bars, source="yahoo")
-    compute_and_store_entry_signal("AAPL", bars, source="yahoo")
+    compute_and_store_entry_signal("AAPL", bars, source="fmp")
+    compute_and_store_entry_signal("AAPL", bars, source="fmp")
 
     with Session(engine) as session:
         events = session.exec(select(TechnicalEntrySignalEvent).where(TechnicalEntrySignalEvent.ticker == "AAPL")).all()
@@ -180,10 +180,10 @@ def test_rerunning_the_same_fire_does_not_duplicate_the_event_row(monkeypatch):
 
 def test_a_new_fire_on_a_later_run_adds_a_second_distinct_event_row(monkeypatch):
     engine = _fresh_engine(monkeypatch)
-    compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY), source="yahoo")
+    compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY), source="fmp")
 
     second_firing_day = [80.0, 60.0, 40.0, 20.0]
-    compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY + _CALM_DAY + second_firing_day), source="yahoo")
+    compute_and_store_entry_signal("AAPL", _bars(_WARMUP + _FIRING_DAY + _CALM_DAY + second_firing_day), source="fmp")
 
     with Session(engine) as session:
         events = session.exec(select(TechnicalEntrySignalEvent).where(TechnicalEntrySignalEvent.ticker == "AAPL")).all()
@@ -331,7 +331,7 @@ def test_sweep_clears_a_stale_row_but_leaves_as_of_source_computed_at_alone(monk
                 rsi=25.0,
                 close=100.0,
                 stop_price=95.0,
-                source="yahoo",
+                source="fmp",
                 as_of=stale_computed_at,
                 computed_at=stale_computed_at,
             )
@@ -348,7 +348,7 @@ def test_sweep_clears_a_stale_row_but_leaves_as_of_source_computed_at_alone(monk
     assert row.rsi is None
     assert row.close is None
     assert row.stop_price is None
-    assert row.source == "yahoo"
+    assert row.source == "fmp"
     assert row.as_of == stale_computed_at
     assert row.computed_at == stale_computed_at
 
@@ -368,7 +368,7 @@ def test_sweep_leaves_a_fresh_row_untouched(monkeypatch):
                 rsi=25.0,
                 close=100.0,
                 stop_price=95.0,
-                source="yahoo",
+                source="fmp",
                 as_of=fresh_computed_at,
                 computed_at=fresh_computed_at,
             )
@@ -394,7 +394,7 @@ def test_sweep_is_idempotent_on_an_already_cleared_row(monkeypatch):
                 ticker="AAPL",
                 signal_type="bb_rsi",
                 timeframe="2h",
-                source="yahoo",
+                source="fmp",
                 as_of=stale_computed_at,
                 computed_at=stale_computed_at,
             )

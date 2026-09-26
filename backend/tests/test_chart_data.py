@@ -50,7 +50,7 @@ def _entry_signal(*, active: bool, fired_at: datetime | None) -> TechnicalEntryS
         rsi=25.0,
         close=101.5,
         stop_price=98.0,
-        source="yahoo",
+        source="fmp",
         as_of=now,
         computed_at=now,
     )
@@ -81,7 +81,7 @@ def _warren_signal(*, active: bool, fired_at: datetime | None, signal_kind: str 
         signal_kind=signal_kind,
         gray_suppressed=False,
         stop_count=0,
-        source="yahoo",
+        source="fmp",
         as_of=now,
         computed_at=now,
     )
@@ -118,9 +118,9 @@ def _fresh_chart_data_engine(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _default_no_chart_events(monkeypatch):
-    # get_chart_data now fetches earnings/dividends live (FMP/Yahoo) on every
+    # get_chart_data reads earnings/dividends from the CorporateEvent cache on every
     # call; without a default stub every unrelated test in this file would
-    # make real network requests. Tests exercising the event markers override
+    # read the real core.db.engine. Tests exercising the event markers override
     # this via their own monkeypatch.setattr, which takes precedence.
     async def _none(ticker):
         return ChartEvents()
@@ -160,7 +160,7 @@ def _lp_out(
         last_price=100.0,
         as_of=now.date(),
         computed_at=now,
-        source="yahoo",
+        source="fmp",
         support_zones=support,
         resistance_zones=resistance,
         broken_support=broken_support,
@@ -168,31 +168,24 @@ def _lp_out(
     )
 
 
-def _patch_yahoo_bars(monkeypatch, df: pd.DataFrame) -> None:
-    """Patches the sole fetch path chart_data._fetch_bars now has
-    (yahoo_client.get_history) to return `df` (already lowercase-column,
-    daily-frequency, as _daily_df produces, or an empty frame to simulate
-    no data) for whatever ticker/period/interval is requested -- renamed to
-    Yahoo's native Open/High/Low/Close/Volume casing first, since
-    _fetch_bars lower-cases the result itself after the fetch (2026-09-18
-    -- Chart dropped FMP as a data source entirely, so there's no longer a
-    branch to pick between).
+def _patch_bars(monkeypatch, df: pd.DataFrame) -> None:
+    """Feeds chart_data's two FMP fetch paths from `df` (lowercase-column, daily-frequency, as
+    _daily_df produces, or an empty frame to simulate no data): the D ranges' direct
+    `/historical-price-eod/full` call, and W_4Y's long-history store (whose dailies chart_data
+    resamples to weekly itself with the real resample_to_weekly)."""
+    rows = [] if df.empty else [
+        {"date": ts.strftime("%Y-%m-%d"), "open": r["open"], "high": r["high"], "low": r["low"], "close": r["close"], "volume": r["volume"]}
+        for ts, r in df.iloc[::-1].iterrows()
+    ]
 
-    A W_4Y request asks for interval="1wk" -- real Yahoo Finance returns
-    already-weekly bars for that interval directly (chart_data.py no
-    longer resamples anything itself, unlike the old FMP branch). This
-    fake resamples the given daily `df` to weekly here to stand in for
-    that, using the same resample_to_weekly this codebase already confirmed
-    bit-identical to Yahoo's own native "1wk" bars (see weinstein.py)."""
-    renamed = df.rename(columns=str.capitalize)
+    async def fake_fmp(ticker, from_date, to_date, group="daily_prices"):
+        return rows
 
-    async def fake_get_history(tickers, period, interval, auto_adjust=True):
-        result = renamed
-        if interval == "1wk" and not result.empty:
-            result = resample_to_weekly(result.rename(columns=str.lower)).rename(columns=str.capitalize)
-        return {tickers[0]: result}
+    async def fake_long_history(ticker):
+        return None if df.empty else df
 
-    monkeypatch.setattr(chart_data.yahoo_client, "get_history", fake_get_history)
+    monkeypatch.setattr(chart_data.fmp_client, "get_historical_price_eod", fake_fmp)
+    monkeypatch.setattr(chart_data, "get_long_history", fake_long_history)
 
 
 def _fmp_rows(n: int = 600) -> list[dict]:
@@ -219,10 +212,6 @@ def _patch_fmp_bars(monkeypatch, rows, *, raises: bool = False, groups: list[str
 
 
 def _no_other_sources(monkeypatch):
-    async def fail_if_called(*args, **kwargs):
-        raise AssertionError("must not be reached when FMP answered")
-
-    monkeypatch.setattr(chart_data.yahoo_client, "get_history", fail_if_called)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -234,30 +223,29 @@ def test_daily_range_is_fmp_first_for_us_tickers(monkeypatch):
     assert out.source == "fmp" and out.chart_available and calls == ["AAPL"]
 
 
-def test_daily_range_falls_through_to_yahoo_when_fmp_is_empty_or_errors(monkeypatch):
-    for kwargs, rows in (({}, []), ({"raises": True}, [])):
-        _patch_fmp_bars(monkeypatch, rows, **kwargs)
-        _patch_yahoo_bars(monkeypatch, _daily_df(600))
+def test_daily_range_is_an_empty_chart_when_fmp_is_empty_or_errors(monkeypatch):
+    for kwargs in ({}, {"raises": True}):
+        _patch_fmp_bars(monkeypatch, [], **kwargs)
         monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
         monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
         out = asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y"))
-        assert out.source == "yahoo" and out.chart_available
+        assert out.chart_available is False and out.bars == []  # no fallback, no stale substitute
 
 
-def test_daily_range_skips_fmp_when_daily_prices_is_off(monkeypatch):
+def test_daily_range_is_an_empty_chart_without_calling_fmp_when_daily_prices_is_off(monkeypatch):
     import core.data_groups as dg
 
     dg.set_group_enabled("daily_prices", False)
     calls = _patch_fmp_bars(monkeypatch, _fmp_rows())
-    _patch_yahoo_bars(monkeypatch, _daily_df(600))
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
-    assert asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y")).source == "yahoo" and calls == []
+    out = asyncio.run(chart_data.get_chart_data("AAPL", "D_1Y"))
+    assert out.chart_available is False and out.bars == [] and calls == []
 
 
 def test_w_4y_reads_the_long_history_store_through_the_same_fmp_client(monkeypatch):
-    """W_4Y no longer goes to Yahoo when FMP answers: the store fetches via the FMP client
-    (group daily_prices_long), and D ranges never touch the store."""
+    """W_4Y: the store fetches via the FMP client (group daily_prices_long), and D ranges never
+    touch the store."""
     groups: list[str] = []
     calls = _patch_fmp_bars(monkeypatch, _fmp_rows(2600), groups=groups)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
@@ -266,17 +254,17 @@ def test_w_4y_reads_the_long_history_store_through_the_same_fmp_client(monkeypat
     assert groups == ["daily_prices_long"] and calls == ["AAPL"]
 
 
-def test_w_4y_falls_through_to_yahoo_when_fmp_has_nothing(monkeypatch):
+def test_w_4y_is_an_empty_chart_when_fmp_has_nothing(monkeypatch):
     _patch_fmp_bars(monkeypatch, [], raises=True)
-    _patch_yahoo_bars(monkeypatch, _daily_df(600))
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
-    assert asyncio.run(chart_data.get_chart_data("AAPL", "W_4Y")).source == "yahoo"
+    out = asyncio.run(chart_data.get_chart_data("AAPL", "W_4Y"))
+    assert out.chart_available is False and out.bars == []
 
 
 def test_chart_available_false_when_fetch_returns_no_bars(monkeypatch):
-    _patch_yahoo_bars(monkeypatch, pd.DataFrame())
+    _patch_bars(monkeypatch, pd.DataFrame())
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -287,7 +275,7 @@ def test_chart_available_false_when_fetch_returns_no_bars(monkeypatch):
     assert out.ema21 == out.sma50 == out.sma200 == []
     assert out.entry_signal_available is False
     assert out.entry_signal_markers == []
-    assert out.source == "yahoo"
+    assert out.source == "fmp"
 
 
 def test_daily_range_computes_full_warmup_then_slices_to_visible_window(monkeypatch):
@@ -297,7 +285,7 @@ def test_daily_range_computes_full_warmup_then_slices_to_visible_window(monkeypa
     # (non-NaN) SMA200 once sliced.
     df = _daily_df(600)
 
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -322,7 +310,7 @@ def test_d6m_range_computes_full_warmup_then_slices_to_visible_window(monkeypatc
     # only shows the trailing ~182 calendar days.
     df = _daily_df(600)
 
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -345,7 +333,7 @@ def test_ema21_is_exponential_not_a_rolling_average(monkeypatch):
     # other rolling mean) under a new field name.
     df = _daily_df(300)
 
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -367,7 +355,7 @@ def test_bollinger_basis_is_ema20_not_sma20(monkeypatch):
     # shared BB_LENGTH/BB_STD constants -- only the basis calculation moved.
     df = _daily_df(300)
 
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -387,38 +375,22 @@ def test_bollinger_basis_is_ema20_not_sma20(monkeypatch):
     assert (last.middle - last.lower) == pytest.approx(2.0 * float(expected_sigma.loc[last_idx]), abs=1e-6)
 
 
-def test_yahoo_w4y_range_fetches_weekly_directly_not_resampled(monkeypatch):
-    # Confirms W_4Y fetches interval="1wk" directly rather than fetching
-    # daily and resampling locally -- chart_data.py has no resample step of
-    # its own at all any more (see module docstring point 3), so there's no
-    # separate function left to assert was never called; the interval
-    # actually requested is the whole test.
-    weekly_df = _daily_df(250)  # stand-in "weekly" bars -- shape doesn't matter, only the call args do
-
-    captured = {}
-
-    async def fake_get_history(tickers, period, interval, auto_adjust=True):
-        captured["period"] = period
-        captured["interval"] = interval
-        captured["auto_adjust"] = auto_adjust
-        renamed = weekly_df.rename(columns=str.capitalize)
-        return {tickers[0]: renamed}
-
-    monkeypatch.setattr(chart_data.yahoo_client, "get_history", fake_get_history)
+def test_w4y_range_resamples_the_long_history_dailies_to_weekly_monday_bars(monkeypatch):
+    _patch_bars(monkeypatch, _daily_df(1300))  # ~5y of business days
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
     out = asyncio.run(chart_data.get_chart_data("AAPL", "W_4Y"))
 
-    assert captured["interval"] == "1wk"
-    assert captured["auto_adjust"] is False
-    assert out.source == "yahoo"
-    assert out.chart_available is True
+    assert out.source == "fmp" and out.chart_available is True
+    days = [datetime.strptime(b.time, "%Y-%m-%d") for b in out.bars]
+    assert all(d.weekday() == 0 for d in days)  # weekly bars labelled by their Monday
+    assert all((b - a).days == 7 for a, b in zip(days, days[1:]))
 
 
 def test_entry_signal_not_tracked(monkeypatch):
     df = _daily_df(300)
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -435,7 +407,7 @@ def test_entry_signal_tracked_but_no_events_in_window_has_no_markers(monkeypatch
     # the ticker IS tracked (entry_signal_available=True) but the event
     # table has nothing for it.
     df = _daily_df(300)
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
 
     async def fake_entry_signal(ticker):
         return _entry_signal(active=False, fired_at=datetime.now() - timedelta(days=10))
@@ -456,7 +428,7 @@ def test_entry_signal_places_a_marker_per_event_even_when_inactive(monkeypatch):
     # historical marker: the active gate is a TechnicalEntrySignal-only
     # concept and deliberately does not apply to entry_signal_markers.
     df = _daily_df(300)
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
 
     fired_at = (pd.Timestamp.today().normalize() - pd.Timedelta(days=60)).to_pydatetime()
 
@@ -484,7 +456,7 @@ def test_entry_signal_multiple_fires_same_day_collapse_to_one_marker_keeping_fir
     # they must collapse to ONE marker, anchored to the FIRST
     # chronological fire, not the last.
     df = _daily_df(300)
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
 
     day = pd.Timestamp.today().normalize() - pd.Timedelta(days=5)
     first_fire = (day + pd.Timedelta(hours=11, minutes=30)).to_pydatetime()
@@ -510,7 +482,7 @@ def test_entry_signal_multiple_fires_same_day_collapse_to_one_marker_keeping_fir
 
 def test_entry_signal_distinct_days_each_get_their_own_marker(monkeypatch):
     df = _daily_df(300)
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
 
     today = pd.Timestamp.today().normalize()
     fired_1 = (today - pd.Timedelta(days=30)).to_pydatetime()
@@ -536,7 +508,7 @@ def test_entry_signal_weekly_view_collapses_same_week_fires_keeping_first(monkey
     # week must collapse to one marker on that week's bar, keeping the
     # earlier of the two.
     df = _daily_df(365 * 5)  # enough history for W_4Y's warm-up + 4y visible window
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
 
     # Two fires in the same calendar week (a Tuesday and a Thursday),
     # comfortably inside the visible window.
@@ -564,13 +536,13 @@ def test_entry_signal_weekly_view_collapses_same_week_fires_keeping_first(monkey
 
 def test_entry_signal_w4y_shows_no_markers_for_the_older_two_years_not_an_error(monkeypatch):
     # The documented, accepted asymmetry: W_4Y shows 4 years of price but
-    # stored events only reach back as far as they have accumulated (Yahoo
-    # limits how far back they can be computed to ~2 years; retention is 4 --
+    # stored events only reach back as far as they have accumulated (the 2h-interval
+    # history limits how far back they can be computed to ~2 years; retention is 4 --
     # see chart_data's own module docstring). Simulates that by only returning
     # events within the most recent ~2 years -- the older part of the visible
     # window must simply have no markers, not raise or degrade the chart.
     df = _daily_df(365 * 5)
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
 
     recent_fire = (pd.Timestamp.today().normalize() - pd.Timedelta(days=200)).to_pydatetime()  # well within 2y
 
@@ -594,7 +566,7 @@ def test_entry_signal_w4y_shows_no_markers_for_the_older_two_years_not_an_error(
 
 
 def test_warren_signal_not_tracked(monkeypatch):
-    _patch_yahoo_bars(monkeypatch, _daily_df(300))
+    _patch_bars(monkeypatch, _daily_df(300))
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     # get_warren_signal_data stays the module's default (_no_warren_signal)
@@ -608,7 +580,7 @@ def test_warren_signal_not_tracked(monkeypatch):
 
 def test_warren_signal_places_a_marker_per_event_with_its_own_kind_and_label(monkeypatch):
     df = _daily_df(300)
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
 
     fired_at = (pd.Timestamp.today().normalize() - pd.Timedelta(days=60)).to_pydatetime()
 
@@ -639,7 +611,7 @@ def test_warren_signal_two_different_kinds_on_the_same_bar_both_render(monkeypat
     # marker layer preserves both, rather than collapsing them the way two
     # SAME-kind fires on one bucket correctly do.
     df = _daily_df(300)
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
 
     day = pd.Timestamp.today().normalize() - pd.Timedelta(days=5)
     same_bar = (day + pd.Timedelta(hours=11, minutes=30)).to_pydatetime()
@@ -665,7 +637,7 @@ def test_warren_signal_two_different_kinds_on_the_same_bar_both_render(monkeypat
 
 def test_warren_signal_multiple_fires_of_the_same_kind_same_day_collapse_to_one(monkeypatch):
     df = _daily_df(300)
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
 
     day = pd.Timestamp.today().normalize() - pd.Timedelta(days=5)
     first_fire = (day + pd.Timedelta(hours=11, minutes=30)).to_pydatetime()
@@ -692,7 +664,7 @@ def test_warren_signal_multiple_fires_of_the_same_kind_same_day_collapse_to_one(
 
 def test_zones_not_tracked(monkeypatch):
     df = _daily_df(300)
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
@@ -704,7 +676,7 @@ def test_zones_not_tracked(monkeypatch):
 
 def test_zones_within_visible_window_included_outside_excluded(monkeypatch):
     df = _daily_df(600)
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
 
     today = pd.Timestamp.today().normalize()
     within = (today - pd.Timedelta(days=300)).strftime("%Y-%m-%d")  # inside D_1Y's 365-day window
@@ -726,7 +698,7 @@ def test_zones_within_visible_window_included_outside_excluded(monkeypatch):
 
 def test_broken_zone_within_window_is_included_with_broken_flag_set(monkeypatch):
     df = _daily_df(600)
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
 
     today = pd.Timestamp.today().normalize()
     within = (today - pd.Timedelta(days=300)).strftime("%Y-%m-%d")  # inside D_1Y's 365-day window
@@ -758,7 +730,7 @@ def test_broken_zone_within_window_is_included_with_broken_flag_set(monkeypatch)
 
 def test_no_broken_zone_when_none_currently_qualifies(monkeypatch):
     df = _daily_df(600)
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
 
     within = (pd.Timestamp.today().normalize() - pd.Timedelta(days=300)).strftime("%Y-%m-%d")
     lp = LiquidityZonesOut(daily=_lp_out(support=[_zone_out(90.0, within)], resistance=[]), weekly=None)
@@ -775,7 +747,7 @@ def test_zones_use_weekly_read_for_w4y_range_not_daily(monkeypatch):
     # ~9y of daily bars, matching the existing W_4Y resample test's own
     # fixture size -- enough warm-up + 4y visible window once resampled.
     df = _daily_df(365 * 9)
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
 
     recent = (pd.Timestamp.today().normalize() - pd.Timedelta(days=30)).strftime("%Y-%m-%d")
     daily_read = _lp_out(support=[_zone_out(90.0, recent)], resistance=[])
@@ -793,7 +765,7 @@ def test_zones_use_weekly_read_for_w4y_range_not_daily(monkeypatch):
 
 
 def test_zones_absent_when_bars_empty(monkeypatch):
-    _patch_yahoo_bars(monkeypatch, pd.DataFrame())
+    _patch_bars(monkeypatch, pd.DataFrame())
 
     recent = (pd.Timestamp.today().normalize() - pd.Timedelta(days=30)).strftime("%Y-%m-%d")
     lp = LiquidityZonesOut(daily=_lp_out(support=[_zone_out(90.0, recent)], resistance=[]), weekly=None)
@@ -824,7 +796,7 @@ def _patch_events(monkeypatch, events: ChartEvents) -> None:
 
 
 def _run_chart(monkeypatch, range_key: str = "D_1Y", *, n: int = 600, events: ChartEvents):
-    _patch_yahoo_bars(monkeypatch, _daily_df(n))
+    _patch_bars(monkeypatch, _daily_df(n))
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     _patch_events(monkeypatch, events)
@@ -865,7 +837,7 @@ def test_weekend_event_snaps_back_to_the_prior_trading_bar_but_keeps_its_own_dat
     df = _daily_df(600)
     friday = next(ts.date() for ts in reversed(df.index[:-10]) if ts.weekday() == 4)
     saturday = friday + timedelta(days=1)
-    events = ChartEvents(dividends=[DividendEvent(saturday, 0.5)], source="yahoo")
+    events = ChartEvents(dividends=[DividendEvent(saturday, 0.5)], source="fmp")
 
     out = _run_chart(monkeypatch, events=events)
 
@@ -965,7 +937,7 @@ def test_duplicate_earnings_rows_in_one_bar_keep_the_first(monkeypatch):
 
 
 def test_no_bars_still_reports_events_source_and_no_markers(monkeypatch):
-    _patch_yahoo_bars(monkeypatch, pd.DataFrame())
+    _patch_bars(monkeypatch, pd.DataFrame())
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     _patch_events(monkeypatch, ChartEvents(earnings=[EarningsEvent(_days_ago(30), 1.0, 1.0)], source="fmp"))
@@ -988,12 +960,14 @@ def test_events_are_fetched_concurrently_with_the_bars(monkeypatch):
         await asyncio.wait_for(bars_started.wait(), timeout=2)
         return ChartEvents()
 
-    async def bars_waiting_for_events(tickers, period, interval, auto_adjust=True):
+    rows = _fmp_rows(300)
+
+    async def bars_waiting_for_events(ticker, from_date, to_date, group="daily_prices"):
         bars_started.set()
         await asyncio.wait_for(events_started.wait(), timeout=2)
-        return {tickers[0]: _daily_df(300).rename(columns=str.capitalize)}
+        return rows
 
-    monkeypatch.setattr(chart_data.yahoo_client, "get_history", bars_waiting_for_events)
+    monkeypatch.setattr(chart_data.fmp_client, "get_historical_price_eod", bars_waiting_for_events)
     monkeypatch.setattr(chart_data, "get_entry_signal_data", _no_entry_signal)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     monkeypatch.setattr(chart_data, "fetch_chart_events", events_waiting_for_bars)
@@ -1010,7 +984,7 @@ def test_w4y_weinstein_overlay_matches_engine_and_uses_live_params(monkeypatch, 
     from helpers.weinstein_config import update_weinstein_settings
 
     df = _daily_df(365 * 9)
-    _patch_yahoo_bars(monkeypatch, df)
+    _patch_bars(monkeypatch, df)
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
 
     with Session(_fresh_chart_data_engine) as session:
@@ -1029,7 +1003,7 @@ def test_w4y_weinstein_overlay_matches_engine_and_uses_live_params(monkeypatch, 
 
 
 def test_daily_ranges_have_no_weinstein_overlay(monkeypatch):
-    _patch_yahoo_bars(monkeypatch, _daily_df(400))
+    _patch_bars(monkeypatch, _daily_df(400))
     monkeypatch.setattr(chart_data, "get_liquidity_zone_data", _no_zones)
     out = asyncio.run(chart_data.get_chart_data("TEST", "D_1Y"))
     assert out.weinstein_stages == [] and out.weinstein_ma == [] and out.weinstein_ma_label is None

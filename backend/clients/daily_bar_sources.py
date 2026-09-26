@@ -1,28 +1,23 @@
-"""Dual data-source adapter for DAILY ("1d" only) OHLCV bars, feeding
-clients/shared_bars_cache.py's "1d" fetch step. Mirrors
-clients/technical_sources.py's IntradayBarSource Protocol shape -- same
-idea, applied here to the daily-bar fetch instead of the intraday one.
-The 60m interval (Warren/BB+RSI) is served by FMPIntradaySource /
-FMPIntradayWithFallback at the bottom of this module (P4, 2026-09-26): FMP
-`/historical-chart/1hour` for US-listed tickers, Yahoo as the per-ticker /
-group-off fallback and for non-US tickers.
+"""FMP-only OHLCV bar sources feeding clients/shared_bars_cache.py: DAILY ("1d")
+bars via FMPDailySource and 60m bars (Warren / BB+RSI) via FMPIntradaySource.
 
-FMP (`/historical-price-eod/full`, data group `daily_prices`) is the primary
-daily-bar source for every US-LISTED ticker (P2, 2026-09-24; US = listing
-exchange per the cached FMP profile, see core/tickers.py::is_us_listed --
-not company domicile). Per ticker the chain is FMP -> Yahoo (FMPWithFallback): an FMP
-error or empty answer for a ticker falls through to Yahoo Finance. Massive/Polygon was
-removed in Phase 6a (2026-09-26). Non-US support (the P3 `daily_prices_intl` group and its
-phantom-bar filter) was removed in the Phase 6a follow-up: non-US listings get no nightly
-daily bars (route_by_source drops them). The daily_prices toggle OFF (or master
-switch off) does NOT mean cache-only during P2-P5: FMP is skipped and Yahoo serves
-(removed in P6b). Auto-fallback, never a hard job failure -- paired with
-clients/shared_bars_cache.py's stale_ticker_count guard so a still-stale ticker after
-every source tried is visible in the nightly job's own cron_heartbeat message, not silent.
+Yahoo Finance was removed in Phase 6b (2026-09-26); Massive/Polygon in Phase 6a. There is
+no fallback provider: a ticker FMP does not serve (an empty 200, an HTTP error) is simply
+absent from the result and reported in the caller's `unserved_tickers` out-parameter, and
+its cached bars are left as they are. A data group that is off (`daily_prices` /
+`intraday_bars`; master switch off, above plan, restricted) serves NOTHING -- the whole batch
+is unserved and the cache is read as is (cached-only). The nightly jobs that feed on these
+bars report a real `skipped` cron status while their group is off (core/data_groups.py::
+job_skip_reason) instead of computing on stale bars.
 
-BASIS: FMP `full` is split- AND spin-off-adjusted (not dividend-adjusted).
-Yahoo is split-only, so ~30 tickers' pre-spin-off history differs
-from split-only sources (see CLAUDE.md "Daily prices: FMP").
+FMP `/historical-price-eod/full` (data group `daily_prices`) serves every US-LISTED ticker
+(P2, 2026-09-24; US = listing exchange per the cached FMP profile, see
+core/tickers.py::is_us_listed -- not company domicile). Non-US listings get no bars
+(route_by_source drops them). `/historical-chart/1hour` (group `intraday_bars`) serves the 60m
+bars (P4, 2026-09-26).
+
+BASIS: FMP `full` is split- AND spin-off-adjusted (not dividend-adjusted); ~30 tickers'
+pre-spin-off history differs from split-only sources (see CLAUDE.md "Daily prices: FMP").
 """
 
 import asyncio
@@ -31,7 +26,7 @@ import logging
 import time
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
-from typing import Awaitable, Callable, Protocol
+from typing import Protocol
 
 import httpx
 import pandas as pd
@@ -39,7 +34,6 @@ from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from clients.fmp_client import FMPGroupDisabledError, fmp_client
-from clients.yahoo_client import yahoo_client
 from core.data_groups import effective_state, get_snapshot
 from core.db import engine
 from core.models import FundamentalsCache, SharedBarsCache
@@ -53,41 +47,30 @@ __all__ = [
     "DAILY_INTERVAL",
     "DailyBarSource",
     "FMPDailySource",
-    "FMPWithFallback",
     "FMPIntradaySource",
-    "FMPIntradayWithFallback",
     "non_fmp_intraday_tickers",
     "find_short_sessions",
     "fmp_intraday_rows_to_frame",
-    "FallbackTickers",
-    "describe_fallback",
-    "YahooDailySource",
+    "UnservedTickers",
+    "describe_unserved",
     "get_daily_bar_source",
     "route_by_source",
 ]
 
 
-class FallbackTickers(list):
-    """Out-parameter for DailyBarSource.get_daily_bars' `fallback_tickers`:
-    every ticker in this call NOT served by the primary provider (FMP while
-    the daily_prices group is live -- so the whole batch when it is off), with
-    `.yahoo` the subset that ended up on Yahoo (every fallback ticker since
-    Massive's removal, kept so callers' summaries are unchanged). A plain list to every existing caller (`len()`, `.extend()`);
-    `describe()` is the one-line breakdown the nightly jobs put in their
-    cron_heartbeat message."""
-
-    def __init__(self, *args) -> None:
-        super().__init__(*args)
-        self.yahoo: list[str] = []
+class UnservedTickers(list):
+    """Out-parameter for get_daily_bars'/get_intraday_bars' `unserved_tickers`: every ticker
+    in the call FMP did NOT serve (the whole batch while the data group is off). A plain
+    list to every caller (`len()`, `.extend()`); `describe()` is the one-line breakdown the
+    nightly jobs put in their cron_heartbeat message."""
 
     def describe(self) -> str:
-        return describe_fallback(len(self), len(self.yahoo))
+        return describe_unserved(len(self))
 
 
-def describe_fallback(count: int, yahoo: int) -> str:
-    """The heartbeat phrase for a run's FMP fallbacks: `count` tickers not
-    served by FMP, `yahoo` of them ended on Yahoo (the only fallback)."""
-    return f"{count} fell back from FMP to Yahoo"
+def describe_unserved(count: int) -> str:
+    """The heartbeat phrase for a run's unserved tickers (cached bars kept, no fallback)."""
+    return f"{count} not served by FMP (cached bars kept)"
 
 
 class DailyBarSource(Protocol):
@@ -96,7 +79,7 @@ class DailyBarSource(Protocol):
         tickers_with_days: dict[str, int],
         auto_adjust: bool,
         reference: date | None = None,
-        fallback_tickers: list[str] | None = None,
+        unserved_tickers: list[str] | None = None,
         replace_tickers: list[str] | None = None,
         full_refresh: bool = False,
     ) -> dict[str, pd.DataFrame]:
@@ -108,24 +91,19 @@ class DailyBarSource(Protocol):
         DataFrame} (lowercase columns, naive DatetimeIndex) for every
         ticker real bars were found for -- a bad/delisted/no-data ticker is
         simply absent, not an error, matching
-        clients/yahoo_client.py::YahooClient.get_history's own
         per-ticker-tolerant convention.
 
-        `fallback_tickers`, when passed a list, gets extended with every
-        ticker THIS call did not get from FMP (Yahoo served it -- see
-        FMPWithFallback below) -- an out-parameter rather than a
-        return-shape change, so get_or_fetch_bars_batch's existing
-        `dict[str, pd.DataFrame]` return type (many callers) doesn't need
-        to change to thread this through. Only FMPWithFallback
-        ever populates it; YahooDailySource accepts and ignores it.
+        `unserved_tickers`, when passed a list, gets extended with every ticker THIS call
+        did not get from FMP -- an out-parameter rather than a return-shape change, so
+        get_or_fetch_bars_batch's existing `dict[str, pd.DataFrame]` return type (many
+        callers) doesn't need to change to thread this through.
 
-        `replace_tickers` (out-parameter, FMPWithFallback only): tickers whose
+        `replace_tickers` (out-parameter): tickers whose
         returned frame is a COMPLETE fresh history that must REPLACE the cached
         rows (delete-then-insert) rather than be upserted over them -- a full
         FMP refetch after a split/spin-off/symbol-reuse restated the past.
-        `full_refresh` (input): FMP path only -- skip the incremental overlap
-        check and refetch every ticker's full window (the weekly resync).
-        Every other source accepts and ignores both."""
+        `full_refresh` (input): skip the incremental overlap check and refetch every
+        ticker's full window (the weekly resync)."""
         ...
 
 
@@ -170,54 +148,6 @@ def route_by_source(tickers_with_days: dict[str, int]) -> tuple[dict[str, int], 
     for ticker, days in tickers_with_days.items():
         (us if is_us_listed(ticker, exchanges.get(ticker)) else non_us)[ticker] = days
     return us, non_us
-
-
-# yfinance's period enum -- the same tiering idea as
-# clients/shared_bars_cache.py's own _DAILY_PERIOD_STEPS, kept as a small,
-# separate copy here rather than imported from there: shared_bars_cache.py
-# imports THIS module (for routing), so the reverse import would be
-# circular. This is a small, stable, Yahoo-API-specific detail (which
-# period string covers N days), not worth a shared module for a handful of
-# lines duplicated in exactly one other, already-tested place.
-_DAILY_PERIOD_STEPS: list[tuple[str, int]] = [
-    ("1mo", 30), ("3mo", 90), ("6mo", 180), ("1y", 365), ("2y", 730), ("5y", 1825), ("10y", 3650),
-]
-
-
-def _yahoo_period_for(days: int) -> str:
-    for period, tier_days in _DAILY_PERIOD_STEPS:
-        if tier_days >= days:
-            return period
-    return _DAILY_PERIOD_STEPS[-1][0]  # clamp to the widest available tier
-
-
-class YahooDailySource:
-    """Today's exact daily-bar fetch mechanism (period-bucketed batch
-    yf.download calls), moved out of clients/shared_bars_cache.py
-    unchanged in behavior -- the fallback for every ticker FMP could not serve."""
-
-    async def get_daily_bars(
-        self,
-        tickers_with_days: dict[str, int],
-        auto_adjust: bool,
-        reference: date | None = None,
-        fallback_tickers: list[str] | None = None,
-        replace_tickers: list[str] | None = None,
-        full_refresh: bool = False,
-    ) -> dict[str, pd.DataFrame]:
-        if not tickers_with_days:
-            return {}
-        by_period: dict[str, list[str]] = {}
-        for ticker, days in tickers_with_days.items():
-            by_period.setdefault(_yahoo_period_for(days), []).append(ticker)
-        result: dict[str, pd.DataFrame] = {}
-        for period, group in by_period.items():
-            fetched = await yahoo_client.get_history(group, period=period, interval=DAILY_INTERVAL, auto_adjust=auto_adjust)
-            # yfinance's own native Open/High/Low/Close/Volume casing ->
-            # this Protocol's normalized lowercase contract (see
-            # DailyBarSource's own docstring).
-            result.update({t: df.rename(columns=str.lower) for t, df in fetched.items()})
-        return result
 
 
 def _existing_span(tickers: list[str]) -> dict[str, tuple[date, date]]:
@@ -321,11 +251,10 @@ class FMPDailySource:
       restated history (split, spin-off, symbol reuse) and the ticker is
       refetched over its full window and replaced.
 
-    Returns {} outright while its group is not live (off, master
-    off, above plan, restricted) -- FMPWithFallback then serves the whole
-    batch from its fallback (Yahoo). An empty 200 (delisted symbol) or an HTTP error
-    for a ticker just leaves it out of the result (its fallback decides);
-    error accounting toward the group's Failing chip is FMPClient.get's job.
+    Returns {} outright while its group is not live (off, master off, above plan,
+    restricted): every ticker is reported unserved and the cache is read as is. An empty
+    200 (delisted symbol) or an HTTP error for a ticker just leaves it out of the result
+    (also reported unserved); error accounting toward the group's Failing chip is FMPClient.get's job.
     Requests are paced to FMP_RATE_FRACTION of the plan's documented rate."""
 
     def __init__(self, client=fmp_client, group: str = "daily_prices") -> None:
@@ -337,11 +266,15 @@ class FMPDailySource:
         tickers_with_days: dict[str, int],
         auto_adjust: bool,
         reference: date | None = None,
-        fallback_tickers: list[str] | None = None,
+        unserved_tickers: list[str] | None = None,
         replace_tickers: list[str] | None = None,
         full_refresh: bool = False,
     ) -> dict[str, pd.DataFrame]:
-        if not tickers_with_days or not effective_state(self._group)[0]:
+        if not tickers_with_days:
+            return {}
+        if not effective_state(self._group)[0]:
+            if unserved_tickers is not None:
+                unserved_tickers.extend(tickers_with_days)
             return {}
         today = reference or date.today()
         span = _existing_span(list(tickers_with_days))
@@ -363,10 +296,10 @@ class FMPDailySource:
                         ticker, start.isoformat(), today.isoformat(), group=self._group
                     )
                 except FMPGroupDisabledError:
-                    stop = True  # group went off mid-run: everything left falls through
+                    stop = True  # group went off mid-run: everything left is unserved
                     return None
                 except (httpx.HTTPError, ValueError):
-                    logger.warning("FMP daily-bar fetch failed for %s; falling back", ticker)
+                    logger.warning("FMP daily-bar fetch failed for %s; keeping its cached bars", ticker)
                     return None
             frame = fmp_rows_to_frame(rows)
             if frame.empty:
@@ -402,6 +335,11 @@ class FMPDailySource:
         await asyncio.gather(*(one(t, d) for t, d in tickers_with_days.items()))
         if replace_tickers is not None:
             replace_tickers.extend(replaced)
+        if unserved_tickers is not None:
+            missing = [t for t in tickers_with_days if t not in result]
+            if missing:
+                logger.info("FMP served %d/%d ticker(s); %d unserved (cached bars kept)", len(result), len(tickers_with_days), len(missing))
+            unserved_tickers.extend(missing)
         return result
 
     @staticmethod
@@ -426,59 +364,16 @@ class FMPDailySource:
         return False
 
 
-class FMPWithFallback:
-    """FMP first, then Yahoo, per ticker (see the
-    module docstring). Every ticker FMP did not deliver -- an empty/erroring
-    answer, or the whole batch while the daily_prices group is off -- goes to
-    the fallback and is recorded in `fallback_tickers` (with the Yahoo subset
-    in its `.yahoo`, when the caller passed a FallbackTickers) so the job's
-    heartbeat can say "N fell back from FMP to Yahoo"."""
-
-    def __init__(self, fmp: DailyBarSource | None = None, fallback: DailyBarSource | None = None) -> None:
-        self._fmp = fmp or FMPDailySource()
-        self._fallback = fallback or YahooDailySource()
-
-    async def get_daily_bars(
-        self,
-        tickers_with_days: dict[str, int],
-        auto_adjust: bool,
-        reference: date | None = None,
-        fallback_tickers: list[str] | None = None,
-        replace_tickers: list[str] | None = None,
-        full_refresh: bool = False,
-    ) -> dict[str, pd.DataFrame]:
-        try:
-            result = await self._fmp.get_daily_bars(
-                tickers_with_days, auto_adjust, reference=reference, replace_tickers=replace_tickers,
-                full_refresh=full_refresh,
-            )
-        except Exception:
-            logger.warning("FMP daily-bar fetch failed entirely for %d ticker(s); falling back", len(tickers_with_days), exc_info=True)
-            result = {}
-        missing = {t: d for t, d in tickers_with_days.items() if t not in result or result[t].empty}
-        if not missing:
-            return result
-        logger.info("FMP served %d/%d ticker(s); %d fall back to Yahoo", len(result), len(tickers_with_days), len(missing))
-        fallback = await self._fallback.get_daily_bars(missing, auto_adjust, reference=reference)
-        if fallback_tickers is not None:
-            fallback_tickers.extend(missing)
-            if isinstance(fallback_tickers, FallbackTickers):
-                fallback_tickers.yahoo.extend(missing)  # Yahoo is the only fallback: everything missing is Yahoo's
-        result.update(fallback)
-        return result
-
-
 def get_daily_bar_source() -> DailyBarSource:
-    """FMP first (daily_prices group), then Yahoo."""
-    return FMPWithFallback()
+    """FMP (daily_prices group); nothing else."""
+    return FMPDailySource()
 
 
 # ---------------------------------------------------------------------------
 # P4: intraday (60m) bars -- Warren and BB+RSI
 # ---------------------------------------------------------------------------
 # FMP `/historical-chart/1hour` (data group `intraday_bars`): regular-trading-hours
-# bars only, labelled by bar START (09:30..15:30 -- the same labelling the Yahoo
-# rows carry), timestamps naive strings in ET, newest first. Prices are split-
+# bars only, labelled by bar START (09:30..15:30), timestamps naive strings in ET, newest first. Prices are split-
 # adjusted and NOT dividend-adjusted (checked against IBKR/FAST splits and VZ/O
 # dividends, 2026-09-26). `extended=true` is never requested (clock-anchored bars).
 
@@ -548,7 +443,7 @@ def fmp_intraday_rows_to_frame(rows, completed_bar_start: datetime | None = None
 
 def non_fmp_intraday_tickers(session: Session, tickers: list[str]) -> set[str]:
     """Tickers (of `tickers`) with at least one cached "60m" row NOT tagged source="fmp" -- a
-    Yahoo-era row (NULL, pre-P4) or a Yahoo fallback write. Tickers with no cached row at all are
+    legacy Yahoo-era row (NULL or "yahoo", pre-P6b). Tickers with no cached row at all are
     not in the result. Two callers: FMPIntradaySource (such a ticker is fully replaced, never
     layered) and the cache's fetch selection (such a ticker is fetched even if fresh and wide)."""
     if not tickers:
@@ -577,9 +472,8 @@ class FMPIntradaySource:
       (other than the last cached bar) must match the cache within 0.5%, else FMP restated
       history and the ticker is refetched in full and replaced.
 
-    Returns {} while the group is not live -- FMPIntradayWithFallback then serves the whole batch
-    from Yahoo (never cache-only). A ticker with an error / empty / thin answer is simply left
-    out. Sessions with fewer bars than expected are logged and kept in `short_sessions`."""
+    Returns {} while the group is not live (cached-only); every ticker not in the result is added to
+    `unserved_tickers`. A ticker with an error / empty / thin answer is simply left out. Sessions with fewer bars than expected are logged and kept in `short_sessions`."""
 
     def __init__(self, client=fmp_client) -> None:
         self._client = client
@@ -605,8 +499,13 @@ class FMPIntradaySource:
         reference: datetime | None = None,
         replace_tickers: list[str] | None = None,
         full_refresh: bool = False,
+        unserved_tickers: list[str] | None = None,
     ) -> dict[str, pd.DataFrame]:
-        if not tickers_with_days or not effective_state("intraday_bars")[0]:
+        if not tickers_with_days:
+            return {}
+        if not effective_state("intraday_bars")[0]:
+            if unserved_tickers is not None:
+                unserved_tickers.extend(tickers_with_days)
             return {}
         # Lazy import: clients.shared_bars_cache imports this module.
         from clients.shared_bars_cache import _eastern_today, _most_recent_completed_intraday_bar_start
@@ -633,10 +532,10 @@ class FMPIntradaySource:
                     try:
                         rows = await self._client.get_historical_chart_1hour(ticker, start.isoformat(), to.isoformat())
                     except FMPGroupDisabledError:
-                        stop = True  # group went off mid-run: everything left falls through
+                        stop = True  # group went off mid-run: everything left is unserved
                         return None
                     except (httpx.HTTPError, ValueError):
-                        logger.warning("FMP intraday fetch failed for %s; falling back", ticker)
+                        logger.warning("FMP intraday fetch failed for %s; keeping its cached bars", ticker)
                         return None  # never a partial history
                 if not isinstance(rows, list) or not rows:
                     break
@@ -696,7 +595,7 @@ class FMPIntradaySource:
             if frame is None:
                 return
             if full and len(frame) < INTRADAY_MIN_FULL_BARS:
-                logger.warning("FMP full intraday history for %s has only %d bars; falling back", ticker, len(frame))
+                logger.warning("FMP full intraday history for %s has only %d bars; keeping cached rows", ticker, len(frame))
                 return
             short = find_short_sessions(frame, completed)
             if short:
@@ -712,51 +611,9 @@ class FMPIntradaySource:
         await asyncio.gather(*(one(t, d) for t, d in tickers_with_days.items()))
         if replace_tickers is not None:
             replace_tickers.extend(replaced)
-        return result
-
-
-IntradayFallback = Callable[[dict[str, int], bool], Awaitable[dict[str, pd.DataFrame]]]
-
-
-class FMPIntradayWithFallback:
-    """FMP first, then `fallback` (Yahoo, injected by clients/shared_bars_cache.py, which owns
-    the yfinance period logic) for every ticker FMP did not deliver -- per ticker, and the whole
-    batch while `intraday_bars` is off. Tickers FMP served are added to `fmp_served` so the
-    cache can tag their rows; those that fell back go to `fallback_tickers`."""
-
-    def __init__(self, fallback: IntradayFallback, fmp: FMPIntradaySource | None = None) -> None:
-        self._fmp = fmp or FMPIntradaySource()
-        self._fallback = fallback
-
-    async def get_intraday_bars(
-        self,
-        tickers_with_days: dict[str, int],
-        auto_adjust: bool,
-        reference: datetime | None = None,
-        fallback_tickers: list[str] | None = None,
-        replace_tickers: list[str] | None = None,
-        full_refresh: bool = False,
-        fmp_served: set[str] | None = None,
-    ) -> dict[str, pd.DataFrame]:
-        try:
-            result = await self._fmp.get_intraday_bars(
-                tickers_with_days, reference=reference, replace_tickers=replace_tickers, full_refresh=full_refresh
-            )
-        except Exception:
-            logger.warning("FMP intraday fetch failed entirely for %d ticker(s); falling back", len(tickers_with_days), exc_info=True)
-            result = {}
-            if replace_tickers is not None:
-                replace_tickers.clear()
-        if fmp_served is not None:
-            fmp_served.update(result)
-        missing = {t: d for t, d in tickers_with_days.items() if t not in result or result[t].empty}
-        if not missing:
-            return result
-        logger.info("FMP served %d/%d intraday ticker(s); %d fall back to Yahoo", len(result), len(tickers_with_days), len(missing))
-        fallback = await self._fallback(missing, auto_adjust)
-        if fallback_tickers is not None:
-            fallback_tickers.extend(missing)
-            if isinstance(fallback_tickers, FallbackTickers):
-                fallback_tickers.yahoo.extend(missing)
-        result.update(fallback)
+        if unserved_tickers is not None:
+            missing = [t for t in tickers_with_days if t not in result]
+            if missing:
+                logger.info("FMP served %d/%d intraday ticker(s); %d unserved (cached bars kept)", len(result), len(tickers_with_days), len(missing))
+            unserved_tickers.extend(missing)
         return result

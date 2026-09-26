@@ -10,9 +10,7 @@ import clients.daily_bar_sources as daily_bar_sources
 from clients.daily_bar_sources import (
     FMP_OVERLAP_DAYS,
     FMPDailySource,
-    FMPWithFallback,
-    FallbackTickers,
-    YahooDailySource,
+    UnservedTickers,
     get_daily_bar_source,
     route_by_source,
 )
@@ -55,33 +53,13 @@ def test_route_by_source_splits_dotted_tickers_to_non_us():
     assert non_us == {"0700.HK": 30}
 
 
-# ---- YahooDailySource ----
-
-
-def test_yahoo_daily_source_groups_tickers_by_period_tier(monkeypatch):
-    calls = []
-
-    async def fake_get_history(tickers, period, interval, auto_adjust):
-        calls.append((tuple(sorted(tickers)), period))
-        return {t: _bar_frame(TODAY) for t in tickers}
-
-    monkeypatch.setattr(daily_bar_sources.yahoo_client, "get_history", fake_get_history)
-
-    source = YahooDailySource()
-    result = asyncio.run(source.get_daily_bars({"AAPL": 30, "MSFT": 30, "SPY": 800}, auto_adjust=False))
-
-    assert set(result) == {"AAPL", "MSFT", "SPY"}
-    # AAPL/MSFT (30d -> "1mo" tier) batched into one call, SPY (800d -> "5y" tier) its own call.
-    assert (("AAPL", "MSFT"), "1mo") in calls
-    assert (("SPY",), "5y") in calls
-
-
 # ---- get_daily_bar_source ----
 
 
-def test_get_daily_bar_source_is_fmp_first_with_a_yahoo_only_fallback():
+def test_get_daily_bar_source_is_the_fmp_daily_source_on_the_daily_prices_group():
     source = get_daily_bar_source()
-    assert isinstance(source, FMPWithFallback) and isinstance(source._fallback, YahooDailySource)
+    assert isinstance(source, FMPDailySource) and source._group == "daily_prices"
+    assert not hasattr(daily_bar_sources, "YahooDailySource") and not hasattr(daily_bar_sources, "yahoo_client")
 
 
 # ---- exchange-based routing (P2) ----
@@ -105,7 +83,7 @@ def test_route_by_source_uses_listing_exchange_not_domicile(monkeypatch):
     assert set(non_us) == {"0005.HK", "MC.PA"}
 
 
-# ---- FMPDailySource / FMPWithFallback (P2) ----
+# ---- FMPDailySource ----
 
 
 class FakeFMP:
@@ -189,21 +167,29 @@ def test_fmp_source_full_refresh_skips_the_incremental_path(monkeypatch):
     assert fmp.calls == [("AAPL", (TODAY - timedelta(days=90)).isoformat())] and replace == ["AAPL"]
 
 
-def test_fmp_source_returns_nothing_while_daily_prices_is_off(monkeypatch):
+def test_fmp_source_returns_nothing_while_daily_prices_is_off_and_reports_every_ticker_unserved(monkeypatch):
     import core.data_groups as dg
 
     _fresh_engine(monkeypatch)
     dg.set_group_enabled("daily_prices", False)
     fmp = FakeFMP({"AAPL": _series(TODAY - timedelta(days=60), 61)})
-    assert asyncio.run(FMPDailySource(client=fmp).get_daily_bars({"AAPL": 90}, False, reference=TODAY)) == {}
-    assert fmp.calls == []
+    out = UnservedTickers()
+    result = asyncio.run(FMPDailySource(client=fmp).get_daily_bars({"AAPL": 90, "MSFT": 90}, False, reference=TODAY, unserved_tickers=out))
+    assert result == {} and fmp.calls == []
+    assert sorted(out) == ["AAPL", "MSFT"]
 
 
 def test_fmp_source_a_failing_or_empty_ticker_is_simply_absent(monkeypatch):
     _fresh_engine(monkeypatch)
     fmp = FakeFMP({"AAPL": _series(TODAY - timedelta(days=60), 61), "TWTR": {}}, failing={"MSFT"})
-    result = asyncio.run(FMPDailySource(client=fmp).get_daily_bars({"AAPL": 90, "MSFT": 90, "TWTR": 90}, False, reference=TODAY))
+    out = UnservedTickers()
+    result = asyncio.run(
+        FMPDailySource(client=fmp).get_daily_bars({"AAPL": 90, "MSFT": 90, "TWTR": 90}, False, reference=TODAY, unserved_tickers=out)
+    )
     assert set(result) == {"AAPL"}
+    # No fallback provider: the unserved tickers are just reported, and describe() says so.
+    assert sorted(out) == ["MSFT", "TWTR"]
+    assert out.describe() == "2 not served by FMP (cached bars kept)"
 
 
 def test_fmp_source_a_tiny_full_answer_never_replaces_existing_rows(monkeypatch):
@@ -213,42 +199,6 @@ def test_fmp_source_a_tiny_full_answer_never_replaces_existing_rows(monkeypatch)
     replace: list[str] = []
     result = asyncio.run(FMPDailySource(client=fmp).get_daily_bars({"AAPL": 400}, False, reference=TODAY, replace_tickers=replace))
     assert result == {} and replace == []
-
-
-def test_fmp_with_fallback_serves_the_rest_from_the_fallback_and_reports_the_split(monkeypatch):
-    class FMPOnlyAAPL:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, replace_tickers=None, full_refresh=False, **_):
-            return {"AAPL": _bar_frame(TODAY)}
-
-    class Chain:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None, **_):
-            if fallback_tickers is not None:
-                fallback_tickers.append("ZZZ")
-            return {t: _bar_frame(TODAY, 50.0) for t in tickers_with_days}
-
-    out = FallbackTickers()
-    result = asyncio.run(
-        FMPWithFallback(fmp=FMPOnlyAAPL(), fallback=Chain()).get_daily_bars(
-            {"AAPL": 30, "MSFT": 30, "ZZZ": 30}, False, reference=TODAY, fallback_tickers=out
-        )
-    )
-    assert set(result) == {"AAPL", "MSFT", "ZZZ"} and result["AAPL"]["close"].iloc[0] == 200.0
-    # Yahoo is the only fallback, so every ticker FMP did not serve is Yahoo's.
-    assert sorted(out) == ["MSFT", "ZZZ"] and sorted(out.yahoo) == ["MSFT", "ZZZ"]
-    assert out.describe() == "2 fell back from FMP to Yahoo"
-
-
-def test_fmp_with_fallback_survives_the_fmp_layer_raising(monkeypatch):
-    class Boom:
-        async def get_daily_bars(self, *a, **k):
-            raise RuntimeError("fmp down")
-
-    class Chain:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None, **_):
-            return {t: _bar_frame(TODAY) for t in tickers_with_days}
-
-    result = asyncio.run(FMPWithFallback(fmp=Boom(), fallback=Chain()).get_daily_bars({"AAPL": 30}, False, reference=TODAY))
-    assert set(result) == {"AAPL"}
 
 
 def test_fmp_source_drops_a_partial_bar_dated_after_the_last_completed_session(monkeypatch):
@@ -267,9 +217,3 @@ def test_fmp_source_a_cache_a_few_days_short_of_the_window_still_counts_as_cover
     replace: list[str] = []
     asyncio.run(FMPDailySource(client=fmp).get_daily_bars({"AAPL": 90}, False, reference=TODAY, replace_tickers=replace))
     assert replace == [] and len(fmp.calls) == 1 and fmp.calls[0][1] > (TODAY - timedelta(days=30)).isoformat()
-
-
-def test_get_daily_bar_source_is_fmp_then_yahoo_on_the_daily_prices_group():
-    source = get_daily_bar_source()
-    assert isinstance(source, FMPWithFallback) and isinstance(source._fallback, YahooDailySource)
-    assert source._fmp._group == "daily_prices"

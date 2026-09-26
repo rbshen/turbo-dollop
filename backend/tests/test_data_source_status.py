@@ -54,21 +54,12 @@ def test_get_data_source_health_reflects_fmp_enabled_flag(monkeypatch, _isolate_
     assert fmp.status == "disabled_or_failing"
 
 
-def test_get_data_source_health_yahoo_has_no_kill_switch(monkeypatch, _isolate_data_source_health_engine):
-    engine = _isolate_data_source_health_engine
-    _seed(engine, "yahoo", timedelta(minutes=5))
-    result = get_data_source_health()
-    yahoo = next(s for s in result.sources if s.source == "yahoo")
-    assert yahoo.enabled is True
-    assert yahoo.status == "healthy"
-
-
-def test_data_source_health_endpoint_returns_fmp_and_yahoo(monkeypatch, _isolate_data_source_health_engine):
+def test_data_source_health_endpoint_returns_only_fmp(monkeypatch, _isolate_data_source_health_engine):
     engine = _isolate_data_source_health_engine
     _seed(engine, "fmp", timedelta(minutes=5))
-    _seed(engine, "yahoo", timedelta(minutes=5))
+    _seed(engine, "yahoo", timedelta(minutes=5))  # a leftover row from before Yahoo was removed is ignored
     with TestClient(app) as client:
         response = client.get("/api/config/data-source-health")
     assert response.status_code == 200
     body = response.json()
-    assert {s["source"] for s in body["sources"]} == {"fmp", "yahoo"}
+    assert [s["source"] for s in body["sources"]] == ["fmp"]

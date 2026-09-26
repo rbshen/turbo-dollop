@@ -40,11 +40,11 @@ STALE_AFTER_DAYS = 7
 
 # How long a TechnicalEntrySignalEvent row is kept before
 # prune_entry_signal_events deletes it (4 years; raised from 730 on 2026-09-19).
-# This is only a ceiling on STORED history, not a fetch limit: Yahoo serves ~730
-# days of 2h/60m bars (see the historical-backfill investigation), so nothing
+# This is only a ceiling on STORED history, not a fetch limit: only ~730
+# days of 2h/60m bars are available (see the historical-backfill investigation), so nothing
 # older can be recomputed -- retention above 730 just stops deleting events once
 # they age past the old cutoff, and depth grows a day per day until it reaches
-# this value. The original 730 was chosen to match that Yahoo limit, after a real
+# this value. The original 730 was chosen to match that 730-day limit, after a real
 # measurement (2026-09-11, isolated marker-query cost, 5 real tickers spanning
 # the actual event-row-count range, all 4 Chart tab ranges, 30 iterations each)
 # showed the full window added NEGLIGIBLE Chart load time: mean marginal cost
@@ -223,7 +223,7 @@ def record_historical_entry_signal_events(
     timeframe: str = DEFAULT_TIMEFRAME,
 ) -> int:
     """Bulk counterpart to _upsert's single-event insert, for
-    pipeline/backfills/backfill_entry_signal_events.py -- one row per
+    the (deleted, one-time) entry-signal backfill -- one row per
     result (typically the output of analysis.entry_signal.engine.
     compute_historical_entry_signals), same on_conflict_do_nothing
     idempotency guarantee so re-running the backfill is safe. Deliberately
@@ -266,7 +266,7 @@ def prune_entry_signal_events(retention_days: int = EVENT_RETENTION_DAYS, now: d
     storage-cost shortcut.
 
     retention_days defaults to EVENT_RETENTION_DAYS (1460 -- see that
-    constant's own comment for why it can exceed Yahoo's 730-day history
+    constant's own comment for why it can exceed the 730-day history
     limit, and the measured Chart-tab latency numbers) rather than being
     hardcoded here, so a call site (or a test) can override it without
     reaching into module internals.

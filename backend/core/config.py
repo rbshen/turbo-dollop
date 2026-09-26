@@ -32,20 +32,6 @@ class Settings(BaseSettings):
     cron_health_enabled: bool = True
     database_path: str = "fathom.db"
     cache_staleness_days: int = 7
-    # YahooPriceCache (the FMP-paused Price/Quote fallback) is judged by
-    # market session, not a flat window -- see clients/yahoo_cache.py::
-    # _is_stale. This is the one tunable: how long a fetch taken while the
-    # session is OPEN stays fresh (after the close, a fetch is fresh until
-    # the next session's close; no setting involved).
-    yahoo_quote_intraday_ttl_seconds: int = 60
-    # daily_bar_staleness_days (FMP daily EOD price bars' own staleness
-    # window) was removed 2026-09-18: Chart tab and Liquidity Zone
-    # detection, its only two consumers, both dropped FMP as a data source
-    # entirely (Chart moved to zero-cache on-demand Yahoo the day before;
-    # Liquidity Zones followed the same day, moving to Yahoo bars) --
-    # see CLAUDE.md's Liquidity Zone section for the staleness bug this
-    # setting existed to fix, now moot since the FMP-backed cache it gated
-    # (clients/daily_price_sources.py::FMPDailyBarSource) no longer exists.
     # Company profile (name, sector, industry, description, exchange, beta)
     # is near-static reference data -- it doesn't change because of an
     # earnings report the way statement-grain data does (earnings-aware

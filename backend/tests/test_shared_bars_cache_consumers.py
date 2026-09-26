@@ -1,9 +1,9 @@
 """End-to-end coverage of the overlap the shared bars cache exists to
-remove: the REAL cache (in-memory DB) with only yahoo_client faked, driven
+remove: the REAL cache (in-memory DB) with only the FMP bar sources faked, driven
 through each consumer's actual read entry point -- BB+RSI via
 clients/technical_sources.py, Warren/Trend/Liquidity Zones via the same
 get_or_fetch_bars_batch call their nightly jobs make (with each job's own
-lookback constant). Asserts on how many live Yahoo fetches happen, in
+lookback constant). Asserts on how many live fetches happen, in
 either job order, on the first night and in steady state."""
 
 import asyncio
@@ -15,43 +15,51 @@ from sqlmodel import SQLModel, create_engine
 
 import clients.shared_bars_cache as cache
 from clients.shared_bars_cache import DAILY_INTERVAL, INTRADAY_INTERVAL, get_or_fetch_bars_batch
-from clients.technical_sources import YahooTechnicalSource
+from clients.technical_sources import FMPTechnicalSource
 from data.liquidity_zone_data import LOOKBACK_DAYS as LZ_LOOKBACK_DAYS
 from data.trend_analysis_data import WEINSTEIN_LOOKBACK_DAYS as TREND_LOOKBACK_DAYS  # the trend job now fetches the Weinstein ~5y window
 from pipeline.nightly_entry_signal_calculation import LOOKBACK_DAYS as BBRSI_LOOKBACK_DAYS
 from pipeline.nightly_warren_signal_calculation import LOOKBACK_DAYS as WARREN_LOOKBACK_DAYS
 
 
-@pytest.fixture(autouse=True)
-def _intraday_on_yahoo(_isolate_data_groups_engine):
-    """These tests pin the shared cache's 60m mechanics against a fake Yahoo; P4 made FMP the
-    primary 60m source, so take it out of the chain (group off -> whole batch falls to Yahoo).
-    The FMP-first behaviour is covered in test_fmp_intraday_source.py."""
-    import core.data_groups as dg
-
-    dg.set_group_enabled("intraday_bars", False)
-
 _PERIOD_DAYS = {"1mo": 30, "3mo": 90, "6mo": 180, "1y": 365, "2y": 730, "5y": 1825, "10y": 3650}
 _SESSION_STARTS = [(9, 30), (10, 30), (11, 30), (12, 30), (13, 30), (14, 30), (15, 30)]
 
 
-class FakeYahoo:
-    """A stand-in for yahoo_client.get_history whose data "ends" at whatever
-    the test's current pinned session is, and which records every call."""
+class FakeBars:
+    """A stand-in for the FMP bar sources (get_daily_bar_source / FMPIntradaySource) whose data
+    "ends" at whatever the test's current pinned session is, and which records every call. Like
+    the batch downloads it replaces, tickers are grouped by the width tier their own need snaps to
+    (one recorded call per tier), so assertions read as "who was fetched at what width"."""
 
     def __init__(self):
         self.calls: list[dict] = []
         self.last_trading_date: date = date(2026, 9, 17)  # Thursday
         self.last_bar: datetime = datetime(2026, 9, 17, 15, 30)
 
-    async def get_history(self, tickers, period="2y", interval="1d", auto_adjust=True):
-        self.calls.append({"tickers": list(tickers), "period": period, "interval": interval, "auto_adjust": auto_adjust})
+    async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, unserved_tickers=None, replace_tickers=None, full_refresh=False):
+        return self._serve(DAILY_INTERVAL, tickers_with_days, auto_adjust)
+
+    async def get_intraday_bars(self, tickers_with_days, reference=None, replace_tickers=None, full_refresh=False, unserved_tickers=None):
+        return self._serve(INTRADAY_INTERVAL, tickers_with_days, None)
+
+    def _serve(self, interval, tickers_with_days, auto_adjust):
+        by_period: dict[str, list[str]] = {}
+        for ticker, need in tickers_with_days.items():
+            by_period.setdefault(cache._period_for(interval, need), []).append(ticker)
+        out: dict[str, pd.DataFrame] = {}
+        for period, group in by_period.items():
+            self.calls.append({"tickers": list(group), "period": period, "interval": interval, "auto_adjust": auto_adjust})
+            frame = self._frame(period, interval)
+            out.update({t: frame.copy() for t in group})
+        return out
+
+    def _frame(self, period, interval):
         days = _PERIOD_DAYS[period]
         if interval == DAILY_INTERVAL:
-            # yfinance's period="5y" starts at today minus five CALENDAR years
-            # (1826-1827 days), a hair wider than the tier's nominal 1825 -- the
-            # Trend job now asks for exactly that nominal width, so a fake that
-            # produced exactly 1825 would put the first bar right on the
+            # A "5y" width starts at today minus five CALENDAR years (1826-1827 days), a hair
+            # wider than the tier's nominal 1825 -- the Trend job asks for exactly that nominal
+            # width, so a fake that produced exactly 1825 would put the first bar right on the
             # strict coverage boundary and re-fetch on weekend-aligned dates.
             dates = [self.last_trading_date - timedelta(days=d) for d in range(days + 2)]
             index = pd.DatetimeIndex(sorted(pd.Timestamp(d) for d in dates if d.weekday() < 5))
@@ -67,15 +75,14 @@ class FakeYahoo:
                         stamps.append(pd.Timestamp(ts, tz="America/New_York"))
             index = pd.DatetimeIndex(sorted(stamps))
         n = len(index)
-        frame = pd.DataFrame(
-            {"Open": [100.0] * n, "High": [101.0] * n, "Low": [99.0] * n, "Close": [100.5] * n, "Volume": [1000] * n}, index=index
+        return pd.DataFrame(
+            {"open": [100.0] * n, "high": [101.0] * n, "low": [99.0] * n, "close": [100.5] * n, "volume": [1000] * n}, index=index
         )
-        return {t: frame.copy() for t in tickers}
 
     def advance_one_session(self):
         """Simulate the next trading day having completed (Thursday ->
         Friday) -- both what "most recently completed" resolves to and what
-        Yahoo now has."""
+        the provider now has."""
         self.last_trading_date += timedelta(days=1)
         self.last_bar = datetime(self.last_trading_date.year, self.last_trading_date.month, self.last_trading_date.day, 15, 30)
 
@@ -85,8 +92,9 @@ def env(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(cache, "engine", engine)
-    fake = FakeYahoo()
-    monkeypatch.setattr(cache.yahoo_client, "get_history", fake.get_history)
+    fake = FakeBars()
+    monkeypatch.setattr(cache, "get_daily_bar_source", lambda: fake)
+    monkeypatch.setattr(cache, "FMPIntradaySource", lambda: fake)
     # Pin "most recently completed session/bar" and "today" to the fake's
     # own pinned session, so these tests never depend on the wall clock.
     monkeypatch.setattr(cache, "_most_recent_completed_trading_date", lambda reference=None: fake.last_trading_date)
@@ -100,7 +108,7 @@ def _warren(tickers):
 
 
 def _bbrsi(tickers):
-    return asyncio.run(YahooTechnicalSource().get_intraday_bars(tickers, BBRSI_LOOKBACK_DAYS))
+    return asyncio.run(FMPTechnicalSource().get_intraday_bars(tickers, BBRSI_LOOKBACK_DAYS))
 
 
 def _trend(tickers):
@@ -129,7 +137,6 @@ def test_bbrsi_reads_the_row_warren_already_fetched_with_zero_live_calls(env):
     frame = bbrsi["AAPL"]
     assert str(frame.index.tz) == "America/New_York"  # what build_2h_session_candles needs
     assert (frame.index.max().date() - frame.index.min().date()).days <= BBRSI_LOOKBACK_DAYS  # sliced to its own 60d
-    assert all(c["auto_adjust"] is False for c in env.calls)
 
 
 def test_warren_widens_a_row_bbrsi_created_first_then_bbrsi_reuses_it(env):

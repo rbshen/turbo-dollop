@@ -7,13 +7,11 @@ Overall Assessment scoring entirely.
 
 **Plain split-adjusted Close, not dividend-adjusted (2026-09-23 Massive
 migration decision)** -- a deliberate accepted one-time step change, not a
-bug. Previously fetched via a standalone yahoo_client.get_history call with
-its (implicit) auto_adjust=True default, so yfinance's own `Close` column
-was already dividend+split adjusted; now routed through the same shared
-bars cache every other daily-bar consumer uses (auto_adjust=False, plain
-split-adjusted `close`), matching Sector Heatmap's own identical decision
-and letting this consumer benefit from the same Massive/Yahoo-fallback
-routing and nightly cache-sharing with Trend/Liquidity Zones."""
+bug. Previously fetched via a standalone Yahoo call whose `Close` column
+was dividend+split adjusted; now routed through the same shared bars cache
+every other daily-bar consumer uses (plain split-adjusted `close`, FMP-sourced
+since Phase 2), matching Sector Heatmap's own identical decision and sharing
+the nightly cache with Trend/Liquidity Zones."""
 
 import logging
 from datetime import date, datetime
@@ -22,7 +20,7 @@ import pandas as pd
 from sqlalchemy import delete
 from sqlmodel import Session, select
 
-from clients.daily_bar_sources import FallbackTickers, describe_fallback
+from clients.daily_bar_sources import UnservedTickers
 from clients.shared_bars_cache import DAILY_INTERVAL, get_or_fetch_bars_batch, stale_ticker_count
 from core.db import engine
 from core.models import MomentumSnapshot, TickerScore
@@ -71,12 +69,12 @@ async def compute_and_store_momentum_snapshot(anchor_date: date) -> dict:
         len(universe), anchor_date, len(skipped_delisted),
     )
 
-    fallback_tickers = FallbackTickers()
+    unserved_tickers = UnservedTickers()
     price_histories = await get_or_fetch_bars_batch(
-        universe, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False, fallback_tickers=fallback_tickers
+        universe, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False, unserved_tickers=unserved_tickers
     )
 
-    # Stale-data guard (docs/yahoo_close_data_gap_investigation_2026-09-23.md)
+    # Stale-data guard (docs/yahoo_close_data_gap_investigation_2026-09-23.md, historical)
     # -- see pipeline/nightly_trend_calculation.py's own equivalent comment
     # for the full reasoning.
     stale_count, _ = stale_ticker_count(universe, DAILY_INTERVAL)
@@ -108,7 +106,7 @@ async def compute_and_store_momentum_snapshot(anchor_date: date) -> dict:
         "processed": len(ranked),
         "dropped": len(universe) - len(ranked),
         "stale_count": stale_count,
-        "fallback_count": len(fallback_tickers), "fallback_yahoo_count": len(fallback_tickers.yahoo),
+        "unserved_count": len(unserved_tickers),
         "skipped_delisted_count": len(skipped_delisted),
     }
     logger.info(

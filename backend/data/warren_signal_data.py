@@ -54,7 +54,7 @@ STALE_AFTER_DAYS = 7
 
 # How long a WarrenSignalEvent row is kept before prune_warren_signal_events
 # deletes it (4 years; raised from 730 on 2026-09-19). This is only a ceiling
-# on STORED history, not a fetch limit: Yahoo serves ~730 days of 60m bars, so
+# on STORED history, not a fetch limit: only ~730 days of 60m bars are available, so
 # nothing older than that can be recomputed or backfilled -- retention above 730
 # just stops deleting events once they age past the old cutoff, and depth grows
 # by a day per day until it reaches this value. Safe to raise only because of

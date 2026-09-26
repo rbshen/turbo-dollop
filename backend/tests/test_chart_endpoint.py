@@ -17,7 +17,7 @@ from data.chart_events_data import ChartEvents, DividendEvent, EarningsEvent
 @pytest.fixture(autouse=True)
 def _default_no_chart_events(monkeypatch):
     # get_chart_data fetches earnings/dividends live on every call -- stub it
-    # so no endpoint test here makes a real FMP/Yahoo request.
+    # so no endpoint test here makes a real FMP request.
     async def _none(ticker):
         return ChartEvents()
 
@@ -73,25 +73,26 @@ def _fresh_chart_data_engine(monkeypatch):
     monkeypatch.setattr(chart_data, "engine", engine)
 
 
-def _patch_yahoo_bars(monkeypatch, n: int = 300):
-    """Patches chart_data's sole (Yahoo-only, since 2026-09-18 -- see
-    data/chart_data.py's own module docstring) fetch path. For a weekly
-    request (interval="1wk"), resamples the daily fixture to weekly first
-    -- real Yahoo Finance returns already-weekly bars for that interval
-    directly, and chart_data.py itself no longer resamples anything."""
+def _patch_bars(monkeypatch, n: int = 300):
+    """Feeds chart_data's FMP fetch paths from a synthetic daily fixture: the D ranges' direct
+    `/historical-price-eod/full` call, and W_4Y's long-history store (chart_data resamples
+    those dailies to weekly itself)."""
     index = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=n)
     closes = pd.Series([100.0 + i for i in range(n)], index=index)
-    df = pd.DataFrame(
-        {"Open": closes - 0.5, "High": closes + 1.0, "Low": closes - 1.0, "Close": closes, "Volume": 1000}, index=index
-    )
+    df = pd.DataFrame({"open": closes - 0.5, "high": closes + 1.0, "low": closes - 1.0, "close": closes, "volume": 1000}, index=index)
+    rows = [
+        {"date": ts.strftime("%Y-%m-%d"), "open": r["open"], "high": r["high"], "low": r["low"], "close": r["close"], "volume": r["volume"]}
+        for ts, r in df.iloc[::-1].iterrows()
+    ]
 
-    async def fake_get_history(tickers, period, interval, auto_adjust=True):
-        result = df
-        if interval == "1wk":
-            result = resample_to_weekly(df.rename(columns=str.lower)).rename(columns=str.capitalize)
-        return {tickers[0]: result}
+    async def fake_fmp(ticker, from_date, to_date, group="daily_prices"):
+        return rows
 
-    monkeypatch.setattr(chart_data.yahoo_client, "get_history", fake_get_history)
+    async def fake_long_history(ticker):
+        return df
+
+    monkeypatch.setattr(chart_data.fmp_client, "get_historical_price_eod", fake_fmp)
+    monkeypatch.setattr(chart_data, "get_long_history", fake_long_history)
 
 
 def test_endpoint_returns_chart_for_valid_ticker(monkeypatch):
@@ -99,7 +100,7 @@ def test_endpoint_returns_chart_for_valid_ticker(monkeypatch):
     _fresh_warren_signal_engine(monkeypatch)
     _fresh_liquidity_zone_engine(monkeypatch)
     _fresh_chart_data_engine(monkeypatch)
-    _patch_yahoo_bars(monkeypatch)
+    _patch_bars(monkeypatch)
 
     with TestClient(main.app) as client:
         response = client.get("/api/tickers/AAPL/chart", params={"range": "D_1Y"})
@@ -122,7 +123,7 @@ def test_endpoint_returns_chart_for_valid_ticker(monkeypatch):
     assert body["earnings_markers"] == []
     assert body["dividend_markers"] == []
     assert body["events_source"] is None
-    assert body["source"] == "yahoo"
+    assert body["source"] == "fmp"
 
 
 def test_endpoint_defaults_to_d_1y_range(monkeypatch):
@@ -130,7 +131,7 @@ def test_endpoint_defaults_to_d_1y_range(monkeypatch):
     _fresh_warren_signal_engine(monkeypatch)
     _fresh_liquidity_zone_engine(monkeypatch)
     _fresh_chart_data_engine(monkeypatch)
-    _patch_yahoo_bars(monkeypatch)
+    _patch_bars(monkeypatch)
 
     with TestClient(main.app) as client:
         response = client.get("/api/tickers/AAPL/chart")
@@ -144,7 +145,7 @@ def test_endpoint_accepts_d_6m_range(monkeypatch):
     _fresh_warren_signal_engine(monkeypatch)
     _fresh_liquidity_zone_engine(monkeypatch)
     _fresh_chart_data_engine(monkeypatch)
-    _patch_yahoo_bars(monkeypatch)
+    _patch_bars(monkeypatch)
 
     with TestClient(main.app) as client:
         response = client.get("/api/tickers/AAPL/chart", params={"range": "D_6M"})
@@ -161,7 +162,7 @@ def test_endpoint_accepts_w_4y_range(monkeypatch):
     _fresh_warren_signal_engine(monkeypatch)
     _fresh_liquidity_zone_engine(monkeypatch)
     _fresh_chart_data_engine(monkeypatch)
-    _patch_yahoo_bars(monkeypatch, n=365 * 9)
+    _patch_bars(monkeypatch, n=365 * 9)
 
     with TestClient(main.app) as client:
         response = client.get("/api/tickers/AAPL/chart", params={"range": "W_4Y"})
@@ -175,7 +176,7 @@ def test_endpoint_rejects_invalid_range_value(monkeypatch):
     _fresh_warren_signal_engine(monkeypatch)
     _fresh_liquidity_zone_engine(monkeypatch)
     _fresh_chart_data_engine(monkeypatch)
-    _patch_yahoo_bars(monkeypatch)
+    _patch_bars(monkeypatch)
 
     with TestClient(main.app) as client:
         response = client.get("/api/tickers/AAPL/chart", params={"range": "BOGUS"})
@@ -189,10 +190,10 @@ def test_endpoint_returns_chart_unavailable_for_a_ticker_with_no_bars(monkeypatc
     _fresh_liquidity_zone_engine(monkeypatch)
     _fresh_chart_data_engine(monkeypatch)
 
-    async def fake_get_history(tickers, period, interval, auto_adjust=True):
-        return {}
+    async def fake_fmp(ticker, from_date, to_date, group="daily_prices"):
+        return []
 
-    monkeypatch.setattr(chart_data.yahoo_client, "get_history", fake_get_history)
+    monkeypatch.setattr(chart_data.fmp_client, "get_historical_price_eod", fake_fmp)
 
     with TestClient(main.app) as client:
         response = client.get("/api/tickers/ZZZZINVALID/chart")
@@ -208,7 +209,7 @@ def test_endpoint_serializes_earnings_and_dividend_markers(monkeypatch):
     _fresh_warren_signal_engine(monkeypatch)
     _fresh_liquidity_zone_engine(monkeypatch)
     _fresh_chart_data_engine(monkeypatch)
-    _patch_yahoo_bars(monkeypatch)
+    _patch_bars(monkeypatch)
     day = (pd.Timestamp.today().normalize() - pd.offsets.BDay(20)).date()
 
     async def fake_events(ticker):

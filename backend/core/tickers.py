@@ -34,7 +34,7 @@ def is_non_us_ticker(ticker: str) -> bool:
 # migration (P2). US = listed/traded on a US venue, NOT company domicile: an
 # NYSE-listed Irish ADR is US, an HKSE listing of a British bank is not. FMP
 # reports NYSE Arca ETFs (SPY, TECL) as "AMEX"; OTC is treated as US by
-# decision (CNSWF/EVVTY/SINGY route to FMP with the Yahoo fallback).
+# decision (CNSWF/EVVTY/SINGY route to FMP).
 US_EXCHANGES = frozenset(
     {"NYSE", "NASDAQ", "AMEX", "NYSE ARCA", "NYSEARCA", "ARCA", "NYSE AMERICAN", "CBOE", "BATS", "OTC"}
 )
@@ -49,15 +49,3 @@ def is_us_listed(ticker: str, exchange: str | None = None) -> bool:
     if exchange:
         return exchange.strip().upper() in US_EXCHANGES
     return not is_non_us_ticker(ticker)
-
-
-def resolve_daily_bar_source_label(ticker: str) -> str:
-    """Best-effort label for which provider generally serves this ticker's daily bars --
-    "fmp" while the `daily_prices` group is live, else "yahoo" (the per-ticker fallback).
-    Informational only (e.g. LiquidityZoneAnalysis.source), NOT a literal per-fetch
-    record: a per-ticker FMP->Yahoo fallback (clients/daily_bar_sources.py::
-    FMPWithFallback) could silently make it wrong for one specific night. Uses the
-    dot-suffix rule only (no DB lookup)."""
-    from core.data_groups import group_live
-
-    return "fmp" if group_live("daily_prices") else "yahoo"

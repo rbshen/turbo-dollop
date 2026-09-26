@@ -40,7 +40,7 @@ def reconstruct_monthly_snapshots(news_rows: list[dict], before: date | None = N
     last FULL calendar month strictly before `before` (or before today if
     `before` is None). The in-progress current month is deliberately never
     included -- that's the ongoing monthly cron's own domain, not this
-    reconstruction's (mirrors backfill_entry_signal_events.py's own
+    reconstruction's (mirrors the deleted entry-signal backfill's own
     backfill/cron boundary).
 
     Passing the caller's own earliest already-stored snapshot_date as

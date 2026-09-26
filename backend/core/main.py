@@ -570,7 +570,7 @@ async def ticker_step5(ticker: str) -> Step5Out:
 @app.get("/api/tickers/{ticker}/trend-analysis", response_model=TrendAnalysisOut | None)
 async def ticker_trend_analysis(ticker: str) -> TrendAnalysisOut | None:
     # No httpx.HTTPError handling needed here -- this never calls FMP.
-    # get_trend_analysis_data already swallows a Yahoo fetch failure
+    # get_trend_analysis_data already swallows a missing-bars failure
     # (ValueError) internally, same "degrade to null/stale rather than
     # error" convention as every other ticker-page data endpoint.
     return await get_trend_analysis_data(ticker)

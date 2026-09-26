@@ -2,7 +2,7 @@
 shape as data/step4_data.py: fetches raw data (via clients/shared_bars_cache.py),
 calls the pure calculation engine (analysis/trend_structure/), and
 persists/reads the result (models.py::TrendAnalysis). Independent of FMP
-entirely -- Yahoo Finance is the sole data source for this feature.
+entirely -- FMP daily bars (via the shared bars cache) are the sole data source for this feature.
 """
 
 import json
@@ -387,7 +387,7 @@ def compute_and_store_from_frames(
     explicit "batch download, not one call per ticker" requirement) can
     reuse this same compute+upsert logic per ticker without each ticker
     triggering its own separate live fetch. Raises ValueError if `ohlcv`
-    is empty (no Yahoo data at all for this ticker) -- callers (the nightly
+    is empty (no bars at all for this ticker) -- callers (the nightly
     job's per-ticker loop) treat this like any other per-ticker failure,
     never aborting the whole batch. benchmark_ohlcv (WEINSTEIN_BENCHMARK_TICKER's
     own daily OHLCV, SPY as of the 2026-09-23 Massive migration) is optional -- absent/empty degrades Weinstein's Mansfield
@@ -402,7 +402,7 @@ def compute_and_store_from_frames(
     ever sees its own trailing LOOKBACK_DAYS."""
     ticker = normalize_ticker(ticker)
     if ohlcv is None or ohlcv.empty:
-        raise ValueError(f"No Yahoo Finance price history available for {ticker}")
+        raise ValueError(f"No price history available for {ticker}")
 
     if params is None:
         params = _load_params()
@@ -469,7 +469,7 @@ async def compute_and_store_trend_analysis(ticker: str, lookback_days: int = WEI
     the most recently completed session) refetches on its own.
 
     auto_adjust=False -- Trend/Weinstein want raw, non-dividend-adjusted
-    bars (2026-09-18 Yahoo-consolidation decision)."""
+    bars (2026-09-18 decision)."""
     ticker = normalize_ticker(ticker)
     params = _load_params()
     ohlcv = await get_or_fetch_bars(ticker, DAILY_INTERVAL, lookback_days, auto_adjust=False)
@@ -496,7 +496,7 @@ def _is_row_stale(row: TrendAnalysis) -> bool:
 
 async def get_trend_analysis_data(ticker: str, cache_only: bool = False, lookback_days: int = WEINSTEIN_LOOKBACK_DAYS) -> TrendAnalysisOut | None:
     """cache_only=True (used by watchlist_data.py's bulk row compose) never
-    triggers a live Yahoo fetch -- returns whatever's cached (even if
+    triggers a live bar fetch -- returns whatever's cached (even if
     stale), or None if this ticker has never been computed yet (the nightly
     cron hasn't reached it). cache_only=False (the standalone API endpoint)
     computes fresh on a missing/stale row."""
@@ -511,7 +511,7 @@ async def get_trend_analysis_data(ticker: str, cache_only: bool = False, lookbac
     try:
         return await compute_and_store_trend_analysis(ticker, lookback_days=lookback_days)
     except ValueError:
-        # No Yahoo Finance data at all for this ticker -- reads the same as
+        # No bars at all for this ticker -- reads the same as
         # "not computed yet" to callers (falls back to a stale cached row if
         # one exists, same "stale is better than nothing" convention used
         # throughout this codebase).

@@ -21,8 +21,6 @@ def build_data_groups_out() -> DataGroupsOut:
         st = snap.groups[key]
         live, reason = dg.effective_state_from(snap, key)
         state = _STATE_BY_REASON[reason]
-        if meta.falls_back and reason in ("master_off", "user_off"):
-            state = "using_fallback"
         if live and st.status == "failing":
             state = "failing"
         groups.append(
@@ -30,7 +28,6 @@ def build_data_groups_out() -> DataGroupsOut:
                 key=key,
                 label=meta.label,
                 wired=meta.live,
-                falls_back=meta.falls_back,
                 enabled=st.enabled,
                 state=state,
                 reason=reason,

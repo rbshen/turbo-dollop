@@ -772,14 +772,10 @@ class DataGroupOut(BaseModel):
     # False for groups seeded for later phases (intraday_bars,
     # extended_hours): shown in Settings but nothing reads them yet.
     wired: bool
-    # True while a non-FMP provider still backs this group: off means "skip FMP,
-    # use the fallback chain" (chip "using_fallback"), not cache-only.
-    falls_back: bool = False
     enabled: bool  # the user's own toggle
-    # Chip: live | cached_only (master off or user off) | using_fallback (same, but
-    # the group has a fallback provider) | not_on_plan |
+    # Chip: live | cached_only (master off or user off) | not_on_plan |
     # restricted (FMP 402, canary-confirmed) | failing (still live, calls erroring)
-    state: Literal["live", "cached_only", "using_fallback", "not_on_plan", "restricted", "failing"]
+    state: Literal["live", "cached_only", "not_on_plan", "restricted", "failing"]
     reason: Literal["live", "master_off", "user_off", "above_plan", "restricted"]
     required_tier: str
     tier_verified: bool
@@ -864,12 +860,11 @@ class CronHealthOut(BaseModel):
 class DataSourceStatusOut(BaseModel):
     """One data source's health, for the Settings "Status" section's Data
     Sources cards -- computed purely from an enabled/kill-switch flag (FMP's
-    master switch; Yahoo has none, see
-    clients/yahoo_client.py's own docstring for why) plus
+    master switch) plus
     DataSourceHealth.last_success_at, NEVER a live reachability ping (see
     core/data_source_status.py)."""
 
-    source: Literal["fmp", "yahoo"]
+    source: Literal["fmp"]
     enabled: bool
     status: Literal["healthy", "disabled_or_failing", "stale"]
     last_success_at: datetime | None = None
@@ -1375,7 +1370,7 @@ class TechnicalEntrySignalOut(BaseModel):
     signal_kind: str | None = None  # "warren" only -- one of analysis.warren_signal.types.SIGNAL_KINDS
     gray_suppressed: bool | None = None  # "warren" only
     stop_count: int | None = None  # "warren" only
-    source: str  # "yahoo" (or "fmp", once that adapter is ever wired in)
+    source: str  # "fmp" (legacy rows may read "yahoo")
     as_of: datetime
     computed_at: datetime
 
@@ -1423,7 +1418,7 @@ class LiquidityZoneOut(BaseModel):
     last_price: float
     as_of: date
     computed_at: datetime
-    source: str  # "fmp" | "yahoo"
+    source: str  # "fmp"
     support_zones: list[ZoneOut]
     resistance_zones: list[ZoneOut]
     broken_support: BrokenZoneOut | None = None
@@ -1613,16 +1608,15 @@ class ChartOut(BaseModel):
     zones: list[ChartZoneOut] = []
     zones_available: bool
     # Earnings-report dates / dividend ex-dates within this response's visible
-    # window (see data/chart_events_data.py + chart_data.py). Unlike every
-    # other overlay above these are fetched live per request, from FMP when
-    # the corporate_events group live, Yahoo otherwise. `events_source` is "fmp" | "yahoo", or
-    # None when every source failed -- the only way to tell "couldn't fetch"
+    # window (see data/chart_events_data.py + chart_data.py), read from the nightly
+    # CorporateEvent cache. `events_source` is "fmp", or
+    # None when the ticker isn't cached -- the only way to tell "couldn't fetch"
     # from a genuinely empty list (a non-dividend payer). The UI omits both
     # marker types silently in either case.
     earnings_markers: list[ChartEarningsMarkerOut] = []
     dividend_markers: list[ChartDividendMarkerOut] = []
     events_source: str | None = None
-    # "fmp" | "yahoo" -- whichever source actually answered this request.
+    # Always "fmp" (Yahoo removed in Phase 6b); an empty chart is chart_available=False.
     source: str
     chart_available: bool  # False only for a genuinely bad/delisted ticker with no bars at all
 
@@ -2014,13 +2008,13 @@ class RatingHistoryPoint(BaseModel):
     # job). None when there is no target or the row is untagged. The two are
     # not comparable, so the chart draws them as separate segments.
     methodology: str | None = None
-    # Yahoo Finance split/dividend-adjusted close "on or before" this row's
+    # FMP split-adjusted close (not dividend-adjusted) "on or before" this row's
     # own `date` (see analyst_ratings_data.py::_price_on_or_before) --
     # feeds the Price Target Trend chart's optional price overlay. Only
     # ever populated from the first row where avg_price_target itself is
     # non-null onward (never before -- the overlay isn't meant to show
     # price for a stretch the target line doesn't cover), and stays None
-    # past that point too if Yahoo's own history doesn't reach back this
+    # past that point too if the stored history doesn't reach back this
     # far -- the frontend reads a None run right after the target series'
     # own first real point as "price data starts later than this" and
     # marks it accordingly, rather than this being a distinct flag.

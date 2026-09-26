@@ -9,13 +9,13 @@ zero FMP calls, no data-group guard needed.
 Bars come from SharedBarsCache via clients.shared_bars_cache.
 get_or_fetch_bars_batch with the SAME call the 3:10 trend job makes
 (1d, 730 days, auto_adjust=False), so a run after it is a warm-cache read
-with zero incremental Yahoo requests; if the trend job failed or overran
+with zero incremental FMP requests; if the trend job failed or overran
 this self-heals with one live fetch and writes through the shared cache
 like any other consumer. Every metric is computed from those raw bars
 directly, not from TrendAnalysis (latest-only, no 52-week fields, and a
 failed fetch leaves an old row behind).
 
-**Coverage gate.** Breadth is a ratio, so a partial Yahoo response would
+**Coverage gate.** Breadth is a ratio, so a partial provider response would
 still produce plausible-looking percentages over the survivors. A run whose
 anchor session has bars for fewer than MIN_COVERAGE of the constituents
 raises rather than saving a skewed row -- cron_heartbeat then records a
@@ -49,7 +49,7 @@ from sqlalchemy import bindparam, delete, func, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
-from clients.daily_bar_sources import FallbackTickers, describe_fallback
+from clients.daily_bar_sources import UnservedTickers
 from clients.shared_bars_cache import DAILY_INTERVAL, _load_frames, _most_recent_completed_trading_date, get_or_fetch_bars_batch
 from core.db import engine
 from core.models import IndexConstituent, MarketBreadthGateLog, MarketBreadthSnapshot
@@ -95,7 +95,7 @@ SECTOR_TO_ETF: dict[str, str] = {
 SECTOR_COVERAGE_FLOOR_MISSING = 1
 
 # Same call the trend job makes, so this reads the cache it just warmed. 730
-# days is the "2y" yfinance tier; "1y" would return 251 bars, one short of a
+# days is the "2y" tier; "1y" would return 251 bars, one short of a
 # 252-session window.
 FETCH_LOOKBACK_DAYS = 730
 
@@ -104,7 +104,7 @@ FETCH_LOOKBACK_DAYS = 730
 MIN_COVERAGE = 0.97
 
 # How many missing tickers an error/summary names -- enough to see a pattern
-# (a renamed symbol vs. a wholesale Yahoo failure) without a 500-name message.
+# (a renamed symbol vs. a wholesale provider failure) without a 500-name message.
 MISSING_SAMPLE = 25
 
 _STORED_COLUMNS = (
@@ -219,7 +219,7 @@ def _resolve_anchor(session_dates: pd.DatetimeIndex, completed_date: date) -> pd
     """The latest session, across every fetched ticker, that is not after
     the last COMPLETED session -- the sector heatmap's rule: taking it from
     the data makes a market holiday anchor to the real last trading day, and
-    the `<=` cap drops the in-progress bar yfinance returns during market
+    the `<=` cap drops any in-progress bar a provider returns during market
     hours (its "close" would be a live price)."""
     eligible = session_dates[session_dates <= pd.Timestamp(completed_date)]
     return eligible.max() if len(eligible) else None
@@ -391,9 +391,9 @@ async def compute_and_store_market_breadth(
         raise RuntimeError("Market breadth: empty universe -- run scrapers.refresh_sp500_list first")
     completed = completed_date or _most_recent_completed_trading_date()
 
-    fallback_tickers = FallbackTickers()
+    unserved_tickers = UnservedTickers()
     bars = await get_or_fetch_bars_batch(
-        tickers, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False, fallback_tickers=fallback_tickers
+        tickers, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False, unserved_tickers=unserved_tickers
     )
     flags = ticker_flags(bars)
     counts = aggregate_flags(flags)
@@ -432,7 +432,7 @@ async def compute_and_store_market_breadth(
         "new_highs": values["new_highs"],
         "new_lows": values["new_lows"],
         "net_new_highs": values["net_new_highs"],
-        "fallback_count": len(fallback_tickers), "fallback_yahoo_count": len(fallback_tickers.yahoo),
+        "unserved_count": len(unserved_tickers),
     }
     logger.info(
         "Market breadth complete for %s: %d/%d constituents, %%>SMA20 %s, %%>SMA50 %s, %%>SMA200 %s, net new highs %d.",

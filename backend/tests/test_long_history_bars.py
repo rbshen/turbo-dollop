@@ -237,7 +237,7 @@ def test_a_long_history_row_does_not_change_what_the_nightly_job_fetches(db, mon
     seen = {}
 
     class Src:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None, replace_tickers=None, full_refresh=False):
+        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, unserved_tickers=None, replace_tickers=None, full_refresh=False):
             seen.update(tickers_with_days)
             return {}
 

@@ -55,13 +55,12 @@ def _forbid_writes_to_real_db():
 @pytest.fixture(autouse=True)
 def _isolate_data_source_health_engine(monkeypatch):
     """core.data_source_health.record_success is reached from
-    FMPClient.get/YahooClient.get_history, both of which are exercised for
-    real (not just monkeypatched away) by test_fmp_client.py/
-    test_yahoo_client.py via MockTransport/a monkeypatched yf.download --
+    FMPClient.get, which is exercised for real (not just monkeypatched
+    away) by test_fmp_client.py via MockTransport --
     so this needs the same fresh-in-memory-engine isolation every other
     per-module `engine` reference gets, applied once globally here rather
-    than per test file, since so many otherwise-unrelated tests reach one
-    of those two functions. record_success's own try/except swallows any
+    than per test file, since so many otherwise-unrelated tests reach
+    that function. record_success's own try/except swallows any
     write failure (same reasoning as cron_heartbeat's swallowed writes) --
     safe specifically because this fixture means tests never touch the
     real engine here in the first place, so the swallow can't hide a
@@ -109,11 +108,9 @@ def _isolate_data_groups_engine(monkeypatch):
 @pytest.fixture(autouse=True)
 def _block_live_fmp_daily_bars(monkeypatch):
     """The shared-bars-cache daily path now tries FMP first (FMPDailySource ->
-    fmp_client.get_historical_price_eod). Legacy tests written against the
-    Yahoo path must never reach the real network through it: by
-    default that call fails as a transport error, so every ticker falls
-    through to the Yahoo fallback exactly as before. A test exercising FMP
-    builds FMPDailySource(client=<fake>) or patches the method itself."""
+    fmp_client.get_historical_price_eod). No test may reach the real network
+    through it: by default that call fails as a transport error, so every
+    ticker is simply unserved. A test exercising FMP builds FMPDailySource(client=<fake>) or patches the method itself."""
     import httpx
 
     from clients.fmp_client import fmp_client

@@ -47,11 +47,19 @@ def env(monkeypatch):
     monkeypatch.setattr(cache, "_eastern_today", lambda reference=None: TODAY)
     calls: list[dict] = []
 
-    async def fake_get_history(tickers, period="2y", interval="1d", auto_adjust=True):
-        calls.append({"tickers": list(tickers), "period": period, "interval": interval})
-        return {}
+    class _NoBars:
+        """Serves nothing but records every fetch attempt (the tests assert on WHETHER a fetch happens)."""
 
-    monkeypatch.setattr(cache.yahoo_client, "get_history", fake_get_history)
+        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, **_):
+            calls.append({"tickers": list(tickers_with_days), "interval": "1d"})
+            return {}
+
+        async def get_intraday_bars(self, tickers_with_days, reference=None, **_):
+            calls.append({"tickers": list(tickers_with_days), "interval": "60m"})
+            return {}
+
+    monkeypatch.setattr(cache, "get_daily_bar_source", lambda: _NoBars())
+    monkeypatch.setattr(cache, "FMPIntradaySource", lambda: _NoBars())
     return engine, calls
 
 
@@ -69,7 +77,7 @@ def _weekday_bars(ticker: str, interval: str, days_back: int) -> list[dict]:
         for stamp in stamps:
             rows.append(
                 {"ticker": ticker, "interval": interval, "bar_time": stamp, "open": 1.0, "high": 2.0, "low": 0.5,
-                 "close": 1.5, "volume": 10, "fetched_at": datetime(2026, 9, 18, 3, 0)}
+                 "close": 1.5, "volume": 10, "fetched_at": datetime(2026, 9, 18, 3, 0), "source": "fmp"}
             )
     return rows
 

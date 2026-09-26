@@ -15,8 +15,7 @@ run is the backfill).
 
 `read_cached_chart_events` feeds the Chart tab's E/D markers
 (data/chart_events_data.py): it rebuilds FMP-shaped rows from the table and reuses that
-module's own normalizers, so the cached path applies exactly the rules the live path
-does (real-actuals-only earnings, split-adjusted dividend amounts, no zero amounts).
+module's own normalizers, applying the marker rules (real-actuals-only earnings, split-adjusted dividend amounts, no zero amounts).
 Splits are stored for completeness/future use; no chart marker reads them yet.
 """
 
@@ -197,7 +196,7 @@ async def refresh_ticker_events(ticker: str, event_types: tuple[str, ...] = EVEN
 def read_cached_chart_events(ticker: str) -> ChartEvents | None:
     """Earnings + dividend events for the Chart tab from the cache, or None when the
     ticker's earnings OR dividends were never successfully fetched (the caller then
-    falls through to its live path). Serves whatever is cached however old -- freshness
+    reads as no markers). Serves whatever is cached however old -- freshness
     is the nightly job's concern, and the cache is the designed answer while the
     `corporate_events` group is off."""
     with Session(engine) as session:

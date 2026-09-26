@@ -20,16 +20,6 @@ from clients.shared_bars_cache import (
 from core.models import SharedBarsCache
 
 
-@pytest.fixture(autouse=True)
-def _intraday_on_yahoo(_isolate_data_groups_engine):
-    """These tests pin the shared cache's 60m mechanics against a fake Yahoo; P4 made FMP the
-    primary 60m source, so take it out of the chain (group off -> whole batch falls to Yahoo).
-    The FMP-first behaviour is covered in test_fmp_intraday_source.py."""
-    import core.data_groups as dg
-
-    dg.set_group_enabled("intraday_bars", False)
-
-
 def _fresh_engine(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
@@ -37,7 +27,7 @@ def _fresh_engine(monkeypatch):
     return engine
 
 
-def _seed_row(engine, ticker: str, interval: str, bar_time: datetime, fetched_at: datetime, close: float = 100.0) -> None:
+def _seed_row(engine, ticker: str, interval: str, bar_time: datetime, fetched_at: datetime, close: float = 100.0, source: str | None = "fmp") -> None:
     with Session(engine) as session:
         session.add(
             SharedBarsCache(
@@ -50,6 +40,7 @@ def _seed_row(engine, ticker: str, interval: str, bar_time: datetime, fetched_at
                 close=close,
                 volume=1000,
                 fetched_at=fetched_at,
+                source=source,
             )
         )
         session.commit()
@@ -85,15 +76,50 @@ def _intraday_df(timestamps: list[str]) -> pd.DataFrame:
     )
 
 
+class _FakeBarSource:
+    """Stands in for BOTH FMP sources at the cache boundary (FMPDailySource via
+    get_daily_bar_source, FMPIntradaySource): serves the given frames, records every call, and
+    reports what it could not serve. Frames may use either casing (the real sources return
+    lowercase)."""
+
+    def __init__(self, frames_by_ticker: dict[str, pd.DataFrame], calls: list[dict]):
+        self._frames, self.calls = frames_by_ticker, calls
+
+    def _serve(self, interval, tickers_with_days, unserved_tickers, auto_adjust=None):
+        self.calls.append(
+            {"tickers": list(tickers_with_days), "days": dict(tickers_with_days), "interval": interval, "auto_adjust": auto_adjust}
+        )
+        out = {t: self._frames[t].rename(columns=str.lower) for t in tickers_with_days if t in self._frames}
+        if unserved_tickers is not None:
+            unserved_tickers.extend(t for t in tickers_with_days if t not in out)
+        return out
+
+    async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, unserved_tickers=None, replace_tickers=None, full_refresh=False):
+        return self._serve("1d", tickers_with_days, unserved_tickers, auto_adjust)
+
+    async def get_intraday_bars(self, tickers_with_days, reference=None, replace_tickers=None, full_refresh=False, unserved_tickers=None):
+        return self._serve("60m", tickers_with_days, unserved_tickers)
+
+
 def _patch_fetch(monkeypatch, frames_by_ticker: dict[str, pd.DataFrame]):
     calls: list[dict] = []
-
-    async def fake_get_history(tickers, period="2y", interval="1d", auto_adjust=True):
-        calls.append({"tickers": list(tickers), "period": period, "interval": interval, "auto_adjust": auto_adjust})
-        return {t: frames_by_ticker[t] for t in tickers if t in frames_by_ticker}
-
-    monkeypatch.setattr(shared_bars_cache.yahoo_client, "get_history", fake_get_history)
+    source = _FakeBarSource(frames_by_ticker, calls)
+    monkeypatch.setattr(shared_bars_cache, "get_daily_bar_source", lambda: source)
+    monkeypatch.setattr(shared_bars_cache, "FMPIntradaySource", lambda: source)
     return calls
+
+
+def _patch_no_fetch(monkeypatch, message: str = "must not fetch live"):
+    """Any live fetch (either interval) fails the test."""
+
+    class _Boom:
+        async def get_daily_bars(self, *a, **k):
+            raise AssertionError(message)
+
+        get_intraday_bars = get_daily_bars
+
+    monkeypatch.setattr(shared_bars_cache, "get_daily_bar_source", lambda: _Boom())
+    monkeypatch.setattr(shared_bars_cache, "FMPIntradaySource", lambda: _Boom())
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +216,7 @@ def test_period_for_snaps_up_to_the_nearest_covering_tier():
 
 
 def test_period_for_intraday_clamps_at_its_widest_tier():
-    # Yahoo's real 60m history limit is ~730 days -- there is no wider tier
+    # The 60m history limit is ~730 days -- there is no wider tier
     # to snap to, so an over-large request clamps rather than erroring.
     assert _period_for(INTRADAY_INTERVAL, 60) == "3mo"
     assert _period_for(INTRADAY_INTERVAL, 730) == "2y"
@@ -223,10 +249,7 @@ def test_fresh_and_sufficient_coverage_is_served_without_a_live_call(monkeypatch
             engine, "AAPL", DAILY_INTERVAL, datetime.combine(_TODAY - timedelta(days=2 - i), datetime.min.time()), datetime(2026, 9, 18, 3, 0)
         )
 
-    def fail_if_called(*args, **kwargs):
-        raise AssertionError("must not fetch live when cache is fresh and wide enough")
-
-    monkeypatch.setattr(shared_bars_cache.yahoo_client, "get_history", fail_if_called)
+    _patch_no_fetch(monkeypatch, "must not fetch live when cache is fresh and wide enough")
 
     result = asyncio.run(get_or_fetch_bars_batch(["AAPL"], DAILY_INTERVAL, lookback_days=2, reference=_REFERENCE))
 
@@ -279,10 +302,7 @@ def test_narrower_consumer_reuses_a_wider_already_fresh_cached_row_with_zero_liv
     for i in range(400):
         _seed_row(engine, "AAPL", DAILY_INTERVAL, datetime.combine(_TODAY - timedelta(days=399 - i), datetime.min.time()), datetime(2026, 9, 18, 3, 5))
 
-    def fail_if_called(*args, **kwargs):
-        raise AssertionError("narrower request must not trigger its own live fetch")
-
-    monkeypatch.setattr(shared_bars_cache.yahoo_client, "get_history", fail_if_called)
+    _patch_no_fetch(monkeypatch, "narrower request must not trigger its own live fetch")
 
     result = asyncio.run(get_or_fetch_bars_batch(["AAPL"], DAILY_INTERVAL, lookback_days=60, reference=_REFERENCE))
 
@@ -294,10 +314,7 @@ def test_results_are_trimmed_to_the_callers_own_lookback_window(monkeypatch):
     for i in range(100):
         _seed_row(engine, "AAPL", DAILY_INTERVAL, datetime.combine(_TODAY - timedelta(days=99 - i), datetime.min.time()), datetime(2026, 9, 18, 3, 0))
 
-    def fail_if_called(*args, **kwargs):
-        raise AssertionError("should be served entirely from cache")
-
-    monkeypatch.setattr(shared_bars_cache.yahoo_client, "get_history", fail_if_called)
+    _patch_no_fetch(monkeypatch, "should be served entirely from cache")
 
     result = asyncio.run(get_or_fetch_bars_batch(["AAPL"], DAILY_INTERVAL, lookback_days=10, reference=_REFERENCE))
 
@@ -414,10 +431,7 @@ def test_intraday_fresh_row_is_not_marked_stale_overnight(monkeypatch):
     overnight = pd.Timestamp("2026-09-18 03:20", tz=ZoneInfo("America/New_York")).to_pydatetime()
     _seed_intraday_history(engine, days=70, last_bar=datetime(2026, 9, 17, 15, 30), fetched_at=datetime(2026, 9, 17, 23, 0))
 
-    def fail_if_called(*args, **kwargs):
-        raise AssertionError("overnight read of a row ending at the last session's close must not refetch")
-
-    monkeypatch.setattr(shared_bars_cache.yahoo_client, "get_history", fail_if_called)
+    _patch_no_fetch(monkeypatch, "overnight read of a row ending at the last session's close must not refetch")
 
     result = asyncio.run(get_or_fetch_bars_batch(["AAPL"], INTRADAY_INTERVAL, lookback_days=60, reference=overnight))
 
@@ -429,10 +443,7 @@ def test_intraday_fresh_row_is_not_marked_stale_over_a_weekend(monkeypatch):
     saturday = pd.Timestamp("2026-09-19 10:00", tz=ZoneInfo("America/New_York")).to_pydatetime()
     _seed_intraday_history(engine, days=70, last_bar=datetime(2026, 9, 18, 15, 30), fetched_at=datetime(2026, 9, 18, 23, 0))
 
-    def fail_if_called(*args, **kwargs):
-        raise AssertionError("a weekend read of Friday's close must not refetch")
-
-    monkeypatch.setattr(shared_bars_cache.yahoo_client, "get_history", fail_if_called)
+    _patch_no_fetch(monkeypatch, "a weekend read of Friday's close must not refetch")
 
     result = asyncio.run(get_or_fetch_bars_batch(["AAPL"], INTRADAY_INTERVAL, lookback_days=60, reference=saturday))
 
@@ -452,12 +463,9 @@ def test_intraday_narrow_row_grows_to_a_wider_request_and_narrow_reader_then_reu
 
     asyncio.run(get_or_fetch_bars_batch(["AAPL"], INTRADAY_INTERVAL, lookback_days=730, reference=overnight))
     assert len(calls) == 1
-    assert calls[0]["period"] == "2y"
+    assert calls[0]["days"] == {"AAPL": 730}
 
-    def fail_if_called(*args, **kwargs):
-        raise AssertionError("narrow reader must reuse the widened row")
-
-    monkeypatch.setattr(shared_bars_cache.yahoo_client, "get_history", fail_if_called)
+    _patch_no_fetch(monkeypatch, "narrow reader must reuse the widened row")
     result = asyncio.run(get_or_fetch_bars_batch(["AAPL"], INTRADAY_INTERVAL, lookback_days=60, reference=overnight))
     assert not result["AAPL"].empty
 
@@ -474,7 +482,7 @@ def test_a_refetch_triggered_by_the_narrower_consumer_preserves_the_wider_cached
 
     asyncio.run(get_or_fetch_bars_batch(["AAPL"], INTRADAY_INTERVAL, lookback_days=60, reference=overnight))
 
-    assert calls[0]["period"] == "2y"  # not "3mo" -- the existing width was preserved
+    assert calls[0]["days"] == {"AAPL": 730}  # not 60 -- the existing (2y-tier) width was preserved
 
 
 def test_preserved_lookback_snaps_to_a_tier_and_does_not_drift_as_bars_accumulate():
@@ -493,7 +501,7 @@ def test_preserved_lookback_snaps_to_a_tier_and_does_not_drift_as_bars_accumulat
     assert _preserved_lookback_days(None, None, DAILY_INTERVAL) == 0
 
 
-def test_batch_groups_tickers_by_the_period_each_one_needs(monkeypatch):
+def test_each_ticker_is_fetched_at_the_width_it_needs(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     # WIDE already holds a 5y-tier row that is one session stale; NEW has nothing.
     for d in (_TODAY - timedelta(days=1826), _TODAY - timedelta(days=1)):
@@ -502,7 +510,7 @@ def test_batch_groups_tickers_by_the_period_each_one_needs(monkeypatch):
 
     asyncio.run(get_or_fetch_bars_batch(["WIDE", "NEW"], DAILY_INTERVAL, lookback_days=730, reference=_REFERENCE))
 
-    assert sorted((c["period"], tuple(c["tickers"])) for c in calls) == [("2y", ("NEW",)), ("5y", ("WIDE",))]
+    assert len(calls) == 1 and calls[0]["days"] == {"WIDE": 1825, "NEW": 730}  # WIDE keeps its 5y tier, NEW gets its own need
 
 
 def test_upsert_is_idempotent_and_overwrites_the_same_bar(monkeypatch):
@@ -543,7 +551,7 @@ def test_a_full_history_result_replaces_the_tickers_old_rows_instead_of_upsertin
     new_dates = [_TODAY - timedelta(days=d) for d in range(29, -1, -1)]
 
     class FullReplaceSource:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None, replace_tickers=None, full_refresh=False):
+        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, unserved_tickers=None, replace_tickers=None, full_refresh=False):
             replace_tickers.extend(tickers_with_days)
             return {t: _daily_df([d.isoformat() for d in new_dates]).rename(columns=str.lower) for t in tickers_with_days}
 
@@ -557,7 +565,7 @@ def test_force_is_passed_to_the_daily_source_as_full_refresh(monkeypatch):
     seen = {}
 
     class Src:
-        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, fallback_tickers=None, replace_tickers=None, full_refresh=False):
+        async def get_daily_bars(self, tickers_with_days, auto_adjust, reference=None, unserved_tickers=None, replace_tickers=None, full_refresh=False):
             seen["full_refresh"] = full_refresh
             return {}
 
@@ -589,7 +597,7 @@ def test_a_last_bar_written_after_the_close_is_trusted(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# P3: non-US tickers route FMP (daily_prices_intl) -> Yahoo, phantom bars removed
+# Routing through the REAL FMPDailySource, fake network at the FMP client only
 # ---------------------------------------------------------------------------
 
 import clients.daily_bar_sources as _dbs  # noqa: E402
@@ -619,13 +627,11 @@ def _fmp_rows(days: list[date], base: float = 100.0, extra: list[dict] | None = 
 
 
 class _RoutingHarness:
-    """Real routing + real FMP/Yahoo source classes, fake network at the two clients."""
+    """Real routing + the real FMPDailySource, fake network at the FMP client."""
 
-    def __init__(self, monkeypatch, engine, fmp_rows: dict[str, list[dict]], fmp_fail=(), yahoo_frames=None):
+    def __init__(self, monkeypatch, engine, fmp_rows: dict[str, list[dict]], fmp_fail=()):
         self.fmp_calls: list[tuple[str, str, str]] = []  # (ticker, from, group)
-        self.yahoo_calls: list[list[str]] = []
         self.fmp_rows, self.fmp_fail = fmp_rows, set(fmp_fail)
-        self.yahoo_frames = yahoo_frames or {}
 
         async def fake_fmp(ticker, from_date, to_date, group="daily_prices"):
             self.fmp_calls.append((ticker, from_date, group))
@@ -635,63 +641,71 @@ class _RoutingHarness:
                 raise httpx.ConnectError("boom")
             return [r for r in self.fmp_rows.get(ticker, []) if r["date"] >= from_date]
 
-        async def fake_yahoo(tickers, period="2y", interval="1d", auto_adjust=True):
-            self.yahoo_calls.append(list(tickers))
-            return {t: self.yahoo_frames[t] for t in tickers if t in self.yahoo_frames}
-
         monkeypatch.setattr(_fmp_singleton, "get_historical_price_eod", fake_fmp)
-        monkeypatch.setattr(_dbs.yahoo_client, "get_history", fake_yahoo)
         monkeypatch.setattr(_dbs, "engine", engine)
         monkeypatch.setattr(_dbs, "_completed_session", lambda: _TODAY)
 
 
 def _run_batch(tickers, **kw):
-    fb = _dbs.FallbackTickers()
+    fb = _dbs.UnservedTickers()
     frames = asyncio.run(
-        get_or_fetch_bars_batch(tickers, DAILY_INTERVAL, lookback_days=30, reference=_REFERENCE, fallback_tickers=fb, **kw)
+        get_or_fetch_bars_batch(tickers, DAILY_INTERVAL, lookback_days=30, reference=_REFERENCE, unserved_tickers=fb, **kw)
     )
     return frames, fb
 
 
-def test_non_us_ticker_is_no_longer_fetched_at_all(monkeypatch):
+def test_non_us_ticker_is_not_fetched_at_all(monkeypatch):
     engine = _fresh_engine(monkeypatch)
-    h = _RoutingHarness(monkeypatch, engine, {_HK: _fmp_rows(_weekdays(40)), "AAPL": _fmp_rows(_weekdays(40))},
-                        yahoo_frames={_HK: _daily_df([d.isoformat() for d in _weekdays(40)])})
+    h = _RoutingHarness(monkeypatch, engine, {_HK: _fmp_rows(_weekdays(40)), "AAPL": _fmp_rows(_weekdays(40))})
     frames, fb = _run_batch(["AAPL", _HK])
-    assert [c[0] for c in h.fmp_calls] == ["AAPL"] and h.yahoo_calls == []
+    assert [c[0] for c in h.fmp_calls] == ["AAPL"]
     assert _HK not in frames or frames[_HK].empty
     assert list(fb) == []
 
 
-def test_group_off_matrix(monkeypatch):
+def test_group_off_is_cached_only_and_reports_everything_unserved(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     rows = {"AAPL": _fmp_rows(_weekdays(40))}
-    yahoo = {"AAPL": _daily_df([d.isoformat() for d in _weekdays(40)])}
 
-    # daily_prices off: AAPL falls back to Yahoo and is counted as such
+    # daily_prices off: nothing is fetched, nothing written, and the ticker is reported unserved
     _dg.set_group_enabled("daily_prices", False)
-    h = _RoutingHarness(monkeypatch, engine, rows, yahoo_frames=yahoo)
+    h = _RoutingHarness(monkeypatch, engine, rows)
     frames, fb = _run_batch(["AAPL"])
-    assert h.fmp_calls == [] and h.yahoo_calls == [["AAPL"]] and fb.yahoo == ["AAPL"]
-    assert fb.describe() == "1 fell back from FMP to Yahoo"
-    assert set(frames) == {"AAPL"}
+    assert h.fmp_calls == [] and list(fb) == ["AAPL"]
+    assert fb.describe() == "1 not served by FMP (cached bars kept)"
+    assert "AAPL" not in frames or frames["AAPL"].empty
 
-    # master switch off: everything on Yahoo
+    # master switch off: the same
     engine3 = _fresh_engine(monkeypatch)
     _dg.set_group_enabled("daily_prices", True)
     _dg.set_master(False)
-    h = _RoutingHarness(monkeypatch, engine3, rows, yahoo_frames=yahoo)
-    _run_batch(["AAPL"])
-    assert h.fmp_calls == [] and sum(h.yahoo_calls, []) == ["AAPL"]
+    h = _RoutingHarness(monkeypatch, engine3, rows)
+    _, fb = _run_batch(["AAPL"])
+    assert h.fmp_calls == [] and list(fb) == ["AAPL"]
 
 
-def test_fmp_empty_or_error_falls_through_to_yahoo(monkeypatch):
+def test_group_off_serves_whatever_is_already_cached_however_stale(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    days = _weekdays(40)[:-3]  # last bar three sessions behind
+    for i, d in enumerate(days):
+        _seed_row(engine, "AAPL", DAILY_INTERVAL, datetime.combine(d, datetime.min.time()), datetime(2026, 9, 10, 3, 0), close=100.0 + i)
+    _dg.set_group_enabled("daily_prices", False)
+    h = _RoutingHarness(monkeypatch, engine, {})
+    frames, fb = _run_batch(["AAPL"])
+    assert h.fmp_calls == [] and list(fb) == ["AAPL"] and not frames["AAPL"].empty
+
+
+def test_fmp_empty_or_error_leaves_the_ticker_unserved_with_its_cache_intact(monkeypatch):
     for fmp_rows, fail in (({"AAPL": []}, ()), ({}, ("AAPL",))):
         engine = _fresh_engine(monkeypatch)
-        yahoo = {"AAPL": _daily_df([d.isoformat() for d in _weekdays(40)])}
-        h = _RoutingHarness(monkeypatch, engine, fmp_rows, fmp_fail=fail, yahoo_frames=yahoo)
+        days = _weekdays(40)[:-2]
+        for i, d in enumerate(days):
+            _seed_row(engine, "AAPL", DAILY_INTERVAL, datetime.combine(d, datetime.min.time()), datetime(2026, 9, 10, 3, 0), close=100.0 + i)
+        n_before = _count_rows(engine, "AAPL")
+        _RoutingHarness(monkeypatch, engine, fmp_rows, fmp_fail=fail)
         frames, fb = _run_batch(["AAPL"])
-        assert h.yahoo_calls == [["AAPL"]] and list(fb) == ["AAPL"] and not frames["AAPL"].empty
+        assert list(fb) == ["AAPL"] and not frames["AAPL"].empty  # served from the stale cache
+        assert _count_rows(engine, "AAPL") == n_before  # nothing wiped
 
 
 def _seed_clean_us_cache(engine, days: list[date], fetched_at: datetime):

@@ -30,8 +30,7 @@ from core.tickers import normalize_ticker
 # ~4 calendar years of daily bars requested from the shared bars cache
 # (clients/shared_bars_cache.py, interval "1d") -- covers both this
 # feature's Daily (trailing 1yr, sliced below) and Weekly (4yr, resampled
-# locally from these same daily bars; Yahoo has no native weekly feed here,
-# and neither did FMP) needs from a single fetch per ticker. Trend/Weinstein
+# locally from these same daily bars; FMP has no native weekly feed either) needs from a single fetch per ticker. Trend/Weinstein
 # share the same "1d" row at a narrower (2y) width -- see the cache module
 # for how the two overlapping consumers coexist.
 LOOKBACK_DAYS = 4 * 365

@@ -121,14 +121,15 @@ def test_group_metadata_is_complete():
         assert meta.default_tier in dg.TIERS
 
 
-def test_p3_long_group_is_live_falling_back_and_has_a_canary():
+def test_p3_long_group_is_live_and_has_a_canary():
     long_ = dg.GROUPS["daily_prices_long"]
     assert long_.default_tier == "Premium"
-    assert long_.live and long_.falls_back and long_.default_enabled
+    assert long_.live and long_.default_enabled
     for g in ("daily_prices", "daily_prices_long"):
         assert dg.PROBE_ENDPOINTS[g][0] == "/historical-price-eod/full"
     assert dg.PROBE_ENDPOINTS["daily_prices_long"][1]["symbol"] == "AAPL"
     assert "daily_prices_intl" not in dg.GROUPS and not hasattr(dg, "NON_US_CANARY_GROUPS")
+    assert not any(hasattr(m, "falls_back") for m in dg.GROUPS.values())  # no group has a fallback provider
 
 
 def test_every_live_group_has_a_probe_canary():

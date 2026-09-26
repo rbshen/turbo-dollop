@@ -92,31 +92,19 @@ def test_the_in_progress_week_is_a_partial_bar_labelled_by_its_monday():
     assert len(wk) == 3
 
 
-def test_group_off_without_a_row_falls_through_to_yahoo_weekly(monkeypatch):
+def test_group_off_without_a_row_is_an_empty_weekly_series(monkeypatch):
     dg.set_group_enabled("daily_prices_long", False)
-    idx = pd.date_range("2024-01-01", periods=30, freq="W-MON")
-    yahoo_weekly = pd.DataFrame({"Open": 1.0, "High": 2.0, "Low": 0.5, "Close": 1.5, "Volume": 10}, index=idx)
-
-    async def fake_history(tickers, period="2y", interval="1d", auto_adjust=True):
-        assert interval == "1wk"
-        return {t: yahoo_weekly for t in tickers}
-
-    monkeypatch.setattr(chart_data.yahoo_client, "get_history", fake_history)
     bars, source = asyncio.run(chart_data._fetch_bars("KO", "W_4Y"))
-    assert source == "yahoo" and len(bars) == 30
+    assert source == "fmp" and bars.empty
 
 
-def test_a_long_history_read_error_degrades_to_yahoo_instead_of_failing(monkeypatch):
+def test_a_long_history_read_error_degrades_to_an_empty_series_instead_of_failing(monkeypatch):
     async def boom(ticker):
         raise RuntimeError("db exploded")
 
-    async def fake_history(tickers, period="2y", interval="1d", auto_adjust=True):
-        return {}
-
     monkeypatch.setattr(chart_data, "get_long_history", boom)
-    monkeypatch.setattr(chart_data.yahoo_client, "get_history", fake_history)
     bars, source = asyncio.run(chart_data._fetch_bars("KO", "W_4Y"))
-    assert source == "yahoo" and bars.empty
+    assert source == "fmp" and bars.empty
 
 
 def test_get_chart_data_w4y_reports_fmp_as_the_source():

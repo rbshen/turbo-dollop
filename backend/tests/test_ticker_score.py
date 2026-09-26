@@ -403,7 +403,7 @@ def test_bb_rsi_entry_signal_is_true_for_a_recent_fire(monkeypatch):
                 pct_b=0.02,
                 rsi=24.1,
                 close=210.5,
-                source="yahoo",
+                source="fmp",
                 as_of=datetime(2026, 9, 8, 15, 30),
                 computed_at=datetime(2026, 9, 9, 3, 20),
             )
@@ -430,7 +430,7 @@ def test_bb_rsi_entry_signal_is_false_for_a_fire_older_than_seven_days(monkeypat
                 signal_type="bb_rsi",
                 timeframe="2h",
                 fired_at=datetime.now() - timedelta(days=10),
-                source="yahoo",
+                source="fmp",
                 as_of=datetime(2026, 9, 8, 15, 30),
                 computed_at=datetime(2026, 9, 9, 3, 20),
             )
@@ -470,7 +470,7 @@ def _warren_signal_row(signal_kind: str, **overrides) -> TechnicalEntrySignal:
         timeframe="2h",
         signal_kind=signal_kind,
         fired_at=datetime(2026, 9, 8, 15, 30),
-        source="yahoo",
+        source="fmp",
         as_of=datetime(2026, 9, 8, 15, 30),
         computed_at=datetime(2026, 9, 9, 3, 20),
     )

@@ -63,7 +63,7 @@ def test_drops_a_column_that_still_has_a_not_null_constraint(monkeypatch):
                 ticker="AAPL",
                 signal_type="bb_rsi",
                 timeframe="2h",
-                source="yahoo",
+                source="fmp",
                 as_of=datetime(2026, 9, 9),
                 computed_at=datetime(2026, 9, 9),
             )

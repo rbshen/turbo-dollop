@@ -40,7 +40,7 @@ def test_returns_active_true_for_a_recent_fire(monkeypatch):
                 rsi=25.3,
                 close=210.5,
                 stop_price=205.0,
-                source="yahoo",
+                source="fmp",
                 as_of=datetime(2026, 9, 8, 15, 30),
                 computed_at=datetime(2026, 9, 9, 3, 20),
             )
@@ -57,7 +57,7 @@ def test_returns_active_true_for_a_recent_fire(monkeypatch):
     assert body["pct_b"] == 0.02
     assert body["rsi"] == 25.3
     assert body["stop_price"] == 205.0
-    assert body["source"] == "yahoo"
+    assert body["source"] == "fmp"
 
 
 def test_returns_active_false_for_a_fire_older_than_seven_days(monkeypatch):
@@ -76,7 +76,7 @@ def test_returns_active_false_for_a_fire_older_than_seven_days(monkeypatch):
                 rsi=25.3,
                 close=210.5,
                 stop_price=205.0,
-                source="yahoo",
+                source="fmp",
                 as_of=datetime(2026, 9, 8, 15, 30),
                 computed_at=datetime(2026, 9, 9, 3, 20),
             )
@@ -101,7 +101,7 @@ def test_returns_active_false_and_null_fired_fields_when_never_fired(monkeypatch
                 ticker="AAPL",
                 signal_type="bb_rsi",
                 timeframe="2h",
-                source="yahoo",
+                source="fmp",
                 as_of=datetime(2026, 9, 8, 15, 30),
                 computed_at=datetime(2026, 9, 9, 3, 20),
             )
@@ -139,7 +139,7 @@ def test_signal_type_warren_reads_from_the_warren_row_not_bb_rsi(monkeypatch):
                 timeframe="2h",
                 fired_at=datetime.now(),
                 pct_b=0.02,
-                source="yahoo",
+                source="fmp",
                 as_of=datetime(2026, 9, 8, 15, 30),
                 computed_at=datetime(2026, 9, 9, 3, 20),
             )
@@ -156,7 +156,7 @@ def test_signal_type_warren_reads_from_the_warren_row_not_bb_rsi(monkeypatch):
                 signal_kind="yellow_up",
                 gray_suppressed=False,
                 stop_count=1,
-                source="yahoo",
+                source="fmp",
                 as_of=datetime(2026, 9, 8, 15, 30),
                 computed_at=datetime(2026, 9, 9, 3, 30),
             )

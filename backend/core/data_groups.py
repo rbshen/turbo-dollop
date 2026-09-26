@@ -59,11 +59,6 @@ class GroupMeta:
     # (extended_hours lands in P5).
     live: bool
     feeds: tuple[str, ...]
-    # A group with a non-FMP fallback provider still wired (daily_prices while
-    # Yahoo exists, P2-P5): turning it off does NOT mean cache-only --
-    # its consumers skip FMP and fall through to the fallback chain. Its chip
-    # reads "Off -- using fallback" instead of "Cached only". Removed in P6.
-    falls_back: bool = False
 
 
 GROUPS: dict[str, GroupMeta] = {
@@ -93,22 +88,18 @@ GROUPS: dict[str, GroupMeta] = {
             "Trend / Weinstein stage", "Liquidity Zones", "Sector Heatmap", "Market Breadth", "Momentum",
             "Chart tab (daily ranges)", "Header avg-volume / dollar-volume",
         ),
-        falls_back=True,
     ),
     # P3: US history beyond the nightly ~5y -- fetched on demand into the
     # dedicated long-history table (clients/long_history_bars.py).
     "daily_prices_long": GroupMeta(
         "Daily prices (long history)", "Premium", True, True,
         ("Chart tab (weekly 4y range)", "Analyst Ratings price overlay (10y)"),
-        falls_back=True,
     ),
     # P4 (2026-09-26): FMP `/historical-chart/1hour` (RTH-only, split- not dividend-adjusted)
-    # feeds the shared "60m" bars behind Warren and BB+RSI for US-listed tickers. Off falls
-    # through to Yahoo (NOT cache-only), like the daily groups.
+    # feeds the shared "60m" bars behind Warren and BB+RSI for US-listed tickers. Off = cached-only.
     "intraday_bars": GroupMeta(
         "Intraday bars", "Premium", True, True,
         ("Warren RSI/ADX/WVF entry signal (2h)", "BB+RSI entry signal (2h)", "Chart tab entry-signal markers"),
-        falls_back=True,
     ),
     "extended_hours": GroupMeta("Extended hours", "Premium", True, False, ("(not wired yet -- P5)",)),
 }

@@ -20,13 +20,13 @@ def test_record_success_updates_an_existing_row(_isolate_data_source_health_engi
     engine = _isolate_data_source_health_engine
     old = datetime.now() - timedelta(days=3)
     with Session(engine) as session:
-        session.add(DataSourceHealth(source="yahoo", last_success_at=old))
+        session.add(DataSourceHealth(source="other", last_success_at=old))
         session.commit()
 
-    record_success("yahoo")
+    record_success("other")
 
     with Session(engine) as session:
-        row = session.get(DataSourceHealth, "yahoo")
+        row = session.get(DataSourceHealth, "other")
     assert row.last_success_at > old
 
 
@@ -45,4 +45,4 @@ def test_record_success_keeps_sources_independent(_isolate_data_source_health_en
     engine = _isolate_data_source_health_engine
     record_success("fmp")
     with Session(engine) as session:
-        assert session.get(DataSourceHealth, "yahoo") is None
+        assert session.get(DataSourceHealth, "other") is None

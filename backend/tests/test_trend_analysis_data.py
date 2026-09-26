@@ -96,7 +96,7 @@ def test_compute_and_store_trend_analysis_persists_and_returns_matching_result(m
     assert row.bar_level == result.bar_level
 
 
-def test_compute_and_store_trend_analysis_raises_when_no_yahoo_data(monkeypatch):
+def test_compute_and_store_trend_analysis_raises_when_there_are_no_bars(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
@@ -173,7 +173,7 @@ def test_get_trend_analysis_data_returns_fresh_cached_row_without_recomputing(mo
     assert result.blended_score == 8.0
 
 
-def test_get_trend_analysis_data_falls_back_to_stale_row_on_yahoo_failure(monkeypatch):
+def test_get_trend_analysis_data_falls_back_to_stale_row_when_no_bars_can_be_fetched(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
 
@@ -195,7 +195,7 @@ def test_get_trend_analysis_data_falls_back_to_stale_row_on_yahoo_failure(monkey
         session.commit()
 
     async def fake_empty(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
-        return _empty_frame()  # Yahoo has no data -- compute_and_store raises ValueError internally
+        return _empty_frame()  # no bars at all -- compute_and_store raises ValueError internally
 
     monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_empty)
 

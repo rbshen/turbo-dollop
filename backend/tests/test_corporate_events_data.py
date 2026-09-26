@@ -212,28 +212,25 @@ def test_the_reader_returns_none_unless_earnings_and_dividends_were_both_fetched
     assert ce.read_cached_chart_events("HALF") is None  # dividends never succeeded
 
 
-def test_the_chart_reads_the_cache_first_and_makes_no_fmp_or_yahoo_call(monkeypatch, engine):
+def test_the_chart_reads_the_cache_and_makes_no_fmp_call(monkeypatch, engine):
     _fake_fmp(monkeypatch)
     asyncio.run(ce.refresh_ticker_events("AAPL"))
 
     async def fail(*a, **k):
-        raise AssertionError("must not be reached when the cache answers")
+        raise AssertionError("the chart must not make a live call")
 
-    monkeypatch.setattr(ced, "_fetch_fmp", fail)
-    monkeypatch.setattr(ced, "_fetch_yahoo", fail)
+    monkeypatch.setattr(ce.fmp_client, "get_earnings_history", fail)
+    monkeypatch.setattr(ce.fmp_client, "get_dividends", fail)
 
     out = asyncio.run(ced.fetch_chart_events("AAPL"))
 
     assert out.source == "fmp" and len(out.earnings) == 2 and len(out.dividends) == 2
 
 
-def test_the_chart_falls_through_to_the_live_path_for_an_uncached_ticker(monkeypatch, engine):
-    async def live(ticker):
-        return [], []
+def test_the_chart_shows_no_markers_for_an_uncached_ticker(monkeypatch, engine):
+    out = asyncio.run(ced.fetch_chart_events("UNCACHED"))
 
-    monkeypatch.setattr(ced, "_fetch_fmp", live)
-
-    assert asyncio.run(ced.fetch_chart_events("UNCACHED")).source == "fmp"
+    assert out.source is None and out.earnings == [] and out.dividends == []
 
 
 def test_the_chart_serves_the_cache_while_corporate_events_is_off(monkeypatch, engine):

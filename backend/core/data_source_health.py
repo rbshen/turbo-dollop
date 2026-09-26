@@ -9,16 +9,15 @@ independently, the established per-module engine-isolation convention --
 see CLAUDE.md's "Ad-hoc reproduction scripts must not touch the real
 database"), a defensive `create_all` on every call (this module has no
 guaranteed init_db() call before it, since it's invoked from deep inside
-clients/fmp_client.py and clients/yahoo_client.py, which are reached from
+clients/fmp_client.py, which is reached from
 both the FastAPI app and cron scripts alike), and every write wrapped in
 try/except-and-swallow -- a health-tracking write failing must never break
 the real fetch it's piggybacking on, the same reasoning cron_heartbeat's
 own docstring gives for its own swallowed writes.
 
 Test isolation for this module's `engine` is handled once, globally, in
-tests/conftest.py -- not per test file -- since FMPClient.get and
-YahooClient.get_history (the two call sites) are exercised for real (not
-just monkeypatched away) by test_fmp_client.py/test_yahoo_client.py."""
+tests/conftest.py -- not per test file -- since FMPClient.get (the call site) is exercised for real (not
+just monkeypatched away) by test_fmp_client.py."""
 
 from datetime import datetime
 

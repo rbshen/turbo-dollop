@@ -51,7 +51,7 @@ def test_last_event_drives_latest_state_whichever_direction_it_is(monkeypatch):
     result = WarrenReplayResult(as_of=datetime(2026, 1, 6, 15, 30), events=[e1, e2], gray_suppressed=False, stop_count=1, live_stop_price=42.0)
     _stub_replay(monkeypatch, result)
 
-    out = compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="yahoo")
+    out = compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="fmp")
 
     assert out.signal_kind == "blue_down"
     assert out.fired_at == e2.fired_at
@@ -78,7 +78,7 @@ def test_active_true_when_last_event_is_a_buy_arrow(monkeypatch):
     result = WarrenReplayResult(as_of=datetime(2026, 1, 5, 15, 30), events=[e], gray_suppressed=True, stop_count=2, live_stop_price=90.0)
     _stub_replay(monkeypatch, result)
 
-    out = compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="yahoo")
+    out = compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="fmp")
 
     assert out.active is True
     assert out.gray_suppressed is True
@@ -90,7 +90,7 @@ def test_no_events_still_writes_heartbeat_and_suppression_state(monkeypatch):
     result = WarrenReplayResult(as_of=datetime(2026, 1, 5, 15, 30), events=[], gray_suppressed=True, stop_count=2, live_stop_price=None)
     _stub_replay(monkeypatch, result)
 
-    out = compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="yahoo")
+    out = compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="fmp")
 
     assert out.fired_at is None
     assert out.signal_kind is None
@@ -113,12 +113,12 @@ def test_a_full_replay_always_overwrites_the_prior_state_never_conditionally_adv
     e = EngineEvent(kind="yellow_up", fired_at=datetime(2026, 1, 5, 11, 30), close=100.0, rsi=32.0, stop_price=90.0)
     first_result = WarrenReplayResult(as_of=datetime(2026, 1, 5, 15, 30), events=[e], gray_suppressed=False, stop_count=0, live_stop_price=90.0)
     _stub_replay(monkeypatch, first_result)
-    first = compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="yahoo")
+    first = compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="fmp")
     assert first.fired_at is not None
 
     second_result = WarrenReplayResult(as_of=datetime(2026, 1, 6, 15, 30), events=[], gray_suppressed=False, stop_count=0, live_stop_price=None)
     _stub_replay(monkeypatch, second_result)
-    second = compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="yahoo")
+    second = compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="fmp")
 
     assert second.fired_at is None
     assert second.as_of == second_result.as_of
@@ -132,7 +132,7 @@ def test_events_are_bulk_written_into_warrensignalevent(monkeypatch):
     result = WarrenReplayResult(as_of=datetime(2026, 1, 6, 15, 30), events=[e1, e2], gray_suppressed=False, stop_count=1, live_stop_price=42.0)
     _stub_replay(monkeypatch, result)
 
-    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="yahoo")
+    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="fmp")
 
     with Session(engine) as session:
         rows = session.exec(select(WarrenSignalEvent).where(WarrenSignalEvent.ticker == "AAPL")).all()
@@ -153,7 +153,7 @@ def test_same_bar_co_firing_events_produce_two_distinct_rows(monkeypatch):
     result = WarrenReplayResult(as_of=same_bar, events=[e1, e2], gray_suppressed=False, stop_count=0, live_stop_price=90.0)
     _stub_replay(monkeypatch, result)
 
-    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="yahoo")
+    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="fmp")
 
     with Session(engine) as session:
         rows = session.exec(select(WarrenSignalEvent).where(WarrenSignalEvent.ticker == "AAPL")).all()
@@ -169,8 +169,8 @@ def test_rerunning_the_same_replay_result_does_not_duplicate_events(monkeypatch)
     result = WarrenReplayResult(as_of=datetime(2026, 1, 5, 15, 30), events=[e], gray_suppressed=False, stop_count=0, live_stop_price=90.0)
     _stub_replay(monkeypatch, result)
 
-    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="yahoo")
-    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="yahoo")
+    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="fmp")
+    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="fmp")
 
     with Session(engine) as session:
         rows = session.exec(select(WarrenSignalEvent).where(WarrenSignalEvent.ticker == "AAPL")).all()
@@ -261,7 +261,7 @@ def test_sweep_clears_a_stale_warren_row_including_its_own_three_columns(monkeyp
                 signal_kind="yellow_up",
                 gray_suppressed=True,
                 stop_count=1,
-                source="yahoo",
+                source="fmp",
                 as_of=stale,
                 computed_at=stale,
             )
@@ -278,7 +278,7 @@ def test_sweep_clears_a_stale_warren_row_including_its_own_three_columns(monkeyp
     assert row.gray_suppressed is None
     assert row.stop_count is None
     assert row.stop_price is None
-    assert row.source == "yahoo"
+    assert row.source == "fmp"
     assert row.as_of == stale
     assert row.computed_at == stale
 
@@ -291,7 +291,7 @@ def test_sweep_never_touches_a_bb_rsi_row(monkeypatch):
     stale = now - timedelta(days=8)
     with Session(engine) as session:
         session.add(
-            TechnicalEntrySignal(ticker="AAPL", signal_type="bb_rsi", timeframe="2h", fired_at=stale, pct_b=0.01, source="yahoo", as_of=stale, computed_at=stale)
+            TechnicalEntrySignal(ticker="AAPL", signal_type="bb_rsi", timeframe="2h", fired_at=stale, pct_b=0.01, source="fmp", as_of=stale, computed_at=stale)
         )
         session.commit()
 
@@ -309,7 +309,7 @@ def test_sweep_leaves_a_fresh_warren_row_untouched(monkeypatch):
     fresh = now - timedelta(days=6)
     with Session(engine) as session:
         session.add(
-            TechnicalEntrySignal(ticker="AAPL", signal_type="warren", timeframe="2h", fired_at=fresh, signal_kind="blue_up", source="yahoo", as_of=fresh, computed_at=fresh)
+            TechnicalEntrySignal(ticker="AAPL", signal_type="warren", timeframe="2h", fired_at=fresh, signal_kind="blue_up", source="fmp", as_of=fresh, computed_at=fresh)
         )
         session.commit()
 
@@ -418,8 +418,8 @@ def test_event_inside_the_buffer_is_never_written_even_though_the_state_machine_
     ]
     _stub_replay(monkeypatch, _result(inside))
 
-    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="yahoo")
-    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="yahoo")  # nor on a re-run
+    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="fmp")
+    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="fmp")  # nor on a re-run
 
     assert _stored_events(engine) == []
 
@@ -434,7 +434,7 @@ def test_event_at_or_past_the_buffer_edge_is_written_normally(monkeypatch):
     ]
     _stub_replay(monkeypatch, _result(events))
 
-    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="yahoo")
+    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="fmp")
 
     assert {(r.signal_kind, r.fired_at) for r in _stored_events(engine)} == {
         ("blue_up", _buffer_edge()),
@@ -449,7 +449,7 @@ def test_buffer_width_is_driven_by_the_constant(monkeypatch):
     events = [_event("yellow_up", _REPLAY_START + timedelta(days=20)), _event("blue_up", _REPLAY_START + timedelta(days=45))]
     _stub_replay(monkeypatch, _result(events))
 
-    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="yahoo")
+    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="fmp")
 
     assert [r.signal_kind for r in _stored_events(engine)] == ["blue_up"]
 
@@ -463,7 +463,7 @@ def test_buffer_is_measured_from_the_first_replayed_candle_not_from_a_fixed_date
     edge = datetime(2026, 3, 2, 9, 30) + timedelta(days=warren_signal_data.EVENT_WRITE_WARMUP_DAYS)
     _stub_replay(monkeypatch, _result([_event("yellow_up", edge - timedelta(days=1)), _event("blue_up", edge)]))
 
-    compute_and_store_warren_signal("AAPL", ohlcv, source="yahoo")
+    compute_and_store_warren_signal("AAPL", ohlcv, source="fmp")
 
     assert [r.signal_kind for r in _stored_events(engine)] == ["blue_up"]
 
@@ -483,7 +483,7 @@ def test_latest_state_row_is_identical_with_and_without_the_buffer(monkeypatch):
         engine = _fresh_engine(monkeypatch)
         monkeypatch.setattr(warren_signal_data, "EVENT_WRITE_WARMUP_DAYS", warmup_days)
         _stub_replay(monkeypatch, result)
-        out = compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="yahoo")
+        out = compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="fmp")
         return out.model_dump(exclude={"computed_at"}), _stored_events(engine)
 
     without_buffer, events_without = latest_state(0)
@@ -503,9 +503,9 @@ def test_last_buy_signal_fired_at_reads_the_events_that_were_written(monkeypatch
     engine = _fresh_engine(monkeypatch)
     past_edge = _buffer_edge() + timedelta(days=3)
     _stub_replay(monkeypatch, _result([_event("yellow_up", _REPLAY_START + timedelta(days=5)), _event("blue_up", past_edge)]))
-    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="yahoo")
+    compute_and_store_warren_signal("AAPL", _tiny_ohlcv(), source="fmp")
     _stub_replay(monkeypatch, _result([_event("yellow_up", _REPLAY_START + timedelta(days=5))]))  # buy inside the buffer only
-    compute_and_store_warren_signal("MSFT", _tiny_ohlcv(), source="yahoo")
+    compute_and_store_warren_signal("MSFT", _tiny_ohlcv(), source="fmp")
 
     with Session(engine) as session:
         assert last_buy_signal_fired_at(session, "AAPL") == past_edge
@@ -554,9 +554,9 @@ def test_buffer_removes_leading_edge_events_across_consecutive_nightly_replays(m
         engine = _fresh_engine(monkeypatch)
         monkeypatch.setattr(warren_signal_data, "EVENT_WRITE_WARMUP_DAYS", warmup_days)
 
-        compute_and_store_warren_signal("AAPL", night1, source="yahoo")
+        compute_and_store_warren_signal("AAPL", night1, source="fmp")
         after_night1 = {(r.signal_kind, r.fired_at) for r in _stored_events(engine)}
-        compute_and_store_warren_signal("AAPL", night2, source="yahoo")
+        compute_and_store_warren_signal("AAPL", night2, source="fmp")
         after_night2 = {(r.signal_kind, r.fired_at) for r in _stored_events(engine)}
 
         edge1 = first_candle(night1) + timedelta(days=buffer_days)

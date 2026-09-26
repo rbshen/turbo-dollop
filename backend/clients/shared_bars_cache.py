@@ -1,4 +1,4 @@
-"""Shared, multi-interval Yahoo Finance bars cache -- one table
+"""Shared, multi-interval FMP bars cache -- one table
 (core/models.py::SharedBarsCache) serving every consumer of a given
 (ticker, interval) combination, replacing four independent fetch paths
 that were confirmed (2026-09-18 investigation, see CLAUDE.md) to overlap:
@@ -9,7 +9,7 @@ that were confirmed (2026-09-18 investigation, see CLAUDE.md) to overlap:
   - interval="60m": Warren (2yr, the actual fetched granularity -- both
     Warren's and BB+RSI's own "2h" candles are built from these bars by
     resampling downstream, see analysis/entry_signal/resample.py::
-    build_2h_session_candles; yfinance has no native "2h" interval) and
+    build_2h_session_candles; there is no native "2h" bar) and
     BB+RSI (60d).
 
 Two properties make this a genuine shared cache rather than four
@@ -50,13 +50,11 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
 from clients.daily_bar_sources import (
-    FMPIntradayWithFallback,
-    YahooDailySource,
+    FMPIntradaySource,
     get_daily_bar_source,
     non_fmp_intraday_tickers,
     route_by_source,
 )
-from clients.yahoo_client import yahoo_client
 from core.data_groups import effective_state
 from core.db import engine
 from core.models import SharedBarsCache
@@ -71,19 +69,19 @@ _MARKET_OPEN_ET = time(9, 30)
 _MARKET_CLOSE_HOUR_ET = 16  # 4:00pm ET, ignored on minute precision, matching
 # _most_recent_completed_trading_date's own established convention.
 
-# Yahoo's own raw 60-minute bars are labeled by their START time and run
+# The raw 60-minute bars are labeled by their START time and run
 # 09:30/10:30/.../15:30 each trading day -- 7 bars, the LAST one only 30
 # minutes (15:30-16:00, since the session itself closes at 16:00) --
-# confirmed empirically against real yfinance output before writing this.
+# confirmed empirically against real provider output before writing this.
 _INTRADAY_BAR_START_MINUTES = [0, 60, 120, 180, 240, 300, 360]
 _INTRADAY_BAR_END_MINUTES = [60, 120, 180, 240, 300, 360, 390]
 
-# yfinance's period enum, in ascending order, paired with the calendar-day
+# Period tiers, in ascending order, paired with the calendar-day
 # span each value covers -- used to snap a requested lookback_days up to
 # the nearest covering value, same "over-fetch a little rather than fetch
 # at exact precision" convention already used throughout this codebase
 # (see data/chart_data.py's own RANGE_CONFIG comment). Intraday (60m) bars
-# have no "5y"/"10y"/"max" tier at all -- Yahoo's real 60m-interval history
+# have no "5y"/"10y"/"max" tier at all -- the real 60m-interval history
 # limit is ~730 calendar days (confirmed in the BB+RSI historical-backfill
 # investigation), so requesting further back than that would silently
 # return less than asked for regardless of the period string used.
@@ -113,7 +111,7 @@ _TIER_SLACK_DAYS = 10
 def _preserved_lookback_days(first_bar: datetime | None, last_bar: datetime | None, interval: str) -> int:
     """The lookback width an existing row was (effectively) fetched at, so
     a refetch triggered by a NARROWER consumer never shrinks it. Derived by
-    snapping the row's stored span DOWN to a yfinance period tier, not by
+    snapping the row's stored span DOWN to a period tier, not by
     using the raw span (or today-minus-first-bar): stored bars are only ever
     appended, never dropped, so the raw span grows by a day every night --
     used directly, a "2y" row would snap up to a "5y" refetch after one
@@ -132,10 +130,13 @@ def _preserved_lookback_days(first_bar: datetime | None, last_bar: datetime | No
 
 
 def _period_for(interval: str, lookback_days: int) -> str:
+    """The smallest period tier covering `lookback_days` (clamped to the widest). Not used by
+    the fetch path any more (FMP takes a date range); it pins the retention windows against the
+    consumers' real lookbacks in tests/test_shared_bars_cache_prune.py."""
     for period, days in _period_steps(interval):
         if days >= lookback_days:
             return period
-    return _period_steps(interval)[-1][0]  # clamp to the widest available tier
+    return _period_steps(interval)[-1][0]
 
 
 def _most_recent_completed_trading_date(reference: datetime | None = None) -> date:
@@ -225,9 +226,9 @@ def _is_stale(last_bar_time: datetime | None, interval: str, reference: datetime
 # only to have the weekly prune trim it again.
 #
 # The 60m window is deliberately wider than any consumer needs today:
-# Yahoo serves 60m history only ~730 days back, so a pruned 60m bar can
+# 60m history is only available ~730 days back, so a pruned 60m bar can
 # never be re-fetched -- it is the only way this app could ever hold more
-# intraday history than Yahoo will hand over in one request.
+# intraday history than the provider will hand over in one request.
 RETENTION_DAYS: dict[str, int] = {
     DAILY_INTERVAL: 6 * 365,
     INTRADAY_INTERVAL: 3 * 365,
@@ -266,27 +267,21 @@ def _write_rows(
     source: str | None = None,
 ) -> None:
     """Upserts every bar in `df` in ONE executemany round trip. (A per-row
-    execute loop, the shape YahooPriceCache._write_rows uses for a few
-    hundred daily rows, was measured to dominate this module's cost at
+    execute loop was measured to dominate this module's cost at
     intraday volumes -- ~3,500 rows/ticker x ~100 tickers -- so it's
     batched here.)
 
     `df` must already have lowercase open/high/low/close/volume columns --
-    this module's single normalized contract for every source (matching
-    _load_frames' own read-side shape) since the 2026-09-23 Massive
-    migration added a second provider whose own natural casing
-    (clients/massive_client.py) differs from yfinance's native
-    Open/High/Low/Close/Volume. Every caller of this function (both the
-    "1d" DailyBarSource path, clients/daily_bar_sources.py, and the "60m"
-    Yahoo-only path below) lowercases at its own fetch boundary before
-    reaching here, so this function itself never branches on source.
+    this module's single normalized contract (matching _load_frames' own
+    read-side shape). Both fetch paths (clients/daily_bar_sources.py) lowercase
+    at their own boundary before reaching here.
 
-    `source` is provenance ("fmp" | "yahoo"), only meaningful for "60m" rows (see
+    `source` is provenance ("fmp"; legacy rows may read "yahoo" or NULL), only meaningful for "60m" rows (see
     SharedBarsCache.source); "1d" callers leave it None."""
     index = pd.DatetimeIndex(df.index)
     if index.tz is not None:
         # Re-express in Eastern wall-clock time before dropping tzinfo --
-        # yfinance's intraday index is already America/New_York, so this
+        # an intraday index is normally already America/New_York, so this
         # is a no-op in practice, but guards against a future caller
         # whose raw fetch came back in a different tz.
         index = index.tz_convert(_EASTERN).tz_localize(None)
@@ -356,7 +351,7 @@ def _load_frames(session: Session, tickers: list[str], interval: str, start: dat
     build_2h_session_candles requires a tz-aware index), left naive for
     interval="1d" (every daily-bar consumer -- data/trend_analysis_data.py,
     analysis/liquidity_zones/ -- already expects a naive DatetimeIndex,
-    matching YahooPriceCache's own long-standing shape)."""
+    the long-standing shape)."""
     start_dt = datetime.combine(start, time.min)
     columns = ["ticker", "bar_time", "open", "high", "low", "close", "volume"]
     frames: dict[str, pd.DataFrame] = {}
@@ -389,37 +384,6 @@ def _eastern_today(reference: datetime | None = None) -> date:
     return ref.astimezone(_EASTERN).date()
 
 
-def intraday_source_labels(tickers: list[str]) -> dict[str, str]:
-    """"fmp" | "yahoo" per ticker: what its cached 60m bars actually are. "fmp" only if EVERY
-    cached 60m row is FMP's; anything else (Yahoo-era/fallback rows, non-US tickers, no rows)
-    reads "yahoo". Used by the Warren / BB+RSI jobs to label the signal rows they write."""
-    with Session(engine) as session:
-        non_fmp = non_fmp_intraday_tickers(session, tickers)
-        cached = set(
-            session.exec(
-                select(SharedBarsCache.ticker).where(
-                    SharedBarsCache.interval == INTRADAY_INTERVAL, SharedBarsCache.ticker.in_(tickers)
-                ).distinct()
-            ).all()
-        ) if tickers else set()
-    return {t: "fmp" if t in cached and t not in non_fmp else "yahoo" for t in tickers}
-
-
-async def _fetch_yahoo_intraday(to_fetch: dict[str, int], auto_adjust: bool) -> dict[str, pd.DataFrame]:
-    """The Yahoo 60m fetch -- the fallback for FMP intraday. yfinance's multi-ticker download takes ONE period per call, so tickers are grouped
-    by the period their own need snaps to -- one call per distinct period, not one per ticker."""
-    by_period: dict[str, list[str]] = {}
-    for ticker, days in to_fetch.items():
-        by_period.setdefault(_period_for(INTRADAY_INTERVAL, days), []).append(ticker)
-    fetched: dict[str, pd.DataFrame] = {}
-    for period, group in by_period.items():
-        batch = await yahoo_client.get_history(group, period=period, interval=INTRADAY_INTERVAL, auto_adjust=auto_adjust)
-        # yfinance's native Open/High/Low/Close/Volume casing -> this module's lowercase
-        # write-boundary contract (see _write_rows).
-        fetched.update({t: df.rename(columns=str.lower) for t, df in batch.items()})
-    return fetched
-
-
 async def get_or_fetch_bars_batch(
     tickers: list[str],
     interval: str,
@@ -427,7 +391,7 @@ async def get_or_fetch_bars_batch(
     auto_adjust: bool = False,
     force: bool = False,
     reference: datetime | None = None,
-    fallback_tickers: list[str] | None = None,
+    unserved_tickers: list[str] | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Batch, cache-first read of raw OHLCV bars for `interval`
     ("1d"/"60m"), growing the cache to whatever the widest requester has
@@ -440,7 +404,7 @@ async def get_or_fetch_bars_batch(
 
     force=True always live-fetches every requested ticker regardless of
     freshness or coverage -- kept for parity with the equivalent escape
-    hatch the (since removed) yahoo_cache batch function had, for any
+    hatch the (since removed) Yahoo cache batch function had, for any
     future caller that genuinely needs a guaranteed-live read.
     None of the four consumers wired into this module today need it: the
     growth+freshness design above is already self-correcting regardless of
@@ -454,17 +418,14 @@ async def get_or_fetch_bars_batch(
     "as-of" function in this module already takes, rather than needing to
     monkeypatch this module's own `datetime` import.
 
-    fallback_tickers, when passed a list, gets extended with every "1d"
-    US-listed ticker this call did NOT get from FMP (Yahoo served
-    it instead; pass a clients.daily_bar_sources.FallbackTickers to also get
-    the Yahoo subset) -- clients/daily_bar_sources.py::FMPWithFallback
-    -- an out-parameter, not a return-shape change, so this function's
-    `dict[str, pd.DataFrame]` return type (many callers) is unaffected.
-    For interval="60m" it likewise gets the US-listed tickers FMP intraday
-    did not serve (Yahoo did). Non-US tickers are not fetched at all. Lets a caller report a per-run fallback count -- e.g. via
-    its own cron_heartbeat message, alongside stale_ticker_count below --
-    without this module needing to know anything about cron reporting
-    itself."""
+    unserved_tickers, when passed a list, gets extended with every US-listed ticker this
+    call did NOT get from FMP (the whole fetch batch while the data group is off -- cached bars
+    are then served as they are; pass a clients.daily_bar_sources.UnservedTickers to get a
+    one-line description). An out-parameter, not a return-shape change, so this function's
+    `dict[str, pd.DataFrame]` return type (many callers) is unaffected. Non-US tickers are not
+    fetched at all. Lets a caller report a per-run count -- e.g. via its own cron_heartbeat
+    message, alongside stale_ticker_count below -- without this module needing to know
+    anything about cron reporting itself."""
     if not tickers:
         return {}
 
@@ -502,12 +463,11 @@ async def get_or_fetch_bars_batch(
             to_fetch[t] = max(lookback_days, existing_width_days)
 
     if interval == INTRADAY_INTERVAL and not force and effective_state("intraday_bars")[0]:
-        # P4 provenance trigger: a US-listed ticker whose cached 60m rows are not ALL FMP's
-        # (Yahoo-era NULL rows, or a Yahoo fallback re-tag) is fetched even when its cache is
-        # fresh and wide -- FMPIntradaySource then replaces it in full. Self-completing and
-        # loop-free: a successful replace leaves every row "fmp", so the ticker drops out.
-        # Skipped while the group is off (everything would fall to Yahoo and re-tag "yahoo"
-        # every run) and for non-US tickers (no 60m bars at all since Phase 6a).
+        # Provenance trigger: a US-listed ticker whose cached 60m rows are not ALL FMP's
+        # (legacy Yahoo-era NULL / "yahoo" rows) is fetched even when its cache is fresh and
+        # wide -- FMPIntradaySource then replaces it in full. Self-completing and loop-free: a
+        # successful replace leaves every row "fmp", so the ticker drops out. Skipped while
+        # the group is off (nothing can be fetched) and for non-US tickers (no 60m bars).
         candidates = [t for t in tickers if t in span_by_ticker and t not in to_fetch]
         with Session(engine) as session:
             legacy = non_fmp_intraday_tickers(session, candidates)
@@ -520,46 +480,41 @@ async def get_or_fetch_bars_batch(
         fetched_at = datetime.now()
         fetched: dict[str, pd.DataFrame] = {}
         replace_tickers: list[str] = []
-        fmp_served: set[str] = set()
         if interval == DAILY_INTERVAL:
-            # FMP is the primary daily-bar source for every US-LISTED ticker
-            # (clients/daily_bar_sources.py::FMPWithFallback), with a per-
-            # ticker Yahoo fallback (whole-batch while the
-            # daily_prices group is off). Non-US tickers (route_by_source:
-            # listing exchange off the cached profile, dot-suffix when there
-            # is none) are no longer fetched (non-US support removed, as for 60m). force
+            # FMP is the only daily-bar source, for every US-LISTED ticker
+            # (clients/daily_bar_sources.py::FMPDailySource); while the daily_prices
+            # group is off the batch is unserved and the cache is read as is.
+            # Non-US tickers (route_by_source: listing exchange off the cached
+            # profile, dot-suffix when there is none) are not fetched. force
             # (e.g. the weekly Sunday resync) makes FMP refetch each ticker's
             # full window instead of the incremental overlap.
             us_tickers, _non_us_ignored = route_by_source(to_fetch)
             if us_tickers:
                 fetched.update(
                     await get_daily_bar_source().get_daily_bars(
-                        us_tickers, auto_adjust, reference=today, fallback_tickers=fallback_tickers,
+                        us_tickers, auto_adjust, reference=today, unserved_tickers=unserved_tickers,
                         replace_tickers=replace_tickers, full_refresh=force,
                     )
                 )
         else:
-            # interval == INTRADAY_INTERVAL (P4): FMP `/historical-chart/1hour` first for
-            # US-listed tickers (clients/daily_bar_sources.py::FMPIntradayWithFallback), Yahoo
-            # per ticker when FMP delivers nothing and for the whole batch while `intraday_bars`
-            # is off. Non-US tickers get NO 60m bars (Phase 6a: non-US support dropped; their
-            # Yahoo-only 60m path was removed) -- a cached non-US row is left as is, never
-            # refreshed. Every write is tagged with its provenance so a ticker whose cached
-            # rows are not all FMP's is fully replaced on its next FMP fetch.
+            # interval == INTRADAY_INTERVAL: FMP `/historical-chart/1hour` for US-listed
+            # tickers (clients/daily_bar_sources.py::FMPIntradaySource); while `intraday_bars`
+            # is off the batch is unserved and the cache is read as is. Non-US tickers get NO
+            # 60m bars -- a cached non-US row is left as is, never refreshed. Every write is
+            # tagged source="fmp", so a ticker still holding legacy (NULL / "yahoo") rows is
+            # fully replaced on its next FMP fetch.
             us_tickers, _non_us_ignored = route_by_source(to_fetch)
             if us_tickers:
                 fetched.update(
-                    await FMPIntradayWithFallback(fallback=_fetch_yahoo_intraday).get_intraday_bars(
-                        us_tickers, auto_adjust, reference=now, fallback_tickers=fallback_tickers,
-                        replace_tickers=replace_tickers, full_refresh=force, fmp_served=fmp_served,
+                    await FMPIntradaySource().get_intraday_bars(
+                        us_tickers, reference=now, replace_tickers=replace_tickers,
+                        full_refresh=force, unserved_tickers=unserved_tickers,
                     )
                 )
         with Session(engine) as session:
             for ticker, df in fetched.items():
                 if df is not None and not df.empty:
-                    source = None
-                    if interval == INTRADAY_INTERVAL:
-                        source = "fmp" if ticker in fmp_served else "yahoo"
+                    source = "fmp" if interval == INTRADAY_INTERVAL else None
                     _write_rows(session, ticker, interval, df, fetched_at, replace=ticker in replace_tickers, source=source)
 
     with Session(engine) as session:
@@ -580,7 +535,7 @@ def prune_old_bars(reference: datetime | None = None, dry_run: bool = False) -> 
 
     Measured from today, not from each ticker's own last bar, so an
     abandoned ticker can't sit on stale bars indefinitely; the one-year
-    headroom in RETENTION_DAYS makes a multi-week Yahoo outage a non-event."""
+    headroom in RETENTION_DAYS makes a multi-week provider outage a non-event."""
     today = _eastern_today(reference)
     deleted: dict[str, int] = {}
     with Session(engine) as session:
@@ -617,9 +572,8 @@ async def get_or_fetch_bars(
 def stale_ticker_count(tickers: list[str], interval: str, reference: datetime | None = None) -> tuple[int, list[str]]:
     """Read-only, call AFTER a get_or_fetch_bars_batch attempt: how many of
     `tickers` still don't reflect the most recently completed session/bar
-    for `interval`, despite that fetch attempt (FMP down AND its Yahoo
-    fallback also came up empty, a data-provider-wide gap like the
-    2026-09-22 Yahoo Close incident, or simply a ticker never requested).
+    for `interval`, despite that fetch attempt (FMP down or the data group off,
+    a data-provider-wide gap, or simply a ticker never requested).
 
     This is the stale-data guard every migrated nightly job (Trend,
     Liquidity Zones, Sector Heatmap, Momentum) calls right after its own

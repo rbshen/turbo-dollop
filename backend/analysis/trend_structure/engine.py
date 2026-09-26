@@ -19,7 +19,7 @@ from .types import CONFIRMED_RATIO, TrendStructureResult
 
 def compute_trend_structure(ohlcv: pd.DataFrame) -> TrendStructureResult:
     """ohlcv must be indexed by date (ascending) with columns
-    open/high/low/close/volume (lowercase, matching YahooPriceCache's own
+    open/high/low/close/volume (lowercase, matching SharedBarsCache's own
     column names)."""
     close = ohlcv["close"]
     high = ohlcv["high"]

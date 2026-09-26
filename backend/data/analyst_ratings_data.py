@@ -11,7 +11,6 @@ from core.db import engine
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from clients.long_history_bars import get_long_history
-from clients.yahoo_client import yahoo_client
 from core.models import FundamentalsCache, PriceTargetSnapshot
 from core.schemas import (
     AnalystRatingsOut,
@@ -37,15 +36,6 @@ CONSENSUS_BANDS = [(4.5, "Buy"), (3.5, "Outperform"), (2.5, "Hold"), (1.5, "Unde
 SNAPSHOT_TOLERANCE_DAYS = 45
 
 logger = logging.getLogger(__name__)
-
-# Fetch period for the Price Target Trend chart's optional price overlay's YAHOO FALL-THROUGH
-# (the FMP path reads the long-history store's own 10y window) --
-# same value data/chart_data.py's own widest range (W_4Y) already uses,
-# comfortably covering PriceTargetSnapshot's full backfilled history
-# (2021-04 on, per CLAUDE.md) with room to spare, without introducing a new
-# yfinance period tier of its own.
-PRICE_OVERLAY_FETCH_PERIOD = "10y"
-
 
 def _counts_from_grades_consensus(raw: dict) -> dict:
     return {
@@ -129,38 +119,23 @@ async def _fetch_price_history(ticker: str) -> pd.Series:
     dividend-adjusted close deflates every earlier price by the dividends paid since, moving the
     price line away from the target line it is compared to (measured before this change: KO up to
     36% lower in 2016, SPY 17%, AAPL 9%). It also matches the Chart tab. **The visible change:
-    for dividend payers the overlay's historical prices are now higher than the Yahoo `Adj Close`
-    it used to show.** (Yahoo `Adj Close` was the pre-P3.7 basis; no path reads it any more.)
+    for dividend payers the overlay's historical prices are higher than the old dividend-adjusted
+    Yahoo `Adj Close` it used to show.**
     Not routed through SharedBarsCache (nightly, ~5y, pruned).
 
-    FALL-THROUGH (until Yahoo is removed in P6): when the group is off with no stored row, or FMP
-    errors / answers empty, the Yahoo path runs, reading `Close` (split-only; auto_adjust=False is
-    passed explicitly because yfinance's auto_adjust=True rescales `Close` for dividends) -- so the
-    overlay has the same split-only basis whether FMP or Yahoo answers (P3.7b). If that has
-    nothing either the overlay is simply empty."""
+    No fallback (Yahoo removed in Phase 6b): when the group is off with no stored row, or FMP
+    errors / answers empty with none stored, the overlay is simply empty."""
     try:
         daily = await get_long_history(ticker)
     except Exception as exc:  # noqa: BLE001 -- the overlay must never fail the tab; log the type only
-        logger.warning("FMP long-history read failed for %s (%s); falling back to Yahoo", ticker, type(exc).__name__)
+        logger.warning("FMP long-history read failed for %s (%s)", ticker, type(exc).__name__)
         daily = None
     if daily is not None and not daily.empty:
         series = daily["close"].dropna().astype(float)
         if not series.empty:
             series.index = pd.DatetimeIndex(series.index).normalize()
             return series.sort_index()
-
-    result = await yahoo_client.get_history([ticker], period=PRICE_OVERLAY_FETCH_PERIOD, interval="1d", auto_adjust=False)
-    frame = result.get(ticker)
-    if frame is None or frame.empty or "Close" not in frame.columns:
-        return pd.Series(dtype=float)
-    series = frame["Close"].dropna()
-    if series.empty:
-        return series
-    index = pd.DatetimeIndex(series.index)
-    if index.tz is not None:
-        index = index.tz_localize(None)
-    series.index = index.normalize()
-    return series.sort_index()
+    return pd.Series(dtype=float)
 
 
 def _price_on_or_before(series: pd.Series, target: pd.Timestamp) -> float | None:
@@ -344,13 +319,10 @@ async def get_analyst_ratings_data(ticker: str, cache_only: bool = False) -> Ana
     # line to overlay against -- and only ever populated from that line's
     # OWN first real point onward, never before it: see
     # RatingHistoryPoint.price_on_date's own comment for why a None run
-    # right after that point, rather than a separate flag, is how "Yahoo's
+    # right after that point, rather than a separate flag, is how "the stored
     # history doesn't reach back this far" is represented). cache_only
     # skips this the same way it skips every other live external call in
-    # this function -- Yahoo has no cache layer of its own here to fall
-    # back to (see _fetch_price_history's own docstring), so cache_only
-    # means "don't fetch" rather than "read the cache instead" -- and it must
-    # not fetch INTO the long-history store either.
+    # this function, and it must not fetch INTO the long-history store either.
     target_start = next((i for i, point in enumerate(history) if point.avg_price_target is not None), None)
     if target_start is not None and not cache_only:
         price_series = await _fetch_price_history(ticker)

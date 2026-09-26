@@ -1,5 +1,5 @@
 """Nightly FMP last-close cache (Phase 6a) -- the fallback tier for the ticker header's
-price (data/ticker_summary.py). Massive/Polygon and Yahoo used to answer when the
+price (data/ticker_summary.py). Massive/Polygon and Yahoo (both since removed) used to answer when the
 `profile_quote` group was off; now the header asks FMP live and, failing that, serves
 the last official close this module cached after the previous US close.
 

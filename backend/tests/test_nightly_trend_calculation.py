@@ -18,15 +18,15 @@ def _fresh_engine(monkeypatch, tmp_path):
 
 
 def _patch_batch_fetch(
-    monkeypatch, rows_by_ticker: dict, stale_tickers: list[str] | None = None, fallback_tickers: list[str] | None = None
+    monkeypatch, rows_by_ticker: dict, stale_tickers: list[str] | None = None, unserved_tickers: list[str] | None = None
 ):
     calls: list[tuple[list[str], bool, str, int]] = []
-    fallback = fallback_tickers or []
+    fallback = unserved_tickers or []
 
-    async def fake_batch(tickers, interval, lookback_days, auto_adjust=True, fallback_tickers=None, **kwargs):
+    async def fake_batch(tickers, interval, lookback_days, auto_adjust=True, unserved_tickers=None, **kwargs):
         calls.append((list(tickers), auto_adjust, interval, lookback_days))
-        if fallback_tickers is not None:
-            fallback_tickers.extend(fallback)
+        if unserved_tickers is not None:
+            unserved_tickers.extend(fallback)
         return rows_by_ticker
 
     monkeypatch.setattr(nightly_trend, "get_or_fetch_bars_batch", fake_batch)
@@ -149,7 +149,7 @@ def test_batch_fetch_is_called_exactly_once_for_the_whole_universe_not_per_ticke
 
 
 def test_ticker_missing_from_batch_result_is_still_attempted_with_no_frame(monkeypatch, tmp_path):
-    """A ticker Yahoo returned nothing for (missing from the batch dict, not
+    """A ticker FMP returned nothing for (missing from the batch dict, not
     just an empty list) must still reach compute_and_store_from_frames (with
     no frame, which raises ValueError there) rather than being silently
     skipped -- so it shows up as a real, visible failure in the run summary."""
@@ -158,7 +158,7 @@ def test_ticker_missing_from_batch_result_is_still_attempted_with_no_frame(monke
 
     def fake_store(ticker, ohlcv, benchmark_ohlcv=None, params=None):
         if ohlcv is None:
-            raise ValueError(f"No Yahoo Finance price history available for {ticker}")
+            raise ValueError(f"No price history available for {ticker}")
         return object()
 
     monkeypatch.setattr(nightly_trend, "compute_and_store_from_frames", fake_store)
@@ -177,7 +177,7 @@ def test_empty_universe_returns_zero_summary_without_calling_batch_fetch(monkeyp
     summary = asyncio.run(nightly_trend.main(tickers=[]))
 
     assert summary == {
-        "processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "stale_count": 0, "fallback_count": 0, "fallback_yahoo_count": 0,
+        "processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "stale_count": 0, "unserved_count": 0,
         "skipped_delisted_count": 0,
     }
     assert batch_calls == []
@@ -188,10 +188,10 @@ def test_benchmark_ticker_rides_the_batch_fetch_but_is_never_processed_or_counte
     batch-fetch call's ticker list, but must never get its own
     compute_and_store_from_frames call and must never appear in
     processed/failures -- even when it's entirely absent from the batch
-    result dict (e.g. a transient Yahoo failure for that one symbol)."""
+    result dict (e.g. a transient provider failure for that one symbol)."""
     _fresh_engine(monkeypatch, tmp_path)
     # ^GSPC deliberately absent from the batch result, like any other
-    # ticker Yahoo returned nothing for this run.
+    # ticker FMP returned nothing for this run.
     batch_calls = _patch_batch_fetch(monkeypatch, {"AAPL": [1], "MSFT": [1]})
     store_calls = _patch_store(monkeypatch)
 
@@ -222,19 +222,18 @@ def test_benchmark_rows_are_passed_through_to_every_ticker_compute(monkeypatch, 
     assert received == [benchmark_rows]
 
 
-def test_summary_reports_the_fallback_count_from_the_batch_fetch(monkeypatch, tmp_path):
-    """get_or_fetch_bars_batch's fallback_tickers out-param (populated by
-    FMPWithFallback whenever a ticker falls back from FMP to
-    Yahoo this run) must be threaded through into the run summary -- this
-    is what lets the cron heartbeat message surface a per-run fallback
-    count in Settings -> Status, rather than only ever appearing in logs."""
+def test_summary_reports_the_unserved_count_from_the_batch_fetch(monkeypatch, tmp_path):
+    """get_or_fetch_bars_batch's unserved_tickers out-param (populated by
+    FMPDailySource whenever FMP does not serve a ticker this run) must
+    be threaded through into the run summary -- this is what lets the
+    cron heartbeat message surface a per-run unserved count in Settings -> Status, rather than only ever appearing in logs."""
     _fresh_engine(monkeypatch, tmp_path)
-    _patch_batch_fetch(monkeypatch, {"AAPL": [1], "MSFT": [1]}, fallback_tickers=["MSFT"])
+    _patch_batch_fetch(monkeypatch, {"AAPL": [1], "MSFT": [1]}, unserved_tickers=["MSFT"])
     _patch_store(monkeypatch)
 
     summary = asyncio.run(nightly_trend.main(tickers=["AAPL", "MSFT"]))
 
-    assert summary["fallback_count"] == 1
+    assert summary["unserved_count"] == 1
 
 
 def test_configured_rs_benchmark_is_fetched_and_settings_are_passed_to_every_compute(monkeypatch, tmp_path):

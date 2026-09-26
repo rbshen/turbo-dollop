@@ -184,7 +184,7 @@ def test_main_sweeps_a_row_stale_beyond_the_seven_day_window(monkeypatch, tmp_pa
                 rsi=20.0,
                 close=50.0,
                 stop_price=45.0,
-                source="yahoo",
+                source="fmp",
                 as_of=stale_computed_at,
                 computed_at=stale_computed_at,
             )

@@ -1097,7 +1097,7 @@ def _cached_close(monkeypatch, close: float | None):
 
 def test_get_summary_serves_the_cached_last_close_when_profile_quote_is_off(monkeypatch):
     """profile_quote off: every FMP call degrades (safe_fetch -> {}), so the header price
-    comes from the last close cached nightly from FMP -- no Massive, no Yahoo."""
+    comes from the last close cached nightly from FMP -- no Massive, no Yahoo (both removed)."""
     _fresh_summary_engine(monkeypatch)
     _dg.set_group_enabled("profile_quote", False)
     _cached_close(monkeypatch, 123.45)

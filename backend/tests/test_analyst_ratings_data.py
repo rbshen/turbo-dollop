@@ -17,8 +17,8 @@ _REAL_FETCH_PRICE_HISTORY = analyst_ratings_data._fetch_price_history  # capture
 def _no_live_price_fetch(monkeypatch):
     """Every test in this file predates the price-overlay feature and has
     no expectations about it -- stub out the one genuinely live external
-    call get_analyst_ratings_data can make (Yahoo Finance has no cache
-    layer here to fall back to, see _fetch_price_history's own docstring)
+    call get_analyst_ratings_data can make (the long-history store fetch, see
+    _fetch_price_history's own docstring)
     so these tests stay fast and network-free by default, mirroring
     test_chart_data.py's own `_default_no_warren_signal`-style autouse
     fixture for a similarly bolted-on dependency. Tests exercising the
@@ -407,7 +407,7 @@ def test_price_overlay_populates_from_the_targets_own_first_real_point_onward(mo
     # (one_month_ago) but not for the earlier row (three_months_ago) --
     # confirming the overlay never reaches back before the target series'
     # own first plotted point, and reads None (not extrapolated) where
-    # Yahoo genuinely has no data.
+    # the price history genuinely has no data.
     async def fake_prices(_ticker):
         return _price_series([(one_month_ago, 95.5)])
 
@@ -466,7 +466,7 @@ def test_price_overlay_skipped_when_cache_only(monkeypatch):
     # either, so grades_historical/etc. must already be cached for this
     # ticker or the whole result comes back empty regardless of the price
     # overlay). Only then re-request with cache_only=True and confirm the
-    # one genuinely live call left (Yahoo) still never fires.
+    # one genuinely live call left (the price fetch) still never fires.
     asyncio.run(get_analyst_ratings_data("TEST"))
     monkeypatch.setattr(analyst_ratings_data, "_fetch_price_history", _fail_if_called)
 
@@ -476,11 +476,11 @@ def test_price_overlay_skipped_when_cache_only(monkeypatch):
     assert result.history[0].price_on_date is None
 
 
-def test_price_overlay_all_none_when_yahoo_has_zero_overlap_with_the_target_window(monkeypatch):
-    """The real-world shape of "zero overlap" for a live, full-window Yahoo
-    fetch: Yahoo returns data, but none of it falls on or before any of the
-    target series' own plotted dates (e.g. a ticker Yahoo only recently
-    picked up, or a symbol mismatch) -- every price_on_date must stay None,
+def test_price_overlay_all_none_when_the_prices_have_zero_overlap_with_the_target_window(monkeypatch):
+    """The real-world shape of "zero overlap" for a full-window price
+    fetch: it returns data, but none of it falls on or before any of the
+    target series' own plotted dates (e.g. a ticker only recently
+    listed, or a symbol mismatch) -- every price_on_date must stay None,
     which is exactly what the frontend reads as "don't render the toggle"."""
     test_engine = _fresh_engine(monkeypatch)
     two_months_ago = _months_ago(TODAY, 2)
@@ -512,7 +512,7 @@ def test_price_overlay_all_none_when_yahoo_has_zero_overlap_with_the_target_wind
     assert result.history[0].price_on_date is None
 
 
-def test_price_overlay_handles_a_fully_empty_yahoo_response(monkeypatch):
+def test_price_overlay_handles_a_fully_empty_price_response(monkeypatch):
     test_engine = _fresh_engine(monkeypatch)
     two_months_ago = _months_ago(TODAY, 2)
     _patch_fmp(

@@ -157,7 +157,7 @@ def test_main_sweeps_a_row_stale_beyond_the_seven_day_window(monkeypatch, tmp_pa
                 signal_kind="yellow_up",
                 gray_suppressed=False,
                 stop_count=0,
-                source="yahoo",
+                source="fmp",
                 as_of=stale_computed_at,
                 computed_at=stale_computed_at,
             )

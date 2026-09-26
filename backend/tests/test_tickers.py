@@ -1,5 +1,5 @@
 import core.tickers as tickers_module
-from core.tickers import is_non_us_ticker, normalize_ticker, resolve_daily_bar_source_label
+from core.tickers import is_non_us_ticker, normalize_ticker
 
 
 def test_normalizes_known_dual_class_share_aliases():
@@ -51,15 +51,10 @@ def test_is_non_us_ticker_does_not_flag_normalized_class_shares_or_plain_tickers
     assert is_non_us_ticker("CNSWF") is False  # OTC, no dot -- caught by the empty-result fallback instead
 
 
-def test_resolve_daily_bar_source_label_is_fmp_for_us_tickers_while_daily_prices_is_live():
-    assert resolve_daily_bar_source_label("AAPL") == "fmp"
+def test_the_daily_bar_source_label_helper_is_gone():
+    import core.tickers as tickers
 
-
-def test_resolve_daily_bar_source_label_is_yahoo_when_daily_prices_is_off():
-    import core.data_groups as dg
-
-    dg.set_group_enabled("daily_prices", False)
-    assert resolve_daily_bar_source_label("AAPL") == "yahoo"
+    assert not hasattr(tickers, "resolve_daily_bar_source_label")  # Yahoo removed: the source is always FMP
 
 
 def test_is_us_listed_uses_exchange_not_domicile_and_falls_back_to_the_dot_rule():

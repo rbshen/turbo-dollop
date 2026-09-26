@@ -27,50 +27,15 @@ class NewsCache(SQLModel, table=True):
     raw_json: str
 
 
-class YahooPriceCache(SQLModel, table=True):
-    """Daily OHLCV bars sourced from Yahoo Finance (see clients/yahoo_client.py,
-    clients/yahoo_cache.py) -- deliberately its own table, not a
-    FundamentalsCache row, for the same reason NewsCache is its own table
-    above: this is a different provider entirely (decoupled from the
-    FMP master kill switch on purpose) and a different shape (one row per
-    ticker per trading day, typed OHLCV columns, not a single raw_json blob
-    per statement-type/period). Refreshed by market session, not a flat
-    window -- see clients/yahoo_cache.py::_is_stale.
-
-    **As of the 2026-09-19 shared-bars-cache build, this table's only
-    remaining consumer is data/ticker_summary.py::_fetch_yahoo_latest_close**
-    (Price/Quote's Yahoo fallback when the FMP master switch is off) -- Trend/Weinstein
-    Stage and Liquidity Zones, its two other former readers, both moved to
-    SharedBarsCache below, which also serves Warren/BB+RSI. Kept as its own
-    table rather than folded in: ticker_summary's own use case (a handful
-    of adjusted, non-shared rows for a single quote lookup) has no growth/
-    coverage or multi-interval needs, and moving it would mean threading
-    auto_adjust-vs-raw's old shared-row caveat back in for no benefit -- see
-    SharedBarsCache's own docstring for why that caveat no longer applies
-    to the features that did need it."""
-
-    __table_args__ = (UniqueConstraint("ticker", "date", name="uq_yahoo_price_cache_key"),)
-
-    id: int | None = Field(default=None, primary_key=True)
-    ticker: str = Field(index=True)
-    date: date
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: int
-    fetched_at: datetime
-
-
 class SharedBarsCache(SQLModel, table=True):
     """Raw OHLCV bars shared across every consumer of a given (ticker,
     interval) combination -- Liquidity Zones and Trend/Weinstein Stage both
     read/write interval="1d" rows; Warren and BB+RSI both read/write
-    interval="60m" rows (yfinance's own fetched granularity -- both
+    interval="60m" rows (FMP's hourly granularity -- both
     features' actual "2h" candles are built from these by resampling
     downstream, see analysis/entry_signal/resample.py::
-    build_2h_session_candles; there is no native "2h" Yahoo interval).
-    Built 2026-09-19 after the prior Yahoo-consolidation round found real,
+    build_2h_session_candles; there is no native "2h" bar).
+    Built 2026-09-19 after a consolidation round found real,
     confirmable redundant-fetch overlap between exactly these four
     features -- see clients/shared_bars_cache.py for the full mechanism
     (growth-to-max-window-ever-requested, and the close-aware freshness
@@ -91,20 +56,14 @@ class SharedBarsCache(SQLModel, table=True):
     existing expectation (data/trend_analysis_data.py, analysis/
     liquidity_zones/).
 
-    Unlike YahooPriceCache above (always auto_adjust=True, per data/
-    ticker_summary.py's own need), every current consumer of this table
-    fetches with auto_adjust=False -- so, unlike YahooPriceCache's
-    documented adjusted-vs-unadjusted shared-row caveat, there is no
-    cross-consumer inconsistency risk here today. This isn't structurally
-    enforced (a future auto_adjust=True consumer of this same table would
-    reintroduce that exact caveat) -- flagged here so it isn't
-    rediscovered from scratch."""
+    Every row is FMP's split- (and spin-off-) adjusted, NOT dividend-adjusted bars.
+    """
 
     __table_args__ = (UniqueConstraint("ticker", "interval", "bar_time", name="uq_shared_bars_cache_key"),)
 
     id: int | None = Field(default=None, primary_key=True)
     ticker: str = Field(index=True)
-    interval: str  # "1d" | "60m" -- the literal yfinance interval actually fetched
+    interval: str  # "1d" | "60m"
     bar_time: datetime
     open: float
     high: float
@@ -112,8 +71,8 @@ class SharedBarsCache(SQLModel, table=True):
     close: float
     volume: int
     fetched_at: datetime
-    # Provenance of the write: "fmp" | "yahoo" | NULL (a row from before this column existed,
-    # or any "1d" row -- only "60m" reads it). The FMP intraday source (P4) replaces a ticker's
+    # Provenance of the write: "fmp" (legacy rows: "yahoo" | NULL -- a row from before this column existed,
+    # or any "1d" row -- only "60m" reads it). The FMP intraday source replaces a ticker's
     # whole "60m" history unless every cached row is "fmp", so FMP bars are never layered on
     # Yahoo history (a mixed-source seam inside Warren's replay window). Nullable: the
     # ADD COLUMN sweep does no backfill, so every pre-existing row reads NULL == "not FMP".
@@ -152,7 +111,7 @@ class LongHistoryBars(SQLModel, table=True):
 class TrendAnalysis(SQLModel, table=True):
     """Latest trend-structure analysis per ticker (swing/BOS/blended-score
     engine, see analysis/trend_structure/ and data/trend_analysis_data.py)
-    -- sourced from Yahoo Finance (SharedBarsCache above), independent of
+    -- sourced from FMP bars (SharedBarsCache above), independent of
     FMP entirely. Ticker-PK, no surrogate id, `computed_at` (not
     `fetched_at`) naming -- same "this is a derived value" convention as
     TickerScore, not a raw fetch cache. Upserted per run, latest-only (no
@@ -390,7 +349,7 @@ class TechnicalEntrySignal(SQLModel, table=True):
     # whenever fired_at is None, and also whenever ATR itself is NaN on
     # that bar (e.g. too little history for a 14-period ATR).
     stop_price: float | None = None
-    source: str  # "yahoo" (or "fmp", once that adapter is ever wired in)
+    source: str  # "fmp" (legacy rows may read "yahoo")
     # Timestamp of the last candle actually evaluated this run (fired or
     # not) -- unlike fired_at above, this updates every nightly run
     # regardless of outcome, so every Watchlist ticker still gets a
@@ -430,14 +389,13 @@ class TechnicalEntrySignalEvent(SQLModel, table=True):
     compute_and_store_entry_signal's result.fired is True (using the same
     result already computed for the TechnicalEntrySignal upsert -- no
     change to check_buy_signal/compute_entry_signal's detection logic);
-    and via a one-time backfill (pipeline/backfills/
-    backfill_entry_signal_events.py) that scans up to Yahoo's own 730-day
-    2h-interval history limit using compute_historical_entry_signals
+    and (historically) via a one-time backfill script, since deleted, that scanned the
+    730-day 2h-interval history using compute_historical_entry_signals
     (analysis/entry_signal/engine.py).
 
     Surrogate `id` PK (not composite, unlike TechnicalEntrySignal) since
     this is a real accumulating time series, not a single latest-state
-    row per key -- matches FundamentalsCache/YahooPriceCache's own
+    row per key -- matches FundamentalsCache's own
     surrogate-PK-plus-UniqueConstraint shape. The UniqueConstraint is
     what actually enforces one row per (ticker, signal_type, timeframe,
     fired_at), making a cron rerun's insert an idempotent no-op via
@@ -478,7 +436,7 @@ class WarrenSignalEvent(SQLModel, table=True):
 
     Unlike BB+RSI's own nightly job (which only evaluates the latest day,
     needing a separate one-time backfill script for older history -- see
-    pipeline/backfills/backfill_entry_signal_events.py), Warren's nightly
+    the deleted one-time entry-signal backfill), Warren's nightly
     job always replays the FULL available history from scratch every run
     (see analysis/warren_signal/state_machine.py's own docstring on why
     this is safe/idempotent) -- so this table is fully populated by the
@@ -537,7 +495,7 @@ class LiquidityZoneAnalysis(SQLModel, table=True):
     resistance_zones_json: str
     broken_support_json: str | None = None
     broken_resistance_json: str | None = None
-    source: str  # "fmp" | "yahoo"
+    source: str  # "fmp" (legacy rows may read "yahoo")
     computed_at: datetime  # when the nightly job produced this row
 
 
@@ -1107,7 +1065,7 @@ class MomentumSnapshot(SQLModel, table=True):
 
 class SectorEtfReturn(SQLModel, table=True):
     """One trailing TOTAL return (price change + reinvested distributions,
-    from Yahoo's `Adj Close`) for one sector ETF over one calendar window,
+    from an adjusted close) for one sector ETF over one calendar window,
     as of one trading day -- the Sector Heatmap's storage (see
     data/sector_heatmap_data.py, scoring/etf_returns.py,
     pipeline/nightly_sector_heatmap.py). Long format, one row per
@@ -1115,7 +1073,7 @@ class SectorEtfReturn(SQLModel, table=True):
     ticker: adding or dropping a window later needs no schema change.
 
     Computed returns only, deliberately NOT bars -- SharedBarsCache carries
-    no adjusted close, and Yahoo's `Adj Close` is rescaled retroactively at
+    no adjusted close, and an adjusted close is rescaled retroactively at
     every ex-dividend date, so a stored adjusted-close history would go
     subtly wrong between refetches. A return is a self-contained number
     that never needs re-adjusting.
@@ -1266,19 +1224,18 @@ class CronRunLog(SQLModel, table=True):
 
 
 class DataSourceHealth(SQLModel, table=True):
-    """One row per external data source ("fmp" | "yahoo"), recording the
+    """One row per external data source ("fmp"), recording the
     timestamp of its most recent genuinely successful live fetch -- written
     by core.data_source_health.record_success from the single choke point
     each source's client already funnels every call through
-    (clients/fmp_client.py::FMPClient.get, clients/yahoo_client.py::
-    YahooClient.get_history). Backs the Settings "Status" section's Data
+    (clients/fmp_client.py::FMPClient.get). Backs the Settings "Status" section's Data
     Sources cards (core/data_source_status.py) -- deliberately NOT a live
     reachability ping, just a record of the last time a real call actually
     succeeded. Singleton-per-source row, same `key`-as-primary-key shape as
     MoatScoreConfig/ReitDividendYieldConfig above, just keyed on the source
     name instead of a fixed "default"."""
 
-    source: str = Field(primary_key=True)  # "fmp" | "yahoo"
+    source: str = Field(primary_key=True)  # "fmp"
     last_success_at: datetime
 
 

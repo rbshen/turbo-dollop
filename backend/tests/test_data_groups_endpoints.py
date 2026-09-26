@@ -36,7 +36,7 @@ def test_master_switch_makes_every_group_cached_only_and_untoggleable():
         body = client.put("/api/config/data-groups/master", json={"master_on": False}).json()
         assert body["master_on"] is False
         for g in body["groups"]:
-            assert g["state"] == ("using_fallback" if g["key"] in ("daily_prices", "daily_prices_long", "intraday_bars") else "cached_only") and g["reason"] == "master_off" and g["can_toggle"] is False
+            assert g["state"] == "cached_only" and g["reason"] == "master_off" and g["can_toggle"] is False
         body = client.put("/api/config/data-groups/master", json={"master_on": True}).json()
     assert _by_key(body)["fundamentals"]["state"] == "live"
 
@@ -92,16 +92,15 @@ def test_editing_the_plan_reprobes_restricted_groups(monkeypatch):
     assert _by_key(body)["news"]["state"] == "live"
 
 
-def test_daily_prices_off_reads_using_fallback_not_cached_only():
-    """daily_prices has a live Yahoo fallback until P6b, so off
-    means "skip FMP, use the fallback", never the cache-only chip."""
+def test_price_groups_off_read_cached_only_like_every_other_group():
+    """No group has a fallback provider any more (Yahoo removed in P6b): off is cache-only."""
     with TestClient(app) as client:
         body = client.get("/api/config/data-groups").json()
         assert _by_key(body)["daily_prices"]["state"] == "live"
         body = client.put("/api/config/data-groups/daily_prices", json={"enabled": False}).json()
         g = _by_key(body)["daily_prices"]
-        assert g["state"] == "using_fallback" and g["falls_back"] is True and g["reason"] == "user_off"
+        assert g["state"] == "cached_only" and "falls_back" not in g and g["reason"] == "user_off"
         client.put("/api/config/data-groups/daily_prices", json={"enabled": True})
         body = client.put("/api/config/data-groups/master", json={"master_on": False}).json()
-        assert _by_key(body)["daily_prices"]["state"] == "using_fallback"
-        assert _by_key(body)["news"]["state"] == "cached_only"
+        for key in ("daily_prices", "daily_prices_long", "intraday_bars", "news"):
+            assert _by_key(body)[key]["state"] == "cached_only"

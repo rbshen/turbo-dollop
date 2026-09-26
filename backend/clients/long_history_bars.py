@@ -6,8 +6,8 @@ price overlay (data/analyst_ratings_data.py). Everything else that reads daily b
 
     bars = await get_long_history("KO")      # DataFrame | None
 
-`None` means "not available from FMP -- use today's Yahoo path" (the caller's fall-
-through); a DataFrame is lowercase open/high/low/close/volume on a naive ascending
+`None` means "not available from FMP" (no stored row and nothing fetched; the callers
+render an empty chart / overlay); a DataFrame is lowercase open/high/low/close/volume on a naive ascending
 DatetimeIndex, the whole stored window (the caller trims what it needs).
 
 Behaviour (per ticker, single-flight -- concurrent first opens make ONE FMP call):
@@ -24,7 +24,7 @@ Behaviour (per ticker, single-flight -- concurrent first opens make ONE FMP call
                                    wiped); no row -> None.
   * group live, FMP error/empty -> cold: None, nothing written. Warm-but-stale: the
                                    existing row (same basis, a few days behind) rather
-                                   than switching the chart onto Yahoo's basis.
+                                   than serving nothing.
 
 The group is `daily_prices_long` (Premium). FMP caps a response at 5,000 rows
 (~19.9y), so a 10y request fits in one call and no paging exists. Never logged: the

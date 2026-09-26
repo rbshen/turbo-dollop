@@ -20,9 +20,8 @@ from core.models import DataSourceHealth
 from core.schemas import DataSourceHealthOut, DataSourceStatusOut
 
 # First-pass judgment-call thresholds, mirroring core/cron_health.py's own
-# _DAILY_HOURS/_WEEKLY_HOURS reasoning -- both FMP fundamentals and Yahoo
-# trend-structure are nightly-cadence data sources, so a similar
-# tolerance-for-one-missed-run window applies here.
+# _DAILY_HOURS/_WEEKLY_HOURS reasoning -- FMP is a nightly-cadence data source, so a
+# similar tolerance-for-one-missed-run window applies here.
 _STALE_AFTER_HOURS = 36
 _FAILING_AFTER_HOURS = 24 * 8
 
@@ -38,7 +37,7 @@ def _status_for(enabled: bool, last_success_at: datetime | None, now: datetime) 
         return "disabled_or_failing"
     # No record yet is NOT evidence of failure -- most traffic is served
     # from a warm cache and never reaches the live FMPClient.get/
-    # YahooClient.get_history choke point at all (see core/cache.py's
+    # FMPClient.get choke point at all (see core/cache.py's
     # staleness-gated get_or_fetch), so a freshly-added DataSourceHealth
     # row (or a quiet period with nothing needing a live refetch) can
     # easily leave this None while the source is genuinely fine. Absent a
@@ -58,7 +57,6 @@ def get_data_source_health() -> DataSourceHealthOut:
     now = datetime.now()
 
     fmp_last_success = _last_success_at("fmp")
-    yahoo_last_success = _last_success_at("yahoo")
 
     return DataSourceHealthOut(
         sources=[
@@ -67,15 +65,6 @@ def get_data_source_health() -> DataSourceHealthOut:
                 enabled=master_on(),
                 status=_status_for(master_on(), fmp_last_success, now),
                 last_success_at=fmp_last_success,
-            ),
-            DataSourceStatusOut(
-                source="yahoo",
-                # No kill switch exists for Yahoo (see clients/yahoo_client.py's
-                # own docstring) -- always "enabled", status is purely a
-                # function of how recently it last actually succeeded.
-                enabled=True,
-                status=_status_for(True, yahoo_last_success, now),
-                last_success_at=yahoo_last_success,
             ),
         ]
     )

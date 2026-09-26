@@ -100,7 +100,7 @@ class WeinsteinParams:
 
 def resample_to_weekly(ohlcv: pd.DataFrame) -> pd.DataFrame:
     """Resamples a daily OHLCV frame (lowercase open/high/low/close/volume
-    columns, matching YahooPriceCache's own naming) into weekly bars.
+    columns, matching SharedBarsCache's own naming) into weekly bars.
 
     Confirmed bit-identical (mean/max diff ~0.0000%) to yfinance's own
     native interval="1wk" bars, PROVIDED weeks are anchored correctly:

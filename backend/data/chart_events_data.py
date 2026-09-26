@@ -1,48 +1,27 @@
 """Earnings-report dates and dividend ex-dates for the ticker-page Chart tab's
 event markers -- see data/chart_data.py for how these become markers.
 
-**Phase 6a: reads the FMP-backed CorporateEvent cache first**
-(data/corporate_events_data.py, refreshed nightly, full history) and only for a
-ticker that cache has never covered falls through to the on-demand path below --
-two live calls per chart request, zero persistence. That path deliberately does NOT
-go through core/cache.py's FundamentalsCache: the existing "earnings"/"latest" key
-holds a limit=8 response used for next-earnings-date logic, and reusing it would
-either collide with that shape or silently cap the chart at 2 years.
+**The FMP-backed CorporateEvent cache is the sole source** (data/corporate_events_data.py,
+refreshed nightly by pipeline.nightly_corporate_events, full history, served however old --
+including while the `corporate_events` group is off). There is no live fetch and no Yahoo
+fallback (removed in Phase 6b): a ticker the nightly job has never covered, or a cache read
+error, reads as no markers (`source=None`, empty lists) and the chart simply renders without
+them.
 
-Source is FMP when the corporate_events group is live, Yahoo Finance otherwise (or when the FMP calls
-fail), the app's normal degrade pattern for corporate-actions data. This is
-intentionally different from the Chart tab's PRICE candles, which are
-Yahoo-only regardless of FMP data-group state (chart_data.py docstring point 3): that
-decision was about keeping technical-analysis inputs independent of the FMP
-subscription, and event markers are decoration on top of the candles, not an
-input to any indicator. FMP is preferred because its coverage is deeper for
-foreign issuers (HSBC: 40 quarters vs Yahoo's 7) and it carries declared-ahead
-dividend dates.
+The FMP normalizers below are shared with the cache: it rebuilds FMP-shaped rows from its table
+and runs them through the same rules, so the marker semantics are identical to the original
+live path (data/corporate_events_data.py::read_cached_chart_events).
 
-Never raises: a failure of every source degrades to `source=None` with empty
-lists, and the chart simply renders without event markers.
+Never raises.
 """
 
-import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import date
 
 import pandas as pd
 
-from clients.fmp_client import fmp_client
-from clients.yahoo_client import yahoo_client
-from core.data_groups import group_live
-
 logger = logging.getLogger(__name__)
-
-# The whole event fetch (both calls, FMP then possibly Yahoo) is capped so a
-# slow/hung upstream can never hold the chart's candles hostage -- FMPClient's
-# own httpx timeout is 30s, far too long for a decoration layer.
-EVENTS_FETCH_TIMEOUT_SECONDS = 8.0
-
-# 40 quarters ~ 10 years; the Chart tab's widest window is 4 years.
-EARNINGS_HISTORY_LIMIT = 40
 
 
 @dataclass(frozen=True)
@@ -62,8 +41,8 @@ class DividendEvent:
 class ChartEvents:
     earnings: list[EarningsEvent] = field(default_factory=list)
     dividends: list[DividendEvent] = field(default_factory=list)
-    # "fmp" | "yahoo" | None. None means every source failed (or timed out) --
-    # distinct from source set with empty lists, which is a ticker with no
+    # "fmp" | None. None means the ticker isn't in the CorporateEvent cache (or the read
+    # failed) -- distinct from source set with empty lists, which is a ticker with no
     # reported earnings/dividends (e.g. TSLA pays no dividend).
     source: str | None = None
 
@@ -87,7 +66,7 @@ def normalize_fmp_earnings(rows: object) -> list[EarningsEvent]:
     placeholder rows going back years -- the same garbage-date shape
     helpers/earnings.py::most_recent_reported_earnings_date documents. A
     non-list body (an error payload served with HTTP 200) raises so the caller
-    falls back to Yahoo instead of reading it as "no earnings"."""
+    is treated as a failed fetch instead of reading it as "no earnings"."""
     if not isinstance(rows, list):
         raise ValueError("unexpected FMP /earnings response shape")
     out: list[EarningsEvent] = []
@@ -131,92 +110,14 @@ def normalize_fmp_dividends(rows: object) -> list[DividendEvent]:
     return sorted(out, key=lambda e: e.event_date)
 
 
-def normalize_yahoo_earnings(frame: pd.DataFrame) -> list[EarningsEvent]:
-    """Yahoo get_earnings_dates frame -> reported events, oldest first. The
-    index is exchange-local tz-aware, so `.date()` is the local calendar date
-    of the report. Rows with a NaN 'Reported EPS' are scheduled/unreported."""
-    if frame is None or frame.empty or "Reported EPS" not in frame.columns:
-        return []
-    estimates = frame["EPS Estimate"] if "EPS Estimate" in frame.columns else pd.Series(index=frame.index, dtype=float)
-    out: list[EarningsEvent] = []
-    for ts, reported in frame["Reported EPS"].items():
-        eps_actual = _to_float(reported)
-        if eps_actual is None:
-            continue
-        out.append(EarningsEvent(pd.Timestamp(ts).date(), eps_actual, _to_float(estimates.get(ts))))
-    return sorted(out, key=lambda e: e.event_date)
-
-
-def normalize_yahoo_dividends(series: pd.Series) -> list[DividendEvent]:
-    """Yahoo dividends series (ex-date index, split-adjusted amounts) ->
-    events, oldest first."""
-    if series is None or series.empty:
-        return []
-    out: list[DividendEvent] = []
-    for ts, value in series.items():
-        amount = _to_float(value)
-        if amount is None or amount <= 0:
-            continue
-        out.append(DividendEvent(pd.Timestamp(ts).date(), amount))
-    return sorted(out, key=lambda e: e.event_date)
-
-
-async def _fetch_fmp(ticker: str) -> tuple[list[EarningsEvent], list[DividendEvent]]:
-    earnings_raw, dividends_raw = await asyncio.gather(
-        fmp_client.get_earnings_history(ticker, EARNINGS_HISTORY_LIMIT), fmp_client.get_dividends(ticker)
-    )
-    return normalize_fmp_earnings(earnings_raw), normalize_fmp_dividends(dividends_raw)
-
-
-async def _fetch_yahoo(ticker: str) -> tuple[list[EarningsEvent], list[DividendEvent]] | None:
-    """Each kind is tolerated independently (an earnings-calendar failure must
-    not blank a perfectly good dividend history, and vice versa); None only
-    when BOTH raised."""
-    earnings_result, dividends_result = await asyncio.gather(
-        yahoo_client.get_earnings_dates(ticker, EARNINGS_HISTORY_LIMIT),
-        yahoo_client.get_dividends(ticker),
-        return_exceptions=True,
-    )
-    if isinstance(earnings_result, BaseException) and isinstance(dividends_result, BaseException):
-        return None
-    earnings = [] if isinstance(earnings_result, BaseException) else normalize_yahoo_earnings(earnings_result)
-    dividends = [] if isinstance(dividends_result, BaseException) else normalize_yahoo_dividends(dividends_result)
-    return earnings, dividends
-
-
-async def _fetch_events(ticker: str) -> ChartEvents:
-    # Phase 6a: the FMP-backed cache (data/corporate_events_data.py) answers first for any
-    # ticker the nightly job has populated -- no network call at all. Below is the
-    # fallback for a ticker never cached (outside the nightly universe) or a cache read
-    # error; the Yahoo leg is dead code for cached tickers and is removed in Phase 6b.
-    # (Lazy import: corporate_events_data imports this module's normalizers.)
+async def fetch_chart_events(ticker: str) -> ChartEvents:
+    """Earnings + dividend history for `ticker` from the CorporateEvent cache. Never raises --
+    see the module docstring. (Async so chart_data can gather it beside the candles.)"""
     try:
+        # Lazy import: corporate_events_data imports this module's normalizers.
         from data.corporate_events_data import read_cached_chart_events
 
-        cached = read_cached_chart_events(ticker)
-        if cached is not None:
-            return cached
-    except Exception as exc:  # noqa: BLE001 -- a cache problem must degrade to the live path
-        logger.warning("Corporate-events cache read failed for %s (%s); using the live path", ticker, type(exc).__name__)
-    if group_live("corporate_events"):
-        try:
-            earnings, dividends = await _fetch_fmp(ticker)
-            return ChartEvents(earnings, dividends, "fmp")
-        except Exception as exc:  # noqa: BLE001 -- decoration layer, must never raise
-            # Type name only: an httpx error's own message embeds the request
-            # URL, apikey included.
-            logger.warning("FMP earnings/dividends fetch failed for %s (%s); falling back to Yahoo", ticker, type(exc).__name__)
-    yahoo = await _fetch_yahoo(ticker)
-    if yahoo is None:
-        return ChartEvents()
-    return ChartEvents(yahoo[0], yahoo[1], "yahoo")
-
-
-async def fetch_chart_events(ticker: str) -> ChartEvents:
-    """Earnings + dividend history for `ticker`, best available source. Never
-    raises -- see the module docstring."""
-    try:
-        return await asyncio.wait_for(_fetch_events(ticker), timeout=EVENTS_FETCH_TIMEOUT_SECONDS)
-    except Exception as exc:  # noqa: BLE001 -- includes asyncio.TimeoutError
-        logger.warning("Chart event fetch gave up for %s (%s)", ticker, type(exc).__name__)
+        return read_cached_chart_events(ticker) or ChartEvents()
+    except Exception as exc:  # noqa: BLE001 -- decoration layer, must never raise
+        logger.warning("Corporate-events cache read failed for %s (%s)", ticker, type(exc).__name__)
         return ChartEvents()

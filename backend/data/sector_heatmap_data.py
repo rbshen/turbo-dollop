@@ -19,7 +19,7 @@ one via its dividends endpoint was scoped out by this decision rather than
 built, matching Market Breadth's own long-standing plain-Close convention.
 This also means this module can now go through the SAME shared bars cache
 (clients/shared_bars_cache.py) every other daily-bar consumer uses, instead
-of its own standalone Yahoo fetch -- the only reason it avoided that cache
+of its own standalone fetch -- the only reason it avoided that cache
 before (needing a dividend-adjusted column the cache never carried) no
 longer applies.
 """
@@ -32,7 +32,7 @@ from sqlalchemy import delete
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
-from clients.daily_bar_sources import FallbackTickers, describe_fallback
+from clients.daily_bar_sources import UnservedTickers
 from clients.shared_bars_cache import DAILY_INTERVAL, _most_recent_completed_trading_date, get_or_fetch_bars_batch
 from core.db import engine
 from core.models import SectorEtfReturn
@@ -99,24 +99,24 @@ def _resolve_anchor(closes: dict[str, pd.Series], completed_date: date) -> pd.Ti
 
 
 async def compute_and_store_sector_returns(completed_date: date | None = None) -> dict:
-    """Fetches the 11 sector ETFs in one Yahoo batch, computes all 7 windows
+    """Fetches the 11 sector ETFs through the shared bars cache, computes all 7 windows
     for each, and upserts them. Idempotent per (ticker, window, as_of_date):
     a weekend/holiday re-run re-computes the same anchor and overwrites in
     place. `completed_date` (the last completed session, default: derived
     from the clock) is a testing/manual-run seam.
 
-    A fund Yahoo returned nothing usable for is reported in `failures` and
+    A fund FMP returned nothing usable for is reported in `failures` and
     keeps whatever rows it had -- the read path then shows it as blank under
     the new as_of_date instead of serving a stale number. Raises only when
-    NOTHING could be computed (Yahoo down, or every frame unusable), so the
+    NOTHING could be computed (FMP down, or every frame unusable), so the
     cron heartbeat records that as a failed run rather than a "success" that
     silently left the table a night behind."""
     completed = completed_date or _most_recent_completed_trading_date()
     tickers = [t for t, _ in SECTOR_ETFS]
 
-    fallback_tickers = FallbackTickers()
+    unserved_tickers = UnservedTickers()
     histories = await get_or_fetch_bars_batch(
-        tickers, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False, fallback_tickers=fallback_tickers
+        tickers, DAILY_INTERVAL, FETCH_LOOKBACK_DAYS, auto_adjust=False, unserved_tickers=unserved_tickers
     )
 
     failures: list[tuple[str, str]] = []
@@ -170,7 +170,7 @@ async def compute_and_store_sector_returns(completed_date: date | None = None) -
         "processed": len(closes),
         "failed": len(failures),
         "failures": failures,
-        "fallback_count": len(fallback_tickers), "fallback_yahoo_count": len(fallback_tickers.yahoo),
+        "unserved_count": len(unserved_tickers),
     }
     logger.info("Sector heatmap complete for %s: %d/%d tickers computed.", anchor.date(), summary["processed"], len(tickers))
     return summary
