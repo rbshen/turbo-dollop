@@ -1,7 +1,16 @@
 """Weinstein Stage Analysis: "pending confirmation" + ETA -- a purely
 additive read on top of weinstein.py's sticky sState machine, NOT a change
-to it (compute_stage_series is imported and used completely unmodified;
-this module never duplicates or edits its transition loop).
+to it (compute_stage_series is imported and used as-is; this module never
+duplicates or edits its transition loop).
+
+Engine-swap note (2026-09-26): weinstein.py's engine became config-driven
+(EMA/SMA MA, adjustable length/band/slope lookback -- WeinsteinParams). The
+state-machine transition rules this module reasons about are unchanged, so
+the pending flags and ETA projection are unchanged in shape; every function
+here now takes the SAME WeinsteinParams the stage itself was computed with,
+so the band, the MA type and the slope lookback in the projection always
+match the live engine. Where older comments below say "30-week"/"+/-5%",
+read "ma_length"/"within_range_pct" (defaults 30 / 5.0).
 
 See docs/weinstein_pending_confirmation_investigation_2026-09-22.md for the
 full design proposal and the round-2 full-universe validation this module
@@ -43,15 +52,13 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from .weinstein import MIN_WEEKS_REQUIRED, WITHIN_RANGE_PCT, compute_stage_series, resample_to_weekly
+from .weinstein import WeinsteinParams, compute_stage_series, resample_to_weekly
 
 PendingDirection = Literal["advance", "decline"]
 
-BAND = WITHIN_RANGE_PCT / 100.0
-
 # The three scenarios validated in the design doc -- flat is the literal
-# ask ("if price holds"), trend_5 mirrors weinstein.py's own SLOPE_LOOKBACK
-# (the most reactive read), trend_13 is a steadier one-quarter read. Picked
+# ask ("if price holds"), trend_5 is a fixed 5-week pace (the most reactive read; a fixed scenario
+# horizon, independent of WeinsteinParams.slope_lookback so the API keys stay stable), trend_13 is a steadier one-quarter read. Picked
 # over a mean-reversion/linear-extrapolation scenario because the real risk
 # this projection needs to expose (an old price move rolling out of the
 # 30-week window while price just sits still) is already visible via `flat`
@@ -113,7 +120,7 @@ class WeinsteinPendingResult:
     eta: dict[str, WeinsteinPendingEtaScenario] | None
 
 
-def _stage_flags(weekly_close: pd.Series) -> pd.DataFrame:
+def _stage_flags(weekly_close: pd.Series, params: WeinsteinParams) -> pd.DataFrame:
     """compute_stage_series' output plus the band/slope-direction booleans
     the pending logic needs -- read-only derived from weinstein.py's own
     unmodified ma/slope columns, no new numerics on the stage itself.
@@ -125,10 +132,11 @@ def _stage_flags(weekly_close: pd.Series) -> pd.DataFrame:
     than decline. The two are mutually exclusive (the +/-5% bands can't
     both hold at once), so at most one is ever True for a given week.
     """
-    stage_df = compute_stage_series(weekly_close)
+    band = params.band
+    stage_df = compute_stage_series(weekly_close, params)
     out = weekly_close.to_frame("close").join(stage_df)
-    out["above_band"] = out["valid"] & (out["close"] > out["ma"] * (1.0 + BAND))
-    out["below_band"] = out["valid"] & (out["close"] < out["ma"] * (1.0 - BAND))
+    out["above_band"] = out["valid"] & (out["close"] > out["ma"] * (1.0 + band))
+    out["below_band"] = out["valid"] & (out["close"] < out["ma"] * (1.0 - band))
     out["rising"] = out["valid"] & (out["slope"] > 0.0)
     out["falling"] = out["valid"] & (out["slope"] < 0.0)
     out["pending_advance"] = out["valid"] & (out["stage"] != "advance") & out["above_band"] & (~out["rising"])
@@ -178,6 +186,7 @@ def _project_confirmation_eta(
     weekly_close: pd.Series,
     direction: PendingDirection,
     scenario: str,
+    params: WeinsteinParams,
     horizon_weeks: int = PROJECTION_HORIZON_WEEKS,
 ) -> WeinsteinPendingEtaScenario:
     """Walks forward week by week under the stated price-growth assumption,
@@ -203,7 +212,8 @@ def _project_confirmation_eta(
     future_closes = last_close * (1.0 + growth) ** np.arange(1, horizon_weeks + 1)
     extended = pd.concat([weekly_close, pd.Series(future_closes, index=future_index)])
 
-    stage_df = compute_stage_series(extended)
+    band = params.band
+    stage_df = compute_stage_series(extended, params)
     cutoff_pos = len(weekly_close) - 1
 
     band_lapsed_first: int | None = None
@@ -215,10 +225,10 @@ def _project_confirmation_eta(
             continue
         if direction == "advance":
             slope_ok = slope > 0.0
-            band_ok = close > ma * (1.0 + BAND)
+            band_ok = close > ma * (1.0 + band)
         else:
             slope_ok = slope < 0.0
-            band_ok = close < ma * (1.0 - BAND)
+            band_ok = close < ma * (1.0 - band)
 
         if not band_ok and band_lapsed_first is None:
             band_lapsed_first = i - cutoff_pos
@@ -241,11 +251,11 @@ def _project_confirmation_eta(
     )
 
 
-def _eta_report(weekly_close: pd.Series, direction: PendingDirection) -> dict[str, WeinsteinPendingEtaScenario]:
-    return {scenario: _project_confirmation_eta(weekly_close, direction, scenario) for scenario in SCENARIOS}
+def _eta_report(weekly_close: pd.Series, direction: PendingDirection, params: WeinsteinParams) -> dict[str, WeinsteinPendingEtaScenario]:
+    return {scenario: _project_confirmation_eta(weekly_close, direction, scenario, params) for scenario in SCENARIOS}
 
 
-def _band_cushion_pct(weekly_close: pd.Series, direction: PendingDirection) -> tuple[float, float]:
+def _band_cushion_pct(weekly_close: pd.Series, direction: PendingDirection, params: WeinsteinParams) -> tuple[float, float]:
     """Not a scenario -- a snapshot risk read: how far past the band
     threshold price closed today, versus the standard deviation of the
     last CUSHION_STDEV_LOOKBACK_WEEKS weekly returns. A thin cushion means
@@ -254,17 +264,18 @@ def _band_cushion_pct(weekly_close: pd.Series, direction: PendingDirection) -> t
     validated diagnostic (see the design doc's META false-alarm cases), not
     a rigorously back-tested predictor, and never a gate on the pending
     flag itself."""
-    stage_df = compute_stage_series(weekly_close)
+    band = params.band
+    stage_df = compute_stage_series(weekly_close, params)
     close = float(weekly_close.iloc[-1])
     ma = float(stage_df["ma"].iloc[-1])
-    threshold = ma * (1.0 + BAND) if direction == "advance" else ma * (1.0 - BAND)
+    threshold = ma * (1.0 + band) if direction == "advance" else ma * (1.0 - band)
     cushion_pct = (close / threshold - 1.0) * 100.0 if direction == "advance" else (1.0 - close / threshold) * 100.0
     recent_returns = weekly_close.pct_change().dropna().iloc[-CUSHION_STDEV_LOOKBACK_WEEKS:]
     stdev_pct = float(recent_returns.std()) * 100.0
     return cushion_pct, stdev_pct
 
 
-def compute_weinstein_pending(ohlcv: pd.DataFrame) -> WeinsteinPendingResult:
+def compute_weinstein_pending(ohlcv: pd.DataFrame, params: WeinsteinParams | None = None) -> WeinsteinPendingResult:
     """ohlcv is a daily-indexed frame matching weinstein.py::
     compute_weinstein_stage's own contract (lowercase open/high/low/close/
     volume) -- resampled to weekly here via resample_to_weekly (imported,
@@ -272,6 +283,7 @@ def compute_weinstein_pending(ohlcv: pd.DataFrame) -> WeinsteinPendingResult:
     new fetch. Mirrors compute_weinstein_stage's own thin-history
     early-return: below MIN_WEEKS_REQUIRED weekly bars, every field reads
     None/not-pending rather than raising."""
+    p = params or WeinsteinParams()
     if ohlcv is None or ohlcv.empty:
         return WeinsteinPendingResult(
             direction=None, since_date=None, since_is_lower_bound=False, band_cushion_pct=None, typical_weekly_move_pct=None, eta=None
@@ -279,12 +291,12 @@ def compute_weinstein_pending(ohlcv: pd.DataFrame) -> WeinsteinPendingResult:
 
     weekly = resample_to_weekly(ohlcv)
     weekly_close = weekly["close"] if not weekly.empty else pd.Series(dtype=float)
-    if len(weekly_close) < MIN_WEEKS_REQUIRED:
+    if len(weekly_close) < p.min_weeks_required:
         return WeinsteinPendingResult(
             direction=None, since_date=None, since_is_lower_bound=False, band_cushion_pct=None, typical_weekly_move_pct=None, eta=None
         )
 
-    flags = _stage_flags(weekly_close)
+    flags = _stage_flags(weekly_close, p)
     direction = _current_pending_direction(flags)
     if direction is None:
         return WeinsteinPendingResult(
@@ -292,8 +304,8 @@ def compute_weinstein_pending(ohlcv: pd.DataFrame) -> WeinsteinPendingResult:
         )
 
     since_date, since_is_lower_bound = _pending_since(flags, direction)
-    band_cushion_pct, typical_weekly_move_pct = _band_cushion_pct(weekly_close, direction)
-    eta = _eta_report(weekly_close, direction)
+    band_cushion_pct, typical_weekly_move_pct = _band_cushion_pct(weekly_close, direction, p)
+    eta = _eta_report(weekly_close, direction, p)
 
     return WeinsteinPendingResult(
         direction=direction,

@@ -2,12 +2,20 @@ import numpy as np
 import pandas as pd
 
 from analysis.trend_structure.weinstein import (
-    MIN_WEEKS_REQUIRED,
+    WeinsteinParams,
     _stage_since,
+    compute_ma,
+    next_state,
     compute_stage_series,
     compute_weinstein_stage,
     resample_to_weekly,
 )
+
+# The pre-2026-09-26 engine's fixed settings (30-week SMA, 30-week volume
+# average). The hand-verified traces below were built against these, so they
+# pin the SMA path explicitly; the EMA default has its own tests further down.
+LEGACY = WeinsteinParams(ma_type="SMA", volume_avg_length=30)
+MIN_WEEKS_REQUIRED = LEGACY.min_weeks_required
 
 EMPTY_OHLCV = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
@@ -71,7 +79,7 @@ def test_compute_stage_series_reaches_all_four_states():
     idx = pd.date_range("2020-01-06", periods=len(closes), freq="W-MON")
     weekly_close = pd.Series(closes, index=idx)
 
-    stage = compute_stage_series(weekly_close)["stage"]
+    stage = compute_stage_series(weekly_close, LEGACY)["stage"]
 
     assert stage.iloc[:34].isna().all()  # pre-bootstrap
     assert stage.iloc[40] == "base"
@@ -128,7 +136,7 @@ def test_stage_since_finds_a_real_transition_when_one_exists():
 def test_compute_weinstein_stage_degrades_gracefully_below_min_weeks():
     thin = _daily_from_weekly([100.0] * (MIN_WEEKS_REQUIRED - 1), [1_000_000] * (MIN_WEEKS_REQUIRED - 1))
 
-    result = compute_weinstein_stage(thin, EMPTY_OHLCV)
+    result = compute_weinstein_stage(thin, EMPTY_OHLCV, LEGACY)
 
     assert result.stage is None
     assert result.stage_since_date is None
@@ -150,7 +158,7 @@ def test_compute_weinstein_stage_empty_benchmark_gives_none_mansfield_rs_without
     weekly_closes = [100.0] * 46 + [130.0]
     ohlcv = _daily_from_weekly(weekly_closes, [1_000_000] * 47)
 
-    result = compute_weinstein_stage(ohlcv, EMPTY_OHLCV)
+    result = compute_weinstein_stage(ohlcv, EMPTY_OHLCV, LEGACY)
 
     assert result.stage == "advance"
     assert result.mansfield_rs is None
@@ -166,7 +174,7 @@ def test_breakout_confirmed_true_with_high_volume_and_no_rs_data():
     weekly_volumes = [1_000_000] * 46 + [3_000_000]
     ohlcv = _daily_from_weekly(weekly_closes, weekly_volumes)
 
-    result = compute_weinstein_stage(ohlcv, EMPTY_OHLCV)
+    result = compute_weinstein_stage(ohlcv, EMPTY_OHLCV, LEGACY)
 
     assert result.stage == "advance"
     assert result.weeks_available == 47
@@ -180,7 +188,7 @@ def test_breakout_confirmed_false_when_volume_does_not_confirm():
 
     ohlcv = _daily_from_weekly(weekly_closes, weekly_volumes)
 
-    result = compute_weinstein_stage(ohlcv, EMPTY_OHLCV)
+    result = compute_weinstein_stage(ohlcv, EMPTY_OHLCV, LEGACY)
 
     assert result.stage == "advance"
     assert result.volume_ratio < 2.0
@@ -192,7 +200,7 @@ def test_breakout_confirmed_true_when_ticker_outperforms_benchmark():
     ohlcv = _daily_from_weekly(weekly_closes, [1_000_000] * 60 + [3_000_000])
     benchmark_flat = _daily_from_weekly([100.0] * 61, [1_000_000] * 61)
 
-    result = compute_weinstein_stage(ohlcv, benchmark_flat)
+    result = compute_weinstein_stage(ohlcv, benchmark_flat, LEGACY)
 
     assert result.mansfield_rs > 0
     assert result.breakout_confirmed is True
@@ -207,7 +215,112 @@ def test_breakout_confirmed_false_when_benchmark_outperforms():
     ohlcv = _daily_from_weekly(weekly_closes, [1_000_000] * 60 + [3_000_000])
     benchmark_bigger_jump = _daily_from_weekly([100.0] * 60 + [300.0], [1_000_000] * 61)
 
-    result = compute_weinstein_stage(ohlcv, benchmark_bigger_jump)
+    result = compute_weinstein_stage(ohlcv, benchmark_bigger_jump, LEGACY)
 
     assert result.mansfield_rs < 0
     assert result.breakout_confirmed is False
+
+
+# --- configurable engine (EMA default, Settings-driven) ---------------------
+
+
+def test_default_params_are_the_validated_pine_reference_values():
+    p = WeinsteinParams()
+    assert (p.ma_length, p.ma_type, p.within_range_pct, p.slope_lookback) == (30, "EMA", 5.0, 5)
+    assert (p.breakout_volume_mult, p.volume_avg_length, p.rs_benchmark, p.rs_smoothing_length) == (2.0, 50, "SPY", 52)
+    assert WeinsteinParams.from_json(p.to_json()) == p
+    assert WeinsteinParams.from_json(None) is None
+    assert WeinsteinParams.from_json("not json") is None
+
+
+def test_compute_ma_ema_and_sma_differ_and_mask_the_first_length_weeks():
+    close = pd.Series(np.arange(1.0, 41.0))
+    ema = compute_ma(close, 10, "EMA")
+    sma = compute_ma(close, 10, "SMA")
+    assert ema.iloc[:9].isna().all() and sma.iloc[:9].isna().all()
+    assert sma.iloc[9] == 5.5
+    assert ema.iloc[-1] != sma.iloc[-1]
+    assert compute_ma(close, 10, "ema").equals(ema)  # case-insensitive
+    try:
+        compute_ma(close, 10, "WMA")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("unknown ma_type must raise")
+
+
+def test_next_state_transition_table():
+    # (prev, rising, falling, above, below) -> next; 0 = first valid week.
+    cases = [
+        ((0, True, False, True, False), 2),
+        ((0, False, True, False, True), 4),
+        ((0, True, False, False, False), 3),
+        ((0, False, False, False, False), 1),
+        ((2, False, True, False, True), 4),
+        ((2, False, False, True, False), 3),  # slope no longer rising -> Top
+        ((2, True, False, False, False), 2),
+        ((3, True, False, True, False), 2),
+        ((3, False, True, False, True), 4),
+        ((3, False, False, False, False), 3),
+        ((4, True, False, True, False), 2),
+        ((4, False, False, False, False), 1),  # decline stops falling -> Base
+        ((4, False, True, False, False), 4),
+        ((1, False, True, False, True), 4),
+        ((1, True, False, True, False), 2),
+        ((1, True, False, False, False), 1),
+    ]
+    for args, expected in cases:
+        assert next_state(*args) == expected, args
+
+
+def _uptrend_then_dip_weekly() -> pd.Series:
+    closes = [100.0] * 45 + [100.0 * (1.02**i) for i in range(1, 41)] + [130.0 * (0.985**i) for i in range(1, 30)]
+    return pd.Series(closes, index=pd.date_range("2020-01-06", periods=len(closes), freq="W-MON"))
+
+
+def test_ema_reacts_sooner_than_sma_to_a_rollover():
+    weekly = _uptrend_then_dip_weekly()
+    ema = compute_stage_series(weekly, WeinsteinParams(ma_type="EMA"))["stage"]
+    sma = compute_stage_series(weekly, WeinsteinParams(ma_type="SMA"))["stage"]
+    first_non_advance = lambda s: next(i for i in range(60, len(s)) if s.iloc[i] != "advance")  # noqa: E731
+    assert first_non_advance(ema) <= first_non_advance(sma)
+
+
+def test_within_range_pct_and_slope_lookback_are_honoured():
+    weekly = _uptrend_then_dip_weekly()
+    wide = compute_stage_series(weekly, WeinsteinParams(ma_type="SMA", within_range_pct=40.0))["stage"]
+    tight = compute_stage_series(weekly, WeinsteinParams(ma_type="SMA", within_range_pct=0.0))["stage"]
+    assert "advance" not in set(wide.dropna())  # a 40% band is never cleared
+    assert "advance" in set(tight.dropna())
+    fast = compute_stage_series(weekly, WeinsteinParams(ma_type="SMA", slope_lookback=1))
+    slow = compute_stage_series(weekly, WeinsteinParams(ma_type="SMA", slope_lookback=20))
+    assert fast["valid"].sum() > slow["valid"].sum()
+
+
+def test_min_weeks_scales_with_the_configured_lengths():
+    p = WeinsteinParams(ma_length=10, slope_lookback=3)
+    assert p.min_weeks_required == 18
+    thin = _daily_from_weekly([100.0] * 17, [1e6] * 17)
+    ok = _daily_from_weekly([100.0] * 18, [1e6] * 18)
+    assert compute_weinstein_stage(thin, EMPTY_OHLCV, p).stage is None
+    assert compute_weinstein_stage(ok, EMPTY_OHLCV, p).stage is not None
+
+
+def test_breakout_volume_multiplier_and_average_length_are_honoured():
+    weekly_closes = [100.0] * 46 + [130.0]
+    volumes = [1_000_000] * 46 + [3_000_000]
+    ohlcv = _daily_from_weekly(weekly_closes, volumes)
+    base = dict(ma_type="SMA", volume_avg_length=30)
+    assert compute_weinstein_stage(ohlcv, EMPTY_OHLCV, WeinsteinParams(breakout_volume_mult=2.0, **base)).breakout_confirmed is True
+    assert compute_weinstein_stage(ohlcv, EMPTY_OHLCV, WeinsteinParams(breakout_volume_mult=3.0, **base)).breakout_confirmed is False
+
+
+def test_stage_since_is_the_date_of_the_most_recent_real_transition():
+    weekly = _uptrend_then_dip_weekly()
+    df = compute_stage_series(weekly, WeinsteinParams())
+    daily = _daily_from_weekly(list(weekly.values), [1e6] * len(weekly))
+    result = compute_weinstein_stage(daily, EMPTY_OHLCV, WeinsteinParams())
+    stages = df["stage"].dropna()
+    changed = stages[stages != stages.shift()].index[-1]
+    assert result.stage == stages.iloc[-1]
+    assert str(result.stage_since_date) == str(changed.date())

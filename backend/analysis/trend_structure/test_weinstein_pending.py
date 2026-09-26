@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+from analysis.trend_structure.weinstein import WeinsteinParams
 from analysis.trend_structure.weinstein_pending import (
     SCENARIOS,
     _band_cushion_pct,
@@ -8,6 +9,11 @@ from analysis.trend_structure.weinstein_pending import (
     _scenario_growth_rate,
     compute_weinstein_pending,
 )
+
+# The hand-traced fixtures below were built against the pre-2026-09-26
+# engine (30-week SMA); pinned explicitly so they keep testing the same
+# geometry. EMA/param-threading has its own tests at the bottom.
+LEGACY = WeinsteinParams(ma_type="SMA", volume_avg_length=30)
 
 EMPTY_OHLCV = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
@@ -34,7 +40,7 @@ _PENDING_ADVANCE_CLOSES = _DECLINE + _RALLY  # truncate below at various cutoffs
 
 
 def test_compute_weinstein_pending_on_empty_frame_is_not_pending():
-    result = compute_weinstein_pending(EMPTY_OHLCV)
+    result = compute_weinstein_pending(EMPTY_OHLCV, LEGACY)
     assert result.direction is None
     assert result.since_date is None
     assert result.since_is_lower_bound is False
@@ -47,7 +53,7 @@ def test_compute_weinstein_pending_below_min_weeks_required_is_not_pending():
     # 20 weeks, well under weinstein.py's MIN_WEEKS_REQUIRED (40) --
     # mirrors compute_weinstein_stage's own thin-history degrade.
     ohlcv = _daily_from_weekly([100.0 + i for i in range(20)])
-    result = compute_weinstein_pending(ohlcv)
+    result = compute_weinstein_pending(ohlcv, LEGACY)
     assert result.direction is None
     assert result.eta is None
 
@@ -58,7 +64,7 @@ def test_compute_weinstein_pending_detects_pending_advance():
     # direct trace of _stage_flags on this exact series.
     ohlcv = _daily_from_weekly(_PENDING_ADVANCE_CLOSES[:70])
 
-    result = compute_weinstein_pending(ohlcv)
+    result = compute_weinstein_pending(ohlcv, LEGACY)
 
     assert result.direction == "advance"
     assert result.since_date is not None
@@ -84,7 +90,7 @@ def test_compute_weinstein_pending_detects_pending_decline():
     closes = [100.0] * 40 + [200.0] * 3 + [90.0] * 4
     ohlcv = _daily_from_weekly(closes)
 
-    result = compute_weinstein_pending(ohlcv)
+    result = compute_weinstein_pending(ohlcv, LEGACY)
 
     assert result.direction == "decline"
     assert result.since_date is not None
@@ -110,7 +116,7 @@ def test_compute_weinstein_pending_flags_horizon_exceeded_and_band_lapsed_for_a_
     pullback = [rally[-1] * (0.985**i) for i in range(1, 9)]
     ohlcv = _daily_from_weekly((decline + rally + pullback)[:75])
 
-    result = compute_weinstein_pending(ohlcv)
+    result = compute_weinstein_pending(ohlcv, LEGACY)
 
     assert result.direction == "advance"
     assert result.eta is not None
@@ -158,7 +164,7 @@ def test_band_cushion_pct_reflects_distance_past_threshold():
     threshold = ma * 1.05
     expected_cushion = (120.0 / threshold - 1.0) * 100.0
 
-    cushion, typical_move = _band_cushion_pct(weekly, "advance")
+    cushion, typical_move = _band_cushion_pct(weekly, "advance", LEGACY)
 
     assert abs(cushion - expected_cushion) < 1e-6
     assert typical_move >= 0
@@ -194,3 +200,16 @@ def test_pending_since_walks_back_to_the_start_of_the_current_pending_run():
 
     assert since_date == idx[3].date()
     assert is_lower_bound is False
+
+
+def test_pending_projection_follows_the_configured_band_and_ma_type():
+    ohlcv = _daily_from_weekly(_PENDING_ADVANCE_CLOSES[:70])
+    sma = compute_weinstein_pending(ohlcv, LEGACY)
+    assert sma.direction == "advance"
+    # A band this wide can never be cleared -> not pending at all.
+    assert compute_weinstein_pending(ohlcv, WeinsteinParams(ma_type="SMA", volume_avg_length=30, within_range_pct=40.0)).direction is None
+    # Same series under EMA: the flags/ETA are computed on the EMA, so the
+    # cushion (distance past the EMA band) is a different number.
+    ema = compute_weinstein_pending(ohlcv, WeinsteinParams(ma_type="EMA"))
+    if ema.direction == "advance":
+        assert ema.band_cushion_pct != sma.band_cushion_pct

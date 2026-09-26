@@ -1,65 +1,101 @@
 """Stan Weinstein's classic 4-stage (Base/Advance/Top/Decline) analysis --
 computed entirely on WEEKLY bars, independent of the daily-bar swing/BOS
 engine in engine.py. See CLAUDE.md's "Trend structure analysis (Technical)"
-section for the full methodology and the Pine Script v6 source this is
-ported from.
+section for the surrounding feature.
 
 Weekly bars are derived by resampling the SAME daily OHLCV frame the
-swing/BOS engine already receives (resample_to_weekly), not a second Yahoo
-Finance fetch -- confirmed bit-identical to yfinance's own native
-interval="1wk" bars once anchored correctly (see resample_to_weekly's own
-docstring for the exact anchoring rule this depends on).
+swing/BOS engine already receives (resample_to_weekly), not a second fetch --
+confirmed bit-identical to yfinance's own native interval="1wk" bars once
+anchored correctly (see resample_to_weekly's own docstring).
 
-The state machine (compute_stage_series) is the STICKY variant from the
-Pine source (its own `sState`), not the stateless per-bar quadrant read
-(`sTS`) the script's own tsMode default actually renders -- chosen after an
-empirical comparison across real tickers found the stateless read flickers
-into false Top/Base readings on ordinary single-week volatility within an
-established trend (e.g. a stock deep in a downtrend popping briefly above
-its own falling 30-week MA), while the sticky machine requires clearing a
-+/-5% band with genuine slope confirmation before it will ever change its
-mind -- much closer to what "stage analysis" is supposed to mean (a
-multi-month/quarter regime read, not a bar-by-bar indicator).
+The engine is the sticky `sState` machine of a reviewed Pine Script
+reference, fully parameterised by WeinsteinParams (editable in Settings,
+read live from the DB by the callers -- this module never touches the DB):
+  m = MA(close, ma_length, ma_type); m_prev = m shifted slope_lookback weeks;
+  slope_pct = (m - m_prev)/m_prev*100; rising/falling = slope >/< 0;
+  above/below_band = close beyond m*(1 +/- within_range_pct/100).
+The next state is a function of the previous one (1 Base, 2 Advance, 3 Top,
+4 Decline); nothing is assigned until the MA and its slope are both valid.
+Volume and relative strength never gate the state machine -- they only feed
+`breakout_confirmed`: a transition INTO Advance in the latest week with
+volume_ratio >= breakout_volume_mult AND (Mansfield RS unavailable OR > 0).
+
+It is the sticky machine, not the stateless per-bar quadrant read (`sTS`):
+an empirical comparison across real tickers found the stateless read
+flickers into false Top/Base readings on ordinary single-week volatility
+within an established trend, while the sticky machine requires clearing the
+band with genuine slope confirmation before it changes its mind.
+
+The previous production engine (fixed 30-week SMA, fixed 5% band, 30-week
+volume average) was replaced outright by this one; the state-machine
+transition rules themselves are unchanged -- what differs is the
+configurable MA (EMA by default), the 50-week volume average, and the fact
+that the caller now hands in ~5y of daily history so the machine has a long
+run-in (see WEINSTEIN_LOOKBACK_DAYS in data/trend_analysis_data.py).
 """
 
+import json
+from dataclasses import asdict, dataclass
 from datetime import date
 
+import numpy as np
 import pandas as pd
 
 from .types import WeinsteinStage, WeinsteinStageResult
 
-# SPY, not the ^GSPC index itself (2026-09-23 Massive migration decision):
-# Massive/Polygon has no Indices product on the Stocks Starter plan (a
-# separate subscription, confirmed 403 in
-# docs/massive_feasibility_investigation_2026-09-23.md §2d) and, being a
-# pseudo-ticker, ^GSPC was never coverable there regardless. SPY is a
-# confirmed-working substitute -- Mansfield RS's ratio math
-# (compute_mansfield_rs below) is level-invariant, so SPY's different price
-# scale vs. an index level doesn't change the result.
+# Default Mansfield RS benchmark. SPY, not the ^GSPC index itself (2026-09-23
+# Massive migration decision): Massive/Polygon has no Indices product on the
+# Stocks Starter plan and, being a pseudo-ticker, ^GSPC was never coverable
+# there. The nightly job fetches whatever WeinsteinParams.rs_benchmark names
+# (default this) in the same batch as the tickers. Mansfield RS's ratio math
+# is level-invariant, so an ETF's different price scale vs an index level
+# doesn't change the result.
 WEINSTEIN_BENCHMARK_TICKER = "SPY"
 
-MA_LEN = 30
-SLOPE_LOOKBACK = 5
-WITHIN_RANGE_PCT = 5.0
-VOLUME_AVG_LEN = 30
-VOLUME_CONFIRM_MULTIPLIER = 2.0
-RS_SMOOTHING_LEN = 52
-# MA_LEN + SLOPE_LOOKBACK (the bare structural minimum for the MA/slope to
-# have a first valid value) + a 5-week margin. Empirically validated
-# (full-history backtest across 15 real tickers, ~245 historical anchor
-# points): at >=104 weeks (2y) the sticky state machine's bootstrap error
-# (starting from an arbitrary state=0) has ALWAYS washed out to match the
-# true full-history stage; at this 40-week floor a small residual
-# bootstrap-inaccuracy risk remains (~1.6% of anchors tested at exactly 52
-# weeks mismatched) -- an accepted, documented limitation for a newer
-# ticker that doesn't yet have a full 2y of daily history, not something
-# this module tries to fix further.
-MIN_WEEKS_REQUIRED = MA_LEN + SLOPE_LOOKBACK + 5
+MA_TYPES = ("SMA", "EMA")
 
-# Internal sState encoding (1=Base, 2=Advance, 3=Top, 4=Decline, 0=not yet
-# seeded/pre-bootstrap), translated to the public string enum on the way
-# out of compute_stage_series.
+# Internal state encoding (1=Base, 2=Advance, 3=Top, 4=Decline, 0=not yet
+# seeded), translated to the public string enum on the way out.
 _STATE_LABEL: dict[int, WeinsteinStage | None] = {0: None, 1: "base", 2: "advance", 3: "top", 4: "decline"}
+
+
+@dataclass(frozen=True)
+class WeinsteinParams:
+    """The 8 admin-editable engine parameters (Settings > Weinstein; stored
+    in models.py::WeinsteinSettings). Defaults are the validated Pine
+    reference's own."""
+
+    ma_length: int = 30
+    ma_type: str = "EMA"
+    within_range_pct: float = 5.0
+    slope_lookback: int = 5
+    breakout_volume_mult: float = 2.0
+    volume_avg_length: int = 50
+    rs_benchmark: str = WEINSTEIN_BENCHMARK_TICKER
+    rs_smoothing_length: int = 52
+
+    @property
+    def band(self) -> float:
+        return self.within_range_pct / 100.0
+
+    @property
+    def min_weeks_required(self) -> int:
+        """The bare structural floor (first valid MA + slope pair) plus a
+        5-week margin. Below it the engine returns a graceful stage=None
+        rather than an unreliable number."""
+        return self.ma_length + self.slope_lookback + 5
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self))
+
+    @staticmethod
+    def from_json(raw: str | None) -> "WeinsteinParams | None":
+        if not raw:
+            return None
+        try:
+            return WeinsteinParams(**json.loads(raw))
+        except (TypeError, ValueError):
+            return None
 
 
 def resample_to_weekly(ohlcv: pd.DataFrame) -> pd.DataFrame:
@@ -88,58 +124,69 @@ def resample_to_weekly(ohlcv: pd.DataFrame) -> pd.DataFrame:
     return weekly
 
 
-def compute_stage_series(weekly_close: pd.Series) -> pd.DataFrame:
-    """Ports the Pine source's sticky `sState` state machine bar-by-bar,
-    including its `var int sState := ...` persistence across bars (a week
-    with no valid MA/slope yet leaves the running state unchanged, exactly
-    like Pine's `if valid` guard around the whole reassignment).
+def compute_ma(close: pd.Series, length: int, ma_type: str) -> pd.Series:
+    """EMA is recursive (span=length, adjust=False, first `length` weeks
+    masked) -- not the same as an SMA seeded identically; SMA is the plain
+    rolling mean."""
+    kind = ma_type.upper()
+    if kind == "EMA":
+        return close.ewm(span=length, adjust=False, min_periods=length).mean()
+    if kind == "SMA":
+        return close.rolling(window=length, min_periods=length).mean()
+    raise ValueError(f"ma_type must be one of {MA_TYPES}, got {ma_type!r}")
+
+
+def next_state(prev: int, rising: bool, falling: bool, above: bool, below: bool) -> int:
+    """One step of the sticky sState machine. prev == 0 is the first valid
+    week (unseeded)."""
+    if prev == 2:  # Advance
+        return 4 if (falling and below) else (3 if not rising else 2)
+    if prev == 3:  # Top
+        return 2 if (rising and above) else (4 if (falling and below) else 3)
+    if prev == 4:  # Decline
+        return 2 if (rising and above) else (1 if not falling else 4)
+    if prev == 1:  # Base
+        return 4 if (falling and below) else (2 if (rising and above) else 1)
+    if rising and above:
+        return 2
+    if falling and below:
+        return 4
+    return 3 if (rising or above) else 1
+
+
+def compute_stage_series(weekly_close: pd.Series, params: WeinsteinParams) -> pd.DataFrame:
+    """Runs the sticky state machine bar-by-bar (a week with no valid
+    MA/slope yet leaves the running state unchanged, like Pine's
+    `if valid`).
 
     Returns a DataFrame indexed like `weekly_close` with columns:
     ma, slope, valid, stage (WeinsteinStage | None -- None for every week
-    before the state machine has ever seen a single valid MA/slope pair,
-    i.e. the bootstrap period; a real string thereafter, never reverting to
-    None once seeded).
-    """
-    ma = weekly_close.rolling(window=MA_LEN, min_periods=MA_LEN).mean()
-    ma_prev = ma.shift(SLOPE_LOOKBACK)
+    before the machine has seen a valid MA/slope pair, a real string
+    thereafter), and stage_num (float, NaN pre-seed, 1-4 after)."""
+    ma = compute_ma(weekly_close, params.ma_length, params.ma_type)
+    ma_prev = ma.shift(params.slope_lookback)
     valid = ma.notna() & ma_prev.notna()
     slope = (ma - ma_prev) / ma_prev * 100.0
 
-    band = WITHIN_RANGE_PCT / 100.0
+    band = params.band
     above_band = valid & (weekly_close > ma * (1.0 + band))
     below_band = valid & (weekly_close < ma * (1.0 - band))
     rising = valid & (slope > 0.0)
     falling = valid & (slope < 0.0)
 
+    v, r_arr, f_arr = valid.to_numpy(), rising.to_numpy(), falling.to_numpy()
+    ab_arr, bb_arr = above_band.to_numpy(), below_band.to_numpy()
+    n = len(weekly_close)
+    nums = np.full(n, np.nan)
     stage: list[WeinsteinStage | None] = []
     prev_state = 0
-    for i in range(len(weekly_close)):
-        if not bool(valid.iloc[i]):
-            stage.append(_STATE_LABEL.get(prev_state))
-            continue
-        r, f = bool(rising.iloc[i]), bool(falling.iloc[i])
-        ab, bb = bool(above_band.iloc[i]), bool(below_band.iloc[i])
-        if prev_state == 2:  # Advance
-            new_state = 4 if (f and bb) else (3 if not r else 2)
-        elif prev_state == 3:  # Top
-            new_state = 2 if (r and ab) else (4 if (f and bb) else 3)
-        elif prev_state == 4:  # Decline
-            new_state = 2 if (r and ab) else (1 if not f else 4)
-        elif prev_state == 1:  # Base
-            new_state = 4 if (f and bb) else (2 if (r and ab) else 1)
-        else:  # pre-bootstrap
-            if r and ab:
-                new_state = 2
-            elif f and bb:
-                new_state = 4
-            elif r or ab:
-                new_state = 3
-            else:
-                new_state = 1
-        prev_state = new_state
-        stage.append(_STATE_LABEL[new_state])
+    for i in range(n):
+        if v[i]:
+            prev_state = next_state(prev_state, bool(r_arr[i]), bool(f_arr[i]), bool(ab_arr[i]), bool(bb_arr[i]))
+            nums[i] = prev_state
+        stage.append(_STATE_LABEL[prev_state])
 
-    return pd.DataFrame({"ma": ma, "slope": slope, "valid": valid, "stage": stage}, index=weekly_close.index)
+    return pd.DataFrame({"ma": ma, "slope": slope, "valid": valid, "stage": stage, "stage_num": nums}, index=weekly_close.index)
 
 
 def _stage_since(stage_series: pd.Series) -> tuple[date | None, bool]:
@@ -166,17 +213,22 @@ def _stage_since(stage_series: pd.Series) -> tuple[date | None, bool]:
     return (since_date.date() if hasattr(since_date, "date") else since_date), False
 
 
-def compute_weinstein_stage(ohlcv: pd.DataFrame, benchmark_ohlcv: pd.DataFrame) -> WeinsteinStageResult:
+def compute_weinstein_stage(ohlcv: pd.DataFrame, benchmark_ohlcv: pd.DataFrame, params: WeinsteinParams | None = None) -> WeinsteinStageResult:
     """ohlcv/benchmark_ohlcv are both daily-indexed frames matching
     engine.py::compute_trend_structure's own contract (lowercase
     open/high/low/close/volume). benchmark_ohlcv may be empty (e.g. the
-    WEINSTEIN_BENCHMARK_TICKER fetch failed that run) -- Mansfield RS/breakout's RS gate degrade
-    gracefully rather than raising, matching the Pine source's own
-    na(mansfield)-passes-through convention.
-    """
+    benchmark fetch failed that run) -- Mansfield RS and the breakout's RS
+    gate degrade gracefully (RS unavailable passes the gate, the Pine
+    source's own na(mansfield) convention) rather than raising.
+
+    Every ticker's whole passed-in history is replayed, so stage_since_date
+    is the date of the ticker's most recent REAL transition under this
+    engine (not a reset-to-today); it is a lower bound only when the stage
+    never changed anywhere in the available history."""
+    p = params or WeinsteinParams()
     ticker_weekly = resample_to_weekly(ohlcv)
     weeks_available = len(ticker_weekly)
-    if weeks_available < MIN_WEEKS_REQUIRED:
+    if weeks_available < p.min_weeks_required:
         return WeinsteinStageResult(
             stage=None,
             stage_since_date=None,
@@ -189,16 +241,15 @@ def compute_weinstein_stage(ohlcv: pd.DataFrame, benchmark_ohlcv: pd.DataFrame) 
             weeks_available=weeks_available,
         )
 
-    stage_df = compute_stage_series(ticker_weekly["close"])
+    close = ticker_weekly["close"]
+    stage_df = compute_stage_series(close, p)
     latest = stage_df.iloc[-1]
     current_stage = latest["stage"]
 
     ma_slope_pct = float(latest["slope"]) if pd.notna(latest["slope"]) else None
-    vs_ma_pct = (
-        float((ticker_weekly["close"].iloc[-1] - latest["ma"]) / latest["ma"] * 100.0) if pd.notna(latest["ma"]) else None
-    )
+    vs_ma_pct = float((close.iloc[-1] - latest["ma"]) / latest["ma"] * 100.0) if pd.notna(latest["ma"]) else None
 
-    volume_avg = ticker_weekly["volume"].rolling(window=VOLUME_AVG_LEN, min_periods=VOLUME_AVG_LEN).mean()
+    volume_avg = ticker_weekly["volume"].rolling(window=p.volume_avg_length, min_periods=p.volume_avg_length).mean()
     latest_volume_avg = volume_avg.iloc[-1]
     volume_ratio = (
         float(ticker_weekly["volume"].iloc[-1] / latest_volume_avg)
@@ -207,23 +258,21 @@ def compute_weinstein_stage(ohlcv: pd.DataFrame, benchmark_ohlcv: pd.DataFrame) 
     )
 
     mansfield_rs = None
-    if not benchmark_ohlcv.empty:
+    if benchmark_ohlcv is not None and not benchmark_ohlcv.empty:
         benchmark_weekly = resample_to_weekly(benchmark_ohlcv)
         if not benchmark_weekly.empty:
             # Reindexed onto the ticker's own weekly index BEFORE dividing --
-            # the two frames are resampled independently, so a thin-history
-            # ticker's index is a strict subset of the benchmark's; a naive
-            # Series-to-Series division would otherwise align on the UNION
-            # of both indices and introduce spurious NaN rows outside the
-            # ticker's own range.
-            benchmark_close = benchmark_weekly["close"].reindex(ticker_weekly.index)
-            rs_ratio = ticker_weekly["close"] / benchmark_close
-            rs_smoothed = rs_ratio.rolling(window=RS_SMOOTHING_LEN, min_periods=RS_SMOOTHING_LEN).mean()
+            # the two frames are resampled independently, so a naive
+            # Series-to-Series division would align on the UNION of both
+            # indices and introduce spurious NaN rows.
+            benchmark_close = benchmark_weekly["close"].reindex(close.index)
+            rs_ratio = close / benchmark_close
+            rs_smoothed = rs_ratio.rolling(window=p.rs_smoothing_length, min_periods=p.rs_smoothing_length).mean()
             latest_rs_smoothed = rs_smoothed.iloc[-1]
             if pd.notna(latest_rs_smoothed) and latest_rs_smoothed != 0:
                 mansfield_rs = float((rs_ratio.iloc[-1] / latest_rs_smoothed - 1.0) * 100.0)
 
-    vol_ok = volume_ratio is not None and volume_ratio >= VOLUME_CONFIRM_MULTIPLIER
+    vol_ok = volume_ratio is not None and volume_ratio >= p.breakout_volume_mult
     rs_ok = mansfield_rs is None or mansfield_rs > 0.0
 
     non_null_stage = stage_df["stage"].dropna()
