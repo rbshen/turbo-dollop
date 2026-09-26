@@ -6,12 +6,11 @@ nightly job in this package. See CLAUDE.md's technical entry-signal
 section for the full methodology and Phase 1 investigation this is built
 on.
 
-Runs entirely on Yahoo Finance (clients/technical_sources.py) -- FMP's
-intraday endpoints return HTTP 402 under the current subscription plan
-(confirmed 2026-09-09), so this makes ZERO FMP calls and needs no `if not
-the FMP data-group state: ...` guard, the same reasoning
-nightly_trend_calculation.py's own docstring gives for its own Yahoo-only
-fetches.
+Reads 60m bars through the shared bars cache (clients/shared_bars_cache.py):
+FMP `/historical-chart/1hour` first for US-listed tickers, Yahoo as the
+fallback (P4, 2026-09-26; the old "FMP intraday is 402" note is stale). The
+signal rows it writes are labelled with the source their bars actually came
+from ("fmp"/"yahoo"), not a constant.
 
 Fetches every tracked ticker's intraday bars in ONE batch call (see
 clients/technical_sources.py::get_technical_source().get_intraday_bars),
@@ -42,6 +41,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
+from clients.shared_bars_cache import intraday_source_labels
 from clients.technical_sources import get_technical_source
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
@@ -53,7 +53,6 @@ LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_entry_sign
 
 WATCHLIST_NAME_PATTERN = re.compile(r"^W[1-5]$")
 LOOKBACK_DAYS = 60
-SOURCE_NAME = "yahoo"
 
 logger = logging.getLogger(__name__)
 
@@ -82,13 +81,16 @@ async def main() -> dict:
 
     bars_by_ticker = await get_technical_source().get_intraday_bars(tickers, LOOKBACK_DAYS)
 
+    # Label each row with what its bars actually are ("fmp"/"yahoo"), not a constant.
+    source_by_ticker = intraday_source_labels(tickers)
+
     failures: list[tuple[str, str]] = []
     for i, ticker in enumerate(tickers, start=1):
         try:
             bars = bars_by_ticker.get(ticker)
             if bars is None or bars.empty:
                 raise ValueError("No intraday bars returned")
-            compute_and_store_entry_signal(ticker, bars, source=SOURCE_NAME)
+            compute_and_store_entry_signal(ticker, bars, source=source_by_ticker[ticker])
             logger.info("[%d/%d] %s: ok", i, len(tickers), ticker)
         except Exception as exc:  # noqa: BLE001 -- a single bad ticker must never abort the whole run
             logger.error("[%d/%d] %s: FAILED - %s", i, len(tickers), ticker, exc)

@@ -66,6 +66,7 @@ __all__ = [
     "FMPWithFallback",
     "FMPIntradaySource",
     "FMPIntradayWithFallback",
+    "non_fmp_intraday_tickers",
     "find_short_sessions",
     "fmp_intraday_rows_to_frame",
     "FallbackTickers",
@@ -789,6 +790,25 @@ def fmp_intraday_rows_to_frame(rows, completed_bar_start: datetime | None = None
     return df
 
 
+def non_fmp_intraday_tickers(session: Session, tickers: list[str]) -> set[str]:
+    """Tickers (of `tickers`) with at least one cached "60m" row NOT tagged source="fmp" -- a
+    Yahoo-era row (NULL, pre-P4) or a Yahoo fallback write. Tickers with no cached row at all are
+    not in the result. Two callers: FMPIntradaySource (such a ticker is fully replaced, never
+    layered) and the cache's fetch selection (such a ticker is fetched even if fresh and wide)."""
+    if not tickers:
+        return set()
+    return set(
+        session.exec(
+            select(SharedBarsCache.ticker)
+            .where(
+                SharedBarsCache.interval == "60m", SharedBarsCache.ticker.in_(tickers),
+                or_(SharedBarsCache.source.is_(None), SharedBarsCache.source != "fmp"),
+            )
+            .distinct()
+        ).all()
+    )
+
+
 class FMPIntradaySource:
     """FMP-backed 60m source (group `intraday_bars`). Per ticker:
 
@@ -820,16 +840,7 @@ class FMPIntradaySource:
                     .group_by(SharedBarsCache.ticker)
                 ).all()
             }
-            non_fmp = set(
-                session.exec(
-                    select(SharedBarsCache.ticker)
-                    .where(
-                        SharedBarsCache.interval == "60m", SharedBarsCache.ticker.in_(tickers),
-                        or_(SharedBarsCache.source.is_(None), SharedBarsCache.source != "fmp"),
-                    )
-                    .distinct()
-                ).all()
-            )
+            non_fmp = non_fmp_intraday_tickers(session, tickers)
         return spans, non_fmp
 
     async def get_intraday_bars(

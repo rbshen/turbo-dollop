@@ -325,3 +325,84 @@ def test_cache_60m_non_us_ticker_stays_on_yahoo(monkeypatch, _engine):
     asyncio.run(cache.get_or_fetch_bars_batch(["0005.HK"], "60m", 90, reference=REF))
     assert fake.calls == [] and yahoo_calls
     assert _sources(_engine, "0005.HK") == {"yahoo"}
+
+
+# ---- provenance trigger in the cache's fetch selection (fix to the P4 cutover) ----
+
+def _fresh_wide_cache(engine, ticker, source):
+    feed = _bars(date(2026, 6, 1), TODAY)
+    _seed(engine, ticker, feed, source)
+    return feed
+
+
+@pytest.mark.parametrize("source", [None, "yahoo"])
+def test_fresh_wide_non_fmp_history_is_still_fetched_and_replaced(monkeypatch, _engine, source):
+    feed = _fresh_wide_cache(_engine, "AAPL", source)  # fresh AND wide: the old selection skipped this
+    yahoo_calls: list = []
+    fake = FakeChart(feed, page=1000)
+    _patch_chain(monkeypatch, fake, yahoo_calls)
+    asyncio.run(cache.get_or_fetch_bars_batch(["AAPL"], "60m", 90, reference=REF))
+    assert fake.calls and yahoo_calls == []
+    assert _sources(_engine, "AAPL") == {"fmp"}
+
+
+def test_once_tagged_fmp_a_second_run_makes_no_fetch_at_all(monkeypatch, _engine):
+    feed = _fresh_wide_cache(_engine, "AAPL", None)
+    yahoo_calls: list = []
+    fake = FakeChart(feed, page=1000)
+    _patch_chain(monkeypatch, fake, yahoo_calls)
+    asyncio.run(cache.get_or_fetch_bars_batch(["AAPL"], "60m", 90, reference=REF))
+    calls_after_first = len(fake.calls)
+    asyncio.run(cache.get_or_fetch_bars_batch(["AAPL"], "60m", 90, reference=REF))
+    assert len(fake.calls) == calls_after_first and yahoo_calls == []
+
+
+def test_a_single_yahoo_tagged_row_among_fmp_rows_triggers_a_replace(monkeypatch, _engine):
+    feed = _fresh_wide_cache(_engine, "AAPL", "fmp")
+    with Session(_engine) as session:  # what a temporary Yahoo fallback write leaves behind
+        row = session.exec(select(SharedBarsCache).where(SharedBarsCache.ticker == "AAPL")).first()
+        row.source = "yahoo"
+        session.add(row)
+        session.commit()
+    fake = FakeChart(feed, page=1000)
+    _patch_chain(monkeypatch, fake, [])
+    asyncio.run(cache.get_or_fetch_bars_batch(["AAPL"], "60m", 90, reference=REF))
+    assert fake.calls and _sources(_engine, "AAPL") == {"fmp"}
+
+
+def test_trigger_is_skipped_while_the_group_is_off(monkeypatch, _engine):
+    dg.set_group_enabled("intraday_bars", False)
+    feed = _fresh_wide_cache(_engine, "AAPL", None)
+    yahoo_calls: list = []
+    fake = FakeChart(feed)
+    _patch_chain(monkeypatch, fake, yahoo_calls)
+    asyncio.run(cache.get_or_fetch_bars_batch(["AAPL"], "60m", 90, reference=REF))
+    assert fake.calls == [] and yahoo_calls == []  # fresh + wide + group off: cache served as-is
+
+
+def test_trigger_never_reselects_a_non_us_ticker(monkeypatch, _engine):
+    feed = _fresh_wide_cache(_engine, "0005.HK", "yahoo")
+    yahoo_calls: list = []
+    fake = FakeChart(feed)
+    _patch_chain(monkeypatch, fake, yahoo_calls)
+    asyncio.run(cache.get_or_fetch_bars_batch(["0005.HK"], "60m", 90, reference=REF))
+    assert fake.calls == [] and yahoo_calls == []
+
+
+def test_a_ticker_fmp_cannot_serve_is_retried_each_run_via_yahoo(monkeypatch, _engine):
+    _fresh_wide_cache(_engine, "AAPL", "yahoo")
+    yahoo_calls: list = []
+    fake = FakeChart([])  # empty answers
+    _patch_chain(monkeypatch, fake, yahoo_calls)
+    for _ in range(2):
+        asyncio.run(cache.get_or_fetch_bars_batch(["AAPL"], "60m", 90, reference=REF))
+    assert len(yahoo_calls) == 2 and _sources(_engine, "AAPL") == {"yahoo"}  # accepted recurring cost
+
+
+def test_source_labels_reflect_the_cached_provenance(_engine):
+    _seed(_engine, "AAPL", _bars(TODAY, TODAY), "fmp")
+    _seed(_engine, "MSFT", _bars(TODAY, TODAY), None)
+    _seed(_engine, "NVDA", _bars(TODAY, TODAY), "fmp")
+    _seed(_engine, "NVDA", [(datetime(2026, 9, 24, 9, 30), 1.0)], "yahoo")
+    assert cache.intraday_source_labels(["AAPL", "MSFT", "NVDA", "NONE"]) == {
+        "AAPL": "fmp", "MSFT": "yahoo", "NVDA": "yahoo", "NONE": "yahoo"}

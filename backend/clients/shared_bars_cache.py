@@ -49,8 +49,15 @@ from sqlalchemy import delete, func
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
-from clients.daily_bar_sources import FMPIntradayWithFallback, YahooDailySource, get_daily_bar_source, route_by_source
+from clients.daily_bar_sources import (
+    FMPIntradayWithFallback,
+    YahooDailySource,
+    get_daily_bar_source,
+    non_fmp_intraday_tickers,
+    route_by_source,
+)
 from clients.yahoo_client import yahoo_client
+from core.data_groups import effective_state
 from core.db import engine
 from core.models import SharedBarsCache
 
@@ -382,6 +389,22 @@ def _eastern_today(reference: datetime | None = None) -> date:
     return ref.astimezone(_EASTERN).date()
 
 
+def intraday_source_labels(tickers: list[str]) -> dict[str, str]:
+    """"fmp" | "yahoo" per ticker: what its cached 60m bars actually are. "fmp" only if EVERY
+    cached 60m row is FMP's; anything else (Yahoo-era/fallback rows, non-US tickers, no rows)
+    reads "yahoo". Used by the Warren / BB+RSI jobs to label the signal rows they write."""
+    with Session(engine) as session:
+        non_fmp = non_fmp_intraday_tickers(session, tickers)
+        cached = set(
+            session.exec(
+                select(SharedBarsCache.ticker).where(
+                    SharedBarsCache.interval == INTRADAY_INTERVAL, SharedBarsCache.ticker.in_(tickers)
+                ).distinct()
+            ).all()
+        ) if tickers else set()
+    return {t: "fmp" if t in cached and t not in non_fmp else "yahoo" for t in tickers}
+
+
 async def _fetch_yahoo_intraday(to_fetch: dict[str, int], auto_adjust: bool) -> dict[str, pd.DataFrame]:
     """The Yahoo 60m fetch (the fallback for FMP intraday, and the only source for non-US
     tickers). yfinance's multi-ticker download takes ONE period per call, so tickers are grouped
@@ -479,6 +502,21 @@ async def get_or_fetch_bars_batch(
         insufficient = first_bar.date() > needed_start
         if stale or insufficient:
             to_fetch[t] = max(lookback_days, existing_width_days)
+
+    if interval == INTRADAY_INTERVAL and not force and effective_state("intraday_bars")[0]:
+        # P4 provenance trigger: a US-listed ticker whose cached 60m rows are not ALL FMP's
+        # (Yahoo-era NULL rows, or a Yahoo fallback re-tag) is fetched even when its cache is
+        # fresh and wide -- FMPIntradaySource then replaces it in full. Self-completing and
+        # loop-free: a successful replace leaves every row "fmp", so the ticker drops out.
+        # Skipped while the group is off (everything would fall to Yahoo and re-tag "yahoo"
+        # every run) and for non-US tickers (Yahoo-only by design, never tagged "fmp").
+        candidates = [t for t in tickers if t in span_by_ticker and t not in to_fetch]
+        with Session(engine) as session:
+            legacy = non_fmp_intraday_tickers(session, candidates)
+        if legacy:
+            us_legacy, _ = route_by_source({t: 0 for t in legacy})
+            for t in us_legacy:
+                to_fetch[t] = max(lookback_days, _preserved_lookback_days(*span_by_ticker[t], interval))
 
     if to_fetch:
         fetched_at = datetime.now()

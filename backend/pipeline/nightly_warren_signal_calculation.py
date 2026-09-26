@@ -56,7 +56,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from clients.shared_bars_cache import INTRADAY_INTERVAL, get_or_fetch_bars_batch
+from clients.shared_bars_cache import INTRADAY_INTERVAL, get_or_fetch_bars_batch, intraday_source_labels
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
@@ -68,7 +68,6 @@ LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_warren_sig
 WATCHLIST_NAME_PATTERN = re.compile(r"^W[1-5]$")
 # 2 calendar years -- Yahoo's real 60m-interval history limit (~730 days).
 LOOKBACK_DAYS = 730
-SOURCE_NAME = "yahoo"
 
 logger = logging.getLogger(__name__)
 
@@ -103,13 +102,16 @@ async def main() -> dict:
     # returns lowercase columns and an America/New_York tz-aware index.
     bars_by_ticker = await get_or_fetch_bars_batch(tickers, INTRADAY_INTERVAL, LOOKBACK_DAYS, auto_adjust=False)
 
+    # Label each row with what its bars actually are ("fmp"/"yahoo"), not a constant.
+    source_by_ticker = intraday_source_labels(tickers)
+
     failures: list[tuple[str, str]] = []
     for i, ticker in enumerate(tickers, start=1):
         try:
             bars = bars_by_ticker.get(ticker)
             if bars is None or bars.empty:
                 raise ValueError("No intraday bars returned")
-            compute_and_store_warren_signal(ticker, bars, source=SOURCE_NAME)
+            compute_and_store_warren_signal(ticker, bars, source=source_by_ticker[ticker])
             logger.info("[%d/%d] %s: ok", i, len(tickers), ticker)
         except Exception as exc:  # noqa: BLE001 -- a single bad ticker must never abort the whole run
             logger.error("[%d/%d] %s: FAILED - %s", i, len(tickers), ticker, exc)
