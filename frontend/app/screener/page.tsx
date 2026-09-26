@@ -55,6 +55,7 @@ const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: "beta", label: "Beta" },
   { value: "growth_rate", label: "Growth rate" },
   { value: "warren_signal_recency", label: "Warren signal recency" },
+  { value: "weinstein_stage_since", label: "Weinstein — Stage Since" },
 ];
 
 export default function ScreenerPage() {

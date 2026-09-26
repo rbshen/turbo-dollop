@@ -422,6 +422,17 @@ describe("sortTickerScores", () => {
     expect(sortTickerScores(rows, "warren_signal_recency", "desc").map((r) => r.ticker)).toEqual(["HAS_SIGNAL", "NO_SIGNAL"]);
   });
 
+  it("sorts by weinstein_stage_since, freshest flip first on desc, nulls last either way", () => {
+    const rows = [
+      row({ ticker: "OLD", weinstein_stage_since_date: "2025-01-06" }),
+      row({ ticker: "NONE", weinstein_stage_since_date: null }),
+      row({ ticker: "FRESH", weinstein_stage_since_date: "2026-09-14" }),
+      row({ ticker: "MID", weinstein_stage_since_date: "2026-03-02" }),
+    ];
+    expect(sortTickerScores(rows, "weinstein_stage_since", "desc").map((r) => r.ticker)).toEqual(["FRESH", "MID", "OLD", "NONE"]);
+    expect(sortTickerScores(rows, "weinstein_stage_since", "asc").map((r) => r.ticker)).toEqual(["OLD", "MID", "FRESH", "NONE"]);
+  });
+
   it("does not mutate the input array", () => {
     const rows = [row({ ticker: "B", step5_score: 50 }), row({ ticker: "A", step5_score: 10 })];
     const original = [...rows];

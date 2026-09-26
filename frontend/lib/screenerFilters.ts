@@ -330,19 +330,26 @@ export type SortField =
   | "pe_ratio"
   | "beta"
   | "growth_rate"
-  | "warren_signal_recency";
+  | "warren_signal_recency"
+  | "weinstein_stage_since";
 
 export type SortDirection = "asc" | "desc";
 
-// warren_signal_recency is the one date-typed sort field (every other
-// SortField reads a plain number|null score/metric straight off the row,
-// so a's[field] - b's[field] just works) -- this converts
-// warren_last_buy_fired_at (an ISO timestamp string) to an epoch-ms number
-// for that one field, leaving every other field's raw numeric value
+// warren_signal_recency and weinstein_stage_since are the date-typed sort
+// fields (every other SortField reads a plain number|null score/metric
+// straight off the row, so a's[field] - b's[field] just works) -- these
+// convert warren_last_buy_fired_at / weinstein_stage_since_date (ISO strings)
+// to an epoch-ms number, leaving every other field's raw numeric value
 // untouched, so the shared null-handling/subtraction below stays generic.
+// weinstein_stage_since: "desc" = most recently started stage first (freshest
+// flips); a lower-bound date (stage never changed in the replay window) sorts
+// as that earliest date, i.e. among the longest-standing stages.
 function sortValue(row: TickerScoreOut, field: SortField): number | null {
   if (field === "warren_signal_recency") {
     return row.warren_last_buy_fired_at ? Date.parse(row.warren_last_buy_fired_at) : null;
+  }
+  if (field === "weinstein_stage_since") {
+    return row.weinstein_stage_since_date ? Date.parse(row.weinstein_stage_since_date) : null;
   }
   return row[field];
 }
