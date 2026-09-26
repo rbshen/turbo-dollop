@@ -1188,6 +1188,17 @@ class ReversalCandidateOut(BaseModel):
     ad_divergence_swing_date: date | None = None
 
 
+class WeinsteinParamsOut(BaseModel):
+    ma_length: int
+    ma_type: Literal["SMA", "EMA"]
+    within_range_pct: float
+    slope_lookback: int
+    breakout_volume_mult: float
+    volume_avg_length: int
+    rs_benchmark: str
+    rs_smoothing_length: int
+
+
 class WeinsteinPendingEtaScenarioOut(BaseModel):
     """One projected-confirmation scenario (flat / trend_5 / trend_13) --
     see analysis/trend_structure/weinstein_pending.py::
@@ -1315,6 +1326,11 @@ class TrendAnalysisOut(BaseModel):
     weinstein_volume_ratio: float | None = None
     weinstein_mansfield_rs: float | None = None
     weinstein_breakout_confirmed: bool | None = None
+    # The engine parameters this row's Weinstein fields were computed with
+    # (null on a row computed before the configurable engine existed) -- the
+    # UI labels ("30-wk EMA", band %) read this, not the live Settings, so
+    # they always describe the row they sit next to.
+    weinstein_params: WeinsteinParamsOut | None = None
     # "Pending confirmation" + ETA -- see WeinsteinPendingOut's own
     # docstring. Null whenever the ticker isn't currently pending a Stage
     # 2/Stage 4 transition (the common case).
@@ -1618,6 +1634,22 @@ class LiquidityZoneConfigIn(BaseModel):
     keep_last_breached_resistance: bool
     only_keep_if_breached_recently: bool
     breach_recency_bars: int = Field(ge=0)
+
+
+class WeinsteinConfigOut(WeinsteinParamsOut):
+    key: str
+    updated_at: datetime
+
+
+class WeinsteinConfigIn(BaseModel):
+    ma_length: int = Field(ge=2, le=200)
+    ma_type: Literal["SMA", "EMA"]
+    within_range_pct: float = Field(ge=0, le=50)
+    slope_lookback: int = Field(ge=1, le=52)
+    breakout_volume_mult: float = Field(gt=0, le=20)
+    volume_avg_length: int = Field(ge=2, le=200)
+    rs_benchmark: str = Field(min_length=1, max_length=20)
+    rs_smoothing_length: int = Field(ge=2, le=200)
 
 
 class MomentumSnapshotRowOut(BaseModel):

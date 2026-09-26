@@ -280,6 +280,11 @@ class TrendAnalysis(SQLModel, table=True):
     weinstein_volume_ratio: float | None = None
     weinstein_mansfield_rs: float | None = None
     weinstein_breakout_confirmed: bool | None = None
+    # The WeinsteinParams (JSON) this row's Weinstein fields were computed
+    # with -- so the UI describes the row's own MA/band ("30-wk EMA", "+/-5%")
+    # even after Settings changes and before the next recompute. NULL on a row
+    # computed before the configurable engine existed.
+    weinstein_params_json: str | None = None
     # The date of the LAST daily bar this row was computed from -- what
     # data/trend_analysis_data.py::get_trend_analysis_data compares against
     # the most recently completed trading session to decide whether the
@@ -659,6 +664,26 @@ class LiquidityZoneSettings(SQLModel, table=True):
     keep_last_breached_resistance: bool
     only_keep_if_breached_recently: bool
     breach_recency_bars: int
+    updated_at: datetime
+
+
+class WeinsteinSettings(SQLModel, table=True):
+    """Weinstein Stage engine parameters -- ONE singleton block, editable via
+    /settings, same lazy-seed get-or-create pattern as LiquidityZoneSettings
+    (helpers/weinstein_config.py). Read live from the DB by every compute
+    (nightly trend job, on-demand endpoint), never cached at process start,
+    so a change applies on the next recompute with no restart. Defaults are
+    the validated Pine reference's."""
+
+    key: str = Field(primary_key=True, default="default")
+    ma_length: int
+    ma_type: str  # "SMA" | "EMA"
+    within_range_pct: float
+    slope_lookback: int
+    breakout_volume_mult: float
+    volume_avg_length: int
+    rs_benchmark: str
+    rs_smoothing_length: int
     updated_at: datetime
 
 

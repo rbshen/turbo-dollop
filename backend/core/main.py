@@ -33,6 +33,7 @@ from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, u
 from data.market_breadth_data import get_market_breadth
 from data.momentum_data import get_momentum_snapshot
 from data.sector_heatmap_data import get_sector_heatmap
+from helpers.weinstein_config import get_weinstein_settings, update_weinstein_settings
 from helpers.liquidity_zone_config import get_liquidity_zone_settings, update_liquidity_zone_settings
 from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config, update_reit_dividend_yield_config
 from core.models import IndexConstituent, SavedScreenerFilter, TickerCustomValuation, TickerScore, Watchlist
@@ -60,6 +61,8 @@ from core.schemas import (
     DataGroupsOut,
     InsiderActivityOut,
     LiquidityZoneConfigIn,
+    WeinsteinConfigIn,
+    WeinsteinConfigOut,
     LiquidityZoneConfigOut,
     LiquidityZonesOut,
     MoatScoreConfigIn,
@@ -302,6 +305,24 @@ def update_liquidity_zones(body: LiquidityZoneConfigIn) -> LiquidityZoneConfigOu
     with Session(engine) as session:
         row = update_liquidity_zone_settings(session, **body.model_dump())
     return LiquidityZoneConfigOut(**row.model_dump())
+
+
+@app.get("/api/config/weinstein", response_model=WeinsteinConfigOut)
+def weinstein_config() -> WeinsteinConfigOut:
+    with Session(engine) as session:
+        row = get_weinstein_settings(session)
+    return WeinsteinConfigOut(**row.model_dump())
+
+
+@app.put("/api/config/weinstein", response_model=WeinsteinConfigOut)
+def update_weinstein(body: WeinsteinConfigIn) -> WeinsteinConfigOut:
+    # Takes effect on the next recompute (nightly trend job / on-demand
+    # ticker read), read live from the DB -- no restart needed.
+    values = body.model_dump()
+    values["rs_benchmark"] = normalize_ticker(values["rs_benchmark"])
+    with Session(engine) as session:
+        row = update_weinstein_settings(session, **values)
+    return WeinsteinConfigOut(**row.model_dump())
 
 
 # Backs the nav search box's typeahead dropdown -- matches against FMP's
