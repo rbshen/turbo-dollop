@@ -9,12 +9,21 @@ export const STATE_LABEL: Record<DataGroupState, string> = {
   failing: "Failing",
 };
 
+/** What actually serves a fallback group while FMP is skipped. Only US daily
+ * bars go Massive -> Yahoo; long history, non-US and intraday (60m) bars have
+ * no Massive leg (Massive is US-daily-only) and fall straight to Yahoo. */
+const FALLBACK_PROVIDERS: Record<string, string> = {
+  daily_prices: "the fallback providers (Massive, then Yahoo)",
+};
+const DEFAULT_FALLBACK_PROVIDERS = "the fallback provider (Yahoo)";
+
 /** Why a group is not live, in words -- for tooltips/captions. */
 export function reasonText(group: DataGroupOut): string {
   if (group.falls_back && (group.reason === "master_off" || group.reason === "user_off")) {
+    const providers = FALLBACK_PROVIDERS[group.key] ?? DEFAULT_FALLBACK_PROVIDERS;
     return group.reason === "master_off"
-      ? "The FMP master switch is off: FMP is skipped and the fallback providers (Massive, then Yahoo) serve this data."
-      : "Turned off in Settings: FMP is skipped and the fallback providers (Massive, then Yahoo) serve this data.";
+      ? `The FMP master switch is off: FMP is skipped and this data comes from ${providers}.`
+      : `Turned off in Settings: FMP is skipped and this data comes from ${providers}.`;
   }
   switch (group.reason) {
     case "master_off":
@@ -34,7 +43,8 @@ export function reasonText(group: DataGroupOut): string {
 export function disableWarning(group: DataGroupOut): string {
   const wired = group.wired ? group.feeds : [];
   if (group.falls_back && wired.length > 0) {
-    return `Turn off ${group.label}? FMP will be skipped and the fallback providers (Massive, then Yahoo) will serve:\n\n• ${wired.join("\n• ")}`;
+    const providers = FALLBACK_PROVIDERS[group.key] ?? DEFAULT_FALLBACK_PROVIDERS;
+    return `Turn off ${group.label}? FMP will be skipped and ${providers} will serve:\n\n• ${wired.join("\n• ")}`;
   }
   if (wired.length === 0) return `Turn off ${group.label}? Nothing reads it yet.`;
   return `Turn off ${group.label}? These will stop refreshing and serve cached data only:\n\n• ${wired.join("\n• ")}`;

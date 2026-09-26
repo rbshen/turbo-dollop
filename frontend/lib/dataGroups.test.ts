@@ -53,7 +53,14 @@ describe("fallback groups", () => {
     const g = group({ key: "daily_prices", falls_back: true, state: "using_fallback", reason: "user_off" });
     expect(offGroupsFor(wrap([g]), ["daily_prices"])).toEqual([]);
     expect(reasonText(g)).toContain("fallback");
-    expect(disableWarning(g)).toContain("Massive");
+    expect(disableWarning(g)).toContain("Massive, then Yahoo");
+    // Groups with no Massive leg must not claim one.
+    for (const key of ["intraday_bars", "daily_prices_long", "daily_prices_intl"]) {
+      const w = disableWarning(group({ key, falls_back: true, state: "using_fallback", reason: "user_off" }));
+      expect(w).toContain("(Yahoo)");
+      expect(w).not.toContain("Massive");
+      expect(reasonText(group({ key, falls_back: true, state: "using_fallback", reason: "user_off" }))).not.toContain("Massive");
+    }
     expect(disableWarning(g)).not.toContain("cached data only");
   });
 });
