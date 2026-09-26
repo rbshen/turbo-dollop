@@ -27,7 +27,7 @@ from clients.shared_bars_cache import (
 )
 from core.models import SharedBarsCache
 from data.liquidity_zone_data import LOOKBACK_DAYS as LZ_LOOKBACK_DAYS
-from data.trend_analysis_data import LOOKBACK_DAYS as TREND_LOOKBACK_DAYS
+from data.trend_analysis_data import WEINSTEIN_LOOKBACK_DAYS as TREND_LOOKBACK_DAYS  # the trend job now fetches the Weinstein ~5y window
 from pipeline.nightly_entry_signal_calculation import LOOKBACK_DAYS as BBRSI_LOOKBACK_DAYS
 from pipeline.nightly_warren_signal_calculation import LOOKBACK_DAYS as WARREN_LOOKBACK_DAYS
 

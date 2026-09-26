@@ -46,7 +46,7 @@ def _patch_trend_job(monkeypatch, rows_by_ticker: dict):
 
     store_calls: list[str] = []
 
-    def fake_store(ticker, ohlcv, benchmark_ohlcv=None):
+    def fake_store(ticker, ohlcv, benchmark_ohlcv=None, params=None):
         store_calls.append(ticker)
         return object()
 

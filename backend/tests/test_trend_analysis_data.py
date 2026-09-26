@@ -10,6 +10,17 @@ from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER
 import data.trend_analysis_data as trend_analysis_data_module
 from core.models import TrendAnalysis
 from data.trend_analysis_data import compute_and_store_trend_analysis, get_trend_analysis_data
+from helpers.weinstein_config import update_weinstein_settings
+
+_LEGACY_SETTINGS = dict(
+    ma_length=30, ma_type="SMA", within_range_pct=5.0, slope_lookback=5, breakout_volume_mult=2.0,
+    volume_avg_length=30, rs_benchmark="SPY", rs_smoothing_length=52,
+)
+
+
+def _set_weinstein_settings(engine, **overrides):
+    with Session(engine) as session:
+        update_weinstein_settings(session, **{**_LEGACY_SETTINGS, **overrides})
 
 
 def _fresh_engine():
@@ -498,6 +509,7 @@ _PENDING_ADVANCE_CLOSES = [200.0 * (0.985**i) for i in range(60)] + [200.0 * (0.
 def test_weinstein_pending_fields_round_trip_through_a_real_compute(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+    _set_weinstein_settings(engine)  # the fixture below was hand-traced on the pre-EMA 30-week SMA
 
     async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
         return _empty_frame() if ticker == WEINSTEIN_BENCHMARK_TICKER else _daily_from_weekly(_PENDING_ADVANCE_CLOSES[:70])
@@ -684,3 +696,57 @@ def test_cache_only_reads_never_recompute_regardless_of_how_stale_bars_as_of_is(
 
     assert calls == []
     assert result.bar_level == 5
+
+
+# ---------------------------------------------------------------------------
+# Configurable Weinstein engine: settings are read live at compute time, the
+# params used are persisted on the row, and the benchmark is the configured one.
+# ---------------------------------------------------------------------------
+
+
+def test_weinstein_settings_are_read_live_and_persisted_on_the_row(monkeypatch):
+    engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+    fetched: list[str] = []
+
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
+        fetched.append(ticker)
+        return _empty_frame() if ticker != "AAPL" else _daily_from_weekly(_PENDING_ADVANCE_CLOSES[:70])
+
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
+
+    first = asyncio.run(compute_and_store_trend_analysis("AAPL"))  # seeded defaults: 30-wk EMA, SPY
+    assert first.weinstein_params.ma_type == "EMA" and first.weinstein_params.rs_benchmark == "SPY"
+    assert fetched == ["AAPL", "SPY"]
+
+    # No restart, no cache reset: the very next compute sees the new settings.
+    _set_weinstein_settings(engine, ma_type="SMA", ma_length=20, within_range_pct=8.0, rs_benchmark="QQQ")
+    fetched.clear()
+    second = asyncio.run(compute_and_store_trend_analysis("AAPL"))
+    assert fetched == ["AAPL", "QQQ"]
+    assert (second.weinstein_params.ma_type, second.weinstein_params.ma_length, second.weinstein_params.within_range_pct) == ("SMA", 20, 8.0)
+
+    reread = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
+    assert reread.weinstein_params == second.weinstein_params
+
+
+def test_swing_engine_only_sees_its_own_trailing_window_while_weinstein_gets_the_full_history(monkeypatch):
+    engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
+    seen: dict[str, int] = {}
+    real = trend_analysis_data_module.compute_trend_structure
+
+    def spy(ohlcv):
+        seen["trend_rows"] = len(ohlcv)
+        return real(ohlcv)
+
+    monkeypatch.setattr(trend_analysis_data_module, "compute_trend_structure", spy)
+
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
+        assert lookback_days == trend_analysis_data_module.WEINSTEIN_LOOKBACK_DAYS
+        return _empty_frame() if ticker == "SPY" else _synthetic_rows(n=1500)
+
+    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
+    result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
+    assert seen["trend_rows"] <= trend_analysis_data_module.LOOKBACK_DAYS + 1
+    assert result.weinstein_weeks_available > 200  # ~1500 calendar days of weekly bars, not the 730-day slice

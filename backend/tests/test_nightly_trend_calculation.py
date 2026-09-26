@@ -4,6 +4,8 @@ from datetime import datetime
 from sqlmodel import Session, SQLModel, create_engine
 
 import pipeline.nightly_trend_calculation as nightly_trend
+from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER
+from helpers.weinstein_config import update_weinstein_settings
 from core.models import FundamentalsCache, TickerScore
 
 
@@ -42,7 +44,7 @@ def _patch_store(monkeypatch, fail_for: set[str] | None = None):
     fail_for = fail_for or set()
     calls: list[tuple[str, list]] = []
 
-    def fake_store(ticker, ohlcv, benchmark_ohlcv=None):
+    def fake_store(ticker, ohlcv, benchmark_ohlcv=None, params=None):
         calls.append((ticker, ohlcv))
         if ticker in fail_for:
             raise RuntimeError(f"simulated failure computing {ticker}")
@@ -64,9 +66,9 @@ def test_main_sweeps_the_full_tracked_universe_when_no_tickers_passed(monkeypatc
 
     summary = asyncio.run(nightly_trend.main(tickers=None))
 
-    assert set(batch_calls[0][0]) == {"IREN", "SEZL", nightly_trend.WEINSTEIN_BENCHMARK_TICKER}
+    assert set(batch_calls[0][0]) == {"IREN", "SEZL", WEINSTEIN_BENCHMARK_TICKER}
     assert batch_calls[0][1] is False  # auto_adjust=False -- raw, non-dividend-adjusted bars
-    assert batch_calls[0][2:] == ("1d", nightly_trend.LOOKBACK_DAYS)  # daily interval, 2y-shaped request
+    assert batch_calls[0][2:] == ("1d", nightly_trend.WEINSTEIN_LOOKBACK_DAYS)  # daily interval, ~5y request (Weinstein run-in)
     assert {t for t, _ in store_calls} == {"IREN", "SEZL"}
     assert summary["processed"] == 2
     assert summary["failed"] == 0
@@ -154,7 +156,7 @@ def test_ticker_missing_from_batch_result_is_still_attempted_with_no_frame(monke
     _fresh_engine(monkeypatch, tmp_path)
     _patch_batch_fetch(monkeypatch, {"AAPL": [1]})  # BADCO entirely absent
 
-    def fake_store(ticker, ohlcv, benchmark_ohlcv=None):
+    def fake_store(ticker, ohlcv, benchmark_ohlcv=None, params=None):
         if ohlcv is None:
             raise ValueError(f"No Yahoo Finance price history available for {ticker}")
         return object()
@@ -195,21 +197,21 @@ def test_benchmark_ticker_rides_the_batch_fetch_but_is_never_processed_or_counte
 
     summary = asyncio.run(nightly_trend.main(tickers=["AAPL", "MSFT"]))
 
-    assert nightly_trend.WEINSTEIN_BENCHMARK_TICKER in batch_calls[0][0]
+    assert WEINSTEIN_BENCHMARK_TICKER in batch_calls[0][0]
     assert {t for t, _ in store_calls} == {"AAPL", "MSFT"}
     assert summary["processed"] == 2
     assert summary["failed"] == 0
-    assert all(nightly_trend.WEINSTEIN_BENCHMARK_TICKER != t for t, _ in summary["failures"])
+    assert all(WEINSTEIN_BENCHMARK_TICKER != t for t, _ in summary["failures"])
 
 
 def test_benchmark_rows_are_passed_through_to_every_ticker_compute(monkeypatch, tmp_path):
     _fresh_engine(monkeypatch, tmp_path)
     benchmark_rows = ["gspc-row"]
-    _patch_batch_fetch(monkeypatch, {"AAPL": [1], nightly_trend.WEINSTEIN_BENCHMARK_TICKER: benchmark_rows})
+    _patch_batch_fetch(monkeypatch, {"AAPL": [1], WEINSTEIN_BENCHMARK_TICKER: benchmark_rows})
 
     received: list = []
 
-    def fake_store(ticker, ohlcv, benchmark_ohlcv=None):
+    def fake_store(ticker, ohlcv, benchmark_ohlcv=None, params=None):
         received.append(benchmark_ohlcv)
         return object()
 
@@ -233,3 +235,27 @@ def test_summary_reports_the_fallback_count_from_the_batch_fetch(monkeypatch, tm
     summary = asyncio.run(nightly_trend.main(tickers=["AAPL", "MSFT"]))
 
     assert summary["fallback_count"] == 1
+
+
+def test_configured_rs_benchmark_is_fetched_and_settings_are_passed_to_every_compute(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    with Session(engine) as session:
+        update_weinstein_settings(
+            session, ma_length=26, ma_type="SMA", within_range_pct=4.0, slope_lookback=4, breakout_volume_mult=1.5,
+            volume_avg_length=40, rs_benchmark="QQQ", rs_smoothing_length=40,
+        )
+    batch_calls = _patch_batch_fetch(monkeypatch, {"AAPL": [1], "QQQ": ["qqq-rows"]})
+    received: list = []
+
+    def fake_store(ticker, ohlcv, benchmark_ohlcv=None, params=None):
+        received.append((benchmark_ohlcv, params))
+        return object()
+
+    monkeypatch.setattr(nightly_trend, "compute_and_store_from_frames", fake_store)
+
+    asyncio.run(nightly_trend.main(tickers=["AAPL"]))
+
+    assert "QQQ" in batch_calls[0][0] and WEINSTEIN_BENCHMARK_TICKER not in batch_calls[0][0]
+    (bench, params), = received
+    assert bench == ["qqq-rows"]
+    assert (params.ma_type, params.ma_length, params.within_range_pct, params.slope_lookback) == ("SMA", 26, 4.0, 4)

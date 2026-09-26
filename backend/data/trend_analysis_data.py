@@ -15,18 +15,37 @@ from sqlmodel import Session, select
 
 from analysis.trend_structure.engine import compute_trend_structure
 from analysis.trend_structure.types import PullbackCycle, ReversalCandidate, SwingDetail, TrendStructureResult, WeinsteinStageResult
-from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER, compute_weinstein_stage
+from analysis.trend_structure.weinstein import WeinsteinParams, compute_weinstein_stage
 from analysis.trend_structure.weinstein_pending import WeinsteinPendingEtaScenario, WeinsteinPendingResult, compute_weinstein_pending
 from clients.shared_bars_cache import DAILY_INTERVAL, _most_recent_completed_trading_date, get_or_fetch_bars
 from core.db import engine
 from core.models import TrendAnalysis
-from core.schemas import PullbackCycleOut, ReversalCandidateOut, SwingDetailOut, TrendAnalysisOut, WeinsteinPendingEtaScenarioOut, WeinsteinPendingOut
+from core.schemas import PullbackCycleOut, ReversalCandidateOut, SwingDetailOut, TrendAnalysisOut, WeinsteinParamsOut, WeinsteinPendingEtaScenarioOut, WeinsteinPendingOut
 from core.tickers import normalize_ticker
+from helpers.weinstein_config import load_weinstein_params
 
 # 2 calendar years of daily bars -- unchanged from the period="2y" this
 # feature always fetched; also what Weinstein's own bootstrap-convergence
 # validation (CLAUDE.md) was measured against.
 LOOKBACK_DAYS = 730
+
+# The Weinstein engine replays ~5 years of daily bars (its own, longer window
+# -- the swing/BOS engine keeps LOOKBACK_DAYS). An EMA/sticky state machine
+# needs a long run-in: the previous 2y window left only ~70 classified weeks
+# and made "since" dates and the current stage depend on where the window
+# happened to start. 1825 = 365*5, the same window the validated simulation
+# script uses. The shared bars cache already holds ~5y of dailies for every
+# US-listed ticker (the nightly FMP fetch), so this widens nothing in practice.
+WEINSTEIN_LOOKBACK_DAYS = 365 * 5
+
+
+def _params_out(params: WeinsteinParams) -> WeinsteinParamsOut:
+    return WeinsteinParamsOut(**asdict(params))
+
+
+def _params_out_from_row(row: TrendAnalysis) -> WeinsteinParamsOut | None:
+    params = WeinsteinParams.from_json(row.weinstein_params_json)
+    return _params_out(params) if params else None
 
 
 def _swing_detail_to_json(detail: SwingDetail | None) -> str | None:
@@ -224,6 +243,7 @@ def _upsert(
     pending_result: WeinsteinPendingResult,
     computed_at: datetime,
     bars_as_of: date,
+    params: WeinsteinParams,
 ) -> bool:
     """Returns weinstein_stage_changed -- computed HERE, not in the pure
     engine, since it's an ACROSS-NIGHTLY-RUNS comparison (today's freshly
@@ -274,6 +294,7 @@ def _upsert(
             "weinstein_volume_ratio": weinstein_result.volume_ratio,
             "weinstein_mansfield_rs": weinstein_result.mansfield_rs,
             "weinstein_breakout_confirmed": weinstein_result.breakout_confirmed,
+            "weinstein_params_json": params.to_json(),
             "weinstein_pending_direction": pending_result.direction,
             "weinstein_pending_since_date": pending_result.since_date,
             "weinstein_pending_since_is_lower_bound": pending_result.since_is_lower_bound,
@@ -327,12 +348,21 @@ def _row_to_out(row: TrendAnalysis) -> TrendAnalysisOut:
         weinstein_volume_ratio=row.weinstein_volume_ratio,
         weinstein_mansfield_rs=row.weinstein_mansfield_rs,
         weinstein_breakout_confirmed=row.weinstein_breakout_confirmed,
+        weinstein_params=_params_out_from_row(row),
         pending=_pending_out_from_row(row),
     )
 
 
+def _load_params() -> WeinsteinParams:
+    with Session(engine) as session:
+        return load_weinstein_params(session)
+
+
 def compute_and_store_from_frames(
-    ticker: str, ohlcv: pd.DataFrame, benchmark_ohlcv: pd.DataFrame | None = None
+    ticker: str,
+    ohlcv: pd.DataFrame,
+    benchmark_ohlcv: pd.DataFrame | None = None,
+    params: WeinsteinParams | None = None,
 ) -> TrendAnalysisOut:
     """Runs the pure calculation engine against already-fetched daily OHLCV
     (lowercase columns, naive DatetimeIndex -- exactly what
@@ -350,18 +380,28 @@ def compute_and_store_from_frames(
     own daily OHLCV, SPY as of the 2026-09-23 Massive migration) is optional -- absent/empty degrades Weinstein's Mansfield
     RS/breakout fields to None/False rather than raising (see
     compute_weinstein_stage's own na()-passes-through handling), so this
-    stays backward compatible with any caller that doesn't pass it."""
+    stays backward compatible with any caller that doesn't pass it.
+
+    `params` (the live Weinstein Settings) is read from the DB when the
+    caller doesn't pass it -- the nightly job reads it once per run and
+    passes it in. `ohlcv` may hold up to WEINSTEIN_LOOKBACK_DAYS of history:
+    the Weinstein engine replays all of it, while the swing/BOS engine only
+    ever sees its own trailing LOOKBACK_DAYS."""
     ticker = normalize_ticker(ticker)
     if ohlcv is None or ohlcv.empty:
         raise ValueError(f"No Yahoo Finance price history available for {ticker}")
 
-    result = compute_trend_structure(ohlcv)
+    if params is None:
+        params = _load_params()
+
+    trend_window = ohlcv[ohlcv.index >= ohlcv.index.max() - pd.Timedelta(days=LOOKBACK_DAYS)]
+    result = compute_trend_structure(trend_window)
     weinstein_result = compute_weinstein_stage(
-        ohlcv, benchmark_ohlcv if benchmark_ohlcv is not None else pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        ohlcv, benchmark_ohlcv if benchmark_ohlcv is not None else pd.DataFrame(columns=["open", "high", "low", "close", "volume"]), params
     )
-    pending_result = compute_weinstein_pending(ohlcv)
+    pending_result = compute_weinstein_pending(ohlcv, params)
     computed_at = datetime.now()
-    weinstein_stage_changed = _upsert(ticker, result, weinstein_result, pending_result, computed_at, ohlcv.index.max().date())
+    weinstein_stage_changed = _upsert(ticker, result, weinstein_result, pending_result, computed_at, ohlcv.index.max().date(), params)
 
     return TrendAnalysisOut(
         ticker=ticker,
@@ -400,11 +440,12 @@ def compute_and_store_from_frames(
         weinstein_volume_ratio=weinstein_result.volume_ratio,
         weinstein_mansfield_rs=weinstein_result.mansfield_rs,
         weinstein_breakout_confirmed=weinstein_result.breakout_confirmed,
+        weinstein_params=_params_out(params),
         pending=_pending_out_from_result(pending_result),
     )
 
 
-async def compute_and_store_trend_analysis(ticker: str, lookback_days: int = LOOKBACK_DAYS) -> TrendAnalysisOut:
+async def compute_and_store_trend_analysis(ticker: str, lookback_days: int = WEINSTEIN_LOOKBACK_DAYS) -> TrendAnalysisOut:
     """Single-ticker fetch-then-compute-then-store -- used by the standalone
     API endpoint (a one-off, on-demand request), where fetching just this
     one ticker's history is the right cost, unlike the nightly job's
@@ -418,9 +459,10 @@ async def compute_and_store_trend_analysis(ticker: str, lookback_days: int = LOO
     auto_adjust=False -- Trend/Weinstein want raw, non-dividend-adjusted
     bars (2026-09-18 Yahoo-consolidation decision)."""
     ticker = normalize_ticker(ticker)
+    params = _load_params()
     ohlcv = await get_or_fetch_bars(ticker, DAILY_INTERVAL, lookback_days, auto_adjust=False)
-    benchmark_ohlcv = await get_or_fetch_bars(WEINSTEIN_BENCHMARK_TICKER, DAILY_INTERVAL, lookback_days, auto_adjust=False)
-    return compute_and_store_from_frames(ticker, ohlcv, benchmark_ohlcv=benchmark_ohlcv)
+    benchmark_ohlcv = await get_or_fetch_bars(params.rs_benchmark, DAILY_INTERVAL, lookback_days, auto_adjust=False)
+    return compute_and_store_from_frames(ticker, ohlcv, benchmark_ohlcv=benchmark_ohlcv, params=params)
 
 
 def _is_row_stale(row: TrendAnalysis) -> bool:
@@ -440,7 +482,7 @@ def _is_row_stale(row: TrendAnalysis) -> bool:
     return row.bars_as_of is None or row.bars_as_of < _most_recent_completed_trading_date()
 
 
-async def get_trend_analysis_data(ticker: str, cache_only: bool = False, lookback_days: int = LOOKBACK_DAYS) -> TrendAnalysisOut | None:
+async def get_trend_analysis_data(ticker: str, cache_only: bool = False, lookback_days: int = WEINSTEIN_LOOKBACK_DAYS) -> TrendAnalysisOut | None:
     """cache_only=True (used by watchlist_data.py's bulk row compose) never
     triggers a live Yahoo fetch -- returns whatever's cached (even if
     stale), or None if this ticker has never been computed yet (the nightly

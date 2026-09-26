@@ -18,8 +18,8 @@ explicit "use yfinance's multi-ticker download, not one call per ticker"
 requirement -- then runs the pure calculation engine and upserts per ticker
 (data.trend_analysis_data.compute_and_store_from_frames), rather than looping
 compute_and_store_trend_analysis (which would fetch one ticker at a time).
-WEINSTEIN_BENCHMARK_TICKER (SPY, see analysis/trend_structure/weinstein.py)
-rides along in this SAME batch call -- one more symbol, not a second
+The Weinstein RS benchmark (Settings > Weinstein, default SPY -- see
+analysis/trend_structure/weinstein.py) rides along in this SAME batch call -- one more symbol, not a second
 fetch -- but is never added to `tickers` itself, so it never gets its own
 TrendAnalysis row and a benchmark fetch failure degrades every ticker's Weinstein RS/breakout fields to
 null/false rather than counting as a per-ticker failure.
@@ -41,14 +41,14 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER
 from clients.daily_bar_sources import FallbackTickers, describe_fallback
 from clients.shared_bars_cache import DAILY_INTERVAL, get_or_fetch_bars_batch, stale_ticker_count
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from core.tickers import normalize_ticker
-from data.trend_analysis_data import LOOKBACK_DAYS, compute_and_store_from_frames
+from data.trend_analysis_data import WEINSTEIN_LOOKBACK_DAYS, compute_and_store_from_frames
+from helpers.weinstein_config import load_weinstein_params
 from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
 from pipeline.stale_data_health_check import load_delisted_tickers
 
@@ -91,7 +91,7 @@ async def main(tickers: list[str] | None = None) -> dict:
     )
     start_time = time.monotonic()
 
-    # WEINSTEIN_BENCHMARK_TICKER (SPY) rides along in the SAME batch fetch
+    # The Weinstein RS benchmark (Settings, default SPY) rides along in the SAME batch fetch
     # (Weinstein Stage Analysis's Mansfield RS benchmark) -- never added to `tickers` itself, so it
     # never gets its own TrendAnalysis row and never counts toward
     # processed/failed below.
@@ -102,6 +102,11 @@ async def main(tickers: list[str] | None = None) -> dict:
     # the one live fetch for that ticker and the other reads it back --
     # this job never has to know or care which. auto_adjust=False
     # (2026-09-18 decision): raw, non-dividend-adjusted bars.
+    # Weinstein Settings are read live from the DB once per run (not cached at
+    # process start) -- a settings change applies on the next recompute.
+    with Session(engine) as session:
+        weinstein_params = load_weinstein_params(session)
+    benchmark_ticker = weinstein_params.rs_benchmark
     fallback_tickers = FallbackTickers()
     # Sunday (UTC) run = the weekly full resync: force makes the FMP daily
     # source refetch every ticker's whole 5y window instead of the nightly
@@ -111,10 +116,10 @@ async def main(tickers: list[str] | None = None) -> dict:
     # read the warm cache.
     weekly_resync = datetime.now(timezone.utc).weekday() == WEEKLY_RESYNC_WEEKDAY_UTC
     bars_by_ticker = await get_or_fetch_bars_batch(
-        tickers + [WEINSTEIN_BENCHMARK_TICKER], DAILY_INTERVAL, LOOKBACK_DAYS, auto_adjust=False,
+        tickers + [benchmark_ticker], DAILY_INTERVAL, WEINSTEIN_LOOKBACK_DAYS, auto_adjust=False,
         fallback_tickers=fallback_tickers, force=weekly_resync,
     )
-    benchmark_ohlcv = bars_by_ticker.get(WEINSTEIN_BENCHMARK_TICKER)
+    benchmark_ohlcv = bars_by_ticker.get(benchmark_ticker)
 
     # Stale-data guard (docs/yahoo_close_data_gap_investigation_2026-09-23.md):
     # after the fetch attempt above (Massive, with an automatic per-ticker
@@ -129,7 +134,7 @@ async def main(tickers: list[str] | None = None) -> dict:
     failures: list[tuple[str, str]] = []
     for i, ticker in enumerate(tickers, start=1):
         try:
-            compute_and_store_from_frames(ticker, bars_by_ticker.get(ticker), benchmark_ohlcv=benchmark_ohlcv)
+            compute_and_store_from_frames(ticker, bars_by_ticker.get(ticker), benchmark_ohlcv=benchmark_ohlcv, params=weinstein_params)
             logger.info("[%d/%d] %s: ok", i, len(tickers), ticker)
         except Exception as exc:  # noqa: BLE001 -- a single bad ticker must never abort the whole run
             logger.error("[%d/%d] %s: FAILED - %s", i, len(tickers), ticker, exc)

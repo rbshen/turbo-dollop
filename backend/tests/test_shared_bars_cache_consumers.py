@@ -17,7 +17,7 @@ import clients.shared_bars_cache as cache
 from clients.shared_bars_cache import DAILY_INTERVAL, INTRADAY_INTERVAL, get_or_fetch_bars_batch
 from clients.technical_sources import YahooTechnicalSource
 from data.liquidity_zone_data import LOOKBACK_DAYS as LZ_LOOKBACK_DAYS
-from data.trend_analysis_data import LOOKBACK_DAYS as TREND_LOOKBACK_DAYS
+from data.trend_analysis_data import WEINSTEIN_LOOKBACK_DAYS as TREND_LOOKBACK_DAYS  # the trend job now fetches the Weinstein ~5y window
 from pipeline.nightly_entry_signal_calculation import LOOKBACK_DAYS as BBRSI_LOOKBACK_DAYS
 from pipeline.nightly_warren_signal_calculation import LOOKBACK_DAYS as WARREN_LOOKBACK_DAYS
 
@@ -38,7 +38,12 @@ class FakeYahoo:
         self.calls.append({"tickers": list(tickers), "period": period, "interval": interval, "auto_adjust": auto_adjust})
         days = _PERIOD_DAYS[period]
         if interval == DAILY_INTERVAL:
-            dates = [self.last_trading_date - timedelta(days=d) for d in range(days)]
+            # yfinance's period="5y" starts at today minus five CALENDAR years
+            # (1826-1827 days), a hair wider than the tier's nominal 1825 -- the
+            # Trend job now asks for exactly that nominal width, so a fake that
+            # produced exactly 1825 would put the first bar right on the
+            # strict coverage boundary and re-fetch on weekend-aligned dates.
+            dates = [self.last_trading_date - timedelta(days=d) for d in range(days + 2)]
             index = pd.DatetimeIndex(sorted(pd.Timestamp(d) for d in dates if d.weekday() < 5))
         else:
             stamps = []
@@ -99,7 +104,7 @@ def _lz(tickers):
 def test_lookback_constants_are_the_widths_the_design_assumes():
     assert WARREN_LOOKBACK_DAYS == 730
     assert BBRSI_LOOKBACK_DAYS == 60
-    assert TREND_LOOKBACK_DAYS == 730
+    assert TREND_LOOKBACK_DAYS == 5 * 365
     assert LZ_LOOKBACK_DAYS >= 4 * 365
 
 
@@ -175,38 +180,37 @@ def test_trend_and_liquidity_zones_share_one_daily_row_lz_first(env):
     assert len(env.calls) == 1
 
 
-def test_trend_first_then_lz_widens_once_then_steady_state_is_one_fetch(env):
-    _trend(["AAPL"])  # 3:10 -- creates a 2y row
-    _lz(["AAPL"])  # 3:25 -- widens it to 5y
-    assert [c["period"] for c in env.calls] == ["2y", "5y"]
+def test_trend_first_then_lz_reads_the_same_5y_row_for_free(env):
+    _trend(["AAPL"])  # 3:10 -- Trend now asks for the Weinstein ~5y window
+    _lz(["AAPL"])  # 3:25 -- LZ's 4y need is already covered
+    assert [c["period"] for c in env.calls] == ["5y"]
     env.calls.clear()
 
     env.advance_one_session()
-    _trend(["AAPL"])  # first job of the night refetches, PRESERVING the 5y width
+    _trend(["AAPL"])  # first job of the night refetches, at the preserved 5y width
     _lz(["AAPL"])  # reads it back for free
 
     assert len(env.calls) == 1
     assert env.calls[0]["period"] == "5y"
 
 
-def test_a_universe_only_widens_the_tickers_that_actually_need_it(env):
-    """Trend fetches the whole universe; only tickers that are ALSO
-    Liquidity Zone tickers ever get widened to 5y. After that, a Trend run
-    over the full universe must re-download the wide tickers at 5y and the
-    rest at 2y -- NOT everything at 5y."""
+def test_a_universe_fetch_is_one_5y_call_for_every_ticker(env):
+    """Trend now fetches the whole universe at the Weinstein ~5y width (LZ's
+    4y need snaps to the same tier), so a run is one 5y call for everyone --
+    no per-ticker 2y/5y split any more -- and LZ then reads it all back."""
     universe = ["AAPL", "MSFT", "GOOG", "ONLYTREND1", "ONLYTREND2"]
     lz_tickers = ["AAPL", "MSFT"]
     _trend(universe)
     _lz(lz_tickers)
+    assert [c["period"] for c in env.calls] == ["5y"]
     env.calls.clear()
 
     env.advance_one_session()
     _trend(universe)
 
-    periods = {c["period"]: sorted(c["tickers"]) for c in env.calls}
-    assert periods == {"5y": ["AAPL", "MSFT"], "2y": ["GOOG", "ONLYTREND1", "ONLYTREND2"]}
+    assert {c["period"]: sorted(c["tickers"]) for c in env.calls} == {"5y": sorted(universe)}
     _lz(lz_tickers)
-    assert len(env.calls) == 2  # LZ then read everything back for free
+    assert len(env.calls) == 1  # LZ read everything back for free
 
 
 def test_daily_and_intraday_rows_for_the_same_ticker_never_interfere(env):
