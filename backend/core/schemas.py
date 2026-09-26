@@ -2209,5 +2209,5 @@ class InsiderActivityOut(BaseModel):
     # fetched_at of the cached search row. None only when it was never
     # successfully cached (cold miss -- FMP paused, or the fetch failed);
     # a non-None as_of with has_data False means cached and genuinely empty
-    # (e.g. HK/France-listed or quiet tickers).
+    # (e.g. quiet tickers or some ADRs).
     as_of: datetime | None = None

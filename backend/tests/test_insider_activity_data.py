@@ -545,7 +545,7 @@ def test_fresh_fetch_populates_everything_and_as_of(monkeypatch):
 
 
 def test_cached_and_genuinely_empty_has_as_of_but_no_data(monkeypatch):
-    # HK/France/quiet tickers: FMP answers 200 with [] -- a real, cached "no data".
+    # quiet tickers, some ADRs: FMP answers 200 with [] -- a real, cached "no data".
     _fresh_engine(monkeypatch)
     _patch_fmp(monkeypatch, search=[], statistics=[])
 

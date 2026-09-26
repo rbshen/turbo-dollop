@@ -56,8 +56,7 @@ export function InsiderActivityTab({ ticker }: Props) {
   const view = insiderViewState(data);
 
   // Two distinct empty states, deliberately not merged: "empty" means FMP
-  // answered and there is genuinely nothing to show (HK/France-listed or
-  // quiet tickers); "not_cached" means we have never successfully fetched
+  // answered and there is genuinely nothing to show (quiet tickers or some ADRs); "not_cached" means we have never successfully fetched
   // it, so an absence of data says nothing about the ticker. Same card
   // shape as LiquidityZonesCard's empty state.
   if (view === "disabled") {

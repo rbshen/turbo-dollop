@@ -4,7 +4,7 @@ import { fmtCompactMoney } from "@/lib/format";
 /** Which of the tab's body states to render. `enabled` false (the backend's
  * feature flag is off) comes first and is its own state -- never an empty or
  * not-cached one. `has_data` alone can't
- * tell "cached and genuinely empty" (HK/France/quiet tickers) apart from
+ * tell "cached and genuinely empty" (quiet tickers, some ADRs) apart from
  * "never successfully cached" (FMP paused, plan doesn't cover the endpoint,
  * or the fetch hasn't succeeded yet) -- `as_of` (the cached search row's
  * fetched_at) is what separates them, so the two must never be conflated. */

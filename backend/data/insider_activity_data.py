@@ -538,7 +538,7 @@ async def get_insider_activity_data(ticker: str, cache_only: bool = False) -> In
         )
         # fetched_at of the cached search row, re-read directly (get_or_fetch
         # only returns the payload) -- the only thing that tells "cached and
-        # genuinely empty" (HK/France/quiet tickers) apart from "never
+        # genuinely empty" (quiet tickers, some ADRs) apart from "never
         # successfully cached" (cold miss: FMP paused, or the fetch failed).
         search_row = session.exec(
             select(FundamentalsCache).where(

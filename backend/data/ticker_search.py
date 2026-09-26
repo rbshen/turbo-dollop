@@ -6,14 +6,13 @@ from clients.fmp_client import fmp_client
 from core.data_groups import group_live
 from core.db import engine
 from core.schemas import TickerSearchResult
-from core.tickers import normalize_ticker
+from core.tickers import is_us_listed, normalize_ticker
 from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
 
 SEARCH_RESULT_LIMIT = 10
 
 # Common naming shape for leveraged/inverse tracker products (e.g. Leverage
-# Shares/WisdomTree/GraniteShares ETPs) -- confirmed via the motivating
-# "LVMH search surfacing 3LLV.PA" case: the real primary listing's company
+# Shares/WisdomTree/GraniteShares ETPs): the real primary listing's company
 # name starts with the query, the tracker product's doesn't (its own name
 # starts with the provider/product framing instead), so this only ever acts
 # as a same-tier tiebreaker below, never overrides a genuine name-prefix
@@ -87,14 +86,13 @@ async def search_tickers(query: str) -> list[TickerSearchResult]:
     concurrently is the only way to cover "typed a ticker" and "typed a
     company name" in one box.
 
-    Results are re-ranked (see _rank_key) before dedup so a leveraged/
-    inverse ETP or a loosely-matching cross-listing doesn't outrank the
-    real primary listing purely because FMP happened to return it first
-    (confirmed real case: an "LVMH" search surfacing "3LLV.PA", a Leverage
-    Shares 3x tracker, above "MC.PA", the real LVMH listing) -- neither
-    /search-symbol nor /search-name exposes an exchange/security-type field
-    to filter on directly, so this re-ranks on symbol/name shape instead of
-    filtering. symbol_matches are still queried/concatenated ahead of
+    Only US-listed results are kept (core.tickers.is_us_listed, off the
+    result's own `exchange` code): Fathom does not support non-US tickers,
+    and dropping them here keeps one from being added by search at all.
+    Results are then re-ranked (see _rank_key) before dedup so a leveraged/
+    inverse ETP doesn't outrank the real primary listing purely because FMP
+    happened to return it first -- the endpoints expose no security-type
+    field to filter on, so this re-ranks on symbol/name shape instead. symbol_matches are still queried/concatenated ahead of
     name_matches (preserved as this function's own index order into
     _rank_key) so a query that looks like a ticker still wins ties against
     an equally-ranked name match, matching the original design intent.
@@ -129,6 +127,8 @@ async def search_tickers(query: str) -> list[TickerSearchResult]:
         if not symbol:
             continue
         name = raw.get("name")
+        if not is_us_listed(symbol, raw.get("exchange")):
+            continue
         candidates.append(
             (
                 _rank_key(index, symbol, name, query),
