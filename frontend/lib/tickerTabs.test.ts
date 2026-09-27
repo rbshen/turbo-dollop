@@ -17,11 +17,6 @@ describe("tickerTabs", () => {
     ]);
   });
 
-  it("does not expose the shelved Insider Activity tab", () => {
-    expect(TICKER_TABS.map((t) => t.key)).not.toContain("insiderActivity");
-    expect(TICKER_TABS.map((t) => t.label)).not.toContain("Insider Activity");
-  });
-
   it("every tab has a unique key", () => {
     const keys = TICKER_TABS.map((t) => t.key);
     expect(new Set(keys).size).toBe(keys.length);

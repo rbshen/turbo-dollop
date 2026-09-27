@@ -22,14 +22,6 @@ export interface TickerTabDef {
 // after it (per its own design spec: "next to Technical") -- a separate,
 // also-independent OHLC/indicator view, not part of that blend either.
 //
-// Insider Activity is shelved (2026-09-20) -- deliberately absent here and
-// from TickerTabsContainer, with the backend gated off by
-// the `insider` data group (seeded off). Its components (components/ticker/
-// InsiderActivityTab.tsx, components/insiderActivity/, lib/insiderActivity.ts,
-// lib/hooks/useInsiderActivity.ts) are left in place, disconnected. To revive
-// it: re-add "insiderActivity" to the TickerTab union and an entry here
-// (between Analyst Ratings and Technical), and the InsiderActivityTab branch
-// in TickerTabsContainer.
 export const TICKER_TABS: TickerTabDef[] = [
   { key: "summary", label: "Summary" },
   { key: "financials", label: "Financials" },

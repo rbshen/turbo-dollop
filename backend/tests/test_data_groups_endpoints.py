@@ -21,9 +21,9 @@ def test_get_lists_every_group_with_defaults():
     assert groups["fundamentals"]["state"] == "live"
     assert groups["fundamentals"]["required_tier"] == "Premium"
     assert groups["fundamentals"]["tier_verified"] is False
-    assert groups["insider"]["state"] == "cached_only" and groups["insider"]["enabled"] is False
+    assert groups["news"]["state"] == "cached_only" and groups["news"]["enabled"] is False
     assert groups["daily_prices"]["wired"] is True and groups["intraday_bars"]["wired"] is True and groups["extended_hours"]["wired"] is False
-    assert "News tab" in groups["news"]["feeds"]
+    assert "News tab (shelved)" in groups["news"]["feeds"]
 
 
 def test_old_fmp_status_endpoint_is_gone():
@@ -68,6 +68,7 @@ def test_validation_and_unknown_group():
 
 
 def test_restricted_and_failing_states_and_key_problem_surface():
+    dg.set_group_enabled("news", True)  # shelved, default off -- news is just this test's example group
     dg.mark_restricted("segmentation", "simulated 402")
     for _ in range(dg.FAILING_AFTER_CONSECUTIVE):
         dg.record_group_failure("news", "HTTP 500")
@@ -81,6 +82,7 @@ def test_restricted_and_failing_states_and_key_problem_surface():
 
 
 def test_editing_the_plan_reprobes_restricted_groups(monkeypatch):
+    dg.set_group_enabled("news", True)  # shelved, default off -- news is just this test's example group
     dg.mark_restricted("news", "simulated 402")
     transport = httpx.MockTransport(lambda request: httpx.Response(200, json=[{"ok": True}]))
     real = httpx.AsyncClient

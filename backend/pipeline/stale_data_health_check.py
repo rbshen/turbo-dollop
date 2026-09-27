@@ -32,7 +32,10 @@ audit_fixture_contamination.py, which is about test-fixture leakage, and
 purge_invalid_tickers.py, which deletes rows -- the opposite of "never delete history")
 because it already computes load_full_tracked_universe weekly. This is the one live-FMP
 call this otherwise cache-only script makes (~160 sequential pages of 100 rows; the
-endpoint's page size is capped at 100), under the `corporate_events` data group.
+endpoint's page size is capped at 100), under the `index_membership` data group
+(moved from `corporate_events` 2026-09-27 -- this check is about tracked-ticker
+universe membership, the same job family as the index scrapers, not
+earnings/dividends/splits).
 
 **Also removes any non-US ticker** (weekly safety net, `pipeline/non_us_purge.py`): Fathom
 supports US-listed tickers only, so a ticker whose cached profile exchange is not a US venue (or,
@@ -177,11 +180,11 @@ def sync_delisted_flags(tickers: list[str]) -> dict:
     """Sets TickerScore.delisted_at for tracked tickers FMP lists as delisted. Returns
     {"newly_flagged": [...sorted], "skipped": bool, "complete": bool}. Never clears a
     flag and never acts on a ticker the endpoint does not list (see the module
-    docstring). Skipped (nothing fetched) while the `corporate_events` group is not live."""
+    docstring). Skipped (nothing fetched) while the `index_membership` group is not live."""
     if not tickers:
         return {"newly_flagged": [], "skipped": False, "complete": True}
-    if not group_live("corporate_events"):
-        logger.info("Delisted-flag sync skipped (group corporate_events is not live)")
+    if not group_live("index_membership"):
+        logger.info("Delisted-flag sync skipped (group index_membership is not live)")
         return {"newly_flagged": [], "skipped": True, "complete": False}
     listed, complete = asyncio.run(_fetch_delisted_companies())
     hits = find_delisted_hits(tickers, listed)
@@ -223,7 +226,7 @@ def _format_report(result: dict, total: int, threshold_days: int) -> str:
         lines.append("  Never-fetched tickers: " + ", ".join(sorted(result["never_fetched"])))
     delisted = result.get("delisted") or {}
     if delisted.get("skipped"):
-        lines.append("  Delisted-flag sync: skipped (corporate_events group not live)")
+        lines.append("  Delisted-flag sync: skipped (index_membership group not live)")
     elif delisted.get("newly_flagged"):
         lines.append(f"  Newly flagged delisted: {', '.join(delisted['newly_flagged'])}")
     non_us = result.get("non_us") or {}

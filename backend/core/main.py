@@ -27,7 +27,6 @@ from helpers.discount_rate_config import (
     update_discount_rate_config,
 )
 from core.logging_config import apply_redaction_filters
-from data.insider_activity_data import get_insider_activity_data
 from data.liquidity_zone_data import get_liquidity_zone_data
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from data.market_breadth_data import get_market_breadth
@@ -59,7 +58,6 @@ from core.schemas import (
     DataGroupPlanIn,
     DataGroupUpdateIn,
     DataGroupsOut,
-    InsiderActivityOut,
     LiquidityZoneConfigIn,
     WeinsteinConfigIn,
     WeinsteinConfigOut,
@@ -778,14 +776,6 @@ async def update_ticker_moat(ticker: str, body: TickerMoatIn) -> TickerMoatOut:
 async def ticker_speculative_growth(ticker: str) -> SpeculativeGrowthOut:
     try:
         return await get_speculative_growth_data(ticker)
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="FMP request failed") from exc
-
-
-@app.get("/api/tickers/{ticker}/insider-activity", response_model=InsiderActivityOut)
-async def ticker_insider_activity(ticker: str) -> InsiderActivityOut:
-    try:
-        return await get_insider_activity_data(ticker)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
 

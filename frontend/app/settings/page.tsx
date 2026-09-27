@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { PageContainer } from "@/components/layout/PageContainer";
 import { DiscountRateSettingsForm } from "@/components/settings/DiscountRateSettingsForm";
+import { FmpDataGroupsSection } from "@/components/settings/FmpDataGroupsSection";
 import { LiquidityZoneSettingsForm } from "@/components/settings/LiquidityZoneSettingsForm";
 import { MoatSettingsForm } from "@/components/settings/MoatSettingsForm";
 import { ReitDividendYieldSettingsForm } from "@/components/settings/ReitDividendYieldSettingsForm";
@@ -11,8 +12,13 @@ import { StatusSection } from "@/components/settings/StatusSection";
 import { WeinsteinSettingsForm } from "@/components/settings/WeinsteinSettingsForm";
 import { cn } from "@/lib/utils";
 
+// "Status" was renamed "Scheduled Jobs" and split 2026-09-27: the per-group
+// FMP toggle table moved out into its own "FMP Data Groups" section, right
+// after it -- StatusSection keeps just the FMP health-summary card and the
+// cron jobs table.
 const SECTIONS = [
-  { key: "status", label: "Status", Component: StatusSection },
+  { key: "scheduled-jobs", label: "Scheduled Jobs", Component: StatusSection },
+  { key: "fmp-data-groups", label: "FMP Data Groups", Component: FmpDataGroupsSection },
   { key: "discount-rate", label: "Discount Rate by Country", Component: DiscountRateSettingsForm },
   { key: "economic-moat", label: "Economic Moat", Component: MoatSettingsForm },
   { key: "reit", label: "REIT", Component: ReitDividendYieldSettingsForm },
@@ -26,7 +32,7 @@ export default function SettingsPage() {
   const [active, setActive] = useState<SectionKey>(SECTIONS[0].key);
 
   // Only the active section is mounted -- each form fetches its own config via
-  // SWR on mount, so rendering all 6 at once (the old vertical-stack layout)
+  // SWR on mount, so rendering all 7 at once (the old vertical-stack layout)
   // fired concurrent requests every page load for sections the user isn't
   // even looking at yet.
   const ActiveSection = SECTIONS.find((section) => section.key === active) ?? SECTIONS[0];

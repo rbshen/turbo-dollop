@@ -64,6 +64,7 @@ def test_402_symbol_scoped_canary_ok_does_not_mark(monkeypatch):
 
 
 def test_402_on_aapl_itself_is_its_own_canary(monkeypatch):
+    dg.set_group_enabled("news", True)  # shelved, default off -- exercised here as the single-symbol-endpoint example
     h = _status_by_symbol({"AAPL": 402})
     _install(monkeypatch, h)
     with pytest.raises(httpx.HTTPStatusError):
@@ -81,6 +82,7 @@ def test_402_on_symbolless_endpoint_marks_immediately(monkeypatch):
 
 
 def test_only_the_402d_group_is_marked(monkeypatch):
+    dg.set_group_enabled("news", True)  # shelved, default off -- exercised here as the single-symbol-endpoint example
     _install(monkeypatch, _status_by_symbol({}, default=402))
     with pytest.raises(httpx.HTTPStatusError):
         asyncio.run(FMPClient(api_key="x").get_stock_news("AAPL"))
@@ -130,6 +132,7 @@ def test_server_errors_count_toward_failing_but_never_disable(monkeypatch):
 
 
 def test_reprobe_clears_restriction_when_canary_succeeds(monkeypatch):
+    dg.set_group_enabled("news", True)  # shelved, default off -- news is just this test's example restricted group
     dg.mark_restricted("news", "simulated")
     _install(monkeypatch, _status_by_symbol({}))
     result = asyncio.run(FMPClient(api_key="x").reprobe_restricted_groups())
@@ -138,6 +141,7 @@ def test_reprobe_clears_restriction_when_canary_succeeds(monkeypatch):
 
 
 def test_reprobe_keeps_restriction_on_402_and_ignores_inconclusive(monkeypatch):
+    dg.set_group_enabled("news", True)  # shelved, default off -- news is just this test's example restricted group
     dg.mark_restricted("news", "simulated")
     dg.mark_restricted("segmentation", "simulated")
 

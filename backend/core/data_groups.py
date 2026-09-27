@@ -1,8 +1,7 @@
 """Per-data-group FMP toggles: the single source of truth for whether a
 given FMP-backed feature area may make live calls.
 
-Replaces the old process-start `FMP_ENABLED` / `INSIDER_ACTIVITY_ENABLED`
-env flags. State lives in the DB (`DataGroupSetting` per group,
+Replaces the old process-start `FMP_ENABLED` env flag. State lives in the DB (`DataGroupSetting` per group,
 `DataGroupGlobal` singleton for the master switch and the user's FMP plan),
 so a toggle applies live -- no restart -- and cron processes (separate
 `uv run` processes) read the same truth as the API. A short in-process
@@ -75,13 +74,12 @@ GROUPS: dict[str, GroupMeta] = {
         ("Analyst Ratings tab", "Watchlist rating column", "Nightly price-target snapshot"),
     ),
     "segmentation": GroupMeta("Segmentation", "Premium", True, True, ("Segmentation card",)),
-    "news": GroupMeta("News", "Starter", True, True, ("News tab",)),
-    "insider": GroupMeta("Insider activity", "Premium", False, True, ("Insider Activity tab (shelved)",)),
+    "news": GroupMeta("News", "Starter", False, True, ("News tab (shelved)",)),
     "index_membership": GroupMeta(
         "Index membership", "Starter", True, True,
-        ("S&P 500 / Dow / Nasdaq constituent lists", "Screener universe", "Weekly index refresh jobs"),
+        ("S&P 500 / Dow / Nasdaq constituent lists", "Screener universe", "Weekly index refresh jobs", "Delisted-ticker flags"),
     ),
-    "corporate_events": GroupMeta("Corporate events", "Premium", True, True, ("Chart earnings/dividend markers", "Earnings / dividends / splits cache", "Delisted-ticker flags")),
+    "corporate_events": GroupMeta("Corporate events", "Premium", True, True, ("Chart earnings/dividend markers", "Earnings / dividends / splits cache")),
     "daily_prices": GroupMeta(
         "Daily prices", "Premium", True, True,
         (
@@ -140,7 +138,6 @@ ENDPOINT_GROUP: dict[str, str] = {
     "/historical-chart/1hour": "intraday_bars",
     "/dividends": "corporate_events",
     "/splits": "corporate_events",
-    "/delisted-companies": "corporate_events",
     "/revenue-product-segmentation": "segmentation",
     "/revenue-geographic-segmentation": "segmentation",
     "/news/stock": "news",
@@ -149,11 +146,14 @@ ENDPOINT_GROUP: dict[str, str] = {
     "/price-target-consensus": "analyst_ratings",
     "/price-target-news": "analyst_ratings",
     "/price-target-summary": "analyst_ratings",
-    "/insider-trading/search": "insider",
-    "/insider-trading/statistics": "insider",
     "/sp500-constituent": "index_membership",
     "/dowjones-constituent": "index_membership",
     "/nasdaq-constituent": "index_membership",
+    # Moved from corporate_events (2026-09-27): the weekly delisted-flag sync
+    # (pipeline/stale_data_health_check.py::sync_delisted_flags) is about
+    # tracked-ticker universe membership, the same job family as the index
+    # scrapers, not earnings/dividends/splits.
+    "/delisted-companies": "index_membership",
 }
 
 # Endpoints reached by more than one group, and the group each caller passes
@@ -180,7 +180,6 @@ PROBE_ENDPOINTS: dict[str, tuple[str, dict]] = {
     "analyst_ratings": ("/grades-consensus", {"symbol": "AAPL"}),
     "segmentation": ("/revenue-product-segmentation", {"symbol": "AAPL"}),
     "news": ("/news/stock", {"symbols": "AAPL", "limit": 1}),
-    "insider": ("/insider-trading/statistics", {"symbol": "AAPL"}),
     "index_membership": ("/dowjones-constituent", {}),
     "corporate_events": ("/dividends", {"symbol": "AAPL", "limit": 1}),
     "daily_prices": ("/historical-price-eod/full", {"symbol": "AAPL", "from": "2024-01-02", "to": "2024-01-05"}),
@@ -218,8 +217,6 @@ STATEMENT_TYPE_GROUP: dict[str, str] = {
     "price_target_consensus": "analyst_ratings",
     "price_target_summary": "analyst_ratings",
     "price_target_news": "analyst_ratings",
-    "insider_trading_search": "insider",
-    "insider_trading_statistics": "insider",
     "news": "news",
     # Not an FMP call (SEC EDGAR), but cached through the same gate and feeds
     # the Debt/fundamentals cross-check; it was paused by the old global flag,

@@ -383,15 +383,18 @@ universe would go, it **refuses**, deletes nothing and says so in the report and
 real non-US tickers. Removal is irreversible short of a `backups/` restore.
 
 **Also flags delisted tickers, a second, independent write this same run performs**
-(rewritten Phase 6a, 2026-09-26 — see `CLAUDE.md`'s "Phase 6a" section). It pages FMP's
-`/delisted-companies` (group `corporate_events`, ~157 sequential calls of 100 rows) and sets
-`TickerScore.delisted_at` for any tracked ticker listed with a delisted date on/before today (a
-reused symbol — profile `ipoDate` after the delisted date — is ignored). **A ticker the endpoint
-does not list is never flagged and an existing flag is never cleared**; the old
-stale-bar/Massive+Yahoo heuristic and auto-clear are gone. Nightly Trend/Liquidity
-Zone/Momentum skip a flagged ticker's fetch/compute entirely. Nothing is ever deleted. The cron
-heartbeat message names anything newly flagged, or says `delisted sync skipped
-(corporate_events off)` / `delisted list incomplete` (a page failed; the next weekly run retries).
+(rewritten Phase 6a, 2026-09-26 — see `CLAUDE.md`'s "Phase 6a" section; moved from the
+`corporate_events` group to `index_membership` 2026-09-27, since this is a tracked-ticker
+universe-membership check, the same job family as the index scrapers, not
+earnings/dividends/splits). It pages FMP's `/delisted-companies` (group `index_membership`,
+~157 sequential calls of 100 rows) and sets `TickerScore.delisted_at` for any tracked ticker
+listed with a delisted date on/before today (a reused symbol — profile `ipoDate` after the
+delisted date — is ignored). **A ticker the endpoint does not list is never flagged and an
+existing flag is never cleared**; the old stale-bar/Massive+Yahoo heuristic and auto-clear are
+gone. Nightly Trend/Liquidity Zone/Momentum skip a flagged ticker's fetch/compute entirely.
+Nothing is ever deleted. The cron heartbeat message names anything newly flagged, or says
+`delisted sync skipped (index_membership off)` / `delisted list incomplete` (a page failed; the
+next weekly run retries).
 **To manually clear a flag** (a relisted symbol stays flagged until you do this):
 ```
 uv run python -c "

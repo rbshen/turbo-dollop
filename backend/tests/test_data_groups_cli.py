@@ -29,7 +29,7 @@ def test_status_lists_every_group_and_marks_unwired(monkeypatch, capsys):
     for key in dg.GROUPS:
         assert key in out
     assert out.count("[not wired yet]") == 1
-    assert "insider" in out and "user_off" in out
+    assert "news" in out and "user_off" in out
 
 
 def _cache_rows(engine, rows):

@@ -248,13 +248,13 @@ def test_a_page_error_uses_what_was_fetched_and_reports_incomplete(monkeypatch, 
     assert result == {"newly_flagged": ["EARLY"], "skipped": False, "complete": False}
 
 
-def test_skipped_without_any_fetch_while_corporate_events_is_off(monkeypatch, tmp_path):
+def test_skipped_without_any_fetch_while_index_membership_is_off(monkeypatch, tmp_path):
     import core.data_groups as dg
 
     engine = _fresh_engine(monkeypatch, tmp_path)
     _seed_scores(engine, "TWTR")
     pages = _patch_delisted(monkeypatch, [_listed("TWTR", "2022-10-27")])
-    dg.set_group_enabled("corporate_events", False)
+    dg.set_group_enabled("index_membership", False)
 
     result = health_check.sync_delisted_flags(["TWTR"])
 

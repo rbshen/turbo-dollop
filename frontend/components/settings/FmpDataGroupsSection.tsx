@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { setFmpPlan, setMaster, updateGroup, useDataGroups } from "@/lib/hooks/useDataGroups";
+import { updateGroup, useDataGroups } from "@/lib/hooks/useDataGroups";
 import { STATE_LABEL, disableWarning, reasonText } from "@/lib/dataGroups";
 import { errorDetail } from "@/lib/api/client";
 import { formatRelativeTime } from "@/lib/relativeTime";
@@ -17,11 +17,14 @@ const CHIP: Record<DataGroupState, string> = {
   failing: "bg-negative/16 text-negative border-negative/40",
 };
 
-/** Settings > Status: one row per FMP data group (core/data_groups.py),
- * replacing the old single FMP card. Toggles, the required-tier editor with
- * its "verified" tick, my current plan and the master switch all write to
- * the DB and take effect live (no restart). */
-export function DataGroupsSection() {
+/** Settings > FMP Data Groups: one row per FMP data group (core/data_groups.py)
+ * -- the endpoint group/tier/verified-tick/enabled table, split out of the old
+ * combined DataGroupsSection (2026-09-27) so it could live in its own nav
+ * section, separate from the plan/master-switch/key-problem summary (now
+ * FmpHealthSummaryCard, under Settings > Scheduled Jobs). Toggles, the
+ * required-tier editor and its "verified" tick all write to the DB and take
+ * effect live (no restart). */
+export function FmpDataGroupsSection() {
   const { data, error } = useDataGroups();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -47,57 +50,12 @@ export function DataGroupsSection() {
   };
 
   return (
-    <div className="space-y-4 rounded-lg border border-zinc-800 bg-zinc-900/40 p-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h3 className="text-sm font-semibold text-zinc-100">FMP data groups</h3>
-          <p className="mt-1 max-w-xl text-xs text-zinc-500">
-            A group that is off (or above your plan, or restricted by FMP) makes no live FMP calls and serves cached data
-            only — nothing is ever wiped. Changes apply immediately.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-400">
-          <label className="flex items-center gap-2">
-            My FMP plan
-            <select
-              aria-label="My FMP plan"
-              className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-200"
-              value={data.fmp_plan}
-              disabled={busy}
-              onChange={(e) => void run(() => setFmpPlan(e.target.value))}
-            >
-              {data.tiers.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              aria-label="FMP master switch"
-              checked={data.master_on}
-              disabled={busy}
-              onChange={(e) => {
-                if (!e.target.checked && !window.confirm("Disable ALL FMP calls? Every group goes cache-only (nothing is wiped).")) return;
-                void run(() => setMaster(e.target.checked));
-              }}
-            />
-            FMP master switch {data.master_on ? "(on)" : "(OFF — everything cache-only)"}
-          </label>
-        </div>
-      </div>
+    <section className="space-y-4">
+      <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">FMP Data Groups</h2>
 
-      {data.key_problem_at && (
-        <p className="rounded border border-negative/40 bg-negative/10 px-3 py-2 text-xs text-negative">
-          FMP rejected the API key ({data.key_problem_detail}) — check FMP_API_KEY in backend/.env and your subscription. No
-          data group is blamed.
-        </p>
-      )}
       {message && <p className="text-xs text-negative">{message}</p>}
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900/40 p-5">
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="text-xs uppercase tracking-widest text-zinc-500">
@@ -173,6 +131,6 @@ export function DataGroupsSection() {
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   );
 }

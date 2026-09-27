@@ -114,7 +114,7 @@ def test_every_cached_statement_type_is_mapped():
 
 def test_group_metadata_is_complete():
     assert list(dg.GROUPS) == [
-        "fundamentals", "profile_quote", "analyst_ratings", "segmentation", "news", "insider",
+        "fundamentals", "profile_quote", "analyst_ratings", "segmentation", "news",
         "index_membership", "corporate_events", "daily_prices", "daily_prices_long", "intraday_bars", "extended_hours",
     ]
     for meta in dg.GROUPS.values():

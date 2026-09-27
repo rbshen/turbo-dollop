@@ -10,7 +10,7 @@ def test_lazy_seed_defaults():
     assert "daily_prices_intl" not in snap.groups
     assert all(not g.tier_verified for g in snap.groups.values())
     assert dg.group_live("fundamentals")
-    assert not dg.group_live("insider")  # shelved, seeded off
+    assert not dg.group_live("news")  # shelved, seeded off
 
 
 def test_master_off_beats_everything_and_writes_are_live_without_ttl_wait():
@@ -56,6 +56,7 @@ def test_restricted_then_cleared():
 
 
 def test_failing_after_consecutive_failures_and_reset_on_success():
+    dg.set_group_enabled("news", True)  # shelved, default off -- news is just this test's example group
     for _ in range(dg.FAILING_AFTER_CONSECUTIVE):
         dg.record_group_failure("news", "boom")
     assert dg.get_snapshot().groups["news"].status == "failing"
@@ -87,5 +88,6 @@ def test_job_skip_reason_master_off_and_per_group_wording():
     dg.set_master(True)
     dg.set_group_enabled("analyst_ratings", False)
     assert dg.job_skip_reason("analyst_ratings") == "skipped (group analyst_ratings disabled)"
+    dg.set_group_enabled("news", True)  # shelved, default off -- news is just this test's example group
     dg.mark_restricted("news", "402")
     assert dg.job_skip_reason("news") == "skipped (group news restricted by FMP (plan))"
