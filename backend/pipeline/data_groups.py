@@ -30,7 +30,7 @@ def format_status() -> str:
     if snap.key_problem_at:
         lines.append(f"KEY PROBLEM since {_fmt_dt(snap.key_problem_at)}: {snap.key_problem_detail}")
     lines.append("")
-    lines.append(f"{'group':<19} {'state':<22} {'tier':<9} {'verified':<8} last success")
+    lines.append(f"{'group':<19} {'state':<22} {'tier':<9} last success")
     for key in dg.GROUPS:
         st = snap.groups[key]
         live, reason = dg.effective_state_from(snap, key)
@@ -39,7 +39,7 @@ def format_status() -> str:
             state = "live (failing)"
         wired = "" if dg.GROUPS[key].live else " [not wired yet]"
         lines.append(
-            f"{key:<19} {state:<22} {st.required_tier:<9} {'yes' if st.tier_verified else 'no':<8} "
+            f"{key:<19} {state:<22} {st.required_tier:<9} "
             f"{_fmt_dt(st.last_success_at)}{wired}"
         )
     return "\n".join(lines)

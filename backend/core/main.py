@@ -197,9 +197,7 @@ def update_data_group(group: str, body: DataGroupUpdateIn) -> DataGroupsOut:
     if body.enabled is not None:
         dg.set_group_enabled(group, body.enabled)
     if body.required_tier is not None:
-        dg.set_required_tier(group, body.required_tier, verified=body.tier_verified)
-    elif body.tier_verified is not None:
-        dg.set_tier_verified(group, body.tier_verified)
+        dg.set_required_tier(group, body.required_tier)
     return build_data_groups_out()
 
 

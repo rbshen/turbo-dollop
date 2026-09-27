@@ -32,7 +32,6 @@ def build_data_groups_out() -> DataGroupsOut:
                 state=state,
                 reason=reason,
                 required_tier=st.required_tier,
-                tier_verified=st.tier_verified,
                 restricted_since=st.restricted_since,
                 last_success_at=st.last_success_at,
                 last_error=st.last_error,

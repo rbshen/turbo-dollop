@@ -20,7 +20,6 @@ def test_get_lists_every_group_with_defaults():
     assert list(groups) == list(dg.GROUPS)
     assert groups["fundamentals"]["state"] == "live"
     assert groups["fundamentals"]["required_tier"] == "Premium"
-    assert groups["fundamentals"]["tier_verified"] is False
     assert groups["news"]["state"] == "cached_only" and groups["news"]["enabled"] is False
     assert groups["daily_prices"]["wired"] is True and groups["intraday_bars"]["wired"] is True and groups["extended_hours"]["wired"] is False
     assert "News tab (shelved)" in groups["news"]["feeds"]
@@ -41,15 +40,12 @@ def test_master_switch_makes_every_group_cached_only_and_untoggleable():
     assert _by_key(body)["fundamentals"]["state"] == "live"
 
 
-def test_toggle_a_group_and_edit_tier_with_verified_tick():
+def test_toggle_a_group_and_edit_tier():
     with TestClient(app) as client:
         body = client.put("/api/config/data-groups/news", json={"enabled": False}).json()
         assert _by_key(body)["news"]["state"] == "cached_only"
-        body = client.put("/api/config/data-groups/news", json={"required_tier": "Premium", "tier_verified": True}).json()
-        news = _by_key(body)["news"]
-        assert news["required_tier"] == "Premium" and news["tier_verified"] is True
-        body = client.put("/api/config/data-groups/news", json={"tier_verified": False}).json()
-    assert _by_key(body)["news"]["tier_verified"] is False
+        body = client.put("/api/config/data-groups/news", json={"required_tier": "Premium"}).json()
+    assert _by_key(body)["news"]["required_tier"] == "Premium"
 
 
 def test_group_above_plan_reads_not_on_plan():

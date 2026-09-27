@@ -102,3 +102,26 @@ def test_drops_the_removed_screener_country_columns(monkeypatch):
             cols = [r[1] for r in conn.execute(text(f"PRAGMA table_info({table})"))]
             assert "country" not in cols
         assert conn.execute(text("SELECT ticker FROM tickerscore")).scalar_one() == "AAPL"
+
+
+def test_drops_the_removed_tier_verified_column(monkeypatch):
+    # Verified tick removal (2026-09-27): confirmed zero downstream effect
+    # (never read by effective_state/effective_state_from, only ever
+    # displayed) -- dropped from an already-populated DB, twice-run safe.
+    engine = create_engine("sqlite://")
+    monkeypatch.setattr(db_module, "engine", engine)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE datagroupsetting (group_key TEXT PRIMARY KEY, enabled BOOLEAN, tier_verified BOOLEAN)"
+            )
+        )
+        conn.execute(text("INSERT INTO datagroupsetting VALUES ('fundamentals', 1, 1)"))
+
+    _drop_obsolete_columns()
+    _drop_obsolete_columns()
+
+    with engine.connect() as conn:
+        cols = [r[1] for r in conn.execute(text("PRAGMA table_info(datagroupsetting)"))]
+        assert "tier_verified" not in cols
+        assert conn.execute(text("SELECT group_key FROM datagroupsetting")).scalar_one() == "fundamentals"

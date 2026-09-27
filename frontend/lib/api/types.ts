@@ -34,7 +34,6 @@ export interface DataGroupOut {
   state: DataGroupState;
   reason: "live" | "master_off" | "user_off" | "above_plan" | "restricted";
   required_tier: string;
-  tier_verified: boolean;
   restricted_since: string | null;
   last_success_at: string | null;
   last_error: string | null;
@@ -55,7 +54,6 @@ export interface DataGroupsOut {
 export interface DataGroupUpdateIn {
   enabled?: boolean;
   required_tier?: string;
-  tier_verified?: boolean;
 }
 
 export interface CronRunOut {

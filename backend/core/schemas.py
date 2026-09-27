@@ -778,7 +778,6 @@ class DataGroupOut(BaseModel):
     state: Literal["live", "cached_only", "not_on_plan", "restricted", "failing"]
     reason: Literal["live", "master_off", "user_off", "above_plan", "restricted"]
     required_tier: str
-    tier_verified: bool
     restricted_since: datetime | None = None
     last_success_at: datetime | None = None
     last_error: str | None = None
@@ -800,7 +799,6 @@ class DataGroupsOut(BaseModel):
 class DataGroupUpdateIn(BaseModel):
     enabled: bool | None = None
     required_tier: str | None = None
-    tier_verified: bool | None = None
 
 
 class DataGroupMasterIn(BaseModel):

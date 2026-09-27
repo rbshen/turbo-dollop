@@ -18,12 +18,13 @@ const CHIP: Record<DataGroupState, string> = {
 };
 
 /** Settings > FMP Data Groups: one row per FMP data group (core/data_groups.py)
- * -- the endpoint group/tier/verified-tick/enabled table, split out of the old
- * combined DataGroupsSection (2026-09-27) so it could live in its own nav
- * section, separate from the plan/master-switch/key-problem summary (now
- * FmpHealthSummaryCard, under Settings > Scheduled Jobs). Toggles, the
- * required-tier editor and its "verified" tick all write to the DB and take
- * effect live (no restart). */
+ * -- the endpoint group/tier/enabled table, split out of the old combined
+ * DataGroupsSection (2026-09-27) so it could live in its own nav section,
+ * separate from the plan/master-switch/key-problem summary (now
+ * FmpHealthSummaryCard, under Settings > Scheduled Jobs). The "verified" tick
+ * (2026-09-27) was removed outright, not just hidden here -- confirmed to
+ * have zero downstream effect anywhere. Toggles and the required-tier editor
+ * write to the DB and take effect live (no restart). */
 export function FmpDataGroupsSection() {
   const { data, error } = useDataGroups();
   const [busy, setBusy] = useState(false);
@@ -99,31 +100,19 @@ export function FmpDataGroupsSection() {
                   {g.last_success_at ? formatRelativeTime(g.last_success_at) : "—"}
                 </td>
                 <td className="py-2 pr-3">
-                  <div className="flex items-center gap-2">
-                    <select
-                      aria-label={`Required tier for ${g.label}`}
-                      className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200"
-                      value={g.required_tier}
-                      disabled={busy}
-                      onChange={(e) => void run(() => updateGroup(g.key, { required_tier: e.target.value }))}
-                    >
-                      {data.tiers.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                    <label className="flex items-center gap-1 text-[11px] text-zinc-500" title="Tick after checking FMP's pricing page yourself">
-                      <input
-                        type="checkbox"
-                        aria-label={`Tier verified for ${g.label}`}
-                        checked={g.tier_verified}
-                        disabled={busy}
-                        onChange={(e) => void run(() => updateGroup(g.key, { tier_verified: e.target.checked }))}
-                      />
-                      verified
-                    </label>
-                  </div>
+                  <select
+                    aria-label={`Required tier for ${g.label}`}
+                    className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200"
+                    value={g.required_tier}
+                    disabled={busy}
+                    onChange={(e) => void run(() => updateGroup(g.key, { required_tier: e.target.value }))}
+                  >
+                    {data.tiers.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
                 </td>
                 <td className="py-2 text-xs text-zinc-500">{g.feeds.join(", ")}</td>
               </tr>

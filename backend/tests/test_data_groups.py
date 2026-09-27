@@ -8,7 +8,6 @@ def test_lazy_seed_defaults():
     assert set(snap.groups) == set(dg.GROUPS)
     assert snap.groups["fundamentals"].required_tier == "Premium"
     assert "daily_prices_intl" not in snap.groups
-    assert all(not g.tier_verified for g in snap.groups.values())
     assert dg.group_live("fundamentals")
     assert not dg.group_live("news")  # shelved, seeded off
 
@@ -35,16 +34,6 @@ def test_above_plan_is_off():
     assert dg.group_live("fundamentals")
     dg.set_fmp_plan("Starter")
     assert dg.effective_state("daily_prices_long") == (False, "above_plan")
-
-
-def test_editing_required_tier_resets_verified_unless_stated():
-    dg.set_tier_verified("news", True)
-    dg.set_required_tier("news", "Starter")  # unchanged value keeps the tick
-    assert dg.get_snapshot().groups["news"].tier_verified is True
-    dg.set_required_tier("news", "Premium")  # changed -> unverified
-    assert dg.get_snapshot().groups["news"].tier_verified is False
-    dg.set_required_tier("news", "Ultimate", verified=True)
-    assert dg.get_snapshot().groups["news"].tier_verified is True
 
 
 def test_restricted_then_cleared():

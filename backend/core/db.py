@@ -24,6 +24,8 @@ _OBSOLETE_COLUMNS: list[tuple[str, str]] = [
     # Screener Country filter removed with non-US ticker support (2026-09-26).
     ("tickerscore", "country"),
     ("savedscreenerfilter", "country"),
+    # Verified tick confirmed to have zero downstream effect (2026-09-27).
+    ("datagroupsetting", "tier_verified"),
 ]
 
 

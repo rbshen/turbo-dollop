@@ -1219,15 +1219,19 @@ class DataGroupSetting(SQLModel, table=True):
     """Per-data-group FMP toggle, one row per group key in
     core/data_groups.py::GROUPS. Lazy-seeded (same convention as
     LiquidityZoneSettings/DiscountRateConfig). `required_tier` is a
-    user-editable value (`tier_verified` = the user has checked it against
-    FMP's site), not a hardcoded fact. `status` is auto-managed:
+    user-editable value, not a hardcoded fact. `status` is auto-managed:
     "ok" / "plan_restricted" (set only after a canary probe also got a 402)
-    / "failing" (consecutive non-402 live failures)."""
+    / "failing" (consecutive non-402 live failures).
+
+    Had a `tier_verified` column (2026-09 through 2026-09-27) -- a "user has
+    checked this tier against FMP's pricing page" tick with zero downstream
+    effect (confirmed: never read by effective_state/effective_state_from,
+    only ever displayed). Removed outright, not just hidden from the UI --
+    see core/db.py::_OBSOLETE_COLUMNS."""
 
     group_key: str = Field(primary_key=True)
     enabled: bool = True
     required_tier: str = "Premium"
-    tier_verified: bool = False
     status: str = "ok"
     restricted_since: datetime | None = None
     last_success_at: datetime | None = None

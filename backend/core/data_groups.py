@@ -242,7 +242,6 @@ def group_for_statement_type(statement_type: str) -> str | None:
 class GroupState:
     enabled: bool
     required_tier: str
-    tier_verified: bool
     status: str
     restricted_since: datetime | None
     last_success_at: datetime | None
@@ -282,9 +281,7 @@ def _seed(session: Session) -> None:
     for key, meta in GROUPS.items():
         if key not in existing:
             session.add(
-                DataGroupSetting(
-                    group_key=key, enabled=meta.default_enabled, required_tier=meta.default_tier, tier_verified=False
-                )
+                DataGroupSetting(group_key=key, enabled=meta.default_enabled, required_tier=meta.default_tier)
             )
             changed = True
     if session.get(DataGroupGlobal, "default") is None:
@@ -307,7 +304,7 @@ def _load() -> Snapshot:
             key_problem_detail=g.key_problem_detail,
             groups={
                 r.group_key: GroupState(
-                    r.enabled, r.required_tier, r.tier_verified, r.status, r.restricted_since,
+                    r.enabled, r.required_tier, r.status, r.restricted_since,
                     r.last_success_at, r.last_error, r.consecutive_failures,
                 )
                 for r in rows
@@ -319,7 +316,7 @@ def _load() -> Snapshot:
 def _default_snapshot() -> Snapshot:
     return Snapshot(
         True, DEFAULT_FMP_PLAN, None, None,
-        {k: GroupState(m.default_enabled, m.default_tier, False, "ok", None, None, None, 0) for k, m in GROUPS.items()},
+        {k: GroupState(m.default_enabled, m.default_tier, "ok", None, None, None, 0) for k, m in GROUPS.items()},
     )
 
 
@@ -445,27 +442,14 @@ def set_group_enabled(group: str, enabled: bool) -> None:
     _write(fn)
 
 
-def set_required_tier(group: str, tier: str, verified: bool | None = None) -> None:
+def set_required_tier(group: str, tier: str) -> None:
     if tier not in TIERS:
         raise ValueError(f"unknown tier: {tier}")
 
     def fn(s: Session) -> None:
         r = _row(s, group)
-        if tier != r.required_tier:
-            r.tier_verified = False  # a changed value is unverified until re-ticked
         r.required_tier = tier
-        if verified is not None:
-            r.tier_verified = verified
         r.updated_at = datetime.now()
-        s.add(r)
-
-    _write(fn)
-
-
-def set_tier_verified(group: str, verified: bool) -> None:
-    def fn(s: Session) -> None:
-        r = _row(s, group)
-        r.tier_verified, r.updated_at = verified, datetime.now()
         s.add(r)
 
     _write(fn)

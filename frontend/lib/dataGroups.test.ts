@@ -12,7 +12,6 @@ function group(over: Partial<DataGroupOut> = {}): DataGroupOut {
     state: "live",
     reason: "live",
     required_tier: "Starter",
-    tier_verified: false,
     restricted_since: null,
     last_success_at: null,
     last_error: null,
@@ -81,5 +80,11 @@ describe("text helpers", () => {
     // Price groups have no fallback provider: an off one is what explains a stale/empty Chart or Technical tab.
     expect(TAB_GROUPS.chart).toEqual(expect.arrayContaining(["daily_prices", "daily_prices_long", "intraday_bars"]));
     expect(TAB_GROUPS.technical).toEqual(["daily_prices", "intraday_bars"]);
+  });
+
+  it("never watches `news` -- shelved, not broken, must never trigger the badge", () => {
+    for (const groups of Object.values(TAB_GROUPS)) {
+      expect(groups).not.toContain("news");
+    }
   });
 });

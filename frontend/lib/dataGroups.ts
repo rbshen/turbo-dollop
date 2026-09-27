@@ -45,9 +45,12 @@ export function asOfText(group: DataGroupOut): string {
 /** Which data groups feed each ticker-page tab. Drives the "not refreshing"
  * badge above a tab's content. With no fallback provider an off price group
  * means cached data only -- and an EMPTY Chart tab when no bars are cached -- so the badge is the
- * explanation for both. */
+ * explanation for both. `news` is deliberately absent from every list here
+ * (2026-09-27): it's intentionally shelved (default off, no News tab/card
+ * exists in the UI at all), not broken, so it must never trigger this badge
+ * on a tab it doesn't actually feed anything visible on. */
 export const TAB_GROUPS: Record<string, readonly string[]> = {
-  summary: ["profile_quote", "fundamentals", "segmentation", "news"],
+  summary: ["profile_quote", "fundamentals", "segmentation"],
   financials: ["fundamentals"],
   ratios: ["fundamentals"],
   analysis: ["fundamentals"],
