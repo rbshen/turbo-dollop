@@ -108,12 +108,15 @@ GROUPS: dict[str, GroupMeta] = {
         "Intraday bars", "Premium", True, True,
         ("Warren RSI/ADX/WVF entry signal (2h)", "BB+RSI entry signal (2h)", "Chart tab entry-signal markers"),
     ),
-    # New (institutional-ownership tab): FMP's 13F-derived symbol-positions-summary +
-    # extract-analytics/holder endpoints. Ultimate-tier -- confirmed live 200s on our key
-    # during the feasibility investigation, no cheaper tier documented.
+    # Shelved 2026-09-27 (see CLAUDE.md's "Institutional Ownership" entry) -- same
+    # reasoning as `news`: tried against real tickers, judged low decision-value for
+    # short-premium/short-term trading (13F's quarterly cadence + 45+ day reporting lag
+    # doesn't inform week-to-week decisions). default_enabled=False, mirroring `news`;
+    # everything else (endpoints, mapping, canary) stays live/registered so re-enabling
+    # is a one-line flip, no logic change.
     "institutional_ownership": GroupMeta(
-        "Institutional ownership", "Ultimate", True, True,
-        ("Institutional Ownership tab",),
+        "Institutional ownership", "Ultimate", False, True,
+        ("Institutional Ownership tab (shelved)",),
     ),
 }
 

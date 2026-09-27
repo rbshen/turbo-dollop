@@ -92,10 +92,11 @@ def _isolate_data_groups_engine(monkeypatch):
     first FMPClient.get / cache gate check, so every test needs its own
     fresh in-memory engine for it (same reasoning as
     _isolate_data_source_health_engine). The lazy seed gives the documented
-    defaults: master on, plan Ultimate, every group live except `news`
-    (shelved, default off) -- a test exercising the news feature, or using
-    it as a generic example group, turns it on via
-    data_groups.set_group_enabled("news", True)."""
+    defaults: master on, plan Ultimate, every group live except `news` and
+    `institutional_ownership` (both shelved, default off) -- a test
+    exercising one of those features, or using one as a generic example
+    group, turns it on via data_groups.set_group_enabled("news", True) /
+    data_groups.set_group_enabled("institutional_ownership", True)."""
     import core.data_groups as data_groups
 
     test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)

@@ -6,6 +6,24 @@ already sorted descending by market value). See the feasibility
 investigation this implementation is based on for the full field mapping
 and the data-quality findings behind the plausibility guardrail below.
 
+**Shelved, not deleted (2026-09-27).** The `institutional_ownership` FMP
+Data Group's default is now disabled (`core/data_groups.py`) -- same
+reasoning as Insider Activity's own shelving: tried against real tickers,
+judged low decision-value for short-premium/short-term trading (13F's
+quarterly cadence and 45+ day reporting lag doesn't inform week-to-week
+decisions). `get_institutional_ownership_data`'s existing group-off gate
+(state (a) below) already does the right thing -- returns `enabled: False`
+with no FMP call and no cache read/write -- so no new logic was needed to
+shelve this, only the one-line default flip. The ticker-page tab itself
+(`components/ticker/InstitutionalOwnershipTab.tsx`, `lib/hooks/
+useInstitutionalOwnership.ts`) and this whole module/its schema/route/tests
+are left in the tree, disconnected. **To revive:** turn the
+`institutional_ownership` Data Group on in Settings > Status (no restart),
+re-add `"institutionalOwnership"` to `lib/tickerTabs.ts`'s `TickerTab`
+union and `TICKER_TABS` (between Analyst Ratings and Technical), and the
+`InstitutionalOwnershipTab` branch in `TickerTabsContainer`. Everything
+below describes the feature as built.
+
 Four states the caller must distinguish (InstitutionalOwnershipOut):
   (a) the `institutional_ownership` data group is off -- `enabled=False`,
       nothing fetched at all (no cache read, no FMP call);
