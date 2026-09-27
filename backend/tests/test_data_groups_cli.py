@@ -28,7 +28,10 @@ def test_status_lists_every_group_and_marks_unwired(monkeypatch, capsys):
     out = capsys.readouterr().out
     for key in dg.GROUPS:
         assert key in out
-    assert out.count("[not wired yet]") == 1
+    # No group is currently unwired -- extended_hours (the last one) was
+    # removed 2026-09-27. Kept as a live check rather than deleted outright:
+    # a future seeded-but-unwired group should make this go back to 1.
+    assert out.count("[not wired yet]") == 0
     assert "news" in out and "user_off" in out
 
 

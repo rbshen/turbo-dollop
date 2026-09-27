@@ -54,8 +54,7 @@ class GroupMeta:
     label: str
     default_tier: str
     default_enabled: bool
-    # Wired to real FMP calls. The others are seeded rows only
-    # (extended_hours lands in P5).
+    # Wired to real FMP calls, vs. a seeded-but-unwired row.
     live: bool
     feeds: tuple[str, ...]
 
@@ -79,7 +78,12 @@ GROUPS: dict[str, GroupMeta] = {
         "Index membership", "Starter", True, True,
         ("S&P 500 / Dow / Nasdaq constituent lists", "Screener universe", "Weekly index refresh jobs", "Delisted-ticker flags"),
     ),
-    "corporate_events": GroupMeta("Corporate events", "Premium", True, True, ("Chart earnings/dividend markers", "Earnings / dividends / splits cache")),
+    # Starter, not Premium (2026-09-27): the only endpoints left in this group
+    # after /delisted-companies moved to index_membership -- /earnings,
+    # /dividends, /splits -- are all Starter-tier per FMP's docs. The
+    # Premium default dated from when /delisted-companies (its own,
+    # separately-tiered endpoint) still lived here.
+    "corporate_events": GroupMeta("Corporate events", "Starter", True, True, ("Chart earnings/dividend markers", "Earnings / dividends / splits cache")),
     "daily_prices": GroupMeta(
         "Daily prices", "Premium", True, True,
         (
@@ -99,7 +103,6 @@ GROUPS: dict[str, GroupMeta] = {
         "Intraday bars", "Premium", True, True,
         ("Warren RSI/ADX/WVF entry signal (2h)", "BB+RSI entry signal (2h)", "Chart tab entry-signal markers"),
     ),
-    "extended_hours": GroupMeta("Extended hours", "Premium", True, False, ("(not wired yet -- P5)",)),
 }
 
 # ---------------------------------------------------------------------------

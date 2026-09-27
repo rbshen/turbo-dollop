@@ -21,7 +21,7 @@ def test_get_lists_every_group_with_defaults():
     assert groups["fundamentals"]["state"] == "live"
     assert groups["fundamentals"]["required_tier"] == "Premium"
     assert groups["news"]["state"] == "cached_only" and groups["news"]["enabled"] is False
-    assert groups["daily_prices"]["wired"] is True and groups["intraday_bars"]["wired"] is True and groups["extended_hours"]["wired"] is False
+    assert groups["daily_prices"]["wired"] is True and groups["intraday_bars"]["wired"] is True
     assert "News tab (shelved)" in groups["news"]["feeds"]
 
 

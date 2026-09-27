@@ -769,8 +769,10 @@ class TickerCustomValuationOut(Step3ManualParams):
 class DataGroupOut(BaseModel):
     key: str
     label: str
-    # False for groups seeded for later phases (intraday_bars,
-    # extended_hours): shown in Settings but nothing reads them yet.
+    # False for a group seeded for a later phase, before anything reads it
+    # yet -- still shown in Settings regardless. No group is currently in
+    # that state (extended_hours, the last one, was removed 2026-09-27 --
+    # it never got an endpoint, client method, or call site).
     wired: bool
     enabled: bool  # the user's own toggle
     # Chip: live | cached_only (master off or user off) | not_on_plan |
