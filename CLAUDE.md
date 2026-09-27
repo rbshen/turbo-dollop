@@ -4179,7 +4179,32 @@ table, no new heartbeat wiring.
   HTTP error and nothing is cached). The tab renders two distinct empty states
   off it (`lib/insiderActivity.ts::insiderViewState`) -- never conflate them.
 
-## Institutional Ownership (ticker-page tab, 2026-09-27)
+## Institutional Ownership (ticker-page tab, 2026-09-27) -- SHELVED 2026-09-27
+
+**Shelved, not deleted, the same day it shipped.** Tried against real tickers in live use;
+judged low decision-value for short-premium/short-term trading -- the same conclusion reached
+for Insider Activity: 13F data's quarterly cadence and 45+ day reporting lag doesn't inform
+week-to-week decisions. The `institutional_ownership` FMP Data Group's default flipped to
+disabled (`core/data_groups.py`) -- the existing group-off gate in
+`get_institutional_ownership_data` already did the right thing (state (a) below: `enabled:
+false`, no FMP call, no cache read/write), so shelving needed no new logic, only the one-line
+default flip. The tab is off the ticker page (dropped from `lib/tickerTabs.ts`'s
+`TickerTab`/`TICKER_TABS` and `TickerTabsContainer`, and from `lib/dataGroups.ts`'s
+`TAB_GROUPS` -- both its own entry and the Summary tab's, since nothing on Summary actually
+surfaces institutional-ownership data); it never had a cron job, so Scheduled Jobs needed
+nothing. Nothing was surfaced in Settings > Status to remove (that page is fully data-driven
+off the live group list, same as `news` -- a disabled group just shows as an off toggle row,
+no separate "shelved" listing exists to prune). All backend/frontend code and its tests are
+left in the tree, each carrying a short revival comment (mirroring Insider Activity's own). The
+two cache statement types (`institutional_ownership_summary`, `institutional_ownership_holders`)
+were purged from `FundamentalsCache` 2026-09-27 (224 rows, 23 tickers -- real production usage
+between this feature shipping and being shelved, not test contamination). **To revive:** turn
+the `institutional_ownership` Data Group on in Settings > Status (no restart), re-add
+`"institutionalOwnership"` to the `TickerTab` union and `TICKER_TABS` (between Analyst Ratings
+and Technical), the `InstitutionalOwnershipTab` branch in `TickerTabsContainer`, and its
+`TAB_GROUPS` entries. The seeded conftest state has `institutional_ownership` off (alongside
+`news`); the feature's own tests turn it on explicitly. Everything below describes the feature
+as built -- still accurate documentation of what exists, just now inactive.
 
 A read-only lens on 13F institutional ownership -- never touches Step 1-5/Overall Assessment
 scoring, no Screener/Watchlist surface. New `institutional_ownership` FMP Data Group
@@ -4234,19 +4259,20 @@ symbol-positions-summary` and `institutional-ownership/extract-analytics/holder`
 - **Sentiment**: "Accumulating" if >=3 of the last 4 (present+plausible) quarters have a
   positive `ownershipPercentChange`; "Distributing" if >=3 are negative; else "Neutral" --
   computed only when the latest quarter itself passes the guardrail.
-- **UI**: `useInstitutionalOwnership` + `InstitutionalOwnershipTab.tsx` -- 4 stat cards
-  (ownership %, holder count, shares held vs. Fathom's shares outstanding, sentiment badge),
-  a positions-breakdown tile row (opened/increased/reduced/closed), an 8-quarter trend as
-  **two stacked recharts panels** (ownership % and holder count are on different scales, so
-  never one dual-axis chart -- same reasoning `MarketBreadthCharts`'s own percent-vs-count
-  split documents), and a top-holders table (FMP already sorts `extract-analytics/holder`
-  descending by market value, so "top N" is one call, unlike Insider Activity's own
-  100-row-truncation problem). Wired into `lib/tickerTabs.ts`/`TickerTabsContainer.tsx` right
-  after Analyst Ratings -- the original design's "before Economic Moat" framing no longer
-  matches this file's actual order (Economic Moat already sits *before* Analyst Ratings, not
-  after), so only the unambiguous half of that placement was followed. Also added to
-  `lib/dataGroups.ts`'s `TAB_GROUPS` (its own tab, plus the Summary tab's stale-data badge --
-  this group stays wired in there, unlike the deliberately-excluded shelved `news`).
+- **UI** (as built, before shelving -- `useInstitutionalOwnership` + `InstitutionalOwnershipTab.tsx`,
+  both still in the tree, currently unimported): 4 stat cards (ownership %, holder count, shares
+  held vs. Fathom's shares outstanding, sentiment badge), a positions-breakdown tile row
+  (opened/increased/reduced/closed), an 8-quarter trend as **two stacked recharts panels**
+  (ownership % and holder count are on different scales, so never one dual-axis chart -- same
+  reasoning `MarketBreadthCharts`'s own percent-vs-count split documents), and a top-holders
+  table (FMP already sorts `extract-analytics/holder` descending by market value, so "top N" is
+  one call, unlike Insider Activity's own 100-row-truncation problem). Was wired into
+  `lib/tickerTabs.ts`/`TickerTabsContainer.tsx` right after Analyst Ratings -- the original
+  design's "before Economic Moat" framing never matched this file's actual order (Economic
+  Moat already sits *before* Analyst Ratings, not after), so only the unambiguous half of that
+  placement was followed at the time -- and was also added to `lib/dataGroups.ts`'s
+  `TAB_GROUPS` (its own tab, plus the Summary tab's stale-data badge). All of this wiring was
+  removed as part of the same-day shelving above; the component/hook themselves are unchanged.
 - Verified live end-to-end (no browser) against AAPL, TMP (a real S&P/regional-bank
   small-cap, Tompkins Financial Corp), ARES, and CNSWF (genuinely zero 13F coverage, reads
   `no_coverage: true`).
