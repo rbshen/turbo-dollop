@@ -9,7 +9,6 @@ import { AnalystRatingsTab } from "@/components/ticker/AnalystRatingsTab";
 import { ChartTab } from "@/components/ticker/ChartTab";
 import { EconomicMoatTab } from "@/components/ticker/EconomicMoatTab";
 import { FinancialsTab } from "@/components/ticker/FinancialsTab";
-import { InstitutionalOwnershipTab } from "@/components/ticker/InstitutionalOwnershipTab";
 import { RatiosTab } from "@/components/ticker/RatiosTab";
 import { SummaryTab } from "@/components/ticker/SummaryTab";
 import { TechnicalTab } from "@/components/ticker/TechnicalTab";
@@ -73,7 +72,6 @@ export function TickerTabsContainer({ ticker }: Props) {
         {tab === "ratios" && <RatiosTab ticker={ticker} />}
         {tab === "analysis" && <AnalysisTab ticker={ticker} />}
         {tab === "analystRatings" && <AnalystRatingsTab ticker={ticker} />}
-        {tab === "institutionalOwnership" && <InstitutionalOwnershipTab ticker={ticker} />}
         {tab === "valuation" && <ValuationTab ticker={ticker} />}
         {tab === "moat" && <EconomicMoatTab ticker={ticker} />}
         {tab === "technical" && <TechnicalTab ticker={ticker} />}

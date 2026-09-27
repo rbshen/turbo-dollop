@@ -4,7 +4,6 @@ export type TickerTab =
   | "ratios"
   | "analysis"
   | "analystRatings"
-  | "institutionalOwnership"
   | "valuation"
   | "moat"
   | "technical"
@@ -23,11 +22,18 @@ export interface TickerTabDef {
 // after it (per its own design spec: "next to Technical") -- a separate,
 // also-independent OHLC/indicator view, not part of that blend either.
 //
-// Institutional Ownership sits right after Analyst Ratings -- the slot the
-// original ask described as "after Analyst Ratings, before Economic Moat"
-// no longer exists as written (Economic Moat already sits BEFORE Analyst
-// Ratings in this list, not after), so this follows the unambiguous half
-// of that instruction rather than guessing further.
+// Institutional Ownership is shelved (2026-09-27, same reasoning as Insider
+// Activity -- 13F's quarterly cadence and 45+ day reporting lag doesn't
+// inform short-premium/short-term trading decisions) -- deliberately absent
+// here and from TickerTabsContainer, with the backend gated off by the
+// `institutional_ownership` FMP Data Group (default disabled). Its
+// components (components/ticker/InstitutionalOwnershipTab.tsx, lib/hooks/
+// useInstitutionalOwnership.ts) and all backend data/schema/route code are
+// left in place, disconnected. To revive it: turn the `institutional_
+// ownership` Data Group on in Settings > Status, re-add "institutionalOwnership"
+// to the TickerTab union and an entry here (between Analyst Ratings and
+// Technical), and the InstitutionalOwnershipTab branch in
+// TickerTabsContainer.
 export const TICKER_TABS: TickerTabDef[] = [
   { key: "summary", label: "Summary" },
   { key: "financials", label: "Financials" },
@@ -36,7 +42,6 @@ export const TICKER_TABS: TickerTabDef[] = [
   { key: "valuation", label: "Valuation" },
   { key: "moat", label: "Economic Moat" },
   { key: "analystRatings", label: "Analyst Ratings" },
-  { key: "institutionalOwnership", label: "Institutional Ownership" },
   { key: "technical", label: "Technical" },
   { key: "chart", label: "Chart" },
 ];

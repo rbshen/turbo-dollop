@@ -1,5 +1,10 @@
 "use client";
 
+// Shelved, not deleted (2026-09-27) -- see data/institutional_ownership_data.py's
+// own top-of-file comment for the reasoning (same as Insider Activity's
+// shelving) and the exact revival steps. This component is disconnected --
+// no import of it remains in TickerTabsContainer -- but kept in the tree.
+
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
