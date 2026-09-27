@@ -133,6 +133,13 @@
 }
 
 .dark {
+  /* App is dark-only (no light-mode toggle) but never declared this --
+     native form-control chrome that isn't fully covered by author CSS (a
+     <select>'s own popup option list, residual native decoration) falls
+     back to the browser's light default without it, regardless of the
+     `.dark` class itself (that only gates Tailwind's `dark:` variant,
+     never native UA rendering). */
+  color-scheme: dark;
   --background: oklch(15% 0.014 260);
   --foreground: oklch(93% 0.006 260);
   --card: oklch(20% 0.014 260);

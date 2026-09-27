@@ -8,6 +8,7 @@ import type { LiquidityZoneConfigOut } from "@/lib/api/types";
 import { useLiquidityZoneConfig } from "@/lib/hooks/useLiquidityZoneConfig";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { NumberStepper } from "@/components/ui/NumberStepper";
+import { Select } from "@/components/ui/Select";
 
 type Status = "idle" | "saving" | "saved" | "error";
 
@@ -68,8 +69,6 @@ function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
   }
 
   const labelCls = "flex items-center gap-1.5 text-xs uppercase tracking-widest text-zinc-500";
-  const selectCls =
-    "mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none";
 
   return (
     <div className="space-y-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
@@ -127,15 +126,15 @@ function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
                 text="When there are more valid zones than the cap allows, choose which to keep: 'Nearest price' keeps the zones closest to the current price; 'Most recent' keeps the newest ones instead, regardless of price distance."
               />
             </label>
-            <select
+            <Select
               id="lz-priority"
-              className={selectCls}
+              className="mt-1"
               value={priority}
               onChange={(e) => setPriority(e.target.value as LiquidityZoneConfigOut["over_cap_priority"])}
             >
               <option value="nearest_price">Nearest to price</option>
               <option value="most_recent">Most recent</option>
-            </select>
+            </Select>
           </div>
         </div>
 

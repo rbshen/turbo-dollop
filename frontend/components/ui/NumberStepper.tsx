@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Minus, Plus } from "@phosphor-icons/react";
 
 // Bounded numeric stepper (up/down spin-box): a typable input flanked by
 // -/+ buttons. Typing is still allowed (a click-only control would need up
@@ -51,8 +52,13 @@ export function NumberStepper({
     commit(parsed);
   }
 
+  // Same class vocabulary as the form's own Save button (border-zinc-700/
+  // bg-zinc-800/hover:bg-zinc-700) rather than a separate, subtly-different
+  // zinc-900/zinc-800 combination -- keeps every button on this page
+  // visually consistent with the one the styling report called out as
+  // "styled correctly".
   const buttonCls =
-    "flex h-[30px] w-7 shrink-0 items-center justify-center rounded border border-zinc-800 bg-zinc-900 text-sm text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:text-zinc-400";
+    "flex h-[30px] w-7 shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-zinc-700 disabled:hover:bg-zinc-800";
 
   return (
     <div className="mt-1 flex items-center gap-1">
@@ -63,14 +69,15 @@ export function NumberStepper({
         disabled={disabled || value <= min}
         onClick={() => commit(value - step)}
       >
-        −
+        <Minus size={12} weight="bold" />
       </button>
       <input
         id={id}
         type="text"
         inputMode="decimal"
+        autoComplete="off"
         disabled={disabled}
-        className="w-full min-w-0 rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-center font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none disabled:opacity-40"
+        className="w-full min-w-0 appearance-none rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-center font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none disabled:opacity-40"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={handleBlur}
@@ -87,7 +94,7 @@ export function NumberStepper({
         disabled={disabled || value >= max}
         onClick={() => commit(value + step)}
       >
-        +
+        <Plus size={12} weight="bold" />
       </button>
     </div>
   );
