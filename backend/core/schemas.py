@@ -1629,14 +1629,14 @@ class LiquidityZoneConfigOut(BaseModel):
 
 
 class LiquidityZoneConfigIn(BaseModel):
-    swing_bars_each_side: int = Field(ge=1)
-    cluster_pct: float = Field(ge=0)
-    max_lps_per_side: int = Field(ge=1)
+    swing_bars_each_side: int = Field(ge=1, le=3)
+    cluster_pct: float = Field(ge=0, le=3)
+    max_lps_per_side: int = Field(ge=1, le=10)
     over_cap_priority: Literal["nearest_price", "most_recent"]
     keep_last_breached_support: bool
     keep_last_breached_resistance: bool
     only_keep_if_breached_recently: bool
-    breach_recency_bars: int = Field(ge=0)
+    breach_recency_bars: int = Field(ge=1, le=52)
 
 
 class WeinsteinConfigOut(WeinsteinParamsOut):

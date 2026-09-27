@@ -5,10 +5,14 @@ from sqlmodel import Session
 from analysis.liquidity_zones.types import LiquidityZoneSettings as EngineSettings
 from core.models import LiquidityZoneSettings
 
-# Defaults match the reference Pine script's own input defaults.
+# Defaults originally matched the reference Pine script's own input defaults.
+# cluster_pct/max_lps_per_side resynced 2026-09-27 (Settings UI stepper rework)
+# to the values already hand-tuned live via /settings -- the seed constant, like
+# the data-groups tier constants synced the same day, only matters for a fresh
+# install/reseed and had gone stale relative to what was actually in use.
 DEFAULT_SWING_BARS = 2
-DEFAULT_CLUSTER_PCT = 2.0
-DEFAULT_MAX_LPS_PER_SIDE = 10
+DEFAULT_CLUSTER_PCT = 0.0
+DEFAULT_MAX_LPS_PER_SIDE = 3
 DEFAULT_OVER_CAP_PRIORITY = "nearest_price"
 DEFAULT_BREACH_RECENCY_BARS = 5
 

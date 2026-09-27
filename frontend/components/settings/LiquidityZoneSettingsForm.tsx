@@ -6,6 +6,8 @@ import { mutate } from "swr";
 import { apiPut } from "@/lib/api/client";
 import type { LiquidityZoneConfigOut } from "@/lib/api/types";
 import { useLiquidityZoneConfig } from "@/lib/hooks/useLiquidityZoneConfig";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
+import { NumberStepper } from "@/components/ui/NumberStepper";
 
 type Status = "idle" | "saving" | "saved" | "error";
 
@@ -27,37 +29,30 @@ export function LiquidityZoneSettingsForm() {
     return <p className="text-sm text-zinc-600 animate-pulse">Loading…</p>;
   }
 
-  // Keyed on updated_at so a save remounts this with fresh initial text --
+  // Keyed on updated_at so a save remounts this with fresh initial state --
   // same convention as DiscountRateSettingsForm.
   return <LiquidityZoneForm key={data.updated_at} data={data} />;
 }
 
 function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
-  const [swingBars, setSwingBars] = useState(String(data.swing_bars_each_side));
-  const [clusterPct, setClusterPct] = useState(String(data.cluster_pct));
-  const [maxLps, setMaxLps] = useState(String(data.max_lps_per_side));
+  const [swingBars, setSwingBars] = useState(data.swing_bars_each_side);
+  const [clusterPct, setClusterPct] = useState(data.cluster_pct);
+  const [maxLps, setMaxLps] = useState(data.max_lps_per_side);
   const [priority, setPriority] = useState<LiquidityZoneConfigOut["over_cap_priority"]>(data.over_cap_priority);
   const [keepSupport, setKeepSupport] = useState(data.keep_last_breached_support);
   const [keepResistance, setKeepResistance] = useState(data.keep_last_breached_resistance);
   const [onlyRecent, setOnlyRecent] = useState(data.only_keep_if_breached_recently);
-  const [recencyBars, setRecencyBars] = useState(String(data.breach_recency_bars));
+  const [recencyBars, setRecencyBars] = useState(data.breach_recency_bars);
   const [status, setStatus] = useState<Status>("idle");
 
   async function handleSave() {
-    const numbers = {
-      swing_bars_each_side: parseInt(swingBars, 10),
-      cluster_pct: parseFloat(clusterPct),
-      max_lps_per_side: parseInt(maxLps, 10),
-      breach_recency_bars: parseInt(recencyBars, 10),
-    };
-    if (Object.values(numbers).some((v) => Number.isNaN(v))) {
-      setStatus("error");
-      return;
-    }
     setStatus("saving");
     try {
       await apiPut<LiquidityZoneConfigOut>("/config/liquidity-zones", {
-        ...numbers,
+        swing_bars_each_side: swingBars,
+        cluster_pct: clusterPct,
+        max_lps_per_side: maxLps,
+        breach_recency_bars: recencyBars,
         over_cap_priority: priority,
         keep_last_breached_support: keepSupport,
         keep_last_breached_resistance: keepResistance,
@@ -72,8 +67,8 @@ function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
     }
   }
 
-  const labelCls = "block text-xs uppercase tracking-widest text-zinc-500";
-  const inputCls =
+  const labelCls = "flex items-center gap-1.5 text-xs uppercase tracking-widest text-zinc-500";
+  const selectCls =
     "mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none";
 
   return (
@@ -87,24 +82,57 @@ function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-        <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+        <div className="space-y-4">
           <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Detection</h3>
           <div>
-            <label className={labelCls} htmlFor="lz-swing-bars">Swing bars (each side)</label>
-            <input id="lz-swing-bars" type="number" step="1" min="1" className={inputCls} value={swingBars} onChange={(e) => setSwingBars(e.target.value)} />
+            <label className={labelCls} htmlFor="lz-swing-bars">
+              Swing bars (each side)
+              <InfoTooltip
+                label="About swing bars"
+                text="Bars on EACH side of the pivot. 2 = a 5-bar window (2 left + pivot + 2 right). A swing needs this many bars to its right before it is confirmed."
+              />
+            </label>
+            <NumberStepper id="lz-swing-bars" value={swingBars} onChange={setSwingBars} min={1} max={3} step={1} />
           </div>
           <div>
-            <label className={labelCls} htmlFor="lz-cluster-pct">Cluster % (0 disables)</label>
-            <input id="lz-cluster-pct" type="number" step="0.1" min="0" className={inputCls} value={clusterPct} onChange={(e) => setClusterPct(e.target.value)} />
+            <label className={labelCls} htmlFor="lz-cluster-pct">
+              Cluster % (0 disables)
+              <InfoTooltip
+                label="About cluster %"
+                text="Merge consecutive valid liquidity zones within this % of each other into one zone. Support zones are represented by their LOWEST price; resistance zones by their HIGHEST price. 0 = clustering off."
+              />
+            </label>
+            <NumberStepper id="lz-cluster-pct" value={clusterPct} onChange={setClusterPct} min={0} max={3} step={0.1} />
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Display</h3>
+          <div>
+            <label className={labelCls} htmlFor="lz-max-lps">
+              Max zones per side
+              <InfoTooltip
+                label="About max zones per side"
+                text="Cap on how many valid zones to show per side. The last-breached zone (if enabled below) is shown separately and does not count toward this cap."
+              />
+            </label>
+            <NumberStepper id="lz-max-lps" value={maxLps} onChange={setMaxLps} min={1} max={10} step={1} />
           </div>
           <div>
-            <label className={labelCls} htmlFor="lz-max-lps">Max zones per side</label>
-            <input id="lz-max-lps" type="number" step="1" min="1" className={inputCls} value={maxLps} onChange={(e) => setMaxLps(e.target.value)} />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="lz-priority">When over the cap, keep</label>
-            <select id="lz-priority" className={inputCls} value={priority} onChange={(e) => setPriority(e.target.value as LiquidityZoneConfigOut["over_cap_priority"])}>
+            <label className={labelCls} htmlFor="lz-priority">
+              When over the cap, keep
+              <InfoTooltip
+                label="About over-cap priority"
+                text="When there are more valid zones than the cap allows, choose which to keep: 'Nearest price' keeps the zones closest to the current price; 'Most recent' keeps the newest ones instead, regardless of price distance."
+              />
+            </label>
+            <select
+              id="lz-priority"
+              className={selectCls}
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as LiquidityZoneConfigOut["over_cap_priority"])}
+            >
               <option value="nearest_price">Nearest to price</option>
               <option value="most_recent">Most recent</option>
             </select>
@@ -112,7 +140,7 @@ function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
         </div>
 
         <div className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Last breached LP</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Last breached Liquidity</h3>
           <label className="flex items-center gap-2 text-sm text-zinc-300">
             <input type="checkbox" checked={keepSupport} onChange={(e) => setKeepSupport(e.target.checked)} />
             Keep last breached support
@@ -125,9 +153,23 @@ function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
             <input type="checkbox" checked={onlyRecent} onChange={(e) => setOnlyRecent(e.target.checked)} />
             Only keep if breached recently
           </label>
-          <div>
-            <label className={labelCls} htmlFor="lz-recency">Breach recency (bars)</label>
-            <input id="lz-recency" type="number" step="1" min="0" className={inputCls} value={recencyBars} onChange={(e) => setRecencyBars(e.target.value)} disabled={!onlyRecent} />
+          <div className={`ml-3 border-l border-zinc-800 pl-3 transition-opacity ${onlyRecent ? "" : "opacity-40"}`}>
+            <label className={labelCls} htmlFor="lz-recency">
+              Breach recency (bars)
+              <InfoTooltip
+                label="About breach recency"
+                text="A breached zone is only eligible to be kept and shown if its breach happened within this many bars of the most recent bar."
+              />
+            </label>
+            <NumberStepper
+              id="lz-recency"
+              value={recencyBars}
+              onChange={setRecencyBars}
+              min={1}
+              max={52}
+              step={1}
+              disabled={!onlyRecent}
+            />
           </div>
         </div>
       </div>

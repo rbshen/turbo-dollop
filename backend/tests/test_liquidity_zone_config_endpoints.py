@@ -65,3 +65,11 @@ def test_put_rejects_invalid_values(monkeypatch):
     assert client.put("/api/config/liquidity-zones", json={**_VALID_BODY, "max_lps_per_side": 0}).status_code == 422
     assert client.put("/api/config/liquidity-zones", json={**_VALID_BODY, "swing_bars_each_side": 0}).status_code == 422
     assert client.put("/api/config/liquidity-zones", json={**_VALID_BODY, "cluster_pct": -1}).status_code == 422
+
+    # Upper bounds (stepper max values -- Settings UI rework, 2026-09-27).
+    assert client.put("/api/config/liquidity-zones", json={**_VALID_BODY, "swing_bars_each_side": 4}).status_code == 422
+    assert client.put("/api/config/liquidity-zones", json={**_VALID_BODY, "cluster_pct": 3.1}).status_code == 422
+    assert client.put("/api/config/liquidity-zones", json={**_VALID_BODY, "max_lps_per_side": 11}).status_code == 422
+    assert client.put("/api/config/liquidity-zones", json={**_VALID_BODY, "breach_recency_bars": 53}).status_code == 422
+    # breach_recency_bars' floor tightened 0 -> 1 in the same rework.
+    assert client.put("/api/config/liquidity-zones", json={**_VALID_BODY, "breach_recency_bars": 0}).status_code == 422
