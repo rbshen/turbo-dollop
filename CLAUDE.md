@@ -4179,6 +4179,78 @@ table, no new heartbeat wiring.
   HTTP error and nothing is cached). The tab renders two distinct empty states
   off it (`lib/insiderActivity.ts::insiderViewState`) -- never conflate them.
 
+## Institutional Ownership (ticker-page tab, 2026-09-27)
+
+A read-only lens on 13F institutional ownership -- never touches Step 1-5/Overall Assessment
+scoring, no Screener/Watchlist surface. New `institutional_ownership` FMP Data Group
+(**Ultimate tier** -- both endpoints below confirmed live 200s on our key during the
+feasibility investigation, no cheaper tier documented), registered in `core/data_groups.py`
+(`GROUPS`, `ENDPOINT_GROUP`, `STATEMENT_TYPE_GROUP`, `PROBE_ENDPOINTS` -- a fixed 2020 Q1
+AAPL canary, since the *current* quarter is never a safe canary: it routinely reads empty
+pre-filing). Two `FMPClient` methods (`get_institutional_ownership_summary`,
+`get_institutional_ownership_holders`) wrap FMP's `institutional-ownership/
+symbol-positions-summary` and `institutional-ownership/extract-analytics/holder`.
+
+- **Data / four-state model** (`data/institutional_ownership_data.py`, `GET /api/tickers/
+  {ticker}/institutional-ownership`): (a) group off -> `enabled: false`, nothing fetched at
+  all (no cache read, no FMP call); (b) genuinely no 13F coverage (every quarter in the
+  anchor-search window comes back empty) -> `no_coverage: true`; (c) the LATEST quarter fails
+  the plausibility guardrail below -> the headline stat cards + sentiment badge degrade to
+  `note`, but `positions`/`top_holders` still render (computed independently of the guardrail);
+  an OLDER quarter failing it just drops that one point from the 8-quarter `trend`
+  (`trend_quarters_shown` reports how many survived); (d) a normal complete read. Neither
+  `year` nor `quarter` is optional on FMP's own summary endpoint (a 400 without both) and
+  there's no bulk/multi-quarter mode -- one call per quarter.
+- **Caching: real, not fetch-fresh-per-view.** Both endpoints go through the standard
+  `FundamentalsCache`/`core.cache.get_or_fetch` machinery (statement types
+  `institutional_ownership_summary`/`institutional_ownership_holders`, period `"<year>Q
+  <quarter>"` per quarter) with a **dedicated `INSTITUTIONAL_OWNERSHIP_STALENESS_DAYS` (7)**
+  constant -- mirroring the old `insider_staleness_days` convention (a per-feature window,
+  not the shared `cache_staleness_days` default) -- rather than fetching fresh on every tab
+  view. `as_of_quarter`/`fetched_at`/`data_stale_warning` are read directly off the anchor
+  quarter's own `FundamentalsCache` row (same "re-read the row for its metadata" convention
+  `analyst_ratings_data.py`'s `grades_consensus_row` uses), not a placeholder.
+- **Refetch-grace-window gate, on top of the flat staleness clock above.** SEC's 13F deadline
+  is 45 calendar days after quarter-end, but real filings trickle in well past it (confirmed
+  live: an AAPL holder's `filingDate` landed ~5.5 weeks after that deadline) -- so a quarter
+  stays in the normal ~weekly refetch rotation through `FILING_DEADLINE_DAYS` (45) +
+  `REFETCH_GRACE_DAYS` (56), i.e. ~101 days past its own quarter-end. Past that, an
+  **already-cached** quarter is served frozen forever (no further live attempts, regardless of
+  how stale the flat 7-day clock says it is) -- a quarter with **no cached row at all yet** is
+  always fetched at least once no matter how old, since this gate only stops *repeating* an
+  attempt, not the first one. Without this, every tab view of an old, fully-settled quarter
+  would otherwise re-hit FMP every ~7 days forever.
+- **Plausibility guardrail** (`_quarter_is_plausible`): a quarter's ownership figures are
+  hidden if `ownershipPercent` is `<0` or `>98%`, OR if the implied shares-outstanding
+  (`numberOf13Fshares / (ownershipPercent/100)`) diverges more than 15% from Fathom's own
+  `helpers/shares.py::compute_shares_outstanding` -- **`shares_outstanding` on the tab is
+  always Fathom's own figure, never FMP's derived one**, which the feasibility investigation
+  found diverges materially on dual-class/GP-LP names. Confirmed live against **ARES**: every
+  single tracked quarter's 13F-implied share count diverges 15-32% from Fathom's own
+  `marketCap/price` figure (one quarter reads >100% outright), so the guardrail correctly
+  hides the stat cards/sentiment/entire 8-quarter trend for it (`trend_quarters_shown: 0`)
+  while `positions`/`top_holders` -- computed independently -- still render normally. This is
+  a genuine, structural characteristic of that ticker's data, not an implementation bug.
+- **Sentiment**: "Accumulating" if >=3 of the last 4 (present+plausible) quarters have a
+  positive `ownershipPercentChange`; "Distributing" if >=3 are negative; else "Neutral" --
+  computed only when the latest quarter itself passes the guardrail.
+- **UI**: `useInstitutionalOwnership` + `InstitutionalOwnershipTab.tsx` -- 4 stat cards
+  (ownership %, holder count, shares held vs. Fathom's shares outstanding, sentiment badge),
+  a positions-breakdown tile row (opened/increased/reduced/closed), an 8-quarter trend as
+  **two stacked recharts panels** (ownership % and holder count are on different scales, so
+  never one dual-axis chart -- same reasoning `MarketBreadthCharts`'s own percent-vs-count
+  split documents), and a top-holders table (FMP already sorts `extract-analytics/holder`
+  descending by market value, so "top N" is one call, unlike Insider Activity's own
+  100-row-truncation problem). Wired into `lib/tickerTabs.ts`/`TickerTabsContainer.tsx` right
+  after Analyst Ratings -- the original design's "before Economic Moat" framing no longer
+  matches this file's actual order (Economic Moat already sits *before* Analyst Ratings, not
+  after), so only the unambiguous half of that placement was followed. Also added to
+  `lib/dataGroups.ts`'s `TAB_GROUPS` (its own tab, plus the Summary tab's stale-data badge --
+  this group stays wired in there, unlike the deliberately-excluded shelved `news`).
+- Verified live end-to-end (no browser) against AAPL, TMP (a real S&P/regional-bank
+  small-cap, Tompkins Financial Corp), ARES, and CNSWF (genuinely zero 13F coverage, reads
+  `no_coverage: true`).
+
 ## Workflow rules
 
 - **Plan Mode by default.** Propose a plan and wait for confirmation before
