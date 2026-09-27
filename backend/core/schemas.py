@@ -2084,3 +2084,97 @@ class NewsOut(BaseModel):
     ticker: str
     articles: list[NewsArticle]
 
+
+class InstitutionalOwnershipQuarterOut(BaseModel):
+    """One quarter's point on the ownership-%/holder-count trend chart --
+    see data/institutional_ownership_data.py. Only quarters that were both
+    filed (FMP returned a real row) and passed the plausibility guardrail
+    appear here at all; a dropped quarter is invisible to this list, not
+    represented with nulls -- InstitutionalOwnershipOut.trend_quarters_shown
+    is how the frontend knows fewer than trend_quarters_total are present."""
+
+    year: int
+    quarter: int
+    date: date
+    ownership_percent: float | None = None
+    ownership_percent_change: float | None = None
+    investors_holding: int | None = None
+    investors_holding_change: int | None = None
+
+
+class InstitutionalOwnershipPositionsOut(BaseModel):
+    """This quarter's opened/increased/reduced/closed 13F position counts.
+    Computed independently of InstitutionalOwnershipOut.ownership_valid --
+    a quarter whose ownership%/shares-outstanding relationship fails the
+    plausibility guardrail can still have perfectly good position counts,
+    so this renders even when the headline stat cards don't."""
+
+    opened: int
+    opened_change: int | None = None
+    increased: int
+    increased_change: int | None = None
+    reduced: int
+    reduced_change: int | None = None
+    closed: int
+    closed_change: int | None = None
+
+
+class InstitutionalHolderOut(BaseModel):
+    """One row of the top-holders table (extract-analytics/holder), already
+    sorted descending by market_value by FMP itself -- no client-side
+    re-sort needed."""
+
+    investor_name: str
+    market_value: float | None = None
+    market_value_change_pct: float | None = None
+    shares: float | None = None
+    shares_change_pct: float | None = None
+
+
+class InstitutionalOwnershipOut(BaseModel):
+    """The Institutional Ownership ticker-page tab -- see
+    data/institutional_ownership_data.py for the full four-state mechanism
+    this represents (group disabled / no 13F coverage / a plausibility
+    guardrail degrading just the headline stats / a normal complete read).
+    Deliberately not a single top-level success/failure: `enabled`,
+    `no_coverage`, and `ownership_valid` are independent flags a consumer
+    must check separately, since `positions`/`top_holders` can be populated
+    even when `ownership_valid` is false.
+
+    `shares_outstanding` is always Fathom's own
+    helpers.shares.compute_shares_outstanding figure, never FMP's own
+    implied one (numberOf13Fshares / (ownershipPercent/100)) -- the
+    feasibility investigation found the latter diverges materially on
+    dual-class/GP-LP names (and reads >100% for at least one real ticker,
+    ARES) and would be a second, silently-inconsistent shares-outstanding
+    figure on the same page. `shares_held` is FMP's own numberOf13Fshares
+    for the latest quarter (a real filed count, not derived)."""
+
+    ticker: str
+    enabled: bool
+    no_coverage: bool
+    as_of_quarter: str | None = None  # "2026Q2"
+    as_of_date: date | None = None
+    fetched_at: datetime | None = None
+    # True only when the last successful fetch is older than ~4 months --
+    # on top of, not instead of, the normal ~weekly cache refetch attempts
+    # (13F filings trickle in well past the nominal 45-day deadline).
+    data_stale_warning: bool = False
+    ownership_valid: bool
+    ownership_percent: float | None = None
+    ownership_percent_change: float | None = None
+    holder_count: int | None = None
+    holder_count_change: int | None = None
+    shares_held: float | None = None
+    shares_outstanding: float | None = None
+    shares_outstanding_source: str | None = None
+    sentiment: str | None = None  # "Accumulating" | "Neutral" | "Distributing"
+    sentiment_rising_count: int | None = None  # of the last 4 quarters
+    positions: InstitutionalOwnershipPositionsOut | None = None
+    trend: list[InstitutionalOwnershipQuarterOut] = []
+    trend_quarters_shown: int = 0
+    trend_quarters_total: int = 8
+    top_holders: list[InstitutionalHolderOut] = []
+    # Explains a degraded ownership_valid=False state -- None otherwise.
+    note: str | None = None
+

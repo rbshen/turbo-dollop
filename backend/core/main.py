@@ -12,6 +12,7 @@ from sqlalchemy import and_, or_
 from sqlmodel import Session, func, select
 
 from data.analyst_ratings_data import get_analyst_ratings_data
+from data.institutional_ownership_data import get_institutional_ownership_data
 from helpers.bank_capital_metrics import get_ticker_bank_capital_metrics, set_ticker_bank_capital_metrics
 from core.config import settings  # noqa: F401  (tests patch main.settings)
 from core.cron_health import get_cron_health
@@ -58,6 +59,7 @@ from core.schemas import (
     DataGroupPlanIn,
     DataGroupUpdateIn,
     DataGroupsOut,
+    InstitutionalOwnershipOut,
     LiquidityZoneConfigIn,
     WeinsteinConfigIn,
     WeinsteinConfigOut,
@@ -675,6 +677,14 @@ async def ticker_segmentation(ticker: str) -> SegmentationOut:
 async def ticker_analyst_ratings(ticker: str) -> AnalystRatingsOut:
     try:
         return await get_analyst_ratings_data(ticker)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="FMP request failed") from exc
+
+
+@app.get("/api/tickers/{ticker}/institutional-ownership", response_model=InstitutionalOwnershipOut)
+async def ticker_institutional_ownership(ticker: str) -> InstitutionalOwnershipOut:
+    try:
+        return await get_institutional_ownership_data(ticker)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
 
