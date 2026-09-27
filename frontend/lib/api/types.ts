@@ -1086,6 +1086,65 @@ export interface NewsOut {
   articles: NewsArticle[];
 }
 
+export interface InstitutionalOwnershipQuarterOut {
+  year: number;
+  quarter: number;
+  date: string;
+  ownership_percent: number | null;
+  ownership_percent_change: number | null;
+  investors_holding: number | null;
+  investors_holding_change: number | null;
+}
+
+export interface InstitutionalOwnershipPositionsOut {
+  opened: number;
+  opened_change: number | null;
+  increased: number;
+  increased_change: number | null;
+  reduced: number;
+  reduced_change: number | null;
+  closed: number;
+  closed_change: number | null;
+}
+
+export interface InstitutionalHolderOut {
+  investor_name: string;
+  market_value: number | null;
+  market_value_change_pct: number | null;
+  shares: number | null;
+  shares_change_pct: number | null;
+}
+
+export interface InstitutionalOwnershipOut {
+  ticker: string;
+  enabled: boolean;
+  no_coverage: boolean;
+  as_of_quarter: string | null;
+  as_of_date: string | null;
+  fetched_at: string | null;
+  data_stale_warning: boolean;
+  // False when the LATEST quarter fails the plausibility guardrail --
+  // ownership_percent/holder_count/shares_held/sentiment are all null and
+  // `note` explains why; `positions`/`top_holders` are computed
+  // independently and can still be populated either way.
+  ownership_valid: boolean;
+  ownership_percent: number | null;
+  ownership_percent_change: number | null;
+  holder_count: number | null;
+  holder_count_change: number | null;
+  shares_held: number | null;
+  shares_outstanding: number | null;
+  shares_outstanding_source: string | null;
+  sentiment: "Accumulating" | "Neutral" | "Distributing" | null;
+  sentiment_rising_count: number | null;
+  positions: InstitutionalOwnershipPositionsOut | null;
+  trend: InstitutionalOwnershipQuarterOut[];
+  trend_quarters_shown: number;
+  trend_quarters_total: number;
+  top_holders: InstitutionalHolderOut[];
+  note: string | null;
+}
+
 export interface WatchlistTickerOut {
   ticker: string;
   added_at: string;

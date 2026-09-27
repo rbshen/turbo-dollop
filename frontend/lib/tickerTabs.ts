@@ -4,6 +4,7 @@ export type TickerTab =
   | "ratios"
   | "analysis"
   | "analystRatings"
+  | "institutionalOwnership"
   | "valuation"
   | "moat"
   | "technical"
@@ -22,6 +23,11 @@ export interface TickerTabDef {
 // after it (per its own design spec: "next to Technical") -- a separate,
 // also-independent OHLC/indicator view, not part of that blend either.
 //
+// Institutional Ownership sits right after Analyst Ratings -- the slot the
+// original ask described as "after Analyst Ratings, before Economic Moat"
+// no longer exists as written (Economic Moat already sits BEFORE Analyst
+// Ratings in this list, not after), so this follows the unambiguous half
+// of that instruction rather than guessing further.
 export const TICKER_TABS: TickerTabDef[] = [
   { key: "summary", label: "Summary" },
   { key: "financials", label: "Financials" },
@@ -30,6 +36,7 @@ export const TICKER_TABS: TickerTabDef[] = [
   { key: "valuation", label: "Valuation" },
   { key: "moat", label: "Economic Moat" },
   { key: "analystRatings", label: "Analyst Ratings" },
+  { key: "institutionalOwnership", label: "Institutional Ownership" },
   { key: "technical", label: "Technical" },
   { key: "chart", label: "Chart" },
 ];

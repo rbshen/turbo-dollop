@@ -50,11 +50,12 @@ export function asOfText(group: DataGroupOut): string {
  * exists in the UI at all), not broken, so it must never trigger this badge
  * on a tab it doesn't actually feed anything visible on. */
 export const TAB_GROUPS: Record<string, readonly string[]> = {
-  summary: ["profile_quote", "fundamentals", "segmentation"],
+  summary: ["profile_quote", "fundamentals", "segmentation", "institutional_ownership"],
   financials: ["fundamentals"],
   ratios: ["fundamentals"],
   analysis: ["fundamentals"],
   analystRatings: ["analyst_ratings", "daily_prices_long"],
+  institutionalOwnership: ["institutional_ownership"],
   valuation: ["fundamentals"],
   technical: ["daily_prices", "intraday_bars"],
   chart: ["corporate_events", "daily_prices", "daily_prices_long", "intraday_bars"],
