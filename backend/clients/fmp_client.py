@@ -398,6 +398,30 @@ class FMPClient:
     async def get_nasdaq_constituents(self) -> dict | list:
         return await self.get("/nasdaq-constituent")
 
+    async def get_institutional_ownership_summary(self, ticker: str, year: int, quarter: int) -> dict | list:
+        # One quarter per call -- `year`/`quarter` are both mandatory (a 400
+        # otherwise), no bulk/multi-quarter mode exists. An empty list means
+        # "not yet filed" for that quarter (confirmed live: even the
+        # genuinely in-progress current quarter returns [] rather than a
+        # partial/misleading row), not a fetch failure -- callers must not
+        # treat it as one. See data/institutional_ownership_data.py.
+        return await self.get(
+            "/institutional-ownership/symbol-positions-summary",
+            {"symbol": ticker, "year": year, "quarter": quarter},
+        )
+
+    async def get_institutional_ownership_holders(
+        self, ticker: str, year: int, quarter: int, page: int = 0, limit: int = 15
+    ) -> dict | list:
+        # Confirmed live: already sorted descending by marketValue, so "top
+        # N holders" is one call (page=0, limit=N), not fetch-and-sort --
+        # unlike Insider Activity's own paging problem. FMP caps `limit` at
+        # 100 regardless of a higher requested value.
+        return await self.get(
+            "/institutional-ownership/extract-analytics/holder",
+            {"symbol": ticker, "year": year, "quarter": quarter, "page": page, "limit": limit},
+        )
+
     async def get_financial_statement_full_as_reported(self, ticker: str, period: str, limit: int) -> dict | list:
         # Raw SEC-XBRL-tag dump, NOT the standardized schema the other
         # methods above use -- field names are the filer's own XBRL tags, so

@@ -108,6 +108,13 @@ GROUPS: dict[str, GroupMeta] = {
         "Intraday bars", "Premium", True, True,
         ("Warren RSI/ADX/WVF entry signal (2h)", "BB+RSI entry signal (2h)", "Chart tab entry-signal markers"),
     ),
+    # New (institutional-ownership tab): FMP's 13F-derived symbol-positions-summary +
+    # extract-analytics/holder endpoints. Ultimate-tier -- confirmed live 200s on our key
+    # during the feasibility investigation, no cheaper tier documented.
+    "institutional_ownership": GroupMeta(
+        "Institutional ownership", "Ultimate", True, True,
+        ("Institutional Ownership tab",),
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -162,6 +169,8 @@ ENDPOINT_GROUP: dict[str, str] = {
     # tracked-ticker universe membership, the same job family as the index
     # scrapers, not earnings/dividends/splits.
     "/delisted-companies": "index_membership",
+    "/institutional-ownership/symbol-positions-summary": "institutional_ownership",
+    "/institutional-ownership/extract-analytics/holder": "institutional_ownership",
 }
 
 # Endpoints reached by more than one group, and the group each caller passes
@@ -194,6 +203,10 @@ PROBE_ENDPOINTS: dict[str, tuple[str, dict]] = {
     # A long-history canary: a window older than the 5y Starter horizon.
     "daily_prices_long": ("/historical-price-eod/full", {"symbol": "AAPL", "from": "2016-01-04", "to": "2016-01-08"}),
     "intraday_bars": ("/historical-chart/1hour", {"symbol": "AAPL", "from": "2024-01-02", "to": "2024-01-03"}),
+    # A fixed historical quarter confirmed (feasibility investigation) to have real
+    # AAPL 13F data -- cheap, single-row, and stable indefinitely (unlike the current
+    # quarter, which is never a safe canary since it's routinely empty pre-filing).
+    "institutional_ownership": ("/institutional-ownership/symbol-positions-summary", {"symbol": "AAPL", "year": 2020, "quarter": 1}),
 }
 
 # Bulk/batch endpoints (none are used today -- Rule: never call them). If one
@@ -230,6 +243,8 @@ STATEMENT_TYPE_GROUP: dict[str, str] = {
     # the Debt/fundamentals cross-check; it was paused by the old global flag,
     # so it rides with `fundamentals` to keep that behaviour.
     "sec_company_facts": "fundamentals",
+    "institutional_ownership_summary": "institutional_ownership",
+    "institutional_ownership_holders": "institutional_ownership",
 }
 
 
