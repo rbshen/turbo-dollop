@@ -19,7 +19,7 @@ def test_get_lists_every_group_with_defaults():
     groups = _by_key(body)
     assert list(groups) == list(dg.GROUPS)
     assert groups["fundamentals"]["state"] == "live"
-    assert groups["fundamentals"]["required_tier"] == "Premium"
+    assert groups["fundamentals"]["required_tier"] == "Starter"
     assert groups["news"]["state"] == "cached_only" and groups["news"]["enabled"] is False
     assert groups["daily_prices"]["wired"] is True and groups["intraday_bars"]["wired"] is True
     assert "News tab (shelved)" in groups["news"]["feeds"]
@@ -52,7 +52,7 @@ def test_group_above_plan_reads_not_on_plan():
     with TestClient(app) as client:
         body = client.put("/api/config/data-groups/plan", json={"fmp_plan": "Starter"}).json()
     groups = _by_key(body)
-    assert groups["fundamentals"]["state"] == "not_on_plan" and groups["fundamentals"]["can_toggle"] is False
+    assert groups["index_membership"]["state"] == "not_on_plan" and groups["index_membership"]["can_toggle"] is False
     assert groups["profile_quote"]["state"] == "live"
 
 

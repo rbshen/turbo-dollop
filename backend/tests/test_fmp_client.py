@@ -242,7 +242,7 @@ def test_above_plan_and_restricted_groups_refuse_live_calls(monkeypatch):
     _dg.set_fmp_plan("Starter")
     client = FMPClient(api_key="x")
     with pytest.raises(FMPGroupDisabledError):
-        asyncio.run(client.get_ratios("AAPL"))  # fundamentals needs Premium
+        asyncio.run(client.get_dowjones_constituents())  # index_membership needs Premium
     _dg.set_fmp_plan("Ultimate")
     _dg.mark_restricted("news", "402")
     with pytest.raises(FMPGroupDisabledError):

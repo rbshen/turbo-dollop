@@ -60,8 +60,13 @@ class GroupMeta:
 
 
 GROUPS: dict[str, GroupMeta] = {
+    # Seed defaults below (fundamentals/daily_prices/index_membership/segmentation/
+    # analyst_ratings) synced 2026-09-27 to match the live DB's confirmed-correct
+    # required_tier values -- they only matter at first-time row creation (a fresh
+    # install, or a reseeded row) and had gone stale after the live values were
+    # corrected by hand at some point without the constant being updated to match.
     "fundamentals": GroupMeta(
-        "Fundamentals", "Premium", True, True,
+        "Fundamentals", "Starter", True, True,
         ("Analysis tab (Steps 1-5)", "Valuation", "Screener scores", "Watchlist scores", "Nightly fundamentals fetch"),
     ),
     "profile_quote": GroupMeta(
@@ -69,13 +74,13 @@ GROUPS: dict[str, GroupMeta] = {
         ("Ticker header (price, change, market cap)", "Ticker search", "Refresh button"),
     ),
     "analyst_ratings": GroupMeta(
-        "Analyst ratings", "Premium", True, True,
+        "Analyst ratings", "Starter", True, True,
         ("Analyst Ratings tab", "Watchlist rating column", "Nightly price-target snapshot"),
     ),
-    "segmentation": GroupMeta("Segmentation", "Premium", True, True, ("Segmentation card",)),
+    "segmentation": GroupMeta("Segmentation", "Starter", True, True, ("Segmentation card",)),
     "news": GroupMeta("News", "Starter", False, True, ("News tab (shelved)",)),
     "index_membership": GroupMeta(
-        "Index membership", "Starter", True, True,
+        "Index membership", "Premium", True, True,
         ("S&P 500 / Dow / Nasdaq constituent lists", "Screener universe", "Weekly index refresh jobs", "Delisted-ticker flags"),
     ),
     # Starter, not Premium (2026-09-27): the only endpoints left in this group
@@ -85,7 +90,7 @@ GROUPS: dict[str, GroupMeta] = {
     # separately-tiered endpoint) still lived here.
     "corporate_events": GroupMeta("Corporate events", "Starter", True, True, ("Chart earnings/dividend markers", "Earnings / dividends / splits cache")),
     "daily_prices": GroupMeta(
-        "Daily prices", "Premium", True, True,
+        "Daily prices", "Starter", True, True,
         (
             "Trend / Weinstein stage", "Liquidity Zones", "Sector Heatmap", "Market Breadth", "Momentum",
             "Chart tab (daily ranges)", "Header avg-volume / dollar-volume",
