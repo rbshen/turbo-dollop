@@ -8,7 +8,7 @@ import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 import type { MarketBreadthPointOut } from "@/lib/api/types";
 import { fmtEventDate } from "@/lib/chartEventMarkers";
 import { capXAxisTickInterval, computeNiceTicksRange } from "@/lib/charts";
-import { clampWindowStart, defaultWindowStart, firstLiveIndex, fmtAxisMonth, fmtBreadthPct, fmtSignedCount, panWindowStart } from "@/lib/marketBreadth";
+import { clampWindowStart, defaultWindowStart, liveBoundaryIndex, fmtAxisMonth, fmtBreadthPct, fmtSignedCount, panWindowStart } from "@/lib/marketBreadth";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -149,7 +149,7 @@ function BreadthChartsInner({ series }: Props) {
     drag.current = null;
     setDragging(false);
   };
-  const liveAt = firstLiveIndex(series);
+  const liveAt = liveBoundaryIndex(series);
   // Only a boundary worth marking when there IS a backfilled past before the first live session.
   const boundaryDate = liveAt > 0 ? series[liveAt].as_of_date : null;
   const tickInterval = capXAxisTickInterval(visible.length, 8);

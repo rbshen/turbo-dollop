@@ -4,7 +4,7 @@ import type { MarketBreadthPointOut } from "@/lib/api/types";
 import {
   clampWindowStart,
   defaultWindowStart,
-  firstLiveIndex,
+  liveBoundaryIndex,
   fmtAxisMonth,
   fmtBreadthPct,
   fmtSignedCount,
@@ -20,14 +20,25 @@ const point = (as_of_date: string, is_backfilled: boolean): MarketBreadthPointOu
   net_new_highs: 0, constituents: 2, stale_excluded: 0, sma20_eligible: 2, sma50_eligible: 2, sma200_eligible: 2, hl_eligible: 2, is_backfilled,
 });
 
-describe("firstLiveIndex", () => {
-  it("finds the boundary between the backfilled past and live rows", () => {
-    expect(firstLiveIndex([point("2026-09-16", true), point("2026-09-17", true), point("2026-09-18", false), point("2026-09-19", false)])).toBe(2);
+describe("liveBoundaryIndex", () => {
+  it("clean series: the boundary between the backfilled past and live rows", () => {
+    expect(liveBoundaryIndex([point("2026-09-16", true), point("2026-09-17", true), point("2026-09-18", false), point("2026-09-19", false)])).toBe(2);
   });
-  it("is -1 when every session is backfilled, and 0 when none is", () => {
-    expect(firstLiveIndex([point("2026-09-17", true), point("2026-09-18", true)])).toBe(-1);
-    expect(firstLiveIndex([point("2026-09-17", false)])).toBe(0);
-    expect(firstLiveIndex([])).toBe(-1);
+  it("skips a single backfilled gap after live recording began (the sp500 09-22 case)", () => {
+    const s = [
+      point("2026-09-18", true), point("2026-09-19", true), point("2026-09-21", false), point("2026-09-22", true),
+      point("2026-09-23", false), point("2026-09-24", false),
+    ];
+    expect(liveBoundaryIndex(s)).toBe(4);
+    expect(s[liveBoundaryIndex(s)].as_of_date).toBe("2026-09-23");
+  });
+  it("is -1 with no live rows at all (or empty), and 0 when nothing is backfilled", () => {
+    expect(liveBoundaryIndex([point("2026-09-17", true), point("2026-09-18", true)])).toBe(-1);
+    expect(liveBoundaryIndex([])).toBe(-1);
+    expect(liveBoundaryIndex([point("2026-09-17", false)])).toBe(0);
+  });
+  it("is -1 when the newest row is backfilled even if earlier rows were live", () => {
+    expect(liveBoundaryIndex([point("2026-09-17", false), point("2026-09-18", true)])).toBe(-1);
   });
 });
 

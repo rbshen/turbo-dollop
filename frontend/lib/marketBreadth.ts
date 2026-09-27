@@ -1,9 +1,16 @@
 import type { MarketBreadthPointOut } from "@/lib/api/types";
 
-/** Index of the first LIVE (point-in-time) session, or -1 when every session is backfilled. Rows are
- * oldest first and a backfill only ever covers the past, so this is the boundary between the two. */
-export function firstLiveIndex(series: MarketBreadthPointOut[]): number {
-  return series.findIndex((p) => !p.is_backfilled);
+/** Index where the data becomes CONTIGUOUSLY live: the row right after the LAST backfilled row (0 when
+ * nothing is backfilled), or -1 when there is no live row after it (every session backfilled, or empty).
+ * Rows are oldest first. A backfilled row sandwiched between live ones (a night whose live run failed the
+ * coverage gate and was later filled in) pushes the boundary past it, so the marker never sits before a gap. */
+export function liveBoundaryIndex(series: MarketBreadthPointOut[]): number {
+  let lastBackfilled = -1;
+  series.forEach((p, i) => {
+    if (p.is_backfilled) lastBackfilled = i;
+  });
+  const idx = lastBackfilled + 1;
+  return idx < series.length ? idx : -1;
 }
 
 /** Index of the first session inside the trailing year ending at the newest session (oldest-first rows).

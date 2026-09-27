@@ -7,12 +7,12 @@ import { MarketBreadthStats } from "@/components/breadth/MarketBreadthStats";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { fmtEventDate } from "@/lib/chartEventMarkers";
 import { useMarketBreadth } from "@/lib/hooks/useMarketBreadth";
-import { firstLiveIndex } from "@/lib/marketBreadth";
+import { liveBoundaryIndex } from "@/lib/marketBreadth";
 
 export default function BreadthPage() {
   const { data, error } = useMarketBreadth();
   const loaded = !error && data && data.latest !== null;
-  const liveAt = data ? firstLiveIndex(data.series) : -1;
+  const liveAt = data ? liveBoundaryIndex(data.series) : -1;
 
   return (
     <PageContainer className="space-y-6 pb-12 pt-6">

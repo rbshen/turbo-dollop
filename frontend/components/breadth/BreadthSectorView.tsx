@@ -6,7 +6,7 @@ import { MarketBreadthStats } from "@/components/breadth/MarketBreadthStats";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { fmtEventDate } from "@/lib/chartEventMarkers";
 import { useMarketBreadth } from "@/lib/hooks/useMarketBreadth";
-import { firstLiveIndex, isKnownSectorTicker, sectorDisplayName, sectorUniverse } from "@/lib/marketBreadth";
+import { liveBoundaryIndex, isKnownSectorTicker, sectorDisplayName, sectorUniverse } from "@/lib/marketBreadth";
 
 interface Props {
   // An uppercased URL segment (e.g. "XLK") -- may not be one of the 11 known SPDR tickers.
@@ -16,7 +16,7 @@ interface Props {
 // Deliberately mirrors app/breadth/page.tsx's body structurally rather than sharing a component with it
 // (same precedent as WarrenSignalCard "structurally mirroring" BbRsiEntrySignalCard elsewhere in this
 // app) -- so the existing, already-tested /breadth page and its test file stay byte-identical and
-// zero-risk. Reuses MarketBreadthStats/MarketBreadthCharts/firstLiveIndex as-is: they're already fully
+// zero-risk. Reuses MarketBreadthStats/MarketBreadthCharts/liveBoundaryIndex as-is: they're already fully
 // generic over MarketBreadthPointOut and never reference "S&P 500" internally.
 export function BreadthSectorView({ sector }: Props) {
   const known = isKnownSectorTicker(sector);
@@ -25,7 +25,7 @@ export function BreadthSectorView({ sector }: Props) {
   // sector never hits the API with a nonsense universe string.
   const { data, error } = useMarketBreadth(known ? sectorUniverse(sector) : null);
   const loaded = known && !error && data && data.latest !== null;
-  const liveAt = data ? firstLiveIndex(data.series) : -1;
+  const liveAt = data ? liveBoundaryIndex(data.series) : -1;
 
   return (
     <PageContainer className="space-y-6 pb-12 pt-6">
