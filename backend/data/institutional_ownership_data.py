@@ -62,6 +62,27 @@ ANCHOR_SEARCH_MAX_QUARTERS = 4
 TOP_HOLDERS_LIMIT = 15
 SENTIMENT_LOOKBACK_QUARTERS = 4
 
+# Dedicated staleness window for this feature -- mirrors the old
+# insider_staleness_days convention (a per-feature constant distinct from
+# the shared settings.cache_staleness_days default) rather than reusing
+# the shared fundamentals cadence. This is the window get_or_fetch itself
+# checks (how often a refetch is even ATTEMPTED); REFETCH_WINDOW_DAYS below
+# is the separate, coarser gate on WHETHER a refetch is attempted at all
+# for a given quarter.
+INSTITUTIONAL_OWNERSHIP_STALENESS_DAYS = 7
+
+# SEC's own 13F filing deadline is 45 calendar days after quarter-end, but
+# real filings trickle in well past it (confirmed live: an AAPL holder's
+# filingDate landed ~5.5 weeks after that deadline) -- so a quarter is kept
+# in the normal ~weekly refetch rotation through 45 + 56 (~8 weeks) days
+# past its own quarter-end, then treated as settled: once a row already
+# exists for that quarter, it's served frozen (no further live attempts)
+# rather than refetched forever on the flat clock above. A quarter with NO
+# cached row yet is always fetched at least once regardless of how old it
+# is -- this gate only stops REPEATED attempts of an already-cached row.
+FILING_DEADLINE_DAYS = 45
+REFETCH_GRACE_DAYS = 56
+
 # Plausibility guardrail thresholds (see the feasibility investigation):
 # FMP's own ownershipPercent read >100% for ARES's Q2 2026 row, and the
 # implied shares-outstanding it backs into (numberOf13Fshares /
@@ -97,10 +118,47 @@ def _quarter_label(year: int, quarter: int) -> str:
     return f"{year}Q{quarter}"
 
 
-async def _fetch_summary_quarter(
-    session: Session, ticker: str, year: int, quarter: int, staleness_days: int, cache_only: bool
-) -> list[dict]:
+def _quarter_end_date(year: int, quarter: int) -> date:
+    month = quarter * 3
+    if month == 12:
+        return date(year, 12, 31)
+    return date(year, month + 1, 1) - timedelta(days=1)
+
+
+def _past_refetch_window(year: int, quarter: int, today: date | None = None) -> bool:
+    """True once we're more than FILING_DEADLINE_DAYS + REFETCH_GRACE_DAYS
+    past that quarter's own end date -- see the constants' own comment."""
+    today = today or date.today()
+    return today > _quarter_end_date(year, quarter) + timedelta(days=FILING_DEADLINE_DAYS + REFETCH_GRACE_DAYS)
+
+
+def _cached_row(session: Session, ticker: str, statement_type: str, period: str) -> FundamentalsCache | None:
+    return session.exec(
+        select(FundamentalsCache).where(
+            FundamentalsCache.ticker == ticker,
+            FundamentalsCache.statement_type == statement_type,
+            FundamentalsCache.period == period,
+        )
+    ).first()
+
+
+def _effective_cache_only(session: Session, ticker: str, statement_type: str, year: int, quarter: int, cache_only: bool) -> bool:
+    """A quarter already past its own refetch-grace window is served frozen
+    -- once cached, never live-refetched again -- regardless of how stale
+    the flat INSTITUTIONAL_OWNERSHIP_STALENESS_DAYS clock says it is. A
+    quarter with no cached row yet is always fetched at least once, no
+    matter how old, since this gate only stops REPEATING an attempt, not
+    the first one."""
+    if cache_only:
+        return True
     label = _quarter_label(year, quarter)
+    existing = _cached_row(session, ticker, statement_type, label)
+    return existing is not None and _past_refetch_window(year, quarter)
+
+
+async def _fetch_summary_quarter(session: Session, ticker: str, year: int, quarter: int, cache_only: bool) -> list[dict]:
+    label = _quarter_label(year, quarter)
+    effective_cache_only = _effective_cache_only(session, ticker, "institutional_ownership_summary", year, quarter, cache_only)
     data = await safe_fetch(
         f"institutional_ownership_summary_{label}",
         get_or_fetch(
@@ -109,8 +167,8 @@ async def _fetch_summary_quarter(
             "institutional_ownership_summary",
             label,
             lambda: fmp_client.get_institutional_ownership_summary(ticker, year, quarter),
-            staleness_days,
-            cache_only,
+            INSTITUTIONAL_OWNERSHIP_STALENESS_DAYS,
+            effective_cache_only,
         ),
     )
     # A real empty list ("not yet filed") and safe_fetch's own {} failure
@@ -119,10 +177,9 @@ async def _fetch_summary_quarter(
     return data if isinstance(data, list) else []
 
 
-async def _fetch_holders(
-    session: Session, ticker: str, year: int, quarter: int, staleness_days: int, cache_only: bool
-) -> list[dict]:
+async def _fetch_holders(session: Session, ticker: str, year: int, quarter: int, cache_only: bool) -> list[dict]:
     label = _quarter_label(year, quarter)
+    effective_cache_only = _effective_cache_only(session, ticker, "institutional_ownership_holders", year, quarter, cache_only)
     data = await safe_fetch(
         f"institutional_ownership_holders_{label}",
         get_or_fetch(
@@ -131,8 +188,8 @@ async def _fetch_holders(
             "institutional_ownership_holders",
             label,
             lambda: fmp_client.get_institutional_ownership_holders(ticker, year, quarter, page=0, limit=TOP_HOLDERS_LIMIT),
-            staleness_days,
-            cache_only,
+            INSTITUTIONAL_OWNERSHIP_STALENESS_DAYS,
+            effective_cache_only,
         ),
     )
     return data if isinstance(data, list) else []
@@ -224,14 +281,18 @@ async def get_institutional_ownership_data(ticker: str, cache_only: bool = False
         # Hard gate, ahead of any cache read -- see module docstring state (a).
         return _empty_out(ticker, enabled=False, no_coverage=False)
 
-    staleness_days = settings.cache_staleness_days
+    # Only for the two shared cache keys below (quote/income_statement) --
+    # the two institutional-ownership endpoints use their own dedicated
+    # INSTITUTIONAL_OWNERSHIP_STALENESS_DAYS instead (see _fetch_summary_quarter/
+    # _fetch_holders).
+    shared_staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:
         anchor: tuple[int, int] | None = None
         anchor_row: dict | None = None
         year, quarter = _calendar_quarter(date.today())
         for _ in range(ANCHOR_SEARCH_MAX_QUARTERS):
-            rows = await _fetch_summary_quarter(session, ticker, year, quarter, staleness_days, cache_only)
+            rows = await _fetch_summary_quarter(session, ticker, year, quarter, cache_only)
             if rows:
                 anchor, anchor_row = (year, quarter), rows[0]
                 break
@@ -263,7 +324,7 @@ async def get_institutional_ownership_data(ticker: str, cache_only: bool = False
         quote = _first(
             await safe_fetch(
                 "quote",
-                get_or_fetch(session, ticker, "quote", "latest", lambda: fmp_client.get_quote(ticker), staleness_days, cache_only),
+                get_or_fetch(session, ticker, "quote", "latest", lambda: fmp_client.get_quote(ticker), shared_staleness_days, cache_only),
             )
         )
         income_quarterly_data = await safe_fetch(
@@ -274,7 +335,7 @@ async def get_institutional_ownership_data(ticker: str, cache_only: bool = False
                 "income_statement",
                 "quarterly",
                 lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-                staleness_days,
+                shared_staleness_days,
                 cache_only,
             ),
         )
@@ -293,7 +354,7 @@ async def get_institutional_ownership_data(ticker: str, cache_only: bool = False
         for i in range(TREND_QUARTERS):
             row = anchor_row if i == 0 else None
             if row is None:
-                rows = await _fetch_summary_quarter(session, ticker, y, q, staleness_days, cache_only)
+                rows = await _fetch_summary_quarter(session, ticker, y, q, cache_only)
                 row = rows[0] if rows else None
             if row is not None and _quarter_is_plausible(row, shares_outstanding):
                 trend.append(_to_quarter_out(y, q, row))
@@ -311,7 +372,7 @@ async def get_institutional_ownership_data(ticker: str, cache_only: bool = False
 
         # Independent of ownership_valid -- see module/schema docstrings.
         positions = _build_positions(anchor_row)
-        holders_raw = await _fetch_holders(session, ticker, anchor_year, anchor_quarter, staleness_days, cache_only)
+        holders_raw = await _fetch_holders(session, ticker, anchor_year, anchor_quarter, cache_only)
         top_holders = [_to_holder_out(h) for h in holders_raw]
 
         data_stale_warning = fetched_at is not None and (datetime.now() - fetched_at) > timedelta(days=STALE_WARNING_DAYS)
