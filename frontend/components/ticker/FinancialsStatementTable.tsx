@@ -82,14 +82,15 @@ export function FinancialsStatementTable({ ticker, periodType, data, reportedCur
       className="border-separate border-spacing-0 text-sm"
     >
       <TableHeader>
-        <TableRow className="hover:bg-transparent">
-          <TableHead className="sticky left-0 top-0 z-30 whitespace-nowrap border-b border-border-card bg-surface-2 py-2 pr-8 text-xs font-medium uppercase tracking-widest text-text-secondary">
+        {/* TODO(session 4b): drop layout pins */}
+        <TableRow className="h-10 hover:bg-transparent">
+          <TableHead className="sticky left-0 top-0 z-30 whitespace-nowrap border-b border-border-card bg-surface-2 py-2 pl-2 pr-8 text-xs font-medium uppercase tracking-widest text-text-secondary">
             Metric
           </TableHead>
           {data.periods.map((period, i) => (
             <TableHead
               key={i}
-              className="sticky top-0 z-20 whitespace-nowrap border-b border-border-card bg-surface-2 py-2 pr-4 text-right text-xs font-medium uppercase tracking-widest text-text-secondary"
+              className="sticky top-0 z-20 whitespace-nowrap border-b border-border-card bg-surface-2 py-2 pl-2 pr-4 text-right text-xs font-medium uppercase tracking-widest text-text-secondary"
             >
               {period}
             </TableHead>
@@ -103,21 +104,23 @@ export function FinancialsStatementTable({ ticker, periodType, data, reportedCur
             <Fragment key={gi}>
               {group.label && (
                 <TableRow className="cursor-pointer hover:bg-transparent" onClick={() => toggle(gi)}>
-                  <TableCell className="sticky left-0 z-10 whitespace-nowrap border-b border-border-subtle bg-surface pt-4 pb-1 text-xs font-semibold uppercase tracking-widest text-text-secondary">
+                  {/* TODO(session 4b): drop layout pins */}
+                  <TableCell className="sticky left-0 z-10 whitespace-nowrap border-b border-border-subtle bg-surface pl-2 pt-4 pb-1 text-xs font-semibold uppercase tracking-widest text-text-secondary">
                     <span className="inline-flex items-center gap-1.5">
                       <CaretDown size={12} className={`transition-transform duration-200 ${isOpen ? "" : "-rotate-90"}`} />
                       {group.label}
                     </span>
                   </TableCell>
-                  <TableCell colSpan={columnCount - 1} className="border-b border-border-subtle pt-4 pb-1" />
+                  <TableCell colSpan={columnCount - 1} className="border-b border-border-subtle pl-2 pt-4 pb-1" />
                 </TableRow>
               )}
               {(!group.label || isOpen) &&
                 group.items.map((item) => (
                   <TableRow key={item.label} className="hover:bg-transparent">
+                    {/* TODO(session 4b): drop layout pins */}
                     <TableCell
                       className={`sticky left-0 z-10 whitespace-nowrap border-b border-border-subtle bg-surface py-2 pr-8 ${
-                        group.label ? "pl-4" : ""
+                        group.label ? "pl-4" : "pl-2"
                       } ${item.emphasis ? "font-medium text-text-primary" : "text-text-secondary"}`}
                     >
                       {item.label}
@@ -139,7 +142,7 @@ export function FinancialsStatementTable({ ticker, periodType, data, reportedCur
                       return (
                         <TableCell
                           key={i}
-                          className={`border-b border-border-subtle py-2 pr-4 text-right font-mono tabular-nums ${
+                          className={`border-b border-border-subtle py-2 pl-2 pr-4 text-right font-mono tabular-nums ${
                             item.emphasis ? "font-medium text-text-primary" : "text-text-secondary"
                           }`}
                         >

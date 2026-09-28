@@ -51,14 +51,15 @@ export function RecommendationDetailsTable({ columns, currency = "USD" }: Props)
   return (
     <Table className="border-separate border-spacing-0 text-sm">
       <TableHeader>
-        <TableRow className="hover:bg-transparent">
-          <TableHead className="sticky left-0 z-10 whitespace-nowrap border-b border-border-card bg-surface-2 py-2 pr-8 text-xs font-medium uppercase tracking-widest text-text-secondary">
+        {/* TODO(session 4b): drop layout pins */}
+        <TableRow className="h-10 hover:bg-transparent">
+          <TableHead className="sticky left-0 z-10 whitespace-nowrap border-b border-border-card bg-surface-2 py-2 pl-2 pr-8 text-xs font-medium uppercase tracking-widest text-text-secondary">
             Metric
           </TableHead>
           {columns.map((column) => (
             <TableHead
               key={column.label}
-              className="whitespace-nowrap border-b border-border-card bg-surface-2 py-2 pr-4 text-right text-xs font-medium uppercase tracking-widest text-text-secondary"
+              className="whitespace-nowrap border-b border-border-card bg-surface-2 py-2 pl-2 pr-4 text-right text-xs font-medium uppercase tracking-widest text-text-secondary"
             >
               {column.label}
             </TableHead>
@@ -68,13 +69,14 @@ export function RecommendationDetailsTable({ columns, currency = "USD" }: Props)
       <TableBody>
         {ROWS.map((row) => (
           <TableRow key={row.key} className="hover:bg-transparent">
-            <TableCell className="sticky left-0 z-10 whitespace-nowrap border-b border-border-subtle bg-surface py-2 pr-8 text-text-secondary">
+            {/* TODO(session 4b): drop layout pins */}
+            <TableCell className="sticky left-0 z-10 whitespace-nowrap border-b border-border-subtle bg-surface py-2 pl-2 pr-8 text-text-secondary">
               {row.label}
             </TableCell>
             {columns.map((column) => (
               <TableCell
                 key={column.label}
-                className="border-b border-border-subtle py-2 pr-4 text-right font-mono tabular-nums text-text-primary"
+                className="border-b border-border-subtle py-2 pl-2 pr-4 text-right font-mono tabular-nums text-text-primary"
               >
                 {formatCell(row.key, column, currency)}
                 {row.key === "consensus" && column.label === "Current" && (

@@ -47,11 +47,12 @@ function StatColumn({ groups, values, flaggedKeys }: StatColumnProps) {
           <Table className="border-separate border-spacing-0 text-sm">
             <TableBody>
               {group.metrics.map((metric) => (
+                // TODO(session 4b): drop layout pins
                 <TableRow key={metric.key} className="hover:bg-transparent">
-                  <TableCell className="whitespace-nowrap border-b border-border-subtle py-2 pr-8 text-xs font-medium uppercase tracking-widest text-text-tertiary">
+                  <TableCell className="whitespace-nowrap border-b border-border-subtle py-2 pl-2 pr-8 text-xs font-medium uppercase tracking-widest text-text-tertiary">
                     {metric.label}
                   </TableCell>
-                  <TableCell className="border-b border-border-subtle py-2 text-right font-mono tabular-nums text-text-primary">
+                  <TableCell className="border-b border-border-subtle px-2 py-2 text-right font-mono tabular-nums text-text-primary">
                     {formatValue(values[metric.key], metric.format, values.quote_currency)}
                     {flaggedKeys.has(metric.key) && (
                       <span className="ml-1.5 text-warn" title={FLAG_TITLE}>

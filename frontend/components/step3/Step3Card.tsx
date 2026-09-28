@@ -109,26 +109,29 @@ export function PBBandsTable({
   return (
     <Table className="w-full border-separate border-spacing-0 text-sm">
       <TableHeader>
-        <TableRow className="hover:bg-transparent">
-          <TableHead className="border-b border-border-card py-2 pr-4 font-medium">Band</TableHead>
-          <TableHead className="border-b border-border-card py-2 text-right font-medium">Intrinsic Value</TableHead>
+        {/* TODO(session 4b): drop layout pins */}
+        <TableRow className="h-10 hover:bg-transparent">
+          <TableHead className="border-b border-border-card py-2 pl-2 pr-4 font-medium">Band</TableHead>
+          <TableHead className="border-b border-border-card px-2 py-2 text-right font-medium">Intrinsic Value</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {order.map((key) => (
+          // TODO(session 4b): drop layout pins
           <TableRow key={key} className="hover:bg-transparent">
-            <TableCell className="border-b border-border-subtle py-1.5 pr-4 text-text-secondary">{PB_BAND_LABELS[key]}</TableCell>
+            <TableCell className="border-b border-border-subtle py-1.5 pl-2 pr-4 text-text-secondary">{PB_BAND_LABELS[key]}</TableCell>
             <TableCell
-              className={`border-b border-border-subtle py-1.5 text-right font-mono ${key === "mean" ? "font-semibold text-text-primary" : "text-text-secondary"}`}
+              className={`border-b border-border-subtle px-2 py-1.5 text-right font-mono ${key === "mean" ? "font-semibold text-text-primary" : "text-text-secondary"}`}
             >
               {fmtMoney(bands[key], currency)}
             </TableCell>
           </TableRow>
         ))}
         {lastClose != null && (
+          // TODO(session 4b): drop layout pins
           <TableRow className="hover:bg-transparent">
-            <TableCell className="py-1.5 pr-4 text-text-tertiary">Last Close</TableCell>
-            <TableCell className="py-1.5 text-right font-mono text-text-secondary">{fmtMoney(lastClose, currency)}</TableCell>
+            <TableCell className="py-1.5 pl-2 pr-4 text-text-tertiary">Last Close</TableCell>
+            <TableCell className="px-2 py-1.5 text-right font-mono text-text-secondary">{fmtMoney(lastClose, currency)}</TableCell>
           </TableRow>
         )}
       </TableBody>
