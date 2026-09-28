@@ -1,5 +1,5 @@
 import { OutlierWarningNote } from "@/components/shared/OutlierWarningNote";
-import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { DefinitionRow, Section, SectionGrid } from "@/components/ui/section";
 import { fmtCompactMoney, fmtCompactNumber, fmtNumber, fmtPct, fmtRatio } from "@/lib/format";
 import type { MetricDef, MetricGroup } from "@/lib/metrics/config";
 import type { OutlierWarning, TickerSummaryOut } from "@/lib/api/types";
@@ -35,40 +35,39 @@ interface StatColumnProps {
   flaggedKeys: Set<string>;
 }
 
-// Each group renders as its own card, stacked within its assigned column
-// (see MetricGroup's `column` field in lib/metrics/config.ts) -- groups
-// are never split across the two side-by-side columns.
+// Each group renders as its own titled Section, stacked within its
+// assigned column (see MetricGroup's `column` field in lib/metrics/
+// config.ts) -- groups are never split across the two side-by-side
+// columns. Every metric is a plain label/value pair (no headline-scale
+// figure appears anywhere in this grid), so DefinitionRow is the right
+// primitive for every group -- MetricTile is not used here.
 function StatColumn({ groups, values, flaggedKeys }: StatColumnProps) {
   return (
-    <div className="space-y-4">
+    <div>
       {groups.map((group) => (
-        <div key={group.title} className="rounded-lg border border-border-card bg-surface p-5">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-text-secondary">{group.title}</h3>
-          <Table className="border-separate border-spacing-0 text-sm">
-            <TableBody>
-              {group.metrics.map((metric) => (
-                <TableRow key={metric.key} dense>
-                  <TableCell className="whitespace-nowrap border-b border-border-subtle pr-8 text-xs font-medium text-text-tertiary">
-                    {metric.label}
-                  </TableCell>
-                  <TableCell className="border-b border-border-subtle text-right font-mono tabular-nums text-text-primary">
-                    {formatValue(values[metric.key], metric.format, values.quote_currency)}
-                    {flaggedKeys.has(metric.key) && (
-                      <span className="ml-1.5 text-warn" title={FLAG_TITLE}>
-                        ⚠
-                      </span>
-                    )}
-                    {metric.tooltip && values[metric.tooltip.when] && (
-                      <span className="ml-1.5 text-text-tertiary" title={metric.tooltip.text}>
-                        {TOOLTIP_ICON}
-                      </span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <Section key={group.title} title={group.title}>
+          {group.metrics.map((metric) => (
+            <DefinitionRow
+              key={metric.key}
+              label={metric.label}
+              value={
+                <>
+                  {formatValue(values[metric.key], metric.format, values.quote_currency)}
+                  {flaggedKeys.has(metric.key) && (
+                    <span className="ml-1.5 text-warn" title={FLAG_TITLE}>
+                      ⚠
+                    </span>
+                  )}
+                  {metric.tooltip && values[metric.tooltip.when] && (
+                    <span className="ml-1.5 text-text-tertiary" title={metric.tooltip.text}>
+                      {TOOLTIP_ICON}
+                    </span>
+                  )}
+                </>
+              }
+            />
+          ))}
+        </Section>
       ))}
     </div>
   );
@@ -83,10 +82,10 @@ export function MetricsGrid({ groups, values, outlierWarnings = [] }: Props) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <SectionGrid>
         <StatColumn groups={leftGroups} values={values} flaggedKeys={flaggedKeys} />
         <StatColumn groups={rightGroups} values={values} flaggedKeys={flaggedKeys} />
-      </div>
+      </SectionGrid>
 
       <OutlierWarningNote warnings={outlierWarnings} labels={labels} currency={values.reported_currency ?? "USD"} />
     </div>
