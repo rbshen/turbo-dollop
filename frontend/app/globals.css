@@ -32,11 +32,6 @@
   --text-4xl--line-height: 2.6875rem;
   --text-5xl: 3.25rem;
   --text-5xl--line-height: 1;
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
   --color-border: var(--border);
   --color-muted-foreground: var(--muted-foreground);
@@ -115,11 +110,6 @@
   --muted-foreground: oklch(0.556 0 0);
   --border: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -139,11 +129,6 @@
   --muted-foreground: oklch(68% 0.012 260);
   --border: oklch(30% 0.016 260);
   --ring: oklch(64% 0.17 260);
-  --chart-1: oklch(68% 0.15 155);
-  --chart-2: oklch(76% 0.13 80);
-  --chart-3: oklch(66% 0.19 25);
-  --chart-4: oklch(64% 0.17 260);
-  --chart-5: oklch(66% 0.1 300);
 
   /* Fathom v2 raw tokens -- verbatim from design_handoff_fathom_v2/README.md */
   --fathom-page: oklch(15% 0.014 260);
