@@ -24,7 +24,13 @@ const DOT_CLASS: Record<Exclude<StatusTone, "neutral">, string> = {
   speculative: "bg-chart-purple",
 };
 
-const TONE_TEXT_CLASS: Record<StatusTone, string> = {
+// Exported for the rare caller that needs the tone's plain text color
+// without either wrapper's own chrome/typography (e.g. ScoreBadge's
+// stacked score-number + verdict-word layout, which shares one tone color
+// across two differently-sized lines that don't fit Status/Verdict's own
+// single-line shape) -- still the one shared source of "what color means
+// this tone", never a second hand-rolled copy.
+export const TONE_TEXT_CLASS: Record<StatusTone, string> = {
   strong: "text-positive-strong",
   positive: "text-positive",
   warn: "text-warn",

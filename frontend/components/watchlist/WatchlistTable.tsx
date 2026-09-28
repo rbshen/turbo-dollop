@@ -4,15 +4,15 @@ import { useMemo, useState } from "react";
 import { Check, X } from "@phosphor-icons/react";
 
 import { MiniBarChart } from "@/components/charts/MiniBarChart";
-import { SignalBars } from "@/components/watchlist/SignalBars";
-import { MOAT_SIGNAL_COLOR, MOAT_SIGNAL_LEVEL } from "@/components/ticker/MoatPill";
-import { VERDICT_SIGNAL_COLOR, VERDICT_SIGNAL_LEVEL } from "@/components/ticker/FairValuePill";
+import { MOAT_LABEL_SHORT, MOAT_TONE } from "@/components/ticker/MoatPill";
+import { VALUATION_LABEL_SHORT, VALUATION_TONE } from "@/components/ticker/FairValuePill";
 import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGrowthPill";
+import { Badge } from "@/components/ui/badge";
 import { SortHeader } from "@/components/ui/sort-header";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { SortableField, WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
 import { fmtCompactMoney, fmtNumber, fmtSignedCompactMoneyTooltip } from "@/lib/format";
-import { flatChipClassFor } from "@/lib/tierColor";
+import { badgeToneForNullable } from "@/lib/tierColor";
 import { cn } from "@/lib/utils";
 import { removeTickerFromWatchlist } from "@/lib/hooks/useWatchlists";
 import { applyHeaderClick, sortWatchlistRows, type SortRule } from "@/lib/watchlistSort";
@@ -333,22 +333,21 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                 <TrendCell years={row.years} values={row.cfo} currency={row.reported_currency ?? "USD"} />
               </TableCell>
               <TableCell className="text-center">
-                {row.moat && <SignalBars level={MOAT_SIGNAL_LEVEL[row.moat]} color={MOAT_SIGNAL_COLOR[row.moat]} />}
+                {row.moat && <Badge tone={MOAT_TONE[row.moat]}>{MOAT_LABEL_SHORT[row.moat]}</Badge>}
               </TableCell>
               <TableCell className="text-center">
                 {row.valuation_verdict && (
-                  <SignalBars level={VERDICT_SIGNAL_LEVEL[row.valuation_verdict]} color={VERDICT_SIGNAL_COLOR[row.valuation_verdict]} />
+                  <Badge tone={VALUATION_TONE[row.valuation_verdict]}>{VALUATION_LABEL_SHORT[row.valuation_verdict]}</Badge>
                 )}
               </TableCell>
               <TableCell className="text-center">
-                <span
-                  className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ${flatChipClassFor(row.overall_score, row.overall_verdict)}`}
+                <Badge
+                  tone={badgeToneForNullable(row.overall_score, row.overall_verdict)}
+                  title={row.overall_verdict === "Pass with caution" ? `Passed with caution: ${cautionStepLabels(row).join(", ")}` : undefined}
                 >
                   {row.overall_score}
-                  {row.overall_verdict === "Pass with caution" && (
-                    <span title={`Passed with caution: ${cautionStepLabels(row).join(", ")}`}>⚠</span>
-                  )}
-                </span>
+                  {row.overall_verdict === "Pass with caution" && " ⚠"}
+                </Badge>
               </TableCell>
               <TableCell className={ratingColorClass(row.consensus_rating)}>{row.consensus_rating.toUpperCase()}</TableCell>
               <TableCell className="text-right font-mono text-text-secondary">

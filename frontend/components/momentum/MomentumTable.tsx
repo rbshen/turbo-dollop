@@ -1,6 +1,7 @@
 import type { MouseEvent } from "react";
 
-import { MoatPill } from "@/components/ticker/MoatPill";
+import { MOAT_LABEL_SHORT, MOAT_TONE } from "@/components/ticker/MoatPill";
+import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { MomentumSnapshotRowOut } from "@/lib/api/types";
 import { fmtPct, pnlClass } from "@/lib/format";
@@ -59,7 +60,7 @@ export function MomentumTable({ rows }: Props) {
               </p>
             </TableCell>
             <TableCell className="text-center">
-              <MoatPill moat={row.moat} />
+              <Badge tone={MOAT_TONE[row.moat]}>{MOAT_LABEL_SHORT[row.moat]}</Badge>
             </TableCell>
             <TableCell className={`text-right font-mono ${pnlClass(row.return_3mo)}`}>{fmtPct(row.return_3mo * 100)}</TableCell>
             <TableCell className={`text-right font-mono ${pnlClass(row.return_6mo)}`}>{fmtPct(row.return_6mo * 100)}</TableCell>
@@ -67,7 +68,15 @@ export function MomentumTable({ rows }: Props) {
             <TableCell className={`text-right font-mono font-bold ${pnlClass(row.composite_score)}`}>
               {fmtPct(row.composite_score * 100)}
             </TableCell>
-            <TableCell className="text-right font-mono text-text-tertiary">{row.overall_score ?? "—"}</TableCell>
+            {/* No verdict field exists alongside overall_score here
+                (MomentumSnapshotRowOut has no overall_verdict) -- unlike
+                every other Badge/Status score cell in the app, tierColor's
+                tone functions can't tier this one without guessing at a
+                mapping, so it stays a plain neutral Badge (same always-gray
+                read as before this migration, just via Badge's `missing`
+                state instead of a bare "—"). See the design-system session
+                5a report. */}
+            <TableCell className="text-right">{row.overall_score != null ? <Badge tone="neutral">{row.overall_score}</Badge> : <Badge missing />}</TableCell>
           </TableRow>
         ))}
       </TableBody>

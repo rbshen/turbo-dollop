@@ -40,8 +40,8 @@ describe("MomentumTable", () => {
     render(<MomentumTable rows={ROWS} />);
     expect(screen.getByText("SNDK")).toBeInTheDocument();
     expect(screen.getByText("Sandisk Corporation")).toBeInTheDocument();
-    expect(screen.getByText("No Moat")).toBeInTheDocument();
-    expect(screen.getByText("Narrow Moat")).toBeInTheDocument();
+    expect(screen.getByText("None")).toBeInTheDocument();
+    expect(screen.getByText("Narrow")).toBeInTheDocument();
   });
 
   it("links each ticker to its ticker page, opening in a new tab", () => {
@@ -60,15 +60,15 @@ describe("MomentumTable", () => {
 
   it("renders a null overall_score as an em dash, not a fabricated 0", () => {
     render(<MomentumTable rows={[ROWS[1]]} />);
-    expect(screen.getByText("—", { selector: "td:last-child" })).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
   });
 
-  it("renders the Score column muted relative to the other numeric columns", () => {
+  it("renders the Score column as a neutral (never sign-colored) badge", () => {
     render(<MomentumTable rows={ROWS} />);
     const overallCell = screen.getAllByText("47")[0];
-    expect(overallCell).toHaveClass("text-text-tertiary");
+    expect(overallCell).toHaveClass("text-text-secondary");
     const compositeCell = screen.getByText("+1008.30%");
-    expect(compositeCell.className).not.toContain("text-text-tertiary");
+    expect(compositeCell.className).not.toContain("text-text-secondary");
   });
 
   it("renders an empty-snapshot caption instead of an empty table", () => {

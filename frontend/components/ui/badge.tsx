@@ -24,6 +24,8 @@ const badgeVariants = cva(
   },
 );
 
+export type BadgeTone = NonNullable<VariantProps<typeof badgeVariants>["tone"]>;
+
 export interface BadgeProps extends VariantProps<typeof badgeVariants> {
   children?: ReactNode;
   missing?: boolean;

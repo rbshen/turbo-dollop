@@ -88,7 +88,7 @@ export function TickerHeader({ symbol, data }: Props) {
       {/* Row 2.5: Assessment/Valuation/Moat/etc. chips. */}
       <div className="flex flex-wrap items-center gap-3">
         <AssessmentChip symbol={symbol} />
-        <MoatPill moat={moatData?.moat} variant="flat" />
+        <MoatPill moat={moatData?.moat} />
         <FairValuePill
           verdict={data.fair_value_verdict}
           price={data.fair_value_price}

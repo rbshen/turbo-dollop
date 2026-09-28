@@ -11,13 +11,12 @@ type RenderableStatus = Exclude<PerfVsSpyStatus, "no_data">;
 // the pill itself never renders it -- see the render guard below.
 //
 // outperform/underperform share one static label (2026-09-05) -- direction
-// is now conveyed by color alone (STATUS_TO_VERDICT's undervalued/overvalued
-// mapping below, via VERDICT_STYLES/FLAT_VERDICT_STYLES), not by distinct
-// wording, matching how ScreenerCard's own "screener" label set already
-// worked. match/no_data are untouched -- "Match" has no direction to convey
-// via color (STATUS_TO_VERDICT maps it to the neutral "fair" style), so it
-// keeps its own distinct word rather than reading as a false "5Y vs SPY"
-// outperform/underperform claim.
+// is now conveyed by color alone (PERF_VS_SPY_TONE's undervalued/overvalued
+// mapping below, via VALUATION_TONE), not by distinct wording, matching how
+// ScreenerCard's own "screener" label set already worked. match/no_data are
+// untouched -- "Match" has no direction to convey via color (PERF_VS_SPY_TONE
+// maps it to the neutral "fair" style), so it keeps its own distinct word
+// rather than reading as a false "5Y vs SPY" outperform/underperform claim.
 export const PERF_VS_SPY_LABELS: Record<PerfVsSpyStatus, string> = {
   outperform: "5Y vs SPY",
   underperform: "5Y vs SPY",

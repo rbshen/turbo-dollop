@@ -5,11 +5,12 @@ import type { ValuationSource } from "@/lib/api/types";
 // Reuses the scoring system's own tokens directly (no separate Valuation
 // palette) -- a 3-state good/mid/bad read, same as Moat: Overvalued is the
 // negative extreme, Undervalued is the positive extreme (one tier stronger
-// than a plain Fair Valued), no caution/amber tier applies here. Exported so
-// PerfVsSpyPill/ValuationBadge share this one map instead of duplicating it
-// (vs-SPY reuses Valuation's own palette by design -- see PerfVsSpyPill's
-// own comment).
-export const VALUATION_TONE: Record<string, StatusTone> = {
+// than a plain Fair Valued), no caution/amber tier applies here. Typed to
+// this 3-tone subset (not the full StatusTone) so it's directly assignable
+// to Badge's tone prop too. Exported so PerfVsSpyPill/ValuationBadge share
+// this one map instead of duplicating it (vs-SPY reuses Valuation's own
+// palette by design -- see PerfVsSpyPill's own comment).
+export const VALUATION_TONE: Record<string, Extract<StatusTone, "strong" | "positive" | "negative">> = {
   undervalued: "strong",
   overvalued: "negative",
   fair: "positive",
@@ -21,21 +22,12 @@ const VERDICT_LABELS: Record<string, string> = {
   fair: "Fairvalued",
 };
 
-// For WatchlistTable's SignalBars cells (Valuation and vs-SPY, the latter
-// via PerfVsSpyPill's PERF_VS_SPY_TONE map going through the same verdict
-// keys) -- same 3 named tokens as VALUATION_TONE above, just solid
-// full-opacity fills (not the Status dot), same rationale as MoatPill's own
-// MOAT_SIGNAL_LEVEL/MOAT_SIGNAL_COLOR.
-export const VERDICT_SIGNAL_LEVEL: Record<string, 1 | 2 | 3> = {
-  overvalued: 1,
-  fair: 2,
-  undervalued: 3,
-};
-
-export const VERDICT_SIGNAL_COLOR: Record<string, string> = {
-  overvalued: "bg-negative",
-  fair: "bg-positive",
-  undervalued: "bg-positive-strong",
+// Short word for a dense Badge cell (WatchlistTable's Value column) -- see
+// MoatPill's own MOAT_LABEL_SHORT for the identical rationale.
+export const VALUATION_LABEL_SHORT: Record<string, string> = {
+  undervalued: "Under",
+  overvalued: "Over",
+  fair: "Fair",
 };
 
 interface Props {
