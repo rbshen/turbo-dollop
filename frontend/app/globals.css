@@ -101,6 +101,13 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  /* Design-system session 2b: the one floating-card elevation shadow
+     (Tooltip/TooltipCard, components/ui/chart.tsx's chart tooltip). No
+     `shadow-*` token existed on this theme before -- every prior popover
+     in the app (TickerSearch, dropdowns, InfoTooltip) reached for a plain
+     Tailwind shadow-lg/shadow-xl instead. This is the first, so future
+     floating-card surfaces should reuse it rather than adding another. */
+  --shadow-popover: 0 12px 32px -8px oklch(0% 0 0 / 0.55), 0 4px 10px -4px oklch(0% 0 0 / 0.4);
 }
 
 :root {
