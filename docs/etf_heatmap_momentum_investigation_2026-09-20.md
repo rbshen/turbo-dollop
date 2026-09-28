@@ -190,7 +190,7 @@ when `auto_adjust=False`) and stores **computed returns**, not bars.
 ### 4.4 UI precedent for a heatmap grid
 
 None exists (confirmed: `components/shared` holds only AnalysisSectionCard, OutlierWarningNote,
-SegmentedControl, SeriesTrendTable; `components/ui` has chart/collapsible/table). `recharts`
+SegmentedControl; `components/ui` has chart/collapsible/table). `recharts`
 (^3.8) is already a dependency but offers a Treemap, not a matrix; the layout requested (11 rows
 x 7 columns = 77 cells) is a plain CSS grid or the existing `Table` with a per-cell background.
 Build, don't add a library: a small `HeatmapGrid` where cell color is a diverging scale off the
