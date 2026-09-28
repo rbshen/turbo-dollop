@@ -392,16 +392,18 @@ try/except-swallowed, so a heartbeat failure (e.g. the exact disk-full
 case above) can never mask or alter the job's real outcome.
 
 `GET /api/config/cron-health` computes each job's health from its
-`CronRunLog` history (`ok`/`overdue`/`failed`/`unknown`) and backs the
-site-wide `CronHealthBanner` (mounted next to `FmpPausedBanner`), visible
-only when at least one job isn't healthy.
+`CronRunLog` history (`ok`/`overdue`/`failed`/`unknown`) and backs Settings
+> Scheduled Jobs (`ScheduledJobsSection`) -- the old site-wide
+`CronHealthBanner`/`FmpPausedBanner` pair (mounted in `app/layout.tsx`) was
+deleted; both are now folded into that Settings section instead (see
+`components/settings/StatusSection.tsx`'s own comment).
 
 **`Settings.cron_health_enabled`** (`CRON_HEALTH_ENABLED` in `.env`,
 default `true`, same read-once-at-process-start convention as
 `fmp_enabled`) gates only this reporting/surfacing layer — when `false`,
 `get_cron_health()` short-circuits to `{enabled: false, jobs: []}` before
-touching the DB, and `CronHealthBanner` renders nothing, an explicit skip
-distinct from "checked and everything's ok". `cron_heartbeat()` itself is
+touching the DB, and the Scheduled Jobs section renders nothing for cron
+health, an explicit skip distinct from "checked and everything's ok". `cron_heartbeat()` itself is
 never gated by this flag — `CronRunLog` rows keep being written regardless,
 so history isn't lost and flipping the flag back on picks up right where
 it left off. Investigated (2026-08-17) whether the heartbeat itself needs
@@ -2361,7 +2363,10 @@ to display.
   with every other Watchlist column, rather than firing one extra per-row request just for this
   column. `SignalBars` (`frontend/components/watchlist/SignalBars.tsx`) was generalized to a
   `maxBars` prop (default 3, so the existing Moat/Value/vs-SPY 3-bar indicators are unaffected) to
-  support this new 5-bar indicator without a duplicate component.
+  support this new 5-bar indicator without a duplicate component. **Stale as of 2026-09-06**: once
+  the Watchlist UI columns were removed entirely (see "Watchlist UI columns removed entirely
+  2026-09-06" below), the 5-bar indicator went with them and `SignalBars` was simplified back to a
+  fixed 3-bar component (`level: 1 | 2 | 3`, no `maxBars` prop) -- current code has no `maxBars`.
 - **Price fallback**: `data/ticker_summary.py::get_summary()` overrides just the `price` field with the last
   official close cached nightly (`TickerLastClose`) when the `profile_quote` group is off or the live quote
   failed (and not `cache_only`) -- see "Phase 6a" below.
@@ -4057,9 +4062,23 @@ Fathom supports **US-listed tickers only** (listing venue decides, not domicile:
   Monday-anchored weekly resampling). Legacy `source="yahoo"` handling in the shared bars cache is behaviour, not a stray
   reference, and stays.
 
-## Insider Activity (ticker-page tab, 2026-09-19) -- SHELVED 2026-09-20
+## Insider Activity (ticker-page tab, 2026-09-19) -- SHELVED 2026-09-20, FULLY DELETED 2026-09-27
 
-**Shelved, not deleted.** The `insider` data group's user toggle (seeded **off**;
+**Fully deleted, not just shelved -- superseded by commit `6410970`.** The
+description below (shelved, code left in the tree, revivable) was accurate
+from 2026-09-20 through 2026-09-26 but is now historical: `6410970`
+("Remove insider group, shelve news by default, move delisted-companies
+group, restructure Settings") removed the FMP client methods,
+`data/insider_activity_data.py`, the `/insider-activity` endpoint, the
+`insider` data-group entry itself (registry + endpoint/statement-type/canary
+maps), `insider_staleness_days`, every `Insider*` schema, and the whole
+frontend feature (tab, cards, hook, types) outright. There is no `insider`
+group left to re-enable and no code left to revive -- reviving the feature
+now means rebuilding it, not flipping a toggle. Kept below as a historical
+record of how the shelved (2026-09-20 to 2026-09-26) state worked, not as
+current instructions.
+
+The `insider` data group's user toggle (seeded **off**;
 `INSIDER_ACTIVITY_ENABLED` was deleted 2026-09-24, see "Data groups" above)
 gates `get_insider_activity_data` --
 checked first, ahead of `cache_only`, so when off there is no FMP call and no
@@ -4070,10 +4089,10 @@ it returns 200 with `enabled: false` and every other field empty (mirroring
 yet" (`as_of` null). The tab is off the ticker page (dropped from
 `lib/tickerTabs.ts`'s `TickerTab`/`TICKER_TABS` and `TickerTabsContainer`) and
 "Insider Activity" is off the Status page's `FMP_POWERS` list; it never had a
-cron job, so Scheduled Jobs needed nothing. All backend/frontend code and its
-tests are left in the tree. The two cache keys (`insider_trading_search`,
+cron job, so Scheduled Jobs needed nothing. The two cache keys (`insider_trading_search`,
 `insider_trading_statistics`) were purged from `FundamentalsCache` 2026-09-20
-(22 rows, 11 tickers). **To revive:** turn the `insider` group on in Settings > Status
+(22 rows, 11 tickers). **To revive (historical -- no longer applicable, see
+above):** turn the `insider` group on in Settings > Status
 (no restart), re-add `"insiderActivity"` to the `TickerTab` union and
 `TICKER_TABS` (between Analyst Ratings and Technical), the
 `InsiderActivityTab` branch in `TickerTabsContainer`, and the `FMP_POWERS`

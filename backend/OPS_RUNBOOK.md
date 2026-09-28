@@ -139,10 +139,10 @@ stderr — bypassing `configure_logging()`'s handlers entirely, landing only
 in the `_cron.log` half of the pair above, invisible in the plain `.log`
 and invisible anywhere in the app itself. This actually happened twice
 (`sp500_list_refresh` 07-26/08-02, `backup_db` 08-09 — see "Known gaps"
-below). `GET /api/config/cron-health` (surfaced as a site-wide banner when
-any job isn't healthy) exists specifically to catch this class of failure
-without anyone needing to tail a log at all — see "Cron job heartbeat /
-health monitoring" below.
+below). `GET /api/config/cron-health` (surfaced in Settings > Scheduled
+Jobs) exists specifically to catch this class of failure without anyone
+needing to tail a log at all — see "Cron job heartbeat / health
+monitoring" below.
 
 ## Maintenance scripts (`backend/pipeline/`)
 
@@ -491,11 +491,12 @@ incident this was built to catch.
 if no row exists yet, `"overdue"` if no successful run falls within that
 job's expected cadence (36h for the 6 daily jobs, ~8 days for the 7
 weekly-Sunday jobs, ~35 days for the 2 monthly ones — `core/cron_health.py`'s
-`_EXPECTED_CADENCE_HOURS`), else `"ok"`. The frontend's `CronHealthBanner`
-(site-wide, mounted next to `FmpPausedBanner`) renders nothing while every
-job is `"ok"`, and otherwise lists every non-ok job — so day to day, seeing
-no banner at all is the expected, healthy state; nobody needs to
-proactively check this endpoint or tail a log.
+`_EXPECTED_CADENCE_HOURS`), else `"ok"`. Settings > Scheduled Jobs
+(`ScheduledJobsSection`) lists every job's health there — the old
+site-wide `CronHealthBanner`/`FmpPausedBanner` pair was deleted and folded
+into this Settings section instead, so a healthy day no longer shows
+anything outside Settings; nobody needs to proactively check this endpoint
+or tail a log.
 
 `CRON_JOB_NAMES` in `core/cron_health.py` is the single source of truth for
 which 15 jobs exist — `tests/test_cron_wiring.py` fails loudly if
@@ -504,13 +505,13 @@ stops calling `cron_heartbeat(...)`, so a future 16th cron job can't ship
 unmonitored by accident.
 
 **`CRON_HEALTH_ENABLED=false`** (`.env`, default `true`, requires a
-backend restart — same read-once convention) mutes the endpoint and
-banner without touching heartbeat writes: `GET /api/config/cron-health`
-returns `{"enabled": false, "jobs": []}` and `CronHealthBanner` renders
-nothing. `CronRunLog` rows keep accumulating normally the whole time — this
-is a display kill-switch, not a pause of the monitoring itself, useful for
-an extended FMP pause where a second banner alongside
-`FmpPausedBanner` would just be noise the operator already knows about.
+backend restart — same read-once convention) mutes the endpoint and the
+Scheduled Jobs section's cron-health display without touching heartbeat
+writes: `GET /api/config/cron-health` returns `{"enabled": false, "jobs":
+[]}` and the section renders nothing for it. `CronRunLog` rows keep
+accumulating normally the whole time — this is a display kill-switch, not
+a pause of the monitoring itself, useful for an extended FMP pause where
+that display would just be noise the operator already knows about.
 
 ## Weekly index constituent refresh (S&P 500 / Nasdaq-100 / Dow)
 
@@ -616,8 +617,9 @@ that draft is why; it was never committed.
   exception bypasses `configure_logging()`'s handlers entirely. Closed by
   the `CronRunLog` table + `cron_heartbeat()` wrapper (`core/cron_health.py`,
   wired into all 11 scripts' entry points) + `GET /api/config/cron-health`
-  + the site-wide `CronHealthBanner` -- see "Cron job heartbeat / health
-  monitoring" below. Purely additive: the wrapper always re-raises the
+  + Settings > Scheduled Jobs (the old site-wide `CronHealthBanner` was
+  deleted and folded into that section) -- see "Cron job heartbeat /
+  health monitoring" below. Purely additive: the wrapper always re-raises the
   original exception unchanged, so existing stderr/`_cron.log` capture and
   exit codes are untouched; a heartbeat DB write failure (e.g. the exact
   disk-full case above) is itself swallowed rather than masking the job's
