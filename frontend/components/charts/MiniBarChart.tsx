@@ -1,9 +1,10 @@
 "use client";
 
-import { Bar, BarChart, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, Cell, XAxis, YAxis } from "recharts";
 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { computeNiceTicksRange } from "@/lib/charts";
+import { NEGATIVE_COLOR, SERIES_COLORS } from "@/lib/chartSeries";
 
 export interface StackedBarSegment {
   key: string;
@@ -63,7 +64,7 @@ function StackedTooltipContent({ active, payload, segments, valueFormat }: Stack
   }, 0);
 
   return (
-    <div className="grid min-w-36 gap-1.5 rounded-none border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
+    <div className="grid min-w-36 gap-1.5 rounded-md border border-border-card bg-surface px-2.5 py-1.5 text-xs shadow-popover">
       <div className="grid gap-1">
         {segments.map((s) => {
           const v = row[s.key];
@@ -71,7 +72,7 @@ function StackedTooltipContent({ active, payload, segments, valueFormat }: Stack
             <div key={s.key} className="flex w-full items-center gap-2">
               <div className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: s.color }} />
               <div className="flex flex-1 items-center justify-between gap-3">
-                <span className="text-muted-foreground">{s.label}</span>
+                <span className="text-text-secondary">{s.label}</span>
                 <span className="font-mono font-semibold tabular-nums text-text-primary">
                   {typeof v === "number" ? valueFormat(v) : "—"}
                 </span>
@@ -79,8 +80,8 @@ function StackedTooltipContent({ active, payload, segments, valueFormat }: Stack
             </div>
           );
         })}
-        <div className="mt-0.5 flex items-center justify-between gap-3 border-t border-border/50 pt-1">
-          <span className="text-muted-foreground">Total</span>
+        <div className="mt-0.5 flex items-center justify-between gap-3 border-t border-border-card pt-1">
+          <span className="text-text-secondary">Total</span>
           <span className="font-mono font-semibold tabular-nums text-text-primary">{valueFormat(total)}</span>
         </div>
       </div>
@@ -99,7 +100,7 @@ export function MiniBarChart({
   values,
   segments,
   valueFormat,
-  color = "var(--color-brand)",
+  color = SERIES_COLORS[0],
   height = 64,
   barCategoryGap = "10%",
 }: Props) {
@@ -150,7 +151,13 @@ export function MiniBarChart({
         )}
         {isStacked
           ? segments!.map((s) => <Bar key={s.key} dataKey={s.key} stackId="segments" fill={s.color} radius={1} isAnimationActive={false} />)
-          : <Bar dataKey="value" fill={color} radius={1} isAnimationActive={false} />}
+          : (
+            <Bar dataKey="value" radius={1} isAnimationActive={false}>
+              {chartData.map((d, i) => (
+                <Cell key={i} fill={typeof d.value === "number" && d.value < 0 ? NEGATIVE_COLOR : color} />
+              ))}
+            </Bar>
+          )}
       </BarChart>
     </ChartContainer>
   );

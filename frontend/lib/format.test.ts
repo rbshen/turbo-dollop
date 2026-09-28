@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { currencyPrefix, fmtAxisMoney, fmtCompactMoney, fmtMoney, fmtSignedMoney, pickAxisMoneyUnit } from "@/lib/format";
+import {
+  currencyPrefix,
+  fmtAxisMoney,
+  fmtCompactMoney,
+  fmtMoney,
+  fmtSignedCompactMoneyTooltip,
+  fmtSignedDaysTooltip,
+  fmtSignedMoney,
+  fmtSignedPctTooltip,
+  fmtSignedRatioTooltip,
+  pickAxisMoneyUnit,
+} from "@/lib/format";
 
 describe("currencyPrefix", () => {
   it("maps known currencies to their unambiguous prefix", () => {
@@ -47,5 +58,56 @@ describe("fmtAxisMoney", () => {
   it("applies the currency prefix to an axis tick", () => {
     const unit = pickAxisMoneyUnit(4_900_000_000_000);
     expect(fmtAxisMoney(4_900_000_000_000, unit, "CNY")).toBe("CN¥5T");
+  });
+});
+
+describe("fmtSignedPctTooltip", () => {
+  it("uses a true minus sign (U+2212) for negatives and a plus for positives", () => {
+    expect(fmtSignedPctTooltip(12.345)).toBe("+12.35%");
+    expect(fmtSignedPctTooltip(-3.2)).toBe("−3.20%");
+  });
+
+  it("shows no sign for a display-zero value", () => {
+    expect(fmtSignedPctTooltip(0)).toBe("0.00%");
+    expect(fmtSignedPctTooltip(0.001)).toBe("0.00%");
+  });
+});
+
+describe("fmtSignedCompactMoneyTooltip", () => {
+  it("signs every magnitude tier with a true minus sign for negatives", () => {
+    expect(fmtSignedCompactMoneyTooltip(1_200_000_000)).toBe("+$1.20B");
+    expect(fmtSignedCompactMoneyTooltip(-1_200_000_000)).toBe("−$1.20B");
+    expect(fmtSignedCompactMoneyTooltip(1_200_000)).toBe("+$1.20M");
+    expect(fmtSignedCompactMoneyTooltip(-500)).toBe("−$500.00");
+  });
+
+  it("applies the currency prefix ahead of the sign-formatted magnitude", () => {
+    expect(fmtSignedCompactMoneyTooltip(1_200_000_000, "CNY")).toBe("+CN¥1.20B");
+  });
+
+  it("shows no sign for zero", () => {
+    expect(fmtSignedCompactMoneyTooltip(0)).toBe("$0.00");
+  });
+});
+
+describe("fmtSignedDaysTooltip", () => {
+  it("uses a true minus sign and 2 decimals by default (matches the CCC tooltip's precedent)", () => {
+    expect(fmtSignedDaysTooltip(63.4)).toBe("+63.40 days");
+    expect(fmtSignedDaysTooltip(-3.2)).toBe("−3.20 days");
+  });
+
+  it("shows no sign for a display-zero value", () => {
+    expect(fmtSignedDaysTooltip(0)).toBe("0.00 days");
+  });
+});
+
+describe("fmtSignedRatioTooltip", () => {
+  it("uses a true minus sign for negatives and a plus for positives", () => {
+    expect(fmtSignedRatioTooltip(1.25)).toBe("+1.25x");
+    expect(fmtSignedRatioTooltip(-0.4)).toBe("−0.40x");
+  });
+
+  it("shows no sign for a display-zero value", () => {
+    expect(fmtSignedRatioTooltip(0)).toBe("0.00x");
   });
 });

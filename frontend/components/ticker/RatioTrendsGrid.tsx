@@ -4,7 +4,7 @@ import { TrendCardsGrid, type TrendCard } from "@/components/charts/TrendCardsGr
 import { useStep4 } from "@/lib/hooks/useStep4";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { useRatios } from "@/lib/hooks/useRatios";
-import { fmtPct, fmtPlainPct, fmtRatio } from "@/lib/format";
+import { fmtPlainPct, fmtRatio, fmtSignedPctTooltip, fmtSignedRatioTooltip } from "@/lib/format";
 import type { RatiosOut } from "@/lib/api/types";
 
 interface Props {
@@ -61,7 +61,7 @@ export function RatioTrendsGrid({ ticker }: Props) {
   const ratios = useRatios(ticker);
 
   if (!step4.data || !step5.data || !ratios.data) {
-    return <div className="h-24 animate-pulse rounded-lg border border-border-card bg-surface" />;
+    return <div className="h-24 animate-pulse rounded-lg border border-border-card bg-surface-2" />;
   }
 
   const s4 = step4.data;
@@ -78,17 +78,17 @@ export function RatioTrendsGrid({ ticker }: Props) {
   const roicExempt = s4.roic == null;
 
   const cards: (TrendCard | null)[] = [
-    { key: "gross_margin", label: "Gross Profit Margin", years: r.periods, values: ratioValues(r, "Gross Margin"), format: fmtPlainPct, tooltipFormat: fmtPct },
-    { key: "net_margin", label: "Net Profit Margin", years: r.periods, values: ratioValues(r, "Net Margin"), format: fmtPlainPct, tooltipFormat: fmtPct },
-    { key: "roe", label: "ROE", years: r.periods, values: ratioValues(r, "ROE"), format: fmtPlainPct, tooltipFormat: fmtPct },
-    { key: "roic", label: "ROIC", years: r.periods, values: roicExempt ? [] : ratioValues(r, "ROIC"), format: fmtPlainPct, tooltipFormat: fmtPct },
+    { key: "gross_margin", label: "Gross Profit Margin", years: r.periods, values: ratioValues(r, "Gross Margin"), format: fmtPlainPct, tooltipFormat: fmtSignedPctTooltip },
+    { key: "net_margin", label: "Net Profit Margin", years: r.periods, values: ratioValues(r, "Net Margin"), format: fmtPlainPct, tooltipFormat: fmtSignedPctTooltip },
+    { key: "roe", label: "ROE", years: r.periods, values: ratioValues(r, "ROE"), format: fmtPlainPct, tooltipFormat: fmtSignedPctTooltip },
+    { key: "roic", label: "ROIC", years: r.periods, values: roicExempt ? [] : ratioValues(r, "ROIC"), format: fmtPlainPct, tooltipFormat: fmtSignedPctTooltip },
     {
       key: "current_ratio",
       label: "Current Ratio",
       years: r.periods,
       values: evaluated ? ratioValues(r, "Current Ratio") : [],
       format: fmtRatio,
-      tooltipFormat: fmtRatio,
+      tooltipFormat: fmtSignedRatioTooltip,
     },
     {
       key: "debt_to_ebitda",
@@ -96,7 +96,7 @@ export function RatioTrendsGrid({ ticker }: Props) {
       years: s5.debt_to_ebitda_years,
       values: evaluated ? s5.debt_to_ebitda_series : [],
       format: fmtRatio,
-      tooltipFormat: fmtRatio,
+      tooltipFormat: fmtSignedRatioTooltip,
     },
     {
       key: "interest_coverage",
@@ -104,7 +104,7 @@ export function RatioTrendsGrid({ ticker }: Props) {
       years: r.periods,
       values: evaluated ? ratioValues(r, "Interest Coverage") : [],
       format: fmtRatio,
-      tooltipFormat: fmtRatio,
+      tooltipFormat: fmtSignedRatioTooltip,
     },
   ];
 

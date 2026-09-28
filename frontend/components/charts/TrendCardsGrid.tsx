@@ -42,28 +42,44 @@ interface Props {
 
 // Shared small-multiple preview-card grid -- used by the Financials tab's
 // "Historical Trends" grid (revenue/net income/CFO/FCF/AR/CCC) and the
-// Ratios tab's margin/ROE/ROIC trend cards. Cards with no real data point
-// anywhere in the series are dropped rather than rendered empty.
+// Ratios tab's margin/ROE/ROIC trend cards. A card whose caller never
+// applies (e.g. a company-type exemption -- see HistoricalTrendsGrid/
+// RatioTrendsGrid's own exemption comments) is `null` and is still dropped
+// entirely -- there's no metric to show at all for this ticker. A card
+// that DOES apply but has no real data point anywhere in its series stays
+// visible with an empty-state caption instead, per the shared chart empty
+// state convention (a trend card with no data doesn't silently vanish).
+const MINI_BAR_CHART_HEIGHT = 64;
+
 export function TrendCardsGrid({ cards }: Props) {
-  const visibleCards = cards.filter((c): c is TrendCard => !!c && c.values.some((v) => v != null));
+  const applicableCards = cards.filter((c): c is TrendCard => c != null);
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-      {visibleCards.map((card) => (
-        <div key={card.key} className="space-y-1 rounded-lg border border-border-card bg-surface p-3">
-          <p className="truncate text-[11px] font-medium uppercase tracking-wide text-text-tertiary">{card.label}</p>
-          {(() => {
-            const latest = latestValue(card.years, card.values);
-            return (
-              <p className="font-mono text-sm font-semibold text-text-primary">
-                {latest ? card.format(latest.value) : "—"}
-                {latest && <span className="ml-1 text-[10px] font-normal text-text-tertiary">({latest.period})</span>}
-              </p>
-            );
-          })()}
-          <MiniBarChart categories={card.years} values={card.values} segments={card.segments} valueFormat={card.tooltipFormat} />
-        </div>
-      ))}
+      {applicableCards.map((card) => {
+        const hasData = card.values.some((v) => v != null);
+        return (
+          <div key={card.key} className="space-y-1 rounded-lg border border-border-card bg-surface p-3">
+            <p className="truncate text-[11px] font-medium uppercase tracking-wide text-text-tertiary">{card.label}</p>
+            {(() => {
+              const latest = latestValue(card.years, card.values);
+              return (
+                <p className="font-mono text-sm font-semibold text-text-primary">
+                  {latest ? card.format(latest.value) : "—"}
+                  {latest && <span className="ml-1 text-[10px] font-normal text-text-tertiary">({latest.period})</span>}
+                </p>
+              );
+            })()}
+            {hasData ? (
+              <MiniBarChart categories={card.years} values={card.values} segments={card.segments} valueFormat={card.tooltipFormat} />
+            ) : (
+              <div className="flex items-center justify-center" style={{ height: MINI_BAR_CHART_HEIGHT }}>
+                <p className="text-[13px] text-text-tertiary">No data for this period</p>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

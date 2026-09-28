@@ -10,7 +10,7 @@ import { VERDICT_SIGNAL_COLOR, VERDICT_SIGNAL_LEVEL } from "@/components/ticker/
 import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGrowthPill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { SortableField, WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
-import { fmtCompactMoney, fmtNumber } from "@/lib/format";
+import { fmtCompactMoney, fmtNumber, fmtSignedCompactMoneyTooltip } from "@/lib/format";
 import { flatChipClassFor } from "@/lib/tierColor";
 import { cn } from "@/lib/utils";
 import { removeTickerFromWatchlist } from "@/lib/hooks/useWatchlists";
@@ -106,7 +106,7 @@ function TrendCell({
       <MiniBarChart
         categories={years}
         values={values}
-        valueFormat={(v) => fmtCompactMoney(v, currency)}
+        valueFormat={(v) => fmtSignedCompactMoneyTooltip(v, currency)}
         height={32}
         barCategoryGap="15%"
       />

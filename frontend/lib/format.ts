@@ -126,6 +126,53 @@ export function fmtDays(n: number, decimals = 1): string {
   return n.toFixed(decimals) + " days";
 }
 
+const MINUS = "−";
+
+/** "+" / MINUS (U+2212) / "" for use as a sign prefix ahead of an abs()-formatted
+ * magnitude; values within `threshold` of zero get no sign. Distinct from
+ * `signChar` above (which uses a plain hyphen and is already used by
+ * fmtSignedMoney/fmtPct for table figures) -- this one exists specifically
+ * for the trend-bar tooltip formatters below, which use a true minus sign
+ * per the design system's chart tooltip convention. */
+function signPrefix(n: number, threshold: number): string {
+  if (Math.abs(n) < threshold) return "";
+  return n > 0 ? "+" : MINUS;
+}
+
+/** "+12.34%" / "−03.20%" / "0.00%" -- like fmtPct but with a true minus
+ * sign (U+2212) instead of a plain hyphen, for trend-bar hover tooltips.
+ * Expects a value already in percentage points. */
+export function fmtSignedPctTooltip(n: number, decimals = 2): string {
+  const threshold = 0.5 * Math.pow(10, -decimals);
+  return signPrefix(n, threshold) + Math.abs(n).toFixed(decimals) + "%";
+}
+
+/** "+$1.20B" / "−$1.20B" -- like fmtCompactMoney but signed with a true
+ * minus sign, for trend-bar hover tooltips. Currency-aware, see fmtMoney. */
+export function fmtSignedCompactMoneyTooltip(n: number, currency: string = "USD"): string {
+  const abs = Math.abs(n);
+  const prefix = currencyPrefix(currency);
+  const sign = signPrefix(n, 0.005);
+  if (abs >= 1e12) return `${sign}${prefix}${(abs / 1e12).toFixed(2)}T`;
+  if (abs >= 1e9) return `${sign}${prefix}${(abs / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${sign}${prefix}${(abs / 1e6).toFixed(2)}M`;
+  return sign + prefix + absLocale(n, 2);
+}
+
+/** "+63.40 days" / "−3.20 days" -- like fmtDays but signed with a true
+ * minus sign, for trend-bar hover tooltips (CCC). */
+export function fmtSignedDaysTooltip(n: number, decimals = 2): string {
+  const threshold = 0.5 * Math.pow(10, -decimals);
+  return signPrefix(n, threshold) + Math.abs(n).toFixed(decimals) + " days";
+}
+
+/** "+1.25x" / "−0.40x" -- like fmtRatio but signed with a true minus
+ * sign, for trend-bar hover tooltips. */
+export function fmtSignedRatioTooltip(n: number, decimals = 2): string {
+  const threshold = 0.5 * Math.pow(10, -decimals);
+  return signPrefix(n, threshold) + Math.abs(n).toFixed(decimals) + "x";
+}
+
 /** Tailwind text class based on sign; near-zero is muted. */
 export function pnlClass(n: number): string {
   if (n > 0.005) return "text-positive";
