@@ -8,6 +8,7 @@ import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGr
 import { WeinsteinStagePill } from "@/components/ticker/WeinsteinStagePill";
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
 import { ValuationBadge } from "@/components/screener/ValuationBadge";
+import { Badge } from "@/components/ui/badge";
 import type { TickerScoreOut } from "@/lib/api/types";
 import { fmtCompactMoney, fmtMoney, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -19,6 +20,16 @@ interface Props {
 export function ScreenerCard({ data }: Props) {
   const isSpeculativeGrowth = data.speculative_growth_qualifies === true;
 
+  // The card's own box already carries Card's exact chrome (rounded-lg
+  // border-border-card bg-surface) -- but the box must be the clickable
+  // Link itself for a full-card click target, and Card has no `asChild`/
+  // polymorphic support to render as anything but a <div>. Nesting
+  // <Card><Link>...</Link></Card> would either shrink the click target to
+  // Link's own content or duplicate the box styling on both elements, so
+  // the tokens are applied directly to the Link rather than through Card.
+  // A card grid IS a legitimate Card use case (each item is a
+  // self-contained, individually clickable unit) -- this is a Link/
+  // asChild limitation, not a "Card doesn't fit here" judgment.
   return (
     <Link
       href={`/tickers/${data.ticker}`}
@@ -42,11 +53,9 @@ export function ScreenerCard({ data }: Props) {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <span className="rounded-md bg-surface-2 px-2 py-1 font-semibold text-text-secondary">
-          {data.company_type ?? "Unclassified"}
-        </span>
-        <span className="truncate text-text-tertiary">{data.sector ?? "—"}</span>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Badge tone="neutral">{data.company_type ?? "Unclassified"}</Badge>
+        <span className="truncate text-xs text-text-tertiary">{data.sector ?? "—"}</span>
       </div>
 
       {(data.moat != null ||
