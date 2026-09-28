@@ -26,14 +26,23 @@ interface SortHeaderProps {
 // turn text-text-primary, with the priority numeral (mono, multi-sort only)
 // trailing the arrow. The parent TableHead carries aria-sort -- this button
 // is purely the visual/interactive layer.
+//
+// `align="left"` (the default, used for left- AND center-aligned columns
+// alike) stays a plain inline-flex box -- an inline-level element already
+// takes its position from the <th>'s own text-align, so a centered column
+// just works without this component needing to know it's centered.
+// `align="right"` additionally spans the full cell (w-full justify-end):
+// a numeric column is usually much wider than its label, so this gives a
+// right-anchored, full-width click/hover target instead of a tight box
+// hugging just the label text.
 export function SortHeader({ label, active, direction, priority, onClick, align = "left", className }: SortHeaderProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex w-full items-center gap-1 text-xs font-medium text-text-tertiary transition-colors hover:text-text-primary",
-        align === "right" ? "justify-end" : "justify-start",
+        "inline-flex items-center gap-1 text-xs font-medium text-text-tertiary transition-colors hover:text-text-primary",
+        align === "right" && "w-full justify-end",
         active && "text-text-primary",
         className
       )}

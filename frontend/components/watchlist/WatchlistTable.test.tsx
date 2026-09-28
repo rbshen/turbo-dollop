@@ -55,6 +55,9 @@ const ROWS: WatchlistRowOut[] = [
 ];
 
 describe("WatchlistTable sticky header", () => {
+  // bg-page (not a visible surface fill) -- 2026-09-28 design-system change:
+  // a sticky header only needs to paint over scrolled-under rows, not draw
+  // its own card-like fill the way the old bg-surface-2 did.
   it("keeps every column header cell sticky with a solid background", () => {
     render(
       <WatchlistTable watchlist={WATCHLIST} rows={ROWS} sortRules={DEFAULT_SORT_RULES} onSortRulesChange={vi.fn()} />
@@ -62,7 +65,7 @@ describe("WatchlistTable sticky header", () => {
     for (const cell of document.querySelectorAll("thead th")) {
       expect(cell.className).toContain("sticky");
       expect(cell.className).toContain("top-0");
-      expect(cell.className).toContain("bg-surface-2");
+      expect(cell.className).toContain("bg-page");
     }
   });
 
