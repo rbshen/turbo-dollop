@@ -1,3 +1,5 @@
+import { Button } from "@/components/ui/button";
+
 interface Props {
   page: number;
   nPages: number;
@@ -18,37 +20,29 @@ export function Pagination({ page, nPages, onPage }: Props) {
 
   return (
     <div className="flex items-center justify-center gap-1">
-      <button
-        onClick={() => onPage(page - 1)}
-        disabled={page === 1}
-        className="rounded px-2 py-1 text-sm text-text-secondary transition-colors hover:text-text-primary disabled:opacity-30"
-      >
+      <Button variant="ghost" size="sm" onClick={() => onPage(page - 1)} disabled={page === 1}>
         « Prev
-      </button>
+      </Button>
       {pages.map((p, i) =>
         p === null ? (
           <span key={`ellipsis-${i}`} className="px-1 text-text-tertiary">
             …
           </span>
         ) : (
-          <button
+          <Button
             key={p}
+            variant={p === page ? "primary" : "ghost"}
+            size="sm"
             onClick={() => onPage(p)}
-            className={`rounded px-2.5 py-1 text-sm transition-colors ${
-              p === page ? "bg-brand font-semibold text-on-brand" : "text-text-secondary hover:bg-surface-2 hover:text-text-primary"
-            }`}
+            className={p === page ? "px-2.5 font-semibold" : "px-2.5"}
           >
             {p}
-          </button>
+          </Button>
         )
       )}
-      <button
-        onClick={() => onPage(page + 1)}
-        disabled={page === nPages}
-        className="rounded px-2 py-1 text-sm text-text-secondary transition-colors hover:text-text-primary disabled:opacity-30"
-      >
+      <Button variant="ghost" size="sm" onClick={() => onPage(page + 1)} disabled={page === nPages}>
         Next »
-      </button>
+      </Button>
     </div>
   );
 }
