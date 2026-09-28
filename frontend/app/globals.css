@@ -75,7 +75,6 @@
   --color-text-primary: var(--fathom-text-primary);
   --color-text-secondary: var(--fathom-text-secondary);
   --color-text-tertiary: var(--fathom-text-tertiary);
-  --color-text-tertiary-2: var(--fathom-text-tertiary-2);
   --color-text-body: var(--fathom-text-body);
   --color-brand: var(--fathom-brand);
   --color-brand-hover: var(--fathom-brand-hover);
@@ -210,7 +209,6 @@
   --fathom-text-primary: oklch(93% 0.006 260);
   --fathom-text-secondary: oklch(68% 0.012 260);
   --fathom-text-tertiary: oklch(62% 0.012 260);
-  --fathom-text-tertiary-2: oklch(58% 0.012 260);
   --fathom-text-body: oklch(86% 0.01 260);
   --fathom-brand: oklch(64% 0.17 260);
   --fathom-brand-hover: oklch(76% 0.16 260);
