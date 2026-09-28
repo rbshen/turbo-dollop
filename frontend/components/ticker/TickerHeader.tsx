@@ -11,17 +11,15 @@ import { SpeculativeGrowthFakeGrowthWarning } from "@/components/ticker/Speculat
 import { SpeculativeGrowthInfoIcon } from "@/components/ticker/SpeculativeGrowthInfoIcon";
 import { SpeculativeGrowthPill } from "@/components/ticker/SpeculativeGrowthPill";
 import { WeinsteinStagePill } from "@/components/ticker/WeinsteinStagePill";
+import { Status } from "@/components/ui/status";
 import { useSpeculativeGrowth } from "@/lib/hooks/useSpeculativeGrowth";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
 import { useTickerScore } from "@/lib/hooks/useTickerScore";
 import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
 import { fmtMoney } from "@/lib/format";
-import { flatChipClassFor } from "@/lib/tierColor";
+import { toneForNullable } from "@/lib/tierColor";
 import type { TickerSummaryOut } from "@/lib/api/types";
 
-// Flat (borderless) styling to match ScreenerCard/WatchlistTable's chip
-// row -- same treatment FairValuePill/MoatPill get below via variant="flat".
-//
 // Reads the precomputed TickerScore row (same source as Screener/Watchlist)
 // instead of useOverallAssessment's live /step1,2,4,5 fetch + client-side
 // blend -- that hook stays as-is for OverallAssessmentCard (Analysis tab),
@@ -34,12 +32,9 @@ function AssessmentChip({ symbol }: { symbol: string }) {
   if (!data || data.overall_score == null || data.overall_verdict == null) return null;
 
   return (
-    <span
-      title={`As of ${new Date(data.computed_at).toLocaleString()}`}
-      className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold ${flatChipClassFor(data.overall_score, data.overall_verdict)}`}
-    >
+    <Status tone={toneForNullable(data.overall_score, data.overall_verdict)} title={`As of ${new Date(data.computed_at).toLocaleString()}`}>
       {data.overall_verdict}
-    </span>
+    </Status>
   );
 }
 
@@ -111,7 +106,7 @@ export function TickerHeader({ symbol, data }: Props) {
           status={data.perf_5y_vs_spy_status}
           insufficientHistory={data.perf_5y_insufficient_history}
         />
-        <WeinsteinStagePill data={trendData} variant="flat" />
+        <WeinsteinStagePill data={trendData} />
       </div>
 
       {/* Row 3: next earnings -- always shown so a null date reads as

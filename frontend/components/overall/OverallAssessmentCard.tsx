@@ -1,9 +1,10 @@
 "use client";
 
 import { CircularScoreBadge } from "@/components/overall/CircularScoreBadge";
+import { Status, Verdict } from "@/components/ui/status";
 import { useOverallAssessment } from "@/lib/hooks/useOverallAssessment";
 import type { StepBreakdownEntry } from "@/lib/overallScore";
-import { flatChipClassFor, textClassFor } from "@/lib/tierColor";
+import { toneFor, toneForNullable } from "@/lib/tierColor";
 
 interface Props {
   ticker: string;
@@ -58,7 +59,9 @@ export function OverallAssessmentCard({ ticker }: Props) {
             <div className="flex items-center gap-4">
               <CircularScoreBadge score={result.score} verdict={result.verdict} />
               <div>
-                <p className={`font-heading text-xl font-bold ${textClassFor(result.score, result.verdict)}`}>{result.verdict}</p>
+                <Verdict tone={toneFor(result.score, result.verdict)} className="font-heading text-xl font-bold">
+                  {result.verdict}
+                </Verdict>
                 <p className="text-sm text-text-secondary">{rollupSummary(result.breakdown)}</p>
               </div>
             </div>
@@ -66,13 +69,9 @@ export function OverallAssessmentCard({ ticker }: Props) {
 
           <div className="flex flex-wrap gap-2">
             {result.breakdown.map((entry) => (
-              <span
-                key={entry.key}
-                className={`rounded-md px-2 py-1 text-xs font-medium ${flatChipClassFor(entry.score, entry.verdict)}`}
-                title={chipTitle(entry)}
-              >
+              <Status key={entry.key} tone={toneForNullable(entry.score, entry.verdict)} title={chipTitle(entry)}>
                 {chipLabel(entry)}
-              </span>
+              </Status>
             ))}
           </div>
 

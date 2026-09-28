@@ -1,17 +1,16 @@
 import { Warning } from "@phosphor-icons/react";
 
 import { fmtSwingDate } from "@/components/technical/ChecklistCard";
+import { Status } from "@/components/ui/status";
 import {
   formatWeinsteinSince,
   weinsteinMaLabelShort,
   weinsteinPendingTooltipLine,
   WEINSTEIN_LOWER_BOUND_CAVEAT,
   WEINSTEIN_STAGE_LABEL,
-  WEINSTEIN_STAGE_STYLES_CHIP,
-  WEINSTEIN_STAGE_STYLES_FLAT,
+  WEINSTEIN_STAGE_TONE,
   type WeinsteinStage,
 } from "@/lib/weinsteinStage";
-import { cn } from "@/lib/utils";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
 // Narrowed to just the 5 fields this pill actually needs, rather than the
@@ -52,9 +51,6 @@ interface Props {
   // it's "not computed," and gets no pill at all rather than a placeholder
   // (same "only show when meaningful" contract as MoatPill/SpeculativeGrowthPill).
   data: WeinsteinStagePillData | null | undefined;
-  // "chip" (default): bordered pill. "flat": borderless, used in
-  // TickerHeader's chip row -- same variant shape as MoatPill/SpeculativeGrowthPill.
-  variant?: "chip" | "flat";
   // Which label wording tier to use -- see LABEL_SETS above. Defaults to
   // the full "Stage 2 · Advance"-style wording.
   labelSet?: "full" | "screener";
@@ -80,19 +76,12 @@ function buildTooltip(data: WeinsteinStagePillData): string {
   return lines.join("\n");
 }
 
-export function WeinsteinStagePill({ data, variant = "chip", labelSet = "full" }: Props) {
+export function WeinsteinStagePill({ data, labelSet = "full" }: Props) {
   if (!data || !data.weinstein_stage) return null;
   const stage = data.weinstein_stage;
 
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md text-xs font-semibold",
-        variant === "chip" ? "border px-2 py-0.5" : "px-2 py-1",
-        variant === "chip" ? WEINSTEIN_STAGE_STYLES_CHIP[stage] : WEINSTEIN_STAGE_STYLES_FLAT[stage]
-      )}
-      title={buildTooltip(data)}
-    >
+    <Status tone={WEINSTEIN_STAGE_TONE[stage]} title={buildTooltip(data)}>
       {LABEL_SETS[labelSet][stage]}
       {/* Pending confirmation -- without this, the extra tooltip line
           buildTooltip appends is invisible (a native `title` attribute
@@ -102,6 +91,6 @@ export function WeinsteinStagePill({ data, variant = "chip", labelSet = "full" }
           pill's own stage color, since "pending" is a caution independent
           of whatever stage is currently showing. */}
       {data.pending && <Warning size={12} weight="fill" className="shrink-0 text-warn" aria-hidden="true" />}
-    </span>
+    </Status>
   );
 }

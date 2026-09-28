@@ -3,7 +3,8 @@
 import { CaretDown } from "@phosphor-icons/react";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { textClassFor } from "@/lib/tierColor";
+import { Verdict } from "@/components/ui/status";
+import { toneFor } from "@/lib/tierColor";
 
 export interface ReasoningBullet {
   key: string;
@@ -74,9 +75,9 @@ export function AnalysisSectionCard({ title, score, verdict, blurb, methodology,
                 (18 chars, ~151px), which is shorter despite the extra
                 digit. w-52 (208px) leaves headroom over that estimate. */}
             {score != null && (
-              <span className={`w-52 shrink-0 whitespace-nowrap font-mono text-sm font-semibold ${textClassFor(score, verdict)}`}>
+              <Verdict tone={toneFor(score, verdict)} className="w-52 shrink-0 whitespace-nowrap font-mono text-sm">
                 {score} · {verdict}
-              </span>
+              </Verdict>
             )}
             <div className="min-w-0 space-y-1">
               <h2 className="font-heading text-sm font-semibold text-text-primary">{title}</h2>

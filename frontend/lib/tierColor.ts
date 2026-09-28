@@ -70,10 +70,13 @@ export function toneFor(score: number, verdict: string): ScoreTone {
   return "warn";
 }
 
-// Same null handling as flatChipClassFor -- "neutral" is Status's own
-// muted/no-color tone, used whenever there's no score to color at all
-// (not yet computed, or a structural exemption).
+// Same null handling as flatChipClassFor -- score == null (not verdict) is
+// the only guard, exactly mirroring that function's own condition, so a
+// null verdict alongside a real score still falls through to the
+// score-based tiers below rather than short-circuiting to neutral.
+// "neutral" is Status's own muted/no-color tone, used whenever there's no
+// score to color at all (not yet computed, or a structural exemption).
 export function toneForNullable(score: number | null, verdict: string | null): StatusTone {
-  if (score == null || verdict == null) return "neutral";
-  return toneFor(score, verdict);
+  if (score == null) return "neutral";
+  return toneFor(score, verdict ?? "");
 }

@@ -1,3 +1,4 @@
+import type { StatusTone } from "@/components/ui/status";
 import type { TrendAnalysisOut, WeinsteinParamsOut, WeinsteinPendingEtaScenarioOut, WeinsteinPendingOut } from "@/lib/api/types";
 
 export type WeinsteinStage = NonNullable<TrendAnalysisOut["weinstein_stage"]>;
@@ -39,6 +40,19 @@ export const WEINSTEIN_STAGE_TEXT_CLASS: Record<WeinsteinStage, string> = {
   decline: "text-negative",
   top: "text-warn",
   base: "text-text-tertiary",
+};
+
+// A Weinstein stage is its own 4-state classification (Base/Advance/Top/
+// Decline), not a Pass/Fail-style score tier -- deliberately NOT derived
+// from lib/tierColor.ts, which has no notion of "stage" at all. Kept as its
+// own map here (rather than forced onto tierColor's tiers) so the pill/card
+// coloring stays exactly what WEINSTEIN_STAGE_STYLES_CHIP/FLAT above already
+// established: advance=positive/decline=negative/top=warn/base=neutral.
+export const WEINSTEIN_STAGE_TONE: Record<WeinsteinStage, StatusTone> = {
+  advance: "positive",
+  decline: "negative",
+  top: "warn",
+  base: "neutral",
 };
 
 // The engine is configurable (Settings > Weinstein), so no UI string may

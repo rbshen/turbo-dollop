@@ -69,7 +69,7 @@ export function ScreenerCard({ data }: Props) {
         (data.reversal_status != null && data.reversal_status !== "not_present") ||
         (data.pullback_status != null && data.pullback_status !== "no_pullback")) && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <WeinsteinStagePill data={data} variant="flat" labelSet="screener" />
+          <WeinsteinStagePill data={data} labelSet="screener" />
           <ReversalPill status={data.reversal_status} variant="flat" />
           <PullbackPill status={data.pullback_status} variant="flat" />
         </div>
