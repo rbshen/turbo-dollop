@@ -237,7 +237,17 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    /* Border-color only -- unchanged from before. `outline-ring/50` used to
+       ride along on this same universal selector, giving every element a
+       faint outline color regardless of *how* it was focused (mouse click
+       included, since it wasn't scoped to :focus-visible). Replaced below
+       by an explicit :focus-visible-only rule so a mouse click no longer
+       leaves a lasting ring, only keyboard/programmatic focus does. */
+    @apply border-border;
+  }
+  *:focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
   }
   body {
     @apply bg-background text-foreground;
