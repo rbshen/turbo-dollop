@@ -5,7 +5,7 @@ import { Bar, BarChart, Cell, XAxis, YAxis } from "recharts";
 import { Plus } from "@phosphor-icons/react";
 
 import { PageContainer } from "@/components/layout/PageContainer";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
@@ -21,7 +21,9 @@ import {
   Tile,
 } from "@/components/ui/section";
 import { SideNav } from "@/components/ui/side-nav";
-import { Status, Verdict } from "@/components/ui/status";
+import { SortHeader } from "@/components/ui/sort-header";
+import { Status, Verdict, type StatusTone } from "@/components/ui/status";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs } from "@/components/ui/tabs";
 import { Tooltip } from "@/components/ui/tooltip";
 
@@ -116,6 +118,37 @@ export default function StyleguidePage() {
             <MetricTile label="Fair value" value="$516.17" />
           </div>
         </SectionGrid>
+      </Section>
+
+      <Section title="Table">
+        <div className="flex flex-col gap-8">
+          <div>
+            <p className="mb-2 text-xs text-text-tertiary">Clickable rows</p>
+            <TableClickableRowsDemo />
+          </div>
+          <div>
+            <p className="mb-2 text-xs text-text-tertiary">Sort header -- inactive, active ascending, active descending (priority 2)</p>
+            <TableSortHeaderDemo />
+          </div>
+          <div>
+            <p className="mb-2 text-xs text-text-tertiary">Read-only reference table (no hover)</p>
+            <TableReadOnlyDemo />
+          </div>
+          <div className="flex flex-col gap-4">
+            <div>
+              <p className="mb-2 text-xs text-text-tertiary">Empty</p>
+              <TableEmptyDemo />
+            </div>
+            <div>
+              <p className="mb-2 text-xs text-text-tertiary">Loading</p>
+              <TableLoadingDemo />
+            </div>
+            <div>
+              <p className="mb-2 text-xs text-text-tertiary">Error</p>
+              <TableErrorDemo />
+            </div>
+          </div>
+        </div>
       </Section>
 
       <Section title="Inputs">
@@ -227,6 +260,136 @@ const RANGE_OPTIONS = [
 function RangeSegmentedControlDemo() {
   const [value, setValue] = useState("d1y");
   return <SegmentedControl value={value} onValueChange={setValue} options={RANGE_OPTIONS} />;
+}
+
+interface TableDemoRow {
+  ticker: string;
+  company: string;
+  sector: string;
+  score: number;
+  scoreTone: BadgeProps["tone"];
+  rating: string;
+  ratingTone: StatusTone;
+  peRatio: number;
+  chgPct: number;
+}
+
+// Realistic Fathom sample tickers -- one of each score/rating tier, and one
+// negative Chg % value, per the styleguide brief.
+const TABLE_DEMO_ROWS: TableDemoRow[] = [
+  { ticker: "AAPL", company: "Apple Inc.", sector: "Technology", score: 92, scoreTone: "strong", rating: "Buy", ratingTone: "positive", peRatio: 31.4, chgPct: 1.24 },
+  { ticker: "MSFT", company: "Microsoft Corporation", sector: "Technology", score: 88, scoreTone: "positive", rating: "Buy", ratingTone: "positive", peRatio: 34.8, chgPct: 0.62 },
+  { ticker: "JPM", company: "JPMorgan Chase & Co.", sector: "Financial Services", score: 74, scoreTone: "warn", rating: "Hold", ratingTone: "warn", peRatio: 12.1, chgPct: -0.85 },
+  { ticker: "XOM", company: "Exxon Mobil Corporation", sector: "Energy", score: 61, scoreTone: "negative", rating: "Sell", ratingTone: "negative", peRatio: 14.6, chgPct: -2.13 },
+];
+
+function TableClickableRowsDemo() {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow className="h-9">
+          <TableHead className="w-[220px]">Ticker</TableHead>
+          <TableHead>Sector</TableHead>
+          <TableHead className="text-center">Score</TableHead>
+          <TableHead>Rating</TableHead>
+          <TableHead className="text-right">P/E</TableHead>
+          <TableHead className="text-right">Chg %</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {TABLE_DEMO_ROWS.map((row) => (
+          <TableRow key={row.ticker} interactive>
+            <TableCell className="w-[220px] max-w-[220px] overflow-hidden">
+              <p className="font-mono text-sm font-semibold text-text-primary">{row.ticker}</p>
+              <p className="truncate text-xs text-text-secondary">{row.company}</p>
+            </TableCell>
+            <TableCell className="text-text-secondary">{row.sector}</TableCell>
+            <TableCell className="text-center">
+              <Badge tone={row.scoreTone}>{row.score}</Badge>
+            </TableCell>
+            <TableCell>
+              <Status tone={row.ratingTone}>{row.rating}</Status>
+            </TableCell>
+            <TableCell className="text-right font-mono tabular-nums text-text-primary">{row.peRatio.toFixed(1)}</TableCell>
+            <TableCell className={`text-right font-mono tabular-nums ${row.chgPct >= 0 ? "text-positive" : "text-negative"}`}>
+              {row.chgPct >= 0 ? "+" : ""}
+              {row.chgPct.toFixed(2)}%
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+function TableSortHeaderDemo() {
+  return (
+    <Table className="max-w-lg">
+      <TableHeader>
+        <TableRow className="h-9">
+          <TableHead sort="none">
+            <SortHeader label="Ticker" active={false} onClick={() => {}} />
+          </TableHead>
+          <TableHead className="text-right" sort="ascending">
+            <SortHeader label="Score" active direction="asc" align="right" onClick={() => {}} />
+          </TableHead>
+          <TableHead className="text-right" sort="descending">
+            <SortHeader label="Beta" active direction="desc" priority={2} align="right" onClick={() => {}} />
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+    </Table>
+  );
+}
+
+const TABLE_REFERENCE_ROWS = [
+  { metric: "Current Ratio", value: "1.42x" },
+  { metric: "Debt / EBITDA", value: "2.10x" },
+  { metric: "Debt Servicing Ratio", value: "18.4%" },
+  { metric: "Interest Coverage", value: "9.6x" },
+];
+
+function TableReadOnlyDemo() {
+  return (
+    <Table className="max-w-sm">
+      <TableHeader>
+        <TableRow className="h-9">
+          <TableHead>Metric</TableHead>
+          <TableHead className="text-right">Value</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {TABLE_REFERENCE_ROWS.map((row) => (
+          <TableRow key={row.metric}>
+            <TableCell className="text-text-secondary">{row.metric}</TableCell>
+            <TableCell className="text-right font-mono tabular-nums text-text-primary">{row.value}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+function TableEmptyDemo() {
+  return <p className="text-xs text-text-tertiary">No tickers in this watchlist yet — add one from its ticker page.</p>;
+}
+
+function TableLoadingDemo() {
+  return (
+    <Table className="max-w-sm">
+      <TableBody>
+        {Array.from({ length: 3 }, (_, i) => (
+          <TableRow key={i} className="animate-pulse bg-surface-2">
+            <TableCell colSpan={2} />
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+function TableErrorDemo() {
+  return <p className="text-sm text-negative">Couldn&apos;t load this watchlist — request failed.</p>;
 }
 
 const SIDE_NAV_ITEMS = [

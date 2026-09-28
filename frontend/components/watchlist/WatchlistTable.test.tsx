@@ -92,4 +92,27 @@ describe("WatchlistTable sticky header", () => {
     screen.getByRole("button", { name: "Moat" }).click();
     expect(onSortRulesChange).toHaveBeenCalledTimes(1);
   });
+
+  it("exposes aria-sort on the active sortable header and updates it when direction flips", () => {
+    const { rerender } = render(
+      <WatchlistTable
+        watchlist={WATCHLIST}
+        rows={ROWS}
+        sortRules={[{ field: "moat", direction: "asc" }]}
+        onSortRulesChange={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Moat" }).closest("th")).toHaveAttribute("aria-sort", "ascending");
+    expect(screen.getByRole("button", { name: "Sector" }).closest("th")).toHaveAttribute("aria-sort", "none");
+
+    rerender(
+      <WatchlistTable
+        watchlist={WATCHLIST}
+        rows={ROWS}
+        sortRules={[{ field: "moat", direction: "desc" }]}
+        onSortRulesChange={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Moat" }).closest("th")).toHaveAttribute("aria-sort", "descending");
+  });
 });

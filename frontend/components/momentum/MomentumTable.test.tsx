@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MomentumTable } from "@/components/momentum/MomentumTable";
 import type { MomentumSnapshotRowOut } from "@/lib/api/types";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const ROWS: MomentumSnapshotRowOut[] = [
   {
@@ -66,5 +69,31 @@ describe("MomentumTable", () => {
     expect(overallCell).toHaveClass("text-text-tertiary");
     const compositeCell = screen.getByText("+1008.30%");
     expect(compositeCell.className).not.toContain("text-text-tertiary");
+  });
+
+  it("renders an empty-snapshot caption instead of an empty table", () => {
+    render(<MomentumTable rows={[]} />);
+    expect(screen.getByText("No tickers in this snapshot.")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+});
+
+describe("MomentumTable whole-row click", () => {
+  beforeEach(() => {
+    vi.spyOn(window, "open").mockImplementation(() => null);
+  });
+
+  it("opens the ticker page in a new tab when a non-link cell is clicked", () => {
+    render(<MomentumTable rows={ROWS} />);
+    // Any cell that isn't the ticker anchor itself -- the company name line.
+    screen.getByText("Sandisk Corporation").click();
+    expect(window.open).toHaveBeenCalledTimes(1);
+    expect(window.open).toHaveBeenCalledWith("/tickers/SNDK", "_blank", "noopener,noreferrer");
+  });
+
+  it("does not double-open when the ticker anchor itself is clicked", () => {
+    render(<MomentumTable rows={ROWS} />);
+    screen.getByRole("link", { name: "SNDK" }).click();
+    expect(window.open).not.toHaveBeenCalled();
   });
 });
