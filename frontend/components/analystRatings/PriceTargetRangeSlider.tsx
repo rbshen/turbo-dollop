@@ -42,8 +42,8 @@ export function PriceTargetRangeSlider({ low, avg, high, upsidePct, currency = "
               <p className="whitespace-nowrap font-mono text-xs font-semibold text-text-primary">{fmtMoney(avg!, currency)}</p>
             </div>
             <div
-              className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand ring-2 ring-surface"
-              style={{ left: `${markerPct}%` }}
+              className="absolute top-1/2 h-4 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-text-primary"
+              style={{ left: `${markerPct}%`, boxShadow: "0 0 0 3px var(--color-surface)" }}
             />
           </div>
           <div className="flex justify-between font-mono text-xs text-text-tertiary">
