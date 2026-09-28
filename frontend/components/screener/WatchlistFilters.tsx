@@ -1,9 +1,8 @@
 "use client";
 
 import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
+import { Field } from "@/components/ui/input";
 import type { WatchlistOut } from "@/lib/api/types";
-import { FILTER_ACTIVE_LABEL_CLASS } from "@/lib/screenerFilters";
-import { cn } from "@/lib/utils";
 
 interface Props {
   watchlists: WatchlistOut[] | undefined;
@@ -26,20 +25,22 @@ export function WatchlistFilters({ watchlists, value, onChange, disabled }: Prop
   return (
     <CollapsibleFilterSection title="Watchlist">
       <div className="flex flex-col items-stretch gap-2">
-        <span className={cn("text-xs", active ? FILTER_ACTIVE_LABEL_CLASS : "text-text-tertiary")}>Watchlist</span>
-        <select
-          value={value ?? ""}
-          disabled={disabled}
-          onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
-          className="h-8 rounded-md border border-control bg-surface px-2 text-xs text-text-primary focus:border-brand focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <option value="">None</option>
-          {(watchlists ?? []).map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-            </option>
-          ))}
-        </select>
+        <Field label="Watchlist" htmlFor="screener-watchlist" applied={active}>
+          <select
+            id="screener-watchlist"
+            value={value ?? ""}
+            disabled={disabled}
+            onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+            className="h-9 w-full rounded-md border border-border-control bg-page px-3 text-sm text-text-primary focus:border-brand focus:outline-none disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <option value="">None</option>
+            {(watchlists ?? []).map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+              </option>
+            ))}
+          </select>
+        </Field>
         <p className="text-xs text-text-tertiary">
           {disabled
             ? 'Only applies when the universe toggle above is set to "All."'
