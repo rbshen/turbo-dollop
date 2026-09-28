@@ -204,7 +204,7 @@
 
   /* Design-system foundation (2026-09-28) -- new palette for the "direction
      B, quiet minimalist" migration. Defined here only; nothing reads these
-     yet (existing --fathom-chart-*/--chart-1..5 tokens are untouched and
+     yet (existing --fathom-chart-* / --chart-1..5 tokens are untouched and
      still what every chart/component actually renders with). Kept as plain
      hex (not oklch, unlike the tokens above) so the values match the
      design handoff exactly. */
