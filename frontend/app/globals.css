@@ -88,6 +88,33 @@
   --color-chart-orange: var(--fathom-chart-orange);
   --color-filter-active: var(--fathom-filter-active);
   --color-index-membership: var(--fathom-index-membership);
+  /* Design-system foundation (2026-09-28) -- tokens only, not yet wired into
+     any component/chart. See CLAUDE.md's design-system migration notes. */
+  --color-border-control: var(--fathom-border-control);
+  --color-on-brand: var(--fathom-on-brand);
+  --color-chart-up: var(--fathom-chart-up);
+  --color-chart-down: var(--fathom-chart-down);
+  --color-chart-ema21: var(--fathom-chart-ema21);
+  --color-chart-sma50: var(--fathom-chart-sma50);
+  --color-chart-sma200: var(--fathom-chart-sma200);
+  --color-chart-stoch-k: var(--fathom-chart-stoch-k);
+  --color-chart-band: var(--fathom-chart-band);
+  --color-chart-refline: var(--fathom-chart-refline);
+  --color-chart-zone-broken-support: var(--fathom-chart-zone-broken-support);
+  --color-chart-zone-broken-resistance: var(--fathom-chart-zone-broken-resistance);
+  --color-chart-warren-yellow: var(--fathom-chart-warren-yellow);
+  --color-chart-warren-gray: var(--fathom-chart-warren-gray);
+  --color-chart-event-earnings: var(--fathom-chart-event-earnings);
+  --color-chart-event-dividend: var(--fathom-chart-event-dividend);
+  --color-stage-base: var(--fathom-stage-base);
+  --color-stage-advance: var(--fathom-stage-advance);
+  --color-stage-top: var(--fathom-stage-top);
+  --color-stage-decline: var(--fathom-stage-decline);
+  --color-series-1: var(--fathom-series-1);
+  --color-series-2: var(--fathom-series-2);
+  --color-series-3: var(--fathom-series-3);
+  --color-series-4: var(--fathom-series-4);
+  --color-series-5: var(--fathom-series-5);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -236,6 +263,38 @@
      sits in the 6-8 dE band, which is legal here since the pill always
      carries a text label, never color alone. */
   --fathom-index-membership: oklch(60% 0.12 185);
+
+  /* Design-system foundation (2026-09-28) -- new palette for the "direction
+     B, quiet minimalist" migration. Defined here only; nothing reads these
+     yet (existing --fathom-chart-*/--chart-1..5 tokens are untouched and
+     still what every chart/component actually renders with). Kept as plain
+     hex (not oklch, unlike the tokens above) so the values match the
+     design handoff exactly. */
+  --fathom-border-control: #656c79;
+  --fathom-on-brand: #080b11;
+  --fathom-chart-up: #10b981;
+  --fathom-chart-down: #ef4444;
+  --fathom-chart-ema21: #3179f5;
+  --fathom-chart-sma50: #4caf50;
+  --fathom-chart-sma200: #f23645;
+  --fathom-chart-stoch-k: #f23645;
+  --fathom-chart-band: #808080;
+  --fathom-chart-refline: #52525b;
+  --fathom-chart-zone-broken-support: #ff9800;
+  --fathom-chart-zone-broken-resistance: #e040fb;
+  --fathom-chart-warren-yellow: #f59e0b;
+  --fathom-chart-warren-gray: #a1a1aa;
+  --fathom-chart-event-earnings: #22d3ee;
+  --fathom-chart-event-dividend: #a78bfa;
+  --fathom-stage-base: #8fd99f;
+  --fathom-stage-advance: #1b9e3e;
+  --fathom-stage-top: #e8a020;
+  --fathom-stage-decline: #e03a3a;
+  --fathom-series-1: #4a89f2;
+  --fathom-series-2: #9c84c7;
+  --fathom-series-3: #46b3c4;
+  --fathom-series-4: #d98ba8;
+  --fathom-series-5: #7c8ca6;
 }
 
 @layer base {
