@@ -8,6 +8,7 @@
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import { MetricTile, Section } from "@/components/ui/section";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useInstitutionalOwnership } from "@/lib/hooks/useInstitutionalOwnership";
 import type { InstitutionalHolderOut, InstitutionalOwnershipQuarterOut } from "@/lib/api/types";
@@ -42,30 +43,10 @@ function fmtAsOfDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-function CardShell({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-4 rounded-lg border border-border-card bg-surface p-6">{children}</div>;
-}
-
-function StatCard({ label, value, sub }: { label: string; value: React.ReactNode; sub?: React.ReactNode }) {
-  return (
-    <div className="rounded-md border border-border-card bg-surface-2 p-4">
-      <p className="text-xs font-medium uppercase tracking-widest text-text-tertiary">{label}</p>
-      <p className="mt-1 font-mono text-xl font-semibold text-text-primary">{value}</p>
-      {sub != null && <p className="mt-0.5 text-xs text-text-tertiary">{sub}</p>}
-    </div>
-  );
-}
-
 function PositionTile({ label, count, change }: { label: string; count: number; change: number | null }) {
-  return (
-    <div className="rounded-md border border-border-card bg-surface-2 p-3 text-center">
-      <p className="text-[11px] uppercase tracking-wide text-text-tertiary">{label}</p>
-      <p className="mt-0.5 font-mono text-lg font-semibold text-text-primary">{count}</p>
-      {change != null && change !== 0 && (
-        <p className={`text-xs ${pnlClass(change)}`}>{change > 0 ? `+${change}` : change}</p>
-      )}
-    </div>
-  );
+  const note =
+    change != null && change !== 0 ? <span className={pnlClass(change)}>{change > 0 ? `+${change}` : change}</span> : undefined;
+  return <MetricTile label={label} value={count} note={note} className="items-center text-center" />;
 }
 
 function TrendPanel({
@@ -89,8 +70,7 @@ function TrendPanel({
   const domain: [number, number] = [ticks[0] ?? 0, ticks[ticks.length - 1] ?? 1];
 
   return (
-    <div className="rounded-lg border border-border-card bg-surface p-4">
-      <p className="mb-2 text-xs uppercase tracking-widest text-text-tertiary">{title}</p>
+    <Section title={title}>
       <ChartContainer config={config} className="aspect-auto w-full" style={{ height: CHART_HEIGHT }} role="img" aria-label={`${title} over the last quarters`}>
         <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} stroke={GRID_COLOR} />
@@ -107,7 +87,7 @@ function TrendPanel({
           <Line type="monotone" dataKey={dataKey} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} connectNulls={false} isAnimationActive={false} />
         </LineChart>
       </ChartContainer>
-    </div>
+    </Section>
   );
 }
 
@@ -193,28 +173,22 @@ export function InstitutionalOwnershipTab({ ticker }: Props) {
 
   if (!data.enabled) {
     return (
-      <div className="py-6">
-        <CardShell>
-          <h2 className="font-heading text-sm font-semibold text-text-primary">Institutional Ownership</h2>
-          <p className="text-sm text-text-secondary">
-            Institutional ownership data is turned off (Settings &gt; Status). Turn on the &quot;Institutional
-            ownership&quot; data group to see this tab.
-          </p>
-        </CardShell>
-      </div>
+      <Section title="Institutional Ownership">
+        <p className="text-sm text-text-secondary">
+          Institutional ownership data is turned off (Settings &gt; Status). Turn on the &quot;Institutional
+          ownership&quot; data group to see this tab.
+        </p>
+      </Section>
     );
   }
 
   if (data.no_coverage) {
     return (
-      <div className="py-6">
-        <CardShell>
-          <h2 className="font-heading text-sm font-semibold text-text-primary">Institutional Ownership</h2>
-          <p className="text-sm text-text-secondary">
-            No 13F institutional-ownership data found for {ticker} in any recent quarter.
-          </p>
-        </CardShell>
-      </div>
+      <Section title="Institutional Ownership">
+        <p className="text-sm text-text-secondary">
+          No 13F institutional-ownership data found for {ticker} in any recent quarter.
+        </p>
+      </Section>
     );
   }
 
@@ -241,27 +215,27 @@ export function InstitutionalOwnershipTab({ ticker }: Props) {
 
       {data.ownership_valid ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
+          <MetricTile
             label="Institutional Ownership"
             value={data.ownership_percent != null ? fmtPlainPct(data.ownership_percent) : "—"}
-            sub={data.ownership_percent_change != null ? <span className={pnlClass(data.ownership_percent_change)}>{fmtPct(data.ownership_percent_change)} QoQ</span> : undefined}
+            note={data.ownership_percent_change != null ? <span className={pnlClass(data.ownership_percent_change)}>{fmtPct(data.ownership_percent_change)} QoQ</span> : undefined}
           />
-          <StatCard
+          <MetricTile
             label="13F Holders"
             value={data.holder_count ?? "—"}
-            sub={data.holder_count_change != null && data.holder_count_change !== 0 ? (
+            note={data.holder_count_change != null && data.holder_count_change !== 0 ? (
               <span className={pnlClass(data.holder_count_change)}>{data.holder_count_change > 0 ? `+${data.holder_count_change}` : data.holder_count_change} QoQ</span>
             ) : undefined}
           />
-          <StatCard
+          <MetricTile
             label="Shares Held"
             value={data.shares_held != null ? fmtCompactNumber(data.shares_held) : "—"}
-            sub={data.shares_outstanding != null ? `of ${fmtCompactNumber(data.shares_outstanding)} outstanding` : undefined}
+            note={data.shares_outstanding != null ? `of ${fmtCompactNumber(data.shares_outstanding)} outstanding` : undefined}
           />
-          <StatCard
+          <MetricTile
             label="Sentiment"
             value={<span className={data.sentiment ? SENTIMENT_TONE[data.sentiment] : "text-text-tertiary"}>{data.sentiment ?? "—"}</span>}
-            sub={data.sentiment_rising_count != null ? `${data.sentiment_rising_count} of last 4 quarters rising` : undefined}
+            note={data.sentiment_rising_count != null ? `${data.sentiment_rising_count} of last 4 quarters rising` : undefined}
           />
         </div>
       ) : (
