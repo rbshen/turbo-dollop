@@ -86,8 +86,39 @@ const CSS_VAR_NAME: Record<keyof ChartColors, string> = {
   borderSubtle: "--fathom-border-subtle",
 };
 
+// lightweight-charts resolves any color string it's given by writing it into a scratch DOM element's
+// `style.color` and matching `getComputedStyle`'s serialization against a strict `rgb()`/`rgba()` regex (its own
+// ColorParser._private__parseColor) -- reliable for hex, but not guaranteed for CSS Color 4 syntax like `oklch()`
+// (what this design system's page/text-secondary/border-card/border-subtle tokens are defined as): a browser that
+// serializes an oklch computed value back as `oklch(...)` rather than legacy `rgb(...)` fails that regex, and the
+// library throws rather than falling back. Canvas 2D's `fillStyle` setter/getter is spec-guaranteed to normalize
+// any valid CSS color (oklch included) to a canonical "#rrggbb"/"rgba(...)" string on every browser that supports
+// oklch there at all -- round-tripping every resolved value through it here removes that fragility before the
+// color ever reaches the chart.
+let canvasNormalizerCtx: CanvasRenderingContext2D | null | undefined;
+
+function getCanvasNormalizerCtx(): CanvasRenderingContext2D | null {
+  if (canvasNormalizerCtx === undefined) {
+    canvasNormalizerCtx = document.createElement("canvas").getContext("2d");
+  }
+  return canvasNormalizerCtx;
+}
+
+function normalizeColor(raw: string): string {
+  const ctx = getCanvasNormalizerCtx();
+  if (!ctx) return raw;
+  // A sentinel no real token value can equal -- an invalid `raw` leaves fillStyle unchanged per spec, which this
+  // detects so an unresolvable color is returned as-is rather than silently substituted with the sentinel.
+  const SENTINEL = "#000001";
+  ctx.fillStyle = SENTINEL;
+  ctx.fillStyle = raw;
+  const normalized = ctx.fillStyle;
+  return normalized === SENTINEL ? raw : normalized;
+}
+
 /** Resolves every named chart color token from the document root, once. Falls back to FALLBACK_COLORS wherever
- * `document` is unavailable or a given token resolves empty. */
+ * `document` is unavailable or a given token resolves empty. Every resolved value (live or fallback) is passed
+ * through normalizeColor before being returned -- see its own comment for why. */
 export function readChartColors(): ChartColors {
   if (typeof document === "undefined") return { ...FALLBACK_COLORS };
   const styles = getComputedStyle(document.documentElement);
@@ -95,6 +126,9 @@ export function readChartColors(): ChartColors {
   for (const key of Object.keys(CSS_VAR_NAME) as (keyof ChartColors)[]) {
     const value = styles.getPropertyValue(CSS_VAR_NAME[key]).trim();
     if (value) result[key] = value;
+  }
+  for (const key of Object.keys(result) as (keyof ChartColors)[]) {
+    result[key] = normalizeColor(result[key]);
   }
   return result;
 }
