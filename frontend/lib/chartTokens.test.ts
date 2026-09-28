@@ -56,4 +56,17 @@ describe("readChartColors", () => {
       expect(colors[key as keyof typeof colors]).toBeTruthy();
     }
   });
+
+  // Regression test for a live production crash (2026-09-28, Safari/macOS): lightweight-charts' own color parser
+  // choked on a `lab(...)` string for these tokens (Tailwind downlevels their oklch() source into a lab()
+  // override on browsers that support it, which getComputedStyle then returns instead of the plain hex fallback).
+  // The chrome tokens are now a fixed literal, never CSS-resolved -- see CHART_CHROME's own comment. Pinning that
+  // every value here is plain hex (never oklch/lab/etc) guards against this regressing.
+  it("chrome tokens (page/textSecondary/borderCard/borderSubtle) are always plain hex, never a CSS Color 4 function", () => {
+    const colors = readChartColors();
+    const hexPattern = /^#[0-9a-fA-F]{3,8}$/;
+    for (const key of ["page", "textSecondary", "borderCard", "borderSubtle"] as const) {
+      expect(colors[key]).toMatch(hexPattern);
+    }
+  });
 });

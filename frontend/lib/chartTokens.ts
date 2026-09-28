@@ -31,12 +31,39 @@ export interface ChartColors {
   borderSubtle: string;
 }
 
-// The only place raw color literals may remain for these tokens -- used whenever the corresponding `--fathom-*`
-// custom property resolves empty (server-side render, jsdom/vitest, or a token genuinely missing from the page).
-// The chart-*/stage-* values are the exact legacy palette these tokens were introduced to carry (globals.css's
-// ".dark" block); the four chrome values are that same block's current oklch definitions for
-// page/text-secondary/border-card/border-subtle, verbatim.
-const FALLBACK_COLORS: ChartColors = {
+// The chart-*/stage-* tokens above are authored directly as hex in globals.css's ".dark" block (e.g.
+// `--fathom-chart-up: #10b981;`), so getComputedStyle always returns them as plain, unambiguous hex text -- safe
+// to hand straight to lightweight-charts. The four CHROME keys below (page/textSecondary/borderCard/borderSubtle)
+// are different: they're authored as oklch(...), and Tailwind's build (Lightning CSS) emits TWO declarations for
+// each -- a plain hex fallback, then an oklch-derived `lab(...)` override for browsers that support it:
+//   --fathom-page:#080b11;
+//   --fathom-page:lab(3.01452% -.187993 -3.12249);
+// A browser that parses the second wins the cascade, so getComputedStyle returns the LAB string, not the hex.
+// Confirmed live (2026-09-28, Safari/macOS): lightweight-charts' own color parser -- getComputedStyle on a scratch
+// element, matched against a strict rgb()/rgba() regex -- can't parse that `lab(...)` string and throws
+// ("Failed to parse color: lab(62.840099 -0.596315 -4.46798)"), crashing the whole Chart tab on mount. A first
+// attempt normalized every resolved value through a canvas 2D `fillStyle` get/set (spec-guaranteed to canonicalize
+// any color canvas can parse) before handing it to the chart -- also failed on the same Safari build: its canvas
+// fillStyle setter doesn't accept `lab(...)` either, so the round-trip silently no-ops and the raw lab() string
+// still reaches lightweight-charts unchanged. Every browser-based normalization route (DOM computed-style, canvas
+// fillStyle) is therefore unreliable for this specific CSS Color 4 syntax, on at least one real, current browser.
+//
+// Fix: these four are a documented, permanent literal exception, exactly like WEINSTEIN_MA_COLOR in
+// lib/chartWeinstein.ts -- never resolved from `--fathom-*` at all, always this hex (the same value Tailwind's own
+// hex fallback declares, i.e. the accurate sRGB rendering of the oklch source -- not a guess). This is safe
+// because this app is dark-only with no live re-theming: these four values cannot change at runtime, so nothing
+// is lost by not reading them from the DOM.
+const CHART_CHROME: Pick<ChartColors, "page" | "textSecondary" | "borderCard" | "borderSubtle"> = {
+  page: "#080b11",
+  textSecondary: "#9499a0",
+  borderCard: "#292e36",
+  borderSubtle: "#20242b",
+};
+
+// The only place raw color literals may remain for the CSS-resolved (chart-*/stage-*) tokens -- used whenever the
+// corresponding `--fathom-*` custom property resolves empty (server-side render, jsdom/vitest, or a token
+// genuinely missing from the page). Values are the exact legacy palette these tokens were introduced to carry.
+const FALLBACK_COLORS: Omit<ChartColors, keyof typeof CHART_CHROME> = {
   chartUp: "#10B981",
   chartDown: "#EF4444",
   chartEma21: "#3179F5",
@@ -55,13 +82,9 @@ const FALLBACK_COLORS: ChartColors = {
   stageAdvance: "#1B9E3E",
   stageTop: "#E8A020",
   stageDecline: "#E03A3A",
-  page: "oklch(15% 0.014 260)",
-  textSecondary: "oklch(68% 0.012 260)",
-  borderCard: "oklch(30% 0.016 260)",
-  borderSubtle: "oklch(26% 0.014 260)",
 };
 
-const CSS_VAR_NAME: Record<keyof ChartColors, string> = {
+const CSS_VAR_NAME: Record<keyof typeof FALLBACK_COLORS, string> = {
   chartUp: "--fathom-chart-up",
   chartDown: "--fathom-chart-down",
   chartEma21: "--fathom-chart-ema21",
@@ -80,55 +103,18 @@ const CSS_VAR_NAME: Record<keyof ChartColors, string> = {
   stageAdvance: "--fathom-stage-advance",
   stageTop: "--fathom-stage-top",
   stageDecline: "--fathom-stage-decline",
-  page: "--fathom-page",
-  textSecondary: "--fathom-text-secondary",
-  borderCard: "--fathom-border-card",
-  borderSubtle: "--fathom-border-subtle",
 };
 
-// lightweight-charts resolves any color string it's given by writing it into a scratch DOM element's
-// `style.color` and matching `getComputedStyle`'s serialization against a strict `rgb()`/`rgba()` regex (its own
-// ColorParser._private__parseColor) -- reliable for hex, but not guaranteed for CSS Color 4 syntax like `oklch()`
-// (what this design system's page/text-secondary/border-card/border-subtle tokens are defined as): a browser that
-// serializes an oklch computed value back as `oklch(...)` rather than legacy `rgb(...)` fails that regex, and the
-// library throws rather than falling back. Canvas 2D's `fillStyle` setter/getter is spec-guaranteed to normalize
-// any valid CSS color (oklch included) to a canonical "#rrggbb"/"rgba(...)" string on every browser that supports
-// oklch there at all -- round-tripping every resolved value through it here removes that fragility before the
-// color ever reaches the chart.
-let canvasNormalizerCtx: CanvasRenderingContext2D | null | undefined;
-
-function getCanvasNormalizerCtx(): CanvasRenderingContext2D | null {
-  if (canvasNormalizerCtx === undefined) {
-    canvasNormalizerCtx = document.createElement("canvas").getContext("2d");
-  }
-  return canvasNormalizerCtx;
-}
-
-function normalizeColor(raw: string): string {
-  const ctx = getCanvasNormalizerCtx();
-  if (!ctx) return raw;
-  // A sentinel no real token value can equal -- an invalid `raw` leaves fillStyle unchanged per spec, which this
-  // detects so an unresolvable color is returned as-is rather than silently substituted with the sentinel.
-  const SENTINEL = "#000001";
-  ctx.fillStyle = SENTINEL;
-  ctx.fillStyle = raw;
-  const normalized = ctx.fillStyle;
-  return normalized === SENTINEL ? raw : normalized;
-}
-
-/** Resolves every named chart color token from the document root, once. Falls back to FALLBACK_COLORS wherever
- * `document` is unavailable or a given token resolves empty. Every resolved value (live or fallback) is passed
- * through normalizeColor before being returned -- see its own comment for why. */
+/** Resolves every named chart color token. The 18 chart- and stage-prefixed tokens are read live from the
+ * document root (falling back to FALLBACK_COLORS wherever `document` is unavailable or a token resolves empty);
+ * the four chrome tokens are always the fixed CHART_CHROME literal -- see its own comment for why. */
 export function readChartColors(): ChartColors {
-  if (typeof document === "undefined") return { ...FALLBACK_COLORS };
+  if (typeof document === "undefined") return { ...FALLBACK_COLORS, ...CHART_CHROME };
   const styles = getComputedStyle(document.documentElement);
   const result = { ...FALLBACK_COLORS };
-  for (const key of Object.keys(CSS_VAR_NAME) as (keyof ChartColors)[]) {
+  for (const key of Object.keys(CSS_VAR_NAME) as (keyof typeof FALLBACK_COLORS)[]) {
     const value = styles.getPropertyValue(CSS_VAR_NAME[key]).trim();
     if (value) result[key] = value;
   }
-  for (const key of Object.keys(result) as (keyof ChartColors)[]) {
-    result[key] = normalizeColor(result[key]);
-  }
-  return result;
+  return { ...result, ...CHART_CHROME };
 }

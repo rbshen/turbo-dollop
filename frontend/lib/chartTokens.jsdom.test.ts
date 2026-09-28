@@ -3,22 +3,22 @@ import { describe, expect, it } from "vitest";
 import { readChartColors } from "@/lib/chartTokens";
 
 // Separate from chartTokens.test.ts (default node environment, where `document` is undefined and readChartColors
-// short-circuits before ever touching canvas) -- this file exercises the `document` branch specifically. jsdom
-// has no real canvas 2D implementation (no `canvas` npm package installed in this project), so
-// `canvas.getContext("2d")` returns null here, exactly like a browser that can't create a 2D context at all.
-// Confirms readChartColors degrades gracefully in that case rather than throwing -- the one path the default
-// test environment can't reach.
-describe("readChartColors (jsdom, no real canvas)", () => {
-  it("resolves without throwing when canvas 2D is unavailable, returning the raw values unchanged", () => {
+// short-circuits before ever calling getComputedStyle) -- this file exercises the `document`-defined branch
+// specifically: a bare jsdom document has none of globals.css's --fathom-* custom properties defined, so every
+// chart-*/stage-* token must fall back to FALLBACK_COLORS exactly as the node-environment path does.
+describe("readChartColors (jsdom, no globals.css loaded)", () => {
+  it("falls back to the legacy chart/stage palette when a token isn't defined on the page", () => {
     expect(typeof document).not.toBe("undefined");
-    let colors: ReturnType<typeof readChartColors> | undefined;
-    expect(() => {
-      colors = readChartColors();
-    }).not.toThrow();
-    expect(colors?.chartUp).toBe("#10B981");
-    // No --fathom-page etc. defined on this bare jsdom document, so the oklch fallback passes straight through
-    // (normalizeColor's no-context branch), unchanged -- this is exactly the value that must never be handed to
-    // lightweight-charts un-normalized in a real browser (see normalizeColor's own comment).
-    expect(colors?.page).toBe("oklch(15% 0.014 260)");
+    const colors = readChartColors();
+    expect(colors.chartUp).toBe("#10B981");
+    expect(colors.stageBase).toBe("#8FD99F");
+  });
+
+  it("chrome tokens are the fixed literal regardless of what's on the page", () => {
+    const colors = readChartColors();
+    expect(colors.page).toBe("#080b11");
+    expect(colors.textSecondary).toBe("#9499a0");
+    expect(colors.borderCard).toBe("#292e36");
+    expect(colors.borderSubtle).toBe("#20242b");
   });
 });
