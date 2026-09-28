@@ -12,6 +12,7 @@ import { TechnicalFilters } from "@/components/screener/TechnicalFilters";
 import { UniverseSelector } from "@/components/screener/UniverseSelector";
 import { WatchlistFilters } from "@/components/screener/WatchlistFilters";
 import { AddToWatchlistButton } from "@/components/ticker/AddToWatchlistButton";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
 import { useScreener, useScreenerMeta } from "@/lib/hooks/useScreener";
@@ -219,7 +220,7 @@ export default function ScreenerPage() {
           <select
             value={sortField}
             onChange={(e) => handleSortChange(e.target.value as SortField, sortDirection)}
-            className="h-8 rounded-md border border-control bg-surface px-2 text-xs text-text-primary focus:border-brand focus:outline-none"
+            className="h-9 rounded-md border border-border-control bg-page px-3 text-sm text-text-primary focus:border-brand focus:outline-none"
           >
             {SORT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -227,14 +228,15 @@ export default function ScreenerPage() {
               </option>
             ))}
           </select>
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => handleSortChange(sortField, sortDirection === "asc" ? "desc" : "asc")}
-            className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-2 text-xs text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
+            className="h-8 border border-border-input hover:border-brand"
             title={sortDirection === "asc" ? "Ascending" : "Descending"}
           >
             {sortDirection === "asc" ? "↑ Asc" : "↓ Desc"}
-          </button>
+          </Button>
         </div>
       </div>
 
