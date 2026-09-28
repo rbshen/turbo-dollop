@@ -61,7 +61,7 @@ export function TickerHeader({ symbol, data }: Props) {
             </p>
           )}
           <div className="mt-1 flex flex-wrap items-baseline gap-3">
-            <h1 className="font-heading text-2xl font-bold tracking-tight text-text-primary">{data.company_name ?? data.ticker}</h1>
+            <h1 className="font-heading text-2xl font-medium text-text-primary">{data.company_name ?? data.ticker}</h1>
             <span className="font-mono text-sm text-text-secondary">
               {data.ticker}
               {data.exchange && <> · {data.exchange}</>}
