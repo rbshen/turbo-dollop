@@ -16,11 +16,13 @@ interface Props {
   series: MarketBreadthPointOut[];
 }
 
-// chart-1 (green): the 50-day is chart-4 (blue) and the 200-day chart-2 (amber). Red (chart-3) is the app's
-// "negative" hue and purple (chart-5) is too close to the blue to tell apart, so neither is used here.
-const SMA20_COLOR = "var(--color-chart-1)";
-const SMA50_COLOR = "var(--color-chart-4)";
-const SMA200_COLOR = "var(--color-chart-2)";
+// Design-system series palette: 200-day (drawn first, most stable) is
+// series-1, 50-day series-2, 20-day (drawn last, most volatile, sits on
+// top) series-3 -- draw order stays 200/50/20 so the noisiest line renders
+// on top regardless of which series color it carries.
+const SMA20_COLOR = "var(--color-series-3)";
+const SMA50_COLOR = "var(--color-series-2)";
+const SMA200_COLOR = "var(--color-series-1)";
 const GRID_COLOR = "var(--color-border-subtle)";
 const TICK = { fill: "var(--color-text-tertiary)", fontSize: 10 };
 // Same left gutter on both panels so their time axes line up.
@@ -49,7 +51,7 @@ function BreadthTooltip({ active, payload, kind }: TooltipProps) {
   if (!active || !point) return null;
 
   return (
-    <div className="grid min-w-44 gap-1.5 rounded-none border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
+    <div className="grid min-w-44 gap-1.5 rounded-md border border-border-card bg-surface px-2.5 py-1.5 text-xs shadow-popover">
       <div className="font-medium text-text-primary">{fmtEventDate(point.as_of_date)}</div>
       {kind === "pct" ? (
         <>

@@ -37,8 +37,9 @@ describe("MarketBreadthCharts", () => {
     render(<MarketBreadthCharts series={SERIES} />);
     const strokes = Array.from(linePanel().querySelectorAll("path.recharts-line-curve")).map((el) => el.getAttribute("stroke"));
     expect(strokes).toHaveLength(3);
-    // Drawn slowest-first so the fastest, most volatile line sits on top.
-    expect(strokes).toEqual(["var(--color-chart-2)", "var(--color-chart-4)", "var(--color-chart-1)"]);
+    // Drawn slowest-first so the fastest, most volatile line sits on top: 200-day (series-1),
+    // 50-day (series-2), 20-day (series-3).
+    expect(strokes).toEqual(["var(--color-series-1)", "var(--color-series-2)", "var(--color-series-3)"]);
     expect(new Set(strokes).size).toBe(3);
   });
 
