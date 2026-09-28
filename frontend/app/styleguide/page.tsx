@@ -134,6 +134,12 @@ export default function StyleguidePage() {
             <p className="mb-2 text-xs text-text-tertiary">Read-only reference table (no hover)</p>
             <TableReadOnlyDemo />
           </div>
+          <div>
+            <p className="mb-2 text-xs text-text-tertiary">
+              Dense statement table -- sticky header + sticky first column, collapsible group, missing value
+            </p>
+            <TableDenseReferenceDemo />
+          </div>
           <div className="flex flex-col gap-4">
             <div>
               <p className="mb-2 text-xs text-text-tertiary">Empty</p>
@@ -363,6 +369,80 @@ function TableReadOnlyDemo() {
           <TableRow key={row.metric}>
             <TableCell className="text-text-secondary">{row.metric}</TableCell>
             <TableCell className="text-right font-mono tabular-nums text-text-primary">{row.value}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+const DENSE_REFERENCE_PERIODS = ["FY2021", "FY2022", "FY2023", "FY2024", "FY2025", "TTM"];
+
+interface DenseReferenceRow {
+  label: string;
+  values: (number | null)[];
+  emphasis?: boolean;
+}
+
+// One group header ("Income Statement") over 7 statement rows -- matches
+// FinancialsStatementTable/RatiosTable's real sticky-header/sticky-first-
+// column shape at the dense (h-9) row height. "Net income" is the
+// emphasised subtotal; its FY2024 column is deliberately null to exercise
+// the "—" missing-value convention.
+const DENSE_REFERENCE_ROWS: DenseReferenceRow[] = [
+  { label: "Revenue", values: [274.5, 297.4, 365.8, 391.0, 416.2, 421.6] },
+  { label: "Cost of revenue", values: [169.6, 177.0, 214.1, 223.5, 233.7, 236.2] },
+  { label: "Gross profit", values: [104.9, 120.4, 151.7, 167.5, 182.5, 185.4] },
+  { label: "Operating expenses", values: [43.9, 47.1, 51.3, 54.8, 57.5, 58.2] },
+  { label: "Operating income", values: [61.0, 73.3, 100.4, 112.7, 125.0, 127.2] },
+  { label: "Net income", values: [57.4, 61.3, 77.6, null, 88.1, 90.7], emphasis: true },
+  { label: "Diluted EPS", values: [3.29, 3.77, 4.9, 5.66, 5.75, 5.92] },
+];
+
+function TableDenseReferenceDemo() {
+  return (
+    <Table containerClassName="max-h-[200px] max-w-md overflow-auto" className="border-separate border-spacing-0 text-sm">
+      <TableHeader>
+        <TableRow className="h-9">
+          <TableHead className="sticky left-0 top-0 z-30 whitespace-nowrap border-b border-border-subtle bg-page pr-8">
+            Metric
+          </TableHead>
+          {DENSE_REFERENCE_PERIODS.map((period) => (
+            <TableHead
+              key={period}
+              className="sticky top-0 z-20 whitespace-nowrap border-b border-border-subtle bg-page text-right"
+            >
+              {period}
+            </TableHead>
+          ))}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        <TableRow dense>
+          <TableCell className="sticky left-0 z-10 whitespace-nowrap border-b border-border-subtle bg-page pr-8 pt-4 pb-1 text-sm font-medium text-text-primary">
+            Income statement
+          </TableCell>
+          <TableCell colSpan={DENSE_REFERENCE_PERIODS.length} className="border-b border-border-subtle pt-4 pb-1" />
+        </TableRow>
+        {DENSE_REFERENCE_ROWS.map((row) => (
+          <TableRow key={row.label} dense>
+            <TableCell
+              className={`sticky left-0 z-10 whitespace-nowrap border-b border-border-subtle bg-page pl-4 pr-8 ${
+                row.emphasis ? "font-medium text-text-primary" : "text-text-secondary"
+              }`}
+            >
+              {row.label}
+            </TableCell>
+            {row.values.map((value, i) => (
+              <TableCell
+                key={i}
+                className={`border-b border-border-subtle text-right font-mono tabular-nums ${
+                  row.emphasis ? "font-medium text-text-primary" : "text-text-secondary"
+                }`}
+              >
+                {value != null ? value.toFixed(2) : "—"}
+              </TableCell>
+            ))}
           </TableRow>
         ))}
       </TableBody>
