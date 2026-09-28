@@ -15,6 +15,7 @@ import {
   pctText,
 } from "@/components/step3/Step3Card";
 import { ValuationGauge } from "@/components/step3/ValuationGauge";
+import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { apiDelete, apiPost, apiPut } from "@/lib/api/client";
 import { fmtMoney, fmtNumber, fmtPct } from "@/lib/format";
@@ -394,16 +395,16 @@ export function ManualCalculationPanel({ ticker, autoData }: Props) {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-border-card bg-surface p-6">
+      <Card>
         <p className="text-sm text-negative">Couldn&apos;t load Custom Valuation — {error.message}</p>
-      </div>
+      </Card>
     );
   }
   if (isLoading || !saved) {
     return (
-      <div className="rounded-lg border border-border-card bg-surface p-6">
+      <Card>
         <p className="text-sm text-text-tertiary animate-pulse">Loading…</p>
-      </div>
+      </Card>
     );
   }
   // Keyed on ticker + saved_at -- saved_at only changes on a real Save (not
@@ -527,7 +528,7 @@ function ManualCalculationControls({
   const isPSG = method === "PSG";
 
   return (
-    <div className="space-y-6 rounded-lg border border-border-card bg-surface p-6">
+    <Card className="space-y-6">
       <div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
         <h2 className={SECTION_HEADING_CLASS}>Custom Valuation</h2>
         {/* appearance-none strips the browser's native <select> chrome --
@@ -731,6 +732,6 @@ function ManualCalculationControls({
       )}
 
       {actionError && <p className="text-sm text-negative">{actionError}</p>}
-    </div>
+    </Card>
   );
 }

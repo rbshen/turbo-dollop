@@ -2,6 +2,7 @@
 
 import { ManualCalculationPanel } from "@/components/step3/ManualCalculationPanel";
 import { ValuationGauge } from "@/components/step3/ValuationGauge";
+import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useStep3 } from "@/lib/hooks/useStep3";
 import { fmtMoney, fmtNumber, fmtPct } from "@/lib/format";
@@ -196,17 +197,17 @@ export function Step3Card({ ticker }: Props) {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-border-card bg-surface p-6">
+      <Card>
         <p className="text-sm text-negative">Couldn&apos;t load Valuation data — {error.message}</p>
-      </div>
+      </Card>
     );
   }
 
   if (!data) {
     return (
-      <div className="rounded-lg border border-border-card bg-surface p-6">
+      <Card>
         <p className="text-sm text-text-tertiary animate-pulse">Loading Valuation…</p>
-      </div>
+      </Card>
     );
   }
 
@@ -245,7 +246,7 @@ export function Step3Card({ ticker }: Props) {
           to create one. Only the left "Model Valuation" column's content
           is conditional on isPass. */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <div className="space-y-6 rounded-lg border border-border-card bg-surface p-6">
+        <Card className="space-y-6">
           {/* min-h-8 matches Custom Valuation's title row, whose height is
               set by its h-8 method <select> -- without it this row (a bare
               h2, ~20px) renders shorter than the other column's, shifting
@@ -339,7 +340,7 @@ export function Step3Card({ ticker }: Props) {
               )}
             </>
           )}
-        </div>
+        </Card>
 
         <ManualCalculationPanel ticker={ticker} autoData={data} />
       </div>
