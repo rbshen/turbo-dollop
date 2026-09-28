@@ -154,26 +154,24 @@ function HoldersTable({ holders }: { holders: InstitutionalHolderOut[] }) {
   return (
     <Table className="text-sm">
       <TableHeader>
-        {/* TODO(session 4b): drop layout pins */}
-        <TableRow className="h-10 hover:bg-transparent">
-          <TableHead className="border-b border-border-card px-2 py-2 text-xs font-medium uppercase tracking-widest text-text-secondary">Investor</TableHead>
-          <TableHead className="border-b border-border-card px-2 py-2 text-right text-xs font-medium uppercase tracking-widest text-text-secondary">Market Value</TableHead>
-          <TableHead className="border-b border-border-card px-2 py-2 text-right text-xs font-medium uppercase tracking-widest text-text-secondary">Shares</TableHead>
-          <TableHead className="border-b border-border-card px-2 py-2 text-right text-xs font-medium uppercase tracking-widest text-text-secondary">QoQ %</TableHead>
+        <TableRow className="h-9">
+          <TableHead className="border-b border-border-subtle">Investor</TableHead>
+          <TableHead className="border-b border-border-subtle text-right">Market Value</TableHead>
+          <TableHead className="border-b border-border-subtle text-right">Shares</TableHead>
+          <TableHead className="border-b border-border-subtle text-right">QoQ %</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {holders.map((h) => (
-          // TODO(session 4b): drop layout pins
-          <TableRow key={h.investor_name} className="hover:bg-surface-2/50">
-            <TableCell className="border-b border-border-subtle px-2 py-2 text-text-primary">{h.investor_name}</TableCell>
-            <TableCell className="border-b border-border-subtle px-2 py-2 text-right font-mono tabular-nums text-text-primary">
+          <TableRow key={h.investor_name} dense>
+            <TableCell className="border-b border-border-subtle text-text-primary">{h.investor_name}</TableCell>
+            <TableCell className="border-b border-border-subtle text-right font-mono tabular-nums text-text-primary">
               {h.market_value != null ? fmtCompactMoney(h.market_value) : "—"}
             </TableCell>
-            <TableCell className="border-b border-border-subtle px-2 py-2 text-right font-mono tabular-nums text-text-primary">
+            <TableCell className="border-b border-border-subtle text-right font-mono tabular-nums text-text-primary">
               {h.shares != null ? fmtCompactNumber(h.shares) : "—"}
             </TableCell>
-            <TableCell className={`border-b border-border-subtle px-2 py-2 text-right font-mono tabular-nums ${h.market_value_change_pct != null ? pnlClass(h.market_value_change_pct) : "text-text-tertiary"}`}>
+            <TableCell className={`border-b border-border-subtle text-right font-mono tabular-nums ${h.market_value_change_pct != null ? pnlClass(h.market_value_change_pct) : "text-text-tertiary"}`}>
               {h.market_value_change_pct != null ? fmtPct(h.market_value_change_pct) : "—"}
             </TableCell>
           </TableRow>

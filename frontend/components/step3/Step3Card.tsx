@@ -70,7 +70,7 @@ export function millionsText(n: number | null, currency: string = "USD"): string
 // With no row-height variance left, top-aligning the value cell can no
 // longer drift row-to-row regardless of whether a given row has a real
 // sub-note or a blank one.
-export const FIELD_ROW_CLASS = "h-12 border-border-subtle hover:bg-transparent";
+export const FIELD_ROW_CLASS = "h-12 border-border-subtle";
 // whitespace-normal overrides TableCell's own default nowrap -- a long
 // label (e.g. "Free Cash Flow (Normalized, 5yr avg CapEx)") needs to still
 // be able to wrap to 2 lines within the fixed row height rather than
@@ -109,29 +109,26 @@ export function PBBandsTable({
   return (
     <Table className="w-full border-separate border-spacing-0 text-sm">
       <TableHeader>
-        {/* TODO(session 4b): drop layout pins */}
-        <TableRow className="h-10 hover:bg-transparent">
-          <TableHead className="border-b border-border-card py-2 pl-2 pr-4 font-medium">Band</TableHead>
-          <TableHead className="border-b border-border-card px-2 py-2 text-right font-medium">Intrinsic Value</TableHead>
+        <TableRow className="h-9">
+          <TableHead className="border-b border-border-subtle">Band</TableHead>
+          <TableHead className="border-b border-border-subtle text-right">Intrinsic Value</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {order.map((key) => (
-          // TODO(session 4b): drop layout pins
-          <TableRow key={key} className="hover:bg-transparent">
-            <TableCell className="border-b border-border-subtle py-1.5 pl-2 pr-4 text-text-secondary">{PB_BAND_LABELS[key]}</TableCell>
+          <TableRow key={key} dense>
+            <TableCell className="border-b border-border-subtle text-text-secondary">{PB_BAND_LABELS[key]}</TableCell>
             <TableCell
-              className={`border-b border-border-subtle px-2 py-1.5 text-right font-mono ${key === "mean" ? "font-semibold text-text-primary" : "text-text-secondary"}`}
+              className={`border-b border-border-subtle text-right font-mono ${key === "mean" ? "font-semibold text-text-primary" : "text-text-secondary"}`}
             >
               {fmtMoney(bands[key], currency)}
             </TableCell>
           </TableRow>
         ))}
         {lastClose != null && (
-          // TODO(session 4b): drop layout pins
-          <TableRow className="hover:bg-transparent">
-            <TableCell className="py-1.5 pl-2 pr-4 text-text-tertiary">Last Close</TableCell>
-            <TableCell className="px-2 py-1.5 text-right font-mono text-text-secondary">{fmtMoney(lastClose, currency)}</TableCell>
+          <TableRow dense>
+            <TableCell className="border-b border-border-subtle text-text-tertiary">Last Close</TableCell>
+            <TableCell className="border-b border-border-subtle text-right font-mono text-text-secondary">{fmtMoney(lastClose, currency)}</TableCell>
           </TableRow>
         )}
       </TableBody>
