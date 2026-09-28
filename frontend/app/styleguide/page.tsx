@@ -118,6 +118,33 @@ export default function StyleguidePage() {
             <MetricTile label="Fair value" value="$516.17" />
           </div>
         </SectionGrid>
+
+        <p className="mt-8 mb-2 text-xs text-text-tertiary">
+          A page of grouped metrics (e.g. the ticker page&apos;s MetricsGrid) -- multiple titled Sections stacked per
+          column, laid out with SectionGrid instead of a boxed card per group
+        </p>
+        <SectionGrid>
+          <div>
+            <Section title="Classification">
+              <DefinitionRow label="Sector" value="Technology" />
+              <DefinitionRow label="Industry" value="Consumer Electronics" />
+            </Section>
+            <Section title="Size &amp; Valuation">
+              <DefinitionRow label="Market Cap" value="$3.85T" />
+              <DefinitionRow label="P/E Ratio" value="34.2x" />
+            </Section>
+          </div>
+          <div>
+            <Section title="Liquidity">
+              <DefinitionRow label="Avg Volume (20d)" value="48.6M" />
+              <DefinitionRow label="52W Range" value="$168.99 — $260.10" />
+            </Section>
+            <Section title="Performance">
+              <DefinitionRow label="5Y vs. SPY" value="+3.66%" tone="positive" />
+              <DefinitionRow label="52W Change" value="-4.20%" tone="negative" />
+            </Section>
+          </div>
+        </SectionGrid>
       </Section>
 
       <Section title="Table">
