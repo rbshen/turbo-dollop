@@ -28,15 +28,21 @@ export interface BadgeProps extends VariantProps<typeof badgeVariants> {
   children?: ReactNode;
   missing?: boolean;
   className?: string;
+  /** Native hover tooltip -- same contract as the HTML `title` attribute. */
+  title?: string;
 }
 
-export function Badge({ tone, missing, children, className }: BadgeProps) {
+export function Badge({ tone, missing, children, className, title }: BadgeProps) {
   if (missing) {
     return (
-      <span className={cn(badgeVariants({ tone: "neutral" }), "bg-surface-2 text-text-tertiary", className)}>
+      <span title={title} className={cn(badgeVariants({ tone: "neutral" }), "bg-surface-2 text-text-tertiary", className)}>
         —
       </span>
     );
   }
-  return <span className={cn(badgeVariants({ tone }), className)}>{children}</span>;
+  return (
+    <span title={title} className={cn(badgeVariants({ tone }), className)}>
+      {children}
+    </span>
+  );
 }

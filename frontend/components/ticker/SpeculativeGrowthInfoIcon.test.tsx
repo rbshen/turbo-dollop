@@ -50,7 +50,7 @@ const QUALIFYING_FAKE_GROWTH: SpeculativeGrowthOut = {
 function PillWithIcon({ data }: { data: SpeculativeGrowthOut | null }) {
   return (
     <span>
-      <SpeculativeGrowthPill data={data} variant="flat" />
+      <SpeculativeGrowthPill data={data} />
       {data?.qualifies && <SpeculativeGrowthInfoIcon />}
       {data?.qualifies && data.potential_fake_growth && <SpeculativeGrowthFakeGrowthWarning />}
     </span>

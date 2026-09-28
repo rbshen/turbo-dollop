@@ -101,17 +101,15 @@ export function TickerHeader({ symbol, data }: Props) {
           method={data.fair_value_method}
           source={data.valuation_source}
           reportedCurrency={data.fair_value_reported_currency}
-          variant="flat"
         />
         <span className="inline-flex items-center gap-1">
-          <SpeculativeGrowthPill data={specGrowthData} variant="flat" currency={data.reported_currency ?? "USD"} />
+          <SpeculativeGrowthPill data={specGrowthData} currency={data.reported_currency ?? "USD"} />
           {specGrowthData?.qualifies && <SpeculativeGrowthInfoIcon />}
           {specGrowthData?.qualifies && specGrowthData.potential_fake_growth && <SpeculativeGrowthFakeGrowthWarning />}
         </span>
         <PerfVsSpyPill
           status={data.perf_5y_vs_spy_status}
           insufficientHistory={data.perf_5y_insufficient_history}
-          variant="flat"
         />
         <WeinsteinStagePill data={trendData} variant="flat" />
       </div>

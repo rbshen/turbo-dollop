@@ -39,11 +39,14 @@ export interface StatusProps {
   direction?: "up" | "down";
   children: ReactNode;
   className?: string;
+  /** Native hover tooltip -- same contract as the HTML `title` attribute. */
+  title?: string;
 }
 
-export function Status({ tone, direction, children, className }: StatusProps) {
+export function Status({ tone, direction, children, className, title }: StatusProps) {
   return (
     <span
+      title={title}
       className={cn(
         "inline-flex items-center gap-1.5 text-sm",
         tone === "neutral" ? "text-text-secondary" : "text-text-body",
@@ -67,8 +70,14 @@ export interface VerdictProps {
   tone: StatusTone;
   children: ReactNode;
   className?: string;
+  /** Native hover tooltip -- same contract as the HTML `title` attribute. */
+  title?: string;
 }
 
-export function Verdict({ tone, children, className }: VerdictProps) {
-  return <span className={cn("text-xs font-medium", TONE_TEXT_CLASS[tone], className)}>{children}</span>;
+export function Verdict({ tone, children, className, title }: VerdictProps) {
+  return (
+    <span title={title} className={cn("text-xs font-medium", TONE_TEXT_CLASS[tone], className)}>
+      {children}
+    </span>
+  );
 }

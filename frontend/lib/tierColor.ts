@@ -6,6 +6,18 @@
 //  - classFor: ScoreBadge's own full-badge styling (bg+border).
 //  - flatChipClassFor: borderless summary-chip styling (TickerHeader's
 //    Assessment chip, OverallAssessmentCard, WatchlistTable).
+//  - toneFor / toneForNullable: the same tiers as a components/ui/status.tsx
+//    StatusTone key, for callers that render via Status/Verdict/Badge
+//    instead of a hand-built class string -- one shared accessor so every
+//    Status/Badge call site stays byte-identical to classFor/textClassFor's
+//    own priority order rather than re-deriving it locally.
+
+import type { StatusTone } from "@/components/ui/status";
+
+// The 5 tiers this file distinguishes map 1:1 onto 5 of Status's 7 tones
+// (Status also has "speculative" and "neutral", neither of which a real
+// score/verdict ever produces here).
+export type ScoreTone = Extract<StatusTone, "negative" | "caution" | "strong" | "positive" | "warn">;
 
 export function classFor(score: number, verdict: string): string {
   if (verdict === "Fail") return "bg-negative/16 text-negative border-negative/40";
@@ -46,4 +58,22 @@ export function flatChipClassFor(score: number | null, verdict: string | null): 
   if (score > 90) return "bg-positive-strong/16 text-positive-strong";
   if (score >= 75) return "bg-positive/16 text-positive";
   return "bg-warn/16 text-warn"; // Pass (70-74)
+}
+
+// Same tiers/priority as classFor/textClassFor above, as a StatusTone key
+// instead of a class string.
+export function toneFor(score: number, verdict: string): ScoreTone {
+  if (verdict === "Fail") return "negative";
+  if (verdict === "Pass with caution") return "caution";
+  if (score > 90) return "strong";
+  if (score >= 75) return "positive";
+  return "warn";
+}
+
+// Same null handling as flatChipClassFor -- "neutral" is Status's own
+// muted/no-color tone, used whenever there's no score to color at all
+// (not yet computed, or a structural exemption).
+export function toneForNullable(score: number | null, verdict: string | null): StatusTone {
+  if (score == null || verdict == null) return "neutral";
+  return toneFor(score, verdict);
 }

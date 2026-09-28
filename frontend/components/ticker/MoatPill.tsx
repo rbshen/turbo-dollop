@@ -1,3 +1,4 @@
+import { Status, type StatusTone } from "@/components/ui/status";
 import { MOAT_LABELS, type MoatValue } from "@/lib/overallScore";
 import { cn } from "@/lib/utils";
 
@@ -5,16 +6,20 @@ import { cn } from "@/lib/utils";
 // palette) -- a 3-state good/mid/bad read, same as Valuation: No Moat is
 // the negative extreme, Wide Moat is the positive extreme (one tier
 // stronger than Narrow Moat), no caution/amber tier applies here.
+export const MOAT_TONE: Record<MoatValue, StatusTone> = {
+  wide_moat: "strong",
+  narrow_moat: "positive",
+  no_moat: "negative",
+};
+
+// Retained bordered-chip styling -- still needed for MomentumTable's dense
+// table-cell use of the "chip" variant below until that column migrates to
+// Badge (design-system session 5b/5c). Not used by any "flat" render path
+// any more (that path now goes through Status).
 const MOAT_STYLES: Record<MoatValue, string> = {
   wide_moat: "bg-positive-strong/16 text-positive-strong border-positive-strong/40",
   narrow_moat: "bg-positive/16 text-positive border-positive/40",
   no_moat: "bg-negative/16 text-negative border-negative/40",
-};
-
-const MOAT_STYLES_FLAT: Record<MoatValue, string> = {
-  wide_moat: "bg-positive-strong/16 text-positive-strong",
-  narrow_moat: "bg-positive/16 text-positive",
-  no_moat: "bg-negative/16 text-negative",
 };
 
 // For WatchlistTable's SignalBars trial -- same 3 named tokens as
@@ -62,8 +67,12 @@ interface Props {
   // moat is actually set (see CLAUDE.md's Economic Moat deviation note),
   // never for the "not set" default state.
   moat: MoatValue | null | undefined;
-  // "chip" (default): bordered pill, used in TickerHeader's chip row.
-  // "flat": borderless, same height as ScreenerCard's other pills.
+  // "chip" (default): the old bordered-pill rendering, kept ONLY for
+  // MomentumTable's dense table-cell column (design-system session 5b/5c
+  // moves that to Badge, at which point this variant -- and MOAT_STYLES
+  // above -- can be deleted). Every other caller (TickerHeader,
+  // ScreenerCard) uses "flat", which renders via the shared Status
+  // primitive (design-system session 5a).
   variant?: "chip" | "flat";
   // Which label wording tier to use -- see LABEL_SETS above. Defaults to
   // the full "Wide Moat"/"Narrow Moat"/"No Moat" wording.
@@ -73,15 +82,9 @@ interface Props {
 export function MoatPill({ moat, variant = "chip", labelSet = "full" }: Props) {
   if (!moat) return null;
 
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md text-xs font-semibold",
-        variant === "chip" ? "border px-2 py-0.5" : "px-2 py-1",
-        variant === "chip" ? MOAT_STYLES[moat] : MOAT_STYLES_FLAT[moat]
-      )}
-    >
-      {LABEL_SETS[labelSet][moat]}
-    </span>
-  );
+  if (variant === "flat") {
+    return <Status tone={MOAT_TONE[moat]}>{LABEL_SETS[labelSet][moat]}</Status>;
+  }
+
+  return <span className={cn("inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-semibold", MOAT_STYLES[moat])}>{LABEL_SETS[labelSet][moat]}</span>;
 }

@@ -56,8 +56,8 @@ export function ScreenerCard({ data }: Props) {
           <MoatPill moat={data.moat} variant="flat" labelSet="screener" />
           {/* No `source` prop here -- suppresses ValuationBadge's "· Custom"
               marker, matching the constant color-only "Valuation" label. */}
-          <ValuationBadge verdict={data.valuation_verdict} variant="flat" labelSet="screener" />
-          <PerfVsSpyPill status={data.perf_5y_vs_spy_status} variant="flat" labelSet="screener" />
+          <ValuationBadge verdict={data.valuation_verdict} labelSet="screener" />
+          <PerfVsSpyPill status={data.perf_5y_vs_spy_status} labelSet="screener" />
         </div>
       )}
 

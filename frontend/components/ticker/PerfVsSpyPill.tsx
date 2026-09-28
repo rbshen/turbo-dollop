@@ -1,6 +1,6 @@
-import { FLAT_VERDICT_STYLES, VERDICT_STYLES } from "@/components/ticker/FairValuePill";
+import { VALUATION_TONE } from "@/components/ticker/FairValuePill";
+import { Status, type StatusTone } from "@/components/ui/status";
 import type { PerfVsSpyStatus } from "@/lib/api/types";
-import { cn } from "@/lib/utils";
 
 type RenderableStatus = Exclude<PerfVsSpyStatus, "no_data">;
 
@@ -38,20 +38,17 @@ const LABEL_SETS: Record<"full" | "screener", Record<RenderableStatus, string>> 
   screener: LABELS_SCREENER,
 };
 
-// Reuses Valuation's own 3-state palette directly (VERDICT_STYLES/
-// FLAT_VERDICT_STYLES, exported by FairValuePill.tsx) rather than matching
-// copies of the same values -- vs-SPY and Valuation share one visual
-// vocabulary this way and can't drift independently if that palette ever
-// changes. Outperform maps to Undervalued's stronger green, Underperform to
-// Overvalued's red, Match to Fairvalued's lighter green (not a neutral/gray
-// tone -- Valuation's 3-state palette has no gray tier at all).
-// Exported so WatchlistTable's SignalBars cell can compose
-// VERDICT_SIGNAL_LEVEL/VERDICT_SIGNAL_COLOR[STATUS_TO_VERDICT[status]]
-// without duplicating this status->verdict mapping.
-export const STATUS_TO_VERDICT: Record<RenderableStatus, string> = {
-  outperform: "undervalued",
-  underperform: "overvalued",
-  match: "fair",
+// Reuses Valuation's own 3-state palette directly (VALUATION_TONE, exported
+// by FairValuePill.tsx) rather than matching copies of the same values --
+// vs-SPY and Valuation share one visual vocabulary this way and can't drift
+// independently if that palette ever changes. Outperform maps to
+// Undervalued's stronger green, Underperform to Overvalued's red, Match to
+// Fairvalued's lighter green (not a neutral/gray tone -- Valuation's
+// 3-state palette has no gray tier at all).
+export const PERF_VS_SPY_TONE: Record<RenderableStatus, StatusTone> = {
+  outperform: VALUATION_TONE.undervalued,
+  underperform: VALUATION_TONE.overvalued,
+  match: VALUATION_TONE.fair,
 };
 
 const INSUFFICIENT_HISTORY_NOTE =
@@ -66,28 +63,18 @@ interface Props {
   // relying on this component.
   status: PerfVsSpyStatus | null | undefined;
   insufficientHistory?: boolean;
-  // "chip" (default): bordered pill, used in TickerHeader's chip row.
-  // "flat": borderless, same height as ScreenerCard/WatchlistTable's other pills.
-  variant?: "chip" | "flat";
   // Which label wording tier to use -- see LABEL_SETS above. Defaults to the
   // full label set: static "5Y vs SPY" for outperform/underperform (color
   // conveys direction), "Match" for a literal tie.
   labelSet?: "full" | "screener";
 }
 
-export function PerfVsSpyPill({ status, insufficientHistory = false, variant = "chip", labelSet = "full" }: Props) {
+export function PerfVsSpyPill({ status, insufficientHistory = false, labelSet = "full" }: Props) {
   if (!status || status === "no_data") return null;
 
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md text-xs font-semibold",
-        variant === "chip" ? "border px-2 py-0.5" : "px-2 py-1",
-        variant === "chip" ? VERDICT_STYLES[STATUS_TO_VERDICT[status]] : FLAT_VERDICT_STYLES[STATUS_TO_VERDICT[status]]
-      )}
-      title={insufficientHistory ? INSUFFICIENT_HISTORY_NOTE : undefined}
-    >
+    <Status tone={PERF_VS_SPY_TONE[status]} title={insufficientHistory ? INSUFFICIENT_HISTORY_NOTE : undefined}>
       {LABEL_SETS[labelSet][status]}
-    </span>
+    </Status>
   );
 }
