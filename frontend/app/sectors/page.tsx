@@ -32,7 +32,7 @@ export default function SectorsPage() {
 
       <div className="space-y-1 border-t border-border-subtle pt-4 text-xs text-text-tertiary">
         <p>
-          Trailing total return (price change plus reinvested distributions) of the 11 SPDR sector ETFs over calendar-day windows; YTD is
+          Trailing price change (excludes dividends) of the 11 SPDR sector ETFs over calendar-day windows; YTD is
           measured from the prior year&apos;s final close. Click a column header to sort.
         </p>
         <p>Cell color is scaled within each column — the strongest tint is that window&apos;s largest move, so tints aren&apos;t comparable across columns.</p>
