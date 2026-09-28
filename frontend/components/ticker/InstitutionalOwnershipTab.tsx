@@ -22,8 +22,8 @@ interface Props {
 // holder count (a raw integer that can run into the thousands) are on
 // completely different scales, the same reasoning Market Breadth's own
 // percent-vs-count split documents.
-const OWNERSHIP_COLOR = "var(--color-chart-1)";
-const HOLDER_COLOR = "var(--color-chart-4)";
+const OWNERSHIP_COLOR = "var(--color-series-1)";
+const HOLDER_COLOR = "var(--color-series-2)";
 const GRID_COLOR = "var(--color-border-subtle)";
 const TICK = { fill: "var(--color-text-tertiary)", fontSize: 10 };
 const CHART_HEIGHT = 200;

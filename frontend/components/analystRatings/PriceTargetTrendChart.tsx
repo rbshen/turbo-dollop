@@ -15,13 +15,11 @@ interface Props {
   currency?: string;
 }
 
-// Target-consensus line color -- unchanged from before this overlay existed
-// (RechartsAreaChart's own default). The overlay uses chart-1 (green),
-// already validated against this exact blue (chart-4/brand) as an adjacent
-// pair on the dark surface -- see CLAUDE.md's Market Breadth entry, which
-// ran the dataviz palette validator for this same chart-1/chart-4 pairing.
-const TARGET_COLOR = "var(--color-brand)";
-const PRICE_COLOR = "var(--color-chart-1)";
+// Design-system series palette: the target-consensus line is series-1, the
+// overlaid stock price line series-2, per the multi-series convention (a
+// single series is series-1, additional series proceed in order).
+const TARGET_COLOR = "var(--color-series-1)";
+const PRICE_COLOR = "var(--color-series-2)";
 
 const CHART_CONFIG: ChartConfig = {
   target: { label: "Avg. Price Target", color: TARGET_COLOR },
@@ -60,7 +58,7 @@ export function PriceTargetTrendChart({ history, currency = "USD" }: Props) {
             onClick={() => setShowPriceOverlay((v) => !v)}
             aria-pressed={showPriceOverlay}
             className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-              showPriceOverlay ? "bg-zinc-700 text-zinc-100" : "text-text-tertiary hover:text-text-secondary hover:bg-surface-2"
+              showPriceOverlay ? "bg-surface-2 text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-surface-2"
             }`}
           >
             Overlay stock price
@@ -132,7 +130,7 @@ function PriceOverlayChart({ history, currency }: { history: RatingHistoryPoint[
                   <div className="flex w-full flex-1 items-center gap-2">
                     <div className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: CHART_CONFIG[name as string]?.color }} />
                     <div className="flex flex-1 items-center justify-between gap-4">
-                      <span className="text-muted-foreground">{CHART_CONFIG[name as string]?.label ?? name}</span>
+                      <span className="text-text-secondary">{CHART_CONFIG[name as string]?.label ?? name}</span>
                       <span className="font-mono font-semibold tabular-nums text-text-primary">{fmtMoney(Number(value), currency)}</span>
                     </div>
                   </div>

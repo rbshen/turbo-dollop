@@ -80,8 +80,8 @@ export function RechartsStackedChart({ categories, series, values, yTicks, yTick
                     style={{ backgroundColor: chartConfig[name as string]?.color }}
                   />
                   <div className="flex flex-1 items-center justify-between gap-4">
-                    <span className="text-muted-foreground">{chartConfig[name as string]?.label ?? name}</span>
-                    <span className="font-mono font-medium tabular-nums">{yTickFormat(Number(value))}</span>
+                    <span className="text-text-secondary">{chartConfig[name as string]?.label ?? name}</span>
+                    <span className="font-mono font-medium tabular-nums text-text-primary">{yTickFormat(Number(value))}</span>
                   </div>
                 </div>
               )}
