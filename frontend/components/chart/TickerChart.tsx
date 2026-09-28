@@ -6,6 +6,7 @@ import { fmtMoney } from "@/lib/format";
 import { buildDividendLabels, buildEarningsLabels, describeEventMarker, eventTooltipPlacement } from "@/lib/chartEventMarkers";
 import type { TooltipPlacement } from "@/lib/chartEventMarkers";
 import { EventLabelsPrimitive } from "./EventLabelsPrimitive";
+import { TooltipCard } from "@/components/ui/tooltip";
 import type { ChartOut } from "@/lib/api/types";
 import { buildStageColoredBars, WEINSTEIN_MA_COLOR } from "@/lib/chartWeinstein";
 import { readChartColors } from "@/lib/chartTokens";
@@ -31,14 +32,8 @@ import type { ChartColors } from "@/lib/chartTokens";
 // axis-width equality and crosshair alignment become structural
 // guarantees of the library's own per-chart layout pass instead of
 // something three independent instances have to be kept in sync by hand.
-const CHART_THEME = {
-  background: "#09090b",
-  // Drives layout.textColor below -- the price-scale/time-scale axis label
-  // color. Was zinc-500 (#71717a), too dim against the zinc-950 background;
-  // bumped to zinc-400 for real contrast.
-  text: "#a1a1aa",
-  border: "#27272a",
-};
+// Chart canvas background/axis-text/axis-border chrome -- resolved once per chart creation from the design
+// system's page/text-secondary/border-card tokens (see the mount effect below), same as every data-series color.
 
 // Every data-series/marker color below is resolved at chart-creation time from the design system's named
 // --fathom-chart-*/--fathom-stage-* tokens (see lib/chartTokens.ts::readChartColors) -- this file no longer holds
@@ -229,18 +224,18 @@ interface OhlcState {
   c: number;
 }
 
-function makeChartOptions(rightOffset: number, height: number) {
+function makeChartOptions(rightOffset: number, height: number, colors: ChartColors) {
   return {
     layout: {
-      background: { color: CHART_THEME.background },
-      textColor: CHART_THEME.text,
+      background: { color: colors.page },
+      textColor: colors.textSecondary,
       // Axis (price-scale/time-scale) label size, chart-wide -- bumped from 11 to 12 for readability.
       fontSize: 12,
       fontFamily: "var(--font-mono), ui-monospace, monospace",
       attributionLogo: false,
       // Static, non-resizable stacked panes -- matches the old fixed-height
       // three-separate-divs look (no user-facing pane resize handle).
-      panes: { enableResize: false, separatorColor: CHART_THEME.border, separatorHoverColor: CHART_THEME.border },
+      panes: { enableResize: false, separatorColor: colors.borderCard, separatorHoverColor: colors.borderCard },
     },
     grid: { vertLines: { visible: false }, horzLines: { visible: false } },
     // Click-drag panning stays on (handleScroll); free-form zoom (wheel, pinch,
@@ -250,7 +245,7 @@ function makeChartOptions(rightOffset: number, height: number) {
     // project's PositionChart.tsx.
     handleScroll: true,
     handleScale: false,
-    rightPriceScale: { borderColor: CHART_THEME.border, minimumWidth: PRICE_SCALE_MIN_WIDTH },
+    rightPriceScale: { borderColor: colors.borderCard, minimumWidth: PRICE_SCALE_MIN_WIDTH },
     // shiftVisibleRangeOnNewBar defaults to true (a "streaming chart"
     // convenience: auto-scroll to keep showing rightOffset's margin ahead
     // of a genuinely new incoming bar). This chart never streams -- every
@@ -299,7 +294,7 @@ function makeChartOptions(rightOffset: number, height: number) {
     // below for the equivalent right-edge bound that preserves the
     // margin instead of zeroing it.
     timeScale: {
-      borderColor: CHART_THEME.border,
+      borderColor: colors.borderCard,
       timeVisible: false,
       rightOffset,
       shiftVisibleRangeOnNewBar: false,
@@ -836,7 +831,7 @@ export function TickerChart({
     const colors = readChartColors();
     colorsRef.current = colors;
 
-    const chart = createChart(containerRef.current, makeChartOptions(rightOffset, totalHeight));
+    const chart = createChart(containerRef.current, makeChartOptions(rightOffset, totalHeight, colors));
 
     const {
       candle,
@@ -1169,21 +1164,21 @@ export function TickerChart({
 
   return (
     <div className="rounded-lg border border-border-card">
-      <div className="relative bg-zinc-950">
+      <div className="relative bg-page">
         <div className="absolute top-2 left-3 z-10 select-none pointer-events-none">
           {ohlc && (
             <div className="flex items-center gap-2.5 text-xs font-mono">
-              <span className="text-zinc-500">
-                O <span className="text-zinc-300">{fmtMoney(ohlc.o, quoteCurrency)}</span>
+              <span className="text-text-tertiary">
+                O <span className="text-text-secondary">{fmtMoney(ohlc.o, quoteCurrency)}</span>
               </span>
-              <span className="text-zinc-500">
-                H <span className="text-emerald-400">{fmtMoney(ohlc.h, quoteCurrency)}</span>
+              <span className="text-text-tertiary">
+                H <span className="text-chart-up">{fmtMoney(ohlc.h, quoteCurrency)}</span>
               </span>
-              <span className="text-zinc-500">
-                L <span className="text-red-400">{fmtMoney(ohlc.l, quoteCurrency)}</span>
+              <span className="text-text-tertiary">
+                L <span className="text-chart-down">{fmtMoney(ohlc.l, quoteCurrency)}</span>
               </span>
-              <span className="text-zinc-500">
-                C <span className="text-zinc-200">{fmtMoney(ohlc.c, quoteCurrency)}</span>
+              <span className="text-text-tertiary">
+                C <span className="text-text-primary">{fmtMoney(ohlc.c, quoteCurrency)}</span>
               </span>
             </div>
           )}
@@ -1192,7 +1187,7 @@ export function TickerChart({
         {hasRsi && (
           <div
             ref={rsiLabelRef}
-            className="absolute left-3 z-10 text-[10px] font-mono text-zinc-500 select-none pointer-events-none"
+            className="absolute left-3 z-10 text-[10px] font-mono text-text-tertiary select-none pointer-events-none"
             style={{ top: rsiLabelTop }} // placeholder; corrected from real pane geometry in the layout effect above
           >
             RSI (14)
@@ -1202,7 +1197,7 @@ export function TickerChart({
         {hasStochastic && (
           <div
             ref={stochLabelRef}
-            className="absolute left-3 z-10 text-[10px] font-mono text-zinc-500 select-none pointer-events-none"
+            className="absolute left-3 z-10 text-[10px] font-mono text-text-tertiary select-none pointer-events-none"
             style={{ top: stochLabelTop }} // placeholder; corrected from real pane geometry in the layout effect above
           >
             Full Stochastic (5, 3, 3) EMA
@@ -1213,17 +1208,21 @@ export function TickerChart({
 
         {eventTooltip && hoveredEvent && (
           <div
-            className="absolute z-20 pointer-events-none select-none rounded border border-zinc-700 bg-zinc-900/95 px-2 py-1.5 text-xs font-mono shadow-lg"
+            className="absolute z-20 pointer-events-none select-none text-xs font-mono"
             // Above the cursor (the event row is on the pane floor), flipped left near the right edge --
             // see eventTooltipPlacement.
             style={{ left: hoveredEvent.left, top: hoveredEvent.top, transform: hoveredEvent.transform }}
           >
-            <div className="text-zinc-200">{eventTooltip.title}</div>
-            {eventTooltip.lines.map((line) => (
-              <div key={line} className="text-zinc-400">
-                {line}
-              </div>
-            ))}
+            {/* TooltipCard is the shared floating-card surface look -- see components/ui/tooltip.tsx. Title reads
+                as the tooltip's "label" (what/when), the EPS/dividend lines as its "value" content. */}
+            <TooltipCard>
+              <div className="text-text-secondary">{eventTooltip.title}</div>
+              {eventTooltip.lines.map((line) => (
+                <div key={line} className="text-text-primary">
+                  {line}
+                </div>
+              ))}
+            </TooltipCard>
           </div>
         )}
       </div>
