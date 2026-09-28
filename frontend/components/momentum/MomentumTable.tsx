@@ -1,43 +1,62 @@
-import Link from "next/link";
+import type { MouseEvent } from "react";
 
 import { MoatPill } from "@/components/ticker/MoatPill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { MomentumSnapshotRowOut } from "@/lib/api/types";
 import { fmtPct, pnlClass } from "@/lib/format";
 
-const HEAD_CLASS = "whitespace-nowrap text-xs font-semibold uppercase tracking-widest text-text-tertiary";
+const HEAD_CLASS = "text-xs font-medium text-text-tertiary";
 
 interface Props {
   rows: MomentumSnapshotRowOut[];
 }
 
+// The whole row opens the ticker page in a new tab (matching WatchlistTable's
+// row click) -- but the ticker itself stays a real <a target="_blank"> for
+// keyboard/middle-click access. A click that originates from that anchor (or
+// any other interactive child, e.g. a future action button) is left alone --
+// the anchor's own native navigation already handles it, and re-triggering
+// window.open here would open two tabs.
+function handleRowClick(e: MouseEvent<HTMLTableRowElement>, ticker: string) {
+  if ((e.target as HTMLElement).closest("a, button")) return;
+  window.open(`/tickers/${ticker}`, "_blank", "noopener,noreferrer");
+}
+
 export function MomentumTable({ rows }: Props) {
+  if (rows.length === 0) {
+    return <p className="text-xs text-text-tertiary">No tickers in this snapshot.</p>;
+  }
+
   return (
     <Table>
       <TableHeader>
-        <TableRow>
+        <TableRow className="h-9">
           <TableHead className={`${HEAD_CLASS} w-12 text-center`}>Rank</TableHead>
-          <TableHead className={`${HEAD_CLASS} w-20`}>Ticker</TableHead>
-          <TableHead className={`${HEAD_CLASS} w-[280px]`}>Company</TableHead>
+          <TableHead className={`${HEAD_CLASS} w-[280px]`}>Ticker</TableHead>
           <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Moat</TableHead>
-          <TableHead className={`${HEAD_CLASS} text-right`}>3mo</TableHead>
-          <TableHead className={`${HEAD_CLASS} text-right`}>6mo</TableHead>
-          <TableHead className={`${HEAD_CLASS} text-right`}>12mo</TableHead>
+          <TableHead className={`${HEAD_CLASS} text-right`}>3 mo</TableHead>
+          <TableHead className={`${HEAD_CLASS} text-right`}>6 mo</TableHead>
+          <TableHead className={`${HEAD_CLASS} text-right`}>12 mo</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>Composite</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>Score</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {rows.map((row) => (
-          <TableRow key={row.ticker}>
+          <TableRow key={row.ticker} interactive onClick={(e) => handleRowClick(e, row.ticker)}>
             <TableCell className="text-center font-mono text-text-secondary">{row.rank}</TableCell>
-            <TableCell className="font-mono font-bold">
-              <Link href={`/tickers/${row.ticker}`} target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">
+            <TableCell className="max-w-[280px] overflow-hidden">
+              <a
+                href={`/tickers/${row.ticker}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-sm font-semibold text-text-primary"
+              >
                 {row.ticker}
-              </Link>
-            </TableCell>
-            <TableCell className="max-w-[280px] truncate text-text-secondary" title={row.company_name ?? undefined}>
-              {row.company_name ?? "—"}
+              </a>
+              <p className="truncate text-xs text-text-secondary" title={row.company_name ?? undefined}>
+                {row.company_name ?? "—"}
+              </p>
             </TableCell>
             <TableCell className="text-center">
               <MoatPill moat={row.moat} />
