@@ -115,14 +115,14 @@ function BankCapitalMetricsControls({ ticker, data, step5 }: { ticker: string; d
             value={displayed.cet1}
             onChange={(e) => update("cet1", e.target.value)}
             placeholder="Not yet entered"
-            className="w-full rounded-md border border-border-input bg-surface-2 px-2 py-1.5 font-mono text-sm text-text-primary focus:border-brand focus:outline-none"
+            className="w-full rounded-md border border-control bg-surface-2 px-2 py-1.5 font-mono text-sm text-text-primary focus:border-brand focus:outline-none"
           />
           <input
             type="text"
             value={displayed.cet1AsOf}
             onChange={(e) => update("cet1AsOf", e.target.value)}
             placeholder="As of (e.g. Q2 2026)"
-            className="w-full rounded-md border border-border-input bg-surface-2 px-2 py-1.5 text-xs text-text-secondary focus:border-brand focus:outline-none"
+            className="w-full rounded-md border border-control bg-surface-2 px-2 py-1.5 text-xs text-text-secondary focus:border-brand focus:outline-none"
           />
         </div>
 
@@ -137,14 +137,14 @@ function BankCapitalMetricsControls({ ticker, data, step5 }: { ticker: string; d
             value={displayed.npl}
             onChange={(e) => update("npl", e.target.value)}
             placeholder={autoNpl != null ? `auto: ${fmtPct(autoNpl, 1)}` : "Not available"}
-            className="w-full rounded-md border border-border-input bg-surface-2 px-2 py-1.5 font-mono text-sm text-text-primary focus:border-brand focus:outline-none"
+            className="w-full rounded-md border border-control bg-surface-2 px-2 py-1.5 font-mono text-sm text-text-primary focus:border-brand focus:outline-none"
           />
           <input
             type="text"
             value={displayed.nplAsOf}
             onChange={(e) => update("nplAsOf", e.target.value)}
             placeholder="As of (leave blank to keep auto)"
-            className="w-full rounded-md border border-border-input bg-surface-2 px-2 py-1.5 text-xs text-text-secondary focus:border-brand focus:outline-none"
+            className="w-full rounded-md border border-control bg-surface-2 px-2 py-1.5 text-xs text-text-secondary focus:border-brand focus:outline-none"
           />
           {autoNpl != null && (
             <p className="text-xs text-text-tertiary">

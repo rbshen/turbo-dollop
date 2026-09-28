@@ -222,7 +222,7 @@ export function SavedFiltersBar({
               if (e.key === "Enter") handleConfirm();
               if (e.key === "Escape") cancelSave();
             }}
-            className="h-8 w-40 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
+            className="h-8 w-40 rounded-md border border-control bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
           />
           <button
             type="button"

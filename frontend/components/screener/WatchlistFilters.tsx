@@ -31,7 +31,7 @@ export function WatchlistFilters({ watchlists, value, onChange, disabled }: Prop
           value={value ?? ""}
           disabled={disabled}
           onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
-          className="h-8 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary focus:border-brand focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-8 rounded-md border border-control bg-surface px-2 text-xs text-text-primary focus:border-brand focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         >
           <option value="">None</option>
           {(watchlists ?? []).map((w) => (

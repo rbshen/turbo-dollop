@@ -103,7 +103,7 @@ export function WatchlistNameEditor({ watchlist }: Props) {
             if (e.key === "Escape") cancel();
           }}
           disabled={status === "saving"}
-          className="w-48 rounded-md border border-border-input bg-page px-2 py-1 text-xs text-text-primary focus:border-brand focus:outline-none disabled:opacity-50"
+          className="w-48 rounded-md border border-control bg-page px-2 py-1 text-xs text-text-primary focus:border-brand focus:outline-none disabled:opacity-50"
         />
         <button
           type="button"

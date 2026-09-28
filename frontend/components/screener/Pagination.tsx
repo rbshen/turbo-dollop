@@ -35,7 +35,7 @@ export function Pagination({ page, nPages, onPage }: Props) {
             key={p}
             onClick={() => onPage(p)}
             className={`rounded px-2.5 py-1 text-sm transition-colors ${
-              p === page ? "bg-brand font-semibold text-white" : "text-text-secondary hover:bg-surface-2 hover:text-text-primary"
+              p === page ? "bg-brand font-semibold text-on-brand" : "text-text-secondary hover:bg-surface-2 hover:text-text-primary"
             }`}
           >
             {p}

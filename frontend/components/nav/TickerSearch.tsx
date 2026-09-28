@@ -91,7 +91,7 @@ export function TickerSearch() {
         aria-expanded={showDropdown}
         aria-autocomplete="list"
         aria-controls="ticker-search-listbox"
-        className="h-8 w-40 rounded-md border border-border-input bg-surface px-3 text-xs text-text-primary placeholder:text-text-tertiary outline-none focus:border-brand sm:w-56"
+        className="h-8 w-40 rounded-md border border-control bg-surface px-3 text-xs text-text-primary placeholder:text-text-tertiary outline-none focus:border-brand sm:w-56"
       />
 
       {showDropdown && (

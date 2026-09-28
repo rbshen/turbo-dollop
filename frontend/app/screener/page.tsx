@@ -218,7 +218,7 @@ export default function ScreenerPage() {
           <select
             value={sortField}
             onChange={(e) => handleSortChange(e.target.value as SortField, sortDirection)}
-            className="h-8 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary focus:border-brand focus:outline-none"
+            className="h-8 rounded-md border border-control bg-surface px-2 text-xs text-text-primary focus:border-brand focus:outline-none"
           >
             {SORT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>

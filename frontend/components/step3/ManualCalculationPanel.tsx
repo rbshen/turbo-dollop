@@ -312,7 +312,7 @@ function ManualInputRow({
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded border border-border-input bg-page px-2 py-1 text-right font-mono text-sm text-text-primary focus:border-brand focus:outline-none"
+          className="w-full rounded border border-control bg-page px-2 py-1 text-right font-mono text-sm text-text-primary focus:border-brand focus:outline-none"
         />
       </TableCell>
     </TableRow>
@@ -539,7 +539,7 @@ function ManualCalculationControls({
             id="manual-method"
             value={selection}
             onChange={(e) => handleSelectionChange(e.target.value as MethodSelection)}
-            className="h-8 max-w-[220px] appearance-none truncate rounded-md border border-border-input bg-surface-2 py-1 pl-2.5 pr-7 text-xs text-text-primary focus:border-brand focus:outline-none"
+            className="h-8 max-w-[220px] appearance-none truncate rounded-md border border-control bg-surface-2 py-1 pl-2.5 pr-7 text-xs text-text-primary focus:border-brand focus:outline-none"
           >
             {/* Only rendered once a custom valuation is saved -- there's
                 exactly one (no versioning), so at most one such entry. */}

@@ -33,7 +33,7 @@ export function RangeInput({
           placeholder="Min"
           value={value.min ?? ""}
           onChange={(e) => onChange({ ...value, min: e.target.value === "" ? null : Number(e.target.value) })}
-          className="h-8 w-0 min-w-0 flex-1 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
+          className="h-8 w-0 min-w-0 flex-1 rounded-md border border-control bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
         />
         <span className="shrink-0 text-text-tertiary">–</span>
         <input
@@ -41,7 +41,7 @@ export function RangeInput({
           placeholder="Max"
           value={value.max ?? ""}
           onChange={(e) => onChange({ ...value, max: e.target.value === "" ? null : Number(e.target.value) })}
-          className="h-8 w-0 min-w-0 flex-1 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
+          className="h-8 w-0 min-w-0 flex-1 rounded-md border border-control bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
         />
       </div>
     </div>

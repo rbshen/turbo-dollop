@@ -59,7 +59,7 @@ function MarketCapSideInput({
         value={text}
         onChange={(e) => handleChange(e.target.value)}
         className={`h-8 w-full rounded-md border bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none ${
-          invalid ? "border-negative/60 focus:border-negative" : "border-border-input focus:border-brand"
+          invalid ? "border-negative/60 focus:border-negative" : "border-control focus:border-brand"
         }`}
       />
       {invalid && <span className="mt-0.5 block text-[10px] text-negative">e.g. 1B, 2 M, or 500000000</span>}

@@ -190,7 +190,7 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
         type="button"
         onClick={() => setPanel((p) => (p === "idle" ? "picking" : "idle"))}
         disabled={disabled}
-        className="inline-flex h-8 items-center rounded-md bg-brand px-3 text-xs font-medium text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex h-8 items-center rounded-md bg-brand px-3 text-xs font-medium text-on-brand transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
       >
         {label}
       </button>
@@ -320,7 +320,7 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
                       if (e.key === "Enter") handleCreateAndAdd();
                       if (e.key === "Escape") cancelNewList();
                     }}
-                    className="w-full rounded-md border border-border-input bg-page px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
+                    className="w-full rounded-md border border-control bg-page px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
                   />
                 </div>
                 <div className="flex items-center gap-1.5">

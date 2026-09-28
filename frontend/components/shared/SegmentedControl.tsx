@@ -23,7 +23,7 @@ export function SegmentedControl<T extends string>({ value, onChange, options }:
           type="button"
           onClick={() => onChange(option.value)}
           className={`inline-flex h-8 items-center justify-center rounded-md px-3 text-xs font-medium capitalize transition-colors ${
-            value === option.value ? "bg-brand text-white" : "text-text-secondary hover:text-text-primary"
+            value === option.value ? "bg-brand text-on-brand" : "text-text-secondary hover:text-text-primary"
           }`}
         >
           {option.label}
