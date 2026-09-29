@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 
 import { PageContainer } from "@/components/layout/PageContainer";
-import { SegmentedControl } from "@/components/shared/SegmentedControl";
+import { PageHeader } from "@/components/ui/page-header";
+import { Tabs } from "@/components/ui/tabs";
 import { ExportMenu } from "@/components/watchlist/ExportMenu";
 import { WatchlistDeleteButton } from "@/components/watchlist/WatchlistDeleteButton";
 import { WatchlistNameEditor } from "@/components/watchlist/WatchlistNameEditor";
@@ -169,37 +170,42 @@ export default function WatchlistPage() {
   }
 
   return (
-    <PageContainer className="space-y-6 pb-12 pt-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="font-heading text-xl font-semibold text-text-primary">Watchlists</h1>
-          {/* Each key is prefixed (not bare active.id) since these are two
-              sibling elements -- React requires unique keys per sibling
-              regardless of component type, and a shared key across both
-              caused a real duplicate-key reconciliation bug (stale editors
-              from previously-active tabs piling up instead of being
-              replaced). The remount itself still drops any in-progress
-              edit/delete confirmation on tab switch, rather than an editor
-              mid-rename silently re-targeting a different watchlist
-              underneath the user. */}
-          <div className="flex items-center gap-2">
-            <WatchlistNameEditor key={`name-${active.id}`} watchlist={active} />
-            <WatchlistDeleteButton key={`delete-${active.id}`} watchlist={active} onDeleted={() => setManualActiveId(null)} />
-          </div>
-        </div>
-        <ExportMenu
-          disabled={!rows || rows.length === 0}
-          onExportTradingView={handleExportTradingView}
-          onExportThinkorswim={handleExportThinkorswim}
-        />
-      </div>
+    <PageContainer className="space-y-6 pb-12">
+      <PageHeader
+        title="Watchlists"
+        actions={
+          <ExportMenu
+            disabled={!rows || rows.length === 0}
+            onExportTradingView={handleExportTradingView}
+            onExportThinkorswim={handleExportThinkorswim}
+          />
+        }
+      />
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <SegmentedControl
-          value={String(active.id)}
-          onChange={(v) => setManualActiveId(Number(v))}
-          options={watchlists.map((w) => ({ value: String(w.id), label: w.name }))}
-        />
+      {/* A user can create an unbounded number of watchlists (no cap on
+          count, only WATCHLIST_CAPACITY on tickers-per-list), so this is
+          Tabs (unlimited items, horizontal overflow scroll) rather than
+          SegmentedControl (documented for a small 2-6-option fixed set,
+          e.g. a universe/period toggle) -- see the design-system session
+          5d report for the full reasoning. */}
+      <Tabs
+        value={String(active.id)}
+        onValueChange={(v) => setManualActiveId(Number(v))}
+        items={watchlists.map((w) => ({ value: String(w.id), label: w.name }))}
+      />
+
+      {/* Each key is prefixed (not bare active.id) since these are two
+          sibling elements -- React requires unique keys per sibling
+          regardless of component type, and a shared key across both
+          caused a real duplicate-key reconciliation bug (stale editors
+          from previously-active tabs piling up instead of being
+          replaced). The remount itself still drops any in-progress
+          edit/delete confirmation on tab switch, rather than an editor
+          mid-rename silently re-targeting a different watchlist
+          underneath the user. */}
+      <div className="flex items-center gap-2">
+        <WatchlistNameEditor key={`name-${active.id}`} watchlist={active} />
+        <WatchlistDeleteButton key={`delete-${active.id}`} watchlist={active} onDeleted={() => setManualActiveId(null)} />
       </div>
 
       <WatchlistTable watchlist={active} rows={rows} error={rowsError} sortRules={sortRules} onSortRulesChange={handleSortRulesChange} />

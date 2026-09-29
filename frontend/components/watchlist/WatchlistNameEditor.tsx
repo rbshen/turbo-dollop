@@ -4,6 +4,7 @@ import { useState } from "react";
 import { PencilSimple } from "@phosphor-icons/react";
 
 import { errorDetail } from "@/lib/api/client";
+import { Input } from "@/components/ui/input";
 import { updateWatchlist } from "@/lib/hooks/useWatchlists";
 import type { WatchlistOut } from "@/lib/api/types";
 
@@ -92,7 +93,8 @@ export function WatchlistNameEditor({ watchlist }: Props) {
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-1.5">
-        <input
+        <Input
+          variant="boxed"
           type="text"
           autoFocus
           value={value}
@@ -103,7 +105,8 @@ export function WatchlistNameEditor({ watchlist }: Props) {
             if (e.key === "Escape") cancel();
           }}
           disabled={status === "saving"}
-          className="w-48 rounded-md border border-control bg-page px-2 py-1 text-xs text-text-primary focus:border-brand focus:outline-none disabled:opacity-50"
+          aria-label="Watchlist name"
+          className="h-7 w-48 px-2 text-xs focus:border-brand focus:outline-none"
         />
         <button
           type="button"
