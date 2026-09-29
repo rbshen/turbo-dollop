@@ -116,6 +116,8 @@ the business), CCC is skipped regardless of sector/industry.
 
 ### Blend weights
 
+`BASE_WEIGHTS = {"roe": 0.25, "roic": 0.35, "ar": 0.20, "ccc": 0.20}` in `scoring/step4.py`:
+
 | Metric | Base weight (all 4 applicable) |
 |---|---|
 | ROIC | 35% |

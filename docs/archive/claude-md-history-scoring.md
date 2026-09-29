@@ -1657,3 +1657,52 @@ thresholds. Notable design decisions and fixes:
 
 
 > Note (B5b, editorial, not part of the archived text): the Profitability blocks above cite `backend/step4_data.py`, which is now `backend/data/step4_data.py`; `backend/scoring/series_trend.py` and `backend/scoring/classification.py` are at the paths cited. `profitability.md` is `docs/specs/profitability.md`. Two statements are superseded by later blocks in this same range and by the current code: (1) the "Equal-weight redistribution" bullet (original lines 1325-1329) is replaced by the proportional `BASE_WEIGHTS` scheme (original lines 1463-1495); (2) the Hard-fail bullet's "ROE lands in its Fail tier (avg <8%)" (original lines 1330-1336) is replaced by the 2026-08-13 graduated scale, under which only an average below 0% hard-fails (original lines 1496-1559). Also superseded: the Revenue-vs-AR "majority-outpacing" worst-tier trigger (original lines 1301-1307, 1349-1360) is replaced by the aggregate DSO trend (original lines 1410-1462), and the claim that the count-based "concerning" tier is structurally subsumed by "majority" no longer applies.
+
+
+## Overall weighting: STEP_WEIGHTS rebalance intro (2026-07-31) (original lines 1580-1585)
+
+Overall Assessment's step weighting (`backend/scoring/overall.py::STEP_WEIGHTS`
+/ `frontend/lib/overallScore.ts::STEP_WEIGHTS` — must never drift from each
+other, see that constant's own comment) was rebalanced 2026-07-31, following
+an investigation into cases where Overall read "Pass"/"Strong Pass" while a
+contributing step genuinely scored below the shared 70 Pass floor:
+
+
+
+## Overall weighting: resulting blend, motivation (MA/FICO), 125/493 contradiction investigation (original lines 1586-1610)
+
+- **What actually lands in a ticker's full Overall blend** (i.e. `STEP_WEIGHTS`
+  values as fractions of the 69% non-Moat portion, times `1 - MOAT_WEIGHT`,
+  plus Moat's own 31%) is Financials 24% (unchanged), Growth Rate 10% (was
+  15%), Debt 15% (was 10%), Profitability 20% (was ~19%, itself a rounding
+  artifact of the old 0.28×0.69 — not a prior bug in the code, which always
+  summed to exactly 100%), Moat 31% (unchanged).
+- **Motivation**: Debt's previously-lowest weight (10%) let genuine
+  per-step Fails get fully absorbed by strong scores elsewhere — worked
+  examples: MA (Debt genuinely `Fail` at 67) blended to Overall 92
+  "Strong Pass" pre-rebalance, now 90 "Pass"; FICO (Debt `Fail` at 52)
+  blended to 89 "Pass" pre-rebalance, now 87 "Pass" (still Pass — see
+  below, reweighting alone is a limited lever).
+- **A universe-wide investigation found this contradiction pattern in
+  ~25% of tickers (125/493)**, split roughly evenly between two distinct
+  causes: about half (62) are genuine per-step Fails diluted by blend
+  weighting (what this rebalance targets), and about half (63) are cases
+  where *no* step says "Fail" at all — the sub-70 step's own verdict gate
+  (see Growth Rate's magnitude-tier gate above, and Profitability's
+  equivalent `hard_fail`-gated `_verdict_for`, which shows "Pass" for 206
+  tickers scoring <70 — a bigger version of the same pattern) already masks
+  it before blending starts. **Reweighting cannot fix the masked half** —
+  confirmed via sensitivity testing (even a larger Debt-weight shift to
+  25% only flipped 4/111 complete-data FICO-type tickers to Fail). Growth
+  Rate/Profitability's own verdict gates are a separate, not-yet-addressed
+  question.
+
+
+## Overall weighting: 'Not yet built' Debt breach-context follow-up (original lines 1611-1613)
+
+- **Not yet built**: Debt's own breach-context/scoring nuance (Debt/EBITDA
+  and Current Ratio) is unchanged by this rebalance — a distinct follow-up.
+
+
+
+> Note (B5b, editorial, not part of the archived text): the Overall-weighting blocks above are dated 2026-07-31, before several later fixes, and two statements are superseded. (1) "Not yet built: Debt's own breach-context/scoring nuance" (original lines 1611-1613) was built 2026-08-01 (see the Debt breach-context block, original lines 1092-1147). (2) "Growth Rate/Profitability's own verdict gates are a separate, not-yet-addressed question" and the "206 tickers scoring <70 shown as Pass" observation (original lines 1598-1610) were addressed by later fixes: Profitability's `score < 70 → Fail` verdict floor (2026-08-13, original lines 1496-1559), Debt's residual fallback-floor fix (original lines 1148-1158), and Growth Rate's score floor (original lines 911-1035). The current weights are documented in `docs/specs/overview.md`.

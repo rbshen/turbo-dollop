@@ -37,12 +37,44 @@ the view that a strong moat matters at least as much as any one quarter-to-quart
 metric. Among the four automated checks, Financials carries the most weight since it's the
 most foundational read on the business, while Debt was deliberately weighted above Growth Rate
 (2026-07-31 rebalance) so that a genuine debt problem can't be fully diluted away by strength
-elsewhere — see [Debt](debt.md) and `CLAUDE.md`'s scoring-rubric history for the investigation
-behind that rebalance and its known, deliberate limits (it can't fix a per-step verdict gate
-that masks a sub-70 score as "Pass" before the blend ever runs).
+elsewhere — see [Debt](debt.md), and docs/archive/claude-md-history-scoring.md for the
+investigation behind that rebalance. Its known, deliberate limits are described under "Overall
+weighting rebalance" below.
 
 The weight table lives in two places that must never drift apart:
 `backend/scoring/overall.py::STEP_WEIGHTS` and `frontend/lib/overallScore.ts::STEP_WEIGHTS`.
+
+## Overall weighting: how the weights are stored, and the 2026-07-31 rebalance
+
+In code the four automated steps are stored as fractions of the 69% non-Moat portion:
+`STEP_WEIGHTS = {"step1": 24/69, "step2": 10/69, "step4": 20/69, "step5": 15/69}` (Financials,
+Growth Rate, Profitability, Debt), and `MOAT_WEIGHT = 0.31`. Multiplying the step fractions by
+`1 − MOAT_WEIGHT` gives the percentages in the table above, which sum to exactly 100%. The
+Financials/Growth/Debt/Profitability blend is a plain weighted average with **no hard-fail
+override among the four automated steps** (Moat is the one deliberate exception, since it is
+user-asserted rather than computed; a No Moat score of 0 can cap Overall below 70 regardless of
+the steps). The Overall verdict bands are the shared ones used app-wide: Fail below 70, Pass 70-90,
+Strong Pass above 90.
+
+The 2026-07-31 rebalance moved the weights from Financials 24% (unchanged), Growth Rate 15%,
+Debt 10%, Profitability ~19%, Moat 31% (unchanged) to today's Growth Rate 10%, Debt 15%,
+Profitability 20%. (Profitability's old "~19%" was a rounding artifact of the former 0.28 × 0.69
+arithmetic, not a bug — the old weights always summed to exactly 100%.) **Motivation**: Debt's
+previously-lowest weight let a genuine per-step Fail be fully absorbed by strong scores
+elsewhere. Worked examples: MA (Debt a genuine Fail at 67) blended to Overall 92 "Strong Pass"
+before the rebalance, 90 "Pass" after; FICO (Debt Fail at 52) went from 89 to 87, still "Pass".
+
+**Known limit — re-weighting is a limited lever.** A universe-wide check at the time found the
+"Overall reads Pass while a contributing step scored below 70" pattern in about 25% of tickers
+(125 of 493), in two roughly equal causes: about half (62) were genuine per-step Fails diluted by
+blend weighting (what the rebalance targets), and about half (63) were cases where *no* step said
+"Fail" at all because the sub-70 step's own verdict gate already masked it before blending.
+Re-weighting cannot fix the masked half — sensitivity testing showed even raising Debt to 25%
+flipped only 4 of 111 complete-data FICO-type tickers to Fail. The masked half was later
+addressed inside the steps themselves rather than by weights: Debt and Profitability now fail
+any blended score below 70 (see [Debt](debt.md) and [Profitability](profitability.md), "Verdict"),
+and Growth Rate floors a non-negative-growth score at 70 so a Fail-range number never sits next
+to "Pass" text (see [Growth Rate](growth-rate.md)).
 
 ## What happens if Economic Moat isn't set
 
