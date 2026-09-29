@@ -1,12 +1,156 @@
-# Weinstein Stage Analysis — pending confirmation/ETA, and the daily-timeframe question
+# Weinstein Stage Analysis — base engine, pending confirmation/ETA, and the daily-timeframe question
 
-This document covers two rounds of design work layered on top of the shipped Weinstein Stage
-engine — it does **not** re-document the base engine (the sticky `sState` state machine, its
-weekly resample, the 2026-09-26 configurable-EMA "Engine swap," Screener/Chart surfacing, or the
-Flip-ETA card's own UI). That base mechanism is fully documented in `CLAUDE.md`'s "Weinstein
-Stage Analysis" and "Engine swap" sections and hasn't yet been extracted into `docs/specs/` (see
-that file's own follow-up list). Read that first if you need the state-machine transition rules
-themselves — this document assumes them.
+Stan Weinstein's classic 4-stage (Base / Advance / Top / Decline) methodology, ported from a
+reviewed Pine Script v6 reference implementation ("Weinstein Stage Screener") and computed on
+**weekly** bars — the only signal in the trend-structure family that runs on a different
+timeframe than the daily swing/BOS/A-D/SMA engine (see
+[Trend structure](trend-structure-technical.md), whose nightly job also produces this lens). It
+is fully independent of that engine and of the fundamentals scoring. This document covers the
+shipped base engine (Part 0), then two rounds of design work layered on top of it: the
+"pending confirmation" + ETA feature (Part 1) and the daily-timeframe question (Part 2).
+
+## Part 0 — the base engine (`analysis/trend_structure/weinstein.py`)
+
+The engine is the validated Pine `sState` port, fully driven by `WeinsteinParams`, whose defaults
+are the Pine reference's own: `ma_length` 30, `ma_type` EMA (`ewm(span, adjust=False,
+min_periods=length)`; SMA supported), `within_range_pct` 5.0, `slope_lookback` 5,
+`breakout_volume_mult` 2.0, `volume_avg_length` 50, `rs_benchmark` SPY, `rs_smoothing_length` 52.
+Volume and relative strength never gate the stage; they only feed
+`weinstein_breakout_confirmed`.
+
+### Engine choice: the sticky `sState` machine, not the stateless `sTS` quadrant read
+
+The Pine source has two engines; the sticky `sState` state machine (not its own stateless
+per-bar `sTS` quadrant read, `tsMode`'s actual default) was chosen from real evidence. Both were
+run against 29 real tickers: full-history agreement was only 77.7% (~28,500 ticker-weeks), `sTS`
+flipped 3-6x more often per year, and at the latest bar (what a header pill shows) the two
+disagreed on 9/29 tickers. Qualitatively `sTS` flagged false "Top"/"Base" reclassifications on
+ordinary single-week volatility inside an established trend, while `sState` requires clearing
+a ±5% band AND genuine slope confirmation before it changes its mind — much closer to what
+"stage analysis" means (a multi-month regime read, not a bar-by-bar indicator). The transition
+rules themselves are tabulated in Part 1.
+
+### Weekly resampling
+
+Weekly bars are resampled from the SAME daily bars the nightly job reads from the shared cache
+— no second fetch and no weekly interval on `SharedBarsCache` (its key holds only `1d`/`60m`).
+Weeks must be labelled by their Monday to match a native weekly feed: a naive `resample("W-FRI")`
+labels by the week's Friday, so the engine resamples `"W-FRI"` (which correctly bins Mon-Fri
+trading days into one bucket) and shifts the index back 4 days, reproducing the Monday label
+exactly (validated bit-identical across 15 real tickers against a native weekly reference).
+`"W-MON"` is the wrong rule entirely (it bins Tue-through-Mon). See
+`weinstein.py::resample_to_weekly`, also reused by the Chart tab's W_4Y range.
+
+### Bootstrap and history depth
+
+`sState` has memory from bar zero, so a run-in is needed before the bootstrap error washes out.
+Measured at ~245 anchor points across 15 tickers (up to 64 years of history) on the original
+engine: 1.6% of anchors still mismatched at 52 weeks, and 0/245 at 104 weeks. The replay
+therefore gets ~5 years of dailies (`WEINSTEIN_LOOKBACK_DAYS` = 365 × 5 in
+`data/trend_analysis_data.py`, the trend job's fetch width), because an EMA/sticky machine needs
+a long run-in and "since" dates otherwise depended on where the window started.
+`WeinsteinParams.min_weeks_required` (`ma_length + slope_lookback + 5` = 40 at the defaults) is
+the bare structural floor below which the engine returns a graceful `stage=None` / thin-history
+result rather than an unreliable number; between that floor and a full run-in, a small residual
+bootstrap-inaccuracy risk is an accepted, documented limitation.
+
+### Settings
+
+A singleton `WeinsteinSettings` table (`helpers/weinstein_config.py`, lazy-seeded, the
+`LiquidityZoneSettings` pattern) holds the 8 parameters, editable via `GET/PUT
+/api/config/weinstein` and Settings > Weinstein. They are read LIVE from the DB at compute time
+(the nightly job once per run, the on-demand path per call), so a change applies on the next
+recompute with no restart. It is not a `DataGroupSetting` (that is FMP on/off).
+`TrendAnalysis.weinstein_params_json` records the params each row was computed with, and
+`TrendAnalysisOut.weinstein_params` feeds the UI wording (no hard-coded "30-week"/"SMA"/"2x"; a
+Screener card has no params, so its pill tooltip says "MA").
+
+### Data model (on the existing `TrendAnalysis` table; nullable, no backfill)
+
+`weinstein_stage` (`"base"|"advance"|"top"|"decline"`, a plain-str enum like `trend_state`),
+`weinstein_stage_since_date`, `weinstein_stage_since_is_lower_bound`, `weinstein_stage_changed`,
+`weinstein_ma_slope_pct`, `weinstein_vs_ma_pct`, `weinstein_volume_ratio`,
+`weinstein_mansfield_rs`, `weinstein_breakout_confirmed`, plus `weinstein_weeks_available`,
+`weinstein_params_json` and the pending/ETA columns of Part 1.
+
+- **Two flags that sound similar but are computed at different layers, on purpose.**
+  `weinstein_breakout_confirmed` is a pure, single-run, week-over-week read off the freshly
+  computed weekly stage series: a fresh transition INTO Advance in the latest week, volume ratio
+  >= `breakout_volume_mult`, and RS unavailable or > 0 (the Pine source's own
+  `na(mansfield)`-passes-through rule). It lives in the pure engine. `weinstein_stage_changed`
+  means "today's freshly computed stage differs from what was stored **last night**" — an
+  across-nightly-runs comparison that needs the previous row before overwriting it, so it is
+  computed in `data/trend_analysis_data.py::_upsert`, not the engine. It is False (never an error)
+  when there is no previous stored stage yet (a brand-new ticker's first compute).
+- **`weinstein_stage_since_date` / `_is_lower_bound`**: walk the non-null (post-bootstrap)
+  suffix of the weekly stage series backward from the latest week to the most recent week whose
+  stage differs from the current one; the since-date is the week right after that (the most
+  recent real transition of the replay). If the stage never differs anywhere in the available
+  history, the since-date is the earliest available week and `_is_lower_bound=True` — rather than
+  fabricating a precise transition date the fetch window can't see.
+- **`weinstein_weeks_available`** is always a real count (unlike every other result field, which
+  is `None` to mean "couldn't compute"), persisted so the two null states can be told apart:
+  `NULL` alongside a `NULL` stage means never computed under this feature (a legacy,
+  never-reprocessed row); a real (sub-floor) int means a compute ran and found too little history.
+  `WeinsteinStageCard`'s null state shows one of two distinct messages accordingly
+  (`lib/weinsteinStage.ts::weinsteinUnavailableReason`); the "Insufficient price history…"
+  wording is reserved for the genuinely insufficient case.
+- **RS benchmark**: SPY (`WEINSTEIN_BENCHMARK_TICKER`), not `^GSPC` — `^GSPC` was retired from
+  this job 2026-09-23 when Massive, which had no Indices product, was removed. The benchmark rides
+  along in the SAME nightly batch fetch as one more symbol (a benchmark is just another ticker
+  string to the cache) but is deliberately never added to the per-ticker processing loop, so it
+  never gets its own `TrendAnalysis` row or counts toward the job's `processed`/`failed` totals.
+  A benchmark-fetch failure that run degrades every ticker's Mansfield RS/breakout fields to
+  null/false (the same `na()`-passes-through convention) rather than counting as a per-ticker
+  failure. The nightly job fetches whatever `rs_benchmark` names.
+- **Cron**: folded into the existing `pipeline/nightly_trend_calculation.py` run (3:10 AM) — no
+  separate cron job.
+
+### Surfacing
+
+- **Ticker header**: `WeinsteinStagePill` in the chip row (the same flat-variant shape as
+  `SpeculativeGrowthPill`/`MoatPill`; renders nothing when `weinstein_stage` is null, not a
+  placeholder). **Technical tab**: Stage/Since in the `SummaryStrip`, and a full-width
+  `WeinsteinStageCard` below the Reversal/Trend-Continuation grid (the `ChecklistCard` shell).
+  Colors: Stage 2/Advance = positive (green), Stage 4/Decline = negative (red), Stage 3/Top =
+  `warn` (amber, the token `TrendContinuationCard`'s "pullback pending" uses), Stage 1/Base =
+  neutral (`ReversalCard`'s "Not present" style). The card's disclaimer is deliberately NOT
+  phrased as "Backtested: X%" like Reversal/Trend Continuation's — this lens has only been
+  validated for state-machine correctness against its Pine source, not for predictive edge.
+- **Chart tab W/4Y "Stage" toggle** (2026-09-26): on the weekly view only (hidden on D ranges,
+  off by default, after SMA 200), draws the live-configured Weinstein MA (`WeinsteinSettings`
+  type+length, labelled e.g. "EMA30", white) and colors each candle by its stage AT THAT WEEK
+  (base #8FD99F / advance #1B9E3E / top #E8A020 / decline #E03A3A).
+  `data/chart_data.py::_weinstein_overlay` calls the engine's own `compute_stage_series` over the
+  FULL fetched weekly history (up to 10y, so the sticky machine is seeded long before the 4y
+  visible window) and slices to the visible weeks — `ChartOut.weinstein_ma/_ma_label/_stages`,
+  computed on-demand per weekly request with params read live. Weeks before the machine is
+  seeded get no stage (default candle color). Caveat: the nightly job replays ~5y while the chart
+  replays up to 10y; the sticky machine converges, so the current stage matches, but an old
+  since-date could differ in rare cases.
+- **Screener** (2026-09-07): `weinstein_stage` (+ `_since_date`/`_since_is_lower_bound`/
+  `_ma_slope_pct`/`_vs_ma_pct`, needed for the pill's tooltip) are denormalized onto
+  `TickerScore` inside `compute_ticker_score()` via a plain `session.get(TrendAnalysis, ticker)`
+  read — not a new fetch or live recomputation. Filtering is 100% client-side
+  (`lib/screenerFilters.ts::filterTickerScores`), like every other Screener multi-select: the
+  Screener has never had server-side filtering for any criterion (`GET /api/screener` takes only
+  `universe`), so a Weinstein query param would have been a new, inconsistent pattern rather than
+  a mirror of `perf_5y_vs_spy_*`/`speculative_growth_qualifies`. It shows as a compact
+  "S1"/"S2"/"S3"/"S4" pill (`WeinsteinStagePill`'s `labelSet="screener"` tier — unlike
+  `MoatPill`/`PerfVsSpyPill`, each stage gets its own distinct short label) and a "Weinstein
+  Stage" filter dropdown in the Screener sidebar's Technical section
+  (`components/screener/TechnicalFilters.tsx`, which now holds other technical filters too). A
+  "Weinstein — Stage Since" sort reads the persisted `TickerScore.weinstein_stage_since_date`
+  (client-side, no new field).
+- **Flip-ETA/pending** (`weinstein_pending.py`, Part 1) takes the same params, so its band, MA
+  type and projection follow the live engine; `trend_5`/`trend_13` stay fixed-horizon scenario
+  keys.
+
+*History: the original 2026-09-06 engine was a fixed 30-week-SMA/±5%-band version with a 2y
+run-in and a 30-week volume average; it was replaced outright (no toggle) by the configurable EMA
+engine on 2026-09-26. The build-time measurements, the engine-swap recompute run and the
+Screener relayout narrative are archived in
+`docs/archive/claude-md-history-technical-signals.md`.*
 
 ## Part 1 — "pending confirmation" + ETA (shipped, `weinstein_pending.py`)
 

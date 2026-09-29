@@ -566,3 +566,213 @@ scoring. Bars come from FMP, through `SharedBarsCache` (`get_or_fetch_bars_batch
   return math was checked against an independent calculation on live bar data (max difference
   1.5e-5pp) and the endpoint against the real DB.
 
+
+
+## Trend structure: nightly cron bullet (original wording incl. FMP_ENABLED remark and '12th job') (original lines 2349-2357)
+
+- **Nightly cron** (`pipeline/nightly_trend_calculation.py`, 3:10 AM, after the 2:00 FMP
+  fundamentals fetch and before the 3:55 AM backup; the 3:50 score recompute then copies its
+  `weinstein_*` output onto `TickerScore`): sweeps the full tracked universe
+  (`load_full_tracked_universe`, shared with the fundamentals/score-recompute jobs) via **one**
+  batch read (`clients.shared_bars_cache.get_or_fetch_bars_batch` -- see "Shared bars cache" below),
+  then runs the engine and upserts per ticker -- never one live fetch per ticker. Makes zero FMP
+  calls, so unlike `nightly_fundamentals_fetch.py`/`nightly_price_target_snapshot.py` it needs no
+  `if not settings.fmp_enabled: ...` guard at all (there's no FMP-gated work to skip). Wired into
+  `core/cron_health.py`'s `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS` as the 12th job.
+
+
+## Trend structure: API / Watchlist surfacing (future Technical tab, SignalBars maxBars -- stale) and price fallback (original lines 2358-2372)
+
+- **API / Watchlist surfacing**: `GET /api/tickers/{ticker}/trend-analysis` (standalone endpoint,
+  `data/trend_analysis_data.py::get_trend_analysis_data`) is designed to feed a future ticker-page
+  "Technical" tab -- **not built this round**, UI-only future work. The Watchlist table's own new
+  "Trend" column instead reads `bar_level`/`blended_score`/`trend_state` off the existing bulk
+  `GET /watchlists/{id}/rows` response (`watchlist_data.py::_compose_row`, cache-only), consistent
+  with every other Watchlist column, rather than firing one extra per-row request just for this
+  column. `SignalBars` (`frontend/components/watchlist/SignalBars.tsx`) was generalized to a
+  `maxBars` prop (default 3, so the existing Moat/Value/vs-SPY 3-bar indicators are unaffected) to
+  support this new 5-bar indicator without a duplicate component. **Stale as of 2026-09-06**: once
+  the Watchlist UI columns were removed entirely (see "Watchlist UI columns removed entirely
+  2026-09-06" below), the 5-bar indicator went with them and `SignalBars` was simplified back to a
+  fixed 3-bar component (`level: 1 | 2 | 3`, no `maxBars` prop) -- current code has no `maxBars`.
+- **Price fallback**: `data/ticker_summary.py::get_summary()` overrides just the `price` field with the last
+  official close cached nightly (`TickerLastClose`) when the `profile_quote` group is off or the live quote
+  failed (and not `cache_only`) -- see "Phase 6a" below.
+
+
+## Trend structure: A/D divergence folded into the single classification pass, with nightly-job timing comparison (original lines 2403-2410)
+
+  - **Folded into the existing single swing-classification pass, not a second pass or a second
+    per-ticker fetch** (`classification.py::classify_swings` gained a third `chaikin_osc`
+    parameter; the divergence lookup/comparison happens inline exactly where a new "LL" is
+    classified, reusing the same in-memory OHLCV series `engine.py` already computes ATR from).
+    Confirmed via a real before/after nightly-job timing comparison (60 tickers, warm bars
+    cache to isolate compute cost from network variance): 4.4s baseline vs. 3.6s with this
+    feature -- no measurable regression, as expected for one extra O(n) EMA pass plus O(1)-ish
+    per-LL-swing window lookups.
+
+
+## Trend structure: A/D divergence original Watchlist UI column and spot-check against backtest tickers (original lines 2428-2447)
+
+  - **UI**: a dedicated "A/D Div." column (`WatchlistTable.tsx`), sitting right after the TREND
+    column, showing the matched confirmed-LL swing date (`ad_divergence_swing_date`, already
+    "YYYY-MM-DD" as serialized by the backend) when `ad_bullish_divergence === true`, and a fully
+    empty cell (no dash/placeholder) otherwise. Superseded an initial small `bg-chart-purple` dot
+    badge next to TREND's own `SignalBars` (2026-08-23) -- replaced same-day per user request, in
+    favor of showing the actual date rather than a bare boolean marker. `WatchlistRowOut` (both
+    `core/schemas.py` and `data/watchlist_data.py::_compose_row`) carries
+    `ad_divergence_swing_date` alongside `ad_bullish_divergence` for this.
+  - **Spot-checked against known backtest ticker/dates post-implementation**: **CMG (2018-12-24)
+    matches exactly** -- a genuine confirmed LL (ratio 1.71) at that literal date, `ad_bullish_
+    divergence=True`. This is the relevant confirmation for what actually shipped.
+    **GD (2021-02-24) was a mismatched test case, not a discrepancy**: that date is a genuine
+    swing **high** (149.39, HH) for GD, confirmed independently at the raw `find_swing_lows`/
+    `find_swing_highs` level -- correctly so, since it was the original *bearish* divergence
+    example (a swing-high case), a variant that was tested and explicitly excluded/dropped early
+    in the backtest process (see this section's own "NOT applicable to bearish divergence" scope
+    note above) and was never part of what shipped here. It has no bearing on the bullish-only LL
+    divergence logic in this build. The CMG match, plus classification.py's 12 unit tests covering
+    the exact algorithm above with hand-verified expected floors/matches, are the correctness
+    evidence for the divergence logic itself.
+
+
+## Trend structure: SMA position original Watchlist columns (original lines 2480-2489)
+
+  - **Watchlist**: three new columns (20SMA/50SMA/200SMA, `WatchlistTable.tsx`) show
+    `position_pct` as `"+X.X%"`/`"-X.X%"`, text colored green/red by sign (`text-positive`/
+    `text-negative`, the same tokens the Rating column's own sign-based coloring already uses),
+    cell background lightly tinted (`bg-positive/8`/`bg-negative/8` -- deliberately lighter than
+    `tierColor.ts`'s existing `/16` chip convention, so it reads as a subtle full-cell highlight
+    rather than a repeat of the chip style) on a same-day cross. Sortable via the existing
+    sort-field dropdown (`SORT_FIELD_OPTIONS` in `app/watchlist/page.tsx`) by `position_pct` --
+    this table has no click-to-sort column headers at all, so no per-column header wiring was
+    needed, only the three new `WatchlistSortField` entries.
+
+
+
+## Weinstein Stage (2026-09-06): engine choice evidence (sState vs sTS) and bootstrap convergence measurement (original lines 2503-2525)
+
+  - **Engine choice: the Pine source's sticky `sState` state machine, not its own stateless
+    per-bar `sTS` quadrant read (`tsMode`'s actual default)** -- decided from real evidence, not
+    picked unilaterally. Both were implemented and run against 29 real tickers (uptrends,
+    downtrends, toppy and basing names): full-history agreement was only 77.7% (~28,500
+    ticker-weeks), `sTS` flipped 3-6x more often per year, and at the CURRENT/latest bar (what a
+    header pill shows today) the two disagreed on 9/29 tickers (31%). Qualitatively, `sTS` flagged
+    false "Top"/"Base" reclassifications on ordinary single-week volatility inside an established
+    trend (e.g. META's ongoing downtrend read "Top" three separate times on brief one-week bounces
+    that popped fractionally above its own still-falling 30-week MA, reverting the very next week
+    each time) -- `sState` requires clearing a +/-5% band AND genuine slope confirmation before it
+    will ever change its mind, much closer to what "stage analysis" is supposed to mean (a
+    multi-month/quarter regime read, not a bar-by-bar indicator).
+  - **Bootstrap convergence, empirically validated, not assumed**: `sState` has memory from bar
+    zero (`var int sState := ...`, starting at an arbitrary unseeded state), so a real question was
+    how much weekly history is needed before that bootstrap error washes out. Tested at ~245
+    historical anchor points across 15 tickers (up to 64 years of history): at 52 weeks (1y),
+    1.6% of anchors still mismatched the true full-history stage; at **104 weeks (2y) -- exactly
+    the daily cache's existing default fetch window -- 0/245 mismatched**. `MIN_WEEKS_REQUIRED`
+    (40 -- `MA_LEN`(30) + `SLOPE_LOOKBACK`(5) + a 5-week margin) is the bare structural floor below
+    which the engine returns a graceful `stage=None`/thin-history result rather than an unreliable
+    number; between 40-104 weeks (a newer ticker without a full 2y yet) a small residual
+    bootstrap-inaccuracy risk is an accepted, documented limitation, not something further
+    engineered around.
+
+
+## Weinstein Stage (2026-09-06): ^GSPC benchmark rides the batch fetch (stale) and cron timing verification (original lines 2549-2560)
+
+  - **Mansfield RS benchmark (`^GSPC`) rides along in the SAME nightly batch fetch**
+    (now `clients.shared_bars_cache.get_or_fetch_bars_batch`) as one more symbol -- confirmed
+    a benchmark symbol is just another ticker string to the cache, no schema conflict -- but is deliberately never added to the per-ticker
+    processing loop itself, so it never gets its own `TrendAnalysis` row and never counts toward
+    `nightly_trend_calculation.py`'s `processed`/`failed` totals. A `^GSPC`-fetch failure that run
+    degrades every ticker's Mansfield RS/breakout fields to null/false (same
+    na()-passes-through convention) rather than counting as a per-ticker failure.
+  - **Cron: folded into the existing `nightly_trend_calculation.py` run, no new cron job** --
+    verified against the real 572-ticker tracked universe + `^GSPC` before shipping: baseline batch
+    daily fetch 38.7s, added compute (resample-to-weekly + full state-machine replay + volume ratio
+    + Mansfield RS, all 571 successfully-fetched tickers) 6.06s, total 44.8s -- not a blocker for
+    the 3:10am->3:30am cron window this job already runs inside.
+
+
+## Weinstein Stage (2026-09-06): weinstein_weeks_available added after CTAS/ABNB (original lines 2572-2584)
+
+  - **`weinstein_weeks_available` added the same day**, after CTAS and ABNB -- both with years of
+    real cached history -- were found showing "Insufficient price history for a 30-week stage read
+    yet" purely because their `TrendAnalysis` rows predated this feature's own deploy (last written
+    by that day's 3:10am cron run under the pre-Weinstein code), not because of any real data gap.
+    `compute_weinstein_stage` now always returns a real `weeks_available` count (unlike every other
+    `WeinsteinStageResult` field, which is `None` specifically to mean "couldn't compute") --
+    persisted as a new nullable column so the two states can finally be told apart: `NULL` alongside
+    a `NULL` `weinstein_stage` means never computed under this feature yet (a legacy/never-
+    reprocessed row); a real (always sub-40) int means a compute genuinely ran and found too little
+    history. `WeinsteinStageCard`'s null-state now shows one of two distinct messages accordingly
+    (`lib/weinsteinStage.ts::weinsteinUnavailableReason`) -- the original "Insufficient..." wording
+    is kept only for the genuinely-insufficient case, which is the one case it was ever accurate for.
+
+
+
+## Weinstein engine swap to configurable EMA engine (2026-09-26): supersession note and parameter list (original lines 2585-2593)
+
+- **Engine swap: configurable EMA engine (2026-09-26) -- SUPERSEDES the fixed 30-week-SMA/5%-band engine
+  described in the Weinstein bullets above** (their state-machine rules, weekly resample, since-date and
+  pending-ETA notes still hold; the fixed constants, the 2y run-in, the 30-week volume average and the
+  `sTS`-vs-`sState` comparison numbers are history). `analysis/trend_structure/weinstein.py` is now the validated Pine
+  `sState` port (`scripts/weinstein_4stage_simulation.py`, 5f9b604), fully driven by `WeinsteinParams`:
+  `ma_length` 30, `ma_type` EMA (`ewm(span, adjust=False, min_periods=length)`; SMA supported), `within_range_pct` 5.0,
+  `slope_lookback` 5, `breakout_volume_mult` 2.0, `volume_avg_length` 50, `rs_benchmark` SPY, `rs_smoothing_length` 52.
+  Old logic removed outright, no toggle. Volume/RS never gate the stage; they only feed `weinstein_breakout_confirmed`
+  (a transition INTO Advance in the latest week, volume ratio >= mult, RS unavailable or > 0).
+
+
+## Weinstein engine swap (2026-09-26): full-universe recompute run (original lines 2609-2613)
+
+  - **Full-universe recompute run 2026-09-26** (586 processed, 0 failed; 5 delisted skipped keep old-engine rows):
+    stage counts advance 311->307, decline 230->226, top 30->43, base 18->13; engine-swap-only effect (old engine
+    replayed on the same data) = 117 of 586 tickers change stage; pending 44->14; 0 breakouts on the latest week.
+    Production matched the simulation script on stage, since-date, lower-bound and breakout for all 586 tickers.
+
+
+
+## Watchlist UI columns removed entirely (2026-09-06) (original lines 2625-2637)
+
+- **Watchlist UI columns removed entirely 2026-09-06** -- the TREND, A/D Div., and 20/50/
+  200SMA columns above (and their click-to-sort headers) no longer render on the Watchlist
+  table at all, ahead of this data moving to a new per-ticker Technical tab instead (design
+  proposed, not yet built -- see the tab's own investigation notes for scope). Backend-only:
+  `WatchlistRowOut` (`core/schemas.py`) no longer carries `bar_level`/`blended_score`/
+  `trend_state`/`ad_bullish_divergence`/`ad_divergence_swing_date`/`sma20/50/200_position_pct`/
+  `_cross`, and `watchlist_data.py::_compose_row` no longer calls `get_trend_analysis_data` at
+  all (confirmed via grep it had no other consumer in that file). Nothing else changed: the
+  `TrendAnalysis` model, the nightly cron, the swing/BOS/A-D/SMA engine, and the standalone
+  `GET /api/tickers/{ticker}/trend-analysis` endpoint (`TrendAnalysisOut`, still carrying every
+  field above) are all untouched -- this was a display-layer removal on one page, not a data or
+  engine change.
+
+
+
+## Weinstein Screener surfacing (2026-09-07): denormalization decision and Screener relayout (original lines 2638-2662)
+
+- **Screener surfacing (2026-09-07)**: `weinstein_stage` (+ `weinstein_stage_since_date`/
+  `_since_is_lower_bound`/`_ma_slope_pct`/`_vs_ma_pct`, needed for the pill's own tooltip) are
+  denormalized onto `TickerScore` inside `compute_ticker_score()` via a plain
+  `session.get(TrendAnalysis, ticker)` read (same shape as the existing `TickerMoat` lookup in the
+  same session block, not a new fetch or a live recomputation of the weekly engine) -- filtered
+  100% client-side in `lib/screenerFilters.ts::filterTickerScores`, same as every other Screener
+  multi-select (Moat, Valuation, 5Y vs SPY), **not** a new backend query param. This was a
+  deliberate deviation from an initial ask to add a server-side filter param: investigation found
+  the Screener has never had server-side filtering for any criterion -- `GET /api/screener` takes
+  only `universe`, and every existing multi-select is filtered client-side over the full unfiltered
+  per-universe list, so a Weinstein-specific query param would have been a new, inconsistent
+  pattern rather than a mirror of `perf_5y_vs_spy_*`/`speculative_growth_qualifies`'s own precedent
+  (a value computed elsewhere, denormalized onto `TickerScore`, filtered client-side). Surfaced as a
+  compact "S1"/"S2"/"S3"/"S4" pill on the Screener card (`WeinsteinStagePill`'s new
+  `labelSet="screener"` tier, mirroring `MoatPill`/`PerfVsSpyPill`'s own full/screener label-tier
+  convention -- unlike theirs, which map every value to one repeated word since color alone conveys
+  state, each stage gets its own distinct short label here) alongside a "Weinstein Stage" filter
+  dropdown in the Screener sidebar's new Technical section. This same commit also relayouts the
+  Screener's filter panel from a full-width top bar into a left sidebar split into Fundamental (the
+  9 range filters + Sector/Company type/Moat/Valuation/Speculative Growth) and Technical (5Y vs SPY
+  + Weinstein Stage) sections, with Saved views/Save current view/Reset moved into the sidebar below
+  Technical (`SavedFiltersBar` gained a `layout="vertical"` variant) -- the universe toggle and
+  Recompute/Add-to-Watchlist buttons stay in their original top-bar location, and the result grid
+  drops from 4 to 3 cards per row to make room for the sidebar.
+
