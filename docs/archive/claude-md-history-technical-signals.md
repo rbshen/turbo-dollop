@@ -298,3 +298,153 @@ independent of price (TradingView's convention) -- see "Fixed-row placement" bel
     off. **Not verified on screen**: how the row looks at each zoom, the library's own hover delivery
     (jsdom can't dispatch its mouse events; the `hitTest` -> `hoveredInfo` step was verified by reading
     the library source, not by running it), and the tooltip flip.
+
+## Warren RSI/ADX/WVF entry signal (2h): 'Measured, not assumed' benchmark lesson (2026-09-12) (original lines 3196-3216)
+
+- **Measured, not assumed -- but the FIRST measurement was itself wrong, and only a real run
+  caught it (2026-09-12).** The original pre-shipping benchmark was synthetic: it fed
+  `replay()` ALREADY-BUILT 2h candles directly, timing only the indicators + sequential
+  state-machine loop (**2.3s at 98 tickers, 11.7s at the 500-ticker worst case**) and combined
+  that with a separately-measured ~15s batch-fetch figure to conclude a comfortable ~15-30s
+  worst-case total -- comfortably fits a 5-minute cron slot. That number was real for what it
+  measured, but it never exercised `build_2h_session_candles`' own per-day resample loop over
+  the FULL 2-year history this job actually feeds it (the synthetic benchmark's candles were
+  already 2h-resampled) -- and that resample step, not the replay itself, turns out to
+  dominate real per-ticker cost. A real run against the live 98-ticker W1-W5 union measured
+  **98.9s total** (resample ~0.9-1.0s/ticker, replay itself still only ~30-40ms/ticker,
+  confirming the synthetic replay-only number was accurate for what it covered) --
+  extrapolating to roughly **9 minutes** at the 500-ticker worst case, genuinely at the edge
+  of a 5-minute slot. Fixed by rescheduling (see the Cron entry below), not by touching the
+  shared, already-tested `build_2h_session_candles` itself -- optimizing a function BB+RSI
+  also depends on wasn't worth the regression risk for a cost that a wider cron window already
+  fully absorbs. Recorded here as a real process lesson: a synthetic benchmark that bypasses a
+  real pipeline STAGE (resampling) rather than just synthesizing its INPUT data (bar values)
+  can look conclusive while missing the actual bottleneck -- the fix, going forward, is to
+  benchmark through the same entry point the real nightly job calls, not a lower-level
+  function that happens to be convenient to call directly.
+
+## Warren RSI/ADX/WVF entry signal (2h): Wilder-RSI seed bug found during build (original lines 3228-3235)
+
+  - **One real bug found and fixed during this build**: a plain `.mean()` seed (matching
+    `atr.py`'s own code literally) produced `NaN` for RSI specifically, because `close.diff()`'s
+    structurally-NaN first element poisons a `gain`/`loss` series' seed window in a way
+    `atr.py`'s own `true_range` never hits (its row-wise `max(axis=1)` already drops that same
+    class of leading NaN before `atr.py`'s seed ever sees it). Fixed via `np.nanmean` for the
+    seed instead -- confirmed via `test_compute_rsi_wilder_is_0_for_unbroken_downtrend` and
+    `test_compute_dmi_adx_reads_strongly_bullish_for_a_clean_uptrend`, both of which failed
+    with a `NaN` result before this fix.
+
+## Warren RSI/ADX/WVF entry signal (2h): _upsert full-overwrite bullet, incl. development bug (original lines 3268-3278)
+
+  - **`_upsert` always fully overwrites, unlike BB+RSI's conditional `should_advance` guard.**
+    BB+RSI's nightly job only evaluates the latest day and must avoid erasing a still-relevant
+    prior fire on a quiet night -- Warren's full-replay-every-run design has no such case: the
+    replay result already IS the complete current truth every time, so every field
+    (`fired_at`/`rsi`/`close`/`signal_kind`/`stop_price`/`gray_suppressed`/`stop_count`) is
+    explicitly set every run, `None` when there's no last event. A real bug was caught here
+    during development: an early version omitted the fired-fields from the `UPDATE`'s `SET`
+    clause entirely when there was no last event (mirroring BB+RSI's own convention too
+    closely), which silently retained a stale prior value instead of clearing it -- caught by
+    `test_a_full_replay_always_overwrites_the_prior_state_never_conditionally_advances` before
+    shipping.
+
+## Warren RSI/ADX/WVF entry signal (2h): write-side warm-up buffer, measured error curve (original lines 3288-3293)
+
+  - **Measured** (105 tickers; replay from a later start vs. a full-context replay; error =
+    missed + phantom events as % of correct ones), by days from the replay's first candle:
+    0-7d ~240%, 8-14d ~134%, 15-30d ~51%, 31-60d ~15-27%, 61-120d ~7-16%, 121-180d ~4-8%,
+    181-300d ~2-4%, 300d+ ~0%. Live DB: 198 retroactive inserts in 5 nights for 98 established
+    tickers, 96% within 60d of that night's window start; the earliest 30d of stored rows were
+    ~half not reproduced by a fresh replay.
+
+## Warren RSI/ADX/WVF entry signal (2h): retention-left-at-730 note, one-time cleanup (2026-09-19) (original lines 3310-3324)
+
+  - **`EVENT_RETENTION_DAYS` was left at 730 in this pass and raised to 1460 right after** -- see
+    "Signal-event retention raised" below. The buffer was the prerequisite: raising retention
+    without it would have frozen phantom rows permanently (simulated: insert-only accumulates
+    ~3.2x phantom rows vs. correct ones). 60m history beyond 730 days cannot be fetched, so the buffer
+    can't come from fetching more.
+  - **One-time cleanup, run 2026-09-19 against the real DB (script not kept -- see below):**
+    deleted every `WarrenSignalEvent` row before tonight's cutoff (window start 2024-09-20
+    10:30 + 180d = 2025-03-19 10:30): **2,870 -> 1,894 rows (976 deleted, across 103 tickers)**;
+    by kind yellow_up 436, gray_down 212, blue_down 169, yellow_down 131, blue_up 18, gray_up 10.
+    Latest-state rows and per-ticker last-buy timestamps confirmed identical before/after. (The
+    investigation's ~939 estimate differs from the 976 actually found at this cutoff; the
+    difference wasn't reconciled -- likely a different cutoff date or snapshot.) The script is deliberately not committed: it is **not safe to
+    re-run later**, since rows that merely slid into the zone as the window advanced were
+    written well past the buffer and are reliable. Today's `backups/fathom_20260919_*.db.gz`
+    holds the deleted rows.
+
+## Warren RSI/ADX/WVF entry signal (2h): warm-up buffer regression tests and spot check (original lines 3332-3338)
+
+  - Regression tests (`tests/test_warren_signal_data.py`): in-buffer never written, edge
+    inclusive, width driven by the constant, measured from the first candle, latest-state
+    unaffected, and an end-to-end two-consecutive-nights replay through the real state machine
+    (unbuffered control persists leading-edge events on both nights; buffered persists none).
+    Real-data spot check on 6 tickers: 45 of 169 replayed events (27%) sit in the first 180d,
+    all now unwritten; the old code also persisted 1 fresh leading-edge variant on the
+    following week's replay (AMD).
+
+## Warren RSI/ADX/WVF entry signal (2h): retention raise, BB+RSI confirmation and measured storage (original lines 3357-3375)
+
+  - **BB+RSI: confirmed rather than assumed.** It has no sliding-window accumulation problem: the
+    nightly job evaluates only the latest day over a 60-day window (RSI's EWM seed
+    -- `compute_rsi` is EWM-seeded from the first bar, so not literally stateless -- has decayed to
+    ~4e-6 by then: (13/14)^~170 candles), so nothing new is ever written near an unwarmed edge. The only exposure is the
+    one-time 2026-09-11 backfill, whose replay started ~2024-09-12. Measured on 12 real tickers
+    (full-window replay vs. replay started later, error = missed + phantom as % of true events),
+    by days from replay start: 0-14d large (3 true, 8 phantom -- tiny sample), 15-30d ~6%, 31-60d
+    ~5%, 61d+ 0%. Stored rows in the exposed slice: **0 in the 0-14d zone** (earliest stored event
+    is day ~15), 13 in 15-30d, ~84 in 31-60d -- roughly 5 questionable rows of 2,195, comparable to
+    Warren's accepted residual and a fixed slice (no accumulation). Left as is; they would have
+    aged out within weeks under 730 and now persist. A one-time delete of BB+RSI events before
+    ~2024-11-11 (97 rows) is the option if that ever matters.
+  - **Storage, measured (dbstat, table + both indexes):** ~238 B/event row Warren, ~162 B/row
+    BB+RSI. Steady rate over the last 12 full months: Warren ~1,222 events/yr (~11.6/ticker), BB+RSI
+    ~1,029/yr (~10.5/ticker), at ~100 tickers. Warren goes 1,894 rows today to ~4,900 at full 4y
+    depth; BB+RSI 2,195 to ~4,100-4,300. Versus 730 retention that is ~+2,450 and ~+2,060 rows,
+    i.e. **~1.1 MB total** against a 1 GB DB (~5.5 MB if the W1-W5 union ever hit its 500-ticker
+    cap). Chart cost: BB+RSI's own 2026-09-11 measurement put the marker query at 2.0 ms mean /
+    6.2 ms max at 730 days; ~2x rows keeps it in the noise (~46 rows/ticker at steady state).
+
+## Warren RSI/ADX/WVF entry signal (2h): chart_data docstring note and retention tests (original lines 3382-3386)
+
+  - `data/chart_data.py`'s module docstring "known asymmetry" (W_4Y shows 4y of price but ~2y of
+    markers) now describes it as closing over time rather than a permanent 2-year cap. Tests:
+    `test_default_prune_keeps_events_past_the_old_730_day_mark_and_only_deletes_past_1460` in both
+    `test_warren_signal_data.py` and `test_entry_signal_data.py` (default argument, so it is what
+    the nightly job actually runs).
+
+## Warren RSI/ADX/WVF entry signal (2h): cron placement bullet incl. original 3:30 scheduling history (original lines 3393-3407)
+
+- **Cron: a new dedicated job, `pipeline.nightly_warren_signal_calculation`**, scheduled 3:40
+  AM -- placed AFTER Liquidity Zone's own full 3:25-3:35 window (not squeezed into a gap
+  before it), with its own dedicated ~15-minute allocation ending by 3:55, when `backup_db`
+  (moved from 3:35) now runs. **Originally scheduled 3:30 AM, in the gap between Liquidity
+  Zone's 3:25 and the old `backup_db` 3:35**, based on the flawed ~15-30s worst-case estimate
+  the "Measured, not assumed" bullet above documents getting corrected -- re-scheduled
+  2026-09-12 once the real ~9-minute worst-case estimate was known, since the original 5-minute
+  gap could no longer safely contain it. A dedicated script rather than folding into
+  `nightly_entry_signal_calculation.py`, for the same "one feature, one script" reasoning the
+  Liquidity Zone job's own entry above gives -- doubly justified here since Warren's
+  2-year-lookback/full-replay shape is fundamentally different from BB+RSI's
+  60-day/latest-day-only one, even though both share the same W1-W5 scope and shared
+  60m bars cache. Reads the cache at the full 730-day width rather than through
+  `clients/technical_sources.py`'s BB+RSI-sized 60-day reader. Wired into
+  `core/cron_health.py`'s `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS` as the 16th job.
+
+## Warren RSI/ADX/WVF entry signal (2h): engine-isolation bug found while wiring API/UI (original lines 3427-3439)
+
+  - **Found and fixed while wiring this in, not a pre-existing bug**: neither
+    `test_chart_data.py` nor `test_chart_endpoint.py` isolated a fresh engine for
+    `data/warren_signal_data.py`'s own `engine` reference before this feature existed to touch
+    it -- once `get_chart_data` started calling `get_warren_signal_data` unconditionally,
+    every test in both files would have silently read against the real, on-disk
+    `core.db.engine` instead of a fixture value (harmless in practice here, since these tests
+    use fake tickers like `"TEST"`/`"BADTICKER"` that have no real "warren" row either way, but
+    a real violation of this codebase's own engine-isolation convention -- see "Ad-hoc
+    reproduction scripts must not touch the real database" above). Fixed by adding a
+    `_fresh_warren_signal_engine` helper (`test_chart_endpoint.py`) and an autouse
+    `_default_no_warren_signal` fixture (`test_chart_data.py`), mirroring the existing
+    per-module engine-isolation helpers exactly.
+
