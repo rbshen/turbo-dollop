@@ -69,11 +69,11 @@ The choice of size is the only difference between a Watchlist Moat cell and the 
 
 | Tone | Token | Label / where it shows up |
 | --- | --- | --- |
-| `strong` | `positive-strong` | Strong pass (score above 90), Wide Moat, Undervalued, 5Y vs SPY outperform |
-| `positive` | `positive` (muted green) | Pass (score 75 to 90), Narrow Moat, Fairvalued, Stage 2 (Advance), Pullback recovered |
+| `strong` | `positive-strong` | Strong pass (score above 90), Wide moat, Undervalued, 5Y vs SPY outperform |
+| `positive` | `positive` (muted green) | Pass (score 75 to 90), Narrow moat, Fairvalued, Stage 2 (Advance), Pullback recovered |
 | `warn` | `warn` | Needs review: the amber borderline read. In the app the 70 to 74 score band carries the backend's own verdict word "Pass" in this tone; "Needs review" is the tone's name and its styleguide label. Also Stage 3 (Top), Pullback pending |
 | `caution` | `caution` | Pass with caution (checked before score tiers) |
-| `negative` | `negative` | Fail, No Moat, Overvalued, Stage 4 (Decline), Trend invalidated |
+| `negative` | `negative` | Fail, No moat, Overvalued, Stage 4 (Decline), Trend invalidated |
 | `speculative` | `chart-purple` | Speculative growth only |
 | `neutral` | `surface-2` fill, `text-secondary` | No read to colour: Not scored, N/A, Stage 1 (Base), index membership (S&P 500, Nasdaq, Dow 30), company kind (Badge), Skipped and Unknown in the jobs tables, a stale Reversal, and any value with no Pass/Fail meaning |
 
