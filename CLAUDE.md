@@ -4305,3 +4305,12 @@ symbol-positions-summary` and `institutional-ownership/extract-analytics/holder`
   explicit confirmation.
 - **One commit per logical change.**
 - Never use `--dangerously-skip-permissions`.
+- **No browser-based verification after a code change.** This environment
+  can't drive a browser — rely on `tsc`, `eslint`, and the test suite
+  instead of visually checking the result.
+- **Clean up after yourself.** Delete any temporary files, scratch scripts,
+  or processes you started, before ending a task.
+- **Design and product decisions live in `docs/design-system.md`,
+  `docs/design-system-charts.md`, and `docs/decisions.md`.** Check these
+  before styling anything or proposing a new UI pattern — don't re-derive
+  a decision that's already been made.
