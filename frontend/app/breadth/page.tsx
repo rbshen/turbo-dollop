@@ -5,6 +5,7 @@ import Link from "next/link";
 import { MarketBreadthCharts } from "@/components/breadth/MarketBreadthCharts";
 import { MarketBreadthStats } from "@/components/breadth/MarketBreadthStats";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { PageHeader } from "@/components/ui/page-header";
 import { fmtEventDate } from "@/lib/chartEventMarkers";
 import { useMarketBreadth } from "@/lib/hooks/useMarketBreadth";
 import { liveBoundaryIndex } from "@/lib/marketBreadth";
@@ -15,19 +16,23 @@ export default function BreadthPage() {
   const liveAt = data ? liveBoundaryIndex(data.series) : -1;
 
   return (
-    <PageContainer className="space-y-6 pb-12 pt-6">
-      <div>
-        <h1 className="font-heading text-xl font-semibold text-text-primary">Market Breadth</h1>
-        {data?.as_of_date && (
-          <p className="text-xs text-text-tertiary">
-            S&amp;P 500 · As of close {fmtEventDate(data.as_of_date)}
-            {data.computed_at && ` · Computed ${new Date(data.computed_at).toLocaleString()}`}
-          </p>
-        )}
-        <Link href="/breadth/XLK" className="text-xs text-brand hover:underline">
-          Browse by sector →
-        </Link>
-      </div>
+    <PageContainer className="space-y-6 pb-12">
+      <PageHeader
+        title="Market Breadth"
+        subtitle={
+          data?.as_of_date && (
+            <>
+              S&amp;P 500 · As of close {fmtEventDate(data.as_of_date)}
+              {data.computed_at && ` · Computed ${new Date(data.computed_at).toLocaleString()}`}
+            </>
+          )
+        }
+        actions={
+          <Link href="/breadth/XLK" className="text-xs text-brand hover:underline">
+            Browse by sector →
+          </Link>
+        }
+      />
 
       {error && <p className="text-sm text-negative">Failed to load market breadth.</p>}
 
