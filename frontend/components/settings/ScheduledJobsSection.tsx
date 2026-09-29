@@ -29,6 +29,12 @@ const STATUS_PILL: Record<CronJobHealthOut["health_status"], { tone: StatusTone;
   skipped: { tone: "neutral", label: "Skipped" },
 };
 
+/** One job's health pill -- exported so /styleguide shows the real thing. */
+export function JobStatusPill({ status }: { status: CronJobHealthOut["health_status"] }) {
+  const { tone, label } = STATUS_PILL[status];
+  return <Status tone={tone}>{label}</Status>;
+}
+
 /** Settings "Status" section's Scheduled Jobs table -- one row per cron
  * job, switchable by cadence via a Daily/Weekly/Monthly tab bar (defaults
  * to Daily) and sorted by time-of-day within the active tab, reading live
@@ -106,7 +112,7 @@ export function ScheduledJobsSection() {
                     </TableCell>
                     <TableCell className="font-mono text-xs tabular-nums text-text-secondary">{job.time_label}</TableCell>
                     <TableCell>
-                      <Status tone={STATUS_PILL[job.health_status].tone}>{STATUS_PILL[job.health_status].label}</Status>
+                      <JobStatusPill status={job.health_status} />
                     </TableCell>
                     <TableCell
                       className={cn(

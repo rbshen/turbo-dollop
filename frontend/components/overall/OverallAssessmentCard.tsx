@@ -3,7 +3,7 @@
 import { CircularScoreBadge } from "@/components/overall/CircularScoreBadge";
 import { Status, Verdict } from "@/components/ui/status";
 import { useOverallAssessment } from "@/lib/hooks/useOverallAssessment";
-import type { StepBreakdownEntry } from "@/lib/overallScore";
+import type { OverallAssessment, StepBreakdownEntry } from "@/lib/overallScore";
 import { toneFor, toneForNullable, pillLabel } from "@/lib/tierColor";
 
 interface Props {
@@ -35,6 +35,12 @@ function rollupSummary(breakdown: StepBreakdownEntry[]): string {
 
 export function OverallAssessmentCard({ ticker }: Props) {
   const result = useOverallAssessment(ticker);
+  return <OverallAssessmentView result={result} />;
+}
+
+// Presentational card -- the assessment arrives as a prop, so /styleguide can
+// render every state from mock data.
+export function OverallAssessmentView({ result }: { result: OverallAssessment }) {
 
   if (result.status === "loading") {
     return (

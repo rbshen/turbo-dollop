@@ -18,7 +18,9 @@ import { useTickerScore } from "@/lib/hooks/useTickerScore";
 import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
 import { fmtMoney } from "@/lib/format";
 import { toneForNullable, pillLabel } from "@/lib/tierColor";
-import type { TickerSummaryOut } from "@/lib/api/types";
+import type { ReactNode } from "react";
+import type { MoatValue } from "@/lib/overallScore";
+import type { SpeculativeGrowthOut, TickerSummaryOut, TrendAnalysisOut } from "@/lib/api/types";
 
 // Reads the precomputed TickerScore row (same source as Screener/Watchlist)
 // instead of useOverallAssessment's live /step1,2,4,5 fetch + client-side
@@ -38,16 +40,43 @@ function AssessmentChip({ symbol }: { symbol: string }) {
   );
 }
 
-interface Props {
-  symbol: string;
-  data: TickerSummaryOut;
+type HeaderData = Pick<
+  TickerSummaryOut,
+  | "ticker"
+  | "company_name"
+  | "exchange"
+  | "sector"
+  | "industry"
+  | "index_memberships"
+  | "price"
+  | "change"
+  | "change_percent"
+  | "quote_currency"
+  | "reported_currency"
+  | "fair_value_verdict"
+  | "fair_value_price"
+  | "fair_value_method"
+  | "valuation_source"
+  | "fair_value_reported_currency"
+  | "perf_5y_vs_spy_status"
+  | "perf_5y_insufficient_history"
+  | "next_earnings_date"
+>;
+
+interface ViewProps {
+  data: HeaderData;
+  /** The Overall Assessment verdict pill (hook-driven in the app). */
+  assessment: ReactNode;
+  /** The Add-to-watchlist / Refresh buttons (hook-driven in the app). */
+  actions: ReactNode;
+  moat: MoatValue | null | undefined;
+  specGrowth: SpeculativeGrowthOut | null | undefined;
+  trend: TrendAnalysisOut | null | undefined;
 }
 
-export function TickerHeader({ symbol, data }: Props) {
-  const { data: moatData } = useTickerMoat(symbol);
-  const { data: specGrowthData } = useSpeculativeGrowth(symbol);
-  const { data: trendData } = useTrendAnalysis(symbol);
-
+// Presentational header -- all data arrives as props, so /styleguide can
+// render the real layout (including the wrapping pill row) from mock data.
+export function TickerHeaderView({ data, assessment, actions, moat, specGrowth, trend }: ViewProps) {
   return (
     <div className="space-y-3 pt-4">
       {/* Row 1: eyebrow + name/ticker/exchange, action buttons right-aligned */}
@@ -69,10 +98,7 @@ export function TickerHeader({ symbol, data }: Props) {
             <IndexMembershipPill memberships={data.index_memberships} />
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <AddToWatchlistButton tickers={[data.ticker]} />
-          <RefreshButton ticker={data.ticker} />
-        </div>
+        <div className="flex shrink-0 items-center gap-2">{actions}</div>
       </div>
 
       {/* Row 2: price + change only. */}
@@ -90,8 +116,8 @@ export function TickerHeader({ symbol, data }: Props) {
           break inside one), 8px apart both ways; the Speculative growth
           pill's icons sit in a nowrap group with it so they never split. */}
       <div className="flex flex-wrap items-center gap-2">
-        <AssessmentChip symbol={symbol} />
-        <MoatPill moat={moatData?.moat} />
+        {assessment}
+        <MoatPill moat={moat} />
         <FairValuePill
           verdict={data.fair_value_verdict}
           price={data.fair_value_price}
@@ -101,15 +127,15 @@ export function TickerHeader({ symbol, data }: Props) {
           reportedCurrency={data.fair_value_reported_currency}
         />
         <span className="inline-flex items-center gap-1 whitespace-nowrap">
-          <SpeculativeGrowthPill data={specGrowthData} currency={data.reported_currency ?? "USD"} />
-          {specGrowthData?.qualifies && <SpeculativeGrowthInfoIcon />}
-          {specGrowthData?.qualifies && specGrowthData.potential_fake_growth && <SpeculativeGrowthFakeGrowthWarning />}
+          <SpeculativeGrowthPill data={specGrowth} currency={data.reported_currency ?? "USD"} />
+          {specGrowth?.qualifies && <SpeculativeGrowthInfoIcon />}
+          {specGrowth?.qualifies && specGrowth.potential_fake_growth && <SpeculativeGrowthFakeGrowthWarning />}
         </span>
         <PerfVsSpyPill
           status={data.perf_5y_vs_spy_status}
           insufficientHistory={data.perf_5y_insufficient_history}
         />
-        <WeinsteinStagePill data={trendData} />
+        <WeinsteinStagePill data={trend} />
       </div>
 
       {/* Row 3: next earnings -- always shown so a null date reads as
@@ -119,5 +145,32 @@ export function TickerHeader({ symbol, data }: Props) {
         <span className="font-bold text-text-primary">{data.next_earnings_date ?? "Not yet announced"}</span>
       </p>
     </div>
+  );
+}
+
+interface Props {
+  symbol: string;
+  data: TickerSummaryOut;
+}
+
+export function TickerHeader({ symbol, data }: Props) {
+  const { data: moatData } = useTickerMoat(symbol);
+  const { data: specGrowthData } = useSpeculativeGrowth(symbol);
+  const { data: trendData } = useTrendAnalysis(symbol);
+
+  return (
+    <TickerHeaderView
+      data={data}
+      assessment={<AssessmentChip symbol={symbol} />}
+      actions={
+        <>
+          <AddToWatchlistButton tickers={[data.ticker]} />
+          <RefreshButton ticker={data.ticker} />
+        </>
+      }
+      moat={moatData?.moat}
+      specGrowth={specGrowthData}
+      trend={trendData}
+    />
   );
 }

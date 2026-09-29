@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Bar, BarChart, Cell, XAxis, YAxis } from "recharts";
-import { Info, Plus } from "@phosphor-icons/react";
+import { Plus } from "@phosphor-icons/react";
 
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
@@ -24,11 +24,12 @@ import {
 } from "@/components/ui/section";
 import { SideNav } from "@/components/ui/side-nav";
 import { SortHeader } from "@/components/ui/sort-header";
-import { Status, Verdict, type StatusTone } from "@/components/ui/status";
+import { Status, type StatusTone } from "@/components/ui/status";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs } from "@/components/ui/tabs";
 import { Tooltip } from "@/components/ui/tooltip";
 import { pnlClass } from "@/lib/format";
+import { PillReference } from "./PillReference";
 
 // Internal reference page for the direction-B design-system primitives.
 // Not linked from any navigation -- visit /styleguide directly.
@@ -65,133 +66,7 @@ export default function StyleguidePage() {
       </Section>
 
       <Section title="Pills">
-        <div className="flex flex-col gap-6">
-          <div>
-            <p className="mb-2 text-xs text-text-tertiary">
-              One pill family, every tone, two sizes -- soft tinted fill, tone-coloured text, no border. Regular
-              everywhere by default; compact for dense tables only (Watchlist, Momentum).
-            </p>
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="w-16 text-xs text-text-tertiary">Regular</span>
-                {PILL_TONES.map(({ tone, label }) => (
-                  <Status key={tone} tone={tone}>
-                    {label}
-                  </Status>
-                ))}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="w-16 text-xs text-text-tertiary">Compact</span>
-                {PILL_TONES.map(({ tone, label }) => (
-                  <Status key={tone} tone={tone} size="compact">
-                    {label}
-                  </Status>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-2 text-xs text-text-tertiary">
-              Neutral (no read to colour: Not scored, N/A, Stage 1, index membership) and Speculative growth (its
-              own violet, an orthogonal classification rather than a verdict tier)
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Status tone="neutral">Not scored</Status>
-              <Status tone="neutral">Stage 1 · Base</Status>
-              <Status tone="speculative">Speculative Growth</Status>
-              <Status tone="neutral">S&amp;P 500 · Nasdaq</Status>
-              <Badge missing />
-              <Badge tone="neutral">Common Stock</Badge>
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-2 text-xs text-text-tertiary">Direction: a ▲ or ▼ sits inside the pill before the label</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Status tone="positive" direction="up">
-                +3.66%
-              </Status>
-              <Status tone="negative" direction="down">
-                -1.20%
-              </Status>
-              <Status tone="positive" direction="up" size="compact">
-                +3.66%
-              </Status>
-              <Status tone="negative" direction="down" size="compact">
-                -1.20%
-              </Status>
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-2 text-xs text-text-tertiary">
-              Score and label: the number is neutral (text-primary, mono) and the pill carries the tone. Inline
-              (an Analysis section header), stacked (a Screener card header), and a score held inside a compact
-              pill (a Watchlist Analysis cell, with ⚠ for Pass with caution). Verdict labels are sentence case.
-            </p>
-            <div className="flex flex-wrap items-start gap-x-10 gap-y-4">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-sm tabular-nums text-text-primary">92</span>
-                <Verdict tone="strong">Strong pass</Verdict>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-sm tabular-nums text-text-primary">74</span>
-                <Verdict tone="caution">Pass with caution</Verdict>
-              </div>
-              <div className="flex flex-col items-end gap-1">
-                <span className="font-mono text-3xl font-bold leading-none tabular-nums text-text-primary">83</span>
-                <Verdict tone="positive">Pass</Verdict>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge size="compact" tone="strong">
-                  92
-                </Badge>
-                <Badge size="compact" tone="positive">
-                  83
-                </Badge>
-                <Badge size="compact" tone="warn">
-                  72
-                </Badge>
-                <Badge size="compact" tone="caution">
-                  74 ⚠
-                </Badge>
-                <Badge size="compact" tone="negative">
-                  48
-                </Badge>
-                <Badge size="compact" missing />
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-2 text-xs text-text-tertiary">
-              Ticker header status row -- six pills wide when everything applies. Whole pills wrap onto the next
-              line (never break inside one), 8px apart both ways; the Speculative growth pill&apos;s icons stay
-              with it. Shown at full width and in a 320px column.
-            </p>
-            <div className="flex flex-col gap-4">
-              <TickerHeaderRowDemo />
-              <div className="max-w-[320px] border border-dashed border-border-subtle p-2">
-                <TickerHeaderRowDemo />
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-2 text-xs text-text-tertiary">
-              Jobs / health tables: Skipped and Unknown are neutral pills, told apart from each other by their
-              word rather than a legend
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Status tone="positive">Success</Status>
-              <Status tone="negative">Failed</Status>
-              <Status tone="warn">Overdue</Status>
-              <Status tone="neutral">Skipped</Status>
-              <Status tone="neutral">Unknown</Status>
-            </div>
-          </div>
-        </div>
+        <PillReference />
       </Section>
 
       <Section title="Section family">
@@ -381,35 +256,6 @@ export default function StyleguidePage() {
         <SampleBarChart />
       </Section>
     </PageContainer>
-  );
-}
-
-const PILL_TONES: { tone: StatusTone; label: string }[] = [
-  { tone: "strong", label: "Strong pass" },
-  { tone: "positive", label: "Pass" },
-  { tone: "warn", label: "Needs review" },
-  { tone: "caution", label: "Pass with caution" },
-  { tone: "negative", label: "Fail" },
-  { tone: "speculative", label: "Speculative growth" },
-  { tone: "neutral", label: "Not scored" },
-];
-
-function TickerHeaderRowDemo() {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Status tone="strong">Strong pass</Status>
-      <Status tone="strong">Wide Moat</Status>
-      <Status tone="negative">
-        Overvalued ·<span className="font-mono tabular-nums">$182.40</span>
-        <span className="font-normal opacity-70">(DCF)</span>
-      </Status>
-      <span className="inline-flex items-center gap-1 whitespace-nowrap">
-        <Status tone="speculative">Speculative Growth</Status>
-        <Info size={16} className="text-text-tertiary" aria-hidden />
-      </span>
-      <Status tone="strong">5Y vs SPY</Status>
-      <Status tone="positive">Stage 2 · Advance</Status>
-    </div>
   );
 }
 
