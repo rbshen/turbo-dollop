@@ -2,7 +2,7 @@
 
 Verbatim history moved out of the original CLAUDE.md (archived at docs/archive/CLAUDE.original.md). Text is unedited; line ranges refer to that file.
 
-This file currently holds the Valuation (Step 3) scoring-notes history (phase B4) and the Financials + Growth Rate scoring-rubric history (original lines 446-1035, phase B5a). The Debt/Profitability/Overall-weighting scoring-rubric history (original lines 1036-1613) is appended in a later phase (B5b).
+This file holds the complete scoring history: the Valuation (Step 3) scoring notes (phase B4), and the scoring-rubric notes for Financials, Growth Rate, Debt, Profitability and Overall weighting (original lines 446-1613, phases B5a and B5b; the blocks cover that range contiguously). Blocks are in source-line order within each phase, so the Valuation blocks (lines 1945-2272) come first.
 
 
 ## Valuation (Step 3) scoring notes: heading and intro (original lines 1945-1951)

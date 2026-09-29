@@ -148,7 +148,7 @@ Full mechanism, exact cadence windows, and past incidents are documented in `bac
 
 ## Docs map
 
-Scoring methodology and feature-specific detail live in `docs/specs/*.md` and `docs/archive/*.md`, not in this file. Where a pointer below is marked "pending migration," the promised content hasn't been moved into that file yet — read the named section of `docs/archive/CLAUDE.original.md` instead.
+Scoring methodology and feature-specific detail live in `docs/specs/*.md` and `docs/archive/*.md`, not in this file.
 
 **Scoring methodology:** Financials — docs/specs/financials.md. Growth Rate — docs/specs/growth-rate.md. Debt — docs/specs/debt.md. Profitability — docs/specs/profitability.md. Valuation (Step 3) — docs/specs/valuation.md. Overall Assessment step weighting, Screener ETF exclusion — docs/specs/overview.md. Company classification / non-lender ticker overrides / Bank CET1-NPL standard — docs/specs/company-type-variations.md. Economic Moat — docs/specs/economic-moat.md. Glossary of terms — docs/specs/glossary.md. Speculative Growth lens — docs/specs/speculative-growth.md.
 
@@ -156,7 +156,7 @@ Scoring methodology and feature-specific detail live in `docs/specs/*.md` and `d
 
 **Data infrastructure:** FMP endpoint/cache-key → data-group mappings, shared bars cache, daily/long-history/intraday price fetch mechanism, delisted-ticker handling, US-listed-only (non-US) handling — docs/specs/fmp-data-and-bar-cache.md. Corporate events (earnings/dividends/splits cache) — docs/specs/corporate-events.md.
 
-**History** (completed migrations, resolved incidents, shelved/deleted features; still pending migration: the Debt/Profitability/Overall-weighting scoring-rubric history, original lines 1036-1613 (B5b) — for that, read the relevant dated section of `docs/archive/CLAUDE.original.md`): Valuation (Step 3) scoring-notes history plus the Financials and Growth Rate scoring-rubric history — docs/archive/claude-md-history-scoring.md (the Debt/Profitability/Overall history will be appended there). Trend/Weinstein/Liquidity Zone/Warren investigation narratives, the watchlist-rename history — docs/archive/claude-md-history-technical-signals.md. FMP migration phases (Massive removal, Yahoo removal, non-US removal, daily-bar backfills and parity checks) — docs/archive/claude-md-history-fmp-migration.md. Insider Activity (deleted 2026-09-27), the Analysis-tab-reasoning fix, the company-classification/Bank investigation narrative, the ad-hoc-repro-script and cron-heartbeat incident write-ups — docs/archive/claude-md-history-features.md.
+**History** (completed migrations, resolved incidents, shelved/deleted features): the complete scoring-rubric history (Valuation, Financials, Growth Rate, Debt, Profitability, Overall weighting) — docs/archive/claude-md-history-scoring.md. Trend/Weinstein/Liquidity Zone/Warren investigation narratives, the watchlist-rename history — docs/archive/claude-md-history-technical-signals.md. FMP migration phases (Massive removal, Yahoo removal, non-US removal, daily-bar backfills and parity checks) — docs/archive/claude-md-history-fmp-migration.md. Insider Activity (deleted 2026-09-27), the Analysis-tab-reasoning fix, the company-classification/Bank investigation narrative, the ad-hoc-repro-script and cron-heartbeat incident write-ups — docs/archive/claude-md-history-features.md.
 
 ## Workflow rules
 
