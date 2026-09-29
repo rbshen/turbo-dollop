@@ -47,6 +47,19 @@ Two earlier decisions are reversed by the owner, for one reason: **visual consis
 
 Consequences recorded with the decision: one pill family with two sizes (regular, compact); no new colours (every tone reuses an existing token); the score number beside a verdict is neutral `text-primary` and the pill carries the tone; the neutral pill replaces the plain neutral dot in the jobs/health tables. Full spec: "Pills" in `docs/design-system.md`.
 
+### 2026-09-29 (follow-up) — pill family: owner decisions on the open questions
+
+Made by the owner after reviewing the pill work above:
+
+1. **Index membership is neutral.** The teal `index` tone is removed from the pill tone set (and the `--fathom-index-membership` token from `globals.css`, which had no other reader). The index chip ("S&P 500 · Nasdaq") is a neutral pill, as the original design system said.
+2. **`PullbackPill` and `ReversalPill` render through the shared pill.** They were the reference style and the last hand-rolled copy. No visual change is intended (a stale Reversal's text moves from `text-tertiary` to the neutral pill's `text-secondary`, the only difference). Their unused bordered "chip" variant is gone, and so is the stale comment about `TrendContinuationCard`'s `STATUS_PILL_CLASS`.
+3. **The Watchlist Rating stays as coloured text**, not a pill (Buy/Hold/Sell). It would be a fourth adjacent pill in the Moat / Value / Analysis strip, and nothing else in the app shows that status as a pill. No code change.
+4. **Overall Assessment ring: the number is neutral `text-primary`; the ring stroke carries the colour.** This makes the "score number is never coloured" rule true everywhere a number stands beside a status.
+
+**Casing rule:** every pill label is sentence case ("Wide moat", "Speculative growth", "Strong pass"), applied for display only by one helper (`pillLabel()`, the extended `verdictLabel()`), never to backend strings or comparisons. This supersedes the earlier "product terms keep their own names" exception. Full spec: "Pills" in `docs/design-system.md`.
+
+**`/styleguide`** is the complete visual reference for every pill representation (tones, sizes, Badge, direction, score + label, Pullback/Reversal states, checklist chips, the Overall Assessment ring, and in-context mock samples), for browser review before deploying.
+
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
 - **`MultiSelect` primitive — resolved, built.** `components/screener/MultiSelectDropdown.tsx` is
