@@ -12,7 +12,7 @@ import { SortHeader } from "@/components/ui/sort-header";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { SortableField, WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
 import { fmtCompactMoney, fmtNumber, fmtSignedCompactMoneyTooltip } from "@/lib/format";
-import { badgeToneForNullable } from "@/lib/tierColor";
+import { toneForNullable } from "@/lib/tierColor";
 import { cn } from "@/lib/utils";
 import { removeTickerFromWatchlist } from "@/lib/hooks/useWatchlists";
 import { applyHeaderClick, sortWatchlistRows, type SortRule } from "@/lib/watchlistSort";
@@ -333,21 +333,32 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                 <TrendCell years={row.years} values={row.cfo} currency={row.reported_currency ?? "USD"} />
               </TableCell>
               <TableCell className="text-center">
-                {row.moat && <Badge tone={MOAT_TONE[row.moat]}>{MOAT_LABEL_SHORT[row.moat]}</Badge>}
-              </TableCell>
-              <TableCell className="text-center">
-                {row.valuation_verdict && (
-                  <Badge tone={VALUATION_TONE[row.valuation_verdict]}>{VALUATION_LABEL_SHORT[row.valuation_verdict]}</Badge>
+                {row.moat && (
+                  <Badge size="compact" tone={MOAT_TONE[row.moat]}>
+                    {MOAT_LABEL_SHORT[row.moat]}
+                  </Badge>
                 )}
               </TableCell>
               <TableCell className="text-center">
-                <Badge
-                  tone={badgeToneForNullable(row.overall_score, row.overall_verdict)}
-                  title={row.overall_verdict === "Pass with caution" ? `Passed with caution: ${cautionStepLabels(row).join(", ")}` : undefined}
-                >
-                  {row.overall_score}
-                  {row.overall_verdict === "Pass with caution" && " ⚠"}
-                </Badge>
+                {row.valuation_verdict && (
+                  <Badge size="compact" tone={VALUATION_TONE[row.valuation_verdict]}>
+                    {VALUATION_LABEL_SHORT[row.valuation_verdict]}
+                  </Badge>
+                )}
+              </TableCell>
+              <TableCell className="text-center">
+                {row.overall_score != null ? (
+                  <Badge
+                    size="compact"
+                    tone={toneForNullable(row.overall_score, row.overall_verdict)}
+                    title={row.overall_verdict === "Pass with caution" ? `Passed with caution: ${cautionStepLabels(row).join(", ")}` : undefined}
+                  >
+                    {row.overall_score}
+                    {row.overall_verdict === "Pass with caution" && " ⚠"}
+                  </Badge>
+                ) : (
+                  <Badge size="compact" missing />
+                )}
               </TableCell>
               <TableCell className={ratingColorClass(row.consensus_rating)}>{row.consensus_rating.toUpperCase()}</TableCell>
               <TableCell className="text-right font-mono text-text-secondary">

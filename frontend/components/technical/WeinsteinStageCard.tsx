@@ -17,7 +17,7 @@ import {
   WEINSTEIN_PENDING_SCENARIO_ORDER,
   WEINSTEIN_PENDING_TARGET_LABEL,
   WEINSTEIN_STAGE_LABEL,
-  WEINSTEIN_STAGE_STYLES_CHIP,
+  WEINSTEIN_STAGE_TONE,
 } from "@/lib/weinsteinStage";
 import type { TrendAnalysisOut, WeinsteinParamsOut, WeinsteinPendingOut } from "@/lib/api/types";
 
@@ -95,7 +95,7 @@ export function WeinsteinStageCard({ data }: Props) {
       <ChecklistCard
         title="Weinstein Stage Analysis"
         statusLabel={reason === "not_yet_computed" ? "Not yet computed" : "Insufficient history"}
-        statusToneClass="border-border-card bg-surface-2 text-text-tertiary"
+        statusTone="neutral"
         blurb={weinsteinMethodBlurb(params)}
         items={[]}
         disclaimer={UNAVAILABLE_MESSAGE[reason]}
@@ -149,7 +149,7 @@ export function WeinsteinStageCard({ data }: Props) {
     <ChecklistCard
       title="Weinstein Stage Analysis"
       statusLabel={WEINSTEIN_STAGE_LABEL[stage]}
-      statusToneClass={WEINSTEIN_STAGE_STYLES_CHIP[stage]}
+      statusTone={WEINSTEIN_STAGE_TONE[stage]}
       blurb={weinsteinMethodBlurb(params)}
       items={items}
       extra={data.pending ? <WeinsteinPendingBlock pending={data.pending} params={params} /> : undefined}

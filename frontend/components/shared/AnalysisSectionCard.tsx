@@ -4,7 +4,7 @@ import { CaretDown } from "@phosphor-icons/react";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Verdict } from "@/components/ui/status";
-import { toneFor } from "@/lib/tierColor";
+import { toneFor, verdictLabel } from "@/lib/tierColor";
 
 export interface ReasoningBullet {
   key: string;
@@ -56,9 +56,9 @@ interface Props {
 // section cards (Step1/Step2/Step4/Step5). Clicking anywhere in the row
 // (score/title/blurb included, not just a small trigger) toggles the
 // reasoning bullets -- per the design handoff's interaction spec and its
-// own mockup screenshot: score+verdict as plain colored text on the left
-// (no pill/box), title+blurb stacked next to it, "Show reasoning" toggle
-// pinned to the right.
+// own mockup screenshot: neutral score number + verdict pill on the left
+// (the pill carries the tone -- docs/design-system.md, "Pills"), title+blurb
+// stacked next to it, "Show reasoning" toggle pinned to the right.
 export function AnalysisSectionCard({ title, score, verdict, blurb, methodology, notes, bullets }: Props) {
   return (
     <div className="rounded-lg border border-border-card bg-surface p-6">
@@ -68,16 +68,15 @@ export function AnalysisSectionCard({ title, score, verdict, blurb, methodology,
             {/* Fixed width, not content-sized -- verdict text length varies
                 a lot (Fail/Pass/Strong Pass vs. Step 5's "Pass with
                 caution"), and without a fixed column the title/blurb next
-                to it would shift card to card. Widest real case is "74 ·
-                Pass with caution" (Pass with caution is capped at 74, see
-                CLAUDE.md's PASS_WITH_CAUTION_SCORE_CAP) -- 22 monospace
-                characters, ~185px at text-sm -- not "100 · Strong Pass"
-                (18 chars, ~151px), which is shorter despite the extra
-                digit. w-52 (208px) leaves headroom over that estimate. */}
+                to it would shift card to card. Widest real case is a "74"
+                (Pass with caution is capped at 74, see CLAUDE.md's
+                PASS_WITH_CAUTION_SCORE_CAP) beside a "Pass with caution"
+                pill, ~160px; w-52 (208px) leaves headroom over that. */}
             {score != null && (
-              <Verdict tone={toneFor(score, verdict)} className="w-52 shrink-0 whitespace-nowrap font-mono text-sm">
-                {score} · {verdict}
-              </Verdict>
+              <div className="flex w-52 shrink-0 items-center gap-2">
+                <span className="font-mono text-sm tabular-nums text-text-primary">{score}</span>
+                <Verdict tone={toneFor(score, verdict)}>{verdictLabel(verdict)}</Verdict>
+              </div>
             )}
             <div className="min-w-0 space-y-1">
               <h2 className="font-heading text-sm font-semibold text-text-primary">{title}</h2>

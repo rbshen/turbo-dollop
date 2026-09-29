@@ -19,7 +19,7 @@ A calm, data-first interface for fundamental investing.
 - **Sentence case everywhere**, including section titles and field labels. Nothing is uppercase.
 - **Tickers** are mono, with the company name in `text-secondary`.
 - **Numbers** are mono and tabular, right-aligned in tables, with an explicit sign on changes (+1.26%, −7.49%), units after the value (−52 days), and "—" when missing.
-- **Verdicts** are one pill ("Strong pass") beside a neutral score. Pill labels are sentence case ("Strong pass", "Pass with caution"), like every other label.
+- **Verdicts** are one pill ("Strong pass") beside a neutral score. Verdict labels are sentence case ("Strong pass", "Pass with caution"): the backend's own strings ("Strong Pass") are re-cased for display only, by `verdictLabel()` in `lib/tierColor.ts`, and every comparison still runs on the raw value. Product terms keep their own names ("Wide Moat", "Speculative Growth").
 - **Disclaimers** ("Informational only") are `caption` in `text-tertiary`.
 - **Tone:** plain and factual.
 
@@ -80,7 +80,7 @@ The choice of size is the only difference between a Watchlist Moat cell and the 
 
 `Badge` and `Status` share this tone set. "Pass with caution" is `caution` everywhere, Watchlist included.
 
-**Score and label.** The score number is never coloured: it is `text-primary`, mono, tabular, and the pill beside it carries the tone. Inline (an Analysis section header) the number sits to the left of the pill with an 8px gap, vertically centred: `74 [Pass with caution]`. Stacked (a Screener card header, where the number is large) the number sits above the pill, both right-aligned. A Watchlist Analysis cell is one column wide, so its compact pill holds the score itself (toned by the verdict, with a ⚠ appended for Pass with caution, whose tooltip names the steps) rather than a number plus a label. A score without a computed value is a neutral pill or a `missing` Badge ("—"), never a bare dash. The Overall Assessment's circular score badge is a separate gauge shape and is not part of this family.
+**Score and label.** A score number standing beside a pill is never coloured: it is `text-primary`, mono, tabular, and the pill carries the tone. (A number written inside a pill's own label — the Watchlist Analysis cell, the Overall Assessment breakdown chips — takes that pill's tone, because the pill is the value.) Inline (an Analysis section header) the number sits to the left of the pill with an 8px gap, vertically centred: `74 [Pass with caution]`. Stacked (a Screener card header, where the number is large) the number sits above the pill, both right-aligned. A Watchlist Analysis cell is one column wide, so its compact pill holds the score itself (toned by the verdict, with a ⚠ appended for Pass with caution, whose tooltip names the steps) rather than a number plus a label. A score without a computed value is a neutral pill or a `missing` Badge ("—"), never a bare dash. The Overall Assessment's circular score badge is a separate gauge shape and is not part of this family.
 
 **Wrapping.** Pills never break internally (`nowrap`). A row of pills is a `flex-wrap` container with an 8px gap in both directions, so a row wraps whole pills onto the next line at narrow widths and stays left-aligned. An info or warning icon that belongs to a pill (Speculative growth, Stage pending) is wrapped with it so the two never split across lines. The ticker header's status row (Assessment, Moat, Valuation, Speculative growth, 5Y vs SPY, Stage) is about six pills wide and follows this rule.
 

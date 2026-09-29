@@ -25,7 +25,7 @@ export function BbRsiEntrySignalCard({ data }: Props) {
       <ChecklistCard
         title="BB + RSI Entry Signal (2h)"
         statusLabel="Not tracked"
-        statusToneClass="border-border-card bg-surface-2 text-text-tertiary"
+        statusTone="neutral"
         blurb="Bollinger Band %B in the bottom 5% of the band, combined with an oversold prior-bar RSI, on 2-hour session candles."
         items={[]}
         disclaimer={UNAVAILABLE_MESSAGE}
@@ -93,7 +93,7 @@ export function BbRsiEntrySignalCard({ data }: Props) {
     <ChecklistCard
       title="BB + RSI Entry Signal (2h)"
       statusLabel={data.active ? "Signal active" : "No active signal"}
-      statusToneClass={data.active ? "border-positive/40 bg-positive/10 text-positive" : "border-border-card bg-surface-2 text-text-tertiary"}
+      statusTone={data.active ? "positive" : "neutral"}
       blurb="Bollinger Band %B in the bottom 5% of the band, combined with an oversold prior-bar RSI, on 2-hour session candles."
       items={items}
       disclaimer={DISCLAIMER}

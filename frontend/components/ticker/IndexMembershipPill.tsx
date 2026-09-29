@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { Status } from "@/components/ui/status";
 
 // Labels for the three tracked named indices, keyed by the backend's raw
 // index_name values (core/models.py::IndexConstituent.index_name) --
@@ -10,37 +10,19 @@ const INDEX_LABELS: Record<string, string> = {
   dow: "Dow 30",
 };
 
-// Own distinct token (app/globals.css's --fathom-index-membership, a teal
-// validated against every other semantic/chart color in use) -- index
-// membership is a fact about the ticker, not a Pass/Fail-style verdict or
-// Speculative Growth's violet classification, so it deliberately doesn't
-// reuse VERDICT_STYLES/MOAT_STYLES/chart-purple.
-const STYLES = "bg-index-membership/16 text-index-membership border-index-membership/40";
-const STYLES_FLAT = "bg-index-membership/16 text-index-membership";
-
 interface Props {
   // Empty/undefined renders nothing -- same "only show when meaningful"
   // contract as MoatPill/SpeculativeGrowthPill/PerfVsSpyPill.
   memberships: string[] | null | undefined;
-  // "chip" (default): bordered pill. "flat": borderless, used in
-  // TickerHeader's chip row -- same variant shape as the other header pills.
-  variant?: "chip" | "flat";
 }
 
-export function IndexMembershipPill({ memberships, variant = "chip" }: Props) {
+// Own distinct pill tone ("index", app/globals.css's --fathom-index-membership,
+// a teal validated against every other semantic/chart color in use) --
+// index membership is a fact about the ticker, not a Pass/Fail-style verdict
+// or Speculative Growth's violet classification, so it deliberately doesn't
+// reuse a verdict tone. Otherwise the same pill as every other status.
+export function IndexMembershipPill({ memberships }: Props) {
   if (!memberships || memberships.length === 0) return null;
 
-  const label = memberships.map((name) => INDEX_LABELS[name] ?? name).join(" · ");
-
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md text-xs font-semibold",
-        variant === "chip" ? "border px-2 py-0.5" : "px-2 py-1",
-        variant === "chip" ? STYLES : STYLES_FLAT
-      )}
-    >
-      {label}
-    </span>
-  );
+  return <Status tone="index">{memberships.map((name) => INDEX_LABELS[name] ?? name).join(" · ")}</Status>;
 }

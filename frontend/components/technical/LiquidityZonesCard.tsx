@@ -1,3 +1,4 @@
+import { Status } from "@/components/ui/status";
 import { useLiquidityZoneConfig } from "@/lib/hooks/useLiquidityZoneConfig";
 import type { BrokenZoneOut, LiquidityZoneOut, LiquidityZonesOut, ZoneOut } from "@/lib/api/types";
 
@@ -193,9 +194,9 @@ export function LiquidityZonesCard({ data }: Props) {
             <h2 className="font-heading text-sm font-semibold text-text-primary">Liquidity Zones</h2>
             <p className="text-sm text-text-secondary">Swing-based support/resistance levels, Daily and Weekly.</p>
           </div>
-          <span className="shrink-0 rounded-full border border-border-card bg-surface-2 px-3 py-1 text-xs font-semibold text-text-tertiary">
+          <Status tone="neutral" className="shrink-0">
             Not tracked
-          </span>
+          </Status>
         </div>
         <p className="rounded-md border border-warn/40 bg-warn/10 p-3 text-xs text-warn">{UNAVAILABLE_MESSAGE}</p>
       </div>

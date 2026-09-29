@@ -17,7 +17,7 @@ import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
 import { useTickerScore } from "@/lib/hooks/useTickerScore";
 import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
 import { fmtMoney } from "@/lib/format";
-import { toneForNullable } from "@/lib/tierColor";
+import { toneForNullable, verdictLabel } from "@/lib/tierColor";
 import type { TickerSummaryOut } from "@/lib/api/types";
 
 // Reads the precomputed TickerScore row (same source as Screener/Watchlist)
@@ -33,7 +33,7 @@ function AssessmentChip({ symbol }: { symbol: string }) {
 
   return (
     <Status tone={toneForNullable(data.overall_score, data.overall_verdict)} title={`As of ${new Date(data.computed_at).toLocaleString()}`}>
-      {data.overall_verdict}
+      {verdictLabel(data.overall_verdict)}
     </Status>
   );
 }
@@ -85,8 +85,11 @@ export function TickerHeader({ symbol, data }: Props) {
         <PriceChange change={data.change} changePercent={data.change_percent} currency={data.quote_currency} />
       </div>
 
-      {/* Row 2.5: Assessment/Valuation/Moat/etc. chips. */}
-      <div className="flex flex-wrap items-center gap-3">
+      {/* Row 2.5: Assessment/Valuation/Moat/etc. status pills -- six wide when
+          everything applies. Whole pills wrap onto the next line (never
+          break inside one), 8px apart both ways; the Speculative growth
+          pill's icons sit in a nowrap group with it so they never split. */}
+      <div className="flex flex-wrap items-center gap-2">
         <AssessmentChip symbol={symbol} />
         <MoatPill moat={moatData?.moat} />
         <FairValuePill
@@ -97,7 +100,7 @@ export function TickerHeader({ symbol, data }: Props) {
           source={data.valuation_source}
           reportedCurrency={data.fair_value_reported_currency}
         />
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex items-center gap-1 whitespace-nowrap">
           <SpeculativeGrowthPill data={specGrowthData} currency={data.reported_currency ?? "USD"} />
           {specGrowthData?.qualifies && <SpeculativeGrowthInfoIcon />}
           {specGrowthData?.qualifies && specGrowthData.potential_fake_growth && <SpeculativeGrowthFakeGrowthWarning />}

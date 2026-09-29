@@ -1,32 +1,18 @@
 "use client";
 
-// Badge -- a compact filled chip carrying one label. Pass `missing` for the
+// Badge -- the same pill as Status, for a short value or label in a table
+// cell or list (a score, a rating, a company kind). Pass `missing` for the
 // placeholder "no value" state instead of passing children.
 import type { ReactNode } from "react";
-import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
+import { pillVariants, type PillSize, type PillTone } from "@/components/ui/pill";
 
-const badgeVariants = cva(
-  "inline-flex h-6 items-center justify-center whitespace-nowrap rounded-md px-2 text-xs font-semibold",
-  {
-    variants: {
-      tone: {
-        strong: "bg-positive-strong/10 text-positive-strong",
-        positive: "bg-positive/10 text-positive",
-        warn: "bg-warn/10 text-warn",
-        negative: "bg-negative/10 text-negative",
-        neutral: "bg-surface-2 text-text-secondary",
-      },
-    },
-    defaultVariants: {
-      tone: "neutral",
-    },
-  },
-);
+export type BadgeTone = PillTone;
 
-export type BadgeTone = NonNullable<VariantProps<typeof badgeVariants>["tone"]>;
-
-export interface BadgeProps extends VariantProps<typeof badgeVariants> {
+export interface BadgeProps {
+  tone?: BadgeTone;
+  /** "compact" is for dense tables (Watchlist, Momentum) only. */
+  size?: PillSize;
   children?: ReactNode;
   missing?: boolean;
   className?: string;
@@ -34,16 +20,16 @@ export interface BadgeProps extends VariantProps<typeof badgeVariants> {
   title?: string;
 }
 
-export function Badge({ tone, missing, children, className, title }: BadgeProps) {
+export function Badge({ tone, size, missing, children, className, title }: BadgeProps) {
   if (missing) {
     return (
-      <span title={title} className={cn(badgeVariants({ tone: "neutral" }), "bg-surface-2 text-text-tertiary", className)}>
+      <span title={title} className={cn(pillVariants({ tone: "neutral", size }), "text-text-tertiary", className)}>
         —
       </span>
     );
   }
   return (
-    <span title={title} className={cn(badgeVariants({ tone }), className)}>
+    <span title={title} className={cn(pillVariants({ tone, size }), className)}>
       {children}
     </span>
   );

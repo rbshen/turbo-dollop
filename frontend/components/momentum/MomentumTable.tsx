@@ -60,7 +60,9 @@ export function MomentumTable({ rows }: Props) {
               </p>
             </TableCell>
             <TableCell className="text-center">
-              <Badge tone={MOAT_TONE[row.moat]}>{MOAT_LABEL_SHORT[row.moat]}</Badge>
+              <Badge size="compact" tone={MOAT_TONE[row.moat]}>
+                {MOAT_LABEL_SHORT[row.moat]}
+              </Badge>
             </TableCell>
             <TableCell className={`text-right font-mono ${pnlClass(row.return_3mo)}`}>{fmtPct(row.return_3mo * 100)}</TableCell>
             <TableCell className={`text-right font-mono ${pnlClass(row.return_6mo)}`}>{fmtPct(row.return_6mo * 100)}</TableCell>
@@ -72,11 +74,19 @@ export function MomentumTable({ rows }: Props) {
                 (MomentumSnapshotRowOut has no overall_verdict) -- unlike
                 every other Badge/Status score cell in the app, tierColor's
                 tone functions can't tier this one without guessing at a
-                mapping, so it stays a plain neutral Badge (same always-gray
+                mapping, so it stays a neutral compact pill (same always-gray
                 read as before this migration, just via Badge's `missing`
                 state instead of a bare "—"). See the design-system session
                 5a report. */}
-            <TableCell className="text-right">{row.overall_score != null ? <Badge tone="neutral">{row.overall_score}</Badge> : <Badge missing />}</TableCell>
+            <TableCell className="text-right">
+              {row.overall_score != null ? (
+                <Badge size="compact" tone="neutral">
+                  {row.overall_score}
+                </Badge>
+              ) : (
+                <Badge size="compact" missing />
+              )}
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>

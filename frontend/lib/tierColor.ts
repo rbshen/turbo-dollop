@@ -11,8 +11,8 @@
 //    instead of a hand-built class string -- one shared accessor so every
 //    Status/Badge call site stays byte-identical to classFor/textClassFor's
 //    own priority order rather than re-deriving it locally.
+//  - verdictLabel: the sentence-case display wording for a verdict pill.
 
-import type { BadgeTone } from "@/components/ui/badge";
 import type { StatusTone } from "@/components/ui/status";
 
 // The 5 tiers this file distinguishes map 1:1 onto 5 of Status's 7 tones
@@ -82,18 +82,9 @@ export function toneForNullable(score: number | null, verdict: string | null): S
   return toneFor(score, verdict ?? "");
 }
 
-// Badge (dense table cells) has no "caution" tone -- unlike Status, its
-// palette is strong/positive/warn/negative/neutral only (see
-// components/ui/badge.tsx). "Pass with caution" folds into "warn", the
-// closest available shade; callers that need the distinction back (e.g.
-// WatchlistTable's Analysis column) keep their own separate "⚠" marker for
-// it, same as before this function existed -- this mapping only decides
-// the chip's base color, never drops the marker.
-export function badgeToneForNullable(score: number | null, verdict: string | null): BadgeTone {
-  if (score == null) return "neutral";
-  if (verdict === "Fail") return "negative";
-  if (verdict === "Pass with caution") return "warn";
-  if (score > 90) return "strong";
-  if (score >= 75) return "positive";
-  return "warn";
+// Display-only sentence-casing for a verdict inside a pill ("Strong Pass" ->
+// "Strong pass"). The backend's own strings stay as-is -- every comparison
+// (verdict === "Pass with caution") still runs on the raw value.
+export function verdictLabel(verdict: string): string {
+  return verdict.charAt(0).toUpperCase() + verdict.slice(1).toLowerCase();
 }

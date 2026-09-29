@@ -34,29 +34,31 @@ function mockData(jobs: CronJobHealthOut[]) {
 }
 
 describe("ScheduledJobsSection", () => {
-  it("renders a skipped job's status dot with the neutral text-tertiary tone, not the retired sky-blue", () => {
+  it("renders a skipped job as a neutral pill, not the retired sky-blue", () => {
     mockData([job({ job_name: "nightly_liquidity_zone_calculation", health_status: "skipped", message: "skipped (group daily_prices off)" })]);
     render(<ScheduledJobsSection />);
 
-    const dot = document.querySelector(".rounded-full.bg-text-tertiary");
-    expect(dot).not.toBeNull();
+    const pill = screen.getByText("Skipped");
+    expect(pill.className).toMatch(/bg-surface-2/);
+    expect(pill.className).toMatch(/text-text-secondary/);
     expect(document.body.innerHTML).not.toMatch(/sky-/);
     expect(screen.getByText("skipped (group daily_prices off)").className).toMatch(/text-text-tertiary/);
   });
 
-  it("renders an unknown job's status dot with the same neutral tone as skipped", () => {
+  it("renders an unknown job as the same neutral pill as skipped, told apart by its word", () => {
     mockData([job({ job_name: "nightly_market_breadth", health_status: "unknown", message: null })]);
     render(<ScheduledJobsSection />);
 
-    const dot = document.querySelector(".rounded-full.bg-text-tertiary");
-    expect(dot).not.toBeNull();
+    const pill = screen.getByText("Unknown");
+    expect(pill.className).toMatch(/bg-surface-2/);
+    expect(document.querySelector(".rounded-full")).toBeNull();
   });
 
   it("still renders a failed job with the negative tone", () => {
     mockData([job({ health_status: "failed", message: "boom" })]);
     render(<ScheduledJobsSection />);
 
-    expect(document.querySelector(".rounded-full.bg-negative")).not.toBeNull();
+    expect(screen.getByText("Failed").className).toMatch(/text-negative/);
     expect(screen.getByText("boom").className).toMatch(/text-negative/);
   });
 });
