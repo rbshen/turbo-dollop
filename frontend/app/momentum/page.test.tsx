@@ -52,9 +52,9 @@ beforeEach(() => {
 });
 
 describe("MomentumPage", () => {
-  it("shows a loading state before data arrives", () => {
-    renderPage();
-    expect(screen.getByText("Loading Momentum…")).toBeInTheDocument();
+  it("shows a pulsing row skeleton before data arrives", () => {
+    const { container } = renderPage();
+    expect(container.querySelectorAll(".animate-pulse")).toHaveLength(10);
   });
 
   it("renders the current month's data once loaded", async () => {
