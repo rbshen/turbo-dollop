@@ -4,6 +4,8 @@ import { useState } from "react";
 
 import { useCronHealth } from "@/lib/hooks/useCronHealth";
 import type { CronJobHealthOut } from "@/lib/api/types";
+import { Section } from "@/components/ui/section";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
 const GROUP_ORDER: CronJobHealthOut["cadence_group"][] = ["daily", "weekly", "monthly"];
@@ -13,12 +15,17 @@ const GROUP_LABELS: Record<CronJobHealthOut["cadence_group"], string> = {
   monthly: "Monthly",
 };
 
+// unknown and skipped share the same neutral read (nothing is wrong, there's
+// just no live/attempted run to report) -- same treatment Badge/Status use
+// elsewhere in the app for a value that isn't a Pass/Fail-style read. This
+// retires the raw sky-blue "skipped" dot: blue is reserved for brand actions
+// only, everywhere else in the app.
 const STATUS_DOT: Record<CronJobHealthOut["health_status"], string> = {
   ok: "bg-positive",
   failed: "bg-negative",
   overdue: "bg-warn",
-  unknown: "bg-zinc-600",
-  skipped: "bg-sky-500",
+  unknown: "bg-text-tertiary",
+  skipped: "bg-text-tertiary",
 };
 
 /** Settings "Status" section's Scheduled Jobs table -- one row per cron
@@ -36,10 +43,10 @@ export function ScheduledJobsSection() {
     .sort((a, b) => a.sort_minutes - b.sort_minutes);
 
   return (
-    <div className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-5">
+    <Section>
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-zinc-100">Scheduled Jobs</h3>
-        <div className="flex items-center gap-4 text-xs text-zinc-500">
+        <h3 className="text-sm font-semibold text-text-primary">Scheduled Jobs</h3>
+        <div className="flex items-center gap-4 text-xs text-text-tertiary">
           <span className="flex items-center gap-1.5">
             <span className="size-2 rounded-full bg-positive" /> Success
           </span>
@@ -50,21 +57,21 @@ export function ScheduledJobsSection() {
             <span className="size-2 rounded-full bg-warn" /> Overdue
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-sky-500" /> Skipped
+            <span className="size-2 rounded-full bg-text-tertiary" /> Skipped
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-zinc-600" /> Unknown
+            <span className="size-2 rounded-full bg-text-tertiary" /> Unknown
           </span>
         </div>
       </div>
 
       {!cronHealth ? (
-        <p className="text-sm text-zinc-600">Loading…</p>
+        <p className="mt-3 text-sm text-text-tertiary animate-pulse">Loading…</p>
       ) : !cronHealth.enabled ? (
-        <p className="text-sm text-zinc-400">Scheduled job monitoring is currently disabled (CRON_HEALTH_ENABLED=false).</p>
+        <p className="mt-3 text-sm text-text-secondary">Scheduled job monitoring is currently disabled (CRON_HEALTH_ENABLED=false).</p>
       ) : (
         <>
-          <div className="flex gap-1 border-b border-zinc-800">
+          <div className="mt-3 flex gap-1 border-b border-border-subtle">
             {GROUP_ORDER.map((group) => {
               const count = cronHealth.jobs.filter((job) => job.cadence_group === group).length;
               const isActive = group === activeGroup;
@@ -77,69 +84,67 @@ export function ScheduledJobsSection() {
                     "border-b-2 px-3 py-1.5 text-sm font-medium transition-colors",
                     isActive
                       ? "border-brand text-brand"
-                      : "border-transparent text-zinc-500 hover:text-zinc-300"
+                      : "border-transparent text-text-tertiary hover:text-text-primary"
                   )}
                 >
-                  {GROUP_LABELS[group]} <span className="text-xs text-zinc-600">({count})</span>
+                  {GROUP_LABELS[group]} <span className="text-xs text-text-tertiary">({count})</span>
                 </button>
               );
             })}
           </div>
 
-          <table className="w-full table-fixed text-left text-sm">
+          <Table className="table-fixed">
             <colgroup>
               <col className="w-[45%]" />
               <col className="w-28" />
               <col className="w-24" />
               <col />
             </colgroup>
-            <thead>
-              <tr className="text-xs uppercase tracking-wide text-zinc-500">
-                <th className="py-1.5 pr-3 font-medium">Description</th>
-                <th className="py-1.5 pr-3 font-medium">Time</th>
-                <th className="py-1.5 pr-3 font-medium">Status</th>
-                <th className="py-1.5 font-medium">Message</th>
-              </tr>
-            </thead>
-            <tbody>
+            <TableHeader>
+              <TableRow className="h-9">
+                <TableHead>Description</TableHead>
+                <TableHead>Time</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Message</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {jobs.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="py-4 text-sm text-zinc-600">
+                <TableRow>
+                  <TableCell colSpan={4} className="py-4 text-sm text-text-tertiary">
                     No {GROUP_LABELS[activeGroup].toLowerCase()} jobs.
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
                 jobs.map((job) => (
-                  <tr key={job.job_name} className="border-t border-zinc-800/60">
-                    <td className="py-2 pr-3">
-                      <div className="text-zinc-200">{job.description}</div>
-                      <div className="font-mono text-[11px] text-zinc-500">{job.job_name}</div>
-                    </td>
-                    <td className="py-2 pr-3 font-mono text-xs text-zinc-400">{job.time_label}</td>
-                    <td className="py-2 pr-3">
+                  <TableRow key={job.job_name}>
+                    <TableCell className="whitespace-normal">
+                      <div className="text-text-primary">{job.description}</div>
+                      <div className="font-mono text-[11px] text-text-tertiary">{job.job_name}</div>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs tabular-nums text-text-secondary">{job.time_label}</TableCell>
+                    <TableCell>
                       <span className={cn("inline-block size-2 rounded-full", STATUS_DOT[job.health_status])} />
-                    </td>
-                    <td
+                    </TableCell>
+                    <TableCell
                       className={cn(
-                        "py-2 text-xs",
+                        "whitespace-normal text-xs",
                         job.health_status === "failed"
                           ? "text-negative"
                           : job.health_status === "overdue"
                             ? "text-warn"
-                            : job.health_status === "skipped"
-                              ? "text-sky-400"
-                              : "text-zinc-500"
+                            : "text-text-tertiary"
                       )}
                     >
                       {job.message ?? "—"}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </>
       )}
-    </div>
+    </Section>
   );
 }
