@@ -1,0 +1,102 @@
+# Economic Moat
+
+Economic Moat is the simplest input in Fathom, and the only one that isn't computed from
+financial data at all: it's a rating **you set yourself**, based on your own judgment of whether
+the company has a durable competitive advantage — something that protects its profits from
+competitors over the long run (a strong brand, network effects, high switching costs, patents,
+scale advantages, and similar).
+
+## The three ratings
+
+You choose one of three states from the Economic Moat tab:
+
+- **No Moat** — no meaningful, durable competitive advantage protecting this business from
+  competitors.
+- **Narrow Moat** — some real advantage exists, but it isn't strong or broad enough to reliably
+  fend off competition indefinitely.
+- **Wide Moat** — a strong, durable advantage expected to hold up for a decade or more.
+
+There's no built-in checklist or scoring rubric behind these — Fathom doesn't attempt to compute
+a moat rating from financial data, and doesn't offer any automated suggestion for which one to
+pick. It's entirely your own qualitative assessment of the business.
+
+## Why it matters this much
+
+Once you set a rating for a ticker, it's folded into the Overall Assessment at a 31% weight —
+the single largest weight of any component, larger than any one of the four automated financial
+checks on its own (see [Overview](overview.md) for the full weighting). This is a deliberate
+design choice: a durable competitive advantage is treated as at least as important to a
+company's long-term investment case as any one quarter's worth of financial performance.
+
+Until you set a rating, Overall Assessment simply reports the blend of the four automated checks
+on their own — leaving Moat unrated doesn't drag the score down or count against the company.
+It's only once you actively select **No Moat** that it becomes a real, negative input pulling
+the blended score down; the unrated state and "No Moat" are not the same thing.
+
+## It doesn't persist automatically until you confirm it
+
+Changing the selector shows you a live preview of the new rating, but nothing is saved until you
+explicitly confirm the change — since doing so changes how Overall Assessment is scored for that
+ticker. You'll see a prompt asking you to confirm before it takes effect.
+
+---
+
+## Technical reference
+
+Unlike every other component of the Overall Assessment, Moat is not computed from any financial
+data at all — it's a manually-set, user-asserted classification with a fixed point value per
+state.
+
+### Point values
+
+| Rating | Default points |
+|---|---|
+| No Moat | 0 |
+| Narrow Moat | 65 |
+| Wide Moat | 100 |
+
+These point values are not hardcoded constants — they live in a single configuration row,
+editable via the Settings page. The values above are only the seeded defaults on first read;
+once the config row exists, it (not these numbers) is the source of truth. There is no scoring
+rubric or checklist behind the rating itself — the user picks one of the three states directly,
+and the app assigns it whatever point value the current config row holds for that state.
+
+### Weight in Overall Assessment
+
+Once a ticker has any of the three real Moat states set, Moat occupies **31%** of the Overall
+Assessment, with the four automated checks (Financials, Growth Rate, Profitability, Debt)
+combined occupying the remaining **69%**.
+
+```
+score = round(0.69 × steps_score + 0.31 × moat_points)
+```
+
+This is applied as a **second stage** on top of the four-check blend, not folded into one flat
+weight table alongside the four checks' own weights — the arithmetic does not reduce to the same
+result under a flat renormalization once a check is also exempt or missing, so the two-stage
+formula above is not a simplification, it's the actual computation.
+
+### Unset vs. explicit "No Moat"
+
+"Not set" (no rating chosen yet) is a distinct third state from "No Moat," and the two behave
+differently:
+
+- **Not set** (the default for every ticker until a user picks a rating): Overall Assessment
+  uses the pure four-check blend on its own (`steps_score` above, with `display_scale = 1.0`),
+  reweighted to sum to 100% — Moat is simply absent from the picture, not treated as a zero or a
+  penalty.
+- **No Moat** (an explicit user selection): scores its full 0 points at the full 31% weight — a
+  real, negative input that actively pulls the blended score down, and (combined with the
+  four-check blend) can cap the overall score below the Pass threshold regardless of how well the
+  four automated checks score. This is intended: unlike every other component of Overall
+  Assessment, Moat has no averaging-based protection against a single weak input, since it's the
+  one deliberately user-asserted signal in the whole blend.
+
+A missing/incomplete four-check blend is never rescued by a present Moat rating — if the four
+checks can't produce a confident blended score, the whole Overall Assessment stays incomplete
+regardless of what Moat is set to.
+
+### Saving
+
+Selecting a rating shows a live preview immediately, but nothing is persisted until the user
+explicitly confirms — since doing so changes how Overall Assessment is scored for that ticker.
