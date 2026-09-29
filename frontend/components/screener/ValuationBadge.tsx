@@ -1,6 +1,7 @@
 import { VALUATION_TONE } from "@/components/ticker/FairValuePill";
 import { Status } from "@/components/ui/status";
 import type { ValuationSource } from "@/lib/api/types";
+import { pillLabel } from "@/lib/tierColor";
 
 // Screener-card-specific labels -- deliberately category-only (no price or
 // discount/premium %, which stay on the ticker page's Valuation tab). Same
@@ -46,7 +47,7 @@ export function ValuationBadge({ verdict, source, labelSet = "full" }: Props) {
 
   return (
     <Status tone={tone}>
-      {label}
+      {pillLabel(label)}
       {source === "custom" && <span className="font-normal opacity-70">· Custom</span>}
     </Status>
   );

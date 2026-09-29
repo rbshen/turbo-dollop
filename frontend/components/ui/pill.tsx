@@ -14,8 +14,6 @@ export const pillVariants = cva("inline-flex max-w-full items-center whitespace-
       caution: "bg-caution/16 text-caution",
       negative: "bg-negative/16 text-negative",
       speculative: "bg-chart-purple/16 text-chart-purple",
-      // Index membership only -- a category tag with its own token, not a verdict.
-      index: "bg-index-membership/16 text-index-membership",
       neutral: "bg-surface-2 text-text-secondary",
     },
     size: {

@@ -93,14 +93,14 @@ export default function StyleguidePage() {
 
           <div>
             <p className="mb-2 text-xs text-text-tertiary">
-              Neutral (no read to colour: Not scored, N/A, Stage 1) and Speculative growth (its own violet, an
-              orthogonal classification rather than a verdict tier), plus the index-membership tag (its own teal)
+              Neutral (no read to colour: Not scored, N/A, Stage 1, index membership) and Speculative growth (its
+              own violet, an orthogonal classification rather than a verdict tier)
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <Status tone="neutral">Not scored</Status>
               <Status tone="neutral">Stage 1 · Base</Status>
               <Status tone="speculative">Speculative Growth</Status>
-              <Status tone="index">S&amp;P 500 · Nasdaq</Status>
+              <Status tone="neutral">S&amp;P 500 · Nasdaq</Status>
               <Badge missing />
               <Badge tone="neutral">Common Stock</Badge>
             </div>

@@ -11,6 +11,7 @@ import { ValuationBadge } from "@/components/screener/ValuationBadge";
 import { Badge } from "@/components/ui/badge";
 import type { TickerScoreOut } from "@/lib/api/types";
 import { fmtCompactMoney, fmtMoney, fmtNumber } from "@/lib/format";
+import { pillLabel } from "@/lib/tierColor";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -54,7 +55,7 @@ export function ScreenerCard({ data }: Props) {
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        <Badge tone="neutral">{data.company_type ?? "Unclassified"}</Badge>
+        <Badge tone="neutral">{pillLabel(data.company_type ?? "Unclassified")}</Badge>
         <span className="truncate text-xs text-text-tertiary">{data.sector ?? "—"}</span>
       </div>
 
@@ -79,8 +80,8 @@ export function ScreenerCard({ data }: Props) {
         (data.pullback_status != null && data.pullback_status !== "no_pullback")) && (
         <div className="flex flex-wrap items-center gap-1.5">
           <WeinsteinStagePill data={data} labelSet="screener" />
-          <ReversalPill status={data.reversal_status} variant="flat" />
-          <PullbackPill status={data.pullback_status} variant="flat" />
+          <ReversalPill status={data.reversal_status} />
+          <PullbackPill status={data.pullback_status} />
         </div>
       )}
 

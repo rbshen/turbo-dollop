@@ -2,6 +2,7 @@ import { CaretDown, CheckCircle, XCircle } from "@phosphor-icons/react";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Status, type StatusTone } from "@/components/ui/status";
+import { pillLabel } from "@/lib/tierColor";
 
 /** "Aug 12, 2026" -- shared by Reversal/Trend Continuation's swing-date
  * details, mirroring ValuationGauge.tsx's own inline toLocaleDateString
@@ -138,7 +139,7 @@ export function ChecklistCard({ title, statusLabel, statusTone, blurb, items, ex
           <p className="text-sm text-text-secondary">{blurb}</p>
         </div>
         <Status tone={statusTone} className="shrink-0">
-          {statusLabel}
+          {pillLabel(statusLabel)}
         </Status>
       </div>
 

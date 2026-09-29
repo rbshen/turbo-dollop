@@ -64,7 +64,7 @@ export function SpeculativeGrowthPill({ data, currency = "USD" }: Props) {
 
   return (
     <Status tone="speculative" title={buildTooltip(data, currency)}>
-      Speculative Growth
+      Speculative growth
     </Status>
   );
 }

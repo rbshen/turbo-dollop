@@ -12,6 +12,7 @@ import {
   type WeinsteinStage,
 } from "@/lib/weinsteinStage";
 import type { TrendAnalysisOut } from "@/lib/api/types";
+import { pillLabel } from "@/lib/tierColor";
 
 // Narrowed to just the 5 fields this pill actually needs, rather than the
 // full TrendAnalysisOut -- lets ScreenerCard pass its TickerScoreOut row
@@ -82,7 +83,7 @@ export function WeinsteinStagePill({ data, labelSet = "full" }: Props) {
 
   return (
     <Status tone={WEINSTEIN_STAGE_TONE[stage]} title={buildTooltip(data)}>
-      {LABEL_SETS[labelSet][stage]}
+      {pillLabel(LABEL_SETS[labelSet][stage])}
       {/* Pending confirmation -- without this, the extra tooltip line
           buildTooltip appends is invisible (a native `title` attribute
           gives no visual cue at all that there's more to hover for), so

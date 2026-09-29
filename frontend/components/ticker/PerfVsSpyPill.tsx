@@ -1,6 +1,7 @@
 import { VALUATION_TONE } from "@/components/ticker/FairValuePill";
 import { Status, type StatusTone } from "@/components/ui/status";
 import type { PerfVsSpyStatus } from "@/lib/api/types";
+import { pillLabel } from "@/lib/tierColor";
 
 type RenderableStatus = Exclude<PerfVsSpyStatus, "no_data">;
 
@@ -73,7 +74,7 @@ export function PerfVsSpyPill({ status, insufficientHistory = false, labelSet = 
 
   return (
     <Status tone={PERF_VS_SPY_TONE[status]} title={insufficientHistory ? INSUFFICIENT_HISTORY_NOTE : undefined}>
-      {LABEL_SETS[labelSet][status]}
+      {pillLabel(LABEL_SETS[labelSet][status])}
     </Status>
   );
 }

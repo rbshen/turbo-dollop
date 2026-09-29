@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { Status, type StatusTone } from "@/components/ui/status";
 import type { TickerScoreOut } from "@/lib/api/types";
 
 type PullbackStatus = NonNullable<TickerScoreOut["pullback_status"]>;
@@ -15,44 +15,27 @@ const LABEL: Record<RenderableStatus, string> = {
   invalidated: "Trend invalidated",
 };
 
-// Reuses TrendContinuationCard.tsx's own STATUS_PILL_CLASS palette
-// verbatim (warn/positive/negative) so the Screener pill and the Technical
-// tab's own badge never drift into two different color readings of the
-// same status.
-const STYLES_CHIP: Record<RenderableStatus, string> = {
-  pending: "border-warn/40 bg-warn/16 text-warn",
-  recovered: "border-positive/40 bg-positive/16 text-positive",
-  invalidated: "border-negative/40 bg-negative/16 text-negative",
-};
-
-const STYLES_FLAT: Record<RenderableStatus, string> = {
-  pending: "bg-warn/16 text-warn",
-  recovered: "bg-positive/16 text-positive",
-  invalidated: "bg-negative/16 text-negative",
+// Same tones TrendContinuationCard's own status chip uses, so the Screener
+// pill and the Technical tab's badge never drift into two colour readings of
+// the same status.
+export const PULLBACK_TONE: Record<RenderableStatus, StatusTone> = {
+  pending: "warn",
+  recovered: "positive",
+  invalidated: "negative",
 };
 
 const TOOLTIP = "Trend continuation / pullback read. Backtested informational read, not a trading signal.";
 
 interface Props {
   status: PullbackStatus | null | undefined;
-  // "chip" (default): bordered pill. "flat": borderless, used in
-  // ScreenerCard's pill row -- same variant shape as WeinsteinStagePill.
-  variant?: "chip" | "flat";
 }
 
-export function PullbackPill({ status, variant = "chip" }: Props) {
+export function PullbackPill({ status }: Props) {
   if (!status || status === "no_pullback") return null;
 
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md text-xs font-semibold",
-        variant === "chip" ? "border px-2 py-0.5" : "px-2 py-1",
-        variant === "chip" ? STYLES_CHIP[status] : STYLES_FLAT[status]
-      )}
-      title={TOOLTIP}
-    >
+    <Status tone={PULLBACK_TONE[status]} title={TOOLTIP}>
       {LABEL[status]}
-    </span>
+    </Status>
   );
 }

@@ -1,6 +1,7 @@
 import { Status, type StatusTone } from "@/components/ui/status";
 import { fmtMoney } from "@/lib/format";
 import type { ValuationSource } from "@/lib/api/types";
+import { pillLabel } from "@/lib/tierColor";
 
 // Reuses the scoring system's own tokens directly (no separate Valuation
 // palette) -- a 3-state good/mid/bad read, same as Moat: Overvalued is the
@@ -63,7 +64,7 @@ export function FairValuePill({ verdict, price, currency = "USD", method, source
 
   return (
     <Status tone={tone}>
-      {label} ·<span className="font-mono tabular-nums">{fmtMoney(price, currency)}</span>
+      {pillLabel(label)} ·<span className="font-mono tabular-nums">{fmtMoney(price, currency)}</span>
       {method && <span className="font-normal opacity-70">({method})</span>}
       {source === "custom" && <span className="font-normal opacity-70">· Custom</span>}
       {reportedCurrency && reportedCurrency !== currency && (

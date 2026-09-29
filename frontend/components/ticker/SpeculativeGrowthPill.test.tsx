@@ -30,11 +30,11 @@ const QUALIFYING: SpeculativeGrowthOut = {
 describe("SpeculativeGrowthPill tooltip currency", () => {
   it("defaults the Net income (TTM) tooltip line to USD when currency is omitted", () => {
     render(<SpeculativeGrowthPill data={QUALIFYING} />);
-    expect(screen.getByText("Speculative Growth").title).toContain("Net income (TTM): -$206.28M");
+    expect(screen.getByText("Speculative growth").title).toContain("Net income (TTM): -$206.28M");
   });
 
   it("uses the given reported_currency for the Net income (TTM) tooltip line", () => {
     render(<SpeculativeGrowthPill data={QUALIFYING} currency="CNY" />);
-    expect(screen.getByText("Speculative Growth").title).toContain("Net income (TTM): -CN¥206.28M");
+    expect(screen.getByText("Speculative growth").title).toContain("Net income (TTM): -CN¥206.28M");
   });
 });

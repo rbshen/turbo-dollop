@@ -4,7 +4,7 @@ import { CaretDown } from "@phosphor-icons/react";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Verdict } from "@/components/ui/status";
-import { toneFor, verdictLabel } from "@/lib/tierColor";
+import { toneFor, pillLabel } from "@/lib/tierColor";
 
 export interface ReasoningBullet {
   key: string;
@@ -75,7 +75,7 @@ export function AnalysisSectionCard({ title, score, verdict, blurb, methodology,
             {score != null && (
               <div className="flex w-52 shrink-0 items-center gap-2">
                 <span className="font-mono text-sm tabular-nums text-text-primary">{score}</span>
-                <Verdict tone={toneFor(score, verdict)}>{verdictLabel(verdict)}</Verdict>
+                <Verdict tone={toneFor(score, verdict)}>{pillLabel(verdict)}</Verdict>
               </div>
             )}
             <div className="min-w-0 space-y-1">

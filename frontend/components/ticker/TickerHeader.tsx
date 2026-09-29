@@ -17,7 +17,7 @@ import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
 import { useTickerScore } from "@/lib/hooks/useTickerScore";
 import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
 import { fmtMoney } from "@/lib/format";
-import { toneForNullable, verdictLabel } from "@/lib/tierColor";
+import { toneForNullable, pillLabel } from "@/lib/tierColor";
 import type { TickerSummaryOut } from "@/lib/api/types";
 
 // Reads the precomputed TickerScore row (same source as Screener/Watchlist)
@@ -33,7 +33,7 @@ function AssessmentChip({ symbol }: { symbol: string }) {
 
   return (
     <Status tone={toneForNullable(data.overall_score, data.overall_verdict)} title={`As of ${new Date(data.computed_at).toLocaleString()}`}>
-      {verdictLabel(data.overall_verdict)}
+      {pillLabel(data.overall_verdict)}
     </Status>
   );
 }

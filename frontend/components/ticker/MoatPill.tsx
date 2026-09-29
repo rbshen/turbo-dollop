@@ -1,5 +1,6 @@
 import { Status, type StatusTone } from "@/components/ui/status";
 import { MOAT_LABELS, type MoatValue } from "@/lib/overallScore";
+import { pillLabel } from "@/lib/tierColor";
 
 // Reuses the scoring system's own tokens directly (no separate Moat
 // palette) -- a 3-state good/mid/bad read, same as Valuation: No Moat is
@@ -52,5 +53,5 @@ interface Props {
 export function MoatPill({ moat, labelSet = "full" }: Props) {
   if (!moat) return null;
 
-  return <Status tone={MOAT_TONE[moat]}>{LABEL_SETS[labelSet][moat]}</Status>;
+  return <Status tone={MOAT_TONE[moat]}>{pillLabel(LABEL_SETS[labelSet][moat])}</Status>;
 }

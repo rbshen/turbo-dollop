@@ -1,4 +1,5 @@
 import { Status } from "@/components/ui/status";
+import { pillLabel } from "@/lib/tierColor";
 
 // Labels for the three tracked named indices, keyed by the backend's raw
 // index_name values (core/models.py::IndexConstituent.index_name) --
@@ -16,13 +17,10 @@ interface Props {
   memberships: string[] | null | undefined;
 }
 
-// Own distinct pill tone ("index", app/globals.css's --fathom-index-membership,
-// a teal validated against every other semantic/chart color in use) --
-// index membership is a fact about the ticker, not a Pass/Fail-style verdict
-// or Speculative Growth's violet classification, so it deliberately doesn't
-// reuse a verdict tone. Otherwise the same pill as every other status.
+// Index membership is a fact about the ticker, not a Pass/Fail-style verdict
+// or a classification worth a colour of its own, so it's a neutral pill.
 export function IndexMembershipPill({ memberships }: Props) {
   if (!memberships || memberships.length === 0) return null;
 
-  return <Status tone="index">{memberships.map((name) => INDEX_LABELS[name] ?? name).join(" · ")}</Status>;
+  return <Status tone="neutral">{pillLabel(memberships.map((name) => INDEX_LABELS[name] ?? name).join(" · "))}</Status>;
 }

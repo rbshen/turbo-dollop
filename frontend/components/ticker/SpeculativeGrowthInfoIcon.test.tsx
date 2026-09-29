@@ -60,19 +60,19 @@ function PillWithIcon({ data }: { data: SpeculativeGrowthOut | null }) {
 describe("SpeculativeGrowthInfoIcon pairing with the pill", () => {
   it("renders the info icon alongside the pill when qualifies=true", () => {
     render(<PillWithIcon data={QUALIFYING} />);
-    expect(screen.getByText("Speculative Growth")).toBeInTheDocument();
+    expect(screen.getByText("Speculative growth")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "About Speculative Growth" })).toBeInTheDocument();
   });
 
   it("renders neither the pill nor the icon when qualifies=false", () => {
     render(<PillWithIcon data={NOT_QUALIFYING} />);
-    expect(screen.queryByText("Speculative Growth")).not.toBeInTheDocument();
+    expect(screen.queryByText("Speculative growth")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "About Speculative Growth" })).not.toBeInTheDocument();
   });
 
   it("renders neither the pill nor the icon when data hasn't loaded yet (null)", () => {
     render(<PillWithIcon data={null} />);
-    expect(screen.queryByText("Speculative Growth")).not.toBeInTheDocument();
+    expect(screen.queryByText("Speculative growth")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "About Speculative Growth" })).not.toBeInTheDocument();
   });
 
@@ -83,7 +83,7 @@ describe("SpeculativeGrowthInfoIcon pairing with the pill", () => {
 
   it("renders the fake-growth warning alongside the pill and info icon when potential_fake_growth=true", () => {
     render(<PillWithIcon data={QUALIFYING_FAKE_GROWTH} />);
-    expect(screen.getByText("Speculative Growth")).toBeInTheDocument();
+    expect(screen.getByText("Speculative growth")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "About Speculative Growth" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Potential fake growth warning" })).toBeInTheDocument();
   });

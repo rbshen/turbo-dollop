@@ -1,5 +1,6 @@
 import { fmtSwingDate } from "@/components/technical/ChecklistCard";
 import { Status, type StatusTone } from "@/components/ui/status";
+import { pillLabel } from "@/lib/tierColor";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
 interface Props {
@@ -55,7 +56,7 @@ export function NearTermCard({ data }: Props) {
         <p className="text-sm text-text-secondary">Near-term (daily)</p>
         <div className="flex flex-wrap items-baseline gap-x-2">
           <Status tone={TREND_STATE_TONE[data.trend_state]} className="shrink-0">
-            {TREND_STATE_LABEL[data.trend_state]}
+            {pillLabel(TREND_STATE_LABEL[data.trend_state])}
           </Status>
           <span className="text-sm text-text-secondary">· {data.regime ? (REGIME_LABEL[data.regime] ?? data.regime) : "—"}</span>
         </div>

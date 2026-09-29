@@ -3,6 +3,7 @@
 import { Status } from "@/components/ui/status";
 import { asOfText, offGroupsFor, reasonText } from "@/lib/dataGroups";
 import { useDataGroups } from "@/lib/hooks/useDataGroups";
+import { pillLabel } from "@/lib/tierColor";
 
 interface Props {
   /** Data-group keys (core/data_groups.py) that feed the page/section. */
@@ -21,7 +22,7 @@ export function GroupOffBadge({ groups }: Props) {
     <div className="flex flex-wrap gap-2 pt-2" data-testid="group-off-badge">
       {off.map((g) => (
         <Status key={g.key} tone="warn" title={reasonText(g)}>
-          {g.label}: not refreshing — as of {asOfText(g)}
+          {pillLabel(g.label)}: not refreshing — as of {asOfText(g)}
         </Status>
       ))}
     </div>

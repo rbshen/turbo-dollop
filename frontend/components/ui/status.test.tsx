@@ -29,7 +29,6 @@ describe("Status", () => {
     ["caution", "caution"],
     ["negative", "negative"],
     ["speculative", "chart-purple"],
-    ["index", "index-membership"],
   ] as const)("uses the %s tone token", (tone, token) => {
     const { container } = render(<Status tone={tone}>x</Status>);
     const pill = container.firstElementChild as HTMLElement;

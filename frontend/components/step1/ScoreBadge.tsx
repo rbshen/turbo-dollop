@@ -1,5 +1,5 @@
 import { Verdict } from "@/components/ui/status";
-import { toneFor, verdictLabel } from "@/lib/tierColor";
+import { toneFor, pillLabel } from "@/lib/tierColor";
 
 // Color depends on both verdict and score: 70-74 and 75-90 both display
 // the text "Pass" (see CLAUDE.md's "Scoring rubric deviations") but need
@@ -23,7 +23,7 @@ export function ScoreBadge({ score, verdict }: Props) {
   return (
     <div className="flex shrink-0 flex-col items-end gap-1 text-right">
       <span className="font-mono text-3xl font-bold leading-none tabular-nums text-text-primary">{score}</span>
-      <Verdict tone={toneFor(score, verdict)}>{verdictLabel(verdict)}</Verdict>
+      <Verdict tone={toneFor(score, verdict)}>{pillLabel(verdict)}</Verdict>
     </div>
   );
 }
