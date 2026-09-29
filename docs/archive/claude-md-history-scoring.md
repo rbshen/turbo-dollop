@@ -2,7 +2,7 @@
 
 Verbatim history moved out of the original CLAUDE.md (archived at docs/archive/CLAUDE.original.md). Text is unedited; line ranges refer to that file.
 
-This file currently holds only the Valuation (Step 3) scoring-notes history (phase B4). The Financials/Growth/Debt/Profitability/Overall scoring-rubric history (original lines 446-1613) is appended in a later phase (B5).
+This file currently holds the Valuation (Step 3) scoring-notes history (phase B4) and the Financials + Growth Rate scoring-rubric history (original lines 446-1035, phase B5a). The Debt/Profitability/Overall-weighting scoring-rubric history (original lines 1036-1613) is appended in a later phase (B5b).
 
 
 ## Valuation (Step 3) scoring notes: heading and intro (original lines 1945-1951)
@@ -379,3 +379,647 @@ these are the design decisions and fixes behind them.
     zero negative `intrinsic_value_per_share` remain anywhere in the 572-ticker universe
     (any method, any company type); zero exceptions.
 
+
+
+## Scoring rubric notes: heading, Financials intro, verdict bands and badge shading (original lines 446-458)
+
+## Scoring rubric notes
+
+Financials' scoring rubric has been refined several times after live
+testing against real tickers — these are deliberate tuning decisions, not
+implementation drift. `financials.md` is the technical reference for the
+exact current thresholds and formulas; `backend/scoring/trend.py` and
+`backend/scoring/step1.py` are the source of truth in code, with comments
+at each point below. Notable design decisions and fixes:
+
+- **Verdict bands** are 0-69 Fail / 70-90 Pass / 91-100 Strong Pass. The score badge further splits the
+  70-90 "Pass" band into two color shades (70-74 amber, 75-90 light green)
+  without a text distinction — see `frontend/components/step1/ScoreBadge.tsx`.
+  Growth Rate uses the same bands and badge.
+
+
+## Financials: Margins windowed-direction classification (superseded stdev framing) (original lines 459-462)
+
+- **Margins classification** uses windowed early-vs-late direction plus
+  explicit dip-count and sustained-decline checks, not a raw stdev-of-diffs
+  volatility check — a single big dip-and-full-recovery year no longer
+  reads as "wildly inconsistent" just because it produces high variance.
+
+
+## Financials: multi-dip trend tier split by recovery (superseded flat 40/75 reading) (original lines 463-468)
+
+- **Multi-dip trend tier** (2+ real dips in Revenue/Net Income/CFO/Operating
+  Income) is split by recovery rather than one flat score: an unrecovered
+  dip (TTM hasn't reclaimed the pre-dip peak) stays at 40; once every dip
+  has recovered past its own pre-dip peak, it scores 75 regardless of how
+  recently the dip happened -- a fully resolved dip reads the same whether
+  it was 5 years ago or last fiscal year.
+
+
+## Financials: classify_trend made age-aware, contiguous dips merge (2026-08-08) -- HWM case and 113/569 audit (original lines 469-493)
+
+- **`classify_trend` (`scoring/trend.py`) made age-aware, and contiguous
+  dip transitions now merge into one event (2026-08-08)** -- the tier
+  above previously required LITERAL recovery only (TTM re-clearing a
+  dip's own pre-dip peak), with no age-awareness at all: an old,
+  durably-recovered dip could permanently cap a series at
+  `multiple_dips`/40 even after 5+ clean recovery years, simply because
+  TTM never re-cleared a possibly-structural old peak. Confirmed hitting
+  113/569 tracked tickers (20%), 96 currently "Fail" overall. A dip can
+  now also resolve via a secondary durable path (age >=4 periods, >=3
+  clean trailing periods, non-negative robust late-window direction) --
+  new pattern `dip_durably_resolved`, same 75 score, kept distinct only so
+  the reasoning panel says "durably improved, not yet a new high" rather
+  than implying a literal new peak. The flat TTM-decline-forces-0 override
+  is now graduated (only fires beyond a 15% decline, not any real
+  decline), and `flat_then_spike` is narrowed by the same robust-average
+  convention Margins/CCC use. Full mechanism, exact thresholds, and the
+  regulated-utilities FCF capex-driven softening this same build shipped
+  are documented in `financials.md`'s "Trend classification"/"Free Cash
+  Flow classification" sections, not duplicated here. Motivating case:
+  HWM's Revenue (a 2018 pre-Arconic-split peak never literally re-cleared
+  despite 6 clean growth years since) -- Financials score 66/Fail ->
+  80/Pass. Full-universe validation: 28 tickers flip Fail->Pass, 0
+  regress. Shared logic, not Step-1-local -- Step 3's method-selection
+  tree and Step 4's ROE/ROIC recovery-aware exclusion (`profitability.md`)
+  both reuse the same underlying machinery.
+
+
+## Financials: Margins sustained_decline override gated on durable reversal -- 128/499 audit and 16-ticker fall-through finding (original lines 494-512)
+
+- **Margins' `sustained_decline` override (Rule 1) is gated on durable
+  reversal**, not unconditional. The 10yr+TTM window extension exposed the
+  same class of bug fixed in Profitability's CCC classifier: a sustained decline
+  occurring once anywhere in the window (frequently the COVID-2020 FY)
+  permanently capped the score at "gradually_compressing" even when the
+  company had since fully recovered to new highs. Confirmed affecting
+  128/499 tickers (26%), including MSCI, ADBE, CRM, TJX, PG, STE, VRSN. The
+  override now only applies if direction is still net negative, OR the
+  current (TTM) value is still below the early-window baseline `direction`
+  itself is measured against (deliberately not the single pre-decline
+  value, which is frequently an anomalous spike rather than a real
+  baseline — requiring re-exceedance of a spike would leave genuine
+  recoveries capped forever). Exempted cases read straight off the
+  stable/expanding check rather than falling through to Rule 2 (whose
+  independent per-series dip-count logic has its own separately-known
+  issues — see below) — falling through was found to actively worsen 16
+  tickers from 60 to 0 during verification. The sharp-decline check still
+  runs first regardless of reversal status, so a still-declining net
+  margin is never excused by an unrelated gross-side recovery.
+
+
+## Financials: Rule 2 wildly_inconsistent trigger and fixed 2-point dip threshold -- known unfixed issues (GOOGL/MCK examples) (original lines 513-521)
+
+- **Rule 2's "wildly_inconsistent" trigger (2+ real dips netting flat) and
+  the fixed 2-point absolute dip threshold are known, separate issues, not
+  yet fixed.** Rule 2 fires independently per-series (gross OR net), so a
+  company with one genuinely choppy series and one clearly, strongly
+  improving series (e.g. GOOGL: net margin nearly doubled, direction
+  +14.6) can still land on the worst possible score. Separately, the
+  2-point absolute dip threshold isn't scaled to a company's margin level,
+  so naturally low-margin businesses (e.g. MCK, ~1-5% margins) can trip it
+  on ordinary noise. Both deferred pending a follow-up investigation.
+
+
+## Financials: score_step1 insufficient_data instead of fabricated Fail (original lines 522-538)
+
+- **`score_step1` returns `score: None, verdict: "insufficient_data"`**
+  (Step2Out/Step4Out/Step5Out's own convention) when any of Revenue/Net
+  Income/CFO/Margins/FCF has too few real data points to classify — rather
+  than folding `classify_trend`'s/`_classify_fcf`'s "insufficient_data"
+  pattern (score `0`) into the weighted sum like any other real result. A
+  prior version of this code did exactly that, fabricating a scored Fail
+  out of a data gap: confirmed via repro that a single failed FMP fetch
+  (e.g. `cash_flow_statement`) on an otherwise-strong ticker dragged the
+  score down to 65/"Fail" purely because CFO/FCF read as `insufficient_data,
+  0` rather than being excluded. This is the same class of bug already fixed
+  in Growth Rate (`cache.py::safe_fetch` swallows `httpx.HTTPError` to `{}`,
+  indistinguishable downstream from a genuinely-thin real response) — CFO-
+  exempt companies (Bank/Property Developer/Commodity) are unaffected, since
+  cfo/fcf simply aren't required for them. Net Income's own Operating-Income
+  backup is unaffected too: NI only counts as a genuine gap if OI's
+  `classify_trend` also reads `insufficient_data` — if OI has real data, the
+  existing backup mechanism already produces a legitimate score.
+
+
+## Financials: hard positivity gate (2026-08-03) and NI Operating-Income backup recency gate -- SYM case and 29-ticker recompute (original lines 539-591)
+
+- **Revenue, Net Income, and CFO must clear a hard positivity gate on top
+  of `classify_trend`'s existing dip/recovery grading (2026-08-03)**, via
+  `scoring/step1.py::_classify_positive_trend`. `classify_trend` is purely
+  relative — it only asks whether a series has grown/recovered relative to
+  its own prior points, never whether the current value is actually
+  positive. Confirmed real case: SYM (Symbotic) has posted a net loss every
+  single year for 8 straight periods (-$104.4M FY19 → -$4.97M TTM, each
+  "dip" a relative worsening that later reverses) yet scored
+  `multiple_dips_resolved`/75 — indistinguishable from a company that had
+  actually turned the corner into real profitability. The gate is narrow
+  and additive, not a rewrite: if the current/TTM value is ≤0, the result
+  reads `not_yet_positive`/0 regardless of what the relative trend pattern
+  says; if TTM is positive, `classify_trend`'s own tiers (100/90/85/75/
+  40/20/0) are used unchanged — a historical dip, even one that went
+  negative mid-dip, is still tolerated as long as the series has since
+  recovered and the current value clears zero. Deliberately does **not**
+  tighten `classify_trend`'s own recovery math (e.g. to penalize a
+  volatile, sign-flipping history) — only the current value's sign is new;
+  a currently-positive-but-historically-choppy series (SYM's CFO: 3 full
+  sign-flips before settling positive the last 2 periods) still scores
+  `multiple_dips_resolved`/75, unchanged. `classify_trend` itself,
+  `RECOVERY_PATTERNS`, and every other consumer (Valuation's method-selection
+  tree, Profitability's ROE negative-equity substitute, `_classify_fcf`'s own
+  separate cash-burn-recovery logic) are untouched — this is a
+  Financials-local wrapper, not a change to the shared primitive.
+  - **Net Income's Operating-Income fallback is now recency-gated**
+    (`NET_INCOME_BACKUP_RECENCY_YEARS = 2`, via the new
+    `scoring/trend.py::most_recent_real_dip_age`), replacing the old
+    threshold-only trigger (`net_income_raw.score <= 40` alone, regardless
+    of how long ago the disqualifying dip happened). The fallback exists
+    for a plausible one-off — a charge that hit 1-2 years ago — not a
+    chronic, long-unresolved Net Income problem; OI is only consulted when
+    NI's failing dip landed within the last 2 periods (inclusive of the
+    current/TTM period itself — the single most common one-off shape, a
+    charge that just hit the latest reported period). NI having too few
+    points to have any notion of "recency" (`insufficient_data`) still
+    unconditionally checks OI, unchanged from before.
+  - **Confirmed via a full-universe recompute** (503 S&P 500 + Dow
+    tickers, `recompute_ticker_scores.py`, cache-only/zero FMP calls): 29
+    tickers' Financials score changed, 6 flipped verdict (all Pass → Fail,
+    never the reverse — a stricter gate can only lower a score):
+    **AVB** (75→64), **C** (72→61), **CCL** (73→66), **CTSH** (73→66),
+    **GEN** (76→69), **PSKY** (75→58). 0 Overall Assessment verdicts
+    flipped — Financials' ~24% weight in the Overall blend (see
+    `STEP_WEIGHTS` below) wasn't enough on its own to cross a Pass/Fail
+    boundary for any of these 29, though 22 tickers' Overall score moved.
+    Two failure shapes confirmed in the changed set: **MRNA** (Moderna) —
+    Net Income *and* CFO both currently negative, correctly reading
+    `not_yet_positive`/0 on both (a genuine, still-unresolved post-COVID
+    revenue/cash-burn problem, not a relative-recovery false positive);
+    **AVB/C/CCL/CTSH/GEN** — Net Income's old dip is real but more than 2
+    periods back, so the recency-gated OI fallback correctly stops
+    rescuing it (previously capped-rescued to 80 regardless of recency).
+
+
+## Financials: flat_then_spike protect_terminal gate and Margins robust_early_direction (2026-08-13) -- GLW investigation (original lines 592-661)
+
+- **`flat_then_spike` (CFO/Revenue/NI/OI) and Margins' `sharply_declining`
+  check both fixed for a stale-baseline/stale-average distortion
+  (2026-08-13), following a GLW investigation.** Two independent bugs,
+  same root shape (an old anomalous value poisoning a reference average
+  or gate), found via a from-scratch trace of GLW's Step 1 score (58/Fail
+  despite recovering Revenue/CFO/FCF):
+  1. **CFO's `flat_then_spike` gate discarded TTM as noise even when TTM
+     was the actual evidence of a real recovery.** `robust_late_direction`
+     (used to confirm a terminal jump is backed by genuine multi-year
+     improvement, not just a lone spike) excludes the late window's single
+     most extreme point before averaging — but with no way to tell "TTM is
+     a plausible continuation of the trend" from "TTM is a fluke," it
+     always treated TTM as the excludable outlier whenever it happened to
+     be the late window's most extreme point, throwing out the one number
+     that mattered. Fixed by gating `protect_terminal=True` on the size of
+     the jump into TTM: only protected when the jump is **≤100%** (reusing
+     `DIP_BASELINE_SPIKE_RATIO`, the same threshold `_effective_pre_dip_
+     value` already uses to flag an unreliable one-off jump elsewhere in
+     this file) — a modest, plausible jump gets trusted; a jump with no
+     precedent anywhere in the series' history still doesn't. Stress-
+     tested against the full universe before shipping (not just GLW):
+     **NBIS** (CFO +682.9% YoY, no precedent in 10 years of history) and
+     **VLO** (Net Income +207.2%, a second single-year commodity-margin
+     spike in a business that already lived through one boom-bust cycle in
+     this exact window) both stay conservatively unrescued, confirming the
+     magnitude gate — not just "add `protect_terminal=True`" — was
+     necessary. Only 2 tickers in the tracked universe hit this exact gate
+     (GLW, CVS); of the wider 9-ticker `flat_then_spike` population, only
+     GLW/YUM (CFO/NI) actually flip to a materially better pattern.
+  2. **Margins' `sharply_declining` check had no equivalent to NI's
+     `_effective_pre_dip_value` spike guard for its own early-window
+     average.** `net.direction` (the early-vs-late-window average
+     difference that check gates on) has no protection against a single
+     anomalous point *inside* the early window — GLW's 2016 net margin
+     (39.35%, an evident one-off immediately followed by a -4.91% 2017)
+     inflated the 3-year early average enough that `direction` read -6.2pp
+     even though net margin has genuinely recovered the last 3 years
+     (4.62 → 3.86 → 10.21 → 11.2%). New `robust_early_direction`
+     (`scoring/series_trend.py`) mirrors the already-shipped
+     `robust_late_direction` — single most extreme point excluded before
+     averaging — but applied to the early window. **Deliberately not a
+     safe drop-in replacement for `direction`**: the exclusion is
+     symmetric by construction, so it can just as easily exclude a genuine
+     LOW early value (a real trough, not a spike) — which *raises* the
+     early average and makes the reading *more* negative, the opposite of
+     the intended fix. Confirmed via a full-universe check: an unguarded
+     version regressed 16 tickers, most dramatically **DVN** (whose 2016
+     oil-crash trough got excluded, collapsing Margins from
+     `stable_or_expanding`/100 to `sharply_declining`/20). Fixed by using
+     `max(direction, robust_early_direction(...))` at this one call site
+     only — never the robust value alone, and never touching `direction`
+     anywhere else in `_classify_margins` (`_series_recovered`,
+     `_stable_and_spike_robust`, Rule 2, and Rule 2's own separate
+     `sharply_declining` check at the bottom of the function are all
+     untouched) — the fix is scoped to exactly the one branch that was
+     wrong, not a general redefinition of "direction." With `max()`
+     guarding it, 0 tickers regress.
+  - **GLW's Financials score: 58/Fail → 78/Pass.** CFO: `flat_then_spike`/
+    20 → `multiple_dips_resolved`/75 (CFO's TTM, $3.915B, is a literal new
+    high 14.7% above its own 2021 peak). Margins: `sharply_declining`/20 →
+    `gradually_compressing`/60 (not a full `stable_or_expanding` rescue —
+    `_series_recovered`'s own gate is untouched by this fix, so GLW only
+    gets credit for no longer being falsely flagged as currently sharply
+    declining, not for a durable full recovery).
+  - **Confirmed via a full-universe recompute: 18 tickers changed, 5
+    verdict flips, 0 regressions.** Flips (all upward): **GLW** (58→78,
+    Fail→Pass), **CPT** (64→72, Fail→Pass), **WELL** (68→76, Fail→Pass),
+    **CSX** (67→71, Fail→Pass), **ICE** (87→91, Pass→Strong Pass). The
+    other 13 changed tickers move within their existing verdict band
+    (APD, EQR, WY, AXTI, CVS, CME, CNI, EBAY, GEHC, LITE, MO, NSC, VST).
+
+
+## Financials: declining and not_yet_positive graduated (2026-08-13) -- 141/45-hit scans and recompute (original lines 662-704)
+
+- **`declining` and `not_yet_positive` graduated (2026-08-13)**, the
+  remaining two Step 1 hard-fail cliffs found in the same universe-wide
+  investigation that produced the CFO/Margins fix above and Step 2's/
+  Step 4's/Step 5's own graduated-scale fixes (see their respective
+  entries).
+  - **`declining`** (`scoring/trend.py`, the severe->15% TTM decline
+    override) was a flat 0 no matter how far past -15% the drop was.
+    Confirmed via a full-universe scan: 141 hits, ranging from 15.2%
+    (barely past the line) to absurd outliers driven by a near-zero
+    prior-year base (e.g. INTC net income read as a -4128% "decline").
+    Now graduates from 15 points (just past -15%) to 0 (at -50% or
+    worse) — 50% chosen because it covers 101/141 (72%) of real hits.
+    `classify_trend` is shared with Step 3's method-selection tree and
+    Step 4's ROE/ROIC recovery checks, but both only test pattern
+    membership in `RECOVERY_PATTERNS` (`declining` was never in that set
+    either way) — confirmed via a project-wide grep of every
+    `classify_trend` call site that this is a Step-1-only score change,
+    despite living in the shared file.
+  - **`not_yet_positive`** (`scoring/step1.py`, Revenue/Net Income/CFO's
+    positivity gate) was a flat 0 regardless of how close to breakeven
+    the current value was. Confirmed via a full-universe scan: 45 hits,
+    margin (value ÷ real revenue) ranging from -149.0% (MRNA operating
+    margin, a real structural loss) to -0.1% (ZETA net margin,
+    effectively breakeven) — 44% of hits sat under -5% margin. Now
+    graduates from 15 points (at 0% margin) to 0 (at -20% margin or
+    worse, covering 34/45 (76%) of real hits) — measured against real
+    revenue (the same denominator Margins itself uses, threaded through
+    as a new optional `revenue_for_scale` parameter on
+    `_classify_positive_trend`; falls back to the original flat 0 when no
+    revenue is available to normalize against). `_classify_positive_trend`
+    is Step-1-local (confirmed via grep — no other step calls it), so
+    this has no cross-step ripple.
+  - **No companion-floor risk, confirmed not just assumed**: Step 1's
+    `_verdict_for` (unlike Step 2's/Step 4's pre-fix versions) is purely
+    `VERDICT_BANDS` on the final blended score — no per-component gate on
+    any individual pattern or score exists to interact badly with a
+    graduated value, verified by reading the actual implementation before
+    shipping, not inferred from the band design alone.
+  - **Confirmed via a full-universe recompute: 71 tickers changed, 2
+    verdict flips, 0 regressions.** Both flips upward: **SNPS** (68→71,
+    Fail→Pass — Net Income `declining`/0→13, crossing the OI-backup
+    threshold and pulling the blend over 70) and **CNC** (68→70,
+    Fail→Pass — Net Income `not_yet_positive`/0→13).
+
+
+## Financials: multiple_dips (unresolved) graduated (2026-09-10) -- UNH/DDOG investigation, 37-regression simulation, 47-flip recompute (original lines 705-777)
+
+- **`multiple_dips` (unresolved dip) graduated (2026-09-10)**, following a
+  dedicated UNH-vs-DDOG investigation (UNH: Financials 66/Fail; DDOG:
+  90/Pass) that generalized into the same class of hard-fail-cliff bug as
+  the fixes above, just for the ONE bucket those investigations didn't
+  already cover. `classify_trend` (`scoring/trend.py`) used to return a
+  flat 40 for ANY unresolved dip event regardless of how close to recovery
+  TTM actually was — a single merged dip event that's 0.1% away from its
+  own baseline scored identically to one still thousands of percent below
+  it. Confirmed via a 572-ticker cache-only scan: 381 tickers hit this
+  flat 40; the mildest 20 (ADI, ZBH, VTRS, MKC, AVB, TXN, CB, EW, CI,
+  DLTR, TMP, EA, ZBRA, TXT, WSM, HPQ, PSA, PPG, TMO, HCA) all sat within
+  ~1.7% of their own baseline. UNH itself: Net Income genuinely -36.9%
+  below its own pre-dip baseline (correctly stays near the floor), CFO
+  only -7.1% below baseline (was wrongly scoring the same flat 40 as NI).
+  - New `MULTIPLE_DIPS_CEILING` (70), `MULTIPLE_DIPS_FLOOR` (40 — the OLD
+    flat value, preserved as the floor so a genuinely severe, still-
+    unresolved dip like SMCI/MRNA/PARA/ECHO/LITE/JOBY/ARE never scores
+    BETTER than before), `MULTIPLE_DIPS_SEVERE_FRAC` (30%, chosen from the
+    real distribution — hits cluster either near-zero or far beyond 30%).
+    Score graduates linearly as `shortfall_frac` — `(baseline - TTM) /
+    abs(baseline)`, i.e. how far below its own pre-dip baseline TTM
+    currently sits — moves from 0% to the 30% cutoff.
+  - **Deliberately scoped to ONLY this one bucket.**
+    `multiple_dips_resolved`/`dip_durably_resolved` (still flat 75) and
+    Margins' `gradually_compressing` (still flat 60) were investigated and
+    simulated in the same pass and found to have the identical
+    severity-insensitivity bug, but are held for later review — unlike
+    this bucket, their ceiling would have to sit AT the current flat value
+    rather than above it (any graduation is a pure score decrease for at
+    least some tickers), and margins' graduation in particular showed a
+    concerning interaction with Bank/Insurance-type tickers (GS, CB — both
+    CFO-exempt, so Margins carries outsized weight — regressed Pass→Fail
+    purely from a margin-severity read that may itself be noise for those
+    company types) that needs its own investigation before shipping.
+  - **Mandatory companion fix**: `scoring/step1.py::
+    NET_INCOME_BACKUP_THRESHOLD` raised from 40 to 70 (== 
+    `MULTIPLE_DIPS_CEILING`, enforced by a same-file test). That threshold
+    gates Net Income's Operating-Income backup on `net_income_pos_result.
+    score <= NET_INCOME_BACKUP_THRESHOLD` — an exact-value comparison
+    against `classify_trend`'s own output, unlike every other consumer in
+    this codebase (Step 3's method-selection tree, Step 4's ROE/ROIC
+    recovery checks, Step 1's own FCF recovery check), which all test
+    `pattern in RECOVERY_PATTERNS` and are therefore completely unaffected
+    by a score-value change. Left at 40, a mildly-graduated NI score (e.g.
+    45–65) would have silently fallen outside the backup's trigger range
+    even though Operating Income would still have rescued it further.
+    Confirmed via simulation BEFORE shipping (not assumed): running the
+    `multiple_dips` graduation in isolation, without this companion
+    change, regressed 37 tickers (e.g. CTVA 94→88, CL 88→82, AEP 84→80) —
+    each purely from losing an already-computed OI rescue, with zero
+    change to the underlying business data. Raising the threshold to 70
+    eliminates all 37 regressions.
+  - **Confirmed via a full-universe recompute (572 tickers, cache-only):
+    47 Step 1 verdict flips, 0 regressions, exactly matching the
+    pre-shipping simulation.** All 47 flips are Fail→Pass (ABT, AVB, BMY,
+    C, CALM, CCJ, CDW, CSCO, CTSH, CVS, CVX, DAL, DIS, EA, EOG, ETR, FITB,
+    HAS, **HCA**, IBM, JBL, KDP, KMI, LRCX, MAS, MDLZ, MPC, NSC, NWS, NWSA,
+    OMC, PNR, PPG, Q, REGN, ROK, SRE, TEAM, TFC, TGT, **TMO**, TXT, **UNH**,
+    WSM, XEL, **ZBH**, ZBRA — bold: the tickers directly named in the
+    motivating investigation). 11 Overall Assessment verdicts flip
+    (all upward: 8 Fail→Pass/Pass-with-caution, 2 Pass→Strong Pass, 1
+    additional Fail→Pass — ABT, CCJ, CDW, CMG, CPRT, DHI, ETSY, HCA, JBL,
+    PSX, QCOM). A further 150 tickers' Step 1 score moved without a
+    verdict flip (all increases — zero decreases anywhere, step1 or
+    overall, confirmed by direct before/after diff). **UNH: 66→73
+    (Fail→Pass)** — Net Income stays at the floor (40, genuinely -36.9%
+    below baseline), CFO rises 40→63 (-7.1% below baseline, graduated:
+    `70 - 30*(0.071/0.30) ≈ 63`), blend `100×.35 + 40×.20 + 63×.30 +
+    60×.10 + 100×.05 = 72.9 → 73`. **DDOG: unchanged at 90/Pass** — its
+    dips all sit in the untouched `multiple_dips_resolved`/
+    `significant_dip_recovers` buckets. Severe-case tickers (SMCI, MRNA,
+    PARA, ECHO, LITE, JOBY, ARE) are all byte-identical before/after,
+    confirming the floor holds.
+
+
+## Financials: Bank Margins exemption, resolved-dip graduation (b), Margins-compression graduation (c) (2026-09-10) (original lines 778-910)
+
+- **Bank Margins exemption, resolved-dip severity graduation (bucket b),
+  and Margins-compression severity graduation (bucket c) all shipped
+  together (2026-09-10)**, following a dedicated feasibility investigation
+  into the two buckets `multiple_dips` graduation above deliberately held
+  back, plus a separate Bank-specific investigation that surfaced a third,
+  related issue in the same review. All three landed in one build since
+  bucket (c)'s carve-out design depends on bucket (a)'s Bank Margins
+  exemption already existing (a Bank ticker never reaches `_classify_
+  margins` at all once excluded, so it needs no carve-out there).
+  - **Bank Margins exemption.** A Bank's `gross_margin`/`net_margin` is
+    computed from the same raw `grossProfit`/`revenue` GAAP line already
+    swapped out for Net Interest Income everywhere else in Step 1 for
+    exactly this reason — it isn't a coherent concept for a lending
+    institution. Confirmed via a full-universe scan: **all 28 Bank-
+    classified tickers** with margin data show the identical artifact —
+    `grossProfit/revenue` at or above 100% (AXP 100.3%, COF 101.1%, JPM
+    102.9%, RF 105.4%, CFG 101.0%, NTRS 100.9%, WFC 100.3%, PNC 101.5%,
+    etc. — mathematically impossible as a real "gross margin") around
+    FY2021, then a permanent drop to a 42–77% plateau from FY2022 on — an
+    FMP data-methodology break specific to financial-services reporting
+    around that period, not a real margin trend, universal across the
+    whole Bank population rather than a GS/AIG coincidence. New
+    `MARGINS_EXEMPT_TYPES = {"Bank"}` (`data/step1_data.py`) — same
+    mechanism as the existing CFO/FCF exemption:
+    `Step1Out.components.margins = None`, and a new weight table
+    `WEIGHTS_CFO_MARGINS_EXEMPT` (`scoring/step1.py`) redistributes
+    Margins' `WEIGHTS_CFO_EXEMPT`-stage weight (13/60, ~21.67%)
+    **proportionally** across Revenue and Net Income — not a flat 50/50
+    split — preserving their existing 28:19 ratio: **Revenue 28/47
+    (~59.57%) / Net Income 19/47 (~40.43%)**. Deliberately scoped to Bank
+    only: the same investigation found Insurance's and Commodity Company's
+    margins mostly a working signal (excluding them would fix nothing —
+    0/3 of Insurance's own noisy exceptions, AFL/AIG/MFC, actually flip
+    verdict from exclusion), and REIT/Property Developer's margin noise a
+    real but *differently shaped* issue (a sudden terminal-period
+    collapse — O 89–95%→48.1% TTM, PSA 70–75%→25%→60.4%, VTR going
+    literally negative — rather than Banks' universal mid-history spike),
+    with a different root cause not investigated or fixed here.
+    Confirmed via a full-universe recompute: **7 of 28 Bank tickers flip
+    Fail→Pass** — BNY, CFG, KEY, NTRS, STT, USB (all as predicted by the
+    pre-shipping simulation); **WFC did NOT flip as the isolated
+    simulation predicted** (59→67, stays Fail, not 59→70/Pass) — the
+    isolated Bank-margins-only simulation assumed Net Income stayed at
+    the old flat 75, but bucket (b) below (shipped in the same build)
+    independently graduates WFC's own `multiple_dips_resolved` Net Income
+    down to 67, pulling the blend (67×0.5957 + 67×0.4043 = 67) just under
+    the Pass line — a genuine three-way interaction between the two
+    fixes, not a bug in either one alone. COF/TMP move down slightly
+    (Margins was propping up an otherwise-weaker NII/NI blend for both) —
+    expected and correct, not a regression to chase.
+  - **Bucket (b): `multiple_dips_resolved`/`dip_durably_resolved`
+    severity graduation.** Both patterns scored a flat 75 no matter how
+    severe the historical (now-recovered) dip was — PEP CFO's mildest
+    resolved hit (-7.0% peak-to-trough) scored the same as VRT NI's most
+    severe (-25,650,370% peak-to-trough, a near-zero-baseline artifact).
+    Unlike bucket (a), severity here is measured as dip DEPTH relative to
+    the series' CURRENT (TTM) scale — `|baseline - trough| / |TTM|` — not
+    peak-relative %, since DDOG-shape dip baselines are tiny/negative
+    pre-revenue-scale numbers that make a peak-relative % meaningless;
+    this correctly separates DDOG-shape cases (worst depth ~33% of
+    current scale) from ABNB/BKR-shape ones (~170%/~319% of current
+    scale, clipped to the floor). New `RESOLVED_CEILING = 75` (matches
+    the old flat value — unlike bucket (a), this bucket has no headroom
+    to graduate upward, so it can only ever lower some tickers' scores,
+    a structurally different, not-regression-free shape confirmed and
+    accepted via the feasibility investigation), `RESOLVED_FLOOR = 65`,
+    `RESOLVED_SEVERE_FRAC = 1.0` (100% of current scale) — the floor
+    chosen as the best tradeoff between meaningfully penalizing genuine
+    severity and avoiding the multi-component "ADI-shape" regressions a
+    lower floor produced (ADI's own resolved-bucket components alone
+    never flip it at this floor — see bucket (c) below for what
+    actually does). `RECOVERY_PATTERNS` membership checks (Step 1's own
+    FCF recovery check, Step 3's method-selection tree ×2, Step 4's
+    ROE/ROIC recovery checks ×2 — 6 call sites total) all test `.pattern`
+    only, confirmed unaffected by the score-value change.
+  - **Bucket (c): `gradually_compressing` severity graduation, WITH a
+    carve-out for the REMAINING `AR_EXEMPT_TYPES`.** Same shape as bucket
+    (b) — `MARGINS_CEILING = 60` (matches the old flat value, no upward
+    headroom), graduating down to `MARGINS_FLOOR = 45` as the worse of
+    gross/net `direction` passes `MARGINS_SEVERE_PP = 12.0` points beyond
+    `MARGIN_STABLE_TOLERANCE`. Deliberately gentle parameters — a more
+    aggressive version was found, during the feasibility investigation,
+    to regress ADI (a real, modest -5.85pp semiconductor-cycle margin
+    compression, genuine not an artifact) combined with its own
+    resolved-bucket components; these gentler parameters keep it Pass.
+    New `MARGINS_SEVERITY_CARVEOUT_TYPES = {"Insurance", "REIT/Property
+    Developer", "Utility"}` (`scoring/step1.py`) keeps `gradually_
+    compressing` at the flat 60 for these three types regardless of
+    severity — Bank is deliberately NOT in this set (it's excluded from
+    `_classify_margins` entirely by bucket (a) above, so it never reaches
+    this carve-out check; `carveout=True` is accepted as a defensive
+    no-op parameter, not expected to ever actually gate a Bank in
+    practice). Computed from `classify_company_type`'s own raw return
+    value in `data/step1_data.py` (NOT `_detect_exemption`'s remapped
+    one, which renames "REIT/Property Developer" to "Property Developer"
+    for Step 1's own display purposes and never surfaces "Utility" at all
+    — Utility was never CFO-exempt in Step 1, but does need this
+    Margins-only carve-out independently). Confirmed via a full-universe
+    scan the carve-out is genuinely load-bearing, not redundant: CBRE
+    (REIT, mild -5.61pp) and HST (REIT, severe -27.87pp) both stay at the
+    identical flat 60 regardless of their very different severity; AFL/
+    AIG (Insurance) and NEE (Utility) likewise unaffected.
+  - **Reasoning text (`frontend/components/step1/Step1Card.tsx`):
+    `verdictSentence` needed no change at all** — confirmed already fully
+    dynamic (filters `componentRows` off whichever keys are non-null in
+    `data.components`), so a Bank's blurb automatically stops mentioning
+    Margins once `components.margins` is `None`, the same way it already
+    handled CFO/FCF. The one genuinely hardcoded spot was the `notes`
+    exemption line ("Cash Flow and Free Cash Flow aren't scored..."),
+    fixed size regardless of company type — replaced with `exemptionNote()`,
+    built from whichever of `{cfo, fcf, margins}` are actually `null`
+    (in `METRIC_ORDER`'s order), with correct `isn't`/`aren't` agreement
+    for 1 vs. 2+ items. A Bank now reads "Cash Flow, Margins, and Free
+    Cash Flow aren't scored for this company — classified as a Bank.";
+    every other exempt type is byte-identical to before ("Cash Flow and
+    Free Cash Flow aren't scored...").
+  - **Confirmed via a full-universe recompute (572 tickers, cache-only):
+    22 Step 1 verdict flips (16 non-Bank — exactly matching the
+    pre-shipping bucket-(b)+(c) simulation's prediction — + 6 of the 7
+    predicted Bank flips, WFC's discrepancy explained above — confirmed
+    additive with zero overlap between the two populations), 5 Overall
+    Assessment flips (2 from bucket (b)/(c): ETSY/PSX Pass→Fail — both
+    wafer-thin boundary cases already sitting at exactly 70 pre-fix, +3
+    newly Bank-driven: FITB/MTB/PNC Fail→Pass — again confirmed additive,
+    zero overlap). 429 further score changes with no verdict flip, all
+    within a small, bounded magnitude (largest single-ticker decrease:
+    TMP -8; largest increases: the Bank beneficiaries, up to +14) — no
+    implausible outliers anywhere. UNH/DDOG/GS/CB/HCA/TXN/TMO and the
+    named severe-case tickers (SMCI, MRNA, PARA, ECHO, LITE, JOBY, ARE)
+    all move only slightly (≤4 points) and stay in their existing verdict
+    band, as expected — none of these were bucket-(a)-adjacent motivating
+    cases for buckets (b)/(c) specifically.
+
+
+
+## Growth Rate: methodology substitution, verdict divergence, score floor, EPS preference, target-year picker, insufficient_data, negative-magnitude graduation (original lines 911-1035)
+
+Growth Rate's original methodology called for averaging projections
+across 3-4 independent platforms (GuruFocus, Finviz, Zacks, etc.) and
+comparing them for cross-platform agreement. FMP is Fathom's sole data
+source, so this is substituted with FMP's `/analyst-estimates` endpoint,
+which aggregates multiple analysts (not multiple platforms) into
+avg/high/low per forward fiscal year — see `growth.md` for the exact
+current formulas. Notable design decisions:
+
+- The average projected growth rate (CAGR from the nearest forward
+  estimate to the forward estimate closest to 4 years out) stands in for
+  what a cross-platform average would have been.
+- The high/low spread as a % of the average, for that same target year,
+  stands in for what a cross-platform "source agreement" check would have
+  been. This is **analyst estimate range**, not cross-platform consensus,
+  and is labeled as such in the API/UI (`backend/schemas.py::Step2Out`,
+  `frontend/components/step2/Step2Card.tsx`) so it's never mistaken for
+  genuine cross-platform consensus.
+- **Verdict *logic* deliberately diverges from the shared 0-69 Fail /
+  70-90 Pass / 91-100 Strong Pass scale** every other step (Financials,
+  Profitability, Debt, Overall Assessment) uses. Fail is gated on the
+  magnitude tier alone (`growth_rate_pct < 0%`, i.e. `magnitude_score == 0`), not the
+  blended score (`scoring/step2.py::_verdict_for`) — the 30%-weighted
+  agreement component should never by itself drag a genuinely
+  positive-growth company under the Fail line, so a weak-but-positive
+  magnitude tier always reads "Pass", never "Fail", regardless of the
+  blended number. Strong Pass still requires `score > 90`. This is
+  intentional and unchanged.
+- **The *score number* is floored at 70 whenever growth is non-negative**
+  (`magnitude_score > 0`), via `PASS_SCORE_FLOOR` — a fix, not part of the
+  original verdict-logic deviation above. Before this fix, a weak-but-
+  positive-growth ticker's genuinely-computed blend could land anywhere
+  in 0-69 while still displaying "Pass" text — confirmed real case
+  (2026-07-31): FTNT's EPS CAGR of +1.16% ("weak" magnitude tier, 40/100)
+  with a tight analyst spread (6.85%, "tight" agreement tier, 100/100)
+  blended to `40*0.70 + 100*0.30 = 58`, a Fail-range number sitting next
+  to "Pass" text, colored amber by the shared color system
+  (`frontend/lib/tierColor.ts`) with no visibility into Growth Rate's
+  different verdict semantics. The floor raises only the *displayed
+  score* for a Pass (FTNT now shows 70, not 58) — it does not touch
+  `magnitude_score`/`agreement_score` (the UI's own breakdown still shows
+  the raw component tiers) and can never affect an already-≥70 blend or
+  cross into Strong Pass range (floor value 70 < the `> 90` threshold).
+  Fail-verdict tickers (negative growth) are untouched: the floor's guard
+  is `magnitude_score > 0`, so a Fail still displays its real sub-70 score.
+- **EPS estimates are preferred over revenue** when both are available;
+  revenue is used as a fallback when EPS doesn't yield a usable CAGR (most
+  commonly a negative base-year EPS, which makes a CAGR mathematically
+  undefined even though the field itself is populated). This is a
+  deliberate reversal of this app's original choice, which preferred
+  revenue specifically because EPS is more exposed to buyback/margin-
+  expansion noise than the underlying growth story — that reasoning still
+  holds, but EPS growth is now judged the more decision-relevant figure for
+  this methodology and the noise tradeoff is accepted. `basis` in
+  `Step2Out` reflects whichever field actually produced the score, and the
+  UI/Valuation-input labeling already read this dynamically, so no
+  hardcoded "Revenue" label needed to change anywhere. This growth rate is
+  also reused directly as Valuation's Yr 1-5 growth input
+  (`step3_data.py`, `growth_yr_1_5`), so this switch changes Valuation
+  outputs project-wide, not just Growth Rate's own verdict.
+- The target-year picker (closest forward estimate to 4 years out, within
+  the 3-5yr window) skips rows where the field being scored is null or
+  zero, preferring a usable row from elsewhere in the same candidate pool
+  over blindly taking whichever row is nearest the window center. This
+  matters far more under EPS than it ever did under revenue: FMP
+  frequently reports `epsAvg: 0` for sparsely-analyst-covered far-out
+  years even when a nearer in-window year has a real EPS estimate, which
+  would otherwise misread as "insufficient data" for names that do have a
+  usable projection.
+- Growth catalysts (originally envisioned as qualitative research into
+  why a company is expected to grow) are a manually-curated free-text
+  field (`models.py::GrowthCatalystNote`), not factored into the score —
+  same scoping as Financials' manually-flagged one-off booleans. No edit UI
+  exists yet; it's backend-settable only.
+- **When neither EPS nor Revenue yields a usable CAGR** (too few/no future
+  analyst estimate rows — including the case where `cache.py::safe_fetch`
+  swallowed a genuine FMP fetch failure to `{}`, indistinguishable
+  downstream from a real empty response), Growth Rate returns `score: None,
+  verdict: "insufficient_data"` — Step4Out/Step5Out's own convention —
+  rather than a fabricated `score: 0, verdict: "Fail"`. A prior version of
+  this code scored these identically to a genuinely weak/negative growth
+  projection, which fed a false Fail into Overall Assessment's Growth-Rate-
+  weighted blend and the Screener with no way to distinguish "no data" from "bad
+  growth". `scoring/overall.py`'s `_status_for` already treated any
+  null-score/non-`"not_supported"` step as `"incomplete"` (excluded from
+  the blend, whole Overall Assessment marked incomplete rather than
+  computed) — this was Profitability/Debt's existing behavior; Growth Rate
+  just never adopted it. Confirmed via cache-only inspection of the live
+  universe that this only changes tickers with a genuinely empty/too-thin
+  cached `analyst_estimates` response (e.g. ECHO, HONA, L) — every other ticker's
+  score/verdict is unaffected.
+- **Negative-magnitude score graduated (2026-08-13)**, following the same
+  hard-fail-cliff investigation that produced Step 4's ROIC/ROE fix. Below
+  0% growth, `_score_magnitude` used to return a flat 0 regardless of
+  depth — a ticker projected at -0.03% (DVN, statistically indistinguishable
+  from flat) scored identically to one at -60% (SNDK, a genuine collapse).
+  Confirmed via a full-universe scan: of 27 tickers hitting this branch, 20
+  sit at or above -9.0% ("mildly negative") and only 7 are genuinely severe
+  (SNDK -60.0%, VLO -25.9%, CF -18.9%, INSW -14.5%, DOW -11.5%, LYB -11.0%,
+  APA -10.8%). New graduated scale: linear from 35pts (near 0%) down to
+  10pts (at `MAGNITUDE_SEVERE_NEGATIVE = -10.0%`, a first-pass round-number
+  choice mirroring the `solid` tier's own magnitude); beyond -10%, still a
+  flat 0, unchanged. Ceiling (35) deliberately kept below the `weak` tier's
+  40, so a mildly-negative ticker can never outscore a genuinely-positive-
+  but-weak one.
+  - **Companion dependency, found and fixed in the same change (not a
+    follow-up)**: `_verdict_for`'s Fail condition and `PASS_SCORE_FLOOR`'s
+    guard were both keyed on `magnitude_score == 0` / `magnitude_score >
+    0`. The moment a mildly-negative ticker's magnitude score became
+    nonzero, both would have silently misfired — the Fail gate would read
+    the verdict as Pass, and the floor would push the score to ≥70 — a
+    false Pass for a company with genuinely negative projected growth.
+    This is the exact same class of bug Step 4's ROIC/ROE fix needed an
+    explicit companion floor for (see below), just via a pre-existing
+    mechanism instead of a missing one. Fixed by keying both gates on
+    `growth_rate_pct`'s own sign directly instead of `magnitude_score` —
+    preserves the verdict boundary byte-for-byte (any negative growth
+    still fails, unconditionally, exactly as the source doc specifies)
+    while letting the score itself be an honest, graduated number.
+  - **Confirmed via a full-universe recompute: 20 tickers changed, 0
+    verdict flips** — every affected ticker stays Fail, just with a truer
+    score (e.g. DVN 6→30, NUE/INCY →42, PG →53 — the highest of the 20,
+    still well under both 70 and the `weak` tier's 40-point magnitude
+    equivalent). The 7 genuinely severe tickers are byte-identical to
+    before.
+
+
+> Note (B5a, editorial, not part of the archived text): the Growth Rate block above cites `growth.md` (original line 916) -- `growth.md` (file not in repo). The current spec is `docs/specs/growth-rate.md`. The same block cites `backend/schemas.py::Step2Out` and the Financials blocks cite `frontend/components/step1/ScoreBadge.tsx` for badge shading; those paths have since moved (`backend/core/schemas.py`; shading now lives in `frontend/lib/tierColor.ts`).
