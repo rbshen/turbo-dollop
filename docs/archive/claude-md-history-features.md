@@ -410,3 +410,123 @@ carry over, just a direct always-live `fmp_client` call either way. Same
 `skipped: True` summary-dict convention, so a gated no-op still reads as a
 legitimate `cron_heartbeat` `"success"` while remaining distinguishable
 from "ran normally and genuinely snapshotted nothing" in the log.)
+
+
+## Company classification: non-lender ticker overrides -- narrative (Bank-keyword broadening, regression, NII drift note) (original lines 1721-1752)
+
+## Company classification: non-lender ticker overrides
+
+`classify_company_type` (`backend/scoring/classification.py`) broadens its
+Bank branch beyond the literal "bank" substring to also catch brokers
+("Financial - Capital Markets"), asset managers ("Asset Management"), and
+credit-card/credit issuers ("Financial - Credit Services"). **Sector/
+industry text alone cannot reliably distinguish a genuine lender from a
+non-lender within these categories** — companies with the *identical*
+industry string can have completely different balance-sheet economics
+(a payment network vs. a card issuer; a pure asset manager vs. one with a
+captive bank subsidiary). Confirmed live via FMP profile + income-statement
+data: BLK and AMP both report "Asset Management"; V and AXP both report
+"Financial - Credit Services." Only a ticker-level check of actual
+netInterestIncome-as-%-of-revenue — not the sector/industry text — can tell
+these apart, so `NON_LENDER_TICKER_OVERRIDES` exists to carve the confirmed
+non-lenders back out to `"Standard"`. This was verified once, by hand,
+against real data for each ticker below — it is not derived from any rule.
+
+Applying Bank's treatment (Financials' CFO/FCF de-emphasis in favor of Net
+Interest Income, Profitability's ROIC exemption, Valuation's forced
+Price-to-Book method) to a genuine non-lender produces nonsensical output —
+confirmed regression: V/MA/BLK's Financials scores dropped 30-50+ points
+purely from a near-zero/negative NII series standing in for real revenue,
+not from the intended CFO-de-emphasis effect.
+
+NII/revenue % below is each ticker's most recent annual FMP figure at the
+time of the 2026-07-28 investigation (`netInterestIncome / revenue`,
+cached in `backend/fathom.db`'s `fundamentalscache` table) — it will drift
+year to year and isn't re-verified automatically. BNY's figures (added to
+the confirmed-lenders table below) are from a separate, later check
+(2026-08-05, FY2025 data), not the original 2026-07-28 pass.
+
+
+
+## Company classification: HOOD removed from confirmed-lenders table (original lines 1787-1795)
+
+**HOOD was previously listed here (33.9% NII, "margin lending and
+cash-sweep interest are real NII, not incidental") and has been removed —
+NII-as-%-of-revenue answers "does this company lend?", not "does this
+company report under banking regulation?", and the latter is what Bank's
+CET1/NPL check actually requires. See "Bank classification requires
+genuine CET1/NPL-reporting capability, not just lending activity" below
+for the corrected standard and why HOOD (and three others) moved to
+`NON_LENDER_TICKER_OVERRIDES` on that basis instead.**
+
+
+
+## Bank classification requires genuine CET1/NPL-reporting capability (2026-09-05): framing correction, universe-wide scan, HSBC/MTB false positives (original lines 1803-1849)
+
+### Bank classification requires genuine CET1/NPL-reporting capability, not just lending activity (2026-09-05)
+
+A 2026-09-04 investigation (documented above, in this same section, before
+this fix) asked the wrong question for IBKR: "does this company do real
+lending at meaningful scale?" — and concluded IBKR should stay `"Bank"`
+because it runs a large margin-lending book (gross `interestIncome`/
+`interestExpense` both ~41% of revenue, even though the *net* figure washes
+out near zero). The user corrected this framing: Fathom's `"Bank"`
+treatment exists specifically to run Step 5's CET1 (capital adequacy) and
+NPL (loan quality) checks (`data/step5_data.py`), both of which only make
+sense for an institution that actually reports under banking regulation —
+i.e., is a genuine deposit-taking institution. Lending *shape* (margin
+loans, credit-card loans, BNPL installment credit) is irrelevant to this
+specific question; regulatory reporting shape is what matters. A company
+classified `"Bank"` that doesn't report CET1/NPL shouldn't get Bank
+treatment *anywhere* (Step 1's NII swap, Step 4's ROIC exemption, Step 3's
+forced Price-to-Book) — not just have the CET1/NPL check itself skipped
+while everything else stays Bank-shaped, which is what
+`BANK_CET1_NPL_EXCLUDED_TICKERS` (`data/step5_data.py`) did for IBKR/HOOD
+before this fix.
+
+**Universe-wide scan, not just IBKR/HOOD.** Reused
+`pipeline.nightly_fundamentals_fetch.load_full_tracked_universe` (572
+tickers) rather than hand-rolling a new universe helper; 32 classify as
+`"Bank"` via `classify_company_type`. Evidence standard: the same one
+`BANK_CET1_NPL_EXCLUDED_TICKERS`'s original IBKR/HOOD entries were built
+on — presence/absence of a genuine deposit-liability figure in FMP's
+`financial_statement_full_as_reported` raw XBRL-tag dump (quarterly,
+falling back to annual — same fallback convention `helpers/npl.py::
+compute_npl_ratio` already uses), checked against total assets.
+
+A literal `deposits`-tag-only check (what the original IBKR/HOOD
+investigation used) turns out to produce two false positives at
+universe scale, both confirmed via the raw tag data before being ruled
+out:
+- **HSBC** files under IFRS-style tag names (`depositsfromcustomers` =
+  $1.79T, 52.0% of total assets) rather than the literal `deposits` tag
+  FMP's US-GAAP filers use — a tag-naming artifact of HSBC filing as a
+  foreign private issuer, not evidence of no deposit-taking.
+- **MTB** (M&T Bank)'s literal `deposits` tag is a mis-scoped, too-small
+  XBRL dimension member ($4.7B, 2.1% of assets) — the same class of issue
+  `npl.py`'s own comment already documents for `TOTAL_LOANS_TAG` on
+  BAC/WFC/C. Summing MTB's real deposit-liability tags
+  (`noninterestbearingdepositliabilitiesdomestic` +
+  `savingsandinterestcheckingdeposits` + `timedeposits`) gives ~$168.9B
+  (77% of assets) — a genuine, well-capitalized regional bank.
+
+
+
+## Bank classification requires genuine CET1/NPL-reporting capability (2026-09-05): before/after impact table (original lines 1878-1893)
+
+**Before/after impact, measured on real cached data before shipping (all
+four gain a real Step 5 verdict for the first time — previously
+permanently `not_supported`, since none of them can ever have CET1
+entered — this is the direct, intended payoff, not a side effect):**
+
+| Ticker | | Step 1 | Step 4 | Step 5 | Step 3 |
+|---|---|---|---|---|---|
+| IBKR | Before (Bank) | 85/Pass (NII) | 100/Strong Pass, ROIC exempt | not_supported | overvalued |
+| IBKR | After (Standard) | 90/Pass (Revenue) | 68/Fail, ROIC included | 71/Fail (hard-fail breach despite score ≥70) | undervalued |
+| HOOD | Before (Bank) | 53/Fail (NII) | 60/Fail | not_supported | overvalued |
+| HOOD | After (Standard) | 42/Fail (Revenue) | 28/Fail | 35/Fail | undervalued |
+| SEIC | Before (Bank) | 52/Fail (NII) | 100/Strong Pass | not_supported | overvalued |
+| SEIC | After (Standard) | 88/Pass (Revenue) | 85/Pass | 100/Strong Pass | undervalued |
+| SEZL | Before (Bank) | 49/Fail (NII) | 100/Strong Pass | not_supported | overvalued |
+| SEZL | After (Standard) | 84/Pass (Revenue) | 85/Pass | 100/Strong Pass | overvalued (unchanged) |
+
