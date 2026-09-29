@@ -538,3 +538,31 @@ out-of-band.
   (2026-09-20, 3:50 UTC); the read-only check is in `backend/OPS_RUNBOOK.md`'s
   `nightly_score_recompute` entry. After any night the trend/BB+RSI/Warren job overruns 3:50, the
   affected tickers just read a night behind as before.
+
+
+## Sector Heatmap (/sectors, 2026-09-20): original heading and intro (7-window wording, superseded by 8 windows) (original lines 3704-3710)
+
+## Sector Heatmap (`/sectors`, 2026-09-20)
+
+The 11 SPDR sector ETFs (XLK XLF XLV XLE XLI XLY XLP XLU XLB XLRE XLC) x 7 trailing
+trailing-return windows (1w/1m/3m/6m/9m/YTD/1y). Round 1 of the ETF work in
+`docs/etf_heatmap_momentum_investigation_2026-09-20.md` (file not in repo); the ETF momentum ranking is a separate,
+later round and is **not** built. Price-only, zero FMP *fundamentals* calls, independent of Step 1-5
+scoring. Bars come from FMP, through `SharedBarsCache` (`get_or_fetch_bars_batch`; see "Daily prices: FMP").
+
+
+## Sector Heatmap (/sectors): job activation record (crontab install 2026-09-21) (original lines 3735-3739)
+
+  **Active**: installed in the live crontab 2026-09-21 (`crontab crontab.txt` from `backend/`;
+  `crontab -l` confirmed byte-identical to the file, and the only diff beforehand was this entry, so
+  nothing outside the file was dropped). The first cron-triggered run was due 03:30 UTC (server
+  time) that night -- check `CronRunLog`/`nightly_sector_heatmap.log` for it. Any later
+  `crontab.txt` edit still needs the same reinstall; editing the file alone changes nothing.
+
+
+## Sector Heatmap (/sectors): 'not verified on screen' and return-math verification note (original lines 3763-3766)
+
+- **Not verified on screen** (no browser): layout, tint legibility, narrow-width behavior. The
+  return math was checked against an independent calculation on live bar data (max difference
+  1.5e-5pp) and the endpoint against the real DB.
+
