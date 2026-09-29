@@ -123,10 +123,20 @@ There is no PE/PEG fallback — when nothing above applies, the result is `PASS`
 value produced.
 
 **"Positive-and-increasing"** (steps 2 and 4, and the FCF-flavored version in 3a/3b): requires at
-least 5 data points. A non-positive value disqualifies the series outright only if it falls
-within the last 3 periods. An older non-positive value doesn't disqualify on its own — the
-series falls through to the shared trend classifier (see [Financials](financials.md)), and
-passes if that classifier reads a recovery pattern.
+least 5 data points (`METHOD_SELECTION_MIN_YEARS`). A non-positive value disqualifies the
+series outright only if it falls within the last 3 periods (`NEGATIVE_VALUE_RECENCY_YEARS`). An
+older non-positive value doesn't disqualify on its own — the series falls through to the shared
+trend classifier (see [Financials](financials.md)), and passes if that classifier reads a
+recovery pattern.
+
+`scoring/trend.py::RECOVERY_PATTERNS` is the single source of truth for "reads a recovery
+pattern": `grows_every_year`, `small_dip_recovers`, `significant_dip_recovers`,
+`multiple_dips_resolved` and `dip_durably_resolved`. The last was missing from the set until
+2026-08-08 (it scored identically to `multiple_dips_resolved` in `classify_trend`, but the set
+itself was never updated). Three call sites gate on it, so all of them treat an age-resolved dip
+as a recovery: Step 1's FCF cash-burn-recovery check (`scoring/step1.py`), this method-selection
+tree (`_positive_and_increasing` / `_fcf_positive_and_consistent`), and Step 4's ROE/ROIC
+min-year-consistency gate and negative-equity Net Income substitute (`scoring/step4.py`).
 
 **Method → calculation family:**
 
@@ -149,7 +159,13 @@ doesn't otherwise handle: CFO/FCF growing so fast in the last 2-3 years that the
 would overstate a sustainable run-rate. A mechanical auto-trigger (a CAGR or spike-ratio
 threshold) was tested against the live universe and rejected — it couldn't distinguish a genuine
 cyclical spike from a durable structural ramp using CFO/FCF figures alone, and risked
-auto-suppressing exactly the highest-quality compounders in the tracked universe.
+auto-suppressing exactly the highest-quality compounders in the tracked universe (FMP has no
+industry-cyclicality signal that could tell them apart). Once picked, they behave identically to
+`DNI_NORMALIZED`: the same 20-year engine, the same Custom Valuation pre-fill/freeze semantics,
+and the same FX handling (figures are already USD by the time smoothing runs). They are
+pre-filled from `cfo_smoothed`/`fcf_smoothed`, which `data/step3_data.py` computes
+unconditionally — the same pattern as `net_income_smoothed` and `pb_mean_ratio` — and which reuse
+the TTM-duplicate exclusion below.
 
 ### 2. The 20-Year Discounted Model
 
@@ -183,9 +199,18 @@ plus TTM appended as the most current period.
 reported since, TTM (the sum of the 4 most recent quarters) and the last annual figure describe
 the *identical* underlying period. Appending TTM unconditionally would count that one period
 twice (2/5 weight instead of 1/5). Detected via a period-identity check (comparing fiscal-year
-labels, not values). When detected, TTM is **excluded** and the average is taken over the prior
-**5 distinct fiscal years** instead. Falls back to including TTM if excluding it would leave
-fewer than 2 points to average.
+labels, not values) — `helpers/ttm.py::is_ttm_period_duplicate_of_last_fy` compares the 4 most
+recent quarters' own `fiscalYear`/`period` labels against the latest annual filing's. Period
+identity is the structurally correct test: a coincidental value match isn't the same condition
+(it would false-clear on genuinely distinct periods), and a genuine period match can differ
+slightly in value after a restatement (it would false-miss under a value check). When detected,
+TTM is **excluded** and the average is taken over the prior **5 distinct fiscal years** instead
+of dropping to a 4-point average. `scoring/step3.py::trailing_smoothed_average` implements this
+for all three normalized methods (Net Income uses the income-statement check, CFO/FCF the
+cash-flow one) and falls back to including TTM if excluding it would leave fewer than 2 points to
+average — the same "never make a metric less scoreable" guard as
+`step4.py::recovery_excluded_prefix_length`; not currently reachable, since every ticker hitting
+the duplicate condition has 5+ years of history.
 
 Confirmed real case: a memory-pricing supercycle year's Net Income was being counted at 2/5
 weight in `net_income_smoothed` instead of the intended 1/5, before this exclusion existed.
@@ -197,7 +222,9 @@ weight in `net_income_smoothed` instead of the intended 1/5, before this exclusi
   reporter resolves a `<reportedCurrency>USD` spot rate, cached via the same `FundamentalsCache`/
   `get_or_fetch` machinery every other fetch uses, on the same `cache_staleness_days` window
   (default 7 days) as every other fetch — a deliberate choice to keep FX refresh aligned with
-  fundamentals.
+  fundamentals. There is no separate FX staleness setting: a `fx_rate_staleness_days` (1 day)
+  setting once existed in `core/config.py` but was never actually wired in, and was deleted
+  2026-08-08 rather than changing live refresh behavior from 7 days to 1.
 - **Never a silent fallback to 1.0.** If a live forex fetch fails and no cached rate (fresh or
   stale) exists at all, the whole ticker reads `selected_method = "PASS"` / `insufficient_data =
   true`. A live fetch failure with a *stale* cached rate still available falls back to that stale
@@ -271,10 +298,19 @@ which already includes minority/non-controlling interest) — confirmed empirica
 **historical series needs no rescale at all**: `historical_pb_ratios_standard` is FMP's own
 `priceToBookRatio` series used directly.
 
+No new engine type was needed: `bands_from_mean_sd`/`run_price_to_book` (`scoring/step3.py`) are
+fully generic and are simply called a second time with the standard-basis inputs;
+`Step3Inputs`/`Step3ManualParams` carry parallel `_standard`-suffixed fields (5 and 3
+respectively) and no existing field was renamed. There is no DB migration —
+`TickerCustomValuation.method`/`parameters_json` are plain `str` columns. A saved Custom
+Valuation with `method="PRICE_TO_BOOK"` is unaffected by the 2026-09-14 default change, because
+`get_active_valuation` resolves purely off the stored method string, independent of
+`select_method`'s tree; only the *auto-selected* default changed.
+
 #### 3.2 Tangible / "custom" basis (`PRICE_TO_BOOK`) — manual-only since 2026-09-14
 
 ```
-book_value_per_share = (Total Assets - Intangible Assets - Total Liabilities) / Shares Outstanding
+book_value_per_share = (Total Assets - goodwillAndIntangibleAssets - Total Liabilities) / Shares Outstanding
 ```
 
 computed from the **latest quarter's** balance sheet (2026-08-13 fix — previously sourced from
@@ -284,12 +320,20 @@ months stale versus the quarterly data this calculation already used for `total_
 
 **Historical series rebuilt onto the same tangible basis (2026-08-15 fix)**: each year's ratio is
 rescaled algebraically from FMP's own `priceToBookRatio = price / bookValuePerShare` for that
-year, multiplying by `(totalEquity / tangible_book_value)` for the same fiscal year (fixed
+year, multiplying by `(totalEquity / tangible_book_value)` for the same fiscal year (the
+share-count term FMP's own `bookValuePerShare` embeds cancels out of the algebra, so no separate
+historical price fetch or reconstructed share count is needed; the balance sheets come from
+`balance_sheet_statement`/`annual` (10 years) — the same cache key Step 4/Step 5 already populate,
+so a cache hit with zero new FMP calls for any ticker already scored elsewhere; fixed
 2026-09-14 from an earlier, understating `totalStockholdersEquity`-based multiplier that ignored
 minority interest — material for NCI-bearing companies, ~7.9% understatement on one real REIT
 case). A year is dropped from the series (not fabricated as zero) if its balance sheet can't be
 matched by fiscal year, a required field is missing, or the resulting tangible book value is
-non-positive.
+non-positive. `pb_lookback`'s 10-year/5-year threshold counts the years that clear these guards,
+not the raw FMP series length (e.g. HOOD kept only 5 of its 7 raw years, and the 5-year fallback
+engaged correctly). Where a year's tangible book value is close to zero the rescaled ratio can be
+an extreme outlier (EQIX's tangible series had two ~600x years), one reason the standard basis is
+the default.
 
 This variant was the *only* Price-to-Book method before 2026-09-14, auto-selected for Bank/REIT/
 Property Developer; it's now demoted to a manual-only choice, labeled "Price to Book (custom)"
@@ -331,8 +375,9 @@ based on.
 
 #### 3.4 Informational-only additions (never change the calculation above)
 
-- **Historical P/B buy signal**: `last_close ≤ iv["minus_1sd"]`, on the standard basis — never
-  wired into the verdict logic.
+- **Historical P/B buy signal**: `last_close ≤ iv["minus_1sd"]`, on the standard basis (like
+  `benchmark_pb_*`, which also reads off the standard basis since 2026-09-14) — never wired into
+  the verdict logic.
 - **Benchmark P/B ranges**: Bank **1.2× – 1.4×**; REIT/Property Developer **up to 1.2×** as
   "fair," with up to **1.5×** noted as acceptable given high double-digit DPU growth.
 - **REIT dividend yield check** (REIT/Property Developer only): flags whether trailing dividend
