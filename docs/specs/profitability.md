@@ -76,6 +76,14 @@ and ROIC are **sourced directly from FMP's own pre-computed ratio fields** (annu
 recomputed locally — converted from a fraction to a percent. Revenue-vs-AR and CCC are computed
 locally from raw balance sheet / income statement figures.
 
+One constant, `ANNUAL_WINDOW` (10, `data/step4_data.py`), controls both what is fetched/shown and
+what feeds the score, matching Financials. There is no separate, narrower scoring window (an
+earlier design scored on the most recent 5 years while charting more; that decoupling was
+removed), so a ticker's score reflects its full 10-year history — including years 6-10, which can
+move scores versus the old 5-year behavior for tickers whose older years look materially
+different. This is an intentional tradeoff for a longer, more complete read on ROE/ROIC/AR/CCC
+trends.
+
 ```
 ROE (%)  = Net Income / Shareholders' Equity × 100
 ROIC (%) = EBIT × (1 − effective tax rate) / (Equity + Total Debt − Cash) × 100
@@ -92,8 +100,10 @@ ROIC (%) = EBIT × (1 − effective tax rate) / (Equity + Total Debt − Cash) �
 
 **No-inventory detection** is data-driven, independent of company type: if inventory reads null
 or zero across *every* one of the 10 annual filings (the TTM/latest-quarter figure is
-deliberately excluded — it has proven unreliable for genuinely inventory-free companies), CCC is
-skipped regardless of sector/industry.
+deliberately excluded — it has proven unreliable for genuinely inventory-free companies: in
+verification Mastercard's latest quarter showed +$2.06B inventory and ServiceNow's -$28M despite
+straight clean-zero annual years, a provider classification artifact rather than a real change in
+the business), CCC is skipped regardless of sector/industry.
 
 ### Blend weights
 
@@ -105,7 +115,12 @@ skipped regardless of sector/industry.
 | CCC | 20% |
 
 When a metric is exempt, its weight is redistributed **proportionally** (not equally) across the
-remaining applicable metrics. Worked examples: ROIC + CCC + AR exempt (Bank/Insurance/Utility) →
+remaining applicable metrics — each remaining `BASE_WEIGHTS` entry is divided by the sum of the
+applicable entries, preserving their relative ratio, and this is fully generic over whichever
+metrics apply (no fixed reassignment table like Financials' single CFO on/off exemption). An
+earlier design split the applicable metrics equally (1/N); it was replaced by these weights on
+2026-08-01. Worked examples: no-inventory company (CCC exempt only) → ROE 25/80 = 31.25%, ROIC
+35/80 = 43.75%, AR 20/80 = 25%. ROIC + CCC + AR exempt (Bank/Insurance/Utility) →
 ROE alone at 100%. REIT (AR + ROIC + CCC all exempt) → ROE alone at 100%.
 
 This is a deliberate design choice (2026-08-01), not a bug-driven fix: ROIC is weighted above ROE
@@ -119,8 +134,9 @@ Both metrics share the same tiering logic, applied independently to each series 
 1. **Spike-robust average**: the plain average of the series, except the series **maximum** is
    excluded if it's at least **2×** the median of the remaining points. The series **minimum** is
    never excluded.
-2. **Minimum-year consistency check**: the single worst year must also clear the tier's own
-   floor. A worst year at or above **8%** always satisfies this. A worst year below 8% still
+2. **Minimum-year consistency check** (a straight average alone would let one bad year hide
+   behind several good ones — a high average diluted by one very weak year lands in `marginal`,
+   not `excellent`): the single worst year must also clear the tier's own floor. A worst year at or above **8%** always satisfies this. A worst year below 8% still
    satisfies it if it's "old and resolved": find its most recent occurrence; if it landed more
    than **3 periods** before TTM, and the trend classifier reads the full series as a recovery
    pattern, the low year is excused.
@@ -154,7 +170,11 @@ Both metrics share the same tiering logic, applied independently to each series 
 
 The avg/min-year tiering runs on the full 10yr+TTM window as a flat, unweighted average — an old,
 already-resolved dip permanently drags the average down even when every recent year is
-comfortably strong. Before computing the average (spike-robust or otherwise), any **resolved dip
+comfortably strong. This fixes a one-directional blind spot: the unrecovered-decline demotion
+below can only ever *lower* the tier of a good-average ticker that has since slipped, never
+*raise* one whose bad average predates a durable fix. Motivating case: HWM's ROE had two crash
+years (2016-17) followed by 8 straight years of genuine improvement, yet scored `marginal`
+because those two years never stopped counting — now `excellent`. Before computing the average (spike-robust or otherwise), any **resolved dip
 event** is excluded from the series, reusing the dip-event/resolution machinery
 [Financials](financials.md)'s "Trend classification" section documents in full:
 
@@ -188,7 +208,9 @@ and the normal avg/min-year tiering is replaced entirely:
 
 - If Net Income has **no** non-positive periods at all → passes if the final (TTM) value is
   **≥** the first value in the window (a simple last-vs-first bar, not a full trend
-  classification).
+  classification — "consistently maintained/growing" is inherently a qualitative judgment). The
+  original design was only this branch (positive-and-non-declining Net Income); the
+  recovery-aware branch below was added later.
 - If Net Income **does** have a non-positive period → find its most recent occurrence. If within
   the last 3 periods, this substitute check fails. If older than 3 periods, it passes only if the
   trend classifier reads the full Net Income series as a recovery pattern.
@@ -261,6 +283,14 @@ CCC = DIO + DSO − DPO
 A period is skipped entirely (not zero-filled) if Revenue or COGS is missing/zero, or if
 Inventory, AR, or AP is missing.
 
+The windowed trend logic further down is the same early/late-direction + dip-count +
+sustained-decline classifier Financials uses for margins (`scoring/series_trend.py::
+analyze_series_direction`, shared), run on the *negated* series, since a declining CCC (faster
+cash conversion) is the desirable direction while a declining margin is not. Its window/dip/
+sustained-decline constants (`CCC_TREND_WINDOW`, `CCC_REAL_MOVE_DAYS`, `CCC_SUSTAINED_STEPS`,
+`CCC_SUSTAINED_DAYS`) are first-pass judgment calls, not values validated against a prior
+baseline (unlike the sign-aware constants below, derived from a real cache-only sweep).
+
 Classification dispatches first on the **sign profile** of the full CCC series:
 
 1. **Consistently negative** (every value ≤ **1.0 day**): always scores **100**. Sub-labeled
@@ -320,7 +350,13 @@ score = round(Σ applicable_metric_points × its_renormalized_weight)   [0, 100]
 hard_fail = ROE hard-failed, OR (ROIC applicable AND ROIC hard-failed)
 ```
 
-- **Fail** if `hard_fail` is true — regardless of the blended score.
+- **Fail** if `hard_fail` is true — regardless of the blended score. `hard_fail` comes only from
+  ROE and ROIC (mirroring Growth Rate's and Debt's hard-fail pattern: a hard rule is never
+  diluted by averaging). Revenue-vs-AR and CCC landing in their own worst tier (0 points) drag
+  the blended score down but **never** force a Fail on their own — a receivables/CCC red flag is
+  worth investigating, not an automatic disqualifier the way persistently poor ROE/ROIC is. (The
+  ROE/ROIC hard-fail trigger was originally any average `< 8%`; since 2026-08-13 it is only an
+  average `< 0%` — see "ROE and ROIC tiering".)
 - **Fail** if the blended score is **< 70** (`PASS_SCORE_THRESHOLD`, added 2026-08-13), even when
   `hard_fail` is false — a mandatory companion to the ROE/ROIC/CCC graduated-scale fixes: before
   this, there was **no** blended-score floor at all, so any non-hard-fail result displayed "Pass"

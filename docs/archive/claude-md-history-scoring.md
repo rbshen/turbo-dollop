@@ -1259,3 +1259,127 @@ for the exact current formulas and severity bands:
 
 
 > Note (B5b, editorial, not part of the archived text): the Debt blocks above cite paths that have since moved: `backend/bank_capital_metrics.py` is now `backend/helpers/bank_capital_metrics.py`, `backend/npl.py` is now `backend/helpers/npl.py`, `backend/step5_data.py` is now `backend/data/step5_data.py`. `debt.md` is `docs/specs/debt.md`. "`BASE_WEIGHTS`, below" refers to Profitability's blocks further down this file. The first block's `BANK_CET1_NPL_EXCLUDED_TICKERS` (`IBKR`, `HOOD`) is superseded: as of the 2026-09-05 company-classification fix the constant is an empty set and both tickers classify as "Standard" (see `docs/specs/debt.md` and `docs/specs/company-type-variations.md`). The "deferred-revenue exception ... shown as an informational note only, not auto-detected" bullet (original lines 1069-1073) is also superseded: Current Ratio's deferred-revenue rescue is automatic (see `docs/specs/debt.md`).
+
+
+## Profitability: intro, and 10yr+TTM display/scoring window (SCORING_ANNUAL_WINDOW removed) (original lines 1241-1259)
+
+Profitability's original methodology gives ROE/ROIC tiers, an
+AR-outpacing-magnitude concept, and a qualitative CCC pattern table
+without committing to exact scoring formulas for any of them.
+`profitability.md` is the technical reference for the exact current
+formulas; `backend/scoring/step4.py` operationalizes each into concrete
+thresholds. Notable design decisions and fixes:
+
+- **Both the display and scoring window are 10yr+TTM**, matching
+  Financials, for consistency across the whole app.
+  `backend/step4_data.py`'s `ANNUAL_WINDOW` (10) controls both what's
+  fetched/shown and what feeds the score — there
+  used to be a separate, narrower `SCORING_ANNUAL_WINDOW` (5) sliced out via
+  a `_scoring_window()` helper so the chart could show more history than
+  the score was based on; that decoupling has been removed, so a ticker's
+  score now reflects its full 10-year history, not just the most recent 5.
+  This means scores can shift versus the earlier 5yr-scoring behavior for
+  tickers with a materially different pattern in years 6-10 versus the
+  most recent 5 — an intentional tradeoff for a longer, more complete read
+  on ROE/ROIC/AR/CCC trends.
+
+
+## Profitability: company classification extended with Insurance and Utility (original lines 1260-1268)
+
+- **Company classification** extends the same shared classifier Debt
+  uses (`classify_company_type`, now in `backend/scoring/classification.py`
+  rather than duplicated) with Insurance and Utility. Insurance is checked
+  **before** Bank since both share the "Financial Services" sector — an
+  insurer whose industry text doesn't also match "bank" would otherwise be
+  misclassified. Debt's own branching is `if Bank / if Insurance / if REIT
+  / else standard-path` — Insurance always reads `not_supported` (no
+  ratios attempted at all; see `debt.md`), while Utility tickers fall
+  through to the standard ratio path unaffected.
+
+
+## Profitability: ROE/ROIC avg+min tiering and recovery-aware exclusion (2026-08-08) -- HWM case, 68/90 validation (original lines 1269-1293)
+
+- **ROE/ROIC tiering** uses both the average across the 10yr+TTM window
+  *and* the minimum single-year value as a consistency check (a high
+  average diluted by one very weak year lands in the "marginal" tier, not
+  "excellent") — a straight average alone would let one bad year hide
+  behind several good ones.
+- **Recovery-aware exclusion (2026-08-08)**: that average is now computed
+  on a *reduced* series when a real dip in it has since resolved (literally
+  or durably, reusing Step 1's `classify_trend`/`DipEvent` machinery) —
+  the whole prefix through the last resolved dip's own trough is dropped
+  before averaging, not just that dip's own declining leg. Fixes a
+  one-directional blind spot the unrecovered-decline demotion (below)
+  didn't cover: demotion can only ever lower a tier a good-average ticker
+  has since let slip, never raise one a bad-average ticker has since
+  durably fixed. Motivating case: HWM's ROE had two crash years
+  (2016-17) followed by 8 straight years of genuine improvement, yet
+  scored `marginal` because those two years never stopped counting —
+  fixed to `excellent`. Full-universe validation: 68 of 90 affected
+  hard-fails resolved, 13 known, accepted regressions (structural
+  decliners like LHX/LUV/MU, whose only strong years sit before a
+  resolved-by-age dip, can score *worse* once those years are excluded —
+  evaluated against two alternative designs, a narrower span-only
+  exclusion and a recency-weighted average, both prototyped and
+  rejected). Full mechanism and the regression tradeoff are documented in
+  `profitability.md`'s "Recovery-aware exclusion" section, not duplicated
+  here.
+
+
+## Profitability: negative-equity substitute signal for ROE (original lines 1294-1300)
+
+- **Negative-equity substitute signal**: if shareholders' equity is ≤0 in
+  any period, raw ROE is ignored entirely for the whole metric (not just
+  that period) and replaced by a check for positive-and-non-declining Net
+  Income across the window (net income positive throughout, last period ≥
+  first) — a simple "last ≥ first" bar, deliberately not a full trend
+  classifier, since "consistently maintained/growing" is inherently a
+  qualitative judgment.
+
+
+## Profitability: Revenue-vs-AR tiers checked worst-first (superseded majority-outpacing framing) (original lines 1301-1307)
+
+- **Revenue vs. Accounts Receivable** tiers are checked worst-first, since
+  the qualifying conditions overlap: majority-outpacing or revenue-
+  declining-while-AR-grows (0) takes priority over 3+-years-or-large-gap (40), which
+  takes priority over 0-or-one-small-gap (100), with 1-2 isolated years
+  otherwise landing at 70. A YoY gap under 2 percentage points is treated
+  as noise, not real outpacing (same noise-floor convention as Financials'
+  margin classifier).
+
+
+## Profitability: CCC trend classification via shared series_trend, and CCC no-inventory exemption (MA/NOW evidence) (original lines 1308-1324)
+
+- **CCC trend classification** reuses Financials' margin-classifier logic
+  (early/late-window direction + dip-count + sustained-decline, now shared
+  via `backend/scoring/series_trend.py`) run on the *negated* series, since
+  a declining CCC is the desirable direction (faster cash conversion) while
+  a declining margin is not. No numeric CCC thresholds were specified
+  upfront (unlike margins, which were tuned after live testing) — the
+  window/dip/sustained-
+  decline constants in `scoring/step4.py` are first-pass judgment calls, not
+  values validated against a prior baseline.
+- **CCC exemption (no physical inventory)** is data-driven — inventory
+  reading as 0 or null — but is checked **only against the 10 annual
+  filings**, not the latest-quarter snapshot appended for the "TTM" column.
+  FMP's latest-quarter inventory figure proved unreliable for genuinely
+  inventory-free companies during verification (Mastercard showed +$2.06B,
+  ServiceNow showed -$28M in their latest quarter despite straight
+  clean-zero annual years) — a data-provider classification artifact, not a
+  real change in the business.
+
+
+## Profitability: equal-weight redistribution (superseded by BASE_WEIGHTS) and hard-fail override (superseded <8% threshold) (original lines 1325-1336)
+
+- **Equal-weight redistribution** is a generalized N-way split (1/N across
+  whatever metrics are applicable — 25% each if all 4 apply, 33.3% each if
+  ROIC is exempt, 50% each if ROIC and CCC are both exempt), not a fixed
+  reassignment table like Financials' CFO exemption — Profitability has more
+  possible exemption combinations than Financials' single CFO on/off switch.
+- **Hard-fail override**: verdict is Fail regardless of the blended score
+  if ROE lands in its Fail tier (avg <8%), or ROIC does (when applicable) —
+  mirrors Growth Rate/Debt's hard-fail pattern. Revenue-vs-AR and CCC landing
+  in their own worst tier (0 points) drag the score down but do **not**
+  force a Fail verdict — a Receivables/CCC red flag is treated as worth
+  investigating, not an automatic disqualifier the way persistently poor
+  ROE/ROIC is.
