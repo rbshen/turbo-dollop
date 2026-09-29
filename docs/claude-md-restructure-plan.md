@@ -369,3 +369,88 @@ own content). Left as an open question below rather than guessed.
 **B5a/B5b split point:** B5a covers original lines 446-1035 (40,716 chars, ~51% of the 79,860-char scoring-rubric range). B5b starts at **line 1036**, the paragraph beginning "Debt's original methodology calls for a CET1 ratio check for Banks" (the Debt subsection intro), and runs through line 1613 (Debt 1036-1240, Profitability 1241-1579, Overall weighting 1580-1613). B5b appends to docs/archive/claude-md-history-scoring.md and merges into docs/specs/debt.md, profitability.md and overview.md.
 
 **B5b status:** COMPLETE. B5b covered original lines 1036-1613 (39,144 chars), so B5a + B5b together cover the whole scoring-rubric range 446-1613 (79,860 chars). Every block was archived verbatim in docs/archive/claude-md-history-scoring.md (37 blocks for 446-1613, contiguous, no gap or overlap; the B5a/B5b seam is 1035|1036), and current behavior was merged into docs/specs/debt.md, profitability.md and overview.md. Remaining: B6 (final audit).
+
+## Final status
+
+**Date:** 2026-09-29. **Phase:** B6 (final audit and wrap-up). The CLAUDE.md restructure is complete; the only remaining work is optional (see the end of this section). `docs/archive/CLAUDE.original.md` is unchanged (sha256 `ac2f4e35…40c3`).
+
+### Sizes
+
+| | Lines | Unicode chars | Bytes |
+|---|---|---|---|
+| CLAUDE.md before (= `docs/archive/CLAUDE.original.md`) | 4,316 | 332,423 | 333,459 |
+| CLAUDE.md after B1 (`6bb5ab9`) | 169 | 23,817 | 23,933 |
+| CLAUDE.md final (B6) | 171 | 23,088 | 23,194 |
+
+**Correction to §1 of this plan:** the "333,459 chars" figure used throughout the Phase A summary is a **byte** count. The file has 332,423 Unicode characters; the 1,036-character difference is the multi-byte characters (em dashes, arrows, ≥ etc.). The per-row "Chars" columns in the ledger are true Unicode counts (69 of 72 rows reproduce exactly; the other 3 are "part of" rows that reconcile as groups: 435-444 = 673, 2316-2489 + 2490-2662 = 31,971, 376-445 = 4,425).
+
+### Line-by-line coverage of the original (all 4,316 lines assigned exactly once)
+
+| Category | Lines | Unicode chars | Bytes |
+|---|---|---|---|
+| KEEP (in CLAUDE.md) | 284 | 18,160 | 18,200 |
+| MIGRATED (ledger rows; spec and/or archive) | 3,980 | 310,189 | 311,179 |
+| DELETED (duplicate, covering file re-verified) | 50 | 4,072 | 4,078 |
+| GAP | 2 | 2 | 2 |
+| **Total** | **4,316** | **332,423** | **333,459** |
+
+Ledger reconciliation: stated ledger chars 282,290 + the three "part of" rows (673 + 31,971) = 314,934 = MIGRATED + DELETED + KEEP-435-444 (310,189 + 4,072 + 673). Adding the plan's KEEP rows (1-256, 4299-4316 = 17,487 chars) and the 2 blank GAP lines gives 332,423 chars (333,459 bytes).
+
+- **GAP ranges:** only lines 434 and 445, both blank (1 char each). No heading line and nothing over 500 chars is unassigned.
+- **KEEP is not fully verbatim.** Of the 261 non-blank KEEP lines, 204 appear in CLAUDE.md word-for-word, 34 are reworded (mostly re-wrapped or repointed from "see X below" to a spec path), and **23 lines (1,795 chars) were deliberately rewritten out of CLAUDE.md in B1** (stale Phase-2/P5-era text) with no ledger row. Their text survives only in `CLAUDE.original.md`. The largest contiguous run is original lines 228-233 (492 chars, the P1 "jobs guarded" list). The others: 46-47, 69, 101, 144, 170-172, 197-201 (434 chars: `historical_price_eod` group, header volume tiles follow `daily_prices`, `sec_company_facts`), 211, 223 (the "402 safety net built and tested against simulated responses only, no real 402 observed" caveat), 238, 241. This is a review item, not a data loss: see the recommendation on `CLAUDE.original.md` below.
+- The archive files describe themselves as "Text is unedited". Precisely: 99 of 110 blocks are exactly verbatim; 11 carry editorial annotations added in B2-B5b (an inline "(file not in repo)" after a dangling document citation, or a trailing "> Note (B5x, editorial, ...)" line). No source text was altered or removed in any block.
+
+### Archive check (final run)
+
+Every non-blank source line of every ledger row that names an archive destination (65 rows) appears, in order, in the archive file: **65/65 PASS, 0 FAIL**. Block level: 110/110 blocks match their "(original lines A-B)" source range (99 exact, 11 with the annotations above). DELETED rows re-verified against their covering files: `376-400` against `backend/OPS_RUNBOOK.md` (all facts present), `2824-2837` against `docs/specs/chart-indicators.md` (all present; the alpha is stated as 2/(n+1) = 0.5), `3158-3168` against `docs/specs/price-target.md` (all present; the 2026-09-26 "crontab reinstall still needed" status note is dropped as superseded).
+
+### Retrieval canary (slim CLAUDE.md only; `CLAUDE.original.md` not opened)
+
+| # | Question | Answer (spec) | Opened | Hops | Code check |
+|---|---|---|---|---|---|
+| 1 | Profitability `BASE_WEIGHTS`, `AR_EXEMPT_TYPES` | ROE .25, ROIC .35, AR .20, CCC .20; AR/ROIC/CCC exempt = Bank, Insurance, REIT/Property Developer, Utility | `docs/specs/profitability.md` | 1 | agree (`scoring/step4.py:200`, `data/step4_data.py:30-48`) |
+| 2 | Debt hard-fail, Standard | Any ratio in its Severe zone (Current Ratio < 0.7 after deferred-revenue adjustment, Debt/EBITDA > 4.0, DSR >= 40%), an unrescued Borderline breach, or EBITDA <= 0; verdict order hard_fail, score < 70, caution, > 90 | `docs/specs/debt.md` | 1 | agree (`scoring/step5.py` scorers, `_verdict_for`) |
+| 3 | Sector Heatmap windows | 8 windows (1d/1w/1m/3m/6m/9m/YTD/1y); `MAX_STALE_DAYS` = 5 makes a fund whose latest bar lags the anchor all-None | `docs/specs/sector-heatmap.md` | 1 | agree (`scoring/etf_returns.py:29,35,85`) |
+| 4 | Warren retention | Write-side warm-up buffer `EVENT_WRITE_WARMUP_DAYS` = 180; stored-event ceiling `EVENT_RETENTION_DAYS` = 1460 (BB+RSI too); bar-cache pruning (6y 1d / 3y 60m) independent | `docs/specs/warren-signal.md` | 1 | agree (`data/warren_signal_data.py:64,91`, `data/entry_signal_data.py:57`) |
+| 5 | Overall weights | `STEP_WEIGHTS` = {step1 24/69, step2 10/69, step4 20/69, step5 15/69}, `MOAT_WEIGHT` = 0.31 | `docs/specs/overview.md` | 1 | agree (`scoring/overall.py:23,37`; frontend mirror) |
+| 6 | CCC-exempt types; detection order | Bank, Insurance, REIT/Property Developer, Utility, plus any company with no inventory in all 10 annual filings; order = ETF, Insurance, Bank, Utility, REIT, else Standard, in `docs/specs/company-type-variations.md` | `profitability.md`, `company-type-variations.md` | 1 + 1 | agree (`data/step4_data.py:40,783`, `scoring/classification.py`) |
+
+Spec-vs-code disagreements from the canary: **none**.
+
+### Stale-reference sweep (Part 4)
+
+Fixed in `c2468f0`: `backend/OPS_RUNBOOK.md:386` (dead CLAUDE.md "Phase 6a" section -> archive + spec), `:459` (dead CLAUDE.md "Daily prices: FMP" -> `fmp-data-and-bar-cache.md`), `:657-658` (`docs/valuation.md`, `docs/company-type-variations.md` -> `docs/specs/...`); `docs/specs/fmp-data-and-bar-cache.md:47-49,434` (`/delisted-companies` is in group `index_membership` per `core/data_groups.py:174`, not `corporate_events`); `CLAUDE.md:133` (audit_fixture_contamination runs Sundays 1:25, not 1:20, per the installed crontab); `CLAUDE.md:5` (migration note now says the migration is complete). No hits for "pending migration"; the "7 windows" and "flat 75" mentions in specs are deliberate history.
+
+### Legacy citations (Part 5)
+
+`docs/legacy-claude-md-citations.md` maps the 200 code-side citations to specs and archive line ranges (`0f3c20a`). 34 name no section on the citing line. Unresolvable names (never headings in the original): Fork B, the BB+RSI entry-signal section, ticker dot/hyphen normalization, Momentum, and the news/Ratios/Summary-tab/ticker-search/Analyst-Ratings notes. The last four documentation gaps (BB+RSI, `normalize_ticker`, Momentum, Analyst-Ratings verdict thresholds) have no spec at all.
+
+### Phase commits
+
+| Phase | Commits |
+|---|---|
+| B1 | `6bb5ab9` |
+| B2 | `7d27606`, `09806c7`, `c0a09a2`, `5672d3e`, `60cc668`, `b92f4c5`, `5fb6629`, `fa38571`, `9a7a0d0` |
+| B3 | `5b76933`, `7dd9c44`, `fd138e0`, `786f9aa`, `d06d110`, `a8812f9`, `9b9872c`, `359e1a6`, `12be2b3` |
+| B4 | `1446e00`, `1d9cb45`, `e8b6ce9`, `6ae0cb5`, `e74005f`, `10c55cd` |
+| B5a | `37a363c`, `b9c5f14`, `3c26f2b`, `e739f6b` |
+| B5b | `aa838d4`, `13168d5`, `64bed7a`, `049a9a4`, `c79068a` |
+| B6 | `94acdfe` (restore design skills deleted by mistake in `6ae0cb5`), `c2468f0` (stale-reference fixes), `0f3c20a` (legacy citations map), plus the commit that adds this section |
+
+### Auto-loaded context at session start
+
+| File | Chars |
+|---|---|
+| `CLAUDE.md` | 23,088 |
+| `frontend/CLAUDE.md` (`@AGENTS.md` only) | 11 |
+| `frontend/AGENTS.md` (via that import, only when working under `frontend/`) | 8,380 |
+| `~/.claude/CLAUDE.md`, `.claude/rules/`, `CLAUDE.local.md`, `.claude/CLAUDE.md` | do not exist |
+| **Total** | **23,099** (31,479 when the frontend is touched) |
+
+Not CLAUDE.md files, but also present every session: the auto-memory index (1,118 chars) and the one-line descriptions of the four project skills restored in `94acdfe` (design-system, frontend-design, ui-styling, ui-ux-pro-max: about 1,500 chars together; their bodies load only when invoked).
+
+### Remaining optional work
+
+1. **Comment repointing.** Rewrite the 200 code comments that cite old CLAUDE.md names to cite the specs (use `docs/legacy-claude-md-citations.md` as the work list) and fix the stale comments it lists (`scoring/trend.py:111-116`, `:472-473`). Two citations are user-visible or runtime strings: `frontend/components/settings/DiscountRateSettingsForm.tsx:51` and `backend/tests/conftest.py:42`.
+2. **Decision on `docs/archive/CLAUDE.original.md`.** Recommendation: **keep it.** It is 333 KB (332,423 chars), costs nothing at session start (not auto-loaded), is the resolution target of 200 code citations and of every "(original lines A-B)" label in the archive, and is the only home of the 23 KEEP-region lines B1 rewrote (1,795 chars). Git history would still hold it (`git show 6bb5ab9^:CLAUDE.md`), so deleting is safe in the data-loss sense, but it would break every line-range reference. Revisit only after item 1 is done and the archive labels no longer need a live source file; even then, the archive files are the durable copy and the original is a convenience.
+3. **Documentation gaps found while mapping citations:** no spec for the BB+RSI entry signal, `normalize_ticker` (dot/hyphen normalization), Momentum, or the Analyst Ratings verdict thresholds.
