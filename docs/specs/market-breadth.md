@@ -14,7 +14,9 @@ trailing 252-bar window is correctly dropped from the 52-week count by rolling p
 rather than being disqualified by a `min_periods` check against a date-union frame (an early
 implementation bug, caught and fixed before shipping: a strict `min_periods=252` on a date-union
 frame silently shrinks the eligible denominator whenever even one ticker anywhere has a gap on a
-date most tickers do have a bar for).
+date most tickers do have a bar for). The concrete case was FISV (500 real bars, one gap): the
+date-union version dropped it from the 52-week count; rolling per ticker keeps it, so the live
+52-week denominator is 500, not the investigation's 499.
 
 - **SMA position** = `close > SMA` (strict, SMA includes today). The three windows
   (`SMA_WINDOWS = {"sma20": 20, "sma50": 50, "sma200": 200}`) drive the flags, counts, and
@@ -35,40 +37,82 @@ date most tickers do have a bar for).
 `MarketBreadthSnapshot`: WIDE, PK `(universe, as_of_date)`, each metric its own column plus the
 numerators/denominators (`sma20_above`/`sma20_eligible`, ... `hl_eligible`, `new_highs`,
 `new_lows`, `net_new_highs`) and `stale_excluded` (constituents with no bar that session, in no
-count). `universe` is in the key even though `"sp500"` was the only value for a while — the
+count). `universe` is in the key even though `"sp500"` was the only value for a while (the value is
+`"sp500"`, matching `IndexConstituent.index_name`) — the
 table's own docstring anticipated the sector extension below, since this app's migration tooling
 (`_add_missing_columns`) is additive-only and can't widen a primary key later.
 
 Percentages are percentage POINTS; NULL when eligible is 0. Never pruned for the `sp500` row
 (~100 B/row, ~365 rows/year is trivial) — see "Sector breadth" below for the sector rows' own
-retention.
+retention. `is_backfilled` marks backfill rows.
 
 **20-day SMA metric added the same day as the initial ship**, as a fast companion to the 50/200
 pair — same per-ticker rolling math and strict `close > SMA` rule. Its three columns
 (`sma20_above`/`sma20_eligible`/`pct_above_sma20`) are nullable via the standard additive-schema
 convention, so a pre-existing row reads `NULL` (meaning "never computed," distinct from
-`sma20_eligible = 0`) until a backfill fill-pass or the next live run rewrites it. The 20-day
-window needs fewer bars than 50/200/252, so it's always a superset of the other windows'
-eligibility and never the binding constraint on the coverage gate below.
+`sma20_eligible = 0` / a NULL percentage on a session with no eligible tickers) until a backfill
+fill-pass or the next live run rewrites it. This was an additive migration, not a rebuild:
+`init_db()` is `create_all` (missing tables only) plus `_add_missing_columns` (adds any missing
+nullable column to an existing table), so the three columns were ALTER-added to the live table —
+a rebuild would have dropped the stored backfill rows and any live nightly row, which cannot be
+recomputed. The API/TS types carry the same nullability and the UI renders it as a gap / "Not
+computed yet", never 0. The 20-day window needs fewer bars than 50/200/252, so
+`sma20_eligible` is always a superset of `sma50_eligible` (tested) and never the binding
+constraint on the coverage gate below — the gate checks bar *presence* on the anchor session, not
+per-metric eligibility, so it applies to the 20-day metric identically, and the backfill's
+own keep-rule (>= 97% 252-bar eligible) already implies it, so the metric neither adds sessions
+nor drops any.
+
+**Fill pass** (`data/market_breadth_data.py::fill_missing_sma20`). The insert-only
+`on_conflict_do_nothing` backfill skips an existing date entirely, so it can never give existing
+rows the new columns. A second pass UPDATEs ONLY the three sma20 columns, ONLY where
+`sma20_eligible IS NULL`, ONLY on `is_backfilled` rows: no other column is touched, a row that
+already has a 20-day value is never overwritten, and a live (point-in-time) row is never filled
+from today's constituents. A re-run fills 0.
 
 ## Nightly job and coverage gate
 
 `pipeline.nightly_market_breadth`, 3:35 AM (after the 3:10 trend job, which warms the shared
 cache; before Warren's 3:40). Reuses the SAME `get_or_fetch_bars_batch` call the trend job
 already made, so after it this is a warm-cache read (~3s, zero incremental FMP requests) — if
-the trend job failed, this job self-heals with one live fetch. Universe = `load_sp500_tickers`
+the trend job failed, this job self-heals with one live ~503-request fetch (30s-5min) that could
+overlap Warren's start (writer-lock contention only). Universe = `load_sp500_tickers`
 strictly (**not** the S&P 500 ∪ Dow union `load_universe_tickers` returns — the original
 requested design named the latter, but since Dow ⊂ S&P 500 the two happen to be identical today;
 the strict function was chosen anyway since it can't silently drift if a Dow-only name ever
-appears).
+appears). Anchor = the latest session across the fetched bars that is `<=` the last completed
+session (the Sector Heatmap's rule); a weekend/holiday run upserts the same anchor idempotently.
+The job is wired into `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS`/`JOB_METADATA`/`crontab.txt`/
+`OPS_RUNBOOK.md`, enforced by `test_cron_wiring.py`. A `crontab.txt` edit alone changes nothing on
+the box (it must be reinstalled from `backend/`); the job's activation record is in
+`docs/archive/claude-md-history-fmp-migration.md`.
 
-**Coverage gate** (`MIN_COVERAGE = 0.97`): below it the job raises `InsufficientCoverageError`
-(heartbeat failure) and **writes nothing**, so the page's own as-of date visibly falls behind
-rather than showing plausible percentages over a shrunken universe. At/above it, missing tickers
-are excluded from every count and recorded in `stale_excluded`.
+**Coverage gate** (`MIN_COVERAGE = 0.97`): 97% of constituents must have a bar on the anchor
+session — **488/503 passes (15 missing), 487 fails** (pinned by a boundary test, and also asserted
+on `sma20_eligible`). Below it the job raises `InsufficientCoverageError` (heartbeat failure),
+names the missing tickers, and **writes nothing**, so the page's own as-of date visibly falls
+behind rather than showing plausible percentages over a shrunken universe. At/above it, missing
+tickers are excluded from every count, recorded in `stale_excluded` and warned in the log. The
+gate checks bar presence only — thin-history tickers are handled by the eligible counts, not the
+gate.
 
 **Live overwrites backfilled, never the reverse** (`store_snapshots(overwrite=True)` is a full
-upsert; the backfill script uses `on_conflict_do_nothing`).
+upsert — a live row is point-in-time; the backfill script uses `on_conflict_do_nothing`).
+
+## Backfill
+
+`pipeline/backfills/backfill_market_breadth.py` (one-time, `--dry-run` supported), deliberately
+NOT part of the nightly job's fetch. **Read-only against `SharedBarsCache`** — no fetch, no
+writes — because widening the shared cache (409 tickers 2y → 5y) would make every later nightly
+refetch pull the wider window (~+300k rows, permanently). A session gets a row only if >= 97% of
+constituents have a bar AND >= 97% are 252-bar eligible (which implies SMA eligibility), so it
+never stitches a subset-universe curve onto the index curve. **Survivorship-biased**: today's 503
+constituents applied to every past date (a recent joiner counts in earlier months; removals aren't
+tracked anywhere) — hence `is_backfilled`, the tooltip tag, and the page footnote. `--rebuild`
+deletes ONLY `is_backfilled` rows (never a live nightly row) and recomputes them. Since the shared
+cache now holds 5y of daily bars, the backfilled history spans ~4y (2022-09-26..2026-09-23 at the
+last rebuild) — kept uncapped by decision, still survivorship-biased. The original run and the
+20-day fill-pass run records are archived in `docs/archive/claude-md-history-fmp-migration.md`.
 
 ## Sector-level breadth (2026-09-22, shipped)
 
@@ -150,13 +194,42 @@ The sector view (`BreadthSectorView.tsx`) reuses the same marker helper and inhe
 identical labeling ambiguity — the investigation did not separately query each sector universe's
 own boundary date.
 
+*Code-vs-doc note (verified 2026-09-29):* the frontend has since changed the marker's source.
+`frontend/lib/marketBreadth.ts` no longer has `firstLiveIndex`; the chart uses
+`liveBoundaryIndex`, which returns the row right after the LAST backfilled row (so a
+rebuilt-backfill row sandwiched between live rows pushes the boundary past it — decision point 2
+above, the "contiguous live boundary" option), or -1 when no live row follows. Points 1 and 3
+were not re-checked.
+
+## API
+
+`GET /api/market-breadth` (`core/main.py`, `data/market_breadth_data.py::get_market_breadth`,
+`MarketBreadthOut`): the whole history oldest-first plus `latest`; before any row,
+`as_of_date: null, latest: null, series: []` (never a 404, including for an unrecognized
+universe string). Takes one query param, `universe` (default `sp500`, or `sector:<ETF>` — see
+"Sector-level breadth"); the original ship had no query params at all (YAGNI until a second
+universe existed). No range param: the whole series is returned (~250 rows/year, never pruned).
+
 ## UI
 
-`app/breadth/page.tsx` / `app/breadth/[sector]/page.tsx`, `components/breadth/`: 4 latest-reading
-stat tiles (20-day, 50-day, 200-day, net new highs, with denominators), then two synced recharts
+`app/breadth/page.tsx` / `app/breadth/[sector]/page.tsx`, `components/breadth/`,
+`lib/marketBreadth.ts`; top-nav "Breadth" opens in a new tab, like Sectors/Momentum: 4
+latest-reading stat tiles (20-day, 50-day, 200-day, net new highs, with denominators;
+`sm:grid-cols-2 lg:grid-cols-4`), then two synced recharts
 panels (never combined into one dual-axis chart — a percentage series and a signed count series
 would misread one as the other's scale on a shared axis) — a three-line 0-100% chart (20-day
 `series-3`, 50-day `series-2`, 200-day `series-1`, drawn slowest-first so the most volatile line
 sits on top, with a 50% reference line) and a diverging net-new-highs bar chart (`positive`/
 `negative` by sign). Custom pan (drag, no `<Brush>` — tried and rejected for breaking `syncId`
-alignment with the bar panel), no zoom.
+alignment with the bar panel), no zoom. It opens on the trailing year (all history if shorter).
+Unlike the app's usual hidden-Y convention the axes are visible (0/25/50/75/100%; nice ticks for
+the count), since a breadth level is read in absolute terms. Bars' sign is also encoded by
+position about the zero line, so it isn't color-only. The dashed "Live →" marker appears only
+once there is a non-backfilled session. Layout, colors/contrast, label collisions, the hover
+tooltip and cross-panel sync, and narrow widths were never verified on screen (no browser).
+
+**Known limits**: not holiday-aware (a holiday costs one extra harmless refetch, as for every
+`SharedBarsCache` consumer); `constituents` is today's count from the weekly Wikipedia scrape (a
+same-week index change is picked up a week late); the job imports the private
+`_load_frames`/`_most_recent_completed_trading_date` from `clients/shared_bars_cache.py`
+(`sector_heatmap_data.py` already sets that precedent).

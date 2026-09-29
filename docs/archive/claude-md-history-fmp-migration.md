@@ -203,3 +203,67 @@ Investigation: `docs/fmp_phase3_long_history_non_us_investigation_2026-09-25.md`
   Monday-anchored weekly resampling). Legacy `source="yahoo"` handling in the shared bars cache is behaviour, not a stray
   reference, and stays.
 
+
+
+## Market Breadth (/breadth, 2026-09-21): heading, intro and investigation citation (original lines 3767-3774)
+
+## Market Breadth (`/breadth`, 2026-09-21)
+
+S&P 500 breadth, one row per session: % of constituents closing above their own 20-day SMA,
+% above their 50-day SMA, % above their 200-day SMA, and net new 52-week highs minus lows. (The
+20-day metric was added later the same day -- see "20-day SMA metric" below; everything else in
+this section applies to it identically unless that entry says otherwise.) Design and measurements:
+`docs/market_breadth_investigation_2026-09-21.md` (file not in repo). Bars from FMP via `SharedBarsCache` (split-adjusted close/high/low, no dividend adjustment -- same basis and rationale as Sector Heatmap), zero FMP fundamentals
+calls, independent of Step 1-5/Overall Assessment scoring -- no `FMP_ENABLED` guard needed.
+
+
+## Market Breadth: crontab reinstall / activation record (2026-09-21) (original lines 3816-3822)
+
+  - **Active: crontab reinstalled 2026-09-21** (`crontab crontab.txt` from `backend/`; `crontab -l`
+    confirmed byte-identical to the file, and the only diff beforehand was this job's entry, so
+    nothing else was dropped). The first cron-triggered run is 3:35 UTC on 2026-09-22 -- check
+    `CronRunLog`/`nightly_market_breadth.log`. Any later `crontab.txt` edit still needs the same
+    reinstall; editing the file alone does nothing (the fixture-contamination section's gap).
+    Note `crontab.txt`'s comment above this entry still says "50-/200-day" (left as-is on purpose:
+    editing it would put the live crontab out of sync with the file for a comment-only change).
+
+
+## Market Breadth: backfill run record (2026-09-21) (original lines 3831-3835)
+
+  page footnote. **Run 2026-09-21 against the real DB: 503/503 tickers had cached bars, 1,255
+  sessions seen, 250 inserted (2025-09-22 .. 2026-09-18), 0 already present, 0 failures, 6.4s.**
+  Latest row reproduces the investigation's numbers exactly (27.8% / 49.3%; intraday 5 highs /
+  29 lows = -24). Re-running is a no-op. (The 250 rows were then given their 20-day values by a
+  second pass -- see below.)
+
+
+## Market Breadth: 20-day sma20 fill-pass run record (2026-09-21) (original lines 3858-3862)
+
+    fills 0. **Run 2026-09-21 against the real DB: 250 pending, 250 filled, 0 left NULL; a fingerprint of
+    every pre-existing column was byte-identical before/after; the latest (2026-09-18, 96 of 503 =
+    19.1%) and a mid-history (2026-03-17, 132 of 501 = 26.3%) session were recomputed independently
+    from raw `SharedBarsCache` closes and matched exactly. 20-day eligible 499-503 per session (never
+    below the 50-day's), 12.4%-80.0% range, mean 52.2%.**
+
+
+## Market Breadth: original 20-day line color rationale (chart-1/4/2, superseded by series-3/2/1) (original lines 3863-3870)
+
+  - **Line color: `chart-1` (green), chosen with the dataviz palette validator against the dark
+    surface.** 50-day is `chart-4` (blue) and 200-day `chart-2` (amber), so neither could be reused.
+    Purple (`chart-5`) hard-fails the normal-vision floor against the blue (DeltaE 11.6 < 15); red
+    (`chart-3`) is the app's `--fathom-negative` hue and would read as "bad". Green on the adjacent
+    series pairs (20<->50, 50<->200) passes CVD separation (24.0), normal-vision distance (25.8) and
+    contrast. Known, accepted: green<->amber (20<->200, non-adjacent) is only DeltaE 5.2 under protan
+    simulation, and the lightness-band check flags green marginally (0.681 vs the 0.67 dark ceiling; the
+    existing amber fails it too) -- the legend and the labelled tooltip rows are the secondary encoding.
+
+
+## Market Breadth: 'verified without a browser' test-run details (original lines 3889-3895)
+
+- **Verified without a browser**: pytest (1,803 backend tests pass), vitest (373 frontend), tsc,
+  eslint, and jsdom renders with `ResponsiveContainer` mocked to a fixed size (a throwaway one of the
+  real 250-row payload for the original page: 42 negative / 206 positive bars matching the data, 8
+  x-ticks per panel; the kept `MarketBreadthCharts.test.tsx` asserts 3 line series with distinct
+  strokes, the legend order, the dashed 50% line and the axis ticks, and was mutation-checked --
+  removing the 20-day line fails it). **Not verified on screen**: layout, colors/contrast, label collisions, the
+  hover tooltip and cross-panel sync, narrow widths.
