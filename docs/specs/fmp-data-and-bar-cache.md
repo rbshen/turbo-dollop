@@ -1,13 +1,14 @@
 # FMP data groups and the shared bar cache
 
 FMP is Fathom's sole external data provider (since Phase 6b, 2026-09-26 — Massive and Yahoo were
-both fully removed; see `CLAUDE.md`'s "Phase 6a"/"Phase 6b" sections for that removal's own
-record). This document is the ground-truth reference for which FMP endpoints exist, which data
-group gates each one, and the daily-bar caching mechanism (and its bug history) that sits
-underneath the price-bar groups specifically. `CLAUDE.md`'s own "Data groups" and "Daily prices:
-FMP" sections carry the full current-state narrative for the toggle system and the migration
-phases; this document is the companion technical/investigation reference those sections point
-to, not a restatement of them.
+both fully removed; the removal record is in `docs/archive/claude-md-history-fmp-migration.md`).
+This document is the ground-truth reference for which FMP endpoints exist, which data group
+gates each one, and the price-bar mechanisms that sit underneath the price groups specifically:
+the shared daily/60m bar cache and its close-aware freshness rule (and the bug history behind
+it), the daily-price (Phase 2), long-history (Phase 3) and intraday (Phase 4) sources, and
+delisted/non-US handling. `CLAUDE.md`'s "Data groups" section carries the current-state
+narrative for the per-group toggle system itself; this document is the companion
+technical/investigation reference it points to, not a restatement of it.
 
 ## Endpoint inventory (ground truth, 2026-09-27 audit)
 
@@ -71,7 +72,7 @@ was added; the index scrapers only run on Sundays).
 ### Unwired, dead, one-shot, or shelved
 
 - **Shelved**: both `/insider-trading/*` endpoints (`insider` group seeded off; the tab itself is
-  fully deleted, not just hidden — see `CLAUDE.md`'s "Insider Activity" section).
+  fully deleted, not just hidden — see `docs/archive/claude-md-history-features.md`, "Insider Activity").
 - **One-shot / no live cron caller**: `/price-target-news` (only the spent
   `backfill_price_target_snapshots.py`); the `bulk_refresh_*` and `backfill_fmp_daily_bars.py`
   scripts (they reuse endpoints that are also live elsewhere in the app, so removing them
@@ -246,16 +247,56 @@ night-behind bug this ordering fixed (2026-09-19) is recorded in
 changes nothing on the box — it must be reinstalled from `backend/` (`crontab crontab.txt`) and
 `crontab -l` checked against the file.
 
-## Daily prices: FMP migration (Phase 2, 2026-09-24) — basis and parity
+## Daily prices: FMP migration (Phase 2, 2026-09-24)
 
-The nightly-bar consumers' data source, formerly Massive-with-Yahoo-fallback, moved to
-`/historical-price-eod/full` for US-listed tickers.
+FMP `/historical-price-eod/full` (data group `daily_prices`) is the source of the `SharedBarsCache`
+`"1d"` bars for **US-listed** tickers, and (since Phases 6a/6b) the only one — formerly
+Massive-with-Yahoo-fallback. The migration record (backfill run, parity check, recomputes) is
+archived in `docs/archive/claude-md-history-fmp-migration.md`.
 
-**Basis change, worth understanding before comparing to another chart.** FMP `full` is split-
-**and spin-off**-adjusted, not dividend-adjusted. For roughly 30 tickers, pre-spin-off history
-therefore differs from a split-only source (e.g. TradingView) by a constant factor that ends
-exactly on the spin-off date — this removes an artificial cliff a spin-off leaves in a raw
-series; it is not a data error, and no splits-only FMP endpoint exists to avoid it.
+- **Basis — read this before comparing prices to another chart.** FMP `full` is split- **and
+  spin-off**-adjusted, not dividend-adjusted. For ~30 tickers, pre-spin-off history therefore
+  differs from a split-only source (e.g. TradingView) by a constant factor that ends exactly on
+  the spin-off date (T +32.5% before 2022-04-11, EXC +40%, WDC +32%, FDX +24%, DHR +13%, O +3.3%,
+  plus BDX, J, LEN, ILMN, ZBH, APTV, FLEX, SPGI, CMCSA, HON, IP, TRI). This removes an artificial
+  cliff a spin-off leaves in a raw series; it is not a data error. No splits-only FMP endpoint
+  exists (`non-split-adjusted` is raw; `dividend-adjusted` is split+dividend).
+- **Routing = listing exchange, not domicile** (`core/tickers.py::is_us_listed`, exchange read
+  from the cached FMP profile by `clients/daily_bar_sources.py::_profile_exchanges`). The code's
+  `US_EXCHANGES` set is NYSE, NASDAQ, AMEX (FMP's name for NYSE Arca ETFs such as SPY), CBOE and
+  **OTC** (by decision: CNSWF/EVVTY/SINGY), plus the spelling variants NYSE ARCA/NYSEARCA/ARCA,
+  NYSE AMERICAN and BATS; a ticker with no cached profile (the sector ETFs) is US unless its
+  symbol has a dot. 54 US-listed tickers have a foreign domicile (ACN, TSM, BABA, NVO, HSBC ...)
+  and are US. Delisted-flagged tickers are skipped.
+- **Source and toggle** (`clients/daily_bar_sources.py`): `get_daily_bar_source()` returns
+  `FMPDailySource`. A ticker FMP returns nothing for (empty 200, error) lands in the
+  `unserved_tickers` out-parameter and keeps its cached bars; `daily_prices` off / master off /
+  above plan / restricted reports the whole batch unserved — **cache-only, and the daily-bar jobs
+  record `skipped`** (Phase 6b). Heartbeat message: `N not served by FMP (cached bars kept)`.
+- **Nightly incremental** (only the 3:10 trend job actually fetches; Liquidity Zones/Heatmap/
+  Breadth/Momentum read its warm cache): per ticker, one `full?from=<last cached bar - 7d>` call
+  (`FMP_OVERLAP_DAYS`). The last cached bar is always overwritten; any EARLIER overlapping close
+  that differs from the cache by more than 0.5% (`FMP_OVERLAP_TOLERANCE`) means FMP restated
+  history (split / spin-off / symbol reuse) and that ticker is refetched over its full window and
+  **replaced** (delete + insert in one transaction, `_write_rows(replace=True)`). No splits
+  calendar or bulk endpoint is used (`eod-bulk` etc. are Ultimate). A cache starting within 10
+  days of the window start counts as covering it; a young listing (< 5y of history, ~22 tickers)
+  is refetched in full each night (cheap: short histories). **The Sunday (UTC) run is a weekly
+  full resync**: the trend job passes `force=True` (`WEEKLY_RESYNC_WEEKDAY_UTC`), so every ticker
+  is refetched and replaced, closing the sub-0.5% restatement gap. Measured at the time: ~590
+  calls, ~62 s at concurrency 10 (`FMP_CONCURRENCY`), paced to 50% (`FMP_RATE_FRACTION`) of the
+  plan's documented rate (`FMP_PLAN_REQUESTS_PER_MIN`: Starter 300, Premium 750, Ultimate 3000);
+  a full 5y backfill is ~88 s of fetching.
+- **Partial bars.** A bar dated after the last completed session is dropped by the FMP source,
+  and `shared_bars_cache._provisional_last_bar_tickers` treats a row whose newest write predates
+  the close (+10 min, `_CLOSE_SETTLE`) of its last bar's own session as stale — a date-only
+  freshness check once kept mid-session bars forever (2026-09-23 15:50 ET incident).
+- **Chart tab** D_6M/D_1Y/D_2Y: FMP for every ticker while the group is live; group off or FMP
+  failing/empty → an empty chart (Phase 6b). `ChartOut.source` is always `"fmp"`.
+- **Backfill script** (`pipeline/backfills/backfill_fmp_daily_bars.py`, run once 2026-09-24):
+  replaces each routed ticker's 1d rows with a fresh 5y FMP series; a ticker FMP cannot serve
+  keeps its rows; `--dry-run` fetches and compares without writing.
+  `backfill_market_breadth --rebuild` replaces `is_backfilled` breadth rows only.
 
 **Parity gate accepted below its own bar, by explicit user decision.** The post-backfill parity
 check (592 tickers, ~717k overlapping days) measured 98.14% of days within 0.1% against the
@@ -266,12 +307,14 @@ seam; a handful of confirmed single bad prints in the *old* cache (FMP was indep
 verified correct on these); OTC thin-trading vendor differences; and FMP simply carrying more
 history for some tickers than the old cache did. The user accepted the gate at 98.14% given
 every discrepancy bucket was independently explained, rather than raising the FMP-side match
-rate further.
+rate further. Known leftover: **AVB** is not fixed (FMP carries the same 2026-08-17 −64% cliff;
+delisted-flagged, left as is).
 
 **FMP silently caps a response at 5,000 rows (~19.9 years) — confirmed, not documented anywhere
-by FMP.** Relevant to any consumer requesting more than ~20 years of history; not reachable by
-the nightly 5-year window, but directly relevant to the long-history store below, which requests
-10 years per ticker in a single call and confirmed it never needs paging at that depth.
+by FMP, and no 402.** Relevant to any consumer requesting more than ~20 years of history; not
+reachable by the nightly 5-year window, but directly relevant to the long-history store below,
+which requests 10 years per ticker (~2,500 rows, ~0.56 MB, 1.6-2.0 s) in a single call and
+confirmed it never needs paging at that depth. No paging exists anywhere in the app.
 
 ## Long-history store (Phase 3, 2026-09-25) — Chart W_4Y and the Analyst Ratings overlay
 
@@ -280,6 +323,14 @@ the Chart tab's **W_4Y** range (needs ~7.9 years of daily bars once weekly-SMA20
 accounted for) and the Analyst Ratings tab's **10-year price overlay** on the price-target trend
 chart. Both are served from a dedicated store, `LongHistoryBars` (PK `(ticker, bar_time)`),
 **not** `SharedBarsCache["1d"]` and **not** a `FundamentalsCache` blob.
+
+**Group / tier.** `daily_prices_long` (Premium: FMP documents 30y history on Premium, 5y on
+Starter) = history beyond the nightly ~5y, feeding W_4Y and the overlay. Seeded unverified
+(docs-only — the key returned 10y+ with no 402). `FMPClient.get_historical_price_eod` takes
+`group=` (default `daily_prices`); `/historical-price-eod/full` is in
+`ENDPOINT_GROUP_OVERRIDES_USED`; the `PROBE_ENDPOINTS` canary is AAPL over a 2016 window. The
+store is `clients/long_history_bars.py::get_long_history`, one full ~10y copy per ticker on the
+FMP `full` basis (`from = today - 10y`).
 
 **Why a separate table, not an extension of the shared cache — a real architectural trap,
 identified before it was built into, not discovered by breaking it.** Storing a 10-year window
@@ -291,22 +342,32 @@ tier, permanently inflating the nightly download for every other consumer sharin
 the retention window is itself pinned by a test against the *nightly* consumers' fetch tiers —
 widening it silently for one on-demand feature would break that test's own guarantee for
 everyone else. A dedicated table sidesteps all three by construction: nothing nightly reads or
-writes it, and nothing prunes it.
+writes it, and nothing prunes it — pinned by tests. Rows are only appended by a top-up or
+replaced wholesale (~250 rows/year/ticker, ~0.6 MB/ticker).
 
 **Fill/refresh behavior**: lazily filled per-ticker, single-flight (an in-process lock per
-ticker, so two concurrent first-views of the same never-yet-cached ticker don't double-fetch).
-Cold → a synchronous ~1.6-2.1s full 10-year fetch. Warm and fresh (by the same market-close-aware
-rule the shared cache uses) → served with no live call, ~0.07s. Warm and stale → an incremental
+ticker per event loop — an `asyncio.Lock` per (loop, ticker) — so two concurrent first-views of
+the same never-yet-cached ticker don't double-fetch).
+Cold → a synchronous ~1.6-2.1s full 10-year fetch. Warm and fresh (last bar = the last completed US session AND written after that session's
+close + 10 min — the same close-aware rule the shared cache uses) → served with no live call, ~0.07s. Warm and stale → an incremental
 top-up (`from = last bar - 7d`) with the same 0.5%-overlap restatement check the nightly job
-uses, falling back to a full refetch+replace if history was restated. Group off or the FMP call
-fails while warm → the existing stored row is served as-is (cached-only, never wiped); group off
-or a failure while cold → `None`, nothing written.
+uses, falling back to a full refetch+replace if history was restated. Group off (or master off / restricted) → an existing row is served as-is (cached-only, never
+wiped), no row → `None`. Group live but FMP errors/returns empty → cold: `None`, nothing written;
+warm-stale: the existing row is served. Errors log the exception type only (the URL carries the
+API key).
 
-**Chart W_4Y basis**: the store's own dailies, trimmed to 10 years, resampled through the same
-`weinstein.resample_to_weekly` (W-FRI, shifted to Monday labels) every other weekly consumer in
-this app already uses — reused directly, not reimplemented, since the resampling logic is
-genuinely data-source-agnostic. Weekly parity against a recorded native-weekly reference fixture
-was verified: identical week-for-week labels, closes within 0.5% on every sampled week.
+**Chart W_4Y basis** (`data/chart_data.py::_fetch_fmp_weekly_bars`): the store's own dailies,
+trimmed to 10 years, resampled through the same `weinstein.resample_to_weekly` (W-FRI, shifted to
+Monday labels) every other weekly consumer in this app already uses — reused directly, not
+reimplemented, since the resampling logic is genuinely data-source-agnostic.
+`ChartOut.source="fmp"`; no stored row → an empty chart (Phase 6b). Weekly parity against a
+recorded native-weekly reference fixture
+(`tests/fixtures/weekly_parity_fmp_daily_vs_native_1wk.json`, kept as that historical record and
+still used by `test_chart_weekly_fmp.py`) was verified: identical week-for-week labels, closes
+within 0.5% on all 68 weeks, volume >= 90%. The in-progress week is a partial bar labelled by
+its Monday. **The Chart tab's "zero persistent caching" has this one exception** (its daily
+ranges stay uncached); the store is close-aware, so the 2026-09-18 stale-bar bug cannot recur
+here.
 
 **Analyst overlay basis, a real decision, not a default.** The overlay reads the store's FMP
 `full` closes — split- (and spin-off-) adjusted, **not** dividend-adjusted — deliberately, not
@@ -315,7 +376,51 @@ because a dividend-adjusted endpoint wasn't available. The target line it's comp
 analyst's target is a nominal price at the time it was issued — a dividend-adjusted close would
 deflate every earlier price by dividends paid since, which is the wrong comparison basis for
 "was the stock trading near this target when it was issued." This also matches the Chart tab's
-own basis, so the two views of the same ticker's price history agree.
+own basis, so the two views of the same ticker's price history agree. The overlay reads through
+`data/analyst_ratings_data.py::_fetch_price_history`; no stored row → an empty overlay, never an
+error. The dividend-adjusted endpoint is deliberately NOT in the endpoint registry. **10y views
+therefore show FMP's spin-off-adjusted history** (T, WDC, FDX, EXC ...) — the same accepted basis
+as Phase 2's nightly bars; no splits-only endpoint exists.
+
+## Intraday bars: FMP (Phase 4, 2026-09-26)
+
+FMP `/historical-chart/1hour` (data group `intraday_bars`, Premium, seeded unverified) is the
+source of the shared **`"60m"`** `SharedBarsCache` rows behind Warren and BB+RSI, for
+**US-listed** tickers (non-US tickers get no 60m bars). Both consumers share the rows; neither
+engine changed. Since Phase 6b there is no fallback provider: with the group off, the cached rows
+keep serving and the Warren/BB+RSI nightly jobs record `skipped`.
+
+- **Basis (checked live 2026-09-26):** split-adjusted, NOT dividend-adjusted — the endpoint has
+  no adjustment parameter. IBKR (4:1, Jun 2025) and FAST (2:1, May 2025) pre-split bars are
+  consistent with the daily cache (FMP `full`). RTH only, labelled by bar START (09:30..15:30),
+  timestamps naive strings in ET, newest first. **Never `extended=true`** (clock-anchored, wrong
+  labelling).
+- **Client/registry:** `FMPClient.get_historical_chart_1hour` (a literal path — the registry test
+  scans for literals), `ENDPOINT_GROUP["/historical-chart/1hour"]`, an AAPL canary in
+  `PROBE_ENDPOINTS`.
+- **`FMPIntradaySource`** (`clients/daily_bar_sources.py`, same shape as `FMPDailySource`): FULL
+  fetch when never cached, narrower than requested, `force`, or the cached rows are not all FMP's;
+  otherwise INCREMENTAL `from = last bar - 3d` (`INTRADAY_OVERLAP_DAYS`) with a 0.5% overlap check
+  (mismatch = restated history → full refetch + replace). Full fetches page newest-first by moving
+  `to` to the oldest bar returned (~9 pages / 730 days), start no later than the cached first
+  bar, and never write a partial history on a mid-paging error. Bars after the last completed bar
+  are dropped. A ticker FMP does not serve (group off / restricted / error / thin answer) lands in
+  the `unserved_tickers` out-parameter and keeps its cached bars.
+- **Provenance forces the one-time replace.** `SharedBarsCache.source` (`"fmp"` | NULL; nullable,
+  no backfill, only `"60m"` reads it). A ticker whose cached 60m rows are not ALL `"fmp"` — every
+  pre-cutover row reads NULL (or the legacy `"yahoo"`) — is fully replaced on its next FMP fetch,
+  so FMP bars are never layered on older-provider history. There was no separate backfill script:
+  the first nightly run after the cutover did it.
+- **Completeness check:** each fetched frame is scanned for sessions with fewer than 7 hourly bars
+  (4 on half-days); short sessions are logged per ticker (`FMPIntradaySource.short_sessions`,
+  `find_short_sessions`). Log-only — nothing is refetched or dropped.
+- **Accepted side effect (reviewed, do not "fix"):** Warren signal dates replayed on FMP bars can
+  differ slightly from the previous provider's, because small OHLC differences cross indicator
+  thresholds on different bars. No compensating logic exists (measurement archived).
+- **Cost:** nightly ~105 calls (one overlapping incremental per ticker); a cold full backfill
+  ~945.
+- **Not touched:** extended hours (P5), warm-up buffer / history depth / retention.
+  `FMPTechnicalSource` is a thin reader of the shared cache.
 
 ## Endpoint feasibility work not yet wired into the app
 

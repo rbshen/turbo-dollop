@@ -142,3 +142,52 @@ validation reference; non-US routing helpers (`route_by_source`, `is_us_listed`)
   2026-09-26 cleanup record in the commit message/report); nothing prevents a user re-adding one.
   Sections above describing `daily_prices_intl`, phantom bars, `--scope non-us` and the HK backfill are history.
 
+
+
+## Daily prices: FMP (Phase 2, 2026-09-24): heading and plan citation (original lines 3544-3549)
+
+## Daily prices: FMP (Phase 2, 2026-09-24)
+
+FMP `/historical-price-eod/full` (data group `daily_prices`) is the source of the `SharedBarsCache` "1d" bars for
+**US-listed** tickers, and (since Phases 6a/6b) the only one. Plan/decisions:
+`docs/fmp_phase2_daily_prices_plan_2026-09-24.md` (file not in repo).
+
+
+
+## Daily prices: FMP (Phase 2): re-backfill run, parity check and recomputes (original lines 3581-3598)
+
+- **Re-backfill (run 2026-09-24)** `pipeline/backfills/backfill_fmp_daily_bars.py`: replaces each routed ticker's 1d
+  rows with a fresh 5y FMP series (728,231 rows); a ticker FMP cannot serve keeps its rows; `--dry-run` fetches and
+  compares without writing. Stitched-symbol results: META, B, BNY, COHR, CNSWF, DOC, ECHO, PSKY now continuous;
+  **PARA** is FMP's PARA = Banzai International (matches the cached profile); **SPCX** shrank to 71 bars (IPO
+  2026-06-12) and reads `stage=None` (< 40 weeks); **AVB is NOT fixed** (FMP carries the same 2026-08-17 -64% cliff;
+  delisted-flagged, left as is). `backfill_market_breadth --rebuild` replaces `is_backfilled` breadth rows only.
+- **Parity (old cache vs FMP, 592 tickers, 717,171 overlapping days):** 98.14% of closes within 0.1%; the shortfall
+  is entirely 42 tickers explained by spin-off basis, stitched/renamed symbols, single bad prints in the OLD cache,
+  OTC thin-trading differences and longer FMP history. The dry-run gate (>= 99%) was **accepted by the user** at
+  98.14%. Weinstein: 3 stage changes (BDX, FDX -- spin-off basis -- and SPCX), 6 since-date-only changes.
+  **Liquidity Zones moved for 215 of 592 tickers**, 193 of them 2-decimal jitter from sub-0.1% high/low differences
+  (swing_bars=2 makes swing detection sensitive to that).
+- **Recomputes run 2026-09-24** on the new cache: trend/Weinstein 586 tickers, Liquidity Zones 100,
+  `recompute_ticker_scores` 591, Sector Heatmap re-run for the stored dates, `backfill_market_breadth --rebuild`
+  (2,911 old backfilled rows replaced by 10,775; **the backfilled history now spans 2022-09-26..2026-09-23 (~4y)
+  because the cache now holds 5y** -- kept uncapped by decision, still survivorship-biased), Momentum re-run for the
+  2026-08-31 anchor.
+
+
+
+## Daily prices: FMP, Phase 3 -- long history (2026-09-25): heading, non-US note and investigation citation (original lines 3599-3604)
+
+## Daily prices: FMP, Phase 3 -- long history (2026-09-25)
+
+Moved **Chart W_4Y** and the **Analyst Ratings 10y price overlay** to FMP. (This phase also moved non-US tickers and
+added a phantom-bar filter; all non-US support was removed in the Phase 6a follow-up, so that part is gone.)
+Investigation: `docs/fmp_phase3_long_history_non_us_investigation_2026-09-25.md` (file not in repo).
+
+
+
+## Intraday bars: FMP, Phase 4: accepted side effect (Warren replay measurement) (original lines 3665-3667)
+
+- **Accepted side effect (reviewed, do not "fix"):** replaying 2y of history through Warren on FMP vs the previous
+  provider's prices gave identical signal dates for 4 of 8 tickers tested and 1-4 of ~25 differing dates for the
+  rest -- small OHLC differences crossing indicator thresholds on different bars. No compensating logic.
