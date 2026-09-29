@@ -67,7 +67,9 @@ now-dense series), but the job still has no explicit catch-up/backfill-on-recove
 Unique index `uq_pricetargetsnapshot_ticker_date` on `(ticker, snapshot_date)`, created
 idempotently on existing DBs by `db._ensure_unique_indexes()` (since `_add_missing_columns` is
 add-column-only and can't add a constraint). A one-time migration script tagged every
-pre-existing row by its own `fetched_at` date (the backfill batch → `legacy_all_analysts`; the
+pre-existing row by its own `fetched_at` date (the backfill batch — 32,764 rows, built from all
+analysts since 2021 with no recency cutoff, hence not comparable to FMP's ~180-day live consensus →
+`legacy_all_analysts`; the
 one earlier manual test run → `live_consensus`).
 
 **Job**: `pipeline.nightly_price_target_snapshot` (renamed from `monthly_price_target_snapshot`
@@ -87,7 +89,8 @@ recognize it as `BF.B` (`PRICE_TARGET_SYMBOL_OVERRIDES`, a one-entry allowlist s
 those three endpoints) — `/profile` and `/grades-consensus` want the hyphen form, and `BRK-B`
 must **not** be remapped (it answers with genuinely different data under each spelling, unlike
 BF-B). A handful of tickers (ERIE, L, NWS, and a few ETF/OTC names) genuinely have no FMP
-price-target coverage and fail harmlessly every night — expected, not a regression.
+price-target coverage (also SPY, TECL, PARA) and fail harmlessly every night — a run normally reports
+~8 failures; expected, not a regression.
 
 **Skip/failure status**: the existing `analyst_ratings` group-off skip guard already recorded a
 real `skipped` `CronRunLog` status (fixed as part of the broader 2026-09-24 data-groups work).

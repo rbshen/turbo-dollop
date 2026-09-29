@@ -69,6 +69,8 @@ this failure mode today.
    smoothing convention is in use.
 4. **The live/partial last bar is deliberately kept**, matching ThinkOrSwim's own behavior of
    showing the in-progress bar rather than waiting for it to close.
+5. **No cache invalidation was needed**: nothing server-side caches the chart payload (the
+   indicator is computed per request), so the change took effect on the next fetch.
 
 **Deferred, not shipped**: making K/slowing/D/smoothing-type configurable via Settings (the same
 DB-backed pattern `LiquidityZoneConfig` already uses) — worth doing only if a future need arises
@@ -82,7 +84,8 @@ not even be desired behavior; left as-is unless specifically asked for.
 ### Verification
 
 Eye-checked by the user directly against real ThinkOrSwim/TradingView values for two tickers on
-five real trading days each, both K and D — every value matched to the reported precision.
+five real trading days each, both K and D — every value matched to the reported precision. The
+2026-09-24 spot values were AAPL K/D 43.33/56.65 and SPY K/D 62.99/68.96.
 Confirmed without a browser via: a faithful from-scratch reference-EMA port cross-checked against
 the shipped implementation; unit tests pinning the SMA-era values were updated to the new
 EMA-era ones; and a direct comparison table of FastK/FullK/FullD across five real dates for two
