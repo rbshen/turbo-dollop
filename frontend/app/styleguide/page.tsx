@@ -244,10 +244,21 @@ export default function StyleguidePage() {
       </Section>
 
       <Section title="Page header">
-        <div className="border border-border-subtle">
-          <PageContainer>
-            <PageHeaderDemo />
-          </PageContainer>
+        <div className="flex flex-col gap-4">
+          <div className="border border-border-subtle">
+            <PageContainer>
+              <PageHeaderDemo />
+            </PageContainer>
+          </div>
+          {/* Watchlist-page shape: a switcher (Tabs, for an unbounded
+              item count) sitting directly below the header rather than
+              tucked into its actions slot -- see the design-system
+              session 5d report. */}
+          <div className="border border-border-subtle">
+            <PageContainer>
+              <PageHeaderWithTabsDemo />
+            </PageContainer>
+          </div>
         </div>
       </Section>
 
@@ -527,6 +538,22 @@ function PageHeaderDemo() {
         </>
       }
     />
+  );
+}
+
+const WATCHLIST_TAB_ITEMS = [
+  { value: "w1", label: "W1" },
+  { value: "w2", label: "W2" },
+  { value: "w3", label: "W3" },
+];
+
+function PageHeaderWithTabsDemo() {
+  const [tab, setTab] = useState("w1");
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Watchlists" actions={<Button variant="ghost" size="sm">Export List</Button>} />
+      <Tabs value={tab} onValueChange={setTab} items={WATCHLIST_TAB_ITEMS} />
+    </div>
   );
 }
 
