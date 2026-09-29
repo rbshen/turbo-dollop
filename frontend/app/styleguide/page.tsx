@@ -26,6 +26,7 @@ import { Status, Verdict, type StatusTone } from "@/components/ui/status";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs } from "@/components/ui/tabs";
 import { Tooltip } from "@/components/ui/tooltip";
+import { pnlClass } from "@/lib/format";
 
 // Internal reference page for the direction-B design-system primitives.
 // Not linked from any navigation -- visit /styleguide directly.
@@ -118,6 +119,21 @@ export default function StyleguidePage() {
             <MetricTile label="Fair value" value="$516.17" />
           </div>
         </SectionGrid>
+
+        <p className="mt-8 mb-2 text-xs text-text-tertiary">
+          A horizontal row of headline stats (e.g. Market Breadth&apos;s 4 tiles) -- a plain grid of MetricTiles
+          instead of a boxed card per stat; a value can carry its own tone (e.g. pnlClass) via a span inside it
+        </p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <MetricTile label="Above 20-day SMA" value="17.9%" note="90 of 503 stocks" />
+          <MetricTile label="Above 50-day SMA" value="27.8%" note="140 of 503 stocks" />
+          <MetricTile label="Above 200-day SMA" value="49.3%" note="247 of 501 stocks" />
+          <MetricTile
+            label="Net new 52-week highs"
+            value={<span className={pnlClass(-24)}>-24</span>}
+            note="5 highs · 29 lows"
+          />
+        </div>
 
         <p className="mt-8 mb-2 text-xs text-text-tertiary">
           A page of grouped metrics (e.g. the ticker page&apos;s MetricsGrid) -- multiple titled Sections stacked per
