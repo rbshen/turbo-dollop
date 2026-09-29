@@ -101,6 +101,14 @@ node scripts/validate-tokens.cjs --dir src/
 |----------|---------|
 | `design-tokens-starter.json` | Starter JSON with three-layer structure |
 
+## Integration
+
+**With brand:** Extract primitives from brand colors/typography
+**With ui-styling:** Component tokens → Tailwind config
+
+**Skill Dependencies:** brand, ui-styling
+**Primary Agents:** ui-ux-designer, frontend-developer
+
 ## Slide System
 
 Brand-compliant presentations using design tokens + Chart.js + contextual decision system.
