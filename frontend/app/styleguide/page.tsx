@@ -11,8 +11,10 @@ import { Card } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, Input } from "@/components/ui/input";
+import { NumberStepper } from "@/components/ui/NumberStepper";
 import { PageHeader } from "@/components/ui/page-header";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { Select } from "@/components/ui/Select";
 import {
   DefinitionRow,
   MetricTile,
@@ -244,6 +246,10 @@ export default function StyleguidePage() {
         </div>
       </Section>
 
+      <Section title="Settings controls">
+        <SettingsControlsDemo />
+      </Section>
+
       <Section title="Card">
         <Card className="max-w-sm">
           <p className="text-sm text-text-secondary">Not the default; reach for Section first. Never nested.</p>
@@ -311,6 +317,28 @@ const TAB_ITEMS = [
 function TabsDemo() {
   const [value, setValue] = useState("financials");
   return <Tabs value={value} onValueChange={setValue} items={TAB_ITEMS} />;
+}
+
+// Field types unique to Settings-style config forms (Discount Rate, Moat,
+// Weinstein, Liquidity Zones, REIT dividend yield) -- a bounded numeric
+// stepper and a themed native select, both used side by side with plain
+// Input/Checkbox in those forms.
+function SettingsControlsDemo() {
+  const [swingBars, setSwingBars] = useState(2);
+  const [priority, setPriority] = useState("nearest_price");
+  return (
+    <div className="flex flex-wrap items-start gap-6">
+      <Field label="Swing bars (each side)" htmlFor="sg-stepper">
+        <NumberStepper id="sg-stepper" value={swingBars} onChange={setSwingBars} min={1} max={3} step={1} />
+      </Field>
+      <Field label="When over the cap, keep" htmlFor="sg-select">
+        <Select id="sg-select" className="mt-1" value={priority} onChange={(e) => setPriority(e.target.value)}>
+          <option value="nearest_price">Nearest to price</option>
+          <option value="most_recent">Most recent</option>
+        </Select>
+      </Field>
+    </div>
+  );
 }
 
 const UNIVERSE_OPTIONS = [
