@@ -294,3 +294,5 @@ own content). Left as an open question below rather than guessed.
 | Section heading | Source lines (original) | Chars | Destination file(s) | Phase | Status |
 |---|---|---|---|---|---|
 | Speculative Growth (new classification) scoring notes | 2273-2315 | 3652 | docs/specs/speculative-growth.md (SPEC, 100%) | B2 | DONE |
+| Analysis tab section-card reasoning (2026-09-05) | 1614-1720 | 7033 | docs/archive/claude-md-history-features.md (ARCHIVE, 100%) | B2 | DONE |
+| Insider Activity -- SHELVED 2026-09-20, FULLY DELETED 2026-09-27 | 4065-4200 | 9610 | docs/archive/claude-md-history-features.md (ARCHIVE, 100%) | B2 | DONE |
