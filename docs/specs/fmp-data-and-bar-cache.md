@@ -81,8 +81,9 @@ was added; the index scrapers only run on Sundays).
   nothing in production imports it.
 - **Fetched but unused downstream**: `/splits` (stored in `CorporateEvent`, no chart marker reads
   it yet). `/financial-statement-full-as-reported` is only exercised for Bank-classified tickers.
-- **Seeded group with no endpoint at all**: `extended_hours` (P5) — see "Extended-hours pricing"
-  below for what was tested toward eventually wiring this up.
+- **Seeded group with no endpoint**: none any more — the `extended_hours` (P5) group row was
+  removed 2026-09-27 (it never got an endpoint, client method, or call site); see "Extended-hours
+  pricing" below for what was tested toward eventually building it.
 
 ## The daily-bar cache staleness bug, and its two fixes (2026-09-16 / 2026-09-18)
 
@@ -523,5 +524,6 @@ window starts at the adjusted close, not a fixed 16:00, which `holidays-by-excha
 which any future session-detection logic would need to combine correctly with wall-clock time
 itself.
 
-This remains genuinely unbuilt — the `extended_hours` data group is seeded but has no endpoint,
-client method, or call site anywhere in the app.
+This remains genuinely unbuilt — there is no endpoint, client method, or call site anywhere in
+the app, and the `extended_hours` data group row that had been seeded for it was removed
+2026-09-27 (a future build would need to add the group back to `core/data_groups.py::GROUPS`).
