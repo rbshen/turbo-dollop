@@ -1023,3 +1023,239 @@ current formulas. Notable design decisions:
 
 
 > Note (B5a, editorial, not part of the archived text): the Growth Rate block above cites `growth.md` (original line 916) -- `growth.md` (file not in repo). The current spec is `docs/specs/growth-rate.md`. The same block cites `backend/schemas.py::Step2Out` and the Financials blocks cite `frontend/components/step1/ScoreBadge.tsx` for badge shading; those paths have since moved (`backend/core/schemas.py`; shading now lives in `frontend/lib/tierColor.ts`).
+
+
+## Debt: CET1 manual-entry-only intro and structural-notes intro (original lines 1036-1060)
+
+Debt's original methodology calls for a CET1 ratio check for Banks. An
+investigation confirmed FMP has no CET1 field and no raw components to
+compute one (checked ratios, ratios-ttm, key-metrics, balance sheet, and
+speculative bank-specific endpoints — all absent or 404). CET1 is
+therefore **manual-entry only,
+never fabricated or estimated** (`backend/bank_capital_metrics.py`,
+`frontend/components/step5/BankCapitalMetricsForm.tsx`) — but as of
+`4a4fe26` ("Add manual CET1/NPL entry to unblock Step 5 Bank verdicts",
+2026-08-02) this is **no longer a permanent block**. A Bank ticker reads
+`verdict: "not_supported"` / `score: null` only until a CET1 value is
+entered; once it is, `score_step5_bank` blends it 50/50 with an NPL
+(Non-Performing Loan) ratio — auto-computed from FMP's raw XBRL tag dump
+via `backend/npl.py` where available, manually overridable otherwise — into
+a real score and verdict (`backend/scoring/step5.py::score_step5_bank`,
+`WEIGHTS_BANK`). NPL itself is a metric the original methodology never
+specified at all. `BANK_CET1_NPL_EXCLUDED_TICKERS` (`IBKR`, `HOOD` — confirmed no
+customer deposit-taking business via FMP's `deposits` XBRL tag) are
+carved out of this entirely: no manual-entry UI is offered and they stay
+permanently `not_supported`, same as every Bank ticker before this
+feature shipped.
+
+Debt is a hard pass/fail bankruptcy filter, not a continuous score, so
+these notes are structural rather than threshold tweaks — see `debt.md`
+for the exact current formulas and severity bands:
+
+
+
+## Debt: hard-fail override, classification note, deferred-revenue note (original lines 1061-1073)
+
+- **Hard-fail override**: if any ratio breaches its hard limit (Current
+  Ratio <1.0, Debt/EBITDA >3.0, Debt Servicing Ratio ≥30%, or Gearing >45%
+  for REITs), the verdict is Fail regardless of the blended score — mirrors
+  the Growth Rate fix (a hard rule must never be diluted by averaging with
+  healthy ratios). The numeric score still displays for context.
+- Company classification (Standard / Bank / REIT-or-Property-Developer) is
+  a best-effort sector/industry text match, surfaced in the UI/API
+  (`classification_note`) rather than hidden, since a misclassified ticker
+  would silently apply the wrong ratio set.
+- The deferred-revenue exception (a low Current Ratio driven by deferred
+  revenue isn't a red flag) is shown as an informational note only, not
+  auto-detected or auto-adjusted — same non-automated treatment as
+  Financials' one-off items.
+
+
+## Debt: Pass-with-caution score cap (PASS_WITH_CAUTION_SCORE_CAP) -- ADBE/AMP rationale (original lines 1074-1091)
+
+- **"Pass with caution" scores are capped at `PASS_WITH_CAUTION_SCORE_CAP`
+  (74)**, separate from the `BORDERLINE_SAVED_SCORE` (60) an individual
+  rescued ratio scores. Without this, the blended score could still land in
+  "excellent" territory (95-100) even though a real breach occurred,
+  because Current Ratio's deferred-revenue rescue re-scores off the
+  adjusted ratio's own Comfortable-zone tier (up to 100), unlike Debt/
+  EBITDA's and DSR's ICR rescue which is always flat-capped at
+  `BORDERLINE_SAVED_SCORE` regardless of how comfortably ICR cleared the
+  bar — ADBE (95) and AMP (100) were real cases of this before the cap.
+  The verdict text already couldn't say "Strong Pass" for a saved breach,
+  but that only protected the label; a 95-100 *number* next to an amber
+  "caution" badge/chip still read as contradictory (a top performer
+  flagged as risky) rather than as "barely passing," which a caution state
+  should read as. Capped at 74 to land in the same lowest-shade "Pass"
+  bucket the shared badge/chip already uses for a plain, unqualified
+  70-74 score (`frontend/lib/tierColor.ts`) — never raises an
+  already-lower natural blend, only lowers one that would otherwise land
+  above the cap.
+
+
+## Debt: breach-context framework (2026-08-01) -- 503-ticker recompute, MA/FICO checks (original lines 1092-1147)
+
+- **Breach-context framework (2026-08-01)**: a Borderline breach (never
+  Severe — that stays an unconditional Fail, no exceptions, exactly as
+  before) on Debt/EBITDA or Current Ratio gets a second, richer look
+  before falling back to a flat Fail, replacing what used to be a single
+  narrow Interest-Coverage-Ratio-only check for Debt/EBITDA (Current
+  Ratio had no equivalent second chance at all beyond its existing
+  deferred-revenue-to-Comfortable rescue). Two primary gates (the OTHER
+  two ratios' literal raw values, not their own possibly-rescued
+  classification — `current_ratio >= 1.0` and `debt_servicing_pct < 30.0`
+  for Debt/EBITDA's breach; `debt_to_ebitda <= 3.0` and
+  `debt_servicing_pct < 30.0` for Current Ratio's) must both pass cleanly
+  before a strict majority of secondary signals (5yr trend, FCF vs Total
+  Debt, Interest Coverage for Debt/EBITDA; deferred-revenue magnitude,
+  5yr trend, cash position, current-asset liquidity for Current Ratio) is
+  even considered — `backend/scoring/step5.py::evaluate_debt_to_ebitda_
+  breach_context` / `evaluate_current_ratio_breach_context`. A qualifying
+  breach reuses the existing `saved_by_tiebreaker`/"Pass with
+  caution"/`PASS_WITH_CAUTION_SCORE_CAP` machinery verbatim (no new
+  verdict state) under a new label, `marginal_via_breach_context` — but
+  the points awarded are now **graded** (40-60, `MARGINAL_SCORE_FLOOR` to
+  `BORDERLINE_SAVED_SCORE`) by the favorable-signal fraction, not a flat
+  60 regardless of how convincing the evidence is. Two signals (cause of
+  debt, undrawn revolving credit — plus Net-vs-Gross Debt as a third,
+  informational-only aside) are **never** scored, since neither is
+  reliably determinable from FMP's structured data; these always render
+  an explicit manual-check note in reasoning rather than being silently
+  omitted.
+  - Using the OTHER ratios' *raw* values (not their own rescued state) as
+    primary gates is a deliberate, real behavior change from the old
+    narrow mechanism: previously, DSR Borderline-but-ICR-rescued (e.g.
+    35%) would ALSO rescue a Borderline Debt/EBITDA off the exact same
+    ICR boolean, independently. Now it doesn't — a DSR that itself needed
+    rescuing isn't "clean" enough to vouch for a different ratio's
+    breach.
+  - Confirmed via a full-universe recompute (503 tickers): 42 tickers'
+    Debt score/verdict changed. Real examples: **ROL** and **DAL** newly
+    qualify — both are exactly the deferred-revenue-heavy business model
+    (prepaid pest-control contracts / advance ticket sales) the framework
+    was built to recognize, previously with no way to get partial credit
+    once the deferred-revenue-to-Comfortable rescue alone fell short.
+    **APD** and **AMGN** conversely lose their old rescue — Debt/EBITDA
+    has genuinely risen (+103% and +17% over 5 years) with weak FCF
+    coverage (6% and 15% of total debt), so a safe ICR alone no longer
+    overrides that. **AVB, EQR, GEHC, HON, HST, IFF, KIM, O, REG** flip
+    from an incorrect "Pass" to "Fail" at an unchanged score — the
+    residual fallback-floor fix below, not this framework.
+  - **MA and FICO (this framework's original motivating cases) were
+    checked directly against real cached data and BOTH remain unchanged**
+    — MA's Current Ratio breach reaches the framework (primary gates pass
+    cleanly) but 3 of 4 secondary signals are genuinely unfavorable (zero
+    deferred revenue, a real ~24% 5yr decline, cash covering only 34% of
+    current liabilities), so it correctly stays Fail rather than being
+    rescued just because the mechanism exists. FICO's Debt/EBITDA (4.81x)
+    is Severe, not Borderline, so it never reaches the framework at all —
+    confirms the framework doesn't quietly extend into Severe-breach
+    territory.
+
+
+## Debt: residual fallback-floor fix (original lines 1148-1158)
+
+- **Residual fallback-floor fix**: `_verdict_for`'s `hard_fail=False,
+  saved_by_tiebreaker=False` fallback previously had no score floor at
+  all (unlike the `saved_by_tiebreaker=True` branch, fixed earlier) — a
+  plain mediocre-but-non-breaching ratio combination could land under 70
+  and still read "Pass". Both checks are now one hoisted `score < 70 →
+  "Fail"` check ahead of the `saved_by_tiebreaker` branch. Because
+  `score_step5_reit` calls the same `_verdict_for`, this also fixes REIT
+  gearing's own "approaching_limit" tier (60pts, no rescue mechanism at
+  all) — confirmed via the recompute that AVB/EQR/HST/KIM/O/REG (REIT
+  gearing) and GEHC/HON/IFF (Standard-path fallback) all flip from
+  "Pass" to "Fail" at their unchanged score.
+
+
+## Debt: negative EBITDA is a real Fail, negative-CFO DSR exemption (2026-08-06) (original lines 1159-1203)
+
+- **Negative EBITDA is a real Fail, not `insufficient_data`; a negative-
+  CFO-only Debt Servicing Ratio is a genuine exemption, not a Fail
+  (2026-08-06).** Previously, any Standard-path ticker with EBITDA ≤0
+  (Debt/EBITDA undefined) or CFO ≤0 (Debt Servicing Ratio undefined) hit
+  an all-or-nothing gate straight to `insufficient_data` — which, unlike
+  a real exemption (IBKR/HOOD's `not_supported`, which reweights), sets
+  `can_compute = False` and silently blanks the ENTIRE Overall Assessment,
+  not just Debt. Two distinct fixes, shipped as two commits:
+  1. **Negative EBITDA → Fail.** A company not generating positive
+     operating earnings at all is a real weakness, not a neutral data gap
+     the way a Bank/Insurance/broker-dealer exemption is —
+     `score_step5_standard` now returns a `negative_ebitda` result (0
+     points, hard-fail, with an explicit reasoning note) whenever EBITDA
+     is ≤0, and this stays IN the blend as a genuine Fail rather than
+     blocking the whole check. `step5_data.py`'s gate now only reads
+     `insufficient_data` when `total_debt`/`ebitda_ttm` is genuinely
+     missing, not when `ebitda_ttm` is present but non-positive.
+     Confirmed real cases (all previously `insufficient_data`/Overall
+     blanked entirely, now genuine Fails): **CNC** (57/Fail, Overall
+     56/Fail), **COIN** (62/Fail, Overall 32/Fail), **F** (57/Fail,
+     Overall 46/Fail), **IP** (57/Fail, Overall 46/Fail), **KHC**
+     (52/Fail, Overall 41/Fail), **MRNA** (50/Fail — also has negative
+     CFO, see below), **PSKY** (23/Fail, Overall 45/Fail), **TAP**
+     (28/Fail, Overall 44/Fail), **ECHO** (50/Fail — also has negative
+     CFO; Overall stays `None`, unaffected by this fix — a pre-existing,
+     unrelated Growth Rate `insufficient_data` gap).
+  2. **DSR excluded (not failed) when CFO is negative but EBITDA is
+     positive.** CTVA (a seasonal working-capital cycle) and SMCI (an
+     inventory buildup) both have positive EBITDA — only Debt Servicing
+     Ratio's CFO input was undefined, while Current Ratio and Debt/EBITDA
+     were both real and computable. Unlike negative EBITDA, a temporary/
+     seasonal negative-CFO period isn't evidence DSR itself is unhealthy,
+     so this is a genuine exemption (`RatioResult.excluded=True`): DSR
+     drops out of the blend entirely and its weight is proportionally
+     redistributed across whichever of {Current Ratio, Debt/EBITDA}
+     remain (50/50, when both apply) — mirroring Profitability's own
+     equal-weight redistribution for its exempt metrics (`BASE_WEIGHTS`,
+     below). Confirmed: **CTVA** now 85/Pass (Overall 79/Pass); **SMCI**
+     now 50/Fail — a genuine Debt/EBITDA breach that, with DSR
+     unverifiable this period, can no longer be breach-context-rescued
+     using it as a primary-gate input (Overall 53/Fail).
+  Both breach-context frameworks (above) now guard against a `None`
+  `debt_to_ebitda`/`debt_servicing_pct` input, treating an undefined
+  ratio the same as a real breach for gating purposes — it can't vouch
+  for a different ratio's rescue any more than a bad one could.
+
+
+## Debt: Debt/EBITDA and DSR Severe-zone points graduated (2026-08-13) (original lines 1204-1240)
+
+- **Debt/EBITDA and DSR's Severe-zone points graduated (2026-08-13)**,
+  following the same hard-fail-cliff investigation as Step 4's ROIC/ROE
+  fix and Step 2's negative-magnitude fix. The Severe zone was a flat 0
+  no matter how far beyond the boundary a ratio sat — confirmed via a
+  full-universe scan: Debt/EBITDA's Severe population spans 4.04× to
+  84.56× (NET), DSR's spans 42.68% to 478.91% (HUM). **Both FDXF
+  (current_ratio 0.00, flagged in the original investigation) and HUM
+  were spot-checked for a data-quality artifact before this shipped**:
+  FDXF's is confirmed a genuine FMP data gap (`totalCurrentAssets`
+  reports as a literal `0` against $993M of current liabilities for this
+  recently-spun-off FedEx Freight subsidiary — implausible for an
+  actively-trading company, not touched by this fix since Current Ratio's
+  Severe zone is out of scope here); HUM's 478.9% DSR is confirmed
+  **genuine, not an artifact** — a real, seasonally-lumpy $147M TTM CFO
+  (Humana's quarterly cash flow swings ±$400M-1.65B and happens to net to
+  a small residual this TTM window) divided into a normal ~$704M TTM
+  interest expense.
+  - Unlike Step 4/Step 2, this is **display-only** — `label` stays
+    `"severe"` and `hard_fail` stays unconditionally `True` for the whole
+    zone (Debt is deliberately "a hard pass/fail bankruptcy filter, not a
+    continuous score" — see above), so there is no companion-floor risk
+    to fix here the way the other two needed: the verdict is already
+    forced to Fail by `hard_fail` regardless of the displayed score, both
+    before and after this change. Confirmed via a full-universe recompute:
+    **86 tickers' points/score changed, 0 verdicts changed** — including
+    PCAR, whose blended score rises to 72 (nominally "Pass" range) while
+    still correctly reading Fail, since `hard_fail` is checked first and
+    unconditionally in `_verdict_for`.
+  - Points graduate linearly from 15 (at the Comfortable/Severe boundary)
+    to 0 (Debt/EBITDA: at 10.0×, `DEBT_EBITDA_SEVERE_FLOOR_RATIO`, 2.5x
+    the 4.0x boundary; DSR: at 120%, `DSR_SEVERE_FLOOR_PCT`, 3x the 40%
+    boundary) — both floor ratios chosen from the real Severe population
+    (covering 92%/59% of actual tracked-universe Severe tickers
+    respectively), not guessed. 15-point ceiling deliberately kept below
+    `MARGINAL_SCORE_FLOOR` (40) so even the least-bad Severe reading can
+    never numerically outscore a genuinely-rescued Borderline breach.
+
+
+
+> Note (B5b, editorial, not part of the archived text): the Debt blocks above cite paths that have since moved: `backend/bank_capital_metrics.py` is now `backend/helpers/bank_capital_metrics.py`, `backend/npl.py` is now `backend/helpers/npl.py`, `backend/step5_data.py` is now `backend/data/step5_data.py`. `debt.md` is `docs/specs/debt.md`. "`BASE_WEIGHTS`, below" refers to Profitability's blocks further down this file. The first block's `BANK_CET1_NPL_EXCLUDED_TICKERS` (`IBKR`, `HOOD`) is superseded: as of the 2026-09-05 company-classification fix the constant is an empty set and both tickers classify as "Standard" (see `docs/specs/debt.md` and `docs/specs/company-type-variations.md`). The "deferred-revenue exception ... shown as an informational note only, not auto-detected" bullet (original lines 1069-1073) is also superseded: Current Ratio's deferred-revenue rescue is automatic (see `docs/specs/debt.md`).
