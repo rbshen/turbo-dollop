@@ -250,3 +250,163 @@ table, no new heartbeat wiring.
   HTTP error and nothing is cached). The tab renders two distinct empty states
   off it (`lib/insiderActivity.ts::insiderViewState`) -- never conflate them.
 
+
+
+## Ad-hoc reproduction scripts must not touch the real database (original lines 257-375)
+
+### Ad-hoc reproduction scripts must not touch the real database
+
+`backend/fathom.db` is the one real database — `config.py`'s
+`database_path` has no environment-based split between "real" and "test."
+The only thing keeping test runs from polluting it is that every test in
+`backend/tests/` explicitly constructs its own fresh in-memory engine
+(`create_engine("sqlite://")`) and monkeypatches it onto every module's
+`engine` reference *before* calling any `get_stepN_data`/`get_summary`/
+`compute_ticker_score` function. `cache.py::get_or_fetch` has no way to
+tell "this is a controlled repro" from "this is real" — it will silently
+persist whatever `fmp_client` returns into whatever `engine` happens to be
+bound at that moment, indistinguishable later from genuine FMP data.
+
+Any one-off script that reproduces test-like behavior against real ticker
+data (monkeypatching `fmp_client` to return controlled/fixture responses)
+**must** follow the exact same convention: construct a fresh in-memory
+engine and monkeypatch it onto every module's `engine` reference first.
+Never monkeypatch `fmp_client` alone and call these functions against the
+default (real, file-backed) `db.engine`. Confirmed root cause of the
+original incident (2026-07-28): `backend/tests/test_debt_metrics.py`'s
+"Acme Corp" profile fixture — used correctly, with proper engine
+isolation, by the tests themselves at that time — ended up cached under
+the real ticker **PEP** (and the inert placeholder ticker **ACME**) in
+`backend/fathom.db`, live in production (`/tickers/PEP` and its Screener
+card showed "Acme Corp") for several hours before being caught.
+Root-caused to an ad-hoc script that mirrored the test's fixture/
+monkeypatch setup but only patched `fmp_client`, not `engine`. Purged and
+re-fetched 2026-07-28.
+
+**This recurred 2026-08-04, via a different mechanism — not an ad-hoc
+script this time, but the test suite itself.** `test_debt_metrics.py`'s
+own two tests call `get_summary(ticker)` (`ticker_summary.py`), which
+internally calls `get_step2_data()`/`get_step3_data()` — both of which
+manage their **own independent `Session(engine)` blocks**, bound to
+`data/step2_data.py`'s and `data/step3_data.py`'s own separate `engine`
+imports. The test only monkeypatches `step5_data.engine` and
+`ticker_summary.engine`, so `fmp_client`'s fakes (a true shared singleton,
+correctly patched) flow through step2/step3_data's calls, but their
+`get_or_fetch` cache **writes** land on the real, unpatched
+`core.db.engine` — silently persisting fixture data into production,
+exactly the same class of bug, just triggered by an ordinary `uv run
+pytest` run rather than a bespoke script. `test_ticker_summary.py`
+independently discovered and fixed the `step2_data.engine` half of this
+same trap (see its own comment there) but that fix was never propagated
+to `test_debt_metrics.py`, and neither test patches `step3_data.engine`.
+Confirmed via `fetched_at` timestamps that this fired twice, from two
+unrelated ordinary `pytest` runs, at 2026-08-04 05:28 and 21:31 — and was
+**not caught by `audit_fixture_contamination.py`** despite that script's
+existence, because the live installed crontab (`crontab -l`) was
+confirmed to be byte-for-byte the original 2026-07-20 version, never once
+reinstalled since (not after this incident's own original fix, not after
+the later backend package reorg, not after `audit_fixture_contamination`
+was finally added to `crontab.txt` on 2026-08-05) — so nothing in
+`crontab.txt`, including this scanner, has ever actually been running on
+schedule on this box. Purged and re-fetched again 2026-08-05 (PEP fully
+re-fetched via the same `pipeline.nightly_fundamentals_fetch` code path
+the nightly cron job uses per-ticker; `ACME`'s rows deleted outright, not
+re-fetched, since it isn't a real ticker); PEP's `TickerScore` recomputed.
+**Fully resolved 2026-08-05, three parts:**
+
+1. `test_debt_metrics.py` now also monkeypatches `step2_data.engine` and
+   `step3_data.engine` (matching `step5_data`/`ticker_summary`) — the
+   actual fix, not just a symptom purge. Confirmed: this test now creates
+   zero rows in the real DB, where every prior run had created 9 fake
+   `ACME` rows without fail.
+2. **The live crontab was reinstalled** (`crontab crontab.txt`) and
+   confirmed byte-for-byte identical to `backend/crontab.txt` — it had
+   been stuck on the original 2026-07-20 schedule the entire time,
+   through the backend reorg and every job added since, including
+   `audit_fixture_contamination` itself. (A prior release-readiness
+   report had characterized the nightly fetch as "actively running,"
+   inferred from the log file's recent mtime rather than a direct
+   `crontab -l` vs `crontab.txt` diff — accurate at the moment it was
+   checked, since neither had changed since 2026-07-20 either, but it
+   couldn't have caught the reorg breaking the schedule hours later
+   without anyone reinstalling it.)
+3. **A session-scoped write-guard** (`backend/tests/conftest.py`, new)
+   hooks SQLAlchemy's `before_cursor_execute` on the real `core.db.engine`
+   for the whole pytest session and raises immediately on any write —
+   catching every write path, not just `get_or_fetch`, so a future
+   missing `engine` monkeypatch fails loudly in CI instead of silently
+   reaching production. `test_write_guard.py` is a permanent regression
+   test confirming the guard itself actually fires. Never active outside
+   a pytest session (a real interactive/cron run never imports `pytest`).
+
+Purged and re-fetched PEP 2026-08-05 (via the same
+`pipeline.nightly_fundamentals_fetch` code path the nightly cron job uses
+per-ticker); `ACME`'s rows deleted outright, not re-fetched, since it
+isn't a real ticker; PEP's `TickerScore` recomputed.
+`audit_fixture_contamination.py` confirmed clean after all three fixes,
+with the full suite (589 tests) passing.
+
+**Follow-up investigation (2026-09-23) found the 2026-08-05 manual
+remediation above likely missed two cache rows.** `ratios`/`annual_10y`
+and `analyst_estimates`/`latest` are cache keys only `step2_data.py`/
+`step3_data.py` write (added by the same Step 3 rollout, `2a8a3ac`, that
+opened this whole vulnerability window) — not part of the original
+2026-07-28 incident's known-endpoint fingerprint, so the person doing the
+2026-08-05 cleanup likely didn't know to force-refresh them. Live-DB
+evidence: every other PEP row this bug could have touched shows
+`fetched_at` from the 2026-08-05 15:21 remediation batch, but these two
+show `fetched_at` of 2026-08-06 03:30 and 2026-08-13 00:45 respectively —
+consistent with them being left on contaminated (empty-list) data that
+only self-healed once each row's own 7-day `cache_staleness_days` window
+naturally expired, rather than being explicitly purged. Circumstantial
+only — no DB backup survives from that far back (retention currently
+starts 2026-09-13) to directly confirm what those rows held beforehand —
+and moot for current correctness, since both rows hold genuine PEP data
+today. **Lesson for any future contamination remediation: force-refresh
+every cache key the leaking code path can write, not just the keys in the
+incident's own known fingerprint** — a code path can grow new cache keys
+(as this one did) between when a fingerprint list was first written and
+when it's next relied on.
+
+`backend/pipeline/audit_fixture_contamination.py` (read-only, safe to run
+anytime) scans `FundamentalsCache` for the same class of fingerprint and
+should be run if this is ever suspected again — now genuinely running
+weekly via cron (Sundays 1:20 AM), not just documented as if it were.
+
+
+
+## Cron job heartbeat: FMP_ENABLED interaction investigation and nightly_price_target_snapshot guard-parity fix (original lines 401-433)
+
+**`Settings.cron_health_enabled`** (`CRON_HEALTH_ENABLED` in `.env`,
+default `true`, same read-once-at-process-start convention as
+`fmp_enabled`) gates only this reporting/surfacing layer — when `false`,
+`get_cron_health()` short-circuits to `{enabled: false, jobs: []}` before
+touching the DB, and the Scheduled Jobs section renders nothing for cron
+health, an explicit skip distinct from "checked and everything's ok". `cron_heartbeat()` itself is
+never gated by this flag — `CronRunLog` rows keep being written regardless,
+so history isn't lost and flipping the flag back on picks up right where
+it left off. Investigated (2026-08-17) whether the heartbeat itself needs
+a way to distinguish a job intentionally no-op'ing under `FMP_ENABLED=
+false` from a genuine failure: confirmed every FMP call site across the 11
+wired scripts existing at the time already sat inside a per-ticker
+`try/except` that swallows `FMPDisabledError` before it reaches
+`cron_heartbeat`'s own exception handler, so no wired job currently
+produces a spurious `"failure"` row purely from an FMP pause — no
+heartbeat change was needed for this flag. (The 12th job,
+`pipeline.nightly_trend_calculation`, added later for the trend-structure
+feature, needs no equivalent reasoning at all — it makes zero FMP calls,
+so `FMP_ENABLED` never affects it either way; see "Trend structure
+analysis (Technical)" below.)
+(Separately found, and fixed the same day: `nightly_price_target_snapshot.py`
+was missing the equivalent `if not settings.fmp_enabled: ...` early-return
+guard `nightly_fundamentals_fetch.py` already had, so during an FMP pause
+it still looped the full ticker list and reported a misleading `"success"`
+with 0 tickers actually snapshotted, rather than skipping outright. Added
+the same guard, placed identically (right after `init_db()`, before
+resolving the ticker universe) — the comment there notes the one real
+difference from nightly's version: this script never goes through
+`cache.get_or_fetch` at all, so there's no `cache_only` distinction to
+carry over, just a direct always-live `fmp_client` call either way. Same
+`skipped: True` summary-dict convention, so a gated no-op still reads as a
+legitimate `cron_heartbeat` `"success"` while remaining distinguishable
+from "ran normally and genuinely snapshotted nothing" in the log.)
