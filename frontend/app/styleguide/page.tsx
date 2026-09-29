@@ -85,6 +85,21 @@ export default function StyleguidePage() {
             <span className="font-mono text-sm text-text-primary">92</span>
             <Verdict tone="strong">Strong pass</Verdict>
           </div>
+          <div>
+            <p className="mb-2 text-xs text-text-tertiary">
+              Neutral status dot -- a compact column read (e.g. a jobs/health table) that has no
+              Pass/Fail tone of its own; same text-tertiary neutral as Status/Badge&apos;s own
+              &quot;neutral&quot; tone above, just as a plain dot instead of a labeled pill.
+            </p>
+            <div className="flex flex-wrap items-center gap-5 text-xs text-text-tertiary">
+              <span className="flex items-center gap-1.5">
+                <span className="size-2 rounded-full bg-text-tertiary" /> Skipped
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="size-2 rounded-full bg-text-tertiary" /> Unknown
+              </span>
+            </div>
+          </div>
         </div>
       </Section>
 
