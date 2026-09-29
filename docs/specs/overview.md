@@ -97,14 +97,55 @@ adjusts which checks apply accordingly, always disclosing this on the relevant t
 silently changing the math. See [Company type variations](company-type-variations.md) for the
 full picture.
 
+## Screener excludes ETFs (2026-09-20)
+
+The Screener shows stock equities only — the 5-step fundamentals framework doesn't apply to a
+fund. The exclusion is unconditional, **not** a toggle, and Screener-only: the Watchlist reads
+its own rows and still shows an ETF a user explicitly added.
+
+- **How ETFs got in**: nothing ever filtered them. FMP's search returns ETFs; viewing one
+  (`GET /api/tickers/{t}/score`'s fallback, or the Watchlist's `compute_ticker_score`) writes a
+  `TickerScore` row, and `load_full_tracked_universe` then keeps it in every nightly sweep
+  (profile cached ⇒ "ever-viewed"). The Screener's default universe, `all`, returns every
+  `TickerScore` row; an ETF is never an index constituent, so `sp500`/`dow`/`nasdaq` never held
+  one. At the time of the fix the real DB had 1 ETF among 581 rows (SPY, viewed via search only).
+- **Detector**: FMP `/profile`'s `isEtf`/`isFund` — the same flag
+  `classify_company_type(is_fund=...)` reads (returning company type `"ETF"`; see
+  [Company type variations](company-type-variations.md)). Checked against all 581 cached
+  profiles at the time: SPY `isEtf=true`; the other 580 (9 ADRs included) `false/false`.
+  Sector/industry text can't do this (SPY reads "Financial Services"/"Asset Management", the
+  same as BLK). Already cached — no new FMP field or fetch.
+- **Mechanism**: `TickerSummaryOut.is_etf` (from the profile, `data/ticker_summary.py`) →
+  `TickerScore.is_etf` (nullable, `_add_missing_columns`, no backfill) → `TickerScoreOut.is_etf`.
+  The Screener page applies `frontend/lib/screenerFilters.ts::excludeEtfs` to the fetched rows
+  once, *before* counts, Sector/Company-type options and filters derive from them, so "ETF" isn't
+  even a selectable Company type. `core/main.py::screener_meta` for `universe=all` excludes them
+  too, so the "X of Y" note doesn't show an ETF as a missing ticker.
+- **Null handling**: `is_etf` wins when set; a row with no `is_etf` yet (every row until its next
+  recompute) falls back to `company_type == "ETF"` — derived from the same profile flag — rather
+  than "not an ETF", so an ETF is excluded immediately, not after the next recompute. The nightly
+  3:50 `nightly_score_recompute` backfills the column (or run
+  `uv run python -m pipeline.recompute_ticker_scores`, cache-only). The SQL in `screener_meta` and
+  `isEtfRow` in TypeScript must stay in sync.
+- **No Country filter any more**: the original write-up noted that the Screener's Country=US
+  option was exchange-based and still included NYSE/NASDAQ-listed ADRs and OTC names once ETFs
+  were gone. That is moot now — the Country filter (`TickerScore.country`,
+  `SavedScreenerFilter.country`) was removed 2026-09-26 with non-US ticker support (see
+  `docs/specs/fmp-data-and-bar-cache.md`, "US-listed tickers only"); Fathom supports US-listed
+  tickers only, decided by listing venue rather than domicile, so ADRs and OTC names are
+  in-universe by design. The original wording is archived in
+  `docs/archive/claude-md-history-features.md`.
+- **Not done (flagged)**: `nightly_fundamentals_fetch` still spends FMP calls fetching/scoring an
+  ETF's statements (SPY: ~20 cache rows); nothing in that script skips ETFs.
+
 ## Beyond the Analysis and Valuation tabs
 
 Two further, fully independent lenses exist elsewhere in the app and never feed into Overall
 Assessment or Valuation in either direction:
 
 - **Speculative Growth** — a separate classification (not a score) layered on top of the same
-  fundamentals data, gated on company type, Moat, and forward growth. See `CLAUDE.md`'s
-  "Speculative Growth" section (not yet extracted into its own `docs/specs/` file).
+  fundamentals data, gated on company type, Moat, and forward growth. See
+  [Speculative Growth](speculative-growth.md).
 - **Technical tab** — a family of independent, price-structure-only signals (swing/BOS trend
   state, Weinstein Stage Analysis, Liquidity Zones, BB+RSI and Warren entry signals, Sector
   Heatmap, Market Breadth) computed from price bars, never from the fundamentals pipeline. See

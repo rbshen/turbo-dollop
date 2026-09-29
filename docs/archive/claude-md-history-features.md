@@ -530,3 +530,12 @@ entered — this is the direct, intended payoff, not a side effect):**
 | SEZL | Before (Bank) | 49/Fail (NII) | 100/Strong Pass | not_supported | overvalued |
 | SEZL | After (Standard) | 84/Pass (Revenue) | 85/Pass | 100/Strong Pass | overvalued (unchanged) |
 
+
+
+## Screener excludes ETFs (2026-09-20): Country=US remark (Country filter since removed) (original lines 1937-1941)
+
+- **Country=US is NOT "US-domiciled stocks"**: Country is exchange-based
+  (see `TickerScore.country`), so with ETFs gone `US` still includes
+  NYSE/NASDAQ-listed ADRs (HSBC, TSM, NVO, ASML, ARM, BABA, TME) and OTC
+  names (SINGY, EVVTY, CNSWF). Deliberate, unchanged here -- excluding them
+  is a different, domicile/ADR-based rule.
