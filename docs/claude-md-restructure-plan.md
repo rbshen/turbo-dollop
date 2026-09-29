@@ -288,3 +288,9 @@ own content). Left as an open question below rather than guessed.
 6. **Dangling doc references (§6)**: drop the citations to the 7 missing investigation docs when
    moving their surrounding text to archive, or leave the citations in place as-is (pointing at
    nothing) since they're historical anyway?
+
+## Migration ledger
+
+| Section heading | Source lines (original) | Chars | Destination file(s) | Phase | Status |
+|---|---|---|---|---|---|
+| Speculative Growth (new classification) scoring notes | 2273-2315 | 3652 | docs/specs/speculative-growth.md (SPEC, 100%) | B2 | DONE |
