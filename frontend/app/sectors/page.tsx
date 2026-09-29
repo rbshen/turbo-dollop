@@ -2,6 +2,7 @@
 
 import { PageContainer } from "@/components/layout/PageContainer";
 import { SectorHeatmapGrid } from "@/components/sectors/SectorHeatmapGrid";
+import { PageHeader } from "@/components/ui/page-header";
 import { fmtEventDate } from "@/lib/chartEventMarkers";
 import { useSectorHeatmap } from "@/lib/hooks/useSectorHeatmap";
 
@@ -9,16 +10,18 @@ export default function SectorsPage() {
   const { data, error } = useSectorHeatmap();
 
   return (
-    <PageContainer className="space-y-6 pb-12 pt-6">
-      <div>
-        <h1 className="font-heading text-xl font-semibold text-text-primary">Sector Heatmap</h1>
-        {data?.as_of_date && (
-          <p className="text-xs text-text-tertiary">
-            As of close {fmtEventDate(data.as_of_date)}
-            {data.computed_at && ` · Computed ${new Date(data.computed_at).toLocaleString()}`}
-          </p>
-        )}
-      </div>
+    <PageContainer className="space-y-6 pb-12">
+      <PageHeader
+        title="Sector Heatmap"
+        subtitle={
+          data?.as_of_date && (
+            <>
+              As of close {fmtEventDate(data.as_of_date)}
+              {data.computed_at && ` · Computed ${new Date(data.computed_at).toLocaleString()}`}
+            </>
+          )
+        }
+      />
 
       {error && <p className="text-sm text-negative">Failed to load the sector heatmap.</p>}
 
