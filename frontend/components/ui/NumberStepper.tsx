@@ -52,13 +52,11 @@ export function NumberStepper({
     commit(parsed);
   }
 
-  // Same class vocabulary as the form's own Save button (border-zinc-700/
-  // bg-zinc-800/hover:bg-zinc-700) rather than a separate, subtly-different
-  // zinc-900/zinc-800 combination -- keeps every button on this page
-  // visually consistent with the one the styling report called out as
-  // "styled correctly".
+  // border-border-input/hover:border-brand matches every other icon-button
+  // control in the app (WatchlistNameEditor's Save/Cancel, WatchlistTable's
+  // row actions) rather than a bespoke combination.
   const buttonCls =
-    "flex h-[30px] w-7 shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-zinc-700 disabled:hover:bg-zinc-800";
+    "flex h-[30px] w-7 shrink-0 items-center justify-center rounded-md border border-border-input bg-surface text-text-tertiary transition-colors hover:border-brand hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-border-input disabled:hover:text-text-tertiary";
 
   return (
     <div className="mt-1 flex items-center gap-1">
@@ -77,7 +75,7 @@ export function NumberStepper({
         inputMode="decimal"
         autoComplete="off"
         disabled={disabled}
-        className="w-full min-w-0 appearance-none rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-center font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none disabled:opacity-40"
+        className="w-full min-w-0 appearance-none rounded border border-border-control bg-page px-2 py-1.5 text-center font-mono text-sm text-text-primary focus:border-brand focus:outline-none disabled:opacity-45"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={handleBlur}

@@ -15,7 +15,7 @@ export function Select({ className, children, ...props }: SelectHTMLAttributes<H
       <select
         {...props}
         className={cn(
-          "w-full appearance-none rounded border border-zinc-800 bg-zinc-950 py-1.5 pl-2 pr-7 text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none",
+          "w-full appearance-none rounded border border-border-control bg-page py-1.5 pl-2 pr-7 text-sm text-text-primary focus:border-brand focus:outline-none",
           className,
         )}
       >
@@ -24,7 +24,7 @@ export function Select({ className, children, ...props }: SelectHTMLAttributes<H
       <CaretDown
         size={12}
         weight="bold"
-        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500"
+        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary"
       />
     </span>
   );

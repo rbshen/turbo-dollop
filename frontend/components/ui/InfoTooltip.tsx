@@ -8,9 +8,8 @@ import { computeTooltipGeometry, type TooltipGeometry } from "@/lib/tooltipPosit
 // Generalized from components/ticker/SpeculativeGrowthInfoIcon.tsx's
 // hover/tap mechanism (that one has fixed, hardcoded copy tied to a single
 // feature; this one takes label/text so it can be reused anywhere a plain
-// field-level help tooltip is needed). Styled with this app's raw zinc-*
-// palette to match Settings-page components, rather than the design-token
-// classes the ticker-page version uses.
+// field-level help tooltip is needed). Styled with the same design tokens
+// as that ticker-page version.
 //
 // Desktop: hover/focus shows the tooltip. Touch devices don't fire hover at
 // all, so a tap must also work -- toggled independently via `tapped` so a
@@ -63,7 +62,7 @@ export function InfoTooltip({ label, text }: { label: string; text: string }) {
         onFocus={() => setHovered(true)}
         onBlur={() => setHovered(false)}
         onClick={() => setTapped((v) => !v)}
-        className="inline-flex items-center justify-center rounded-full text-zinc-500 transition-colors hover:text-zinc-300 focus:outline-none focus-visible:text-zinc-300"
+        className="inline-flex items-center justify-center rounded-full text-text-tertiary transition-colors hover:text-text-secondary focus:outline-none focus-visible:text-text-secondary"
       >
         <Info size={13} weight="bold" />
       </button>
@@ -78,13 +77,13 @@ export function InfoTooltip({ label, text }: { label: string; text: string }) {
             top: geometry?.panelTop ?? 0,
             visibility: geometry ? "visible" : "hidden",
           }}
-          className="z-20 w-56 rounded-md border border-zinc-800 bg-zinc-950 p-2.5 text-xs font-normal leading-snug text-zinc-300 shadow-lg"
+          className="z-20 w-56 rounded-md border border-border-input bg-surface p-2.5 text-xs font-normal leading-snug text-text-secondary shadow-lg"
         >
           {text}
           <span
             aria-hidden="true"
             style={{ left: geometry?.arrowLeft ?? 0 }}
-            className="absolute top-full -mt-1 h-2 w-2 rotate-45 border-b border-r border-zinc-800 bg-zinc-950"
+            className="absolute top-full -mt-1 h-2 w-2 rotate-45 border-b border-r border-border-input bg-surface"
           />
         </div>
       )}
