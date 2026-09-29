@@ -1383,3 +1383,277 @@ thresholds. Notable design decisions and fixes:
   force a Fail verdict — a Receivables/CCC red flag is treated as worth
   investigating, not an automatic disqualifier the way persistently poor
   ROE/ROIC is.
+
+
+## Profitability: CCC sustained_decline override gated on direction sign (MSFT case) (original lines 1337-1348)
+
+- **CCC's `sustained_decline` override is gated on `direction` sign.** The
+  10yr+TTM window extension exposed a contradiction: `sustained_decline`
+  scans the *entire* window for a qualifying multi-period rise in real CCC
+  with no recency awareness, so an old, small, fully-reversed blip (e.g.
+  MSFT's 2016-2018 uptick, since outweighed by a decade of improvement)
+  could permanently cap the score at 0 even while `direction` (the
+  early-vs-late-window average) was strongly positive. `classify_ccc_trend`
+  now only honors the override when `direction < CCC_STABLE_TOLERANCE_DAYS`
+  (reusing the existing -1.0 constant, not a new one) — a durably-reversed
+  decline no longer masks an otherwise-improving trend. `analyze_series_direction`
+  itself and Financials' margin classifier (which independently calls the same
+  shared function) are untouched by this.
+
+
+## Profitability: Revenue-vs-AR concerning threshold made proportional (AR_CONCERNING_TRANSITION_RATIO) (original lines 1349-1360)
+
+- **Revenue-vs-AR's "concerning" tier threshold is proportional, not a
+  fixed count.** It was originally "3 of 5" transitions (60% severity,
+  matching the original 5yr window) but was never rescaled when the window
+  extended to 10yr+TTM (10 transitions), so it fired at just 30% severity
+  instead — inflating false positives. `AR_CONCERNING_TRANSITION_RATIO`
+  (0.6) now generalizes this to `max(3, round(0.6 * n))` transitions,
+  restoring the original relative severity at any window size (still 3 at
+  n=5, 6 at n=10). `majority_outpacing` was already proportional (`> n/2`)
+  and needed no change. Because the ratio (0.6) sits above the 50%
+  majority line, the count-based "concerning" tier remains structurally
+  subsumed by "majority" at every window size — a pre-existing property of
+  the original design, not an artifact of this rescaling.
+
+
+## Profitability: CCC classification made sign-aware (2026-08-01) -- AAPL/ABBV/KR/COST cases, 318-ticker sweep, 78-ticker recompute (original lines 1361-1409)
+
+- **CCC (Cash Conversion Cycle) classification is sign-aware (2026-08-01),**
+  not just trend-aware. The prior classifier ran every series through the
+  same early/late-direction logic regardless of sign, so a company whose
+  CCC is deeply negative and drifting toward zero (still elite) scored
+  identically to one whose CCC is genuinely positive and rising — a
+  negative CCC isn't a milder version of positive CCC, it's the opposite
+  signal (suppliers fund the business, since customers pay before
+  suppliers are paid). Confirmed real case: AAPL's CCC is negative the
+  entire 10yr window (-84 to -54 days) yet scored 0/"sustained_upward",
+  dragging an otherwise-100/100-ROE/ROIC company to a Profitability score of 50.
+  `classify_ccc_trend` (`backend/scoring/step4.py`) now dispatches on sign
+  profile before applying any trend logic: **consistently negative**
+  throughout (`max <= CCC_SIGN_EPS_DAYS`) always scores 100, split only by
+  reasoning text into strengthening (getting more negative) vs. weakening
+  (getting less negative but still solidly negative, AAPL's case);
+  **consistently positive** throughout delegates to
+  `_classify_positive_ccc_trend`, today's entire pre-existing logic moved
+  verbatim and confirmed byte-for-byte unchanged (the NVDA/IDXX path —
+  both genuinely positive and rising, still score 0); a **mixed** series
+  (crosses the sign boundary) first passes an isolated-spike rescue (a
+  single point disproportionately far from the majority side —
+  `CCC_SPIKE_ISOLATION_RATIO = 3.0` — is treated as a one-off, not a real
+  crossing; confirmed real case: ABBV, 10yrs of 62-102 day positive CCC
+  then one TTM value of -496.7, an evident one-time acquisition-related
+  accounting event, rescued back to the unchanged positive-CCC path,
+  score unchanged at 70), then a genuine crossing is sub-classified by
+  whether it durably settled on one side using a robust (single-outlier-
+  excluded) late-window average — `"gained_bargaining_power", 100` if it
+  settled negative (KR-shape: starts ~+8 days, ends ~-7.6 days) or
+  `"lost_bargaining_power", 0` if it settled positive (the mirror,
+  genuinely losing supplier leverage) — or, absent a clear settle, by
+  overall amplitude: `"negligible_working_capital", 85` if the whole
+  series stays within `CCC_NEAR_ZERO_AMPLITUDE_DAYS` (10 days — COST,
+  CASY, TGT: oscillates near zero, structurally low capital intensity,
+  not noise to flag) vs. `"mixed_unclear", 40` otherwise (CCL-shape: real,
+  larger swings with no clear pattern — worth a manual look). All three
+  new constants (`CCC_SIGN_EPS_DAYS=1.0`, `CCC_NEAR_ZERO_AMPLITUDE_DAYS
+  =10.0`, `CCC_SPIKE_ISOLATION_RATIO=3.0`) were derived from a real,
+  cache-only sweep of all 318 CCC-scorable tickers in the universe (not
+  guessed) — confirmed via a full-universe recompute: 78/318 tickers' CCC
+  sub-score changed, propagating to 78 changed Profitability blended scores, 3
+  verdict flips (AZO/FDS/ORLY, Pass 85 → Strong Pass 92), and 13 tickers
+  moving off a masked-Pass read (score <70, "Pass" shown anyway) to a
+  genuinely-earned ≥70 — including AAPL (50 → 75). 194 tickers remain
+  masked-Pass afterward, since this fix only addresses CCC's own
+  contribution — Revenue-vs-AR's separately-known majority-count
+  miscalibration (see the "score floor" investigation this fix followed
+  from) still drags many of these down independently, and remains
+  deferred, not yet scoped.
+
+
+## Profitability: Revenue-vs-AR noise floor and aggregate DSO trend (2026-08-01) -- CAT/BA/AAPL/TER cases, 122/504 recompute (original lines 1410-1462)
+
+- **Revenue-vs-AR's worst tier gained a noise floor and switched from an
+  individual-year count to an aggregate multi-year trend (2026-08-01).**
+  Two calibration bugs, both found via the same masked-Pass investigation
+  as CCC's fix above: (1) the `strong_red_flag` check (revenue declining
+  while AR grows) was a bare sign comparison with no materiality floor,
+  unlike every other check in `score_revenue_vs_ar` — confirmed CAT
+  (revenue -3.4%, AR +0.14%, both trivial) scored identically to BA
+  (revenue -24.3%, AR +217%, genuinely material). Now gated on
+  `AR_GAP_NOISE_FLOOR` (2pp) on both legs, matching the rest of the
+  function. (2) The worst tier's own trigger — "majority of individual
+  years outpacing" — mis-flagged companies whose year-to-year timing is
+  lumpy but whose aggregate multi-year trend is fine: AAPL outpaced in
+  6/10 individual years yet AR actually grew slower than revenue in
+  aggregate (93% vs 109% over the full window). A raw full-period
+  growth-% comparison was tried first but proved fragile whenever a base
+  year is small/near-zero — confirmed via **TER**, whose cached TTM
+  Accounts Receivable value is $1.1 trillion against $3.8B revenue
+  (almost certainly a raw FMP data-quality issue, not a scoring bug),
+  which alone produced a 576,425pp "gap" under a raw growth-%
+  comparison. Comparing **Days Sales Outstanding** (`AR/Revenue*365` —
+  the same DSO formula `_compute_ccc_series` already uses for CCC in this
+  file) between an early window and a **robust** late window (single
+  most-extreme point excluded, mirroring CCC's own spike guard —
+  `robust_late_direction`, reused with zero duplication) is scale-
+  invariant and far more robust to a single bad/anomalous year.
+  `AR_DSO_TREND_MATERIALITY_DAYS` (15.0) was derived from the real
+  distribution of DSO gaps among the 163 tickers in the worst tier at the
+  time: median gap was only +2.3 days (most of the old tier was noise,
+  not signal); 15.0 keeps the ~24% with a genuinely elevated multi-year
+  DSO increase while clearing the noise-dominated majority. Only the
+  worst tier's trigger changed — `outpacing_concerning`/
+  `outpacing_isolated`/`healthy` keep their existing individual-year-
+  count logic unchanged, matching the narrower scope of the bug report.
+  Confirmed via a full-universe recompute: 122/504 tickers' Profitability
+  blended score changed (0 verdict flips — Profitability's verdict is
+  hard_fail-gated, unaffected by AR's point contribution); the worst AR
+  tier dropped from 164 to 98 tickers (60% of the reduction from the
+  noise-floor fix alone, the rest from the aggregate-trend fix); AAPL,
+  ANET, ISRG, CVNA, IBKR, VRSN all confirmed moving off the worst tier;
+  PRU/TFC (genuine, current, material red flags) confirmed staying at 0.
+  TER stays flagged (real, if smaller, elevated DSO trend even robust-
+  late-window-adjusted) — its underlying $1.1T cached AR value is a
+  data-quality issue worth a manual check, flagged but not fixed here.
+  Whenever Revenue-vs-AR lands in any non-healthy tier, a dynamically-
+  computed manual-check note (`components.revenue_vs_ar.note`, built in
+  `step4_data.py::_build_ar_note` — deliberately not in the pure
+  `scoring/step4.py`, since it needs Operating Cash Flow, which isn't
+  part of the AR score itself) states which comparison actually drove the
+  flag (DSO trend vs individual-year count, with real numbers either way)
+  plus whether OCF is tracking Net Income over the same window (a lagging
+  OCF alongside rising Net Income is the real red flag for revenue being
+  recognized before cash arrives) plus a static business-model-shift
+  prompt that can't be answered from FMP's structured data.
+
+
+## Profitability: internal blend weighted, not equal-split (2026-08-01) -- BASE_WEIGHTS rationale and AAPL/MA/FICO spot-checks (original lines 1463-1495)
+
+- **Profitability's internal blend is weighted, not equal-split (2026-08-01).**
+  Previously every applicable metric (ROE, ROIC, Revenue-vs-AR, CCC) split
+  the score evenly (`weight = 1.0 / len(applicable)`). `BASE_WEIGHTS`
+  (`backend/scoring/step4.py`) now sets ROIC 35% / ROE 25% / Revenue-vs-AR
+  20% / CCC 20% when all 4 apply — a deliberate user design call, not a
+  bug-driven fix like the rest of this section. Rationale: ROE and ROIC
+  are the headline profitability verdict, with ROIC weighted above ROE
+  since it's harder to game (unaffected by the leverage/buyback effects
+  that inflate ROE — see `check_roe_roic_divergence`'s own docstring) and
+  reflects capital efficiency more directly; Revenue-vs-AR and CCC are
+  corroborating/contradicting supporting evidence for what ROE/ROIC
+  already say, not independent headline signals, so they're weighted
+  lower and equal to each other. `score_step4` renormalizes proportionally
+  (not equally) when a metric is exempt via the company-type gates —
+  each remaining metric's `BASE_WEIGHTS` entry is divided by the sum of
+  the applicable entries, preserving relative ratio rather than falling
+  back to an equal split. Worked examples: ROIC+CCC exempt (Bank/
+  Insurance/Utility) → ROE 25/45=55.6%, AR 20/45=44.4% (not 50/50); REIT
+  (AR+ROIC+CCC all exempt) → ROE alone at 100%, unchanged from before
+  since there's only one metric either way. This is a pure re-weighting —
+  no individual metric's own tiering (`score_roe`, `score_roic`,
+  `score_revenue_vs_ar`, `classify_ccc_trend`) changed. Confirmed via
+  spot-check against real cached data: AAPL 85→88 (verdict unchanged,
+  Pass), MA 90→92 (**verdict flip Pass → Strong Pass** — MA's ROE/ROIC
+  were already both "excellent" at 100, so shifting weight toward them
+  pulls the blend above the >90 Strong Pass line), FICO 67→75 (verdict
+  unchanged — Profitability's `_verdict_for` has no low-score Fail gate the
+  way Debt's does, only `hard_fail` and the >90 Strong Pass threshold, so a
+  score move within the 0-90 range never changes the verdict on its own).
+  A full-universe recompute has not been run for this change (unlike the
+  AR/CCC fixes above, which were bug fixes verified at that scale) — this
+  is a deliberate re-weighting, not a correctness fix, so no universe-wide
+  before/after audit was required before shipping it.
+
+
+## Profitability: ROE/ROIC below-floor and CCC sustained_upward graduated with companion verdict floor (2026-08-13) -- GLW, 189-verdict blast radius (original lines 1496-1559)
+
+- **ROE/ROIC below-floor and CCC `sustained_upward` graduated (2026-08-13),
+  shipped together with a companion verdict floor** — the third and
+  largest fix in the same hard-fail-cliff investigation that produced
+  Step 1's/Step 2's/Step 5's own graduated-scale fixes (see their
+  respective entries), and the one that most directly motivated the
+  whole investigation (a from-scratch GLW trace: Step 4 scored 35/Fail
+  purely from ROIC/CCC both flattening to 0 despite GLW's ROIC never
+  once going negative in 11 years).
+  - **ROE/ROIC's `< 8%` tier** (`_score_avg_min_tier`) was a flat 0/
+    hard_fail regardless of sign or depth. Confirmed via a full-universe
+    scan: 142/170 (83.5%) of ROIC hard-fails and 61/86 (71%) of ROE
+    hard-fails never had a negative average at all. Now split by sign:
+    `avg ≥ 0` graduates 20→55 points (new `weak_but_positive` label, not
+    hard_fail); `avg < 0` unchanged (flat 0, hard_fail). See
+    `profitability.md`'s "ROE and ROIC tiering" section for the exact
+    formula and ceiling rationale.
+  - **CCC's `sustained_upward`** (all three return sites in
+    `_classify_positive_ccc_trend`) was likewise a flat 0. Confirmed via
+    a full-universe scan: median worsening 26.3 days, p75 51.8 — now
+    graduates 40→0 between 10 and 50 days (`CCC_UPWARD_MILD_DAYS`/
+    `CCC_UPWARD_SEVERE_DAYS`), using the robust late-window direction
+    (not the raw one) for the spike-guard branch specifically, since raw
+    direction is deceptively non-negative there. See `profitability.md`'s
+    "Cash Conversion Cycle" section.
+  - **Companion floor, non-negotiable, shipped in the same change**:
+    `_verdict_for` gained a `score < 70 → Fail` check (mirroring Debt's
+    own `PASS_SCORE_THRESHOLD`) — before this, `hard_fail` was the
+    *only* thing keeping a low-scoring, non-hard-fail ticker from
+    displaying "Pass" (the same pre-existing gap already noted in the
+    entry above via FICO). Stress-tested BEFORE shipping: without the
+    floor, graduating ROE/ROIC alone would have flipped 153 tickers to a
+    false Pass (146 of them, 95%, still scoring under 70).
+  - **The floor's blast radius turned out much larger than the graduated
+    fix's own direct effect, confirmed via a full-universe recompute
+    before shipping (not assumed) — 189 Step 4 verdict changes, not the
+    ~7 originally estimated from an isolated simulation.** Because
+    `hard_fail` was previously the *only* mechanism keeping any
+    non-hard-fail Step 4 ticker's verdict honest, adding a real,
+    permanent score floor to `_verdict_for` necessarily also corrects
+    every OTHER Step 4 ticker already below 70 for unrelated reasons
+    (mediocre-but-not-hard-fail ROE/ROIC, weak Revenue-vs-AR, weak CCC)
+    — not just the ones this specific fix touches. Breakdown: **7 flip to
+    a genuine Pass** (VZ, T, CFG, KR, EFX, WCN, CNSWF — the graduated
+    fix's own direct, originally-expected effect). **182 flip from a
+    previously-masked Pass to a correctly-computed Fail** — of those,
+    135 have an *unchanged* score (never touched by the graduated fix at
+    all, already below 70 before this build) and 47 have an improved
+    score that still lands under 70. This is the same class of discovery
+    Debt's own residual-floor fix already produced (AVB/EQR/GEHC/HON/
+    HST/IFF/KIM/O/REG flipping Pass → Fail at an unchanged score) — an
+    explicit, deliberate decision to accept the wider correction rather
+    than scope the floor artificially narrow, made mid-rollout after
+    surfacing the discrepancy between the isolated simulation and the
+    real, shared-function effect.
+  - **GLW itself: Step 4 score 35 → 58, verdict stays Fail** — correctly:
+    GLW's ROIC (avg 6.42%) and CCC (~18 days worse than its 2016-19
+    baseline) are genuinely weak, just not capital-destroying. The fix's
+    value is a truthful 58 instead of a misleading 35, not a rescue.
+  - **Overall Assessment ripple, also measured before shipping**: 27
+    tickers' Overall verdict flips, **all upward, 0 regressions** —
+    Profitability's ~20% weight in the Overall blend isn't enough on its
+    own to newly fail anything. GLW's own Overall Assessment flips
+    Fail(68) → Pass(72), even though its Step 4 verdict stays Fail — the
+    improved *number* alone is enough for the blend.
+
+
+## Profitability: AR_EXEMPT_TYPES extended to Bank/Insurance/Utility/REIT (2026-09-04) -- JPM/MET/PRU/DUK/SO before/after (original lines 1560-1579)
+
+- **`AR_EXEMPT_TYPES` extended to Bank/Insurance/Utility/REIT (2026-09-04) —
+  a deliberate design decision, not a bug fix.** Previously REIT-only,
+  while `ROIC_EXEMPT_TYPES`/`CCC_EXEMPT_TYPES` already covered all four
+  types (see `data/step4_data.py`'s own constants). Revenue-vs-Accounts-
+  Receivable isn't a meaningful signal for Bank/Insurance/Utility either —
+  their revenue recognition doesn't map onto ordinary trade receivables the
+  way a Standard operating company's does, the same reasoning REIT's
+  existing exemption already rests on. `score_step4`'s weight
+  renormalization (`scoring/step4.py`) is fully generic over whatever
+  metrics are `applicable`, so this required no scoring-math change at
+  all — only the exemption gate itself — confirmed by running the change
+  against real cached data before shipping: Bank/Insurance/Utility become
+  100%-ROE-weighted, same as REIT already was. Before/after on real cached
+  tickers: **JPM** (Bank) 65/Fail → 85/Pass; **MET**/**PRU** (Insurance)
+  33/Fail → 60/Fail; **DUK** (Utility) 51/Fail → 60/Fail; **SO** (Utility)
+  64/Fail → 60/Fail (AR was pulling this one's blend *up*, not down before
+  this change — an expected consequence of the reweighting, not a
+  regression). REIT tickers (**O**, **PLD**) are unaffected, already
+  exempt before this change.
+
+
+
+> Note (B5b, editorial, not part of the archived text): the Profitability blocks above cite `backend/step4_data.py`, which is now `backend/data/step4_data.py`; `backend/scoring/series_trend.py` and `backend/scoring/classification.py` are at the paths cited. `profitability.md` is `docs/specs/profitability.md`. Two statements are superseded by later blocks in this same range and by the current code: (1) the "Equal-weight redistribution" bullet (original lines 1325-1329) is replaced by the proportional `BASE_WEIGHTS` scheme (original lines 1463-1495); (2) the Hard-fail bullet's "ROE lands in its Fail tier (avg <8%)" (original lines 1330-1336) is replaced by the 2026-08-13 graduated scale, under which only an average below 0% hard-fails (original lines 1496-1559). Also superseded: the Revenue-vs-AR "majority-outpacing" worst-tier trigger (original lines 1301-1307, 1349-1360) is replaced by the aggregate DSO trend (original lines 1410-1462), and the claim that the count-based "concerning" tier is structurally subsumed by "majority" no longer applies.
