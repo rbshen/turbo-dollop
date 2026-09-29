@@ -191,3 +191,15 @@ Investigation: `docs/fmp_phase3_long_history_non_us_investigation_2026-09-25.md`
 - **Accepted side effect (reviewed, do not "fix"):** replaying 2y of history through Warren on FMP vs the previous
   provider's prices gave identical signal dates for 4 of 8 tickers tested and 1-4 of ~25 differing dates for the
   rest -- small OHLC differences crossing indicator thresholds on different bars. No compensating logic.
+
+
+## Non-US cleanup (2026-09-26): one-time cleanup run and Yahoo/Massive leftovers sweep (original lines 4057-4064)
+
+- **One-time cleanup** `pipeline/backfills/non_us_cleanup.py` (`--dry-run`, idempotent), run 2026-09-26 after
+  `backups/fathom_20260926_220334.db.gz`. The six HK tickers (0005/0728/0857/0883/0941/3988) were **already absent** (purged
+  after the earlier removal commit); the real run only deleted the `HK` discount-rate row and dropped the two Country columns.
+- **Yahoo/Massive leftovers swept**: orphaned `DataSourceCard.tsx`, the Alpaca/Massive/Yahoo-gap investigation docs and the
+  EODHD script deleted; the weekly-parity fixture/test renamed to `weekly_parity_fmp_daily_vs_native_1wk.json` (it still pins
+  Monday-anchored weekly resampling). Legacy `source="yahoo"` handling in the shared bars cache is behaviour, not a stray
+  reference, and stays.
+

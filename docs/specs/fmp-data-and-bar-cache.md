@@ -422,6 +422,70 @@ keep serving and the Warren/BB+RSI nightly jobs record `skipped`.
 - **Not touched:** extended hours (P5), warm-up buffer / history depth / retention.
   `FMPTechnicalSource` is a thin reader of the shared cache.
 
+## Delisted-ticker handling (2026-09-23; detection replaced in Phase 6a)
+
+**TWTR, WBA, EA, AVB, EQR** are genuinely delisted but stay in `load_full_tracked_universe`
+forever (any ticker that ever got a `TickerScore` row never drops out), so the nightly bar jobs
+would re-attempt them every night.
+
+- **`TickerScore.delisted_at: datetime | None`** (nullable, `_add_missing_columns`-backfilled) is
+  set by `pipeline/stale_data_health_check.py::sync_delisted_flags` (weekly, Sundays 1:30 AM) from
+  FMP `/delisted-companies` (group `corporate_events`). The endpoint's page size is capped at 100
+  (~157 pages / ~15.6k rows / ~15.4k unique symbols on 2026-09-26, so ~157 sequential calls a
+  week); a tracked ticker listed with a delisted date on/before today is flagged. Verified against
+  the live endpoint: all five tickers above are in it and are the only 5 of 591 tracked tickers
+  that are.
+- **Detection rules.** Absence is never evidence: no flag for an unlisted ticker, and an existing
+  flag is **never cleared** (the earlier staleness heuristic, live-probe revival and auto-clear
+  are gone). Guards on a hit: a delisted date in the future is a scheduled delisting (ignored); a
+  symbol whose cached profile `ipoDate` is after the delisted date is a reused symbol (ignored);
+  FMP's `BF.B` matches our `BF-B`. A page error uses what was fetched and reports "delisted list
+  incomplete" (paging ties can also drop a row at a page boundary; the weekly rerun catches it).
+  **Open decision:** a relisted symbol stays flagged until someone clears `delisted_at` by hand.
+- **The nightly bar jobs skip a flagged ticker** via
+  `stale_data_health_check.load_delisted_tickers(session)`: Trend, Liquidity Zones and
+  `data/momentum_data.py::compute_and_store_momentum_snapshot` drop it from the fetch and compute
+  loop, and each summary carries `skipped_delisted_count`. Scoped to the DB-derived universe
+  only — the trend job's `--tickers`/`--limit` escape hatch bypasses it. Market Breadth and Sector
+  Heatmap need no change (their universes — `IndexConstituent` sp500 and 11 fixed ETFs — never
+  contained these).
+- **Nothing is ever deleted**: `TickerScore`, `FundamentalsCache`, Screener/Watchlist and
+  ticker-page history stay intact; the flag only stops price-bar re-fetching.
+
+## US-listed tickers only (non-US cleanup, 2026-09-26)
+
+Fathom supports **US-listed tickers only** — the listing venue decides, not domicile: NYSE/NASDAQ
+ADRs and OTC names are US (`core/tickers.py::is_us_listed`; see "Routing" under Phase 2 above).
+The earlier HK/France expansion is fully shelved. Non-US tickers get no nightly daily or 60m
+bars; `route_by_source`/`is_us_listed`/`_profile_exchanges` remain and scope the price-target,
+last-close and corporate-events universes.
+
+- **Kept: the general reported→quote FX conversion (Step 3).** 14 US-listed ADRs (ASML, BABA,
+  CCEP, CCJ, CNI, EVVTY, FER, MFC, NVO, PDD, RY, SINGY, TME, TSM) report in a non-USD currency but
+  quote in USD, so `_resolve_fx_rate` still converts reported→quote (checked against cached
+  profiles/income statements, not assumed). Only the HK/FR-specific layer went:
+  `SUPPORTED_REGIONS` is now `{"US"}` (an ADR's domicile `country` such as CN/CA/TW redirects to
+  the US discount-rate row, as it already did), the `HKD` currency prefix and HK wording are gone,
+  and the leftover `HK` `DiscountRateConfig` row was deleted. The multi-region seeding code in
+  `helpers/discount_rate_config.py` is generic and kept (tests use a synthetic second region).
+- **Ticker search returns US-listed results only** (`data/ticker_search.py`, `is_us_listed` off
+  each result's `exchange`), so a non-US ticker can't be added by search. The leveraged-ETP
+  ranking stays (it applies to US ETPs too).
+- **Screener Country filter removed**: `CountryFilter.tsx`, `TickerScore.country`,
+  `SavedScreenerFilter.country`, the exchange→country derivation and the API fields. Both columns
+  are dropped from existing DBs by `core/db.py::_OBSOLETE_COLUMNS` at startup.
+- **Weekly safety net**: `pipeline.stale_data_health_check` first runs `pipeline/non_us_purge.py`,
+  deleting any tracked ticker whose cached profile exchange is not a US venue (or, with no
+  profile, whose symbol is dotted) from every table with a `ticker` column. Local-only.
+  **Refuses (deletes nothing) if more than 2% of the tracked universe would go**
+  (`DEFAULT_MAX_FRACTION = 0.02`) — that signals an exchange-name mismatch in `US_EXCHANGES`, not
+  real non-US tickers; the report and heartbeat say "REFUSED".
+- Legacy `source="yahoo"` handling in the shared bars cache is behaviour, not a stray reference,
+  and stays. The weekly-parity fixture is `weekly_parity_fmp_daily_vs_native_1wk.json` (it still
+  pins Monday-anchored weekly resampling). The one-time cleanup script
+  (`pipeline/backfills/non_us_cleanup.py`, `--dry-run`, idempotent) and the leftovers sweep are
+  recorded in `docs/archive/claude-md-history-fmp-migration.md`.
+
 ## Endpoint feasibility work not yet wired into the app
 
 ### Extended-hours pricing (P5, unbuilt)
