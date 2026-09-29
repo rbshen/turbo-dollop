@@ -4,6 +4,7 @@ import { useState } from "react";
 import { PencilSimple } from "@phosphor-icons/react";
 
 import { errorDetail } from "@/lib/api/client";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { updateWatchlist } from "@/lib/hooks/useWatchlists";
 import type { WatchlistOut } from "@/lib/api/types";
@@ -108,22 +109,24 @@ export function WatchlistNameEditor({ watchlist }: Props) {
           aria-label="Watchlist name"
           className="h-7 w-48 px-2 text-xs focus:border-brand focus:outline-none"
         />
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={save}
           disabled={status === "saving"}
-          className="rounded-md border border-border-input px-2 py-1 text-xs text-text-secondary hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-7 border border-border-input px-2 hover:border-brand"
         >
           {status === "saving" ? "Saving…" : "Save"}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={cancel}
           disabled={status === "saving"}
-          className="rounded-md border border-border-input px-2 py-1 text-xs text-text-tertiary hover:border-brand hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-7 border border-border-input px-2 text-text-tertiary hover:border-brand"
         >
           Cancel
-        </button>
+        </Button>
       </div>
       {error && <p className="text-xs text-negative">{error}</p>}
     </div>

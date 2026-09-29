@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Trash } from "@phosphor-icons/react";
 
+import { Button } from "@/components/ui/button";
 import { deleteWatchlist } from "@/lib/hooks/useWatchlists";
 import type { WatchlistOut } from "@/lib/api/types";
 
@@ -42,20 +43,22 @@ export function WatchlistDeleteButton({ watchlist, onDeleted }: Props) {
     return (
       <div className="flex shrink-0 items-center gap-1.5 text-xs">
         <span className="text-negative">Delete &quot;{watchlist.name}&quot;?</span>
-        <button
-          type="button"
+        <Button
+          variant="danger"
+          size="sm"
           onClick={handleDelete}
-          className="rounded-md border border-negative/60 bg-page px-2 py-1 text-negative hover:border-negative"
+          className="h-7 border border-negative/60 px-2 hover:border-negative"
         >
           Confirm
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => setStatus("idle")}
-          className="rounded-md border border-border-input px-2 py-1 text-text-tertiary hover:border-brand hover:text-text-secondary"
+          className="h-7 border border-border-input px-2 text-text-tertiary hover:border-brand"
         >
           Cancel
-        </button>
+        </Button>
       </div>
     );
   }

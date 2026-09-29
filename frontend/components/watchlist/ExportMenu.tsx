@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+
 interface Props {
   disabled?: boolean;
   onExportTradingView: () => void;
@@ -33,9 +35,10 @@ export function ExportMenu({ disabled, onExportTradingView, onExportThinkorswim 
 
   return (
     <div ref={ref} className="relative">
-      <button
+      <Button
         ref={triggerRef}
-        type="button"
+        variant="ghost"
+        size="sm"
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={(e) => {
@@ -46,11 +49,11 @@ export function ExportMenu({ disabled, onExportTradingView, onExportThinkorswim 
         }}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+        className="h-8 gap-1.5 border border-border-input bg-surface px-3 hover:border-brand"
       >
         Export List
         <span className="text-text-tertiary">▾</span>
-      </button>
+      </Button>
 
       {open && (
         <div
