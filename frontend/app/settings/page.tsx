@@ -10,6 +10,7 @@ import { MoatSettingsForm } from "@/components/settings/MoatSettingsForm";
 import { ReitDividendYieldSettingsForm } from "@/components/settings/ReitDividendYieldSettingsForm";
 import { StatusSection } from "@/components/settings/StatusSection";
 import { WeinsteinSettingsForm } from "@/components/settings/WeinsteinSettingsForm";
+import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 
 // "Status" was renamed "Scheduled Jobs" and split 2026-09-27: the per-group
@@ -39,11 +40,11 @@ export default function SettingsPage() {
 
   return (
     <PageContainer className="space-y-6 pb-12">
-      <h1 className="font-heading pt-6 text-2xl font-semibold tracking-tight text-zinc-100">Settings</h1>
+      <PageHeader title="Settings" />
 
       <div className="flex flex-col gap-6 lg:flex-row">
         <aside className="w-full shrink-0 lg:w-56">
-          <nav className="space-y-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-2">
+          <nav className="space-y-1 rounded-lg border border-border-card bg-surface p-2">
             {SECTIONS.map((section) => (
               <button
                 key={section.key}
@@ -52,8 +53,8 @@ export default function SettingsPage() {
                 className={cn(
                   "block w-full rounded-md px-3 py-2 text-left text-sm transition-colors",
                   section.key === active
-                    ? "bg-zinc-800 font-medium text-zinc-100"
-                    : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200",
+                    ? "bg-surface-2 font-medium text-text-primary"
+                    : "text-text-secondary hover:bg-surface-2/60 hover:text-text-primary",
                 )}
               >
                 {section.label}
