@@ -82,6 +82,13 @@ negative or zero — the same calculation is retried using Revenue average estim
 Valuation's Yr 1-5 growth input (`growth_yr_1_5` in [Valuation](valuation.md)), so this basis
 choice changes Valuation outputs project-wide, not just Growth Rate's own verdict.
 
+The EPS-first preference is a deliberate reversal of the app's original revenue-first choice.
+Revenue was originally preferred because EPS is more exposed to buyback and margin-expansion noise
+than the underlying growth story; that reasoning still holds, but EPS growth is now judged the more
+decision-relevant figure for this methodology and the noise tradeoff is accepted. `basis` in
+`Step2Out` reflects whichever field actually produced the score, and the UI and Valuation-input
+labeling read it dynamically, so nothing hardcodes "Revenue".
+
 **REIT / Property Developer override.** REIT tickers skip the EPS attempt entirely and are
 always scored on Revenue — not just as a fallback, but as the sole basis. Two reasons: EPS is
 depreciation-heavy and doesn't reflect REIT economics (confirmed real case: several REITs failed
@@ -104,7 +111,11 @@ spread_pct = (high_estimate − low_estimate) / average_estimate × 100
 
 using the high/low/average fields matching whichever basis produced the growth rate. If the
 spread can't be computed, it defaults to 100% (maximally wide/uncertain) for scoring purposes
-only.
+only. The result is an **analyst estimate range**, not cross-platform consensus, and is labeled as
+such in the API and UI (`core/schemas.py::Step2Out`, `frontend/components/step2/Step2Card.tsx`) so
+it is never mistaken for the original methodology's cross-platform agreement check. The average
+projected growth rate (CAGR from the nearest forward estimate to the one closest to 4 years out)
+stands in for what a cross-platform average would have been.
 
 ### Scoring
 
@@ -122,7 +133,11 @@ only.
 **Negative-magnitude graduated scale (2026-08-13)**: below 0%, points scale linearly from **35**
 (near 0%) down to **10** (at `MAGNITUDE_SEVERE_NEGATIVE` = -10%, a first-pass round-number choice
 mirroring the `solid` tier's own magnitude) — the ceiling is deliberately kept below the `weak`
-tier's 40. Beyond -10%, the tier is still a flat 0.
+tier's 40, so a mildly-negative ticker can never outscore a genuinely-positive-but-weak one.
+Beyond -10%, the tier is still a flat 0. The flat 0 used to apply to *any* negative growth, so a
+projection statistically indistinguishable from flat (-0.03%) scored identically to a genuine
+collapse (-60%). At the time of the change, 27 tickers hit this branch: 20 sat at or above -9.0%
+("mildly negative") and only 7 were genuinely severe (the tail from -10.8% to -60%).
 
 This graduated score is display/blend-only — it does **not** change the Verdict section below.
 Fail is gated on `growth_rate_pct`'s sign directly, and the Score floor is likewise gated on
@@ -141,10 +156,18 @@ mechanism into a false Pass.
 **Blend**: `score = round(magnitude_points × 0.70 + agreement_points × 0.30)`, clamped to
 [0, 100].
 
-**Score floor**: whenever `growth_rate_pct ≥ 0`, the blended score is floored at **70** if it
-would otherwise land lower. This raises only the displayed score for an already-passing result —
-it never touches the component scores themselves, and it can never push a score into Strong Pass
-range (floor 70 < the >90 threshold). A negative-growth (Fail) result is never floored.
+**Score floor** (`PASS_SCORE_FLOOR`): whenever `growth_rate_pct ≥ 0`, the blended score is floored
+at **70** if it would otherwise land lower. This raises only the displayed score for an
+already-passing result — it never touches `magnitude_score`/`agreement_score` (the UI's breakdown
+still shows the raw component tiers), and it can never push a score into Strong Pass range
+(floor 70 < the >90 threshold). A negative-growth (Fail) result is never floored and still
+displays its real sub-70 score.
+
+Why the floor exists: because the verdict is not gated on the blended score, a weak-but-positive
+projection (a "weak" 40-point magnitude tier with a "tight" 100-point agreement tier blends to
+`40×0.70 + 100×0.30 = 58`) would otherwise show a Fail-range number next to "Pass" text — and be
+colored amber by the shared color system (`frontend/lib/tierColor.ts`), which has no visibility
+into Growth Rate's different verdict semantics.
 
 ### Verdict
 
@@ -157,8 +180,12 @@ Deliberately **not** gated on the blended score:
 ### Insufficient data
 
 If neither EPS nor Revenue yields a usable CAGR (too few or no forward estimate rows, including
-a failed upstream data fetch — indistinguishable from a genuinely thin response), the check
-returns `score: null, verdict: "insufficient_data"` rather than a fabricated Fail. This also
+a failed upstream data fetch — `cache.py::safe_fetch` swallows the error to `{}`,
+indistinguishable from a genuinely thin response), the check returns `score: null,
+verdict: "insufficient_data"` rather than a fabricated `score: 0` Fail (the convention Profitability
+and Debt already used). A prior version scored these identically to a genuinely weak or negative
+projection, feeding a false Fail into Overall Assessment's blend and the Screener with no way to
+tell "no data" from "bad growth". This also
 feeds `scoring/overall.py`'s existing "any null-score/non-`not_supported`step is incomplete"
 rule, so the whole Overall Assessment is marked incomplete for these tickers rather than folding
 a false Fail into the blend.
