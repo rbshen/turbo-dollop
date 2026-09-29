@@ -5,17 +5,19 @@ interface Props {
   column: RecommendationDetailsColumn;
 }
 
-// Buy/Outperform/Hold/Underperform/Sell are this app's own established
-// relabel of FMP's 5 rating buckets (strongBuy/buy/hold/sell/strongSell --
-// see RecommendationDetailsTable's own comment). 5 distinct hues from the
-// token set (positive/brand/warn/chart-purple/negative) since the palette
-// only defines 3 semantic + 2 accent colors -- no new colors invented.
+// Labels are FMP's own 5 rating buckets (strongBuy/buy/hold/sell/strongSell
+// -- see RecommendationDetailsTable's own comment); the internal `key`
+// names keep the app's original buy/outperform/hold/underperform/sell
+// identifiers (matching the backend field names 1:1), only the display
+// `label` changed. 5 distinct hues from the token set
+// (positive/brand/warn/chart-purple/negative) since the palette only
+// defines 3 semantic + 2 accent colors -- no new colors invented.
 const SEGMENTS: { key: "buy" | "outperform" | "hold" | "underperform" | "sell"; label: string; color: string }[] = [
-  { key: "buy", label: "Buy", color: "var(--color-positive)" },
-  { key: "outperform", label: "Outperform", color: "var(--color-brand)" },
+  { key: "buy", label: "Strong Buy", color: "var(--color-positive)" },
+  { key: "outperform", label: "Buy", color: "var(--color-brand)" },
   { key: "hold", label: "Hold", color: "var(--color-warn)" },
-  { key: "underperform", label: "Underperform", color: "var(--color-chart-purple)" },
-  { key: "sell", label: "Sell", color: "var(--color-negative)" },
+  { key: "underperform", label: "Sell", color: "var(--color-chart-purple)" },
+  { key: "sell", label: "Strong Sell", color: "var(--color-negative)" },
 ];
 
 // Plain label/value rows rather than a proportion bar -- precision matters

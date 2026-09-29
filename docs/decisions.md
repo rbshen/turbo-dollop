@@ -35,7 +35,7 @@ All sessions below are commits on `ui/design-system`, not pushed to `origin` unt
   - **6a:** Merged Settings' separate raw-zinc colour system onto the shared tokens; migrated the Scheduled Jobs and FMP Data Groups tables. The sky-blue "skipped" status was retired. Committed. Found two extra items needing the same treatment along the way, folded into 6b: a 5th settings form (REIT Dividend Yield) and `FmpHealthSummaryCard`.
   - **6b (last planned session):** all 5 settings forms, `FmpHealthSummaryCard`, the 3 shared components used only by Settings (`NumberStepper`, `Select`, `InfoTooltip`), the Watchlist deletion UI, and a final whole-app sweep. **Confirmed run and complete (2026-09-29 verification)** — this line previously read "prompt written, not yet run," which was stale by the time of that check: `grep` for `zinc-` across all of `frontend/` now returns zero matches, `NumberStepper.tsx`/`Select.tsx`/`InfoTooltip.tsx` are all on named tokens, and `WatchlistDeleteButton.tsx` exists.
 
-## Known open items (re-verified against code 2026-09-29 — all resolved except analyst labels)
+## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
 - **`MultiSelect` primitive — resolved, built.** `components/screener/MultiSelectDropdown.tsx` is
   a real, finished, fully-token-styled primitive (focus trap, roving keyboard nav, full ARIA),
@@ -43,14 +43,14 @@ All sessions below are commits on `ui/design-system`, not pushed to `origin` unt
 - **`border-control` typo — resolved, zero remaining occurrences.** Every instance across the
   app now correctly reads `border-border-control`/`border-border-input`. Confirmed by grepping
   the bare `control` class fragment app-wide; no unprefixed occurrence survives. No longer open.
-- **Housekeeping items from the original audit — resolved, except one.** Dead colour variables:
-  gone (including `--ring` and the old `--chart-1..5` tokens, both fully removed, not just the
-  ones originally flagged). `NumberStepper`: restyled and kept, not dropped. `text-tertiary-2`:
-  fully merged into `text-tertiary`, zero references. **Analyst label renames are the one item
-  still genuinely open** — `CurrentDistributionList.tsx`/`RatingDistributionTrendChart.tsx` still
-  use the app's own Buy/Outperform/Hold/Underperform/Sell labels, not FMP's Strong Buy/Buy/Hold/
-  Sell/Strong Sell. See `docs/design-system.md`'s "Housekeeping items" section for the full,
-  itemized re-verification.
+- **Housekeeping items from the original audit — all resolved.** Dead colour variables: gone
+  (including `--ring` and the old `--chart-1..5` tokens, both fully removed, not just the ones
+  originally flagged). `NumberStepper`: restyled and kept, not dropped. `text-tertiary-2`: fully
+  merged into `text-tertiary`, zero references. **Analyst label renames — done 2026-09-29**:
+  `CurrentDistributionList.tsx`, `RatingDistributionTrendChart.tsx`, and
+  `RecommendationDetailsTable.tsx` now show FMP's own Strong Buy/Buy/Hold/Sell/Strong Sell
+  wording instead of the app's prior Buy/Outperform/Hold/Underperform/Sell relabel. See
+  `docs/design-system.md`'s "Housekeeping items" section for the full, itemized re-verification.
 
 ## Next step
 

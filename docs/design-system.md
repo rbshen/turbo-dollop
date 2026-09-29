@@ -77,7 +77,7 @@ The score number stays `text-primary`; only the verdict word takes the tone colo
 - **Segmentation chart "Other" slice:** reuses the `text-tertiary` token rather than a new dedicated token.
 - **Settings' "skipped" status:** the old sky-blue treatment was retired during the Settings migration (session 6a).
 
-## Housekeeping items (verified against code 2026-09-29 — all 6 resolved)
+## Housekeeping items (verified against code 2026-09-29, analyst labels fixed same day — all 6 resolved)
 
 These were recommended during the original audit; each was re-checked directly against the
 current `frontend/` source rather than assumed, and every remaining occurrence was counted, not
@@ -99,11 +99,13 @@ sampled.
    as a real shared component, used by `LiquidityZoneSettingsForm.tsx` and shown in
    `/styleguide` — the original "drop it" recommendation was not carried out; it was brought
    onto the shared token set instead.
-3. **Analyst labels — not shipped, still open.** `CurrentDistributionList.tsx` and
-   `RatingDistributionTrendChart.tsx` both explicitly keep the app's own
-   Buy/Outperform/Hold/Underperform/Sell labels ("this app's own established labels," per their
-   own code comments), not FMP's raw Strong Buy/Buy/Hold/Sell/Strong Sell. Still a small,
-   separate fix if wanted — nobody has done it.
+3. **Analyst labels — done.** `CurrentDistributionList.tsx`, `RatingDistributionTrendChart.tsx`,
+   and `RecommendationDetailsTable.tsx` now display FMP's own Strong Buy/Buy/Hold/Sell/Strong
+   Sell wording (was the app's own relabeled Buy/Outperform/Hold/Underperform/Sell). Only the
+   display `label` changed — the internal `key`s (`buy`/`outperform`/`hold`/`underperform`/
+   `sell`) and the backend's `RecommendationDetailsColumn`/`RatingHistoryPoint` field names are
+   unchanged, since those still map 1:1 to FMP's own `strongBuy`/`buy`/`hold`/`sell`/`strongSell`
+   fields.
 4. **`text-tertiary-2` — done.** Zero references anywhere in `frontend/` (`.tsx`/`.ts`/`.css`) —
    fully merged into `text-tertiary` as originally recommended.
 5. **`border-control` typo — done, zero remaining occurrences.** Every class in the codebase now

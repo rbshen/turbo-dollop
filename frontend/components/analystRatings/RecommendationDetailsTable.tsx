@@ -18,16 +18,17 @@ const TOOLTIP_ICON = "ⓘ";
 const CURRENT_CONSENSUS_TOOLTIP =
   '"Current" is FMP\'s own live consensus rating; 2M/6M/1Y Ago are calculated from Fathom\'s weighted-score thresholds.';
 
-// Row order/labels are a 1:1 relabel of FMP's 5 rating buckets
-// (strongBuy->Buy, buy->Outperform, hold->Hold, sell->Underperform,
-// strongSell->Sell), matching backend/analyst_ratings_data.py's
-// _details_column mapping exactly.
+// Row labels are FMP's own 5 rating bucket names (strongBuy->Strong Buy,
+// buy->Buy, hold->Hold, sell->Sell, strongSell->Strong Sell); the `key`s
+// keep the original buy/outperform/hold/underperform/sell identifiers,
+// matching backend/analyst_ratings_data.py's _details_column field names
+// exactly -- only the display label changed.
 const ROWS: { key: RowKey; label: string }[] = [
-  { key: "buy", label: "Buy" },
-  { key: "outperform", label: "Outperform" },
+  { key: "buy", label: "Strong Buy" },
+  { key: "outperform", label: "Buy" },
   { key: "hold", label: "Hold" },
-  { key: "underperform", label: "Underperform" },
-  { key: "sell", label: "Sell" },
+  { key: "underperform", label: "Sell" },
+  { key: "sell", label: "Strong Sell" },
   { key: "mean", label: "Mean" },
   { key: "consensus", label: "Consensus" },
   { key: "target", label: "Target" },
@@ -43,7 +44,7 @@ function formatCell(key: RowKey, column: RecommendationDetailsColumn, currency: 
 }
 
 // Same sticky-left-label-column structure as RatiosTable -- rows are fixed
-// (Buy/Outperform/Hold/Underperform/Sell/Mean/Consensus/Target) rather than
+// (Strong Buy/Buy/Hold/Sell/Strong Sell/Mean/Consensus/Target) rather than
 // FMP-driven groups, so there's no group-header row to carry over. No outer
 // border/bg of its own -- always embedded inside SentimentOverTimeCard's
 // own card, so an outer container here would double up the border.

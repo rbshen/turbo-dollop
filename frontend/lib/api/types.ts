@@ -1005,8 +1005,9 @@ export interface PriceTargetSummary {
 export interface RatingHistoryPoint {
   date: string;
   // All 5 of FMP's own buckets (Strong Buy/Buy/Hold/Sell/Strong Sell,
-  // relabeled Buy/Outperform/Hold/Underperform/Sell) -- not a 3-bucket
-  // collapse, unlike ConsensusBanner's own Buy/Hold/Sell summary.
+  // shown under those same FMP labels) -- field names below keep the
+  // app's original buy_pct/outperform_pct/.../sell_pct identifiers. Not a
+  // 3-bucket collapse, unlike ConsensusBanner's own Buy/Hold/Sell summary.
   buy_pct: number;
   outperform_pct: number;
   hold_pct: number;
