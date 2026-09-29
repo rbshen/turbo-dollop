@@ -383,7 +383,7 @@ universe would go, it **refuses**, deletes nothing and says so in the report and
 real non-US tickers. Removal is irreversible short of a `backups/` restore.
 
 **Also flags delisted tickers, a second, independent write this same run performs**
-(rewritten Phase 6a, 2026-09-26 — see `CLAUDE.md`'s "Phase 6a" section; moved from the
+(rewritten Phase 6a, 2026-09-26 — see the "Phase 6a" section of `docs/archive/claude-md-history-fmp-migration.md` and `docs/specs/fmp-data-and-bar-cache.md`; moved from the
 `corporate_events` group to `index_membership` 2026-09-27, since this is a tracked-ticker
 universe-membership check, the same job family as the index scrapers, not
 earnings/dividends/splits). It pages FMP's `/delisted-companies` (group `index_membership`,
@@ -456,8 +456,8 @@ its warm cache.
   transaction; a ticker FMP cannot serve keeps its rows). Take `pipeline.backup_db` first and
   check free disk. `pipeline.backfills.backfill_market_breadth --rebuild` re-derives the
   `is_backfilled` breadth rows (never a live row).
-- **Basis:** FMP `full` is split- AND spin-off-adjusted (not dividend-adjusted); see CLAUDE.md
-  "Daily prices: FMP".
+- **Basis:** FMP `full` is split- AND spin-off-adjusted (not dividend-adjusted); see
+  `docs/specs/fmp-data-and-bar-cache.md`.
 
 #### Long history (P3, 2026-09-25)
 
@@ -654,8 +654,8 @@ that draft is why; it was never committed.
   - **Bank/Insurance/REIT Valuation-tab correctness** -- `949651e`: Bank/
     REIT forced onto Price-to-Book, Insurance skips CFO-based methods
     entirely. Covered by dedicated tests in `scoring/test_step3.py` and
-    `tests/test_step3_data.py`, documented in `docs/valuation.md` /
-    `docs/company-type-variations.md`.
+    `tests/test_step3_data.py`, documented in `docs/specs/valuation.md` /
+    `docs/specs/company-type-variations.md`.
   - **Step3/Valuation test coverage** -- 55 tests across
     `scoring/test_step3.py` (36) and `tests/test_step3_data.py` (19), all
     passing. A narrow subset (`run_price_to_book`'s 10yr lookback branch,

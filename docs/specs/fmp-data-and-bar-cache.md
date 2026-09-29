@@ -44,9 +44,9 @@ and `/historical-price-eod/full` are each reached by two groups via an explicit 
 - `/historical-price-eod/full` is split across `daily_prices`/`daily_prices_long` only by
   requested date range, and several `daily_prices` callers omit an explicit `group=` and rely on
   the default.
-- `/delisted-companies` is filed under `corporate_events` for convenience; it's a market-wide
-  reference list, not per-ticker corporate-action data. `/splits` shares that group but currently
-  feeds no chart marker.
+- `/delisted-companies` is filed under `index_membership` (moved from `corporate_events` 2026-09-27; it's a
+  market-wide tracked-ticker-universe check, the same job family as the index scrapers, not per-ticker
+  corporate-action data). `/splits` stays in `corporate_events` but currently feeds no chart marker.
 - `/search-symbol`, `/search-name`, `/stock-price-change` sit under `profile_quote` ("Profile &
   quote") though search/price-change aren't obviously in the same FMP product tier as
   profile/quote.
@@ -431,7 +431,7 @@ would re-attempt them every night.
 
 - **`TickerScore.delisted_at: datetime | None`** (nullable, `_add_missing_columns`-backfilled) is
   set by `pipeline/stale_data_health_check.py::sync_delisted_flags` (weekly, Sundays 1:30 AM) from
-  FMP `/delisted-companies` (group `corporate_events`). The endpoint's page size is capped at 100
+  FMP `/delisted-companies` (group `index_membership`). The endpoint's page size is capped at 100
   (~157 pages / ~15.6k rows / ~15.4k unique symbols on 2026-09-26, so ~157 sequential calls a
   week); a tracked ticker listed with a delisted date on/before today is flagged. Verified against
   the live endpoint: all five tickers above are in it and are the only 5 of 591 tracked tickers
