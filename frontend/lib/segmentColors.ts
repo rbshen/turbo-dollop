@@ -11,5 +11,5 @@ import { SERIES_COLORS } from "@/lib/chartSeries";
 // and 7th, and folds any remainder into "Other", which always renders in
 // this fixed muted gray rather than a cycled series hue.
 export const SEGMENT_COLORS: readonly string[] = SERIES_COLORS;
-export const OTHER_COLOR = "#71717a";
+export const OTHER_COLOR = "var(--color-text-tertiary)";
 export const OTHER_LABEL = "Other";
