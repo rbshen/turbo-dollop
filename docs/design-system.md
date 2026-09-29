@@ -9,8 +9,8 @@ A calm, data-first interface for fundamental investing.
 1. **Whitespace and hairlines before boxes.** Content sits on the page. Groups are separated by a 1px `border-subtle` rule and space, not by filled, bordered cards.
 2. **Blue means act.** `brand` is the primary button, links and keyboard focus. It is never used for selection or status.
 3. **Selection is neutral.** The current nav item, tab, segment or side-nav item is shown with `text-primary`, plus an underline or a `surface-2` fill.
-4. **Status is a dot and a word.** A 6px dot in the tone colour, then the label in body text. Filled pills are for dense tables only (Watchlist, Momentum).
-5. **Words, not colour alone.** Where direction is implied (5Y vs SPY), a ▲ or ▼ replaces the dot.
+4. **Status is a pill.** A soft tinted fill with coloured text and no border, in one of two sizes (regular, compact). The same status looks the same everywhere: ticker header, Screener cards, Watchlist, Momentum, Settings. There is no dot-and-word Status and no separate dense-table style. See "Pills" below.
+5. **Words, not colour alone.** The label always says the state. Where direction is implied (+3.66%), a ▲ or ▼ sits inside the pill before the label.
 6. **Quiet type.** Larger, lighter titles; sentence-case labels; no uppercase, no wide tracking. Numbers stay mono.
 7. **Same job, same component.**
 
@@ -19,15 +19,15 @@ A calm, data-first interface for fundamental investing.
 - **Sentence case everywhere**, including section titles and field labels. Nothing is uppercase.
 - **Tickers** are mono, with the company name in `text-secondary`.
 - **Numbers** are mono and tabular, right-aligned in tables, with an explicit sign on changes (+1.26%, −7.49%), units after the value (−52 days), and "—" when missing.
-- **Verdicts** are one coloured word ("Strong Pass") beside a neutral score.
+- **Verdicts** are one pill ("Strong pass") beside a neutral score. Pill labels are sentence case ("Strong pass", "Pass with caution"), like every other label.
 - **Disclaimers** ("Informational only") are `caption` in `text-tertiary`.
 - **Tone:** plain and factual.
 
 ## Visual foundations
 
 - **Surfaces:** mostly `page`. `surface` appears only as a hover fill and in the rare Card or popover; `surface-2` marks a selected segment or side-nav item and a hovered popover row.
-- **Text:** `text-primary` for headings and figures, `text-body` for running text and status words, `text-secondary` for secondary, `text-tertiary` for captions and labels.
-- **Type:** Public Sans (text), Sora (page and ticker titles, logotype), IBM Plex Mono (numbers and tickers), snapped to the app's scale: 13 / 15 / 17 / 19 / 21 / 26 / 32 / 39 / 52px. Titles use weight 500. Page title 26, ticker title 32, price 39, score 26, body and status 15, captions 13.
+- **Text:** `text-primary` for headings and figures, `text-body` for running text, `text-secondary` for secondary, `text-tertiary` for captions and labels.
+- **Type:** Public Sans (text), Sora (page and ticker titles, logotype), IBM Plex Mono (numbers and tickers), snapped to the app's scale: 13 / 15 / 17 / 19 / 21 / 26 / 32 / 39 / 52px. Titles use weight 500. Page title 26, ticker title 32, price 39, score 26, body 15, captions 13, pill label 13 (regular) or 11 (compact).
 - **Spacing:** the 4px scale. Page top padding 48, header-to-content 32, section padding 24 top and 8 bottom, tile gap 40 by 12.
 - **Radius:** `radius-md` (8px) for buttons, segments, side-nav items and the boxed search; `radius-lg` (10px) only for the rare Card. Underline inputs have no radius.
 - **Layout:** `PageContainer` (1280px, 32px gutter) wraps every page, and every page starts with the same `PageHeader`.
@@ -43,7 +43,8 @@ A calm, data-first interface for fundamental investing.
 | Switch between views of one ticker | Tabs (neutral underline) |
 | Change a data option on the same view | SegmentedControl (fixed 2–6 options only — use Tabs instead for an unbounded set, e.g. the Watchlist switcher) |
 | Do something | Button: one `primary` per region, `ghost` for everything else |
-| Show a classification or state | Status (dot and word) |
+| Show a classification or state | Status (pill) |
+| Show a short label or value in a table cell (a score, a rating, a kind) | Badge (the same pill, with a `missing` state) |
 | Group related content | Section (hairline and title) |
 | One repeated item in a grid | Tile (hairline on top) |
 | List many records with numbers | DataTable |
@@ -51,29 +52,47 @@ A calm, data-first interface for fundamental investing.
 | Tell the user about system state | Banner |
 | An object that must read as a box | Card (rare) |
 
-## Status vocabulary
+## Pills
 
-Tier logic stays in `lib/tierColor.ts`; this guide defines the colours.
+One family, two components, two sizes. `Status` (a labelled state, with an optional ▲/▼ direction glyph) and `Badge` (a short value or label, with a `missing` state) render the same pill; `Verdict` is `Status` for a verdict word. They never differ in look, only in what they are for. Nothing in the app hand-rolls a pill, a dot or an inline status colour — a new status goes through these.
 
-| Meaning | Dot colour | Where it shows up |
+**Anatomy.** `radius-md` (8px). Fill is the tone colour at 16% opacity, text is the tone colour at full strength, and there is no border. This is the look of the Screener's pullback pills ("Pullback recovered", "Pullback pending", "Trend invalidated"), which are the reference style. No new colours: every tone reuses an existing token.
+
+| Size | Type | Padding | Height | Where |
+| --- | --- | --- | --- | --- |
+| Regular | 13px, weight 600 | 4px / 8px | 25px | Ticker header, Screener cards, tabs, Settings tables, anywhere a pill is a first-class read |
+| Compact | 11px, weight 500 | 2px / 6px | 20px | Dense tables only (Watchlist, Momentum). Same tint as regular, so the colour signal is not weakened; only the type and padding are quieter |
+
+The choice of size is the only difference between a Watchlist Moat cell and the ticker header's Moat pill.
+
+**Tones.** Tier logic stays in `lib/tierColor.ts`; this guide defines the colours.
+
+| Tone | Token | Label / where it shows up |
 | --- | --- | --- |
-| Strong | `positive-strong` | Strong Pass (score above 90), Wide Moat |
-| Positive | `positive` (muted green) | Pass (score 75 to 90), Narrow Moat |
-| Borderline | `warn` | Score 70 to 74, Pullback pending |
-| Pass with caution | `caution` | The "Pass with caution" verdict (checked before score tiers) |
-| Negative | `negative` | Fail, No Moat, Trend invalidated, Overvalued |
-| Speculative | `chart-purple` | Speculative Growth only |
-| Neutral | none (plain `text-secondary`) | Stage labels, index membership, kind and sector |
+| `strong` | `positive-strong` | Strong pass (score above 90), Wide Moat, Undervalued, 5Y vs SPY outperform |
+| `positive` | `positive` (muted green) | Pass (score 75 to 90), Narrow Moat, Fairvalued, Stage 2 (Advance), Pullback recovered |
+| `warn` | `warn` | Needs review: the amber borderline read. In the app the 70 to 74 score band carries the backend's own verdict word "Pass" in this tone; "Needs review" is the tone's name and its styleguide label. Also Stage 3 (Top), Pullback pending |
+| `caution` | `caution` | Pass with caution (checked before score tiers) |
+| `negative` | `negative` | Fail, No Moat, Overvalued, Stage 4 (Decline), Trend invalidated |
+| `speculative` | `chart-purple` | Speculative growth only |
+| `index` | `index-membership` (teal) | Index membership (S&P 500, Nasdaq, Dow 30) only — a category tag with its own token, not a verdict |
+| `neutral` | `surface-2` fill, `text-secondary` | No read to colour: Not scored, N/A, Stage 1 (Base), company kind (Badge), Skipped and Unknown in the jobs tables, and any value with no Pass/Fail meaning |
 
-The score number stays `text-primary`; only the verdict word takes the tone colour. Moat tiers live in `MoatPill.tsx` and valuation in `FairValuePill.tsx`, both behind one shared map.
+`Badge` and `Status` share this tone set. "Pass with caution" is `caution` everywhere, Watchlist included.
+
+**Score and label.** The score number is never coloured: it is `text-primary`, mono, tabular, and the pill beside it carries the tone. Inline (an Analysis section header) the number sits to the left of the pill with an 8px gap, vertically centred: `74 [Pass with caution]`. Stacked (a Screener card header, where the number is large) the number sits above the pill, both right-aligned. A Watchlist Analysis cell is one column wide, so its compact pill holds the score itself (toned by the verdict, with a ⚠ appended for Pass with caution, whose tooltip names the steps) rather than a number plus a label. A score without a computed value is a neutral pill or a `missing` Badge ("—"), never a bare dash. The Overall Assessment's circular score badge is a separate gauge shape and is not part of this family.
+
+**Wrapping.** Pills never break internally (`nowrap`). A row of pills is a `flex-wrap` container with an 8px gap in both directions, so a row wraps whole pills onto the next line at narrow widths and stays left-aligned. An info or warning icon that belongs to a pill (Speculative growth, Stage pending) is wrapped with it so the two never split across lines. The ticker header's status row (Assessment, Moat, Valuation, Speculative growth, 5Y vs SPY, Stage) is about six pills wide and follows this rule.
+
+**Not a Status.** A dot is still right for a chart legend key (see `docs/design-system-charts.md`) and a timeline marker, because they name a series or a point in time, not a state. A pill is not used for a filter chip or a button.
 
 ## Foundational decisions (settled, built)
 
 - **Direction B** ("quiet minimalist") over a consolidated version of the old look.
-- **Tables:** hover only on rows that open something; whole-row click opens the ticker in a new tab; Screener cards unchanged; Watchlist and Momentum keep the compact filled `Badge` for scores/ratings, `Status` (dot + word) everywhere else.
+- **Tables:** hover only on rows that open something; whole-row click opens the ticker in a new tab; Screener cards unchanged; Watchlist and Momentum use the compact size of the same pill family as everywhere else (2026-09-29 reversal — they previously kept a separate filled `Badge`; see `docs/decisions.md`).
 - **Fonts:** Public Sans, Sora, IBM Plex Mono — no change needed from what the app already had.
 - **New tabs:** ticker links in the Screener, Momentum and Watchlist, and nav links from the Screener, open in a new tab so Screener filters stay put. Two tabs each showing an active item is expected behaviour, not a bug.
-- **By choosing B:** dark `on-brand` text on the primary button; underline inputs with `border-control`; ▲/▼ glyph on the 5Y vs SPY status; orange stays reserved for the applied-filter label; filled pills dropped from headers, tiles and lists.
+- **By choosing B:** dark `on-brand` text on the primary button; underline inputs with `border-control`; ▲/▼ glyph on the 5Y vs SPY status; orange stays reserved for the applied-filter label. (Also originally: "filled pills dropped from headers, tiles and lists", with `Status` as a dot and a word. Reversed 2026-09-29: status is now a pill everywhere — see "Pills" above and `docs/decisions.md`.)
 - **Segmentation chart "Other" slice:** reuses the `text-tertiary` token rather than a new dedicated token.
 - **Settings' "skipped" status:** the old sky-blue treatment was retired during the Settings migration (session 6a).
 
