@@ -127,10 +127,13 @@ series of at least 2 points:
 7. **Once every event has resolved**:
    - **Exactly one event, resolved literally**: graded by severity — **≤10%** →
      `small_dip_recovers`, **90**; **>10%** → `significant_dip_recovers`, **85**.
-   - **Two or more events, all resolved literally** → `multiple_dips_resolved`, **75**.
-   - **At least one event resolved only via the durable path** → `dip_durably_resolved`, **75**
-     — same score as `multiple_dips_resolved`, kept distinct purely so the reasoning panel can
-     say "durably improved, not yet a new high" rather than implying a literal new peak.
+   - **Two or more events, all resolved literally** → `multiple_dips_resolved`, **graduated
+     75 → 65** (see "`multiple_dips_resolved` / `dip_durably_resolved` graduated" below; 75 is
+     the ceiling).
+   - **At least one event resolved only via the durable path** → `dip_durably_resolved`,
+     **graduated 75 → 65**, scored by the identical formula as `multiple_dips_resolved` — kept
+     distinct purely so the reasoning panel can say "durably improved, not yet a new high" rather
+     than implying a literal new peak.
 8. Fewer than 2 data points → `insufficient_data`, score 0 (see "Insufficient data" below).
 
 **`multiple_dips` graduated (2026-09-10).** A flat 40 for ANY unresolved dip event regardless of
@@ -141,6 +144,22 @@ flat value, preserved as the worst-case floor) and `MULTIPLE_DIPS_CEILING` (70) 
 mandatory companion fix raised `NET_INCOME_BACKUP_THRESHOLD` from 40 to 70 (see "Net Income's
 Operating Income backup" below) so a mildly-graduated NI score doesn't silently fall outside the
 backup's own trigger range.
+
+**`multiple_dips_resolved` / `dip_durably_resolved` graduated (2026-09-10, "bucket b").** Both
+patterns used to score a flat 75 however severe the historical, now-recovered dip was. They now
+graduate linearly from `RESOLVED_CEILING` (**75**, the old flat value — this bucket has no upward
+headroom, so graduation can only ever lower a score) down to `RESOLVED_FLOOR` (**65**) as the
+worst event's severity approaches `RESOLVED_SEVERE_FRAC` (**1.0**, i.e. 100% of current scale).
+Severity is dip **depth relative to the series' current (TTM) scale**, not peak-relative percent:
+`max over events of |baseline − trough| / |TTM|`, clipped to `RESOLVED_SEVERE_FRAC`
+(`_graduated_resolved_score`; `RESOLVED_FLOOR` if TTM is 0 or there are no events). Peak-relative
+% is meaningless when a dip's baseline is a tiny or negative pre-scale number, whereas depth
+against today's scale stays well-behaved for a near-zero baseline. Every `RECOVERY_PATTERNS`
+membership test (Step 1's FCF recovery check, Step 3's method-selection tree ×2, Step 4's
+ROE/ROIC recovery checks ×2 — 6 call sites) tests `.pattern` only and is unaffected by the
+score-value change. Note that a resolved score of 65–70 now falls at or under
+`NET_INCOME_BACKUP_THRESHOLD`, so a Net Income read of that shape can consult the Operating
+Income backup (subject to its recency gate).
 
 ## Positivity gate (Revenue, Net Income, CFO)
 
@@ -157,6 +176,17 @@ top of it, Revenue, Net Income, and CFO each require the **current (TTM) value t
 - Otherwise, the trend classifier's own tier is used unchanged. A historical dip — even one that
   went negative mid-dip — is still tolerated as long as the series has since recovered and the
   current value clears zero.
+
+The gate lives in `scoring/step1.py::_classify_positive_trend` (with `_not_yet_positive_result`
+doing the graduated score; the real-revenue series is passed in as `revenue_for_scale`). It is
+deliberately a **Financials-local wrapper, not a change to the shared primitive**:
+`classify_trend`, `RECOVERY_PATTERNS`, and every other consumer (Valuation's method-selection tree,
+Profitability's ROE negative-equity substitute, `_classify_fcf`'s own cash-burn-recovery logic) are
+untouched, and no other step calls `_classify_positive_trend`. It deliberately does **not**
+tighten `classify_trend`'s recovery math — only the current value's sign is new. A
+currently-positive but historically sign-flipping series (e.g. a CFO that flipped sign several
+times before settling positive for the last two periods) still scores
+`multiple_dips_resolved`, unchanged.
 
 ## Net Income's Operating Income backup
 
@@ -176,6 +206,20 @@ be a one-off:
   lower than Net Income's own unrescued score.
 - If the dip is older than 2 periods, Operating Income is never consulted.
 
+Why it is recency-gated: the backup exists for a plausible one-off (a charge that hit 1–2 periods
+ago), not for a chronic, long-unresolved Net Income problem. The age is computed by
+`scoring/trend.py::most_recent_real_dip_age`, and the window deliberately **includes age 0** (the
+dip landing in the TTM transition itself) — excluding it would mean the most common one-off shape,
+a charge in the latest reported period, could never qualify. Net Income having too few points for
+any notion of recency (`insufficient_data`) still unconditionally consults Operating Income.
+
+`NET_INCOME_BACKUP_THRESHOLD` must equal `trend.MULTIPLE_DIPS_CEILING` (enforced by
+`scoring/test_step1.py::test_net_income_backup_threshold_matches_multiple_dips_ceiling`). The
+backup gate is an exact-value comparison against `classify_trend`'s own output — unlike the
+`RECOVERY_PATTERNS` consumers, which test pattern membership and are immune to score-value
+changes — so a graduated `multiple_dips` score above the threshold would silently lose an
+Operating-Income rescue it would otherwise still get.
+
 ## Margins classification
 
 Inputs: the gross margin and net margin series (percentage-point values, same 10yr+TTM window),
@@ -183,7 +227,11 @@ plus a `revenue_growing` flag — TTM real Revenue greater than the earliest rea
 the window. This flag is always computed from real Revenue, even for Banks (whose scored
 "Revenue" metric is Net Interest Income).
 
-Each of gross margin and net margin is independently run through a windowed direction analysis:
+Each of gross margin and net margin is independently run through a windowed direction analysis.
+This deliberately uses windowed early-vs-late direction plus explicit dip-count and
+sustained-decline checks, **not** a raw standard-deviation-of-differences volatility check — a
+single big dip-and-full-recovery year produces high variance but must not read as "wildly
+inconsistent":
 
 - **window** = min(3, series length) periods.
 - **direction** = (average of the last `window` periods) − (average of the first `window`
@@ -203,14 +251,28 @@ Classification (checked in this order):
       early-window spike making a genuinely-recovered series read as sharply declining. `max()`
       is load-bearing: the exclusion is symmetric by construction, so it could otherwise rescue a
       genuine low early trough, which would make the reading *more* negative — `max()` makes the
-      fix strictly one-directional.
+      fix strictly one-directional. `robust_early_direction`
+      (`scoring/series_trend.py`) mirrors `robust_late_direction`, applied to the early window,
+      and is used at **this one call site only**: `direction` itself, `_series_recovered`,
+      `_stable_and_spike_robust`, Rule 2, and Rule 2's own separate `sharply_declining` check
+      (2c) are untouched. It is never a drop-in replacement for `direction` — an unguarded
+      version wrongly collapsed genuine low-early-trough cases (an oil-crash-year trough excluded
+      → `stable_or_expanding`/100 read as `sharply_declining`/20).
    b. Otherwise, a series counts as "recovered" if it has no sustained decline at all, or if its
       direction is non-negative (≥ -1.0pp) **and** its current (TTM) value has climbed back to at
-      least its own early-window average. If **either** series hasn't recovered →
-      `gradually_compressing`, **60**.
+      least its own early-window average. (The baseline is deliberately the early-window
+      *average* `direction` itself is measured against, not the single pre-decline value, which is
+      frequently an anomalous spike — requiring re-exceedance of a spike would leave genuine
+      recoveries capped forever. Without this gate, a sustained decline occurring once anywhere in
+      the 10yr+TTM window, e.g. FY2020, permanently capped a fully-recovered company.) If
+      **either** series hasn't recovered → `gradually_compressing`, **60** (graduated, see below).
    c. If both have recovered: check whether both are also "stable and spike-robust" — direction
       ≥ -1.0pp on both, **and** a robust late-window direction is also ≥ -1.0pp on both. If so →
-      `stable_or_expanding`, **100**. Otherwise → `gradually_compressing`, **60**.
+      `stable_or_expanding`, **100**. Otherwise → `gradually_compressing`, **60** (graduated,
+      see below). This branch reads straight off the stable/expanding check and deliberately does
+      **not** fall through to Rule 2 — Rule 2's per-series dip-count logic has its own known
+      issues (below) and would turn a confirmed recovery into the worst tier for a
+      near-flat-but-positive ticker.
 2. **Otherwise (no sustained decline in either series):**
    a. If **both** gross and net show 2+ real dips **and** each series' direction is flatter than
       **1.0pp** in magnitude → `wildly_inconsistent`, **0**.
@@ -234,15 +296,30 @@ elsewhere in Step 1 — it isn't a coherent concept for a lending institution, c
 full-universe scan showing all 28 Bank-classified tickers hitting an FMP data-methodology
 artifact (an implausible ≥100% "gross margin" spike around FY2021, then a permanent plateau
 drop). `MARGINS_EXEMPT_TYPES = {"Bank"}`: `Step1Out.components.margins = None`, and Margins'
-`WEIGHTS_CFO_EXEMPT`-stage weight (~21.67%) is redistributed **proportionally** across Revenue
-and Net Income, preserving their existing 28:19 ratio — Revenue 28/47 (~59.57%), Net Income
-19/47 (~40.43%). Deliberately scoped to Bank only — Insurance and Commodity Company margins were
+`WEIGHTS_CFO_EXEMPT`-stage weight (13/60, ~21.67%) is redistributed **proportionally** across
+Revenue and Net Income (new weight table `WEIGHTS_CFO_MARGINS_EXEMPT`, `scoring/step1.py`),
+preserving their existing 28:19 ratio — Revenue 28/47 (~59.57%), Net Income 19/47 (~40.43%) —
+rather than a flat 50/50 split. `MARGINS_EXEMPT_TYPES` lives in `data/step1_data.py`; the mechanism
+is the same as the CFO/FCF exemption. Deliberately scoped to Bank only — Insurance and Commodity Company margins were
 found mostly working, and REIT/Property Developer's own margin noise is a differently-shaped
 (terminal-period collapse, not universal mid-history spike) issue not fixed here.
 `MARGINS_SEVERITY_CARVEOUT_TYPES = {"Insurance", "REIT/Property Developer", "Utility"}` keeps
 `gradually_compressing` at a flat 60 regardless of severity for those three types (see
 `gradually_compressing` severity graduation below) — Bank is not in this set since it never
-reaches `_classify_margins` at all once excluded above.
+reaches `_classify_margins` at all once excluded above (`carveout=True` is accepted there as a
+defensive no-op, not expected to gate a Bank in practice). The carve-out flag is computed in
+`data/step1_data.py` from `classify_company_type`'s own **raw** return value, not
+`_detect_exemption`'s remapped one — `_detect_exemption` renames "REIT/Property Developer" to
+"Property Developer" for Step 1's display and never surfaces "Utility" at all (Utility was never
+CFO-exempt in Step 1, but does need this Margins-only carve-out independently).
+
+**Reasoning text.** The Financials card's verdict sentence is fully dynamic (it filters on
+whichever component keys are non-null), so a Bank's blurb automatically stops mentioning Margins
+once `components.margins` is `None`. The exemption note is built by
+`exemptionNote()` (`frontend/components/step1/Step1Card.tsx`) from whichever of `{cfo, fcf,
+margins}` are actually null, with `isn't`/`aren't` agreement — a Bank reads "Cash Flow, Margins,
+and Free Cash Flow aren't scored for this company — classified as a Bank."; every other exempt
+type reads "Cash Flow and Free Cash Flow aren't scored…".
 
 **`gradually_compressing` severity graduation (2026-09-10), gentle by design.** `MARGINS_CEILING`
 = 60 (matches the old flat value, no upward headroom — this bucket can only ever lower some
@@ -250,7 +327,8 @@ tickers' scores), graduating down to `MARGINS_FLOOR` = 45 as the worse of gross/
 passes `MARGINS_SEVERE_PP` (12.0 points) beyond the stable-tolerance band. Deliberately gentle:
 a more aggressive version regressed a real, modest semiconductor-cycle compression case combined
 with other resolved-bucket components. The three carve-out types above are exempt from this
-graduation entirely.
+graduation entirely — the carve-out is load-bearing, not redundant (e.g. two REITs with a mild
+and a severe compression both stay at the identical flat 60).
 
 ## Free Cash Flow classification
 
@@ -284,6 +362,17 @@ FCF = CFO + `capitalExpenditure` (FMP reports capital expenditure as already neg
 | 70–90 | Pass |
 | 0–69 | Fail |
 
+The verdict is purely these bands applied to the final blended score (`_verdict_for` over
+`VERDICT_BANDS`) — no per-component gate on any individual pattern or score exists, so graduated
+component scores cannot interact with a hidden floor. Growth Rate uses the same bands, but its
+Fail is gated on the sign of projected growth instead (see [Growth Rate](growth-rate.md)).
+
+**Badge shading.** The score badge splits the 70–90 "Pass" band into two color shades without a
+text distinction: 70–74 amber (`warn` tone), 75–90 green (`positive`); 91+ is a deeper green
+(`positive-strong`), and Fail / "Pass with caution" override the score tiers. The tiering is
+shared by every step's badge and chip via `frontend/lib/tierColor.ts` (`toneFor`, `classFor`),
+so color can't be chosen from verdict text alone.
+
 ## Insufficient data
 
 The whole check returns `score: null, verdict: "insufficient_data"` (not a fabricated Fail) if
@@ -291,6 +380,47 @@ any of the following read `insufficient_data`: Revenue, Margins, CFO (when not e
 (when not exempt), or **both** Net Income and its Operating Income backup. Net Income alone
 reading `insufficient_data` is not a gap as long as Operating Income has real data.
 
+A prior version folded these gaps into the weighted sum as ordinary scored zeros, so a single
+failed upstream fetch (e.g. the cash-flow statement) on an otherwise-strong ticker dragged its
+score into Fail. `cache.py::safe_fetch` swallows `httpx.HTTPError` to `{}`, which is
+indistinguishable downstream from a genuinely thin response, so a fetch failure also reads as
+`insufficient_data`. CFO-exempt companies are unaffected (CFO/FCF simply aren't required for
+them), and Net Income's Operating-Income backup only counts as a genuine gap when Operating
+Income's own classification also reads `insufficient_data`.
+
 If the underlying figures simply aren't available for a company — a data gap, not a real
 weakness — Financials reports as having insufficient data rather than fabricating a Fail. See
 the [Glossary](glossary.md) for how every verdict label is defined.
+
+## Calibration notes
+
+Why the graduated/gated thresholds sit where they do. These are the distributions each value was
+chosen from at the time (cache-only scans of the tracked universe, 2026-08 / 2026-09); they are
+context for revisiting a threshold, not live invariants — re-scan before relying on the counts.
+
+- **`declining` floor at -50% (`DECLINING_FLOOR_DECLINE`).** A scan found 141 tickers hitting the
+  severe-TTM-decline branch, from barely past -15% to absurd near-zero-prior-year-base artifacts
+  (a net income read as a -4128% "decline"); -50% was chosen because it covers 101/141 (72%) of
+  real hits. The ceiling of 15 sits below `flat_then_spike`'s 20, the next-lowest pattern score,
+  so a graduated `declining` can never outrank a different, milder worst-tier pattern.
+- **`not_yet_positive` floor at -20% margin (`NOT_YET_POSITIVE_FLOOR_MARGIN`).** 45 hits, margin
+  (value ÷ real revenue) ranging from about -149% (a real structural loss) to -0.1% (effectively
+  breakeven); -20% covers 34/45 (76%) of hits, and 44% sat under -5%.
+- **`multiple_dips` `MULTIPLE_DIPS_SEVERE_FRAC` = 30%.** Of 381 tickers hitting the old flat 40,
+  hits cluster either near zero or far beyond 30% (the mildest 20 all sat within ~1.7% of their
+  own baseline). `MULTIPLE_DIPS_FLOOR` stays at the old flat 40 so a genuinely severe,
+  still-unresolved dip never scores better than before.
+- **Resolved-dip floor 65 and Margins-compression floor 45.** Both are deliberately gentle: a
+  lower resolved floor produced multi-component regressions for a modest, genuine
+  semiconductor-cycle compression case, and both graduations can only lower scores (their
+  ceilings equal the old flat values), unlike `multiple_dips`, which graduates upward from its
+  old value.
+- **`flat_then_spike` terminal protection is magnitude-gated on purpose.** A stress test showed
+  that simply always protecting TTM would wrongly rescue jumps with no precedent in the series'
+  history (a +683% CFO jump, a +207% second commodity-margin spike); gating on the ≤100% jump
+  size trusts modest, plausible jumps (+45%, +42% cases that also cleared their own prior peak)
+  while leaving those unrescued.
+- **Bank Margins artifact.** All 28 Bank-classified tickers with margin data showed
+  `grossProfit/revenue` at or above 100% around FY2021 followed by a permanent drop to a 42–77%
+  plateau from FY2022 — an FMP data-methodology break specific to financial-services reporting,
+  universal across the Bank population rather than a few outliers.
