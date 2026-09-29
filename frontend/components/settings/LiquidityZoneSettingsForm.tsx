@@ -9,6 +9,11 @@ import { useLiquidityZoneConfig } from "@/lib/hooks/useLiquidityZoneConfig";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { NumberStepper } from "@/components/ui/NumberStepper";
 import { Select } from "@/components/ui/Select";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field } from "@/components/ui/input";
+import { Section } from "@/components/ui/section";
+import { cn } from "@/lib/utils";
 
 type Status = "idle" | "saving" | "saved" | "error";
 
@@ -23,11 +28,11 @@ export function LiquidityZoneSettingsForm() {
   const { data, error, isLoading } = useLiquidityZoneConfig();
 
   if (error) {
-    return <p className="text-sm text-red-400">Couldn&apos;t load Liquidity Zone settings — {error.message}</p>;
+    return <p className="text-sm text-negative">Couldn&apos;t load Liquidity Zone settings — {error.message}</p>;
   }
 
   if (isLoading || !data) {
-    return <p className="text-sm text-zinc-600 animate-pulse">Loading…</p>;
+    return <p className="text-sm text-text-tertiary animate-pulse">Loading…</p>;
   }
 
   // Keyed on updated_at so a save remounts this with fresh initial state --
@@ -35,6 +40,10 @@ export function LiquidityZoneSettingsForm() {
   return <LiquidityZoneForm key={data.updated_at} data={data} />;
 }
 
+// A single config object -- content sits directly in the Section, no Card
+// wrapper (same reasoning as MoatSettingsForm/WeinsteinSettingsForm). The
+// three field groups below are plain subheadings, not nested Sections, for
+// the same reason WeinsteinSettingsForm's two groups are.
 function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
   const [swingBars, setSwingBars] = useState(data.swing_bars_each_side);
   const [clusterPct, setClusterPct] = useState(data.cluster_pct);
@@ -68,64 +77,62 @@ function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
     }
   }
 
-  const labelCls = "flex items-center gap-1.5 text-xs uppercase tracking-widest text-zinc-500";
+  const fieldLabel = (text: string, tooltip: { label: string; text: string }) => (
+    <span className="inline-flex items-center gap-1.5">
+      {text}
+      <InfoTooltip label={tooltip.label} text={tooltip.text} />
+    </span>
+  );
 
   return (
-    <div className="space-y-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-      <div>
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Liquidity Zones</h2>
-        <p className="mt-1 text-xs text-zinc-600">
-          Swing-based support/resistance detection, computed nightly for watchlists named W1 through W5 only. One set of
-          settings is shared by the Daily and Weekly computations. Changes here apply on the next nightly run, not
-          retroactively.
-        </p>
-      </div>
+    <Section title="Liquidity Zones">
+      <p className="text-xs text-text-tertiary">
+        Swing-based support/resistance detection, computed nightly for watchlists named W1 through W5 only. One set of
+        settings is shared by the Daily and Weekly computations. Changes here apply on the next nightly run, not
+        retroactively.
+      </p>
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+      <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-3">
         <div className="space-y-4">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Detection</h3>
-          <div>
-            <label className={labelCls} htmlFor="lz-swing-bars">
-              Swing bars (each side)
-              <InfoTooltip
-                label="About swing bars"
-                text="Bars on EACH side of the pivot. 2 = a 5-bar window (2 left + pivot + 2 right). A swing needs this many bars to its right before it is confirmed."
-              />
-            </label>
+          <h3 className="text-xs font-semibold text-text-secondary">Detection</h3>
+          <Field
+            label={fieldLabel("Swing bars (each side)", {
+              label: "About swing bars",
+              text: "Bars on EACH side of the pivot. 2 = a 5-bar window (2 left + pivot + 2 right). A swing needs this many bars to its right before it is confirmed.",
+            })}
+            htmlFor="lz-swing-bars"
+          >
             <NumberStepper id="lz-swing-bars" value={swingBars} onChange={setSwingBars} min={1} max={3} step={1} />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="lz-cluster-pct">
-              Cluster % (0 disables)
-              <InfoTooltip
-                label="About cluster %"
-                text="Merge consecutive valid liquidity zones within this % of each other into one zone. Support zones are represented by their LOWEST price; resistance zones by their HIGHEST price. 0 = clustering off."
-              />
-            </label>
+          </Field>
+          <Field
+            label={fieldLabel("Cluster % (0 disables)", {
+              label: "About cluster %",
+              text: "Merge consecutive valid liquidity zones within this % of each other into one zone. Support zones are represented by their LOWEST price; resistance zones by their HIGHEST price. 0 = clustering off.",
+            })}
+            htmlFor="lz-cluster-pct"
+          >
             <NumberStepper id="lz-cluster-pct" value={clusterPct} onChange={setClusterPct} min={0} max={3} step={0.1} />
-          </div>
+          </Field>
         </div>
 
         <div className="space-y-4">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Display</h3>
-          <div>
-            <label className={labelCls} htmlFor="lz-max-lps">
-              Max zones per side
-              <InfoTooltip
-                label="About max zones per side"
-                text="Cap on how many valid zones to show per side. The last-breached zone (if enabled below) is shown separately and does not count toward this cap."
-              />
-            </label>
+          <h3 className="text-xs font-semibold text-text-secondary">Display</h3>
+          <Field
+            label={fieldLabel("Max zones per side", {
+              label: "About max zones per side",
+              text: "Cap on how many valid zones to show per side. The last-breached zone (if enabled below) is shown separately and does not count toward this cap.",
+            })}
+            htmlFor="lz-max-lps"
+          >
             <NumberStepper id="lz-max-lps" value={maxLps} onChange={setMaxLps} min={1} max={10} step={1} />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="lz-priority">
-              When over the cap, keep
-              <InfoTooltip
-                label="About over-cap priority"
-                text="When there are more valid zones than the cap allows, choose which to keep: 'Nearest price' keeps the zones closest to the current price; 'Most recent' keeps the newest ones instead, regardless of price distance."
-              />
-            </label>
+          </Field>
+          <Field
+            label={fieldLabel("When over the cap, keep", {
+              label: "About over-cap priority",
+              text: "When there are more valid zones than the cap allows, choose which to keep: 'Nearest price' keeps the zones closest to the current price; 'Most recent' keeps the newest ones instead, regardless of price distance.",
+            })}
+            htmlFor="lz-priority"
+          >
             <Select
               id="lz-priority"
               className="mt-1"
@@ -135,55 +142,57 @@ function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
               <option value="nearest_price">Nearest to price</option>
               <option value="most_recent">Most recent</option>
             </Select>
-          </div>
+          </Field>
         </div>
 
         <div className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Last breached Liquidity</h3>
-          <label className="flex items-center gap-2 text-sm text-zinc-300">
-            <input type="checkbox" checked={keepSupport} onChange={(e) => setKeepSupport(e.target.checked)} />
-            Keep last breached support
-          </label>
-          <label className="flex items-center gap-2 text-sm text-zinc-300">
-            <input type="checkbox" checked={keepResistance} onChange={(e) => setKeepResistance(e.target.checked)} />
-            Keep last breached resistance
-          </label>
-          <label className="flex items-center gap-2 text-sm text-zinc-300">
-            <input type="checkbox" checked={onlyRecent} onChange={(e) => setOnlyRecent(e.target.checked)} />
-            Only keep if breached recently
-          </label>
-          <div className={`ml-3 border-l border-zinc-800 pl-3 transition-opacity ${onlyRecent ? "" : "opacity-40"}`}>
-            <label className={labelCls} htmlFor="lz-recency">
-              Breach recency (bars)
-              <InfoTooltip
-                label="About breach recency"
-                text="A breached zone is only eligible to be kept and shown if its breach happened within this many bars of the most recent bar."
+          <h3 className="text-xs font-semibold text-text-secondary">Last breached Liquidity</h3>
+          <Checkbox
+            id="lz-keep-support"
+            checked={keepSupport}
+            onChange={(e) => setKeepSupport(e.target.checked)}
+            label="Keep last breached support"
+          />
+          <Checkbox
+            id="lz-keep-resistance"
+            checked={keepResistance}
+            onChange={(e) => setKeepResistance(e.target.checked)}
+            label="Keep last breached resistance"
+          />
+          <Checkbox
+            id="lz-only-recent"
+            checked={onlyRecent}
+            onChange={(e) => setOnlyRecent(e.target.checked)}
+            label="Only keep if breached recently"
+          />
+          <div className={cn("ml-3 border-l border-border-subtle pl-3 transition-opacity", !onlyRecent && "opacity-40")}>
+            <Field
+              label={fieldLabel("Breach recency (bars)", {
+                label: "About breach recency",
+                text: "A breached zone is only eligible to be kept and shown if its breach happened within this many bars of the most recent bar.",
+              })}
+              htmlFor="lz-recency"
+            >
+              <NumberStepper
+                id="lz-recency"
+                value={recencyBars}
+                onChange={setRecencyBars}
+                min={1}
+                max={52}
+                step={1}
+                disabled={!onlyRecent}
               />
-            </label>
-            <NumberStepper
-              id="lz-recency"
-              value={recencyBars}
-              onChange={setRecencyBars}
-              min={1}
-              max={52}
-              step={1}
-              disabled={!onlyRecent}
-            />
+            </Field>
           </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={status === "saving"}
-          className="rounded-md border border-zinc-700 bg-zinc-800 px-4 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
+      <div className="mt-6 flex items-center gap-3">
+        <Button variant="primary" onClick={handleSave} disabled={status === "saving"}>
           {STATUS_LABELS[status]}
-        </button>
-        <p className="text-xs text-zinc-600">Last updated {new Date(data.updated_at).toLocaleString()}</p>
+        </Button>
+        <p className="text-xs text-text-tertiary">Last updated {new Date(data.updated_at).toLocaleString()}</p>
       </div>
-    </div>
+    </Section>
   );
 }

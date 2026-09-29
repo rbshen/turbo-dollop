@@ -6,6 +6,10 @@ import { mutate } from "swr";
 import { apiPut } from "@/lib/api/client";
 import type { WeinsteinConfigOut } from "@/lib/api/types";
 import { useWeinsteinConfig } from "@/lib/hooks/useWeinsteinConfig";
+import { Button } from "@/components/ui/button";
+import { Field, Input } from "@/components/ui/input";
+import { Section } from "@/components/ui/section";
+import { Select } from "@/components/ui/Select";
 
 type Status = "idle" | "saving" | "saved" | "error";
 
@@ -20,11 +24,11 @@ export function WeinsteinSettingsForm() {
   const { data, error, isLoading } = useWeinsteinConfig();
 
   if (error) {
-    return <p className="text-sm text-red-400">Couldn&apos;t load Weinstein settings — {error.message}</p>;
+    return <p className="text-sm text-negative">Couldn&apos;t load Weinstein settings — {error.message}</p>;
   }
 
   if (isLoading || !data) {
-    return <p className="text-sm text-zinc-600 animate-pulse">Loading…</p>;
+    return <p className="text-sm text-text-tertiary animate-pulse">Loading…</p>;
   }
 
   // Keyed on updated_at so a save remounts this with fresh initial text --
@@ -32,6 +36,11 @@ export function WeinsteinSettingsForm() {
   return <WeinsteinForm key={data.updated_at} data={data} />;
 }
 
+// A single config object -- content sits directly in the Section, no Card
+// wrapper (same reasoning as MoatSettingsForm). The two field groups below
+// (Stage / Breakout & relative strength) are plain subheadings, not nested
+// Sections -- they're an organizational split within one save action, not
+// independently-saved panels.
 function WeinsteinForm({ data }: { data: WeinsteinConfigOut }) {
   const [maLength, setMaLength] = useState(String(data.ma_length));
   const [maType, setMaType] = useState<WeinsteinConfigOut["ma_type"]>(data.ma_type);
@@ -73,77 +82,123 @@ function WeinsteinForm({ data }: { data: WeinsteinConfigOut }) {
     }
   }
 
-  const labelCls = "block text-xs uppercase tracking-widest text-zinc-500";
-  const inputCls =
-    "mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none";
-
   return (
-    <div className="space-y-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-      <div>
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Weinstein Stage</h2>
-        <p className="mt-1 text-xs text-zinc-600">
-          Parameters for the weekly Stage 1-4 engine (Base / Advance / Top / Decline) behind the ticker-header pill, the
-          Technical tab card and the Screener filter. Changes apply the next time a ticker is recomputed (the nightly
-          trend job, or an on-demand ticker view) — no restart needed. The engine always runs on weekly bars.
-        </p>
-      </div>
+    <Section title="Weinstein Stage">
+      <p className="text-xs text-text-tertiary">
+        Parameters for the weekly Stage 1-4 engine (Base / Advance / Top / Decline) behind the ticker-header pill, the
+        Technical tab card and the Screener filter. Changes apply the next time a ticker is recomputed (the nightly
+        trend job, or an on-demand ticker view) — no restart needed. The engine always runs on weekly bars.
+      </p>
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-2">
         <div className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Stage</h3>
-          <div>
-            <label className={labelCls} htmlFor="ws-ma-length">MA length (weeks)</label>
-            <input id="ws-ma-length" type="number" step="1" min="2" className={inputCls} value={maLength} onChange={(e) => setMaLength(e.target.value)} />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="ws-ma-type">MA type</label>
-            <select id="ws-ma-type" className={inputCls} value={maType} onChange={(e) => setMaType(e.target.value as WeinsteinConfigOut["ma_type"])}>
+          <h3 className="text-xs font-semibold text-text-secondary">Stage</h3>
+          <Field label="MA length (weeks)" htmlFor="ws-ma-length">
+            <Input
+              id="ws-ma-length"
+              variant="boxed"
+              type="number"
+              step="1"
+              min="2"
+              className="mt-1 w-full font-mono"
+              value={maLength}
+              onChange={(e) => setMaLength(e.target.value)}
+            />
+          </Field>
+          <Field label="MA type" htmlFor="ws-ma-type">
+            <Select
+              id="ws-ma-type"
+              className="mt-1"
+              value={maType}
+              onChange={(e) => setMaType(e.target.value as WeinsteinConfigOut["ma_type"])}
+            >
               <option value="EMA">EMA</option>
               <option value="SMA">SMA</option>
-            </select>
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="ws-range-pct">Within range (%)</label>
-            <input id="ws-range-pct" type="number" step="0.5" min="0" className={inputCls} value={rangePct} onChange={(e) => setRangePct(e.target.value)} />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="ws-slope-lookback">Slope lookback (bars)</label>
-            <input id="ws-slope-lookback" type="number" step="1" min="1" className={inputCls} value={slopeLookback} onChange={(e) => setSlopeLookback(e.target.value)} />
-          </div>
+            </Select>
+          </Field>
+          <Field label="Within range (%)" htmlFor="ws-range-pct">
+            <Input
+              id="ws-range-pct"
+              variant="boxed"
+              type="number"
+              step="0.5"
+              min="0"
+              className="mt-1 w-full font-mono"
+              value={rangePct}
+              onChange={(e) => setRangePct(e.target.value)}
+            />
+          </Field>
+          <Field label="Slope lookback (bars)" htmlFor="ws-slope-lookback">
+            <Input
+              id="ws-slope-lookback"
+              variant="boxed"
+              type="number"
+              step="1"
+              min="1"
+              className="mt-1 w-full font-mono"
+              value={slopeLookback}
+              onChange={(e) => setSlopeLookback(e.target.value)}
+            />
+          </Field>
         </div>
 
         <div className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Breakout &amp; relative strength</h3>
-          <div>
-            <label className={labelCls} htmlFor="ws-vol-mult">Breakout volume (x average)</label>
-            <input id="ws-vol-mult" type="number" step="0.1" min="0.1" className={inputCls} value={volMult} onChange={(e) => setVolMult(e.target.value)} />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="ws-vol-avg">Volume average length (weeks)</label>
-            <input id="ws-vol-avg" type="number" step="1" min="2" className={inputCls} value={volAvgLength} onChange={(e) => setVolAvgLength(e.target.value)} />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="ws-benchmark">RS benchmark</label>
-            <input id="ws-benchmark" type="text" className={inputCls} value={benchmark} onChange={(e) => setBenchmark(e.target.value)} />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="ws-rs-smoothing">RS smoothing length (weeks)</label>
-            <input id="ws-rs-smoothing" type="number" step="1" min="2" className={inputCls} value={rsSmoothing} onChange={(e) => setRsSmoothing(e.target.value)} />
-          </div>
+          <h3 className="text-xs font-semibold text-text-secondary">Breakout &amp; relative strength</h3>
+          <Field label="Breakout volume (x average)" htmlFor="ws-vol-mult">
+            <Input
+              id="ws-vol-mult"
+              variant="boxed"
+              type="number"
+              step="0.1"
+              min="0.1"
+              className="mt-1 w-full font-mono"
+              value={volMult}
+              onChange={(e) => setVolMult(e.target.value)}
+            />
+          </Field>
+          <Field label="Volume average length (weeks)" htmlFor="ws-vol-avg">
+            <Input
+              id="ws-vol-avg"
+              variant="boxed"
+              type="number"
+              step="1"
+              min="2"
+              className="mt-1 w-full font-mono"
+              value={volAvgLength}
+              onChange={(e) => setVolAvgLength(e.target.value)}
+            />
+          </Field>
+          <Field label="RS benchmark" htmlFor="ws-benchmark">
+            <Input
+              id="ws-benchmark"
+              variant="boxed"
+              type="text"
+              className="mt-1 w-full font-mono"
+              value={benchmark}
+              onChange={(e) => setBenchmark(e.target.value)}
+            />
+          </Field>
+          <Field label="RS smoothing length (weeks)" htmlFor="ws-rs-smoothing">
+            <Input
+              id="ws-rs-smoothing"
+              variant="boxed"
+              type="number"
+              step="1"
+              min="2"
+              className="mt-1 w-full font-mono"
+              value={rsSmoothing}
+              onChange={(e) => setRsSmoothing(e.target.value)}
+            />
+          </Field>
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={status === "saving"}
-          className="rounded-md border border-zinc-700 bg-zinc-800 px-4 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
+      <div className="mt-6 flex items-center gap-3">
+        <Button variant="primary" onClick={handleSave} disabled={status === "saving"}>
           {STATUS_LABELS[status]}
-        </button>
-        <p className="text-xs text-zinc-600">Last updated {new Date(data.updated_at).toLocaleString()}</p>
+        </Button>
+        <p className="text-xs text-text-tertiary">Last updated {new Date(data.updated_at).toLocaleString()}</p>
       </div>
-    </div>
+    </Section>
   );
 }

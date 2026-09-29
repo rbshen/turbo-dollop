@@ -6,6 +6,9 @@ import { mutate } from "swr";
 import { apiPut } from "@/lib/api/client";
 import type { MoatScoreConfigOut } from "@/lib/api/types";
 import { useMoatConfig } from "@/lib/hooks/useMoatConfig";
+import { Button } from "@/components/ui/button";
+import { Field, Input } from "@/components/ui/input";
+import { Section } from "@/components/ui/section";
 
 type Status = "idle" | "saving" | "saved" | "error";
 
@@ -20,11 +23,11 @@ export function MoatSettingsForm() {
   const { data, error, isLoading } = useMoatConfig();
 
   if (error) {
-    return <p className="text-sm text-red-400">Couldn&apos;t load Economic Moat settings — {error.message}</p>;
+    return <p className="text-sm text-negative">Couldn&apos;t load Economic Moat settings — {error.message}</p>;
   }
 
   if (isLoading || !data) {
-    return <p className="text-sm text-zinc-600 animate-pulse">Loading…</p>;
+    return <p className="text-sm text-text-tertiary animate-pulse">Loading…</p>;
   }
 
   // Keyed on updated_at so a save (which changes updated_at) remounts this
@@ -32,6 +35,10 @@ export function MoatSettingsForm() {
   return <MoatScoreForm key={data.updated_at} data={data} />;
 }
 
+// A single config object, no per-region/per-item repetition -- content sits
+// directly in the Section, not wrapped in its own Card, matching
+// ScheduledJobsSection/FmpDataGroupsSection's precedent for a panel that is
+// the sole content of its nav tab.
 function MoatScoreForm({ data }: { data: MoatScoreConfigOut }) {
   const [wideText, setWideText] = useState(String(data.wide_moat_score));
   const [narrowText, setNarrowText] = useState(String(data.narrow_moat_score));
@@ -66,74 +73,60 @@ function MoatScoreForm({ data }: { data: MoatScoreConfigOut }) {
   }
 
   return (
-    <div className="space-y-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-      <div>
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Economic Moat Point Values</h2>
-        <p className="mt-1 text-xs text-zinc-600">
-          Point values (0-100 scale) each Economic Moat state contributes to Overall Assessment once a ticker has a
-          moat set. Applied as: <span className="font-mono text-zinc-400">0.69 × Financials/Growth Rate/Profitability/Debt blend + 0.31 × moat score</span>.
-        </p>
-      </div>
+    <Section title="Economic Moat Point Values">
+      <p className="text-xs text-text-tertiary">
+        Point values (0-100 scale) each Economic Moat state contributes to Overall Assessment once a ticker has a
+        moat set. Applied as: <span className="font-mono text-text-secondary">0.69 × Financials/Growth Rate/Profitability/Debt blend + 0.31 × moat score</span>.
+      </p>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div>
-          <label className="block text-xs uppercase tracking-widest text-zinc-500" htmlFor="wide-moat-score">
-            Wide Moat
-          </label>
-          <input
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <Field label="Wide Moat" htmlFor="wide-moat-score">
+          <Input
             id="wide-moat-score"
+            variant="boxed"
             type="number"
             step="0.1"
             min="0"
             max="100"
-            className="mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none"
+            className="mt-1 w-full font-mono"
             value={wideText}
             onChange={(e) => setWideText(e.target.value)}
           />
-        </div>
-        <div>
-          <label className="block text-xs uppercase tracking-widest text-zinc-500" htmlFor="narrow-moat-score">
-            Narrow Moat
-          </label>
-          <input
+        </Field>
+        <Field label="Narrow Moat" htmlFor="narrow-moat-score">
+          <Input
             id="narrow-moat-score"
+            variant="boxed"
             type="number"
             step="0.1"
             min="0"
             max="100"
-            className="mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none"
+            className="mt-1 w-full font-mono"
             value={narrowText}
             onChange={(e) => setNarrowText(e.target.value)}
           />
-        </div>
-        <div>
-          <label className="block text-xs uppercase tracking-widest text-zinc-500" htmlFor="no-moat-score">
-            No Moat
-          </label>
-          <input
+        </Field>
+        <Field label="No Moat" htmlFor="no-moat-score">
+          <Input
             id="no-moat-score"
+            variant="boxed"
             type="number"
             step="0.1"
             min="0"
             max="100"
-            className="mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none"
+            className="mt-1 w-full font-mono"
             value={noMoatText}
             onChange={(e) => setNoMoatText(e.target.value)}
           />
-        </div>
+        </Field>
       </div>
 
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={status === "saving"}
-          className="rounded-md border border-zinc-700 bg-zinc-800 px-4 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
+      <div className="mt-6 flex items-center gap-3">
+        <Button variant="primary" onClick={handleSave} disabled={status === "saving"}>
           {STATUS_LABELS[status]}
-        </button>
-        <p className="text-xs text-zinc-600">Last updated {new Date(data.updated_at).toLocaleString()}</p>
+        </Button>
+        <p className="text-xs text-text-tertiary">Last updated {new Date(data.updated_at).toLocaleString()}</p>
       </div>
-    </div>
+    </Section>
   );
 }

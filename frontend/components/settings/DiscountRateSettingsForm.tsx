@@ -7,6 +7,10 @@ import { apiPut } from "@/lib/api/client";
 import type { DiscountRateConfigOut } from "@/lib/api/types";
 import { useDiscountRateConfigs } from "@/lib/hooks/useDiscountRateConfig";
 import { fmtNumber } from "@/lib/format";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Field, Input } from "@/components/ui/input";
+import { Section } from "@/components/ui/section";
 
 type Status = "idle" | "saving" | "saved" | "error";
 
@@ -33,26 +37,23 @@ export function DiscountRateSettingsForm() {
   const { data, error, isLoading } = useDiscountRateConfigs();
 
   if (error) {
-    return <p className="text-sm text-red-400">Couldn&apos;t load discount rate settings — {error.message}</p>;
+    return <p className="text-sm text-negative">Couldn&apos;t load discount rate settings — {error.message}</p>;
   }
 
   if (isLoading || !data) {
-    return <p className="text-sm text-zinc-600 animate-pulse">Loading…</p>;
+    return <p className="text-sm text-text-tertiary animate-pulse">Loading…</p>;
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Discount Rate by Country</h2>
-        <p className="mt-1 text-xs text-zinc-600">
-          Risk-Free Rate and Market Risk Premium are 5-year trailing averages from market-risk-premia.com — manually
-          maintained here, not auto-fetched (see CLAUDE.md). Beta stays sourced live per-ticker from FMP. Feeds a
-          ticker&apos;s own country&apos;s Valuation discount rate: <span className="font-mono text-zinc-400">Rf + β × MRP</span>. Only
-          the United States has its own rate; a ticker from any other country (e.g. an ADR) uses the US rate directly.
-        </p>
-      </div>
+    <Section title="Discount Rate by Country">
+      <p className="text-xs text-text-tertiary">
+        Risk-Free Rate and Market Risk Premium are 5-year trailing averages from market-risk-premia.com — manually
+        maintained here, not auto-fetched (see CLAUDE.md). Beta stays sourced live per-ticker from FMP. Feeds a
+        ticker&apos;s own country&apos;s Valuation discount rate: <span className="font-mono text-text-secondary">Rf + β × MRP</span>. Only
+        the United States has its own rate; a ticker from any other country (e.g. an ADR) uses the US rate directly.
+      </p>
 
-      <div className="space-y-4">
+      <div className="mt-4 space-y-4">
         {data.map((row) => (
           // Keyed on region + updated_at so a save (which changes updated_at)
           // remounts just that region's form with fresh initial text --
@@ -60,10 +61,14 @@ export function DiscountRateSettingsForm() {
           <DiscountRateForm key={`${row.region}-${row.updated_at}`} data={row} />
         ))}
       </div>
-    </div>
+    </Section>
   );
 }
 
+// Each region is a genuinely distinct, independently-saved panel -- a Card,
+// not folded into the Section's own flow -- so a future second region (the
+// backend already supports more than one) reads as its own bounded card
+// rather than blurring into the one above it.
 function DiscountRateForm({ data }: { data: DiscountRateConfigOut }) {
   const [rfText, setRfText] = useState(fmtNumber(data.risk_free_rate * 100, 3));
   const [mrpText, setMrpText] = useState(fmtNumber(data.market_risk_premium * 100, 3));
@@ -102,54 +107,42 @@ function DiscountRateForm({ data }: { data: DiscountRateConfigOut }) {
   }
 
   return (
-    <div className="space-y-4 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-      <h3 className="text-sm font-semibold text-zinc-200">
-        {regionLabel(data.region)} <span className="font-mono text-xs text-zinc-500">({data.region})</span>
+    <Card className="space-y-4">
+      <h3 className="text-sm font-semibold text-text-primary">
+        {regionLabel(data.region)} <span className="font-mono text-xs text-text-tertiary">({data.region})</span>
       </h3>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label className="block text-xs uppercase tracking-widest text-zinc-500" htmlFor={`risk-free-rate-${data.region}`}>
-            Risk-Free Rate (%)
-          </label>
-          <input
+        <Field label="Risk-Free Rate (%)" htmlFor={`risk-free-rate-${data.region}`}>
+          <Input
             id={`risk-free-rate-${data.region}`}
+            variant="boxed"
             type="number"
             step="0.001"
-            className="mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none"
+            className="mt-1 w-full font-mono"
             value={rfText}
             onChange={(e) => setRfText(e.target.value)}
           />
-        </div>
-        <div>
-          <label
-            className="block text-xs uppercase tracking-widest text-zinc-500"
-            htmlFor={`market-risk-premium-${data.region}`}
-          >
-            Market Risk Premium (%)
-          </label>
-          <input
+        </Field>
+        <Field label="Market Risk Premium (%)" htmlFor={`market-risk-premium-${data.region}`}>
+          <Input
             id={`market-risk-premium-${data.region}`}
+            variant="boxed"
             type="number"
             step="0.001"
-            className="mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none"
+            className="mt-1 w-full font-mono"
             value={mrpText}
             onChange={(e) => setMrpText(e.target.value)}
           />
-        </div>
+        </Field>
       </div>
 
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={status === "saving"}
-          className="rounded-md border border-zinc-700 bg-zinc-800 px-4 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
+        <Button variant="primary" onClick={handleSave} disabled={status === "saving"}>
           {STATUS_LABELS[status]}
-        </button>
-        <p className="text-xs text-zinc-600">Last updated {new Date(data.updated_at).toLocaleString()}</p>
+        </Button>
+        <p className="text-xs text-text-tertiary">Last updated {new Date(data.updated_at).toLocaleString()}</p>
       </div>
-    </div>
+    </Card>
   );
 }
