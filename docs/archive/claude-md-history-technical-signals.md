@@ -448,3 +448,93 @@ independent of price (TradingView's convention) -- see "Fixed-row placement" bel
     `_default_no_warren_signal` fixture (`test_chart_data.py`), mirroring the existing
     per-module engine-isolation helpers exactly.
 
+
+
+## Shared FMP daily-bar cache: wrong staleness window + colliding cache key (2026-09-16) (original lines 2780-2823)
+
+### Shared FMP daily-bar cache: wrong staleness window + colliding cache key (2026-09-16)
+
+`clients/daily_price_sources.py::FMPDailyBarSource` -- shared by the Chart tab's four ranges
+(D_6M/D_1Y/D_2Y/W_4Y) and this feature's nightly job -- had two compounding bugs in how it
+cached daily EOD bars through the general-purpose `FundamentalsCache`/`get_or_fetch`
+machinery, both in `_fetch_fmp_daily_bars`:
+
+1. **Wrong staleness window.** It reused `settings.cache_staleness_days` (7 days, meant for
+   slow-changing fundamentals) instead of a window matched to daily-price data's actual
+   change cadence (a new bar every trading day). A row fetched before that day's close read
+   as "fresh" for up to a week, silently withholding newer closes.
+2. **Cache key hardcoded to the module constant, not the caller's request.** The key was
+   `f"{LOOKBACK_YEARS}y"` (always `"4y"`) regardless of the `lookback_years` argument actually
+   passed to `get_daily_bars` -- so Chart's D_6M/D_1Y (`lookback_years=2`), D_2Y (`3`), W_4Y
+   (`8`), and this feature's nightly job (`4`) all collided on one shared
+   `(ticker, "historical_price_eod", "4y")` row, regardless of how much history each caller
+   actually needed. Whichever caller fetched first each day "won"; everyone else silently read
+   that one row.
+
+**Confirmed live in production before fixing, not assumed**: a direct read-only query against
+`backend/fathom.db` found **100 of 103** FMP-sourced `LiquidityZoneAnalysis` daily rows (and
+all 103 weekly rows) stuck at `as_of` one full trading day behind the most recent close --
+traced for `WDC` and others (AAPL, AMD, AMAT, AAOI) to the shared `"4y"` cache row having been
+fetched by the *previous* night's run, under 24h old and so well inside the old 7-day window,
+causing that night's run to skip a live re-fetch entirely and miss the newest close.
+
+**Fix**: added `Settings.daily_bar_staleness_days` (`core/config.py`, default 1, a
+day-scale window matched to daily-bar cadence), used in place of
+`cache_staleness_days` at this one call site; threaded the caller's real `lookback_years` into
+the cache key (`_fetch_fmp_daily_bars` gained a `lookback_years` parameter, used to build
+`f"{lookback_years}y"`) instead of the `LOOKBACK_YEARS` constant -- `LOOKBACK_YEARS` itself is
+unchanged and still what this feature's nightly job passes in, now genuinely isolated into its
+own `"4y"` row rather than shared. Confirmed via a live re-run for `WDC` post-fix: Chart's
+D_6M/D_1Y/D_2Y now each hold their own `"2y"`/`"3y"`/`"8y"` cache rows (previously all
+would-be `"4y"` collisions) with a fresh `fetched_at` and the correct latest close
+(2026-09-15); re-running this feature's own compute for `WDC` picked up the same fresh close
+with zero code change needed here -- confirming the shared choke point in
+`daily_price_sources.py` was sufficient and this feature's own files (`data/
+liquidity_zone_data.py`, `pipeline/nightly_liquidity_zone_calculation.py`) needed none.
+**No manual backfill was run** for the other stale rows identified above -- the next scheduled
+3:25 AM nightly run self-heals every one of them (fresh cache key + 1-day staleness forces a
+real re-fetch), so this was left to happen on its normal schedule rather than forced
+out-of-band.
+
+
+
+## Shared bars cache (2026-09-19): flat-timer audit and Screener technical-field ordering fix (score recompute 2:50 -> 3:50) (original lines 3500-3537)
+
+- **Found while auditing for the same flat-timer pattern (2026-09-19):**
+  (1) **FIXED, see "Screener's copy of technical fields" below.** `TickerScore.weinstein_*` was
+  copied from `TrendAnalysis` at 2:00/2:50, before the 3:10 trend job, so the Screener showed the
+  PREVIOUS night's stage. (2) (a flat-timer price fallback that no longer exists.) BB+RSI, Warren and Liquidity Zones have no
+  read-time freshness gate at all (cache-only reads, unconditional nightly recompute); their only
+  timers are the 7-day `STALE_AFTER_DAYS` abandonment sweeps, which are not freshness checks.
+- **Screener's copy of technical fields was a night behind; score recompute moved 2:50 -> 3:50
+  (2026-09-19).** `compute_ticker_score` copies `weinstein_*` (+ `reversal_status`/
+  `pullback_status`) from `TrendAnalysis` (written by the 3:10 trend job), `bb_rsi_entry_signal`
+  from the 3:20 BB+RSI job's row, and `warren_active_signal_kind`/`warren_last_buy_fired_at` from
+  the 3:40 Warren job's rows. The full-universe recompute (`nightly_score_recompute`) ran at 2:50,
+  and the 2:00 fundamentals fetch also scores each ticker inline -- both before any of those
+  three jobs, so every one of those Screener fields was structurally a night behind. Confirmed
+  live: 36 of 579 tickers' Screener Weinstein stage disagreed with their own `TrendAnalysis` row,
+  all 36 copied before that row was written and all 36 exactly the tickers whose stage the trend
+  job changed that night (the other 543 agreed only because their stage didn't change). Warren
+  and BB+RSI showed ~0 disagreements the same night only because no ticker's latest signal
+  changed -- the exposure was identical. **Fix: reorder, not a second copy** -- the recompute now
+  runs at **3:50 AM**, after Warren (3:40, ~2 min today, ~9 min theoretical worst case) and
+  before the 3:55 backup (recompute is ~30s, cache-only). Nothing depended on the old order:
+  the trend job reads only the shared bars cache and its own universe, and `crontab.txt` already said it
+  "doesn't need to wait on" the FMP jobs. Moving the trend job earlier instead would have fixed
+  only `weinstein_*`/`reversal_status`/`pullback_status` and left BB+RSI/Warren a night behind
+  (they can't all fit before 2:00 next to the Sunday maintenance window). The 2:00 fundamentals
+  fetch's inline scoring is unchanged (its fundamentals-derived fields are fresh from 2:00; its
+  technical fields are overwritten by the 3:50 sweep). Pinned by `tests/test_cron_wiring.py::
+  test_score_recompute_runs_after_every_job_it_copies_from` (and `JOB_METADATA`'s time label by
+  `test_job_metadata_sort_minutes_match_crontab`, which would have caught that display metadata
+  going stale). Verified on a lean copy of the live DB (36 disagreeing + 24 agreeing tickers, real
+  `recompute_all` code path, FMP disabled): 36 -> 0 stage disagreements, 56 -> 0 rows with any
+  other mismatched `weinstein_*` field. **Deployed 2026-09-19** (`crontab crontab.txt` from
+  `backend/`; `crontab -l` confirmed byte-identical to the committed file afterward -- editing
+  the file alone changes nothing on this box). Baseline immediately before the deploy: still 36
+  of 579 tickers' stage mismatched, and 173 on `weinstein_stage_since_date` (the more sensitive
+  check -- the trend replay can revise a since-date without changing the stage). The first real-night confirmation is the run after the deploy
+  (2026-09-20, 3:50 UTC); the read-only check is in `backend/OPS_RUNBOOK.md`'s
+  `nightly_score_recompute` entry. After any night the trend/BB+RSI/Warren job overruns 3:50, the
+  affected tickers just read a night behind as before.

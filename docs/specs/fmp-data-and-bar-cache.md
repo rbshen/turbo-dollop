@@ -106,6 +106,15 @@ week-scale) replaced `cache_staleness_days` at this one call site; the caller's 
 `lookback_years` was threaded into the cache key instead of the fixed constant, so each range
 gets its own genuinely isolated cache row.
 
+*Code-vs-history note (verified 2026-09-29):* the symbols this fix touched no longer exist. The
+module is now `clients/daily_bar_sources.py` (not `daily_price_sources.py`), and neither
+`Settings.daily_bar_staleness_days` nor `_fetch_fmp_daily_bars` remain — the Chart tab bypasses
+the cache and every nightly consumer goes through `SharedBarsCache`'s close-aware freshness
+(next section), so the rule that survives is "a daily-bar cache key must include the caller's
+lookback, and freshness must be close-aware, not a flat TTL." The original before/after evidence
+(100 of 103 daily and all 103 weekly Liquidity Zone rows a trading day behind) is archived in
+`docs/archive/claude-md-history-technical-signals.md`.
+
 ### Bug 2 — a flat TTL still isn't market-close-aware (fixed 2026-09-18, two different ways for two different consumers)
 
 Fixing the TTL's *window* wasn't enough — a flat day-scale TTL still has no concept of *when*
@@ -137,37 +146,105 @@ durations vary night to night, whether a given ticker's own row read as "stale" 
 reduced to a coin-flip on relative run-speed, not anything about whether the cached data was
 actually current. Some tickers' rows were found 2-3 nights stale, not just 1.
 
-## The shared bars cache (`SharedBarsCache`, 2026-09-19)
+## The shared bars cache (`SharedBarsCache`, 2026-09-19; FMP-only since Phase 6b)
 
 Once the market-close-aware freshness rule above proved out for the Liquidity Zone job, the same
-mechanism was generalized into one shared table (`SharedBarsCache`, unique
+mechanism was generalized into one shared table (`SharedBarsCache` in `core/models.py`, unique
 `(ticker, interval, bar_time)`) read by every nightly bar consumer — Trend/Weinstein, Liquidity
 Zones, Warren, BB+RSI, Sector Heatmap, Market Breadth, and Momentum — via
-`clients/shared_bars_cache.py::get_or_fetch_bars_batch`. The Chart tab remains deliberately NOT a
-consumer of this shared table, for the same "variable per-request window, same-day caching not
-worth it" reasoning that motivated its own on-demand revert above.
+`clients/shared_bars_cache.py::get_or_fetch_bars_batch`. The bars are FMP's (see "Daily prices:
+FMP migration (Phase 2)" and "Intraday bars: FMP (Phase 4)" below), raw / non-dividend-adjusted
+(`auto_adjust=False`). The Chart tab is deliberately NOT a consumer of this shared table
+(variable per-request window; same-day caching not worth it) and fetches live, for the same
+reasoning that motivated its own on-demand revert above.
 
-Key mechanics (see `CLAUDE.md`'s "Shared bars cache" section for the full current-state
-narrative — this is the design reasoning behind it):
+Key mechanics:
 
-- **Key is `(ticker, "1d" | "60m")`** — Warren and BB+RSI share one `"60m"` row (both build "2h"
-  candles from the same raw 60m bars); Trend and Liquidity Zones share the `"1d"` row.
-- **Grows to the max window ever requested**, snapped down to a width tier so a narrow
-  consumer's refetch never shrinks a wide row and the stored span never ratchets the download
-  wider than any consumer actually needs.
-- **Freshness is close-aware, never a flat TTL** — the same mechanism proved out for Liquidity
-  Zones above, generalized: daily bars compare against the last completed session; 60m bars
-  compare against the last completed intraday bar's own start time (FMP labels bars by start,
-  so before the market's first bar settles each day, this correctly resolves to the *prior*
-  trading day's last bar rather than falsely reading "stale").
-- **Read path is deliberately not ORM-based** — freshness/coverage come from one grouped
-  MIN/MAX query per batch; the first version hydrated every bar as an ORM object twice per
-  ticker and measured at minutes per nightly run at Warren's volume, caught by a before/after
-  timing measurement, not by tests.
-- **Retention/pruning**: 6 years of `1d`, 3 years of `60m` (`RETENTION_DAYS`), trimmed per bar
-  (never whole rows) weekly. Windows are sized against the consumers' real fetch tiers plus a
-  year of headroom, pinned by a dedicated test so a future consumer needing more than the
-  retained window fails CI instead of silently refetching its full width every night.
+- **Key is `(ticker, "1d" | "60m")`** — Warren and BB+RSI both build their "2h" candles from raw
+  60m bars, so they share ONE `"60m"` row; Trend and Liquidity Zones share the `"1d"` row.
+- **Growth to the max window ever requested.** A request is served from cache only if the row is
+  fresh AND its earliest bar reaches back to the caller's `lookback_days`; otherwise it refetches
+  at `max(requested, preserved width)`. Preserved width is the stored span snapped DOWN to a
+  width tier (`_preserved_lookback_days`) so a narrow consumer's refetch never shrinks a wide row
+  and the ever-growing stored span never ratchets the download wider. Tickers are grouped by
+  needed period, one fetch pass per distinct period (a 572-ticker Trend run does not re-download
+  everyone at 5y because ~100 are also Liquidity Zone tickers). Each consumer gets only its own
+  window back. Whichever overlapping job runs first each night does the one live fetch; no
+  cron-order assumption exists. Width tiers: daily `1mo/3mo/6mo/1y/2y/5y/10y` (30/90/180/365/730/
+  1825/3650 days), 60m `1mo..2y` only (no longer tier — the real 60m history limit is ~730
+  calendar days).
+- **Freshness is close-aware, never a flat TTL** (`_is_stale`): a row is trusted only if its LAST
+  bar matches the most recently completed session for its interval. Daily:
+  `_most_recent_completed_trading_date()` (US/Eastern, weekday-aware, NOT holiday-aware). 60m:
+  `_most_recent_completed_intraday_bar_start()` — FMP labels bars by start (09:30..15:30, the last
+  only 30 min); before 10:30 ET, on weekends, or pre-open it resolves to the prior trading day's
+  15:30 bar, so overnight/weekend re-runs are not falsely stale. A mismatch forces a live refetch.
+  `force=True` still live-fetches unconditionally.
+- **Read path is deliberately not ORM-based.** Freshness/coverage come from one grouped MIN/MAX
+  query per batch; the read is one column-only query with the caller's window trimmed in SQL;
+  writes are one vectorized executemany upsert per ticker. The first version hydrated every bar
+  as an ORM object twice per ticker and measured at minutes per nightly run at Warren's volume
+  (~365k rows) — caught by a before/after timing measurement, not by tests.
+- **Retention/pruning.** `clients/shared_bars_cache.py::RETENTION_DAYS` keeps **6y of `1d`**
+  (6 × 365 days) and **3y of `60m`** (3 × 365 days) bars, trimmed per bar (never whole rows, so a
+  survivor's last bar — what freshness reads — is untouched and `min(bar_time)` just moves
+  forward to the first survivor) by `prune_old_bars`, run weekly from the existing
+  `pipeline.prune_cache` job (Sundays 1:15 AM per `crontab.txt`; no new cron entry, so nothing new for `CRON_JOB_NAMES`)
+  and previewable with its `--dry-run`. Windows are chosen against the consumers' real fetch
+  tiers: each is >= the widest tier fetched (1d: Liquidity Zones' 4y lookback → the `5y` tier;
+  60m: Warren's 730d → `2y`) plus a year of headroom, and BELOW the next tier up (`10y`), so a
+  full-grown retained row still snaps down to the tier it was fetched at in
+  `_preserved_lookback_days` (no ratchet) and the nightly coverage check never sees a pruned row
+  as too narrow. `tests/test_shared_bars_cache_prune.py` pins both invariants against the
+  consumers' real `LOOKBACK_DAYS` constants — a new consumer needing more than a window retains
+  fails CI instead of refetching its full width every night. The 60m window is deliberately
+  wider than any consumer needs: the 60m history that can be fetched is ~730 days deep, so a
+  pruned 60m bar can never be re-fetched. Simulated (104 watchlist tickers, 469 Trend-only,
+  176 B/row) five years out: unpruned 2.46M rows / ~430 MB vs. pruned 1.47M rows / ~250 MB
+  (plateaus; unpruned growth is ~+57 MB/yr forever). A DELETE doesn't shrink the SQLite file —
+  the freed pages are reused by later inserts, so it plateaus rather than shrinks; nothing
+  VACUUMs it.
+- **Trend's computed row is close-aware too.**
+  `data/trend_analysis_data.py::get_trend_analysis_data` (the on-demand
+  `GET /api/tickers/{t}/trend-analysis` path; the nightly job recomputes every ticker
+  unconditionally and has no gate) compares `TrendAnalysis.bars_as_of` (date of the last daily
+  bar the row was computed from) with `_most_recent_completed_trading_date()` and recomputes only
+  when it is older — or NULL, i.e. a row from before the column existed, which self-heals with
+  one recompute. (It previously trusted a stored row on a flat 1-day `computed_at` timer, which
+  served a row a full session behind from the 4pm ET close until the next nightly trend run and
+  recomputed an unchanged row every weekend day.) `cache_only=True` reads never recompute.
+- **Known limits.** Not holiday-aware: a market holiday looks like one missed session and costs
+  one extra (harmless) refetch that day — and, for the trend endpoint above, one recompute per
+  on-demand read that day.
+- **Other technical-signal consumers have no read-time freshness gate.** BB+RSI, Warren and
+  Liquidity Zones read cache-only and recompute unconditionally every night; their only timers
+  are the 7-day `STALE_AFTER_DAYS` abandonment sweeps (`entry_signal_data.py`,
+  `warren_signal_data.py`, `liquidity_zone_data.py`), which are not freshness checks.
+- **Verification after a nightly run** (no `sqlite3` CLI on this box; use python):
+  `select ticker, interval, min(bar_time), max(bar_time), count(*), max(fetched_at) from
+  sharedbarscache group by ticker, interval`. `max(bar_time)` should be the last completed
+  session's date at 00:00 for `1d` and that session's 15:30 for `60m`; `min(bar_time)` should be
+  ~2y back (`60m`, Warren/BB+RSI), ~2y (`1d`, Trend-only tickers) or ~5y (`1d`, Liquidity Zone
+  tickers).
+
+### Downstream ordering: the Screener's copy of technical fields
+
+`compute_ticker_score` copies `weinstein_*` (+ `reversal_status`/`pullback_status`) from
+`TrendAnalysis` (written by the 3:10 trend job), `bb_rsi_entry_signal` from the 3:20 BB+RSI job's
+row, and `warren_active_signal_kind`/`warren_last_buy_fired_at` from the 3:40 Warren job's rows.
+The full-universe recompute (`pipeline.nightly_score_recompute`) therefore runs at **3:50 AM**,
+after all three and before the 3:55 backup (cache-only, zero FMP calls, ~30s; Warren is ~2 min
+today, ~9 min theoretical worst case). Nothing else depends on that order: the trend job reads
+only the shared bars cache and its own universe. The 2:00 fundamentals fetch still scores each
+ticker inline, so fundamentals-derived fields are fresh from 2:00; its technical fields are
+overwritten by the 3:50 sweep. Pinned by
+`tests/test_cron_wiring.py::test_score_recompute_runs_after_every_job_it_copies_from` (and
+`JOB_METADATA`'s time label by `test_job_metadata_sort_minutes_match_crontab`). After any night
+the trend/BB+RSI/Warren job overruns 3:50, the affected tickers just read a night behind. The
+night-behind bug this ordering fixed (2026-09-19) is recorded in
+`docs/archive/claude-md-history-technical-signals.md`. Note that editing `crontab.txt` alone
+changes nothing on the box — it must be reinstalled from `backend/` (`crontab crontab.txt`) and
+`crontab -l` checked against the file.
 
 ## Daily prices: FMP migration (Phase 2, 2026-09-24) — basis and parity
 
