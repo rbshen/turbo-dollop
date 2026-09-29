@@ -296,3 +296,5 @@ own content). Left as an open question below rather than guessed.
 | Speculative Growth (new classification) scoring notes | 2273-2315 | 3652 | docs/specs/speculative-growth.md (SPEC, 100%) | B2 | DONE |
 | Analysis tab section-card reasoning (2026-09-05) | 1614-1720 | 7033 | docs/archive/claude-md-history-features.md (ARCHIVE, 100%) | B2 | DONE |
 | Insider Activity -- SHELVED 2026-09-20, FULLY DELETED 2026-09-27 | 4065-4200 | 9610 | docs/archive/claude-md-history-features.md (ARCHIVE, 100%) | B2 | DONE |
+| Phase 6a: Massive removed; FMP last-close, corporate-events and delisted-companies (2026-09-26) | 3919-3965 | 4644 | docs/archive/claude-md-history-fmp-migration.md (ARCHIVE, 100%) | B2 | DONE |
+| Phase 6b: Yahoo Finance removed entirely (2026-09-26) | 3966-4036 | 6155 | docs/archive/claude-md-history-fmp-migration.md (ARCHIVE, 100%) | B2 | DONE |
