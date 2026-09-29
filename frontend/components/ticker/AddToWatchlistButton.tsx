@@ -320,7 +320,7 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
                       if (e.key === "Enter") handleCreateAndAdd();
                       if (e.key === "Escape") cancelNewList();
                     }}
-                    className="w-full rounded-md border border-control bg-page px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
+                    className="w-full rounded-md border border-border-control bg-page px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
                   />
                 </div>
                 <div className="flex items-center gap-1.5">
