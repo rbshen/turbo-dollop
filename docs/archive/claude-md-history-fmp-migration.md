@@ -125,3 +125,20 @@ but the file and the installed copy now differ until it is.
 still unit-tested); the Weinstein/`resample_to_weekly` docstrings that cite Yahoo's native weekly bars as the
 validation reference; non-US routing helpers (`route_by_source`, `is_us_listed`).
 
+
+## Phase 6a follow-up: non-US support removed (2026-09-26) (original lines 3690-3703)
+
+- **Non-US support removed.** Deleted: the `daily_prices_intl` data group (registry, canary,
+  `NON_US_CANARY_GROUPS`, 402 non-US canary branch), `drop_phantom_bars`/`PHANTOM_VOLUME_TOLERANCE` and every
+  `non_us=` parameter (the filter was only ever applied to non-US series -- US was never filtered, so nothing
+  US-facing lost it), the Chart tab's non-US branch (every ticker now uses `daily_prices`),
+  `long_history_bars.group_for` (always `daily_prices_long`), the nightly non-US daily-bar fetch
+  (`shared_bars_cache` now fetches only the US half of `route_by_source`, as 60m already did), and the
+  backfill's `--scope`/parity gate. Kept, deliberately: `route_by_source`/`is_us_listed`/`_profile_exchanges`
+  (they scope the price-target/last-close/corporate-events universes and the bar fetches).
+  **Consequence:** a non-US ticker viewed later gets a `TickerScore` and fundamentals but no nightly bars; its
+  Chart tab works on demand (FMP `daily_prices`, unfiltered), and its long-history/overlay bars come
+  from the same group with no phantom filtering. The 6 HKSE tickers were purged from the real DB (see the
+  2026-09-26 cleanup record in the commit message/report); nothing prevents a user re-adding one.
+  Sections above describing `daily_prices_intl`, phantom bars, `--scope non-us` and the HK backfill are history.
+
