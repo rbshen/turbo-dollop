@@ -158,6 +158,8 @@ Scoring methodology and feature-specific detail live in `docs/specs/*.md` and `d
 
 **History** (completed migrations, resolved incidents, shelved/deleted features): the complete scoring-rubric history (Valuation, Financials, Growth Rate, Debt, Profitability, Overall weighting) — docs/archive/claude-md-history-scoring.md. Trend/Weinstein/Liquidity Zone/Warren investigation narratives, the watchlist-rename history — docs/archive/claude-md-history-technical-signals.md. FMP migration phases (Massive removal, Yahoo removal, non-US removal, daily-bar backfills and parity checks) — docs/archive/claude-md-history-fmp-migration.md. Insider Activity (deleted 2026-09-27), the Analysis-tab-reasoning fix, the company-classification/Bank investigation narrative, the ad-hoc-repro-script and cron-heartbeat incident write-ups — docs/archive/claude-md-history-features.md.
 
+**Legacy citations:** code comments that cite old CLAUDE.md section names ("Step 1 deviations", "Scoring rubric deviations", ...) refer to `docs/archive/CLAUDE.original.md`; resolve them with docs/legacy-claude-md-citations.md.
+
 ## Workflow rules
 
 - **Plan Mode by default.** Propose a plan and wait for confirmation before writing code for each phase.
