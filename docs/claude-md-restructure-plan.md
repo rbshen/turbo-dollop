@@ -298,3 +298,7 @@ own content). Left as an open question below rather than guessed.
 | Insider Activity -- SHELVED 2026-09-20, FULLY DELETED 2026-09-27 | 4065-4200 | 9610 | docs/archive/claude-md-history-features.md (ARCHIVE, 100%) | B2 | DONE |
 | Phase 6a: Massive removed; FMP last-close, corporate-events and delisted-companies (2026-09-26) | 3919-3965 | 4644 | docs/archive/claude-md-history-fmp-migration.md (ARCHIVE, 100%) | B2 | DONE |
 | Phase 6b: Yahoo Finance removed entirely (2026-09-26) | 3966-4036 | 6155 | docs/archive/claude-md-history-fmp-migration.md (ARCHIVE, 100%) | B2 | DONE |
+| Liquidity Zone (LP) detection (Technical), main body | 2663-2779 | 9603 | docs/specs/liquidity-zones.md (SPEC) + docs/archive/claude-md-history-technical-signals.md (ARCHIVE: superseded Engine/Nearest-N/Settings bullets 2696-2709, 2719-2725, 2744-2752) | B2 | DONE |
+| Liquidity Zone nightly job: market-close-aware fix (2026-09-18) | 2869-2925 | 4678 | docs/specs/liquidity-zones.md (SPEC nugget: Freshness) + docs/archive/claude-md-history-technical-signals.md (ARCHIVE, whole section) | B2 | DONE |
+| Main/Secondary watchlist rename + computed_at staleness sweep (2026-09-09) | 2926-2982 | 4235 | docs/archive/claude-md-history-technical-signals.md (ARCHIVE, 100%) | B2 | DONE |
+| Most-recently-breached LP level tracking (2026-09-17) | 2983-3073 | 7210 | docs/specs/liquidity-zones.md (SPEC: Storage 3029-3034, Chart display 3043-3052, Card list 3053-3066) + docs/archive/claude-md-history-technical-signals.md (ARCHIVE: 2983-3028, 3035-3042, 3067-3073) | B2 | DONE |
