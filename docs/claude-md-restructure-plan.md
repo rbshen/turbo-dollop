@@ -7,7 +7,7 @@ moving it, per the "Open questions" section at the end.
 
 ## 1. Summary
 
-| | Lines | Chars |
+| | Lines | Chars (unicode, incl. trailing newline) |
 |---|---|---|
 | **CLAUDE.md today** | 4,316 | 333,459 |
 | **CLAUDE.md projected after restructure** | ~290 | ~21,500 |
@@ -32,7 +32,7 @@ One row per top-level (`##`) heading in file order, plus sub-rows for `###` subs
 a different treatment than their parent. "Reason" is abbreviated; full reasoning is in §7 for the
 non-obvious calls.
 
-| Heading | Lines | Chars | Category | Destination | Reason |
+| Heading | Lines | Chars (unicode, incl. trailing newline) | Category | Destination | Reason |
 |---|---|---|---|---|---|
 | `# CLAUDE.md — Fathom` (title) | 1-2 | 22 | KEEP | — | trivial |
 | What this is | 3-17 | 816 | KEEP | — | mission statement, needed every session |
@@ -291,14 +291,16 @@ own content). Left as an open question below rather than guessed.
 
 ## Migration ledger
 
-| Section heading | Source lines (original) | Chars | Destination file(s) | Phase | Status |
+| Section heading | Source lines (original) | Chars (unicode, incl. trailing newline) | Destination file(s) | Phase | Status |
 |---|---|---|---|---|---|
 | Speculative Growth (new classification) scoring notes | 2273-2315 | 3652 | docs/specs/speculative-growth.md (SPEC, 100%) | B2 | DONE |
-| Analysis tab section-card reasoning (2026-09-05) | 1614-1720 | 7033 | docs/archive/claude-md-history-features.md (ARCHIVE, 100%) | B2 | DONE |
+| Analysis tab section-card reasoning (2026-09-05) | 1614-1720 | 6990 | docs/archive/claude-md-history-features.md (ARCHIVE, 100%) | B2 | DONE |
 | Insider Activity -- SHELVED 2026-09-20, FULLY DELETED 2026-09-27 | 4065-4200 | 9610 | docs/archive/claude-md-history-features.md (ARCHIVE, 100%) | B2 | DONE |
 | Phase 6a: Massive removed; FMP last-close, corporate-events and delisted-companies (2026-09-26) | 3919-3965 | 4644 | docs/archive/claude-md-history-fmp-migration.md (ARCHIVE, 100%) | B2 | DONE |
 | Phase 6b: Yahoo Finance removed entirely (2026-09-26) | 3966-4036 | 6155 | docs/archive/claude-md-history-fmp-migration.md (ARCHIVE, 100%) | B2 | DONE |
 | Liquidity Zone (LP) detection (Technical), main body | 2663-2779 | 9603 | docs/specs/liquidity-zones.md (SPEC) + docs/archive/claude-md-history-technical-signals.md (ARCHIVE: superseded Engine/Nearest-N/Settings bullets 2696-2709, 2719-2725, 2744-2752) | B2 | DONE |
 | Liquidity Zone nightly job: market-close-aware fix (2026-09-18) | 2869-2925 | 4678 | docs/specs/liquidity-zones.md (SPEC nugget: Freshness) + docs/archive/claude-md-history-technical-signals.md (ARCHIVE, whole section) | B2 | DONE |
-| Main/Secondary watchlist rename + computed_at staleness sweep (2026-09-09) | 2926-2982 | 4235 | docs/archive/claude-md-history-technical-signals.md (ARCHIVE, 100%) | B2 | DONE |
+| Main/Secondary watchlist rename + computed_at staleness sweep (2026-09-09) | 2926-2982 | 4231 | docs/archive/claude-md-history-technical-signals.md (ARCHIVE, 100%) | B2 | DONE |
 | Most-recently-breached LP level tracking (2026-09-17) | 2983-3073 | 7210 | docs/specs/liquidity-zones.md (SPEC: Storage 3029-3034, Chart display 3043-3052, Card list 3053-3066) + docs/archive/claude-md-history-technical-signals.md (ARCHIVE: 2983-3028, 3035-3042, 3067-3073) | B2 | DONE |
+| Chart tab reverted to zero-cache on-demand fetch (2026-09-18) | 2838-2868 | 2465 | docs/specs/chart-tab.md (SPEC: current fetch behavior, section 1) + docs/archive/claude-md-history-technical-signals.md (ARCHIVE, whole section) | B2 | DONE |
+| Chart tab earnings/dividend markers (2026-09-20) | 3074-3157 | 7481 | docs/specs/chart-tab.md (SPEC: section 2) + docs/archive/claude-md-history-technical-signals.md (ARCHIVE: 3074-3091 original design, 3143-3152 history + browserless verification) | B2 | DONE |

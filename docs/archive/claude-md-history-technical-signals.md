@@ -230,3 +230,71 @@ chart alongside the still-valid zones, in a distinct color.
   rule) plus data-layer/config-endpoint/chart-data coverage; full backend suite (1481
   tests) and frontend `tsc --noEmit` both clean.
 
+
+## Chart tab reverted to zero-cache on-demand fetch (2026-09-18) (original lines 2838-2868)
+
+### Chart tab reverted to zero-cache on-demand fetch (2026-09-18)
+
+**The fix directly above wasn't enough for the Chart tab** -- `daily_bar_staleness_days` being
+a flat 24h TTL with no market-close awareness meant a row fetched any time before a trading
+day's close still locked in the PRIOR close as "fresh" for up to the next 24 hours, regardless
+of the colliding-cache-key fix. Confirmed live in production 2026-09-18
+(`docs/chart_tab_missing_bar_investigation_2026-09-18.md` (file not in repo)): AAPL's Chart tab showed 2026-09-16
+as its most recent bar on 2026-09-18, and a full-table scan found 34 cached rows across all
+three FMP lookback keys (2y/3y/8y -- i.e. all 4 Chart-tab ranges, since D_6M/D_1Y share the 2y
+key) exhibiting the identical failure shape, all from pre-close morning fetches. A live,
+uncached FMP call proved the missing bar was already available upstream the whole time -- this
+was never data lag, only the local cache serving a stale snapshot.
+
+Rather than build market-close-aware staleness logic, the Chart tab's FMP branch was reverted
+to what its own module docstring's "fully on-demand" framing always claimed but didn't fully
+deliver: `data/chart_data.py::_fetch_fmp_bars` now calls `fmp_client.get_historical_price_eod`
+directly, bypassing `daily_price_sources.py`'s `FMPDailyBarSource`/`get_or_fetch`-backed
+`FundamentalsCache` entirely -- a genuinely live FMP call on every Chart tab request, the
+same on-demand behavior the tab's other price source had.
+**Scoped to the Chart tab only** -- `daily_price_sources.py` itself, and every other consumer of
+it, are untouched. Liquidity Zone detection (`data/liquidity_zone_data.py`,
+`pipeline/nightly_liquidity_zone_calculation.py`) still reads through the same
+`FMPDailyBarSource`/`get_or_fetch` cached path documented in the fix above, and **at the time of
+this revert** remained subject to the identical market-close-blind staleness bug -- a deliberate
+scoping decision, not an oversight, left as a known, separate issue to revisit (Liquidity Zones
+only runs once nightly rather than on every page view, so the cost/benefit of adding a
+persistence layer there is genuinely different from the Chart tab's case). This also means the
+"shared by the Chart tab's four ranges... and this feature's nightly job" framing in the fix
+above is no longer accurate as of this revert -- `FMPDailyBarSource` is now only the nightly
+job's own path. **See the next entry below: revisited and fixed the same day.**
+
+
+## Chart tab earnings/dividend markers (2026-09-20): original design notes (intro, source, cached-never-live) (original lines 3074-3091)
+
+### Chart tab earnings/dividend markers (2026-09-20)
+
+Earnings-report dates ("E", cyan) and dividend ex-dates ("D", violet) on the Chart
+tab's price pane, all 4 ranges, each with its own toggle (`ChartTab.tsx`) and a hover tooltip (EPS
+actual/estimate/surprise; per-share amount). **Drawn on a fixed row along the price pane's floor,
+independent of price (TradingView's convention) -- see "Fixed-row placement" below; originally
+(same day) they sat above/below the candle at the bar's price level.**
+
+- **Source is FMP (`data/chart_events_data.py`).** (Originally FMP-first with a second provider as fallback; since
+  Phase 6b the nightly `CorporateEvent` cache is the sole source -- see "Phase 6a"/"Phase 6b".) FMP is deep for
+  foreign issuers (HSBC: 39 quarters of earnings). `FMPClient.get_earnings_history` (limit 40) / `get_dividends`
+  (limit 400) were added for this; the existing `get_earnings` (limit 8, cached under `earnings`/`latest`) is
+  untouched and is not reused.
+- **Cached, never live (Phase 6b).** `fetch_chart_events` reads the `CorporateEvent` cache only -- no FMP call
+  per chart request, no timeout wrapper -- and never raises: an uncached ticker or a read error is
+  `events_source=None` with empty lists and the chart just renders without markers. (The original design made two
+  live FMP calls per request with a per-source fallback.) An empty stored list is a real answer (TSLA pays no
+  dividend).
+
+## Chart tab earnings/dividend markers (2026-09-20): first-version history and browserless verification notes (original lines 3143-3152)
+
+  - **History**: the first version of this (same day, `776aa41`) kept the markers plugin and pinned
+    circle/square markers to the floor via a hidden helper series on an overlay price scale (0..1
+    range, zero margins) -- replaced because it couldn't drop the shapes or enlarge the letters.
+  - Verified without a browser: unit tests (label builders, floor geometry, hit-testing, tooltip
+    placement), tsc, eslint, plus a throwaway headless run of the real library with the real primitive
+    confirming (at the then-15px size) the letters draw at exactly pane height - floor - font/2 (stacked +18px up), bold, centred,
+    in the right colors, and that `hitTest` hits/misses/stacks correctly and stops hitting when toggled
+    off. **Not verified on screen**: how the row looks at each zoom, the library's own hover delivery
+    (jsdom can't dispatch its mouse events; the `hitTest` -> `hoveredInfo` step was verified by reading
+    the library source, not by running it), and the tooltip flip.
