@@ -42,6 +42,7 @@ All sessions below are commits on `ui/design-system`, not pushed to `origin` unt
 - **Session 9, part 3 — FMP settings on the kit (2026-09-30).** The FMP status card moved into FMP data groups; the immediate-apply FMP controls became `Switch` and native `Select`; error messages now persist; REIT and Discount rate show the server's reason. See "Session 9: Settings migration, part 3" below.
 
 - **Session 10 — Screener migration: plan and primitives (2026-09-30).** The form-control primitives and a `/styleguide` sidebar mock for the Screener migration, with **no Screener page change** beyond a `T` suffix in market-cap input. Five commits (docs, helpers and primitives, `RangeField`, a `RangeField` re-sync fix found by the mock, styleguide), not pushed. See "Session 10: Screener migration, plan and primitives" below.
+- **Session 10, part 2 — Screener sidebar migration, session 1 of 2 (2026-09-30).** The Screener filter sidebar moved onto the form-control kit with boxed fields (the owner's choice), in five commits (docs, range filters, sidebar shell, chips and multi-selects and the Watchlist select and counts, cleanup and styleguide), local only, not pushed. See "Session 10, part 2: Screener sidebar migration" below.
 
 ## Design reversals
 
@@ -71,7 +72,7 @@ Made by the owner after reviewing the pill work above:
 
 Made by the owner, from a read-only investigation report on the current Settings, Screener and Watchlist forms. Spec: "Form controls" and "Settings layout" in `docs/design-system.md`. The primitives and the layout kit are built and reviewable in `/styleguide`; **no existing page, form or call site was changed**, and the owner reviews `/styleguide` in the browser before any migration.
 
-1. **Form fields are boxed on form pages.** Boxed and underline fields are shown side by side in the styleguide; the Screener sidebar's choice is deferred to its own migration.
+1. **Form fields are boxed on form pages.** Boxed and underline fields are shown side by side in the styleguide; the Screener sidebar's choice is deferred to its own migration. *(Resolved 2026-09-30, session 10 part 2: the owner chose boxed; the underline variants are deleted.)*
 2. **Checkbox checked state is neutral** (`text-primary` fill, dark check), not `brand` blue. Same for the new Switch and the chip variant.
 3. **The number field is typed only:** no native spinner, no scroll-wheel value change, no `e`. ArrowUp/ArrowDown step the value, Shift+Arrow steps by 10x. A `stepper` prop exists, defaults to off, and when on joins 32px `-`/`+` buttons to the field's edges: `[-][ 30 ][+]`.
 4. **Settings layout is rows, not a grid.** Each row is `grid-cols-[1fr_auto]` inside a `max-w-2xl` body: label and hint left, control right in its size token, `py-3`, a hairline between rows.
@@ -88,7 +89,7 @@ Size tokens, all 36px high and capped at the container's width: `short` 96px, `m
 
 **Reversals and carry-overs recorded with this decision:**
 
-- **Reversed: "boxed only for the ticker search."** The earlier rule (an `Input` doc comment and the design system's radius line) kept the boxed field for the one place that needed a visible container, with underline for everything else. Form pages are now boxed. In fact the five Settings forms already used `variant="boxed"`; the rule now matches the code. Underline stays for inline filters.
+- **Reversed: "boxed only for the ticker search."** The earlier rule (an `Input` doc comment and the design system's radius line) kept the boxed field for the one place that needed a visible container, with underline for everything else. Form pages are now boxed. In fact the five Settings forms already used `variant="boxed"`; the rule now matches the code. Underline stays for inline filters. *(Reversed 2026-09-30, session 10 part 2: the Screener sidebar, the only inline-filter user, is boxed too and the underline variants are deleted.)*
 - **Superseded: "steppers restyled and kept."** The 2026-09-29 housekeeping decision kept `NumberStepper`. It stays in place until the Liquidity form migrates, then is deleted in favour of `NumberField`'s optional `stepper`, which does not clamp or snap.
 - **Deferred, not reversed: the unboxed Settings SideNav.** `docs/design-system.md` says Settings navigation is the unboxed `SideNav`, but the Settings page still hand-rolls a boxed nav (a bordered `surface` panel of buttons). That page-level move is out of scope for this session (decision 11); the design-system row for `SideNav` is unchanged. The owner should confirm whether this counts as a reversal.
 
@@ -142,9 +143,9 @@ Plan and primitives for moving the Screener sidebar onto the form-control kit. *
 
 1. **Sidebar width stays `w-64` (256px)**, card content 222px. Not widened.
 2. **Units go in the label row**, right-aligned in `text-tertiary`, not after the boxes: Quote and Mkt cap "USD", P/E "x", Growth "%", score fields none.
-3. **Boxed versus underline is decided by the owner by eye from the mock.** Both are built: `NumberField` gets an additive `variant` (boxed default, underline) backed by `Input`'s existing variants. **Pending the owner's review.** The variant that loses is deleted at migration, not now.
+3. **Boxed versus underline is decided by the owner by eye from the mock.** Both are built: `NumberField` gets an additive `variant` (boxed default, underline) backed by `Input`'s existing variants. **Resolved: the owner chose boxed** (session 10 part 2); the underline variants of `NumberField` and `Input` are deleted with the migration's cleanup commit.
 4. **Compact `FormField`, sidebar only:** label `text-xs` `text-secondary`, 2px gap to the control, no hint line (one optional single-line hint for market cap only), unit right-aligned in the label row.
-5. **`T` added to the market-cap suffixes** (M, B, T). `5T` is 5,000,000,000,000. The live parser `parseMarketCapInput` changes by adding `T` only; the new lenient parser in `lib/numberInput.ts` (accepts `12.`, `.5`, `2 m`) is used by `NumberField` and `RangeField`, and the old one is deleted at migration. The mock carries a caption saying the live sidebar still rejects `12.` until then.
+5. **`T` added to the market-cap suffixes** (M, B, T). `5T` is 5,000,000,000,000. The live parser `parseMarketCapInput` changes by adding `T` only; the new lenient parser in `lib/numberInput.ts` (accepts `12.`, `.5`, `2 m`) is used by `NumberField` and `RangeField`, and the old one is deleted at migration (done in session 10 part 2). The mock's caption saying the live sidebar still rejects `12.` went with it.
 6. **Live-filter rule for a Min/Max pair (option B):** valid text commits immediately, including `12.` and `.5`; an incomplete prefix (`-`, `.`, `-.`) holds the previous committed value with no error while focused and becomes invalid on blur (emitting `null` on that blur); any other invalid text (letters, `1x`, `5e`) makes that side inactive at once (emits `null`) and shows an inline error. Never clamp, swap or correct a value. No bounds except the existing market-cap minimum of 0.
 7. **Filter state stays numeric.** `ScreenerFilterState` and saved-view compatibility do not change; typed text lives only in UI drafts.
 8. **A reversed range** (min greater than max) is applied literally, so nothing matches, as today. One pair-level message under both boxes: "Min is higher than max, so no ticker can match." The Max box alone is marked invalid.
@@ -181,11 +182,42 @@ Backend-only data changes to what the Screener (and the ticker header/Summary) s
 
 **Backfill:** the new basis reaches `TickerScore` on the next nightly recompute (3:50) or an owner-run `uv run python -m pipeline.recompute_ticker_scores` (cache-only, **writes the live DB**).
 
+### 2026-09-30 — Session 10, part 2: Screener sidebar migration (session 1 of 2)
+
+The Screener filter sidebar moves onto the session 8 to 10 primitives. Made by the owner; this entry records what was decided and what was delivered. Spec: "Screener filter sidebar (session 10)" in `docs/design-system.md`. Five commits on local `main`, not pushed: docs; range filters; sidebar shell; chips, multi-selects, the Watchlist select, counts and sentence case; cleanup and styleguide.
+
+**Decisions.**
+
+1. **Boxed fields.** The owner compared the boxed and underline sidebars in the `/styleguide` mock and chose boxed. This **reverses** the rule recorded at session 8 and again in "Reversed: boxed only for the ticker search" above ("underline stays for inline filters"), and it settles session 8 decision 1's deferral. Underline `Input` and `NumberField` variants are deleted once grep shows no user.
+2. **Scope: the sidebar only.** In: the Watchlist, Fundamental and Technical sections (the ten Min/Max pairs, the multi-selects, the two chips, the Watchlist scope select and the section headers) and the page-level Reset and loading behaviour they depend on. Out, and unchanged: the sort select and direction button, pagination, the saved-views bar's internals (its trigger, popover, list and naming row), `AddToWatchlistButton` (deferred to the ticker-page session), `RecomputeButton`, `UniverseSelector`, `ScreenerCard`, the backend and every non-Screener page. The Reset button lives in the saved-views bar, and only its handler in the page changes. A second Screener session takes the out-of-scope pieces that belong to the Screener.
+3. **The sidebar stays `w-64`** (222px of content). Units go in the label row (Quote and Mkt cap "USD", P/E "x", Growth "%"; none on the score fields or Beta). Mkt cap has the hint "Type 500M or 2B."
+4. **Range commit rule** is the one already built in `RangeField` (session 10, decision 6), unchanged.
+5. **Applied indicator.** Orange stays as label text colour only. Each section header gets a neutral applied-count badge (no badge at zero), and chips show applied through their checked fill. The Watchlist scope label is orange only while the watchlist filter is in effect.
+6. **Chips** (Speculative growth, BB + RSI entry) are `Checkbox` `variant="chip"` at full width with the inner check box kept. **`MultiSelectDropdown`** option checkboxes become the bare neutral `Checkbox`; its keyboard behaviour, focus handling and ARIA structure are not changed, and the docs no longer call it "full ARIA".
+7. **Watchlist scope select** is a compact `FormField` with a full-size `Select`, the helper sentence as its hint, disabled and dimmed (label and hint together) when the universe is not All. Its label is "Limit results to", to avoid a second "Watchlist" under the section title.
+8. **Reset also resets the sort**, and **the sidebar stays mounted on a universe switch** (decided in the plan entry above, done here).
+9. **Sentence case, display only:** filter, chip and range labels and the sidebar's option labels. Sort labels and "Add to Watchlist" wait for a later session. Filter values, option keys, saved views and everything sent to or stored by the backend are unchanged.
+
+**Live-behaviour changes delivered** (the only ones authorised):
+
+- The `T` (trillion) suffix in Mkt cap (already live from the plan commits).
+- The sidebar accepts `12.`, `.5`, lowercase and spaced suffixes such as `2 m`.
+- Partial input: `-`, `.` and `-.` hold the previous value with no error while focused and become invalid (that side inactive) on blur; other invalid text (`1x`, `5e`, letters) makes that side inactive at once with an inline error.
+- A reversed range shows one message under the pair ("Min is higher than max, so no ticker can match.") and marks only the Max box invalid; it still applies literally.
+- Reset also resets the sort to the page's default field and direction.
+- The sidebar stays mounted on a universe switch, so collapse state, the active saved-view name, a half-typed view name and range drafts survive.
+- Mkt cap boxes show "1B"-style text after a collapse and reopen or a saved-view load.
+- The lost-collapse-state bug on a universe switch is fixed (the same change as the sidebar staying mounted).
+
+**Known consequences, not regressions.** A collapsed section unmounts its content (Base UI's default), so a half-typed value is dropped on collapse, and invalid text (which the numeric filter state cannot hold) is gone after reopen; the numeric filter values are kept.
+
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
 - **`MultiSelect` primitive — resolved, built.** `components/screener/MultiSelectDropdown.tsx` is
-  a real, finished, fully-token-styled primitive (focus trap, roving keyboard nav, full ARIA),
-  used by `FundamentalFilters.tsx`/`TechnicalFilters.tsx`. No longer open.
+  a real, finished, fully-token-styled primitive (focus trap, roving keyboard nav, and a
+  partial ARIA structure: `aria-haspopup`/`aria-expanded` on the trigger, `role="listbox"` on the
+  panel and `role="option"` labels around native checkboxes; not "full ARIA", see
+  `docs/design-system.md`), used by `FundamentalFilters.tsx`/`TechnicalFilters.tsx`. No longer open.
 - **`border-control` typo — resolved, zero remaining occurrences.** Every instance across the
   app now correctly reads `border-border-control`/`border-border-input`. Confirmed by grepping
   the bare `control` class fragment app-wide; no unprefixed occurrence survives. No longer open.

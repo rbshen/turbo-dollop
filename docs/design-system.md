@@ -2,13 +2,13 @@
 
 A calm, data-first interface for fundamental investing.
 
-> This is the living style guide for Fathom's frontend. It was drafted in a claude.ai chat working from a read-only audit of the codebase, decided against a two-way A/B comparison ("Direction B, quiet minimalist"), and implemented page-by-page on the `ui/design-system` branch (sessions 1 through 8). Token names and values are authored in `frontend/app/globals.css` — this document explains what they mean and when to use them, it is not a second source of truth for the values themselves. Chart-specific rules live in `docs/design-system-charts.md`. The build history and open items are in `docs/decisions.md`.
+> This is the living style guide for Fathom's frontend. It was drafted in a claude.ai chat working from a read-only audit of the codebase, decided against a two-way A/B comparison ("Direction B, quiet minimalist"), and implemented page-by-page on the `ui/design-system` branch (sessions 1 through 10). Token names and values are authored in `frontend/app/globals.css` — this document explains what they mean and when to use them, it is not a second source of truth for the values themselves. Chart-specific rules live in `docs/design-system-charts.md`. The build history and open items are in `docs/decisions.md`.
 
 ## Principles
 
 1. **Whitespace and hairlines before boxes.** Content sits on the page. Groups are separated by a 1px `border-subtle` rule and space, not by filled, bordered cards.
 2. **Blue means act.** `brand` is the primary button, links and keyboard focus. It is never used for selection or status.
-3. **Selection is neutral.** The current nav item, tab, segment or side-nav item is shown with `text-primary`, plus an underline or a `surface-2` fill. The same goes for a checked Checkbox, an on Switch and a checked chip: `text-primary` fill with a dark check or thumb, never `brand` blue (see "Form controls" below). The built `Checkbox` still paints checked in `brand` until it is migrated; the neutral style is opt-in in code and becomes the only style at migration.
+3. **Selection is neutral.** The current nav item, tab, segment or side-nav item is shown with `text-primary`, plus an underline or a `surface-2` fill. The same goes for a checked Checkbox, an on Switch and a checked chip: `text-primary` fill with a dark check or thumb, never `brand` blue (see "Form controls" below). Neutral is the only checked style in use: the Settings forms (session 9) and the Screener sidebar (session 10) both use it. The old `brand` `Checkbox` variant has no caller once the Screener migration lands and is deleted in that migration's last commit.
 4. **Status is a pill.** A soft tinted fill with coloured text and no border, in one of two sizes (regular, compact). The same status looks the same everywhere: ticker header, Screener cards, Watchlist, Momentum, Settings. There is no dot-and-word Status and no separate dense-table style. See "Pills" below.
 5. **Words, not colour alone.** The label always says the state. Where direction is implied (+3.66%), a ▲ or ▼ sits inside the pill before the label.
 6. **Quiet type.** Larger, lighter titles; sentence-case labels; no uppercase, no wide tracking. Numbers stay mono.
@@ -29,7 +29,7 @@ A calm, data-first interface for fundamental investing.
 - **Text:** `text-primary` for headings and figures, `text-body` for running text, `text-secondary` for secondary, `text-tertiary` for captions and labels.
 - **Type:** Public Sans (text), Sora (page and ticker titles, logotype), IBM Plex Mono (numbers and tickers), snapped to the app's scale: 13 / 15 / 17 / 19 / 21 / 26 / 32 / 39 / 52px. Titles use weight 500. Page title 26, ticker title 32, price 39, score 26, body 15, captions 13, pill label 13 (regular) or 11 (compact).
 - **Spacing:** the 4px scale. Page top padding 48, header-to-content 32, section padding 24 top and 8 bottom, tile gap 40 by 12.
-- **Radius:** `radius-md` (8px) for buttons, segments, side-nav items, boxed fields (the ticker search and every form field) and native selects; `radius-lg` (10px) only for the rare Card. Underline inputs (inline filter fields only) have no radius.
+- **Radius:** `radius-md` (8px) for buttons, segments, side-nav items, boxed fields (the ticker search and every form field) and native selects; `radius-lg` (10px) only for the rare Card. There is no underline field: the Screener sidebar was the last place that used one, and it is boxed too (session 10; the underline variant is deleted in that migration's last commit).
 - **Layout:** `PageContainer` (1280px, 32px gutter) wraps every page, and every page starts with the same `PageHeader`.
 - **Icons:** Phosphor, regular weight, 16px, `currentColor`. No emoji.
 - **Focus:** a 2px `brand` outline on keyboard focus only (`:focus-visible`). Hover and focus never leave a lasting highlight.
@@ -45,6 +45,9 @@ A calm, data-first interface for fundamental investing.
 | Do something | Button: one `primary` per region, `ghost` for everything else. `outline` (ghost with a hairline border that turns `brand` on hover) is for a secondary action that has to read as a button inside a dense panel, such as the Screener's Sort direction and Saved views actions |
 | Enter a typed value (a number, or short text) on a form page | `NumberField` for numbers, boxed `Input` for text, each in a `FormField` or a Settings row |
 | Choose one of a few options on a form page | Native `Select` (in its themed shell), at `short` or `medium` size. Not a SegmentedControl: that is for switching a view, not for a saved setting |
+| Filter a number to a range (a Min/Max pair) | `RangeField`: one label, a unit in the label row, two `short` boxed boxes. Never two separate fields |
+| Filter by any of many options (Sector, Moat, Weinstein stage) | `MultiSelectDropdown`: a trigger that opens a checkbox popover. Not a native `<select multiple>`, and not a row of chips |
+| Turn a yes/no filter on in a dense sidebar | `Checkbox` `variant="chip"` at full width; the checked fill is the applied signal |
 | An on/off setting that is saved with a Save button | `Checkbox` (neutral checked state) |
 | An on/off setting that applies the moment it is flipped | `Switch` (never use one on a form that has a Save button) |
 | Show a classification or state | Status (pill) |
@@ -58,7 +61,7 @@ A calm, data-first interface for fundamental investing.
 
 ## Form controls
 
-The controls for typing, choosing and toggling a value on a form page. Built 2026-09-30 (session 8) and shown in `/styleguide`. All five Settings forms (REIT dividend yield, Economic moat, Discount rate, Weinstein, Liquidity) use them as of session 9. The Screener sidebar and the Watchlist name editor still render through the older `Input` and `Checkbox` defaults and are migrated one at a time, each in its own change. The primitives the Screener sidebar needs (session 10) are built and shown in `/styleguide` under "Screener sidebar (mock)"; the page itself is unchanged until the owner has reviewed the mock. The new behaviour is opt-in in code (a new component, or an explicit prop) wherever an old call site still exists, so nothing there changes how it renders; `Select` has no old form left and always takes a `size`.
+The controls for typing, choosing and toggling a value on a form page. Built 2026-09-30 (session 8) and shown in `/styleguide`. All five Settings forms (REIT dividend yield, Economic moat, Discount rate, Weinstein, Liquidity) use them as of session 9, and the Screener sidebar's fields (the Watchlist scope select, every Min/Max range, the multi-selects' checkboxes and the two chips) use them as of session 10. Not yet migrated, each to be moved in its own change: the sidebar's neighbours on the Screener page (the sort select and direction button, the saved-views bar and its naming row, pagination), the Watchlist name editor, and `AddToWatchlistButton` (with the ticker-page session). `Select` always takes a `size`. The `/styleguide` "Screener sidebar (mock)" section stays as the reference for the sidebar.
 
 | Control | Component | Job |
 | --- | --- | --- |
@@ -69,7 +72,7 @@ The controls for typing, choosing and toggling a value on a form page. Built 202
 | On/off now | `Switch` (`components/ui/switch.tsx`) | Applied immediately, no Save |
 | Anatomy | `FormField` (`components/ui/form-field.tsx`) | Label, hint, control, unit, error, wired together |
 
-**Boxed on form pages.** A form field is a box: `radius-md`, 1px `border-control`, `page` fill, 36px high. This reverses the earlier "boxed for the ticker search only" rule. Underline fields stay for inline filters in dense strips. The Screener sidebar's own choice between boxed and underline is **pending the owner's review of the `/styleguide` mock**, which shows both built from the real primitives; `NumberField` has a `variant` prop for it (below), and whichever loses is deleted at migration.
+**Boxed on form pages.** A form field is a box: `radius-md`, 1px `border-control`, `page` fill, 36px high. This reverses the earlier "boxed for the ticker search only" rule. The Screener sidebar is boxed as well: the owner chose boxed over underline (session 10) after comparing both, built from the real primitives, in the `/styleguide` mock. That reverses the earlier "underline stays for inline filters" rule and settles the deferral in session 8's first decision. The underline variants of `Input` and `NumberField` are deleted once nothing uses them.
 
 **Size tokens.** Every control is 36px high and never wider than its container (`max-w-full`). Width is a token, chosen by what the value looks like, never by the layout around it.
 
@@ -99,9 +102,9 @@ The controls for typing, choosing and toggling a value on a form page. Built 202
 
 **Checked state is neutral.** A checked Checkbox is `text-primary` fill with a dark check; an on Switch is a `text-primary` track with a dark thumb (32 by 18px, a hidden native `<input type="checkbox" role="switch">`). The `chip` Checkbox variant is the Screener's toggle chip done properly: a `radius-md` 32px chip with a 1px `border-input`, `text-secondary`, and a `surface-2` fill with `text-primary` when checked (a chip is not a Pill; see "Not a Status" under Pills below).
 
-### Screener filter sidebar primitives (session 10)
+### Screener filter sidebar (session 10)
 
-Additive and opt-in: every existing call site renders exactly as before, and nothing in `app/screener` or `components/screener` uses these yet. They are shown in `/styleguide` under "Screener sidebar (mock)".
+The primitives below were built additive and opt-in (Settings renders exactly as before) and the Screener sidebar now uses them. The `/styleguide` "Screener sidebar (mock)" section is the visual reference.
 
 **`NumberField` additions.** All default to today's behaviour, so the Settings forms are unchanged.
 
@@ -110,7 +113,7 @@ Additive and opt-in: every existing call site renders exactly as before, and not
 | `optional` | off | An empty field is valid and its check reports a `null` value, instead of "Enter a number." |
 | `suffixes` | none | A map such as `{ M: 1e6, B: 1e9, T: 1e12 }`. Text like `500M`, `2B`, `1.5T` or `2 m` (case-insensitive, optional space) parses to base units. Anything else with letters is invalid (`1x`, `5e`, `1BX`). Without `suffixes`, letters are invalid as always |
 | `keyboardStep` | on | `false` disables ArrowUp and ArrowDown stepping (a market-cap box has no sensible step) |
-| `variant` | `boxed` | `boxed` or `underline`, backed by `Input`'s existing variants. One of the two is deleted at migration |
+| `variant` | `boxed` | `boxed` or `underline`, backed by `Input`'s existing variants. The owner chose boxed; `underline` is deleted in the migration's last commit |
 | `hideError` | off | The field draws no error line of its own, so a composite can show one line under a pair. It still sets `aria-invalid` and accepts an `aria-describedby` |
 
 `aria-describedby` and every other attribute still pass through. A number is never clamped, rounded or corrected, with or without a suffix.
@@ -130,11 +133,15 @@ The commit rule for a Min/Max pair (live filtering, nothing waits for Apply or b
 7. **External changes re-sync the boxes.** The hook remembers the exact `{ min, max }` object it last emitted (none until the first emit, so a reset to the very object the field mounted with also counts as external). A different object from outside (Reset, loading a saved view, a remount) rewrites the drafts, even when its numbers equal the current ones, so stale invalid text such as `1x` is cleared. The same object handed back never rewrites what the user is typing. Parents must therefore pass the emitted object back unchanged.
 8. A market-cap box shows the shortest exact form on mount or re-sync (`1e9` reads `1B`, `2.5e12` reads `2.5T`, `1234567` stays plain digits).
 
-**The 256px filter sidebar.** The Screener sidebar stays `w-64` (256px): with the card's 1px borders and `p-4`, its content is **222px** wide. It is not widened. A range pair is two `short` (96px) boxes with a dash between them and fits without overflow. **Units sit in the label row**, right-aligned in `text-tertiary`: Quote and Market cap "USD" (every current ticker is USD-quoted, so the label is always true), P/E "x", Growth "%", the score fields none. A label is `text-xs` sentence case (Overall, Financials, Growth rate, Profitability, Debt, Quote, P/E, Growth, Mkt cap, Beta).
+**The 256px filter sidebar.** The Screener sidebar stays `w-64` (256px): with the card's 1px borders and `p-4`, its content is **222px** wide. It is not widened. A range pair is two `short` (96px) boxes with a dash between them and fits without overflow. **Units sit in the label row**, right-aligned in `text-tertiary`: Quote and Mkt cap "USD" (every current ticker is USD-quoted, so the label is always true), P/E "x", Growth "%"; the score fields (Overall, Financials, Growth rate, Profitability, Debt) and Beta have none. A label is `text-xs` sentence case (Overall, Financials, Growth rate, Profitability, Debt, Quote, P/E, Growth, Mkt cap, Beta). Mkt cap carries the one-line hint "Type 500M or 2B." Below `lg` the sidebar still stacks above the results. Chip and multi-select labels are sentence case too ("Speculative growth", "Weinstein stage", "Wide moat", "Blue up"); this is display only, and the filter values, option keys and saved views are unchanged.
 
-**Applied state.** A filter label turns `filter-active` orange while it holds a value, the one documented colour exception; it is the only thing that turns orange. A chip shows applied through its checked fill (`surface-2`, `text-primary`), not orange. The Watchlist label is orange only while the watchlist filter is actually in effect: a selected watchlist that is dimmed because the universe is not "All" is not applied. A section header may carry a neutral applied-count `Badge` (for example "3"), computed by the pure `countActiveFilters(filters, watchlistActive)` in `lib/screenerFilters.ts`: applied ranges, non-empty multi-selects, checked chips and an in-effect watchlist. The badge exists in the mock only until migration.
+**Applied state.** A filter label turns `filter-active` orange while it holds a value, the one documented colour exception; orange is label *text* colour only, on a range or select label (`FormField` `applied`) and on a multi-select trigger's text. A chip shows applied through its checked fill (`surface-2`, `text-primary`), not orange. The Watchlist scope label is orange only while the watchlist filter is actually in effect (the universe is All and a watchlist is selected): a selected watchlist that is dimmed because the universe is not "All" is not applied. Each section header (Watchlist, Fundamental, Technical) carries a neutral applied-count `Badge` (compact, neutral tone, for example "3"), computed from `countActiveFilters(filters, watchlistActive)` in `lib/screenerFilters.ts` over that section's filters: applied ranges, non-empty multi-selects, checked chips and an in-effect watchlist. A section with nothing applied shows no badge (a "0" would be noise on every header), and the badge stays visible while the section is collapsed, which is what it is for.
 
-**Market-cap suffixes** are M, B and T (`5T` is 5,000,000,000,000). The live sidebar's own parser (`parseMarketCapInput`) gains the `T` suffix and nothing else; the new lenient parser is in `lib/numberInput.ts` and the old one is deleted at migration.
+**The Watchlist scope field.** The section is titled "Watchlist", so its field is labelled "Limit results to" (a second "Watchlist" would read as a duplicate). It is a `FormField` (compact) with a full-size `Select`; the one helper sentence is the hint, and the whole field (label, box and hint) is disabled and dimmed while the universe is not All.
+
+**Market-cap suffixes** are M, B and T (`5T` is 5,000,000,000,000), case-insensitive with an optional space (`2 m`). There is one parser, `checkNumber(..., { suffixes })` in `lib/numberInput.ts`, used by `NumberField` and `RangeField`; the sidebar's old strict `parseMarketCapInput` is deleted.
+
+**Sidebar shell.** The sidebar stays mounted when the universe changes: the results area shows the loading (and the error) state, and the header, the Sort row and the sidebar stay in place, so collapse state, the active saved-view name, a half-typed view name and range drafts survive a universe switch. The Sector and Company type options come from the loaded rows, so the last known lists are kept while a new universe loads and the multi-selects never empty out. Reset returns the filters, the universe, the watchlist, the sort (the page's default field and direction) and the active view name to their defaults.
 
 ## Settings layout
 
@@ -199,7 +206,7 @@ The choice of size is the only difference between a Watchlist Moat cell and the 
 - **Tables:** hover only on rows that open something; whole-row click opens the ticker in a new tab; Screener cards unchanged; Watchlist and Momentum use the compact size of the same pill family as everywhere else (2026-09-29 reversal — they previously kept a separate filled `Badge`; see `docs/decisions.md`).
 - **Fonts:** Public Sans, Sora, IBM Plex Mono — no change needed from what the app already had.
 - **New tabs:** ticker links in the Screener, Momentum and Watchlist, and nav links from the Screener, open in a new tab so Screener filters stay put. Two tabs each showing an active item is expected behaviour, not a bug.
-- **By choosing B:** dark `on-brand` text on the primary button; underline inputs with `border-control` (now for inline filter fields only; form fields are boxed, see "Form controls" and the 2026-09-30 entry in `docs/decisions.md`); ▲/▼ glyph on the 5Y vs SPY status; orange stays reserved for the applied-filter label. (Also originally: "filled pills dropped from headers, tiles and lists", with `Status` as a dot and a word. Reversed 2026-09-29: status is now a pill everywhere — see "Pills" above and `docs/decisions.md`.)
+- **By choosing B:** dark `on-brand` text on the primary button; underline inputs with `border-control` (retired in session 10: every form and filter field is now boxed, see "Form controls" and the 2026-09-30 entries in `docs/decisions.md`); ▲/▼ glyph on the 5Y vs SPY status; orange stays reserved for the applied-filter label. (Also originally: "filled pills dropped from headers, tiles and lists", with `Status` as a dot and a word. Reversed 2026-09-29: status is now a pill everywhere — see "Pills" above and `docs/decisions.md`.)
 - **Segmentation chart "Other" slice:** reuses the `text-tertiary` token rather than a new dedicated token.
 - **Settings' "skipped" status:** the old sky-blue treatment was retired during the Settings migration (session 6a).
 
@@ -240,16 +247,28 @@ sampled.
    by grepping for the bare `control` class fragment app-wide and finding only correctly-prefixed
    hits (`TickerSearch.tsx`, `NumberStepper.tsx`, `Select.tsx`, `AddToWatchlistButton.tsx`,
    `ManualCalculationPanel.tsx` ×2, `BankCapitalMetricsForm.tsx` ×4, `SavedFiltersBar.tsx`,
-   `checkbox.tsx`, `input.tsx` ×2, `WatchlistFilters.tsx`, `app/screener/page.tsx`) plus
-   unrelated component/comment hits (`SegmentedControl`, code comments) — no bare, unprefixed
-   `control` class survives anywhere.
+   `checkbox.tsx`, `input.tsx` ×2, `WatchlistFilters.tsx`, `app/screener/page.tsx`) plus unrelated
+   component/comment hits (`SegmentedControl`, code comments) — no bare, unprefixed
+   `control` class survives anywhere. **Screener update (session 10):** `WatchlistFilters.tsx` no
+   longer holds one (its select is the shared `Select`) and `RangeInput.tsx` is deleted, its ranges
+   now being `RangeField`s that take the token from `lib/formControl.ts`. `app/screener/page.tsx`
+   (the sort select) and `SavedFiltersBar.tsx` still hand-write it until their own migration.
 
 ## `MultiSelect` primitive — built, not a placeholder
 
 Resolved the same day as the items above: `components/screener/MultiSelectDropdown.tsx` is a
 real, finished primitive — checkbox-listbox popover with a focus trap, roving arrow-key/Home/End
-navigation between options, Escape-to-close, a "Clear" action, and full ARIA
-(`role="listbox"`/`aria-multiselectable`/`aria-selected`) — built entirely on named tokens
-(`border-input`, `surface`, `surface-2`, `brand`, `text-secondary`/`text-tertiary`). Used by
+navigation between options, Escape-to-close, a "Clear" action, and this ARIA: the trigger button has
+`aria-haspopup="listbox"` and `aria-expanded`, the panel is `role="listbox"` with
+`aria-multiselectable="true"` and `aria-label`, and each option is a `<label role="option"
+aria-selected>` wrapping a native checkbox. That is **not** "full ARIA": there is no
+`aria-controls`, and no `aria-activedescendant` (focus roves across the real checkboxes instead), the
+options contain interactive checkboxes (not the canonical listbox pattern), the Clear button is a
+child of the listbox, and the trigger's accessible name is its visible summary text (the label with
+none or several chosen, but just the option's name with exactly one). None of it has been checked with
+a screen reader. Session 10 swapped the option checkboxes for the bare neutral `Checkbox` without
+changing any of this. The popover is built entirely on named tokens
+(`border-input`, `surface`, `surface-2`, `brand` for the trigger's hover border,
+`text-secondary`/`text-tertiary`). Used by
 `FundamentalFilters.tsx` and `TechnicalFilters.tsx` for every Screener multi-select filter. The
 5c-era "left deliberately unstyled" state (see `docs/decisions.md`) is fully superseded.
