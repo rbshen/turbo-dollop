@@ -142,7 +142,7 @@ Screener card has no params, so its pill tooltip says "MA").
   2026-09-30; the option labels "Stage 1 · Base" ... and the stored keys `base`/`advance`/`top`/
   `decline`/`pending` are unchanged)
   (`components/screener/TechnicalFilters.tsx`, which now holds other technical filters too). A
-  "Weinstein — Stage Since" sort reads the persisted `TickerScore.weinstein_stage_since_date`
+  "Weinstein: stage since" sort (label sentence-cased 2026-09-30; the option value `weinstein_stage_since` is unchanged) reads the persisted `TickerScore.weinstein_stage_since_date`
   (client-side, no new field).
 - **Flip-ETA/pending** (`weinstein_pending.py`, Part 1) takes the same params, so its band, MA
   type and projection follow the live engine; `trend_5`/`trend_13` stay fixed-horizon scenario

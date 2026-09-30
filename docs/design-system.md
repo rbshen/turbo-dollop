@@ -42,7 +42,8 @@ A calm, data-first interface for fundamental investing.
 | Move between areas of Settings | SideNav |
 | Switch between views of one ticker | Tabs (neutral underline) |
 | Change a data option on the same view | SegmentedControl (fixed 2–6 options only — use Tabs instead for an unbounded set, e.g. the Watchlist switcher) |
-| Do something | Button: one `primary` per region, `ghost` for everything else. `outline` (ghost with a hairline border that turns `brand` on hover) is for a secondary action that has to read as a button inside a dense panel, such as the Screener's Sort direction and Saved views actions |
+| Do something | Button: one `primary` per region, `ghost` for everything else. `outline` (ghost with a hairline border that turns `brand` on hover) is for a secondary action that has to read as a button inside a dense panel. The Screener uses it for Sort direction, Save current view, Reset and Recompute all scores (session 10, part 2); nothing in the Screener hand-writes the "ghost plus `border-border-input hover:border-brand`" override any more |
+| Sort a list by a field and a direction | A `Select` labelled "Sort by" for the field plus one `outline` toggle `Button` (an arrow icon, "Asc" or "Desc") for the direction. Not a segmented control, and not a column header (see "Screener results controls") |
 | Enter a typed value (a number, or short text) on a form page | `NumberField` for numbers, `Input` for text, each in a `FormField` or a Settings row |
 | Choose one of a few options on a form page | Native `Select` (in its themed shell), at `short` or `medium` size. Not a SegmentedControl: that is for switching a view, not for a saved setting |
 | Filter a number to a range (a Min/Max pair) | `RangeField`: one label, a unit in the label row, two `short` boxed boxes. Never two separate fields |
@@ -61,7 +62,7 @@ A calm, data-first interface for fundamental investing.
 
 ## Form controls
 
-The controls for typing, choosing and toggling a value on a form page. Built 2026-09-30 (session 8) and shown in `/styleguide`. All five Settings forms (REIT dividend yield, Economic moat, Discount rate, Weinstein, Liquidity) use them as of session 9, and the Screener sidebar's fields (the Watchlist scope select, every Min/Max range, the multi-selects' checkboxes and the two chips) use them as of session 10. Not yet migrated, each to be moved in its own change: the sidebar's neighbours on the Screener page (the sort select and direction button, the saved-views bar and its naming row, pagination), the Watchlist name editor, and `AddToWatchlistButton` (with the ticker-page session). `Select` always takes a `size`. The `/styleguide` "Screener sidebar (mock)" section stays as the reference for the sidebar.
+The controls for typing, choosing and toggling a value on a form page. Built 2026-09-30 (session 8) and shown in `/styleguide`. All five Settings forms (REIT dividend yield, Economic moat, Discount rate, Weinstein, Liquidity) use them as of session 9, and the Screener sidebar's fields (the Watchlist scope select, every Min/Max range, the multi-selects' checkboxes and the two chips) use them as of session 10. The Screener's results controls (the sort select and direction button, the saved-views bar and its naming row, pagination, the multi-select trigger's name) follow in session 10, part 2; see "Screener results controls" below. Not yet migrated, each to be moved in its own change: the Watchlist name editor and `AddToWatchlistButton` (with the ticker-page session; it is shared with the ticker header). `Select` always takes a `size`. The `/styleguide` "Screener sidebar (mock)" section stays as the reference for the sidebar, and "Screener results controls (mock)" for the controls around the results.
 
 | Control | Component | Job |
 | --- | --- | --- |
@@ -141,6 +142,29 @@ The commit rule for a Min/Max pair (live filtering, nothing waits for Apply or b
 **Market-cap suffixes** are M, B and T (`5T` is 5,000,000,000,000), case-insensitive with an optional space (`2 m`). There is one parser, `checkNumber(..., { suffixes })` in `lib/numberInput.ts`, used by `NumberField` and `RangeField`; the sidebar's old strict `parseMarketCapInput` is deleted.
 
 **Sidebar shell.** The sidebar stays mounted when the universe changes: the results area shows the loading (and the error) state, and the header, the Sort row and the sidebar stay in place, so collapse state, the active saved-view name, a half-typed view name and range drafts survive a universe switch. The Sector and Company type options come from the loaded rows, so the last known lists are kept while a new universe loads and the multi-selects never empty out. Reset returns the filters, the universe, the watchlist, the sort (the page's default field and direction) and the active view name to their defaults.
+
+### Screener results controls (session 10, part 2)
+
+The controls around the results: the Sort row, Pagination, the saved-views bar and the multi-select trigger's name. They use the same kit as the sidebar. The `/styleguide` "Screener results controls (mock)" section renders the real components with mock data (Sort row, Pagination at the first, a middle and the last page, the saved-views popover with its list and an active view, the naming step at 222 and 256px, the overwrite confirm, and a multi-select trigger with none, one and several selected).
+
+**Sort row.** A real `<label for>` "Sort by" (`text-xs` `text-secondary`) tied to a native boxed `Select` of size `wide` (320px, capped to its container), then the direction toggle. `medium` (176px) clips: the longest label, "Warren signal recency", is about 146px wide at 14px Public Sans (computed from the font's advance widths), and a medium select leaves 130px for text after its padding and caret. The row wraps below `lg` rather than overflowing. Option labels are sentence case, **display only**: "Overall score", "Financials score", "Growth rate score", "Profitability score", "Debt score", "Quote", "Market cap", "P/E", "Beta", "Growth rate", "Warren signal recency", "Weinstein: stage since". The option values, the `SortField` type and everything stored in a saved view or sent to the backend are unchanged. Changing the field or the direction returns to page 1.
+
+**Sort direction** stays one toggle button (not a segmented control), `Button` `variant="outline"` at the default size, which is 36px like the `Select` beside it (`size="sm"` is 32px for the outline variant, so it is not used here). It shows a Phosphor `ArrowUp` or `ArrowDown` (decorative) and the visible word "Asc" or "Desc". Its accessible name states the current direction and the action: "Sort direction: descending. Switch to ascending." (and the mirror). The old `title` tooltip and the "↑ Asc" / "↓ Desc" text glyphs are gone.
+
+**Pagination.** The current page is the neutral selected treatment the segmented control uses (`surface-2` fill, `text-primary`), never `brand` blue, plus `aria-current="page"`. Previous and Next are a Phosphor `CaretLeft` or `CaretRight` (decorative) with the words "Prev" and "Next" and the accessible names "Previous page" and "Next page". The page window (the first and last page always, the current page plus or minus two, "…" for a gap), the disabled first and last states and the 18-row page size are unchanged.
+
+**Multi-select trigger name.** The trigger's accessible name is "<label>: <summary>": "Sector: none selected", "Sector: Technology" (exactly one), "Sector: 3 selected". The visible text is unchanged (the label with none, the option's name with one, "Sector (3)" with several), so with several selected the name does not repeat the visible "(3)" verbatim; that is the one place the name and the visible text differ. The caret is a decorative Phosphor `CaretDown` (`aria-hidden`), like `Select`'s. `aria-haspopup="listbox"` and `aria-expanded` stay on the trigger. The keyboard behaviour, option markup and focus handling are not changed by this rule.
+
+**Saved-views bar.** One vertical bar (the sidebar's; the horizontal layout and its `layout` prop are deleted), every string in sentence case ("Saved views", "Save current view", "Reset").
+
+- *Trigger and popover.* The trigger is a disclosure button (`aria-expanded`, `aria-controls`) showing "Saved views (n)" or the active view's name, with a decorative `CaretDown`. Escape closes the popover and returns focus to the trigger; an outside click still closes it.
+- *Rows.* The popover is a labelled group, not a listbox. Each view is a row of two real buttons: a load button (the view's name, full row width) and a separate delete button whose accessible name includes the view name (`Delete view "Growth screen"`). Enter or Space on the load button loads the view and closes the popover, returning focus to the trigger. Deleting moves focus to the next row (the previous row, or the trigger when none is left) so focus is never dropped.
+- *Active marker.* Neutral: a `text-primary` check, `surface-2` fill and a heavier weight, plus `aria-current="true"` on the load button, so it is not colour alone. The brand-blue check is gone.
+- *Naming step.* A compact `FormField` labelled "View name" with a boxed full-width `Input` on its own row, then Save and Cancel (`outline` `Button`s) on the row below. Enter saves, Escape cancels. The validation is unchanged: an empty or whitespace-only name cannot be saved and the name is trimmed before saving; there is no maximum length (the backend has none). The one new rule is that a name cannot contain "/" (see below). The bar sits at the sidebar's 256px, outside the filter cards, so the naming step is 256px wide on the page and 222px wherever it is placed inside a card; it is designed for 222px and nothing overflows at either.
+- *Overwrite confirm.* The message on its own line (it wraps, and a long unbroken name breaks), then "Overwrite" and "Cancel" on the row below, in the same 222px.
+- *Names with "/".* Verified 2026-09-30 against the real routes (see `docs/decisions.md`): a view named with "/" cannot be saved or deleted (`PUT` and `DELETE /api/screener/filters/{name}` answer 404, because the client sends the name as one path segment and the server decodes `%2F` back to "/" before routing). Spaces, "?", "#", "%", "+", a backslash, ";", "&" and non-ASCII names all save, list, load and delete correctly. So the naming input rejects "/" with an inline message and never alters the typed text; the backend is unchanged.
+
+**Outline Button.** Sort direction, Save current view, Reset, the naming step's and overwrite row's buttons and Recompute all scores are `Button variant="outline"`. Recompute's logic is unchanged (styling only). Remaining uses of the hand-written "ghost plus border" override outside the Screener are listed in the session report and migrate with their own pages.
 
 ## Settings layout
 
@@ -251,7 +275,7 @@ sampled.
    `control` class survives anywhere. **Screener update (session 10):** `WatchlistFilters.tsx` no
    longer holds one (its select is the shared `Select`) and `RangeInput.tsx` is deleted, its ranges
    now being `RangeField`s that take the token from `lib/formControl.ts`. `app/screener/page.tsx`
-   (the sort select) and `SavedFiltersBar.tsx` still hand-write it until their own migration.
+   (the sort select) and `SavedFiltersBar.tsx` hand-wrote it until session 10, part 2, which moved both onto `Select`, `Input` and `Button`.
 
 ## `MultiSelect` primitive — built, not a placeholder
 
@@ -263,8 +287,9 @@ navigation between options, Escape-to-close, a "Clear" action, and this ARIA: th
 aria-selected>` wrapping a native checkbox. That is **not** "full ARIA": there is no
 `aria-controls`, and no `aria-activedescendant` (focus roves across the real checkboxes instead), the
 options contain interactive checkboxes (not the canonical listbox pattern), the Clear button is a
-child of the listbox, and the trigger's accessible name is its visible summary text (the label with
-none or several chosen, but just the option's name with exactly one). None of it has been checked with
+child of the listbox, and (until session 10, part 2) the trigger's accessible name was its visible summary text (the label with
+none or several chosen, but just the option's name with exactly one, plus the ▾ glyph). Session 10, part 2 gave it
+the explicit name "<label>: <summary>" and a decorative `CaretDown` (see "Screener results controls"). None of it has been checked with
 a screen reader. Session 10 swapped the option checkboxes for the bare neutral `Checkbox` without
 changing any of this. The popover is built entirely on named tokens
 (`border-input`, `surface`, `surface-2`, `brand` for the trigger's hover border,

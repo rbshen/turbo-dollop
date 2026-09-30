@@ -43,6 +43,7 @@ All sessions below are commits on `ui/design-system`, not pushed to `origin` unt
 
 - **Session 10 — Screener migration: plan and primitives (2026-09-30).** The form-control primitives and a `/styleguide` sidebar mock for the Screener migration, with **no Screener page change** beyond a `T` suffix in market-cap input. Five commits (docs, helpers and primitives, `RangeField`, a `RangeField` re-sync fix found by the mock, styleguide), not pushed. See "Session 10: Screener migration, plan and primitives" below.
 - **Session 10, part 2 — Screener sidebar migration, session 1 of 2 (2026-09-30).** The Screener filter sidebar moved onto the form-control kit with boxed fields (the owner's choice), in five commits (docs, range filters, sidebar shell, chips and multi-selects and the Watchlist select and counts, cleanup and styleguide), local only, not pushed. See "Session 10, part 2: Screener sidebar migration" below.
+- **Session 10, part 3 — Screener results controls, session 2 of 2 (2026-09-30).** The Sort row, Pagination, the saved-views bar, `RecomputeButton`'s styling and the multi-select trigger's accessible name moved onto the form-control kit, in five commits (docs, sort and outline buttons, pagination and multi-select name, saved-views bar, styleguide and cleanup). One guard added: a view name cannot contain "/". See the entry below.
 
 ## Design reversals
 
@@ -212,6 +213,26 @@ The Screener filter sidebar moves onto the session 8 to 10 primitives. Made by t
 **Deleted with the migration, each after a grep showed no remaining user:** `RangeInput`, `MarketCapSideInput` and the strict `parseMarketCapInput` (commit 2); the `brand` `Checkbox` variant (neutral is now the default, `chip` is kept), the old `Field` component with its orange `applied` prop, the underline variants of `Input` and `NumberField` and `RangeField`'s `variant` prop, `Input`'s `inputVariants`, the styleguide's underline sidebar, underline preset column, "Brand" checkbox column and underline `Input` demos, and the "live sidebar still uses the old parser" caption (commit 5). The styleguide's Boxed-versus-underline comparison became a boxed-only reference.
 
 **Known consequences, not regressions.** A collapsed section unmounts its content (Base UI's default), so a half-typed value is dropped on collapse, and invalid text (which the numeric filter state cannot hold) is gone after reopen; the numeric filter values are kept.
+
+### 2026-09-30 — Session 10, part 3: Screener results controls (session 2 of 2)
+
+The Screener controls left over from the sidebar migration move onto the kit. Made by the owner; this entry records what was decided and delivered. Spec: "Screener results controls (session 10, part 2)" in `docs/design-system.md`. Five commits on local `main`, not pushed: docs; characterization tests, sort and the outline buttons; pagination and the multi-select trigger name; the saved-views bar; styleguide and cleanup.
+
+**Scope.** In: the results header (sort field and direction), `Pagination`, the saved-views bar (trigger, popover and list, the naming step, the overwrite confirm, Reset), `RecomputeButton`'s styling only, and the multi-select trigger's accessible name and caret. Out and unchanged: `AddToWatchlistButton` (**stays for the ticker-page session**; it is shared with the ticker header), `UniverseSelector`, `ScreenerCard`, the sidebar filters and `RangeField`, the backend and every non-Screener page.
+
+**Decisions.**
+
+1. **Sort field** is a `Select` with a real "Sort by" label; option labels are sentence case, display only (values, the `SortField` type and stored or sent data unchanged). The size token is `wide`: `medium` clips the longest label.
+2. **Sort direction** stays one toggle button, `outline`, 36px like the select, with a Phosphor arrow plus "Asc" or "Desc" and an accessible name stating the direction and the action.
+3. **Outline Button** replaces the "ghost plus `border-border-input hover:border-brand`" override in the Screener: Sort direction, Save current view, Reset and `RecomputeButton` (styling only).
+4. **Pagination:** the current page is neutral selected with `aria-current="page"`, never brand blue; Previous and Next are Phosphor caret icons with accessible names. The page window, the disabled states and `PAGE_SIZE` are unchanged.
+5. **Multi-select trigger:** accessible name "<label>: <summary>", a decorative `CaretDown`; its keyboard behaviour, option markup and focus handling are not touched.
+6. **Saved-views bar:** Escape closes the popover and returns focus to the trigger; rows are real buttons with a separate named delete button; the active marker is neutral and exposed with `aria-current`; the naming step is a labelled boxed `Input` with Save and Cancel on their own row; the overwrite confirm wraps; sentence case throughout; the horizontal layout is deleted. No maximum name length (the backend has none).
+7. **Names with "/" (verified, not assumed).** Saved, listed, loaded and deleted through the real routes on an in-memory database (the backend test client, then a real uvicorn process on a temporary in-memory database to confirm the test client's behaviour), sending each name the way the frontend does (`encodeURIComponent`): "a b", "a?b", "a#b" and "100%" all work, as do "+", a backslash, ";", "&", "a%2Fb" typed literally, and accented letters. **"a/b" is broken:** `PUT` and `DELETE` answer 404 because the server decodes `%2F` to "/" before routing, so such a view can be neither saved nor deleted. The naming input therefore rejects "/" with an inline message (text is never stripped or altered) and a test covers it; the backend is unchanged. Not verified: the Next.js `/api` rewrite in front of the backend (the brief limited verification to the backend test client).
+
+**Live-behaviour changes authorised:** the visible "Sort by" label and sentence-case sort options; the direction button's icons and accessible name (and the loss of its `title` tooltip); neutral current page and icon Previous and Next; the multi-select trigger's accessible name and caret icon; keyboard-operable saved-view rows, Escape closing the popover and the neutral active marker; the naming step's layout and label; the overwrite row wrapping; the outline button styling; and the "/" guard.
+
+**Deferred.** `AddToWatchlistButton` (ticker-page session). Other uses of the hand-written outline override outside the Screener (Watchlist, ticker page, Step 3 and Step 5 forms) migrate with their own pages.
 
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
