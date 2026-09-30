@@ -459,8 +459,8 @@ def test_get_financials_data_end_to_end_team_shaped_duplicate_annual_quarter_cor
 
 
 def test_reported_currency_is_cosmetic_label_only_not_converted(monkeypatch):
-    # CLAUDE.md's non-USD currency investigation, decided scope #1: Financials
-    # gets a cosmetic label only, the figures themselves stay raw/un-converted
+    # Non-USD reporters (a US-listed ADR such as TSM/TWD; docs/specs/valuation.md
+    # §2.1b): Financials gets a cosmetic label only, the figures themselves stay raw/un-converted
     # -- unlike Step 3's Valuation tab, which does convert.
     test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(test_engine)

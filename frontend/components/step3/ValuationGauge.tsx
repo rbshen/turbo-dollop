@@ -10,8 +10,8 @@ interface Props {
    * (Step3Inputs.quote_currency) -- defaults to "USD". */
   quoteCurrency?: string;
   /** FMP's reportedCurrency (e.g. "TWD") -- null/equal to quoteCurrency, in
-   * which case no FX caption renders at all. See CLAUDE.md's non-USD
-   * currency conversion investigation. */
+   * which case no FX caption renders at all. Only a US-listed ADR of a
+   * foreign reporter differs (docs/specs/valuation.md §2.1b). */
   reportedCurrency?: string | null;
   /** The reportedCurrency -> quoteCurrency spot rate actually applied. */
   fxRate?: number | null;

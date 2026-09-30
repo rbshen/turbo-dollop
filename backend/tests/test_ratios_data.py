@@ -186,8 +186,8 @@ def test_full_pipeline_missing_source_degrades_to_none_not_crash(monkeypatch):
 
 
 def test_reported_currency_is_cosmetic_label_only_not_converted(monkeypatch):
-    # CLAUDE.md's non-USD currency investigation, decided scope #1: Ratios
-    # gets a cosmetic label only, the figures themselves stay raw/un-converted.
+    # Non-USD reporters (a US-listed ADR such as TSM/TWD; docs/specs/valuation.md
+    # §2.1b): Ratios gets a cosmetic label only, the figures themselves stay raw/un-converted.
     _fresh_engine(monkeypatch)
     _patch_fmp(monkeypatch)
 

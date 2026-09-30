@@ -338,8 +338,9 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
 
 
 def test_get_summary_hk_shaped_ticker_reads_quote_and_reported_currency_from_profile_and_income(monkeypatch):
-    # 0700.HK-shaped: /profile's currency field is "HKD" (the ticker's
-    # actual trading currency), income statement's reportedCurrency is
+    # 0700.HK-shaped (a synthetic distinct-quote-vs-reported fixture only --
+    # non-US markets are not supported, shelved 2026-09-26): /profile's
+    # currency field is "HKD" (the ticker's trading currency), income statement's reportedCurrency is
     # "CNY" (its financial-statement reporting currency) -- the two are
     # genuinely distinct fields sourced from genuinely distinct FMP
     # payloads, confirmed via this test rather than assumed. Reuses every

@@ -75,8 +75,9 @@ async def _currency_to_usd_rate(
     """Resolves a single `<currency>USD` spot rate, cached the same way
     fundamentals are (FundamentalsCache, via the shared get_or_fetch/
     staleness machinery) rather than fetched fresh on every request -- see
-    CLAUDE.md's non-USD currency conversion investigation. "USD"
-    short-circuits to (1.0, None) with zero FMP calls.
+    docs/specs/valuation.md §2.1b. Kept for US-listed ADRs that report in a
+    non-USD currency (non-US markets are not supported, shelved 2026-09-26).
+    "USD" short-circuits to (1.0, None) with zero FMP calls.
 
     Returns (None, None) -- never (1.0, None) -- when a real conversion is
     needed but no rate, fresh or stale, could be resolved at all. The
@@ -218,8 +219,7 @@ async def get_step3_data(
         # per-country discount-rate config (only US exists today, so any
         # other country resolves to the US row) -- deliberately
         # NOT inferred from quote_currency: the two are related but not 1:1
-        # (e.g. a USD-quoted ADR of a non-US company, or -- in principle --
-        # a US-domiciled company primary-listed on a foreign exchange).
+        # (e.g. a USD-quoted ADR of a non-US company).
         # Read straight from /profile's own `country` field.
         country = profile.get("country")
         quote = _first(

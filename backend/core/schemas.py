@@ -64,7 +64,9 @@ class TickerSummaryOut(BaseModel):
     market_cap: float | None = None
     # Latest-quarter figure from /stable/enterprise-values (not a live
     # recompute) -- fresher than the endpoint's latest-annual row, see
-    # CLAUDE.md's Summary tab expansion notes.
+    # CLAUDE.md's Summary tab expansion notes. Denominated in the REPORTING
+    # currency (reported_currency below), not quote_currency like market_cap
+    # above -- the frontend formats it accordingly (lib/metrics/config.ts).
     enterprise_value: float | None = None
     beta: float | None = None
     # Trailing PEG (priceToEarningsGrowthRatioTTM) and forward PEG
@@ -1893,8 +1895,8 @@ class FinancialsOut(BaseModel):
     balance_sheet: FinancialsStatementOut
     cash_flow: FinancialsStatementOut
     # FMP's `reportedCurrency` (e.g. "TWD"), None for USD reporters --
-    # cosmetic label only (see CLAUDE.md's non-USD currency investigation,
-    # decided scope #1). Every figure in this schema stays the company's
+    # cosmetic label only (only a US-listed ADR of a foreign reporter is ever
+    # non-USD -- see docs/specs/valuation.md §2.1b). Every figure in this schema stays the company's
     # raw reported number, deliberately never converted -- this field exists
     # purely so the frontend can caption the table with which currency
     # that raw number actually is.

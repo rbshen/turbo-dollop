@@ -511,13 +511,14 @@ async def get_financials_data(ticker: str, cache_only: bool = False) -> Financia
 
     income_fields = [(None, INCOME_STATEMENT_FIELDS)]
     income_quarterly = _sanitize_shares_magnitude(income_quarterly, income_fields)
-    # Cosmetic-only label (CLAUDE.md's non-USD currency investigation,
-    # decided scope #1) -- every figure above stays the company's raw
-    # reported number, un-converted; this just tells the frontend which
-    # currency that raw number actually is. income_annual's own row is as
-    # good a source as balance_sheet/cash_flow's -- reportedCurrency is the
-    # same value across all three for a given ticker/period (confirmed
-    # during the investigation).
+    # Cosmetic-only label for a US-listed ADR that reports in a non-USD
+    # currency (non-US markets themselves are not supported -- shelved
+    # 2026-09-26; docs/specs/valuation.md §2.1b) -- every figure above stays
+    # the company's raw reported number, un-converted; this just tells the
+    # frontend which currency that raw number actually is. income_annual's own
+    # row is as good a source as balance_sheet/cash_flow's -- reportedCurrency
+    # is the same value across all three for a given ticker/period (confirmed
+    # during the original investigation).
     reported_currency = _first(income_annual).get("reportedCurrency")
 
     return FinancialsOut(

@@ -194,9 +194,11 @@ export interface TickerSummaryOut {
   // FMP's reportedCurrency (e.g. "TWD"), null when it equals quote_currency
   // (no conversion happened) -- display-only, drives FairValuePill's
   // compact currency badge. fair_value_price above is in quote_currency
-  // either way (see backend's HK market support FX-generalization).
+  // either way (converted reported -> quote currency, see
+  // docs/specs/valuation.md §2.1b).
   fair_value_reported_currency: string | null;
-  // The ticker's actual trading currency (e.g. "HKD"), defaults to "USD".
+  // The ticker's trading currency, defaults to "USD" (non-US markets are not
+  // supported -- shelved 2026-09-26 -- so it is USD for every tracked ticker).
   // price/market_cap/fair_value_price are all denominated in this.
   quote_currency: string;
   // The ticker's financial-statement reporting currency (e.g. "CNY"), null
@@ -808,9 +810,11 @@ export interface Step3Inputs {
   discount_rate: number | null;
   capm: Step3CapmComponents | null;
   current_fiscal_year: string | null;
-  // The ticker's actual trading currency (e.g. "HKD"), defaults to "USD".
-  // The conversion TARGET fx_rate below converts reported_currency into --
-  // not always USD (see backend's HK market support FX-generalization).
+  // The ticker's trading currency, defaults to "USD" (non-US markets are not
+  // supported -- shelved 2026-09-26). The conversion TARGET fx_rate below
+  // converts reported_currency into -- the FX code is kept for US-listed ADRs
+  // that report in a non-USD currency (TSM/TWD etc.), see
+  // docs/specs/valuation.md §2.1b.
   quote_currency: string;
   // FMP's reportedCurrency (e.g. "TWD"), null when it equals
   // quote_currency (no conversion needed) -- display-only. Every monetary

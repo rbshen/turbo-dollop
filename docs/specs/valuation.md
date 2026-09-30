@@ -162,7 +162,7 @@ cyclical spike from a durable structural ramp using CFO/FCF figures alone, and r
 auto-suppressing exactly the highest-quality compounders in the tracked universe (FMP has no
 industry-cyclicality signal that could tell them apart). Once picked, they behave identically to
 `DNI_NORMALIZED`: the same 20-year engine, the same Custom Valuation pre-fill/freeze semantics,
-and the same FX handling (figures are already USD by the time smoothing runs). They are
+and the same FX handling (figures are already in the quote currency by the time smoothing runs). They are
 pre-filled from `cfo_smoothed`/`fcf_smoothed`, which `data/step3_data.py` computes
 unconditionally — the same pattern as `net_income_smoothed` and `pb_mean_ratio` — and which reuse
 the TTM-duplicate exclusion below.
@@ -184,7 +184,7 @@ One calculation engine drives all six cash-flow/income-based methods. Only the m
 | `growth_yr_11_20` | Annual growth rate, years 11–20 | fixed terminal default of **4%** |
 | `shares_outstanding` | Diluted shares outstanding | |
 | `discount_rate` | see §5 (CAPM) | |
-| `fx_rate` | statement (`reportedCurrency`) → USD spot rate | **1.0 for a USD reporter**; resolved per-ticker for a non-USD reporter, see §2.1b |
+| `fx_rate` | statement (`reportedCurrency`) → quote-currency (`/profile` `currency`) spot rate | **1.0 whenever reported currency = quote currency** (every USD reporter); resolved per-ticker for a US-listed ADR that reports in a non-USD currency, see §2.1b |
 | `last_close` | current market price | |
 
 All of `growth_yr_1_5`, `growth_yr_6_10`, `growth_yr_11_20`, and `discount_rate` are pre-filled
@@ -218,9 +218,12 @@ weight in `net_income_smoothed` instead of the intended 1/5, before this exclusi
 #### 2.1b Non-USD reported-currency conversion
 
 - **Resolution**: `reportedCurrency` is read directly off the ticker's own income-statement
-  filing. A USD reporter short-circuits to `fx_rate = 1.0` with zero forex API calls. A non-USD
-  reporter resolves a `<reportedCurrency>USD` spot rate, cached via the same `FundamentalsCache`/
-  `get_or_fetch` machinery every other fetch uses, on the same `cache_staleness_days` window
+  filing; the target is the ticker's **quote currency** (`/profile` `currency`, USD for every
+  tracked ticker), not a hardcoded USD. A reporter whose reported currency equals its quote
+  currency short-circuits to `fx_rate = 1.0` with zero forex API calls. Otherwise
+  `_resolve_fx_rate` resolves two `<CCY>USD` legs (`reported→USD` and `quote→USD`; the quote leg
+  is 1.0 for a USD quote) and returns `fx_rate = reported_to_usd / quote_to_usd`, cached via the
+  same `FundamentalsCache`/`get_or_fetch` machinery every other fetch uses, on the same `cache_staleness_days` window
   (default 7 days) as every other fetch — a deliberate choice to keep FX refresh aligned with
   fundamentals. There is no separate FX staleness setting: a `fx_rate_staleness_days` (1 day)
   setting once existed in `core/config.py` but was never actually wired in, and was deleted
@@ -229,15 +232,19 @@ weight in `net_income_smoothed` instead of the intended 1/5, before this exclusi
   stale) exists at all, the whole ticker reads `selected_method = "PASS"` / `insufficient_data =
   true`. A live fetch failure with a *stale* cached rate still available falls back to that stale
   rate rather than failing outright.
-- **Applied once, upfront.** Every raw monetary figure is converted to USD immediately after
+- **Applied once, upfront.** Every raw monetary figure is converted to the quote currency immediately after
   being pulled from FMP, before `select_method`'s tree runs and before any smoothing math.
   `select_method` itself is scale-invariant, so converting before or after method selection can
   never change which method gets picked.
-- **Shown in the UI** as a caption under the Fair Value headline for a non-USD reporter only:
-  "Converted from `<CCY>` @ `<rate>` (as of `<date>`)."
+- **Shown in the UI** as a caption under the Fair Value headline when reported currency ≠ quote
+  currency only: "Converted from `<reported>` to `<quote>` @ `<rate>` (as of `<date>`)."
+- **Scope.** Non-US markets are not supported (shelved 2026-09-26); this conversion is kept for
+  US-listed ADRs that report in a non-USD currency.
 - 14 US-listed ADRs report in a non-USD currency but quote in USD (ASML, BABA, CCEP, CCJ, CNI,
   EVVTY, FER, MFC, NVO, PDD, RY, SINGY, TME, TSM), so this conversion is genuinely exercised in
-  the tracked universe, not a theoretical branch.
+  the tracked universe, not a theoretical branch. Only Valuation converts: the Financials/Ratios
+  tabs, the Summary tab's statement-derived figures (incl. Enterprise Value) and the Watchlist
+  trend charts show the raw reported currency, labelled, never converted.
 
 #### 2.2 Projection (years 1–20)
 

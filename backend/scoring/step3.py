@@ -713,8 +713,8 @@ def run_manual_calculation(
     from live Auto Calculation data and then user-edited), reusing the same
     engines `get_step3_data` uses for the automatic answer rather than
     duplicating any of this math a third time. `fx_rate` fixed at 1.0 --
-    not because this app is single-currency (it isn't -- see CLAUDE.md's
-    non-USD currency conversion investigation), but because every monetary
+    not because this app is single-currency (a US-listed ADR can report in a
+    non-USD currency -- see docs/specs/valuation.md §2.1b), but because every monetary
     figure reaching this function is already in the ticker's own
     quote_currency by construction: `get_step3_data` converts each raw
     figure to quote_currency once, upfront, right after pulling it from

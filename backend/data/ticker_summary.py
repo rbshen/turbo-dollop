@@ -431,10 +431,12 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
     # Same source/convention financials_data.py/ratios_data.py/step3_data.py
     # use (reportedCurrency off the income statement) -- quarterly here
     # since that's the series already fetched above, no new FMP call.
-    # quote_currency mirrors step3_data.py's own resolution (see its "HK
-    # market support" FX-generalization comment) -- the ticker's actual
-    # trading currency, defaulting to "USD" when /profile has no currency
-    # field.
+    # quote_currency mirrors step3_data.py's own resolution -- the ticker's
+    # trading currency off /profile, defaulting to "USD" when it has no
+    # currency field. Non-US markets are not supported (shelved 2026-09-26),
+    # so every tracked ticker quotes in USD; reported_currency is only ever
+    # non-USD for a US-listed ADR of a foreign reporter (TSM/TWD etc.), which
+    # is why the two can differ and the FX code is kept.
     reported_currency = _first(income_quarterly).get("reportedCurrency")
     quote_currency = profile.get("currency") or "USD"
     debt_metrics = compute_debt_metrics(_first(balance_sheet_data), income_quarterly)

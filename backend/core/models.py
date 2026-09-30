@@ -542,17 +542,19 @@ class DiscountRateConfig(SQLModel, table=True):
     Market Risk Premium are both 5-year trailing averages sourced from
     market-risk-premia.com, deliberately not auto-fetched (that source's
     terms only support citing the number, not automated re-fetching; see
-    CLAUDE.md). Editable via the /settings page. Keyed by region -- this
-    table's docstring originally anticipated "a China/HK row... added
-    later without a schema change" back when only "US" was exposed in the
-    UI; as of the HK market support round this is real, not speculative --
-    a ticker's own country (FMP /profile's `country` field, NOT its
-    quote/reported currency -- confirmed the two aren't 1:1) resolves which
-    region's row step3_data.py reads. A new region's row is lazily
-    get-or-created (see helpers/discount_rate_config.py) the first time a
-    ticker from it is valued, seeded from the current US row's own values
-    as an explicit placeholder pending manual research, never fabricated.
-    Beta stays live per-ticker from FMP, untouched by this table."""
+    CLAUDE.md). Editable via the /settings page. Keyed by region so a
+    per-country row can be added without a schema change, but only "US" is
+    used today: non-US markets are not supported (shelved 2026-09-26; the
+    HK/FR rows were removed) and helpers/discount_rate_config.py::
+    SUPPORTED_REGIONS is {"US"}, so a ticker's own country (FMP /profile's
+    `country` field, NOT its quote/reported currency -- the two aren't 1:1;
+    an ADR's CN/CA/TW domicile included) resolves to the US row. The
+    multi-region get-or-create machinery is kept (generic, exercised by
+    tests with a synthetic second region): a region added to
+    SUPPORTED_REGIONS would be lazily seeded from the current US row's own
+    values as an explicit placeholder pending manual research, never
+    fabricated. Beta stays live per-ticker from FMP, untouched by this
+    table."""
 
     region: str = Field(primary_key=True)
     risk_free_rate: float
