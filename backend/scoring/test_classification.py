@@ -79,6 +79,14 @@ def test_asset_manager_non_lender_reverts_to_standard_examples():
         assert classify_company_type("Financial Services", "Asset Management", ticker) == "Standard"
 
 
+def test_capital_markets_non_lender_reverts_to_standard_hut_crcl():
+    # HUT (bitcoin miner/compute infrastructure) and CRCL (stablecoin issuer)
+    # both carry FMP's "Financial - Capital Markets" but have no deposit
+    # liability and no loan book -- same industry string as SCHW above.
+    for ticker in ("HUT", "CRCL"):
+        assert classify_company_type("Financial Services", "Financial - Capital Markets", ticker) == "Standard"
+
+
 def test_credit_services_genuine_lender_stays_bank_amex():
     # AXP: netInterestIncome 21.6% of revenue (real cardmember-loan book) --
     # shares the identical "Financial - Credit Services" industry string

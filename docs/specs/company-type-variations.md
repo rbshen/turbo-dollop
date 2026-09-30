@@ -125,8 +125,8 @@ NII/revenue below is each ticker's most recent annual FMP figure at the time of 
 investigation (`netInterestIncome / revenue`); it drifts year to year and is not re-verified
 automatically. BNY's figures are from a separate later check (2026-08-05, FY2025 data).
 
-**Excluded from Bank → classified `"Standard"`** (all 17 are in `NON_LENDER_TICKER_OVERRIDES`; the
-17 in the code match the 13 + 4 listed here):
+**Excluded from Bank → classified `"Standard"`** (all 19 are in `NON_LENDER_TICKER_OVERRIDES`; the
+19 in the code match the 13 + 6 listed here):
 
 | Ticker | NII/revenue | Business model |
 |---|---|---|
@@ -147,6 +147,8 @@ automatically. BNY's figures are from a separate later check (2026-08-05, FY2025
 | HOOD | n/a (see below) | Robinhood — broker-dealer; a deposit-shaped tag is only 0.7% of assets (immaterial) |
 | SEIC | n/a (see below) | SEI Investments — pure asset-management/investment-processing firm, no banking subsidiary |
 | SEZL | n/a (see below) | Sezzle — BNPL/consumer-credit fintech, no bank charter |
+| HUT | n/a (2026-09-30) | Hut 8 — bitcoin miner / energy & compute infrastructure; FMP files it under "Financial - Capital Markets". Zero interest income, negative NII, no deposit-liability tag in balance sheet or as-reported XBRL |
+| CRCL | +1.7% | Circle — stablecoin issuer; NII is yield on USDC reserves, not a loan book; no deposit-liability tag. FMP industry "Financial - Capital Markets" |
 
 **Confirmed lenders — kept as `"Bank"`** (not in the code; documented here so the reasoning
 survives):

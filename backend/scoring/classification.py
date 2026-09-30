@@ -51,8 +51,8 @@ _BANK_INDUSTRY_KEYWORDS = ("bank", "capital markets", "asset management", "credi
 # confirmed-lender ticker kept as Bank, with its evidence and one-line
 # business-model reason.
 NON_LENDER_TICKER_OVERRIDES = {
-    "APO", "ARES", "BEN", "BLK", "BX", "GPN", "HOOD", "IBKR", "IVZ", "KKR", "MA", "PFG", "PYPL",
-    "SEIC", "SEZL", "TROW", "V",
+    "APO", "ARES", "BEN", "BLK", "BX", "CRCL", "GPN", "HOOD", "HUT", "IBKR", "IVZ", "KKR", "MA", "PFG",
+    "PYPL", "SEIC", "SEZL", "TROW", "V",
 }
 
 
