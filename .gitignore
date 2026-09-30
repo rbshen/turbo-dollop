@@ -19,3 +19,4 @@ frontend/.env*.local
 .coverage.*
 htmlcov/
 coverage.xml
+coverage-*.json
