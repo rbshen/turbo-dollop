@@ -7,12 +7,12 @@ import { Pagination } from "@/components/screener/Pagination";
 import { RecomputeButton } from "@/components/screener/RecomputeButton";
 import { SavedFiltersBar } from "@/components/screener/SavedFiltersBar";
 import { ScreenerCard } from "@/components/screener/ScreenerCard";
+import { SortControls } from "@/components/screener/SortControls";
 import { FundamentalFilters } from "@/components/screener/FundamentalFilters";
 import { TechnicalFilters } from "@/components/screener/TechnicalFilters";
 import { UniverseSelector } from "@/components/screener/UniverseSelector";
 import { WatchlistFilters } from "@/components/screener/WatchlistFilters";
 import { AddToWatchlistButton } from "@/components/ticker/AddToWatchlistButton";
-import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
 import { useScreener, useScreenerMeta } from "@/lib/hooks/useScreener";
@@ -45,21 +45,6 @@ const UNIVERSE_LABELS: Record<ScreenerUniverse, string> = {
 // What the sort is on first load, and what Reset puts it back to.
 const DEFAULT_SORT_FIELD: SortField = "overall_score";
 const DEFAULT_SORT_DIRECTION: SortDirection = "desc";
-
-const SORT_OPTIONS: { value: SortField; label: string }[] = [
-  { value: "overall_score", label: "Overall score" },
-  { value: "step1_score", label: "Financials score" },
-  { value: "step2_score", label: "Growth Rate score" },
-  { value: "step4_score", label: "Profitability score" },
-  { value: "step5_score", label: "Debt score" },
-  { value: "last_price", label: "Quote" },
-  { value: "market_cap", label: "Market cap" },
-  { value: "pe_ratio", label: "P/E" },
-  { value: "beta", label: "Beta" },
-  { value: "growth_rate", label: "Growth rate" },
-  { value: "warren_signal_recency", label: "Warren signal recency" },
-  { value: "weinstein_stage_since", label: "Weinstein — Stage Since" },
-];
 
 const NO_OPTIONS = { sectors: [] as string[], companyTypes: [] as string[] };
 
@@ -215,31 +200,7 @@ export default function ScreenerPage() {
         }
       />
 
-      <div className="flex justify-end">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-text-tertiary">Sort</span>
-          <select
-            value={sortField}
-            onChange={(e) => handleSortChange(e.target.value as SortField, sortDirection)}
-            className="h-9 rounded-md border border-border-control bg-page px-3 text-sm text-text-primary focus:border-brand focus:outline-none"
-          >
-            {SORT_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleSortChange(sortField, sortDirection === "asc" ? "desc" : "asc")}
-            className="h-8 border border-border-input hover:border-brand"
-            title={sortDirection === "asc" ? "Ascending" : "Descending"}
-          >
-            {sortDirection === "asc" ? "↑ Asc" : "↓ Desc"}
-          </Button>
-        </div>
-      </div>
+      <SortControls sortField={sortField} sortDirection={sortDirection} onChange={handleSortChange} />
 
       {/* Sidebar and main content are siblings starting at the same
           vertical position -- the sort control above is deliberately its

@@ -189,20 +189,19 @@ export function SavedFiltersBar({
       </div>
 
       {saveStep === "idle" && (
-        <Button variant="ghost" size="sm" onClick={openNaming} className="h-8 border border-border-input hover:border-brand">
+        <Button variant="outline" size="sm" onClick={openNaming}>
           Save current view
         </Button>
       )}
 
       {saveStep === "idle" && (
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
           onClick={() => {
             onReset();
             setActiveName(null);
           }}
-          className="h-8 border border-border-input hover:border-brand"
         >
           Reset
         </Button>

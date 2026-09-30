@@ -42,13 +42,7 @@ export function RecomputeButton() {
           {lastSummary.failed > 0 ? `, ${lastSummary.failed} failed` : ""} in {lastSummary.duration_seconds.toFixed(1)}s
         </span>
       )}
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={handleClick}
-        disabled={status === "loading"}
-        className="h-8 border border-border-input hover:border-brand"
-      >
+      <Button variant="outline" size="sm" onClick={handleClick} disabled={status === "loading"}>
         {LABELS[status]}
       </Button>
     </div>

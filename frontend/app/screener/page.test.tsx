@@ -77,7 +77,9 @@ function savedView(overrides: Partial<SavedScreenerFilter> & { name: string }): 
 
 const cards = () => screen.queryAllByTestId("card").map((c) => c.textContent);
 const lastUniverse = () => h.universeCalls[h.universeCalls.length - 1];
-const sortSelect = () => screen.getByDisplayValue(/score|Quote|Market cap|P\/E|Beta|Growth rate|Warren|Weinstein/) as HTMLSelectElement;
+const sortSelect = () => screen.getByLabelText("Sort by") as HTMLSelectElement;
+const directionButton = () => screen.getByRole("button", { name: /^Sort direction: (ascending|descending)\./ });
+const isAscending = () => directionButton().getAttribute("aria-label")?.startsWith("Sort direction: ascending") ?? false;
 const watchlistSelect = () => screen.getByLabelText(/^Limit results to/) as HTMLSelectElement;
 
 // The trigger reads "Saved views (n)", or the name of the view last loaded.
@@ -114,7 +116,7 @@ describe("loading a saved view", () => {
     loadSavedView("Big");
     expect(lastUniverse()).toBe("sp500");
     expect(sortSelect().value).toBe("market_cap");
-    expect(screen.getByTitle("Ascending")).toBeInTheDocument();
+    expect(isAscending()).toBe(true);
     // overall >= 50 leaves AAA and BBB, ascending by market cap
     expect(cards()).toEqual(["BBB", "AAA"]);
     expect(screen.getByRole("button", { name: /^Big/ })).toBeInTheDocument();
@@ -190,10 +192,10 @@ describe("Reset", () => {
     render(<ScreenerPage />);
     loadSavedView("Big");
     expect(sortSelect().value).toBe("market_cap");
-    expect(screen.getByTitle("Ascending")).toBeInTheDocument();
+    expect(isAscending()).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Reset" }));
     expect(sortSelect().value).toBe("overall_score");
-    expect(screen.getByTitle("Descending")).toBeInTheDocument();
+    expect(isAscending()).toBe(false);
     // the default sort (Overall, high to low) is really applied to the cards
     expect(cards()).toEqual(["AAA", "BBB", "CCC", "DDD"]);
   });
@@ -201,11 +203,11 @@ describe("Reset", () => {
   it("resets a sort changed by hand, not only one loaded from a view", () => {
     render(<ScreenerPage />);
     fireEvent.change(sortSelect(), { target: { value: "beta" } });
-    fireEvent.click(screen.getByTitle("Descending"));
-    expect(screen.getByTitle("Ascending")).toBeInTheDocument();
+    fireEvent.click(directionButton());
+    expect(isAscending()).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Reset" }));
     expect(sortSelect().value).toBe("overall_score");
-    expect(screen.getByTitle("Descending")).toBeInTheDocument();
+    expect(isAscending()).toBe(false);
   });
 });
 
@@ -409,5 +411,99 @@ describe("the Watchlist scope and the section badges on the real page", () => {
     expect(screen.getByRole("button", { name: /^Technical/ }).querySelector("[title='2 applied']")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Reset" }));
     expect(screen.queryByTitle(/applied/)).toBeNull();
+  });
+});
+
+// Sort and pagination on the real page (characterization, session 10 part 3).
+// 40 rows is three pages at PAGE_SIZE 18: 18, 18 and 4.
+describe("sorting and paging on the real page", () => {
+  // -- selector helpers: the only markup-dependent part of this describe --
+  const prevButton = () => screen.getByRole("button", { name: "« Prev" });
+  const nextButton = () => screen.getByRole("button", { name: "Next »" });
+  const pageButton = (n: number) => screen.getByRole("button", { name: String(n) });
+  // ----------------------------------------------------------------------
+
+  const tk = (i: number) => `T${String(i).padStart(2, "0")}`;
+  beforeEach(() => {
+    // T01 has the highest overall score and the lowest market cap
+    h.rows.all = Array.from({ length: 40 }, (_, k) =>
+      scoreRow(tk(k + 1), { overall_score: 100 - (k + 1), market_cap: (k + 1) * 1e9, beta: k % 7 })
+    );
+  });
+
+  it("starts on Overall score, high to low, page 1", () => {
+    render(<ScreenerPage />);
+    expect(sortSelect().value).toBe("overall_score");
+    expect(isAscending()).toBe(false);
+    expect(cards()).toHaveLength(18);
+    expect(cards()[0]).toBe("T01");
+    expect(cards()[17]).toBe("T18");
+  });
+
+  it("re-sorts by the chosen field, and the direction toggle reverses it", () => {
+    render(<ScreenerPage />);
+    fireEvent.change(sortSelect(), { target: { value: "market_cap" } });
+    expect(cards()[0]).toBe("T40"); // still descending
+    fireEvent.click(directionButton());
+    expect(isAscending()).toBe(true);
+    expect(cards()[0]).toBe("T01");
+    fireEvent.click(directionButton());
+    expect(isAscending()).toBe(false);
+    expect(cards()[0]).toBe("T40");
+  });
+
+  it("keeps the direction when the field changes", () => {
+    render(<ScreenerPage />);
+    fireEvent.click(directionButton());
+    fireEvent.change(sortSelect(), { target: { value: "market_cap" } });
+    expect(isAscending()).toBe(true);
+    expect(cards()[0]).toBe("T01");
+  });
+
+  it("pages through 18, 18 and 4 rows", () => {
+    render(<ScreenerPage />);
+    fireEvent.click(pageButton(2));
+    expect(cards()).toHaveLength(18);
+    expect(cards()[0]).toBe("T19");
+    fireEvent.click(nextButton());
+    expect(cards()).toEqual(["T37", "T38", "T39", "T40"]);
+    expect(nextButton()).toBeDisabled();
+    fireEvent.click(prevButton());
+    expect(cards()[0]).toBe("T19");
+    fireEvent.click(prevButton());
+    expect(cards()[0]).toBe("T01");
+    expect(prevButton()).toBeDisabled();
+  });
+
+  it("changing the sort field returns to page 1", () => {
+    render(<ScreenerPage />);
+    fireEvent.click(pageButton(2));
+    expect(cards()[0]).toBe("T19");
+    fireEvent.change(sortSelect(), { target: { value: "market_cap" } });
+    expect(cards()).toHaveLength(18);
+    expect(cards()[0]).toBe("T40"); // top of the new order, i.e. page 1
+  });
+
+  it("toggling the direction returns to page 1", () => {
+    render(<ScreenerPage />);
+    fireEvent.click(pageButton(3));
+    expect(cards()).toHaveLength(4);
+    fireEvent.click(directionButton());
+    expect(cards()).toHaveLength(18);
+    expect(cards()[0]).toBe("T40"); // ascending overall: lowest score (T40) first
+  });
+
+  it("a filter change returns to page 1", () => {
+    render(<ScreenerPage />);
+    fireEvent.click(pageButton(2));
+    expect(cards()[0]).toBe("T19");
+    typeInto(box("Overall", "Minimum"), "1");
+    expect(cards()[0]).toBe("T01");
+  });
+
+  it("shows no pagination when the rows fit on one page", () => {
+    h.rows.all = h.rows.all!.slice(0, 5);
+    render(<ScreenerPage />);
+    expect(screen.queryByRole("button", { name: "Next »" })).toBeNull();
   });
 });
