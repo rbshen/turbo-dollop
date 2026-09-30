@@ -87,6 +87,8 @@ export interface FormFieldProps extends Omit<HTMLAttributes<HTMLDivElement>, "ch
   density?: "default" | "compact";
   /** The label reads filter-active orange: this filter currently holds a value. */
   applied?: boolean;
+  /** An id for the label, so a group of controls can be `aria-labelledby` it. */
+  labelId?: string;
   children: ReactNode;
 }
 
@@ -99,6 +101,7 @@ export function FormField({
   disabled,
   density = "default",
   applied,
+  labelId,
   children,
   className,
   ...props
@@ -110,6 +113,7 @@ export function FormField({
         <div className={cn("flex flex-col gap-0.5", className)} {...props}>
           <div className="flex items-baseline justify-between gap-2">
             <label
+              id={labelId}
               htmlFor={htmlFor}
               className={cn("text-xs", applied ? "text-filter-active" : "text-text-secondary", disabled && "opacity-45")}
             >
@@ -140,6 +144,7 @@ export function FormField({
     <FieldProvider value={ctx}>
       <div className={cn("flex flex-col gap-1", className)} {...props}>
         <label
+          id={labelId}
           htmlFor={htmlFor}
           className={cn(applied ? "text-sm text-filter-active" : FIELD_LABEL_CLASS, disabled && "opacity-45")}
         >
