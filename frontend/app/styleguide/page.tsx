@@ -29,7 +29,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs } from "@/components/ui/tabs";
 import { Tooltip } from "@/components/ui/tooltip";
 import { pnlClass } from "@/lib/format";
+import { FormControlsReference } from "./FormControlsReference";
 import { PillReference } from "./PillReference";
+import { DiscountRateMock, LiquidityMock, WeinsteinMock } from "./SettingsMocks";
 
 // Internal reference page for the direction-B design-system primitives.
 // Not linked from any navigation -- visit /styleguide directly.
@@ -201,6 +203,25 @@ export default function StyleguidePage() {
 
       <Section title="Settings controls">
         <SettingsControlsDemo />
+      </Section>
+
+      <Section title="Form controls">
+        <FormControlsReference />
+      </Section>
+
+      <Section title="Settings layout">
+        <p className="mb-6 max-w-xl text-xs text-text-tertiary">
+          Mock Settings sections built with the Settings layout kit, with mock data and no API. Rows, not a grid:
+          label and hint on the left, the control on the right in its size token, a hairline between rows, a
+          sub-heading only where a section has more than four settings. Every field is live: try an out-of-range
+          number (the Weinstein volume average starts invalid), or tick &ldquo;Only keep if breached recently&rdquo;
+          in Liquidity.
+        </p>
+        <div className="flex flex-col gap-16">
+          <WeinsteinMock />
+          <LiquidityMock />
+          <DiscountRateMock />
+        </div>
       </Section>
 
       <Section title="Card">
