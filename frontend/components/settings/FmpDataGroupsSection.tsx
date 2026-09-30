@@ -9,6 +9,8 @@ import { errorDetail } from "@/lib/api/client";
 import { formatRelativeTime } from "@/lib/relativeTime";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Section } from "@/components/ui/section";
+import { Select } from "@/components/ui/Select";
+import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { DataGroupOut, DataGroupState } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
@@ -39,15 +41,18 @@ const STATE_TONE: Record<DataGroupState, BadgeTone> = {
 export function FmpDataGroupsSection() {
   const { data, error } = useDataGroups();
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  // A failed request's message, shown in the row of the group it was for (near
+  // the control that caused it). The controls themselves stay on the fetched
+  // data, so they keep showing the real current state.
+  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
 
-  async function run(action: () => Promise<unknown>) {
+  async function run(groupKey: string, action: () => Promise<unknown>) {
     setBusy(true);
-    setMessage(null);
+    setFailure(null);
     try {
       await action();
     } catch (e) {
-      setMessage(errorDetail(e) ?? "Update failed");
+      setFailure({ key: groupKey, message: errorDetail(e) ?? "Update failed" });
     } finally {
       setBusy(false);
     }
@@ -58,13 +63,11 @@ export function FmpDataGroupsSection() {
 
   const onToggle = (group: DataGroupOut, enabled: boolean) => {
     if (!enabled && !window.confirm(disableWarning(group))) return;
-    void run(() => updateGroup(group.key, { enabled }));
+    void run(group.key, () => updateGroup(group.key, { enabled }));
   };
 
   return (
     <Section title="FMP data groups">
-      {message && <p className="mb-3 text-xs text-negative">{message}</p>}
-
       <Table>
         <TableHeader>
           <TableRow className="h-9">
@@ -80,13 +83,11 @@ export function FmpDataGroupsSection() {
           {data.groups.map((g) => (
             <TableRow key={g.key} className={cn("align-top", !g.can_toggle && "opacity-60")}>
               <TableCell>
-                <input
-                  type="checkbox"
+                <Switch
                   aria-label={`Enable ${g.label}`}
                   checked={g.enabled}
                   disabled={busy || !g.can_toggle}
                   title={!g.can_toggle ? reasonText(g) : undefined}
-                  className="size-3.5 rounded border-border-input bg-surface-2 accent-brand"
                   onChange={(e) => onToggle(g, e.target.checked)}
                 />
               </TableCell>
@@ -96,6 +97,11 @@ export function FmpDataGroupsSection() {
                   {g.key}
                   {!g.wired && " · not wired yet"}
                 </div>
+                {failure?.key === g.key && (
+                  <p role="alert" className="mt-1 text-xs text-negative">
+                    {failure.message}
+                  </p>
+                )}
               </TableCell>
               <TableCell>
                 <Badge tone={STATE_TONE[g.state]} title={g.state === "failing" ? (g.last_error ?? undefined) : reasonText(g) || undefined}>
@@ -106,19 +112,19 @@ export function FmpDataGroupsSection() {
                 {g.last_success_at ? formatRelativeTime(g.last_success_at) : "—"}
               </TableCell>
               <TableCell>
-                <select
+                <Select
+                  size="medium"
                   aria-label={`Required tier for ${g.label}`}
-                  className="rounded border border-border-input bg-surface-2 px-2 py-1 text-xs text-text-primary focus:border-brand focus:outline-none"
                   value={g.required_tier}
                   disabled={busy}
-                  onChange={(e) => void run(() => updateGroup(g.key, { required_tier: e.target.value }))}
+                  onChange={(e) => void run(g.key, () => updateGroup(g.key, { required_tier: e.target.value }))}
                 >
                   {data.tiers.map((t) => (
                     <option key={t} value={t}>
                       {t}
                     </option>
                   ))}
-                </select>
+                </Select>
               </TableCell>
               <TableCell className="whitespace-normal text-xs text-text-secondary">{g.feeds.join(", ")}</TableCell>
             </TableRow>

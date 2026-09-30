@@ -6,6 +6,8 @@ import { setFmpPlan, setMaster, useDataGroups } from "@/lib/hooks/useDataGroups"
 import { errorDetail } from "@/lib/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Section } from "@/components/ui/section";
+import { Select } from "@/components/ui/Select";
+import { Switch } from "@/components/ui/switch";
 
 /** Settings > FMP Data Groups, below the per-group table: the FMP plan /
  * master-switch / key-problem summary card. Split out of the old combined
@@ -45,11 +47,14 @@ export function FmpHealthSummaryCard() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-xs text-text-secondary">
-          <label className="flex items-center gap-2">
-            My FMP plan
-            <select
-              aria-label="My FMP plan"
-              className="rounded border border-border-input bg-surface-2 px-2 py-1 text-sm text-text-primary focus:border-brand focus:outline-none"
+          {/* Both controls apply the moment they change (no Save) and are driven by
+              the fetched data, not local state: a cancelled confirmation or a
+              failed request leaves them showing the real current value. */}
+          <div className="flex items-center gap-2">
+            <label htmlFor="fmp-plan">My FMP plan</label>
+            <Select
+              id="fmp-plan"
+              size="medium"
               value={data.fmp_plan}
               disabled={busy}
               onChange={(e) => void run(() => setFmpPlan(e.target.value))}
@@ -59,23 +64,21 @@ export function FmpHealthSummaryCard() {
                   {t}
                 </option>
               ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              aria-label="FMP master switch"
+            </Select>
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              id="fmp-master"
+              label="FMP master switch"
               checked={data.master_on}
               disabled={busy}
               onChange={(e) => {
                 if (!e.target.checked && !window.confirm("Disable ALL FMP calls? Every group goes cache-only (nothing is wiped).")) return;
                 void run(() => setMaster(e.target.checked));
               }}
-              className="size-3.5 rounded border-border-input bg-surface-2 accent-brand"
             />
-            FMP master switch
             <Badge tone={data.master_on ? "positive" : "warn"}>{data.master_on ? "On" : "Off — cache only"}</Badge>
-          </label>
+          </div>
         </div>
       </div>
 
@@ -85,7 +88,11 @@ export function FmpHealthSummaryCard() {
           data group is blamed.
         </p>
       )}
-      {message && <p className="mt-3 text-xs text-negative">{message}</p>}
+      {message && (
+        <p role="alert" className="mt-3 text-xs text-negative">
+          {message}
+        </p>
+      )}
     </Section>
   );
 }
