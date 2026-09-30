@@ -232,6 +232,16 @@ The Screener controls left over from the sidebar migration move onto the kit. Ma
 
 **Live-behaviour changes authorised:** the visible "Sort by" label and sentence-case sort options; the direction button's icons and accessible name (and the loss of its `title` tooltip); neutral current page and icon Previous and Next; the multi-select trigger's accessible name and caret icon; keyboard-operable saved-view rows, Escape closing the popover and the neutral active marker; the naming step's layout and label; the overwrite row wrapping; the outline button styling; and the "/" guard.
 
+**Delivered, and what differs from the brief's assumptions.**
+
+- **Sort row** is a new `SortControls` component (it owns the sort options), rendered by the page. The Select is `wide` (320px): the longest label, "Warren signal recency", is about 146px at 14px Public Sans and a `medium` select has 130px of text room. The direction `Button` is `outline` at the default size, which is 36px (`size="sm"` is 32px for `outline`). The field's `id` comes from `useId` so two Sort rows can coexist (the styleguide has two).
+- **Saved-views bar rows are real buttons** (a load button and a separate delete button per row), not `role="option"` rows, so the popover is a labelled `group` and the trigger a disclosure button (`aria-expanded`, `aria-controls`). While a delete is in flight the button uses `aria-disabled`, not `disabled`, so it keeps focus; after a delete focus moves to the next row, else the previous one, else the trigger.
+- **The bar is 256px on the page, not 222px.** It sits in the sidebar outside the filter cards; 222px is only the card content width. It was built for 222px and fits both.
+- **`SavedFiltersBar` is split** into the data-wired wrapper and `SavedFiltersBarView` (saved list, save and delete passed in, plus `default*` props for initial state) so the styleguide can render the real UI without touching the backend. The page and its tests use the wrapper unchanged.
+- **Naming input:** the `View name` placeholder was replaced by the visible label (a label plus an identical placeholder is redundant), and the old `title` on the delete and direction buttons by accessible names that are also their tooltips.
+- **Multi-select name versus visible text:** with several selected the name is "Sector: 3 selected" while the visible text is "Sector (3)"; the brief fixed the name and forbade changing the text, so they differ there.
+- **Styleguide:** the "Screener sidebar (mock)" had its own hand-built Sort select, "↓ Desc" glyph button, "▾" text glyph and naming row (plan-time prototypes that contradicted the live page and the new rules); they are replaced by the real saved-views bar, and the mock has no Sort row (the live sidebar never had one).
+
 **Deferred.** `AddToWatchlistButton` (ticker-page session). Other uses of the hand-written outline override outside the Screener (Watchlist, ticker page, Step 3 and Step 5 forms) migrate with their own pages.
 
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)

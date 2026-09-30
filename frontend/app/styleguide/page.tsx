@@ -31,6 +31,7 @@ import { pnlClass } from "@/lib/format";
 import { FmpSettingsMock } from "./FmpSettingsMock";
 import { FormControlsReference } from "./FormControlsReference";
 import { PillReference } from "./PillReference";
+import { ScreenerResultsControlsMock } from "./ScreenerResultsControlsMock";
 import { ScreenerSidebarMock } from "./ScreenerSidebarMock";
 import { AlignmentCheckMock, DiscountRateMock, LiquidityMock, WeinsteinMock } from "./SettingsMocks";
 
@@ -229,6 +230,10 @@ export default function StyleguidePage() {
 
       <Section title="Screener sidebar (mock)">
         <ScreenerSidebarMock />
+      </Section>
+
+      <Section title="Screener results controls (mock)">
+        <ScreenerResultsControlsMock />
       </Section>
 
       <Section title="Card">

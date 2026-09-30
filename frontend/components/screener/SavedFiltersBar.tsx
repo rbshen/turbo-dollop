@@ -42,9 +42,9 @@ const STATUS_LABELS: Record<Status, string> = {
 // docs/decisions.md. Every other character tried works (spaces, ? # % + & ;
 // backslash, accented letters), so "/" is the only one blocked. The text is
 // never altered: the box shows this message and Save stays off.
-export const NAME_SLASH_ERROR = 'A view name cannot contain "/".';
+const NAME_SLASH_ERROR = 'A view name cannot contain "/".';
 
-export interface SavedFiltersBarViewProps extends Props {
+interface SavedFiltersBarViewProps extends Props {
   saved: SavedScreenerFilter[] | undefined;
   onSave: (name: string, body: SaveScreenerFilterBody) => Promise<unknown>;
   onDelete: (name: string) => Promise<unknown>;

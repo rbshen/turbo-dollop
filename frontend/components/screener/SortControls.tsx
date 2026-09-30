@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowDown, ArrowUp } from "@phosphor-icons/react";
+import { useId } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/Select";
@@ -23,8 +24,6 @@ export const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: "weinstein_stage_since", label: "Weinstein: stage since" },
 ];
 
-const SORT_FIELD_ID = "screener-sort-field";
-
 interface Props {
   sortField: SortField;
   sortDirection: SortDirection;
@@ -36,14 +35,15 @@ interface Props {
 // outline toggle for the direction. The Button's default size is 36px, the same
 // height as the Select. Wraps below lg instead of overflowing.
 export function SortControls({ sortField, sortDirection, onChange }: Props) {
+  const fieldId = useId();
   const descending = sortDirection === "desc";
   const DirectionIcon = descending ? ArrowDown : ArrowUp;
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
-      <label htmlFor={SORT_FIELD_ID} className="text-xs text-text-secondary">
+      <label htmlFor={fieldId} className="text-xs text-text-secondary">
         Sort by
       </label>
-      <Select id={SORT_FIELD_ID} size="wide" value={sortField} onChange={(e) => onChange(e.target.value as SortField, sortDirection)}>
+      <Select id={fieldId} size="wide" value={sortField} onChange={(e) => onChange(e.target.value as SortField, sortDirection)}>
         {SORT_OPTIONS.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}

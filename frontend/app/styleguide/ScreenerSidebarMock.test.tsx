@@ -116,22 +116,25 @@ describe("ScreenerSidebarMock", () => {
     expect(label()).toHaveClass("opacity-45");
   });
 
-  it("has the Sort select with a real label, full-width chips and the naming row", () => {
+  it("has full-width chips and the real saved-views bar with its labelled naming step", () => {
     render(<ScreenerSidebarMock />);
     const root = sidebar();
-    expect(within(root).getByLabelText("Sort")).toBeInstanceOf(HTMLSelectElement);
+    // the Sort row lives in the results header, not the sidebar (see the results controls mock)
+    expect(within(root).queryByLabelText("Sort")).toBeNull();
+    expect(within(root).queryByLabelText("Sort by")).toBeNull();
+    expect(within(root).getByRole("button", { name: "Saved views (4)" })).toBeInTheDocument();
     const chip = within(root).getByLabelText("Speculative growth") as HTMLInputElement;
     expect(chip.closest("label")).toHaveClass("w-full", "h-8");
     fireEvent.click(chip);
     expect(chip).toBeChecked();
     fireEvent.click(within(root).getByRole("button", { name: "Save current view" }));
-    const name = within(root).getByRole("textbox", { name: "View name" });
+    const name = within(root).getByLabelText("View name");
     expect(name).toHaveClass("w-full", "rounded-md");
     expect(within(root).getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.change(name, { target: { value: "My view" } });
     expect(within(root).getByRole("button", { name: "Save" })).toBeEnabled();
     fireEvent.click(within(root).getByRole("button", { name: "Cancel" }));
-    expect(within(root).queryByRole("textbox", { name: "View name" })).toBeNull();
+    expect(within(root).queryByLabelText("View name")).toBeNull();
   });
 
   it("pre-sets every state for real: filled, invalid, held prefix, prefix after blur, reversed, 1B, 5T", async () => {

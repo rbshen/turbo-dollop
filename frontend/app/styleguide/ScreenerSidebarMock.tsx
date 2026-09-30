@@ -26,6 +26,7 @@ import {
   countActiveFilters,
   type ScreenerFilterState,
 } from "@/lib/screenerFilters";
+import { MockSavedViewsBar } from "./MockSavedViewsBar";
 import {
   ERROR_ROW,
   HINT_ROW,
@@ -78,8 +79,6 @@ const SPY_OPTIONS = [
   { value: "underperform", label: "Underperform" },
 ];
 const STAGE_OPTIONS = [1, 2, 3, 4].map((n) => ({ value: `stage_${n}`, label: `Stage ${n}` }));
-
-const SORT_OPTIONS = ["Overall score", "Financials score", "Growth rate score", "Quote", "Market cap", "P/E", "Growth rate"];
 
 // A view a user might have saved, for the "Load sample view" button. Every
 // range is a NEW object, like a view loaded from the API.
@@ -142,10 +141,6 @@ function Sidebar() {
   const [filters, setFilters] = useState<ScreenerFilterState>(DEFAULT_FILTER_STATE);
   const [watchlist, setWatchlist] = useState("");
   const [universeAll, setUniverseAll] = useState(true);
-  const [sort, setSort] = useState(SORT_OPTIONS[0]);
-  const [descending, setDescending] = useState(true);
-  const [naming, setNaming] = useState(false);
-  const [viewName, setViewName] = useState("");
 
   const patch = (partial: Partial<ScreenerFilterState>) => setFilters((f) => ({ ...f, ...partial }));
   const watchlistInEffect = universeAll && watchlist !== "";
@@ -156,19 +151,6 @@ function Sidebar() {
       <h3 className="text-xs font-semibold text-text-secondary">
         Sidebar <span className="font-normal text-text-tertiary">({SIDEBAR_WIDTH}px)</span>
       </h3>
-
-      <div className="space-y-2">
-        <FormField label="Sort" htmlFor={`${idp}-sort`} density="compact">
-          <Select size="full" id={`${idp}-sort`} value={sort} onChange={(e) => setSort(e.target.value)}>
-            {SORT_OPTIONS.map((o) => (
-              <option key={o}>{o}</option>
-            ))}
-          </Select>
-        </FormField>
-        <Button variant="outline" size="sm" className="w-full" onClick={() => setDescending((d) => !d)}>
-          {descending ? "↓ Desc" : "↑ Asc"}
-        </Button>
-      </div>
 
       <MockSection title="Watchlist" count={countActiveFilters(DEFAULT_FILTER_STATE, watchlistInEffect, [])}>
         <div className="flex flex-col gap-2">
@@ -241,49 +223,9 @@ function Sidebar() {
       </MockSection>
 
       <div className="flex flex-col items-stretch gap-2">
-        <Button variant="outline" size="sm" className="w-full justify-between">
-          Saved views (3) <span className="text-text-tertiary">▾</span>
-        </Button>
-        {naming ? (
-          <div className="flex flex-col gap-2">
-            <Input
-              size="full"
-              aria-label="View name"
-              placeholder="View name"
-              value={viewName}
-              onChange={(e) => setViewName(e.target.value)}
-            />
-            <div className="flex items-center gap-2">
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={viewName.trim() === ""}
-                onClick={() => {
-                  setNaming(false);
-                  setViewName("");
-                }}
-              >
-                Save
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setNaming(false);
-                  setViewName("");
-                }}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <Button variant="outline" size="sm" onClick={() => setNaming(true)}>
-            Save current view
-          </Button>
-        )}
-        <Button variant="outline" size="sm" onClick={() => setFilters(DEFAULT_FILTER_STATE)}>
-          Reset
-        </Button>
+        {/* The real saved-views bar (Saved views, Save current view, Reset) over an
+            in-memory list; the live sidebar renders the same component. */}
+        <MockSavedViewsBar filters={filters} onReset={() => setFilters(DEFAULT_FILTER_STATE)} />
         <Button variant="outline" size="sm" onClick={() => setFilters(sampleView())}>
           Load sample view (mock)
         </Button>
