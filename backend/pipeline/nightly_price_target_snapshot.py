@@ -19,8 +19,8 @@ job and tab views share one fetch. The snapshot table itself still keeps
 every past day: a re-run on the same (ticker, snapshot_date) updates that
 day's row instead of duplicating it (unique index on the pair).
 
-Default schedule: 2:10am server time daily (see crontab.txt in this
-directory), after nightly_fundamentals_fetch and before the 3:10 trend job.
+Default schedule: 3:10am server time daily (see crontab.txt in this
+directory), after nightly_fundamentals_fetch (2:55) and before the 3:25 score recompute.
 
 Run manually against the full US universe:
     uv run python -m pipeline.nightly_price_target_snapshot

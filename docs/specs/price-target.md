@@ -73,7 +73,7 @@ analysts since 2021 with no recency cutoff, hence not comparable to FMP's ~180-d
 one earlier manual test run → `live_consensus`).
 
 **Job**: `pipeline.nightly_price_target_snapshot` (renamed from `monthly_price_target_snapshot`
-2026-09-27), now runs **daily 02:10**. Fetches through the same `price_target_consensus` cache
+2026-09-27), now runs **daily 03:10** (after the 2:55 fundamentals fetch; moved from 02:10 on 2026-09-30 when the nightly chain was reordered technical-first). Fetches through the same `price_target_consensus` cache
 row the Analyst Ratings tab itself uses (1-day staleness), so tab views and the nightly job
 share one fetch — the tab's own At-a-Glance figure is now at most 1 day old after a nightly run.
 Every row written is tagged `live_consensus`; re-running for the same `(ticker, snapshot_date)`

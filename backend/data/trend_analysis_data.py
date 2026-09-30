@@ -482,7 +482,7 @@ def _is_row_stale(row: TrendAnalysis) -> bool:
     computed from bars reaching the most recently completed session -- the
     same principle clients/shared_bars_cache.py::_is_stale applies to the
     bars themselves, one level up. A flat "computed within the last day"
-    check both served a row a full session behind (computed 3:10am, market
+    check both served a row a full session behind (computed ~2am UTC, market
     closes 4pm ET) and recomputed an unchanged one over weekends. `bars_as_of`
     NULL (a row from before that column existed) reads as stale.
 

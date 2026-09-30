@@ -181,7 +181,7 @@ Backend-only data changes to what the Screener (and the ticker header/Summary) s
 
 **Docs corrections in the same change:** `docs/specs/fmp-data-and-bar-cache.md` claimed the five delisted flags were "verified against the live endpoint"; they were actually set by the 2026-09-24 staleness heuristic (a manual `stale_data_health_check` run), not by the `/delisted-companies` sync, and the endpoint check is not reproducible from cached data. **No `docs/specs/ratios.md` exists** (the Ratios tab is undocumented in the specs); a short one is warranted — the Ratios tab's field table, its annual-vs-TTM columns, and now the deliberate difference from the header/Screener P/E — but it is not created here.
 
-**Backfill:** the new basis reaches `TickerScore` on the next nightly recompute (3:50) or an owner-run `uv run python -m pipeline.recompute_ticker_scores` (cache-only, **writes the live DB**).
+**Backfill:** the new basis reaches `TickerScore` on the next nightly recompute (3:25) or an owner-run `uv run python -m pipeline.recompute_ticker_scores` (cache-only, **writes the live DB**).
 
 ### 2026-09-30 — Session 10, part 2: Screener sidebar migration (session 1 of 2)
 
@@ -243,6 +243,19 @@ The Screener controls left over from the sidebar migration move onto the kit. Ma
 - **Styleguide:** the "Screener sidebar (mock)" had its own hand-built Sort select, "↓ Desc" glyph button, "▾" text glyph and naming row (plan-time prototypes that contradicted the live page and the new rules); they are replaced by the real saved-views bar, and the mock has no Sort row (the live sidebar never had one).
 
 **Deferred.** `AddToWatchlistButton` (ticker-page session). Other uses of the hand-written outline override outside the Screener (Watchlist, ticker page, Step 3 and Step 5 forms) migrate with their own pages.
+
+### 2026-09-30 — Nightly cron chain reordered: technical first, fundamentals later
+
+The daily chain now runs 2:00-3:30 AM UTC in this order: last close (2:00) → trend + Weinstein (2:05) →
+Liquidity Zone (2:15) → BB+RSI (2:20) → Warren (2:25) → Sector ETF (2:35) → Market Breadth (2:40) →
+corporate events (2:45) → FMP fundamentals (2:55) → analyst price-target (3:10) → score recompute (3:25) →
+SQLite backup (3:30); monthly momentum (1st–5th) moved 3:05 → 2:50. Previously fundamentals and price-target
+ran first (2:00/2:10) and the technical jobs at 3:10-3:40. Technical data is the higher priority, and nothing
+technical depends on fundamentals. Hard constraints kept: trend fills the bar cache before LP/Sector/Breadth,
+BB+RSI before Warren, recompute after the technical jobs and before the backup. Corporate events was not in the
+requested order; placed after the technical jobs, before fundamentals. Order pinned by
+`backend/tests/test_cron_wiring.py::test_nightly_chain_runs_in_the_agreed_order`. Known exposure: a cold-cache
+fundamentals run (up to ~65 min) can overlap price-target; recompute and backup are cache-only and still run on time.
 
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 

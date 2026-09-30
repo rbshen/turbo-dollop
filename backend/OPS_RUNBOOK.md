@@ -154,8 +154,8 @@ monitoring" below.
 ## Maintenance scripts (`backend/pipeline/`)
 
 All of the scripts below are wired into `crontab.txt`'s weekly maintenance
-window (Sundays 1:15–1:35 AM), the daily backup at 3:55 AM, or the daily
-3:50 AM full-universe score recompute (deliberately last -- it copies the trend/Weinstein, BB+RSI and Warren
+window (Sundays 1:15–1:35 AM), the daily backup at 3:30 AM, or the daily
+3:25 AM full-universe score recompute (deliberately last before the backup -- it copies the trend/Weinstein, BB+RSI and Warren
 outputs onto `TickerScore`, so it has to run after all three). Each can also be run manually with
 `uv run python -m pipeline.<name>` from `backend/`.
 
@@ -173,18 +173,18 @@ revisiting it; `GET /api/tickers/{ticker}/score` also now self-heals a
 row like that on its next view (`core/main.py::ticker_score_out`), but
 this sweep is the backstop for a ticker that's never viewed again.
 
-**Why it runs at 3:50 AM, after the technical jobs (moved from 2:50 on
-2026-09-19):** it copies Trend/Weinstein (3:10), BB+RSI (3:20) and Warren
-(3:40) output onto `TickerScore` for the Screener. At 2:50 it ran before all
+**Why it runs at 3:25 AM, after the technical jobs (moved from 2:50 on
+2026-09-19; whole nightly chain re-timed 2026-09-30, technical first):** it copies Trend/Weinstein (2:05), BB+RSI (2:20) and Warren
+(2:25) output onto `TickerScore` for the Screener. At 2:50 it ran before all
 three, so the Screener always showed the *previous* night's stage/signal —
 up to a full day stale (36 of 579 tickers' Screener Weinstein stage
 disagreed with their own `TrendAnalysis` row). `tests/test_cron_wiring.py::
 test_score_recompute_runs_after_every_job_it_copies_from` fails if it is ever
-scheduled ahead of any of them again. If one of those jobs overruns 3:50, the
+scheduled ahead of any of them again. If one of those jobs overruns 3:25, the
 tickers it hadn't reached read a night behind until the next run.
 
 **Check that the ordering is doing its job** (read-only; run after a nightly
-run finishes, i.e. after ~3:55 AM server time) — both mismatch counts should
+run finishes, i.e. after ~3:30 AM server time) — both mismatch counts should
 be `0`:
 
 ```bash
@@ -232,7 +232,7 @@ a reason to see it in the failure list.
 sector ETFs (`XLK XLF XLV XLE XLI XLY XLP XLU XLB XLRE XLC`) x 7 trailing
 total-return windows (1w/1m/3m/6m/9m/YTD/1y), upserting 77 `SectorEtfReturn`
 rows per session (`data/sector_heatmap_data.py`). One shared-bars-cache batch (FMP daily bars);
-skipped while `daily_prices` is off. Runs at 3:30 AM
+skipped while `daily_prices` is off. Runs at 2:35 AM
 and re-derives the same anchor (the last completed session) on weekends and
 holidays, upserting over its own rows -- harmless. **Scheduled and live** as of
 2026-09-21 (installed via `crontab crontab.txt` from `backend/`; `crontab -l`
@@ -251,7 +251,7 @@ under a fresh date). The page prints its own as-of date, so a job that has
 quietly stopped reads as an old date. Check `Processed` first -- a
 shortfall is FMP not serving a fund or a renamed symbol.
 
-**`nightly_corporate_events`** (3:12 AM, Phase 6a) — refreshes the FMP-backed earnings /
+**`nightly_corporate_events`** (2:45 AM, Phase 6a) — refreshes the FMP-backed earnings /
 dividends / splits cache (`CorporateEvent`, `CorporateEventFetch`; `data/corporate_events_data.py`)
 for every US-listed tracked ticker: two calls per ticker nightly (`/earnings`, `/dividends`, group
 `corporate_events`) plus `/splits` weekly (when never fetched or last fetched >= 6 days ago), each
@@ -266,7 +266,7 @@ only if **every** ticker failed. Skipped (real `skipped` status) while `corporat
 cache then keeps serving. Check it: `select event_type, count(*) from corporateevent group by 1` and
 `select max(fetched_at) from corporateeventfetch`.
 
-**`nightly_last_close_snapshot`** (3:15 AM, Phase 6a) — caches each US-listed tracked ticker's last
+**`nightly_last_close_snapshot`** (2:00 AM, Phase 6a) — caches each US-listed tracked ticker's last
 official close (`TickerLastClose`, latest-only; `data/last_close_data.py`), one
 `/historical-price-eod/full` call each (group `daily_prices`). It is the ticker header's price
 fallback: served when the live FMP quote fails or `profile_quote` is off. Success: `Last-close
@@ -279,10 +279,10 @@ session for the S&P 500 (`IndexConstituent` `sp500`, via `load_sp500_tickers`):
 the % of constituents closing above their own 20-, 50- and 200-day SMA, and new
 52-week highs minus new 52-week lows (intraday High/Low, 252 sessions,
 ties count) — `data/market_breadth_data.py`, `scoring/market_breadth.py`.
-FMP bars from `SharedBarsCache`; skipped while `daily_prices` is off. Runs at 3:35 AM, **after** the 3:10 trend job that warms
+FMP bars from `SharedBarsCache`; skipped while `daily_prices` is off. Runs at 2:40 AM, **after** the 2:05 trend job that warms
 `SharedBarsCache` with all 503 tickers' 2y daily bars, so the normal run is a
 ~3s warm-cache read. If the trend job failed or overran it self-heals with one
-live batch (~30s–5min), which could overlap Warren's 3:40 start (writer-lock
+live batch (~30s–5min), which could overlap the 2:45 corporate-events start (writer-lock
 contention only). A weekend/holiday run re-derives the same anchor and
 upserts over its own row. **Coverage gate:** if fewer than 97% of constituents
 (i.e. more than 15 of 503 missing) have a bar on the anchor session, the job
@@ -444,7 +444,7 @@ its next view.
 Daily bars (`SharedBarsCache` "1d") come from FMP `/historical-price-eod/full` for US-listed
 tickers (data group `daily_prices`) -- the only provider (Massive was removed in Phase 6a, Yahoo in Phase 6b). Non-US
 listings get no nightly bars (the P3 `daily_prices_intl` group and phantom-bar filter were removed in
-the Phase 6a follow-up, 2026-09-26). Only `pipeline.nightly_trend_calculation` (3:10) fetches; LZ/Sector/Breadth/Momentum read
+the Phase 6a follow-up, 2026-09-26). Only `pipeline.nightly_trend_calculation` (2:05) fetches; LZ/Sector/Breadth/Momentum read
 its warm cache.
 
 - **Nightly:** per ticker one call from `last cached bar - 7d` (overlap). The last cached bar is

@@ -253,7 +253,7 @@ class TrendAnalysis(SQLModel, table=True):
     # data/trend_analysis_data.py::get_trend_analysis_data compares against
     # the most recently completed trading session to decide whether the
     # row still reflects the market, instead of asking how long ago
-    # `computed_at` was (a row computed at 3:10am is "fresh" for 24h by that
+    # `computed_at` was (a row computed at ~2am UTC is "fresh" for 24h by that
     # measure, but is a full session behind from the 4pm close onward).
     # Nullable for the usual _add_missing_columns-has-no-backfill reason: a
     # pre-existing row reads NULL, which the freshness check treats as

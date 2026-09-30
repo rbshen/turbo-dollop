@@ -103,7 +103,7 @@ Screener card has no params, so its pill tooltip says "MA").
   A benchmark-fetch failure that run degrades every ticker's Mansfield RS/breakout fields to
   null/false (the same `na()`-passes-through convention) rather than counting as a per-ticker
   failure. The nightly job fetches whatever `rs_benchmark` names.
-- **Cron**: folded into the existing `pipeline/nightly_trend_calculation.py` run (3:10 AM) — no
+- **Cron**: folded into the existing `pipeline/nightly_trend_calculation.py` run (2:05 AM) — no
   separate cron job.
 
 ### Surfacing

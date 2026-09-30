@@ -13,7 +13,7 @@ one deletion is the 4-year trailing prune (`prune_old_events`) that closes each 
 week's splits night, paced to half the plan's documented rate (~1-2 min). A failed
 endpoint keeps that ticker's previous rows for that type.
 
-Default schedule: 3:12 AM server time (UTC). Skipped (a real `skipped` cron status)
+Default schedule: 2:45 AM server time (UTC). Skipped (a real `skipped` cron status)
 while the `corporate_events` group is not live -- the cache then serves as-is.
 
 Run manually (this is also the one-time backfill):

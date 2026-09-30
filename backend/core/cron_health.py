@@ -58,7 +58,7 @@ CRON_JOB_NAMES: list[str] = [
     "pipeline.backup_db",
 ]
 
-# Expected cadence per job, with slack -- daily jobs (2:00 AM through 3:55 AM)
+# Expected cadence per job, with slack -- daily jobs (2:00 AM through 3:30 AM)
 # flagged overdue past ~36h (tolerates one missed run without a false
 # alarm the next morning); weekly-Sunday jobs (1:00-1:30 AM) past ~8 days;
 # the one monthly job (momentum) past ~35 days (safely past any month length). First-
@@ -113,36 +113,36 @@ class JobMetadata(NamedTuple):
 # wiring.
 JOB_METADATA: dict[str, JobMetadata] = {
     "pipeline.nightly_fundamentals_fetch": JobMetadata(
-        "Refetch FMP fundamentals, full tracked universe", "daily", "2:00 AM", 2 * 60
+        "Refetch FMP fundamentals, full tracked universe", "daily", "2:55 AM", 2 * 60 + 55
     ),
     "pipeline.nightly_score_recompute": JobMetadata(
-        "Recompute 5-step scores, full universe", "daily", "3:50 AM", 3 * 60 + 50
+        "Recompute 5-step scores, full universe", "daily", "3:25 AM", 3 * 60 + 25
     ),
     "pipeline.nightly_trend_calculation": JobMetadata(
-        "Trend structure + Weinstein stage, weekly resample", "daily", "3:10 AM", 3 * 60 + 10
+        "Trend structure + Weinstein stage, weekly resample", "daily", "2:05 AM", 2 * 60 + 5
     ),
     "pipeline.nightly_corporate_events": JobMetadata(
-        "Earnings / dividends / splits cache from FMP (Chart E/D markers)", "daily", "3:12 AM", 3 * 60 + 12
+        "Earnings / dividends / splits cache from FMP (Chart E/D markers)", "daily", "2:45 AM", 2 * 60 + 45
     ),
     "pipeline.nightly_last_close_snapshot": JobMetadata(
-        "Last official close per ticker from FMP (header price fallback)", "daily", "3:15 AM", 3 * 60 + 15
+        "Last official close per ticker from FMP (header price fallback)", "daily", "2:00 AM", 2 * 60
     ),
     "pipeline.nightly_entry_signal_calculation": JobMetadata(
-        "BB+RSI (2h) entry signal, W1-W5 watchlists", "daily", "3:20 AM", 3 * 60 + 20
+        "BB+RSI (2h) entry signal, W1-W5 watchlists", "daily", "2:20 AM", 2 * 60 + 20
     ),
     "pipeline.nightly_liquidity_zone_calculation": JobMetadata(
-        "Support/resistance zone detection, W1-W5 watchlists", "daily", "3:25 AM", 3 * 60 + 25
+        "Support/resistance zone detection, W1-W5 watchlists", "daily", "2:15 AM", 2 * 60 + 15
     ),
     "pipeline.nightly_warren_signal_calculation": JobMetadata(
-        "Warren RSI/ADX/WVF (2h) entry signal, W1-W5 watchlists", "daily", "3:40 AM", 3 * 60 + 40
+        "Warren RSI/ADX/WVF (2h) entry signal, W1-W5 watchlists", "daily", "2:25 AM", 2 * 60 + 25
     ),
     "pipeline.nightly_sector_heatmap": JobMetadata(
-        "Sector ETF heatmap (11 SPDR sectors x 7 total-return windows)", "daily", "3:30 AM", 3 * 60 + 30
+        "Sector ETF heatmap (11 SPDR sectors x 7 total-return windows)", "daily", "2:35 AM", 2 * 60 + 35
     ),
     "pipeline.nightly_market_breadth": JobMetadata(
-        "Market breadth (S&P 500 % above 50/200-day SMA, net new 52-week highs)", "daily", "3:35 AM", 3 * 60 + 35
+        "Market breadth (S&P 500 % above 50/200-day SMA, net new 52-week highs)", "daily", "2:40 AM", 2 * 60 + 40
     ),
-    "pipeline.backup_db": JobMetadata("Nightly SQLite backup + rotation", "daily", "3:55 AM", 3 * 60 + 55),
+    "pipeline.backup_db": JobMetadata("Nightly SQLite backup + rotation", "daily", "3:30 AM", 3 * 60 + 30),
     "scrapers.refresh_sp500_list": JobMetadata("Keeps your S&P 500 stock list up to date", "weekly", "Sun 1:00 AM", 60),
     "scrapers.refresh_nasdaq_list": JobMetadata("Keeps your Nasdaq-100 stock list up to date", "weekly", "Sun 1:05 AM", 65),
     "scrapers.refresh_dow_list": JobMetadata("Keeps your Dow Jones stock list up to date", "weekly", "Sun 1:10 AM", 70),
@@ -158,10 +158,10 @@ JOB_METADATA: dict[str, JobMetadata] = {
         "Delete cache rows for confirmed-invalid tickers", "weekly", "Sun 1:35 AM", 95
     ),
     "pipeline.nightly_price_target_snapshot": JobMetadata(
-        "Archive analyst price-target consensus", "daily", "2:10 AM", 2 * 60 + 10
+        "Archive analyst price-target consensus", "daily", "3:10 AM", 3 * 60 + 10
     ),
     "pipeline.monthly_momentum_snapshot": JobMetadata(
-        "3/6/12mo momentum ranking snapshot", "monthly", "1st–5th, 3:05 AM", 3 * 60 + 5
+        "3/6/12mo momentum ranking snapshot", "monthly", "1st–5th, 2:50 AM", 2 * 60 + 50
     ),
 }
 

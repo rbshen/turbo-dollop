@@ -232,17 +232,17 @@ Key mechanics:
 ### Downstream ordering: the Screener's copy of technical fields
 
 `compute_ticker_score` copies `weinstein_*` (+ `reversal_status`/`pullback_status`) from
-`TrendAnalysis` (written by the 3:10 trend job), `bb_rsi_entry_signal` from the 3:20 BB+RSI job's
-row, and `warren_active_signal_kind`/`warren_last_buy_fired_at` from the 3:40 Warren job's rows.
-The full-universe recompute (`pipeline.nightly_score_recompute`) therefore runs at **3:50 AM**,
-after all three and before the 3:55 backup (cache-only, zero FMP calls, ~30s; Warren is ~2 min
+`TrendAnalysis` (written by the 2:05 trend job), `bb_rsi_entry_signal` from the 2:20 BB+RSI job's
+row, and `warren_active_signal_kind`/`warren_last_buy_fired_at` from the 2:25 Warren job's rows.
+The full-universe recompute (`pipeline.nightly_score_recompute`) therefore runs at **3:25 AM**,
+after all three and before the 3:30 backup (cache-only, zero FMP calls, ~30s; Warren is ~2 min
 today, ~9 min theoretical worst case). Nothing else depends on that order: the trend job reads
-only the shared bars cache and its own universe. The 2:00 fundamentals fetch still scores each
-ticker inline, so fundamentals-derived fields are fresh from 2:00; its technical fields are
-overwritten by the 3:50 sweep. Pinned by
+only the shared bars cache and its own universe. The 2:55 fundamentals fetch (since the 2026-09-30 reorder, technical jobs first) scores each
+ticker inline after the technical jobs, so it already sees same-night technical fields; the 3:25 sweep
+is the backstop for ad-hoc tickers outside the index universe. Pinned by
 `tests/test_cron_wiring.py::test_score_recompute_runs_after_every_job_it_copies_from` (and
 `JOB_METADATA`'s time label by `test_job_metadata_sort_minutes_match_crontab`). After any night
-the trend/BB+RSI/Warren job overruns 3:50, the affected tickers just read a night behind. The
+the trend/BB+RSI/Warren job overruns 3:25, the affected tickers just read a night behind. The
 night-behind bug this ordering fixed (2026-09-19) is recorded in
 `docs/archive/claude-md-history-technical-signals.md`. Note that editing `crontab.txt` alone
 changes nothing on the box — it must be reinstalled from `backend/` (`crontab crontab.txt`) and
@@ -274,7 +274,7 @@ archived in `docs/archive/claude-md-history-fmp-migration.md`.
   `unserved_tickers` out-parameter and keeps its cached bars; `daily_prices` off / master off /
   above plan / restricted reports the whole batch unserved — **cache-only, and the daily-bar jobs
   record `skipped`** (Phase 6b). Heartbeat message: `N not served by FMP (cached bars kept)`.
-- **Nightly incremental** (only the 3:10 trend job actually fetches; Liquidity Zones/Heatmap/
+- **Nightly incremental** (only the 2:05 trend job actually fetches; Liquidity Zones/Heatmap/
   Breadth/Momentum read its warm cache): per ticker, one `full?from=<last cached bar - 7d>` call
   (`FMP_OVERLAP_DAYS`). The last cached bar is always overwritten; any EARLIER overlapping close
   that differs from the cache by more than 0.5% (`FMP_OVERLAP_TOLERANCE`) means FMP restated

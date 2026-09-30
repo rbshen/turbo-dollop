@@ -105,3 +105,47 @@ def test_job_metadata_sort_minutes_match_crontab():
             f"{module}: JOB_METADATA says minute-of-day {JOB_METADATA[module].sort_minutes} "
             f"but crontab.txt schedules it at {hour}:{minute}"
         )
+
+
+# The nightly chain order (2026-09-30): technical first, fundamentals later.
+# Each consecutive pair must be scheduled strictly later than the one before,
+# so a schedule edit can't silently regress the agreed order. Hard constraints
+# (trend fills the bar cache before LP/Sector/Breadth; BB+RSI before Warren;
+# recompute after the technical jobs and before the backup) are a subset.
+_NIGHTLY_CHAIN_ORDER = [
+    "pipeline.nightly_last_close_snapshot",
+    "pipeline.nightly_trend_calculation",
+    "pipeline.nightly_liquidity_zone_calculation",
+    "pipeline.nightly_entry_signal_calculation",
+    "pipeline.nightly_warren_signal_calculation",
+    "pipeline.nightly_sector_heatmap",
+    "pipeline.nightly_market_breadth",
+    "pipeline.nightly_fundamentals_fetch",
+    "pipeline.nightly_price_target_snapshot",
+    "pipeline.nightly_score_recompute",
+    "pipeline.backup_db",
+]
+
+
+def test_nightly_chain_runs_in_the_agreed_order():
+    for earlier, later in zip(_NIGHTLY_CHAIN_ORDER, _NIGHTLY_CHAIN_ORDER[1:]):
+        assert _daily_minute_of_day(earlier) < _daily_minute_of_day(later), (
+            f"{earlier} must be scheduled before {later} (technical jobs first, fundamentals later)"
+        )
+
+
+def test_corporate_events_runs_after_technical_jobs_and_before_fundamentals():
+    events = _daily_minute_of_day("pipeline.nightly_corporate_events")
+    assert _daily_minute_of_day("pipeline.nightly_market_breadth") < events
+    assert events < _daily_minute_of_day("pipeline.nightly_fundamentals_fetch")
+
+
+def test_no_two_daily_jobs_share_a_minute():
+    # Same-minute starts risk SQLite writer-lock contention (2026-09-11 cron audit).
+    seen: dict[tuple[str, str], str] = {}
+    for module, (minute, hour, dom, month, dow) in _crontab_schedule().items():
+        if (dom, month, dow) != ("*", "*", "*"):
+            continue
+        key = (hour, minute)
+        assert key not in seen, f"{module} and {seen[key]} both start at {hour}:{minute}"
+        seen[key] = module

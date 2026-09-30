@@ -73,8 +73,7 @@ snapshots doesn't exist until Sep 2027. 370 (originally 366, widened 2026-09-21)
 date one year ago" lookup still finds its row: when that date lands on a weekend/holiday it
 resolves to the prior session, up to 369-370 days back.
 
-`pipeline.nightly_sector_heatmap`, 3:30 AM — the free slot between Liquidity Zones (3:25) and
-Warren (3:40), one 11-ticker batch (~1-4s). Raises (heartbeat "failure") only if NOTHING
+`pipeline.nightly_sector_heatmap`, 2:35 AM — after Warren (2:25) and before Market Breadth (2:40), one 11-ticker batch (~1-4s). Raises (heartbeat "failure") only if NOTHING
 computed; one failed fund is logged and shows blank under the new as-of date rather than a stale
 number under a fresh date. The job is wired into `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS`/
 `JOB_METADATA`/`crontab.txt`/`OPS_RUNBOOK.md`; a `crontab.txt` edit alone changes nothing on the

@@ -156,7 +156,7 @@ its own rows and still shows an ETF a user explicitly added.
 - **Null handling**: `is_etf` wins when set; a row with no `is_etf` yet (every row until its next
   recompute) falls back to `company_type == "ETF"` — derived from the same profile flag — rather
   than "not an ETF", so an ETF is excluded immediately, not after the next recompute. The nightly
-  3:50 `nightly_score_recompute` backfills the column (or run
+  3:25 `nightly_score_recompute` backfills the column (or run
   `uv run python -m pipeline.recompute_ticker_scores`, cache-only). The SQL in `screener_meta` and
   `isEtfRow` in TypeScript must stay in sync.
 - **No Country filter any more**: the original write-up noted that the Screener's Country=US

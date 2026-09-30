@@ -9,7 +9,7 @@ marker reads them yet.
 
 ## Refresh job
 
-`pipeline/nightly_corporate_events.py` (cron 3:12 AM server time; registered in `core/cron_health.py`).
+`pipeline/nightly_corporate_events.py` (cron 2:45 AM server time; registered in `core/cron_health.py`).
 Earnings and dividends refresh nightly. Splits refresh **weekly** (`SPLITS_REFRESH_DAYS = 6`, via
 `splits_due`): a ticker's splits are due when never fetched, or last successfully fetched at least 6 days
 ago. The check is judged off `CorporateEventFetch`, not the weekday, so a missed run self-heals the next

@@ -9,7 +9,7 @@ listings only, minus delisted-flagged). One `/historical-price-eod/full` call pe
 ticker (~590/night, ~1 min paced). Skipped (a real `skipped` cron status) while the
 `daily_prices` group is not live -- there is no other source any more.
 
-Default schedule: 3:15 AM server time (UTC), after the 3:10 trend job and long after
+Default schedule: 2:00 AM server time (UTC), first in the nightly chain, long after
 the US close, so the newest completed session's close is final. Runs every day; a
 weekend/holiday run re-caches the same session idempotently.
 

@@ -72,11 +72,11 @@ from today's constituents. A re-run fills 0.
 
 ## Nightly job and coverage gate
 
-`pipeline.nightly_market_breadth`, 3:35 AM (after the 3:10 trend job, which warms the shared
-cache; before Warren's 3:40). Reuses the SAME `get_or_fetch_bars_batch` call the trend job
+`pipeline.nightly_market_breadth`, 2:40 AM (after the 2:05 trend job, which warms the shared
+cache; before corporate events at 2:45). Reuses the SAME `get_or_fetch_bars_batch` call the trend job
 already made, so after it this is a warm-cache read (~3s, zero incremental FMP requests) — if
 the trend job failed, this job self-heals with one live ~503-request fetch (30s-5min) that could
-overlap Warren's start (writer-lock contention only). Universe = `load_sp500_tickers`
+overlap the next job's start (writer-lock contention only). Universe = `load_sp500_tickers`
 strictly (**not** the S&P 500 ∪ Dow union `load_universe_tickers` returns — the original
 requested design named the latter, but since Dow ⊂ S&P 500 the two happen to be identical today;
 the strict function was chosen anyway since it can't silently drift if a Dow-only name ever

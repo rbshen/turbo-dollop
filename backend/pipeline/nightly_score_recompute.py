@@ -32,8 +32,8 @@ page view.
 Pure computation, no network -- makes zero FMP calls, safe to run anytime,
 no rate-limit pacing needed (unlike nightly_fundamentals_fetch.py).
 
-Scheduled LAST in the nightly chain (3:50 AM, after the trend/BB+RSI/Warren
-jobs): compute_ticker_score copies their output onto TickerScore, so running
+Scheduled LAST before the backup in the nightly chain (3:25 AM, after the
+trend/BB+RSI/Warren jobs): compute_ticker_score copies their output onto TickerScore, so running
 earlier leaves the Screener's copy of those fields a night behind -- see
 crontab.txt's own comment on this entry and tests/test_cron_wiring.py.
 
