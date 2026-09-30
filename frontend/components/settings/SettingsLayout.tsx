@@ -146,6 +146,7 @@ export function SettingsFooter({
   status,
   updatedAt,
   invalid = false,
+  unchanged = false,
   className,
 }: {
   onSave: () => void;
@@ -154,12 +155,14 @@ export function SettingsFooter({
   updatedAt: string | Date;
   /** A field is invalid: Save is disabled and the status says why. */
   invalid?: boolean;
+  /** Nothing differs from the stored values yet: Save is disabled (no message). */
+  unchanged?: boolean;
   className?: string;
 }) {
   const message = invalid ? "Fix the highlighted fields to save." : STATUS_TEXT[status];
   return (
     <div className={cn("mt-6 flex flex-wrap items-center gap-x-3 gap-y-1", className)}>
-      <Button variant="primary" onClick={onSave} disabled={status === "saving" || invalid}>
+      <Button variant="primary" onClick={onSave} disabled={status === "saving" || invalid || unchanged}>
         Save
       </Button>
       <span

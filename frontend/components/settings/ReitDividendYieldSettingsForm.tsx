@@ -6,21 +6,20 @@ import { mutate } from "swr";
 import { apiPut } from "@/lib/api/client";
 import type { ReitDividendYieldConfigOut } from "@/lib/api/types";
 import { useReitDividendYieldConfig } from "@/lib/hooks/useReitDividendYieldConfig";
-import { Button } from "@/components/ui/button";
-import { Field, Input } from "@/components/ui/input";
-import { Section } from "@/components/ui/section";
-
-type Status = "idle" | "saving" | "saved" | "error";
-
-const STATUS_LABELS: Record<Status, string> = {
-  idle: "Save",
-  saving: "Saving…",
-  saved: "Saved ✓",
-  error: "Save failed",
-};
+import { NumberField } from "@/components/ui/number-field";
+import {
+  SettingsFooter,
+  SettingsGroup,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings/SettingsLayout";
+import { useSettingsSave, type SettingsSaver } from "@/components/settings/useSettingsSave";
+import { checkNumber } from "@/lib/numberInput";
 
 export function ReitDividendYieldSettingsForm() {
   const { data, error, isLoading } = useReitDividendYieldConfig();
+  // Held here, above the keyed form below, so "Saved ✓" survives the remount.
+  const saver = useSettingsSave();
 
   if (error) {
     return <p className="text-sm text-negative">Couldn&apos;t load REIT dividend yield settings — {error.message}</p>;
@@ -31,25 +30,25 @@ export function ReitDividendYieldSettingsForm() {
   }
 
   // Keyed on updated_at so a save (which changes updated_at) remounts this
-  // with fresh initial text -- same pattern as DiscountRateSettingsForm/
-  // MoatSettingsForm.
-  return <ReitDividendYieldForm key={data.updated_at} data={data} />;
+  // with fresh initial text -- same pattern as the other settings forms.
+  return <ReitDividendYieldForm key={data.updated_at} data={data} saver={saver} />;
 }
 
-// A single config object, one field -- content sits directly in the
-// Section, no Card wrapper (same reasoning as MoatSettingsForm).
-function ReitDividendYieldForm({ data }: { data: ReitDividendYieldConfigOut }) {
+// A single config object, one field. No bounds: the server has none, so the
+// only check is "is it a number" -- a value is never clamped or corrected.
+function ReitDividendYieldForm({ data, saver }: { data: ReitDividendYieldConfigOut; saver: SettingsSaver }) {
   const [thresholdText, setThresholdText] = useState(String(data.threshold_pct));
-  const [status, setStatus] = useState<Status>("idle");
 
-  async function handleSave() {
-    const thresholdPct = parseFloat(thresholdText);
-    if (Number.isNaN(thresholdPct)) {
-      setStatus("error");
-      return;
-    }
-    setStatus("saving");
-    try {
+  const check = checkNumber(thresholdText);
+  const invalid = check.error !== null;
+  // An unparsable entry counts as edited (it is not the stored value) but
+  // blocks Save through `invalid`.
+  const unchanged = check.value !== null && check.value === data.threshold_pct;
+
+  function handleSave() {
+    if (check.value === null || invalid) return;
+    const thresholdPct = check.value;
+    void saver.run(async () => {
       await apiPut<ReitDividendYieldConfigOut>("/config/reit-dividend-yield", { threshold_pct: thresholdPct });
       await mutate("/config/reit-dividend-yield");
       // This threshold feeds Step3Out.dividend_yield_meets_reit_threshold
@@ -57,43 +56,32 @@ function ReitDividendYieldForm({ data }: { data: ReitDividendYieldConfigOut }) {
       // the ticker header, which also reads Step 3's result) so the next
       // view reflects the new threshold without a manual page reload.
       await mutate((key) => typeof key === "string" && (key.includes("/step3") || key.includes("/summary")));
-      setStatus("saved");
-    } catch {
-      setStatus("error");
-    } finally {
-      setTimeout(() => setStatus("idle"), 3000);
-    }
+    });
   }
 
   return (
-    <Section title="REIT Dividend Yield Threshold">
-      <p className="text-xs text-text-tertiary">
-        Informational bargain-reference check shown on REIT/Property Developer tickers&apos; Valuation tab
-        (valuation.md §3.3) — flags whether trailing dividend yield is at or above this threshold. Never affects
-        the Price-to-Book calculation or verdict itself.
-      </p>
+    <SettingsSection
+      title="REIT dividend yield threshold"
+      intro="Sets the dividend yield at or above which a REIT or property developer is flagged as a possible bargain on its Valuation tab. This is an informational check only; it never changes the Price-to-Book calculation or verdict."
+    >
+      <SettingsGroup>
+        <SettingsRow
+          label="Threshold"
+          hint="A REIT or property developer is flagged when its trailing dividend yield is at or above this. A reference check only; it never changes the Price-to-Book result."
+          htmlFor="reit-dividend-yield-threshold"
+          error={check.error}
+        >
+          <NumberField value={thresholdText} onChange={setThresholdText} size="short" unit="%" step={0.1} />
+        </SettingsRow>
+      </SettingsGroup>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Threshold (%)" htmlFor="reit-dividend-yield-threshold">
-          <Input
-            id="reit-dividend-yield-threshold"
-            variant="boxed"
-            type="number"
-            step="0.1"
-            min="0"
-            className="mt-1 w-full font-mono"
-            value={thresholdText}
-            onChange={(e) => setThresholdText(e.target.value)}
-          />
-        </Field>
-      </div>
-
-      <div className="mt-6 flex items-center gap-3">
-        <Button variant="primary" onClick={handleSave} disabled={status === "saving"}>
-          {STATUS_LABELS[status]}
-        </Button>
-        <p className="text-xs text-text-tertiary">Last updated {new Date(data.updated_at).toLocaleString()}</p>
-      </div>
-    </Section>
+      <SettingsFooter
+        onSave={handleSave}
+        status={saver.status}
+        invalid={invalid}
+        unchanged={unchanged}
+        updatedAt={data.updated_at}
+      />
+    </SettingsSection>
   );
 }

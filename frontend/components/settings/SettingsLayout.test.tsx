@@ -284,6 +284,12 @@ describe("SettingsFooter", () => {
     expect(screen.getByText("Save failed")).toHaveClass("text-negative");
   });
 
+  it("disables Save, silently, while nothing differs from the stored values", () => {
+    render(<SettingsFooter onSave={() => {}} status="idle" unchanged updatedAt="2026-09-30T12:00:00" />);
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.queryByText("Fix the highlighted fields to save.")).toBeNull();
+  });
+
   it("disables Save and says why while a field is invalid", () => {
     render(<SettingsFooter onSave={() => {}} status="idle" invalid updatedAt="2026-09-30T12:00:00" />);
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
