@@ -96,3 +96,41 @@ describe("Checkbox: disabled and aria", () => {
     expect(screen.getByText("x").closest("label")).toHaveClass("has-[:disabled]:opacity-45");
   });
 });
+
+describe("Checkbox: no label prop (a Settings row names it)", () => {
+  it("renders no wrapping <label>, so the row's label is the only accessible label", () => {
+    render(<Checkbox id="bare" variant="neutral" />);
+    const input = document.getElementById("bare") as HTMLInputElement;
+    expect(input.closest("label")).toBeNull();
+    expect(input.labels?.length).toBe(0);
+  });
+
+  it("covers the box with the input so a click on the box still toggles it", () => {
+    render(<Checkbox id="bare" variant="neutral" />);
+    const input = document.getElementById("bare") as HTMLInputElement;
+    expect(input).toHaveClass("absolute", "inset-0", "h-full", "w-full", "opacity-0", "peer");
+    expect(input).not.toHaveClass("sr-only");
+    expect(boxOf(input)).toHaveClass("pointer-events-none", "peer-checked:bg-text-primary");
+    expect(checkOf(input)).toHaveClass("pointer-events-none");
+    fireEvent.click(input);
+    expect(input.checked).toBe(true);
+  });
+
+  it("keeps the focus ring, the disabled dimming and the className on the wrapper", () => {
+    render(<Checkbox id="bare" variant="neutral" disabled className="ml-2" />);
+    const input = document.getElementById("bare") as HTMLInputElement;
+    expect(input).toBeDisabled();
+    expect(boxOf(input).className).toMatch(/peer-focus-visible:outline-2/);
+    expect(input.parentElement).toHaveClass("has-[:disabled]:opacity-45", "ml-2");
+  });
+
+  it("keeps the labelled and chip forms unchanged (wrapping label, sr-only input)", () => {
+    render(<Checkbox id="l" label="Exclude ETFs" />);
+    const input = screen.getByLabelText("Exclude ETFs");
+    expect(input.closest("label")).not.toBeNull();
+    expect(input).toHaveClass("sr-only");
+    cleanup();
+    render(<Checkbox id="c" variant="chip" />);
+    expect(document.getElementById("c")?.closest("label")).not.toBeNull();
+  });
+});

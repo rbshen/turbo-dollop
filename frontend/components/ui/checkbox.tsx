@@ -15,6 +15,10 @@
 // the Screener toggle-chip shell done properly -- a 32px radius-md chip with a
 // border-input hairline that fills surface-2 when checked. At migration
 // "neutral" becomes the default and "brand" goes away.
+//
+// With no `label` prop (a Settings row, whose own <label for> names it) there
+// is no wrapping <label> at all: the input is laid over the box, so a click on
+// the box still toggles it, and the row's label is the only accessible name.
 import { forwardRef, type InputHTMLAttributes, type ReactNode } from "react";
 import { Check } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
@@ -30,6 +34,51 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
     const ctx = useFormFieldContext();
     const fieldId = id ?? ctx?.id;
     const neutral = variant !== "brand";
+    // A label-less checkbox is not wrapped in a <label>: the input covers the box.
+    const bare = !label && variant !== "chip";
+    const control = (
+      <span
+        className={cn(
+          "relative inline-flex h-4 w-4 shrink-0 items-center justify-center",
+          bare && ["has-[:disabled]:opacity-45", className],
+        )}
+      >
+        <input
+          ref={ref}
+          id={fieldId}
+          type="checkbox"
+          disabled={disabled ?? ctx?.disabled}
+          aria-describedby={ariaDescribedBy ?? describedByOf(ctx)}
+          className={
+            bare
+              ? "peer absolute inset-0 m-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+              : "peer sr-only"
+          }
+          {...props}
+        />
+        <span
+          aria-hidden
+          className={cn(
+            "absolute inset-0 rounded-[3px] border border-border-control transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand",
+            neutral
+              ? "peer-checked:border-text-primary peer-checked:bg-text-primary"
+              : "peer-checked:border-brand peer-checked:bg-brand",
+            bare && "pointer-events-none",
+          )}
+        />
+        <Check
+          aria-hidden
+          weight="bold"
+          size={11}
+          className={cn(
+            "relative z-10 opacity-0 peer-checked:opacity-100",
+            neutral ? "text-page" : "text-on-brand",
+            bare && "pointer-events-none",
+          )}
+        />
+      </span>
+    );
+    if (bare) return control;
     return (
       <label
         htmlFor={fieldId}
@@ -42,35 +91,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
           className,
         )}
       >
-        <span className="relative inline-flex h-4 w-4 shrink-0 items-center justify-center">
-          <input
-            ref={ref}
-            id={fieldId}
-            type="checkbox"
-            disabled={disabled ?? ctx?.disabled}
-            aria-describedby={ariaDescribedBy ?? describedByOf(ctx)}
-            className="peer sr-only"
-            {...props}
-          />
-          <span
-            aria-hidden
-            className={cn(
-              "absolute inset-0 rounded-[3px] border border-border-control transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand",
-              neutral
-                ? "peer-checked:border-text-primary peer-checked:bg-text-primary"
-                : "peer-checked:border-brand peer-checked:bg-brand",
-            )}
-          />
-          <Check
-            aria-hidden
-            weight="bold"
-            size={11}
-            className={cn(
-              "relative z-10 opacity-0 peer-checked:opacity-100",
-              neutral ? "text-page" : "text-on-brand",
-            )}
-          />
-        </span>
+        {control}
         {label && <span>{label}</span>}
       </label>
     );

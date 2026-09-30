@@ -6,26 +6,33 @@ import { mutate } from "swr";
 import { apiPut } from "@/lib/api/client";
 import type { LiquidityZoneConfigOut } from "@/lib/api/types";
 import { useLiquidityZoneConfig } from "@/lib/hooks/useLiquidityZoneConfig";
-import { InfoTooltip } from "@/components/ui/InfoTooltip";
-import { NumberStepper } from "@/components/ui/NumberStepper";
-import { Select } from "@/components/ui/Select";
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field } from "@/components/ui/input";
-import { Section } from "@/components/ui/section";
-import { cn } from "@/lib/utils";
+import { Select } from "@/components/ui/Select";
+import { NumberSettingRow } from "@/components/settings/NumberSettingRow";
+import {
+  SettingsFooter,
+  SettingsGroup,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings/SettingsLayout";
+import { useSettingsSave, type SettingsSaver } from "@/components/settings/useSettingsSave";
+import { checkNumber, type NumberRules } from "@/lib/numberInput";
 
-type Status = "idle" | "saving" | "saved" | "error";
-
-const STATUS_LABELS: Record<Status, string> = {
-  idle: "Save",
-  saving: "Saving…",
-  saved: "Saved ✓",
-  error: "Save failed",
-};
+// The bounds are the server's own (LiquidityZoneConfigIn in backend/core/
+// schemas.py). A value outside a bound, or a non-integer in an integer field,
+// shows an inline error and blocks Save; nothing is clamped, snapped, rounded
+// or reverted for the user.
+const RULES = {
+  swingBars: { integer: true, min: 1, max: 3 },
+  cluster: { min: 0, max: 3 },
+  maxZones: { integer: true, min: 1, max: 10 },
+  recency: { integer: true, min: 1, max: 52 },
+} satisfies Record<string, NumberRules>;
 
 export function LiquidityZoneSettingsForm() {
   const { data, error, isLoading } = useLiquidityZoneConfig();
+  // Held here, above the keyed form below, so "Saved ✓" survives the remount.
+  const saver = useSettingsSave();
 
   if (error) {
     return <p className="text-sm text-negative">Couldn&apos;t load Liquidity Zone settings — {error.message}</p>;
@@ -35,164 +42,164 @@ export function LiquidityZoneSettingsForm() {
     return <p className="text-sm text-text-tertiary animate-pulse">Loading…</p>;
   }
 
-  // Keyed on updated_at so a save remounts this with fresh initial state --
-  // same convention as DiscountRateSettingsForm.
-  return <LiquidityZoneForm key={data.updated_at} data={data} />;
+  // Keyed on updated_at so a save remounts this with fresh initial state.
+  return <LiquidityZoneForm key={data.updated_at} data={data} saver={saver} />;
 }
 
-// A single config object -- content sits directly in the Section, no Card
-// wrapper (same reasoning as MoatSettingsForm/WeinsteinSettingsForm). The
-// three field groups below are plain subheadings, not nested Sections, for
-// the same reason WeinsteinSettingsForm's two groups are.
-function LiquidityZoneForm({ data }: { data: LiquidityZoneConfigOut }) {
-  const [swingBars, setSwingBars] = useState(data.swing_bars_each_side);
-  const [clusterPct, setClusterPct] = useState(data.cluster_pct);
-  const [maxLps, setMaxLps] = useState(data.max_lps_per_side);
+// A single config object. The three groups below are sub-headings within one
+// save action, not independently-saved panels.
+function LiquidityZoneForm({ data, saver }: { data: LiquidityZoneConfigOut; saver: SettingsSaver }) {
+  // Every number is held as the raw text, like the other Settings forms.
+  const [swingBars, setSwingBars] = useState(String(data.swing_bars_each_side));
+  const [clusterPct, setClusterPct] = useState(String(data.cluster_pct));
+  const [maxLps, setMaxLps] = useState(String(data.max_lps_per_side));
   const [priority, setPriority] = useState<LiquidityZoneConfigOut["over_cap_priority"]>(data.over_cap_priority);
   const [keepSupport, setKeepSupport] = useState(data.keep_last_breached_support);
   const [keepResistance, setKeepResistance] = useState(data.keep_last_breached_resistance);
   const [onlyRecent, setOnlyRecent] = useState(data.only_keep_if_breached_recently);
-  const [recencyBars, setRecencyBars] = useState(data.breach_recency_bars);
-  const [status, setStatus] = useState<Status>("idle");
+  const [recencyBars, setRecencyBars] = useState(String(data.breach_recency_bars));
 
-  async function handleSave() {
-    setStatus("saving");
-    try {
-      await apiPut<LiquidityZoneConfigOut>("/config/liquidity-zones", {
-        swing_bars_each_side: swingBars,
-        cluster_pct: clusterPct,
-        max_lps_per_side: maxLps,
-        breach_recency_bars: recencyBars,
-        over_cap_priority: priority,
-        keep_last_breached_support: keepSupport,
-        keep_last_breached_resistance: keepResistance,
-        only_keep_if_breached_recently: onlyRecent,
-      });
+  const swingCheck = checkNumber(swingBars, RULES.swingBars);
+  const clusterCheck = checkNumber(clusterPct, RULES.cluster);
+  const maxLpsCheck = checkNumber(maxLps, RULES.maxZones);
+  const recencyCheck = checkNumber(recencyBars, RULES.recency);
+
+  // Breach recency only applies while "only keep if breached recently" is
+  // ticked. While it is not, the field is disabled, never validated, never
+  // blocks Save, and the STORED value is sent unchanged.
+  const recencyApplies = onlyRecent;
+  const invalid =
+    swingCheck.error !== null ||
+    clusterCheck.error !== null ||
+    maxLpsCheck.error !== null ||
+    (recencyApplies && recencyCheck.error !== null);
+
+  // Edited = differs from the stored value. An unparsable entry is not the
+  // stored value, so it counts as edited (and blocks Save through `invalid`).
+  const unchanged =
+    swingCheck.value === data.swing_bars_each_side &&
+    clusterCheck.value === data.cluster_pct &&
+    maxLpsCheck.value === data.max_lps_per_side &&
+    priority === data.over_cap_priority &&
+    keepSupport === data.keep_last_breached_support &&
+    keepResistance === data.keep_last_breached_resistance &&
+    onlyRecent === data.only_keep_if_breached_recently &&
+    (!recencyApplies || recencyCheck.value === data.breach_recency_bars);
+
+  function handleSave() {
+    if (invalid || swingCheck.value === null || clusterCheck.value === null || maxLpsCheck.value === null) return;
+    const recency = recencyApplies ? recencyCheck.value : data.breach_recency_bars;
+    if (recency === null) return;
+    const body = {
+      swing_bars_each_side: swingCheck.value,
+      cluster_pct: clusterCheck.value,
+      max_lps_per_side: maxLpsCheck.value,
+      breach_recency_bars: recency,
+      over_cap_priority: priority,
+      keep_last_breached_support: keepSupport,
+      keep_last_breached_resistance: keepResistance,
+      only_keep_if_breached_recently: onlyRecent,
+    };
+    void saver.run(async () => {
+      await apiPut<LiquidityZoneConfigOut>("/config/liquidity-zones", body);
       await mutate("/config/liquidity-zones");
-      setStatus("saved");
-    } catch {
-      setStatus("error");
-    } finally {
-      setTimeout(() => setStatus("idle"), 3000);
-    }
+    });
   }
 
-  const fieldLabel = (text: string, tooltip: { label: string; text: string }) => (
-    <span className="inline-flex items-center gap-1.5">
-      {text}
-      <InfoTooltip label={tooltip.label} text={tooltip.text} />
-    </span>
-  );
-
   return (
-    <Section title="Liquidity Zones">
-      <p className="text-xs text-text-tertiary">
-        Swing-based support/resistance detection, computed nightly for watchlists named W1 through W5 only. One set of
-        settings is shared by the Daily and Weekly computations. Changes here apply on the next nightly run, not
-        retroactively.
-      </p>
+    <SettingsSection
+      title="Liquidity zones"
+      intro="Support and resistance levels found from swings in price, computed nightly for watchlists named W1 through W5 only. One set of settings is shared by the Daily and Weekly computations. A change applies on the next nightly run, not retroactively."
+    >
+      <SettingsGroup title="Detection">
+        <NumberSettingRow
+          id="lz-swing-bars"
+          label="Swing bars each side"
+          hint="How many bars on each side of a pivot it takes to confirm a swing. 2 means a 5-bar window."
+          rules={RULES.swingBars}
+          value={swingBars}
+          onChange={setSwingBars}
+        />
+        <NumberSettingRow
+          id="lz-cluster-pct"
+          label="Cluster"
+          unit="%"
+          step={0.1}
+          hint="Zones within this percentage of each other merge into one. 0 turns merging off."
+          rules={RULES.cluster}
+          value={clusterPct}
+          onChange={setClusterPct}
+        />
+      </SettingsGroup>
 
-      <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-3">
-        <div className="space-y-4">
-          <h3 className="text-xs font-semibold text-text-secondary">Detection</h3>
-          <Field
-            label={fieldLabel("Swing bars (each side)", {
-              label: "About swing bars",
-              text: "Bars on EACH side of the pivot. 2 = a 5-bar window (2 left + pivot + 2 right). A swing needs this many bars to its right before it is confirmed.",
-            })}
-            htmlFor="lz-swing-bars"
+      <SettingsGroup title="Display">
+        <NumberSettingRow
+          id="lz-max-lps"
+          label="Max zones per side"
+          hint="The most zones shown above and below price. The last-breached zone is extra and does not count."
+          rules={RULES.maxZones}
+          value={maxLps}
+          onChange={setMaxLps}
+        />
+        <SettingsRow
+          label="When over the cap, keep"
+          htmlFor="lz-priority"
+          hint="Nearest to price keeps the zones closest to today's price; most recent keeps the newest."
+        >
+          <Select
+            size="medium"
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as LiquidityZoneConfigOut["over_cap_priority"])}
           >
-            <NumberStepper id="lz-swing-bars" value={swingBars} onChange={setSwingBars} min={1} max={3} step={1} />
-          </Field>
-          <Field
-            label={fieldLabel("Cluster % (0 disables)", {
-              label: "About cluster %",
-              text: "Merge consecutive valid liquidity zones within this % of each other into one zone. Support zones are represented by their LOWEST price; resistance zones by their HIGHEST price. 0 = clustering off.",
-            })}
-            htmlFor="lz-cluster-pct"
-          >
-            <NumberStepper id="lz-cluster-pct" value={clusterPct} onChange={setClusterPct} min={0} max={3} step={0.1} />
-          </Field>
-        </div>
+            <option value="nearest_price">Nearest to price</option>
+            <option value="most_recent">Most recent</option>
+          </Select>
+        </SettingsRow>
+      </SettingsGroup>
 
-        <div className="space-y-4">
-          <h3 className="text-xs font-semibold text-text-secondary">Display</h3>
-          <Field
-            label={fieldLabel("Max zones per side", {
-              label: "About max zones per side",
-              text: "Cap on how many valid zones to show per side. The last-breached zone (if enabled below) is shown separately and does not count toward this cap.",
-            })}
-            htmlFor="lz-max-lps"
-          >
-            <NumberStepper id="lz-max-lps" value={maxLps} onChange={setMaxLps} min={1} max={10} step={1} />
-          </Field>
-          <Field
-            label={fieldLabel("When over the cap, keep", {
-              label: "About over-cap priority",
-              text: "When there are more valid zones than the cap allows, choose which to keep: 'Nearest price' keeps the zones closest to the current price; 'Most recent' keeps the newest ones instead, regardless of price distance.",
-            })}
-            htmlFor="lz-priority"
-          >
-            <Select
-              id="lz-priority"
-              className="mt-1"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as LiquidityZoneConfigOut["over_cap_priority"])}
-            >
-              <option value="nearest_price">Nearest to price</option>
-              <option value="most_recent">Most recent</option>
-            </Select>
-          </Field>
-        </div>
+      <SettingsGroup title="Last breached liquidity">
+        {/* The row's own <label for> is each checkbox's only accessible name. */}
+        <SettingsRow
+          label="Keep last breached support"
+          htmlFor="lz-keep-support"
+          hint="Also draw one support level that price has already broken below: the broken one closest to the supports still holding."
+        >
+          <Checkbox variant="neutral" checked={keepSupport} onChange={(e) => setKeepSupport(e.target.checked)} />
+        </SettingsRow>
+        <SettingsRow
+          label="Keep last breached resistance"
+          htmlFor="lz-keep-resistance"
+          hint="Also draw one resistance level that price has already broken above: the broken one closest to the resistances still holding."
+        >
+          <Checkbox variant="neutral" checked={keepResistance} onChange={(e) => setKeepResistance(e.target.checked)} />
+        </SettingsRow>
+        <SettingsRow
+          label="Only keep if breached recently"
+          htmlFor="lz-only-recent"
+          hint="Show a kept level only when the break happened within the window below."
+        >
+          <Checkbox variant="neutral" checked={onlyRecent} onChange={(e) => setOnlyRecent(e.target.checked)} />
+        </SettingsRow>
+        <NumberSettingRow
+          id="lz-recency"
+          label="Breach recency"
+          unit="bars"
+          hint="How many bars back from the latest bar a break can be and still be kept. Only used when the option above is ticked."
+          rules={RULES.recency}
+          value={recencyBars}
+          onChange={setRecencyBars}
+          disabled={!onlyRecent}
+        />
+      </SettingsGroup>
 
-        <div className="space-y-3">
-          <h3 className="text-xs font-semibold text-text-secondary">Last breached Liquidity</h3>
-          <Checkbox
-            id="lz-keep-support"
-            checked={keepSupport}
-            onChange={(e) => setKeepSupport(e.target.checked)}
-            label="Keep last breached support"
-          />
-          <Checkbox
-            id="lz-keep-resistance"
-            checked={keepResistance}
-            onChange={(e) => setKeepResistance(e.target.checked)}
-            label="Keep last breached resistance"
-          />
-          <Checkbox
-            id="lz-only-recent"
-            checked={onlyRecent}
-            onChange={(e) => setOnlyRecent(e.target.checked)}
-            label="Only keep if breached recently"
-          />
-          <div className={cn("ml-3 border-l border-border-subtle pl-3 transition-opacity", !onlyRecent && "opacity-40")}>
-            <Field
-              label={fieldLabel("Breach recency (bars)", {
-                label: "About breach recency",
-                text: "A breached zone is only eligible to be kept and shown if its breach happened within this many bars of the most recent bar.",
-              })}
-              htmlFor="lz-recency"
-            >
-              <NumberStepper
-                id="lz-recency"
-                value={recencyBars}
-                onChange={setRecencyBars}
-                min={1}
-                max={52}
-                step={1}
-                disabled={!onlyRecent}
-              />
-            </Field>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-6 flex items-center gap-3">
-        <Button variant="primary" onClick={handleSave} disabled={status === "saving"}>
-          {STATUS_LABELS[status]}
-        </Button>
-        <p className="text-xs text-text-tertiary">Last updated {new Date(data.updated_at).toLocaleString()}</p>
-      </div>
-    </Section>
+      <SettingsFooter
+        onSave={handleSave}
+        status={saver.status}
+        invalid={invalid}
+        unchanged={unchanged}
+        message={saver.detail}
+        updatedAt={data.updated_at}
+      />
+    </SettingsSection>
   );
 }

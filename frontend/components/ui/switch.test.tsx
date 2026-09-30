@@ -65,3 +65,28 @@ describe("Switch", () => {
     expect(el).toHaveAttribute("aria-describedby", "auto-hint");
   });
 });
+
+describe("Switch: no label prop (a Settings row names it)", () => {
+  it("renders no wrapping <label> and lays the input over the track", () => {
+    render(<Switch id="bare" />);
+    const input = screen.getByRole("switch") as HTMLInputElement;
+    expect(input.closest("label")).toBeNull();
+    expect(input.labels?.length).toBe(0);
+    expect(input).toHaveClass("absolute", "inset-0", "opacity-0", "peer");
+    const track = input.nextElementSibling as HTMLElement;
+    expect(track).toHaveClass("pointer-events-none");
+    expect(track.nextElementSibling).toHaveClass("pointer-events-none");
+    fireEvent.click(input);
+    expect(input.checked).toBe(true);
+  });
+
+  it("is named by the row label alone", () => {
+    render(
+      <FormField label="Refresh automatically" htmlFor="auto">
+        <Switch />
+      </FormField>,
+    );
+    const el = screen.getByRole("switch", { name: "Refresh automatically" }) as HTMLInputElement;
+    expect(el.labels?.length).toBe(1);
+  });
+});
