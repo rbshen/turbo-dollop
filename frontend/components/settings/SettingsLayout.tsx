@@ -6,9 +6,10 @@
 //                    then a body capped at max-w-2xl
 //   SettingsGroup    an optional sub-heading over a run of rows (use one only
 //                    when a section has more than four settings)
-//   SettingsRow      one setting: label and hint on the left, its control on
-//                    the right (grid-cols-[1fr_auto]), py-3, a hairline
-//                    between rows, an error line under the control
+//   SettingsRow      one setting: label and hint in the flexible left column,
+//                    its control LEFT-aligned in a fixed-width control column
+//                    on the right, py-3, a hairline between rows, an error
+//                    line under the box
 //   SettingsFooter   Save, a status message (aria-live), "Last updated"
 //
 // Rows are rows, not a grid of fields. A control inside a row takes its id,
@@ -25,6 +26,14 @@ import {
   useFieldContextValue,
 } from "@/components/ui/form-field";
 import { cn } from "@/lib/utils";
+
+// The control column: ONE width for every row of every section, so all boxes
+// share one left edge whatever a row's unit is. 16rem = 256px = the widest
+// field allowed in a row (medium, 176px) + an 80px unit slot (the 8px gap and
+// the unit trail into it; a row with no unit leaves it empty). Set here and
+// nowhere else; the class is a full literal so Tailwind can see it. Below `sm`
+// the grid is one column and the row stacks.
+export const SETTINGS_CONTROL_COLUMN_CLASS = "sm:grid-cols-[minmax(0,1fr)_16rem]";
 
 export function SettingsSection({
   title,
@@ -98,10 +107,7 @@ export function SettingsRow({
   return (
     <FieldProvider value={ctx}>
       <div
-        className={cn(
-          "grid grid-cols-[1fr_auto] items-center gap-x-6 gap-y-1 py-3 max-sm:grid-cols-1",
-          className,
-        )}
+        className={cn("grid grid-cols-1 items-center gap-x-6 gap-y-2 py-3", SETTINGS_CONTROL_COLUMN_CLASS, className)}
       >
         <div className={cn("flex min-w-0 flex-col gap-0.5", disabled && "opacity-45")}>
           <label htmlFor={htmlFor} className={FIELD_LABEL_CLASS}>
@@ -113,13 +119,11 @@ export function SettingsRow({
             </p>
           )}
         </div>
-        <div className="flex max-w-full justify-self-start sm:justify-self-end">{children}</div>
+        {/* Left-aligned in the control column: box (and checkbox/switch) start
+            at the column's left edge; the unit trails into the slot after it. */}
+        <div className="flex min-w-0 max-w-full justify-start">{children}</div>
         {error && (
-          <p
-            id={ctx.errorId}
-            role="alert"
-            className={cn(FIELD_ERROR_CLASS, "col-span-full max-w-md justify-self-start text-left sm:justify-self-end sm:text-right")}
-          >
+          <p id={ctx.errorId} role="alert" className={cn(FIELD_ERROR_CLASS, "text-left sm:col-start-2")}>
             {error}
           </p>
         )}
