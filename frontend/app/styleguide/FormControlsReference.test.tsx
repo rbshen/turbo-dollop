@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { FmpSettingsMock } from "./FmpSettingsMock";
 import { FormControlsReference } from "./FormControlsReference";
 import { AlignmentCheckMock, DiscountRateMock, LiquidityMock, WeinsteinMock } from "./SettingsMocks";
 
@@ -160,5 +161,57 @@ describe("AlignmentCheckMock", () => {
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toHaveClass("text-left");
     expect(screen.getByLabelText("Invalid row")).toHaveAttribute("aria-invalid", "true");
+  });
+});
+
+describe("FmpSettingsMock", () => {
+  it("shows the table with a Switch and a tier Select per row, and the card below it, in three panels", () => {
+    render(<FmpSettingsMock />);
+    expect(screen.getAllByRole("table")).toHaveLength(3);
+    expect(screen.getAllByRole("heading", { name: "FMP status" })).toHaveLength(3);
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    // 3 panels x (4 group switches + master)
+    expect(screen.getAllByRole("switch")).toHaveLength(15);
+    // 3 panels x (4 tier selects + plan)
+    expect(screen.getAllByRole("combobox")).toHaveLength(15);
+    for (const el of [...screen.getAllByRole("switch"), ...screen.getAllByRole("combobox")]) {
+      expect(el).toHaveAccessibleName();
+    }
+  });
+
+  it("covers on, off, not-toggleable and not-wired rows", () => {
+    render(<FmpSettingsMock />);
+    const [first] = screen.getAllByRole("table");
+    expect(within(first).getByRole("switch", { name: "Enable Fundamentals" })).toBeChecked();
+    expect(within(first).getByRole("switch", { name: "Enable News" })).not.toBeChecked();
+    expect(within(first).getByRole("switch", { name: "Enable Analyst ratings" })).toBeDisabled();
+    expect(within(first).getByText(/not wired yet/)).toBeInTheDocument();
+  });
+
+  it("the interactive panel applies a change at once, with no Save and no API call", () => {
+    render(<FmpSettingsMock />);
+    const [first] = screen.getAllByRole("table");
+    fireEvent.click(within(first).getByRole("switch", { name: "Enable News" }));
+    expect(within(first).getByRole("switch", { name: "Enable News" })).toBeChecked();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+
+  it("the busy panel disables every control", () => {
+    render(<FmpSettingsMock />);
+    const busyTable = screen.getAllByRole("table")[1];
+    for (const el of [...within(busyTable).getAllByRole("switch"), ...within(busyTable).getAllByRole("combobox")]) {
+      expect(el).toBeDisabled();
+    }
+    expect(document.getElementById("sg-fmp-busy-master")).toBeDisabled();
+    expect(document.getElementById("sg-fmp-busy-plan")).toBeDisabled();
+    expect(document.getElementById("sg-fmp-live-master")).toBeEnabled();
+  });
+
+  it("the error panel shows the row message, the card message and the key problem", () => {
+    render(<FmpSettingsMock />);
+    const alerts = screen.getAllByRole("alert").map((a) => a.textContent);
+    expect(alerts).toContain("enabled: Input should be a valid boolean");
+    expect(alerts.some((t) => t?.startsWith("fmp_plan:"))).toBe(true);
+    expect(screen.getByText(/FMP rejected the API key \(HTTP 401\)/)).toBeInTheDocument();
   });
 });

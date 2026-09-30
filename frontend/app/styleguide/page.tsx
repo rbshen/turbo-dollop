@@ -27,6 +27,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs } from "@/components/ui/tabs";
 import { Tooltip } from "@/components/ui/tooltip";
 import { pnlClass } from "@/lib/format";
+import { FmpSettingsMock } from "./FmpSettingsMock";
 import { FormControlsReference } from "./FormControlsReference";
 import { PillReference } from "./PillReference";
 import { AlignmentCheckMock, DiscountRateMock, LiquidityMock, WeinsteinMock } from "./SettingsMocks";
@@ -218,6 +219,10 @@ export default function StyleguidePage() {
           <DiscountRateMock />
           <AlignmentCheckMock />
         </div>
+      </Section>
+
+      <Section title="FMP data groups (mock)">
+        <FmpSettingsMock />
       </Section>
 
       <Section title="Card">

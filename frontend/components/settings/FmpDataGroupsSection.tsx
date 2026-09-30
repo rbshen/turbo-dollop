@@ -27,6 +27,93 @@ const STATE_TONE: Record<DataGroupState, BadgeTone> = {
   failing: "negative",
 };
 
+/** The per-group table, presentational: every value comes in as a prop and every
+ * change goes out through `onToggle` / `onTier`, so it renders identically in
+ * the live section and in /styleguide's mock. */
+export function FmpGroupsTable({
+  groups,
+  tiers,
+  busy,
+  failure,
+  onToggle,
+  onTier,
+}: {
+  groups: DataGroupOut[];
+  tiers: string[];
+  /** A request is in flight: every control is disabled. */
+  busy: boolean;
+  /** A failed request's message, shown in the row of the group it was for. */
+  failure: { key: string; message: string } | null;
+  onToggle: (group: DataGroupOut, enabled: boolean) => void;
+  onTier: (group: DataGroupOut, tier: string) => void;
+}) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow className="h-9">
+          <TableHead className="w-10">On</TableHead>
+          <TableHead>Group</TableHead>
+          <TableHead>State</TableHead>
+          <TableHead>Last success</TableHead>
+          <TableHead>Required tier</TableHead>
+          <TableHead>Feeds</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {groups.map((g) => (
+          <TableRow key={g.key} className={cn("align-top", !g.can_toggle && "opacity-60")}>
+            <TableCell>
+              <Switch
+                aria-label={`Enable ${g.label}`}
+                checked={g.enabled}
+                disabled={busy || !g.can_toggle}
+                title={!g.can_toggle ? reasonText(g) : undefined}
+                onChange={(e) => onToggle(g, e.target.checked)}
+              />
+            </TableCell>
+            <TableCell className="whitespace-normal">
+              <div className="text-text-primary">{g.label}</div>
+              <div className="font-mono text-[11px] text-text-tertiary">
+                {g.key}
+                {!g.wired && " · not wired yet"}
+              </div>
+              {failure?.key === g.key && (
+                <p role="alert" className="mt-1 text-xs text-negative">
+                  {failure.message}
+                </p>
+              )}
+            </TableCell>
+            <TableCell>
+              <Badge tone={STATE_TONE[g.state]} title={g.state === "failing" ? (g.last_error ?? undefined) : reasonText(g) || undefined}>
+                {STATE_LABEL[g.state]}
+              </Badge>
+            </TableCell>
+            <TableCell className="font-mono text-xs text-text-secondary">
+              {g.last_success_at ? formatRelativeTime(g.last_success_at) : "—"}
+            </TableCell>
+            <TableCell>
+              <Select
+                size="medium"
+                aria-label={`Required tier for ${g.label}`}
+                value={g.required_tier}
+                disabled={busy}
+                onChange={(e) => onTier(g, e.target.value)}
+              >
+                {tiers.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </Select>
+            </TableCell>
+            <TableCell className="whitespace-normal text-xs text-text-secondary">{g.feeds.join(", ")}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
 /** Settings > FMP Data Groups: one row per FMP data group (core/data_groups.py)
  * -- the endpoint group/tier/enabled table, split out of the old combined
  * DataGroupsSection (2026-09-27) so it could live in its own nav section --
@@ -68,69 +155,14 @@ export function FmpDataGroupsSection() {
 
   return (
     <Section title="FMP data groups">
-      <Table>
-        <TableHeader>
-          <TableRow className="h-9">
-            <TableHead className="w-10">On</TableHead>
-            <TableHead>Group</TableHead>
-            <TableHead>State</TableHead>
-            <TableHead>Last success</TableHead>
-            <TableHead>Required tier</TableHead>
-            <TableHead>Feeds</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {data.groups.map((g) => (
-            <TableRow key={g.key} className={cn("align-top", !g.can_toggle && "opacity-60")}>
-              <TableCell>
-                <Switch
-                  aria-label={`Enable ${g.label}`}
-                  checked={g.enabled}
-                  disabled={busy || !g.can_toggle}
-                  title={!g.can_toggle ? reasonText(g) : undefined}
-                  onChange={(e) => onToggle(g, e.target.checked)}
-                />
-              </TableCell>
-              <TableCell className="whitespace-normal">
-                <div className="text-text-primary">{g.label}</div>
-                <div className="font-mono text-[11px] text-text-tertiary">
-                  {g.key}
-                  {!g.wired && " · not wired yet"}
-                </div>
-                {failure?.key === g.key && (
-                  <p role="alert" className="mt-1 text-xs text-negative">
-                    {failure.message}
-                  </p>
-                )}
-              </TableCell>
-              <TableCell>
-                <Badge tone={STATE_TONE[g.state]} title={g.state === "failing" ? (g.last_error ?? undefined) : reasonText(g) || undefined}>
-                  {STATE_LABEL[g.state]}
-                </Badge>
-              </TableCell>
-              <TableCell className="font-mono text-xs text-text-secondary">
-                {g.last_success_at ? formatRelativeTime(g.last_success_at) : "—"}
-              </TableCell>
-              <TableCell>
-                <Select
-                  size="medium"
-                  aria-label={`Required tier for ${g.label}`}
-                  value={g.required_tier}
-                  disabled={busy}
-                  onChange={(e) => void run(g.key, () => updateGroup(g.key, { required_tier: e.target.value }))}
-                >
-                  {data.tiers.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </Select>
-              </TableCell>
-              <TableCell className="whitespace-normal text-xs text-text-secondary">{g.feeds.join(", ")}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <FmpGroupsTable
+        groups={data.groups}
+        tiers={data.tiers}
+        busy={busy}
+        failure={failure}
+        onToggle={onToggle}
+        onTier={(group, tier) => void run(group.key, () => updateGroup(group.key, { required_tier: tier }))}
+      />
 
       <FmpHealthSummaryCard />
     </Section>
