@@ -15,8 +15,8 @@ import { cn } from "@/lib/utils";
 
 // "Status" was renamed "Scheduled Jobs" and split 2026-09-27: the per-group
 // FMP toggle table moved out into its own "FMP Data Groups" section, right
-// after it -- StatusSection keeps just the FMP health-summary card and the
-// cron jobs table.
+// after it -- StatusSection keeps just the cron jobs table (the FMP
+// health-summary card moved into FMP data groups, 2026-09-30).
 const SECTIONS = [
   { key: "scheduled-jobs", label: "Scheduled jobs", Component: StatusSection },
   { key: "fmp-data-groups", label: "FMP data groups", Component: FmpDataGroupsSection },

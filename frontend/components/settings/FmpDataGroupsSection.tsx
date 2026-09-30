@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { updateGroup, useDataGroups } from "@/lib/hooks/useDataGroups";
+import { FmpHealthSummaryCard } from "@/components/settings/FmpHealthSummaryCard";
 import { STATE_LABEL, disableWarning, reasonText } from "@/lib/dataGroups";
 import { errorDetail } from "@/lib/api/client";
 import { formatRelativeTime } from "@/lib/relativeTime";
@@ -26,9 +27,12 @@ const STATE_TONE: Record<DataGroupState, BadgeTone> = {
 
 /** Settings > FMP Data Groups: one row per FMP data group (core/data_groups.py)
  * -- the endpoint group/tier/enabled table, split out of the old combined
- * DataGroupsSection (2026-09-27) so it could live in its own nav section,
- * separate from the plan/master-switch/key-problem summary (now
- * FmpHealthSummaryCard, under Settings > Scheduled Jobs). The "verified" tick
+ * DataGroupsSection (2026-09-27) so it could live in its own nav section --
+ * with the plan/master-switch/key-problem summary (FmpHealthSummaryCard)
+ * below it (moved here from Settings > Scheduled Jobs, 2026-09-30). The
+ * table and the card are independent components that share one SWR key
+ * (useDataGroups), so a plan or master change made in the card updates the
+ * table's rows with no wiring between them. The "verified" tick
  * (2026-09-27) was removed outright, not just hidden here -- confirmed to
  * have zero downstream effect anywhere. Toggles and the required-tier editor
  * write to the DB and take effect live (no restart). */
@@ -121,6 +125,8 @@ export function FmpDataGroupsSection() {
           ))}
         </TableBody>
       </Table>
+
+      <FmpHealthSummaryCard />
     </Section>
   );
 }

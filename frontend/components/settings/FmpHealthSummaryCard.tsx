@@ -7,15 +7,13 @@ import { errorDetail } from "@/lib/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Section } from "@/components/ui/section";
 
-/** Settings > Scheduled Jobs: the FMP plan / master-switch / key-problem
- * summary card. Split out of the old combined DataGroupsSection (2026-09-27)
- * so the per-group toggle table could move to its own "FMP Data Groups"
- * section while this health-status summary stays here, as-is. Shares the
- * same useDataGroups() SWR data as FmpDataGroupsSection -- each keeps its own
- * busy/error state, since they're independent action surfaces (plan/master
- * here, per-group toggles there). No title -- same convention
- * ScheduledJobsSection uses for its own manual "Scheduled Jobs" heading,
- * since the sidebar nav already labels this tab. */
+/** Settings > FMP Data Groups, below the per-group table: the FMP plan /
+ * master-switch / key-problem summary card. Split out of the old combined
+ * DataGroupsSection (2026-09-27), first kept under Scheduled Jobs, and moved
+ * under the group table on 2026-09-30. Shares the same useDataGroups() SWR
+ * data as the table -- each keeps its own busy/error state, since they're
+ * independent action surfaces (plan/master here, per-group toggles above).
+ * It renders no section title of its own: it sits inside FmpDataGroupsSection. */
 export function FmpHealthSummaryCard() {
   const { data, error } = useDataGroups();
   const [busy, setBusy] = useState(false);
@@ -43,8 +41,7 @@ export function FmpHealthSummaryCard() {
           <h3 className="text-sm font-semibold text-text-primary">FMP status</h3>
           <p className="mt-1 max-w-xl text-xs text-text-tertiary">
             A group that is off (or above your plan, or restricted by FMP) makes no live FMP calls and serves cached data
-            only — nothing is ever wiped. Changes apply immediately. Per-group toggles live under Settings &gt; FMP Data
-            Groups.
+            only — nothing is ever wiped. Changes apply immediately. Per-group toggles are in the table above.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-xs text-text-secondary">
