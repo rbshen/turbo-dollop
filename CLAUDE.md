@@ -1,12 +1,8 @@
 # CLAUDE.md — Fathom
 
-## Migration note
-
-CLAUDE.md was slimmed on 2026-09-29. The complete pre-slimming file is `docs/archive/CLAUDE.original.md` (NOT auto-loaded). The migration is complete (B6 audit, 2026-09-29): detailed reference now lives in `docs/specs/` and `docs/archive/`. If a topic is not found there, grep `docs/archive/CLAUDE.original.md` before assuming it is undocumented. See "Docs map" below for pointers.
-
 ## What this is
 
-Fathom is a company fundamentals valuation web app. It runs a multi-step fundamental screen on any US-listed ticker. The automated Analysis framework has 4 steps -- **Financials (Revenue, income and cash flow)**, **Growth Rate (Positive growth rate)**, **Profitability (Profitable and operationally efficient)**, and **Debt (Conservative debt)** -- plus a manually-set Economic Moat rating, together forming the Overall Assessment score (see `STEP_WEIGHTS`/`MOAT_WEIGHT`, documented in `docs/specs/overview.md`). **Valuation**, internally `backend/step3_data.py` / `backend/scoring/step3.py`, is a separate, fully-implemented "Valuation" tab with its own DCF/DDM/P-B/PSG method-selection logic -- it is **not** part of the Overall Assessment blend (no `step3` key exists in `STEP_WEIGHTS`).
+Fathom is a company fundamentals valuation web app. It runs a multi-step fundamental screen on any US-listed ticker. The automated Analysis framework has 4 steps -- **Financials (Revenue, income and cash flow)**, **Growth Rate (Positive growth rate)**, **Profitability (Profitable and operationally efficient)**, and **Debt (Conservative debt)** -- plus a manually-set Economic Moat rating, together forming the Overall Assessment score (see `STEP_WEIGHTS`/`MOAT_WEIGHT`, documented in `docs/specs/overview.md`). **Valuation**, internally `backend/data/step3_data.py` / `backend/scoring/step3.py`, is a separate, fully-implemented "Valuation" tab with its own DCF/DDM/P-B/PSG method-selection logic -- it is **not** part of the Overall Assessment blend (no `step3` key exists in `STEP_WEIGHTS`).
 
 ## Tech stack
 
@@ -33,9 +29,7 @@ backend/     FastAPI app, organized into packages by role (2026-08-05
   clients/     Thin external API clients: fmp_client.py, sec_edgar.py,
                daily_bar_sources.py (the FMP daily/60m bar sources),
                shared_bars_cache.py (the SharedBarsCache get-or-fetch),
-               long_history_bars.py, technical_sources.py. FMP is the only
-               market-data provider (Phase 6b) -- see
-               docs/specs/fmp-data-and-bar-cache.md.
+               long_history_bars.py, technical_sources.py.
   helpers/     Shared calculation helpers consumed by data/: ttm.py,
                shares.py, debt_metrics.py, npl.py, bank_capital_metrics.py,
                discount_rate_config.py, first.py.
@@ -95,17 +89,17 @@ Every cron entry in `crontab.txt` invokes its script as `-m package.module` (e.g
 
 Each watchlist is capped at `WATCHLIST_CAPACITY` (100 tickers, `backend/core/main.py`) — adding tickers past the cap is rejected with an explanatory error rather than silently truncating.
 
-Watchlists whose name matches `^W[1-5]$` (i.e. `"W1"` through `"W5"`) have a special role beyond ordinary user-created lists: the BB+RSI entry-signal and Liquidity Zone (LP) nightly jobs read from the deduped union of every matching watchlist (see docs/specs/liquidity-zones.md for the full mechanism) — a ticker on more than one matching watchlist is only processed once, and a ticker on none of them has no row in either feature's table at all. Originally hardcoded to two watchlists literally named `"Main"`/`"Secondary"`, then renamed to `"W1"`/`"W2"`, then generalized to this `^W[1-5]$` pattern match (`data/watchlists.py::list_tickers_across_watchlists`) so a user can add a W3/W4/W5 watchlist later with no code change.
+Watchlists whose name matches `^W[1-5]$` (i.e. `"W1"` through `"W5"`) have a special role beyond ordinary user-created lists: the BB+RSI entry-signal and Liquidity Zone (LP) nightly jobs read from the deduped union of every matching watchlist (see docs/specs/liquidity-zones.md for the full mechanism) — a ticker on more than one matching watchlist is only processed once, and a ticker on none of them has no row in either feature's table at all. The pattern match lives in `data/watchlists.py::list_tickers_across_watchlists`, so a user can add a W3/W4/W5 watchlist later with no code change.
 
 ## Caching policy
 
-Fundamentals change infrequently, so raw FMP pulls are cached in a local SQLite database (`backend/models.py::FundamentalsCache`, via SQLModel) keyed by `(ticker, statement_type, period)`, with a `fetched_at` timestamp on each row. Before refetching from FMP, check whether a cached entry is fresher than the configurable staleness window — `Settings.cache_staleness_days` in `backend/config.py`, default 7 days, overridable via the `CACHE_STALENESS_DAYS` env var. Never hardcode the staleness window at a call site.
+Fundamentals change infrequently, so raw FMP pulls are cached in a local SQLite database (`backend/core/models.py::FundamentalsCache`, via SQLModel) keyed by `(ticker, statement_type, period)`, with a `fetched_at` timestamp on each row. Before refetching from FMP, check whether a cached entry is fresher than the configurable staleness window — `Settings.cache_staleness_days` in `backend/core/config.py`, default 7 days, overridable via the `CACHE_STALENESS_DAYS` env var. Never hardcode the staleness window at a call site.
 
 ### Data groups: pausing FMP (per-group toggles, replaces `FMP_ENABLED`)
 
 **2026-09-24: the global `FMP_ENABLED` env flag and `INSIDER_ACTIVITY_ENABLED` were deleted** (no `.env` shim; only `FMP_API_KEY`/`FMP_BASE_URL` remain in `.env`). FMP on/off is now per **data group**, stored in the DB (`core/data_groups.py`, tables `DataGroupSetting` -- one row per group -- and the singleton `DataGroupGlobal`; lazy-seeded like `LiquidityZoneConfig`, 5 s in-process cache invalidated on write) and edited live from Settings > FMP data groups, with no restart. Cron jobs are separate processes and read the same DB.
 
-- **Groups:** `fundamentals`, `profile_quote`, `analyst_ratings`, `segmentation`, `news`, `institutional_ownership` (seeded **off** -- the shelved feature), `index_membership`, `corporate_events`, `daily_prices`, `daily_prices_long`, `intraday_bars` (live since P2/P3/P4 respectively -- see docs/specs/fmp-data-and-bar-cache.md). **Since Phase 6b none of the price groups has a fallback provider: off = cached-only, and the nightly bar jobs report `skipped`**. No group is seeded-but-unwired: the `extended_hours` (P5) row was removed 2026-09-27 (it never got an endpoint, client method or call site).
+- **Groups:** `fundamentals`, `profile_quote`, `analyst_ratings`, `segmentation`, `news`, `institutional_ownership` (seeded **off** -- the shelved feature), `index_membership`, `corporate_events`, `daily_prices`, `daily_prices_long`, `intraday_bars` (live since P2/P3/P4 respectively -- see docs/specs/fmp-data-and-bar-cache.md). **For the price groups, off = cached-only, and the nightly bar jobs report `skipped`**. No group is seeded-but-unwired: the `extended_hours` (P5) row was removed 2026-09-27 (it never got an endpoint, client method or call site).
 - **Effective state** = master switch on AND group enabled AND required tier <= my plan AND status != `plan_restricted`. Off means **cache-only**: the last cached row is served (even if stale), nothing is ever wiped.
 - **Required tier per group is a user-editable value** (Starter/Premium/Ultimate) -- the seeded values are unverified guesses from the 2026-09-24 investigation. "My FMP plan" is one more editable value (seeded Ultimate); a group above the plan reads "Not on plan" and is treated as off.
 - **Master switch** ("disable all FMP", same semantics the old `FMP_ENABLED=false` had): Settings > FMP data groups (the status card below the group table), or `uv run python -m pipeline.data_groups pause-all | resume | status` when the API is down.
@@ -156,9 +150,9 @@ Scoring methodology and feature-specific detail live in `docs/specs/*.md` and `d
 
 **Data infrastructure:** FMP endpoint/cache-key → data-group mappings, shared bars cache, daily/long-history/intraday price fetch mechanism, delisted-ticker handling, US-listed-only (non-US) handling — docs/specs/fmp-data-and-bar-cache.md. Corporate events (earnings/dividends/splits cache) — docs/specs/corporate-events.md.
 
-**History** (completed migrations, resolved incidents, shelved/deleted features): the complete scoring-rubric history (Valuation, Financials, Growth Rate, Debt, Profitability, Overall weighting) — docs/archive/claude-md-history-scoring.md. Trend/Weinstein/Liquidity Zone/Warren investigation narratives, the watchlist-rename history — docs/archive/claude-md-history-technical-signals.md. FMP migration phases (Massive removal, Yahoo removal, non-US removal, daily-bar backfills and parity checks) — docs/archive/claude-md-history-fmp-migration.md. Insider Activity (deleted 2026-09-27), the Analysis-tab-reasoning fix, the company-classification/Bank investigation narrative, the ad-hoc-repro-script and cron-heartbeat incident write-ups — docs/archive/claude-md-history-features.md.
+**History** (scoring-rubric history, technical-signal investigations, watchlist-rename history, FMP migration phases, shelved/deleted features, incident write-ups): docs/archive/claude-md-history-scoring.md, docs/archive/claude-md-history-technical-signals.md, docs/archive/claude-md-history-fmp-migration.md, docs/archive/claude-md-history-features.md.
 
-**Legacy citations:** code comments that cite old CLAUDE.md section names ("Step 1 deviations", "Scoring rubric deviations", ...) refer to `docs/archive/CLAUDE.original.md`; resolve them with docs/legacy-claude-md-citations.md.
+**Old CLAUDE.md:** the pre-slimming file is `docs/archive/CLAUDE.original.md` (NOT auto-loaded); if a topic isn't found in `docs/`, grep it before assuming it is undocumented. Code comments that cite old section names ("Step 1 deviations", "Scoring rubric deviations", ...) resolve via docs/legacy-claude-md-citations.md.
 
 ## Workflow rules
 
