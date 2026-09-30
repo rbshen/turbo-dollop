@@ -148,14 +148,16 @@ describe("FormField: compact density", () => {
     expect(screen.getByText("x")).toHaveClass("text-text-tertiary");
   });
 
-  it("shows an optional single-line hint under the control, linked by aria-describedby", () => {
+  it("shows an optional hint under the control (it wraps, never clips), linked by aria-describedby", () => {
     render(
       <FormField label="Mkt cap" htmlFor="m" density="compact" hint="e.g. 500M, 2B, 1T">
         <Input variant="boxed" />
       </FormField>,
     );
     const hint = screen.getByText("e.g. 500M, 2B, 1T");
-    expect(hint).toHaveClass("truncate");
+    expect(hint).toHaveClass("text-xs", "text-text-tertiary");
+    expect(hint).not.toHaveClass("truncate");
+    expect(screen.getByRole("textbox").compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("textbox").getAttribute("aria-describedby")).toBe("m-hint");
   });
 
