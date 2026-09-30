@@ -31,7 +31,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { pnlClass } from "@/lib/format";
 import { FormControlsReference } from "./FormControlsReference";
 import { PillReference } from "./PillReference";
-import { DiscountRateMock, LiquidityMock, WeinsteinMock } from "./SettingsMocks";
+import { AlignmentCheckMock, DiscountRateMock, LiquidityMock, WeinsteinMock } from "./SettingsMocks";
 
 // Internal reference page for the direction-B design-system primitives.
 // Not linked from any navigation -- visit /styleguide directly.
@@ -211,9 +211,10 @@ export default function StyleguidePage() {
 
       <Section title="Settings layout">
         <p className="mb-6 max-w-xl text-xs text-text-tertiary">
-          Mock Settings sections built with the Settings layout kit, with mock data and no API. Rows, not a grid:
-          label and hint on the left, the control on the right in its size token, a hairline between rows, a
-          sub-heading only where a section has more than four settings. Every field is live: try an out-of-range
+          Mock Settings sections built with the Settings layout kit, with mock data and no API. Rows, not a grid
+          of fields: label and hint on the left, every control left-aligned in one fixed-width column on the right
+          (a 176px field plus an 80px unit slot), a hairline between rows, a sub-heading only where a section has
+          more than four settings. Every field is live: try an out-of-range
           number (the Weinstein volume average starts invalid), or tick &ldquo;Only keep if breached recently&rdquo;
           in Liquidity.
         </p>
@@ -221,6 +222,7 @@ export default function StyleguidePage() {
           <WeinsteinMock />
           <LiquidityMock />
           <DiscountRateMock />
+          <AlignmentCheckMock />
         </div>
       </Section>
 

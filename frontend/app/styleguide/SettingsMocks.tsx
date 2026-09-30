@@ -17,6 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { NumberField } from "@/components/ui/number-field";
 import { Select } from "@/components/ui/Select";
+import { Switch } from "@/components/ui/switch";
 import type { FieldSize } from "@/lib/formControl";
 import { checkNumber, type NumberRules } from "@/lib/numberInput";
 
@@ -330,6 +331,114 @@ export function DiscountRateMock() {
         />
         <SettingsFooter onSave={save} status={status} invalid={invalid} updatedAt={MOCK_UPDATED_AT} className="mt-4 pb-1" />
       </SettingsGroup>
+    </SettingsSection>
+  );
+}
+
+// One compact section that exists only for eyeballing alignment: every kind of
+// control the kit hosts, in one run of rows. The dashed guide marks the left
+// edge of the fixed control column; every box, select, checkbox and switch
+// should start on it, and units should trail after the box, never shift it.
+export function AlignmentCheckMock() {
+  const [swing, setSwing] = useState("2");
+  const [range, setRange] = useState("5");
+  const [weeks, setWeeks] = useState("30");
+  const [times, setTimes] = useState("2");
+  const [bars, setBars] = useState("5");
+  const [badWeeks, setBadWeeks] = useState("1");
+  const [benchmark, setBenchmark] = useState("SPY");
+  const [tick, setTick] = useState(true);
+  const [live, setLive] = useState(false);
+
+  return (
+    <SettingsSection title="Alignment check">
+      <div className="relative">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-64 hidden border-l border-dashed border-brand/60 sm:block"
+        />
+        <SettingsGroup>
+          <NumberRow
+            id="sg-al-none"
+            label="No unit"
+            hint="A whole number with nothing after the box."
+            rules={{ integer: true, min: 1, max: 3 }}
+            value={swing}
+            onChange={setSwing}
+          />
+          <NumberRow
+            id="sg-al-pct"
+            label="Percent"
+            unit="%"
+            hint="A one-character unit."
+            rules={{ min: 0, max: 50 }}
+            value={range}
+            onChange={setRange}
+          />
+          <NumberRow
+            id="sg-al-weeks"
+            label="Weeks"
+            unit="weeks"
+            hint="A five-letter unit."
+            rules={{ integer: true, min: 2, max: 200 }}
+            value={weeks}
+            onChange={setWeeks}
+          />
+          <NumberRow
+            id="sg-al-times"
+            label="Times average"
+            unit="× average"
+            step={0.1}
+            hint="The widest unit in the kit, which has to fit the 80px slot."
+            rules={{ min: 0.1, max: 20 }}
+            value={times}
+            onChange={setTimes}
+          />
+          <NumberRow
+            id="sg-al-bars"
+            label="Bars"
+            unit="bars"
+            hint="A four-letter unit."
+            rules={{ integer: true, min: 1, max: 52 }}
+            value={bars}
+            onChange={setBars}
+          />
+          <SettingsRow label="Medium select" htmlFor="sg-al-select" hint="A native select at the medium size, 176px.">
+            <Select size="medium" defaultValue="nearest_price">
+              <option value="nearest_price">Nearest to price</option>
+              <option value="most_recent">Most recent</option>
+            </Select>
+          </SettingsRow>
+          <SettingsRow label="RS benchmark" htmlFor="sg-al-text" hint="A text field at the medium size.">
+            <Input variant="boxed" size="medium" value={benchmark} onChange={(e) => setBenchmark(e.target.value)} />
+          </SettingsRow>
+          <SettingsRow label="Checkbox" htmlFor="sg-al-check" hint="Saved with the Save button; sits on the same left edge.">
+            <Checkbox variant="neutral" checked={tick} onChange={(e) => setTick(e.target.checked)} />
+          </SettingsRow>
+          <SettingsRow label="Switch" htmlFor="sg-al-switch" hint="Applies at once; same left edge again.">
+            <Switch checked={live} onChange={(e) => setLive(e.target.checked)} />
+          </SettingsRow>
+          <NumberRow
+            id="sg-al-disabled"
+            label="Disabled row"
+            unit="bars"
+            hint="Dimmed, but in exactly the same place."
+            rules={{ integer: true, min: 1, max: 52 }}
+            value="5"
+            onChange={() => {}}
+            disabled
+          />
+          <NumberRow
+            id="sg-al-invalid"
+            label="Invalid row"
+            unit="weeks"
+            hint="The error sits under the box, on its left edge."
+            rules={{ integer: true, min: 2, max: 200 }}
+            value={badWeeks}
+            onChange={setBadWeeks}
+          />
+        </SettingsGroup>
+      </div>
     </SettingsSection>
   );
 }

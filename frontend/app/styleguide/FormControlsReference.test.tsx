@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it } from "vitest";
 
 import { FormControlsReference } from "./FormControlsReference";
-import { DiscountRateMock, LiquidityMock, WeinsteinMock } from "./SettingsMocks";
+import { AlignmentCheckMock, DiscountRateMock, LiquidityMock, WeinsteinMock } from "./SettingsMocks";
 
 afterEach(cleanup);
 
@@ -125,5 +125,40 @@ describe("DiscountRateMock", () => {
   it("never cites a doc in its intro", () => {
     render(<DiscountRateMock />);
     expect(document.body.textContent).not.toMatch(/CLAUDE\.md|valuation\.md|§/);
+  });
+});
+
+describe("AlignmentCheckMock", () => {
+  it("covers every kind of control, all in the same fixed control column", () => {
+    render(<AlignmentCheckMock />);
+    for (const label of [
+      "No unit",
+      "Percent",
+      "Weeks",
+      "Times average",
+      "Bars",
+      "Medium select",
+      "RS benchmark",
+      "Checkbox",
+      "Switch",
+      "Disabled row",
+      "Invalid row",
+    ]) {
+      const row = screen.getByText(label, { selector: "label" }).closest("div.grid") as HTMLElement;
+      expect(row.className).toContain("sm:grid-cols-[minmax(0,1fr)_16rem]");
+      expect((row.children[1] as HTMLElement).className).toContain("justify-start");
+    }
+    for (const unit of ["%", "weeks", "× average", "bars"]) {
+      expect(screen.getAllByText(unit).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("has a disabled row and one invalid row with a left-aligned error", () => {
+    render(<AlignmentCheckMock />);
+    expect(screen.getByLabelText("Disabled row")).toBeDisabled();
+    const alerts = screen.getAllByRole("alert");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveClass("text-left");
+    expect(screen.getByLabelText("Invalid row")).toHaveAttribute("aria-invalid", "true");
   });
 });
