@@ -2,13 +2,13 @@
 
 A calm, data-first interface for fundamental investing.
 
-> This is the living style guide for Fathom's frontend. It was drafted in a claude.ai chat working from a read-only audit of the codebase, decided against a two-way A/B comparison ("Direction B, quiet minimalist"), and implemented page-by-page on the `ui/design-system` branch (sessions 1 through 6b). Token names and values are authored in `frontend/app/globals.css` — this document explains what they mean and when to use them, it is not a second source of truth for the values themselves. Chart-specific rules live in `docs/design-system-charts.md`. The build history and open items are in `docs/decisions.md`.
+> This is the living style guide for Fathom's frontend. It was drafted in a claude.ai chat working from a read-only audit of the codebase, decided against a two-way A/B comparison ("Direction B, quiet minimalist"), and implemented page-by-page on the `ui/design-system` branch (sessions 1 through 8). Token names and values are authored in `frontend/app/globals.css` — this document explains what they mean and when to use them, it is not a second source of truth for the values themselves. Chart-specific rules live in `docs/design-system-charts.md`. The build history and open items are in `docs/decisions.md`.
 
 ## Principles
 
 1. **Whitespace and hairlines before boxes.** Content sits on the page. Groups are separated by a 1px `border-subtle` rule and space, not by filled, bordered cards.
 2. **Blue means act.** `brand` is the primary button, links and keyboard focus. It is never used for selection or status.
-3. **Selection is neutral.** The current nav item, tab, segment or side-nav item is shown with `text-primary`, plus an underline or a `surface-2` fill.
+3. **Selection is neutral.** The current nav item, tab, segment or side-nav item is shown with `text-primary`, plus an underline or a `surface-2` fill. The same goes for a checked Checkbox, an on Switch and a checked chip: `text-primary` fill with a dark check or thumb, never `brand` blue (see "Form controls" below). The built `Checkbox` still paints checked in `brand` until it is migrated; the neutral style is opt-in in code and becomes the only style at migration.
 4. **Status is a pill.** A soft tinted fill with coloured text and no border, in one of two sizes (regular, compact). The same status looks the same everywhere: ticker header, Screener cards, Watchlist, Momentum, Settings. There is no dot-and-word Status and no separate dense-table style. See "Pills" below.
 5. **Words, not colour alone.** The label always says the state. Where direction is implied (+3.66%), a ▲ or ▼ sits inside the pill before the label.
 6. **Quiet type.** Larger, lighter titles; sentence-case labels; no uppercase, no wide tracking. Numbers stay mono.
@@ -29,7 +29,7 @@ A calm, data-first interface for fundamental investing.
 - **Text:** `text-primary` for headings and figures, `text-body` for running text, `text-secondary` for secondary, `text-tertiary` for captions and labels.
 - **Type:** Public Sans (text), Sora (page and ticker titles, logotype), IBM Plex Mono (numbers and tickers), snapped to the app's scale: 13 / 15 / 17 / 19 / 21 / 26 / 32 / 39 / 52px. Titles use weight 500. Page title 26, ticker title 32, price 39, score 26, body 15, captions 13, pill label 13 (regular) or 11 (compact).
 - **Spacing:** the 4px scale. Page top padding 48, header-to-content 32, section padding 24 top and 8 bottom, tile gap 40 by 12.
-- **Radius:** `radius-md` (8px) for buttons, segments, side-nav items and the boxed search; `radius-lg` (10px) only for the rare Card. Underline inputs have no radius.
+- **Radius:** `radius-md` (8px) for buttons, segments, side-nav items, boxed fields (the ticker search and every form field) and native selects; `radius-lg` (10px) only for the rare Card. Underline inputs (inline filter fields only) have no radius.
 - **Layout:** `PageContainer` (1280px, 32px gutter) wraps every page, and every page starts with the same `PageHeader`.
 - **Icons:** Phosphor, regular weight, 16px, `currentColor`. No emoji.
 - **Focus:** a 2px `brand` outline on keyboard focus only (`:focus-visible`). Hover and focus never leave a lasting highlight.
@@ -43,6 +43,10 @@ A calm, data-first interface for fundamental investing.
 | Switch between views of one ticker | Tabs (neutral underline) |
 | Change a data option on the same view | SegmentedControl (fixed 2–6 options only — use Tabs instead for an unbounded set, e.g. the Watchlist switcher) |
 | Do something | Button: one `primary` per region, `ghost` for everything else |
+| Enter a typed value (a number, or short text) on a form page | `NumberField` for numbers, boxed `Input` for text, each in a `FormField` or a Settings row |
+| Choose one of a few options on a form page | Native `Select` (in its themed shell), at `short` or `medium` size. Not a SegmentedControl: that is for switching a view, not for a saved setting |
+| An on/off setting that is saved with a Save button | `Checkbox` (neutral checked state) |
+| An on/off setting that applies the moment it is flipped | `Switch` (never use one on a form that has a Save button) |
 | Show a classification or state | Status (pill) |
 | Show a short label or value in a table cell (a score, a rating, a kind) | Badge (the same pill, with a `missing` state) |
 | Group related content | Section (hairline and title) |
@@ -51,6 +55,61 @@ A calm, data-first interface for fundamental investing.
 | Label and value pairs | Definition rows |
 | Tell the user about system state | Banner |
 | An object that must read as a box | Card (rare) |
+
+## Form controls
+
+The controls for typing, choosing and toggling a value on a form page. Built 2026-09-30 (session 8) and shown in `/styleguide`; **no page uses them yet**. Existing forms (Settings, the Screener sidebar, the Watchlist name editor) still render through the older `Input`, `Select`, `Checkbox` and `NumberStepper` defaults and are migrated one at a time, each in its own change. The new behaviour is opt-in in code (a new component, or an explicit prop), so nothing that exists today changes how it renders.
+
+| Control | Component | Job |
+| --- | --- | --- |
+| Number | `NumberField` (`components/ui/number-field.tsx`) | A typed number with optional integer, min, max, step, unit |
+| Text | `Input` with `variant="boxed"` and a `size` token | A short piece of text (a ticker, a benchmark symbol) |
+| Choice | `Select` with a `size` token | One of a few options, a native `<select>` |
+| On/off with Save | `Checkbox` with `variant="neutral"` or `"chip"` | Saved when the form is |
+| On/off now | `Switch` (`components/ui/switch.tsx`) | Applied immediately, no Save |
+| Anatomy | `FormField` (`components/ui/form-field.tsx`) | Label, hint, control, unit, error, wired together |
+
+**Boxed on form pages.** A form field is a box: `radius-md`, 1px `border-control`, `page` fill, 36px high. This reverses the earlier "boxed for the ticker search only" rule. Underline fields stay for inline filters in dense strips; the Screener sidebar's own choice between them is deferred to its own migration, and `/styleguide` shows both side by side so it can be made on evidence.
+
+**Size tokens.** Every control is 36px high and never wider than its container (`max-w-full`). Width is a token, chosen by what the value looks like, never by the layout around it.
+
+| Token | Width | Use for |
+| --- | --- | --- |
+| `short` | 96px | A number of up to about six characters: a length in weeks, a percentage, a multiple |
+| `medium` | 176px | A native select, a ticker or symbol, a longer number |
+| `wide` | 320px | Free text that can run long (rare) |
+| `full` | fills the container | A stacked form or a search box. Not for a Settings row, whose control sits in an `auto` column |
+
+**States.**
+
+| State | Look |
+| --- | --- |
+| Default and filled | `border-control`, `text-primary`, mono and tabular for numbers |
+| Focused | The global 2px `brand` outline on `:focus-visible`. Nothing sets `focus:outline-none`, and a control never draws its own focus border |
+| Invalid | `border-negative` on the box, plus the error text under the field (below). Colour is never the only signal: the message says what is wrong |
+| Disabled | 45% opacity, `not-allowed` cursor, and its label and hint dim with it (the Liquidity breach-recency row) |
+
+**Anatomy.** From top to bottom: the **label**, a real `<label for>` in `text-sm` `text-primary` and sentence case, with **the unit dropped** ("MA length", not "MA length (weeks)"); the **hint**, one plain-English sentence in `caption` `text-tertiary` directly under the label; the **field**, followed on the same line by its **unit** as a suffix in `text-secondary` (`[ 30 ] weeks`); and the **error** in `text-negative` under the field. The hint and the error are linked to the control with `aria-describedby` (and the unit too, for a number), and the error has `role="alert"` so it is announced when it appears. `FormField` does the wiring, so a control inside it needs no manual ids beyond its own `id`. Hints replace the `(i)` `InfoTooltip`, which stays only until the Liquidity form is migrated: help that a user has to hover for is help most never read, and a touch device cannot hover at all.
+
+**Validation.** A value is never silently clamped, rounded, snapped or corrected. If it is not a number, is not a whole number where one is required, or is outside `min`/`max`, the field shows the invalid style and an inline error and the form's Save is disabled until it is fixed. `min` and `max` are optional props that mirror the bounds the server already enforces (for example Weinstein's MA length 2 to 200); a setting with no server bound gets none in the UI either. A value is never snapped to `step` unless a prop asks for it.
+
+**Number fields are typed only.** `NumberField` is a text input with `inputMode="decimal"`, not a native `type="number"`: no browser spinner, no scroll-wheel value change, no `e` (exponent) character. ArrowUp and ArrowDown step the value by `step`, and Shift with either arrow steps by ten times `step`. Stepping only acts on a valid value and stops at `min` and `max`. A `stepper` prop, off by default, adds joined `-` and `+` buttons at the field's edges, `[-][ 30 ][+]`, 32px wide each; use it only where a value is nudged far more often than it is typed. It replaces `NumberStepper`, which stays until the Liquidity form moves over.
+
+**Native select rule.** A choice is a native `<select>` in the themed `appearance-none` shell with an overlaid caret, restyled to the same 36px height, border and radius as a boxed field and sized by the same tokens. No custom listbox, and no segmented-control mode for a form setting: a native select gives keyboard, touch and screen-reader behaviour for free.
+
+**Checked state is neutral.** A checked Checkbox is `text-primary` fill with a dark check; an on Switch is a `text-primary` track with a dark thumb (32 by 18px, a hidden native `<input type="checkbox" role="switch">`). The `chip` Checkbox variant is the Screener's toggle chip done properly: a `radius-md` 32px chip with a 1px `border-input`, `text-secondary`, and a `surface-2` fill with `text-primary` when checked (a chip is not a Pill; see "Not a Status" under Pills below).
+
+## Settings layout
+
+Every Settings section is built from four components in `components/settings/SettingsLayout.tsx` (built 2026-09-30, shown in `/styleguide`, not used by the Settings page yet):
+
+- **Section title.** `SettingsSection`: a `Section` (hairline and title), sentence case. The existing Title Case titles ("Economic Moat Point Values", "REIT Dividend Yield Threshold") are converted when a section is migrated, not before.
+- **Intro.** One short paragraph under the title, capped at `max-w-xl`. It says what the section controls and when a change takes effect, in plain English. It never cites a doc, a section number or a file name.
+- **Sub-heading.** `SettingsGroup title="..."`, used only when a section has **more than four settings**. A section of four or fewer is one untitled group. (Weinstein has eight and is split into "Stage" and "Breakout and relative strength".)
+- **Rows.** `SettingsRow`, inside a body capped at `max-w-2xl`. **Rows, not a grid:** each row is `grid-cols-[1fr_auto]`, the label and its hint on the left, the control on the right at its size token, `py-3`, a 1px `border-subtle` hairline between rows. A row's error sits on a second line under the control. A row that depends on another (breach recency, only relevant when "only keep if breached recently" is ticked) stays in place and is disabled, dimmed, rather than hidden, so the layout never jumps. At phone width the control drops under its label.
+- **Footer.** `SettingsFooter`, at the bottom of the section: the `primary` Save button, then a status message (`aria-live="polite"`: "Saving…", "Saved ✓", "Save failed", or "Fix the highlighted fields to save." while a field is invalid), then "Last updated ..." in `caption` `text-tertiary`. This is the position and order the forms use today; only the status text has moved out of the button label so the button does not change width while saving.
+
+A section that saves several independent panels (Discount Rate has one per region) repeats a titled group with its own rows and footer per panel; the panel is a `SettingsGroup`, not a boxed Card.
 
 ## Pills
 
@@ -93,7 +152,7 @@ The choice of size is the only difference between a Watchlist Moat cell and the 
 - **Tables:** hover only on rows that open something; whole-row click opens the ticker in a new tab; Screener cards unchanged; Watchlist and Momentum use the compact size of the same pill family as everywhere else (2026-09-29 reversal — they previously kept a separate filled `Badge`; see `docs/decisions.md`).
 - **Fonts:** Public Sans, Sora, IBM Plex Mono — no change needed from what the app already had.
 - **New tabs:** ticker links in the Screener, Momentum and Watchlist, and nav links from the Screener, open in a new tab so Screener filters stay put. Two tabs each showing an active item is expected behaviour, not a bug.
-- **By choosing B:** dark `on-brand` text on the primary button; underline inputs with `border-control`; ▲/▼ glyph on the 5Y vs SPY status; orange stays reserved for the applied-filter label. (Also originally: "filled pills dropped from headers, tiles and lists", with `Status` as a dot and a word. Reversed 2026-09-29: status is now a pill everywhere — see "Pills" above and `docs/decisions.md`.)
+- **By choosing B:** dark `on-brand` text on the primary button; underline inputs with `border-control` (now for inline filter fields only; form fields are boxed, see "Form controls" and the 2026-09-30 entry in `docs/decisions.md`); ▲/▼ glyph on the 5Y vs SPY status; orange stays reserved for the applied-filter label. (Also originally: "filled pills dropped from headers, tiles and lists", with `Status` as a dot and a word. Reversed 2026-09-29: status is now a pill everywhere — see "Pills" above and `docs/decisions.md`.)
 - **Segmentation chart "Other" slice:** reuses the `text-tertiary` token rather than a new dedicated token.
 - **Settings' "skipped" status:** the old sky-blue treatment was retired during the Settings migration (session 6a).
 
@@ -115,10 +174,13 @@ sampled.
    consumers; every former `chart-1..5` reader (`MarketBreadthCharts.tsx`,
    `PriceTargetTrendChart.tsx`, the shelved `InstitutionalOwnershipTab.tsx`) now reads
    `--color-series-1..5` instead (see `docs/design-system-charts.md`'s own series-token rules).
-2. **Steppers — restyled and kept, not dropped.** `components/ui/NumberStepper.tsx` still exists
-   as a real shared component, used by `LiquidityZoneSettingsForm.tsx` and shown in
-   `/styleguide` — the original "drop it" recommendation was not carried out; it was brought
-   onto the shared token set instead.
+2. **Steppers — restyled and kept, then superseded by `NumberField`'s optional stepper (2026-09-30).**
+   `components/ui/NumberStepper.tsx` still exists as a real shared component, used by
+   `LiquidityZoneSettingsForm.tsx` and shown in `/styleguide` — the original "drop it"
+   recommendation was not carried out; it was brought onto the shared token set instead. Session 8
+   adds `NumberField` with an opt-in `stepper` prop, which is typed-only, never clamps or snaps,
+   and shows an inline error; `NumberStepper` (which clamps and snaps on blur) is deleted when the
+   Liquidity form migrates to it. It is not deleted before then.
 3. **Analyst labels — done.** `CurrentDistributionList.tsx`, `RatingDistributionTrendChart.tsx`,
    and `RecommendationDetailsTable.tsx` now display FMP's own Strong Buy/Buy/Hold/Sell/Strong
    Sell wording (was the app's own relabeled Buy/Outperform/Hold/Underperform/Sell). Only the

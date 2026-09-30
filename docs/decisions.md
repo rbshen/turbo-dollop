@@ -36,6 +36,8 @@ All sessions below are commits on `ui/design-system`, not pushed to `origin` unt
   - **6b (last planned session):** all 5 settings forms, `FmpHealthSummaryCard`, the 3 shared components used only by Settings (`NumberStepper`, `Select`, `InfoTooltip`), the Watchlist deletion UI, and a final whole-app sweep. **Confirmed run and complete (2026-09-29 verification)** — this line previously read "prompt written, not yet run," which was stale by the time of that check: `grep` for `zinc-` across all of `frontend/` now returns zero matches, `NumberStepper.tsx`/`Select.tsx`/`InfoTooltip.tsx` are all on named tokens, and `WatchlistDeleteButton.tsx` exists.
 - **Session 7 — Unified pill family (2026-09-29).** Status and Badge rebuilt as one pill family with a compact size, every hand-rolled dot / one-off pill / inline status colour converted to the shared primitive, `/styleguide` updated. Three commits on `ui/design-system` (docs, code, styleguide), not pushed. Reverses two earlier decisions; see "Design reversals" below.
 
+- **Session 8 — Form controls and the Settings layout kit (2026-09-30).** Shared form-control primitives, a Settings layout kit and a `/styleguide` preview, with **no page migrated**. Three commits on `ui/design-system` (docs, code, styleguide), not pushed. See "Session 8: form controls" below.
+
 ## Design reversals
 
 ### 2026-09-29 — Status becomes a pill everywhere
@@ -59,6 +61,33 @@ Made by the owner after reviewing the pill work above:
 **Casing rule:** every pill label is sentence case ("Wide moat", "Speculative growth", "Strong pass"), applied for display only by one helper (`pillLabel()`, the extended `verdictLabel()`), never to backend strings or comparisons. This supersedes the earlier "product terms keep their own names" exception. Full spec: "Pills" in `docs/design-system.md`.
 
 **`/styleguide`** is the complete visual reference for every pill representation (tones, sizes, Badge, direction, score + label, Pullback/Reversal states, checklist chips, the Overall Assessment ring, and in-context mock samples), for browser review before deploying.
+
+### 2026-09-30 — Session 8: form controls
+
+Made by the owner, from a read-only investigation report on the current Settings, Screener and Watchlist forms. Spec: "Form controls" and "Settings layout" in `docs/design-system.md`. The primitives and the layout kit are built and reviewable in `/styleguide`; **no existing page, form or call site was changed**, and the owner reviews `/styleguide` in the browser before any migration.
+
+1. **Form fields are boxed on form pages.** Boxed and underline fields are shown side by side in the styleguide; the Screener sidebar's choice is deferred to its own migration.
+2. **Checkbox checked state is neutral** (`text-primary` fill, dark check), not `brand` blue. Same for the new Switch and the chip variant.
+3. **The number field is typed only:** no native spinner, no scroll-wheel value change, no `e`. ArrowUp/ArrowDown step the value, Shift+Arrow steps by 10x. A `stepper` prop exists, defaults to off, and when on joins 32px `-`/`+` buttons to the field's edges: `[-][ 30 ][+]`.
+4. **Settings layout is rows, not a grid.** Each row is `grid-cols-[1fr_auto]` inside a `max-w-2xl` body: label and hint left, control right in its size token, `py-3`, a hairline between rows.
+5. **Hints are inline text under the label**, linked with `aria-describedby`. They replace the `(i)` tooltips. `InfoTooltip` is not deleted yet (the Liquidity form still uses it).
+6. **Units are a suffix after the field:** `[ 30 ] weeks`. Labels drop the unit.
+7. **Validation never silently clamps or corrects.** Invalid input (not a number, non-integer where an integer is required, outside min/max) shows an inline error under the field and an invalid style. `min`/`max` are optional props that mirror existing server bounds; no new bounds are invented for Moat, REIT or Discount Rate. No snapping to `step` unless a prop asks for it.
+8. **Selects stay native `<select>`** in the `appearance-none` shell, restyled to the field height, border and radius, with size tokens. No Base UI, no segmented-control radiogroup mode.
+9. **New Switch primitive** for settings that apply immediately: a hidden native checkbox with `role="switch"`, a 32 by 18px track, the same focus ring as Checkbox.
+10. **Sentence case in the styleguide mock.** Settings titles are converted when each section is migrated, not now.
+11. **Out of scope:** merging the two `SegmentedControl` implementations, and moving the Settings page to `SideNav`.
+12. **Out of scope:** an unsaved-edits guard.
+
+Size tokens, all 36px high and capped at the container's width: `short` 96px, `medium` 176px, `wide` 320px, `full` fills the container.
+
+**Reversals and carry-overs recorded with this decision:**
+
+- **Reversed: "boxed only for the ticker search."** The earlier rule (an `Input` doc comment and the design system's radius line) kept the boxed field for the one place that needed a visible container, with underline for everything else. Form pages are now boxed. In fact the five Settings forms already used `variant="boxed"`; the rule now matches the code. Underline stays for inline filters.
+- **Superseded: "steppers restyled and kept."** The 2026-09-29 housekeeping decision kept `NumberStepper`. It stays in place until the Liquidity form migrates, then is deleted in favour of `NumberField`'s optional `stepper`, which does not clamp or snap.
+- **Deferred, not reversed: the unboxed Settings SideNav.** `docs/design-system.md` says Settings navigation is the unboxed `SideNav`, but the Settings page still hand-rolls a boxed nav (a bordered `surface` panel of buttons). That page-level move is out of scope for this session (decision 11); the design-system row for `SideNav` is unchanged. The owner should confirm whether this counts as a reversal.
+
+**Compatibility rule for the code.** Existing `Input`, `Select`, `Checkbox` and `NumberStepper` call sites render identically: the new behaviour is a new component (`NumberField`, `FormField`, `Switch`, the Settings kit) or an explicit opt-in prop (`size` and `invalid` on `Input` and `Select`, `variant` on `Checkbox`). The defaults flip at migration, per the owner's review.
 
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
