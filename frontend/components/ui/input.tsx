@@ -18,7 +18,7 @@ import { FIELD_INVALID_CLASS, FIELD_SIZE_CLASS, type FieldSize } from "@/lib/for
 import { cn } from "@/lib/utils";
 import { describedByOf, useFormFieldContext } from "@/components/ui/form-field";
 
-const inputVariants = cva(
+export const inputVariants = cva(
   "text-sm text-text-primary placeholder:text-text-tertiary bg-transparent transition-colors disabled:cursor-not-allowed disabled:opacity-45",
   {
     variants: {

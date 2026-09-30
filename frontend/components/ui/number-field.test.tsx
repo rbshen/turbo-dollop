@@ -289,3 +289,119 @@ describe("NumberField inside a FormField", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a number.");
   });
 });
+
+const SUFFIXES = { T: 1e12, B: 1e9, M: 1e6 };
+
+describe("NumberField: optional", () => {
+  it("treats empty as valid: no error, no invalid style, and onChange reports a null value", () => {
+    const onChange = vi.fn();
+    render(<NumberField id="nf" aria-label="Weeks" value="5" onChange={onChange} optional />);
+    fireEvent.change(box(), { target: { value: "" } });
+    expect(onChange).toHaveBeenCalledWith("", { value: null, error: null });
+  });
+
+  it("shows no error for an empty optional field, and still errors on junk", () => {
+    const { rerender } = render(<NumberField id="nf" aria-label="Weeks" value="" onChange={() => {}} optional />);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(box()).not.toHaveAttribute("aria-invalid");
+    rerender(<NumberField id="nf" aria-label="Weeks" value="abc" onChange={() => {}} optional />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a number.");
+  });
+
+  it("keeps the default: an empty field is an error without optional", () => {
+    render(<NumberField id="nf" aria-label="Weeks" value="" onChange={() => {}} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a number.");
+  });
+});
+
+describe("NumberField: suffixes", () => {
+  it.each([
+    ["500M", 500_000_000],
+    ["2B", 2_000_000_000],
+    ["1T", 1_000_000_000_000],
+    ["1.", 1],
+    [".5", 0.5],
+  ])("reports %s as %d in base units, leaving the typed text alone", (text, value) => {
+    const onChange = vi.fn();
+    render(<NumberField id="nf" aria-label="Weeks" value="" onChange={onChange} suffixes={SUFFIXES} optional />);
+    fireEvent.change(box(), { target: { value: text } });
+    expect(onChange).toHaveBeenCalledWith(text, { value, error: null });
+  });
+
+  it.each([["5e"], ["1BX"], ["1x"]])("reports %s as not a number", (text) => {
+    const onChange = vi.fn();
+    render(<NumberField id="nf" aria-label="Weeks" value="" onChange={onChange} suffixes={SUFFIXES} optional />);
+    fireEvent.change(box(), { target: { value: text } });
+    expect(onChange).toHaveBeenCalledWith(text, { value: null, error: "Enter a number." });
+  });
+
+  it("makes letters invalid when no suffixes are given (the default)", () => {
+    render(<Harness initial="5M" />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a number.");
+  });
+
+  it("applies min to the value in base units", () => {
+    render(<NumberField id="nf" aria-label="Weeks" value="-5B" onChange={() => {}} suffixes={SUFFIXES} min={0} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a value of at least 0.");
+  });
+});
+
+describe("NumberField: keyboardStep", () => {
+  it("does not step and does not swallow the arrow keys when keyboardStep is false", () => {
+    render(<Harness initial="30" keyboardStep={false} />);
+    expect(fireEvent.keyDown(box(), { key: "ArrowUp" })).toBe(true);
+    fireEvent.keyDown(box(), { key: "ArrowDown" });
+    expect(box().value).toBe("30");
+  });
+
+  it("still blocks the letter e", () => {
+    render(<Harness initial="30" keyboardStep={false} />);
+    expect(fireEvent.keyDown(box(), { key: "e" })).toBe(false);
+  });
+
+  it("steps by default (unchanged)", () => {
+    render(<Harness initial="30" />);
+    fireEvent.keyDown(box(), { key: "ArrowUp" });
+    expect(box().value).toBe("31");
+  });
+});
+
+describe("NumberField: hideError", () => {
+  it("draws no error line of its own but stays aria-invalid", () => {
+    render(<NumberField id="nf" aria-label="Weeks" value="abc" onChange={() => {}} hideError />);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(box()).toHaveAttribute("aria-invalid", "true");
+    expect(box()).toHaveClass("border-negative");
+  });
+
+  it("passes aria-describedby through so a composite can point at its own error line", () => {
+    render(
+      <NumberField id="nf" aria-label="Weeks" value="abc" onChange={() => {}} hideError aria-describedby="pair-error" />,
+    );
+    expect(box()).toHaveAttribute("aria-describedby", "pair-error");
+  });
+
+  it("an explicit invalid prop still wins", () => {
+    render(<NumberField id="nf" aria-label="Weeks" value="5" onChange={() => {}} hideError invalid />);
+    expect(box()).toHaveAttribute("aria-invalid", "true");
+  });
+});
+
+describe("NumberField: variant", () => {
+  it("is boxed by default: 36px, radius-md, page fill, full border", () => {
+    render(<Harness />);
+    expect(box()).toHaveClass("h-9", "rounded-md", "border", "bg-page");
+    expect(box()).not.toHaveClass("border-b", "rounded-none");
+  });
+
+  it("underline uses Input's underline variant: 32px, no radius, bottom border only", () => {
+    render(<Harness variant="underline" />);
+    expect(box()).toHaveClass("h-8", "rounded-none", "border-0", "border-b", "font-mono", "tabular-nums");
+    expect(box()).not.toHaveClass("h-9", "rounded-md");
+  });
+
+  it("keeps the size token and the invalid style in the underline variant", () => {
+    render(<Harness variant="underline" size="medium" initial="abc" />);
+    expect(box()).toHaveClass("w-44", "border-negative");
+  });
+});

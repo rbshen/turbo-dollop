@@ -106,3 +106,101 @@ describe("FormField", () => {
     expect(screen.getByRole("textbox")).toHaveAttribute("aria-describedby", "mine");
   });
 });
+
+describe("FormField: compact density", () => {
+  it("is text-xs text-secondary with a 2px gap to the control", () => {
+    const { container } = render(
+      <FormField label="Quote" htmlFor="q" density="compact">
+        <Input variant="boxed" />
+      </FormField>,
+    );
+    const label = screen.getByText("Quote");
+    expect(label.tagName).toBe("LABEL");
+    expect(label).toHaveClass("text-xs", "text-text-secondary");
+    expect(label).not.toHaveClass("text-sm");
+    expect(container.firstElementChild).toHaveClass("gap-0.5");
+    expect(screen.getByLabelText("Quote")).toBe(screen.getByRole("textbox"));
+  });
+
+  it("puts the unit in the label row, right-aligned in text-tertiary, not after the control", () => {
+    render(
+      <FormField label="Mkt cap" htmlFor="m" density="compact" unit="USD">
+        <Input variant="boxed" />
+      </FormField>,
+    );
+    const label = screen.getByText("Mkt cap");
+    const unit = screen.getByText("USD");
+    expect(unit.parentElement).toBe(label.parentElement);
+    expect(label.parentElement).toHaveClass("justify-between");
+    expect(unit).toHaveClass("text-xs", "text-text-tertiary");
+    expect(unit.parentElement?.nextElementSibling?.contains(screen.getByRole("textbox"))).toBe(true);
+    expect(screen.getByRole("textbox").getAttribute("aria-describedby")).toBe("m-unit");
+  });
+
+  it("turns the label orange when applied, and leaves the unit tertiary", () => {
+    render(
+      <FormField label="P/E" htmlFor="pe" density="compact" unit="x" applied>
+        <Input variant="boxed" />
+      </FormField>,
+    );
+    expect(screen.getByText("P/E")).toHaveClass("text-filter-active");
+    expect(screen.getByText("P/E")).not.toHaveClass("text-text-secondary");
+    expect(screen.getByText("x")).toHaveClass("text-text-tertiary");
+  });
+
+  it("shows an optional single-line hint under the control, linked by aria-describedby", () => {
+    render(
+      <FormField label="Mkt cap" htmlFor="m" density="compact" hint="e.g. 500M, 2B, 1T">
+        <Input variant="boxed" />
+      </FormField>,
+    );
+    const hint = screen.getByText("e.g. 500M, 2B, 1T");
+    expect(hint).toHaveClass("truncate");
+    expect(screen.getByRole("textbox").getAttribute("aria-describedby")).toBe("m-hint");
+  });
+
+  it("shows the error under the control with role alert", () => {
+    render(
+      <FormField label="Quote" htmlFor="q" density="compact" error="Enter a number.">
+        <Input variant="boxed" />
+      </FormField>,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a number.");
+    expect(screen.getByRole("textbox")).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("dims the label when disabled", () => {
+    render(
+      <FormField label="Watchlist" htmlFor="w" density="compact" disabled>
+        <Input variant="boxed" />
+      </FormField>,
+    );
+    expect(screen.getByText("Watchlist")).toHaveClass("opacity-45");
+  });
+});
+
+describe("FormField: default density is unchanged", () => {
+  it("keeps the text-sm primary label, the unit after the control and the hint under the label", () => {
+    render(
+      <FormField label="MA length" htmlFor="ma" hint="Weeks in the average." unit="weeks">
+        <Input variant="boxed" />
+      </FormField>,
+    );
+    const label = screen.getByText("MA length");
+    expect(label).toHaveClass("text-sm", "text-text-primary");
+    const unit = screen.getByText("weeks");
+    expect(unit).toHaveClass("text-sm", "text-text-secondary");
+    expect(unit.previousElementSibling).toBe(screen.getByRole("textbox"));
+    expect(label.nextElementSibling).toBe(screen.getByText("Weeks in the average."));
+  });
+
+  it("only changes the label colour when applied is passed", () => {
+    render(
+      <FormField label="MA length" htmlFor="ma" applied>
+        <Input variant="boxed" />
+      </FormField>,
+    );
+    expect(screen.getByText("MA length")).toHaveClass("text-filter-active");
+  });
+});
+

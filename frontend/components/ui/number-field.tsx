@@ -12,6 +12,16 @@
 // second argument so the parent can gate its Save on it. `min`/`max` are
 // optional and should mirror bounds the server already enforces.
 //
+// Opt-in options for the Screener filter sidebar (session 10); every default is
+// today's behaviour, so the Settings forms are unchanged:
+//   optional     -- an empty field is valid and its check reports value null.
+//   suffixes     -- "500M", "2 b", "1.5T" parse to base units (see numberInput).
+//   keyboardStep -- default true; false turns ArrowUp/ArrowDown stepping off
+//                   (the arrows then keep their normal caret behaviour).
+//   variant      -- "boxed" (default) or "underline", backed by Input's variants.
+//   hideError    -- draw no error line of our own (still aria-invalid), so a
+//                   composite can show ONE line under a pair.
+//
 // `stepper` (off by default) joins 32px -/+ buttons to the field's edges:
 // [-][ 30 ][+]. They are outside the token width and skipped by Tab (the
 // arrow keys are the keyboard route, as on a native spin button).
@@ -29,9 +39,10 @@ import {
   joinIds,
   type FieldSize,
 } from "@/lib/formControl";
-import { checkNumber, stepNumber, type NumberCheck } from "@/lib/numberInput";
+import { checkNumber, formatNumberInput, stepNumber, type NumberCheck, type NumberSuffixes } from "@/lib/numberInput";
 import { cn } from "@/lib/utils";
 import { FIELD_ERROR_CLASS, FIELD_UNIT_CLASS, useFormFieldContext } from "@/components/ui/form-field";
+import { inputVariants } from "@/components/ui/input";
 
 export interface NumberFieldProps
   extends Omit<
@@ -54,6 +65,16 @@ export interface NumberFieldProps
   /** An error from outside the field (a cross-field or server message). */
   error?: ReactNode;
   stepper?: boolean;
+  /** Empty is valid and reads as null (no value). */
+  optional?: boolean;
+  /** Suffix letters and multipliers, e.g. `{ M: 1e6, B: 1e9, T: 1e12 }`. */
+  suffixes?: NumberSuffixes;
+  /** Default true. False disables ArrowUp/ArrowDown stepping. */
+  keyboardStep?: boolean;
+  /** Default "boxed". */
+  variant?: "boxed" | "underline";
+  /** Suppress this field's own error line (a composite shows one for the pair). */
+  hideError?: boolean;
 }
 
 const STEPPER_BUTTON_CLASS =
@@ -74,6 +95,11 @@ export const NumberField = forwardRef<HTMLInputElement, NumberFieldProps>(functi
     error,
     disabled,
     stepper = false,
+    optional = false,
+    suffixes,
+    keyboardStep = true,
+    variant = "boxed",
+    hideError = false,
     className,
     onKeyDown,
     "aria-describedby": ariaDescribedBy,
@@ -86,7 +112,8 @@ export const NumberField = forwardRef<HTMLInputElement, NumberFieldProps>(functi
   const fieldId = id ?? ctx?.id ?? autoId;
   const isDisabled = disabled ?? ctx?.disabled ?? false;
 
-  const check = checkNumber(value, { integer, min, max });
+  const rules = { integer, min, max, optional, suffixes };
+  const check = checkNumber(value, rules);
   // A disabled field (a conditional row that does not apply) shows no
   // validation of its own; the parent ignores it when saving.
   const message = error ?? (isDisabled ? null : check.error);
@@ -94,17 +121,17 @@ export const NumberField = forwardRef<HTMLInputElement, NumberFieldProps>(functi
 
   const unitId = `${fieldId}-unit`;
   const errorId = `${fieldId}-error`;
-  const showOwnError = Boolean(message) && !ctx?.errorId;
+  const showOwnError = Boolean(message) && !ctx?.errorId && !hideError;
 
   const validNow = !isDisabled && check.value !== null && check.error === null;
 
   function emit(text: string) {
-    onChange(text, checkNumber(text, { integer, min, max }));
+    onChange(text, checkNumber(text, rules));
   }
 
   function stepBy(direction: 1 | -1, big: boolean) {
     if (!validNow || check.value === null) return;
-    emit(String(stepNumber(check.value, direction, step, big, { min, max })));
+    emit(formatNumberInput(stepNumber(check.value, direction, step, big, { min, max }), suffixes));
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -112,7 +139,7 @@ export const NumberField = forwardRef<HTMLInputElement, NumberFieldProps>(functi
     if (e.defaultPrevented) return;
     if ((e.key === "e" || e.key === "E") && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
-    } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    } else if (keyboardStep && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
       e.preventDefault();
       stepBy(e.key === "ArrowUp" ? 1 : -1, e.shiftKey);
     }
@@ -140,7 +167,7 @@ export const NumberField = forwardRef<HTMLInputElement, NumberFieldProps>(functi
       onChange={(e) => emit(e.target.value)}
       onKeyDown={handleKeyDown}
       className={cn(
-        FIELD_BOX_CLASS,
+        variant === "underline" ? inputVariants({ variant: "underline" }) : FIELD_BOX_CLASS,
         "min-w-0 font-mono tabular-nums",
         FIELD_SIZE_CLASS[size],
         stepper ? "rounded-none text-center" : null,

@@ -4,6 +4,7 @@ import { VALUATION_LABELS } from "@/components/screener/ValuationBadge";
 import { MOAT_LABELS } from "@/lib/overallScore";
 import { WEINSTEIN_STAGE_LABEL } from "@/lib/weinsteinStage";
 import type { TickerScoreOut } from "@/lib/api/types";
+import { formatNumberInput } from "@/lib/numberInput";
 
 export interface RangeFilter {
   min: number | null;
@@ -19,12 +20,17 @@ export const EMPTY_RANGE: RangeFilter = { min: null, max: null };
 // distinct token from --fathom-chart-orange despite sharing the same hue.
 export const FILTER_ACTIVE_LABEL_CLASS = "text-filter-active";
 
-const MARKET_CAP_SUFFIX_MULTIPLIERS: Record<string, number> = { B: 1e9, M: 1e6 };
+/** Market-cap suffixes: M, B and T (5T is 5,000,000,000,000). Shared by the live
+ * sidebar's parseMarketCapInput below and the new RangeField's lenient parser. */
+export const MARKET_CAP_SUFFIXES: Record<string, number> = { T: 1e12, B: 1e9, M: 1e6 };
 
 /** Parses Market Cap filter input: a bare number is raw dollars (unchanged
- * from before), optionally suffixed with "B"/"M" (case-insensitive, with or
- * without a separating space) for billions/millions, e.g. "1B" / "1 b" ->
- * 1_000_000_000, "2M" / "2 m" -> 2_000_000. Empty string parses to null (no
+ * from before), optionally suffixed with "B"/"M"/"T" (case-insensitive, with or
+ * without a separating space) for billions/millions/trillions, e.g. "1B" /
+ * "1 b" -> 1_000_000_000, "2M" / "2 m" -> 2_000_000, "5T" -> 5_000_000_000_000.
+ * This is the LIVE sidebar's parser and still rejects "12." and ".5"; the new
+ * RangeField uses the lenient checkNumber(..., { suffixes }) in numberInput.ts
+ * instead, and this one is deleted at migration. Empty string parses to null (no
  * filter on that side). Returns `undefined` for anything else -- an
  * unparseable string, a negative number, or a number with an unrecognized
  * suffix -- so callers can tell "no filter" apart from "invalid input" and
@@ -43,9 +49,15 @@ export function parseMarketCapInput(raw: string): number | null | undefined {
 
   if (suffixPart === "") return value;
 
-  const multiplier = MARKET_CAP_SUFFIX_MULTIPLIERS[suffixPart.toUpperCase()];
+  const multiplier = MARKET_CAP_SUFFIXES[suffixPart.toUpperCase()];
   if (multiplier == null) return undefined;
   return value * multiplier;
+}
+
+/** What a stored market cap reads back as in a box: the shortest exact form
+ * ("1B", "2.5T"), or plain digits. See formatNumberInput. */
+export function formatMarketCapInput(value: number | null): string {
+  return formatNumberInput(value, MARKET_CAP_SUFFIXES);
 }
 
 // Sentinel for "no moat set" (absence of a TickerMoat row -- the default
@@ -216,6 +228,24 @@ export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
   bbRsiEntrySignal: false,
   warrenSignalKinds: [],
 };
+
+/** How many filters are applied right now: ranges with a min or a max, multi-
+ * selects with at least one option, checked chips, plus one for a watchlist
+ * filter that is actually in effect (`watchlistActive`). Walks every field of
+ * the state, so a filter added later is counted without touching this. */
+export function countActiveFilters(filters: ScreenerFilterState, watchlistActive: boolean): number {
+  let count = watchlistActive ? 1 : 0;
+  for (const value of Object.values(filters)) {
+    if (Array.isArray(value)) {
+      if (value.length > 0) count += 1;
+    } else if (typeof value === "boolean") {
+      if (value) count += 1;
+    } else if (value.min != null || value.max != null) {
+      count += 1;
+    }
+  }
+  return count;
+}
 
 // A range filter is only "active" if min or max is actually set -- an
 // active filter can never be satisfied by a null value (e.g. filtering

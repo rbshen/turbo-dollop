@@ -2,7 +2,11 @@
 
 // Button -- primary/ghost/danger actions. `ghost` is the default variant
 // (a plain-text action), `primary` is for the one emphasized action in a
-// view, `danger` is ghost's negative-tone twin for destructive actions.
+// view, `danger` is ghost's negative-tone twin for destructive actions, and
+// `outline` is ghost with a hairline border that turns brand on hover -- the
+// secondary action that must read as a button inside a dense panel (it replaces
+// the repeated "ghost + border-border-input hover:border-brand" override; at
+// size sm it is 32px, h-8, like the sidebar's chips and triggers).
 import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
@@ -15,12 +19,15 @@ const buttonVariants = cva(
         primary: "bg-brand text-on-brand hover:bg-brand-hover px-4",
         ghost: "bg-transparent text-text-secondary hover:bg-surface-2 hover:text-text-primary px-3",
         danger: "bg-transparent text-negative hover:bg-negative/10 px-3",
+        outline:
+          "border border-border-input bg-transparent text-text-secondary hover:border-brand hover:bg-surface-2 hover:text-text-primary px-3",
       },
       size: {
         default: "h-9 text-sm",
         sm: "h-7 text-xs",
       },
     },
+    compoundVariants: [{ variant: "outline", size: "sm", class: "h-8" }],
     defaultVariants: {
       variant: "ghost",
       size: "default",

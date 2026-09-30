@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import type { TickerScoreOut } from "@/lib/api/types";
 import {
   DEFAULT_FILTER_STATE,
+  countActiveFilters,
   excludeEtfs,
   extractCompanyTypes,
   extractSectors,
   filterTickerScores,
+  formatMarketCapInput,
   isEtfRow,
   parseMarketCapInput,
   sortTickerScores,
@@ -482,6 +484,80 @@ describe("parseMarketCapInput", () => {
       expect(parseMarketCapInput(input)).toBeUndefined();
     },
   );
+});
+
+describe("parseMarketCapInput: T suffix", () => {
+  it.each([
+    ["1T", 1_000_000_000_000],
+    ["5 t", 5_000_000_000_000],
+    ["2.5T", 2_500_000_000_000],
+  ])("parses %s", (input, expected) => {
+    expect(parseMarketCapInput(input)).toBe(expected);
+  });
+
+  it("is still the strict live parser: it rejects a trailing or leading point", () => {
+    expect(parseMarketCapInput("12.")).toBeUndefined();
+    expect(parseMarketCapInput(".5")).toBeUndefined();
+  });
+});
+
+describe("formatMarketCapInput", () => {
+  it("shows the shortest exact form", () => {
+    expect(formatMarketCapInput(1e9)).toBe("1B");
+    expect(formatMarketCapInput(5e12)).toBe("5T");
+    expect(formatMarketCapInput(1.5e9)).toBe("1.5B");
+    expect(formatMarketCapInput(2.5e12)).toBe("2.5T");
+  });
+
+  it("falls back to plain digits, and to empty for null", () => {
+    expect(formatMarketCapInput(1_234_567)).toBe("1234567");
+    expect(formatMarketCapInput(750_000)).toBe("750000");
+    expect(formatMarketCapInput(null)).toBe("");
+  });
+
+  it("round-trips through the live parser too", () => {
+    for (const value of [1e9, 1.5e9, 5e12, 2.5e12, 3e6]) {
+      expect(parseMarketCapInput(formatMarketCapInput(value))).toBe(value);
+    }
+  });
+});
+
+describe("countActiveFilters", () => {
+  it("is 0 for the default state and 0 with no watchlist in effect", () => {
+    expect(countActiveFilters(DEFAULT_FILTER_STATE, false)).toBe(0);
+  });
+
+  it("counts a range once, whether min, max or both are set", () => {
+    expect(countActiveFilters({ ...DEFAULT_FILTER_STATE, quote: { min: 10, max: null } }, false)).toBe(1);
+    expect(countActiveFilters({ ...DEFAULT_FILTER_STATE, quote: { min: null, max: 0 } }, false)).toBe(1);
+    expect(countActiveFilters({ ...DEFAULT_FILTER_STATE, quote: { min: 1, max: 2 } }, false)).toBe(1);
+  });
+
+  it("counts each non-empty multi-select once, however many options are chosen", () => {
+    const state = { ...DEFAULT_FILTER_STATE, sectors: ["Technology", "Energy"], moat: ["wide_moat"] };
+    expect(countActiveFilters(state, false)).toBe(2);
+  });
+
+  it("counts checked chips", () => {
+    const state = { ...DEFAULT_FILTER_STATE, speculativeGrowth: true, bbRsiEntrySignal: true };
+    expect(countActiveFilters(state, false)).toBe(2);
+  });
+
+  it("counts a watchlist only when it is actually in effect", () => {
+    expect(countActiveFilters(DEFAULT_FILTER_STATE, true)).toBe(1);
+    expect(countActiveFilters(DEFAULT_FILTER_STATE, false)).toBe(0);
+  });
+
+  it("adds everything together", () => {
+    const state = {
+      ...DEFAULT_FILTER_STATE,
+      overallScore: { min: 70, max: null },
+      marketCap: { min: 1e9, max: 5e12 },
+      sectors: ["Technology"],
+      speculativeGrowth: true,
+    };
+    expect(countActiveFilters(state, true)).toBe(5);
+  });
 });
 
 describe("extractSectors / extractCompanyTypes", () => {
