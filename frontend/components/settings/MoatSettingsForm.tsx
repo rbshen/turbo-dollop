@@ -6,21 +6,20 @@ import { mutate } from "swr";
 import { apiPut } from "@/lib/api/client";
 import type { MoatScoreConfigOut } from "@/lib/api/types";
 import { useMoatConfig } from "@/lib/hooks/useMoatConfig";
-import { Button } from "@/components/ui/button";
-import { Field, Input } from "@/components/ui/input";
-import { Section } from "@/components/ui/section";
-
-type Status = "idle" | "saving" | "saved" | "error";
-
-const STATUS_LABELS: Record<Status, string> = {
-  idle: "Save",
-  saving: "Saving…",
-  saved: "Saved ✓",
-  error: "Save failed",
-};
+import { NumberField } from "@/components/ui/number-field";
+import {
+  SettingsFooter,
+  SettingsGroup,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings/SettingsLayout";
+import { useSettingsSave, type SettingsSaver } from "@/components/settings/useSettingsSave";
+import { checkNumber } from "@/lib/numberInput";
 
 export function MoatSettingsForm() {
   const { data, error, isLoading } = useMoatConfig();
+  // Held here, above the keyed form below, so "Saved ✓" survives the remount.
+  const saver = useSettingsSave();
 
   if (error) {
     return <p className="text-sm text-negative">Couldn&apos;t load Economic Moat settings — {error.message}</p>;
@@ -31,102 +30,81 @@ export function MoatSettingsForm() {
   }
 
   // Keyed on updated_at so a save (which changes updated_at) remounts this
-  // with fresh initial text -- same pattern as DiscountRateSettingsForm.
-  return <MoatScoreForm key={data.updated_at} data={data} />;
+  // with fresh initial text.
+  return <MoatScoreForm key={data.updated_at} data={data} saver={saver} />;
 }
 
-// A single config object, no per-region/per-item repetition -- content sits
-// directly in the Section, not wrapped in its own Card, matching
-// ScheduledJobsSection/FmpDataGroupsSection's precedent for a panel that is
-// the sole content of its nav tab.
-function MoatScoreForm({ data }: { data: MoatScoreConfigOut }) {
+// A single config object, three fields. No bounds: the server has none, so
+// the only check is "is it a number" -- a value is never clamped or corrected.
+function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: SettingsSaver }) {
   const [wideText, setWideText] = useState(String(data.wide_moat_score));
   const [narrowText, setNarrowText] = useState(String(data.narrow_moat_score));
   const [noMoatText, setNoMoatText] = useState(String(data.no_moat_score));
-  const [status, setStatus] = useState<Status>("idle");
 
-  async function handleSave() {
-    const wideMoatScore = parseFloat(wideText);
-    const narrowMoatScore = parseFloat(narrowText);
-    const noMoatScore = parseFloat(noMoatText);
-    if (Number.isNaN(wideMoatScore) || Number.isNaN(narrowMoatScore) || Number.isNaN(noMoatScore)) {
-      setStatus("error");
-      return;
-    }
-    setStatus("saving");
-    try {
-      await apiPut<MoatScoreConfigOut>("/config/moat", {
-        wide_moat_score: wideMoatScore,
-        narrow_moat_score: narrowMoatScore,
-        no_moat_score: noMoatScore,
-      });
+  const wide = checkNumber(wideText);
+  const narrow = checkNumber(narrowText);
+  const noMoat = checkNumber(noMoatText);
+  const invalid = wide.error !== null || narrow.error !== null || noMoat.error !== null;
+  const unchanged =
+    wide.value === data.wide_moat_score &&
+    narrow.value === data.narrow_moat_score &&
+    noMoat.value === data.no_moat_score;
+
+  function handleSave() {
+    if (invalid || wide.value === null || narrow.value === null || noMoat.value === null) return;
+    const body = {
+      wide_moat_score: wide.value,
+      narrow_moat_score: narrow.value,
+      no_moat_score: noMoat.value,
+    };
+    void saver.run(async () => {
+      await apiPut<MoatScoreConfigOut>("/config/moat", body);
       // Every mounted OverallAssessmentCard reads this same global SWR key
       // -- one revalidation reflows every open ticker's blended score
       // without a manual page reload.
       await mutate("/config/moat");
-      setStatus("saved");
-    } catch {
-      setStatus("error");
-    } finally {
-      setTimeout(() => setStatus("idle"), 3000);
-    }
+    });
   }
 
   return (
-    <Section title="Economic Moat Point Values">
-      <p className="text-xs text-text-tertiary">
-        Point values (0-100 scale) each Economic Moat state contributes to Overall Assessment once a ticker has a
-        moat set. Applied as: <span className="font-mono text-text-secondary">0.69 × Financials/Growth Rate/Profitability/Debt blend + 0.31 × moat score</span>.
-      </p>
+    <SettingsSection
+      title="Economic moat point values"
+      intro="Sets the points each moat rating counts for in a ticker's Overall Assessment. Once you have set a moat for a ticker, it makes up 31% of that ticker's overall score and the four automated checks make up the other 69%. A ticker with no moat set is scored on the four checks alone."
+    >
+      <SettingsGroup>
+        <SettingsRow
+          label="Wide moat"
+          hint="The points, out of 100, that a Wide moat rating counts for in the Overall Assessment. The default is 100."
+          htmlFor="wide-moat-score"
+          error={wide.error}
+        >
+          <NumberField value={wideText} onChange={setWideText} size="short" step={0.1} />
+        </SettingsRow>
+        <SettingsRow
+          label="Narrow moat"
+          hint="The points, out of 100, that a Narrow moat rating counts for in the Overall Assessment. The default is 65."
+          htmlFor="narrow-moat-score"
+          error={narrow.error}
+        >
+          <NumberField value={narrowText} onChange={setNarrowText} size="short" step={0.1} />
+        </SettingsRow>
+        <SettingsRow
+          label="No moat"
+          hint="The points, out of 100, that a No moat rating counts for in the Overall Assessment. At the default of 0 it can hold the overall score below 70 whatever the four checks say."
+          htmlFor="no-moat-score"
+          error={noMoat.error}
+        >
+          <NumberField value={noMoatText} onChange={setNoMoatText} size="short" step={0.1} />
+        </SettingsRow>
+      </SettingsGroup>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Field label="Wide Moat" htmlFor="wide-moat-score">
-          <Input
-            id="wide-moat-score"
-            variant="boxed"
-            type="number"
-            step="0.1"
-            min="0"
-            max="100"
-            className="mt-1 w-full font-mono"
-            value={wideText}
-            onChange={(e) => setWideText(e.target.value)}
-          />
-        </Field>
-        <Field label="Narrow Moat" htmlFor="narrow-moat-score">
-          <Input
-            id="narrow-moat-score"
-            variant="boxed"
-            type="number"
-            step="0.1"
-            min="0"
-            max="100"
-            className="mt-1 w-full font-mono"
-            value={narrowText}
-            onChange={(e) => setNarrowText(e.target.value)}
-          />
-        </Field>
-        <Field label="No Moat" htmlFor="no-moat-score">
-          <Input
-            id="no-moat-score"
-            variant="boxed"
-            type="number"
-            step="0.1"
-            min="0"
-            max="100"
-            className="mt-1 w-full font-mono"
-            value={noMoatText}
-            onChange={(e) => setNoMoatText(e.target.value)}
-          />
-        </Field>
-      </div>
-
-      <div className="mt-6 flex items-center gap-3">
-        <Button variant="primary" onClick={handleSave} disabled={status === "saving"}>
-          {STATUS_LABELS[status]}
-        </Button>
-        <p className="text-xs text-text-tertiary">Last updated {new Date(data.updated_at).toLocaleString()}</p>
-      </div>
-    </Section>
+      <SettingsFooter
+        onSave={handleSave}
+        status={saver.status}
+        invalid={invalid}
+        unchanged={unchanged}
+        updatedAt={data.updated_at}
+      />
+    </SettingsSection>
   );
 }
