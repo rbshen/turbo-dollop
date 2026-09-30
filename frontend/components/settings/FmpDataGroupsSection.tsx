@@ -58,7 +58,7 @@ export function FmpDataGroupsSection() {
   };
 
   return (
-    <Section title="FMP Data Groups">
+    <Section title="FMP data groups">
       {message && <p className="mb-3 text-xs text-negative">{message}</p>}
 
       <Table>

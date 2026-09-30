@@ -51,7 +51,7 @@ export function ScheduledJobsSection() {
 
   return (
     <Section>
-      <h3 className="text-sm font-semibold text-text-primary">Scheduled Jobs</h3>
+      <h3 className="text-sm font-semibold text-text-primary">Scheduled jobs</h3>
 
       {!cronHealth ? (
         <p className="mt-3 text-sm text-text-tertiary animate-pulse">Loading…</p>

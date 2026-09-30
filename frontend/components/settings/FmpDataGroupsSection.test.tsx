@@ -58,6 +58,12 @@ describe("FmpDataGroupsSection", () => {
     expect(pill.className).toMatch(/text-text-secondary/);
   });
 
+  it("has a sentence-case heading that matches the Settings nav label", () => {
+    mockData([group({})]);
+    render(<FmpDataGroupsSection />);
+    expect(screen.getByRole("heading", { name: "FMP data groups" })).toBeInTheDocument();
+  });
+
   it("still renders a live group with the positive tone", () => {
     mockData([group({})]);
     render(<FmpDataGroupsSection />);

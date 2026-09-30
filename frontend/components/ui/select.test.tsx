@@ -8,26 +8,14 @@ afterEach(cleanup);
 
 function renderSelect(props: Partial<React.ComponentProps<typeof Select>> = {}) {
   return render(
-    <Select aria-label="MA type" {...props}>
+    <Select aria-label="MA type" size="short" {...props}>
       <option value="EMA">EMA</option>
       <option value="SMA">SMA</option>
     </Select>,
   );
 }
 
-describe("Select: legacy rendering is unchanged", () => {
-  it("keeps the old shell when no size is given", () => {
-    const { container } = renderSelect();
-    const select = screen.getByLabelText("MA type");
-    expect(select).toHaveClass("w-full", "appearance-none", "rounded", "py-1.5", "pl-2", "pr-7", "focus:border-brand", "focus:outline-none");
-    expect(select).not.toHaveClass("h-9");
-    expect(container.firstElementChild).toHaveClass("relative", "block");
-    expect(container.firstElementChild).not.toHaveClass("w-24");
-    expect(select).not.toHaveAttribute("aria-invalid");
-  });
-});
-
-describe("Select: opt-in restyle", () => {
+describe("Select: the form-page field", () => {
   it.each([
     ["short", "w-24"],
     ["medium", "w-44"],

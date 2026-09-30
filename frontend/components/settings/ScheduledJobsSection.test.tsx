@@ -34,6 +34,12 @@ function mockData(jobs: CronJobHealthOut[]) {
 }
 
 describe("ScheduledJobsSection", () => {
+  it("has a sentence-case heading that matches the Settings nav label", () => {
+    mockData([job({})]);
+    render(<ScheduledJobsSection />);
+    expect(screen.getByRole("heading", { name: "Scheduled jobs" })).toBeInTheDocument();
+  });
+
   it("renders a skipped job as a neutral pill, not the retired sky-blue", () => {
     mockData([job({ job_name: "nightly_liquidity_zone_calculation", health_status: "skipped", message: "skipped (group daily_prices off)" })]);
     render(<ScheduledJobsSection />);

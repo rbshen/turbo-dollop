@@ -58,7 +58,7 @@ A calm, data-first interface for fundamental investing.
 
 ## Form controls
 
-The controls for typing, choosing and toggling a value on a form page. Built 2026-09-30 (session 8) and shown in `/styleguide`; **no page uses them yet**. Existing forms (Settings, the Screener sidebar, the Watchlist name editor) still render through the older `Input`, `Select`, `Checkbox` and `NumberStepper` defaults and are migrated one at a time, each in its own change. The new behaviour is opt-in in code (a new component, or an explicit prop), so nothing that exists today changes how it renders.
+The controls for typing, choosing and toggling a value on a form page. Built 2026-09-30 (session 8) and shown in `/styleguide`. All five Settings forms (REIT dividend yield, Economic moat, Discount rate, Weinstein, Liquidity) use them as of session 9. The Screener sidebar and the Watchlist name editor still render through the older `Input` and `Checkbox` defaults and are migrated one at a time, each in its own change. The new behaviour is opt-in in code (a new component, or an explicit prop) wherever an old call site still exists, so nothing there changes how it renders; `Select` has no old form left and always takes a `size`.
 
 | Control | Component | Job |
 | --- | --- | --- |
@@ -89,11 +89,11 @@ The controls for typing, choosing and toggling a value on a form page. Built 202
 | Invalid | `border-negative` on the box, plus the error text under the field (below). Colour is never the only signal: the message says what is wrong |
 | Disabled | 45% opacity, `not-allowed` cursor, and its label and hint dim with it (the Liquidity breach-recency row) |
 
-**Anatomy.** From top to bottom: the **label**, a real `<label for>` in `text-sm` `text-primary` and sentence case, with **the unit dropped** ("MA length", not "MA length (weeks)"); the **hint**, one plain-English sentence in `caption` `text-tertiary` directly under the label; the **field**, followed on the same line by its **unit** as a suffix in `text-secondary` (`[ 30 ] weeks`); and the **error** in `text-negative` under the field. The hint and the error are linked to the control with `aria-describedby` (and the unit too, for a number), and the error has `role="alert"` so it is announced when it appears. `FormField` does the wiring, so a control inside it needs no manual ids beyond its own `id`. Hints replace the `(i)` `InfoTooltip`, which stays only until the Liquidity form is migrated: help that a user has to hover for is help most never read, and a touch device cannot hover at all.
+**Anatomy.** From top to bottom: the **label**, a real `<label for>` in `text-sm` `text-primary` and sentence case, with **the unit dropped** ("MA length", not "MA length (weeks)"); the **hint**, one plain-English sentence in `caption` `text-tertiary` directly under the label; the **field**, followed on the same line by its **unit** as a suffix in `text-secondary` (`[ 30 ] weeks`); and the **error** in `text-negative` under the field. The hint and the error are linked to the control with `aria-describedby` (and the unit too, for a number), and the error has `role="alert"` so it is announced when it appears. `FormField` does the wiring, so a control inside it needs no manual ids beyond its own `id`. Hints replaced the `(i)` `InfoTooltip`, which has been deleted: help that a user has to hover for is help most never read, and a touch device cannot hover at all.
 
 **Validation.** A value is never silently clamped, rounded, snapped or corrected. If it is not a number, is not a whole number where one is required, or is outside `min`/`max`, the field shows the invalid style and an inline error and the form's Save is disabled until it is fixed. `min` and `max` are optional props that mirror the bounds the server already enforces (for example Weinstein's MA length 2 to 200); a setting with no server bound gets none in the UI either. Two deliberate, recorded exceptions are form-level only: the Economic moat scores check 0 to 100 (the backend has no bound), and Weinstein's breakout volume has a floor of 0.1 where the server accepts anything above 0. A value is never snapped to `step` unless a prop asks for it.
 
-**Number fields are typed only.** `NumberField` is a text input with `inputMode="decimal"`, not a native `type="number"`: no browser spinner, no scroll-wheel value change, no `e` (exponent) character. ArrowUp and ArrowDown step the value by `step`, and Shift with either arrow steps by ten times `step`. Stepping only acts on a valid value and stops at `min` and `max`. A `stepper` prop, off by default, adds joined `-` and `+` buttons at the field's edges, `[-][ 30 ][+]`, 32px wide each; use it only where a value is nudged far more often than it is typed. It replaces `NumberStepper`, which stays until the Liquidity form moves over.
+**Number fields are typed only.** `NumberField` is a text input with `inputMode="decimal"`, not a native `type="number"`: no browser spinner, no scroll-wheel value change, no `e` (exponent) character. ArrowUp and ArrowDown step the value by `step`, and Shift with either arrow steps by ten times `step`. Stepping only acts on a valid value and stops at `min` and `max`. A `stepper` prop, off by default, adds joined `-` and `+` buttons at the field's edges, `[-][ 30 ][+]`, 32px wide each; use it only where a value is nudged far more often than it is typed. It replaced `NumberStepper`, which has been deleted.
 
 **Native select rule.** A choice is a native `<select>` in the themed `appearance-none` shell with an overlaid caret, restyled to the same 36px height, border and radius as a boxed field and sized by the same tokens. No custom listbox, and no segmented-control mode for a form setting: a native select gives keyboard, touch and screen-reader behaviour for free.
 
@@ -101,7 +101,7 @@ The controls for typing, choosing and toggling a value on a form page. Built 202
 
 ## Settings layout
 
-Every Settings section is built from four components in `components/settings/SettingsLayout.tsx` (built 2026-09-30, shown in `/styleguide`, not used by the Settings page yet):
+Every Settings section is built from four components in `components/settings/SettingsLayout.tsx` (built 2026-09-30, shown in `/styleguide`, used by all five form sections of the Settings page; Scheduled jobs and FMP data groups are tables and do not use it):
 
 - **Section title.** `SettingsSection`: a `Section` (hairline and title), sentence case. The existing Title Case titles ("Economic Moat Point Values", "REIT Dividend Yield Threshold") are converted when a section is migrated, not before.
 - **Intro.** One short paragraph under the title, capped at `max-w-xl`. It says what the section controls and when a change takes effect, in plain English. It never cites a doc, a section number or a file name.
@@ -182,13 +182,11 @@ sampled.
    consumers; every former `chart-1..5` reader (`MarketBreadthCharts.tsx`,
    `PriceTargetTrendChart.tsx`, the shelved `InstitutionalOwnershipTab.tsx`) now reads
    `--color-series-1..5` instead (see `docs/design-system-charts.md`'s own series-token rules).
-2. **Steppers — restyled and kept, then superseded by `NumberField`'s optional stepper (2026-09-30).**
-   `components/ui/NumberStepper.tsx` still exists as a real shared component, used by
-   `LiquidityZoneSettingsForm.tsx` and shown in `/styleguide` — the original "drop it"
-   recommendation was not carried out; it was brought onto the shared token set instead. Session 8
-   adds `NumberField` with an opt-in `stepper` prop, which is typed-only, never clamps or snaps,
-   and shows an inline error; `NumberStepper` (which clamps and snaps on blur) is deleted when the
-   Liquidity form migrates to it. It is not deleted before then.
+2. **Steppers — restyled and kept, then superseded and deleted (2026-09-30).**
+   `components/ui/NumberStepper.tsx` was kept in the 2026-09-29 verification (brought onto the
+   shared token set rather than dropped). Session 8 added `NumberField` with an opt-in `stepper`
+   prop, which is typed-only, never clamps or snaps, and shows an inline error; session 9 moved
+   the last user of `NumberStepper` (the Liquidity form) onto it and deleted the component.
 3. **Analyst labels — done.** `CurrentDistributionList.tsx`, `RatingDistributionTrendChart.tsx`,
    and `RecommendationDetailsTable.tsx` now display FMP's own Strong Buy/Buy/Hold/Sell/Strong
    Sell wording (was the app's own relabeled Buy/Outperform/Hold/Underperform/Sell). Only the

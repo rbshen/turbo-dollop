@@ -6,10 +6,9 @@
 // needs a "floating card" body (this component and components/ui/chart.tsx's
 // chart tooltip).
 //
-// Not a replacement for components/ui/InfoTooltip.tsx: that component's
-// tap-to-toggle behaviour (for touch devices, which never fire hover) is
-// left untouched, handled at page migration. See this session's report for
-// the exact gaps.
+// Hover/focus only: it has no tap-to-toggle, so touch devices (which never
+// fire hover) do not get it. The Settings forms' old (i) InfoTooltip, which
+// did, was replaced by inline hints and deleted.
 import type { ReactNode } from "react";
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
 import { cn } from "@/lib/utils";
