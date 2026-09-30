@@ -9,7 +9,10 @@ import type { MoatScoreConfigOut } from "@/lib/api/types";
 import { useMoatConfig } from "@/lib/hooks/useMoatConfig";
 
 vi.mock("swr", async (importOriginal) => ({ ...(await importOriginal<typeof import("swr")>()), mutate: vi.fn() }));
-vi.mock("@/lib/api/client", () => ({ apiPut: vi.fn() }));
+vi.mock("@/lib/api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/client")>()),
+  apiPut: vi.fn(),
+}));
 vi.mock("@/lib/hooks/useMoatConfig", () => ({ useMoatConfig: vi.fn() }));
 
 const mockedPut = vi.mocked(apiPut);

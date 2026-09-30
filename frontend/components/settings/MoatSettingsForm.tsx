@@ -107,6 +107,7 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
         status={saver.status}
         invalid={invalid}
         unchanged={unchanged}
+        message={saver.detail}
         updatedAt={data.updated_at}
       />
     </SettingsSection>

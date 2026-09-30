@@ -9,7 +9,10 @@ import type { ReitDividendYieldConfigOut } from "@/lib/api/types";
 import { useReitDividendYieldConfig } from "@/lib/hooks/useReitDividendYieldConfig";
 
 vi.mock("swr", async (importOriginal) => ({ ...(await importOriginal<typeof import("swr")>()), mutate: vi.fn() }));
-vi.mock("@/lib/api/client", () => ({ apiPut: vi.fn() }));
+vi.mock("@/lib/api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/client")>()),
+  apiPut: vi.fn(),
+}));
 vi.mock("@/lib/hooks/useReitDividendYieldConfig", () => ({ useReitDividendYieldConfig: vi.fn() }));
 
 const mockedPut = vi.mocked(apiPut);

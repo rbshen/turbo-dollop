@@ -147,6 +147,7 @@ export function SettingsFooter({
   updatedAt,
   invalid = false,
   unchanged = false,
+  message: errorMessage,
   className,
 }: {
   onSave: () => void;
@@ -157,9 +158,15 @@ export function SettingsFooter({
   invalid?: boolean;
   /** Nothing differs from the stored values yet: Save is disabled (no message). */
   unchanged?: boolean;
+  /** The server's reason for a failed save, shown after "Save failed". */
+  message?: string;
   className?: string;
 }) {
-  const message = invalid ? "Fix the highlighted fields to save." : STATUS_TEXT[status];
+  const message = invalid
+    ? "Fix the highlighted fields to save."
+    : status === "error" && errorMessage
+      ? `${STATUS_TEXT.error}: ${errorMessage}`
+      : STATUS_TEXT[status];
   return (
     <div className={cn("mt-6 flex flex-wrap items-center gap-x-3 gap-y-1", className)}>
       <Button variant="primary" onClick={onSave} disabled={status === "saving" || invalid || unchanged}>
