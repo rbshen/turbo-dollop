@@ -37,6 +37,7 @@ All sessions below are commits on `ui/design-system`, not pushed to `origin` unt
 - **Session 7 — Unified pill family (2026-09-29).** Status and Badge rebuilt as one pill family with a compact size, every hand-rolled dot / one-off pill / inline status colour converted to the shared primitive, `/styleguide` updated. Three commits on `ui/design-system` (docs, code, styleguide), not pushed. Reverses two earlier decisions; see "Design reversals" below.
 
 - **Session 8 — Form controls and the Settings layout kit (2026-09-30).** Shared form-control primitives, a Settings layout kit and a `/styleguide` preview, with **no page migrated**. Three commits on `ui/design-system` (docs, code, styleguide), not pushed. See "Session 8: form controls" below.
+- **Session 9 — Settings migration, part 1 (2026-09-30).** REIT dividend yield, Economic moat and Discount rate moved onto the session 8 form controls and Settings layout kit, one commit per section, plus the Settings nav labels in sentence case. Weinstein, Liquidity, Scheduled jobs and FMP data groups untouched. See "Session 9: Settings migration, part 1" below.
 
 ## Design reversals
 
@@ -92,6 +93,18 @@ Size tokens, all 36px high and capped at the container's width: `short` 96px, `m
 ### 2026-09-30 (follow-up) — Settings rows: fixed control column, left-aligned
 
 **Corrects the earlier right-aligned row spec** (decision 4 above and the first "Settings layout" text: `grid-cols-[1fr_auto]`, control right-aligned, error right-aligned). Seen in the browser on `/styleguide`: with an `auto` column the control column was only as wide as its content, so the differing unit widths ("weeks", "%", "× average", "bars", none) staggered the boxes from row to row, hints wrapped at different points, checkboxes ended at a different edge from the number boxes, and a right-aligned error landed under the wrong spot. Now: one fixed 256px control column (`medium` 176px plus an 80px unit slot), every control left-aligned in it (checkboxes and switches included), the unit trailing the box, the error left-aligned under the box, `full` still not allowed in a row, and the row stacking below `sm`. The row is still label and hint left, control right; decision 4 (rows, not a grid of fields, `max-w-2xl` body, `py-3`, hairlines) stands. Only the kit and its `/styleguide` mocks change; no page migrated.
+
+### 2026-09-30 — Session 9: Settings migration, part 1
+
+The first three Settings sections are migrated onto `NumberField`, `SettingsSection`/`SettingsGroup`/`SettingsRow`/`SettingsFooter`, in separate commits so each can be reviewed and reverted alone. Owner decisions, recorded here:
+
+- **Sections migrated:** REIT dividend yield, Economic moat, Discount rate. Weinstein and Liquidity (still on `Field`, `Input type="number"` and `NumberStepper`/`InfoTooltip`), Scheduled jobs and FMP data groups are unchanged. `NumberStepper` and `InfoTooltip` stay because Liquidity still uses them.
+- **Save is disabled until something is edited** (a field's value differs from what is stored), and also while any field is invalid ("Fix the highlighted fields to save."). Status text (Saving…, Saved ✓, Save failed) sits beside the button and resets after three seconds, as before. An invalid entry never leaves a sticky "Save failed": it cannot be saved at all. (The old Moat and REIT forms set "Save failed" on a non-number and never cleared it.)
+- **Browser-only bounds are dropped.** Moat's `min="0" max="100"` and REIT's `min="0"` were HTML attributes on an `<input type="number">` outside a `<form>`, so nothing ever enforced them, and the server has no bounds for these fields. The only validation is "is it a number", with an inline error. Values are never clamped or corrected.
+- **Discount rate loses its Card.** Each region is a `SettingsGroup` headed "United States (US)", two rows, and its own footer; each region saves on its own.
+- **Discount rate bug fixed.** Save without editing used to rewrite the stored rates: the form showed `fmtNumber(x * 100, 3)`, parsed that text, divided by 100 and sent both fields, so 0.02728 was sent back as 0.027280000000000002 and 0.036085 as 0.03608. Now the stored value is shown at full precision with float noise stripped (`Number((x * 100).toPrecision(12))`, so 0.02728 shows as 2.728), a field that was not edited is sent back as its original stored value, an edited field is converted with the same noise-stripping, and editing one field never rewrites the other.
+- **Sentence case:** the three migrated section titles, and every label in the Settings nav. The titles of the sections not yet migrated (FMP Data Groups, Liquidity Zones, Weinstein Stage, and the Scheduled Jobs heading) stay in their old case for now, so the nav label and the section title differ for those until they are migrated.
+- **Unchanged:** API endpoints and payloads, SWR keys and the invalidation of the `/step3` and `/summary` keys after a Discount rate or REIT save, the remount keyed on `updated_at` after a save, and the "Last updated" line. The save status now lives above that remount so "Saved ✓" can actually show; before, the keyed form that held it was replaced as soon as the fresh data arrived.
 
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
