@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
@@ -248,3 +248,90 @@ def test_screener_recompute_never_calls_the_script_entry_point(monkeypatch):
 
     assert response.status_code == 200
     assert calls == [None]
+
+
+# --- delisted exclusion: every universe and the meta count -------------------------------------
+# All timestamps are relative to now, never hard-coded.
+
+_UNIVERSES = ("sp500", "dow", "nasdaq")
+
+
+def _seed_delisted_and_live(engine, *, index_names=_UNIVERSES):
+    """One live and one delisted-flagged ticker per index universe, plus a live and a delisted
+    ticker that are in no index (only visible under universe=all)."""
+    now = datetime.now()
+    with Session(engine) as session:
+        for index_name in index_names:
+            for ticker, flagged in ((f"LIVE_{index_name}", False), (f"GONE_{index_name}", True)):
+                session.add(IndexConstituent(index_name=index_name, ticker=ticker, company_name=ticker, last_synced_at=now))
+                session.add(
+                    TickerScore(
+                        ticker=ticker,
+                        company_name=ticker,
+                        is_etf=False,
+                        computed_at=now,
+                        delisted_at=now - timedelta(days=5) if flagged else None,
+                    )
+                )
+        session.add(TickerScore(ticker="LIVE_OFFINDEX", company_name="x", is_etf=False, computed_at=now))
+        session.add(
+            TickerScore(ticker="GONE_OFFINDEX", company_name="x", is_etf=False, computed_at=now, delisted_at=now - timedelta(days=5))
+        )
+        session.commit()
+
+
+def test_screener_list_excludes_a_delisted_ticker_from_every_universe(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    _seed_delisted_and_live(engine)
+
+    with TestClient(main.app) as client:
+        for universe in _UNIVERSES:
+            tickers = {row["ticker"] for row in client.get("/api/screener", params={"universe": universe}).json()}
+            assert tickers == {f"LIVE_{universe}"}, universe
+        all_tickers = {row["ticker"] for row in client.get("/api/screener", params={"universe": "all"}).json()}
+
+    assert all_tickers == {"LIVE_sp500", "LIVE_dow", "LIVE_nasdaq", "LIVE_OFFINDEX"}
+    assert not any(t.startswith("GONE_") for t in all_tickers)
+
+
+def test_screener_list_does_not_expose_the_delisted_flag(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    _seed_delisted_and_live(engine)
+
+    with TestClient(main.app) as client:
+        rows = client.get("/api/screener", params={"universe": "all"}).json()
+
+    assert rows and all("delisted_at" not in row for row in rows)
+
+
+def test_screener_meta_excludes_a_delisted_ticker_from_every_universe_count(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    _seed_delisted_and_live(engine)
+
+    with TestClient(main.app) as client:
+        for universe in _UNIVERSES:
+            assert client.get("/api/screener/meta", params={"universe": universe}).json() == {
+                "universe": universe,
+                "total_constituents": 1,
+            }
+        all_response = client.get("/api/screener/meta", params={"universe": "all"})
+
+    assert all_response.json() == {"universe": "all", "total_constituents": 4}
+
+
+def test_screener_meta_index_count_still_counts_a_constituent_with_no_ticker_score_row(monkeypatch):
+    # The "X of Y" gap for an unscored constituent must survive the delisted exclusion: only a
+    # constituent whose TickerScore row is FLAGGED drops out of Y.
+    engine = _fresh_engine(monkeypatch)
+    now = datetime.now()
+    with Session(engine) as session:
+        for ticker in ("SCORED", "UNSCORED", "FLAGGED"):
+            session.add(IndexConstituent(index_name="sp500", ticker=ticker, company_name=ticker, last_synced_at=now))
+        session.add(TickerScore(ticker="SCORED", company_name="s", computed_at=now))
+        session.add(TickerScore(ticker="FLAGGED", company_name="f", computed_at=now, delisted_at=now))
+        session.commit()
+
+    with TestClient(main.app) as client:
+        response = client.get("/api/screener/meta", params={"universe": "sp500"})
+
+    assert response.json() == {"universe": "sp500", "total_constituents": 2}

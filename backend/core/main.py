@@ -821,13 +821,19 @@ def screener_list(universe: Universe = "sp500") -> list[TickerScoreOut]:
     # picks up rows for any ticker ever viewed individually (see
     # compute_ticker_score's other call sites), which must not leak into
     # a named-index list. universe="all" is the deliberate escape hatch for
-    # that: every cached ticker, index member or not.
+    # that: every cached ticker, index member or not. A delisted-flagged
+    # ticker (TickerScore.delisted_at set) is excluded from every universe --
+    # the page's Watchlist scope is applied client-side over this response, so
+    # it inherits the exclusion. The flag itself is deliberately not exposed
+    # in TickerScoreOut; screener_meta below applies the same condition.
     with Session(engine) as session:
         if universe == "all":
-            rows = session.exec(select(TickerScore)).all()
+            rows = session.exec(select(TickerScore).where(TickerScore.delisted_at.is_(None))).all()
         else:
             universe_tickers = select(IndexConstituent.ticker).where(IndexConstituent.index_name == universe)
-            rows = session.exec(select(TickerScore).where(TickerScore.ticker.in_(universe_tickers))).all()
+            rows = session.exec(
+                select(TickerScore).where(TickerScore.ticker.in_(universe_tickers), TickerScore.delisted_at.is_(None))
+            ).all()
     return [TickerScoreOut(**row.model_dump()) for row in rows]
 
 
@@ -842,16 +848,25 @@ def screener_meta(universe: Universe = "sp500") -> ScreenerMeta:
     # screenerFilters.ts::excludeEtfs, same rule incl. the company_type
     # fallback for a row with no is_etf yet) and which would otherwise read
     # as a permanently "missing" ticker in the "X of Y" note.
+    # Delisted-flagged tickers are excluded here exactly as in screener_list,
+    # so "X of Y" doesn't count a ticker the list can never show: universe=all
+    # filters the TickerScore rows, an index universe drops constituents whose
+    # TickerScore row is flagged (a constituent with no row is unaffected).
     with Session(engine) as session:
         if universe == "all":
             is_stock = or_(
                 TickerScore.is_etf.is_(False),
                 and_(TickerScore.is_etf.is_(None), or_(TickerScore.company_type.is_(None), TickerScore.company_type != "ETF")),
             )
-            total_constituents = session.exec(select(func.count()).select_from(TickerScore).where(is_stock)).one()
-        else:
             total_constituents = session.exec(
-                select(func.count()).select_from(IndexConstituent).where(IndexConstituent.index_name == universe)
+                select(func.count()).select_from(TickerScore).where(is_stock, TickerScore.delisted_at.is_(None))
+            ).one()
+        else:
+            delisted_tickers = select(TickerScore.ticker).where(TickerScore.delisted_at.is_not(None))
+            total_constituents = session.exec(
+                select(func.count())
+                .select_from(IndexConstituent)
+                .where(IndexConstituent.index_name == universe, IndexConstituent.ticker.not_in(delisted_tickers))
             ).one()
     return ScreenerMeta(universe=universe, total_constituents=total_constituents)
 
