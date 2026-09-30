@@ -6,33 +6,62 @@ import { mutate } from "swr";
 import { apiPut } from "@/lib/api/client";
 import type { WeinsteinConfigOut } from "@/lib/api/types";
 import { useWeinsteinConfig } from "@/lib/hooks/useWeinsteinConfig";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/Select";
+import { NumberSettingRow } from "@/components/settings/NumberSettingRow";
+import {
+  SettingsFooter,
+  SettingsGroup,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings/SettingsLayout";
+import { useSettingsSave, type SettingsSaver } from "@/components/settings/useSettingsSave";
+import { checkNumber, type NumberRules } from "@/lib/numberInput";
 
-type Status = "idle" | "saving" | "saved" | "error";
+// The bounds are the server's own (WeinsteinConfigIn in backend/core/
+// schemas.py), with ONE deliberate exception: breakout volume's floor is 0.1
+// (the old client hint) where the server accepts anything above 0. The error
+// text says so. A value outside a bound, or a non-integer in an integer field,
+// shows an inline error and blocks Save; nothing is truncated or corrected.
+const RULES = {
+  maLength: { integer: true, min: 2, max: 200 },
+  withinRange: { min: 0, max: 50 },
+  slopeLookback: { integer: true, min: 1, max: 52 },
+  breakoutVolume: { min: 0.1, max: 20 },
+  volumeAvg: { integer: true, min: 2, max: 200 },
+  rsSmoothing: { integer: true, min: 2, max: 200 },
+} satisfies Record<string, NumberRules>;
 
-const STATUS_LABELS: Record<Status, string> = {
-  idle: "Save",
-  saving: "Saving…",
-  saved: "Saved ✓",
-  error: "Save failed",
-};
+const BENCHMARK_MAX_LENGTH = 20;
+
+// 1 to 20 characters after trimming; case is not enforced.
+function benchmarkError(text: string): string | null {
+  const length = text.trim().length;
+  if (length === 0) return "Enter a ticker symbol.";
+  if (length > BENCHMARK_MAX_LENGTH) return `Enter ${BENCHMARK_MAX_LENGTH} characters or fewer.`;
+  return null;
+}
 
 export function WeinsteinSettingsForm() {
   const { data, error, isLoading } = useWeinsteinConfig();
+  // Held here, above the keyed form below, so "Saved ✓" survives the remount.
+  const saver = useSettingsSave();
 
   if (error) {
-    return <p className="text-sm text-red-400">Couldn&apos;t load Weinstein settings — {error.message}</p>;
+    return <p className="text-sm text-negative">Couldn&apos;t load Weinstein settings — {error.message}</p>;
   }
 
   if (isLoading || !data) {
-    return <p className="text-sm text-zinc-600 animate-pulse">Loading…</p>;
+    return <p className="text-sm text-text-tertiary animate-pulse">Loading…</p>;
   }
 
-  // Keyed on updated_at so a save remounts this with fresh initial text --
-  // same convention as LiquidityZoneSettingsForm.
-  return <WeinsteinForm key={data.updated_at} data={data} />;
+  // Keyed on updated_at so a save remounts this with fresh initial text.
+  return <WeinsteinForm key={data.updated_at} data={data} saver={saver} />;
 }
 
-function WeinsteinForm({ data }: { data: WeinsteinConfigOut }) {
+// A single config object. The two groups below are sub-headings within one
+// save action, not independently-saved panels.
+function WeinsteinForm({ data, saver }: { data: WeinsteinConfigOut; saver: SettingsSaver }) {
   const [maLength, setMaLength] = useState(String(data.ma_length));
   const [maType, setMaType] = useState<WeinsteinConfigOut["ma_type"]>(data.ma_type);
   const [rangePct, setRangePct] = useState(String(data.within_range_pct));
@@ -41,109 +70,152 @@ function WeinsteinForm({ data }: { data: WeinsteinConfigOut }) {
   const [volAvgLength, setVolAvgLength] = useState(String(data.volume_avg_length));
   const [benchmark, setBenchmark] = useState(data.rs_benchmark);
   const [rsSmoothing, setRsSmoothing] = useState(String(data.rs_smoothing_length));
-  const [status, setStatus] = useState<Status>("idle");
 
-  async function handleSave() {
-    const numbers = {
-      ma_length: parseInt(maLength, 10),
-      within_range_pct: parseFloat(rangePct),
-      slope_lookback: parseInt(slopeLookback, 10),
-      breakout_volume_mult: parseFloat(volMult),
-      volume_avg_length: parseInt(volAvgLength, 10),
-      rs_smoothing_length: parseInt(rsSmoothing, 10),
+  const maLengthCheck = checkNumber(maLength, RULES.maLength);
+  const rangeCheck = checkNumber(rangePct, RULES.withinRange);
+  const slopeCheck = checkNumber(slopeLookback, RULES.slopeLookback);
+  const volMultCheck = checkNumber(volMult, RULES.breakoutVolume);
+  const volAvgCheck = checkNumber(volAvgLength, RULES.volumeAvg);
+  const rsSmoothingCheck = checkNumber(rsSmoothing, RULES.rsSmoothing);
+  const benchmarkMessage = benchmarkError(benchmark);
+
+  const invalid =
+    [maLengthCheck, rangeCheck, slopeCheck, volMultCheck, volAvgCheck, rsSmoothingCheck].some(
+      (c) => c.error !== null,
+    ) || benchmarkMessage !== null;
+
+  // Edited = differs from the stored value. An unparsable entry is not the
+  // stored value, so it counts as edited (and blocks Save through `invalid`).
+  const unchanged =
+    maLengthCheck.value === data.ma_length &&
+    maType === data.ma_type &&
+    rangeCheck.value === data.within_range_pct &&
+    slopeCheck.value === data.slope_lookback &&
+    volMultCheck.value === data.breakout_volume_mult &&
+    volAvgCheck.value === data.volume_avg_length &&
+    benchmark.trim() === data.rs_benchmark &&
+    rsSmoothingCheck.value === data.rs_smoothing_length;
+
+  // Identifies the field values, so a failed save's message stays until they change.
+  const signature = JSON.stringify([maLength, maType, rangePct, slopeLookback, volMult, volAvgLength, benchmark, rsSmoothing]);
+  const shown = saver.view(signature);
+
+  function handleSave() {
+    const numbers = [maLengthCheck, rangeCheck, slopeCheck, volMultCheck, volAvgCheck, rsSmoothingCheck].map(
+      (c) => c.value,
+    );
+    if (invalid || numbers.some((n) => n === null)) return;
+    const [ma_length, within_range_pct, slope_lookback, breakout_volume_mult, volume_avg_length, rs_smoothing_length] =
+      numbers as number[];
+    const body = {
+      ma_length,
+      ma_type: maType,
+      within_range_pct,
+      slope_lookback,
+      breakout_volume_mult,
+      volume_avg_length,
+      rs_benchmark: benchmark.trim(),
+      rs_smoothing_length,
     };
-    if (Object.values(numbers).some((v) => Number.isNaN(v)) || benchmark.trim() === "") {
-      setStatus("error");
-      setTimeout(() => setStatus("idle"), 3000);
-      return;
-    }
-    setStatus("saving");
-    try {
-      await apiPut<WeinsteinConfigOut>("/config/weinstein", {
-        ...numbers,
-        ma_type: maType,
-        rs_benchmark: benchmark.trim(),
-      });
+    void saver.run(async () => {
+      await apiPut<WeinsteinConfigOut>("/config/weinstein", body);
       await mutate("/config/weinstein");
-      setStatus("saved");
-    } catch {
-      setStatus("error");
-    } finally {
-      setTimeout(() => setStatus("idle"), 3000);
-    }
+    }, signature);
   }
 
-  const labelCls = "block text-xs uppercase tracking-widest text-zinc-500";
-  const inputCls =
-    "mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none";
-
   return (
-    <div className="space-y-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-      <div>
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Weinstein Stage</h2>
-        <p className="mt-1 text-xs text-zinc-600">
-          Parameters for the weekly Stage 1-4 engine (Base / Advance / Top / Decline) behind the ticker-header pill, the
-          Technical tab card and the Screener filter. Changes apply the next time a ticker is recomputed (the nightly
-          trend job, or an on-demand ticker view) — no restart needed. The engine always runs on weekly bars.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-        <div className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Stage</h3>
-          <div>
-            <label className={labelCls} htmlFor="ws-ma-length">MA length (weeks)</label>
-            <input id="ws-ma-length" type="number" step="1" min="2" className={inputCls} value={maLength} onChange={(e) => setMaLength(e.target.value)} />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="ws-ma-type">MA type</label>
-            <select id="ws-ma-type" className={inputCls} value={maType} onChange={(e) => setMaType(e.target.value as WeinsteinConfigOut["ma_type"])}>
-              <option value="EMA">EMA</option>
-              <option value="SMA">SMA</option>
-            </select>
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="ws-range-pct">Within range (%)</label>
-            <input id="ws-range-pct" type="number" step="0.5" min="0" className={inputCls} value={rangePct} onChange={(e) => setRangePct(e.target.value)} />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="ws-slope-lookback">Slope lookback (bars)</label>
-            <input id="ws-slope-lookback" type="number" step="1" min="1" className={inputCls} value={slopeLookback} onChange={(e) => setSlopeLookback(e.target.value)} />
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Breakout &amp; relative strength</h3>
-          <div>
-            <label className={labelCls} htmlFor="ws-vol-mult">Breakout volume (x average)</label>
-            <input id="ws-vol-mult" type="number" step="0.1" min="0.1" className={inputCls} value={volMult} onChange={(e) => setVolMult(e.target.value)} />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="ws-vol-avg">Volume average length (weeks)</label>
-            <input id="ws-vol-avg" type="number" step="1" min="2" className={inputCls} value={volAvgLength} onChange={(e) => setVolAvgLength(e.target.value)} />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="ws-benchmark">RS benchmark</label>
-            <input id="ws-benchmark" type="text" className={inputCls} value={benchmark} onChange={(e) => setBenchmark(e.target.value)} />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="ws-rs-smoothing">RS smoothing length (weeks)</label>
-            <input id="ws-rs-smoothing" type="number" step="1" min="2" className={inputCls} value={rsSmoothing} onChange={(e) => setRsSmoothing(e.target.value)} />
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={status === "saving"}
-          className="rounded-md border border-zinc-700 bg-zinc-800 px-4 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+    <SettingsSection
+      title="Weinstein stage"
+      intro="Sets how the weekly stage is worked out: Base, Advance, Top or Decline. It feeds the stage pill in the ticker header, the Technical tab card and the Screener filter. A change applies the next time a ticker is recomputed, by the nightly trend job or when you open the ticker. It always runs on weekly bars."
+    >
+      <SettingsGroup title="Stage">
+        <NumberSettingRow
+          id="ws-ma-length"
+          label="MA length"
+          unit="weeks"
+          hint="How many weeks the moving average looks back. A longer average reacts more slowly."
+          rules={RULES.maLength}
+          value={maLength}
+          onChange={setMaLength}
+        />
+        <SettingsRow
+          label="MA type"
+          htmlFor="ws-ma-type"
+          hint="EMA gives recent weeks more weight; SMA weighs every week equally."
         >
-          {STATUS_LABELS[status]}
-        </button>
-        <p className="text-xs text-zinc-600">Last updated {new Date(data.updated_at).toLocaleString()}</p>
-      </div>
-    </div>
+          <Select size="short" value={maType} onChange={(e) => setMaType(e.target.value as WeinsteinConfigOut["ma_type"])}>
+            <option value="EMA">EMA</option>
+            <option value="SMA">SMA</option>
+          </Select>
+        </SettingsRow>
+        <NumberSettingRow
+          id="ws-range-pct"
+          label="Within range"
+          unit="%"
+          step={0.5}
+          hint="How far price must be above or below the average, with its slope agreeing, before the stage moves to Advance or Decline."
+          rules={RULES.withinRange}
+          value={rangePct}
+          onChange={setRangePct}
+        />
+        <NumberSettingRow
+          id="ws-slope-lookback"
+          label="Slope lookback"
+          unit="weeks"
+          hint="How many weeks back the average is compared with to tell whether it is rising or falling."
+          rules={RULES.slopeLookback}
+          value={slopeLookback}
+          onChange={setSlopeLookback}
+        />
+      </SettingsGroup>
+
+      <SettingsGroup title="Breakout and relative strength">
+        <NumberSettingRow
+          id="ws-vol-mult"
+          label="Breakout volume"
+          unit="× average"
+          step={0.1}
+          hint="A move into Advance only counts as a confirmed breakout when the week's volume is at least this many times its average."
+          rules={RULES.breakoutVolume}
+          value={volMult}
+          onChange={setVolMult}
+        />
+        <NumberSettingRow
+          id="ws-vol-avg"
+          label="Volume average length"
+          unit="weeks"
+          hint="How many weeks of volume are averaged to judge whether this week's volume is unusually high."
+          rules={RULES.volumeAvg}
+          value={volAvgLength}
+          onChange={setVolAvgLength}
+        />
+        <SettingsRow
+          label="RS benchmark"
+          htmlFor="ws-benchmark"
+          hint="The ticker each stock's relative strength is measured against. SPY by default."
+          error={benchmarkMessage}
+        >
+          <Input variant="boxed" size="medium" className="font-mono" value={benchmark} onChange={(e) => setBenchmark(e.target.value)} />
+        </SettingsRow>
+        <NumberSettingRow
+          id="ws-rs-smoothing"
+          label="RS smoothing length"
+          unit="weeks"
+          hint="How many weeks the stock-to-benchmark price ratio is averaged over before today's ratio is compared with it."
+          rules={RULES.rsSmoothing}
+          value={rsSmoothing}
+          onChange={setRsSmoothing}
+        />
+      </SettingsGroup>
+
+      <SettingsFooter
+        onSave={handleSave}
+        status={shown.status}
+        invalid={invalid}
+        unchanged={unchanged}
+        message={shown.detail}
+        updatedAt={data.updated_at}
+      />
+    </SettingsSection>
   );
 }

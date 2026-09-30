@@ -1,6 +1,6 @@
 "use client";
 
-import { SegmentedControl } from "@/components/shared/SegmentedControl";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import type { ScreenerUniverse } from "@/lib/api/types";
 
 const UNIVERSE_OPTIONS: { value: ScreenerUniverse; label: string }[] = [
@@ -16,5 +16,7 @@ interface Props {
 }
 
 export function UniverseSelector({ value, onChange }: Props) {
-  return <SegmentedControl value={value} onChange={onChange} options={UNIVERSE_OPTIONS} />;
+  return (
+    <SegmentedControl value={value} onValueChange={(next) => onChange(next as ScreenerUniverse)} options={UNIVERSE_OPTIONS} />
+  );
 }

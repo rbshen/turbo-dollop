@@ -2,6 +2,7 @@
 
 import { ManualCalculationPanel } from "@/components/step3/ManualCalculationPanel";
 import { ValuationGauge } from "@/components/step3/ValuationGauge";
+import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useStep3 } from "@/lib/hooks/useStep3";
 import { fmtMoney, fmtNumber, fmtPct } from "@/lib/format";
@@ -70,7 +71,7 @@ export function millionsText(n: number | null, currency: string = "USD"): string
 // With no row-height variance left, top-aligning the value cell can no
 // longer drift row-to-row regardless of whether a given row has a real
 // sub-note or a blank one.
-export const FIELD_ROW_CLASS = "h-12 border-border-subtle hover:bg-transparent";
+export const FIELD_ROW_CLASS = "h-12 border-border-subtle";
 // whitespace-normal overrides TableCell's own default nowrap -- a long
 // label (e.g. "Free Cash Flow (Normalized, 5yr avg CapEx)") needs to still
 // be able to wrap to 2 lines within the fixed row height rather than
@@ -109,26 +110,26 @@ export function PBBandsTable({
   return (
     <Table className="w-full border-separate border-spacing-0 text-sm">
       <TableHeader>
-        <TableRow className="hover:bg-transparent">
-          <TableHead className="border-b border-border-card py-2 pr-4 font-medium">Band</TableHead>
-          <TableHead className="border-b border-border-card py-2 text-right font-medium">Intrinsic Value</TableHead>
+        <TableRow className="h-9">
+          <TableHead className="border-b border-border-subtle">Band</TableHead>
+          <TableHead className="border-b border-border-subtle text-right">Intrinsic Value</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {order.map((key) => (
-          <TableRow key={key} className="hover:bg-transparent">
-            <TableCell className="border-b border-border-subtle py-1.5 pr-4 text-text-secondary">{PB_BAND_LABELS[key]}</TableCell>
+          <TableRow key={key} dense>
+            <TableCell className="border-b border-border-subtle text-text-secondary">{PB_BAND_LABELS[key]}</TableCell>
             <TableCell
-              className={`border-b border-border-subtle py-1.5 text-right font-mono ${key === "mean" ? "font-semibold text-text-primary" : "text-text-secondary"}`}
+              className={`border-b border-border-subtle text-right font-mono ${key === "mean" ? "font-semibold text-text-primary" : "text-text-secondary"}`}
             >
               {fmtMoney(bands[key], currency)}
             </TableCell>
           </TableRow>
         ))}
         {lastClose != null && (
-          <TableRow className="hover:bg-transparent">
-            <TableCell className="py-1.5 pr-4 text-text-tertiary">Last Close</TableCell>
-            <TableCell className="py-1.5 text-right font-mono text-text-secondary">{fmtMoney(lastClose, currency)}</TableCell>
+          <TableRow dense>
+            <TableCell className="border-b border-border-subtle text-text-tertiary">Last Close</TableCell>
+            <TableCell className="border-b border-border-subtle text-right font-mono text-text-secondary">{fmtMoney(lastClose, currency)}</TableCell>
           </TableRow>
         )}
       </TableBody>
@@ -196,17 +197,17 @@ export function Step3Card({ ticker }: Props) {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-border-card bg-surface p-6">
+      <Card>
         <p className="text-sm text-negative">Couldn&apos;t load Valuation data — {error.message}</p>
-      </div>
+      </Card>
     );
   }
 
   if (!data) {
     return (
-      <div className="rounded-lg border border-border-card bg-surface p-6">
+      <Card>
         <p className="text-sm text-text-tertiary animate-pulse">Loading Valuation…</p>
-      </div>
+      </Card>
     );
   }
 
@@ -245,7 +246,7 @@ export function Step3Card({ ticker }: Props) {
           to create one. Only the left "Model Valuation" column's content
           is conditional on isPass. */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <div className="space-y-6 rounded-lg border border-border-card bg-surface p-6">
+        <Card className="space-y-6">
           {/* min-h-8 matches Custom Valuation's title row, whose height is
               set by its h-8 method <select> -- without it this row (a bare
               h2, ~20px) renders shorter than the other column's, shifting
@@ -339,7 +340,7 @@ export function Step3Card({ ticker }: Props) {
               )}
             </>
           )}
-        </div>
+        </Card>
 
         <ManualCalculationPanel ticker={ticker} autoData={data} />
       </div>

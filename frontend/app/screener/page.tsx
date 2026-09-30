@@ -12,6 +12,8 @@ import { TechnicalFilters } from "@/components/screener/TechnicalFilters";
 import { UniverseSelector } from "@/components/screener/UniverseSelector";
 import { WatchlistFilters } from "@/components/screener/WatchlistFilters";
 import { AddToWatchlistButton } from "@/components/ticker/AddToWatchlistButton";
+import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
 import { useScreener, useScreenerMeta } from "@/lib/hooks/useScreener";
 import { useWatchlists } from "@/lib/hooks/useWatchlists";
@@ -182,35 +184,35 @@ export default function ScreenerPage() {
   }
 
   return (
-    <PageContainer className="space-y-6 pb-12 pt-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-heading text-xl font-semibold text-text-primary">Screener</h1>
-          <p className="text-xs text-text-tertiary">
-            {watchlistActive && selectedWatchlist ? (
-              <>
-                {watchlistScoredCount} of {selectedWatchlist.tickers.length} &quot;{selectedWatchlist.name}&quot; tickers
-                {sorted.length !== watchlistScoredCount && ` — ${sorted.length} match the current filters`}
-              </>
-            ) : (
-              <>
-                {data.length} of {meta ? meta.total_constituents : "…"} {UNIVERSE_LABELS[universe]} tickers
-                {sorted.length !== data.length && ` — ${sorted.length} match the current filters`}
-              </>
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <UniverseSelector value={universe} onChange={handleUniverseChange} />
-          <RecomputeButton />
-          <AddToWatchlistButton
-            tickers={sorted.map((row) => row.ticker)}
-            label="Add to Watchlist"
-            confirmDescription={`all ${sorted.length} filtered tickers`}
-            disabled={sorted.length === 0}
-          />
-        </div>
-      </div>
+    <PageContainer className="space-y-6 pb-12">
+      <PageHeader
+        title="Screener"
+        subtitle={
+          watchlistActive && selectedWatchlist ? (
+            <>
+              {watchlistScoredCount} of {selectedWatchlist.tickers.length} &quot;{selectedWatchlist.name}&quot; tickers
+              {sorted.length !== watchlistScoredCount && ` — ${sorted.length} match the current filters`}
+            </>
+          ) : (
+            <>
+              {data.length} of {meta ? meta.total_constituents : "…"} {UNIVERSE_LABELS[universe]} tickers
+              {sorted.length !== data.length && ` — ${sorted.length} match the current filters`}
+            </>
+          )
+        }
+        actions={
+          <>
+            <UniverseSelector value={universe} onChange={handleUniverseChange} />
+            <RecomputeButton />
+            <AddToWatchlistButton
+              tickers={sorted.map((row) => row.ticker)}
+              label="Add to Watchlist"
+              confirmDescription={`all ${sorted.length} filtered tickers`}
+              disabled={sorted.length === 0}
+            />
+          </>
+        }
+      />
 
       <div className="flex justify-end">
         <div className="flex items-center gap-2">
@@ -218,7 +220,7 @@ export default function ScreenerPage() {
           <select
             value={sortField}
             onChange={(e) => handleSortChange(e.target.value as SortField, sortDirection)}
-            className="h-8 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary focus:border-brand focus:outline-none"
+            className="h-9 rounded-md border border-border-control bg-page px-3 text-sm text-text-primary focus:border-brand focus:outline-none"
           >
             {SORT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -226,14 +228,15 @@ export default function ScreenerPage() {
               </option>
             ))}
           </select>
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => handleSortChange(sortField, sortDirection === "asc" ? "desc" : "asc")}
-            className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-2 text-xs text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
+            className="h-8 border border-border-input hover:border-brand"
             title={sortDirection === "asc" ? "Ascending" : "Descending"}
           >
             {sortDirection === "asc" ? "↑ Asc" : "↓ Desc"}
-          </button>
+          </Button>
         </div>
       </div>
 

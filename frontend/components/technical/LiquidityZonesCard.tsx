@@ -1,12 +1,13 @@
+import { Status } from "@/components/ui/status";
 import { useLiquidityZoneConfig } from "@/lib/hooks/useLiquidityZoneConfig";
 import type { BrokenZoneOut, LiquidityZoneOut, LiquidityZonesOut, ZoneOut } from "@/lib/api/types";
 
-// Matches the chart's own COLORS.lpSupportBroken/lpResistanceBroken
-// (frontend/components/chart/TickerChart.tsx) -- kept in sync manually,
-// same as every other hardcoded color pair on this card.
-const BROKEN_COLOR = {
-  support: "#FF9800",
-  resistance: "#E040FB",
+// Matches the chart's own chart-zone-broken-support/chart-zone-broken-resistance tokens (see
+// frontend/components/chart/TickerChart.tsx and lib/chartTokens.ts) -- both read the same named design-system
+// token, so there is nothing left to keep in sync by hand.
+const BROKEN_CLASS = {
+  support: { text: "text-chart-zone-broken-support", border: "border-chart-zone-broken-support/40" },
+  resistance: { text: "text-chart-zone-broken-resistance", border: "border-chart-zone-broken-resistance/40" },
 };
 
 interface Props {
@@ -58,26 +59,19 @@ function ZoneRow({ zone, tone }: { zone: ZoneOut; tone: "support" | "resistance"
 // reads as clearly distinct from an active ZoneRow rather than just
 // another entry in the ladder.
 function BrokenZoneRow({ zone, tone }: { zone: BrokenZoneOut; tone: "support" | "resistance" }) {
-  const color = BROKEN_COLOR[tone];
+  const { text, border } = BROKEN_CLASS[tone];
   return (
-    <li className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm" style={{ borderColor: `${color}66` }}>
+    <li className={`flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm ${border}`}>
       <div className="min-w-0">
-        <span className="font-mono" style={{ color }}>
-          {fmtPrice(zone.price)}
-        </span>
-        <span
-          className="ml-2 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-          style={{ color, borderColor: `${color}66` }}
-        >
+        <span className={`font-mono ${text}`}>{fmtPrice(zone.price)}</span>
+        <span className={`ml-2 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${text} ${border}`}>
           Broken
         </span>
         <span className="ml-2 text-xs text-text-tertiary">
           formed {fmtDate(zone.formed_at)} · broke {fmtDate(zone.breached_at)}
         </span>
       </div>
-      <span className="shrink-0 text-xs font-medium" style={{ color }}>
-        {fmtDistance(zone.distance_pct)}
-      </span>
+      <span className={`shrink-0 text-xs font-medium ${text}`}>{fmtDistance(zone.distance_pct)}</span>
     </li>
   );
 }
@@ -200,9 +194,9 @@ export function LiquidityZonesCard({ data }: Props) {
             <h2 className="font-heading text-sm font-semibold text-text-primary">Liquidity Zones</h2>
             <p className="text-sm text-text-secondary">Swing-based support/resistance levels, Daily and Weekly.</p>
           </div>
-          <span className="shrink-0 rounded-full border border-border-card bg-surface-2 px-3 py-1 text-xs font-semibold text-text-tertiary">
+          <Status tone="neutral" className="shrink-0">
             Not tracked
-          </span>
+          </Status>
         </div>
         <p className="rounded-md border border-warn/40 bg-warn/10 p-3 text-xs text-warn">{UNAVAILABLE_MESSAGE}</p>
       </div>

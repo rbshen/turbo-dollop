@@ -46,19 +46,16 @@ export function RatiosTable({ data }: Props) {
   }
 
   return (
-    <Table
-      containerClassName="max-h-[70vh] overflow-y-auto rounded-lg border border-border-card bg-surface"
-      className="border-separate border-spacing-0 text-sm"
-    >
+    <Table containerClassName="max-h-[70vh] overflow-y-auto" className="border-separate border-spacing-0 text-sm">
       <TableHeader>
-        <TableRow className="hover:bg-transparent">
-          <TableHead className="sticky left-0 top-0 z-30 whitespace-nowrap border-b border-border-card bg-surface-2 py-2 pr-8 text-xs font-medium uppercase tracking-widest text-text-secondary">
+        <TableRow className="h-9">
+          <TableHead className="sticky left-0 top-0 z-30 whitespace-nowrap border-b border-border-subtle bg-page pr-8">
             Metric
           </TableHead>
           {data.periods.map((period, i) => (
             <TableHead
               key={i}
-              className="sticky top-0 z-20 whitespace-nowrap border-b border-border-card bg-surface-2 py-2 pr-4 text-right text-xs font-medium uppercase tracking-widest text-text-secondary"
+              className="sticky top-0 z-20 whitespace-nowrap border-b border-border-subtle bg-page text-right"
             >
               {period}
             </TableHead>
@@ -71,10 +68,10 @@ export function RatiosTable({ data }: Props) {
           return (
             <Fragment key={gi}>
               {group.label && (
-                <TableRow className="cursor-pointer hover:bg-transparent" onClick={() => toggle(gi)}>
-                  <TableCell className="sticky left-0 z-10 whitespace-nowrap border-b border-border-subtle bg-surface pt-4 pb-1 text-xs font-semibold uppercase tracking-widest text-text-secondary">
+                <TableRow dense className="cursor-pointer" onClick={() => toggle(gi)}>
+                  <TableCell className="sticky left-0 z-10 whitespace-nowrap border-b border-border-subtle bg-page pr-8 pt-4 pb-1 text-sm font-medium text-text-primary">
                     <span className="inline-flex items-center gap-1.5">
-                      <CaretDown size={12} className={`transition-transform duration-200 ${isOpen ? "" : "-rotate-90"}`} />
+                      <CaretDown size={12} className={`text-text-tertiary transition-transform duration-200 ${isOpen ? "" : "-rotate-90"}`} />
                       {group.label}
                     </span>
                   </TableCell>
@@ -83,16 +80,16 @@ export function RatiosTable({ data }: Props) {
               )}
               {(!group.label || isOpen) &&
                 group.items.map((item) => (
-                  <TableRow key={item.label} className="hover:bg-transparent">
+                  <TableRow key={item.label} dense>
                     <TableCell
-                      className={`sticky left-0 z-10 whitespace-nowrap border-b border-border-subtle bg-surface py-2 pr-8 text-text-secondary ${
-                        group.label ? "pl-4" : ""
+                      className={`sticky left-0 z-10 whitespace-nowrap border-b border-border-subtle bg-page pr-8 text-text-secondary ${
+                        group.label ? "pl-4" : "pl-0"
                       }`}
                     >
                       {item.label}
                     </TableCell>
                     {item.values.map((value, i) => (
-                      <TableCell key={i} className="border-b border-border-subtle py-2 pr-4 text-right font-mono tabular-nums text-text-secondary">
+                      <TableCell key={i} className="border-b border-border-subtle text-right font-mono tabular-nums text-text-secondary">
                         {formatValue(value, item.unit)}
                       </TableCell>
                     ))}

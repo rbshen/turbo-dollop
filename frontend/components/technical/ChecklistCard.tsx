@@ -1,6 +1,8 @@
 import { CaretDown, CheckCircle, XCircle } from "@phosphor-icons/react";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Status, type StatusTone } from "@/components/ui/status";
+import { pillLabel } from "@/lib/tierColor";
 
 /** "Aug 12, 2026" -- shared by Reversal/Trend Continuation's swing-date
  * details, mirroring ValuationGauge.tsx's own inline toLocaleDateString
@@ -77,7 +79,7 @@ export interface ChecklistItem {
 interface Props {
   title: string;
   statusLabel: string;
-  statusToneClass: string;
+  statusTone: StatusTone;
   blurb: string;
   items: ChecklistItem[];
   /** Rendered below the checklist -- e.g. Trend Continuation's freshness
@@ -128,7 +130,7 @@ function ChecklistItems({ items }: { items: ChecklistItem[] }) {
   );
 }
 
-export function ChecklistCard({ title, statusLabel, statusToneClass, blurb, items, extra, disclaimer, collapsible = false }: Props) {
+export function ChecklistCard({ title, statusLabel, statusTone, blurb, items, extra, disclaimer, collapsible = false }: Props) {
   return (
     <div className="space-y-4 rounded-lg border border-border-card bg-surface p-6">
       <div className="flex items-start justify-between gap-4">
@@ -136,7 +138,9 @@ export function ChecklistCard({ title, statusLabel, statusToneClass, blurb, item
           <h2 className="font-heading text-sm font-semibold text-text-primary">{title}</h2>
           <p className="text-sm text-text-secondary">{blurb}</p>
         </div>
-        <span className={`shrink-0 rounded-full border px-3 py-1 text-xs font-semibold ${statusToneClass}`}>{statusLabel}</span>
+        <Status tone={statusTone} className="shrink-0">
+          {pillLabel(statusLabel)}
+        </Status>
       </div>
 
       {collapsible ? (

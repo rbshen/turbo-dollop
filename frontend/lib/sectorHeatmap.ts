@@ -52,7 +52,7 @@ export function cellBackground(value: number | null, scale: number): string | un
   if (value == null || Math.abs(value) < 0.05) return undefined;
   const intensity = Math.min(1, Math.abs(value) / scale);
   const tint = Math.round(MIN_TINT_PCT + (MAX_TINT_PCT - MIN_TINT_PCT) * intensity);
-  const token = value > 0 ? "--color-positive-strong" : "--color-negative";
+  const token = value > 0 ? "--color-positive" : "--color-negative";
   return `color-mix(in oklab, var(${token}) ${tint}%, transparent)`;
 }
 

@@ -2,6 +2,7 @@
 
 import { PageContainer } from "@/components/layout/PageContainer";
 import { SectorHeatmapGrid } from "@/components/sectors/SectorHeatmapGrid";
+import { PageHeader } from "@/components/ui/page-header";
 import { fmtEventDate } from "@/lib/chartEventMarkers";
 import { useSectorHeatmap } from "@/lib/hooks/useSectorHeatmap";
 
@@ -9,16 +10,18 @@ export default function SectorsPage() {
   const { data, error } = useSectorHeatmap();
 
   return (
-    <PageContainer className="space-y-6 pb-12 pt-6">
-      <div>
-        <h1 className="font-heading text-xl font-semibold text-text-primary">Sector Heatmap</h1>
-        {data?.as_of_date && (
-          <p className="text-xs text-text-tertiary">
-            As of close {fmtEventDate(data.as_of_date)}
-            {data.computed_at && ` · Computed ${new Date(data.computed_at).toLocaleString()}`}
-          </p>
-        )}
-      </div>
+    <PageContainer className="space-y-6 pb-12">
+      <PageHeader
+        title="Sector Heatmap"
+        subtitle={
+          data?.as_of_date && (
+            <>
+              As of close {fmtEventDate(data.as_of_date)}
+              {data.computed_at && ` · Computed ${new Date(data.computed_at).toLocaleString()}`}
+            </>
+          )
+        }
+      />
 
       {error && <p className="text-sm text-negative">Failed to load the sector heatmap.</p>}
 
@@ -32,7 +35,7 @@ export default function SectorsPage() {
 
       <div className="space-y-1 border-t border-border-subtle pt-4 text-xs text-text-tertiary">
         <p>
-          Trailing total return (price change plus reinvested distributions) of the 11 SPDR sector ETFs over calendar-day windows; YTD is
+          Trailing price change (excludes dividends) of the 11 SPDR sector ETFs over calendar-day windows; YTD is
           measured from the prior year&apos;s final close. Click a column header to sort.
         </p>
         <p>Cell color is scaled within each column — the strongest tint is that window&apos;s largest move, so tints aren&apos;t comparable across columns.</p>

@@ -6,8 +6,11 @@ import { fmtMoney } from "@/lib/format";
 import { buildDividendLabels, buildEarningsLabels, describeEventMarker, eventTooltipPlacement } from "@/lib/chartEventMarkers";
 import type { TooltipPlacement } from "@/lib/chartEventMarkers";
 import { EventLabelsPrimitive } from "./EventLabelsPrimitive";
+import { TooltipCard } from "@/components/ui/tooltip";
 import type { ChartOut } from "@/lib/api/types";
 import { buildStageColoredBars, WEINSTEIN_MA_COLOR } from "@/lib/chartWeinstein";
+import { readChartColors } from "@/lib/chartTokens";
+import type { ChartColors } from "@/lib/chartTokens";
 
 // Ported from Options Tracker's PositionChart.tsx (lightweight-charts
 // 5.2.0), stripped of everything position/IBKR-specific (position-anchored
@@ -29,72 +32,29 @@ import { buildStageColoredBars, WEINSTEIN_MA_COLOR } from "@/lib/chartWeinstein"
 // axis-width equality and crosshair alignment become structural
 // guarantees of the library's own per-chart layout pass instead of
 // something three independent instances have to be kept in sync by hand.
-const CHART_THEME = {
-  background: "#09090b",
-  // Drives layout.textColor below -- the price-scale/time-scale axis label
-  // color. Was zinc-500 (#71717a), too dim against the zinc-950 background;
-  // bumped to zinc-400 for real contrast.
-  text: "#a1a1aa",
-  border: "#27272a",
-};
+// Chart canvas background/axis-text/axis-border chrome -- resolved once per chart creation from the design
+// system's page/text-secondary/border-card tokens (see the mount effect below), same as every data-series color.
 
-const COLORS = {
-  upCandle: "#10b981",
-  downCandle: "#ef4444",
-  ema21: "#3179F5",
-  sma50: "#4CAF50",
-  sma200: "#F23645",
-  bollinger: "#808080",
-  rsi: "#808080",
-  stochK: "#F23645",
-  stochD: "#808080",
-  // Reuses upCandle's green -- the only "up/bullish" green already defined
-  // in this component, for a bullish entry-signal marker.
-  marker: "#10b981",
-  // Same dark gray previously used for the main pane's last-close price
-  // line (since removed) -- distinct from the #808080 RSI/StochD
-  // data-line gray so the static 70/30 and 80/20 reference lines read as
-  // background guides, not data.
-  refLine: "#52525b",
-  // Liquidity Zone (LP) support/resistance overlay -- reuses the candle
-  // up/down colors directly (green floor, red ceiling), per explicit
-  // request. An earlier version deliberately avoided green/red here to
-  // keep a support/resistance level from misreading as a bullish/
-  // bearish signal the way the candles themselves use those colors --
-  // superseded by this request.
-  lpSupport: "#10b981",
-  lpResistance: "#ef4444",
-  // Most-recently-breached LP level (see ChartZoneOut.broken) -- distinct
-  // colors so a broken level never reads as an active one, per explicit
-  // request.
-  lpSupportBroken: "#FF9800",
-  lpResistanceBroken: "#E040FB",
-  // Warren RSI/ADX/WVF's own Blue/Yellow/Gray convention, per the
-  // reference script -- distinct from BB+RSI's plain green `marker`
-  // above, and reused identically for both the Up (buy) and Down (sell)
-  // variant of each color (position/shape alone distinguishes direction).
-  warrenBlue: "#3179F5", // same blue already used for ema21
-  warrenYellow: "#f59e0b",
-  warrenGray: "#a1a1aa",
-  // Corporate-event labels (earnings report "E" / dividend ex-date "D"), drawn as bare letters on their own
-  // fixed row at the price pane's floor (see EventLabelsPrimitive). The letter and its position already separate
-  // these from every signal arrow, and the colors are hues used nowhere else in this component (cyan-400 /
-  // violet-400), so an event never reads as a signal.
-  earningsMarker: "#22d3ee",
-  dividendMarker: "#a78bfa",
-};
+// Every data-series/marker color below is resolved at chart-creation time from the design system's named
+// --fathom-chart-*/--fathom-stage-* tokens (see lib/chartTokens.ts::readChartColors) -- this file no longer holds
+// any of its own raw hex for them. See that module's own comment for the token->fallback mapping, and this
+// session's report for the full before/after table.
 
-// One entry per Warren signal_kind (see ChartMarkerOut.kind) -- color by
-// Blue/Yellow/Gray, shape/position by Up (buy, below the bar) vs. Down
-// (sell, above the bar).
-const WARREN_MARKER_STYLE: Record<string, { color: string; shape: "arrowUp" | "arrowDown"; position: "belowBar" | "aboveBar" }> = {
-  blue_up: { color: COLORS.warrenBlue, shape: "arrowUp", position: "belowBar" },
-  yellow_up: { color: COLORS.warrenYellow, shape: "arrowUp", position: "belowBar" },
-  gray_up: { color: COLORS.warrenGray, shape: "arrowUp", position: "belowBar" },
-  blue_down: { color: COLORS.warrenBlue, shape: "arrowDown", position: "aboveBar" },
-  yellow_down: { color: COLORS.warrenYellow, shape: "arrowDown", position: "aboveBar" },
-  gray_down: { color: COLORS.warrenGray, shape: "arrowDown", position: "aboveBar" },
-};
+// One entry per Warren signal_kind (see ChartMarkerOut.kind) -- color by Blue/Yellow/Gray, shape/position by Up
+// (buy, below the bar) vs. Down (sell, above the bar). A function (not a module-level constant) since it depends
+// on the resolved ChartColors, which are only known once the chart-creation effect has run.
+function warrenMarkerStyle(
+  colors: ChartColors
+): Record<string, { color: string; shape: "arrowUp" | "arrowDown"; position: "belowBar" | "aboveBar" }> {
+  return {
+    blue_up: { color: colors.chartEma21, shape: "arrowUp", position: "belowBar" }, // same blue already used for ema21
+    yellow_up: { color: colors.chartWarrenYellow, shape: "arrowUp", position: "belowBar" },
+    gray_up: { color: colors.chartWarrenGray, shape: "arrowUp", position: "belowBar" },
+    blue_down: { color: colors.chartEma21, shape: "arrowDown", position: "aboveBar" },
+    yellow_down: { color: colors.chartWarrenYellow, shape: "arrowDown", position: "aboveBar" },
+    gray_down: { color: colors.chartWarrenGray, shape: "arrowDown", position: "aboveBar" },
+  };
+}
 
 const RSI_OVERBOUGHT = 70;
 const RSI_OVERSOLD = 30;
@@ -264,18 +224,18 @@ interface OhlcState {
   c: number;
 }
 
-function makeChartOptions(rightOffset: number, height: number) {
+function makeChartOptions(rightOffset: number, height: number, colors: ChartColors) {
   return {
     layout: {
-      background: { color: CHART_THEME.background },
-      textColor: CHART_THEME.text,
+      background: { color: colors.page },
+      textColor: colors.textSecondary,
       // Axis (price-scale/time-scale) label size, chart-wide -- bumped from 11 to 12 for readability.
       fontSize: 12,
       fontFamily: "var(--font-mono), ui-monospace, monospace",
       attributionLogo: false,
       // Static, non-resizable stacked panes -- matches the old fixed-height
       // three-separate-divs look (no user-facing pane resize handle).
-      panes: { enableResize: false, separatorColor: CHART_THEME.border, separatorHoverColor: CHART_THEME.border },
+      panes: { enableResize: false, separatorColor: colors.borderCard, separatorHoverColor: colors.borderCard },
     },
     grid: { vertLines: { visible: false }, horzLines: { visible: false } },
     // Click-drag panning stays on (handleScroll); free-form zoom (wheel, pinch,
@@ -285,7 +245,7 @@ function makeChartOptions(rightOffset: number, height: number) {
     // project's PositionChart.tsx.
     handleScroll: true,
     handleScale: false,
-    rightPriceScale: { borderColor: CHART_THEME.border, minimumWidth: PRICE_SCALE_MIN_WIDTH },
+    rightPriceScale: { borderColor: colors.borderCard, minimumWidth: PRICE_SCALE_MIN_WIDTH },
     // shiftVisibleRangeOnNewBar defaults to true (a "streaming chart"
     // convenience: auto-scroll to keep showing rightOffset's margin ahead
     // of a genuinely new incoming bar). This chart never streams -- every
@@ -334,7 +294,7 @@ function makeChartOptions(rightOffset: number, height: number) {
     // below for the equivalent right-edge bound that preserves the
     // margin instead of zeroing it.
     timeScale: {
-      borderColor: CHART_THEME.border,
+      borderColor: colors.borderCard,
       timeVisible: false,
       rightOffset,
       shiftVisibleRangeOnNewBar: false,
@@ -367,13 +327,13 @@ interface OverlayVisibility {
   showStage?: boolean;
 }
 
-function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisibility) {
+function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisibility, colors: ChartColors) {
   // No paneIndex passed -- defaults to pane 0, the main price pane.
   const candle = chart.addSeries(CandlestickSeries, {
-    upColor: COLORS.upCandle,
-    downColor: COLORS.downCandle,
-    wickUpColor: COLORS.upCandle,
-    wickDownColor: COLORS.downCandle,
+    upColor: colors.chartUp,
+    downColor: colors.chartDown,
+    wickUpColor: colors.chartUp,
+    wickDownColor: colors.chartDown,
     borderVisible: false,
     // Candlestick series default to priceLineVisible: true (an
     // auto-drawn horizontal line at the last bar's close, colored by the
@@ -402,9 +362,9 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
     sma200: null,
   };
   for (const [key, color] of [
-    ["ema21", COLORS.ema21],
-    ["sma50", COLORS.sma50],
-    ["sma200", COLORS.sma200],
+    ["ema21", colors.chartEma21],
+    ["sma50", colors.chartSma50],
+    ["sma200", colors.chartSma200],
   ] as const) {
     const pts = data[key];
     if (!pts.length) continue;
@@ -446,7 +406,7 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
     // two read as visually near-redundant on the chart.
     for (const key of ["upper", "lower"] as const) {
       const bb = chart.addSeries(LineSeries, {
-        color: COLORS.bollinger,
+        color: colors.chartBand,
         lineWidth: 1,
         priceLineVisible: false,
         lastValueVisible: false,
@@ -488,11 +448,11 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
     if (!points.length) continue;
     const color = zone.broken
       ? isSupport
-        ? COLORS.lpSupportBroken
-        : COLORS.lpResistanceBroken
+        ? colors.chartZoneBrokenSupport
+        : colors.chartZoneBrokenResistance
       : isSupport
-        ? COLORS.lpSupport
-        : COLORS.lpResistance;
+        ? colors.chartUp
+        : colors.chartDown;
     const zoneLine = chart.addSeries(LineSeries, {
       color,
       lineWidth: 1,
@@ -515,7 +475,7 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
   if (data.entry_signal_markers.length > 0) {
     bbRsiMarkersApi = createSeriesMarkers(
       candle as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-      visibility.showBbRsi ? buildEntrySignalMarkers(data) : []
+      visibility.showBbRsi ? buildEntrySignalMarkers(data, colors.chartUp) : []
     ) as ISeriesMarkersPluginApi<Time>;
   }
 
@@ -526,7 +486,7 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
   if (data.warren_signal_markers.length > 0) {
     warrenMarkersApi = createSeriesMarkers(
       candle as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-      visibility.showWarren ? buildWarrenMarkers(data) : []
+      visibility.showWarren ? buildWarrenMarkers(data, colors) : []
     ) as ISeriesMarkersPluginApi<Time>;
   }
 
@@ -539,14 +499,14 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
   if (data.earnings_markers.length > 0) {
     earningsLabelsApi = new EventLabelsPrimitive();
     candle.attachPrimitive(earningsLabelsApi);
-    earningsLabelsApi.setLabels(visibility.showEarnings ? buildEarningsLabels(data.earnings_markers, COLORS.earningsMarker) : []);
+    earningsLabelsApi.setLabels(visibility.showEarnings ? buildEarningsLabels(data.earnings_markers, colors.chartEventEarnings) : []);
   }
   let dividendLabelsApi: EventLabelsPrimitive | null = null;
   if (data.dividend_markers.length > 0) {
     dividendLabelsApi = new EventLabelsPrimitive();
     candle.attachPrimitive(dividendLabelsApi);
     dividendLabelsApi.setLabels(
-      visibility.showDividends ? buildDividendLabels(data.dividend_markers, COLORS.dividendMarker, data.earnings_markers) : []
+      visibility.showDividends ? buildDividendLabels(data.dividend_markers, colors.chartEventDividend, data.earnings_markers) : []
     );
   }
 
@@ -570,20 +530,21 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
 // Pure marker-array builders, shared between initial chart creation (addMainSeries above) and the toggle-driven
 // setMarkers() calls in the component itself (see the showBbRsi/showWarren effects) -- keeps both call sites
 // byte-identical instead of two hand-maintained copies of the same mapping.
-function buildEntrySignalMarkers(data: ChartOut) {
+function buildEntrySignalMarkers(data: ChartOut, color: string) {
   return data.entry_signal_markers.map((marker) => ({
     time: marker.time,
     position: "belowBar" as const,
-    color: COLORS.marker,
+    color,
     shape: "arrowUp" as const,
     text: marker.label,
     size: 1,
   }));
 }
 
-function buildWarrenMarkers(data: ChartOut) {
+function buildWarrenMarkers(data: ChartOut, colors: ChartColors) {
+  const styles = warrenMarkerStyle(colors);
   return data.warren_signal_markers.map((marker) => {
-    const style = WARREN_MARKER_STYLE[marker.kind] ?? WARREN_MARKER_STYLE.gray_up;
+    const style = styles[marker.kind] ?? styles.gray_up;
     return {
       time: marker.time,
       position: style.position,
@@ -683,12 +644,12 @@ function extendZoneLinesToEdge(
   }
 }
 
-function addRefLine(series: ISeriesApi<"Line">, price: number) {
+function addRefLine(series: ISeriesApi<"Line">, price: number, color: string) {
   // Static reference lines (not derived from data), drawn via
   // createPriceLine rather than a plotted series.
   series.createPriceLine({
     price,
-    color: COLORS.refLine,
+    color,
     lineWidth: 1,
     lineStyle: LineStyle.Solid,
     axisLabelVisible: true,
@@ -696,44 +657,44 @@ function addRefLine(series: ISeriesApi<"Line">, price: number) {
   });
 }
 
-function addRsiSeries(chart: IChartApi, data: ChartOut, paneIndex: number) {
+function addRsiSeries(chart: IChartApi, data: ChartOut, paneIndex: number, colors: ChartColors) {
   const series = chart.addSeries(
     LineSeries,
-    { color: COLORS.rsi, lineWidth: 1, priceLineVisible: false, lastValueVisible: false },
+    { color: colors.chartBand, lineWidth: 1, priceLineVisible: false, lastValueVisible: false },
     paneIndex
   );
   // Per-point color: lightweight-charts' LineData accepts an optional
   // `color` per point (falls back to the series' own `color` option when
   // omitted), which recolors the line segment ending at that point -- no
   // need to split this into multiple overlapping series to get
-  // value-conditional coloring. Reuses downCandle's existing red rather
+  // value-conditional coloring. Reuses chart-down's existing red rather
   // than introducing a new color for "alert".
   series.setData(
     data.rsi.map((p) => ({
       time: p.time,
       value: p.value,
-      color: p.value > RSI_OVERBOUGHT || p.value < RSI_OVERSOLD ? COLORS.downCandle : COLORS.rsi,
+      color: p.value > RSI_OVERBOUGHT || p.value < RSI_OVERSOLD ? colors.chartDown : colors.chartBand,
     }))
   );
-  addRefLine(series, RSI_OVERBOUGHT);
-  addRefLine(series, RSI_OVERSOLD);
+  addRefLine(series, RSI_OVERBOUGHT, colors.chartRefline);
+  addRefLine(series, RSI_OVERSOLD, colors.chartRefline);
 }
 
-function addStochasticSeries(chart: IChartApi, data: ChartOut, paneIndex: number) {
+function addStochasticSeries(chart: IChartApi, data: ChartOut, paneIndex: number, colors: ChartColors) {
   const kSeries = chart.addSeries(
     LineSeries,
-    { color: COLORS.stochK, lineWidth: 1, priceLineVisible: false, lastValueVisible: false },
+    { color: colors.chartStochK, lineWidth: 1, priceLineVisible: false, lastValueVisible: false },
     paneIndex
   );
   const dSeries = chart.addSeries(
     LineSeries,
-    { color: COLORS.stochD, lineWidth: 1, priceLineVisible: false, lastValueVisible: false },
+    { color: colors.chartBand, lineWidth: 1, priceLineVisible: false, lastValueVisible: false },
     paneIndex
   );
   kSeries.setData(data.stochastic.map((p) => ({ time: p.time, value: p.k })));
   dSeries.setData(data.stochastic.map((p) => ({ time: p.time, value: p.d })));
-  addRefLine(kSeries, STOCH_OVERBOUGHT);
-  addRefLine(kSeries, STOCH_OVERSOLD);
+  addRefLine(kSeries, STOCH_OVERBOUGHT, colors.chartRefline);
+  addRefLine(kSeries, STOCH_OVERSOLD, colors.chartRefline);
 }
 
 export interface ZoomBounds {
@@ -824,6 +785,10 @@ export function TickerChart({
   // are never read back off the timeScale).
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const chartStateRef = useRef<{ chart: IChartApi; minFrom: number; maxTo: number } | null>(null);
+  // Resolved once per chart creation (see the mount effect below) from the design system's named tokens (see
+  // lib/chartTokens.ts) -- read here by the toggle effects further down so a marker/label rebuild after the
+  // initial mount uses the same resolved colors, not a fresh (cheap, but unnecessary) re-read.
+  const colorsRef = useRef<ChartColors | null>(null);
 
   // Pane layout: main is always pane 0; RSI/Stochastic each get the next
   // free pane index only when they have data -- a thin-history ticker
@@ -863,8 +828,10 @@ export function TickerChart({
     // once to the one shared chart now, rather than identically to three
     // separate instances.
     const rightOffset = computeRightOffset(data.bars.length);
+    const colors = readChartColors();
+    colorsRef.current = colors;
 
-    const chart = createChart(containerRef.current, makeChartOptions(rightOffset, totalHeight));
+    const chart = createChart(containerRef.current, makeChartOptions(rightOffset, totalHeight, colors));
 
     const {
       candle,
@@ -880,19 +847,24 @@ export function TickerChart({
       sma50Series,
       sma200Series,
       stageMaSeries,
-    } = addMainSeries(chart, data, {
-      showBbRsi,
-      showWarren,
-      showEarnings,
-      showDividends,
-      showLpSupport,
-      showLpResistance,
-      showBollinger,
-      showEma21,
-      showSma50,
-      showSma200,
-      showStage,
-    });
+    } = addMainSeries(
+      chart,
+      data,
+      {
+        showBbRsi,
+        showWarren,
+        showEarnings,
+        showDividends,
+        showLpSupport,
+        showLpResistance,
+        showBollinger,
+        showEma21,
+        showSma50,
+        showSma200,
+        showStage,
+      },
+      colors
+    );
     chart.priceScale("right", 0).applyOptions({ scaleMargins: PRICE_PANE_SCALE_MARGINS });
     markersApiRef.current = { bbRsi: bbRsiMarkersApi, warren: warrenMarkersApi, earnings: earningsLabelsApi, dividends: dividendLabelsApi };
     overlayApiRef.current = {
@@ -905,8 +877,8 @@ export function TickerChart({
       stageMa: stageMaSeries,
     };
     candleSeriesRef.current = candle;
-    if (rsiPaneIndex !== null) addRsiSeries(chart, data, rsiPaneIndex);
-    if (stochPaneIndex !== null) addStochasticSeries(chart, data, stochPaneIndex);
+    if (rsiPaneIndex !== null) addRsiSeries(chart, data, rsiPaneIndex, colors);
+    if (stochPaneIndex !== null) addStochasticSeries(chart, data, stochPaneIndex, colors);
 
     // addSeries(..., paneIndex) above already created each pane on demand
     // -- setStretchFactor() here locks in the fixed pixel split (580/100/
@@ -1054,6 +1026,7 @@ export function TickerChart({
       overlayApiRef.current = { lpSupport: [], lpResistance: [], bollinger: [], ema21: null, sma50: null, sma200: null, stageMa: null };
       candleSeriesRef.current = null;
       chartStateRef.current = null;
+      colorsRef.current = null;
     };
     // Every showXxx toggle is intentionally excluded here: they only set the INITIAL visibility at chart creation
     // (read once, via closure); a later toggle flip is handled by the separate effects below via
@@ -1117,20 +1090,28 @@ export function TickerChart({
   // after the first render), which just re-applies the same visibility addMainSeries already set -- a harmless
   // no-op.
   useEffect(() => {
-    markersApiRef.current.bbRsi?.setMarkers(showBbRsi ? buildEntrySignalMarkers(data) : []);
+    const colors = colorsRef.current;
+    if (!colors) return;
+    markersApiRef.current.bbRsi?.setMarkers(showBbRsi ? buildEntrySignalMarkers(data, colors.chartUp) : []);
   }, [data, showBbRsi]);
 
   useEffect(() => {
-    markersApiRef.current.warren?.setMarkers(showWarren ? buildWarrenMarkers(data) : []);
+    const colors = colorsRef.current;
+    if (!colors) return;
+    markersApiRef.current.warren?.setMarkers(showWarren ? buildWarrenMarkers(data, colors) : []);
   }, [data, showWarren]);
 
   useEffect(() => {
-    markersApiRef.current.earnings?.setLabels(showEarnings ? buildEarningsLabels(data.earnings_markers, COLORS.earningsMarker) : []);
+    const colors = colorsRef.current;
+    if (!colors) return;
+    markersApiRef.current.earnings?.setLabels(showEarnings ? buildEarningsLabels(data.earnings_markers, colors.chartEventEarnings) : []);
   }, [data, showEarnings]);
 
   useEffect(() => {
+    const colors = colorsRef.current;
+    if (!colors) return;
     markersApiRef.current.dividends?.setLabels(
-      showDividends ? buildDividendLabels(data.dividend_markers, COLORS.dividendMarker, data.earnings_markers) : []
+      showDividends ? buildDividendLabels(data.dividend_markers, colors.chartEventDividend, data.earnings_markers) : []
     );
   }, [data, showDividends]);
 
@@ -1165,7 +1146,15 @@ export function TickerChart({
     const candle = candleSeriesRef.current;
     if (!candle) return;
     const staged = showStage && data.weinstein_stages?.length > 0;
-    candle.setData((staged ? buildStageColoredBars(data.bars, data.weinstein_stages) : data.bars));
+    if (!staged) {
+      candle.setData(data.bars);
+      return;
+    }
+    const colors = colorsRef.current;
+    const stagePalette = colors
+      ? { base: colors.stageBase, advance: colors.stageAdvance, top: colors.stageTop, decline: colors.stageDecline }
+      : undefined;
+    candle.setData(buildStageColoredBars(data.bars, data.weinstein_stages, stagePalette));
   }, [showStage, data]);
 
   // Derived at render time from current props (see hoveredEvent's comment above).
@@ -1175,21 +1164,21 @@ export function TickerChart({
 
   return (
     <div className="rounded-lg border border-border-card">
-      <div className="relative bg-zinc-950">
+      <div className="relative bg-page">
         <div className="absolute top-2 left-3 z-10 select-none pointer-events-none">
           {ohlc && (
             <div className="flex items-center gap-2.5 text-xs font-mono">
-              <span className="text-zinc-500">
-                O <span className="text-zinc-300">{fmtMoney(ohlc.o, quoteCurrency)}</span>
+              <span className="text-text-tertiary">
+                O <span className="text-text-secondary">{fmtMoney(ohlc.o, quoteCurrency)}</span>
               </span>
-              <span className="text-zinc-500">
-                H <span className="text-emerald-400">{fmtMoney(ohlc.h, quoteCurrency)}</span>
+              <span className="text-text-tertiary">
+                H <span className="text-chart-up">{fmtMoney(ohlc.h, quoteCurrency)}</span>
               </span>
-              <span className="text-zinc-500">
-                L <span className="text-red-400">{fmtMoney(ohlc.l, quoteCurrency)}</span>
+              <span className="text-text-tertiary">
+                L <span className="text-chart-down">{fmtMoney(ohlc.l, quoteCurrency)}</span>
               </span>
-              <span className="text-zinc-500">
-                C <span className="text-zinc-200">{fmtMoney(ohlc.c, quoteCurrency)}</span>
+              <span className="text-text-tertiary">
+                C <span className="text-text-primary">{fmtMoney(ohlc.c, quoteCurrency)}</span>
               </span>
             </div>
           )}
@@ -1198,7 +1187,7 @@ export function TickerChart({
         {hasRsi && (
           <div
             ref={rsiLabelRef}
-            className="absolute left-3 z-10 text-[10px] font-mono text-zinc-500 select-none pointer-events-none"
+            className="absolute left-3 z-10 text-[10px] font-mono text-text-tertiary select-none pointer-events-none"
             style={{ top: rsiLabelTop }} // placeholder; corrected from real pane geometry in the layout effect above
           >
             RSI (14)
@@ -1208,7 +1197,7 @@ export function TickerChart({
         {hasStochastic && (
           <div
             ref={stochLabelRef}
-            className="absolute left-3 z-10 text-[10px] font-mono text-zinc-500 select-none pointer-events-none"
+            className="absolute left-3 z-10 text-[10px] font-mono text-text-tertiary select-none pointer-events-none"
             style={{ top: stochLabelTop }} // placeholder; corrected from real pane geometry in the layout effect above
           >
             Full Stochastic (5, 3, 3) EMA
@@ -1219,17 +1208,21 @@ export function TickerChart({
 
         {eventTooltip && hoveredEvent && (
           <div
-            className="absolute z-20 pointer-events-none select-none rounded border border-zinc-700 bg-zinc-900/95 px-2 py-1.5 text-xs font-mono shadow-lg"
+            className="absolute z-20 pointer-events-none select-none text-xs font-mono"
             // Above the cursor (the event row is on the pane floor), flipped left near the right edge --
             // see eventTooltipPlacement.
             style={{ left: hoveredEvent.left, top: hoveredEvent.top, transform: hoveredEvent.transform }}
           >
-            <div className="text-zinc-200">{eventTooltip.title}</div>
-            {eventTooltip.lines.map((line) => (
-              <div key={line} className="text-zinc-400">
-                {line}
-              </div>
-            ))}
+            {/* TooltipCard is the shared floating-card surface look -- see components/ui/tooltip.tsx. Title reads
+                as the tooltip's "label" (what/when), the EPS/dividend lines as its "value" content. */}
+            <TooltipCard>
+              <div className="text-text-secondary">{eventTooltip.title}</div>
+              {eventTooltip.lines.map((line) => (
+                <div key={line} className="text-text-primary">
+                  {line}
+                </div>
+              ))}
+            </TooltipCard>
           </div>
         )}
       </div>

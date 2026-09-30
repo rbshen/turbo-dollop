@@ -3,6 +3,7 @@
 import { Check, Trash } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { deleteScreenerFilter, saveScreenerFilter, useSavedFilters } from "@/lib/hooks/useSavedFilters";
 import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
 import type { ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
@@ -188,26 +189,23 @@ export function SavedFiltersBar({
       </div>
 
       {saveStep === "idle" && (
-        <button
-          type="button"
-          onClick={openNaming}
-          className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
-        >
+        <Button variant="ghost" size="sm" onClick={openNaming} className="h-8 border border-border-input hover:border-brand">
           Save current view
-        </button>
+        </Button>
       )}
 
       {saveStep === "idle" && (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => {
             onReset();
             setActiveName(null);
           }}
-          className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
+          className="h-8 border border-border-input hover:border-brand"
         >
           Reset
-        </button>
+        </Button>
       )}
 
       {saveStep === "naming" && (
@@ -222,7 +220,7 @@ export function SavedFiltersBar({
               if (e.key === "Enter") handleConfirm();
               if (e.key === "Escape") cancelSave();
             }}
-            className="h-8 w-40 rounded-md border border-border-input bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
+            className="h-8 w-40 rounded-md border border-border-control bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
           />
           <button
             type="button"

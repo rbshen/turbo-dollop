@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MomentumTable } from "@/components/momentum/MomentumTable";
 import type { MomentumSnapshotRowOut } from "@/lib/api/types";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const ROWS: MomentumSnapshotRowOut[] = [
   {
@@ -37,8 +40,8 @@ describe("MomentumTable", () => {
     render(<MomentumTable rows={ROWS} />);
     expect(screen.getByText("SNDK")).toBeInTheDocument();
     expect(screen.getByText("Sandisk Corporation")).toBeInTheDocument();
-    expect(screen.getByText("No Moat")).toBeInTheDocument();
-    expect(screen.getByText("Narrow Moat")).toBeInTheDocument();
+    expect(screen.getByText("None")).toBeInTheDocument();
+    expect(screen.getByText("Narrow")).toBeInTheDocument();
   });
 
   it("links each ticker to its ticker page, opening in a new tab", () => {
@@ -57,14 +60,40 @@ describe("MomentumTable", () => {
 
   it("renders a null overall_score as an em dash, not a fabricated 0", () => {
     render(<MomentumTable rows={[ROWS[1]]} />);
-    expect(screen.getByText("—", { selector: "td:last-child" })).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
   });
 
-  it("renders the Score column muted relative to the other numeric columns", () => {
+  it("renders the Score column as a neutral (never sign-colored) badge", () => {
     render(<MomentumTable rows={ROWS} />);
     const overallCell = screen.getAllByText("47")[0];
-    expect(overallCell).toHaveClass("text-text-tertiary");
+    expect(overallCell).toHaveClass("text-text-secondary");
     const compositeCell = screen.getByText("+1008.30%");
-    expect(compositeCell.className).not.toContain("text-text-tertiary");
+    expect(compositeCell.className).not.toContain("text-text-secondary");
+  });
+
+  it("renders an empty-snapshot caption instead of an empty table", () => {
+    render(<MomentumTable rows={[]} />);
+    expect(screen.getByText("No tickers in this snapshot.")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+});
+
+describe("MomentumTable whole-row click", () => {
+  beforeEach(() => {
+    vi.spyOn(window, "open").mockImplementation(() => null);
+  });
+
+  it("opens the ticker page in a new tab when a non-link cell is clicked", () => {
+    render(<MomentumTable rows={ROWS} />);
+    // Any cell that isn't the ticker anchor itself -- the company name line.
+    screen.getByText("Sandisk Corporation").click();
+    expect(window.open).toHaveBeenCalledTimes(1);
+    expect(window.open).toHaveBeenCalledWith("/tickers/SNDK", "_blank", "noopener,noreferrer");
+  });
+
+  it("does not double-open when the ticker anchor itself is clicked", () => {
+    render(<MomentumTable rows={ROWS} />);
+    screen.getByRole("link", { name: "SNDK" }).click();
+    expect(window.open).not.toHaveBeenCalled();
   });
 });

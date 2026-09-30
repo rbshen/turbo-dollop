@@ -5,6 +5,8 @@ import { useState } from "react";
 import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
 import { MultiSelectDropdown } from "@/components/screener/MultiSelectDropdown";
 import { RangeInput } from "@/components/screener/RangeInput";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, Input } from "@/components/ui/input";
 import {
   FILTER_ACTIVE_LABEL_CLASS,
   MOAT_FILTER_OPTIONS,
@@ -28,10 +30,12 @@ interface Props {
  * "1X") shows an inline error and leaves the last valid filter value
  * untouched, rather than being coerced to 0/NaN or clearing the filter. */
 function MarketCapSideInput({
+  id,
   placeholder,
   value,
   onChange,
 }: {
+  id: string;
   placeholder: string;
   value: number | null;
   onChange: (value: number | null) => void;
@@ -52,15 +56,14 @@ function MarketCapSideInput({
 
   return (
     <div className="min-w-0 flex-1">
-      <input
+      <Input
+        id={id}
         type="text"
         inputMode="decimal"
         placeholder={placeholder}
         value={text}
         onChange={(e) => handleChange(e.target.value)}
-        className={`h-8 w-full rounded-md border bg-surface px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none ${
-          invalid ? "border-negative/60 focus:border-negative" : "border-border-input focus:border-brand"
-        }`}
+        className={cn("w-full", invalid && "border-negative/60 focus:border-negative")}
       />
       {invalid && <span className="mt-0.5 block text-[10px] text-negative">e.g. 1B, 2 M, or 500000000</span>}
     </div>
@@ -71,14 +74,13 @@ function MarketCapRangeInput({ value, onChange }: { value: RangeFilter; onChange
   const active = value.min != null || value.max != null;
 
   return (
-    <div className="space-y-1">
-      <span className={cn("text-xs", active ? FILTER_ACTIVE_LABEL_CLASS : "text-text-tertiary")}>Mkt Cap</span>
+    <Field label="Mkt Cap" htmlFor="range-mkt-cap-min" applied={active}>
       <div className="flex items-center gap-1.5">
-        <MarketCapSideInput placeholder="Min" value={value.min} onChange={(min) => onChange({ ...value, min })} />
+        <MarketCapSideInput id="range-mkt-cap-min" placeholder="Min" value={value.min} onChange={(min) => onChange({ ...value, min })} />
         <span className="shrink-0 text-text-tertiary">–</span>
-        <MarketCapSideInput placeholder="Max" value={value.max} onChange={(max) => onChange({ ...value, max })} />
+        <MarketCapSideInput id="range-mkt-cap-max" placeholder="Max" value={value.max} onChange={(max) => onChange({ ...value, max })} />
       </div>
-    </div>
+    </Field>
   );
 }
 
@@ -133,20 +135,15 @@ export function FundamentalFilters({ filters, onFiltersChange, sectors, companyT
             selected={filters.valuationVerdict}
             onChange={(s) => patch({ valuationVerdict: s })}
           />
-          <label
+          <Checkbox
+            label="Speculative Growth"
+            checked={filters.speculativeGrowth}
+            onChange={(e) => patch({ speculativeGrowth: e.target.checked })}
             className={cn(
-              "flex h-8 items-center gap-1.5 rounded-md border border-border-input px-2 text-xs font-medium",
+              "h-8 rounded-md border border-border-input px-2 text-xs font-medium",
               filters.speculativeGrowth ? FILTER_ACTIVE_LABEL_CLASS : "text-text-secondary"
             )}
-          >
-            <input
-              type="checkbox"
-              checked={filters.speculativeGrowth}
-              onChange={(e) => patch({ speculativeGrowth: e.target.checked })}
-              className="size-3.5 rounded-sm border-border-input accent-chart-purple"
-            />
-            Speculative Growth
-          </label>
+          />
         </div>
       </div>
     </CollapsibleFilterSection>

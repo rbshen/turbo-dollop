@@ -5,7 +5,8 @@ import { useStep1 } from "@/lib/hooks/useStep1";
 import { useStep4 } from "@/lib/hooks/useStep4";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { useFinancials } from "@/lib/hooks/useFinancials";
-import { fmtCompactMoney, fmtDays, fmtTableMoney } from "@/lib/format";
+import { fmtDays, fmtSignedCompactMoneyTooltip, fmtSignedDaysTooltip, fmtTableMoney } from "@/lib/format";
+import { SERIES_COLORS } from "@/lib/chartSeries";
 import type { FinancialsPeriodOut } from "@/lib/api/types";
 
 interface Props {
@@ -47,7 +48,7 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
   const financials = useFinancials(ticker);
 
   if (!step1.data || !step4.data || !step5.data || !financials.data) {
-    return <div className="h-24 animate-pulse rounded-lg border border-border-card bg-surface" />;
+    return <div className="h-24 animate-pulse rounded-lg border border-border-card bg-surface-2" />;
   }
 
   const s1 = step1.data;
@@ -59,7 +60,7 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
   // so tooltipMoney below is bound to reported_currency, not quote_currency.
   // format (fmtTableMoney) needs no currency -- it has no "$"/symbol at all.
   const reportedCurrency = fin.reported_currency ?? "USD";
-  const tooltipMoney = (v: number) => fmtCompactMoney(v, reportedCurrency);
+  const tooltipMoney = (v: number) => fmtSignedCompactMoneyTooltip(v, reportedCurrency);
 
   const incYears = fin.income_statement.annual.periods.map(shortYearLabel);
   const cfYears = fin.cash_flow.annual.periods.map(shortYearLabel);
@@ -85,7 +86,7 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
   // display-suppression the way Step 1's CFO exemption was).
   const arExempt = s4.revenue_vs_ar_exempt_reason != null;
 
-  const ccc2 = (v: number) => fmtDays(v, 2);
+  const ccc2 = (v: number) => fmtSignedDaysTooltip(v, 2);
 
   // Total Debt is only meaningful alongside Step 5's own debt verdict, so
   // it's suppressed for any ticker Step 5 didn't evaluate via its 3
@@ -167,7 +168,7 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
       years: s4.years,
       values: totalDebt,
       segments: [
-        { key: "long_term_debt", label: "Long-Term Debt", color: "var(--color-brand)", values: s5.debt_ratios_evaluated ? s4.long_term_debt : [] },
+        { key: "long_term_debt", label: "Long-Term Debt", color: SERIES_COLORS[0], values: s5.debt_ratios_evaluated ? s4.long_term_debt : [] },
         { key: "short_term_debt", label: "Short-Term Debt", color: "var(--color-chart-orange)", values: s5.debt_ratios_evaluated ? s4.short_term_debt : [] },
       ],
       format: fmtTableMoney,

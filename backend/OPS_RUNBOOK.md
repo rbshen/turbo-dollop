@@ -10,18 +10,25 @@ scripts below.
 
 `./bin/start.sh` from the repo root brings up both servers: preflight
 checks (`backend/.env` present with the required keys, `uv`/`node`/`npm`
-on `PATH`), an explicit `init_db()` call, a cheap FMP connectivity check
-(`GET /quote` for AAPL — fails loud here instead of surfacing later as an
-empty ticker page), a production frontend build (`next build`, before
-either server starts so its memory peak never overlaps the backend's),
-then backend (`uvicorn core.main:app`, no `--reload` →
-`backend/logs/uvicorn_dev.log`) and frontend (`next start` →
-`frontend/logs/next_dev.log`, which also holds the build output; the
-`_dev` in both filenames is historical), each in its own process group.
-Both run in production mode to keep the memory footprint down on this small
-VPS, so **there is no hot reload: a code change to either app takes effect
-only after `./bin/stop.sh` + `./bin/start.sh`** (the restart rebuilds the
-frontend, which takes minutes, not seconds). Runs in the
+on `PATH`), an explicit `init_db()` call, and a cheap FMP connectivity
+check (`GET /quote` for AAPL — fails loud here instead of surfacing later
+as an empty ticker page). It has two modes, switched by flag (or the
+`FATHOM_MODE=dev|prod` env var):
+
+- **dev (default)** — `./bin/start.sh` / `--dev`: backend `uvicorn --reload`
+  and frontend `next dev`, no build step, so code changes hot-reload and
+  startup is fast. Uses more memory.
+- **prod** — `./bin/start.sh --prod`: a production frontend build
+  (`next build`, before either server starts so its memory peak never
+  overlaps the backend's), then backend (`uvicorn`, no `--reload`) and
+  frontend (`next start`). Keeps the memory footprint down on this small
+  VPS, but **there is no hot reload: a code change to either app takes
+  effect only after `./bin/stop.sh` + `./bin/start.sh --prod`** (the
+  restart rebuilds the frontend, which takes minutes, not seconds).
+
+Logs go to `backend/logs/uvicorn_dev.log` and `frontend/logs/next_dev.log`
+(which also holds the prod build output; the `_dev` in both filenames is
+historical), each server in its own process group. Runs in the
 foreground with prefixed `[backend]`/`[frontend]` log lines; Ctrl-C stops
 both cleanly. Success looks like both `Waiting for backend...` /
 `Waiting for frontend...` lines resolving to `... is up.` — if the backend
@@ -34,8 +41,8 @@ the failure message).
 "nothing to stop" per service, exits 0). Use this from a second shell, or
 after a `start.sh` session was disconnected without a clean Ctrl-C.
 
-**Pausing the FMP subscription** (no restart, no `.env` edit): Settings > Status >
-"FMP master switch", or from a shell
+**Pausing the FMP subscription** (no restart, no `.env` edit): Settings > FMP data groups >
+"FMP master switch" (below the group table), or from a shell
 
 ```
 cd backend
@@ -45,7 +52,7 @@ uv run python -m pipeline.data_groups resume      # master ON (per-group setting
 ```
 
 Takes effect within ~5 s in every process (state is in the DB). Individual
-groups (fundamentals, news, ...) can be toggled in Settings > Status; `start.sh`'s
+groups (fundamentals, news, ...) can be toggled in Settings > FMP data groups; `start.sh`'s
 FMP preflight is skipped when the master or `profile_quote` is off, and a 402
 there only warns. A nightly job whose group is off records a **skipped** run
 (blue dot in Scheduled Jobs, "Skipped since <date>") -- if a job shows skipped
@@ -139,10 +146,10 @@ stderr — bypassing `configure_logging()`'s handlers entirely, landing only
 in the `_cron.log` half of the pair above, invisible in the plain `.log`
 and invisible anywhere in the app itself. This actually happened twice
 (`sp500_list_refresh` 07-26/08-02, `backup_db` 08-09 — see "Known gaps"
-below). `GET /api/config/cron-health` (surfaced as a site-wide banner when
-any job isn't healthy) exists specifically to catch this class of failure
-without anyone needing to tail a log at all — see "Cron job heartbeat /
-health monitoring" below.
+below). `GET /api/config/cron-health` (surfaced in Settings > Scheduled
+Jobs) exists specifically to catch this class of failure without anyone
+needing to tail a log at all — see "Cron job heartbeat / health
+monitoring" below.
 
 ## Maintenance scripts (`backend/pipeline/`)
 
@@ -383,7 +390,7 @@ universe would go, it **refuses**, deletes nothing and says so in the report and
 real non-US tickers. Removal is irreversible short of a `backups/` restore.
 
 **Also flags delisted tickers, a second, independent write this same run performs**
-(rewritten Phase 6a, 2026-09-26 — see `CLAUDE.md`'s "Phase 6a" section; moved from the
+(rewritten Phase 6a, 2026-09-26 — see the "Phase 6a" section of `docs/archive/claude-md-history-fmp-migration.md` and `docs/specs/fmp-data-and-bar-cache.md`; moved from the
 `corporate_events` group to `index_membership` 2026-09-27, since this is a tracked-ticker
 universe-membership check, the same job family as the index scrapers, not
 earnings/dividends/splits). It pages FMP's `/delisted-companies` (group `index_membership`,
@@ -456,12 +463,12 @@ its warm cache.
   transaction; a ticker FMP cannot serve keeps its rows). Take `pipeline.backup_db` first and
   check free disk. `pipeline.backfills.backfill_market_breadth --rebuild` re-derives the
   `is_backfilled` breadth rows (never a live row).
-- **Basis:** FMP `full` is split- AND spin-off-adjusted (not dividend-adjusted); see CLAUDE.md
-  "Daily prices: FMP".
+- **Basis:** FMP `full` is split- AND spin-off-adjusted (not dividend-adjusted); see
+  `docs/specs/fmp-data-and-bar-cache.md`.
 
 #### Long history (P3, 2026-09-25)
 
-- **`daily_prices_long`** (Settings > Status; history beyond the nightly ~5y: Chart W_4Y and the
+- **`daily_prices_long`** (Settings > FMP data groups; history beyond the nightly ~5y: Chart W_4Y and the
   Analyst overlay). Off = cached-only for an existing long-history row, otherwise an empty chart /
   overlay (no Yahoo fallback). Its 402 canary is AAPL; `pipeline.stale_data_health_check` re-probes a restricted one weekly.
   (`daily_prices_intl` was removed 2026-09-26.)
@@ -491,11 +498,12 @@ incident this was built to catch.
 if no row exists yet, `"overdue"` if no successful run falls within that
 job's expected cadence (36h for the 6 daily jobs, ~8 days for the 7
 weekly-Sunday jobs, ~35 days for the 2 monthly ones — `core/cron_health.py`'s
-`_EXPECTED_CADENCE_HOURS`), else `"ok"`. The frontend's `CronHealthBanner`
-(site-wide, mounted next to `FmpPausedBanner`) renders nothing while every
-job is `"ok"`, and otherwise lists every non-ok job — so day to day, seeing
-no banner at all is the expected, healthy state; nobody needs to
-proactively check this endpoint or tail a log.
+`_EXPECTED_CADENCE_HOURS`), else `"ok"`. Settings > Scheduled Jobs
+(`ScheduledJobsSection`) lists every job's health there — the old
+site-wide `CronHealthBanner`/`FmpPausedBanner` pair was deleted and folded
+into this Settings section instead, so a healthy day no longer shows
+anything outside Settings; nobody needs to proactively check this endpoint
+or tail a log.
 
 `CRON_JOB_NAMES` in `core/cron_health.py` is the single source of truth for
 which 15 jobs exist — `tests/test_cron_wiring.py` fails loudly if
@@ -504,13 +512,13 @@ stops calling `cron_heartbeat(...)`, so a future 16th cron job can't ship
 unmonitored by accident.
 
 **`CRON_HEALTH_ENABLED=false`** (`.env`, default `true`, requires a
-backend restart — same read-once convention) mutes the endpoint and
-banner without touching heartbeat writes: `GET /api/config/cron-health`
-returns `{"enabled": false, "jobs": []}` and `CronHealthBanner` renders
-nothing. `CronRunLog` rows keep accumulating normally the whole time — this
-is a display kill-switch, not a pause of the monitoring itself, useful for
-an extended FMP pause where a second banner alongside
-`FmpPausedBanner` would just be noise the operator already knows about.
+backend restart — same read-once convention) mutes the endpoint and the
+Scheduled Jobs section's cron-health display without touching heartbeat
+writes: `GET /api/config/cron-health` returns `{"enabled": false, "jobs":
+[]}` and the section renders nothing for it. `CronRunLog` rows keep
+accumulating normally the whole time — this is a display kill-switch, not
+a pause of the monitoring itself, useful for an extended FMP pause where
+that display would just be noise the operator already knows about.
 
 ## Weekly index constituent refresh (S&P 500 / Nasdaq-100 / Dow)
 
@@ -616,8 +624,9 @@ that draft is why; it was never committed.
   exception bypasses `configure_logging()`'s handlers entirely. Closed by
   the `CronRunLog` table + `cron_heartbeat()` wrapper (`core/cron_health.py`,
   wired into all 11 scripts' entry points) + `GET /api/config/cron-health`
-  + the site-wide `CronHealthBanner` -- see "Cron job heartbeat / health
-  monitoring" below. Purely additive: the wrapper always re-raises the
+  + Settings > Scheduled Jobs (the old site-wide `CronHealthBanner` was
+  deleted and folded into that section) -- see "Cron job heartbeat /
+  health monitoring" below. Purely additive: the wrapper always re-raises the
   original exception unchanged, so existing stderr/`_cron.log` capture and
   exit codes are untouched; a heartbeat DB write failure (e.g. the exact
   disk-full case above) is itself swallowed rather than masking the job's
@@ -652,8 +661,8 @@ that draft is why; it was never committed.
   - **Bank/Insurance/REIT Valuation-tab correctness** -- `949651e`: Bank/
     REIT forced onto Price-to-Book, Insurance skips CFO-based methods
     entirely. Covered by dedicated tests in `scoring/test_step3.py` and
-    `tests/test_step3_data.py`, documented in `docs/valuation.md` /
-    `docs/company-type-variations.md`.
+    `tests/test_step3_data.py`, documented in `docs/specs/valuation.md` /
+    `docs/specs/company-type-variations.md`.
   - **Step3/Valuation test coverage** -- 55 tests across
     `scoring/test_step3.py` (36) and `tests/test_step3_data.py` (19), all
     passing. A narrow subset (`run_price_to_book`'s 10yr lookback branch,

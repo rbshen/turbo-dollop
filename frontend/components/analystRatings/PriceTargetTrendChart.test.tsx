@@ -83,7 +83,7 @@ describe("PriceTargetTrendChart", () => {
     fireEvent.click(screen.getByRole("button", { name: "Overlay stock price" }));
 
     const strokes = Array.from(chartPanel().querySelectorAll("path.recharts-line-curve")).map((el) => el.getAttribute("stroke"));
-    expect(strokes).toEqual(["var(--color-brand)", "var(--color-chart-1)"]);
+    expect(strokes).toEqual(["var(--color-series-1)", "var(--color-series-2)"]);
 
     expect(screen.getByText("Avg. Price Target")).toBeInTheDocument();
     expect(screen.getByText("Stock Price")).toBeInTheDocument();

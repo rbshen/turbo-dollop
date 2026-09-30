@@ -4,6 +4,7 @@ import { BreadthSectorTabs } from "@/components/breadth/BreadthSectorTabs";
 import { MarketBreadthCharts } from "@/components/breadth/MarketBreadthCharts";
 import { MarketBreadthStats } from "@/components/breadth/MarketBreadthStats";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { PageHeader } from "@/components/ui/page-header";
 import { fmtEventDate } from "@/lib/chartEventMarkers";
 import { useMarketBreadth } from "@/lib/hooks/useMarketBreadth";
 import { liveBoundaryIndex, isKnownSectorTicker, sectorDisplayName, sectorUniverse } from "@/lib/marketBreadth";
@@ -28,20 +29,22 @@ export function BreadthSectorView({ sector }: Props) {
   const liveAt = data ? liveBoundaryIndex(data.series) : -1;
 
   return (
-    <PageContainer className="space-y-6 pb-12 pt-6">
-      <div>
-        <h1 className="font-heading text-xl font-semibold text-text-primary">Market Breadth</h1>
-        {known ? (
-          data?.as_of_date && (
-            <p className="text-xs text-text-tertiary">
-              {name} ({sector}) · As of close {fmtEventDate(data.as_of_date)}
-              {data.computed_at && ` · Computed ${new Date(data.computed_at).toLocaleString()}`}
-            </p>
+    <PageContainer className="space-y-6 pb-12">
+      <PageHeader
+        title="Market Breadth"
+        subtitle={
+          known ? (
+            data?.as_of_date && (
+              <>
+                {name} ({sector}) · As of close {fmtEventDate(data.as_of_date)}
+                {data.computed_at && ` · Computed ${new Date(data.computed_at).toLocaleString()}`}
+              </>
+            )
+          ) : (
+            <>Unknown sector &quot;{sector}&quot;</>
           )
-        ) : (
-          <p className="text-xs text-text-tertiary">Unknown sector &quot;{sector}&quot;</p>
-        )}
-      </div>
+        }
+      />
 
       <BreadthSectorTabs active={known ? sector : ""} />
 

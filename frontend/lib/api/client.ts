@@ -1,5 +1,19 @@
 const BASE = "/api";
 
+// FastAPI returns a string `detail` for an HTTPException and, for a request
+// validation failure (422), a LIST: [{type, loc: ["body", "<field>"], msg,
+// input, ctx}, ...]. Both become one readable string; anything else has none.
+function formatDetail(detail: unknown): string | undefined {
+  if (typeof detail === "string") return detail;
+  if (!Array.isArray(detail)) return undefined;
+  const parts = detail.flatMap((item): string[] => {
+    if (typeof item?.msg !== "string") return [];
+    const field = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : undefined;
+    return [typeof field === "string" ? `${field}: ${item.msg}` : item.msg];
+  });
+  return parts.length > 0 ? parts.join("; ") : undefined;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json", ...init?.headers },
@@ -15,7 +29,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let detail: string | undefined;
     try {
       const body = await res.json();
-      if (typeof body?.detail === "string") detail = body.detail;
+      detail = formatDetail(body?.detail);
     } catch {
       // Non-JSON or empty error body -- no detail to add.
     }

@@ -37,6 +37,6 @@ describe("IndexMembershipPill", () => {
 
   it("falls back to the raw name for an unrecognized index", () => {
     render(<IndexMembershipPill memberships={["russell2000"]} />);
-    expect(screen.getByText("russell2000")).toBeInTheDocument();
+    expect(screen.getByText("Russell2000")).toBeInTheDocument();
   });
 });

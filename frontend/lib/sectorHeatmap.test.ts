@@ -49,7 +49,7 @@ describe("cellBackground", () => {
   });
 
   it("uses the positive token for gains and the negative token for losses", () => {
-    expect(cellBackground(5, 10)).toContain("--color-positive-strong");
+    expect(cellBackground(5, 10)).toContain("--color-positive");
     expect(cellBackground(-5, 10)).toContain("--color-negative");
   });
 

@@ -1,4 +1,5 @@
 import { ChecklistCard, DotTimeline, fmtSwingDate, SectionHeading, type TimelineDot } from "@/components/technical/ChecklistCard";
+import type { StatusTone } from "@/components/ui/status";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 
 interface Props {
@@ -57,11 +58,11 @@ export function resolutionStatus(data: TrendAnalysisOut): ResolutionStatus {
   return data.pullback_occurred_since_flip === true ? "Recovered" : "NoPullback";
 }
 
-const STATUS_PILL_CLASS: Record<ResolutionStatus, string> = {
-  NoPullback: "border-border-card bg-surface-2 text-text-tertiary",
-  Pending: "border-warn/40 bg-warn/16 text-warn",
-  Recovered: "border-positive/40 bg-positive/16 text-positive",
-  Invalidated: "border-negative/40 bg-negative/16 text-negative",
+const STATUS_TONE: Record<ResolutionStatus, StatusTone> = {
+  NoPullback: "neutral",
+  Pending: "warn",
+  Recovered: "positive",
+  Invalidated: "negative",
 };
 
 const STATUS_LABEL: Record<ResolutionStatus, string> = {
@@ -202,7 +203,7 @@ export function TrendContinuationCard({ data }: Props) {
     <ChecklistCard
       title="Pullback recovery"
       statusLabel={STATUS_LABEL[status]}
-      statusToneClass={STATUS_PILL_CLASS[status]}
+      statusTone={STATUS_TONE[status]}
       blurb="Checked because the stock is currently in an uptrend. Looks for whether a recent pullback has resolved bullishly or turned into a real breakdown."
       items={[]}
       extra={

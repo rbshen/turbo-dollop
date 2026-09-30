@@ -55,6 +55,9 @@ const ROWS: WatchlistRowOut[] = [
 ];
 
 describe("WatchlistTable sticky header", () => {
+  // bg-page (not a visible surface fill) -- 2026-09-28 design-system change:
+  // a sticky header only needs to paint over scrolled-under rows, not draw
+  // its own card-like fill the way the old bg-surface-2 did.
   it("keeps every column header cell sticky with a solid background", () => {
     render(
       <WatchlistTable watchlist={WATCHLIST} rows={ROWS} sortRules={DEFAULT_SORT_RULES} onSortRulesChange={vi.fn()} />
@@ -62,7 +65,7 @@ describe("WatchlistTable sticky header", () => {
     for (const cell of document.querySelectorAll("thead th")) {
       expect(cell.className).toContain("sticky");
       expect(cell.className).toContain("top-0");
-      expect(cell.className).toContain("bg-surface-2");
+      expect(cell.className).toContain("bg-page");
     }
   });
 
@@ -88,5 +91,28 @@ describe("WatchlistTable sticky header", () => {
     );
     screen.getByRole("button", { name: "Moat" }).click();
     expect(onSortRulesChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("exposes aria-sort on the active sortable header and updates it when direction flips", () => {
+    const { rerender } = render(
+      <WatchlistTable
+        watchlist={WATCHLIST}
+        rows={ROWS}
+        sortRules={[{ field: "moat", direction: "asc" }]}
+        onSortRulesChange={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Moat" }).closest("th")).toHaveAttribute("aria-sort", "ascending");
+    expect(screen.getByRole("button", { name: "Sector" }).closest("th")).toHaveAttribute("aria-sort", "none");
+
+    rerender(
+      <WatchlistTable
+        watchlist={WATCHLIST}
+        rows={ROWS}
+        sortRules={[{ field: "moat", direction: "desc" }]}
+        onSortRulesChange={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Moat" }).closest("th")).toHaveAttribute("aria-sort", "descending");
   });
 });

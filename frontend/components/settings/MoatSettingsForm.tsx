@@ -6,134 +6,114 @@ import { mutate } from "swr";
 import { apiPut } from "@/lib/api/client";
 import type { MoatScoreConfigOut } from "@/lib/api/types";
 import { useMoatConfig } from "@/lib/hooks/useMoatConfig";
-
-type Status = "idle" | "saving" | "saved" | "error";
-
-const STATUS_LABELS: Record<Status, string> = {
-  idle: "Save",
-  saving: "Saving…",
-  saved: "Saved ✓",
-  error: "Save failed",
-};
+import { NumberField } from "@/components/ui/number-field";
+import {
+  SettingsFooter,
+  SettingsGroup,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings/SettingsLayout";
+import { useSettingsSave, type SettingsSaver } from "@/components/settings/useSettingsSave";
+import { checkNumber } from "@/lib/numberInput";
 
 export function MoatSettingsForm() {
   const { data, error, isLoading } = useMoatConfig();
+  // Held here, above the keyed form below, so "Saved ✓" survives the remount.
+  const saver = useSettingsSave();
 
   if (error) {
-    return <p className="text-sm text-red-400">Couldn&apos;t load Economic Moat settings — {error.message}</p>;
+    return <p className="text-sm text-negative">Couldn&apos;t load Economic Moat settings — {error.message}</p>;
   }
 
   if (isLoading || !data) {
-    return <p className="text-sm text-zinc-600 animate-pulse">Loading…</p>;
+    return <p className="text-sm text-text-tertiary animate-pulse">Loading…</p>;
   }
 
   // Keyed on updated_at so a save (which changes updated_at) remounts this
-  // with fresh initial text -- same pattern as DiscountRateSettingsForm.
-  return <MoatScoreForm key={data.updated_at} data={data} />;
+  // with fresh initial text.
+  return <MoatScoreForm key={data.updated_at} data={data} saver={saver} />;
 }
 
-function MoatScoreForm({ data }: { data: MoatScoreConfigOut }) {
+// The three scores are points on a 0-100 scale. The backend has no bound and
+// the API is unchanged, so this is a FORM-LEVEL check only: a value outside
+// 0-100 shows an inline error and blocks Save; it is never clamped or corrected.
+const MOAT_SCORE_RULES = { min: 0, max: 100 };
+
+// A single config object, three fields.
+function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: SettingsSaver }) {
   const [wideText, setWideText] = useState(String(data.wide_moat_score));
   const [narrowText, setNarrowText] = useState(String(data.narrow_moat_score));
   const [noMoatText, setNoMoatText] = useState(String(data.no_moat_score));
-  const [status, setStatus] = useState<Status>("idle");
 
-  async function handleSave() {
-    const wideMoatScore = parseFloat(wideText);
-    const narrowMoatScore = parseFloat(narrowText);
-    const noMoatScore = parseFloat(noMoatText);
-    if (Number.isNaN(wideMoatScore) || Number.isNaN(narrowMoatScore) || Number.isNaN(noMoatScore)) {
-      setStatus("error");
-      return;
-    }
-    setStatus("saving");
-    try {
-      await apiPut<MoatScoreConfigOut>("/config/moat", {
-        wide_moat_score: wideMoatScore,
-        narrow_moat_score: narrowMoatScore,
-        no_moat_score: noMoatScore,
-      });
+  const wide = checkNumber(wideText, MOAT_SCORE_RULES);
+  const narrow = checkNumber(narrowText, MOAT_SCORE_RULES);
+  const noMoat = checkNumber(noMoatText, MOAT_SCORE_RULES);
+  const invalid = wide.error !== null || narrow.error !== null || noMoat.error !== null;
+  const unchanged =
+    wide.value === data.wide_moat_score &&
+    narrow.value === data.narrow_moat_score &&
+    noMoat.value === data.no_moat_score;
+
+  // Identifies the field values, so a failed save's message stays until they change.
+  const signature = JSON.stringify([wideText, narrowText, noMoatText]);
+  const shown = saver.view(signature);
+
+  function handleSave() {
+    if (invalid || wide.value === null || narrow.value === null || noMoat.value === null) return;
+    const body = {
+      wide_moat_score: wide.value,
+      narrow_moat_score: narrow.value,
+      no_moat_score: noMoat.value,
+    };
+    void saver.run(async () => {
+      await apiPut<MoatScoreConfigOut>("/config/moat", body);
       // Every mounted OverallAssessmentCard reads this same global SWR key
       // -- one revalidation reflows every open ticker's blended score
       // without a manual page reload.
       await mutate("/config/moat");
-      setStatus("saved");
-    } catch {
-      setStatus("error");
-    } finally {
-      setTimeout(() => setStatus("idle"), 3000);
-    }
+    }, signature);
   }
 
   return (
-    <div className="space-y-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
-      <div>
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Economic Moat Point Values</h2>
-        <p className="mt-1 text-xs text-zinc-600">
-          Point values (0-100 scale) each Economic Moat state contributes to Overall Assessment once a ticker has a
-          moat set. Applied as: <span className="font-mono text-zinc-400">0.69 × Financials/Growth Rate/Profitability/Debt blend + 0.31 × moat score</span>.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div>
-          <label className="block text-xs uppercase tracking-widest text-zinc-500" htmlFor="wide-moat-score">
-            Wide Moat
-          </label>
-          <input
-            id="wide-moat-score"
-            type="number"
-            step="0.1"
-            min="0"
-            max="100"
-            className="mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none"
-            value={wideText}
-            onChange={(e) => setWideText(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="block text-xs uppercase tracking-widest text-zinc-500" htmlFor="narrow-moat-score">
-            Narrow Moat
-          </label>
-          <input
-            id="narrow-moat-score"
-            type="number"
-            step="0.1"
-            min="0"
-            max="100"
-            className="mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none"
-            value={narrowText}
-            onChange={(e) => setNarrowText(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="block text-xs uppercase tracking-widest text-zinc-500" htmlFor="no-moat-score">
-            No Moat
-          </label>
-          <input
-            id="no-moat-score"
-            type="number"
-            step="0.1"
-            min="0"
-            max="100"
-            className="mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200 focus:border-zinc-600 focus:outline-none"
-            value={noMoatText}
-            onChange={(e) => setNoMoatText(e.target.value)}
-          />
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={status === "saving"}
-          className="rounded-md border border-zinc-700 bg-zinc-800 px-4 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+    <SettingsSection
+      title="Economic moat point values"
+      intro="Sets the points each moat rating counts for in a ticker's Overall Assessment. Once you have set a moat for a ticker, it makes up 31% of that ticker's overall score and the four automated checks make up the other 69%. A ticker with no moat set is scored on the four checks alone."
+    >
+      <SettingsGroup>
+        <SettingsRow
+          label="Wide moat"
+          hint="The points, out of 100, that a Wide moat rating counts for in the Overall Assessment. The default is 100."
+          htmlFor="wide-moat-score"
+          error={wide.error}
         >
-          {STATUS_LABELS[status]}
-        </button>
-        <p className="text-xs text-zinc-600">Last updated {new Date(data.updated_at).toLocaleString()}</p>
-      </div>
-    </div>
+          <NumberField value={wideText} onChange={setWideText} size="short" step={0.1} {...MOAT_SCORE_RULES} />
+        </SettingsRow>
+        <SettingsRow
+          label="Narrow moat"
+          hint="The points, out of 100, that a Narrow moat rating counts for in the Overall Assessment. The default is 65."
+          htmlFor="narrow-moat-score"
+          error={narrow.error}
+        >
+          <NumberField value={narrowText} onChange={setNarrowText} size="short" step={0.1} {...MOAT_SCORE_RULES} />
+        </SettingsRow>
+        <SettingsRow
+          label="No moat"
+          hint="The points, out of 100, that a No moat rating counts for in the Overall Assessment. At the default of 0 it can hold the overall score below 70 whatever the four checks say."
+          htmlFor="no-moat-score"
+          error={noMoat.error}
+        >
+          <NumberField value={noMoatText} onChange={setNoMoatText} size="short" step={0.1} {...MOAT_SCORE_RULES} />
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsFooter
+        onSave={handleSave}
+        status={shown.status}
+        invalid={invalid}
+        unchanged={unchanged}
+        message={shown.detail}
+        updatedAt={data.updated_at}
+      />
+    </SettingsSection>
   );
 }

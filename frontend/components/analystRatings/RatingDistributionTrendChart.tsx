@@ -8,20 +8,22 @@ interface Props {
   history: RatingHistoryPoint[];
 }
 
-// Same 5-bucket Buy/Outperform/Hold/Underperform/Sell palette as
-// CurrentDistributionList's own breakdown -- kept in sync by convention
-// (see that component's own comment), not a shared import. Not collapsed
-// to 3 buckets the way ConsensusBanner's own summary is -- see
-// RatingHistoryPoint's schema comment for why.
+// Same 5-bucket FMP-labeled (Strong Buy/Buy/Hold/Sell/Strong Sell) palette
+// as CurrentDistributionList's own breakdown -- kept in sync by convention
+// (see that component's own comment), not a shared import. Field `key`s
+// keep the original buy_pct/outperform_pct/hold_pct/underperform_pct/
+// sell_pct names (matching the backend 1:1); only the display `label`
+// changed. Not collapsed to 3 buckets the way ConsensusBanner's own
+// summary is -- see RatingHistoryPoint's schema comment for why.
 const SERIES: ChartSeries[] = [
-  { key: "buy_pct", label: "Buy", color: "var(--color-positive)" },
-  { key: "outperform_pct", label: "Outperform", color: "var(--color-brand)" },
+  { key: "buy_pct", label: "Strong Buy", color: "var(--color-positive)" },
+  { key: "outperform_pct", label: "Buy", color: "var(--color-brand)" },
   { key: "hold_pct", label: "Hold", color: "var(--color-warn)" },
-  { key: "underperform_pct", label: "Underperform", color: "var(--color-chart-purple)" },
-  { key: "sell_pct", label: "Sell", color: "var(--color-negative)" },
+  { key: "underperform_pct", label: "Sell", color: "var(--color-chart-purple)" },
+  { key: "sell_pct", label: "Strong Sell", color: "var(--color-negative)" },
 ];
 
-// "Recommendation Trend" -- Buy/Outperform/Hold/Underperform/Sell % of
+// "Recommendation Trend" -- FMP's Strong Buy/Buy/Hold/Sell/Strong Sell % of
 // analyst coverage per grades-historical month, stacked to 100%. Runs
 // full-row width (see SentimentOverTimeCard) -- height 216 matches this
 // tab's other full-width chart (PriceTargetTrendChart), and `barSize` is

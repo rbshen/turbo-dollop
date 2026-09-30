@@ -1,9 +1,10 @@
 "use client";
 
 import { CircularScoreBadge } from "@/components/overall/CircularScoreBadge";
+import { Status, Verdict } from "@/components/ui/status";
 import { useOverallAssessment } from "@/lib/hooks/useOverallAssessment";
-import type { StepBreakdownEntry } from "@/lib/overallScore";
-import { flatChipClassFor, textClassFor } from "@/lib/tierColor";
+import type { OverallAssessment, StepBreakdownEntry } from "@/lib/overallScore";
+import { toneFor, toneForNullable, pillLabel } from "@/lib/tierColor";
 
 interface Props {
   ticker: string;
@@ -34,6 +35,12 @@ function rollupSummary(breakdown: StepBreakdownEntry[]): string {
 
 export function OverallAssessmentCard({ ticker }: Props) {
   const result = useOverallAssessment(ticker);
+  return <OverallAssessmentView result={result} />;
+}
+
+// Presentational card -- the assessment arrives as a prop, so /styleguide can
+// render every state from mock data.
+export function OverallAssessmentView({ result }: { result: OverallAssessment }) {
 
   if (result.status === "loading") {
     return (
@@ -57,8 +64,8 @@ export function OverallAssessmentCard({ ticker }: Props) {
           {result.score != null && result.verdict != null && (
             <div className="flex items-center gap-4">
               <CircularScoreBadge score={result.score} verdict={result.verdict} />
-              <div>
-                <p className={`font-heading text-xl font-bold ${textClassFor(result.score, result.verdict)}`}>{result.verdict}</p>
+              <div className="space-y-1.5">
+                <Verdict tone={toneFor(result.score, result.verdict)}>{pillLabel(result.verdict)}</Verdict>
                 <p className="text-sm text-text-secondary">{rollupSummary(result.breakdown)}</p>
               </div>
             </div>
@@ -66,13 +73,9 @@ export function OverallAssessmentCard({ ticker }: Props) {
 
           <div className="flex flex-wrap gap-2">
             {result.breakdown.map((entry) => (
-              <span
-                key={entry.key}
-                className={`rounded-md px-2 py-1 text-xs font-medium ${flatChipClassFor(entry.score, entry.verdict)}`}
-                title={chipTitle(entry)}
-              >
-                {chipLabel(entry)}
-              </span>
+              <Status key={entry.key} tone={toneForNullable(entry.score, entry.verdict)} title={chipTitle(entry)}>
+                {pillLabel(chipLabel(entry))}
+              </Status>
             ))}
           </div>
 

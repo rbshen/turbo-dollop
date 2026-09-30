@@ -61,7 +61,7 @@ describe("SectorsPage", () => {
   it("keeps the methodology footnote visible", async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("XLK")).toBeInTheDocument());
-    expect(screen.getByText(/Trailing total return/)).toBeInTheDocument();
+    expect(screen.getByText(/Trailing price change/)).toBeInTheDocument();
     expect(screen.getByText(/scaled within each column/)).toBeInTheDocument();
   });
 });

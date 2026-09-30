@@ -1,17 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CaretDown, CaretUp, Check, X } from "@phosphor-icons/react";
+import { Check, X } from "@phosphor-icons/react";
 
 import { MiniBarChart } from "@/components/charts/MiniBarChart";
-import { SignalBars } from "@/components/watchlist/SignalBars";
-import { MOAT_SIGNAL_COLOR, MOAT_SIGNAL_LEVEL } from "@/components/ticker/MoatPill";
-import { VERDICT_SIGNAL_COLOR, VERDICT_SIGNAL_LEVEL } from "@/components/ticker/FairValuePill";
+import { MOAT_LABEL_SHORT, MOAT_TONE } from "@/components/ticker/MoatPill";
+import { VALUATION_LABEL_SHORT, VALUATION_TONE } from "@/components/ticker/FairValuePill";
 import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGrowthPill";
+import { Badge } from "@/components/ui/badge";
+import { SortHeader } from "@/components/ui/sort-header";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { SortableField, WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
-import { fmtCompactMoney, fmtNumber } from "@/lib/format";
-import { flatChipClassFor } from "@/lib/tierColor";
+import { fmtCompactMoney, fmtNumber, fmtSignedCompactMoneyTooltip } from "@/lib/format";
+import { toneForNullable } from "@/lib/tierColor";
 import { cn } from "@/lib/utils";
 import { removeTickerFromWatchlist } from "@/lib/hooks/useWatchlists";
 import { applyHeaderClick, sortWatchlistRows, type SortRule } from "@/lib/watchlistSort";
@@ -42,12 +43,12 @@ interface Props {
 // scroll. Fixed by making the container an explicit, bounded two-axis
 // scroll box (`max-h-[70vh] overflow-auto`) and stickying at `top-0` within
 // it, exactly like FinancialsStatementTable/RatiosTable already do.
-// `bg-surface-2` (matching the header row's own background) is required on
-// each cell, not just the row, since sticky positioning is applied per-`th`
-// -- an unpainted cell would let body rows show through as they scroll
-// underneath.
-const HEAD_CLASS =
-  "sticky top-0 z-20 bg-surface-2 whitespace-nowrap text-xs font-semibold uppercase tracking-widest text-text-tertiary";
+// `bg-page` (2026-09-28: was `bg-surface-2`, matching the design system's
+// "sticky headers paint bg-page, not a visible surface fill" rule) is
+// required on each cell, not just the row, since sticky positioning is
+// applied per-`th` -- an unpainted cell would let body rows show through
+// as they scroll underneath.
+const HEAD_CLASS = "sticky top-0 z-20 bg-page";
 
 // The Analysis column collapses the 4 individual step chips into one
 // overall_score/overall_verdict pill (see the column-order comment below) --
@@ -106,7 +107,7 @@ function TrendCell({
       <MiniBarChart
         categories={years}
         values={values}
-        valueFormat={(v) => fmtCompactMoney(v, currency)}
+        valueFormat={(v) => fmtSignedCompactMoneyTooltip(v, currency)}
         height={32}
         barCategoryGap="15%"
       />
@@ -115,46 +116,42 @@ function TrendCell({
 }
 
 // Click-to-sort column header (2026-09-05 redesign, replacing the old
-// page-level <select>/direction-toggle dropdown). Renders `children` as a
-// button spanning the header cell -- clicking cycles this column through
+// page-level <select>/direction-toggle dropdown; 2026-09-28: rendering
+// itself moved to the shared components/ui/sort-header.tsx, used by every
+// sortable table app-wide). Clicking cycles this column through
 // applyHeaderClick's append/flip/remove states (see watchlistSort.ts's own
-// comment for the exact rule). The active caret + priority numeral render
-// inline after the label; the numeral only appears once 2+ rules are
-// active, per spec (a lone active column has nothing to disambiguate).
-// Text styling is repeated here (matching HEAD_CLASS) rather than relied
-// on via CSS inheritance from the <th>, since a bare <button> element's
-// default UA color/text-transform isn't guaranteed to inherit consistently
-// across browsers.
+// comment for the exact rule). The priority numeral only appears once 2+
+// rules are active, per spec (a lone active column has nothing to
+// disambiguate). `sort` is threaded onto the <th> itself for aria-sort.
 function SortableHead({
   field,
   rules,
   onChange,
   className,
+  align,
   children,
 }: {
   field: SortableField;
   rules: SortRule[];
   onChange: (rules: SortRule[]) => void;
   className?: string;
+  align?: "left" | "right";
   children: React.ReactNode;
 }) {
   const priority = rules.findIndex((r) => r.field === field);
   const active = priority !== -1;
-  const direction = active ? rules[priority].direction : null;
+  const direction = active ? rules[priority].direction : undefined;
+  const ariaSort: "ascending" | "descending" | "none" = !active ? "none" : direction === "asc" ? "ascending" : "descending";
   return (
-    <TableHead className={className}>
-      <button
-        type="button"
+    <TableHead className={className} sort={ariaSort}>
+      <SortHeader
+        label={children}
+        active={active}
+        direction={direction}
+        priority={active && rules.length > 1 ? priority + 1 : undefined}
         onClick={() => onChange(applyHeaderClick(rules, field))}
-        className={cn(
-          "inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-widest text-text-tertiary transition-colors hover:text-text-primary",
-          active && "text-text-primary"
-        )}
-      >
-        {children}
-        {active && (direction === "asc" ? <CaretUp size={12} /> : <CaretDown size={12} />)}
-        {active && rules.length > 1 && <sup className="text-[9px] font-bold">{priority + 1}</sup>}
-      </button>
+        align={align}
+      />
     </TableHead>
   );
 }
@@ -191,6 +188,11 @@ function SortableHead({
 // question is carried in each icon's title/aria-label instead.
 type RemoveState = "idle" | "confirming" | "removing" | "error";
 
+// Ticker, Sector, Rev, NI, CFO, Moat, Value, Analysis, Rating, Mkt cap,
+// Beta, P/E, remove -- matches the header row below; used only to span the
+// loading skeleton's rows across every column.
+const COLUMN_COUNT = 13;
+
 export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesChange }: Props) {
   const sorted = useMemo(() => (rows ? sortWatchlistRows(rows, sortRules) : []), [rows, sortRules]);
   const [removeState, setRemoveState] = useState<Record<string, RemoveState>>({});
@@ -221,11 +223,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
   }
 
   if (watchlist.tickers.length === 0) {
-    return (
-      <div className="rounded-lg border border-border-card bg-surface p-6 text-center text-sm text-text-tertiary">
-        No tickers in this watchlist yet — add one from its ticker page.
-      </div>
-    );
+    return <p className="text-xs text-text-tertiary">No tickers in this watchlist yet — add one from its ticker page.</p>;
   }
 
   if (error) {
@@ -233,56 +231,77 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
   }
 
   if (!rows) {
-    return <p className="text-sm text-text-tertiary animate-pulse">Loading…</p>;
+    return (
+      <Table className="min-w-[1000px]">
+        <TableBody>
+          {Array.from({ length: 5 }, (_, i) => (
+            <TableRow key={i} className="animate-pulse bg-surface-2">
+              <TableCell colSpan={COLUMN_COUNT} />
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
   }
 
   return (
-    <div className="rounded-lg border border-border-card bg-surface">
-      <Table containerClassName="max-h-[70vh] overflow-auto" className="min-w-[1000px] border-separate border-spacing-0">
-        <TableHeader>
-          <TableRow className="border-border-card bg-surface-2 hover:bg-surface-2">
-            <SortableHead field="ticker" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-[250px]`}>
-              Ticker
-            </SortableHead>
-            <SortableHead field="sector" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-[250px]`}>
-              Sector
-            </SortableHead>
-            <TableHead className={`${HEAD_CLASS} w-14 text-center`}>REV</TableHead>
-            <TableHead className={`${HEAD_CLASS} w-14 text-center`}>NI</TableHead>
-            <TableHead className={`${HEAD_CLASS} w-14 text-center`}>CFO</TableHead>
-            <SortableHead field="moat" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-16 text-center`}>
-              Moat
-            </SortableHead>
-            <SortableHead
-              field="valuation_verdict"
-              rules={sortRules}
-              onChange={onSortRulesChange}
-              className={`${HEAD_CLASS} w-16 text-center`}
-            >
-              Value
-            </SortableHead>
-            <SortableHead field="overall_score" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} text-center`}>
-              Analysis
-            </SortableHead>
-            <SortableHead field="consensus_rating" rules={sortRules} onChange={onSortRulesChange} className={HEAD_CLASS}>
-              Rating
-            </SortableHead>
-            <SortableHead field="market_cap" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} text-right`}>
-              Mkt Cap
-            </SortableHead>
-            <SortableHead field="beta" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} text-right`}>
-              Beta
-            </SortableHead>
-            <SortableHead field="pe_ratio" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} text-right`}>
-              P/E
-            </SortableHead>
-            <TableHead className={`${HEAD_CLASS} w-9`} />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {sorted.map((row) => (
-            <TableRow key={row.ticker} onClick={() => openTicker(row.ticker)} className="cursor-pointer border-border-subtle">
-              <TableCell className="w-[250px] max-w-[250px] overflow-hidden">
+    <Table containerClassName="max-h-[70vh] overflow-auto" className="min-w-[1000px]">
+      <TableHeader>
+        <TableRow className="h-9">
+          <SortableHead field="ticker" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-[250px]`}>
+            Ticker
+          </SortableHead>
+          <SortableHead field="sector" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-[250px]`}>
+            Sector
+          </SortableHead>
+          <TableHead className={`${HEAD_CLASS} w-14 text-center`}>Rev</TableHead>
+          <TableHead className={`${HEAD_CLASS} w-14 text-center`}>NI</TableHead>
+          <TableHead className={`${HEAD_CLASS} w-14 text-center`}>CFO</TableHead>
+          <SortableHead field="moat" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-16 text-center`}>
+            Moat
+          </SortableHead>
+          <SortableHead
+            field="valuation_verdict"
+            rules={sortRules}
+            onChange={onSortRulesChange}
+            className={`${HEAD_CLASS} w-16 text-center`}
+          >
+            Value
+          </SortableHead>
+          <SortableHead field="overall_score" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} text-center`}>
+            Analysis
+          </SortableHead>
+          <SortableHead field="consensus_rating" rules={sortRules} onChange={onSortRulesChange} className={HEAD_CLASS}>
+            Rating
+          </SortableHead>
+          <SortableHead
+            field="market_cap"
+            rules={sortRules}
+            onChange={onSortRulesChange}
+            align="right"
+            className={`${HEAD_CLASS} text-right`}
+          >
+            Mkt cap
+          </SortableHead>
+          <SortableHead field="beta" rules={sortRules} onChange={onSortRulesChange} align="right" className={`${HEAD_CLASS} text-right`}>
+            Beta
+          </SortableHead>
+          <SortableHead
+            field="pe_ratio"
+            rules={sortRules}
+            onChange={onSortRulesChange}
+            align="right"
+            className={`${HEAD_CLASS} text-right`}
+          >
+            P/E
+          </SortableHead>
+          <TableHead className={`${HEAD_CLASS} w-9`} />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {sorted.map((row) => (
+          <TableRow key={row.ticker} interactive onClick={() => openTicker(row.ticker)}>
+            <TableCell className="w-[250px] max-w-[250px] overflow-hidden">
                 <p
                   className={cn(
                     "font-mono text-sm font-bold",
@@ -314,22 +333,32 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                 <TrendCell years={row.years} values={row.cfo} currency={row.reported_currency ?? "USD"} />
               </TableCell>
               <TableCell className="text-center">
-                {row.moat && <SignalBars level={MOAT_SIGNAL_LEVEL[row.moat]} color={MOAT_SIGNAL_COLOR[row.moat]} />}
-              </TableCell>
-              <TableCell className="text-center">
-                {row.valuation_verdict && (
-                  <SignalBars level={VERDICT_SIGNAL_LEVEL[row.valuation_verdict]} color={VERDICT_SIGNAL_COLOR[row.valuation_verdict]} />
+                {row.moat && (
+                  <Badge size="compact" tone={MOAT_TONE[row.moat]}>
+                    {MOAT_LABEL_SHORT[row.moat]}
+                  </Badge>
                 )}
               </TableCell>
               <TableCell className="text-center">
-                <span
-                  className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ${flatChipClassFor(row.overall_score, row.overall_verdict)}`}
-                >
-                  {row.overall_score}
-                  {row.overall_verdict === "Pass with caution" && (
-                    <span title={`Passed with caution: ${cautionStepLabels(row).join(", ")}`}>⚠</span>
-                  )}
-                </span>
+                {row.valuation_verdict && (
+                  <Badge size="compact" tone={VALUATION_TONE[row.valuation_verdict]}>
+                    {VALUATION_LABEL_SHORT[row.valuation_verdict]}
+                  </Badge>
+                )}
+              </TableCell>
+              <TableCell className="text-center">
+                {row.overall_score != null ? (
+                  <Badge
+                    size="compact"
+                    tone={toneForNullable(row.overall_score, row.overall_verdict)}
+                    title={row.overall_verdict === "Pass with caution" ? `Passed with caution: ${cautionStepLabels(row).join(", ")}` : undefined}
+                  >
+                    {row.overall_score}
+                    {row.overall_verdict === "Pass with caution" && " ⚠"}
+                  </Badge>
+                ) : (
+                  <Badge size="compact" missing />
+                )}
               </TableCell>
               <TableCell className={ratingColorClass(row.consensus_rating)}>{row.consensus_rating.toUpperCase()}</TableCell>
               <TableCell className="text-right font-mono text-text-secondary">
@@ -392,6 +421,5 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
           ))}
         </TableBody>
       </Table>
-    </div>
   );
 }

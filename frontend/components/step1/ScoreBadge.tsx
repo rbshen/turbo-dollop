@@ -1,4 +1,5 @@
-import { textClassFor } from "@/lib/tierColor";
+import { Verdict } from "@/components/ui/status";
+import { toneFor, pillLabel } from "@/lib/tierColor";
 
 // Color depends on both verdict and score: 70-74 and 75-90 both display
 // the text "Pass" (see CLAUDE.md's "Scoring rubric deviations") but need
@@ -8,23 +9,21 @@ import { textClassFor } from "@/lib/tierColor";
 // negative, not on the blended score, so a "Pass" verdict can occur at any
 // score (e.g. positive-but-modest growth dragged down by analyst
 // disagreement) and must never render red. See lib/tierColor.ts for the
-// exact tiering, shared with ScreenerCard's flat score/OverallAssessmentCard's
-// headline.
+// exact tiering, shared with OverallAssessmentCard's headline.
 
 interface Props {
   score: number;
   verdict: string;
 }
 
-// No rectangle/background -- ScreenerCard's own compact score readout:
-// score number stacked above its verdict, both right-aligned, colored
-// (not boxed) by tier.
+// ScreenerCard's compact score readout: the score number stacked above its
+// verdict pill, both right-aligned. The number is neutral (text-primary) --
+// the pill alone carries the tone (docs/design-system.md, "Pills").
 export function ScoreBadge({ score, verdict }: Props) {
-  const cls = textClassFor(score, verdict);
   return (
-    <div className={`flex shrink-0 flex-col items-end text-right ${cls}`}>
-      <span className="font-mono text-3xl font-bold leading-none tabular-nums">{score}</span>
-      <span className="text-sm font-semibold leading-tight">{verdict}</span>
+    <div className="flex shrink-0 flex-col items-end gap-1 text-right">
+      <span className="font-mono text-3xl font-bold leading-none tabular-nums text-text-primary">{score}</span>
+      <Verdict tone={toneFor(score, verdict)}>{pillLabel(verdict)}</Verdict>
     </div>
   );
 }

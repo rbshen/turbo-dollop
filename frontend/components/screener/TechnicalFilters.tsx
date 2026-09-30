@@ -3,6 +3,7 @@
 import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
 import { MultiSelectDropdown } from "@/components/screener/MultiSelectDropdown";
 import { RangeInput } from "@/components/screener/RangeInput";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   FILTER_ACTIVE_LABEL_CLASS,
   PULLBACK_STATUS_FILTER_OPTIONS,
@@ -62,20 +63,15 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
           selected={filters.warrenSignalKinds}
           onChange={(s) => patch({ warrenSignalKinds: s })}
         />
-        <label
+        <Checkbox
+          label="BB + RSI entry (2h)"
+          checked={filters.bbRsiEntrySignal}
+          onChange={(e) => patch({ bbRsiEntrySignal: e.target.checked })}
           className={cn(
-            "flex h-8 items-center gap-1.5 rounded-md border border-border-input px-2 text-xs font-medium",
+            "h-8 rounded-md border border-border-input px-2 text-xs font-medium",
             filters.bbRsiEntrySignal ? FILTER_ACTIVE_LABEL_CLASS : "text-text-secondary"
           )}
-        >
-          <input
-            type="checkbox"
-            checked={filters.bbRsiEntrySignal}
-            onChange={(e) => patch({ bbRsiEntrySignal: e.target.checked })}
-            className="size-3.5 rounded-sm border-border-input accent-chart-purple"
-          />
-          BB + RSI entry (2h)
-        </label>
+        />
         <p className="text-xs text-text-tertiary">
           BB + RSI entry and Warren entry only ever match tickers on a watchlist named W1 through W5.
         </p>

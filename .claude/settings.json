@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"\nimport json, re, sys\ndata = json.load(sys.stdin)\ncmd = data.get('tool_input', {}).get('command', '')\npat = r'(?:^|[;&|\\n(])\\s*git\\s+(?:(?:--?\\S+)(?:\\s+\\S+)?\\s+)*push\\b'\nif re.search(pat, cmd):\n    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': 'This project blocks git push via a PreToolUse hook (.claude/settings.json) -- pushing is done by hand, outside Claude Code.'}}))\n\""
+          }
+        ]
+      }
+    ]
+  }
+}

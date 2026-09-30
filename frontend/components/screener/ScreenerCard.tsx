@@ -8,8 +8,10 @@ import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGr
 import { WeinsteinStagePill } from "@/components/ticker/WeinsteinStagePill";
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
 import { ValuationBadge } from "@/components/screener/ValuationBadge";
+import { Badge } from "@/components/ui/badge";
 import type { TickerScoreOut } from "@/lib/api/types";
 import { fmtCompactMoney, fmtMoney, fmtNumber } from "@/lib/format";
+import { pillLabel } from "@/lib/tierColor";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -19,6 +21,16 @@ interface Props {
 export function ScreenerCard({ data }: Props) {
   const isSpeculativeGrowth = data.speculative_growth_qualifies === true;
 
+  // The card's own box already carries Card's exact chrome (rounded-lg
+  // border-border-card bg-surface) -- but the box must be the clickable
+  // Link itself for a full-card click target, and Card has no `asChild`/
+  // polymorphic support to render as anything but a <div>. Nesting
+  // <Card><Link>...</Link></Card> would either shrink the click target to
+  // Link's own content or duplicate the box styling on both elements, so
+  // the tokens are applied directly to the Link rather than through Card.
+  // A card grid IS a legitimate Card use case (each item is a
+  // self-contained, individually clickable unit) -- this is a Link/
+  // asChild limitation, not a "Card doesn't fit here" judgment.
   return (
     <Link
       href={`/tickers/${data.ticker}`}
@@ -42,22 +54,20 @@ export function ScreenerCard({ data }: Props) {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <span className="rounded-md bg-surface-2 px-2 py-1 font-semibold text-text-secondary">
-          {data.company_type ?? "Unclassified"}
-        </span>
-        <span className="truncate text-text-tertiary">{data.sector ?? "—"}</span>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Badge tone="neutral">{pillLabel(data.company_type ?? "Unclassified")}</Badge>
+        <span className="truncate text-xs text-text-tertiary">{data.sector ?? "—"}</span>
       </div>
 
       {(data.moat != null ||
         data.valuation_verdict != null ||
         (data.perf_5y_vs_spy_status != null && data.perf_5y_vs_spy_status !== "no_data")) && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <MoatPill moat={data.moat} variant="flat" labelSet="screener" />
+          <MoatPill moat={data.moat} labelSet="screener" />
           {/* No `source` prop here -- suppresses ValuationBadge's "· Custom"
               marker, matching the constant color-only "Valuation" label. */}
-          <ValuationBadge verdict={data.valuation_verdict} variant="flat" labelSet="screener" />
-          <PerfVsSpyPill status={data.perf_5y_vs_spy_status} variant="flat" labelSet="screener" />
+          <ValuationBadge verdict={data.valuation_verdict} labelSet="screener" />
+          <PerfVsSpyPill status={data.perf_5y_vs_spy_status} labelSet="screener" />
         </div>
       )}
 
@@ -69,9 +79,9 @@ export function ScreenerCard({ data }: Props) {
         (data.reversal_status != null && data.reversal_status !== "not_present") ||
         (data.pullback_status != null && data.pullback_status !== "no_pullback")) && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <WeinsteinStagePill data={data} variant="flat" labelSet="screener" />
-          <ReversalPill status={data.reversal_status} variant="flat" />
-          <PullbackPill status={data.pullback_status} variant="flat" />
+          <WeinsteinStagePill data={data} labelSet="screener" />
+          <ReversalPill status={data.reversal_status} />
+          <PullbackPill status={data.pullback_status} />
         </div>
       )}
 

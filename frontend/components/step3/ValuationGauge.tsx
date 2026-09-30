@@ -84,7 +84,7 @@ export function ValuationGauge({
         />
         {markerLeft != null && (
           <span
-            className="absolute top-2 h-4 w-[3px] -translate-x-1/2 rounded-full bg-white"
+            className="absolute top-2 h-4 w-[3px] -translate-x-1/2 rounded-full bg-text-primary"
             style={{ left: `${markerLeft}%`, boxShadow: "0 0 0 3px var(--color-surface)" }}
           />
         )}

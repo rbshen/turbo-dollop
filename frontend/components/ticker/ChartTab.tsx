@@ -111,9 +111,9 @@ const _SKELETON_HEIGHTS = [
 
 function ChartSkeleton() {
   return (
-    <div className="h-[630px] rounded-lg border border-border-card bg-zinc-950 relative flex items-end gap-[2px] px-4 pb-10 animate-pulse">
+    <div className="h-[630px] rounded-lg border border-border-card bg-page relative flex items-end gap-[2px] px-4 pb-10 animate-pulse">
       {_SKELETON_HEIGHTS.map((h, i) => (
-        <div key={i} className="flex-1 bg-zinc-800 rounded-t-[1px]" style={{ height: `${h}%` }} />
+        <div key={i} className="flex-1 bg-surface-2 rounded-t-[1px]" style={{ height: `${h}%` }} />
       ))}
     </div>
   );
@@ -176,7 +176,7 @@ export function ChartTab({ ticker }: Props) {
               key={opt.key}
               onClick={() => handleRangeChange(opt.key)}
               className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                range === opt.key ? "bg-zinc-700 text-zinc-100" : "text-text-tertiary hover:text-text-secondary hover:bg-surface-2"
+                range === opt.key ? "bg-surface-2 text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-surface-2"
               }`}
             >
               {opt.label}
@@ -193,7 +193,7 @@ export function ChartTab({ ticker }: Props) {
               onClick={() => handleToggleChange(opt.key)}
               aria-pressed={signalToggles[opt.key]}
               className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                signalToggles[opt.key] ? "bg-zinc-700 text-zinc-100" : "text-text-tertiary hover:text-text-secondary hover:bg-surface-2"
+                signalToggles[opt.key] ? "bg-surface-2 text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-surface-2"
               }`}
             >
               {opt.label}
@@ -223,7 +223,7 @@ export function ChartTab({ ticker }: Props) {
       {!error && isLoading && !data && <ChartSkeleton />}
 
       {!error && data && !data.chart_available && (
-        <div className="flex h-48 items-center justify-center rounded-lg border border-border-card bg-zinc-950 text-sm text-text-tertiary">
+        <div className="flex h-48 items-center justify-center rounded-lg border border-border-card bg-page text-xs text-text-tertiary">
           No chart data available for {ticker}.
         </div>
       )}

@@ -1,3 +1,4 @@
+import type { StatusTone } from "@/components/ui/status";
 import type { TrendAnalysisOut, WeinsteinParamsOut, WeinsteinPendingEtaScenarioOut, WeinsteinPendingOut } from "@/lib/api/types";
 
 export type WeinsteinStage = NonNullable<TrendAnalysisOut["weinstein_stage"]>;
@@ -13,25 +14,6 @@ export const WEINSTEIN_STAGE_LABEL: Record<WeinsteinStage, string> = {
   decline: "Stage 4 · Decline",
 };
 
-// advance=positive(green)/decline=negative(red) are the two directional
-// extremes; top reuses the same amber `warn` token TrendContinuationCard's
-// "pullback pending" state already uses (a caution, not yet a reversal);
-// base is deliberately colorless -- reuses ReversalCard's exact "Not
-// present" neutral precedent, since a base isn't bullish OR bearish.
-export const WEINSTEIN_STAGE_STYLES_CHIP: Record<WeinsteinStage, string> = {
-  advance: "bg-positive/16 text-positive border-positive/40",
-  decline: "bg-negative/16 text-negative border-negative/40",
-  top: "border-warn/40 bg-warn/16 text-warn",
-  base: "border-border-card bg-surface-2 text-text-tertiary",
-};
-
-export const WEINSTEIN_STAGE_STYLES_FLAT: Record<WeinsteinStage, string> = {
-  advance: "bg-positive/16 text-positive",
-  decline: "bg-negative/16 text-negative",
-  top: "bg-warn/16 text-warn",
-  base: "bg-surface-2 text-text-tertiary",
-};
-
 // Plain text-color-only variant, for SummaryStrip's value text (no
 // background/pill chrome there, matching how the Trend stat is colored).
 export const WEINSTEIN_STAGE_TEXT_CLASS: Record<WeinsteinStage, string> = {
@@ -39,6 +21,21 @@ export const WEINSTEIN_STAGE_TEXT_CLASS: Record<WeinsteinStage, string> = {
   decline: "text-negative",
   top: "text-warn",
   base: "text-text-tertiary",
+};
+
+// A Weinstein stage is its own 4-state classification (Base/Advance/Top/
+// Decline), not a Pass/Fail-style score tier -- deliberately NOT derived
+// from lib/tierColor.ts, which has no notion of "stage" at all. Kept as its
+// own map here (rather than forced onto tierColor's tiers) so the pill/card
+// coloring stays: advance=positive (green) / decline=negative (red) are the
+// two directional extremes; top reuses the amber `warn` tone
+// TrendContinuationCard's "pullback pending" state uses (a caution, not yet
+// a reversal); base is neutral, since a base isn't bullish OR bearish.
+export const WEINSTEIN_STAGE_TONE: Record<WeinsteinStage, StatusTone> = {
+  advance: "positive",
+  decline: "negative",
+  top: "warn",
+  base: "neutral",
 };
 
 // The engine is configurable (Settings > Weinstein), so no UI string may

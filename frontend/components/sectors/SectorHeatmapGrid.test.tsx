@@ -81,7 +81,7 @@ describe("SectorHeatmapGrid", () => {
     const gain = xlk.querySelector('[data-window="1y"]') as HTMLElement;
     expect(loss).toHaveTextContent("-0.8%");
     expect(loss.style.backgroundColor).toContain("--color-negative");
-    expect(gain.style.backgroundColor).toContain("--color-positive-strong");
+    expect(gain.style.backgroundColor).toContain("--color-positive");
   });
 
   it("explains the base close in a cell tooltip only when there is a value", () => {

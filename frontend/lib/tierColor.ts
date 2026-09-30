@@ -1,49 +1,62 @@
-// Shared score/verdict -> Tailwind color-class tiering, used by every card
-// that renders a step's score or verdict as a color. Two shapes, same
-// priority order and same Fail/caution/91+/75+/else tiers, so a step never
-// reads as a different severity between its full badge and its summary
-// chip:
-//  - classFor: ScoreBadge's own full-badge styling (bg+border).
-//  - flatChipClassFor: borderless summary-chip styling (TickerHeader's
-//    Assessment chip, OverallAssessmentCard, WatchlistTable).
+// Shared score/verdict -> pill tone tiering, used by every card that renders
+// a step's score or verdict as a colour, so a step never reads as a different
+// severity between its full badge and its summary chip:
+//  - toneFor / toneForNullable: the Fail / caution / 91+ / 75+ / else tiers as
+//    a components/ui/status.tsx StatusTone key, for every caller that renders
+//    via Status/Verdict/Badge.
+//  - pillLabel: the sentence-case display wording for any pill label.
 
-export function classFor(score: number, verdict: string): string {
-  if (verdict === "Fail") return "bg-negative/16 text-negative border-negative/40";
-  // "Pass with caution" (a Borderline breach excused by its tiebreaker, or
-  // that flag propagated up from a contributing step into Overall
-  // Assessment) must read as visually distinct from Fail, a plain Pass,
-  // AND Strong Pass -- checked before the score-based tiers, same priority
-  // as Fail, since a real breach occurred regardless of how high the
-  // blended score is.
-  if (verdict === "Pass with caution") return "bg-caution/16 text-caution border-caution/40";
-  // Strong Pass (91-100) gets a deeper shade than a plain Pass (75-90) --
-  // both used to share one "positive" token; positive-strong distinguishes
-  // score magnitude instead of collapsing them.
-  if (score > 90) return "bg-positive-strong/16 text-positive-strong border-positive-strong/40";
-  if (score >= 75) return "bg-positive/16 text-positive border-positive/40";
-  return "bg-warn/16 text-warn border-warn/40"; // Pass (neutral, 70-74)
-}
+import type { StatusTone } from "@/components/ui/status";
 
-// Text-only variant of classFor's same tiering -- for a plain verdict
-// headline (Overall Assessment) where a full bg/border chip would look
-// like an unwanted highlight box around the text.
-export function textClassFor(score: number, verdict: string): string {
-  if (verdict === "Fail") return "text-negative";
-  if (verdict === "Pass with caution") return "text-caution";
-  if (score > 90) return "text-positive-strong";
-  if (score >= 75) return "text-positive";
-  return "text-warn";
+// The 5 tiers this file distinguishes map 1:1 onto 5 of Status's 7 tones
+// (Status also has "speculative" and "neutral", neither of which a real
+// score/verdict ever produces here).
+export type ScoreTone = Extract<StatusTone, "negative" | "caution" | "strong" | "positive" | "warn">;
+
+// Color depends on both verdict and score: 70-74 and 75-90 both display the
+// text "Pass" (see CLAUDE.md's "Scoring rubric deviations") but need
+// different shades, so tone can't be chosen from verdict text alone. Fail and
+// "Pass with caution" are checked before the score tiers -- a real breach
+// occurred regardless of how high the blended score is, and Step 2's Fail is
+// gated on projected growth being negative, not on the blended score.
+export function toneFor(score: number, verdict: string): ScoreTone {
+  if (verdict === "Fail") return "negative";
+  if (verdict === "Pass with caution") return "caution";
+  // Strong Pass (91-100) gets a deeper shade than a plain Pass (75-90).
+  if (score > 90) return "strong";
+  if (score >= 75) return "positive";
+  return "warn"; // Pass (70-74)
 }
 
 // score == null covers both "no score computed for this ticker/step" and
 // "structurally exempt" (e.g. Step 5 not_supported for Banks) -- callers
-// never have a real verdict to color without a score. Same tiers as
-// classFor, borderless.
-export function flatChipClassFor(score: number | null, verdict: string | null): string {
-  if (score == null) return "bg-surface-2 text-text-tertiary";
-  if (verdict === "Fail") return "bg-negative/16 text-negative";
-  if (verdict === "Pass with caution") return "bg-caution/16 text-caution";
-  if (score > 90) return "bg-positive-strong/16 text-positive-strong";
-  if (score >= 75) return "bg-positive/16 text-positive";
-  return "bg-warn/16 text-warn"; // Pass (70-74)
+// never have a real verdict to color without a score. The score (not the
+// verdict) is the only guard, so a null verdict alongside a real score still
+// falls through to the score-based tiers rather than short-circuiting.
+// "neutral" is the no-color tone, used whenever there's no score to color.
+export function toneForNullable(score: number | null, verdict: string | null): StatusTone {
+  if (score == null) return "neutral";
+  return toneFor(score, verdict ?? "");
+}
+
+// Display-only sentence casing for a pill label ("Strong Pass" -> "Strong
+// pass", "Wide Moat" -> "Wide moat", "Growth Rate · 25% · 92" -> "Growth rate
+// · 25% · 92"). Backend strings stay as-is -- every comparison
+// (verdict === "Pass with caution") still runs on the raw value. Works per
+// " · " segment: the first word keeps (gets) its capital, later plain
+// Title-case words drop to lower case, and acronyms, numbers and proper nouns
+// ("5Y vs SPY", "S&P 500", "Nasdaq" at a segment start) are left alone.
+export function pillLabel(label: string): string {
+  return label
+    .split(" · ")
+    .map((segment) =>
+      segment
+        .split(" ")
+        .map((word, i) => {
+          if (i === 0) return word.charAt(0).toUpperCase() + word.slice(1);
+          return /^[A-Z][a-z]+$/.test(word) ? word.toLowerCase() : word;
+        })
+        .join(" "),
+    )
+    .join(" · ");
 }

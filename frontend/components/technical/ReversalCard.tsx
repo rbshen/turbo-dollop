@@ -151,8 +151,7 @@ export function ReversalCard({ data }: Props) {
   ];
 
   const displayStatus = reversalDisplayStatus(data);
-  const statusToneClass =
-    displayStatus === "Confirmed" ? "border-positive/40 bg-positive/16 text-positive" : "border-border-card bg-surface-2 text-text-tertiary";
+  const statusTone = displayStatus === "Confirmed" ? "positive" : "neutral";
 
   const bars = data.bars_since_confirmation;
   const freshnessPct = bars != null ? Math.min(100, (bars / FRESHNESS_ILLUSTRATIVE_WINDOW_BARS) * 100) : null;
@@ -196,7 +195,7 @@ export function ReversalCard({ data }: Props) {
     <ChecklistCard
       title="Bullish reversal"
       statusLabel={displayStatus}
-      statusToneClass={statusToneClass}
+      statusTone={statusTone}
       blurb="Checked because the stock is currently in a downtrend. Looks for a solid new low plus quiet buying pressure underneath."
       items={items}
       extra={extra}

@@ -1,25 +1,55 @@
 #!/usr/bin/env bash
 # Brings up the whole Fathom app: preflight checks, explicit DB init, an FMP
-# connectivity check, a production frontend build, then both the backend
-# (uvicorn, no --reload) and frontend (next start) servers, each in its own
-# process group so Ctrl-C here can stop both cleanly (see the trap near the
-# bottom). Production mode, not dev mode, to keep the memory footprint down
-# on this small VPS: there is no hot reload, so a code change to either app
-# needs a ./bin/stop.sh + ./bin/start.sh (which rebuilds the frontend).
+# connectivity check, then both the backend (uvicorn) and frontend (next)
+# servers, each in its own process group so Ctrl-C here can stop both cleanly
+# (see the trap near the bottom).
+#
+# Two modes (default: dev):
+#   dev   -- uvicorn --reload + `next dev`: hot reload for both apps, no
+#            frontend build step, fast startup. Higher memory use.
+#   prod  -- `next build` first, then uvicorn (no --reload) + `next start`:
+#            small memory footprint on this VPS, but no hot reload, so a code
+#            change to either app needs a ./bin/stop.sh + ./bin/start.sh --prod
+#            (which rebuilds the frontend).
 # Safe to re-run: refuses to double-start if bin/stop.sh hasn't been run
 # against a still-live prior run.
 #
 # Run:
-#   ./bin/start.sh
+#   ./bin/start.sh           # dev mode (default)
+#   ./bin/start.sh --prod    # production mode (also: FATHOM_MODE=prod)
+#   ./bin/start.sh --dev     # explicit dev mode
 #
 # Stop with Ctrl-C (foreground) or, from another shell / after disconnecting,
-# ./bin/stop.sh.
+# ./bin/stop.sh (mode-independent).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./common.sh
 source "$SCRIPT_DIR/common.sh"
+
+MODE="${FATHOM_MODE:-dev}"
+for arg in "$@"; do
+  case "$arg" in
+    --dev) MODE=dev ;;
+    --prod) MODE=prod ;;
+    -h|--help)
+      sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *)
+      echo "[start.sh] ERROR: unknown argument '$arg' (use --dev or --prod)" >&2
+      exit 1
+      ;;
+  esac
+done
+case "$MODE" in
+  dev|prod) ;;
+  *)
+    echo "[start.sh] ERROR: FATHOM_MODE must be 'dev' or 'prod', got '$MODE'" >&2
+    exit 1
+    ;;
+esac
 
 REQUIRED_ENV_KEYS=(FMP_API_KEY DATABASE_PATH CACHE_STALENESS_DAYS SEC_EDGAR_USER_AGENT)
 
@@ -132,7 +162,7 @@ asyncio.run(main())
 }
 
 # ---------------------------------------------------------------------------
-# 4. Frontend production build
+# 4. Frontend production build (prod mode only)
 # ---------------------------------------------------------------------------
 
 # Runs before either server starts, not alongside them: `next build` has by
@@ -156,16 +186,22 @@ build_frontend() {
 start_backend() {
   mkdir -p "$(dirname "$BACKEND_LOG")"
   : > "$BACKEND_LOG"
-  log "Starting backend (uvicorn, host $BACKEND_HOST, port $BACKEND_PORT) -> $BACKEND_LOG"
-  (cd "$BACKEND_DIR" && exec setsid uv run uvicorn core.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" >>"$BACKEND_LOG" 2>&1 </dev/null) &
+  local reload_args=()
+  [[ "$MODE" == "dev" ]] && reload_args=(--reload --reload-dir "$BACKEND_DIR")
+  log "Starting backend (uvicorn${reload_args:+ --reload}, host $BACKEND_HOST, port $BACKEND_PORT) -> $BACKEND_LOG"
+  (cd "$BACKEND_DIR" && exec setsid uv run uvicorn core.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" "${reload_args[@]}" >>"$BACKEND_LOG" 2>&1 </dev/null) &
   BACKEND_PID=$!
   mkdir -p "$PID_DIR"
   echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
 }
 
 start_frontend() {
-  log "Starting frontend (next start, port $FRONTEND_PORT) -> $FRONTEND_LOG"
-  (cd "$FRONTEND_DIR" && exec setsid npm run start -- -p "$FRONTEND_PORT" >>"$FRONTEND_LOG" 2>&1 </dev/null) &
+  local npm_script=start
+  [[ "$MODE" == "dev" ]] && npm_script=dev
+  log "Starting frontend (npm run $npm_script, port $FRONTEND_PORT) -> $FRONTEND_LOG"
+  mkdir -p "$FRONTEND_LOG_DIR"
+  [[ "$MODE" == "dev" ]] && : > "$FRONTEND_LOG"
+  (cd "$FRONTEND_DIR" && exec setsid npm run "$npm_script" -- -p "$FRONTEND_PORT" >>"$FRONTEND_LOG" 2>&1 </dev/null) &
   FRONTEND_PID=$!
   mkdir -p "$PID_DIR"
   echo "$FRONTEND_PID" > "$FRONTEND_PID_FILE"
@@ -230,7 +266,8 @@ main() {
   preflight
   init_database
   check_fmp_connectivity
-  build_frontend
+  log "Mode: $MODE"
+  [[ "$MODE" == "prod" ]] && build_frontend
   start_backend
   wait_for_backend
   start_frontend

@@ -24,7 +24,7 @@ export function SectorHeatmapGrid({ data }: Props) {
     <div className="overflow-x-auto">
       <div
         role="table"
-        aria-label="Sector ETF total returns"
+        aria-label="Sector ETF price returns"
         className="grid min-w-[44rem] gap-1"
         style={{ gridTemplateColumns: `minmax(11rem, 1.6fr) repeat(${data.windows.length}, minmax(4.5rem, 1fr))` }}
       >

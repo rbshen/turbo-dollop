@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { mutate } from "swr";
 
+import { Button } from "@/components/ui/button";
 import { apiPost } from "@/lib/api/client";
 import type { RecomputeSummary } from "@/lib/api/types";
 
@@ -41,14 +42,15 @@ export function RecomputeButton() {
           {lastSummary.failed > 0 ? `, ${lastSummary.failed} failed` : ""} in {lastSummary.duration_seconds.toFixed(1)}s
         </span>
       )}
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={handleClick}
         disabled={status === "loading"}
-        className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+        className="h-8 border border-border-input hover:border-brand"
       >
         {LABELS[status]}
-      </button>
+      </Button>
     </div>
   );
 }

@@ -1,6 +1,7 @@
-import { FLAT_VERDICT_STYLES, VERDICT_STYLES } from "@/components/ticker/FairValuePill";
-import { cn } from "@/lib/utils";
+import { VALUATION_TONE } from "@/components/ticker/FairValuePill";
+import { Status } from "@/components/ui/status";
 import type { ValuationSource } from "@/lib/api/types";
+import { pillLabel } from "@/lib/tierColor";
 
 // Screener-card-specific labels -- deliberately category-only (no price or
 // discount/premium %, which stay on the ticker page's Valuation tab). Same
@@ -34,29 +35,20 @@ interface Props {
    * Auto-derived verdict with a user's own override (see CLAUDE.md's Fork
    * B scope decision). Undefined/"auto"/null all render nothing extra. */
   source?: ValuationSource | null;
-  // "chip" (default): bordered pill. "flat": borderless, same height as
-  // ScreenerCard's other pills (company type, MoatPill's "flat" variant).
-  variant?: "chip" | "flat";
   // Which label wording tier to use -- see LABEL_SETS above. Defaults to
   // the full "Overvalued"/"Fairvalued"/"Undervalued" wording.
   labelSet?: "full" | "screener";
 }
 
-export function ValuationBadge({ verdict, source, variant = "chip", labelSet = "full" }: Props) {
+export function ValuationBadge({ verdict, source, labelSet = "full" }: Props) {
   if (!verdict) return null;
-  const cls = variant === "chip" ? (VERDICT_STYLES[verdict] ?? VERDICT_STYLES.fair) : (FLAT_VERDICT_STYLES[verdict] ?? FLAT_VERDICT_STYLES.fair);
+  const tone = VALUATION_TONE[verdict] ?? VALUATION_TONE.fair;
   const label = LABEL_SETS[labelSet][verdict] ?? verdict;
 
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-md text-xs font-semibold",
-        variant === "chip" ? "border px-2 py-0.5" : "px-2 py-1",
-        cls
-      )}
-    >
-      {label}
+    <Status tone={tone}>
+      {pillLabel(label)}
       {source === "custom" && <span className="font-normal opacity-70">· Custom</span>}
-    </span>
+    </Status>
   );
 }

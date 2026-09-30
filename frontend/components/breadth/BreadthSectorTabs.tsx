@@ -33,7 +33,7 @@ function Tab({ href, label, title, isActive }: { href: string; label: string; ti
       aria-selected={isActive}
       className={cn(
         "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-        isActive ? "bg-brand/15 text-brand" : "text-text-tertiary hover:bg-white/5 hover:text-text-primary"
+        isActive ? "bg-brand/15 text-brand" : "text-text-tertiary hover:bg-surface-2 hover:text-text-primary"
       )}
     >
       {label}

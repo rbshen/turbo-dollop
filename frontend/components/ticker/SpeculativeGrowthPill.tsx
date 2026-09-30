@@ -1,22 +1,19 @@
+import { Status } from "@/components/ui/status";
 import { fmtCompactMoney, fmtPct, fmtPlainPct, fmtRatio } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import type { SpeculativeGrowthOut } from "@/lib/api/types";
 
 // Distinct accent outside the existing red/amber/light-green/dark-green
 // Pass/Fail palette -- this is an orthogonal classification, not another
-// verdict tier, so it deliberately doesn't reuse VERDICT_STYLES/MOAT_STYLES.
-// Reuses the existing chart-purple design token (app/globals.css) rather
-// than inventing a new one -- already a violet hue, already used as a
-// distinct categorical color by CurrentDistributionList.tsx.
+// verdict tier, so it deliberately doesn't reuse VALUATION_TONE/MOAT_TONE.
+// Reuses Status's own "speculative" tone (chart-purple, app/globals.css)
+// rather than inventing a new one -- already a violet hue, already used as
+// a distinct categorical color by CurrentDistributionList.tsx.
 //
 // Exported so ScreenerCard/WatchlistTable can recolor a qualifying
 // ticker's symbol/name text without duplicating this class string --
 // single source of truth for "what color means Speculative Growth" across
 // the pill and both list views.
 export const SPECULATIVE_GROWTH_TEXT_CLASS = "text-chart-purple";
-
-const STYLES = `bg-chart-purple/16 ${SPECULATIVE_GROWTH_TEXT_CLASS} border-chart-purple/40`;
-const STYLES_FLAT = `bg-chart-purple/16 ${SPECULATIVE_GROWTH_TEXT_CLASS}`;
 
 const PSG_REASONABLE_MAX = 1.0;
 
@@ -56,28 +53,18 @@ interface Props {
   // state (same "only show when meaningful" contract as MoatPill/
   // PerfVsSpyPill).
   data: SpeculativeGrowthOut | null | undefined;
-  // "chip" (default): bordered pill, used in TickerHeader's chip row.
-  // "flat": borderless, same height as ScreenerCard/WatchlistTable's other pills.
-  variant?: "chip" | "flat";
   /** net_income_ttm in the tooltip above is a raw statement figure --
    * reported_currency, not quote_currency (see TickerSummaryOut.reported_
    * currency). Defaults to "USD". */
   currency?: string;
 }
 
-export function SpeculativeGrowthPill({ data, variant = "chip", currency = "USD" }: Props) {
+export function SpeculativeGrowthPill({ data, currency = "USD" }: Props) {
   if (!data || !data.qualifies) return null;
 
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md text-xs font-semibold",
-        variant === "chip" ? "border px-2 py-0.5" : "px-2 py-1",
-        variant === "chip" ? STYLES : STYLES_FLAT
-      )}
-      title={buildTooltip(data, currency)}
-    >
-      Speculative Growth
-    </span>
+    <Status tone="speculative" title={buildTooltip(data, currency)}>
+      Speculative growth
+    </Status>
   );
 }
