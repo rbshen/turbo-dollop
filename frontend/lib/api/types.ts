@@ -129,6 +129,8 @@ export interface TickerSummaryOut {
   change_percent: number | null;
   market_cap: number | null;
   // Latest-quarter figure from /stable/enterprise-values, not a live recompute.
+  // Denominated in reported_currency (a statement-side figure), NOT
+  // quote_currency like market_cap above.
   enterprise_value: number | null;
   beta: number | null;
   // Trailing / forward PEG from /stable/ratios-ttm, shown side by side

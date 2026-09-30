@@ -6,6 +6,13 @@ export interface MetricDef {
   key: keyof TickerSummaryOut;
   label: string;
   format: MetricFormat;
+  /** Which currency a "compactMoney" figure is denominated in: "quote" (the
+   * default -- price/market-cap-derived, ticker's trading currency) or
+   * "reported" (a statement/FMP-fundamentals figure, in the company's
+   * reporting currency -- shown as-is, never converted, with the ISO code
+   * next to the value when it differs from the quote currency). Ignored for
+   * every other format. */
+  currency?: "quote" | "reported";
   /** Optional caveat icon+tooltip, shown only when `values[when]` is truthy
    * (see MetricsGrid.tsx). Distinct from the outlier-flag warning icon --
    * this is a methodology caveat, not a data-quality flag. */
@@ -41,7 +48,10 @@ export const METRIC_GROUPS: MetricGroup[] = [
     column: "left",
     metrics: [
       { key: "market_cap", label: "Market Cap", format: "compactMoney" },
-      { key: "enterprise_value", label: "Enterprise Value", format: "compactMoney" },
+      // FMP's /enterprise-values figure is expressed in the reporting currency
+      // (marketCapitalization + net debt off the statements), not the quote
+      // currency -- e.g. TSM's is TWD.
+      { key: "enterprise_value", label: "Enterprise Value", format: "compactMoney", currency: "reported" },
       { key: "pe_ratio", label: "P/E Ratio", format: "number" },
       { key: "peg_ratio", label: "PEG Ratio", format: "ratio" },
       { key: "forward_peg_ratio", label: "Forward PEG Ratio", format: "ratio" },
