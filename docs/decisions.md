@@ -44,6 +44,7 @@ All sessions below are commits on `ui/design-system`, not pushed to `origin` unt
 - **Session 10 — Screener migration: plan and primitives (2026-09-30).** The form-control primitives and a `/styleguide` sidebar mock for the Screener migration, with **no Screener page change** beyond a `T` suffix in market-cap input. Five commits (docs, helpers and primitives, `RangeField`, a `RangeField` re-sync fix found by the mock, styleguide), not pushed. See "Session 10: Screener migration, plan and primitives" below.
 - **Session 10, part 2 — Screener sidebar migration, session 1 of 2 (2026-09-30).** The Screener filter sidebar moved onto the form-control kit with boxed fields (the owner's choice), in five commits (docs, range filters, sidebar shell, chips and multi-selects and the Watchlist select and counts, cleanup and styleguide), local only, not pushed. See "Session 10, part 2: Screener sidebar migration" below.
 - **Session 10, part 3 — Screener results controls, session 2 of 2 (2026-09-30).** The Sort row, Pagination, the saved-views bar, `RecomputeButton`'s styling and the multi-select trigger's accessible name moved onto the form-control kit, in five commits (docs, sort and outline buttons, pagination and multi-select name, saved-views bar, styleguide and cleanup). One guard added: a view name cannot contain "/". See the entry below.
+- **Session 11 — Watchlist page and shared buttons (2026-09-30).** The Watchlist page controls (name editor, delete button, the table's remove buttons) and the shared `RefreshButton` and `ExportMenu` moved onto the outline, destructive and icon Button forms and the boxed `Input`, in four commits (docs; characterization tests and the Watchlist page; the shared buttons; styleguide and cleanup). `AddToWatchlistButton` and the ticker page remain. See the entry below.
 
 ## Design reversals
 
@@ -256,6 +257,28 @@ BB+RSI before Warren, recompute after the technical jobs and before the backup. 
 requested order; placed after the technical jobs, before fundamentals. Order pinned by
 `backend/tests/test_cron_wiring.py::test_nightly_chain_runs_in_the_agreed_order`. Known exposure: a cold-cache
 fundamentals run (up to ~65 min) can overlap price-target; recompute and backup are cache-only and still run on time.
+
+### 2026-09-30 — Session 11: Watchlist page and shared buttons
+
+The Watchlist page controls and the two buttons shared with other pages move onto the session 8 to 10 primitives. Made by the owner; this entry records what was decided and what was delivered. Spec: "Watchlist page and shared buttons (session 11)" in `docs/design-system.md`. Four commits on local `main`, not pushed: docs; characterization tests and the Watchlist page; `RefreshButton` and `ExportMenu`; styleguide and cleanup.
+
+**Scope.** In: `WatchlistNameEditor`, `WatchlistDeleteButton`, the buttons in `WatchlistTable` (remove, confirm, cancel), `ExportMenu` and `RefreshButton`. Out and unchanged: `AddToWatchlistButton` (**stays for the ticker-page session**; shared with the ticker header), the ticker-page components (`ManualCalculationPanel`, `BankCapitalMetricsForm`, `EconomicMoatTab`, the chart and price-target toggles), `TickerSearch`, the Screener, Settings, Momentum, the backend, and table cell content.
+
+**Decisions (the owner's; not re-decided).**
+
+1. Every "ghost plus border" hack or hand-written bordered button in scope becomes `Button variant="outline"`; the size follows the neighbours (36px beside inputs, `sm` 32px in dense rows).
+2. Text glyphs become Phosphor icons; icon-only buttons have an accessible name and keep their tooltip; decorative icons are `aria-hidden`.
+3. `WatchlistDeleteButton` keeps every behaviour and takes the destructive `danger` Button.
+4. `WatchlistNameEditor` uses the kit `Input` with no class overrides, the accessible name "Watchlist name", no `focus:outline-none`, `maxLength` mirroring the backend, and shows server rejections inline.
+5. `ExportMenu` gets an outline trigger with a `CaretDown`, `aria-haspopup` and `aria-expanded`; Escape and outside click close it (only what was missing is added).
+6. `RefreshButton` is styling and icon only.
+7. Sentence case, display only, for every string in the touched components.
+
+**Decision made while building (recorded, not in the brief).** `Button` gained two square icon sizes, `icon` (36px) and `icon-sm` (28px, 32px as an outline). The alternative was an `px-0` and width override repeated on five buttons.
+
+**Live-behaviour changes authorised:** the outline button styling and icons; accessible names; the rename input showing server messages inline and mirroring the backend limit; `ExportMenu` Escape and focus return if missing; sentence-case strings. Nothing else.
+
+**Deferred.** `AddToWatchlistButton` and the rest of the ticker page (the remaining hand-written outline overrides are all in ticker-page files) migrate in the ticker-page session, and `AddToWatchlistButton` should adopt the shared watchlist-name length constant then.
 
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
