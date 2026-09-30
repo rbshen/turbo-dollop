@@ -41,7 +41,7 @@ All sessions below are commits on `ui/design-system`, not pushed to `origin` unt
 - **Session 9, part 2 — Weinstein and Liquidity (2026-09-30).** The last two form sections (and a 0-100 check on the Moat fields) moved onto the form-control kit; `NumberStepper`, `InfoTooltip` and the legacy `Select` shell removed once nothing used them. See "Session 9: Settings migration, part 2" below.
 - **Session 9, part 3 — FMP settings on the kit (2026-09-30).** The FMP status card moved into FMP data groups; the immediate-apply FMP controls became `Switch` and native `Select`; error messages now persist; REIT and Discount rate show the server's reason. See "Session 9: Settings migration, part 3" below.
 
-- **Session 10 — Screener migration: plan and primitives (2026-09-30).** The form-control primitives and a `/styleguide` sidebar mock for the Screener migration, with **no Screener page change** beyond a `T` suffix in market-cap input. Four commits (docs, helpers and primitives, `RangeField`, styleguide), not pushed. See "Session 10: Screener migration, plan and primitives" below.
+- **Session 10 — Screener migration: plan and primitives (2026-09-30).** The form-control primitives and a `/styleguide` sidebar mock for the Screener migration, with **no Screener page change** beyond a `T` suffix in market-cap input. Five commits (docs, helpers and primitives, `RangeField`, a `RangeField` re-sync fix found by the mock, styleguide), not pushed. See "Session 10: Screener migration, plan and primitives" below.
 
 ## Design reversals
 
