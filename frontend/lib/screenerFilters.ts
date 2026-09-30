@@ -2,6 +2,7 @@ import type { MultiSelectOption } from "@/components/screener/MultiSelectDropdow
 import { PERF_VS_SPY_LABELS } from "@/components/ticker/PerfVsSpyPill";
 import { VALUATION_LABELS } from "@/components/screener/ValuationBadge";
 import { MOAT_LABELS } from "@/lib/overallScore";
+import { pillLabel } from "@/lib/tierColor";
 import { WEINSTEIN_STAGE_LABEL } from "@/lib/weinsteinStage";
 import type { TickerScoreOut } from "@/lib/api/types";
 import { formatNumberInput } from "@/lib/numberInput";
@@ -41,9 +42,9 @@ export const MOAT_NOT_SET = "not_set";
 // every moat state should always be selectable even if no ticker in the
 // current universe happens to have it set yet.
 export const MOAT_FILTER_OPTIONS: MultiSelectOption[] = [
-  { value: "wide_moat", label: MOAT_LABELS.wide_moat },
-  { value: "narrow_moat", label: MOAT_LABELS.narrow_moat },
-  { value: "no_moat", label: MOAT_LABELS.no_moat },
+  { value: "wide_moat", label: pillLabel(MOAT_LABELS.wide_moat) },
+  { value: "narrow_moat", label: pillLabel(MOAT_LABELS.narrow_moat) },
+  { value: "no_moat", label: pillLabel(MOAT_LABELS.no_moat) },
   { value: MOAT_NOT_SET, label: "Not set" },
 ];
 
@@ -133,9 +134,9 @@ export const PULLBACK_STATUS_FILTER_OPTIONS: MultiSelectOption[] = [
 // Gray Up excluded entirely) once Gray Up became a real, independently
 // selectable option.
 export const WARREN_SIGNAL_KIND_FILTER_OPTIONS: MultiSelectOption[] = [
-  { value: "blue_up", label: "Blue Up" },
-  { value: "yellow_up", label: "Yellow Up" },
-  { value: "gray_up", label: "Gray Up" },
+  { value: "blue_up", label: "Blue up" },
+  { value: "yellow_up", label: "Yellow up" },
+  { value: "gray_up", label: "Gray up" },
 ];
 
 export interface ScreenerFilterState {
@@ -200,13 +201,55 @@ export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
   warrenSignalKinds: [],
 };
 
+export type FilterKey = keyof ScreenerFilterState;
+
+// Which filters live under which sidebar section, so each section header can
+// count its own. Together they are exactly every key of the state (a test pins
+// that, so a filter added later must be given a section), and the Watchlist
+// section's one filter is the page-level scope, not a state key.
+export const FUNDAMENTAL_FILTER_KEYS: readonly FilterKey[] = [
+  "overallScore",
+  "step1Score",
+  "step2Score",
+  "step4Score",
+  "step5Score",
+  "quote",
+  "marketCap",
+  "peRatio",
+  "growthRate",
+  "sectors",
+  "companyTypes",
+  "moat",
+  "valuationVerdict",
+  "speculativeGrowth",
+];
+export const TECHNICAL_FILTER_KEYS: readonly FilterKey[] = [
+  "beta",
+  "vsSpy",
+  "weinsteinStages",
+  "reversalStatuses",
+  "pullbackStatuses",
+  "warrenSignalKinds",
+  "bbRsiEntrySignal",
+];
+
+const ALL_FILTER_KEYS = Object.keys(DEFAULT_FILTER_STATE) as FilterKey[];
+
 /** How many filters are applied right now: ranges with a min or a max, multi-
  * selects with at least one option, checked chips, plus one for a watchlist
- * filter that is actually in effect (`watchlistActive`). Walks every field of
- * the state, so a filter added later is counted without touching this. */
-export function countActiveFilters(filters: ScreenerFilterState, watchlistActive: boolean): number {
+ * filter that is actually in effect (`watchlistActive`). Counts the keys of
+ * `keys` (default: every filter in the state), so a section header passes its
+ * own list. Only the state's own keys are read, so a key a saved view carries
+ * that no longer exists (the removed "country") is never counted. */
+export function countActiveFilters(
+  filters: ScreenerFilterState,
+  watchlistActive: boolean,
+  keys: readonly FilterKey[] = ALL_FILTER_KEYS
+): number {
   let count = watchlistActive ? 1 : 0;
-  for (const value of Object.values(filters)) {
+  for (const key of keys) {
+    const value = filters[key];
+    if (value == null) continue;
     if (Array.isArray(value)) {
       if (value.length > 0) count += 1;
     } else if (typeof value === "boolean") {

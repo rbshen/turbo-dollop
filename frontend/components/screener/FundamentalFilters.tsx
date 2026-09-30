@@ -5,13 +5,13 @@ import { MultiSelectDropdown } from "@/components/screener/MultiSelectDropdown";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RangeField } from "@/components/ui/range-field";
 import {
-  FILTER_ACTIVE_LABEL_CLASS,
+  countActiveFilters,
+  FUNDAMENTAL_FILTER_KEYS,
   MARKET_CAP_SUFFIXES,
   MOAT_FILTER_OPTIONS,
   VALUATION_FILTER_OPTIONS,
   type ScreenerFilterState,
 } from "@/lib/screenerFilters";
-import { cn } from "@/lib/utils";
 
 interface Props {
   filters: ScreenerFilterState;
@@ -29,7 +29,7 @@ export function FundamentalFilters({ filters, onFiltersChange, sectors, companyT
   }
 
   return (
-    <CollapsibleFilterSection title="Fundamental">
+    <CollapsibleFilterSection title="Fundamental" count={countActiveFilters(filters, false, FUNDAMENTAL_FILTER_KEYS)}>
       <div className="space-y-4">
         {/* 9 Min/Max range filters in the design handoff's original order minus
             Beta (moved to Technical, 2026-09 follow-up -- a price-covariance
@@ -81,14 +81,13 @@ export function FundamentalFilters({ filters, onFiltersChange, sectors, companyT
             selected={filters.valuationVerdict}
             onChange={(s) => patch({ valuationVerdict: s })}
           />
+          {/* A chip: the checked fill is the applied signal, not orange. */}
           <Checkbox
-            label="Speculative Growth"
+            variant="chip"
+            label="Speculative growth"
+            className="w-full"
             checked={filters.speculativeGrowth}
             onChange={(e) => patch({ speculativeGrowth: e.target.checked })}
-            className={cn(
-              "h-8 rounded-md border border-border-input px-2 text-xs font-medium",
-              filters.speculativeGrowth ? FILTER_ACTIVE_LABEL_CLASS : "text-text-secondary"
-            )}
           />
         </div>
       </div>

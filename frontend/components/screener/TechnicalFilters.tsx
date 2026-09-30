@@ -5,15 +5,15 @@ import { MultiSelectDropdown } from "@/components/screener/MultiSelectDropdown";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RangeField } from "@/components/ui/range-field";
 import {
-  FILTER_ACTIVE_LABEL_CLASS,
+  countActiveFilters,
   PULLBACK_STATUS_FILTER_OPTIONS,
   REVERSAL_STATUS_FILTER_OPTIONS,
+  TECHNICAL_FILTER_KEYS,
   VS_SPY_FILTER_OPTIONS,
   WARREN_SIGNAL_KIND_FILTER_OPTIONS,
   WEINSTEIN_STAGE_FILTER_OPTIONS,
   type ScreenerFilterState,
 } from "@/lib/screenerFilters";
-import { cn } from "@/lib/utils";
 
 interface Props {
   filters: ScreenerFilterState;
@@ -26,7 +26,7 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
   }
 
   return (
-    <CollapsibleFilterSection title="Technical">
+    <CollapsibleFilterSection title="Technical" count={countActiveFilters(filters, false, TECHNICAL_FILTER_KEYS)}>
       <div className="space-y-4">
         {/* Moved here from Fundamental (2026-09 follow-up) -- Beta is a
             price-covariance statistic, not an accounting metric, the same
@@ -41,7 +41,7 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
             onChange={(s) => patch({ vsSpy: s })}
           />
           <MultiSelectDropdown
-            label="Weinstein Stage"
+            label="Weinstein stage"
             options={WEINSTEIN_STAGE_FILTER_OPTIONS}
             selected={filters.weinsteinStages}
             onChange={(s) => patch({ weinsteinStages: s })}
@@ -65,13 +65,11 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
             onChange={(s) => patch({ warrenSignalKinds: s })}
           />
           <Checkbox
+            variant="chip"
             label="BB + RSI entry (2h)"
+            className="w-full"
             checked={filters.bbRsiEntrySignal}
             onChange={(e) => patch({ bbRsiEntrySignal: e.target.checked })}
-            className={cn(
-              "h-8 rounded-md border border-border-input px-2 text-xs font-medium",
-              filters.bbRsiEntrySignal ? FILTER_ACTIVE_LABEL_CLASS : "text-text-secondary"
-            )}
           />
           <p className="text-xs text-text-tertiary">
             BB + RSI entry and Warren entry only ever match tickers on a watchlist named W1 through W5.

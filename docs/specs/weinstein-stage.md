@@ -138,7 +138,9 @@ Screener card has no params, so its pill tooltip says "MA").
   a mirror of `perf_5y_vs_spy_*`/`speculative_growth_qualifies`. It shows as a compact
   "S1"/"S2"/"S3"/"S4" pill (`WeinsteinStagePill`'s `labelSet="screener"` tier — unlike
   `MoatPill`/`PerfVsSpyPill`, each stage gets its own distinct short label) and a "Weinstein
-  Stage" filter dropdown in the Screener sidebar's Technical section
+  stage" filter dropdown in the Screener sidebar's Technical section (label sentence-cased
+  2026-09-30; the option labels "Stage 1 · Base" ... and the stored keys `base`/`advance`/`top`/
+  `decline`/`pending` are unchanged)
   (`components/screener/TechnicalFilters.tsx`, which now holds other technical filters too). A
   "Weinstein — Stage Since" sort reads the persisted `TickerScore.weinstein_stage_since_date`
   (client-side, no new field).

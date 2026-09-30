@@ -4,10 +4,15 @@ import type { ReactNode } from "react";
 
 import { CaretDown } from "@phosphor-icons/react";
 
+import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 interface Props {
   title: string;
+  /** How many of this section's filters are applied. A neutral count badge
+   * shows in the header (so it is still visible while the section is collapsed);
+   * none at zero. */
+  count?: number;
   children: ReactNode;
 }
 
@@ -25,16 +30,24 @@ interface Props {
 // style -- Section has no collapse behavior of its own, so this keeps the
 // Collapsible mechanics and box (a sidebar needs a clear boundary between
 // three stacked collapsible groups) while adopting the shared title look.
-export function CollapsibleFilterSection({ title, children }: Props) {
+export function CollapsibleFilterSection({ title, count = 0, children }: Props) {
   return (
     <div className="rounded-lg border border-border-card bg-surface p-4">
       <Collapsible defaultOpen>
         <CollapsibleTrigger className="group flex w-full items-center justify-between gap-2 text-left">
           <h2 className="text-sm font-semibold text-text-primary">{title}</h2>
-          <CaretDown
-            size={12}
-            className="shrink-0 text-text-tertiary transition-transform duration-200 group-data-[panel-open]:rotate-180"
-          />
+          <span className="flex items-center gap-2">
+            {count > 0 && (
+              <Badge tone="neutral" size="compact" title={`${count} applied`}>
+                {count}
+                <span className="sr-only"> applied</span>
+              </Badge>
+            )}
+            <CaretDown
+              size={12}
+              className="shrink-0 text-text-tertiary transition-transform duration-200 group-data-[panel-open]:rotate-180"
+            />
+          </span>
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="pt-4">{children}</div>

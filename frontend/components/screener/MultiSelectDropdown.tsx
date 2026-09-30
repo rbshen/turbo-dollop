@@ -2,6 +2,7 @@
 
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { FILTER_ACTIVE_LABEL_CLASS } from "@/lib/screenerFilters";
 import { cn } from "@/lib/utils";
 
@@ -156,14 +157,16 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Prop
                 aria-selected={selected.includes(option.value)}
                 className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-2"
               >
-                <input
+                {/* The bare neutral Checkbox (no label of its own: the enclosing
+                    <label role="option"> names it). Its ref is the native input,
+                    which is what the roving focus below moves between. */}
+                <Checkbox
                   ref={(el) => {
                     optionRefs.current[i] = el;
                   }}
-                  type="checkbox"
+                  variant="neutral"
                   checked={selected.includes(option.value)}
                   onChange={() => toggle(option.value)}
-                  className="size-3.5 rounded border-border-input bg-surface-2 accent-brand"
                 />
                 {option.label}
               </label>

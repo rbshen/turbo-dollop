@@ -4,6 +4,10 @@ import type { TickerScoreOut } from "@/lib/api/types";
 import { checkNumber } from "@/lib/numberInput";
 import {
   DEFAULT_FILTER_STATE,
+  FUNDAMENTAL_FILTER_KEYS,
+  MOAT_FILTER_OPTIONS,
+  TECHNICAL_FILTER_KEYS,
+  WARREN_SIGNAL_KIND_FILTER_OPTIONS,
   countActiveFilters,
   excludeEtfs,
   extractCompanyTypes,
@@ -683,5 +687,54 @@ describe("saved-view shallow merge onto the defaults", () => {
     const merged = merge(stale);
     const result = filterTickerScores([row({ ticker: "A", overall_score: 80 }), row({ ticker: "B", overall_score: 10 })], merged);
     expect(result.map((r) => r.ticker)).toEqual(["A"]);
+  });
+});
+
+describe("countActiveFilters per section", () => {
+  it("Fundamental and Technical together are exactly every filter in the state, with no overlap", () => {
+    const all = Object.keys(DEFAULT_FILTER_STATE).sort();
+    const sections = [...FUNDAMENTAL_FILTER_KEYS, ...TECHNICAL_FILTER_KEYS];
+    expect([...sections].sort()).toEqual(all);
+    expect(new Set(sections).size).toBe(sections.length);
+  });
+
+  it("counts only the section's own keys", () => {
+    const state: ScreenerFilterState = {
+      ...DEFAULT_FILTER_STATE,
+      overallScore: { min: 70, max: null },
+      sectors: ["Energy"],
+      beta: { min: null, max: 2 },
+      bbRsiEntrySignal: true,
+    };
+    expect(countActiveFilters(state, false, FUNDAMENTAL_FILTER_KEYS)).toBe(2);
+    expect(countActiveFilters(state, false, TECHNICAL_FILTER_KEYS)).toBe(2);
+    expect(countActiveFilters(state, false)).toBe(4);
+  });
+
+  it("adds the watchlist only when it is in effect, and counts it with no keys at all", () => {
+    expect(countActiveFilters(DEFAULT_FILTER_STATE, true, [])).toBe(1);
+    expect(countActiveFilters(DEFAULT_FILTER_STATE, false, [])).toBe(0);
+    expect(countActiveFilters({ ...DEFAULT_FILTER_STATE, quote: { min: 1, max: null } }, true, [])).toBe(1);
+  });
+
+  it("never counts a key the state does not have (a stale saved-view key such as country)", () => {
+    const stale = { ...DEFAULT_FILTER_STATE, country: ["US"] } as ScreenerFilterState;
+    expect(countActiveFilters(stale, false)).toBe(0);
+  });
+});
+
+describe("sentence-case option labels (display only)", () => {
+  it("re-cases the Moat and Warren labels but keeps every stored value", () => {
+    expect(MOAT_FILTER_OPTIONS).toEqual([
+      { value: "wide_moat", label: "Wide moat" },
+      { value: "narrow_moat", label: "Narrow moat" },
+      { value: "no_moat", label: "No moat" },
+      { value: "not_set", label: "Not set" },
+    ]);
+    expect(WARREN_SIGNAL_KIND_FILTER_OPTIONS).toEqual([
+      { value: "blue_up", label: "Blue up" },
+      { value: "yellow_up", label: "Yellow up" },
+      { value: "gray_up", label: "Gray up" },
+    ]);
   });
 });

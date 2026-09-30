@@ -78,7 +78,7 @@ function savedView(overrides: Partial<SavedScreenerFilter> & { name: string }): 
 const cards = () => screen.queryAllByTestId("card").map((c) => c.textContent);
 const lastUniverse = () => h.universeCalls[h.universeCalls.length - 1];
 const sortSelect = () => screen.getByDisplayValue(/score|Quote|Market cap|P\/E|Beta|Growth rate|Warren|Weinstein/) as HTMLSelectElement;
-const watchlistSelect = () => screen.getByLabelText(/^Watchlist/) as HTMLSelectElement;
+const watchlistSelect = () => screen.getByLabelText(/^Limit results to/) as HTMLSelectElement;
 
 // The trigger reads "Saved views (n)", or the name of the view last loaded.
 function openSavedViews() {
@@ -373,5 +373,41 @@ describe("the sidebar across a universe switch", () => {
     h.rows.sp500 = ALL_ROWS.slice(0, 3);
     rerender(<ScreenerPage />);
     expect(screen.getByText(/3 of 500 S&P 500 tickers/)).toBeInTheDocument();
+  });
+});
+
+describe("the Watchlist scope and the section badges on the real page", () => {
+  const scopeLabel = () => screen.getByText("Limit results to", { selector: "label" });
+
+  it("is orange and counted only while in effect, and comes back when the universe returns to All", () => {
+    render(<ScreenerPage />);
+    fireEvent.change(watchlistSelect(), { target: { value: "1" } });
+    expect(scopeLabel()).toHaveClass("text-filter-active");
+    expect(screen.getByRole("button", { name: /^Watchlist/ })).toContainElement(screen.getByTitle("1 applied"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Nasdaq" }));
+    expect(watchlistSelect()).toBeDisabled();
+    expect(watchlistSelect().value).toBe("1");
+    expect(scopeLabel()).not.toHaveClass("text-filter-active");
+    expect(scopeLabel()).toHaveClass("opacity-45");
+    expect(screen.queryByTitle("1 applied")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    expect(watchlistSelect()).toBeEnabled();
+    expect(watchlistSelect().value).toBe("1");
+    expect(scopeLabel()).toHaveClass("text-filter-active");
+    expect(screen.getByTitle("1 applied")).toBeInTheDocument();
+  });
+
+  it("counts the Fundamental and Technical filters in their own headers, and Reset clears every badge", () => {
+    render(<ScreenerPage />);
+    expect(screen.queryByTitle(/applied/)).toBeNull();
+    typeInto(box("Overall", "Minimum"), "70");
+    typeInto(box("Beta", "Maximum"), "2");
+    fireEvent.click(screen.getByLabelText("BB + RSI entry (2h)"));
+    expect(screen.getByRole("button", { name: /^Fundamental/ })).toContainElement(screen.getByTitle("1 applied", { exact: true }) as HTMLElement);
+    expect(screen.getByRole("button", { name: /^Technical/ }).querySelector("[title='2 applied']")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(screen.queryByTitle(/applied/)).toBeNull();
   });
 });

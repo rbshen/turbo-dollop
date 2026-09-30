@@ -1,8 +1,10 @@
 "use client";
 
 import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
-import { Field } from "@/components/ui/input";
+import { FormField } from "@/components/ui/form-field";
+import { Select } from "@/components/ui/Select";
 import type { WatchlistOut } from "@/lib/api/types";
+import { countActiveFilters, DEFAULT_FILTER_STATE } from "@/lib/screenerFilters";
 
 interface Props {
   watchlists: WatchlistOut[] | undefined;
@@ -19,34 +21,43 @@ interface Props {
 // -> Fundamental -> Technical) -- same CollapsibleFilterSection shell,
 // single-select dropdown rather than MultiSelectDropdown since a Screener
 // result set can only be scoped to one base watchlist at a time.
+//
+// The section is already titled "Watchlist", so the field's own label is
+// "Limit results to" (a second "Watchlist" would read as a duplicate). The
+// filter is IN EFFECT only while a watchlist is selected and the universe is
+// All; a selection that is dimmed because the universe isn't All is not
+// applied, so its label is not orange and the section badge does not count it.
 export function WatchlistFilters({ watchlists, value, onChange, disabled }: Props) {
-  const active = value != null;
+  const inEffect = value != null && !disabled;
 
   return (
-    <CollapsibleFilterSection title="Watchlist">
-      <div className="flex flex-col items-stretch gap-2">
-        <Field label="Watchlist" htmlFor="screener-watchlist" applied={active}>
-          <select
-            id="screener-watchlist"
-            value={value ?? ""}
-            disabled={disabled}
-            onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
-            className="h-9 w-full rounded-md border border-border-control bg-page px-3 text-sm text-text-primary focus:border-brand focus:outline-none disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            <option value="">None</option>
-            {(watchlists ?? []).map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <p className="text-xs text-text-tertiary">
-          {disabled
+    <CollapsibleFilterSection title="Watchlist" count={countActiveFilters(DEFAULT_FILTER_STATE, inEffect, [])}>
+      <FormField
+        label="Limit results to"
+        htmlFor="screener-watchlist"
+        density="compact"
+        applied={inEffect}
+        disabled={disabled}
+        hint={
+          disabled
             ? 'Only applies when the universe toggle above is set to "All."'
-            : "Scopes every Fundamental and Technical filter to this watchlist's tickers."}
-        </p>
-      </div>
+            : "Scopes every Fundamental and Technical filter to this watchlist's tickers."
+        }
+      >
+        <Select
+          id="screener-watchlist"
+          size="full"
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+        >
+          <option value="">None</option>
+          {(watchlists ?? []).map((w) => (
+            <option key={w.id} value={w.id}>
+              {w.name}
+            </option>
+          ))}
+        </Select>
+      </FormField>
     </CollapsibleFilterSection>
   );
 }
