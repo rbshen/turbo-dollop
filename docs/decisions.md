@@ -89,6 +89,10 @@ Size tokens, all 36px high and capped at the container's width: `short` 96px, `m
 
 **Compatibility rule for the code.** Existing `Input`, `Select`, `Checkbox` and `NumberStepper` call sites render identically: the new behaviour is a new component (`NumberField`, `FormField`, `Switch`, the Settings kit) or an explicit opt-in prop (`size` and `invalid` on `Input` and `Select`, `variant` on `Checkbox`). The defaults flip at migration, per the owner's review.
 
+### 2026-09-30 (follow-up) — Settings rows: fixed control column, left-aligned
+
+**Corrects the earlier right-aligned row spec** (decision 4 above and the first "Settings layout" text: `grid-cols-[1fr_auto]`, control right-aligned, error right-aligned). Seen in the browser on `/styleguide`: with an `auto` column the control column was only as wide as its content, so the differing unit widths ("weeks", "%", "× average", "bars", none) staggered the boxes from row to row, hints wrapped at different points, checkboxes ended at a different edge from the number boxes, and a right-aligned error landed under the wrong spot. Now: one fixed 256px control column (`medium` 176px plus an 80px unit slot), every control left-aligned in it (checkboxes and switches included), the unit trailing the box, the error left-aligned under the box, `full` still not allowed in a row, and the row stacking below `sm`. The row is still label and hint left, control right; decision 4 (rows, not a grid of fields, `max-w-2xl` body, `py-3`, hairlines) stands. Only the kit and its `/styleguide` mocks change; no page migrated.
+
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
 - **`MultiSelect` primitive — resolved, built.** `components/screener/MultiSelectDropdown.tsx` is
