@@ -18,10 +18,10 @@ import { cn } from "@/lib/utils";
 // after it -- StatusSection keeps just the FMP health-summary card and the
 // cron jobs table.
 const SECTIONS = [
-  { key: "scheduled-jobs", label: "Scheduled Jobs", Component: StatusSection },
-  { key: "fmp-data-groups", label: "FMP Data Groups", Component: FmpDataGroupsSection },
-  { key: "discount-rate", label: "Discount Rate by Country", Component: DiscountRateSettingsForm },
-  { key: "economic-moat", label: "Economic Moat", Component: MoatSettingsForm },
+  { key: "scheduled-jobs", label: "Scheduled jobs", Component: StatusSection },
+  { key: "fmp-data-groups", label: "FMP data groups", Component: FmpDataGroupsSection },
+  { key: "discount-rate", label: "Discount rate by country", Component: DiscountRateSettingsForm },
+  { key: "economic-moat", label: "Economic moat", Component: MoatSettingsForm },
   { key: "reit", label: "REIT", Component: ReitDividendYieldSettingsForm },
   { key: "liquidity", label: "Liquidity", Component: LiquidityZoneSettingsForm },
   { key: "weinstein", label: "Weinstein", Component: WeinsteinSettingsForm },
