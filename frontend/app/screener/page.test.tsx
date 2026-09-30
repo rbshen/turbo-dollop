@@ -88,7 +88,7 @@ function openSavedViews() {
 }
 function loadSavedView(name: string) {
   openSavedViews();
-  fireEvent.click(screen.getByRole("option", { name }));
+  fireEvent.click(within(screen.getByRole("group", { name: "Saved views" })).getByRole("button", { name }));
 }
 
 beforeEach(() => {
@@ -292,7 +292,7 @@ describe("the sidebar across a universe switch", () => {
     typeInto(groupBox("Growth", "Minimum"), "1x"); // a range draft the numeric state cannot hold
     typeInto(groupBox("Overall", "Maximum"), "60"); // a valid draft
     fireEvent.click(screen.getByRole("button", { name: "Save current view" }));
-    fireEvent.change(screen.getByPlaceholderText("View name"), { target: { value: "half typed" } });
+    fireEvent.change(screen.getByLabelText("View name"), { target: { value: "half typed" } });
     return utils;
   }
 
@@ -311,7 +311,7 @@ describe("the sidebar across a universe switch", () => {
     // ...and the sidebar is the very same, untouched state
     expect(screen.queryByRole("group", { name: "Beta" })).toBeNull();
     expect(screen.getByRole("button", { name: /^Big/ })).toBeInTheDocument();
-    expect((screen.getByPlaceholderText("View name") as HTMLInputElement).value).toBe("half typed");
+    expect((screen.getByLabelText("View name") as HTMLInputElement).value).toBe("half typed");
     expect(groupBox("Growth", "Minimum").value).toBe("1x");
     expect(groupBox("Overall", "Maximum").value).toBe("60");
     expect(within(screen.getByRole("group", { name: "Growth" })).getByRole("alert")).toHaveTextContent("Enter a number.");
@@ -326,7 +326,7 @@ describe("the sidebar across a universe switch", () => {
     // Overall max 60 leaves CCC (40); DDD's null score is excluded from sp500's three rows anyway
     expect(cards()).toEqual(["CCC"]);
     expect(screen.queryByRole("group", { name: "Beta" })).toBeNull();
-    expect((screen.getByPlaceholderText("View name") as HTMLInputElement).value).toBe("half typed");
+    expect((screen.getByLabelText("View name") as HTMLInputElement).value).toBe("half typed");
     expect(groupBox("Growth", "Minimum").value).toBe("1x");
     expect(groupBox("Overall", "Maximum").value).toBe("60");
   });

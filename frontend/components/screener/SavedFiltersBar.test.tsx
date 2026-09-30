@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SavedFiltersBar } from "@/components/screener/SavedFiltersBar";
@@ -44,15 +44,21 @@ const ALPHA = view(1, "Alpha");
 const BRAVO = view(2, "Bravo");
 
 // --- selector helpers: the only markup-dependent part of this file -----------
-const trigger = (name: RegExp | string = /^Saved views/) => screen.getByRole("button", { name });
-const popoverRows = () => screen.queryAllByRole("option");
+// The disclosure trigger is the one button with aria-expanded; with the list open a
+// row named like the active view (/^Alpha/) matches too.
+const trigger = (name: RegExp | string = /^Saved views/) =>
+  screen.getAllByRole("button", { name }).find((b) => b.hasAttribute("aria-expanded"))!;
+const panel = () => screen.queryByRole("group", { name: "Saved views" });
+const rowButtons = () => (panel() ? within(panel()!).getAllByRole("button", { name: (n) => !n.startsWith("Delete view") && !n.startsWith("Failed to delete") }) : []);
+const popoverRows = () => rowButtons();
 const rowNames = () => popoverRows().map((r) => r.textContent);
-const loadRow = (name: string) => fireEvent.click(screen.getByRole("option", { name }));
-const isActiveRow = (name: string) => screen.getByRole("option", { name }).getAttribute("aria-selected") === "true";
-const deleteButton = (name: string) => screen.getByTitle(`Delete "${name}"`);
-const failedDeleteButton = (name: string) => screen.getByTitle(`Failed to delete "${name}" — try again`);
-const nameInput = () => screen.getByPlaceholderText("View name") as HTMLInputElement;
-const queryNameInput = () => screen.queryByPlaceholderText("View name") as HTMLInputElement | null;
+const rowButton = (name: string) => within(panel()!).getByRole("button", { name });
+const loadRow = (name: string) => fireEvent.click(rowButton(name));
+const isActiveRow = (name: string) => rowButton(name).getAttribute("aria-current") === "true";
+const deleteButton = (name: string) => screen.getByRole("button", { name: `Delete view "${name}"` });
+const failedDeleteButton = (name: string) => screen.getByRole("button", { name: `Failed to delete view "${name}" — try again` });
+const nameInput = () => screen.getByLabelText("View name") as HTMLInputElement;
+const queryNameInput = () => screen.queryByLabelText("View name") as HTMLInputElement | null;
 const saveButton = () => screen.getByRole("button", { name: /^(Save|Saving…|Saved ✓|Save failed)$/ });
 // -----------------------------------------------------------------------------
 
@@ -62,7 +68,6 @@ const onReset = vi.fn();
 function renderBar() {
   return render(
     <SavedFiltersBar
-      layout="vertical"
       universe="nasdaq"
       sortField="beta"
       sortDirection="desc"
@@ -128,7 +133,7 @@ describe("SavedFiltersBar: the trigger and the popover", () => {
     h.saved = [ALPHA];
     renderBar();
     openList();
-    fireEvent.mouseDown(screen.getByRole("option", { name: "Alpha" }));
+    fireEvent.mouseDown(rowButton("Alpha"));
     expect(popoverRows()).toHaveLength(1);
     fireEvent.mouseDown(document.body);
     expect(popoverRows()).toHaveLength(0);
@@ -415,8 +420,381 @@ describe("SavedFiltersBar: Reset", () => {
 });
 
 describe("SavedFiltersBar: layout", () => {
-  it("stacks its controls full-width when laid out vertically", () => {
+  it("stacks its controls full-width", () => {
     const { container } = renderBar();
     expect(container.firstElementChild).toHaveClass("flex-col", "items-stretch");
   });
+});
+
+// ---------------------------------------------------------------------------
+// Session 10, part 3: the migrated bar's new behaviour.
+// ---------------------------------------------------------------------------
+const save = async () => {
+  await act(async () => {
+    fireEvent.click(saveButton());
+  });
+};
+
+describe("SavedFiltersBar: disclosure semantics", () => {
+  it("the trigger reports aria-expanded and controls the popover, which is a labelled group (not a listbox)", () => {
+    h.saved = [ALPHA];
+    renderBar();
+    expect(trigger()).toHaveAttribute("aria-expanded", "false");
+    expect(trigger()).not.toHaveAttribute("aria-controls");
+    openList();
+    expect(trigger()).toHaveAttribute("aria-expanded", "true");
+    expect(panel()).toHaveAttribute("id", trigger().getAttribute("aria-controls"));
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.queryByRole("option")).toBeNull();
+  });
+
+  it("the trigger's caret is a decorative icon, not a text glyph", () => {
+    renderBar();
+    expect(trigger().querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(trigger().textContent).not.toContain("▾");
+  });
+
+  it("every string is sentence case", () => {
+    renderBar();
+    for (const name of ["Save current view", "Reset"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    expect(trigger()).toHaveTextContent("Saved views");
+  });
+});
+
+describe("SavedFiltersBar: Escape", () => {
+  it("on the trigger closes the popover and keeps focus on the trigger", () => {
+    h.saved = [ALPHA];
+    renderBar();
+    openList();
+    trigger().focus();
+    fireEvent.keyDown(trigger(), { key: "Escape" });
+    expect(panel()).toBeNull();
+    expect(trigger()).toHaveFocus();
+    expect(trigger()).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("on a row closes the popover and returns focus to the trigger", () => {
+    h.saved = [ALPHA, BRAVO];
+    renderBar();
+    openList();
+    rowButton("Bravo").focus();
+    fireEvent.keyDown(rowButton("Bravo"), { key: "Escape" });
+    expect(panel()).toBeNull();
+    expect(trigger()).toHaveFocus();
+  });
+
+  it("on a delete button closes the popover too, without deleting", () => {
+    h.saved = [ALPHA];
+    renderBar();
+    openList();
+    deleteButton("Alpha").focus();
+    fireEvent.keyDown(deleteButton("Alpha"), { key: "Escape" });
+    expect(panel()).toBeNull();
+    expect(trigger()).toHaveFocus();
+    expect(h.remove).not.toHaveBeenCalled();
+  });
+
+  it("does nothing while the popover is closed", () => {
+    renderBar();
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    trigger().dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("still closes on an outside click", () => {
+    h.saved = [ALPHA];
+    renderBar();
+    openList();
+    fireEvent.mouseDown(document.body);
+    expect(panel()).toBeNull();
+  });
+});
+
+describe("SavedFiltersBar: keyboard-operable rows", () => {
+  it("each view is a real load button plus a separate delete button, never one inside the other", () => {
+    h.saved = [ALPHA, BRAVO];
+    renderBar();
+    openList();
+    for (const n of ["Alpha", "Bravo"]) {
+      const load = rowButton(n);
+      const del = deleteButton(n);
+      expect(load.tagName).toBe("BUTTON");
+      expect(del.tagName).toBe("BUTTON");
+      expect(load).toHaveAttribute("type", "button");
+      expect(load.contains(del)).toBe(false);
+      expect(del.contains(load)).toBe(false);
+      expect(load.tabIndex).toBeGreaterThanOrEqual(0);
+      expect(del.tabIndex).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("tab order is trigger, then load and delete for each row in turn", () => {
+    h.saved = [ALPHA, BRAVO];
+    renderBar();
+    openList();
+    const order = [trigger(), rowButton("Alpha"), deleteButton("Alpha"), rowButton("Bravo"), deleteButton("Bravo")];
+    for (let i = 0; i < order.length - 1; i++) {
+      expect(order[i].compareDocumentPosition(order[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    const tabbable = Array.from(document.querySelectorAll<HTMLElement>("button")).filter((b) => b.tabIndex >= 0);
+    expect(tabbable.slice(0, 5)).toEqual(order);
+  });
+
+  it("the delete button's accessible name includes the view name", () => {
+    h.saved = [ALPHA, BRAVO];
+    renderBar();
+    openList();
+    expect(deleteButton("Alpha")).toHaveAccessibleName('Delete view "Alpha"');
+    expect(deleteButton("Bravo")).toHaveAccessibleName('Delete view "Bravo"');
+    expect(deleteButton("Alpha").querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("names a failed delete as a failure, with the view name", async () => {
+    vi.useFakeTimers();
+    h.saved = [ALPHA];
+    h.remove.mockRejectedValueOnce(new Error("boom"));
+    renderBar();
+    openList();
+    await act(async () => {
+      fireEvent.click(deleteButton("Alpha"));
+    });
+    expect(failedDeleteButton("Alpha")).toHaveAccessibleName('Failed to delete view "Alpha" — try again');
+    expect(failedDeleteButton("Alpha")).toHaveClass("text-negative");
+  });
+
+  it("loading returns focus to the trigger", () => {
+    h.saved = [ALPHA, BRAVO];
+    renderBar();
+    openList();
+    rowButton("Bravo").focus();
+    loadRow("Bravo");
+    expect(trigger(/^Bravo/)).toHaveFocus();
+  });
+
+  it("deleting a row moves focus to the next row", async () => {
+    h.saved = [ALPHA, BRAVO];
+    renderBar();
+    openList();
+    deleteButton("Alpha").focus();
+    await act(async () => {
+      fireEvent.click(deleteButton("Alpha"));
+    });
+    expect(rowButton("Bravo")).toHaveFocus();
+  });
+
+  it("deleting the last row moves focus to the previous row", async () => {
+    h.saved = [ALPHA, BRAVO];
+    renderBar();
+    openList();
+    await act(async () => {
+      fireEvent.click(deleteButton("Bravo"));
+    });
+    expect(rowButton("Alpha")).toHaveFocus();
+  });
+
+  it("deleting the only row moves focus to the trigger", async () => {
+    h.saved = [ALPHA];
+    renderBar();
+    openList();
+    await act(async () => {
+      fireEvent.click(deleteButton("Alpha"));
+    });
+    expect(trigger()).toHaveFocus();
+  });
+
+  it("ignores a second click on a delete that is already in flight, and keeps it focusable", async () => {
+    let finish: () => void = () => {};
+    h.remove.mockReturnValueOnce(new Promise<void>((resolve) => (finish = resolve)));
+    h.saved = [ALPHA];
+    renderBar();
+    openList();
+    deleteButton("Alpha").focus();
+    fireEvent.click(deleteButton("Alpha"));
+    fireEvent.click(deleteButton("Alpha"));
+    expect(h.remove).toHaveBeenCalledTimes(1);
+    expect(deleteButton("Alpha")).toHaveAttribute("aria-disabled", "true");
+    expect(deleteButton("Alpha")).toHaveFocus();
+    await act(async () => {
+      finish();
+    });
+  });
+});
+
+describe("SavedFiltersBar: the active-view marker", () => {
+  it("is neutral (no brand colour) and exposed with aria-current, not colour alone", () => {
+    h.saved = [ALPHA, BRAVO];
+    renderBar();
+    openList();
+    loadRow("Alpha");
+    openList(/^Alpha/);
+    const active = rowButton("Alpha");
+    expect(active).toHaveAttribute("aria-current", "true");
+    expect(rowButton("Bravo")).not.toHaveAttribute("aria-current");
+    const check = active.querySelector("svg");
+    expect(check).not.toBeNull();
+    expect(check).toHaveAttribute("aria-hidden", "true");
+    expect(check).toHaveClass("text-text-primary");
+    expect(panel()!.innerHTML).not.toContain("text-brand");
+    expect(active).toHaveClass("font-medium", "text-text-primary");
+    expect(active.parentElement).toHaveClass("bg-surface-2");
+    expect(rowButton("Bravo").querySelector("svg")).toBeNull();
+  });
+});
+
+describe("SavedFiltersBar: the naming step's layout", () => {
+  it("has a visible 'View name' label tied to a boxed, full-width Input on its own row", () => {
+    renderBar();
+    startNaming();
+    const label = screen.getByText("View name", { selector: "label" });
+    expect(label).toHaveAttribute("for", nameInput().id);
+    expect(nameInput()).toHaveAttribute("type", "text");
+    expect(nameInput()).toHaveClass("w-full", "h-9", "rounded-md", "border", "border-border-control");
+    expect(nameInput().className).not.toContain("focus:outline-none");
+    expect(nameInput()).not.toHaveAttribute("maxlength");
+  });
+
+  it("puts Save and Cancel together on a row of their own, below the Input", () => {
+    renderBar();
+    startNaming();
+    const save = saveButton();
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(save.parentElement).toBe(cancel.parentElement);
+    expect(save.parentElement).toHaveClass("flex");
+    expect(save.parentElement).not.toContainElement(nameInput());
+    expect(nameInput().compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // the step is a single column, so nothing can run past the sidebar's width
+    expect(save.parentElement!.parentElement).toHaveClass("flex-col");
+    expect(save.parentElement!.parentElement).not.toHaveClass("flex-row");
+  });
+
+  it("uses outline Buttons for Save and Cancel", () => {
+    renderBar();
+    startNaming();
+    for (const b of [saveButton(), screen.getByRole("button", { name: "Cancel" })]) {
+      expect(b).toHaveClass("border", "border-border-input", "hover:border-brand", "bg-transparent");
+    }
+  });
+
+  it("sets no maximum length, however long the name", async () => {
+    renderBar();
+    startNaming();
+    const long = "x".repeat(300);
+    typeName(long);
+    expect(nameInput().value).toBe(long);
+    await save();
+    expect(h.save).toHaveBeenCalledWith(long, expect.any(Object));
+  });
+
+  it("has no horizontal layout any more: the bar is always one column", () => {
+    const { container } = renderBar();
+    expect(container.firstElementChild).toHaveClass("flex-col");
+    expect(container.firstElementChild).not.toHaveClass("flex-row");
+  });
+});
+
+describe("SavedFiltersBar: the overwrite row's layout", () => {
+  function openOverwrite(name = "Alpha") {
+    h.saved = [view(1, name)];
+    renderBar();
+    startNaming();
+    typeName(name);
+    fireEvent.click(saveButton());
+  }
+
+  it("puts the message on its own line with the two buttons on a row below it", () => {
+    openOverwrite();
+    const message = screen.getByText('A saved view named "Alpha" already exists — overwrite?');
+    const overwrite = screen.getByRole("button", { name: "Overwrite" });
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(message.tagName).toBe("P");
+    expect(overwrite.parentElement).toBe(cancel.parentElement);
+    expect(overwrite.parentElement).not.toContainElement(message);
+    expect(overwrite.parentElement!.parentElement).toBe(message.parentElement);
+    expect(message.parentElement).toHaveClass("flex-col");
+    expect(message.compareDocumentPosition(overwrite) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("wraps a long unbroken name instead of overflowing", () => {
+    openOverwrite("a".repeat(120));
+    expect(screen.getByText(/already exists/)).toHaveClass("break-words");
+  });
+
+  it("keeps the warning colour on the message and the Overwrite button, both outline Buttons", () => {
+    openOverwrite();
+    expect(screen.getByText(/already exists/)).toHaveClass("text-warn");
+    const overwrite = screen.getByRole("button", { name: "Overwrite" });
+    expect(overwrite).toHaveClass("text-warn", "border", "hover:border-warn");
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveClass("border", "border-border-input", "bg-transparent");
+  });
+});
+
+describe("SavedFiltersBar: names containing '/'", () => {
+  it("shows an inline error, marks the box invalid and leaves the typed text exactly as typed", () => {
+    renderBar();
+    startNaming();
+    typeName("growth/value");
+    expect(nameInput().value).toBe("growth/value");
+    expect(screen.getByRole("alert")).toHaveTextContent('A view name cannot contain "/".');
+    expect(nameInput()).toHaveAttribute("aria-invalid", "true");
+    expect(nameInput().getAttribute("aria-describedby")).toBe(screen.getByRole("alert").id);
+    expect(nameInput()).toHaveClass("border-negative");
+  });
+
+  it("cannot be saved, by button or by Enter", async () => {
+    renderBar();
+    startNaming();
+    typeName("a/b");
+    expect(saveButton()).toBeDisabled();
+    await act(async () => {
+      fireEvent.keyDown(nameInput(), { key: "Enter" });
+    });
+    expect(h.save).not.toHaveBeenCalled();
+    expect(queryNameInput()).not.toBeNull(); // still naming
+  });
+
+  it("is judged on the text as typed: a slash among spaces is still rejected", () => {
+    renderBar();
+    startNaming();
+    typeName("  a / b  ");
+    expect(saveButton()).toBeDisabled();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
+  it("clears the error and re-enables Save as soon as the slash is removed", async () => {
+    renderBar();
+    startNaming();
+    typeName("a/b");
+    typeName("a b");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(nameInput()).not.toHaveAttribute("aria-invalid");
+    expect(saveButton()).toBeEnabled();
+    await save();
+    expect(h.save).toHaveBeenCalledWith("a b", expect.any(Object));
+  });
+
+  it("shows no error for an empty box, and Cancel and Escape still work with a slash typed", () => {
+    renderBar();
+    startNaming();
+    expect(screen.queryByRole("alert")).toBeNull();
+    typeName("a/b");
+    fireEvent.keyDown(nameInput(), { key: "Escape" });
+    expect(queryNameInput()).toBeNull();
+    startNaming();
+    expect(screen.queryByRole("alert")).toBeNull();
+    typeName("a/b");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(queryNameInput()).toBeNull();
+  });
+
+  it.each(["a b", "a?b", "a#b", "100%", "a+b", "a&b=c", "a;b", "é ü", "a\\b"])(
+    "saves %j unchanged (the other URL-reserved characters are not blocked)",
+    async (name) => {
+      renderBar();
+      startNaming();
+      typeName(name);
+      expect(screen.queryByRole("alert")).toBeNull();
+      await save();
+      expect(h.save).toHaveBeenCalledWith(name, expect.any(Object));
+    }
+  );
 });

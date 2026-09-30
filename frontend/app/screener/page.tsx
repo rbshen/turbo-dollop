@@ -213,7 +213,6 @@ export default function ScreenerPage() {
           <FundamentalFilters filters={filters} onFiltersChange={handleFiltersChange} sectors={sectors} companyTypes={companyTypes} />
           <TechnicalFilters filters={filters} onFiltersChange={handleFiltersChange} />
           <SavedFiltersBar
-            layout="vertical"
             universe={universe}
             sortField={sortField}
             sortDirection={sortDirection}
