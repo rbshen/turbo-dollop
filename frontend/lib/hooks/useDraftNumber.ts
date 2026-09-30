@@ -39,7 +39,8 @@ export interface UseDraftNumberOptions {
   value: number | null;
   /** The object that holds `value` (the pair). Compared by identity. */
   owner: unknown;
-  /** The object this field last emitted; set by the owner just before it calls onChange. */
+  /** The object this field last emitted (null until it has emitted one); set by the owner
+   * just before it calls onChange. Start it at null, never at the mounted value. */
   lastEmitted: MutableRefObject<unknown>;
   suffixes?: NumberSuffixes;
   min?: number;

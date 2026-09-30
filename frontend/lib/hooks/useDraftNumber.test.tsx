@@ -7,7 +7,7 @@ import { useDraftNumber } from "@/lib/hooks/useDraftNumber";
 
 function setup(initial: { value: number | null; owner: object }, extra: { min?: number; suffixes?: Record<string, number> } = {}) {
   const lastEmitted = createRef<unknown>() as MutableRefObject<unknown>;
-  lastEmitted.current = initial.owner;
+  lastEmitted.current = null;
   const hook = renderHook((props: { value: number | null; owner: object }) => useDraftNumber({ ...props, lastEmitted, ...extra }), {
     initialProps: initial,
   });
@@ -74,5 +74,14 @@ describe("useDraftNumber", () => {
     expect(hook.result.current.draft).toBe("12.");
     hook.rerender({ value: 12, owner: {} });
     expect(hook.result.current.draft).toBe("12");
+  });
+
+  it("re-syncs when the owner goes back to the very object it mounted with (Reset to the default)", () => {
+    const mounted = {};
+    const { hook } = setup({ value: null, owner: mounted });
+    hook.rerender({ value: 70, owner: {} }); // a loaded view
+    expect(hook.result.current.draft).toBe("70");
+    hook.rerender({ value: null, owner: mounted }); // Reset hands back the original object
+    expect(hook.result.current.draft).toBe("");
   });
 });

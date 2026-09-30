@@ -311,6 +311,17 @@ describe("RangeField: external changes re-sync the boxes", () => {
     expect(minBox().value).toBe("");
   });
 
+  it("re-syncs on Reset to the very object the field mounted with, after a Load", () => {
+    const mounted = { min: null, max: null };
+    const onChange = vi.fn();
+    const { rerender } = render(<RangeField label="Growth" value={mounted} onChange={onChange} />);
+    rerender(<RangeField label="Growth" value={{ min: 70, max: 90 }} onChange={onChange} />);
+    expect(minBox().value).toBe("70");
+    rerender(<RangeField label="Growth" value={mounted} onChange={onChange} />);
+    expect(minBox().value).toBe("");
+    expect(maxBox().value).toBe("");
+  });
+
   it("(a) never overwrites typing when re-rendered with the same object", () => {
     const initial = { min: null, max: null };
     const onChange = vi.fn();

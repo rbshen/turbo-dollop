@@ -70,7 +70,9 @@ export function RangeField({
   const minId = `${baseId}-min`;
   const maxId = `${baseId}-max`;
   const labelId = `${baseId}-label`;
-  const lastEmitted = useRef<unknown>(value);
+  // Nothing emitted yet: starting from `value` would mistake a later external
+  // reset TO the mounted object (the page's EMPTY_RANGE) for this field's own emit.
+  const lastEmitted = useRef<unknown>(null);
 
   const minDraft = useDraftNumber({ value: value.min, owner: value, lastEmitted, suffixes, min });
   const maxDraft = useDraftNumber({ value: value.max, owner: value, lastEmitted, suffixes, min });
