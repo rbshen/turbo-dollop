@@ -10,6 +10,7 @@ this is ever missed.
 """
 
 import asyncio
+from datetime import date
 
 import pytest
 from sqlmodel import SQLModel, create_engine
@@ -19,7 +20,10 @@ import data.step1_data as step1_data
 import data.step2_data as step2_data
 from data.speculative_growth_data import get_speculative_growth_data
 
-TODAY_YEAR = 2026
+# Not a literal: Step 2 keeps only forward-dated estimate rows, so a fixed year
+# stops being "next fiscal year" once the calendar passes it (this fixture broke
+# six of the tests below at 2028-01-01 when it was hardcoded to 2026).
+TODAY_YEAR = date.today().year
 
 PROFILE_STANDARD = [{"companyName": "Acme Corp", "sector": "Technology", "industry": "Software - Application"}]
 PROFILE_BANK = [{"companyName": "Acme Bank", "sector": "Financial Services", "industry": "Banks - Regional"}]

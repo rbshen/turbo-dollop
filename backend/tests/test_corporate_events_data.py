@@ -10,18 +10,31 @@ import data.corporate_events_data as ce
 import pipeline.nightly_corporate_events as job
 from core.models import CorporateEvent, CorporateEventFetch
 
+# Event dates are offsets from today, not literals: the store prunes by a
+# trailing retention window and the Chart tab drops scheduled (no-actual)
+# reports, so a fixed calendar date ages out of both rules on a schedule
+# (the 2025-08-31 split alone would have left the window in 2029). Offsets
+# keep the original spacing, anchored to the 2026-09-26 date they were
+# written on.
+_TODAY = date.today()
+
+
+def _on(days_from_today: int) -> date:
+    return _TODAY + timedelta(days=days_from_today)
+
+
 EARNINGS = [
-    {"symbol": "AAPL", "date": "2026-10-29", "epsActual": None, "epsEstimated": 1.99, "revenueActual": None, "revenueEstimated": 1.1e11},
-    {"symbol": "AAPL", "date": "2026-07-30", "epsActual": 1.9, "epsEstimated": 1.8, "revenueActual": 9.0e10, "revenueEstimated": 8.9e10},
-    {"symbol": "AAPL", "date": "2026-04-30", "epsActual": 1.7, "epsEstimated": 1.6, "revenueActual": 8.0e10, "revenueEstimated": 7.9e10},
+    {"symbol": "AAPL", "date": _on(33).isoformat(), "epsActual": None, "epsEstimated": 1.99, "revenueActual": None, "revenueEstimated": 1.1e11},
+    {"symbol": "AAPL", "date": _on(-58).isoformat(), "epsActual": 1.9, "epsEstimated": 1.8, "revenueActual": 9.0e10, "revenueEstimated": 8.9e10},
+    {"symbol": "AAPL", "date": _on(-149).isoformat(), "epsActual": 1.7, "epsEstimated": 1.6, "revenueActual": 8.0e10, "revenueEstimated": 7.9e10},
 ]
 DIVIDENDS = [
-    {"symbol": "AAPL", "date": "2026-08-11", "recordDate": "2026-08-11", "paymentDate": "2026-08-14", "declarationDate": "2026-07-30",
+    {"symbol": "AAPL", "date": _on(-46).isoformat(), "recordDate": _on(-46).isoformat(), "paymentDate": _on(-43).isoformat(), "declarationDate": _on(-58).isoformat(),
      "adjDividend": 0.26, "dividend": 1.04, "frequency": "Quarterly"},
-    {"symbol": "AAPL", "date": "2026-05-12", "adjDividend": 0.25, "dividend": 0.25},
-    {"symbol": "AAPL", "date": "2026-02-09", "adjDividend": 0, "dividend": 0},
+    {"symbol": "AAPL", "date": _on(-137).isoformat(), "adjDividend": 0.25, "dividend": 0.25},
+    {"symbol": "AAPL", "date": _on(-229).isoformat(), "adjDividend": 0, "dividend": 0},
 ]
-SPLITS = [{"symbol": "AAPL", "date": "2025-08-31", "numerator": 4, "denominator": 1, "splitType": "stock-split"}]
+SPLITS = [{"symbol": "AAPL", "date": _on(-391).isoformat(), "numerator": 4, "denominator": 1, "splitType": "stock-split"}]
 
 
 @pytest.fixture
@@ -62,8 +75,8 @@ def test_refresh_stores_all_three_types_and_stamps_each_fetch(monkeypatch, engin
     assert len(rows) == 7 and stamps == {"earnings": 3, "dividend": 3, "split": 1}
     split = next(r for r in rows if r.event_type == "split")
     assert (split.split_numerator, split.split_denominator) == (4.0, 1.0)
-    div = next(r for r in rows if r.event_type == "dividend" and r.event_date == date(2026, 8, 11))
-    assert (div.adj_dividend, div.dividend, div.payment_date, div.frequency) == (0.26, 1.04, date(2026, 8, 14), "Quarterly")
+    div = next(r for r in rows if r.event_type == "dividend" and r.event_date == _on(-46))
+    assert (div.adj_dividend, div.dividend, div.payment_date, div.frequency) == (0.26, 1.04, _on(-43), "Quarterly")
 
 
 def test_a_narrower_second_response_never_deletes_cached_rows(monkeypatch, engine):
@@ -90,14 +103,14 @@ def test_a_refresh_inserts_new_events_and_updates_existing_ones_in_place(monkeyp
     with Session(engine) as session:
         ids = {r.event_date: r.id for r in session.exec(select(CorporateEvent).where(CorporateEvent.event_type == "earnings")).all()}
 
-    revised = [dict(EARNINGS[0], epsActual=2.05), {"date": "2026-01-29", "epsActual": 1.5, "epsEstimated": 1.4, "revenueActual": 7e10}, *EARNINGS[1:]]
+    revised = [dict(EARNINGS[0], epsActual=2.05), {"date": _on(-240).isoformat(), "epsActual": 1.5, "epsEstimated": 1.4, "revenueActual": 7e10}, *EARNINGS[1:]]
     _fake_fmp(monkeypatch, earnings=revised)
     asyncio.run(ce.refresh_ticker_events("AAPL"))
 
     with Session(engine) as session:
         rows = {r.event_date: r for r in session.exec(select(CorporateEvent).where(CorporateEvent.event_type == "earnings")).all()}
     assert len(rows) == 4
-    assert rows[date(2026, 10, 29)].eps_actual == 2.05 and rows[date(2026, 10, 29)].id == ids[date(2026, 10, 29)]
+    assert rows[_on(33)].eps_actual == 2.05 and rows[_on(33)].id == ids[_on(33)]
 
 
 def test_a_failed_endpoint_keeps_old_rows(monkeypatch, engine):
@@ -190,10 +203,10 @@ def test_cached_chart_events_apply_the_same_rules_as_the_live_path(monkeypatch, 
 
     assert events.source == "fmp"
     # The scheduled report (no actuals) is dropped; only real reports count, oldest first.
-    assert [e.event_date for e in events.earnings] == [date(2026, 4, 30), date(2026, 7, 30)]
+    assert [e.event_date for e in events.earnings] == [_on(-149), _on(-58)]
     assert (events.earnings[1].eps_actual, events.earnings[1].eps_estimated) == (1.9, 1.8)
     # Split-adjusted amount, zero-amount row dropped.
-    assert [(d.event_date, d.amount) for d in events.dividends] == [(date(2026, 5, 12), 0.25), (date(2026, 8, 11), 0.26)]
+    assert [(d.event_date, d.amount) for d in events.dividends] == [(_on(-137), 0.25), (_on(-46), 0.26)]
 
 
 def test_a_ticker_that_pays_no_dividend_is_cached_as_empty_not_missing(monkeypatch, engine):

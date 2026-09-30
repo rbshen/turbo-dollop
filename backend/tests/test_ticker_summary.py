@@ -60,13 +60,42 @@ FAKE_PRICE_CHANGE = [{"1M": 3.2, "6M": 12.5, "ytd": 15.1, "1Y": 22.4, "5Y": 123.
 
 FAKE_RATIOS = [{"priceToEarningsRatio": 30.1}]
 
+_TODAY = date.today()
+
+
+def _estimate_date(years_ahead: int) -> str:
+    """Same month/day as today, `years_ahead` calendar years out (day capped
+    at 28 so Feb 29 never lands on a non-leap year). Whole-year steps keep
+    the fiscal-year offsets Step 2's target window works in exact, which
+    "today + 365*n days" would not across leap years."""
+    return date(_TODAY.year + years_ahead, _TODAY.month, min(_TODAY.day, 28)).isoformat()
+
+
+# Relative to today for the same reason as FAKE_EARNINGS below: Step 2 keeps
+# only forward-dated rows, so a hardcoded year silently changes the base row
+# the day it passes (this fixture's "2026-09-27" row did exactly that). The
+# -1 row is already past and must be ignored by the future-only filter.
 FAKE_ESTIMATES = [
-    {"date": "2030-09-27", "epsAvg": 13.38},
-    {"date": "2029-09-27", "epsAvg": 11.93},
-    {"date": "2028-09-27", "epsAvg": 10.70},
-    {"date": "2027-09-27", "epsAvg": 9.66},
-    {"date": "2026-09-27", "epsAvg": 8.31},
+    {"date": _estimate_date(5), "epsAvg": 13.38},
+    {"date": _estimate_date(4), "epsAvg": 11.93},
+    {"date": _estimate_date(3), "epsAvg": 10.70},
+    {"date": _estimate_date(2), "epsAvg": 9.66},
+    {"date": _estimate_date(1), "epsAvg": 8.31},
+    {"date": _estimate_date(-1), "epsAvg": 6.11},
 ]
+
+
+def _expected_eps_cagr_pct() -> float:
+    """docs/specs/growth-rate.md: base = nearest forward-dated row, target =
+    the forward row closest to 4 years after the base year, CAGR between
+    them -- derived from the fixture rows, not from literals."""
+    future = sorted((r for r in FAKE_ESTIMATES if r["date"] > _TODAY.isoformat()), key=lambda r: r["date"])
+    base, later = future[0], future[1:]
+    base_year = int(base["date"][:4])
+    target = min(later, key=lambda r: abs(int(r["date"][:4]) - base_year - 4))
+    years = int(target["date"][:4]) - base_year
+    return ((target["epsAvg"] / base["epsAvg"]) ** (1 / years) - 1) * 100
+
 
 # Dates are relative to today, not hardcoded -- a fixed future date
 # eventually becomes today's past and silently breaks these tests on a
@@ -74,7 +103,6 @@ FAKE_ESTIMATES = [
 # date broke once the clock passed it). NEXT_EARNINGS_DATE is shared with
 # the assertions below so the fixture and the expectation can never drift
 # from each other.
-_TODAY = date.today()
 NEXT_EARNINGS_DATE = _TODAY + timedelta(days=25)
 FAKE_EARNINGS = [
     {"date": NEXT_EARNINGS_DATE.isoformat(), "epsActual": None, "epsEstimated": 1.88},
@@ -247,11 +275,14 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     assert summary.pe_ratio == 30.1
     assert summary.next_earnings_date is not None and summary.next_earnings_date == NEXT_EARNINGS_DATE
     # Must equal Step 2's own growth_rate exactly (same _project computation,
-    # same base year 2026 / target year 2030 four-years-out window) -- this
+    # same forward-only date filter and four-years-out target window) -- this
     # is the regression guard for the bug where a near-duplicate calculation
     # here disagreed with the Step 2 card because it lacked Step 2's
     # future-only date filter and could window off a different base year.
-    assert summary.eps_growth_3_5y == ((13.38 / 8.31) ** (1 / 4) - 1) * 100
+    # Expected value comes from the fixture (see _expected_eps_cagr_pct), so
+    # it holds on any date; the fixture's past-dated row is what would be
+    # picked up as the base if the filter regressed.
+    assert summary.eps_growth_3_5y == _expected_eps_cagr_pct()
     assert summary.fair_value_price == 200.0
     assert summary.fair_value_verdict == "undervalued"
     assert summary.fair_value_method == "DCF"
