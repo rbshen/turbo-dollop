@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { CaretDown } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
 
@@ -37,7 +38,7 @@ export function ExportMenu({ disabled, onExportTradingView, onExportThinkorswim 
     <div ref={ref} className="relative">
       <Button
         ref={triggerRef}
-        variant="ghost"
+        variant="outline"
         size="sm"
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
@@ -49,16 +50,15 @@ export function ExportMenu({ disabled, onExportTradingView, onExportThinkorswim 
         }}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="h-8 gap-1.5 border border-border-input bg-surface px-3 hover:border-brand"
       >
-        Export List
-        <span className="text-text-tertiary">▾</span>
+        Export list
+        <CaretDown size={12} weight="bold" aria-hidden="true" className="text-text-tertiary" />
       </Button>
 
       {open && (
         <div
           role="menu"
-          aria-label="Export List"
+          aria-label="Export list"
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               e.preventDefault();

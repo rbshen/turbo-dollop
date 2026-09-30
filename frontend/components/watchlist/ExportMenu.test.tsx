@@ -99,4 +99,17 @@ describe("ExportMenu", () => {
     fireEvent.click(trigger);
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
+
+  it("is a 32px outline button with a hidden caret icon and no text glyph", () => {
+    const { trigger } = renderMenu();
+    expect(trigger).toHaveClass("border", "border-border-input", "h-8");
+    expect(trigger.textContent).toBe("Export list");
+    expect(trigger.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("names the menu in sentence case", () => {
+    const { trigger } = renderMenu();
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menu", { name: "Export list" })).toBeInTheDocument();
+  });
 });

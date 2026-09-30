@@ -76,4 +76,23 @@ describe("RefreshButton", () => {
     });
     expect(screen.getByRole("button", { name: /^Refresh data$/i })).toBeInTheDocument();
   });
+
+  it("is a 32px outline button in every state", async () => {
+    render(<RefreshButton ticker="AAPL" />);
+    const button = screen.getByRole("button");
+    expect(button).toHaveClass("border", "border-border-input", "h-8");
+    fireEvent.click(button);
+    await flush();
+    expect(screen.getByRole("button")).toHaveClass("border", "border-border-input", "h-8");
+  });
+
+  it("replaces the old check-mark glyph with a hidden icon beside the word Refreshed", async () => {
+    render(<RefreshButton ticker="AAPL" />);
+    expect(screen.getByRole("button").querySelector("svg")).toBeNull();
+    fireEvent.click(screen.getByRole("button"));
+    await flush();
+    const button = screen.getByRole("button", { name: "Refreshed" });
+    expect(button.textContent).toBe("Refreshed");
+    expect(button.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+  });
 });

@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { mutate } from "swr";
+import { Check } from "@phosphor-icons/react";
 
+import { Button } from "@/components/ui/button";
 import { apiPost } from "@/lib/api/client";
 import type { RefreshResult } from "@/lib/api/types";
 
@@ -13,9 +15,9 @@ interface Props {
 type Status = "idle" | "loading" | "success" | "error";
 
 const LABELS: Record<Status, string> = {
-  idle: "Refresh Data",
+  idle: "Refresh data",
   loading: "Refreshing…",
-  success: "Refreshed ✓",
+  success: "Refreshed",
   error: "Refresh failed",
 };
 
@@ -40,13 +42,9 @@ export function RefreshButton({ ticker }: Props) {
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      disabled={status === "loading"}
-      className="inline-flex h-8 items-center rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-    >
+    <Button variant="outline" size="sm" onClick={handleClick} disabled={status === "loading"}>
+      {status === "success" && <Check size={12} weight="bold" aria-hidden="true" />}
       {LABELS[status]}
-    </button>
+    </Button>
   );
 }
