@@ -308,29 +308,31 @@ export function DiscountRateMock() {
       title="Discount rate by country"
       intro="The rates used to work out each ticker's discount rate for the Valuation tab: risk-free rate plus beta times market risk premium. Both are 5-year trailing averages from market-risk-premia.com that you update by hand; nothing refreshes them, so they go stale until you do. Beta comes live from FMP for each ticker. Only the United States has its own rate; a ticker from any other country, such as an ADR, uses the US rate."
     >
-      <SettingsGroup title="United States (US)">
-        <NumberRow
-          id="sg-dr-rf"
-          label="Risk-free rate"
-          unit="%"
-          step={0.001}
-          hint="A 5-year trailing average of the risk-free rate, and the starting point of the discount rate."
-          rules={{}}
-          value={rf}
-          onChange={setRf}
-        />
-        <NumberRow
-          id="sg-dr-mrp"
-          label="Market risk premium"
-          unit="%"
-          step={0.001}
-          hint="The extra return investors expect from stocks over the risk-free rate, as a 5-year trailing average."
-          rules={{}}
-          value={mrp}
-          onChange={setMrp}
-        />
-        <SettingsFooter onSave={save} status={status} invalid={invalid} updatedAt={MOCK_UPDATED_AT} className="mt-4 pb-1" />
-      </SettingsGroup>
+      <div>
+        <SettingsGroup title="United States (US)">
+          <NumberRow
+            id="sg-dr-rf"
+            label="Risk-free rate"
+            unit="%"
+            step={0.001}
+            hint="A 5-year trailing average of the risk-free rate, and the starting point of the discount rate."
+            rules={{}}
+            value={rf}
+            onChange={setRf}
+          />
+          <NumberRow
+            id="sg-dr-mrp"
+            label="Market risk premium"
+            unit="%"
+            step={0.001}
+            hint="The extra return investors expect from stocks over the risk-free rate, as a 5-year trailing average."
+            rules={{}}
+            value={mrp}
+            onChange={setMrp}
+          />
+        </SettingsGroup>
+        <SettingsFooter onSave={save} status={status} invalid={invalid} updatedAt={MOCK_UPDATED_AT} />
+      </div>
     </SettingsSection>
   );
 }

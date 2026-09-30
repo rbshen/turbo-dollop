@@ -6,20 +6,16 @@ import { mutate } from "swr";
 import { apiPut } from "@/lib/api/client";
 import type { DiscountRateConfigOut } from "@/lib/api/types";
 import { useDiscountRateConfigs } from "@/lib/hooks/useDiscountRateConfig";
-import { fmtNumber } from "@/lib/format";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Field, Input } from "@/components/ui/input";
-import { Section } from "@/components/ui/section";
-
-type Status = "idle" | "saving" | "saved" | "error";
-
-const STATUS_LABELS: Record<Status, string> = {
-  idle: "Save",
-  saving: "Saving…",
-  saved: "Saved ✓",
-  error: "Save failed",
-};
+import { NumberField } from "@/components/ui/number-field";
+import {
+  SettingsFooter,
+  SettingsGroup,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings/SettingsLayout";
+import { useSettingsSave, type SettingsSaver } from "@/components/settings/useSettingsSave";
+import { checkNumber } from "@/lib/numberInput";
+import { fractionToPercentText, percentToFraction } from "@/lib/percentFraction";
 
 // A region's own display name, where it differs from its bare code. Only
 // US is supported today (backend helpers/discount_rate_config.py::
@@ -45,49 +41,58 @@ export function DiscountRateSettingsForm() {
   }
 
   return (
-    <Section title="Discount Rate by Country">
-      <p className="text-xs text-text-tertiary">
-        Risk-Free Rate and Market Risk Premium are 5-year trailing averages from market-risk-premia.com — manually
-        maintained here, not auto-fetched (see CLAUDE.md). Beta stays sourced live per-ticker from FMP. Feeds a
-        ticker&apos;s own country&apos;s Valuation discount rate: <span className="font-mono text-text-secondary">Rf + β × MRP</span>. Only
-        the United States has its own rate; a ticker from any other country (e.g. an ADR) uses the US rate directly.
-      </p>
-
-      <div className="mt-4 space-y-4">
+    <SettingsSection
+      title="Discount rate by country"
+      intro="The rates used to work out each ticker's discount rate for the Valuation tab: risk-free rate plus beta times market risk premium. Both are 5-year trailing averages from market-risk-premia.com that you update by hand; nothing refreshes them, so they go stale until you do. Beta comes live from FMP for each ticker. Only the United States has its own rate; a ticker from any other country, such as an ADR, uses the US rate."
+    >
+      <div className="space-y-10">
         {data.map((row) => (
-          // Keyed on region + updated_at so a save (which changes updated_at)
-          // remounts just that region's form with fresh initial text --
-          // avoids setState-in-effect just to resync local edit state.
-          <DiscountRateForm key={`${row.region}-${row.updated_at}`} data={row} />
+          <DiscountRateRegion key={row.region} data={row} />
         ))}
       </div>
-    </Section>
+    </SettingsSection>
   );
 }
 
-// Each region is a genuinely distinct, independently-saved panel -- a Card,
-// not folded into the Section's own flow -- so a future second region (the
-// backend already supports more than one) reads as its own bounded card
-// rather than blurring into the one above it.
-function DiscountRateForm({ data }: { data: DiscountRateConfigOut }) {
-  const [rfText, setRfText] = useState(fmtNumber(data.risk_free_rate * 100, 3));
-  const [mrpText, setMrpText] = useState(fmtNumber(data.market_risk_premium * 100, 3));
-  const [status, setStatus] = useState<Status>("idle");
+// One region saves on its own, so each holds its own save status here, ABOVE
+// the form's key={updated_at} remount, so "Saved ✓" survives it.
+function DiscountRateRegion({ data }: { data: DiscountRateConfigOut }) {
+  const saver = useSettingsSave();
+  // Keyed on updated_at so a save (which changes updated_at) remounts just
+  // this region's form with fresh initial text.
+  return <DiscountRateForm key={data.updated_at} data={data} saver={saver} />;
+}
 
-  async function handleSave() {
-    const riskFreeRate = parseFloat(rfText);
-    const marketRiskPremium = parseFloat(mrpText);
-    if (Number.isNaN(riskFreeRate) || Number.isNaN(marketRiskPremium)) {
-      setStatus("error");
-      return;
-    }
-    setStatus("saving");
-    try {
-      await apiPut<DiscountRateConfigOut>("/config/discount-rate", {
-        region: data.region,
-        risk_free_rate: riskFreeRate / 100,
-        market_risk_premium: marketRiskPremium / 100,
-      });
+// The stored rates are fractions (0.03608); the fields show and take percent
+// (3.608). The stored value is shown at full precision (never rounded to 3
+// decimals), and a field the user did not edit is sent back as its ORIGINAL
+// stored value -- so pressing Save can never rewrite a rate the user did not
+// touch, and editing one field never rewrites the other. No bounds: the
+// server has none, so the only check is "is it a number".
+function DiscountRateForm({ data, saver }: { data: DiscountRateConfigOut; saver: SettingsSaver }) {
+  const shownRf = fractionToPercentText(data.risk_free_rate);
+  const shownMrp = fractionToPercentText(data.market_risk_premium);
+  const [rfText, setRfText] = useState(shownRf);
+  const [mrpText, setMrpText] = useState(shownMrp);
+
+  const rf = checkNumber(rfText);
+  const mrp = checkNumber(mrpText);
+  const invalid = rf.error !== null || mrp.error !== null;
+  // Edited = differs from what the stored value shows. An unparsable entry
+  // counts as edited (it is not the stored value) but blocks Save via `invalid`.
+  const rfEdited = rf.value === null || rf.value !== Number(shownRf);
+  const mrpEdited = mrp.value === null || mrp.value !== Number(shownMrp);
+  const unchanged = !rfEdited && !mrpEdited;
+
+  function handleSave() {
+    if (invalid || rf.value === null || mrp.value === null) return;
+    const body = {
+      region: data.region,
+      risk_free_rate: rfEdited ? percentToFraction(rf.value) : data.risk_free_rate,
+      market_risk_premium: mrpEdited ? percentToFraction(mrp.value) : data.market_risk_premium,
+    };
+    void saver.run(async () => {
+      await apiPut<DiscountRateConfigOut>("/config/discount-rate", body);
       await mutate("/config/discount-rate");
       await mutate("/config/discount-rates");
       // Every ticker's Step 3 discount rate is derived from this config --
@@ -98,51 +103,37 @@ function DiscountRateForm({ data }: { data: DiscountRateConfigOut }) {
       // here which cached /step3 responses belong to this region's
       // tickers -- an over-invalidation, not a correctness issue.
       await mutate((key) => typeof key === "string" && (key.includes("/step3") || key.includes("/summary")));
-      setStatus("saved");
-    } catch {
-      setStatus("error");
-    } finally {
-      setTimeout(() => setStatus("idle"), 3000);
-    }
+    });
   }
 
   return (
-    <Card className="space-y-4">
-      <h3 className="text-sm font-semibold text-text-primary">
-        {regionLabel(data.region)} <span className="font-mono text-xs text-text-tertiary">({data.region})</span>
-      </h3>
+    <div>
+      <SettingsGroup title={`${regionLabel(data.region)} (${data.region})`}>
+        <SettingsRow
+          label="Risk-free rate"
+          hint="A 5-year trailing average of the risk-free rate, and the starting point of the discount rate."
+          htmlFor={`risk-free-rate-${data.region}`}
+          error={rf.error}
+        >
+          <NumberField value={rfText} onChange={setRfText} size="short" unit="%" step={0.001} />
+        </SettingsRow>
+        <SettingsRow
+          label="Market risk premium"
+          hint="The extra return investors expect from stocks over the risk-free rate, as a 5-year trailing average."
+          htmlFor={`market-risk-premium-${data.region}`}
+          error={mrp.error}
+        >
+          <NumberField value={mrpText} onChange={setMrpText} size="short" unit="%" step={0.001} />
+        </SettingsRow>
+      </SettingsGroup>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Risk-Free Rate (%)" htmlFor={`risk-free-rate-${data.region}`}>
-          <Input
-            id={`risk-free-rate-${data.region}`}
-            variant="boxed"
-            type="number"
-            step="0.001"
-            className="mt-1 w-full font-mono"
-            value={rfText}
-            onChange={(e) => setRfText(e.target.value)}
-          />
-        </Field>
-        <Field label="Market Risk Premium (%)" htmlFor={`market-risk-premium-${data.region}`}>
-          <Input
-            id={`market-risk-premium-${data.region}`}
-            variant="boxed"
-            type="number"
-            step="0.001"
-            className="mt-1 w-full font-mono"
-            value={mrpText}
-            onChange={(e) => setMrpText(e.target.value)}
-          />
-        </Field>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <Button variant="primary" onClick={handleSave} disabled={status === "saving"}>
-          {STATUS_LABELS[status]}
-        </Button>
-        <p className="text-xs text-text-tertiary">Last updated {new Date(data.updated_at).toLocaleString()}</p>
-      </div>
-    </Card>
+      <SettingsFooter
+        onSave={handleSave}
+        status={saver.status}
+        invalid={invalid}
+        unchanged={unchanged}
+        updatedAt={data.updated_at}
+      />
+    </div>
   );
 }

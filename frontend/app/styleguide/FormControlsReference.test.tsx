@@ -115,7 +115,7 @@ describe("DiscountRateMock", () => {
     const group = screen.getByRole("group", { name: "United States (US)" });
     expect(within(group).getByLabelText("Risk-free rate")).toBeInTheDocument();
     expect(within(group).getByLabelText("Market risk premium")).toBeInTheDocument();
-    expect(within(group).getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     fireEvent.change(within(group).getByLabelText("Risk-free rate"), { target: { value: "-250.5" } });
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.change(within(group).getByLabelText("Risk-free rate"), { target: { value: "abc" } });
