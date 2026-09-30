@@ -41,6 +41,8 @@ All sessions below are commits on `ui/design-system`, not pushed to `origin` unt
 - **Session 9, part 2 — Weinstein and Liquidity (2026-09-30).** The last two form sections (and a 0-100 check on the Moat fields) moved onto the form-control kit; `NumberStepper`, `InfoTooltip` and the legacy `Select` shell removed once nothing used them. See "Session 9: Settings migration, part 2" below.
 - **Session 9, part 3 — FMP settings on the kit (2026-09-30).** The FMP status card moved into FMP data groups; the immediate-apply FMP controls became `Switch` and native `Select`; error messages now persist; REIT and Discount rate show the server's reason. See "Session 9: Settings migration, part 3" below.
 
+- **Session 10 — Screener migration: plan and primitives (2026-09-30).** The form-control primitives and a `/styleguide` sidebar mock for the Screener migration, with **no Screener page change** beyond a `T` suffix in market-cap input. Four commits (docs, helpers and primitives, `RangeField`, styleguide), not pushed. See "Session 10: Screener migration, plan and primitives" below.
+
 ## Design reversals
 
 ### 2026-09-29 — Status becomes a pill everywhere
@@ -129,6 +131,35 @@ Weinstein and Liquidity are migrated onto `NumberField`, `Select` (with a size t
 - **Error messages persist.** In the Settings forms a failed save's message (including a 422's reason) now stays until the user's next edit or next Save attempt; only "Saved ✓" resets after three seconds. This refines the part 1 rule ("a three-second reset"), which made a server reason vanish before it could be read.
 - **REIT dividend yield and Discount rate show the server's reason** beside "Save failed", as Moat, Weinstein and Liquidity already did.
 - **Sentence case** for the labels in these two sections.
+
+### 2026-09-30 — Session 10: Screener migration, plan and primitives
+
+Plan and primitives for moving the Screener sidebar onto the form-control kit. **Only the primitives and a `/styleguide` mock are built; `app/screener` and `components/screener` are untouched**, and the owner reviews the mock in the browser before any Screener page change. The one live change is that market-cap input accepts a `T` suffix. Spec: "Screener filter sidebar primitives (session 10)" in `docs/design-system.md`.
+
+**Currency finding (read-only investigation, 2026-09-30).** The Screener needs no currency handling. Every `TickerScore` row quotes in USD (585 of 585 screenable rows; none NULL), so Quote and Mkt cap are USD and a "USD" label is always true. The 14 US-listed ADRs that report in another currency (ASML, BABA, CCEP, CCJ, CNI, EVVTY, FER, MFC, NVO, PDD, RY, SINGY, TME, TSM) are stored correctly: price and market cap are USD, the five scores and Growth % are unitless, and P/E is computed by FMP on one currency basis. The FX conversion in Valuation stays. The non-US cleanup (Country filter, HK and France discount rates) was already done on 2026-09-26.
+
+**Owner decisions.**
+
+1. **Sidebar width stays `w-64` (256px)**, card content 222px. Not widened.
+2. **Units go in the label row**, right-aligned in `text-tertiary`, not after the boxes: Quote and Mkt cap "USD", P/E "x", Growth "%", score fields none.
+3. **Boxed versus underline is decided by the owner by eye from the mock.** Both are built: `NumberField` gets an additive `variant` (boxed default, underline) backed by `Input`'s existing variants. **Pending the owner's review.** The variant that loses is deleted at migration, not now.
+4. **Compact `FormField`, sidebar only:** label `text-xs` `text-secondary`, 2px gap to the control, no hint line (one optional single-line hint for market cap only), unit right-aligned in the label row.
+5. **`T` added to the market-cap suffixes** (M, B, T). `5T` is 5,000,000,000,000. The live parser `parseMarketCapInput` changes by adding `T` only; the new lenient parser in `lib/numberInput.ts` (accepts `12.`, `.5`, `2 m`) is used by `NumberField` and `RangeField`, and the old one is deleted at migration. The mock carries a caption saying the live sidebar still rejects `12.` until then.
+6. **Live-filter rule for a Min/Max pair (option B):** valid text commits immediately, including `12.` and `.5`; an incomplete prefix (`-`, `.`, `-.`) holds the previous committed value with no error while focused and becomes invalid on blur (emitting `null` on that blur); any other invalid text (letters, `1x`, `5e`) makes that side inactive at once (emits `null`) and shows an inline error. Never clamp, swap or correct a value. No bounds except the existing market-cap minimum of 0.
+7. **Filter state stays numeric.** `ScreenerFilterState` and saved-view compatibility do not change; typed text lives only in UI drafts.
+8. **A reversed range** (min greater than max) is applied literally, so nothing matches, as today. One pair-level message under both boxes: "Min is higher than max, so no ticker can match." The Max box alone is marked invalid.
+9. **External changes re-sync the drafts by object identity.** `useDraftNumber` remembers the exact `{ min, max }` object it emitted; a different object from outside (Reset, Load saved view, remount), including an equal-valued `EMPTY_RANGE`, rewrites the boxes even when one holds invalid text such as `1x`; the same object never overwrites typing. Parents pass the emitted object back unchanged.
+10. **Applied indicator:** orange stays as label text colour only. A neutral applied-count `Badge` for section headers (mock only). Chips show applied through their checked fill, not orange. The Watchlist label is orange only while the watchlist filter is actually in effect.
+11. **`formatMarketCapInput`** picks the shortest exact form (`1.5e9` reads `1.5B`, `2.5e12` reads `2.5T`): a candidate is accepted only if parsing it returns exactly the same number, otherwise a smaller suffix, otherwise plain digits.
+12. **New additive `outline` Button variant** replaces the repeated "ghost plus `border-border-input hover:border-brand`" hack. Existing uses are not migrated yet.
+
+**Built (additive and opt-in):** `NumberField` `optional`, `suffixes`, `keyboardStep`, `variant`, `hideError`; `FormField` `density="compact"` (and `applied`); `useDraftNumber` and `RangeField`; `Button` `outline`; `countActiveFilters` and `formatMarketCapInput`. Existing call sites render exactly as before.
+
+**Deferred or decided for the migration itself:**
+
+- **`AddToWatchlistButton` is deferred to the ticker-page session.** The Screener page keeps it as it is.
+- **Reset will also reset the sort** (field and direction), not just the filters, the universe and the watchlist. Decided here, done at migration.
+- **The sidebar will stay mounted on a universe switch**, so draft text and open sections are not lost. Decided here, done at migration.
 
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 

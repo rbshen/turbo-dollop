@@ -42,7 +42,7 @@ A calm, data-first interface for fundamental investing.
 | Move between areas of Settings | SideNav |
 | Switch between views of one ticker | Tabs (neutral underline) |
 | Change a data option on the same view | SegmentedControl (fixed 2–6 options only — use Tabs instead for an unbounded set, e.g. the Watchlist switcher) |
-| Do something | Button: one `primary` per region, `ghost` for everything else |
+| Do something | Button: one `primary` per region, `ghost` for everything else. `outline` (ghost with a hairline border that turns `brand` on hover) is for a secondary action that has to read as a button inside a dense panel, such as the Screener's Sort direction and Saved views actions |
 | Enter a typed value (a number, or short text) on a form page | `NumberField` for numbers, boxed `Input` for text, each in a `FormField` or a Settings row |
 | Choose one of a few options on a form page | Native `Select` (in its themed shell), at `short` or `medium` size. Not a SegmentedControl: that is for switching a view, not for a saved setting |
 | An on/off setting that is saved with a Save button | `Checkbox` (neutral checked state) |
@@ -58,7 +58,7 @@ A calm, data-first interface for fundamental investing.
 
 ## Form controls
 
-The controls for typing, choosing and toggling a value on a form page. Built 2026-09-30 (session 8) and shown in `/styleguide`. All five Settings forms (REIT dividend yield, Economic moat, Discount rate, Weinstein, Liquidity) use them as of session 9. The Screener sidebar and the Watchlist name editor still render through the older `Input` and `Checkbox` defaults and are migrated one at a time, each in its own change. The new behaviour is opt-in in code (a new component, or an explicit prop) wherever an old call site still exists, so nothing there changes how it renders; `Select` has no old form left and always takes a `size`.
+The controls for typing, choosing and toggling a value on a form page. Built 2026-09-30 (session 8) and shown in `/styleguide`. All five Settings forms (REIT dividend yield, Economic moat, Discount rate, Weinstein, Liquidity) use them as of session 9. The Screener sidebar and the Watchlist name editor still render through the older `Input` and `Checkbox` defaults and are migrated one at a time, each in its own change. The primitives the Screener sidebar needs (session 10) are built and shown in `/styleguide` under "Screener sidebar (mock)"; the page itself is unchanged until the owner has reviewed the mock. The new behaviour is opt-in in code (a new component, or an explicit prop) wherever an old call site still exists, so nothing there changes how it renders; `Select` has no old form left and always takes a `size`.
 
 | Control | Component | Job |
 | --- | --- | --- |
@@ -69,7 +69,7 @@ The controls for typing, choosing and toggling a value on a form page. Built 202
 | On/off now | `Switch` (`components/ui/switch.tsx`) | Applied immediately, no Save |
 | Anatomy | `FormField` (`components/ui/form-field.tsx`) | Label, hint, control, unit, error, wired together |
 
-**Boxed on form pages.** A form field is a box: `radius-md`, 1px `border-control`, `page` fill, 36px high. This reverses the earlier "boxed for the ticker search only" rule. Underline fields stay for inline filters in dense strips; the Screener sidebar's own choice between them is deferred to its own migration, and `/styleguide` shows both side by side so it can be made on evidence.
+**Boxed on form pages.** A form field is a box: `radius-md`, 1px `border-control`, `page` fill, 36px high. This reverses the earlier "boxed for the ticker search only" rule. Underline fields stay for inline filters in dense strips. The Screener sidebar's own choice between boxed and underline is **pending the owner's review of the `/styleguide` mock**, which shows both built from the real primitives; `NumberField` has a `variant` prop for it (below), and whichever loses is deleted at migration.
 
 **Size tokens.** Every control is 36px high and never wider than its container (`max-w-full`). Width is a token, chosen by what the value looks like, never by the layout around it.
 
@@ -98,6 +98,43 @@ The controls for typing, choosing and toggling a value on a form page. Built 202
 **Native select rule.** A choice is a native `<select>` in the themed `appearance-none` shell with an overlaid caret, restyled to the same 36px height, border and radius as a boxed field and sized by the same tokens. No custom listbox, and no segmented-control mode for a form setting: a native select gives keyboard, touch and screen-reader behaviour for free.
 
 **Checked state is neutral.** A checked Checkbox is `text-primary` fill with a dark check; an on Switch is a `text-primary` track with a dark thumb (32 by 18px, a hidden native `<input type="checkbox" role="switch">`). The `chip` Checkbox variant is the Screener's toggle chip done properly: a `radius-md` 32px chip with a 1px `border-input`, `text-secondary`, and a `surface-2` fill with `text-primary` when checked (a chip is not a Pill; see "Not a Status" under Pills below).
+
+### Screener filter sidebar primitives (session 10)
+
+Additive and opt-in: every existing call site renders exactly as before, and nothing in `app/screener` or `components/screener` uses these yet. They are shown in `/styleguide` under "Screener sidebar (mock)".
+
+**`NumberField` additions.** All default to today's behaviour, so the Settings forms are unchanged.
+
+| Prop | Default | What it does |
+| --- | --- | --- |
+| `optional` | off | An empty field is valid and its check reports a `null` value, instead of "Enter a number." |
+| `suffixes` | none | A map such as `{ M: 1e6, B: 1e9, T: 1e12 }`. Text like `500M`, `2B`, `1.5T` or `2 m` (case-insensitive, optional space) parses to base units. Anything else with letters is invalid (`1x`, `5e`, `1BX`). Without `suffixes`, letters are invalid as always |
+| `keyboardStep` | on | `false` disables ArrowUp and ArrowDown stepping (a market-cap box has no sensible step) |
+| `variant` | `boxed` | `boxed` or `underline`, backed by `Input`'s existing variants. One of the two is deleted at migration |
+| `hideError` | off | The field draws no error line of its own, so a composite can show one line under a pair. It still sets `aria-invalid` and accepts an `aria-describedby` |
+
+`aria-describedby` and every other attribute still pass through. A number is never clamped, rounded or corrected, with or without a suffix.
+
+**Compact `FormField`.** `density="compact"` is for the filter sidebar only: the label is `text-xs` `text-secondary`, the gap to the control is 2px, there is no hint line (one optional single-line hint is allowed, for market cap only), and a `unit` renders **in the label row, right-aligned in `text-tertiary`**, not after the box. An `applied` prop turns the label text `filter-active` orange. The default density is unchanged: `text-sm` label, hint under it, unit after the box.
+
+**`RangeField`** (`components/ui/range-field.tsx`). One labelled Min/Max pair for a numeric range. Props: the numeric `{ min, max }` value, `onChange` with the same shape, `label`, `unit`, `size` (`short`), optional `suffixes` (market cap) and `variant`. It is `role="group"` labelled by its label; the boxes are named "Minimum" and "Maximum" and have the placeholders "Min" and "Max". Typed text lives in a per-side draft (`useDraftNumber`, `lib/hooks/useDraftNumber.ts`); the filter state stays numeric, so `ScreenerFilterState` and saved views do not change.
+
+The commit rule for a Min/Max pair (live filtering, nothing waits for Apply or blur):
+
+1. **Valid text commits immediately**, including `12.` and `.5`.
+2. **An incomplete prefix** (`-`, `.`, `-.`) **holds the previous committed value** with no error while the box is focused. On blur it becomes invalid: that side emits `null` and the error shows.
+3. **Any other invalid text** (letters, `1x`, `5e`) makes that side inactive at once (it emits `null`) and shows an inline error.
+4. **Never clamp, swap or correct.** The only bound is a market cap of at least 0.
+5. **A reversed range** (min higher than max) is applied literally, so nothing matches, exactly as today. One message sits under both boxes, "Min is higher than max, so no ticker can match.", and only the Max box is marked invalid.
+6. **One error line** under the pair, never one per box. A text error wins over the reversed-range message.
+7. **External changes re-sync the boxes.** The hook remembers the exact `{ min, max }` object it last emitted. A different object from outside (Reset, loading a saved view, a remount) rewrites the drafts, even when its numbers equal the current ones, so stale invalid text such as `1x` is cleared. The same object handed back never rewrites what the user is typing. Parents must therefore pass the emitted object back unchanged.
+8. A market-cap box shows the shortest exact form on mount or re-sync (`1e9` reads `1B`, `2.5e12` reads `2.5T`, `1234567` stays plain digits).
+
+**The 256px filter sidebar.** The Screener sidebar stays `w-64` (256px): with the card's 1px borders and `p-4`, its content is **222px** wide. It is not widened. A range pair is two `short` (96px) boxes with a dash between them and fits without overflow. **Units sit in the label row**, right-aligned in `text-tertiary`: Quote and Market cap "USD" (every current ticker is USD-quoted, so the label is always true), P/E "x", Growth "%", the score fields none. A label is `text-xs` sentence case (Overall, Financials, Growth rate, Profitability, Debt, Quote, P/E, Growth, Mkt cap, Beta).
+
+**Applied state.** A filter label turns `filter-active` orange while it holds a value, the one documented colour exception; it is the only thing that turns orange. A chip shows applied through its checked fill (`surface-2`, `text-primary`), not orange. The Watchlist label is orange only while the watchlist filter is actually in effect: a selected watchlist that is dimmed because the universe is not "All" is not applied. A section header may carry a neutral applied-count `Badge` (for example "3"), computed by the pure `countActiveFilters(filters, watchlistActive)` in `lib/screenerFilters.ts`: applied ranges, non-empty multi-selects, checked chips and an in-effect watchlist. The badge exists in the mock only until migration.
+
+**Market-cap suffixes** are M, B and T (`5T` is 5,000,000,000,000). The live sidebar's own parser (`parseMarketCapInput`) gains the `T` suffix and nothing else; the new lenient parser is in `lib/numberInput.ts` and the old one is deleted at migration.
 
 ## Settings layout
 
