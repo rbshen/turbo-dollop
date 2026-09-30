@@ -161,6 +161,26 @@ Plan and primitives for moving the Screener sidebar onto the form-control kit. *
 - **Reset will also reset the sort** (field and direction), not just the filters, the universe and the watchlist. Decided here, done at migration.
 - **The sidebar will stay mounted on a universe switch**, so draft text and open sections are not lost. Decided here, done at migration.
 
+### 2026-09-30 — Screener data: delisted exclusion and trailing P/E
+
+Backend-only data changes to what the Screener (and the ticker header/Summary) show. **No frontend file changes** — the Screener page, sidebar and cards are untouched. Written up from the 2026-09-30 investigations (delisted tickers; P/E basis). Spec: "Screener excludes delisted tickers" and "P/E basis" in `docs/specs/overview.md`.
+
+**Decisions and reasons**
+
+1. **Delisted tickers never appear in any Screener universe.** `GET /api/screener` and `GET /api/screener/meta` add `TickerScore.delisted_at IS NULL` in every branch (`all`, `sp500`, `dow`, `nasdaq`; the page's Watchlist scope is applied client-side over the `all` response, so it inherits the exclusion). *Reason:* the five flagged tickers (TWTR, WBA, EA, AVB, EQR) carry stale prices and stale scores; they only showed under "All", but a stale row in a screen is misleading. Filtered on the server, so the frontend needs no change; the meta count uses the same condition so "X of Y" stays honest.
+2. **`delisted_at` is not exposed to the frontend and the schema does not change.** Nothing is un-flagged. *Reason:* the flag is an internal job input (bar jobs, Momentum); AVB and EQR are correctly flagged (they merged into Vivmark Residential, ticker VMRK, trading from 2026-08-18), so there is nothing to correct.
+3. **Nightly fundamentals fetch and score recompute are unchanged for delisted tickers.** *Reason:* out of scope for this change; the cost is reported separately (see the session report) so it can be decided on its own.
+4. **P/E becomes trailing:** current price ÷ FMP TTM EPS (`netIncomePerShareTTM` from the cached `ratios/ttm` row), stored in the same `TickerScore.pe_ratio` column (no `pe_basis` column, no migration). *Reason:* the previous value was FMP's annual `priceToEarningsRatio` — fiscal-year-end price over fiscal-year EPS, a median 273 days old and a median 17% (90th percentile 65%) away from a trailing figure — and the header showed it beside a TTM PEG, a mixed basis.
+5. **Price = `TickerLastClose` (nightly), falling back to the quote price** when a ticker has no `TickerLastClose` row (e.g. HUT). *Reason:* the cached quote row refreshes on a 7-day window; the nightly close is at most one session old. No other price handling changes (the Quote and Mkt cap columns still come from the quote row).
+6. **NULL when TTM EPS is zero, negative or missing.** *Reason:* a negative multiple is not a P/E; storing it made loss-makers pass a max-only P/E filter (`≤ 20` matched INTC's −615) while a NULL is excluded by any active range (`inRange`).
+7. **ADRs use FMP's own `priceToEarningsRatioTTM`,** stored NULL if that value is zero or negative. An ADR is detected by `reported_currency != quote_currency` with both non-null (not a hardcoded list). *Reason:* price (USD) over EPS (reporting currency) needs FX conversion and, for some ADRs, an ADR ratio; FMP's TTM P/E is already currency-consistent. If either currency is missing the standard formula is used.
+8. **The Ratios tab is unchanged.** It keeps showing FMP's annual P/E history plus FMP's TTM column, so its P/E can differ from the header's by design.
+9. **Saved views are unaffected** (all 3 saved filters have P/E min and max null).
+
+**Docs corrections in the same change:** `docs/specs/fmp-data-and-bar-cache.md` claimed the five delisted flags were "verified against the live endpoint"; they were actually set by the 2026-09-24 staleness heuristic (a manual `stale_data_health_check` run), not by the `/delisted-companies` sync, and the endpoint check is not reproducible from cached data. **No `docs/specs/ratios.md` exists** (the Ratios tab is undocumented in the specs); a short one is warranted — the Ratios tab's field table, its annual-vs-TTM columns, and now the deliberate difference from the header/Screener P/E — but it is not created here.
+
+**Backfill:** the new basis reaches `TickerScore` on the next nightly recompute (3:50) or an owner-run `uv run python -m pipeline.recompute_ticker_scores` (cache-only, **writes the live DB**).
+
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
 - **`MultiSelect` primitive — resolved, built.** `components/screener/MultiSelectDropdown.tsx` is

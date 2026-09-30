@@ -425,17 +425,22 @@ keep serving and the Warren/BB+RSI nightly jobs record `skipped`.
 
 ## Delisted-ticker handling (2026-09-23; detection replaced in Phase 6a)
 
-**TWTR, WBA, EA, AVB, EQR** are genuinely delisted but stay in `load_full_tracked_universe`
+**TWTR, WBA, EA, AVB, EQR** are the five flagged tickers (TWTR, WBA, EA delisted; AVB and EQR merged
+into Vivmark Residential, VMRK, trading from 2026-08-18) and stay in `load_full_tracked_universe`
 forever (any ticker that ever got a `TickerScore` row never drops out), so the nightly bar jobs
-would re-attempt them every night.
+would re-attempt them every night. **Provenance (corrected 2026-09-30):** all five carry
+`delisted_at = 2026-09-24 10:17:02`, written by a manual `stale_data_health_check` run under the
+*earlier staleness heuristic* (SharedBarsCache last daily bar more than 30 days old), not by the
+`/delisted-companies` sync below — the sync only sets a NULL flag, so it never rewrote them, and
+FMP's own delisted date is not stored anywhere.
 
 - **`TickerScore.delisted_at: datetime | None`** (nullable, `_add_missing_columns`-backfilled) is
   set by `pipeline/stale_data_health_check.py::sync_delisted_flags` (weekly, Sundays 1:30 AM) from
   FMP `/delisted-companies` (group `index_membership`). The endpoint's page size is capped at 100
   (~157 pages / ~15.6k rows / ~15.4k unique symbols on 2026-09-26, so ~157 sequential calls a
-  week); a tracked ticker listed with a delisted date on/before today is flagged. Verified against
-  the live endpoint: all five tickers above are in it and are the only 5 of 591 tracked tickers
-  that are.
+  week); a tracked ticker listed with a delisted date on/before today is flagged. (An earlier
+  version of this section said this was "verified against the live endpoint" for the five tickers
+  above; that is not reproducible from cached data and is not what set their flags, see above.)
 - **Detection rules.** Absence is never evidence: no flag for an unlisted ticker, and an existing
   flag is **never cleared** (the earlier staleness heuristic, live-probe revival and auto-clear
   are gone). Guards on a hit: a delisted date in the future is a scheduled delisting (ignored); a
@@ -450,8 +455,10 @@ would re-attempt them every night.
   only — the trend job's `--tickers`/`--limit` escape hatch bypasses it. Market Breadth and Sector
   Heatmap need no change (their universes — `IndexConstituent` sp500 and 11 fixed ETFs — never
   contained these).
-- **Nothing is ever deleted**: `TickerScore`, `FundamentalsCache`, Screener/Watchlist and
-  ticker-page history stay intact; the flag only stops price-bar re-fetching.
+- **Nothing is ever deleted**: `TickerScore`, `FundamentalsCache`, Watchlist and ticker-page
+  history stay intact; the flag stops price-bar re-fetching and (since 2026-09-30) hides the ticker
+  from every Screener universe and the Screener's meta count (see overview.md, "Screener excludes
+  delisted tickers"). The row itself is still recomputed nightly.
 
 ## US-listed tickers only (non-US cleanup, 2026-09-26)
 

@@ -67,3 +67,14 @@ Overall Assessment uses these same labels, with two additions worth knowing:
   bigger picture.
 
 See [Overview](overview.md) for how Overall Assessment is built.
+
+# Glossary: P/E
+
+## P/E (trailing)
+
+The P/E shown on the Screener, Watchlist and ticker header is **trailing**: the latest official
+close divided by trailing-twelve-month earnings per share. It is blank ("—") when trailing EPS is
+zero, negative or unavailable — a loss-making company has no meaningful P/E. For a US-listed
+company that reports in a different currency (an ADR), FMP's own trailing P/E is used instead. The
+Ratios tab's P/E rows are FMP's own annual and TTM figures and can differ. See
+[Overview](overview.md), "P/E basis".

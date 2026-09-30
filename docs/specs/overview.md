@@ -170,6 +170,39 @@ its own rows and still shows an ETF a user explicitly added.
 - **Not done (flagged)**: `nightly_fundamentals_fetch` still spends FMP calls fetching/scoring an
   ETF's statements (SPY: ~20 cache rows); nothing in that script skips ETFs.
 
+## Screener excludes delisted tickers (2026-09-30)
+
+A ticker flagged delisted (`TickerScore.delisted_at` set; see the delisted-ticker section of
+[FMP data and bar cache](fmp-data-and-bar-cache.md)) appears in **no** Screener universe.
+`core/main.py::screener_list` and `screener_meta` both add `delisted_at IS NULL` in every branch
+(`all`, `sp500`, `dow`, `nasdaq`), so the "X of Y" count matches the rows returned. The page's
+Watchlist scope is applied client-side over the `all` response and inherits the exclusion. The flag
+is not exposed to the frontend and nothing here clears it. The Watchlist is unaffected: it reads its
+own rows, so a delisted ticker a user explicitly watchlisted still shows there. The nightly
+fundamentals fetch and score recompute still process a flagged ticker.
+
+## P/E basis (2026-09-30)
+
+The Screener's P/E, the ticker header's and Summary tab's **P/E Ratio**, and the Watchlist's P/E
+column all read one value, `TickerScore.pe_ratio` (`TickerSummaryOut.pe_ratio`,
+`data/ticker_summary.py`), and it is **trailing**:
+
+- **Standard rule:** current price ÷ FMP TTM EPS, where EPS is `netIncomePerShareTTM` from the
+  already-cached `ratios/ttm` row and the price is the nightly `TickerLastClose` close (falling
+  back to the quote price when a ticker has no `TickerLastClose` row).
+- **NULL** when TTM EPS is zero, negative or missing (or no price exists at all). A NULL renders as
+  "—" and is excluded by any active P/E range, so loss-makers never pass a max-only filter.
+- **ADRs** (reported currency ≠ quote currency, both known — detected from the two fields, not a
+  list): use FMP's own `priceToEarningsRatioTTM` instead, because price (quote currency) over EPS
+  (reporting currency) would need FX. NULL if that value is zero, negative or missing. If either
+  currency is unknown the standard rule is used.
+- Nothing new is fetched: the nightly cache-only recompute fills it from cached rows.
+
+Before 2026-09-30 this was FMP's annual `priceToEarningsRatio` (fiscal-year-end price over
+fiscal-year EPS), which sat next to a TTM PEG on the header — a mixed basis. The **Ratios tab is
+deliberately unchanged**: it shows FMP's annual P/E history plus FMP's TTM P/E column, so its
+figures can differ from the header's. No ratios spec exists yet; one is warranted.
+
 ## Beyond the Analysis and Valuation tabs
 
 Two further, fully independent lenses exist elsewhere in the app and never feed into Overall
