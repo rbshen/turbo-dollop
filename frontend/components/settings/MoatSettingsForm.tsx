@@ -34,16 +34,20 @@ export function MoatSettingsForm() {
   return <MoatScoreForm key={data.updated_at} data={data} saver={saver} />;
 }
 
-// A single config object, three fields. No bounds: the server has none, so
-// the only check is "is it a number" -- a value is never clamped or corrected.
+// The three scores are points on a 0-100 scale. The backend has no bound and
+// the API is unchanged, so this is a FORM-LEVEL check only: a value outside
+// 0-100 shows an inline error and blocks Save; it is never clamped or corrected.
+const MOAT_SCORE_RULES = { min: 0, max: 100 };
+
+// A single config object, three fields.
 function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: SettingsSaver }) {
   const [wideText, setWideText] = useState(String(data.wide_moat_score));
   const [narrowText, setNarrowText] = useState(String(data.narrow_moat_score));
   const [noMoatText, setNoMoatText] = useState(String(data.no_moat_score));
 
-  const wide = checkNumber(wideText);
-  const narrow = checkNumber(narrowText);
-  const noMoat = checkNumber(noMoatText);
+  const wide = checkNumber(wideText, MOAT_SCORE_RULES);
+  const narrow = checkNumber(narrowText, MOAT_SCORE_RULES);
+  const noMoat = checkNumber(noMoatText, MOAT_SCORE_RULES);
   const invalid = wide.error !== null || narrow.error !== null || noMoat.error !== null;
   const unchanged =
     wide.value === data.wide_moat_score &&
@@ -78,7 +82,7 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
           htmlFor="wide-moat-score"
           error={wide.error}
         >
-          <NumberField value={wideText} onChange={setWideText} size="short" step={0.1} />
+          <NumberField value={wideText} onChange={setWideText} size="short" step={0.1} {...MOAT_SCORE_RULES} />
         </SettingsRow>
         <SettingsRow
           label="Narrow moat"
@@ -86,7 +90,7 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
           htmlFor="narrow-moat-score"
           error={narrow.error}
         >
-          <NumberField value={narrowText} onChange={setNarrowText} size="short" step={0.1} />
+          <NumberField value={narrowText} onChange={setNarrowText} size="short" step={0.1} {...MOAT_SCORE_RULES} />
         </SettingsRow>
         <SettingsRow
           label="No moat"
@@ -94,7 +98,7 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
           htmlFor="no-moat-score"
           error={noMoat.error}
         >
-          <NumberField value={noMoatText} onChange={setNoMoatText} size="short" step={0.1} />
+          <NumberField value={noMoatText} onChange={setNoMoatText} size="short" step={0.1} {...MOAT_SCORE_RULES} />
         </SettingsRow>
       </SettingsGroup>
 

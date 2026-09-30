@@ -121,23 +121,68 @@ describe("MoatSettingsForm: validation", () => {
     expect(save()).toBeEnabled();
   });
 
-  it("drops the old 0-100 browser hints: values outside 0-100 are accepted as typed", async () => {
+  it.each(["0", "100", "65", "0.5", "99.99"])("accepts %j (0 to 100, inclusive)", (text) => {
     render(<MoatSettingsForm />);
-    type(wide(), "150");
-    type(noMoat(), "-5");
+    type(narrow(), text);
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(wide().value).toBe("150");
-    expect(noMoat().value).toBe("-5");
-    await act(async () => fireEvent.click(save()));
-    expect(mockedPut).toHaveBeenCalledWith("/config/moat", {
-      wide_moat_score: 150,
-      narrow_moat_score: 65,
-      no_moat_score: -5,
-    });
+    expect(narrow()).not.toHaveAttribute("aria-invalid");
+  });
+
+  it.each(["-1", "101", "100.01", "-0.5"])("rejects %j with the range message, on that field only, and blocks Save", (text) => {
+    render(<MoatSettingsForm />);
+    type(narrow(), text);
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a value between 0 and 100.");
+    expect(narrow()).toHaveAttribute("aria-invalid", "true");
+    expect(narrow().value).toBe(text); // never clamped or corrected
+    expect(save()).toBeDisabled();
+    expect(screen.getByText("Fix the highlighted fields to save.")).toBeInTheDocument();
+    fireEvent.click(save());
+    expect(mockedPut).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["wide", wide],
+    ["no moat", noMoat],
+  ])("checks the %s field the same way", (_name, pick) => {
+    render(<MoatSettingsForm />);
+    type(pick(), "101");
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a value between 0 and 100.");
+    type(pick(), "50");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("still says 'Enter a number.' for text and empty, not the range message", () => {
+    render(<MoatSettingsForm />);
+    type(wide(), "");
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a number.");
+    type(wide(), "abc");
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a number.");
+  });
+
+  it("stays in range at both edges through the arrow keys (stepping stops at 0 and 100)", () => {
+    render(<MoatSettingsForm />);
+    fireEvent.keyDown(wide(), { key: "ArrowUp" });
+    expect(wide().value).toBe("100");
+    fireEvent.keyDown(noMoat(), { key: "ArrowDown" });
+    expect(noMoat().value).toBe("0");
   });
 });
 
 describe("MoatSettingsForm: saving", () => {
+  it("sends the boundary values 0 and 100 unchanged", async () => {
+    render(<MoatSettingsForm />);
+    type(wide(), "100");
+    type(narrow(), "0");
+    type(noMoat(), "100");
+    await act(async () => fireEvent.click(save()));
+    expect(mockedPut).toHaveBeenCalledWith("/config/moat", {
+      wide_moat_score: 100,
+      narrow_moat_score: 0,
+      no_moat_score: 100,
+    });
+  });
+
   it("sends the same endpoint and payload shape as before, all three values", async () => {
     render(<MoatSettingsForm />);
     type(narrow(), "70.5");
