@@ -58,3 +58,34 @@ describe("Button", () => {
     expect(button).not.toHaveClass("border");
   });
 });
+
+describe("Button icon sizes", () => {
+  it("makes icon a 36px square with no horizontal padding", () => {
+    render(
+      <Button variant="outline" size="icon" aria-label="Open">
+        <span aria-hidden="true">x</span>
+      </Button>,
+    );
+    const button = screen.getByRole("button", { name: "Open" });
+    expect(button).toHaveClass("size-9", "px-0");
+    expect(button).not.toHaveClass("px-3");
+  });
+
+  it("makes icon-sm a 28px square, and 32px as an outline like sm", () => {
+    render(
+      <>
+        <Button size="icon-sm" aria-label="Ghost">
+          <span aria-hidden="true">x</span>
+        </Button>
+        <Button variant="outline" size="icon-sm" aria-label="Outline">
+          <span aria-hidden="true">x</span>
+        </Button>
+      </>,
+    );
+    const ghost = screen.getByRole("button", { name: "Ghost" });
+    expect(ghost).toHaveClass("size-7", "px-0");
+    const outline = screen.getByRole("button", { name: "Outline" });
+    expect(outline).toHaveClass("size-8", "px-0");
+    expect(outline).not.toHaveClass("size-7");
+  });
+});

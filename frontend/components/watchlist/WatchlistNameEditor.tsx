@@ -1,20 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { PencilSimple } from "@phosphor-icons/react";
 
 import { errorDetail } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
+import { FIELD_ERROR_CLASS } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { updateWatchlist } from "@/lib/hooks/useWatchlists";
+import { WATCHLIST_NAME_MAX_LENGTH } from "@/lib/watchlistName";
 import type { WatchlistOut } from "@/lib/api/types";
-
-// Mirrors the backend's WatchlistName constraint (core/schemas.py) --
-// kept in sync manually since there's no shared schema source between the
-// two, same as every other client-side mirror of a backend constraint in
-// this app (e.g. WATCHLIST_CAPACITY has no frontend-side equivalent either,
-// it just surfaces the backend's own rejection message instead).
-const MAX_NAME_LENGTH = 100;
 
 type Status = "idle" | "editing" | "saving";
 
@@ -30,6 +25,7 @@ export function WatchlistNameEditor({ watchlist }: Props) {
   const [status, setStatus] = useState<Status>("idle");
   const [value, setValue] = useState(watchlist.name);
   const [error, setError] = useState<string | null>(null);
+  const errorId = useId();
 
   function startEditing() {
     setValue(watchlist.name);
@@ -49,8 +45,8 @@ export function WatchlistNameEditor({ watchlist }: Props) {
       setError("Name can't be empty");
       return;
     }
-    if (trimmed.length > MAX_NAME_LENGTH) {
-      setError(`Name must be ${MAX_NAME_LENGTH} characters or fewer`);
+    if (trimmed.length > WATCHLIST_NAME_MAX_LENGTH) {
+      setError(`Name must be ${WATCHLIST_NAME_MAX_LENGTH} characters or fewer`);
       return;
     }
     if (trimmed === watchlist.name) {
@@ -78,56 +74,51 @@ export function WatchlistNameEditor({ watchlist }: Props) {
         <p className="text-xs text-text-tertiary">
           {watchlist.name} · {watchlist.tickers.length} ticker{watchlist.tickers.length === 1 ? "" : "s"}
         </p>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={startEditing}
           aria-label={`Rename ${watchlist.name}`}
           title="Rename watchlist"
-          className="text-text-tertiary transition-colors hover:text-text-primary"
+          className="text-text-tertiary"
         >
-          <PencilSimple size={12} />
-        </button>
+          <PencilSimple size={16} aria-hidden="true" />
+        </Button>
       </div>
     );
   }
 
   return (
     <div className="space-y-1">
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-2">
         <Input
           type="text"
+          size="wide"
           autoFocus
           value={value}
-          maxLength={MAX_NAME_LENGTH}
+          maxLength={WATCHLIST_NAME_MAX_LENGTH}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") save();
             if (e.key === "Escape") cancel();
           }}
           disabled={status === "saving"}
+          invalid={error != null}
           aria-label="Watchlist name"
-          className="h-7 w-48 px-2 text-xs focus:border-brand focus:outline-none"
+          aria-describedby={error ? errorId : undefined}
         />
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={save}
-          disabled={status === "saving"}
-          className="h-7 border border-border-input px-2 hover:border-brand"
-        >
+        <Button variant="outline" onClick={save} disabled={status === "saving"}>
           {status === "saving" ? "Saving…" : "Save"}
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={cancel}
-          disabled={status === "saving"}
-          className="h-7 border border-border-input px-2 text-text-tertiary hover:border-brand"
-        >
+        <Button variant="outline" onClick={cancel} disabled={status === "saving"}>
           Cancel
         </Button>
       </div>
-      {error && <p className="text-xs text-negative">{error}</p>}
+      {error && (
+        <p id={errorId} role="alert" className={FIELD_ERROR_CLASS}>
+          {error}
+        </p>
+      )}
     </div>
   );
 }

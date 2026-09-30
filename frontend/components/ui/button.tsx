@@ -6,7 +6,9 @@
 // `outline` is ghost with a hairline border that turns brand on hover -- the
 // secondary action that must read as a button inside a dense panel (it replaces
 // the repeated "ghost + border-border-input hover:border-brand" override; at
-// size sm it is 32px, h-8, like the sidebar's chips and triggers).
+// size sm it is 32px, h-8, like the sidebar's chips and triggers). `icon` and
+// `icon-sm` are the square sizes for an icon-only button (36px, and 28px --
+// 32px as an outline, like sm); such a button always needs an aria-label.
 import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
@@ -25,9 +27,14 @@ const buttonVariants = cva(
       size: {
         default: "h-9 text-sm",
         sm: "h-7 text-xs",
+        icon: "size-9 px-0 text-sm",
+        "icon-sm": "size-7 px-0 text-xs",
       },
     },
-    compoundVariants: [{ variant: "outline", size: "sm", class: "h-8" }],
+    compoundVariants: [
+      { variant: "outline", size: "sm", class: "h-8" },
+      { variant: "outline", size: "icon-sm", class: "size-8" },
+    ],
     defaultVariants: {
       variant: "ghost",
       size: "default",

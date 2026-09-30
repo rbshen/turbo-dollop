@@ -1,12 +1,20 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WatchlistTable } from "@/components/watchlist/WatchlistTable";
 import type { WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
 import { DEFAULT_SORT_RULES } from "@/lib/watchlistSort";
 
-afterEach(cleanup);
+const removeTickerFromWatchlist = vi.fn();
+vi.mock("@/lib/hooks/useWatchlists", () => ({
+  removeTickerFromWatchlist: (...args: unknown[]) => removeTickerFromWatchlist(...args),
+}));
+
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const WATCHLIST: WatchlistOut = {
   id: 1,
@@ -114,5 +122,95 @@ describe("WatchlistTable sticky header", () => {
       />
     );
     expect(screen.getByRole("button", { name: "Moat" }).closest("th")).toHaveAttribute("aria-sort", "descending");
+  });
+});
+
+describe("WatchlistTable remove button", () => {
+  const openSpy = vi.fn();
+
+  beforeEach(() => {
+    removeTickerFromWatchlist.mockReset();
+    removeTickerFromWatchlist.mockResolvedValue(undefined);
+    openSpy.mockReset();
+    vi.stubGlobal("open", openSpy);
+  });
+
+  function renderTable() {
+    render(<WatchlistTable watchlist={WATCHLIST} rows={ROWS} sortRules={DEFAULT_SORT_RULES} onSortRulesChange={vi.fn()} />);
+  }
+
+  it("shows a named remove button on each row", () => {
+    renderTable();
+    expect(screen.getByRole("button", { name: "Remove AAPL" })).toHaveAttribute("title", "Remove AAPL");
+  });
+
+  it("asks first: Confirm and Cancel replace the remove button, and nothing is removed yet", () => {
+    renderTable();
+    fireEvent.click(screen.getByRole("button", { name: "Remove AAPL" }));
+    expect(screen.getByRole("button", { name: "Confirm: remove AAPL from W1" })).toHaveAttribute("title", "Remove AAPL from W1?");
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove AAPL" })).not.toBeInTheDocument();
+    expect(removeTickerFromWatchlist).not.toHaveBeenCalled();
+  });
+
+  it("goes back to the remove button when cancelled", () => {
+    renderTable();
+    fireEvent.click(screen.getByRole("button", { name: "Remove AAPL" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Remove AAPL" })).toBeInTheDocument();
+    expect(removeTickerFromWatchlist).not.toHaveBeenCalled();
+  });
+
+  it("removes the ticker from this watchlist when confirmed", () => {
+    renderTable();
+    fireEvent.click(screen.getByRole("button", { name: "Remove AAPL" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm: remove AAPL from W1" }));
+    expect(removeTickerFromWatchlist).toHaveBeenCalledWith(1, "AAPL");
+  });
+
+  it("does not open the ticker page when any of the three buttons is clicked", () => {
+    renderTable();
+    fireEvent.click(screen.getByRole("button", { name: "Remove AAPL" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove AAPL" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm: remove AAPL from W1" }));
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it("still opens the ticker page when the row itself is clicked", () => {
+    renderTable();
+    fireEvent.click(screen.getByText("Apple Inc."));
+    expect(openSpy).toHaveBeenCalledWith("/tickers/AAPL", "_blank", "noopener,noreferrer");
+  });
+
+  it("on failure shows a retry tooltip, then resets after 4 seconds", async () => {
+    vi.useFakeTimers();
+    removeTickerFromWatchlist.mockRejectedValue(new Error("DELETE failed: 500"));
+    renderTable();
+    fireEvent.click(screen.getByRole("button", { name: "Remove AAPL" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm: remove AAPL from W1" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("button", { name: "Remove AAPL" })).toHaveAttribute("title", "Failed to remove — retry");
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
+    expect(screen.getByRole("button", { name: "Remove AAPL" })).toHaveAttribute("title", "Remove AAPL");
+  });
+
+  it("draws the three buttons as 32px outline icon buttons with hidden icons and no text glyphs", () => {
+    renderTable();
+    const remove = screen.getByRole("button", { name: "Remove AAPL" });
+    expect(remove).toHaveClass("size-8", "border", "border-border-input");
+    expect(remove.textContent).toBe("");
+    expect(remove.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    fireEvent.click(remove);
+    for (const name of ["Confirm: remove AAPL from W1", "Cancel"]) {
+      const button = screen.getByRole("button", { name });
+      expect(button).toHaveClass("size-8", "border");
+      expect(button.textContent).toBe("");
+      expect(button.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    }
   });
 });

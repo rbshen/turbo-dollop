@@ -5,6 +5,7 @@ import { Trash } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
 import { deleteWatchlist } from "@/lib/hooks/useWatchlists";
+import { cn } from "@/lib/utils";
 import type { WatchlistOut } from "@/lib/api/types";
 
 type Status = "idle" | "confirming" | "deleting" | "error";
@@ -24,7 +25,10 @@ interface Props {
 // idle/confirming/deleting/error state machine and inline
 // confirm-before-delete UX, just re-styled to match WatchlistNameEditor's
 // design tokens instead of that section's now-removed hardcoded zinc/amber
-// classes.
+// classes. Session 11: Confirm is the danger Button, Cancel an outline
+// Button, and the trash trigger an icon Button (ghost; danger once a delete
+// has failed). There has never been a window.confirm here -- the confirm is
+// the inline state below.
 export function WatchlistDeleteButton({ watchlist, onDeleted }: Props) {
   const [status, setStatus] = useState<Status>("idle");
 
@@ -41,22 +45,12 @@ export function WatchlistDeleteButton({ watchlist, onDeleted }: Props) {
 
   if (status === "confirming") {
     return (
-      <div className="flex shrink-0 items-center gap-1.5 text-xs">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 text-xs">
         <span className="text-negative">Delete &quot;{watchlist.name}&quot;?</span>
-        <Button
-          variant="danger"
-          size="sm"
-          onClick={handleDelete}
-          className="h-7 border border-negative/60 px-2 hover:border-negative"
-        >
+        <Button variant="danger" onClick={handleDelete}>
           Confirm
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setStatus("idle")}
-          className="h-7 border border-border-input px-2 text-text-tertiary hover:border-brand"
-        >
+        <Button variant="outline" onClick={() => setStatus("idle")}>
           Cancel
         </Button>
       </div>
@@ -64,17 +58,16 @@ export function WatchlistDeleteButton({ watchlist, onDeleted }: Props) {
   }
 
   return (
-    <button
-      type="button"
+    <Button
+      variant={status === "error" ? "danger" : "ghost"}
+      size="icon-sm"
       onClick={() => setStatus("confirming")}
       disabled={status === "deleting"}
       aria-label={`Delete ${watchlist.name}`}
       title={status === "error" ? "Failed to delete — retry" : "Delete watchlist"}
-      className={`shrink-0 transition-colors disabled:opacity-50 ${
-        status === "error" ? "text-negative" : "text-text-tertiary hover:text-negative"
-      }`}
+      className={cn("shrink-0", status !== "error" && "text-text-tertiary hover:text-negative")}
     >
-      <Trash size={12} />
-    </button>
+      <Trash size={16} aria-hidden="true" />
+    </Button>
   );
 }

@@ -1,13 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, X } from "@phosphor-icons/react";
+import { Check, Minus, X } from "@phosphor-icons/react";
 
 import { MiniBarChart } from "@/components/charts/MiniBarChart";
 import { MOAT_LABEL_SHORT, MOAT_TONE } from "@/components/ticker/MoatPill";
 import { VALUATION_LABEL_SHORT, VALUATION_TONE } from "@/components/ticker/FairValuePill";
 import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGrowthPill";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { SortHeader } from "@/components/ui/sort-header";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { SortableField, WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
@@ -371,34 +372,37 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
               <TableCell className="text-center">
                 {(removeState[row.ticker] ?? "idle") === "confirming" ? (
                   <div className="flex items-center justify-center gap-1">
-                    <button
-                      type="button"
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleRemoveConfirmed(row.ticker);
                       }}
                       aria-label={`Confirm: remove ${row.ticker} from ${watchlist.name}`}
                       title={`Remove ${row.ticker} from ${watchlist.name}?`}
-                      className="inline-flex size-[22px] items-center justify-center rounded-md border border-warn/50 text-warn transition-colors hover:border-warn"
+                      className="border-warn/50 text-warn hover:border-warn hover:text-warn"
                     >
-                      <Check size={12} />
-                    </button>
-                    <button
-                      type="button"
+                      <Check size={16} aria-hidden="true" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
                       onClick={(e) => {
                         e.stopPropagation();
                         setRemoveState((prev) => ({ ...prev, [row.ticker]: "idle" }));
                       }}
                       aria-label="Cancel"
                       title="Cancel"
-                      className="inline-flex size-[22px] items-center justify-center rounded-md border border-border-input text-text-tertiary transition-colors hover:border-brand hover:text-text-secondary"
+                      className="text-text-tertiary"
                     >
-                      <X size={12} />
-                    </button>
+                      <X size={16} aria-hidden="true" />
+                    </Button>
                   </div>
                 ) : (
-                  <button
-                    type="button"
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
                     onClick={(e) => {
                       e.stopPropagation();
                       setRemoveState((prev) => ({ ...prev, [row.ticker]: "confirming" }));
@@ -407,14 +411,13 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                     aria-label={`Remove ${row.ticker}`}
                     title={removeState[row.ticker] === "error" ? "Failed to remove — retry" : `Remove ${row.ticker}`}
                     className={cn(
-                      "inline-flex size-[22px] items-center justify-center rounded-md border text-sm leading-none transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                       removeState[row.ticker] === "error"
-                        ? "border-negative text-negative"
-                        : "border-border-input text-text-tertiary hover:border-negative hover:text-negative"
+                        ? "border-negative text-negative hover:border-negative"
+                        : "text-text-tertiary hover:border-negative hover:text-negative"
                     )}
                   >
-                    −
-                  </button>
+                    <Minus size={16} aria-hidden="true" />
+                  </Button>
                 )}
               </TableCell>
             </TableRow>
