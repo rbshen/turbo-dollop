@@ -191,7 +191,9 @@ column all read one value, `TickerScore.pe_ratio` (`TickerSummaryOut.pe_ratio`,
   already-cached `ratios/ttm` row and the price is the nightly `TickerLastClose` close (falling
   back to the quote price when a ticker has no `TickerLastClose` row).
 - **NULL** when TTM EPS is zero, negative or missing (or no price exists at all). A NULL renders as
-  "—" and is excluded by any active P/E range, so loss-makers never pass a max-only filter.
+  "—" on the Screener card and the Summary tab (a blank cell in the Watchlist table), sorts last, and
+  is excluded by any active P/E range (`inRange` in `frontend/lib/screenerFilters.ts`), so loss-makers
+  never pass a max-only filter.
 - **ADRs** (reported currency ≠ quote currency, both known — detected from the two fields, not a
   list): use FMP's own `priceToEarningsRatioTTM` instead, because price (quote currency) over EPS
   (reporting currency) would need FX. NULL if that value is zero, negative or missing. If either

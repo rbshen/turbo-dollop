@@ -335,3 +335,20 @@ def test_screener_meta_index_count_still_counts_a_constituent_with_no_ticker_sco
         response = client.get("/api/screener/meta", params={"universe": "sp500"})
 
     assert response.json() == {"universe": "sp500", "total_constituents": 2}
+
+
+def test_screener_list_returns_a_null_pe_ratio_as_null(monkeypatch):
+    # A NULL trailing P/E (EPS <= 0, or an ADR with no usable FMP ratio) must reach the client as
+    # null, not 0 -- the page's range filter excludes null when a P/E range is active.
+    engine = _fresh_engine(monkeypatch)
+    now = datetime.now()
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="PROFIT", company_name="p", is_etf=False, pe_ratio=18.5, computed_at=now))
+        session.add(TickerScore(ticker="LOSS", company_name="l", is_etf=False, pe_ratio=None, computed_at=now))
+        session.commit()
+
+    with TestClient(main.app) as client:
+        rows = {row["ticker"]: row for row in client.get("/api/screener", params={"universe": "all"}).json()}
+
+    assert rows["PROFIT"]["pe_ratio"] == 18.5
+    assert rows["LOSS"]["pe_ratio"] is None

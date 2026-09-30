@@ -66,6 +66,7 @@ def _summary(
     reported_currency=None,
     exchange="NASDAQ",
     is_etf=False,
+    pe_ratio=30.0,
 ):
     return TickerSummaryOut(
         company_name=company_name,
@@ -75,7 +76,7 @@ def _summary(
         exchange=exchange,
         is_etf=is_etf,
         market_cap=3_000_000_000_000.0,
-        pe_ratio=30.0,
+        pe_ratio=pe_ratio,
         beta=1.2,
         fair_value_verdict=fair_value_verdict,
         valuation_source=valuation_source,
@@ -161,6 +162,8 @@ def test_computes_and_upserts_a_full_row(monkeypatch):
     assert result.overall_verdict == "Pass"
     assert result.market_cap == 3_000_000_000_000.0
     assert result.quote_currency == "USD"
+    # Lifted verbatim from summary.pe_ratio (the trailing P/E, data/ticker_summary.py) -- no basis
+    # logic of its own lives in this module.
     assert result.pe_ratio == 30.0
     assert result.beta == 1.2
     assert result.valuation_verdict == "undervalued"
@@ -690,3 +693,31 @@ def test_recompute_preserves_delisted_at(monkeypatch):
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).one()
     assert row.delisted_at == flagged_at
     assert row.overall_score == 76  # the rest of the row did update
+
+
+def test_a_null_trailing_pe_is_stored_as_null(monkeypatch):
+    # Loss-maker / ADR-without-a-usable-ratio: summary.pe_ratio is None and must land as NULL,
+    # not 0 or a stale number.
+    engine = _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch, summary=_summary(pe_ratio=None))
+
+    result = asyncio.run(compute_ticker_score("aapl"))
+
+    assert result is not None and result.pe_ratio is None
+    with Session(engine) as session:
+        row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
+    assert row is not None and row.pe_ratio is None
+
+
+def test_a_recompute_overwrites_a_previously_stored_pe_with_null(monkeypatch):
+    # The switch to the trailing basis turns some stored annual P/Es into NULL; the upsert must
+    # write that NULL over the old value rather than keeping it (delisted_at is the only preserved column).
+    engine = _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch, summary=_summary(pe_ratio=34.1))
+    asyncio.run(compute_ticker_score("aapl"))
+    _patch_all(monkeypatch, summary=_summary(pe_ratio=None))
+    asyncio.run(compute_ticker_score("aapl"))
+
+    with Session(engine) as session:
+        row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
+    assert row is not None and row.pe_ratio is None

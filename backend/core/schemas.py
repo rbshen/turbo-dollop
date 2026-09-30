@@ -118,6 +118,8 @@ class TickerSummaryOut(BaseModel):
     # reason as dividend_yield above.
     revenue_growth_yoy: float | None = None
     net_income_growth_yoy: float | None = None
+    # Trailing P/E: nightly last close (quote price if none) / FMP TTM EPS; FMP's own TTM P/E for an
+    # ADR (reported != quote currency); None for non-positive/missing EPS (helpers/trailing_pe.py).
     pe_ratio: float | None = None
     next_earnings_date: date | None = None
     # Same figures Step 5's debt ratios are built from (backend/debt_metrics.py)

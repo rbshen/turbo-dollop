@@ -1,5 +1,6 @@
 import core.data_groups as _dg
 import asyncio
+import json
 from datetime import date, datetime, timedelta
 
 import httpx
@@ -58,7 +59,10 @@ FAKE_QUOTE = [
 
 FAKE_PRICE_CHANGE = [{"1M": 3.2, "6M": 12.5, "ytd": 15.1, "1Y": 22.4, "5Y": 123.5, "10Y": 1277.8}]
 
-FAKE_RATIOS = [{"priceToEarningsRatio": 30.1}]
+# The annual FY P/E the summary used to expose as pe_ratio. It is now unused (pe_ratio is trailing) and
+# deliberately distinct from every trailing value below, so a regression to it is caught.
+FAKE_ANNUAL_PE = 30.1
+FAKE_RATIOS = [{"priceToEarningsRatio": FAKE_ANNUAL_PE}]
 
 _TODAY = date.today()
 
@@ -121,7 +125,16 @@ FAKE_INCOME_QUARTERLY = [
 
 FAKE_ENTERPRISE_VALUES = [{"date": "2026-03-28", "enterpriseValue": 3_900_000_000_000}]
 
-FAKE_RATIOS_TTM = [{"priceToEarningsGrowthRatioTTM": 1.39, "forwardPriceToEarningsGrowthRatioTTM": 3.86}]
+FAKE_TTM_EPS = 5.0
+FAKE_TTM_PE = 41.0  # FMP's own TTM P/E -- only the ADR branch uses it
+FAKE_RATIOS_TTM = [
+    {
+        "priceToEarningsGrowthRatioTTM": 1.39,
+        "forwardPriceToEarningsGrowthRatioTTM": 3.86,
+        "netIncomePerShareTTM": FAKE_TTM_EPS,
+        "priceToEarningsRatioTTM": FAKE_TTM_PE,
+    }
+]
 
 FAKE_FINANCIAL_GROWTH = [{"revenueGrowth": 0.08, "netIncomeGrowth": 0.12}]
 
@@ -272,7 +285,10 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
     assert summary.perf_5y_insufficient_history is False
     assert summary.week52_high == 199.62
     assert summary.week52_low == 164.08
-    assert summary.pe_ratio == 30.1
+    # Trailing: no TickerLastClose (conftest default), so the quote price over FMP TTM EPS -- not the
+    # annual FY ratio FAKE_RATIOS carries.
+    assert summary.pe_ratio == pytest.approx(190.5 / FAKE_TTM_EPS)
+    assert summary.pe_ratio != FAKE_ANNUAL_PE
     assert summary.next_earnings_date is not None and summary.next_earnings_date == NEXT_EARNINGS_DATE
     # Must equal Step 2's own growth_rate exactly (same _project computation,
     # same forward-only date filter and four-years-out target window) -- this
@@ -582,8 +598,10 @@ def test_get_summary_ratios_and_enterprise_values_are_earnings_aware_not_flat(mo
 
     summary = asyncio.run(get_summary("aapl"))
 
-    # The stale-but-not-earnings-stale cached values, not a fresh fetch.
-    assert summary.pe_ratio == 25.0
+    # The stale-but-not-earnings-stale cached values, not a fresh fetch (get_ratios raising above
+    # proves the "ratios"/"latest" row was served from cache; the summary no longer reads its
+    # value, so pe_ratio is the trailing figure).
+    assert summary.pe_ratio == pytest.approx(190.5 / FAKE_TTM_EPS)
     assert summary.enterprise_value == 1000000000
 
 
@@ -668,8 +686,8 @@ def test_get_summary_ratios_refetches_once_new_earnings_have_actually_passed(mon
 
     summary = asyncio.run(get_summary("aapl"))
 
-    assert summary.pe_ratio == 30.1  # FAKE_RATIOS's value, confirms the refetch actually happened
-    assert call_count["ratios"] == 1
+    assert call_count["ratios"] == 1  # the refetch actually happened
+    assert summary.pe_ratio == pytest.approx(190.5 / FAKE_TTM_EPS)  # trailing, whichever ratios row was cached
 
 
 def test_get_summary_profile_survives_past_flat_window_under_longer_staleness(monkeypatch):
@@ -1121,7 +1139,7 @@ def _cached_close(monkeypatch, close: float | None):
 
     def fake(ticker):
         calls.append(ticker)
-        return None if close is None else (close, date(2026, 9, 25))
+        return None if close is None else (close, date.today() - timedelta(days=1))
 
     monkeypatch.setattr(ticker_summary, "get_cached_last_close", fake)
     return calls
@@ -1151,7 +1169,8 @@ def test_get_summary_serves_the_cached_last_close_when_the_live_quote_fails(monk
 
 def test_get_summary_live_fmp_quote_wins_and_the_cache_is_never_read(monkeypatch):
     """Regression guard: with the group live and the quote fetch working, the header
-    price is FMP's live quote and the last-close cache is not consulted."""
+    price is FMP's live quote -- the last-close cache never overrides it. (The cache is still
+    read once, for the trailing P/E's price; that is separate from the header price.)"""
     _fresh_summary_engine(monkeypatch)
     calls = _cached_close(monkeypatch, 1.0)
 
@@ -1160,19 +1179,24 @@ def test_get_summary_live_fmp_quote_wins_and_the_cache_is_never_read(monkeypatch
 
     _patch_all_but_quote(monkeypatch, fake_quote)
 
-    assert asyncio.run(get_summary("aapl")).price == 190.5  # FAKE_QUOTE's own price
-    assert calls == []
+    summary = asyncio.run(get_summary("aapl"))
+    assert summary.price == 190.5  # FAKE_QUOTE's own price, not the cached 1.0
+    assert calls == ["AAPL"]  # one read, for pe_ratio
+    assert summary.pe_ratio == pytest.approx(1.0 / FAKE_TTM_EPS)  # ...and the P/E prefers the close
 
 
 def test_get_summary_cache_only_never_reads_the_last_close_even_when_profile_quote_is_off(monkeypatch):
-    """cache_only's whole contract is zero live calls of any kind."""
+    """cache_only's whole contract is zero live calls of any kind: the last close is never used
+    as the header PRICE here (the P/E's read of it is a local DB read, not a call)."""
     _fresh_summary_engine(monkeypatch)
     _dg.set_group_enabled("profile_quote", False)
     calls = _cached_close(monkeypatch, 1.0)
 
     summary = asyncio.run(get_summary("aapl", cache_only=True))
 
-    assert summary.price is None and calls == []  # no cached FMP quote, no fallback either
+    assert summary.price is None  # no cached FMP quote, no fallback either
+    assert calls == ["AAPL"]
+    assert summary.pe_ratio is None  # nothing cached (no ratios/ttm row), so no EPS to divide by
 
 
 def test_get_summary_keeps_the_stale_cached_quote_price_when_no_last_close_is_cached(monkeypatch):
@@ -1251,3 +1275,122 @@ def test_get_summary_index_memberships_ordered_sp500_nasdaq_dow(monkeypatch):
     summary = asyncio.run(get_summary("aapl"))
 
     assert summary.index_memberships == ["nasdaq", "dow"]
+
+
+# --- trailing P/E (docs/specs/overview.md, "P/E basis") ------------------------------------------
+# get_summary-level wiring of helpers/trailing_pe.py: which price, which EPS, ADR detection off the
+# income statement's reportedCurrency vs the profile's currency. Rule details are unit-tested in
+# test_trailing_pe.py. No dates are hard-coded; the cached close is stamped relative to today.
+
+QUOTE_PRICE = FAKE_QUOTE[0]["price"]  # 190.5
+LAST_CLOSE = 180.0
+
+
+def _pe_summary(monkeypatch, *, ratios_ttm=None, reported_currency="USD", profile_currency=None, last_close=None):
+    """get_summary with the shared fakes, overriding only what the P/E depends on."""
+    _fresh_summary_engine(monkeypatch)
+    _cached_close(monkeypatch, last_close)
+
+    async def fake_quote(ticker):
+        return FAKE_QUOTE
+
+    _patch_all_but_quote(monkeypatch, fake_quote)
+
+    ttm_rows = FAKE_RATIOS_TTM if ratios_ttm is None else [ratios_ttm]
+    income_rows = [{**row, "reportedCurrency": reported_currency} for row in FAKE_INCOME_QUARTERLY]
+    profile_rows = [{**FAKE_PROFILE[0], **({"currency": profile_currency} if profile_currency else {})}]
+
+    async def fake_ratios_ttm(ticker):
+        return ttm_rows
+
+    async def fake_income_statement(ticker, period, limit):
+        return income_rows
+
+    async def fake_profile(ticker):
+        return profile_rows
+
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_ratios_ttm", fake_ratios_ttm)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", fake_profile)
+    return asyncio.run(get_summary("aapl"))
+
+
+def test_pe_ratio_normal_case_prefers_the_nightly_last_close_over_the_quote_price(monkeypatch):
+    summary = _pe_summary(monkeypatch, last_close=LAST_CLOSE)
+    assert summary.pe_ratio == pytest.approx(LAST_CLOSE / FAKE_TTM_EPS)
+    assert summary.price == QUOTE_PRICE  # the header price itself is untouched
+
+
+def test_pe_ratio_falls_back_to_the_quote_price_when_there_is_no_last_close_row(monkeypatch):
+    # HUT-shaped: no TickerLastClose row -> quote price, not NULL.
+    summary = _pe_summary(monkeypatch, last_close=None)
+    assert summary.pe_ratio == pytest.approx(QUOTE_PRICE / FAKE_TTM_EPS)
+
+
+@pytest.mark.parametrize("eps", [0, 0.0, -1.25])
+def test_pe_ratio_is_none_when_ttm_eps_is_zero_or_negative(monkeypatch, eps):
+    summary = _pe_summary(monkeypatch, ratios_ttm={"netIncomePerShareTTM": eps}, last_close=LAST_CLOSE)
+    assert summary.pe_ratio is None
+
+
+def test_pe_ratio_is_none_when_ttm_eps_is_missing(monkeypatch):
+    summary = _pe_summary(monkeypatch, ratios_ttm={"priceToEarningsRatioTTM": FAKE_TTM_PE}, last_close=LAST_CLOSE)
+    assert summary.pe_ratio is None  # a USD reporter never falls back to FMP's ratio
+
+
+def test_pe_ratio_adr_uses_fmps_own_ttm_pe(monkeypatch):
+    # TSM-shaped: statements in TWD, quote in USD -- price/EPS would mix currencies.
+    summary = _pe_summary(monkeypatch, reported_currency="TWD", profile_currency="USD", last_close=LAST_CLOSE)
+    assert summary.reported_currency == "TWD" and summary.quote_currency == "USD"
+    assert summary.pe_ratio == FAKE_TTM_PE  # not LAST_CLOSE / FAKE_TTM_EPS
+
+
+@pytest.mark.parametrize("fmp_pe", [-7.5, 0])
+def test_pe_ratio_adr_fallback_that_is_not_positive_is_none(monkeypatch, fmp_pe):
+    row = {"netIncomePerShareTTM": FAKE_TTM_EPS, "priceToEarningsRatioTTM": fmp_pe}
+    summary = _pe_summary(monkeypatch, ratios_ttm=row, reported_currency="DKK", profile_currency="USD", last_close=LAST_CLOSE)
+    assert summary.pe_ratio is None  # positive EPS does not rescue it: the ADR branch never divides
+
+
+def test_pe_ratio_usd_reporter_with_matching_currencies_uses_price_over_eps(monkeypatch):
+    summary = _pe_summary(monkeypatch, reported_currency="USD", profile_currency="USD", last_close=LAST_CLOSE)
+    assert summary.pe_ratio == pytest.approx(LAST_CLOSE / FAKE_TTM_EPS)
+    assert summary.pe_ratio != FAKE_TTM_PE
+
+
+def test_pe_ratio_with_no_reported_currency_uses_the_standard_formula(monkeypatch):
+    summary = _pe_summary(monkeypatch, reported_currency=None, last_close=LAST_CLOSE)
+    assert summary.reported_currency is None
+    assert summary.pe_ratio == pytest.approx(LAST_CLOSE / FAKE_TTM_EPS)
+
+
+def test_pe_ratio_cache_only_is_filled_from_cached_rows_with_zero_fmp_calls(monkeypatch):
+    # The nightly recompute is cache_only: the P/E must come out of already-cached rows (ratios/ttm,
+    # quote, income statement) plus the TickerLastClose read, never a new FMP call.
+    test_engine = _fresh_summary_engine(monkeypatch)
+    _cached_close(monkeypatch, LAST_CLOSE)
+    fresh = datetime.now()
+    rows = {
+        ("profile", "latest"): FAKE_PROFILE,
+        ("quote", "latest"): FAKE_QUOTE,
+        ("ratios", "ttm"): FAKE_RATIOS_TTM,
+        ("income_statement", "quarterly"): [{**r, "reportedCurrency": "USD"} for r in FAKE_INCOME_QUARTERLY],
+    }
+    with Session(test_engine) as session:
+        for (statement_type, period), payload in rows.items():
+            session.add(
+                FundamentalsCache(
+                    ticker="AAPL", statement_type=statement_type, period=period, fetched_at=fresh, raw_json=json.dumps(payload)
+                )
+            )
+        session.commit()
+
+    async def no_fmp(*_args, **_kwargs):
+        raise AssertionError("cache_only must make zero FMP calls")
+
+    for name in ("get_profile", "get_quote", "get_ratios", "get_ratios_ttm", "get_income_statement", "get_earnings"):
+        monkeypatch.setattr(ticker_summary.fmp_client, name, no_fmp)
+
+    summary = asyncio.run(get_summary("aapl", cache_only=True))
+
+    assert summary.pe_ratio == pytest.approx(LAST_CLOSE / FAKE_TTM_EPS)

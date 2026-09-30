@@ -20,6 +20,7 @@ from data.last_close_data import get_cached_last_close
 from helpers.shares import compute_shares_outstanding, is_implausible_magnitude_shift
 from data.step2_data import get_step2_data
 from data.step3_data import get_active_valuation
+from helpers.trailing_pe import compute_trailing_pe
 from helpers.ttm import TOTAL_QUARTERS_NEEDED
 
 logger = logging.getLogger(__name__)
@@ -298,20 +299,22 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
         most_recent_earnings_date = most_recent_reported_earnings_date(
             earnings_data if isinstance(earnings_data, list) else []
         )
-        ratios = _first(
-            await safe_fetch(
+        # No longer read here (pe_ratio is trailing now, from ratios_ttm below), but kept: the
+        # "ratios"/"latest" cache key it fills is shared -- speculative_growth_data.py reads it and
+        # step3_data.py fetches it -- so dropping the call would change what a ticker-page view
+        # warms for them. It adds no call the app didn't already make.
+        await safe_fetch(
+            "ratios",
+            get_or_fetch_earnings_aware(
+                session,
+                ticker,
                 "ratios",
-                get_or_fetch_earnings_aware(
-                    session,
-                    ticker,
-                    "ratios",
-                    "latest",
-                    lambda: fmp_client.get_ratios(ticker),
-                    staleness_days,
-                    most_recent_earnings_date,
-                    cache_only,
-                ),
-            )
+                "latest",
+                lambda: fmp_client.get_ratios(ticker),
+                staleness_days,
+                most_recent_earnings_date,
+                cache_only,
+            ),
         )
         # Same cache key Step 4/Step 5/the Financials tab also populate
         # ("balance_sheet_statement"/"quarterly") -- limit is
@@ -453,6 +456,18 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
         if is_implausible_magnitude_shift(enterprise_values_row.get("numberOfShares"), shares_outstanding)
         else enterprise_values_row.get("enterpriseValue")
     )
+    # Trailing P/E (docs/specs/overview.md, "P/E basis"): nightly last close over FMP TTM EPS, both
+    # already available here (ratios_ttm above, TickerLastClose via get_cached_last_close) -- no new
+    # cache key or FMP call, so the cache_only recompute fills it. A ticker with no TickerLastClose
+    # row falls back to the quote price. `price` here may be the live quote on a ticker-page view;
+    # the last close is deliberately preferred so the header, Screener and Watchlist share one value.
+    cached_close = get_cached_last_close(ticker)
+    pe_ratio = compute_trailing_pe(
+        ratios_ttm,
+        cached_close[0] if cached_close is not None else price,
+        reported_currency,
+        quote_currency,
+    )
     daily_prices = daily_prices_data if isinstance(daily_prices_data, list) else []
     avg_volume_30d = _avg_volume_30d(daily_prices)
     avg_dollar_volume_20d = _avg_dollar_volume_20d(daily_prices)
@@ -520,7 +535,7 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
         net_income_growth_yoy=(
             financial_growth["netIncomeGrowth"] * 100 if financial_growth.get("netIncomeGrowth") is not None else None
         ),
-        pe_ratio=ratios.get("priceToEarningsRatio"),
+        pe_ratio=pe_ratio,
         next_earnings_date=_next_earnings_date(earnings),
         total_debt=debt_metrics.total_debt,
         ebitda_ttm=debt_metrics.ebitda_ttm,
