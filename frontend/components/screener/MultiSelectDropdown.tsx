@@ -1,5 +1,6 @@
 "use client";
 
+import { CaretDown } from "@phosphor-icons/react";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { Checkbox } from "@/components/ui/checkbox";
@@ -104,6 +105,9 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Prop
 
   const selectedLabel = selected.length === 1 ? (options.find((o) => o.value === selected[0])?.label ?? selected[0]) : "";
   const summary = selected.length === 0 ? label : selected.length === 1 ? selectedLabel : `${label} (${selected.length})`;
+  // The accessible name is "<label>: <summary>" ("Sector: none selected",
+  // "Sector: Technology", "Sector: 3 selected"); the visible text above is unchanged.
+  const nameSummary = selected.length === 0 ? "none selected" : selected.length === 1 ? selectedLabel : `${selected.length} selected`;
   const active = selected.length > 0;
 
   return (
@@ -118,6 +122,7 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Prop
             close();
           }
         }}
+        aria-label={`${label}: ${nameSummary}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         className={cn(
@@ -126,7 +131,7 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Prop
         )}
       >
         {summary}
-        <span className="text-text-tertiary">▾</span>
+        <CaretDown size={12} weight="bold" aria-hidden="true" className="text-text-tertiary" />
       </button>
 
       {open && (

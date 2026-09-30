@@ -6,49 +6,73 @@ import { Pagination } from "@/components/screener/Pagination";
 
 afterEach(cleanup);
 
-// Regression test for the session-5c move onto the shared Button --
-// confirms the active page keeps the dark-on-brand contrast fix
-// (bg-brand text-on-brand) rather than regressing to white text, and that
-// Prev/Next disable at the ends and page clicks still report the right
-// page number, unchanged from the pre-migration implementation.
+// Session-5c regression tests (Prev/Next disable at the ends, page clicks report
+// the right page number) kept through the session 10, part 3 restyle: the current
+// page is now the neutral selected treatment with aria-current="page", and
+// Previous/Next are caret icons with accessible names.
 describe("Pagination", () => {
   it("renders nothing for a single page", () => {
     const { container } = render(<Pagination page={1} nPages={1} onPage={() => {}} />);
     expect(container.firstChild).toBeNull();
   });
 
-  it("gives the active page button the dark-on-brand classes, not white text", () => {
+  it("marks the current page neutral (surface-2 fill, primary text), never brand blue", () => {
     render(<Pagination page={2} nPages={5} onPage={() => {}} />);
     const active = screen.getByRole("button", { name: "2" });
-    expect(active.className).toContain("bg-brand");
-    expect(active.className).toContain("text-on-brand");
-    expect(active.className).not.toContain("text-white");
+    expect(active).toHaveClass("bg-surface-2", "text-text-primary", "font-semibold");
+    expect(active).not.toHaveClass("text-text-secondary");
+    expect(active.className).not.toContain("brand");
+  });
+
+  it("exposes the current page with aria-current, and only that page", () => {
+    render(<Pagination page={2} nPages={5} onPage={() => {}} />);
+    expect(screen.getByRole("button", { name: "2" })).toHaveAttribute("aria-current", "page");
+    for (const n of [1, 3, 4, 5]) expect(screen.getByRole("button", { name: String(n) })).not.toHaveAttribute("aria-current");
+  });
+
+  it("leaves the other pages ghost (transparent, secondary text)", () => {
+    render(<Pagination page={2} nPages={5} onPage={() => {}} />);
+    const other = screen.getByRole("button", { name: "3" });
+    expect(other).toHaveClass("bg-transparent", "text-text-secondary");
+    expect(other).not.toHaveClass("bg-surface-2");
+  });
+
+  it("names Previous and Next, with decorative caret icons and no « » glyphs", () => {
+    render(<Pagination page={2} nPages={5} onPage={() => {}} />);
+    const prev = screen.getByRole("button", { name: "Previous page" });
+    const next = screen.getByRole("button", { name: "Next page" });
+    for (const b of [prev, next]) {
+      expect(b.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+      expect(b.textContent).not.toMatch(/[«»]/);
+    }
+    expect(prev).toHaveTextContent("Prev");
+    expect(next).toHaveTextContent("Next");
   });
 
   it("disables Prev on the first page and Next on the last page", () => {
     render(<Pagination page={1} nPages={3} onPage={() => {}} />);
-    expect(screen.getByRole("button", { name: "« Prev" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Next »" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next page" })).not.toBeDisabled();
   });
 
   it("disables Next on the last page and Prev is live there", () => {
     render(<Pagination page={3} nPages={3} onPage={() => {}} />);
-    expect(screen.getByRole("button", { name: "Next »" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "« Prev" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Previous page" })).not.toBeDisabled();
   });
 
   it("Prev and Next report the neighbouring pages", () => {
     const onPage = vi.fn();
     render(<Pagination page={4} nPages={9} onPage={onPage} />);
-    fireEvent.click(screen.getByRole("button", { name: "« Prev" }));
-    fireEvent.click(screen.getByRole("button", { name: "Next »" }));
+    fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
     expect(onPage.mock.calls).toEqual([[3], [5]]);
   });
 
   it("a disabled Prev or Next does not report a page", () => {
     const onPage = vi.fn();
     render(<Pagination page={1} nPages={2} onPage={onPage} />);
-    fireEvent.click(screen.getByRole("button", { name: "« Prev" }));
+    fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
     expect(onPage).not.toHaveBeenCalled();
   });
 

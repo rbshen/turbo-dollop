@@ -418,8 +418,8 @@ describe("the Watchlist scope and the section badges on the real page", () => {
 // 40 rows is three pages at PAGE_SIZE 18: 18, 18 and 4.
 describe("sorting and paging on the real page", () => {
   // -- selector helpers: the only markup-dependent part of this describe --
-  const prevButton = () => screen.getByRole("button", { name: "« Prev" });
-  const nextButton = () => screen.getByRole("button", { name: "Next »" });
+  const prevButton = () => screen.getByRole("button", { name: "Previous page" });
+  const nextButton = () => screen.getByRole("button", { name: "Next page" });
   const pageButton = (n: number) => screen.getByRole("button", { name: String(n) });
   // ----------------------------------------------------------------------
 
@@ -504,6 +504,6 @@ describe("sorting and paging on the real page", () => {
   it("shows no pagination when the rows fit on one page", () => {
     h.rows.all = h.rows.all!.slice(0, 5);
     render(<ScreenerPage />);
-    expect(screen.queryByRole("button", { name: "Next »" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
   });
 });

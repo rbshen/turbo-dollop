@@ -45,7 +45,7 @@ describe("MultiSelectDropdown: opening and focus", () => {
   it("starts closed, with the trigger named by its label and the popup ARIA on the trigger", () => {
     render(<Harness />);
     expect(screen.queryByRole("listbox")).toBeNull();
-    expect(trigger()).toHaveAccessibleName("Letters▾");
+    expect(trigger()).toHaveAccessibleName("Letters: none selected");
     expect(trigger()).toHaveAttribute("aria-haspopup", "listbox");
     expect(trigger()).toHaveAttribute("aria-expanded", "false");
   });
@@ -70,10 +70,67 @@ describe("MultiSelectDropdown: opening and focus", () => {
 
   it("reflects the selection in the options and in the trigger text", () => {
     render(<Harness initial={["b", "c"]} />);
-    expect(trigger()).toHaveAccessibleName("Letters (2)▾");
+    expect(trigger()).toHaveAccessibleName("Letters: 2 selected");
+    expect(trigger()).toHaveTextContent("Letters (2)"); // the visible text is unchanged
     open();
     expect(boxes().map((b) => b.checked)).toEqual([false, true, true]);
     expect(within(listbox()).getAllByRole("option").map((o) => o.getAttribute("aria-selected"))).toEqual(["false", "true", "true"]);
+  });
+});
+
+describe("MultiSelectDropdown: the trigger's accessible name and caret", () => {
+  it.each([
+    [[] as string[], "Letters: none selected", "Letters"],
+    [["b"], "Letters: Bravo", "Bravo"],
+    [["a", "c"], "Letters: 2 selected", "Letters (2)"],
+    [["a", "b", "c"], "Letters: 3 selected", "Letters (3)"],
+  ])("with %j selected it is named %s and still reads %s", (initial, name, visible) => {
+    render(<Harness initial={initial} />);
+    expect(trigger()).toHaveAccessibleName(name);
+    expect(trigger()).toHaveTextContent(new RegExp(`^${visible.replace(/[()]/g, "\\$&")}$`));
+  });
+
+  it("follows the selection as options are toggled", () => {
+    render(<Harness />);
+    open();
+    fireEvent.click(boxes()[0]);
+    expect(trigger()).toHaveAccessibleName("Letters: Alpha");
+    fireEvent.click(boxes()[2]);
+    expect(trigger()).toHaveAccessibleName("Letters: 2 selected");
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(trigger()).toHaveAccessibleName("Letters: none selected");
+  });
+
+  it("uses the option's label, not its stored value, when one is selected", () => {
+    render(<Harness initial={["c"]} />);
+    expect(trigger()).toHaveAccessibleName("Letters: Charlie");
+  });
+
+  it("has a decorative CaretDown icon and no text glyph", () => {
+    render(<Harness />);
+    const icon = trigger().querySelector("svg");
+    expect(icon).not.toBeNull();
+    expect(icon).toHaveAttribute("aria-hidden", "true");
+    expect(trigger().textContent).not.toContain("▾");
+  });
+
+  it("keeps aria-haspopup and tracks aria-expanded through open, Escape and a second click", () => {
+    render(<Harness />);
+    expect(trigger()).toHaveAttribute("aria-haspopup", "listbox");
+    expect(trigger()).toHaveAttribute("aria-expanded", "false");
+    open();
+    expect(trigger()).toHaveAttribute("aria-expanded", "true");
+    key(listbox(), "Escape");
+    expect(trigger()).toHaveAttribute("aria-expanded", "false");
+    open();
+    open();
+    expect(trigger()).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("leaves the listbox named by the bare label", () => {
+    render(<Harness initial={["a"]} />);
+    open();
+    expect(listbox()).toHaveAccessibleName("Letters");
   });
 });
 

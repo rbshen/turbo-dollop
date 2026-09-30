@@ -1,4 +1,7 @@
+import { CaretLeft, CaretRight } from "@phosphor-icons/react";
+
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface Props {
   page: number;
@@ -20,8 +23,9 @@ export function Pagination({ page, nPages, onPage }: Props) {
 
   return (
     <div className="flex items-center justify-center gap-1">
-      <Button variant="ghost" size="sm" onClick={() => onPage(page - 1)} disabled={page === 1}>
-        « Prev
+      <Button variant="ghost" size="sm" onClick={() => onPage(page - 1)} disabled={page === 1} aria-label="Previous page">
+        <CaretLeft size={12} weight="bold" aria-hidden="true" />
+        Prev
       </Button>
       {pages.map((p, i) =>
         p === null ? (
@@ -29,19 +33,23 @@ export function Pagination({ page, nPages, onPage }: Props) {
             …
           </span>
         ) : (
+          // The current page is the neutral selected treatment the segmented
+          // control uses (surface-2 fill, text-primary), never brand blue.
           <Button
             key={p}
-            variant={p === page ? "primary" : "ghost"}
+            variant="ghost"
             size="sm"
             onClick={() => onPage(p)}
-            className={p === page ? "px-2.5 font-semibold" : "px-2.5"}
+            aria-current={p === page ? "page" : undefined}
+            className={cn("px-2.5", p === page && "bg-surface-2 font-semibold text-text-primary")}
           >
             {p}
           </Button>
         )
       )}
-      <Button variant="ghost" size="sm" onClick={() => onPage(page + 1)} disabled={page === nPages}>
-        Next »
+      <Button variant="ghost" size="sm" onClick={() => onPage(page + 1)} disabled={page === nPages} aria-label="Next page">
+        Next
+        <CaretRight size={12} weight="bold" aria-hidden="true" />
       </Button>
     </div>
   );
