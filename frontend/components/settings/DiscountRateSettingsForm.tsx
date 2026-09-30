@@ -84,6 +84,10 @@ function DiscountRateForm({ data, saver }: { data: DiscountRateConfigOut; saver:
   const mrpEdited = mrp.value === null || mrp.value !== Number(shownMrp);
   const unchanged = !rfEdited && !mrpEdited;
 
+  // Identifies the field values, so a failed save's message stays until they change.
+  const signature = JSON.stringify([rfText, mrpText]);
+  const shown = saver.view(signature);
+
   function handleSave() {
     if (invalid || rf.value === null || mrp.value === null) return;
     const body = {
@@ -103,7 +107,7 @@ function DiscountRateForm({ data, saver }: { data: DiscountRateConfigOut; saver:
       // here which cached /step3 responses belong to this region's
       // tickers -- an over-invalidation, not a correctness issue.
       await mutate((key) => typeof key === "string" && (key.includes("/step3") || key.includes("/summary")));
-    });
+    }, signature);
   }
 
   return (
@@ -129,9 +133,10 @@ function DiscountRateForm({ data, saver }: { data: DiscountRateConfigOut; saver:
 
       <SettingsFooter
         onSave={handleSave}
-        status={saver.status}
+        status={shown.status}
         invalid={invalid}
         unchanged={unchanged}
+        message={shown.detail}
         updatedAt={data.updated_at}
       />
     </div>

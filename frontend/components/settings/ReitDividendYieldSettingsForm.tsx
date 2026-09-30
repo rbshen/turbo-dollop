@@ -45,6 +45,10 @@ function ReitDividendYieldForm({ data, saver }: { data: ReitDividendYieldConfigO
   // blocks Save through `invalid`.
   const unchanged = check.value !== null && check.value === data.threshold_pct;
 
+  // Identifies the field values, so a failed save's message stays until they change.
+  const signature = JSON.stringify([thresholdText]);
+  const shown = saver.view(signature);
+
   function handleSave() {
     if (check.value === null || invalid) return;
     const thresholdPct = check.value;
@@ -56,7 +60,7 @@ function ReitDividendYieldForm({ data, saver }: { data: ReitDividendYieldConfigO
       // the ticker header, which also reads Step 3's result) so the next
       // view reflects the new threshold without a manual page reload.
       await mutate((key) => typeof key === "string" && (key.includes("/step3") || key.includes("/summary")));
-    });
+    }, signature);
   }
 
   return (
@@ -77,9 +81,10 @@ function ReitDividendYieldForm({ data, saver }: { data: ReitDividendYieldConfigO
 
       <SettingsFooter
         onSave={handleSave}
-        status={saver.status}
+        status={shown.status}
         invalid={invalid}
         unchanged={unchanged}
+        message={shown.detail}
         updatedAt={data.updated_at}
       />
     </SettingsSection>

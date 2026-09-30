@@ -54,6 +54,10 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
     narrow.value === data.narrow_moat_score &&
     noMoat.value === data.no_moat_score;
 
+  // Identifies the field values, so a failed save's message stays until they change.
+  const signature = JSON.stringify([wideText, narrowText, noMoatText]);
+  const shown = saver.view(signature);
+
   function handleSave() {
     if (invalid || wide.value === null || narrow.value === null || noMoat.value === null) return;
     const body = {
@@ -67,7 +71,7 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
       // -- one revalidation reflows every open ticker's blended score
       // without a manual page reload.
       await mutate("/config/moat");
-    });
+    }, signature);
   }
 
   return (
@@ -104,10 +108,10 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
 
       <SettingsFooter
         onSave={handleSave}
-        status={saver.status}
+        status={shown.status}
         invalid={invalid}
         unchanged={unchanged}
-        message={saver.detail}
+        message={shown.detail}
         updatedAt={data.updated_at}
       />
     </SettingsSection>

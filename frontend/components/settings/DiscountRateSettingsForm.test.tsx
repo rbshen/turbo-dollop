@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mutate } from "swr";
 
 import { DiscountRateSettingsForm } from "@/components/settings/DiscountRateSettingsForm";
-import { apiPut } from "@/lib/api/client";
+import * as client from "@/lib/api/client";
 import type { DiscountRateConfigOut } from "@/lib/api/types";
 import { useDiscountRateConfigs } from "@/lib/hooks/useDiscountRateConfig";
 
@@ -15,7 +15,8 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
 }));
 vi.mock("@/lib/hooks/useDiscountRateConfig", () => ({ useDiscountRateConfigs: vi.fn() }));
 
-const mockedPut = vi.mocked(apiPut);
+const actualClient = await vi.importActual<typeof import("@/lib/api/client")>("@/lib/api/client");
+const mockedPut = vi.mocked(client.apiPut);
 const mockedMutate = vi.mocked(mutate);
 const mockedHook = vi.mocked(useDiscountRateConfigs);
 
@@ -56,6 +57,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("DiscountRateSettingsForm: layout", () => {
@@ -206,7 +208,7 @@ describe("DiscountRateSettingsForm: saving", () => {
     expect(predicate("/config/moat")).toBe(false);
   });
 
-  it("reports a failed save, keeps the typed value, and resets after 3 seconds", async () => {
+  it("reports a failed save and keeps the typed value; the message stays until the next edit", async () => {
     vi.useFakeTimers();
     mockedPut.mockRejectedValue(new Error("500"));
     render(<DiscountRateSettingsForm />);
@@ -214,8 +216,40 @@ describe("DiscountRateSettingsForm: saving", () => {
     await act(async () => fireEvent.click(saveIn("United States (US)")));
     expect(screen.getByText("Save failed")).toBeInTheDocument();
     expect(rf().value).toBe("3.5");
-    act(() => { vi.advanceTimersByTime(3000); });
-    expect(screen.queryByText("Save failed")).toBeNull();
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(screen.getByText("Save failed")).toBeInTheDocument(); // no timeout on a failure
+    type(rf(), "3.6");
+    expect(screen.queryByText(/Save failed/)).toBeNull();
+  });
+
+  it("clears a failure when Save is attempted again", async () => {
+    mockedPut.mockRejectedValueOnce(new Error("PUT /config/discount-rate failed: 422 - x: bad"));
+    render(<DiscountRateSettingsForm />);
+    type(rf(), "3.5");
+    await act(async () => fireEvent.click(saveIn("United States (US)")));
+    expect(screen.getByText("Save failed: x: bad")).toBeInTheDocument();
+    await act(async () => fireEvent.click(saveIn("United States (US)")));
+    expect(screen.queryByText(/x: bad/)).toBeNull();
+    expect(screen.getByText("Saved ✓")).toBeInTheDocument();
+  });
+
+  it("shows a real FastAPI 422 body (a list of {loc, msg}) end to end through the API client", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 422,
+        json: async () => ({
+          detail: [{ type: "float_parsing", loc: ["body", "risk_free_rate"], msg: "Input should be a valid number", input: "x" }],
+        }),
+      }),
+    );
+    mockedPut.mockImplementation(actualClient.apiPut);
+    render(<DiscountRateSettingsForm />);
+    type(rf(), "3.5");
+    await act(async () => fireEvent.click(saveIn("United States (US)")));
+    expect(screen.getByText("Save failed: risk_free_rate: Input should be a valid number")).toBeInTheDocument();
+    expect(rf().value).toBe("3.5");
   });
 
   it("still shows 'Saved ✓' after the region remounts on the fresh updated_at, then resets after 3 seconds", async () => {

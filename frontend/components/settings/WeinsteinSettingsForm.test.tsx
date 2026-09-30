@@ -343,7 +343,7 @@ describe("WeinsteinSettingsForm: saving", () => {
 });
 
 describe("WeinsteinSettingsForm: a rejected save", () => {
-  it("shows the server's message beside 'Save failed', keeps the typed values, and resets after 3 seconds", async () => {
+  it("shows the server's message beside 'Save failed', keeps the typed values, and keeps it until the next edit", async () => {
     vi.useFakeTimers();
     mockedPut.mockRejectedValue(
       new Error("PUT /config/weinstein failed: 422 - ma_length: Input should be greater than or equal to 2"),
@@ -354,7 +354,9 @@ describe("WeinsteinSettingsForm: a rejected save", () => {
     expect(screen.getByText("Save failed: ma_length: Input should be greater than or equal to 2")).toBeInTheDocument();
     expect(field("MA length").value).toBe("40");
     expect(save()).toBeEnabled();
-    act(() => { vi.advanceTimersByTime(3000); });
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(screen.getByText(/^Save failed: ma_length/)).toBeInTheDocument(); // no timeout on a failure
+    fireEvent.change(field("MA type"), { target: { value: "SMA" } }); // any edit, any control
     expect(screen.queryByText(/Save failed/)).toBeNull();
   });
 

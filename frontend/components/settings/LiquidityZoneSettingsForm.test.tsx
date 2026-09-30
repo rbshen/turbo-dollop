@@ -427,7 +427,7 @@ describe("LiquidityZoneSettingsForm: saving", () => {
     expect(screen.queryByText("Saved ✓")).toBeNull();
   });
 
-  it("shows the server's reason for a rejected save, keeps the typed values, and resets after 3 seconds", async () => {
+  it("shows the server's reason for a rejected save, keeps the typed values, and keeps it until the next edit", async () => {
     vi.useFakeTimers();
     mockedPut.mockRejectedValue(
       new Error("PUT /config/liquidity-zones failed: 422 - swing_bars_each_side: Input should be less than or equal to 3"),
@@ -437,7 +437,9 @@ describe("LiquidityZoneSettingsForm: saving", () => {
     await act(async () => fireEvent.click(save()));
     expect(screen.getByText("Save failed: swing_bars_each_side: Input should be less than or equal to 3")).toBeInTheDocument();
     expect(field("Cluster").value).toBe("2");
-    act(() => { vi.advanceTimersByTime(3000); });
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(screen.getByText(/^Save failed: swing_bars_each_side/)).toBeInTheDocument(); // no timeout on a failure
+    fireEvent.click(check("Keep last breached support")); // any edit, any control
     expect(screen.queryByText(/Save failed/)).toBeNull();
   });
 });

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mutate } from "swr";
 
 import { ReitDividendYieldSettingsForm } from "@/components/settings/ReitDividendYieldSettingsForm";
-import { apiPut } from "@/lib/api/client";
+import * as client from "@/lib/api/client";
 import type { ReitDividendYieldConfigOut } from "@/lib/api/types";
 import { useReitDividendYieldConfig } from "@/lib/hooks/useReitDividendYieldConfig";
 
@@ -15,7 +15,8 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
 }));
 vi.mock("@/lib/hooks/useReitDividendYieldConfig", () => ({ useReitDividendYieldConfig: vi.fn() }));
 
-const mockedPut = vi.mocked(apiPut);
+const actualClient = await vi.importActual<typeof import("@/lib/api/client")>("@/lib/api/client");
+const mockedPut = vi.mocked(client.apiPut);
 const mockedMutate = vi.mocked(mutate);
 const mockedHook = vi.mocked(useReitDividendYieldConfig);
 
@@ -39,6 +40,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("ReitDividendYieldSettingsForm: layout", () => {
@@ -171,7 +173,7 @@ describe("ReitDividendYieldSettingsForm: saving", () => {
     expect(screen.getByText("Saved ✓")).toBeInTheDocument();
   });
 
-  it("reports a failed save, keeps the typed value, and resets the status after 3 seconds", async () => {
+  it("reports a failed save and keeps the typed value; the message stays until the next edit", async () => {
     vi.useFakeTimers();
     mockedPut.mockRejectedValue(new Error("500"));
     render(<ReitDividendYieldSettingsForm />);
@@ -180,10 +182,40 @@ describe("ReitDividendYieldSettingsForm: saving", () => {
     expect(screen.getByText("Save failed")).toBeInTheDocument();
     expect(field().value).toBe("6");
     expect(save()).toBeEnabled();
-    act(() => { vi.advanceTimersByTime(2999); });
-    expect(screen.getByText("Save failed")).toBeInTheDocument();
-    act(() => { vi.advanceTimersByTime(1); });
-    expect(screen.queryByText("Save failed")).toBeNull();
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(screen.getByText("Save failed")).toBeInTheDocument(); // no timeout on a failure
+    type("7");
+    expect(screen.queryByText(/Save failed/)).toBeNull();
+  });
+
+  it("clears a failure when Save is attempted again", async () => {
+    mockedPut.mockRejectedValueOnce(new Error("PUT /config/reit-dividend-yield failed: 422 - x: bad"));
+    render(<ReitDividendYieldSettingsForm />);
+    type("6");
+    await act(async () => fireEvent.click(save()));
+    expect(screen.getByText("Save failed: x: bad")).toBeInTheDocument();
+    await act(async () => fireEvent.click(save()));
+    expect(screen.queryByText(/x: bad/)).toBeNull();
+    expect(screen.getByText("Saved ✓")).toBeInTheDocument();
+  });
+
+  it("shows a real FastAPI 422 body (a list of {loc, msg}) end to end through the API client", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 422,
+        json: async () => ({
+          detail: [{ type: "float_parsing", loc: ["body", "threshold_pct"], msg: "Input should be a valid number", input: "x" }],
+        }),
+      }),
+    );
+    mockedPut.mockImplementation(actualClient.apiPut);
+    render(<ReitDividendYieldSettingsForm />);
+    type("6");
+    await act(async () => fireEvent.click(save()));
+    expect(screen.getByText("Save failed: threshold_pct: Input should be a valid number")).toBeInTheDocument();
+    expect(field().value).toBe("6");
   });
 
   it("still shows 'Saved ✓' after the form remounts on the fresh updated_at, then resets after 3 seconds", async () => {

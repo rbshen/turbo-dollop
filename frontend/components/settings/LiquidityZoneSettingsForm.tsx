@@ -86,6 +86,10 @@ function LiquidityZoneForm({ data, saver }: { data: LiquidityZoneConfigOut; save
     onlyRecent === data.only_keep_if_breached_recently &&
     (!recencyApplies || recencyCheck.value === data.breach_recency_bars);
 
+  // Identifies the field values, so a failed save's message stays until they change.
+  const signature = JSON.stringify([swingBars, clusterPct, maxLps, priority, keepSupport, keepResistance, onlyRecent, recencyBars]);
+  const shown = saver.view(signature);
+
   function handleSave() {
     if (invalid || swingCheck.value === null || clusterCheck.value === null || maxLpsCheck.value === null) return;
     const recency = recencyApplies ? recencyCheck.value : data.breach_recency_bars;
@@ -103,7 +107,7 @@ function LiquidityZoneForm({ data, saver }: { data: LiquidityZoneConfigOut; save
     void saver.run(async () => {
       await apiPut<LiquidityZoneConfigOut>("/config/liquidity-zones", body);
       await mutate("/config/liquidity-zones");
-    });
+    }, signature);
   }
 
   return (
@@ -194,10 +198,10 @@ function LiquidityZoneForm({ data, saver }: { data: LiquidityZoneConfigOut; save
 
       <SettingsFooter
         onSave={handleSave}
-        status={saver.status}
+        status={shown.status}
         invalid={invalid}
         unchanged={unchanged}
-        message={saver.detail}
+        message={shown.detail}
         updatedAt={data.updated_at}
       />
     </SettingsSection>

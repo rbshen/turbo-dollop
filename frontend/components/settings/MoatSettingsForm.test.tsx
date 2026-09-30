@@ -205,7 +205,7 @@ describe("MoatSettingsForm: saving", () => {
     expect(mockedMutate.mock.calls).toEqual([["/config/moat"]]);
   });
 
-  it("reports a failed save, keeps the typed values, and resets after 3 seconds", async () => {
+  it("reports a failed save and keeps the typed values; the message stays until the next edit", async () => {
     vi.useFakeTimers();
     mockedPut.mockRejectedValue(new Error("500"));
     render(<MoatSettingsForm />);
@@ -213,8 +213,21 @@ describe("MoatSettingsForm: saving", () => {
     await act(async () => fireEvent.click(save()));
     expect(screen.getByText("Save failed")).toBeInTheDocument();
     expect(wide().value).toBe("95");
-    act(() => { vi.advanceTimersByTime(3000); });
-    expect(screen.queryByText("Save failed")).toBeNull();
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(screen.getByText("Save failed")).toBeInTheDocument();
+    type(narrow(), "66");
+    expect(screen.queryByText(/Save failed/)).toBeNull();
+  });
+
+  it("shows the server's reason and clears it when Save is attempted again", async () => {
+    mockedPut.mockRejectedValueOnce(new Error("PUT /config/moat failed: 422 - wide_moat_score: bad"));
+    render(<MoatSettingsForm />);
+    type(wide(), "95");
+    await act(async () => fireEvent.click(save()));
+    expect(screen.getByText("Save failed: wide_moat_score: bad")).toBeInTheDocument();
+    await act(async () => fireEvent.click(save()));
+    expect(screen.queryByText(/wide_moat_score: bad/)).toBeNull();
+    expect(screen.getByText("Saved ✓")).toBeInTheDocument();
   });
 
   it("still shows 'Saved ✓' after the form remounts on the fresh updated_at, then resets after 3 seconds", async () => {

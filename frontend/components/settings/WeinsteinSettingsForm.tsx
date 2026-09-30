@@ -96,6 +96,10 @@ function WeinsteinForm({ data, saver }: { data: WeinsteinConfigOut; saver: Setti
     benchmark.trim() === data.rs_benchmark &&
     rsSmoothingCheck.value === data.rs_smoothing_length;
 
+  // Identifies the field values, so a failed save's message stays until they change.
+  const signature = JSON.stringify([maLength, maType, rangePct, slopeLookback, volMult, volAvgLength, benchmark, rsSmoothing]);
+  const shown = saver.view(signature);
+
   function handleSave() {
     const numbers = [maLengthCheck, rangeCheck, slopeCheck, volMultCheck, volAvgCheck, rsSmoothingCheck].map(
       (c) => c.value,
@@ -116,7 +120,7 @@ function WeinsteinForm({ data, saver }: { data: WeinsteinConfigOut; saver: Setti
     void saver.run(async () => {
       await apiPut<WeinsteinConfigOut>("/config/weinstein", body);
       await mutate("/config/weinstein");
-    });
+    }, signature);
   }
 
   return (
@@ -206,10 +210,10 @@ function WeinsteinForm({ data, saver }: { data: WeinsteinConfigOut; saver: Setti
 
       <SettingsFooter
         onSave={handleSave}
-        status={saver.status}
+        status={shown.status}
         invalid={invalid}
         unchanged={unchanged}
-        message={saver.detail}
+        message={shown.detail}
         updatedAt={data.updated_at}
       />
     </SettingsSection>
