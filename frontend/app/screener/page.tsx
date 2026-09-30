@@ -42,6 +42,10 @@ const UNIVERSE_LABELS: Record<ScreenerUniverse, string> = {
   all: "All",
 };
 
+// What the sort is on first load, and what Reset puts it back to.
+const DEFAULT_SORT_FIELD: SortField = "overall_score";
+const DEFAULT_SORT_DIRECTION: SortDirection = "desc";
+
 const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: "overall_score", label: "Overall score" },
   { value: "step1_score", label: "Financials score" },
@@ -57,6 +61,8 @@ const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: "weinstein_stage_since", label: "Weinstein — Stage Since" },
 ];
 
+const NO_OPTIONS = { sectors: [] as string[], companyTypes: [] as string[] };
+
 export default function ScreenerPage() {
   const [universe, setUniverse] = useState<ScreenerUniverse>("all");
   const { data: rawData, error } = useScreener(universe);
@@ -67,8 +73,8 @@ export default function ScreenerPage() {
   const { data: watchlists } = useWatchlists();
 
   const [filters, setFilters] = useState<ScreenerFilterState>(DEFAULT_FILTER_STATE);
-  const [sortField, setSortField] = useState<SortField>("overall_score");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [sortField, setSortField] = useState<SortField>(DEFAULT_SORT_FIELD);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(DEFAULT_SORT_DIRECTION);
   const [page, setPage] = useState(1);
   // The WATCHLIST universe filter's selection. Deliberately NOT cleared
   // when `universe` flips away from "all" -- WatchlistFilters just dims the
@@ -89,8 +95,16 @@ export default function ScreenerPage() {
     setPage(1);
   }
 
-  const sectors = useMemo(() => extractSectors(data ?? []), [data]);
-  const companyTypes = useMemo(() => extractCompanyTypes(data ?? []), [data]);
+  // The Sector and Company type options are read off the loaded rows. While a
+  // new universe loads there are no rows, so keep the last known lists rather
+  // than emptying the two multi-selects (the sidebar stays mounted; see below).
+  const loadedOptions = useMemo(
+    () => (data ? { sectors: extractSectors(data), companyTypes: extractCompanyTypes(data) } : null),
+    [data]
+  );
+  const [knownOptions, setKnownOptions] = useState(loadedOptions);
+  if (loadedOptions && loadedOptions !== knownOptions) setKnownOptions(loadedOptions);
+  const { sectors, companyTypes } = loadedOptions ?? knownOptions ?? NO_OPTIONS;
 
   const filtered = useMemo(
     () => filterTickerScores(data ?? [], filters, watchlistTickerSet),
@@ -126,6 +140,9 @@ export default function ScreenerPage() {
     // Technical filter blob.
     setUniverse("all");
     setWatchlistId(null);
+    // ...and back to the page's default sort as well.
+    setSortField(DEFAULT_SORT_FIELD);
+    setSortDirection(DEFAULT_SORT_DIRECTION);
   }
 
   function handleWatchlistChange(next: number | null) {
@@ -167,28 +184,12 @@ export default function ScreenerPage() {
     setPage(1);
   }
 
-  if (error) {
-    return (
-      <PageContainer className="py-12">
-        <p className="text-sm text-negative">Failed to load the Screener.</p>
-      </PageContainer>
-    );
-  }
-
-  if (!data) {
-    return (
-      <PageContainer className="py-12">
-        <p className="text-sm text-text-tertiary animate-pulse">Loading Screener…</p>
-      </PageContainer>
-    );
-  }
-
   return (
     <PageContainer className="space-y-6 pb-12">
       <PageHeader
         title="Screener"
         subtitle={
-          watchlistActive && selectedWatchlist ? (
+          !data ? undefined : watchlistActive && selectedWatchlist ? (
             <>
               {watchlistScoredCount} of {selectedWatchlist.tickers.length} &quot;{selectedWatchlist.name}&quot; tickers
               {sorted.length !== watchlistScoredCount && ` — ${sorted.length} match the current filters`}
@@ -263,17 +264,29 @@ export default function ScreenerPage() {
         </aside>
 
         <div className="min-w-0 flex-1 space-y-4">
-          {sorted.length === 0 ? (
-            <p className="py-12 text-center text-sm text-text-tertiary">No tickers match the current filters.</p>
+          {/* Loading and error live here, not in place of the page: the header, the
+              Sort row and the sidebar (collapse state, the active saved-view name,
+              a half-typed view name, range drafts) stay mounted across a universe
+              switch. */}
+          {error ? (
+            <p className="py-12 text-sm text-negative">Failed to load the Screener.</p>
+          ) : !data ? (
+            <p className="py-12 text-sm text-text-tertiary animate-pulse">Loading Screener…</p>
           ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {pageRows.map((row) => (
-                <ScreenerCard key={row.ticker} data={row} />
-              ))}
-            </div>
-          )}
+            <>
+              {sorted.length === 0 ? (
+                <p className="py-12 text-center text-sm text-text-tertiary">No tickers match the current filters.</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {pageRows.map((row) => (
+                    <ScreenerCard key={row.ticker} data={row} />
+                  ))}
+                </div>
+              )}
 
-          <Pagination page={currentPage} nPages={nPages} onPage={setPage} />
+              <Pagination page={currentPage} nPages={nPages} onPage={setPage} />
+            </>
+          )}
         </div>
       </div>
     </PageContainer>

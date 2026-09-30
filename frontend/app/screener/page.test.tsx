@@ -185,13 +185,27 @@ describe("Reset", () => {
     expect(cards().sort()).toEqual(["AAA", "BBB", "CCC", "DDD"]);
   });
 
-  it("today leaves the sort where it was (changed to a reset by the migration)", () => {
+  it("also puts the sort back to the default field and direction", () => {
     h.saved = [savedView({ name: "Big", sort_field: "market_cap", sort_direction: "asc" })];
     render(<ScreenerPage />);
     loadSavedView("Big");
-    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
     expect(sortSelect().value).toBe("market_cap");
     expect(screen.getByTitle("Ascending")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(sortSelect().value).toBe("overall_score");
+    expect(screen.getByTitle("Descending")).toBeInTheDocument();
+    // the default sort (Overall, high to low) is really applied to the cards
+    expect(cards()).toEqual(["AAA", "BBB", "CCC", "DDD"]);
+  });
+
+  it("resets a sort changed by hand, not only one loaded from a view", () => {
+    render(<ScreenerPage />);
+    fireEvent.change(sortSelect(), { target: { value: "beta" } });
+    fireEvent.click(screen.getByTitle("Descending"));
+    expect(screen.getByTitle("Ascending")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(sortSelect().value).toBe("overall_score");
+    expect(screen.getByTitle("Descending")).toBeInTheDocument();
   });
 });
 
@@ -257,5 +271,107 @@ describe("range boxes on the real page", () => {
     expect(box("Beta", "Minimum").value).toBe("0.5");
     expect(box("Beta", "Maximum").value).toBe("2");
     expect(box("Overall", "Minimum").value).toBe("");
+  });
+});
+
+describe("the sidebar across a universe switch", () => {
+  // While a new universe loads there are no rows (SWR's data is undefined for the
+  // new key). The page must keep the header, the sort row and the whole sidebar
+  // mounted and show loading only in the results area.
+  const groupBox = (name: string, side: "Minimum" | "Maximum") => box(name, side);
+  const technicalTrigger = () => screen.getByRole("button", { name: /^Technical/ });
+
+  function setUpSidebarState() {
+    h.saved = [savedView({ name: "Big", filters: { ...DEFAULT_FILTER_STATE } })];
+    h.rows.sp500 = undefined; // loading
+    const utils = render(<ScreenerPage />);
+    loadSavedView("Big"); // active view name
+    fireEvent.click(technicalTrigger()); // collapse Technical
+    typeInto(groupBox("Growth", "Minimum"), "1x"); // a range draft the numeric state cannot hold
+    typeInto(groupBox("Overall", "Maximum"), "60"); // a valid draft
+    fireEvent.click(screen.getByRole("button", { name: "Save current view" }));
+    fireEvent.change(screen.getByPlaceholderText("View name"), { target: { value: "half typed" } });
+    return utils;
+  }
+
+  it("keeps collapse state, the active view name, a half-typed view name and range drafts while the new universe loads", () => {
+    setUpSidebarState();
+    expect(screen.queryByRole("group", { name: "Beta" })).toBeNull(); // Technical collapsed
+
+    fireEvent.click(screen.getByRole("button", { name: "S&P 500" }));
+    expect(lastUniverse()).toBe("sp500");
+
+    // loading shows in the results area only
+    expect(screen.getByText("Loading Screener…")).toBeInTheDocument();
+    expect(cards()).toEqual([]);
+    expect(screen.getByRole("heading", { name: "Screener" })).toBeInTheDocument();
+    expect(sortSelect()).toBeInTheDocument();
+    // ...and the sidebar is the very same, untouched state
+    expect(screen.queryByRole("group", { name: "Beta" })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Big/ })).toBeInTheDocument();
+    expect((screen.getByPlaceholderText("View name") as HTMLInputElement).value).toBe("half typed");
+    expect(groupBox("Growth", "Minimum").value).toBe("1x");
+    expect(groupBox("Overall", "Maximum").value).toBe("60");
+    expect(within(screen.getByRole("group", { name: "Growth" })).getByRole("alert")).toHaveTextContent("Enter a number.");
+  });
+
+  it("still has all of it once the new universe's rows arrive", () => {
+    const { rerender } = setUpSidebarState();
+    fireEvent.click(screen.getByRole("button", { name: "S&P 500" }));
+    h.rows.sp500 = ALL_ROWS.slice(0, 3);
+    rerender(<ScreenerPage />);
+    expect(screen.queryByText("Loading Screener…")).toBeNull();
+    // Overall max 60 leaves CCC (40); DDD's null score is excluded from sp500's three rows anyway
+    expect(cards()).toEqual(["CCC"]);
+    expect(screen.queryByRole("group", { name: "Beta" })).toBeNull();
+    expect((screen.getByPlaceholderText("View name") as HTMLInputElement).value).toBe("half typed");
+    expect(groupBox("Growth", "Minimum").value).toBe("1x");
+    expect(groupBox("Overall", "Maximum").value).toBe("60");
+  });
+
+  it("shows a load error in the results area only, with the sidebar in place", () => {
+    h.errors.sp500 = new Error("boom");
+    h.rows.sp500 = undefined;
+    render(<ScreenerPage />);
+    typeInto(groupBox("Overall", "Minimum"), "70");
+    fireEvent.click(screen.getByRole("button", { name: "S&P 500" }));
+    expect(screen.getByText("Failed to load the Screener.")).toBeInTheDocument();
+    expect(groupBox("Overall", "Minimum").value).toBe("70");
+    expect(screen.getByRole("button", { name: /^Reset/ })).toBeInTheDocument();
+    expect(screen.queryByText("Loading Screener…")).toBeNull();
+  });
+
+  it("keeps the last known Sector and Company type options while the new universe loads", () => {
+    h.rows.dow = undefined;
+    render(<ScreenerPage />);
+    const openMulti = (label: string) => fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${label}`) }));
+    fireEvent.click(screen.getByRole("button", { name: "Dow 30" }));
+    expect(screen.getByText("Loading Screener…")).toBeInTheDocument();
+    openMulti("Sector");
+    expect(within(screen.getByRole("listbox")).getAllByRole("option").map((o) => o.textContent)).toEqual(["Energy", "Healthcare", "Technology"]);
+    openMulti("Sector"); // close it again
+    openMulti("Company type");
+    expect(within(screen.getByRole("listbox")).getAllByRole("option").map((o) => o.textContent)).toEqual(["Standard"]);
+  });
+
+  it("takes the new universe's own options once it has loaded", () => {
+    h.rows.dow = undefined;
+    const { rerender } = render(<ScreenerPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Dow 30" }));
+    h.rows.dow = [ALL_ROWS[1]];
+    rerender(<ScreenerPage />);
+    fireEvent.click(screen.getByRole("button", { name: /^Sector/ }));
+    expect(within(screen.getByRole("listbox")).getAllByRole("option").map((o) => o.textContent)).toEqual(["Healthcare"]);
+  });
+
+  it("keeps the header count text honest: no counts while loading, counts once loaded", () => {
+    h.rows.sp500 = undefined;
+    const { rerender } = render(<ScreenerPage />);
+    expect(screen.getByText(/4 of 500 All tickers/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "S&P 500" }));
+    expect(screen.queryByText(/^\d+ of/)).toBeNull();
+    h.rows.sp500 = ALL_ROWS.slice(0, 3);
+    rerender(<ScreenerPage />);
+    expect(screen.getByText(/3 of 500 S&P 500 tickers/)).toBeInTheDocument();
   });
 });
