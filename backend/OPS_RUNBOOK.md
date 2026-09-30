@@ -41,8 +41,8 @@ the failure message).
 "nothing to stop" per service, exits 0). Use this from a second shell, or
 after a `start.sh` session was disconnected without a clean Ctrl-C.
 
-**Pausing the FMP subscription** (no restart, no `.env` edit): Settings > Status >
-"FMP master switch", or from a shell
+**Pausing the FMP subscription** (no restart, no `.env` edit): Settings > FMP data groups >
+"FMP master switch" (below the group table), or from a shell
 
 ```
 cd backend
@@ -52,7 +52,7 @@ uv run python -m pipeline.data_groups resume      # master ON (per-group setting
 ```
 
 Takes effect within ~5 s in every process (state is in the DB). Individual
-groups (fundamentals, news, ...) can be toggled in Settings > Status; `start.sh`'s
+groups (fundamentals, news, ...) can be toggled in Settings > FMP data groups; `start.sh`'s
 FMP preflight is skipped when the master or `profile_quote` is off, and a 402
 there only warns. A nightly job whose group is off records a **skipped** run
 (blue dot in Scheduled Jobs, "Skipped since <date>") -- if a job shows skipped
@@ -468,7 +468,7 @@ its warm cache.
 
 #### Long history (P3, 2026-09-25)
 
-- **`daily_prices_long`** (Settings > Status; history beyond the nightly ~5y: Chart W_4Y and the
+- **`daily_prices_long`** (Settings > FMP data groups; history beyond the nightly ~5y: Chart W_4Y and the
   Analyst overlay). Off = cached-only for an existing long-history row, otherwise an empty chart /
   overlay (no Yahoo fallback). Its 402 canary is AAPL; `pipeline.stale_data_health_check` re-probes a restricted one weekly.
   (`daily_prices_intl` was removed 2026-09-26.)

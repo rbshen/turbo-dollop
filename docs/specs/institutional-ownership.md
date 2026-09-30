@@ -17,7 +17,7 @@ the backend.
   `TickerTabsContainer`, and from `lib/dataGroups.ts`'s `TAB_GROUPS` (both its own entry and the Summary
   tab's, since nothing on Summary surfaces institutional-ownership data). The `InstitutionalOwnershipTab`
   component and the `useInstitutionalOwnership` hook are unchanged and currently unimported.
-- It never had a cron job, so Scheduled Jobs needed nothing. Settings > Status is fully data-driven off the
+- It never had a cron job, so Scheduled Jobs needed nothing. Settings > FMP data groups is fully data-driven off the
   live group list (same as `news`), so a disabled group just shows as an off toggle row; there is no
   separate "shelved" listing to prune.
 - All backend/frontend code and its tests are left in the tree, each carrying a short revival comment
@@ -28,7 +28,7 @@ the backend.
 - The seeded conftest state has `institutional_ownership` off (alongside `news`); the feature's own tests
   turn it on explicitly.
 
-**To revive:** turn the `institutional_ownership` Data Group on in Settings > Status (no restart), then
+**To revive:** turn the `institutional_ownership` Data Group on in Settings > FMP data groups (no restart), then
 re-add `"institutionalOwnership"` to the `TickerTab` union and `TICKER_TABS` (between Analyst Ratings and
 Technical), the `InstitutionalOwnershipTab` branch in `TickerTabsContainer`, and its `TAB_GROUPS` entries.
 

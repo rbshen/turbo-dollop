@@ -39,6 +39,7 @@ All sessions below are commits on `ui/design-system`, not pushed to `origin` unt
 - **Session 8 — Form controls and the Settings layout kit (2026-09-30).** Shared form-control primitives, a Settings layout kit and a `/styleguide` preview, with **no page migrated**. Three commits on `ui/design-system` (docs, code, styleguide), not pushed. See "Session 8: form controls" below.
 - **Session 9 — Settings migration, part 1 (2026-09-30).** REIT dividend yield, Economic moat and Discount rate moved onto the session 8 form controls and Settings layout kit, one commit per section, plus the Settings nav labels in sentence case. Weinstein, Liquidity, Scheduled jobs and FMP data groups untouched. See "Session 9: Settings migration, part 1" below.
 - **Session 9, part 2 — Weinstein and Liquidity (2026-09-30).** The last two form sections (and a 0-100 check on the Moat fields) moved onto the form-control kit; `NumberStepper`, `InfoTooltip` and the legacy `Select` shell removed once nothing used them. See "Session 9: Settings migration, part 2" below.
+- **Session 9, part 3 — FMP settings on the kit (2026-09-30).** The FMP status card moved into FMP data groups; the immediate-apply FMP controls became `Switch` and native `Select`; error messages now persist; REIT and Discount rate show the server's reason. See "Session 9: Settings migration, part 3" below.
 
 ## Design reversals
 
@@ -120,6 +121,14 @@ Weinstein and Liquidity are migrated onto `NumberField`, `Select` (with a size t
 - **Checkbox and Switch without a `label` prop render no wrapping `<label>`** (their input is laid over the box), so in a Settings row the row's `<label for>` is the only accessible name. Code with a `label` prop renders as before.
 - **Sentence case:** section titles "Weinstein stage" and "Liquidity zones", and the headings of Scheduled jobs and FMP data groups, now match the nav. No other change to those two sections.
 - **Removed once unused** (a grep first showed no caller left): `NumberStepper`, `InfoTooltip`, `lib/tooltipPosition.ts` (only `InfoTooltip` used it) and its test, and the un-tokened `Select` shell (`Select` now requires a `size`). The styleguide's "Settings controls" demo of the old stepper and select went with them, since the "Form controls" section shows their replacements. The brand `Checkbox` variant stays because the Screener filters use it.
+
+### 2026-09-30 — Session 9: Settings migration, part 3
+
+- **The FMP status card moves into FMP data groups, below the table.** `FmpHealthSummaryCard` (the "My FMP plan" select, the "FMP master switch" with its On / Off badge, the "FMP rejected the API key" line, and its own error line) leaves Scheduled jobs, which keeps only its jobs table, and sits inside the FMP data groups section under the per-group table. Moved on its own first, with no control changes, so it can be reviewed and reverted alone. The card and the table already share one SWR key (`/config/data-groups`, and every plan, master and group write puts the fresh response into it), so neither depends on the other's component state and moving the card changes no fetching.
+- **Immediate-apply controls use the kit.** The master checkbox and each per-row enable checkbox become `Switch`; the plan select and each per-row required-tier select become the native `Select` with a size token. The section has no Save button and the apply-immediately behaviour, busy handling, endpoints, payloads and SWR keys are unchanged. The Switch is driven by the fetched data, so cancelling the "turn off" confirmation, or a failed request, leaves it showing the real state. The FMP data groups table stays a table.
+- **Error messages persist.** In the Settings forms a failed save's message (including a 422's reason) now stays until the user's next edit or next Save attempt; only "Saved ✓" resets after three seconds. This refines the part 1 rule ("a three-second reset"), which made a server reason vanish before it could be read.
+- **REIT dividend yield and Discount rate show the server's reason** beside "Save failed", as Moat, Weinstein and Liquidity already did.
+- **Sentence case** for the labels in these two sections.
 
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
