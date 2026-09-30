@@ -7,12 +7,14 @@ import { Button } from "@/components/ui/button";
 
 interface Props {
   disabled?: boolean;
+  // Styleguide seam: draws the menu open. The page never passes it.
+  defaultOpen?: boolean;
   onExportTradingView: () => void;
   onExportThinkorswim: () => void;
 }
 
-export function ExportMenu({ disabled, onExportTradingView, onExportThinkorswim }: Props) {
-  const [open, setOpen] = useState(false);
+export function ExportMenu({ disabled, defaultOpen = false, onExportTradingView, onExportThinkorswim }: Props) {
+  const [open, setOpen] = useState(defaultOpen);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 

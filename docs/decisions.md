@@ -278,6 +278,15 @@ The Watchlist page controls and the two buttons shared with other pages move ont
 
 **Live-behaviour changes authorised:** the outline button styling and icons; accessible names; the rename input showing server messages inline and mirroring the backend limit; `ExportMenu` Escape and focus return if missing; sentence-case strings. Nothing else.
 
+**Delivered, and where the brief and the code differed.** The code was ground truth:
+
+- `WatchlistDeleteButton` never used `window.confirm`; its confirm is an inline state (idle, asking, deleting, error). Kept exactly.
+- The rename input already showed the server's message (`errorDetail`, with the duplicate-name 409 as "already exists"), already had `maxLength` 100, Enter to save and Escape to cancel, and an `aria-label` of "Watchlist name". Delivered: the kit `Input`, the shared `WATCHLIST_NAME_MAX_LENGTH` (`lib/watchlistName.ts`; the backend `WatchlistName` is 1 to 100 characters after stripping), the invalid style and a linked `role="alert"` message.
+- `ExportMenu` already closed on Escape (from the trigger and from an item) with focus returned, and on an outside click; it never had arrow-key navigation. Nothing to add; tests pin it.
+- `RefreshButton` has a fourth state, "Refreshed ✓"; the glyph became a `Check` icon.
+- The trash and pencil triggers were unbordered icon buttons; they became `ghost` icon buttons (the trash turns `danger` after a failed delete, so the error cue is kept).
+- Four components gained optional styleguide seams (a swappable request and a starting state) so the mock cannot reach the backend; the real pages pass none.
+
 **Deferred.** `AddToWatchlistButton` and the rest of the ticker page (the remaining hand-written outline overrides are all in ticker-page files) migrate in the ticker-page session, and `AddToWatchlistButton` should adopt the shared watchlist-name length constant then.
 
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)

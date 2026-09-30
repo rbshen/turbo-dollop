@@ -10,6 +10,11 @@ import type { RefreshResult } from "@/lib/api/types";
 
 interface Props {
   ticker: string;
+  // Styleguide seams (the ticker header passes neither): `request` swaps the
+  // refresh call so a mock can never reach the backend, `defaultStatus` draws
+  // a given state.
+  request?: (ticker: string) => Promise<unknown>;
+  defaultStatus?: Status;
 }
 
 type Status = "idle" | "loading" | "success" | "error";
@@ -21,18 +26,22 @@ const LABELS: Record<Status, string> = {
   error: "Refresh failed",
 };
 
-export function RefreshButton({ ticker }: Props) {
-  const [status, setStatus] = useState<Status>("idle");
+async function refreshTicker(ticker: string) {
+  await apiPost<RefreshResult>(`/tickers/${ticker}/refresh`, undefined);
+  // Every hook on this page keys off "/tickers/{ticker}/..." -- one
+  // filtered mutate revalidates the header, Overall Assessment, and
+  // all 4 step cards together, so the user sees fresh numbers without
+  // a manual page reload.
+  await mutate((key) => typeof key === "string" && key.startsWith(`/tickers/${ticker}`));
+}
+
+export function RefreshButton({ ticker, request = refreshTicker, defaultStatus = "idle" }: Props) {
+  const [status, setStatus] = useState<Status>(defaultStatus);
 
   async function handleClick() {
     setStatus("loading");
     try {
-      await apiPost<RefreshResult>(`/tickers/${ticker}/refresh`, undefined);
-      // Every hook on this page keys off "/tickers/{ticker}/..." -- one
-      // filtered mutate revalidates the header, Overall Assessment, and
-      // all 4 step cards together, so the user sees fresh numbers without
-      // a manual page reload.
-      await mutate((key) => typeof key === "string" && key.startsWith(`/tickers/${ticker}`));
+      await request(ticker);
       setStatus("success");
     } catch {
       setStatus("error");

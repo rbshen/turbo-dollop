@@ -15,16 +15,24 @@ type Status = "idle" | "editing" | "saving";
 
 interface Props {
   watchlist: WatchlistOut;
+  // Styleguide seams (docs/design-system.md, "Watchlist page and shared
+  // buttons"): the page passes none of these. `rename` swaps the request so a
+  // mock can never reach the backend; the default* props start the editor in a
+  // given state so each one can be drawn at once.
+  rename?: (id: number, body: { name: string }) => Promise<unknown>;
+  defaultEditing?: boolean;
+  defaultValue?: string;
+  defaultError?: string;
 }
 
 // Inline pencil-icon rename control for the Watchlist page's active-tab
 // name/ticker-count subtitle. Same status-machine idiom as
 // AddToWatchlistButton's "+ New watchlist" naming flow -- a plain text
 // display swaps for an input + Save/Cancel in place, no modal.
-export function WatchlistNameEditor({ watchlist }: Props) {
-  const [status, setStatus] = useState<Status>("idle");
-  const [value, setValue] = useState(watchlist.name);
-  const [error, setError] = useState<string | null>(null);
+export function WatchlistNameEditor({ watchlist, rename = updateWatchlist, defaultEditing, defaultValue, defaultError }: Props) {
+  const [status, setStatus] = useState<Status>(defaultEditing ? "editing" : "idle");
+  const [value, setValue] = useState(defaultValue ?? watchlist.name);
+  const [error, setError] = useState<string | null>(defaultError ?? null);
   const errorId = useId();
 
   function startEditing() {
@@ -56,7 +64,7 @@ export function WatchlistNameEditor({ watchlist }: Props) {
     setStatus("saving");
     setError(null);
     try {
-      await updateWatchlist(watchlist.id, { name: trimmed });
+      await rename(watchlist.id, { name: trimmed });
       setStatus("idle");
     } catch (e) {
       setStatus("editing");

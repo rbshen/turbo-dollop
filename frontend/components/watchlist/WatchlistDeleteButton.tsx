@@ -18,6 +18,11 @@ interface Props {
   // relocated from never needed an equivalent, since it never singled out
   // one watchlist as "active."
   onDeleted: () => void;
+  // Styleguide seams (the page passes neither): `remove` swaps the request so
+  // a mock can never reach the backend, `defaultStatus` starts the control in
+  // a given state so each can be drawn at once.
+  remove?: (id: number) => Promise<void>;
+  defaultStatus?: "idle" | "confirming" | "error";
 }
 
 // Relocated from the old Settings > Watchlists list (WatchlistSettingsForm)
@@ -29,13 +34,13 @@ interface Props {
 // Button, and the trash trigger an icon Button (ghost; danger once a delete
 // has failed). There has never been a window.confirm here -- the confirm is
 // the inline state below.
-export function WatchlistDeleteButton({ watchlist, onDeleted }: Props) {
-  const [status, setStatus] = useState<Status>("idle");
+export function WatchlistDeleteButton({ watchlist, onDeleted, remove = deleteWatchlist, defaultStatus = "idle" }: Props) {
+  const [status, setStatus] = useState<Status>(defaultStatus);
 
   async function handleDelete() {
     setStatus("deleting");
     try {
-      await deleteWatchlist(watchlist.id);
+      await remove(watchlist.id);
       onDeleted();
     } catch {
       setStatus("error");

@@ -168,7 +168,7 @@ The controls around the results: the Sort row, Pagination, the saved-views bar a
 
 ### Watchlist page and shared buttons (session 11)
 
-The Watchlist page's controls and the two buttons shared with other pages moved onto the kit. The `/styleguide` "Watchlist and shared buttons (mock)" section renders the real components with mock data. Table cell content (the Moat, Value and Analysis pills, Rating as coloured text) is not touched.
+The Watchlist page's controls and the two buttons shared with other pages moved onto the kit. The `/styleguide` "Watchlist and shared buttons (mock)" section renders the real components with mock data (rename idle, editing, invalid and two server errors, plus one at a phone's 311px content width; delete idle, asking and failed; `ExportMenu` closed, open and disabled; `RefreshButton` idle, loading, refreshed and failed). To draw those states without touching the backend, `WatchlistNameEditor`, `WatchlistDeleteButton`, `ExportMenu` and `RefreshButton` each take optional styleguide seams (a swappable request, `rename`, `remove` or `request`, and a starting state, `defaultEditing`, `defaultValue`, `defaultError`, `defaultStatus` or `defaultOpen`); the real pages pass none of them and behave exactly as before. Table cell content (the Moat, Value and Analysis pills, Rating as coloured text) is not touched.
 
 **Outline and size.** A hand-written bordered button becomes `Button variant="outline"`. The size follows the neighbours: the default 36px where the button sits beside an input or select (the rename row: Save and Cancel), and `size="sm"` (32px) in a dense toolbar or table row with other 32px controls (`ExportMenu` and `RefreshButton`, which sit in rows beside 32px buttons, and the Watchlist table's remove, confirm and cancel buttons, inside rows that are already at least 36px tall because of the mini charts). The tone of a special state is kept with a colour class on the outline button, not a new variant (the remove button's negative error state and its `warn` confirm).
 
@@ -180,7 +180,11 @@ The Watchlist page's controls and the two buttons shared with other pages moved 
 
 **`ExportMenu`.** The trigger is an `outline` `sm` Button, "Export list" with a decorative `CaretDown`, `aria-haspopup="menu"` and `aria-expanded`. Escape closes the menu and returns focus to the trigger (from the trigger or from an item), and a click outside closes it; both were already there and are pinned by tests. The items and what each export writes are unchanged. There is no arrow-key navigation (there never was; items are reached with Tab).
 
-**`RefreshButton`.** An `outline` `sm` Button. Its four states (idle "Refresh data", loading "Refreshing…" and disabled, "Refreshed" with a `Check` icon, "Refresh failed") and its request are unchanged; the "✓" glyph became the icon. It is rendered only by the ticker header.
+**`RefreshButton`.** An `outline` `sm` Button. Its four states (idle "Refresh data", loading "Refreshing…" and disabled, "Refreshed" with a `Check` icon, "Refresh failed") and its request are unchanged; the "✓" glyph became the icon (so its accessible name in the refreshed state is "Refreshed", without the glyph). It is rendered only by the ticker header, beside `AddToWatchlistButton`, which is also 32px high.
+
+**Watchlist table remove buttons.** Remove (`Minus`), confirm (`Check`, `warn` tone) and cancel (`X`) are `outline` `icon-sm` buttons, 32px squares inside the 44px rows, with their existing accessible names and titles. The remove button keeps its negative hover and error tone; the "−" glyph is gone.
+
+**What is left after session 11.** Hand-written "ghost plus `border-border-input hover:border-brand`" buttons remain only in ticker-page files: `AddToWatchlistButton.tsx`, `EconomicMoatTab.tsx`, `ManualCalculationPanel.tsx` and `BankCapitalMetricsForm.tsx` (their own `focus:outline-none` inputs too). Elsewhere the only hand-written `hover:border-brand` are the two Screener dropdown triggers and the `ScreenerCard` hover. Text-glyph affordances still in the code: the "Saved ✓", "Added ✓" and "Recomputed ✓" button labels, "Hide details −" and "Hide reasoning −", the sector heatmap's "↓ ↑" and "Browse by sector →"; the table's " ⚠" and the pills' "▲ ▼" are cell and pill content and stay.
 
 ## Settings layout
 

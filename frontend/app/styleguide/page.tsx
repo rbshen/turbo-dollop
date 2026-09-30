@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Bar, BarChart, Cell, XAxis, YAxis } from "recharts";
-import { Plus } from "@phosphor-icons/react";
+import { PencilSimple, Plus, Trash } from "@phosphor-icons/react";
 
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
@@ -27,12 +27,14 @@ import { Status, type StatusTone } from "@/components/ui/status";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs } from "@/components/ui/tabs";
 import { Tooltip } from "@/components/ui/tooltip";
+import { ExportMenu } from "@/components/watchlist/ExportMenu";
 import { pnlClass } from "@/lib/format";
 import { FmpSettingsMock } from "./FmpSettingsMock";
 import { FormControlsReference } from "./FormControlsReference";
 import { PillReference } from "./PillReference";
 import { ScreenerResultsControlsMock } from "./ScreenerResultsControlsMock";
 import { ScreenerSidebarMock } from "./ScreenerSidebarMock";
+import { WatchlistButtonsMock } from "./WatchlistButtonsMock";
 import { AlignmentCheckMock, DiscountRateMock, LiquidityMock, WeinsteinMock } from "./SettingsMocks";
 
 // Internal reference page for the direction-B design-system primitives.
@@ -59,6 +61,19 @@ export default function StyleguidePage() {
           <Button variant="primary">
             <Plus size={16} />
             Add ticker
+          </Button>
+          <Button variant="outline">Save current view</Button>
+          <Button variant="outline" size="sm">
+            Save current view
+          </Button>
+          <Button variant="ghost" size="icon" aria-label="Rename">
+            <PencilSimple size={16} aria-hidden="true" />
+          </Button>
+          <Button variant="danger" size="icon-sm" aria-label="Delete">
+            <Trash size={16} aria-hidden="true" />
+          </Button>
+          <Button variant="outline" size="icon-sm" aria-label="Add">
+            <Plus size={16} aria-hidden="true" />
           </Button>
           <Button variant="primary" disabled>
             Save changes
@@ -234,6 +249,10 @@ export default function StyleguidePage() {
 
       <Section title="Screener results controls (mock)">
         <ScreenerResultsControlsMock />
+      </Section>
+
+      <Section title="Watchlist and shared buttons (mock)">
+        <WatchlistButtonsMock />
       </Section>
 
       <Section title="Card">
@@ -578,7 +597,7 @@ function PageHeaderWithTabsDemo() {
   const [tab, setTab] = useState("w1");
   return (
     <div className="space-y-6">
-      <PageHeader title="Watchlists" actions={<Button variant="ghost" size="sm">Export List</Button>} />
+      <PageHeader title="Watchlists" actions={<ExportMenu onExportTradingView={() => {}} onExportThinkorswim={() => {}} />} />
       <Tabs value={tab} onValueChange={setTab} items={WATCHLIST_TAB_ITEMS} />
     </div>
   );
