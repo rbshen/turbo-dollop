@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, Input } from "@/components/ui/input";
+import { FormField } from "@/components/ui/form-field";
+import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import {
@@ -174,21 +175,21 @@ export default function StyleguidePage() {
 
       <Section title="Inputs">
         <div className="flex flex-wrap items-start gap-6">
-          <Field label="Ticker" htmlFor="sg-ticker">
-            <Input id="sg-ticker" placeholder="AAPL" />
-          </Field>
-          <Field label="Shares" htmlFor="sg-shares">
-            <Input id="sg-shares" type="number" defaultValue={100} />
-          </Field>
-          <Field label="Search" htmlFor="sg-search">
-            <Input id="sg-search" variant="boxed" placeholder="Search tickers…" />
-          </Field>
-          <Field label="Min score" htmlFor="sg-applied" applied>
-            <Input id="sg-applied" type="number" defaultValue={70} />
-          </Field>
-          <Field label="Disabled" htmlFor="sg-disabled">
-            <Input id="sg-disabled" placeholder="AAPL" disabled />
-          </Field>
+          <FormField label="Ticker" htmlFor="sg-ticker" density="compact">
+            <Input id="sg-ticker" size="medium" placeholder="AAPL" />
+          </FormField>
+          <FormField label="Shares" htmlFor="sg-shares" density="compact">
+            <Input id="sg-shares" size="short" type="number" defaultValue={100} />
+          </FormField>
+          <FormField label="Search" htmlFor="sg-search" density="compact">
+            <Input id="sg-search" size="medium" placeholder="Search tickers…" />
+          </FormField>
+          <FormField label="Min score (applied)" htmlFor="sg-applied" density="compact" applied>
+            <Input id="sg-applied" size="short" type="number" defaultValue={70} />
+          </FormField>
+          <FormField label="Disabled" htmlFor="sg-disabled" density="compact" disabled>
+            <Input id="sg-disabled" size="medium" placeholder="AAPL" />
+          </FormField>
         </div>
       </Section>
 

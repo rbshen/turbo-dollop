@@ -8,7 +8,7 @@ A calm, data-first interface for fundamental investing.
 
 1. **Whitespace and hairlines before boxes.** Content sits on the page. Groups are separated by a 1px `border-subtle` rule and space, not by filled, bordered cards.
 2. **Blue means act.** `brand` is the primary button, links and keyboard focus. It is never used for selection or status.
-3. **Selection is neutral.** The current nav item, tab, segment or side-nav item is shown with `text-primary`, plus an underline or a `surface-2` fill. The same goes for a checked Checkbox, an on Switch and a checked chip: `text-primary` fill with a dark check or thumb, never `brand` blue (see "Form controls" below). Neutral is the only checked style in use: the Settings forms (session 9) and the Screener sidebar (session 10) both use it. The old `brand` `Checkbox` variant has no caller once the Screener migration lands and is deleted in that migration's last commit.
+3. **Selection is neutral.** The current nav item, tab, segment or side-nav item is shown with `text-primary`, plus an underline or a `surface-2` fill. The same goes for a checked Checkbox, an on Switch and a checked chip: `text-primary` fill with a dark check or thumb, never `brand` blue (see "Form controls" below). Neutral is the only checked style: the Settings forms (session 9) and the Screener sidebar (session 10) both use it, and the old `brand` `Checkbox` variant was deleted with the Screener migration (`variant` is now `neutral`, the default, or `chip`).
 4. **Status is a pill.** A soft tinted fill with coloured text and no border, in one of two sizes (regular, compact). The same status looks the same everywhere: ticker header, Screener cards, Watchlist, Momentum, Settings. There is no dot-and-word Status and no separate dense-table style. See "Pills" below.
 5. **Words, not colour alone.** The label always says the state. Where direction is implied (+3.66%), a ▲ or ▼ sits inside the pill before the label.
 6. **Quiet type.** Larger, lighter titles; sentence-case labels; no uppercase, no wide tracking. Numbers stay mono.
@@ -29,7 +29,7 @@ A calm, data-first interface for fundamental investing.
 - **Text:** `text-primary` for headings and figures, `text-body` for running text, `text-secondary` for secondary, `text-tertiary` for captions and labels.
 - **Type:** Public Sans (text), Sora (page and ticker titles, logotype), IBM Plex Mono (numbers and tickers), snapped to the app's scale: 13 / 15 / 17 / 19 / 21 / 26 / 32 / 39 / 52px. Titles use weight 500. Page title 26, ticker title 32, price 39, score 26, body 15, captions 13, pill label 13 (regular) or 11 (compact).
 - **Spacing:** the 4px scale. Page top padding 48, header-to-content 32, section padding 24 top and 8 bottom, tile gap 40 by 12.
-- **Radius:** `radius-md` (8px) for buttons, segments, side-nav items, boxed fields (the ticker search and every form field) and native selects; `radius-lg` (10px) only for the rare Card. There is no underline field: the Screener sidebar was the last place that used one, and it is boxed too (session 10; the underline variant is deleted in that migration's last commit).
+- **Radius:** `radius-md` (8px) for buttons, segments, side-nav items, boxed fields (the ticker search and every form field) and native selects; `radius-lg` (10px) only for the rare Card. There is no underline field: the Screener sidebar was the last place that used one, it is boxed too (session 10), and the underline variants of `Input` and `NumberField` were deleted with that migration.
 - **Layout:** `PageContainer` (1280px, 32px gutter) wraps every page, and every page starts with the same `PageHeader`.
 - **Icons:** Phosphor, regular weight, 16px, `currentColor`. No emoji.
 - **Focus:** a 2px `brand` outline on keyboard focus only (`:focus-visible`). Hover and focus never leave a lasting highlight.
@@ -43,7 +43,7 @@ A calm, data-first interface for fundamental investing.
 | Switch between views of one ticker | Tabs (neutral underline) |
 | Change a data option on the same view | SegmentedControl (fixed 2–6 options only — use Tabs instead for an unbounded set, e.g. the Watchlist switcher) |
 | Do something | Button: one `primary` per region, `ghost` for everything else. `outline` (ghost with a hairline border that turns `brand` on hover) is for a secondary action that has to read as a button inside a dense panel, such as the Screener's Sort direction and Saved views actions |
-| Enter a typed value (a number, or short text) on a form page | `NumberField` for numbers, boxed `Input` for text, each in a `FormField` or a Settings row |
+| Enter a typed value (a number, or short text) on a form page | `NumberField` for numbers, `Input` for text, each in a `FormField` or a Settings row |
 | Choose one of a few options on a form page | Native `Select` (in its themed shell), at `short` or `medium` size. Not a SegmentedControl: that is for switching a view, not for a saved setting |
 | Filter a number to a range (a Min/Max pair) | `RangeField`: one label, a unit in the label row, two `short` boxed boxes. Never two separate fields |
 | Filter by any of many options (Sector, Moat, Weinstein stage) | `MultiSelectDropdown`: a trigger that opens a checkbox popover. Not a native `<select multiple>`, and not a row of chips |
@@ -66,13 +66,13 @@ The controls for typing, choosing and toggling a value on a form page. Built 202
 | Control | Component | Job |
 | --- | --- | --- |
 | Number | `NumberField` (`components/ui/number-field.tsx`) | A typed number with optional integer, min, max, step, unit |
-| Text | `Input` with `variant="boxed"` and a `size` token | A short piece of text (a ticker, a benchmark symbol) |
+| Text | `Input` with a `size` token (always boxed) | A short piece of text (a ticker, a benchmark symbol) |
 | Choice | `Select` with a `size` token | One of a few options, a native `<select>` |
-| On/off with Save | `Checkbox` with `variant="neutral"` or `"chip"` | Saved when the form is |
+| On/off with Save | `Checkbox` (neutral; `variant="chip"` for a filter chip) | Saved when the form is |
 | On/off now | `Switch` (`components/ui/switch.tsx`) | Applied immediately, no Save |
 | Anatomy | `FormField` (`components/ui/form-field.tsx`) | Label, hint, control, unit, error, wired together |
 
-**Boxed on form pages.** A form field is a box: `radius-md`, 1px `border-control`, `page` fill, 36px high. This reverses the earlier "boxed for the ticker search only" rule. The Screener sidebar is boxed as well: the owner chose boxed over underline (session 10) after comparing both, built from the real primitives, in the `/styleguide` mock. That reverses the earlier "underline stays for inline filters" rule and settles the deferral in session 8's first decision. The underline variants of `Input` and `NumberField` are deleted once nothing uses them.
+**Boxed on form pages.** A form field is a box: `radius-md`, 1px `border-control`, `page` fill, 36px high. This reverses the earlier "boxed for the ticker search only" rule. The Screener sidebar is boxed as well: the owner chose boxed over underline (session 10) after comparing both, built from the real primitives, in the `/styleguide` mock. That reverses the earlier "underline stays for inline filters" rule and settles the deferral in session 8's first decision. The underline variants of `Input` and `NumberField`, the old `Field` label wrapper with its orange `applied` prop, and `RangeInput` were deleted with the migration; `FormField` (compact density, `applied`) replaces them.
 
 **Size tokens.** Every control is 36px high and never wider than its container (`max-w-full`). Width is a token, chosen by what the value looks like, never by the layout around it.
 
@@ -113,14 +113,13 @@ The primitives below were built additive and opt-in (Settings renders exactly as
 | `optional` | off | An empty field is valid and its check reports a `null` value, instead of "Enter a number." |
 | `suffixes` | none | A map such as `{ M: 1e6, B: 1e9, T: 1e12 }`. Text like `500M`, `2B`, `1.5T` or `2 m` (case-insensitive, optional space) parses to base units. Anything else with letters is invalid (`1x`, `5e`, `1BX`). Without `suffixes`, letters are invalid as always |
 | `keyboardStep` | on | `false` disables ArrowUp and ArrowDown stepping (a market-cap box has no sensible step) |
-| `variant` | `boxed` | `boxed` or `underline`, backed by `Input`'s existing variants. The owner chose boxed; `underline` is deleted in the migration's last commit |
 | `hideError` | off | The field draws no error line of its own, so a composite can show one line under a pair. It still sets `aria-invalid` and accepts an `aria-describedby` |
 
 `aria-describedby` and every other attribute still pass through. A number is never clamped, rounded or corrected, with or without a suffix.
 
-**Compact `FormField`.** `density="compact"` is for the filter sidebar only: the label is `text-xs` `text-secondary`, the gap to the control is 2px, there is no hint line (one optional single-line hint is allowed, for market cap only), and a `unit` renders **in the label row, right-aligned in `text-tertiary`**, not after the box. An `applied` prop turns the label text `filter-active` orange. The default density is unchanged: `text-sm` label, hint under it, unit after the box.
+**Compact `FormField`.** `density="compact"` is for the filter sidebar only: the label is `text-xs` `text-secondary`, the gap to the control is 2px, there is no hint line by default (an optional hint sits under the field: Mkt cap's "Type 500M or 2B." and the Watchlist scope sentence, which wraps in the 222px column), and a `unit` renders **in the label row, right-aligned in `text-tertiary`**, not after the box. An `applied` prop turns the label text `filter-active` orange. The default density is unchanged: `text-sm` label, hint under it, unit after the box.
 
-**`RangeField`** (`components/ui/range-field.tsx`). One labelled Min/Max pair for a numeric range. Props: the numeric `{ min, max }` value, `onChange` with the same shape, `label`, `unit`, `size` (`short`), optional `suffixes` (market cap) and `variant`. It is `role="group"` labelled by its label; the boxes are named "Minimum" and "Maximum" and have the placeholders "Min" and "Max". Typed text lives in a per-side draft (`useDraftNumber`, `lib/hooks/useDraftNumber.ts`); the filter state stays numeric, so `ScreenerFilterState` and saved views do not change.
+**`RangeField`** (`components/ui/range-field.tsx`). One labelled Min/Max pair for a numeric range. Props: the numeric `{ min, max }` value, `onChange` with the same shape, `label`, `unit`, `size` (`short`), optional `suffixes` (market cap) and `min` (market cap: 0), and an optional single hint. It is `role="group"` labelled by its label; the boxes are named "Minimum" and "Maximum" and have the placeholders "Min" and "Max". Typed text lives in a per-side draft (`useDraftNumber`, `lib/hooks/useDraftNumber.ts`); the filter state stays numeric, so `ScreenerFilterState` and saved views do not change.
 
 The commit rule for a Min/Max pair (live filtering, nothing waits for Apply or blur):
 

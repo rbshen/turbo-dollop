@@ -123,7 +123,7 @@ Weinstein and Liquidity are migrated onto `NumberField`, `Select` (with a size t
 - **A 422 shows its reason.** FastAPI returns `{"detail": [{"type", "loc": ["body", "<field>"], "msg", ...}]}` for a validation failure. The shared API client kept `detail` only when it was a string, so a 422 surfaced as a bare "failed: 422" and the form said only "Save failed". The client now formats an array `detail` into a readable string (also for any other caller that gets a 422), and `SettingsFooter` shows it after "Save failed". It resets after the same 3 seconds as every other status.
 - **Checkbox and Switch without a `label` prop render no wrapping `<label>`** (their input is laid over the box), so in a Settings row the row's `<label for>` is the only accessible name. Code with a `label` prop renders as before.
 - **Sentence case:** section titles "Weinstein stage" and "Liquidity zones", and the headings of Scheduled jobs and FMP data groups, now match the nav. No other change to those two sections.
-- **Removed once unused** (a grep first showed no caller left): `NumberStepper`, `InfoTooltip`, `lib/tooltipPosition.ts` (only `InfoTooltip` used it) and its test, and the un-tokened `Select` shell (`Select` now requires a `size`). The styleguide's "Settings controls" demo of the old stepper and select went with them, since the "Form controls" section shows their replacements. The brand `Checkbox` variant stays because the Screener filters use it.
+- **Removed once unused** (a grep first showed no caller left): `NumberStepper`, `InfoTooltip`, `lib/tooltipPosition.ts` (only `InfoTooltip` used it) and its test, and the un-tokened `Select` shell (`Select` now requires a `size`). The styleguide's "Settings controls" demo of the old stepper and select went with them, since the "Form controls" section shows their replacements. The brand `Checkbox` variant stays because the Screener filters use it. *(Deleted 2026-09-30, session 10 part 2, once the sidebar moved to the neutral variant.)*
 
 ### 2026-09-30 — Session 9: Settings migration, part 3
 
@@ -208,6 +208,8 @@ The Screener filter sidebar moves onto the session 8 to 10 primitives. Made by t
 - The sidebar stays mounted on a universe switch, so collapse state, the active saved-view name, a half-typed view name and range drafts survive.
 - Mkt cap boxes show "1B"-style text after a collapse and reopen or a saved-view load.
 - The lost-collapse-state bug on a universe switch is fixed (the same change as the sidebar staying mounted).
+
+**Deleted with the migration, each after a grep showed no remaining user:** `RangeInput`, `MarketCapSideInput` and the strict `parseMarketCapInput` (commit 2); the `brand` `Checkbox` variant (neutral is now the default, `chip` is kept), the old `Field` component with its orange `applied` prop, the underline variants of `Input` and `NumberField` and `RangeField`'s `variant` prop, `Input`'s `inputVariants`, the styleguide's underline sidebar, underline preset column, "Brand" checkbox column and underline `Input` demos, and the "live sidebar still uses the old parser" caption (commit 5). The styleguide's Boxed-versus-underline comparison became a boxed-only reference.
 
 **Known consequences, not regressions.** A collapsed section unmounts its content (Base UI's default), so a half-typed value is dropped on collapse, and invalid text (which the numeric filter state cannot hold) is gone after reopen; the numeric filter values are kept.
 

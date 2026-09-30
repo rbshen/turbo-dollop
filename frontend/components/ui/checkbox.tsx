@@ -9,12 +9,11 @@
 // browser in this session. A native input gives guaranteed keyboard/click/
 // label semantics for free and needs no such verification.
 //
-// `variant` (session 8, opt-in): the default "brand" paints checked in brand
-// blue exactly as before. "neutral" is the design-system checked state
-// (Principle 3): text-primary fill with a dark check. "chip" is neutral plus
-// the Screener toggle-chip shell done properly -- a 32px radius-md chip with a
-// border-input hairline that fills surface-2 when checked. At migration
-// "neutral" becomes the default and "brand" goes away.
+// The checked state is neutral (design-system Principle 3): text-primary fill
+// with a dark check, never brand blue. `variant` is "neutral" (the default) or
+// "chip": neutral plus the Screener toggle-chip shell -- a 32px radius-md chip
+// with a border-input hairline that fills surface-2 when checked (the checked
+// fill is what says "applied"; give it className="w-full" in the sidebar).
 //
 // With no `label` prop (a Settings row, whose own <label for> names it) there
 // is no wrapping <label> at all: the input is laid over the box, so a click on
@@ -26,14 +25,13 @@ import { describedByOf, useFormFieldContext } from "@/components/ui/form-field";
 
 export interface CheckboxProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: ReactNode;
-  variant?: "brand" | "neutral" | "chip";
+  variant?: "neutral" | "chip";
 }
 
 export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
-  ({ className, label, id, variant = "brand", disabled, "aria-describedby": ariaDescribedBy, ...props }, ref) => {
+  ({ className, label, id, variant = "neutral", disabled, "aria-describedby": ariaDescribedBy, ...props }, ref) => {
     const ctx = useFormFieldContext();
     const fieldId = id ?? ctx?.id;
-    const neutral = variant !== "brand";
     // A label-less checkbox is not wrapped in a <label>: the input covers the box.
     const bare = !label && variant !== "chip";
     const control = (
@@ -60,9 +58,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
           aria-hidden
           className={cn(
             "absolute inset-0 rounded-[3px] border border-border-control transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand",
-            neutral
-              ? "peer-checked:border-text-primary peer-checked:bg-text-primary"
-              : "peer-checked:border-brand peer-checked:bg-brand",
+            "peer-checked:border-text-primary peer-checked:bg-text-primary",
             bare && "pointer-events-none",
           )}
         />
@@ -71,8 +67,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
           weight="bold"
           size={11}
           className={cn(
-            "relative z-10 opacity-0 peer-checked:opacity-100",
-            neutral ? "text-page" : "text-on-brand",
+            "relative z-10 text-page opacity-0 peer-checked:opacity-100",
             bare && "pointer-events-none",
           )}
         />

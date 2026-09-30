@@ -18,7 +18,6 @@
 //   suffixes     -- "500M", "2 b", "1.5T" parse to base units (see numberInput).
 //   keyboardStep -- default true; false turns ArrowUp/ArrowDown stepping off
 //                   (the arrows then keep their normal caret behaviour).
-//   variant      -- "boxed" (default) or "underline", backed by Input's variants.
 //   hideError    -- draw no error line of our own (still aria-invalid), so a
 //                   composite can show ONE line under a pair.
 //
@@ -42,7 +41,6 @@ import {
 import { checkNumber, formatNumberInput, stepNumber, type NumberCheck, type NumberSuffixes } from "@/lib/numberInput";
 import { cn } from "@/lib/utils";
 import { FIELD_ERROR_CLASS, FIELD_UNIT_CLASS, useFormFieldContext } from "@/components/ui/form-field";
-import { inputVariants } from "@/components/ui/input";
 
 export interface NumberFieldProps
   extends Omit<
@@ -71,8 +69,6 @@ export interface NumberFieldProps
   suffixes?: NumberSuffixes;
   /** Default true. False disables ArrowUp/ArrowDown stepping. */
   keyboardStep?: boolean;
-  /** Default "boxed". */
-  variant?: "boxed" | "underline";
   /** Suppress this field's own error line (a composite shows one for the pair). */
   hideError?: boolean;
 }
@@ -98,7 +94,6 @@ export const NumberField = forwardRef<HTMLInputElement, NumberFieldProps>(functi
     optional = false,
     suffixes,
     keyboardStep = true,
-    variant = "boxed",
     hideError = false,
     className,
     onKeyDown,
@@ -167,7 +162,7 @@ export const NumberField = forwardRef<HTMLInputElement, NumberFieldProps>(functi
       onChange={(e) => emit(e.target.value)}
       onKeyDown={handleKeyDown}
       className={cn(
-        variant === "underline" ? inputVariants({ variant: "underline" }) : FIELD_BOX_CLASS,
+        FIELD_BOX_CLASS,
         "min-w-0 font-mono tabular-nums",
         FIELD_SIZE_CLASS[size],
         stepper ? "rounded-none text-center" : null,

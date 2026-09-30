@@ -45,7 +45,6 @@ export interface RangeFieldProps {
   suffixes?: NumberSuffixes;
   /** A lower bound for both boxes (market cap: 0). No other bound is ever applied. */
   min?: number;
-  variant?: "boxed" | "underline";
   /** One optional single-line hint under the pair (market cap only). */
   hint?: string;
   id?: string;
@@ -60,7 +59,6 @@ export function RangeField({
   size = "short",
   suffixes,
   min,
-  variant = "boxed",
   hint,
   id,
   className,
@@ -114,7 +112,6 @@ export function RangeField({
           onBlur={() => commit("min", minDraft.blur())}
           invalid={Boolean(minDraft.error)}
           size={size}
-          variant={variant}
           suffixes={suffixes}
           min={min}
           optional
@@ -134,7 +131,6 @@ export function RangeField({
           onBlur={() => commit("max", maxDraft.blur())}
           invalid={Boolean(maxDraft.error) || (reversed && !textError)}
           size={size}
-          variant={variant}
           suffixes={suffixes}
           min={min}
           optional

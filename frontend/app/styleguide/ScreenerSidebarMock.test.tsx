@@ -6,10 +6,12 @@ import { ScreenerSidebarMock } from "./ScreenerSidebarMock";
 
 afterEach(cleanup);
 
-// Smoke tests: the sidebar mock renders from mock data alone and the real
-// primitives inside it behave as specified.
-const sidebar = (variant: "boxed" | "underline") => screen.getByTestId(`sidebar-${variant}`);
-const presets = (variant: "boxed" | "underline") => screen.getByTestId(`presets-${variant}`);
+// Smoke tests: the boxed sidebar reference renders from mock data alone and the
+// real primitives inside it behave as specified. (The underline sidebar and the
+// "live sidebar still uses the old parser" caption were deleted when the live
+// sidebar moved onto the same components.)
+const sidebar = () => screen.getByTestId("sidebar-boxed");
+const presets = () => screen.getByTestId("presets-boxed");
 const group = (root: HTMLElement, name: string) => within(root).getByRole("group", { name });
 const minIn = (root: HTMLElement, name: string) => within(group(root, name)).getByRole("textbox", { name: "Minimum" }) as HTMLInputElement;
 const maxIn = (root: HTMLElement, name: string) => within(group(root, name)).getByRole("textbox", { name: "Maximum" }) as HTMLInputElement;
@@ -20,14 +22,13 @@ const type = (box: HTMLInputElement, text: string) => {
 };
 
 describe("ScreenerSidebarMock", () => {
-  it("renders two 256px sidebars, boxed and underline", () => {
-    render(<ScreenerSidebarMock />);
-    expect(sidebar("boxed")).toHaveClass("w-64");
-    expect(sidebar("underline")).toHaveClass("w-64");
-    for (const box of within(sidebar("boxed")).getAllByRole("textbox", { name: /Minimum|Maximum/ })) expect(box).toHaveClass("h-9", "rounded-md");
-    for (const box of within(sidebar("underline")).getAllByRole("textbox", { name: /Minimum|Maximum/ })) {
-      expect(box).toHaveClass("h-8", "rounded-none", "border-b");
-    }
+  it("renders one 256px boxed sidebar, and no underline sidebar", () => {
+    const { container } = render(<ScreenerSidebarMock />);
+    expect(sidebar()).toHaveClass("w-64");
+    for (const box of within(sidebar()).getAllByRole("textbox", { name: /Minimum|Maximum/ })) expect(box).toHaveClass("h-9", "rounded-md");
+    expect(screen.queryByTestId("sidebar-underline")).toBeNull();
+    expect(container.querySelector("input[class~='border-b'], input[class~='border-0']")).toBeNull();
+    expect(screen.queryByText(/Underline/)).toBeNull();
   });
 
   it("has every real filter pair as a labelled group, with its unit in the label row", () => {
@@ -45,7 +46,7 @@ describe("ScreenerSidebarMock", () => {
       Beta: null,
     };
     for (const [label, unit] of Object.entries(units)) {
-      const g = group(sidebar("boxed"), label);
+      const g = group(sidebar(), label);
       const labelEl = within(g).getByText(label);
       if (unit) {
         const unitEl = within(g).getByText(unit);
@@ -57,7 +58,7 @@ describe("ScreenerSidebarMock", () => {
 
   it("shows the live numeric value under each pair and follows the commit rule", () => {
     render(<ScreenerSidebarMock />);
-    const root = sidebar("boxed");
+    const root = sidebar();
     expect(readoutOf(root, "Growth")).toBe("min: null, max: null");
     type(minIn(root, "Growth"), "12.");
     expect(readoutOf(root, "Growth")).toBe("min: 12, max: null");
@@ -71,19 +72,19 @@ describe("ScreenerSidebarMock", () => {
     expect(readoutOf(root, "Growth")).toBe("min: null, max: null");
   });
 
-  it("takes M, B and T in Mkt cap and shows the market-cap hint", () => {
+  it("takes M, B and T in Mkt cap, shows the same hint as the live sidebar, and flags a reversed range", () => {
     render(<ScreenerSidebarMock />);
-    const root = sidebar("underline");
+    const root = sidebar();
     type(minIn(root, "Mkt cap"), "5T");
     expect(readoutOf(root, "Mkt cap")).toBe("min: 5000000000000, max: null");
     type(maxIn(root, "Mkt cap"), "2 b");
     expect(within(group(root, "Mkt cap")).getByRole("alert")).toHaveTextContent("Min is higher than max, so no ticker can match.");
-    expect(within(group(root, "Mkt cap")).getByText("e.g. 500M, 2B, 1T")).toBeInTheDocument();
+    expect(within(group(root, "Mkt cap")).getByText("Type 500M or 2B.")).toBeInTheDocument();
   });
 
   it("counts applied filters in a neutral section badge, and Reset and Load re-sync the boxes", () => {
     render(<ScreenerSidebarMock />);
-    const root = sidebar("boxed");
+    const root = sidebar();
     const fundamental = within(root).getByText("Fundamental").closest("div") as HTMLElement;
     expect(within(fundamental).queryByTitle(/applied/)).toBeNull();
     fireEvent.click(within(root).getByRole("button", { name: "Load sample view (mock)" }));
@@ -99,23 +100,25 @@ describe("ScreenerSidebarMock", () => {
     expect(within(root).queryByRole("alert")).toBeNull();
   });
 
-  it("shows the Watchlist label orange only while the filter is in effect", () => {
+  it("shows the Watchlist scope label orange only while the filter is in effect, and counts it", () => {
     render(<ScreenerSidebarMock />);
-    const root = sidebar("boxed");
-    const label = () => within(root).getByText("Watchlist", { selector: "label" });
-    const select = within(root).getByLabelText("Watchlist") as HTMLSelectElement;
+    const root = sidebar();
+    const label = () => within(root).getByText("Limit results to", { selector: "label" });
+    const select = within(root).getByLabelText("Limit results to") as HTMLSelectElement;
     expect(label()).not.toHaveClass("text-filter-active");
     fireEvent.change(select, { target: { value: "W1" } });
     expect(label()).toHaveClass("text-filter-active");
+    expect(within(root).getByText("Watchlist").closest("div")?.querySelector("[title='1 applied']")).not.toBeNull();
     fireEvent.click(within(root).getByLabelText("Mock: universe is All"));
     expect(select).toBeDisabled();
     expect(select.value).toBe("W1");
     expect(label()).not.toHaveClass("text-filter-active");
+    expect(label()).toHaveClass("opacity-45");
   });
 
   it("has the Sort select with a real label, full-width chips and the naming row", () => {
     render(<ScreenerSidebarMock />);
-    const root = sidebar("boxed");
+    const root = sidebar();
     expect(within(root).getByLabelText("Sort")).toBeInstanceOf(HTMLSelectElement);
     const chip = within(root).getByLabelText("Speculative growth") as HTMLInputElement;
     expect(chip.closest("label")).toHaveClass("w-full", "h-8");
@@ -133,37 +136,35 @@ describe("ScreenerSidebarMock", () => {
 
   it("pre-sets every state for real: filled, invalid, held prefix, prefix after blur, reversed, 1B, 5T", async () => {
     render(<ScreenerSidebarMock />);
-    await waitFor(() => expect(readoutOf(presets("boxed"), "P/E")).toBe("min: null, max: null"));
-    await waitFor(() => expect(readoutOf(presets("underline"), "P/E")).toBe("min: null, max: null"));
-    for (const variant of ["boxed", "underline"] as const) {
-      const root = presets(variant);
-      expect(within(root).getByText("Overall")).toHaveClass("text-filter-active");
-      expect(within(group(root, "Growth")).getByRole("alert")).toHaveTextContent("Enter a number.");
-      expect(minIn(root, "Growth").value).toBe("1x");
-      expect(minIn(root, "Quote").value).toBe("-");
-      expect(within(group(root, "Quote")).queryByRole("alert")).toBeNull();
-      expect(readoutOf(root, "Quote")).toBe("min: 50, max: null");
-      expect(within(group(root, "P/E")).getByRole("alert")).toHaveTextContent("Enter a number.");
-      expect(readoutOf(root, "P/E")).toBe("min: null, max: null");
-      expect(within(group(root, "Debt")).getByRole("alert")).toHaveTextContent("Min is higher than max");
-      expect(maxIn(root, "Debt")).toHaveAttribute("aria-invalid", "true");
-      expect(minIn(root, "Debt")).not.toHaveAttribute("aria-invalid");
-    }
-    const marks = within(presets("boxed")).getAllByRole("group", { name: "Mkt cap" });
+    await waitFor(() => expect(readoutOf(presets(), "P/E")).toBe("min: null, max: null"));
+    const root = presets();
+    expect(within(root).getByText("Overall")).toHaveClass("text-filter-active");
+    expect(within(group(root, "Growth")).getByRole("alert")).toHaveTextContent("Enter a number.");
+    expect(minIn(root, "Growth").value).toBe("1x");
+    expect(minIn(root, "Quote").value).toBe("-");
+    expect(within(group(root, "Quote")).queryByRole("alert")).toBeNull();
+    expect(readoutOf(root, "Quote")).toBe("min: 50, max: null");
+    expect(within(group(root, "P/E")).getByRole("alert")).toHaveTextContent("Enter a number.");
+    expect(readoutOf(root, "P/E")).toBe("min: null, max: null");
+    expect(within(group(root, "Debt")).getByRole("alert")).toHaveTextContent("Min is higher than max");
+    expect(maxIn(root, "Debt")).toHaveAttribute("aria-invalid", "true");
+    expect(minIn(root, "Debt")).not.toHaveAttribute("aria-invalid");
+    const marks = within(root).getAllByRole("group", { name: "Mkt cap" });
     expect((within(marks[0]).getByRole("textbox", { name: "Minimum" }) as HTMLInputElement).value).toBe("1B");
     expect((within(marks[1]).getByRole("textbox", { name: "Maximum" }) as HTMLInputElement).value).toBe("5T");
   });
 
-  it("shows the default-versus-compact label comparison, the height note and the outline button", () => {
+  it("shows the default-versus-compact label comparison, the computed heights and the outline button", () => {
     render(<ScreenerSidebarMock />);
     expect(screen.getByText(/Default FormField/)).toBeInTheDocument();
     expect(screen.getByText(/Compact: text-xs/)).toBeInTheDocument();
     const note = screen.getByTestId("height-note");
-    expect(note).toHaveTextContent("555px");
     expect(note).toHaveTextContent("591px");
-    expect(note).toHaveTextContent("847px");
+    expect(note).toHaveTextContent("610px");
     expect(note).toHaveTextContent("883px");
+    expect(note).toHaveTextContent("902px");
+    expect(note).toHaveTextContent("not measured in a browser");
     expect(screen.getByRole("button", { name: "Outline" })).toHaveClass("border-border-input", "hover:border-brand");
-    expect(screen.getByText(/old market-cap parser/)).toBeInTheDocument();
+    expect(screen.queryByText(/old market-cap parser/)).toBeNull();
   });
 });

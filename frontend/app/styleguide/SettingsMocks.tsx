@@ -168,7 +168,7 @@ export function WeinsteinMock() {
           hint="The ticker each stock's relative strength is measured against. SPY by default."
           error={benchmark.trim() === "" ? "Enter a ticker symbol." : undefined}
         >
-          <Input variant="boxed" size="medium" value={benchmark} onChange={(e) => setBenchmark(e.target.value)} />
+          <Input size="medium" value={benchmark} onChange={(e) => setBenchmark(e.target.value)} />
         </SettingsRow>
         <NumberRow
           id="sg-ws-rs-smoothing"
@@ -412,7 +412,7 @@ export function AlignmentCheckMock() {
             </Select>
           </SettingsRow>
           <SettingsRow label="RS benchmark" htmlFor="sg-al-text" hint="A text field at the medium size.">
-            <Input variant="boxed" size="medium" value={benchmark} onChange={(e) => setBenchmark(e.target.value)} />
+            <Input size="medium" value={benchmark} onChange={(e) => setBenchmark(e.target.value)} />
           </SettingsRow>
           <SettingsRow label="Checkbox" htmlFor="sg-al-check" hint="Saved with the Save button; sits on the same left edge.">
             <Checkbox variant="neutral" checked={tick} onChange={(e) => setTick(e.target.checked)} />

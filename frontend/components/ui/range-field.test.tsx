@@ -64,9 +64,9 @@ describe("RangeField: structure and accessible names", () => {
     expect(maxBox()).toHaveClass("w-24", "h-9");
   });
 
-  it("passes the underline variant to both boxes", () => {
-    render(<Harness variant="underline" />);
-    for (const box of [minBox(), maxBox()]) expect(box).toHaveClass("h-8", "border-b", "rounded-none");
+  it("renders both boxes boxed (36px, radius-md)", () => {
+    render(<Harness />);
+    for (const box of [minBox(), maxBox()]) expect(box).toHaveClass("h-9", "rounded-md", "border");
   });
 
   it("turns the label orange only while a side holds a value", () => {

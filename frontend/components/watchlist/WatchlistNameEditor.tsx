@@ -95,7 +95,6 @@ export function WatchlistNameEditor({ watchlist }: Props) {
     <div className="space-y-1">
       <div className="flex items-center gap-1.5">
         <Input
-          variant="boxed"
           type="text"
           autoFocus
           value={value}

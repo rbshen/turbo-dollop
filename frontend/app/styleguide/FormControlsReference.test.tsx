@@ -13,7 +13,7 @@ afterEach(cleanup);
 describe("FormControlsReference", () => {
   it("renders every control family from mock data", () => {
     const { container } = render(<FormControlsReference />);
-    for (const name of ["NumberField", "Input, boxed", "Select (native)", "Neutral (new)", "Chip"]) {
+    for (const name of ["NumberField", "Input", "Select (native)", "Checkbox", "Chip"]) {
       expect(screen.getAllByText(name, { exact: false }).length).toBeGreaterThan(0);
     }
     expect(screen.getAllByRole("switch").length).toBeGreaterThanOrEqual(5);
@@ -24,10 +24,14 @@ describe("FormControlsReference", () => {
     expect(container.querySelector("[role='listbox']")).toBeNull();
   });
 
-  it("shows boxed and underline fields side by side", () => {
-    render(<FormControlsReference />);
+  it("shows boxed fields only: there is no underline variant or brand checkbox any more", () => {
+    const { container } = render(<FormControlsReference />);
     expect(document.getElementById("sg-boxed-ticker")).toHaveClass("rounded-md");
-    expect(document.getElementById("sg-underline-ticker")).toHaveClass("rounded-none", "border-b");
+    // no underline field: no input with only a bottom border (the stepper's joined
+    // buttons are rounded-none by design, so that class alone proves nothing)
+    expect(container.querySelector("input[class~='border-b'], input[class~='border-0']")).toBeNull();
+    expect(screen.queryByText(/Brand/)).toBeNull();
+    expect(container.innerHTML).not.toContain("peer-checked:bg-brand");
   });
 
   it("shows every size token on NumberField", () => {

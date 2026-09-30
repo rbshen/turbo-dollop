@@ -387,21 +387,15 @@ describe("NumberField: hideError", () => {
   });
 });
 
-describe("NumberField: variant", () => {
-  it("is boxed by default: 36px, radius-md, page fill, full border", () => {
+describe("NumberField: the boxed field, the only style", () => {
+  it("is 36px, radius-md, page fill, full border, mono", () => {
     render(<Harness />);
-    expect(box()).toHaveClass("h-9", "rounded-md", "border", "bg-page");
+    expect(box()).toHaveClass("h-9", "rounded-md", "border", "bg-page", "font-mono", "tabular-nums");
     expect(box()).not.toHaveClass("border-b", "rounded-none");
   });
 
-  it("underline uses Input's underline variant: 32px, no radius, bottom border only", () => {
-    render(<Harness variant="underline" />);
-    expect(box()).toHaveClass("h-8", "rounded-none", "border-0", "border-b", "font-mono", "tabular-nums");
-    expect(box()).not.toHaveClass("h-9", "rounded-md");
-  });
-
-  it("keeps the size token and the invalid style in the underline variant", () => {
-    render(<Harness variant="underline" size="medium" initial="abc" />);
+  it("keeps the size token and the invalid style", () => {
+    render(<Harness size="medium" initial="abc" />);
     expect(box()).toHaveClass("w-44", "border-negative");
   });
 });

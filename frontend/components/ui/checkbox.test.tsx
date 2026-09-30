@@ -9,13 +9,14 @@ afterEach(cleanup);
 const boxOf = (input: HTMLElement) => input.nextElementSibling as HTMLElement;
 const checkOf = (input: HTMLElement) => boxOf(input).nextElementSibling as HTMLElement;
 
-describe("Checkbox: default is unchanged (brand)", () => {
-  it("paints the checked state in brand blue with an on-brand check", () => {
+describe("Checkbox: the default is neutral (there is no brand variant)", () => {
+  it("paints the checked state text-primary with a dark check, never brand blue", () => {
     render(<Checkbox id="a" label="Exclude ETFs" />);
     const input = screen.getByLabelText("Exclude ETFs");
-    expect(boxOf(input)).toHaveClass("peer-checked:border-brand", "peer-checked:bg-brand");
-    expect(boxOf(input)).not.toHaveClass("peer-checked:bg-text-primary");
-    expect(checkOf(input)).toHaveClass("text-on-brand");
+    expect(boxOf(input)).toHaveClass("peer-checked:border-text-primary", "peer-checked:bg-text-primary");
+    expect(boxOf(input).className).not.toMatch(/peer-checked:\S*brand/); // (the focus ring is brand, by design)
+    expect(checkOf(input)).toHaveClass("text-page");
+    expect(checkOf(input).getAttribute("class")).not.toMatch(/on-brand/);
   });
 
   it("keeps the plain inline label and toggles like a native checkbox", () => {
@@ -28,10 +29,14 @@ describe("Checkbox: default is unchanged (brand)", () => {
     expect(label).not.toHaveClass("h-8", "border");
   });
 
-  it("still accepts the Screener's chip-shell className override", () => {
-    render(<Checkbox label="Speculative Growth" className="h-8 rounded-md border border-border-input px-2 text-xs font-medium" />);
-    const label = screen.getByText("Speculative Growth").closest("label");
-    expect(label).toHaveClass("h-8", "rounded-md", "border", "border-border-input", "px-2", "text-xs");
+  it("is the same box as variant=\"neutral\"", () => {
+    render(
+      <>
+        <Checkbox id="d" label="Default" />
+        <Checkbox id="n" variant="neutral" label="Neutral" />
+      </>,
+    );
+    expect(boxOf(screen.getByLabelText("Default")).className).toBe(boxOf(screen.getByLabelText("Neutral")).className);
   });
 });
 

@@ -1,11 +1,12 @@
 "use client";
 
-// Styleguide mock for the Screener sidebar migration (session 10). Two 256px
-// sidebars side by side, boxed and underline, built from the real primitives
-// (RangeField, FormField compact, Select, Checkbox chip, Input, Button outline,
-// Badge, the real MultiSelectDropdown) with local state and mock data only. The
-// live Screener page is untouched; the owner picks boxed or underline by eye
-// here. See "Screener filter sidebar primitives" in docs/design-system.md.
+// Styleguide reference for the Screener sidebar (session 10): one 256px boxed
+// sidebar built from the real primitives (RangeField, FormField compact, Select,
+// Checkbox chip, Input, Button outline, Badge, the real MultiSelectDropdown)
+// with local state and mock data only. It mirrors the live sidebar in
+// components/screener/; the owner chose boxed over underline from the earlier
+// side-by-side version of this mock, and the underline sidebar is deleted. See
+// "Screener filter sidebar (session 10)" in docs/design-system.md.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CaretDown } from "@phosphor-icons/react";
 
@@ -19,7 +20,9 @@ import { RangeField, type RangeValue } from "@/components/ui/range-field";
 import { Select } from "@/components/ui/Select";
 import {
   DEFAULT_FILTER_STATE,
+  FUNDAMENTAL_FILTER_KEYS,
   MARKET_CAP_SUFFIXES,
+  TECHNICAL_FILTER_KEYS,
   countActiveFilters,
   type ScreenerFilterState,
 } from "@/lib/screenerFilters";
@@ -33,7 +36,6 @@ import {
   rangeGridHeight,
 } from "./screenerSidebarMetrics";
 
-type Variant = "boxed" | "underline";
 type RangeKey = "overallScore" | "step1Score" | "step2Score" | "step4Score" | "step5Score" | "quote" | "marketCap" | "peRatio" | "growthRate" | "beta";
 
 interface RangeSpec {
@@ -43,7 +45,7 @@ interface RangeSpec {
   marketCap?: boolean;
 }
 
-// Today's order in FundamentalFilters, labels in sentence case, units per the
+// The live order in FundamentalFilters, labels in sentence case, units per the
 // owner's decision: Quote and Mkt cap USD, P/E "x", Growth "%", scores none.
 const FUNDAMENTAL_RANGES: RangeSpec[] = [
   { key: "overallScore", label: "Overall" },
@@ -57,31 +59,6 @@ const FUNDAMENTAL_RANGES: RangeSpec[] = [
   { key: "growthRate", label: "Growth", unit: "%" },
 ];
 const BETA_RANGE: RangeSpec = { key: "beta", label: "Beta" };
-
-const FUNDAMENTAL_KEYS: (keyof ScreenerFilterState)[] = [
-  ...FUNDAMENTAL_RANGES.map((r) => r.key),
-  "sectors",
-  "companyTypes",
-  "moat",
-  "valuationVerdict",
-  "speculativeGrowth",
-];
-const TECHNICAL_KEYS: (keyof ScreenerFilterState)[] = [
-  "beta",
-  "vsSpy",
-  "weinsteinStages",
-  "reversalStatuses",
-  "pullbackStatuses",
-  "warrenSignalKinds",
-  "bbRsiEntrySignal",
-];
-
-// countActiveFilters over a subset of the state, for one section header.
-function countIn(filters: ScreenerFilterState, keys: (keyof ScreenerFilterState)[]): number {
-  const masked = { ...DEFAULT_FILTER_STATE };
-  for (const key of keys) (masked as Record<string, unknown>)[key] = filters[key];
-  return countActiveFilters(masked, false);
-}
 
 const SECTOR_OPTIONS = ["Technology", "Healthcare", "Financial Services", "Energy", "Utilities"].map((s) => ({ value: s, label: s }));
 const TYPE_OPTIONS = ["Standard", "Bank", "Insurance", "REIT/Property Developer"].map((s) => ({ value: s, label: s }));
@@ -144,17 +121,7 @@ function MockSection({ title, count, children }: { title: string; count: number;
   );
 }
 
-function RangeRow({
-  spec,
-  value,
-  onChange,
-  variant,
-}: {
-  spec: RangeSpec;
-  value: RangeValue;
-  onChange: (v: RangeValue) => void;
-  variant: Variant;
-}) {
+function RangeRow({ spec, value, onChange }: { spec: RangeSpec; value: RangeValue; onChange: (v: RangeValue) => void }) {
   return (
     <div>
       <RangeField
@@ -162,17 +129,16 @@ function RangeRow({
         unit={spec.unit}
         value={value}
         onChange={onChange}
-        variant={variant}
         suffixes={spec.marketCap ? MARKET_CAP_SUFFIXES : undefined}
         min={spec.marketCap ? 0 : undefined}
-        hint={spec.marketCap ? "e.g. 500M, 2B, 1T" : undefined}
+        hint={spec.marketCap ? "Type 500M or 2B." : undefined}
       />
       <Readout value={value} />
     </div>
   );
 }
 
-function Sidebar({ variant }: { variant: Variant }) {
+function Sidebar() {
   const [filters, setFilters] = useState<ScreenerFilterState>(DEFAULT_FILTER_STATE);
   const [watchlist, setWatchlist] = useState("");
   const [universeAll, setUniverseAll] = useState(true);
@@ -183,12 +149,12 @@ function Sidebar({ variant }: { variant: Variant }) {
 
   const patch = (partial: Partial<ScreenerFilterState>) => setFilters((f) => ({ ...f, ...partial }));
   const watchlistInEffect = universeAll && watchlist !== "";
-  const idp = `sg-side-${variant}`;
+  const idp = "sg-side";
 
   return (
-    <aside className="w-64 shrink-0 space-y-4" data-testid={`sidebar-${variant}`} aria-label={`${variant} sidebar`}>
+    <aside className="w-64 shrink-0 space-y-4" data-testid="sidebar-boxed" aria-label="Screener sidebar">
       <h3 className="text-xs font-semibold text-text-secondary">
-        {variant === "boxed" ? "Boxed" : "Underline"} <span className="font-normal text-text-tertiary">({SIDEBAR_WIDTH}px)</span>
+        Sidebar <span className="font-normal text-text-tertiary">({SIDEBAR_WIDTH}px)</span>
       </h3>
 
       <div className="space-y-2">
@@ -204,10 +170,10 @@ function Sidebar({ variant }: { variant: Variant }) {
         </Button>
       </div>
 
-      <MockSection title="Watchlist" count={watchlistInEffect ? 1 : 0}>
+      <MockSection title="Watchlist" count={countActiveFilters(DEFAULT_FILTER_STATE, watchlistInEffect, [])}>
         <div className="flex flex-col gap-2">
           <FormField
-            label="Watchlist"
+            label="Limit results to"
             htmlFor={`${idp}-watchlist`}
             density="compact"
             applied={watchlistInEffect}
@@ -215,7 +181,7 @@ function Sidebar({ variant }: { variant: Variant }) {
             hint={
               universeAll
                 ? "Scopes every Fundamental and Technical filter to this watchlist's tickers."
-                : 'Only applies when the universe is set to "All."'
+                : 'Only applies when the universe toggle above is set to "All."'
             }
           >
             <Select size="full" id={`${idp}-watchlist`} value={watchlist} onChange={(e) => setWatchlist(e.target.value)}>
@@ -229,14 +195,13 @@ function Sidebar({ variant }: { variant: Variant }) {
         </div>
       </MockSection>
 
-      <MockSection title="Fundamental" count={countIn(filters, FUNDAMENTAL_KEYS)}>
+      <MockSection title="Fundamental" count={countActiveFilters(filters, false, FUNDAMENTAL_FILTER_KEYS)}>
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-y-3">
             {FUNDAMENTAL_RANGES.map((spec) => (
               <RangeRow
                 key={spec.key}
                 spec={spec}
-                variant={variant}
                 value={filters[spec.key] as RangeValue}
                 onChange={(v) => patch({ [spec.key]: v })}
               />
@@ -258,9 +223,9 @@ function Sidebar({ variant }: { variant: Variant }) {
         </div>
       </MockSection>
 
-      <MockSection title="Technical" count={countIn(filters, TECHNICAL_KEYS)}>
+      <MockSection title="Technical" count={countActiveFilters(filters, false, TECHNICAL_FILTER_KEYS)}>
         <div className="space-y-4">
-          <RangeRow spec={BETA_RANGE} variant={variant} value={filters.beta} onChange={(v) => patch({ beta: v })} />
+          <RangeRow spec={BETA_RANGE} value={filters.beta} onChange={(v) => patch({ beta: v })} />
           <div className="flex flex-col items-stretch gap-2 border-t border-border-subtle pt-3">
             <MultiSelectDropdown label="5Y vs SPY" options={SPY_OPTIONS} selected={filters.vsSpy} onChange={(s) => patch({ vsSpy: s })} />
             <MultiSelectDropdown label="Weinstein stage" options={STAGE_OPTIONS} selected={filters.weinsteinStages} onChange={(s) => patch({ weinsteinStages: s })} />
@@ -282,7 +247,6 @@ function Sidebar({ variant }: { variant: Variant }) {
         {naming ? (
           <div className="flex flex-col gap-2">
             <Input
-              variant="boxed"
               size="full"
               aria-label="View name"
               placeholder="View name"
@@ -354,13 +318,11 @@ function PresetState({
   spec,
   initial,
   seed,
-  variant,
 }: {
   caption: string;
   spec: RangeSpec;
   initial: RangeValue;
   seed?: { side: "Minimum" | "Maximum"; text: string; blur?: boolean };
-  variant: Variant;
 }) {
   const [value, setValue] = useState<RangeValue>(initial);
   const ref = useRef<HTMLDivElement>(null);
@@ -368,25 +330,25 @@ function PresetState({
   return (
     <div ref={ref} data-testid={`preset-${caption}`}>
       <p className="mb-1 text-[11px] font-medium text-text-secondary">{caption}</p>
-      <RangeRow spec={spec} value={value} onChange={setValue} variant={variant} />
+      <RangeRow spec={spec} value={value} onChange={setValue} />
     </div>
   );
 }
 
-function PresetColumn({ variant }: { variant: Variant }) {
+function PresetColumn() {
   const cap = FUNDAMENTAL_RANGES.find((r) => r.marketCap) as RangeSpec;
   const byKey = (key: RangeKey) => FUNDAMENTAL_RANGES.find((r) => r.key === key) as RangeSpec;
   return (
-    <div className="w-64 shrink-0" data-testid={`presets-${variant}`}>
-      <h3 className="mb-3 text-xs font-semibold text-text-secondary">{variant === "boxed" ? "Boxed" : "Underline"} states</h3>
+    <div className="w-64 shrink-0" data-testid="presets-boxed">
+      <h3 className="mb-3 text-xs font-semibold text-text-secondary">Range field states</h3>
       <div className="space-y-4 rounded-lg border border-border-card bg-surface p-4">
-        <PresetState caption="Filled, applied (orange label)" spec={byKey("overallScore")} initial={{ min: 70, max: 90 }} variant={variant} />
-        <PresetState caption="Invalid text, with error" spec={byKey("growthRate")} initial={{ min: null, max: null }} seed={{ side: "Minimum", text: "1x" }} variant={variant} />
-        <PresetState caption="Incomplete prefix, held while focused" spec={byKey("quote")} initial={{ min: 50, max: null }} seed={{ side: "Minimum", text: "-" }} variant={variant} />
-        <PresetState caption="Incomplete prefix, after blur" spec={byKey("peRatio")} initial={{ min: 10, max: null }} seed={{ side: "Minimum", text: ".", blur: true }} variant={variant} />
-        <PresetState caption="Reversed range" spec={byKey("step5Score")} initial={{ min: 90, max: 10 }} variant={variant} />
-        <PresetState caption="Mkt cap 1B" spec={cap} initial={{ min: 1e9, max: null }} variant={variant} />
-        <PresetState caption="Mkt cap 5T" spec={cap} initial={{ min: null, max: 5e12 }} variant={variant} />
+        <PresetState caption="Filled, applied (orange label)" spec={byKey("overallScore")} initial={{ min: 70, max: 90 }} />
+        <PresetState caption="Invalid text, with error" spec={byKey("growthRate")} initial={{ min: null, max: null }} seed={{ side: "Minimum", text: "1x" }} />
+        <PresetState caption="Incomplete prefix, held while focused" spec={byKey("quote")} initial={{ min: 50, max: null }} seed={{ side: "Minimum", text: "-" }} />
+        <PresetState caption="Incomplete prefix, after blur" spec={byKey("peRatio")} initial={{ min: 10, max: null }} seed={{ side: "Minimum", text: ".", blur: true }} />
+        <PresetState caption="Reversed range" spec={byKey("step5Score")} initial={{ min: 90, max: 10 }} />
+        <PresetState caption="Mkt cap 1B" spec={cap} initial={{ min: 1e9, max: null }} />
+        <PresetState caption="Mkt cap 5T" spec={cap} initial={{ min: null, max: 5e12 }} />
       </div>
     </div>
   );
@@ -400,13 +362,13 @@ function LabelComparison() {
       <div>
         <p className="mb-3 text-xs text-text-tertiary">Default FormField: text-sm primary label, hint under it, unit after the box</p>
         <FormField label="Quote" htmlFor="sg-density-default" hint="The last closing price." unit="USD">
-          <Input id="sg-density-default" variant="boxed" size="short" value={a} onChange={(e) => setA(e.target.value)} placeholder="Min" />
+          <Input id="sg-density-default" size="short" value={a} onChange={(e) => setA(e.target.value)} placeholder="Min" />
         </FormField>
       </div>
       <div className="w-64">
         <p className="mb-3 text-xs text-text-tertiary">Compact: text-xs secondary label, 2px gap, unit right-aligned in the label row</p>
         <FormField label="Quote" htmlFor="sg-density-compact" density="compact" unit="USD">
-          <Input id="sg-density-compact" variant="boxed" size="short" value={a} onChange={(e) => setA(e.target.value)} placeholder="Min" />
+          <Input id="sg-density-compact" size="short" value={a} onChange={(e) => setA(e.target.value)} placeholder="Min" />
         </FormField>
       </div>
     </div>
@@ -414,11 +376,6 @@ function LabelComparison() {
 }
 
 function HeightNote() {
-  const rows: [string, number, number][] = [
-    ["Today (underline, old RangeInput)", rangeGridHeight("today"), fundamentalSectionHeight("today")],
-    ["Underline (RangeField)", rangeGridHeight("underline"), fundamentalSectionHeight("underline")],
-    ["Boxed (RangeField)", rangeGridHeight("boxed"), fundamentalSectionHeight("boxed")],
-  ];
   return (
     <div className="max-w-3xl text-xs text-text-secondary" data-testid="height-note">
       <p className="mb-2 text-text-tertiary">
@@ -428,25 +385,27 @@ function HeightNote() {
       <table className="w-full text-left">
         <thead>
           <tr className="text-text-tertiary">
-            <th className="py-1 pr-4 font-normal">Variant</th>
+            <th className="py-1 pr-4 font-normal">Boxed</th>
             <th className="py-1 pr-4 font-normal">Nine-field grid</th>
             <th className="py-1 font-normal">Whole Fundamental card</th>
           </tr>
         </thead>
         <tbody className="font-mono tabular-nums">
-          {rows.map(([name, grid, card]) => (
-            <tr key={name}>
-              <td className="py-0.5 pr-4 font-sans">{name}</td>
-              <td className="py-0.5 pr-4">{grid}px</td>
-              <td className="py-0.5">{card}px</td>
-            </tr>
-          ))}
+          <tr>
+            <td className="py-0.5 pr-4 font-sans">Without the market-cap hint</td>
+            <td className="py-0.5 pr-4">{rangeGridHeight()}px</td>
+            <td className="py-0.5">{fundamentalSectionHeight()}px</td>
+          </tr>
+          <tr>
+            <td className="py-0.5 pr-4 font-sans">With the hint (as built)</td>
+            <td className="py-0.5 pr-4">{rangeGridHeight(true)}px</td>
+            <td className="py-0.5">{fundamentalSectionHeight(true)}px</td>
+          </tr>
         </tbody>
       </table>
       <p className="mt-2 text-text-tertiary">
-        The market-cap hint adds {HINT_ROW}px to either variant (boxed grid {rangeGridHeight("boxed", true)}px, underline {rangeGridHeight("underline", true)}px), and a
-        pair&apos;s error or reversed-range line adds {ERROR_ROW}px while it shows (the rows below move down). The live readouts in the mock add to
-        these and are not counted.
+        A pair&apos;s error or reversed-range line adds {ERROR_ROW}px while it shows (the rows below move down), and the hint line is {HINT_ROW}px. The live
+        readouts in the mock add to these and are not counted.
       </p>
     </div>
   );
@@ -457,28 +416,16 @@ export function ScreenerSidebarMock() {
     <div className="space-y-10" data-testid="screener-sidebar-mock">
       <div className="max-w-3xl space-y-2 text-xs text-text-tertiary">
         <p>
-          Two 256px sidebars built from the real primitives, with local state and mock data; the live Screener is unchanged. Type in any box: the
-          readout under each pair shows the numbers the filter would receive. Try <span className="font-mono">-</span> (held, no error until you leave
-          the box), <span className="font-mono">1x</span> (inactive at once, with an error), <span className="font-mono">12.</span> and{" "}
+          The Screener sidebar, boxed, built from the real primitives with local state and mock data; the live sidebar uses the same components. Type in
+          any box: the readout under each pair shows the numbers the filter would receive. Try <span className="font-mono">-</span> (held, no error
+          until you leave the box), <span className="font-mono">1x</span> (inactive at once, with an error), <span className="font-mono">12.</span> and{" "}
           <span className="font-mono">.5</span> (commit as you type), <span className="font-mono">5T</span> in Mkt cap, and a min above the max.
-        </p>
-        <p>
-          The live sidebar still uses the old market-cap parser (it rejects &quot;12.&quot;) until migration; the mock uses the new one. Boxed or
-          underline is decided from this page.
         </p>
       </div>
 
       <div className="flex flex-wrap items-start gap-10">
-        <Sidebar variant="boxed" />
-        <Sidebar variant="underline" />
-      </div>
-
-      <div>
-        <h3 className="mb-3 text-xs font-semibold text-text-secondary">Pre-set states</h3>
-        <div className="flex flex-wrap items-start gap-10">
-          <PresetColumn variant="boxed" />
-          <PresetColumn variant="underline" />
-        </div>
+        <Sidebar />
+        <PresetColumn />
       </div>
 
       <div>

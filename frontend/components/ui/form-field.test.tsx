@@ -12,7 +12,7 @@ describe("FormField", () => {
   it("renders a real label wired to the control by htmlFor", () => {
     render(
       <FormField label="RS benchmark" htmlFor="bm">
-        <Input variant="boxed" />
+        <Input />
       </FormField>,
     );
     const input = screen.getByLabelText("RS benchmark");
@@ -23,7 +23,7 @@ describe("FormField", () => {
   it("puts the hint directly under the label and links it with aria-describedby", () => {
     render(
       <FormField label="RS benchmark" htmlFor="bm" hint="The index each stock is compared against.">
-        <Input variant="boxed" />
+        <Input />
       </FormField>,
     );
     const label = screen.getByText("RS benchmark");
@@ -36,7 +36,7 @@ describe("FormField", () => {
   it("renders the unit as a suffix after the control and describes the control with it", () => {
     render(
       <FormField label="MA length" htmlFor="ma" unit="weeks">
-        <Input variant="boxed" />
+        <Input />
       </FormField>,
     );
     const input = screen.getByRole("textbox");
@@ -48,7 +48,7 @@ describe("FormField", () => {
   it("shows an error with role=alert under the field, marks the control invalid and links it", () => {
     render(
       <FormField label="MA length" htmlFor="ma" hint="A hint." error="Enter a number.">
-        <Input variant="boxed" />
+        <Input />
       </FormField>,
     );
     const input = screen.getByRole("textbox");
@@ -64,7 +64,7 @@ describe("FormField", () => {
   it("has no aria-describedby, alert or invalid state when there is nothing to describe", () => {
     render(
       <FormField label="Ticker" htmlFor="t">
-        <Input variant="boxed" />
+        <Input />
       </FormField>,
     );
     const input = screen.getByRole("textbox");
@@ -76,7 +76,7 @@ describe("FormField", () => {
   it("disables the control and dims the label and hint", () => {
     render(
       <FormField label="Breach recency" htmlFor="br" hint="A hint." disabled>
-        <Input variant="boxed" />
+        <Input />
       </FormField>,
     );
     expect(screen.getByRole("textbox")).toBeDisabled();
@@ -100,7 +100,7 @@ describe("FormField", () => {
   it("lets a prop on the control win over the field's wiring", () => {
     render(
       <FormField label="MA length" htmlFor="ma" hint="A hint.">
-        <Input variant="boxed" aria-describedby="mine" />
+        <Input aria-describedby="mine" />
       </FormField>,
     );
     expect(screen.getByRole("textbox")).toHaveAttribute("aria-describedby", "mine");
@@ -111,7 +111,7 @@ describe("FormField: compact density", () => {
   it("is text-xs text-secondary with a 2px gap to the control", () => {
     const { container } = render(
       <FormField label="Quote" htmlFor="q" density="compact">
-        <Input variant="boxed" />
+        <Input />
       </FormField>,
     );
     const label = screen.getByText("Quote");
@@ -125,7 +125,7 @@ describe("FormField: compact density", () => {
   it("puts the unit in the label row, right-aligned in text-tertiary, not after the control", () => {
     render(
       <FormField label="Mkt cap" htmlFor="m" density="compact" unit="USD">
-        <Input variant="boxed" />
+        <Input />
       </FormField>,
     );
     const label = screen.getByText("Mkt cap");
@@ -140,7 +140,7 @@ describe("FormField: compact density", () => {
   it("turns the label orange when applied, and leaves the unit tertiary", () => {
     render(
       <FormField label="P/E" htmlFor="pe" density="compact" unit="x" applied>
-        <Input variant="boxed" />
+        <Input />
       </FormField>,
     );
     expect(screen.getByText("P/E")).toHaveClass("text-filter-active");
@@ -151,7 +151,7 @@ describe("FormField: compact density", () => {
   it("shows an optional hint under the control (it wraps, never clips), linked by aria-describedby", () => {
     render(
       <FormField label="Mkt cap" htmlFor="m" density="compact" hint="e.g. 500M, 2B, 1T">
-        <Input variant="boxed" />
+        <Input />
       </FormField>,
     );
     const hint = screen.getByText("e.g. 500M, 2B, 1T");
@@ -164,7 +164,7 @@ describe("FormField: compact density", () => {
   it("shows the error under the control with role alert", () => {
     render(
       <FormField label="Quote" htmlFor="q" density="compact" error="Enter a number.">
-        <Input variant="boxed" />
+        <Input />
       </FormField>,
     );
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a number.");
@@ -174,7 +174,7 @@ describe("FormField: compact density", () => {
   it("dims the label when disabled", () => {
     render(
       <FormField label="Watchlist" htmlFor="w" density="compact" disabled>
-        <Input variant="boxed" />
+        <Input />
       </FormField>,
     );
     expect(screen.getByText("Watchlist")).toHaveClass("opacity-45");
@@ -185,7 +185,7 @@ describe("FormField: default density is unchanged", () => {
   it("keeps the text-sm primary label, the unit after the control and the hint under the label", () => {
     render(
       <FormField label="MA length" htmlFor="ma" hint="Weeks in the average." unit="weeks">
-        <Input variant="boxed" />
+        <Input />
       </FormField>,
     );
     const label = screen.getByText("MA length");
@@ -199,7 +199,7 @@ describe("FormField: default density is unchanged", () => {
   it("only changes the label colour when applied is passed", () => {
     render(
       <FormField label="MA length" htmlFor="ma" applied>
-        <Input variant="boxed" />
+        <Input />
       </FormField>,
     );
     expect(screen.getByText("MA length")).toHaveClass("text-filter-active");

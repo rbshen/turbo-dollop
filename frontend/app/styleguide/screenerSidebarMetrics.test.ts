@@ -10,27 +10,21 @@ import {
   rangeGridHeight,
 } from "./screenerSidebarMetrics";
 
-describe("screener sidebar metrics", () => {
-  it("reproduces today's measured 555px range grid", () => {
-    expect(rangeFieldHeight("today")).toBe(51);
-    expect(rangeGridHeight("today")).toBe(555);
-  });
-
-  it("keeps the underline variant at today's height and the boxed variant 36px taller", () => {
-    expect(rangeGridHeight("underline")).toBe(555);
-    expect(rangeGridHeight("boxed")).toBe(591);
+describe("screener sidebar metrics (boxed)", () => {
+  it("computes one field and the nine-field grid", () => {
+    expect(rangeFieldHeight()).toBe(55);
+    expect(rangeGridHeight()).toBe(591);
   });
 
   it("adds one hint row for the market-cap hint, and one row per error line", () => {
     expect(HINT_ROW).toBe(19);
     expect(ERROR_ROW).toBe(19);
-    expect(rangeGridHeight("boxed", true)).toBe(610);
+    expect(rangeGridHeight(true)).toBe(610);
   });
 
-  it("computes the whole Fundamental card", () => {
-    expect(fundamentalSectionHeight("today")).toBe(847);
-    expect(fundamentalSectionHeight("underline")).toBe(847);
-    expect(fundamentalSectionHeight("boxed")).toBe(883);
+  it("computes the whole Fundamental card, with and without the hint", () => {
+    expect(fundamentalSectionHeight()).toBe(883);
+    expect(fundamentalSectionHeight(true)).toBe(902);
   });
 
   it("fits a pair inside the 222px card content", () => {

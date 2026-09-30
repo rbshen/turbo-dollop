@@ -12,9 +12,10 @@
 //
 // `density="compact"` is for the Screener filter sidebar only: a text-xs
 // text-secondary label, a 2px gap to the control, the `unit` right-aligned in
-// text-tertiary IN THE LABEL ROW (not after the box) and any hint on one line
-// under the control (market cap, Watchlist). `applied` turns the label filter-active
-// orange in either density. The default density is unchanged.
+// text-tertiary IN THE LABEL ROW (not after the box) and an optional hint under
+// the control (Mkt cap's "Type 500M or 2B.", the Watchlist scope sentence, which
+// wraps in the 222px column). `applied` turns the label filter-active orange in
+// either density. The default density is unchanged.
 import { createContext, useContext, useMemo, type HTMLAttributes, type ReactNode } from "react";
 import { joinIds } from "@/lib/formControl";
 import { cn } from "@/lib/utils";

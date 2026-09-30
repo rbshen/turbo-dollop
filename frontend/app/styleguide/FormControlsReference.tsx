@@ -77,27 +77,15 @@ export function FormControlsReference() {
             ]}
           />
           <StatesRow
-            name="Input, boxed"
+            name="Input"
             cells={[
-              <Input key="a" variant="boxed" size="short" placeholder="SPY" aria-label="Default boxed" />,
-              <Input key="b" variant="boxed" size="short" defaultValue="SPY" aria-label="Focused boxed" className={SIMULATED_FOCUS} />,
-              <Input key="c" variant="boxed" size="short" defaultValue="SPY" aria-label="Filled boxed" />,
+              <Input key="a" size="short" placeholder="SPY" aria-label="Default boxed" />,
+              <Input key="b" size="short" defaultValue="SPY" aria-label="Focused boxed" className={SIMULATED_FOCUS} />,
+              <Input key="c" size="short" defaultValue="SPY" aria-label="Filled boxed" />,
               <FormField key="d" label="Benchmark" htmlFor="sg-boxed-invalid" error="Enter a ticker symbol.">
-                <Input id="sg-boxed-invalid" variant="boxed" size="short" defaultValue="" />
+                <Input id="sg-boxed-invalid" size="short" defaultValue="" />
               </FormField>,
-              <Input key="e" variant="boxed" size="short" defaultValue="SPY" disabled aria-label="Disabled boxed" />,
-            ]}
-          />
-          <StatesRow
-            name="Input, underline (inline filters only)"
-            cells={[
-              <Input key="a" variant="underline" size="short" placeholder="SPY" aria-label="Default underline" />,
-              <Input key="b" variant="underline" size="short" defaultValue="SPY" aria-label="Focused underline" className={SIMULATED_FOCUS} />,
-              <Input key="c" variant="underline" size="short" defaultValue="SPY" aria-label="Filled underline" />,
-              <FormField key="d" label="Benchmark" htmlFor="sg-underline-invalid" error="Enter a ticker symbol.">
-                <Input id="sg-underline-invalid" variant="underline" size="short" defaultValue="" />
-              </FormField>,
-              <Input key="e" variant="underline" size="short" defaultValue="SPY" disabled aria-label="Disabled underline" />,
+              <Input key="e" size="short" defaultValue="SPY" disabled aria-label="Disabled boxed" />,
             ]}
           />
           <StatesRow
@@ -150,10 +138,10 @@ export function FormControlsReference() {
             ))}
           </div>
           <div className="flex flex-col gap-3">
-            <h3 className="text-xs font-semibold text-text-secondary">Input, boxed</h3>
+            <h3 className="text-xs font-semibold text-text-secondary">Input</h3>
             {FIELD_SIZES.map((size) => (
               <Cell key={size} label={`${size} · ${SIZE_PX[size]}`}>
-                <Input variant="boxed" size={size} defaultValue="SPY" aria-label={`Input ${size}`} />
+                <Input size={size} defaultValue="SPY" aria-label={`Input ${size}`} />
               </Cell>
             ))}
           </div>
@@ -204,43 +192,33 @@ export function FormControlsReference() {
         </div>
       </div>
 
-      <BoxedVersusUnderline />
+      <BoxedFields />
       <ChoiceControls />
       <AnatomyExamples />
     </div>
   );
 }
 
-function BoxedVersusUnderline() {
-  const column = (variant: "boxed" | "underline", title: string, note: string) => (
-    <div className="flex flex-col gap-4">
-      <div>
-        <h3 className="text-xs font-semibold text-text-secondary">{title}</h3>
-        <p className="text-xs text-text-tertiary">{note}</p>
-      </div>
-      <FormField label="Ticker" htmlFor={`sg-${variant}-ticker`}>
-        <Input id={`sg-${variant}-ticker`} variant={variant} size="medium" defaultValue="AAPL" />
-      </FormField>
-      <FormField label="Minimum score" htmlFor={`sg-${variant}-min`} hint="Tickers below this score are hidden.">
-        <Input id={`sg-${variant}-min`} variant={variant} size="short" type="number" defaultValue={70} />
-      </FormField>
-      <FormField label="Benchmark" htmlFor={`sg-${variant}-bad`} error="Enter a ticker symbol.">
-        <Input id={`sg-${variant}-bad`} variant={variant} size="medium" defaultValue="" />
-      </FormField>
-      <FormField label="Disabled" htmlFor={`sg-${variant}-dis`}>
-        <Input id={`sg-${variant}-dis`} variant={variant} size="medium" defaultValue="AAPL" disabled />
-      </FormField>
-    </div>
-  );
+function BoxedFields() {
   return (
     <div>
       <Caption>
-        Boxed and underline side by side, same tokens, same states. The decision is boxed for form pages; underline
-        stays for inline filters, and the Screener sidebar&apos;s choice is deferred to its own migration.
+        Form fields are boxed: radius-md, 1px border-control, page fill, 36px high. There is no underline variant any
+        more (the Screener sidebar, its last user, is boxed too; see docs/decisions.md, session 10).
       </Caption>
-      <div className="grid grid-cols-1 gap-x-16 gap-y-8 md:grid-cols-2">
-        {column("boxed", "Boxed (form pages)", "radius-md, 1px border-control, page fill")}
-        {column("underline", "Underline (inline filters)", "no radius, bottom border only")}
+      <div className="grid max-w-sm grid-cols-1 gap-y-4">
+        <FormField label="Ticker" htmlFor="sg-boxed-ticker">
+          <Input id="sg-boxed-ticker" size="medium" defaultValue="AAPL" />
+        </FormField>
+        <FormField label="Minimum score" htmlFor="sg-boxed-min" hint="Tickers below this score are hidden.">
+          <Input id="sg-boxed-min" size="short" type="number" defaultValue={70} />
+        </FormField>
+        <FormField label="Benchmark" htmlFor="sg-boxed-bad" error="Enter a ticker symbol.">
+          <Input id="sg-boxed-bad" size="medium" defaultValue="" />
+        </FormField>
+        <FormField label="Disabled" htmlFor="sg-boxed-dis">
+          <Input id="sg-boxed-dis" size="medium" defaultValue="AAPL" disabled />
+        </FormField>
       </div>
     </div>
   );
@@ -251,22 +229,17 @@ function ChoiceControls() {
     <div className="flex flex-col gap-8">
       <div>
         <Caption>
-          Checkbox. The neutral checked state (text-primary fill, dark check) is the design-system state; the brand
-          checkbox is what the app renders today and is shown only so the two can be compared. The chip is the
-          Screener&apos;s toggle chip built as a variant.
+          Checkbox. The neutral checked state (text-primary fill, dark check) is the only one; there is no brand
+          variant. The chip is the Screener&apos;s toggle chip built as a variant: its checked fill (surface-2) is the
+          applied signal, not orange.
         </Caption>
-        <div className="grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
           <div className="flex flex-col gap-3">
-            <h3 className="text-xs font-semibold text-text-secondary">Neutral (new)</h3>
+            <h3 className="text-xs font-semibold text-text-secondary">Checkbox</h3>
             <Checkbox id="sg-n-1" variant="neutral" label="Keep last breached support" />
             <Checkbox id="sg-n-2" variant="neutral" label="Keep last breached support" defaultChecked />
             <Checkbox id="sg-n-3" variant="neutral" label="Disabled" disabled />
             <Checkbox id="sg-n-4" variant="neutral" label="Disabled, checked" disabled defaultChecked />
-          </div>
-          <div className="flex flex-col gap-3">
-            <h3 className="text-xs font-semibold text-text-secondary">Brand (today&apos;s default)</h3>
-            <Checkbox id="sg-b-1" label="Keep last breached support" />
-            <Checkbox id="sg-b-2" label="Keep last breached support" defaultChecked />
           </div>
           <div className="flex flex-col items-start gap-3">
             <h3 className="text-xs font-semibold text-text-secondary">Chip</h3>
@@ -335,13 +308,13 @@ function AnatomyExamples() {
           <NumberField value={bad} onChange={setBad} integer min={1} max={52} unit="weeks" />
         </FormField>
         <FormField label="RS benchmark" htmlFor="sg-an-3" hint="The ticker each stock's strength is measured against.">
-          <Input variant="boxed" size="medium" defaultValue="SPY" />
+          <Input size="medium" defaultValue="SPY" />
         </FormField>
         <FormField label="Label only" htmlFor="sg-an-4">
-          <Input variant="boxed" size="medium" defaultValue="No hint, no unit" />
+          <Input size="medium" defaultValue="No hint, no unit" />
         </FormField>
         <FormField label="Text with a unit suffix" htmlFor="sg-an-5" unit="weeks" hint="A FormField unit works on any control.">
-          <Input variant="boxed" size="short" defaultValue="30" />
+          <Input size="short" defaultValue="30" />
         </FormField>
       </div>
     </div>

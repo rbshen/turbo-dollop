@@ -195,7 +195,7 @@ function WeinsteinForm({ data, saver }: { data: WeinsteinConfigOut; saver: Setti
           hint="The ticker each stock's relative strength is measured against. SPY by default."
           error={benchmarkMessage}
         >
-          <Input variant="boxed" size="medium" className="font-mono" value={benchmark} onChange={(e) => setBenchmark(e.target.value)} />
+          <Input size="medium" className="font-mono" value={benchmark} onChange={(e) => setBenchmark(e.target.value)} />
         </SettingsRow>
         <NumberSettingRow
           id="ws-rs-smoothing"
