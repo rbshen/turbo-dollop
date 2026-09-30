@@ -10,18 +10,25 @@ scripts below.
 
 `./bin/start.sh` from the repo root brings up both servers: preflight
 checks (`backend/.env` present with the required keys, `uv`/`node`/`npm`
-on `PATH`), an explicit `init_db()` call, a cheap FMP connectivity check
-(`GET /quote` for AAPL — fails loud here instead of surfacing later as an
-empty ticker page), a production frontend build (`next build`, before
-either server starts so its memory peak never overlaps the backend's),
-then backend (`uvicorn core.main:app`, no `--reload` →
-`backend/logs/uvicorn_dev.log`) and frontend (`next start` →
-`frontend/logs/next_dev.log`, which also holds the build output; the
-`_dev` in both filenames is historical), each in its own process group.
-Both run in production mode to keep the memory footprint down on this small
-VPS, so **there is no hot reload: a code change to either app takes effect
-only after `./bin/stop.sh` + `./bin/start.sh`** (the restart rebuilds the
-frontend, which takes minutes, not seconds). Runs in the
+on `PATH`), an explicit `init_db()` call, and a cheap FMP connectivity
+check (`GET /quote` for AAPL — fails loud here instead of surfacing later
+as an empty ticker page). It has two modes, switched by flag (or the
+`FATHOM_MODE=dev|prod` env var):
+
+- **dev (default)** — `./bin/start.sh` / `--dev`: backend `uvicorn --reload`
+  and frontend `next dev`, no build step, so code changes hot-reload and
+  startup is fast. Uses more memory.
+- **prod** — `./bin/start.sh --prod`: a production frontend build
+  (`next build`, before either server starts so its memory peak never
+  overlaps the backend's), then backend (`uvicorn`, no `--reload`) and
+  frontend (`next start`). Keeps the memory footprint down on this small
+  VPS, but **there is no hot reload: a code change to either app takes
+  effect only after `./bin/stop.sh` + `./bin/start.sh --prod`** (the
+  restart rebuilds the frontend, which takes minutes, not seconds).
+
+Logs go to `backend/logs/uvicorn_dev.log` and `frontend/logs/next_dev.log`
+(which also holds the prod build output; the `_dev` in both filenames is
+historical), each server in its own process group. Runs in the
 foreground with prefixed `[backend]`/`[frontend]` log lines; Ctrl-C stops
 both cleanly. Success looks like both `Waiting for backend...` /
 `Waiting for frontend...` lines resolving to `... is up.` — if the backend
