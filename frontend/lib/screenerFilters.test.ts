@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { TickerScoreOut } from "@/lib/api/types";
+import { checkNumber } from "@/lib/numberInput";
 import {
   DEFAULT_FILTER_STATE,
   countActiveFilters,
@@ -8,9 +9,9 @@ import {
   extractCompanyTypes,
   extractSectors,
   filterTickerScores,
+  MARKET_CAP_SUFFIXES,
   formatMarketCapInput,
   isEtfRow,
-  parseMarketCapInput,
   sortTickerScores,
   type ScreenerFilterState,
 } from "@/lib/screenerFilters";
@@ -456,14 +457,19 @@ describe("sortTickerScores", () => {
   });
 });
 
-describe("parseMarketCapInput", () => {
-  it("parses a bare number as raw dollars, unchanged from before B/M support", () => {
-    expect(parseMarketCapInput("3000000000")).toBe(3_000_000_000);
+// The old strict parseMarketCapInput is gone; a market-cap box is parsed by the
+// shared checkNumber with the market-cap suffixes and a minimum of 0 (exactly
+// what RangeField passes). These are the old parser's cases moved onto that path.
+const capText = (text: string) => checkNumber(text, { optional: true, suffixes: MARKET_CAP_SUFFIXES, min: 0 });
+
+describe("market-cap text (checkNumber with MARKET_CAP_SUFFIXES)", () => {
+  it("parses a bare number as raw dollars", () => {
+    expect(capText("3000000000")).toEqual({ value: 3_000_000_000, error: null });
   });
 
-  it("parses an empty string as null (no filter on that side)", () => {
-    expect(parseMarketCapInput("")).toBeNull();
-    expect(parseMarketCapInput("   ")).toBeNull();
+  it("parses empty as null (no filter on that side), with no error", () => {
+    expect(capText("")).toEqual({ value: null, error: null });
+    expect(capText("   ")).toEqual({ value: null, error: null });
   });
 
   it.each([
@@ -474,30 +480,22 @@ describe("parseMarketCapInput", () => {
     ["2M", 2_000_000],
     ["2 m", 2_000_000],
     ["1.5B", 1_500_000_000],
-  ])("parses %s -> %d", (input, expected) => {
-    expect(parseMarketCapInput(input)).toBe(expected);
-  });
-
-  it.each([["1X"], ["1 gazillion"], ["abc"], ["-5B"], ["-5"], ["1BB"]])(
-    "returns undefined (invalid) for %s",
-    (input) => {
-      expect(parseMarketCapInput(input)).toBeUndefined();
-    },
-  );
-});
-
-describe("parseMarketCapInput: T suffix", () => {
-  it.each([
     ["1T", 1_000_000_000_000],
     ["5 t", 5_000_000_000_000],
     ["2.5T", 2_500_000_000_000],
-  ])("parses %s", (input, expected) => {
-    expect(parseMarketCapInput(input)).toBe(expected);
+    ["12.", 12],
+    [".5", 0.5],
+    [".5B", 500_000_000],
+  ])("parses %s -> %d", (input, expected) => {
+    expect(capText(input)).toEqual({ value: expected, error: null });
   });
 
-  it("is still the strict live parser: it rejects a trailing or leading point", () => {
-    expect(parseMarketCapInput("12.")).toBeUndefined();
-    expect(parseMarketCapInput(".5")).toBeUndefined();
+  it.each([["1X"], ["1BX"], ["1 gazillion"], ["abc"], ["1BB"], ["5e"], ["1x"]])("%s is invalid text", (input) => {
+    expect(capText(input).error).not.toBeNull();
+  });
+
+  it.each([["-5B"], ["-5"]])("%s is below the minimum of 0", (input) => {
+    expect(capText(input).error).not.toBeNull();
   });
 });
 
@@ -515,9 +513,9 @@ describe("formatMarketCapInput", () => {
     expect(formatMarketCapInput(null)).toBe("");
   });
 
-  it("round-trips through the live parser too", () => {
-    for (const value of [1e9, 1.5e9, 5e12, 2.5e12, 3e6]) {
-      expect(parseMarketCapInput(formatMarketCapInput(value))).toBe(value);
+  it("round-trips through the parser too", () => {
+    for (const value of [1e9, 1.5e9, 5e12, 2.5e12, 3e6, 1_234_567]) {
+      expect(capText(formatMarketCapInput(value)).value).toBe(value);
     }
   });
 });
@@ -606,5 +604,84 @@ describe("excludeEtfs", () => {
     ]);
     expect(filterTickerScores(rows, DEFAULT_FILTER_STATE).map((r) => r.ticker)).toEqual(["AAPL"]);
     expect(extractCompanyTypes(rows)).toEqual(["Standard"]);
+  });
+});
+
+// Characterization (Screener migration, session 1): pins today's behaviour of
+// every range filter -- inclusive bounds, a null value never passes an active
+// range, an inactive side is open, and a reversed range (min above max) applies
+// literally so nothing matches -- so the sidebar migration cannot change it.
+const RANGE_FILTERS: { key: keyof ScreenerFilterState; field: keyof TickerScoreOut }[] = [
+  { key: "overallScore", field: "overall_score" },
+  { key: "step1Score", field: "step1_score" },
+  { key: "step2Score", field: "step2_score" },
+  { key: "step4Score", field: "step4_score" },
+  { key: "step5Score", field: "step5_score" },
+  { key: "quote", field: "last_price" },
+  { key: "marketCap", field: "market_cap" },
+  { key: "peRatio", field: "pe_ratio" },
+  { key: "beta", field: "beta" },
+  { key: "growthRate", field: "growth_rate" },
+];
+
+describe.each(RANGE_FILTERS)("range filter $key (reads $field)", ({ key, field }) => {
+  const rows = [
+    row({ ticker: "LOW", [field]: 10 }),
+    row({ ticker: "MID", [field]: 50 }),
+    row({ ticker: "HIGH", [field]: 90 }),
+    row({ ticker: "NULL", [field]: null }),
+  ];
+  const run = (range: { min: number | null; max: number | null }) =>
+    filterTickerScores(rows, { ...DEFAULT_FILTER_STATE, [key]: range }).map((r) => r.ticker);
+
+  it("min only: keeps values at or above it (inclusive), drops a null", () => {
+    expect(run({ min: 50, max: null })).toEqual(["MID", "HIGH"]);
+  });
+
+  it("max only: keeps values at or below it (inclusive), drops a null", () => {
+    expect(run({ min: null, max: 50 })).toEqual(["LOW", "MID"]);
+  });
+
+  it("min and max together, both inclusive", () => {
+    expect(run({ min: 10, max: 50 })).toEqual(["LOW", "MID"]);
+    expect(run({ min: 50, max: 50 })).toEqual(["MID"]);
+  });
+
+  it("an empty range is no filter at all, so a null still passes", () => {
+    expect(run({ min: null, max: null })).toEqual(["LOW", "MID", "HIGH", "NULL"]);
+  });
+
+  it("a reversed range (min above max) applies literally: nothing matches", () => {
+    expect(run({ min: 90, max: 10 })).toEqual([]);
+  });
+
+  it("zero and negative bounds are real bounds, not 'unset'", () => {
+    expect(run({ min: 0, max: null })).toEqual(["LOW", "MID", "HIGH"]);
+    expect(run({ min: null, max: 0 })).toEqual([]);
+    expect(run({ min: -5, max: null })).toEqual(["LOW", "MID", "HIGH"]);
+  });
+});
+
+describe("saved-view shallow merge onto the defaults", () => {
+  // Same expression the Screener page uses on load: { ...DEFAULT_FILTER_STATE, ...saved.filters }.
+  const merge = (saved: unknown) => ({ ...DEFAULT_FILTER_STATE, ...(saved as Partial<ScreenerFilterState>) });
+
+  it("a view saved before newer keys existed loads with those keys at their defaults", () => {
+    const old = { overallScore: { min: 70, max: null }, sectors: ["Technology"] };
+    const merged = merge(old);
+    expect(merged.overallScore).toEqual({ min: 70, max: null });
+    expect(merged.beta).toEqual({ min: null, max: null });
+    expect(merged.vsSpy).toEqual([]);
+    expect(merged.speculativeGrowth).toBe(false);
+    expect(merged.bbRsiEntrySignal).toBe(false);
+    expect(merged.warrenSignalKinds).toEqual([]);
+    expect(filterTickerScores([row({ ticker: "A", overall_score: 80 })], merged)).toHaveLength(1);
+  });
+
+  it("a view carrying the removed 'country' key still filters cleanly (the key is ignored)", () => {
+    const stale = { ...DEFAULT_FILTER_STATE, country: ["US"], overallScore: { min: 70, max: null } };
+    const merged = merge(stale);
+    const result = filterTickerScores([row({ ticker: "A", overall_score: 80 }), row({ ticker: "B", overall_score: 10 })], merged);
+    expect(result.map((r) => r.ticker)).toEqual(["A"]);
   });
 });

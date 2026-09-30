@@ -1,18 +1,14 @@
 "use client";
 
-import { useState } from "react";
-
 import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
 import { MultiSelectDropdown } from "@/components/screener/MultiSelectDropdown";
-import { RangeInput } from "@/components/screener/RangeInput";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, Input } from "@/components/ui/input";
+import { RangeField } from "@/components/ui/range-field";
 import {
   FILTER_ACTIVE_LABEL_CLASS,
+  MARKET_CAP_SUFFIXES,
   MOAT_FILTER_OPTIONS,
-  parseMarketCapInput,
   VALUATION_FILTER_OPTIONS,
-  type RangeFilter,
   type ScreenerFilterState,
 } from "@/lib/screenerFilters";
 import { cn } from "@/lib/utils";
@@ -24,67 +20,10 @@ interface Props {
   companyTypes: string[];
 }
 
-/** One side (min or max) of the Market Cap range: free-text so "1B" / "2 m"
- * can be typed, not just raw digits. Kept as local text state independent
- * of the numeric filter value -- an in-progress or invalid keystroke (e.g.
- * "1X") shows an inline error and leaves the last valid filter value
- * untouched, rather than being coerced to 0/NaN or clearing the filter. */
-function MarketCapSideInput({
-  id,
-  placeholder,
-  value,
-  onChange,
-}: {
-  id: string;
-  placeholder: string;
-  value: number | null;
-  onChange: (value: number | null) => void;
-}) {
-  const [text, setText] = useState(value == null ? "" : String(value));
-  const [invalid, setInvalid] = useState(false);
-
-  function handleChange(next: string) {
-    setText(next);
-    const parsed = parseMarketCapInput(next);
-    if (parsed === undefined) {
-      setInvalid(true);
-      return;
-    }
-    setInvalid(false);
-    onChange(parsed);
-  }
-
-  return (
-    <div className="min-w-0 flex-1">
-      <Input
-        id={id}
-        type="text"
-        inputMode="decimal"
-        placeholder={placeholder}
-        value={text}
-        onChange={(e) => handleChange(e.target.value)}
-        className={cn("w-full", invalid && "border-negative/60 focus:border-negative")}
-      />
-      {invalid && <span className="mt-0.5 block text-[10px] text-negative">e.g. 1B, 2 M, or 500000000</span>}
-    </div>
-  );
-}
-
-function MarketCapRangeInput({ value, onChange }: { value: RangeFilter; onChange: (range: RangeFilter) => void }) {
-  const active = value.min != null || value.max != null;
-
-  return (
-    <Field label="Mkt Cap" htmlFor="range-mkt-cap-min" applied={active}>
-      <div className="flex items-center gap-1.5">
-        <MarketCapSideInput id="range-mkt-cap-min" placeholder="Min" value={value.min} onChange={(min) => onChange({ ...value, min })} />
-        <span className="shrink-0 text-text-tertiary">–</span>
-        <MarketCapSideInput id="range-mkt-cap-max" placeholder="Max" value={value.max} onChange={(max) => onChange({ ...value, max })} />
-      </div>
-    </Field>
-  );
-}
-
 export function FundamentalFilters({ filters, onFiltersChange, sectors, companyTypes }: Props) {
+  // Each RangeField hands back the exact { min, max } object it emitted and gets
+  // it back unchanged through `filters`: RangeField reads a different object as
+  // an external change (Reset, a loaded saved view) and re-syncs its boxes.
   function patch(partial: Partial<ScreenerFilterState>) {
     onFiltersChange({ ...filters, ...partial });
   }
@@ -92,27 +31,34 @@ export function FundamentalFilters({ filters, onFiltersChange, sectors, companyT
   return (
     <CollapsibleFilterSection title="Fundamental">
       <div className="space-y-4">
-        {/* 9-item Min/Max range-filter grid, in the design handoff's original
-            order minus Beta (moved to Technical, 2026-09 follow-up -- a
-            price-covariance statistic, not an accounting metric, same
-            reasoning that already put 5Y vs SPY under Technical), plus
-            Quote (2026-09-15, a raw price figure in the same family as
-            Market Cap, so placed just before it): Overall, Financials,
-            Growth Rate, Profitability, Debt, Quote, Mkt Cap, P/E, Growth --
-            one flat grid, not grouped sub-rows. A single grid-cols-1 column
-            (not the old sm/lg-scaling grid) -- this now lives in a ~256px
-            sidebar column, not a full-width bar, so there's no width at
-            which 2-3 range inputs would ever fit side by side. */}
+        {/* 9 Min/Max range filters in the design handoff's original order minus
+            Beta (moved to Technical, 2026-09 follow-up -- a price-covariance
+            statistic, not an accounting metric, same reasoning that already put
+            5Y vs SPY under Technical), plus Quote (2026-09-15, a raw price figure
+            in the same family as Market Cap, so placed just before it): Overall,
+            Financials, Growth rate, Profitability, Debt, Quote, Mkt cap, P/E,
+            Growth -- one flat column, in a ~256px sidebar. Units sit in each
+            label row: every Quote and Mkt cap is USD (every ticker quotes in
+            USD), P/E is a multiple ("x"), Growth is a percent; the score fields
+            have none. */}
         <div className="grid grid-cols-1 gap-y-3">
-          <RangeInput label="Overall" value={filters.overallScore} onChange={(r) => patch({ overallScore: r })} />
-          <RangeInput label="Financials" value={filters.step1Score} onChange={(r) => patch({ step1Score: r })} />
-          <RangeInput label="Growth Rate" value={filters.step2Score} onChange={(r) => patch({ step2Score: r })} />
-          <RangeInput label="Profitability" value={filters.step4Score} onChange={(r) => patch({ step4Score: r })} />
-          <RangeInput label="Debt" value={filters.step5Score} onChange={(r) => patch({ step5Score: r })} />
-          <RangeInput label="Quote" value={filters.quote} onChange={(r) => patch({ quote: r })} />
-          <MarketCapRangeInput value={filters.marketCap} onChange={(r) => patch({ marketCap: r })} />
-          <RangeInput label="P/E" value={filters.peRatio} onChange={(r) => patch({ peRatio: r })} />
-          <RangeInput label="Growth" value={filters.growthRate} onChange={(r) => patch({ growthRate: r })} />
+          <RangeField label="Overall" value={filters.overallScore} onChange={(r) => patch({ overallScore: r })} />
+          <RangeField label="Financials" value={filters.step1Score} onChange={(r) => patch({ step1Score: r })} />
+          <RangeField label="Growth rate" value={filters.step2Score} onChange={(r) => patch({ step2Score: r })} />
+          <RangeField label="Profitability" value={filters.step4Score} onChange={(r) => patch({ step4Score: r })} />
+          <RangeField label="Debt" value={filters.step5Score} onChange={(r) => patch({ step5Score: r })} />
+          <RangeField label="Quote" unit="USD" value={filters.quote} onChange={(r) => patch({ quote: r })} />
+          <RangeField
+            label="Mkt cap"
+            unit="USD"
+            hint="Type 500M or 2B."
+            suffixes={MARKET_CAP_SUFFIXES}
+            min={0}
+            value={filters.marketCap}
+            onChange={(r) => patch({ marketCap: r })}
+          />
+          <RangeField label="P/E" unit="x" value={filters.peRatio} onChange={(r) => patch({ peRatio: r })} />
+          <RangeField label="Growth" unit="%" value={filters.growthRate} onChange={(r) => patch({ growthRate: r })} />
         </div>
 
         <div className="flex flex-col items-stretch gap-2 border-t border-border-subtle pt-3">

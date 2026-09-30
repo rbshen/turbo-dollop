@@ -20,39 +20,10 @@ export const EMPTY_RANGE: RangeFilter = { min: null, max: null };
 // distinct token from --fathom-chart-orange despite sharing the same hue.
 export const FILTER_ACTIVE_LABEL_CLASS = "text-filter-active";
 
-/** Market-cap suffixes: M, B and T (5T is 5,000,000,000,000). Shared by the live
- * sidebar's parseMarketCapInput below and the new RangeField's lenient parser. */
+/** Market-cap suffixes: M, B and T (5T is 5,000,000,000,000). Passed to RangeField
+ * as `suffixes`; parsing is checkNumber(..., { suffixes }) in numberInput.ts
+ * (case-insensitive, optional space), the one parser for a market-cap box. */
 export const MARKET_CAP_SUFFIXES: Record<string, number> = { T: 1e12, B: 1e9, M: 1e6 };
-
-/** Parses Market Cap filter input: a bare number is raw dollars (unchanged
- * from before), optionally suffixed with "B"/"M"/"T" (case-insensitive, with or
- * without a separating space) for billions/millions/trillions, e.g. "1B" /
- * "1 b" -> 1_000_000_000, "2M" / "2 m" -> 2_000_000, "5T" -> 5_000_000_000_000.
- * This is the LIVE sidebar's parser and still rejects "12." and ".5"; the new
- * RangeField uses the lenient checkNumber(..., { suffixes }) in numberInput.ts
- * instead, and this one is deleted at migration. Empty string parses to null (no
- * filter on that side). Returns `undefined` for anything else -- an
- * unparseable string, a negative number, or a number with an unrecognized
- * suffix -- so callers can tell "no filter" apart from "invalid input" and
- * leave the last valid filter value in place rather than silently applying
- * zero or excluding every row. */
-export function parseMarketCapInput(raw: string): number | null | undefined {
-  const trimmed = raw.trim();
-  if (trimmed === "") return null;
-
-  const match = /^(-?\d+(?:\.\d+)?)\s*([A-Za-z]*)$/.exec(trimmed);
-  if (!match) return undefined;
-
-  const [, numberPart, suffixPart] = match;
-  const value = Number(numberPart);
-  if (!Number.isFinite(value) || value < 0) return undefined;
-
-  if (suffixPart === "") return value;
-
-  const multiplier = MARKET_CAP_SUFFIXES[suffixPart.toUpperCase()];
-  if (multiplier == null) return undefined;
-  return value * multiplier;
-}
 
 /** What a stored market cap reads back as in a box: the shortest exact form
  * ("1B", "2.5T"), or plain digits. See formatNumberInput. */
