@@ -92,7 +92,7 @@ GROUPS: dict[str, GroupMeta] = {
     "daily_prices": GroupMeta(
         "Daily prices", "Starter", True, True,
         (
-            "Trend / Weinstein stage", "Liquidity Zones", "Sector Heatmap", "Market Breadth", "Momentum",
+            "Weinstein stage", "Liquidity Zones", "Sector Heatmap", "Market Breadth", "Momentum",
             "Chart tab (daily ranges)", "Header avg-volume / dollar-volume",
         ),
     ),

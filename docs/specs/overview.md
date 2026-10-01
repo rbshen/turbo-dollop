@@ -213,8 +213,7 @@ Assessment or Valuation in either direction:
 - **Speculative Growth** — a separate classification (not a score) layered on top of the same
   fundamentals data, gated on company type, Moat, and forward growth. See
   [Speculative Growth](speculative-growth.md).
-- **Technical tab** — a family of independent, price-structure-only signals (swing/BOS trend
-  state, Weinstein Stage Analysis, Liquidity Zones, BB+RSI and Warren entry signals, Sector
+- **Technical tab** — a family of independent, price-structure-only signals (Weinstein Stage Analysis, Liquidity Zones, BB+RSI and Warren entry signals, Sector
   Heatmap, Market Breadth) computed from price bars, never from the fundamentals pipeline. See
-  [Trend structure (Technical)](trend-structure-technical.md), [Weinstein Stage](weinstein-stage.md),
+  [Weinstein Stage](weinstein-stage.md),
   [Sector Heatmap](sector-heatmap.md), and [Market Breadth](market-breadth.md).

@@ -270,7 +270,7 @@ Two bugs found in the browser (the Speculative growth tooltips and the expanded 
 
 **What is left after session 16, counted by grep at the end of the session** (source only, not tests, not `app/styleguide`):
 
-- **`brand` on a selected or current state:** none. Remaining `brand` uses are actions, links, focus rings and one data bar: `Button` primary and the outline hover, the `Checkbox` and `Switch` focus rings, `MomentumBanner`, the `TickerNotFound` link button, the `SecCellCheckButton` icon's hover, `ScreenerCard`'s card hover, the Breadth page's link, and `ReversalCard`'s freshness bar (`bg-brand`, a progress fill; Principle 2 says brand is never status, so it is arguably a miss, left for the owner).
+- **`brand` on a selected or current state:** none. Remaining `brand` uses are actions, links, focus rings and one data bar: `Button` primary and the outline hover, the `Checkbox` and `Switch` focus rings, `MomentumBanner`, the `TickerNotFound` link button, the `SecCellCheckButton` icon's hover, `ScreenerCard`'s card hover, the Breadth page's link, and (until it was deleted with the trend-structure feature) `ReversalCard`'s freshness bar.
 - **`outline-none`:** none (two comments only).
 - **Hand-written bordered buttons:** none. The tone-coloured hover overrides on `Button variant="outline"` (warn and negative in `AddToWatchlistButton`, `WatchlistTable`, `SavedFiltersBar`'s overwrite and the Custom valuation Confirm buttons) are deliberate tone changes.
 - **Icon-only buttons without an `aria-label`:** none.
@@ -302,7 +302,7 @@ A section that saves several independent panels (Discount Rate has one per regio
 
 One family, two components, two sizes. `Status` (a labelled state, with an optional ▲/▼ direction glyph) and `Badge` (a short value or label, with a `missing` state) render the same pill; `Verdict` is `Status` for a verdict word. They never differ in look, only in what they are for. Nothing in the app hand-rolls a pill, a dot or an inline status colour — a new status goes through these. That includes the Screener's `PullbackPill` and `ReversalPill`, which were the reference style and now render through `Status` themselves (2026-09-29), and the Technical tab's `ChecklistCard` status chip.
 
-**Anatomy.** `radius-md` (8px). Fill is the tone colour at 16% opacity, text is the tone colour at full strength, and there is no border. This is the look of the Screener's pullback pills ("Pullback recovered", "Pullback pending", "Trend invalidated"), which are the reference style. No new colours: every tone reuses an existing token.
+**Anatomy.** `radius-md` (8px). Fill is the tone colour at 16% opacity, text is the tone colour at full strength, and there is no border. This is the look of the Screener's Weinstein stage pill ("S2", "S3" and so on), which is the reference style (it was originally set by the Pullback/Reversal pills, since removed with the trend-structure feature). No new colours: every tone reuses an existing token.
 
 | Size | Type | Padding | Height | Where |
 | --- | --- | --- | --- | --- |
@@ -316,8 +316,8 @@ The choice of size is the only difference between a Watchlist Moat cell and the 
 | Tone | Token | Label / where it shows up |
 | --- | --- | --- |
 | `strong` | `positive-strong` | Strong pass (score above 90), Wide moat, Undervalued, 5Y vs SPY outperform |
-| `positive` | `positive` (muted green) | Pass (score 75 to 90), Narrow moat, Fairvalued, Stage 2 (Advance), Pullback recovered |
-| `warn` | `warn` | Needs review: the amber borderline read. In the app the 70 to 74 score band carries the backend's own verdict word "Pass" in this tone; "Needs review" is the tone's name and its styleguide label. Also Stage 3 (Top), Pullback pending |
+| `positive` | `positive` (muted green) | Pass (score 75 to 90), Narrow moat, Fairvalued, Stage 2 (Advance) |
+| `warn` | `warn` | Needs review: the amber borderline read. In the app the 70 to 74 score band carries the backend's own verdict word "Pass" in this tone; "Needs review" is the tone's name and its styleguide label. Also Stage 3 (Top) |
 | `caution` | `caution` | Pass with caution (checked before score tiers) |
 | `negative` | `negative` | Fail, No moat, Overvalued, Stage 4 (Decline), Trend invalidated |
 | `speculative` | `chart-purple` | Speculative growth only |

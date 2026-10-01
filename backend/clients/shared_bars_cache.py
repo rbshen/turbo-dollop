@@ -5,7 +5,7 @@ that were confirmed (2026-09-18 investigation, see CLAUDE.md) to overlap:
 
   - interval="1d": Liquidity Zones (1yr Daily + 4yr Weekly, resampled
     locally from Daily -- see analysis/trend_structure/weinstein.py::
-    resample_to_weekly) and Trend/Weinstein Stage (2yr).
+    resample_to_weekly) and Weinstein Stage (nightly_trend_calculation, historical name).
   - interval="60m": Warren (2yr, the actual fetched granularity -- both
     Warren's and BB+RSI's own "2h" candles are built from these bars by
     resampling downstream, see analysis/entry_signal/resample.py::

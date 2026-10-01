@@ -1,5 +1,5 @@
 """Shared dataclasses for the Liquidity Zone (LP) detection engine -- see
-engine.py. Mirrors analysis/trend_structure's dataclass-based style. See
+engine.py. See
 CLAUDE.md's "Liquidity Zone (LP) detection (Technical)" section for the
 full methodology.
 """

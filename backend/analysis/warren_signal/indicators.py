@@ -4,7 +4,7 @@ signal section). Deliberately NOT reusing analysis/entry_signal/indicators.py::
 compute_rsi: that RSI is EWM-seeded (pandas' ewm default, seeded from the
 first observation), while Pine's built-in `RSI(14)` uses `ta.rma` internally
 -- Wilder-seeded (SMA over the first `length` bars, then recursive), matching
-analysis/trend_structure/atr.py::compute_atr's own convention. Warren's state
+the standard Wilder ATR convention. Warren's state
 machine depends on exact-value threshold crossings (12, 30, 70, 80.81, 84.75),
 so this divergence is deliberate, not an oversight -- see wilder_rma below,
 shared by RSI, DMI, and ADX, all of which use the identical Wilder smoothing.
@@ -32,7 +32,7 @@ def wilder_rma(s: pd.Series, length: int) -> pd.Series:
     """Wilder's smoothing (aka Pine's ta.rma): seeded with a plain simple
     average of the first `length` values, then recursively smoothed
     out[t] = (out[t-1] * (length - 1) + s[t]) / length -- same seeding
-    convention as analysis/trend_structure/atr.py::compute_atr, extracted
+    convention as the standard Wilder ATR, extracted
     here since RSI/DMI's DI-smoothing/ADX's DX-smoothing all need the exact
     same recursion. The seed uses nanmean, not a plain mean: RSI's own
     gain/loss series has a structurally-NaN first element (close.diff()'s

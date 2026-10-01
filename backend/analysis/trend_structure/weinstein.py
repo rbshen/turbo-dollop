@@ -1,10 +1,9 @@
 """Stan Weinstein's classic 4-stage (Base/Advance/Top/Decline) analysis --
-computed entirely on WEEKLY bars, independent of the daily-bar swing/BOS
-engine in engine.py. See CLAUDE.md's "Trend structure analysis (Technical)"
-section for the surrounding feature.
+computed entirely on WEEKLY bars. See docs/specs/weinstein-stage.md for the
+surrounding feature. (The package name `trend_structure` is historical.)
 
-Weekly bars are derived by resampling the SAME daily OHLCV frame the
-swing/BOS engine already receives (resample_to_weekly), not a second fetch --
+Weekly bars are derived by resampling the daily OHLCV frame
+(resample_to_weekly), not a second fetch --
 confirmed bit-identical to a native weekly feed's bars once
 anchored correctly (see resample_to_weekly's own docstring).
 
@@ -212,8 +211,8 @@ def _stage_since(stage_series: pd.Series) -> tuple[date | None, bool]:
 
 
 def compute_weinstein_stage(ohlcv: pd.DataFrame, benchmark_ohlcv: pd.DataFrame, params: WeinsteinParams | None = None) -> WeinsteinStageResult:
-    """ohlcv/benchmark_ohlcv are both daily-indexed frames matching
-    engine.py::compute_trend_structure's own contract (lowercase
+    """ohlcv/benchmark_ohlcv are both daily-indexed frames in the
+    shared-bars-cache shape (lowercase
     open/high/low/close/volume). benchmark_ohlcv may be empty (e.g. the
     benchmark fetch failed that run) -- Mansfield RS and the breakout's RS
     gate degrade gracefully (RS unavailable passes the gate, the Pine

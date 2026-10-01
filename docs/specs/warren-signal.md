@@ -44,8 +44,7 @@ should go through the same entry point the real nightly job calls, not a lower-l
   `analysis/entry_signal/indicators.py::compute_rsi` is EWM-seeded (pandas' `ewm` default, seeded from the
   first observation), a working RSI but not the one Pine's built-in `RSI(14)` computes. Pine's `ta.rsi` uses
   `ta.rma` internally, which is Wilder-seeded (a plain SMA over the first `length` bars, then recursive
-  `out[t] = (out[t-1] * (length-1) + src[t]) / length`), the same convention
-  `analysis/trend_structure/atr.py::compute_atr` uses for ATR. Warren's state machine depends on
+  `out[t] = (out[t-1] * (length-1) + src[t]) / length`), the standard Wilder ATR convention. Warren's state machine depends on
   exact-value threshold crossings (12, 30, 70, 80.81, 84.75), so this divergence is load-bearing, not
   cosmetic. `analysis/warren_signal/indicators.py::wilder_rma` is a shared Wilder-smoothing helper (RSI,
   DMI's DI-smoothing and ADX's DX-smoothing all use it identically), with its own `compute_rsi_wilder` kept

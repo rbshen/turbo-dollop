@@ -2,12 +2,41 @@
 
 Stan Weinstein's classic 4-stage (Base / Advance / Top / Decline) methodology, ported from a
 reviewed Pine Script v6 reference implementation ("Weinstein Stage Screener") and computed on
-**weekly** bars — the only signal in the trend-structure family that runs on a different
-timeframe than the daily swing/BOS/A-D/SMA engine (see
-[Trend structure](trend-structure-technical.md), whose nightly job also produces this lens). It
-is fully independent of that engine and of the fundamentals scoring. This document covers the
-shipped base engine (Part 0), then two rounds of design work layered on top of it: the
-"pending confirmation" + ETA feature (Part 1) and the daily-timeframe question (Part 2).
+**weekly** bars. It is independent of the fundamentals scoring. This document covers the
+storage/job/API plumbing, the shipped base engine (Part 0), then two rounds of design work
+layered on top of it: the "pending confirmation" + ETA feature (Part 1) and the
+daily-timeframe question (Part 2).
+
+> **Historical names.** `TrendAnalysis` (table), `/api/tickers/{ticker}/trend-analysis`,
+> `TrendAnalysisOut`, `useTrendAnalysis`, `data/trend_analysis_data.py`,
+> `pipeline.nightly_trend_calculation` and the `analysis/trend_structure/` package are named for
+> the swing/BOS trend-structure engine (swing highs/lows, BOS flips, blended conviction score,
+> A/D divergence, SMA position, and the Near-term / Pullback recovery / Bullish reversal /
+> Long-term cards and Screener Reversal/Pullback filters) that shared them until it was removed
+> 2026-10-01. Weinstein is all they serve now; the names were deliberately kept. The package
+> also still holds `stochastic.py` (the Chart tab's Stochastic).
+
+## Storage, nightly job and API
+
+- **Storage**: `TrendAnalysis` (`core/models.py`; ticker PK, `computed_at`, `bars_as_of`,
+  latest-only, upserted per run — the same convention as `TickerScore`). Bars come from
+  `SharedBarsCache` (see [FMP data and bar cache](fmp-data-and-bar-cache.md)), deliberately not
+  `core/cache.py`, which is hard-wired to `FundamentalsCache`'s shape.
+- **Nightly job** (`pipeline/nightly_trend_calculation.py`, **12:05 AM**, after the 12:00
+  last-close snapshot; the 3:25 score recompute then copies its `weinstein_*` output onto
+  `TickerScore`): sweeps the full tracked universe (`load_full_tracked_universe`) via **one**
+  batch read (`clients.shared_bars_cache.get_or_fetch_bars_batch`), runs the Weinstein engines and
+  upserts per ticker — never one live fetch per ticker. It is the one nightly job that actually
+  fetches daily bars (Sunday UTC is a full resync); the LP, Sector Heatmap, Market Breadth and
+  Momentum jobs read its warm cache, so this job cannot be removed or reordered after them. The
+  fetch is `WEINSTEIN_LOOKBACK_DAYS` = 5 years wide. Wired into `core/cron_health.py`'s
+  `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS`. Delisted-flagged tickers are skipped (see the FMP
+  data spec).
+- **On-demand freshness**: `data/trend_analysis_data.py::get_trend_analysis_data` compares
+  `TrendAnalysis.bars_as_of` with the last completed session — see "Trend's computed row is
+  close-aware too" in the FMP data spec.
+- **API**: `GET /api/tickers/{ticker}/trend-analysis` (`TrendAnalysisOut`, Weinstein + pending
+  fields) feeds the ticker page's Technical tab and header pill.
 
 ## Part 0 — the base engine (`analysis/trend_structure/weinstein.py`)
 
@@ -47,7 +76,7 @@ exactly (validated bit-identical across 15 real tickers against a native weekly 
 Measured at ~245 anchor points across 15 tickers (up to 64 years of history) on the original
 engine: 1.6% of anchors still mismatched at 52 weeks, and 0/245 at 104 weeks. The replay
 therefore gets ~5 years of dailies (`WEINSTEIN_LOOKBACK_DAYS` = 365 × 5 in
-`data/trend_analysis_data.py`, the trend job's fetch width), because an EMA/sticky machine needs
+`data/trend_analysis_data.py`, the nightly job's fetch width), because an EMA/sticky machine needs
 a long run-in and "since" dates otherwise depended on where the window started.
 `WeinsteinParams.min_weeks_required` (`ma_length + slope_lookback + 5` = 40 at the defaults) is
 the bare structural floor below which the engine returns a graceful `stage=None` / thin-history
@@ -67,7 +96,7 @@ Screener card has no params, so its pill tooltip says "MA").
 
 ### Data model (on the existing `TrendAnalysis` table; nullable, no backfill)
 
-`weinstein_stage` (`"base"|"advance"|"top"|"decline"`, a plain-str enum like `trend_state`),
+`weinstein_stage` (`"base"|"advance"|"top"|"decline"`, a plain-str enum),
 `weinstein_stage_since_date`, `weinstein_stage_since_is_lower_bound`, `weinstein_stage_changed`,
 `weinstein_ma_slope_pct`, `weinstein_vs_ma_pct`, `weinstein_volume_ratio`,
 `weinstein_mansfield_rs`, `weinstein_breakout_confirmed`, plus `weinstein_weeks_available`,
@@ -103,20 +132,19 @@ Screener card has no params, so its pill tooltip says "MA").
   A benchmark-fetch failure that run degrades every ticker's Mansfield RS/breakout fields to
   null/false (the same `na()`-passes-through convention) rather than counting as a per-ticker
   failure. The nightly job fetches whatever `rs_benchmark` names.
-- **Cron**: folded into the existing `pipeline/nightly_trend_calculation.py` run (12:05 AM) — no
-  separate cron job.
+- **Cron**: the `pipeline/nightly_trend_calculation.py` run (12:05 AM) — no separate cron job.
 
 ### Surfacing
 
 - **Ticker header**: `WeinsteinStagePill` in the chip row (the same flat-variant shape as
   `SpeculativeGrowthPill`/`MoatPill`; renders nothing when `weinstein_stage` is null, not a
-  placeholder). **Technical tab**: Stage/Since in the `SummaryStrip`, and a full-width
-  `WeinsteinStageCard` below the Reversal/Trend-Continuation grid (the `ChecklistCard` shell).
+  placeholder). **Technical tab**: `WeinsteinStageCard` (the `ChecklistCard` shell) renders alone
+  at full row width at the top of the tab, above the BB+RSI/Warren grid and Liquidity Zones; the
+  tab-level loading/error/empty states are unchanged.
   Colors: Stage 2/Advance = positive (green), Stage 4/Decline = negative (red), Stage 3/Top =
-  `warn` (amber, the token `TrendContinuationCard`'s "pullback pending" uses), Stage 1/Base =
-  neutral (`ReversalCard`'s "Not present" style). The card's disclaimer is deliberately NOT
-  phrased as "Backtested: X%" like Reversal/Trend Continuation's — this lens has only been
-  validated for state-machine correctness against its Pine source, not for predictive edge.
+  `warn` (amber), Stage 1/Base = neutral. The card's disclaimer is deliberately NOT phrased as
+  "Backtested: X%" — this lens has only been validated for state-machine correctness against its
+  Pine source, not for predictive edge.
 - **Chart tab W/4Y "Stage" toggle** (2026-09-26): on the weekly view only (hidden on D ranges,
   off by default, after SMA 200), draws the live-configured Weinstein MA (`WeinsteinSettings`
   type+length, labelled e.g. "EMA30", white) and colors each candle by its stage AT THAT WEEK

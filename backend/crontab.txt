@@ -10,14 +10,15 @@
 # jobs moved from 2:00-2:40 to 12:00-12:40 on 2026-10-01. Order reordered 2026-09-30:
 # technical jobs first, fundamentals later (technical data is the higher
 # priority). Order, each job in its own slot:
-#   last close -> trend + Weinstein -> Liquidity Zone (support/resistance)
+#   last close -> Weinstein + bar-cache fill -> Liquidity Zone (support/resistance)
 #   -> BB+RSI -> Warren -> Sector ETF heatmap -> Market Breadth
 #   -> corporate events -> FMP fundamentals -> analyst price-target
 #   -> score recompute -> SQLite backup
 # Hard ordering constraints (pinned by tests/test_cron_wiring.py):
-#   * trend fills the shared daily-bar cache; LP, Sector and Breadth read it warm
+#   * the Weinstein/bar-cache job (pipeline.nightly_trend_calculation -- the "trend" name is
+#     historical) fills the shared daily-bar cache; LP, Sector and Breadth read it warm
 #   * BB+RSI before Warren (BB+RSI creates the 60d intraday row, Warren widens it)
-#   * score recompute after trend/BB+RSI/Warren, and before the backup
+#   * score recompute after Weinstein/BB+RSI/Warren, and before the backup
 # Everything else is preference. Windows below are sized from observed CronRunLog
 # durations; if a job is moved, keep its successor's slot at least as far out.
 # Every command uses `-m package.module` (NOT a direct script path) run from
@@ -34,7 +35,8 @@
 # status) while `daily_prices` is off. See pipeline/nightly_last_close_snapshot.py.
 0 0 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_last_close_snapshot >> /home/shen/fathom/backend/logs/nightly_last_close_snapshot_cron.log 2>&1
 
-# 12:05 Trend-structure (swing/BOS/blended-score) + Weinstein stage calculation.
+# 12:05 Weinstein stage calculation + daily-bar cache fill (the job's "trend" name is
+# historical; the swing/BOS trend-structure calculation was removed).
 # Reads FMP daily bars (data group daily_prices) through the shared bars cache and
 # is the ONLY job that fills the daily-bar cache -- LP, Sector and Breadth below
 # read it warm. 10-minute window (typical 1-3 min, max seen ~6 min). Reports a
@@ -43,7 +45,7 @@
 
 # 12:15 Liquidity Zone (LP, support/resistance) detection recompute. Scoped to the
 # W1-W5 watchlist union only. Reads daily bars through the shared bars cache (the
-# same "1d" rows the trend job fills; skipped while daily_prices is off). ~10s.
+# same "1d" rows the 12:05 bar-cache job fills; skipped while daily_prices is off). ~10s.
 # See pipeline/nightly_liquidity_zone_calculation.py.
 15 0 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_liquidity_zone_calculation >> /home/shen/fathom/backend/logs/nightly_liquidity_zone_calculation_cron.log 2>&1
 
@@ -66,9 +68,9 @@
 35 0 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_sector_heatmap >> /home/shen/fathom/backend/logs/nightly_sector_heatmap_cron.log 2>&1
 
 # 12:40 Market-breadth recompute (S&P 500: % above 50-/200-day SMA, net new 52-week
-# highs minus lows). AFTER the 12:05 trend job, which fetches all 503 constituents'
+# highs minus lows). AFTER the 12:05 bar-cache job, which fetches all 503 constituents'
 # 2y daily bars into SharedBarsCache, so this is a warm-cache read (~3-15s, zero
-# incremental FMP requests). Run earlier, or after a failed trend job, it
+# incremental FMP requests). Run earlier, or after a failed 12:05 job, it
 # self-heals with one live ~503-request batch (~30s-5min). Skipped while
 # daily_prices is off. Raises (heartbeat failure) rather than saving a row when
 # <97% of constituents have a bar. See pipeline/nightly_market_breadth.py.
@@ -114,7 +116,7 @@
 10 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_price_target_snapshot >> /home/shen/fathom/backend/logs/nightly_price_target_snapshot_cron.log 2>&1
 
 # 3:25 Full-universe TickerScore recompute -- MUST run after every job whose
-# output compute_ticker_score copies onto TickerScore: trend-structure/Weinstein
+# output compute_ticker_score copies onto TickerScore: Weinstein
 # (12:05), BB+RSI (12:20) and Warren (12:25), and before the backup so the backup
 # holds it. Pinned by tests/test_cron_wiring.py::test_score_recompute_runs_after_
 # every_job_it_copies_from. Fundamentals-derived fields are already fresh from the

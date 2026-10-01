@@ -1,7 +1,7 @@
 """Top-level composition: resample -> RSI/BB/ATR -> scan today's candles
 for check_buy_signal -> EntrySignalResult. The single function
 data/entry_signal_data.py calls; everything below it stays pure (no DB, no
-HTTP), matching analysis/trend_structure/engine.py's own composition style.
+HTTP).
 """
 
 from datetime import date as date_

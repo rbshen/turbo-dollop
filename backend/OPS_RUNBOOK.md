@@ -115,7 +115,7 @@ configured):
 |---|---|
 | Nightly fundamentals fetch | `nightly_fundamentals_fetch.log` / `_cron.log` |
 | Nightly full-universe score recompute | `nightly_score_recompute.log` / `_cron.log` |
-| Nightly trend-structure calculation | `nightly_trend_calculation.log` / `_cron.log` |
+| Nightly Weinstein stage calculation (`nightly_trend_calculation`) | `nightly_trend_calculation.log` / `_cron.log` |
 | Nightly BB+RSI entry-signal calculation | `nightly_entry_signal_calculation.log` / `_cron.log` |
 | Nightly Liquidity Zone (LP) calculation | `nightly_liquidity_zone_calculation.log` / `_cron.log` |
 | Nightly Sector ETF heatmap | `nightly_sector_heatmap.log` / `_cron.log` |
@@ -155,7 +155,7 @@ monitoring" below.
 
 All of the scripts below are wired into `crontab.txt`'s weekly maintenance
 window (Sundays 1:15–1:35 AM), the daily backup at 3:30 AM, or the daily
-3:25 AM full-universe score recompute (deliberately last before the backup -- it copies the trend/Weinstein, BB+RSI and Warren
+3:25 AM full-universe score recompute (deliberately last before the backup -- it copies the Weinstein, BB+RSI and Warren
 outputs onto `TickerScore`, so it has to run after all three). Each can also be run manually with
 `uv run python -m pipeline.<name>` from `backend/`.
 
@@ -174,7 +174,7 @@ row like that on its next view (`core/main.py::ticker_score_out`), but
 this sweep is the backstop for a ticker that's never viewed again.
 
 **Why it runs at 3:25 AM, after the technical jobs (moved from 2:50 on
-2026-09-19; whole nightly chain re-timed 2026-09-30, technical first):** it copies Trend/Weinstein (12:05), BB+RSI (12:20) and Warren
+2026-09-19; whole nightly chain re-timed 2026-09-30, technical first):** it copies Weinstein (12:05), BB+RSI (12:20) and Warren
 (12:25) output onto `TickerScore` for the Screener. At 2:50 it ran before all
 three, so the Screener always showed the *previous* night's stage/signal —
 up to a full day stale (36 of 579 tickers' Screener Weinstein stage
@@ -199,19 +199,22 @@ EOF
 ```
 
 (Output is `(tickers compared, stage mismatches, since-date mismatches)`. The
-since-date check is the more sensitive one: the trend job's replay can revise
+since-date check is the more sensitive one: the 12:05 job's replay can revise
 a ticker's since-date without changing its stage, so it catches a stale copy
 the stage check misses — on the day the reorder shipped it read 173
 mismatches against 36 for stage alone.)
 
-**`nightly_trend_calculation`** — recomputes the swing/BOS/blended-score
-trend-structure engine (`backend/analysis/trend_structure/`) for the same
+**`nightly_trend_calculation`** — recomputes Weinstein Stage Analysis
+(`backend/analysis/trend_structure/weinstein.py`; the "trend" job, package,
+table and endpoint names are historical -- the swing/BOS trend-structure
+engine they were named for was removed 2026-10-01) for the same
 full tracked universe `nightly_fundamentals_fetch`/`nightly_score_recompute`
 use, upserting one `TrendAnalysis` row per ticker
 (`data/trend_analysis_data.py`). Sourced from FMP daily bars (data group `daily_prices`) through
 the shared bars cache, not fundamentals endpoints. Fetches the whole
 universe's OHLCV in **one** batch
-(`clients.shared_bars_cache.get_or_fetch_bars_batch`). **Skipped (real `skipped` status, Phase 6b)
+(`clients.shared_bars_cache.get_or_fetch_bars_batch`) -- it is also the only job that fills the
+daily-bar cache the LZ/Sector/Breadth/Momentum jobs read warm. **Skipped (real `skipped` status, Phase 6b)
 while `daily_prices` is off** -- there is no Yahoo fallback any more, so it does not compute on stale
 bars. Success: a log line `Nightly trend calculation complete.
 Processed: N. Failed: M.` in `backend/logs/nightly_trend_calculation.log`.
@@ -219,8 +222,7 @@ A high failed count points at FMP `/historical-price-eod/full` reachability/rate
 delisted/renamed symbol FMP no longer serves -- the heartbeat message's `N not served by FMP (cached
 bars kept)` names how many; check the log for the specific tickers.
 
-Since 2026-09-06, this same run also computes Weinstein Stage Analysis
-(`analysis/trend_structure/weinstein.py`) on weekly bars resampled from the
+The Weinstein stage is computed on weekly bars resampled from the
 same daily OHLCV batch — no second fetch. `^GSPC` (its Mansfield RS
 benchmark) rides along in the same one batch download as one more symbol,
 but is never counted toward `Processed`/`Failed` and never gets its own
@@ -279,9 +281,9 @@ session for the S&P 500 (`IndexConstituent` `sp500`, via `load_sp500_tickers`):
 the % of constituents closing above their own 20-, 50- and 200-day SMA, and new
 52-week highs minus new 52-week lows (intraday High/Low, 252 sessions,
 ties count) — `data/market_breadth_data.py`, `scoring/market_breadth.py`.
-FMP bars from `SharedBarsCache`; skipped while `daily_prices` is off. Runs at 12:40 AM, **after** the 12:05 trend job that warms
+FMP bars from `SharedBarsCache`; skipped while `daily_prices` is off. Runs at 12:40 AM, **after** the 12:05 bar-cache job that warms
 `SharedBarsCache` with all 503 tickers' 2y daily bars, so the normal run is a
-~3s warm-cache read. If the trend job failed or overran it self-heals with one
+~3s warm-cache read. If the 12:05 job failed or overran it self-heals with one
 live batch (~30s–5min), which could overlap the 2:45 corporate-events start (writer-lock
 contention only). A weekend/holiday run re-derives the same anchor and
 upserts over its own row. **Coverage gate:** if fewer than 97% of constituents
@@ -398,7 +400,7 @@ earnings/dividends/splits). It pages FMP's `/delisted-companies` (group `index_m
 listed with a delisted date on/before today (a reused symbol — profile `ipoDate` after the
 delisted date — is ignored). **A ticker the endpoint does not list is never flagged and an
 existing flag is never cleared**; the old stale-bar/Massive+Yahoo heuristic and auto-clear are
-gone. Nightly Trend/Liquidity Zone/Momentum skip a flagged ticker's fetch/compute entirely.
+gone. Nightly Weinstein/Liquidity Zone/Momentum skip a flagged ticker's fetch/compute entirely.
 Nothing is ever deleted. The cron heartbeat message names anything newly flagged, or says
 `delisted sync skipped (index_membership off)` / `delisted list incomplete` (a page failed; the
 next weekly run retries).
@@ -450,12 +452,12 @@ its warm cache.
 - **Nightly:** per ticker one call from `last cached bar - 7d` (overlap). The last cached bar is
   overwritten; any earlier overlapping close off by > 0.5% means FMP restated history (split,
   spin-off, symbol reuse) and that ticker is refetched over its full window and REPLACED. ~600
-  calls, ~1-2 min. **Sundays (UTC)** the trend job passes `force=True` -> every ticker gets a full
+  calls, ~1-2 min. **Sundays (UTC)** the 12:05 job passes `force=True` -> every ticker gets a full
   refetch + replace (the weekly resync).
 - **Heartbeat message** of each daily-bar job: `N not served by FMP (cached bars kept)`.
   A large N means FMP is failing/empty for those tickers. Their cached bars are left as they are.
 - **Group off / master off / not on plan / restricted:** there is no fallback provider (Yahoo removed
-  in Phase 6b). Every daily-bar job (Trend, Liquidity Zones, Sector Heatmap, Market Breadth, Momentum)
+  in Phase 6b). Every daily-bar job (Weinstein, Liquidity Zones, Sector Heatmap, Market Breadth, Momentum)
   reports a real `skipped` cron status instead of computing on stale bars; nothing is wiped, the last
   cached bars keep serving (chip "Cached only"). The Chart tab's daily ranges render EMPTY.
 - **Re-backfill (already run once, 2026-09-24):** `uv run python -m pipeline.backfills.

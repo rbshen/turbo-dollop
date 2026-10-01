@@ -72,10 +72,10 @@ from today's constituents. A re-run fills 0.
 
 ## Nightly job and coverage gate
 
-`pipeline.nightly_market_breadth`, 12:40 AM (after the 12:05 trend job, which warms the shared
-cache; before corporate events at 2:45). Reuses the SAME `get_or_fetch_bars_batch` call the trend job
+`pipeline.nightly_market_breadth`, 12:40 AM (after the 12:05 bar-cache job, which warms the shared
+cache; before corporate events at 2:45). Reuses the SAME `get_or_fetch_bars_batch` call the 12:05 job
 already made, so after it this is a warm-cache read (~3s, zero incremental FMP requests) — if
-the trend job failed, this job self-heals with one live ~503-request fetch (30s-5min) that could
+the 12:05 job failed, this job self-heals with one live ~503-request fetch (30s-5min) that could
 overlap the next job's start (writer-lock contention only). Universe = `load_sp500_tickers`
 strictly (**not** the S&P 500 ∪ Dow union `load_universe_tickers` returns — the original
 requested design named the latter, but since Dow ⊂ S&P 500 the two happen to be identical today;
@@ -168,7 +168,7 @@ never moves forward — it will keep reading as "days ago" indefinitely, even on
 healthy, currently-up-to-date job, which is exactly what looked wrong to the reporting user.
 
 Root-caused via the real `CronRunLog`/`MarketBreadthSnapshot` history: a handful of coverage-gate
-failures during the FMP daily-bar cutover (traced to the trend job's own cache not yet having
+failures during the FMP daily-bar cutover (traced to the 12:05 job's own cache not yet having
 caught up to a specific session) caused one date to be written only by a later `backfill_market_
 breadth --rebuild` re-run, landing it with `is_backfilled=1` sandwiched between otherwise-live
 rows — which is why the marker's date sits several days before "today" rather than at the

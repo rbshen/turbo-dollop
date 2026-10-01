@@ -332,7 +332,7 @@ def test_weinstein_stage_is_copied_from_trend_analysis(monkeypatch):
 
 
 def test_weinstein_stage_is_none_when_no_trend_analysis_row_exists(monkeypatch):
-    # A ticker never touched by the trend-structure pipeline (or one whose
+    # A ticker never touched by the Weinstein pipeline (or one whose
     # row predates this field -- see _add_missing_columns) reads as None,
     # same "no signal" contract as speculative_growth_qualifies above, and
     # never aborts the rest of the row.

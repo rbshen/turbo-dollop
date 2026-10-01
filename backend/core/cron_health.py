@@ -119,7 +119,7 @@ JOB_METADATA: dict[str, JobMetadata] = {
         "Recompute 5-step scores, full universe", "daily", "3:25 AM", 3 * 60 + 25
     ),
     "pipeline.nightly_trend_calculation": JobMetadata(
-        "Trend structure + Weinstein stage, weekly resample", "daily", "12:05 AM", 5
+        "Weinstein stage + daily-bar cache fill", "daily", "12:05 AM", 5
     ),
     "pipeline.nightly_corporate_events": JobMetadata(
         "Earnings / dividends / splits cache from FMP (Chart E/D markers)", "daily", "2:45 AM", 2 * 60 + 45

@@ -206,7 +206,7 @@ Key mechanics:
   (plateaus; unpruned growth is ~+57 MB/yr forever). A DELETE doesn't shrink the SQLite file —
   the freed pages are reused by later inserts, so it plateaus rather than shrinks; nothing
   VACUUMs it.
-- **Trend's computed row is close-aware too.**
+- **The Weinstein row (`TrendAnalysis`) is close-aware too.**
   `data/trend_analysis_data.py::get_trend_analysis_data` (the on-demand
   `GET /api/tickers/{t}/trend-analysis` path; the nightly job recomputes every ticker
   unconditionally and has no gate) compares `TrendAnalysis.bars_as_of` (date of the last daily
@@ -231,12 +231,12 @@ Key mechanics:
 
 ### Downstream ordering: the Screener's copy of technical fields
 
-`compute_ticker_score` copies `weinstein_*` (+ `reversal_status`/`pullback_status`) from
-`TrendAnalysis` (written by the 12:05 trend job), `bb_rsi_entry_signal` from the 12:20 BB+RSI job's
+`compute_ticker_score` copies `weinstein_*` from
+`TrendAnalysis` (written by the 12:05 Weinstein/bar-cache job), `bb_rsi_entry_signal` from the 12:20 BB+RSI job's
 row, and `warren_active_signal_kind`/`warren_last_buy_fired_at` from the 12:25 Warren job's rows.
 The full-universe recompute (`pipeline.nightly_score_recompute`) therefore runs at **3:25 AM**,
 after all three and before the 3:30 backup (cache-only, zero FMP calls, ~30s; Warren is ~2 min
-today, ~9 min theoretical worst case). Nothing else depends on that order: the trend job reads
+today, ~9 min theoretical worst case). Nothing else depends on that order: the 12:05 job reads
 only the shared bars cache and its own universe. The 2:55 fundamentals fetch (since the 2026-09-30 reorder, technical jobs first) scores each
 ticker inline after the technical jobs, so it already sees same-night technical fields; the 3:25 sweep
 is the backstop for ad-hoc tickers outside the index universe. Pinned by
@@ -274,7 +274,7 @@ archived in `docs/archive/claude-md-history-fmp-migration.md`.
   `unserved_tickers` out-parameter and keeps its cached bars; `daily_prices` off / master off /
   above plan / restricted reports the whole batch unserved — **cache-only, and the daily-bar jobs
   record `skipped`** (Phase 6b). Heartbeat message: `N not served by FMP (cached bars kept)`.
-- **Nightly incremental** (only the 12:05 trend job actually fetches; Liquidity Zones/Heatmap/
+- **Nightly incremental** (only the 12:05 bar-cache job actually fetches; Liquidity Zones/Heatmap/
   Breadth/Momentum read its warm cache): per ticker, one `full?from=<last cached bar - 7d>` call
   (`FMP_OVERLAP_DAYS`). The last cached bar is always overwritten; any EARLIER overlapping close
   that differs from the cache by more than 0.5% (`FMP_OVERLAP_TOLERANCE`) means FMP restated
@@ -283,7 +283,7 @@ archived in `docs/archive/claude-md-history-fmp-migration.md`.
   calendar or bulk endpoint is used (`eod-bulk` etc. are Ultimate). A cache starting within 10
   days of the window start counts as covering it; a young listing (< 5y of history, ~22 tickers)
   is refetched in full each night (cheap: short histories). **The Sunday (UTC) run is a weekly
-  full resync**: the trend job passes `force=True` (`WEEKLY_RESYNC_WEEKDAY_UTC`), so every ticker
+  full resync**: the 12:05 job passes `force=True` (`WEEKLY_RESYNC_WEEKDAY_UTC`), so every ticker
   is refetched and replaced, closing the sub-0.5% restatement gap. Measured at the time: ~590
   calls, ~62 s at concurrency 10 (`FMP_CONCURRENCY`), paced to 50% (`FMP_RATE_FRACTION`) of the
   plan's documented rate (`FMP_PLAN_REQUESTS_PER_MIN`: Starter 300, Premium 750, Ultimate 3000);
@@ -452,7 +452,7 @@ FMP's own delisted date is not stored anywhere.
   `stale_data_health_check.load_delisted_tickers(session)`: Trend, Liquidity Zones and
   `data/momentum_data.py::compute_and_store_momentum_snapshot` drop it from the fetch and compute
   loop, and each summary carries `skipped_delisted_count`. Scoped to the DB-derived universe
-  only — the trend job's `--tickers`/`--limit` escape hatch bypasses it. Market Breadth and Sector
+  only — the 12:05 job's `--tickers`/`--limit` escape hatch bypasses it. Market Breadth and Sector
   Heatmap need no change (their universes — `IndexConstituent` sp500 and 11 fixed ETFs — never
   contained these).
 - **Nothing is ever deleted**: `TickerScore`, `FundamentalsCache`, Watchlist and ticker-page

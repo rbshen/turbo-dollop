@@ -1,8 +1,7 @@
 """BB+RSI indicator math and signal condition, ported verbatim from the
 reference trading bot (execution/backtest/notification code discarded --
-see CLAUDE.md's technical entry-signal section). Deliberately NOT reusing
-analysis/trend_structure/atr.py::compute_atr -- that module uses Wilder's
-smoothing, while the reference bot (and this port) uses a plain rolling
+see CLAUDE.md's technical entry-signal section). Deliberately NOT a Wilder ATR
+-- that uses Wilder's smoothing, while the reference bot (and this port) uses a plain rolling
 mean of True Range, a different, real formula choice worth keeping
 distinct rather than silently reusing the wrong one.
 """

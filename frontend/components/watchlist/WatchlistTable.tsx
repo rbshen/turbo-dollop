@@ -168,13 +168,9 @@ function SortableHead({
 // column that used to sit before Analysis was removed (2026-09-05) --
 // perf_5y_vs_spy_pct/_status are still fetched, just no longer shown or
 // sortable at all (no SortableField entry either, unlike before that
-// redesign). The Trend/A-D-Div/SMA technical-indicators cluster (added
-// alongside the trend-structure feature) was removed
-// from this table entirely on 2026-09-06 -- that data is moving to a
-// per-ticker Technical tab instead (see CLAUDE.md's "Trend structure
-// analysis (Technical)" section); the underlying TrendAnalysis engine/data
-// and GET /api/tickers/{ticker}/trend-analysis endpoint are untouched, only
-// this table's display of it is gone. REV/NI/CFO headers stay at their
+// redesign). The Trend/A-D-Div/SMA technical-indicators cluster (from the
+// since-removed trend-structure feature) was removed from this table on
+// 2026-09-06 and the feature itself later deleted outright. REV/NI/CFO headers stay at their
 // narrowed width (w-14) from that build, unchanged. Ticker/Sector widened
 // the same day (w-32->w-[250px], w-24->w-[250px], an explicit equal-width
 // pick rather than a proportional split of the freed space) to use the

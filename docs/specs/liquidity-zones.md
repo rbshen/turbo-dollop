@@ -2,8 +2,7 @@
 
 A fourth, fully independent technical-analysis lens on the ticker page's Technical tab: unbreached
 swing-low **support** and swing-high **resistance** levels, clustered into zones, on both a **Daily**
-(trailing 1yr) and a **Weekly** (4yr, resampled from the same fetched daily frame) timeframe. Like the
-swing/BOS engine, A/D Bullish Divergence, SMA position tracking, Weinstein Stage Analysis and BB+RSI entry
+(trailing 1yr) and a **Weekly** (4yr, resampled from the same fetched daily frame) timeframe. Like Weinstein Stage Analysis and the BB+RSI entry
 signals, it never touches Step 1-5 / Overall Assessment scoring or any other lens; it is a second,
 parallel read on price structure.
 
@@ -17,10 +16,9 @@ most-recently-breached tracking rule and the per-timeframe settings (all kept as
 ## Engine (`backend/analysis/liquidity_zones/`)
 
 Pure functions/dataclasses, no DB or HTTP. Fractal swing-low/swing-high detection runs on **Low/High**
-(not Close, unlike `trend_structure/swings.py`, which is Close-only and hardcoded to N=5) with a
-caller-configurable window, so it is a small independent implementation using the same vectorized shift
-technique. The engine recomputes from scratch on every nightly run (the same shape as the Warren signal
-engine, not `trend_structure`'s incremental state machine), and `swings.py::annotate_swings` computes
+(not Close) with a
+caller-configurable window, using a vectorized shift technique. The engine recomputes from scratch on every nightly run (the same shape as the Warren signal
+engine), and `swings.py::annotate_swings` computes
 `breach_pos` for every swing whether or not it is still valid, so the full breach history is available in
 memory on every run.
 
@@ -101,8 +99,7 @@ calls).
 table). `support_zones_json` / `resistance_zones_json` are plain-string JSON columns holding a list of
 `{price, cluster_size, formed_at}` objects, this codebase's convention for JSON-shaped fields (not a native
 JSON column type). `broken_support_json` / `broken_resistance_json` are nullable single-object JSON columns
-(`{price, formed_at, breached_at}` or `NULL`), matching `TrendAnalysis.last_confirmed_swing_json`'s
-single-object convention since at most one broken zone exists per side per timeframe.
+(`{price, formed_at, breached_at}` or `NULL`), a single-object JSON convention since at most one broken zone exists per side per timeframe.
 `sweep_stale_liquidity_zones` clears a stale row's zone lists to `"[]"` and both broken columns to `NULL`.
 `ZoneOut.distance_pct` is derived at read time from the zone's price and the timeframe's own `last_price`,
 never stored.
@@ -115,7 +112,7 @@ watchlist union (`data/watchlists.py::list_tickers_across_watchlists`). It is se
 pipeline script maps 1:1 to one feature, because it needs a different data group (`daily_prices`, versus
 BB+RSI's `intraday_bars`), and because separate `cron_heartbeat` names keep failure attribution clean (an
 FMP outage affecting Liquidity Zones must not read as a BB+RSI health failure or vice versa). It sits right after the
-12:05 trend job (whose bar-cache fill it reads warm) and before BB+RSI (12:20); `backup_db` runs at 3:30 (see
+12:05 bar-cache job (whose bar-cache fill it reads warm) and before BB+RSI (12:20); `backup_db` runs at 3:30 (see
 `backend/crontab.txt` for the current slots), since this job can make live FMP calls on a cold cache. It is registered in `core/cron_health.py`'s `CRON_JOB_NAMES` /
 `_EXPECTED_CADENCE_HOURS` as `pipeline.nightly_liquidity_zone_calculation`. The job is skipped while the
 `daily_prices` group is off. After the per-ticker loop it sweeps rows whose `computed_at` is older than

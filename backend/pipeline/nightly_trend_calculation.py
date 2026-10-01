@@ -1,6 +1,8 @@
-"""Standalone script: nightly trend-structure recompute across the full
-tracked universe (see nightly_fundamentals_fetch.py::load_full_tracked_universe,
-reused here rather than duplicated).
+"""Standalone script: nightly Weinstein stage recompute (and the daily-bar
+cache fill) across the full tracked universe. The "trend" name is historical:
+the swing/BOS trend-structure engine was removed and only Weinstein remains.
+Universe: nightly_fundamentals_fetch.py::load_full_tracked_universe, reused here
+rather than duplicated.
 
 Reads daily bars through the shared bars cache (clients/shared_bars_cache.py), which fetches
 from FMP `/historical-price-eod/full` (data group `daily_prices`). Skipped (a real `skipped` cron status) while the `daily_prices` data group is off --
@@ -162,7 +164,7 @@ async def main(tickers: list[str] | None = None) -> dict:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Nightly trend-structure (swing/BOS/blended-score) recompute.")
+    parser = argparse.ArgumentParser(description="Nightly Weinstein stage recompute and daily-bar cache fill.")
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N stored tickers (for testing).")
     parser.add_argument(
         "--tickers", type=str, default=None, help="Comma-separated explicit ticker list, overrides the stored list (for testing)."

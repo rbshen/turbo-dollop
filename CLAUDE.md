@@ -38,8 +38,9 @@ backend/     FastAPI app, organized into packages by role (2026-08-05
                financials_data.py, ratios_data.py, analyst_ratings_data.py,
                news_data.py, segmentation_data.py, moat.py,
                watchlist_data.py, watchlists.py, saved_screener_filters.py,
-               ticker_score.py, trend_analysis_data.py (see
-               docs/specs/trend-structure-technical.md).
+               ticker_score.py, trend_analysis_data.py (the
+               "trend" names are historical -- Weinstein only; see
+               docs/specs/weinstein-stage.md).
   scoring/     Pure scoring functions (classification.py, trend.py,
                series_trend.py, step1.py..step5.py, overall.py) — this
                package predates the 2026-08-05 reorg and was always split
@@ -47,16 +48,16 @@ backend/     FastAPI app, organized into packages by role (2026-08-05
   analysis/    Standalone quantitative research modules, each its own
                subpackage: ma_magnet/ (unwired research script, not part
                of the production app -- see its own run.py docstring) and
-               trend_structure/ (production, wired end-to-end via
-               data/trend_analysis_data.py -- pure functions/dataclasses,
-               no DB/HTTP of its own, matching ma_magnet's calculation
-               style but NOT its unwired scope).
+               trend_structure/ (production; historical name -- now
+               just the Weinstein stage engines and the chart's
+               Stochastic, wired via data/trend_analysis_data.py).
   scrapers/    Index/constituent Wikipedia scrapers: index_scraper.py,
                sp500_scraper.py, dow_scraper.py, refresh_sp500_list.py,
                refresh_dow_list.py.
   pipeline/    Production cron/maintenance entrypoints that read/write
                the real DB: nightly_fundamentals_fetch.py,
-               nightly_trend_calculation.py,
+               nightly_trend_calculation.py (Weinstein + bar-cache
+               fill; historical name),
                nightly_entry_signal_calculation.py,
                nightly_liquidity_zone_calculation.py,
                nightly_price_target_snapshot.py,
@@ -146,7 +147,7 @@ Scoring methodology and feature-specific detail live in `docs/specs/*.md` and `d
 
 **Scoring methodology:** Financials — docs/specs/financials.md. Growth Rate — docs/specs/growth-rate.md. Debt — docs/specs/debt.md. Profitability — docs/specs/profitability.md. Valuation (Step 3) — docs/specs/valuation.md. Overall Assessment step weighting, Screener ETF exclusion — docs/specs/overview.md. Company classification / non-lender ticker overrides / Bank CET1-NPL standard — docs/specs/company-type-variations.md. Economic Moat — docs/specs/economic-moat.md. Glossary of terms — docs/specs/glossary.md. Speculative Growth lens — docs/specs/speculative-growth.md.
 
-**Technical-analysis lenses:** Trend structure / BOS / A-D divergence / SMA position — docs/specs/trend-structure-technical.md. Weinstein Stage Analysis — docs/specs/weinstein-stage.md. Sector Heatmap — docs/specs/sector-heatmap.md. Market Breadth — docs/specs/market-breadth.md. Chart indicators (Stochastic, etc.) — docs/specs/chart-indicators.md. Price-target snapshot — docs/specs/price-target.md. Liquidity Zone (LP) detection — docs/specs/liquidity-zones.md. Warren RSI/ADX/WVF entry signal — docs/specs/warren-signal.md. Chart tab fetch behavior, earnings/dividend markers — docs/specs/chart-tab.md. Institutional Ownership (shelved feature) — docs/specs/institutional-ownership.md.
+**Technical-analysis lenses:** Weinstein Stage Analysis (also covers the historically named `TrendAnalysis` table / `nightly_trend_calculation` job / `/trend-analysis` endpoint) — docs/specs/weinstein-stage.md. Sector Heatmap — docs/specs/sector-heatmap.md. Market Breadth — docs/specs/market-breadth.md. Chart indicators (Stochastic, etc.) — docs/specs/chart-indicators.md. Price-target snapshot — docs/specs/price-target.md. Liquidity Zone (LP) detection — docs/specs/liquidity-zones.md. Warren RSI/ADX/WVF entry signal — docs/specs/warren-signal.md. Chart tab fetch behavior, earnings/dividend markers — docs/specs/chart-tab.md. Institutional Ownership (shelved feature) — docs/specs/institutional-ownership.md.
 
 **Data infrastructure:** FMP endpoint/cache-key → data-group mappings, shared bars cache, daily/long-history/intraday price fetch mechanism, delisted-ticker handling, US-listed-only (non-US) handling — docs/specs/fmp-data-and-bar-cache.md. Corporate events (earnings/dividends/splits cache) — docs/specs/corporate-events.md.
 

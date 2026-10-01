@@ -1,6 +1,5 @@
 """Shared dataclasses for the entry-signal engine (see engine.py) --
-mirrors analysis/trend_structure/types.py's dataclass-based style for
-structured returns.
+dataclass-based structured returns.
 """
 
 from dataclasses import dataclass

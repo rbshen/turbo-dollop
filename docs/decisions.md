@@ -57,7 +57,7 @@ All sessions below are commits on `ui/design-system`, not pushed to `origin` unt
 
 Two earlier decisions are reversed by the owner, for one reason: **visual consistency — the same status must not look different in different places.**
 
-1. **Reversed: "Status (dot + word) everywhere else"** (Foundational decisions; Principle 4 in `docs/design-system.md`: "Status is a dot and a word … filled pills are for dense tables only"). Status is now a soft tinted pill (tone colour at 16% fill, tone-coloured text, no border), the same look as the Screener's pullback pills, which were the reference style. This also reverses the Direction-B line "filled pills dropped from headers, tiles and lists": the ticker header, Screener cards and Settings tables all use pills.
+1. **Reversed: "Status (dot + word) everywhere else"** (Foundational decisions; Principle 4 in `docs/design-system.md`: "Status is a dot and a word … filled pills are for dense tables only"). Status is now a soft tinted pill (tone colour at 16% fill, tone-coloured text, no border), the same look as the Screener's Weinstein stage pill, now the reference style (it was the Pullback/Reversal pills until the trend-structure feature was removed 2026-10-01). This also reverses the Direction-B line "filled pills dropped from headers, tiles and lists": the ticker header, Screener cards and Settings tables all use pills.
 2. **Reversed: "Watchlist and Momentum keep the compact filled `Badge` for scores/ratings"** (the dense-table exception). There is no dense-table exception any more. `Badge` joins the same pill family and look, and Watchlist and Momentum cells (Moat, Value, Analysis score, Momentum score) render the same pill as the ticker header and Screener cards, in a **compact** size (smaller type, tighter padding, same tint) so the tables stay quiet.
 
 Consequences recorded with the decision: one pill family with two sizes (regular, compact); no new colours (every tone reuses an existing token); the score number beside a verdict is neutral `text-primary` and the pill carries the tone; the neutral pill replaces the plain neutral dot in the jobs/health tables. Full spec: "Pills" in `docs/design-system.md`.
@@ -67,13 +67,13 @@ Consequences recorded with the decision: one pill family with two sizes (regular
 Made by the owner after reviewing the pill work above:
 
 1. **Index membership is neutral.** The teal `index` tone is removed from the pill tone set (and the `--fathom-index-membership` token from `globals.css`, which had no other reader). The index chip ("S&P 500 · Nasdaq") is a neutral pill, as the original design system said.
-2. **`PullbackPill` and `ReversalPill` render through the shared pill.** They were the reference style and the last hand-rolled copy. No visual change is intended (a stale Reversal's text moves from `text-tertiary` to the neutral pill's `text-secondary`, the only difference). Their unused bordered "chip" variant is gone, and so is the stale comment about `TrendContinuationCard`'s `STATUS_PILL_CLASS`.
+2. **`PullbackPill` and `ReversalPill` render through the shared pill** (both since deleted with the trend-structure feature; the Weinstein stage pill is the reference style now). They were the reference style and the last hand-rolled copy. No visual change is intended (a stale Reversal's text moves from `text-tertiary` to the neutral pill's `text-secondary`, the only difference). Their unused bordered "chip" variant is gone, and so is the stale comment about `TrendContinuationCard`'s `STATUS_PILL_CLASS`.
 3. **The Watchlist Rating stays as coloured text**, not a pill (Buy/Hold/Sell). It would be a fourth adjacent pill in the Moat / Value / Analysis strip, and nothing else in the app shows that status as a pill. No code change.
 4. **Overall Assessment ring: the number is neutral `text-primary`; the ring stroke carries the colour.** This makes the "score number is never coloured" rule true everywhere a number stands beside a status.
 
 **Casing rule:** every pill label is sentence case ("Wide moat", "Speculative growth", "Strong pass"), applied for display only by one helper (`pillLabel()`, the extended `verdictLabel()`), never to backend strings or comparisons. This supersedes the earlier "product terms keep their own names" exception. Full spec: "Pills" in `docs/design-system.md`.
 
-**`/styleguide`** is the complete visual reference for every pill representation (tones, sizes, Badge, direction, score + label, Pullback/Reversal states, checklist chips, the Overall Assessment ring, and in-context mock samples), for browser review before deploying.
+**`/styleguide`** is the complete visual reference for every pill representation (tones, sizes, Badge, direction, score + label, checklist chips, the Overall Assessment ring, and in-context mock samples), for browser review before deploying.
 
 ### 2026-09-30 — Session 8: form controls
 
