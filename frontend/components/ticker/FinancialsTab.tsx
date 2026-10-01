@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 
-import { SegmentedControl } from "@/components/shared/SegmentedControl";
 import { FinancialsStatementTable } from "@/components/ticker/FinancialsStatementTable";
 import { HistoricalTrendsGrid } from "@/components/ticker/HistoricalTrendsGrid";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import type { FinancialsStatementOut } from "@/lib/api/types";
 import { useFinancials } from "@/lib/hooks/useFinancials";
 
@@ -18,8 +18,8 @@ const STATEMENT_TABS: { key: StatementKey; label: string }[] = [
 ];
 
 const PERIOD_OPTIONS: { value: Period; label: string }[] = [
-  { value: "annual", label: "annual" },
-  { value: "quarterly", label: "quarterly" },
+  { value: "annual", label: "Annual" },
+  { value: "quarterly", label: "Quarterly" },
 ];
 
 interface Props {
@@ -78,7 +78,12 @@ export function FinancialsTab({ ticker }: Props) {
           })}
         </div>
 
-        <SegmentedControl value={period} onChange={setPeriod} options={PERIOD_OPTIONS} />
+        <SegmentedControl
+          aria-label="Statement period"
+          value={period}
+          onValueChange={(next) => setPeriod(next as Period)}
+          options={PERIOD_OPTIONS}
+        />
       </div>
 
       <p className="text-xs text-text-tertiary">

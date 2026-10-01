@@ -5,7 +5,7 @@ import { useState } from "react";
 import { CurrentDistributionList } from "@/components/analystRatings/CurrentDistributionList";
 import { RatingDistributionTrendChart } from "@/components/analystRatings/RatingDistributionTrendChart";
 import { RecommendationDetailsTable } from "@/components/analystRatings/RecommendationDetailsTable";
-import { SegmentedControl } from "@/components/shared/SegmentedControl";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { buildVerdict } from "@/lib/analystRatingsVerdict";
 import type { PriceTargetSummary, RatingHistoryPoint, RecommendationDetailsColumn } from "@/lib/api/types";
 
@@ -68,8 +68,10 @@ export function SentimentOverTimeCard({ history, columns, priceTarget, currency 
             <>
               <h2 className="font-heading text-sm font-semibold text-text-primary">Recommendation Details</h2>
               <SegmentedControl
+                aria-label="Recommendation details view"
+                className="flex flex-wrap"
                 value={view}
-                onChange={setView}
+                onValueChange={(next) => setView(next as SentimentView)}
                 options={[
                   { value: "summary", label: "Summary" },
                   { value: "details", label: "vs 2M · 6M · 1Y ago" },

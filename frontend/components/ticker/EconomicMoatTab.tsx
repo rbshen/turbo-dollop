@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { mutate } from "swr";
 
-import { SegmentedControl } from "@/components/shared/SegmentedControl";
 import { Button } from "@/components/ui/button";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { apiPut } from "@/lib/api/client";
 import type { TickerMoatOut } from "@/lib/api/types";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
@@ -84,11 +84,13 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
         <div className="space-y-3">
           <p className="text-xs uppercase tracking-widest text-text-tertiary">Current Rating</p>
           <SegmentedControl
+            aria-label="Economic moat rating"
+            className="flex flex-wrap"
             value={displayed ?? "no_moat"}
-            onChange={(next) => {
-              if (next !== data.moat) setPending(next);
+            onValueChange={(next) => {
+              if (next !== data.moat) setPending(next as MoatValue);
             }}
-            options={MOAT_OPTIONS.map((option) => ({ value: option, label: MOAT_LABELS[option] }))}
+            options={MOAT_OPTIONS.map((option) => ({ value: option, label: pillLabel(MOAT_LABELS[option]) }))}
           />
           <p className="text-sm text-text-secondary">
             {displayed ? MOAT_DESCRIPTIONS[displayed] : "Not set — pick a rating above."}
