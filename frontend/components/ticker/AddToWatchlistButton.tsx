@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { Check, Plus } from "@phosphor-icons/react";
 
+import { Button } from "@/components/ui/button";
+import { FIELD_ERROR_CLASS } from "@/components/ui/form-field";
+import { Input } from "@/components/ui/input";
 import { errorDetail } from "@/lib/api/client";
 import {
   addTickerToWatchlist,
@@ -10,9 +14,12 @@ import {
   removeTickerFromWatchlist,
   useWatchlists,
 } from "@/lib/hooks/useWatchlists";
+import { WATCHLIST_NAME_MAX_LENGTH } from "@/lib/watchlistName";
 
 interface Props {
   tickers: string[];
+  // Default: a Plus icon and "Watchlist" (the ticker header). A custom label
+  // (the Screener's "Add to watchlist") is shown as plain text.
   label?: string;
   // Overrides the bulk confirmation's default "{n} tickers" wording, e.g.
   // "all 37 filtered tickers" for the Screener's whole-result-set case.
@@ -29,10 +36,11 @@ type Status = "idle" | "saving" | "saved" | "error";
 // false and the row switches to the "Add" branch below on its own.
 type RemoveStatus = "idle" | "removing" | "error";
 
+// "saved" is drawn with a Check icon in front of the word (see StatusLabel).
 const ADD_STATUS_LABELS: Record<Status, string> = {
   idle: "Add",
   saving: "Adding…",
-  saved: "Added ✓",
+  saved: "Added",
   error: "Failed",
 };
 
@@ -43,13 +51,26 @@ const REMOVE_STATUS_LABELS: Record<RemoveStatus, string> = {
 };
 
 const CREATE_STATUS_LABELS: Record<Status, string> = {
-  idle: "Create & Add",
+  idle: "Create and add",
   saving: "Adding…",
-  saved: "Added ✓",
+  saved: "Added",
   error: "Failed",
 };
 
-export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDescription, disabled }: Props) {
+function StatusLabel({ status, labels }: { status: Status; labels: Record<Status, string> }) {
+  return (
+    <>
+      {status === "saved" && <Check size={12} weight="bold" aria-hidden="true" />}
+      {labels[status]}
+    </>
+  );
+}
+
+// Shared by the row buttons: outline at sm (32px), with a tone on hover or at rest.
+const WARN_BUTTON_CLASS = "border-warn/50 text-warn hover:border-warn hover:text-warn";
+const REMOVE_BUTTON_CLASS = "hover:border-negative hover:text-negative";
+
+export function AddToWatchlistButton({ tickers, label, confirmDescription, disabled }: Props) {
   const { data: watchlists } = useWatchlists();
   const isBulk = tickers.length > 1;
   const [panel, setPanel] = useState<Panel>("idle");
@@ -75,19 +96,33 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
   const [removeStatus, setRemoveStatus] = useState<Record<number, RemoveStatus>>({});
   const [removeErrorMessage, setRemoveErrorMessage] = useState<Record<number, string>>({});
   const panelRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
+  const newListErrorId = useId();
+
+  const closePanel = useCallback(() => {
+    setPanel("idle");
+    setNewListStep("idle");
+    setConfirmTarget(null);
+    setRemoveConfirmTarget(null);
+  }, []);
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        setPanel("idle");
-        setNewListStep("idle");
-        setConfirmTarget(null);
-        setRemoveConfirmTarget(null);
-      }
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) closePanel();
     }
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
-  }, []);
+  }, [closePanel]);
+
+  // Escape anywhere in the open popover (the trigger included) closes it and
+  // puts focus back on the trigger. The naming input handles its own Escape
+  // (it only cancels the naming step) and stops it here.
+  function onPopoverKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "Escape" || panel !== "picking") return;
+    closePanel();
+    triggerRef.current?.focus();
+  }
 
   function openNewList() {
     setNewListName("");
@@ -185,18 +220,32 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
   }
 
   return (
-    <div ref={panelRef} className="relative">
-      <button
-        type="button"
+    <div ref={panelRef} className="relative" onKeyDown={onPopoverKeyDown}>
+      <Button
+        ref={triggerRef}
+        variant="primary"
+        size="sm"
+        // primary at sm is 28px in the kit; 32px matches the outline RefreshButton
+        // beside it in the ticker header and the Screener results-header buttons.
+        className="h-8"
         onClick={() => setPanel((p) => (p === "idle" ? "picking" : "idle"))}
         disabled={disabled}
-        className="inline-flex h-8 items-center rounded-md bg-brand px-3 text-xs font-medium text-on-brand transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
+        aria-expanded={panel === "picking"}
+        aria-controls={panel === "picking" ? panelId : undefined}
+        aria-label={label === undefined ? "Add to watchlist" : undefined}
       >
-        {label}
-      </button>
+        {label === undefined ? (
+          <>
+            <Plus size={12} weight="bold" aria-hidden="true" />
+            Watchlist
+          </>
+        ) : (
+          label
+        )}
+      </Button>
 
       {panel === "picking" && (
-        <div className="absolute right-0 z-20 mt-1 w-64 rounded-md border border-border-input bg-surface p-1 shadow-lg">
+        <div id={panelId} className="absolute right-0 z-20 mt-1 w-64 rounded-md border border-border-input bg-surface p-1 shadow-lg">
           {!watchlists || watchlists.length === 0 ? (
             <p className="px-2 py-1.5 text-xs text-text-tertiary">No watchlists yet</p>
           ) : (
@@ -211,20 +260,12 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
                         Add {confirmDescription ?? `${tickers.length} tickers`} to &quot;{w.name}&quot;?
                       </p>
                       <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleBulkAdd(w.id)}
-                          className="rounded border border-warn/50 px-1.5 py-0.5 text-warn hover:border-warn"
-                        >
+                        <Button variant="outline" size="sm" onClick={() => handleBulkAdd(w.id)} className={WARN_BUTTON_CLASS}>
                           Okay
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmTarget(null)}
-                          className="rounded border border-border-input px-1.5 py-0.5 text-text-tertiary hover:border-brand hover:text-text-secondary"
-                        >
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => setConfirmTarget(null)}>
                           Cancel
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   );
@@ -237,20 +278,12 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
                         Remove {tickers[0].toUpperCase()} from &quot;{w.name}&quot;?
                       </p>
                       <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleRemove(w.id)}
-                          className="rounded border border-warn/50 px-1.5 py-0.5 text-warn hover:border-warn"
-                        >
+                        <Button variant="outline" size="sm" onClick={() => handleRemove(w.id)} className={WARN_BUTTON_CLASS}>
                           Okay
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setRemoveConfirmTarget(null)}
-                          className="rounded border border-border-input px-1.5 py-0.5 text-text-tertiary hover:border-brand hover:text-text-secondary"
-                        >
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => setRemoveConfirmTarget(null)}>
                           Cancel
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   );
@@ -261,29 +294,31 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
                 const removeState = removeStatus[w.id] ?? "idle";
 
                 return (
-                  <div key={w.id} className="space-y-0.5 rounded px-2 py-1.5">
+                  <div key={w.id} className="space-y-0.5 rounded px-2 py-0.5">
                     <div className="flex items-center justify-between gap-2 text-xs text-text-secondary">
                       <span className="truncate">{w.name}</span>
                       {alreadyAdded ? (
-                        <button
-                          type="button"
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => setRemoveConfirmTarget(w.id)}
                           disabled={removeState === "removing"}
-                          className="shrink-0 rounded border border-border-input px-1.5 py-0.5 text-text-tertiary hover:border-negative hover:text-negative disabled:cursor-not-allowed disabled:opacity-50"
+                          className={`shrink-0 ${REMOVE_BUTTON_CLASS}`}
                         >
                           {REMOVE_STATUS_LABELS[removeState]}
-                        </button>
+                        </Button>
                       ) : status === "saved" && resultMessage ? (
                         <span className="shrink-0 text-positive">{resultMessage}</span>
                       ) : (
-                        <button
-                          type="button"
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => (isBulk ? setConfirmTarget(w.id) : handleAddToExisting(w.id))}
                           disabled={status === "saving" || status === "saved"}
-                          className="shrink-0 rounded border border-border-input px-1.5 py-0.5 text-text-secondary hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                          className="shrink-0"
                         >
-                          {ADD_STATUS_LABELS[status]}
-                        </button>
+                          <StatusLabel status={status} labels={ADD_STATUS_LABELS} />
+                        </Button>
                       )}
                     </div>
                     {status === "error" && addErrorMessage[w.id] && (
@@ -300,47 +335,48 @@ export function AddToWatchlistButton({ tickers, label = "+ Watchlist", confirmDe
 
           <div className="mt-1 border-t border-border-subtle pt-1">
             {newListStep === "idle" ? (
-              <button
-                type="button"
-                onClick={openNewList}
-                className="w-full rounded px-2 py-1.5 text-left text-xs text-text-secondary hover:bg-surface-2 hover:text-text-primary"
-              >
-                + New watchlist
-              </button>
+              <Button variant="ghost" size="sm" onClick={openNewList} className="w-full justify-start px-2">
+                <Plus size={12} weight="bold" aria-hidden="true" />
+                New watchlist
+              </Button>
             ) : (
-              <div className="space-y-1 px-2 py-1.5">
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="text"
-                    autoFocus
-                    placeholder="Watchlist name"
-                    value={newListName}
-                    onChange={(e) => setNewListName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleCreateAndAdd();
-                      if (e.key === "Escape") cancelNewList();
-                    }}
-                    className="w-full rounded-md border border-border-control bg-page px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
-                  />
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
+              <div className="space-y-2 px-2 py-1.5">
+                <Input
+                  type="text"
+                  size="full"
+                  autoFocus
+                  aria-label="New watchlist name"
+                  placeholder="Watchlist name"
+                  maxLength={WATCHLIST_NAME_MAX_LENGTH}
+                  value={newListName}
+                  invalid={newListError != null}
+                  aria-describedby={newListError ? newListErrorId : undefined}
+                  onChange={(e) => setNewListName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCreateAndAdd();
+                    if (e.key === "Escape") {
+                      e.stopPropagation();
+                      cancelNewList();
+                    }
+                  }}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="primary"
                     onClick={handleCreateAndAdd}
                     disabled={!newListName.trim() || newListStatus === "saving"}
-                    className="rounded-md border border-border-input bg-surface px-2 py-1 text-xs text-text-secondary hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {CREATE_STATUS_LABELS[newListStatus]}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={cancelNewList}
-                    className="rounded-md border border-border-input bg-surface px-2 py-1 text-xs text-text-tertiary hover:border-brand hover:text-text-secondary"
-                  >
+                    <StatusLabel status={newListStatus} labels={CREATE_STATUS_LABELS} />
+                  </Button>
+                  <Button variant="outline" onClick={cancelNewList}>
                     Cancel
-                  </button>
+                  </Button>
                 </div>
-                {newListError && <p className="text-xs text-negative">{newListError}</p>}
+                {newListError && (
+                  <p id={newListErrorId} role="alert" className={FIELD_ERROR_CLASS}>
+                    {newListError}
+                  </p>
+                )}
               </div>
             )}
           </div>
