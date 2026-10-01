@@ -99,7 +99,7 @@ export function WeinsteinMock() {
   return (
     <SettingsSection
       title="Weinstein stage"
-      intro="Sets how the weekly stage is worked out: Base, Advance, Top or Decline. It feeds the stage pill in the ticker header, the Technical tab card and the Screener filter. A change applies the next time a ticker is recomputed, by the nightly trend job or when you open the ticker. It always runs on weekly bars."
+      intro="Sets how the weekly stage is worked out: Base, Advance, Top or Decline. It feeds the stage pill in the ticker header, the Technical tab card and the Screener filter. A change applies the next time a ticker is recomputed, by the nightly Weinstein stage calculation (which also fills the daily-bar cache) or when you open the ticker. It always runs on weekly bars."
     >
       <SettingsGroup title="Stage">
         <NumberRow
