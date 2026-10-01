@@ -21,21 +21,21 @@ function isCurrent(el: HTMLElement): boolean {
 }
 
 describe("TopNav", () => {
-  it("links to every page, and opens all but the Screener in a new tab", () => {
+  it("links to every page, and opens each in a new tab", () => {
     render(<TopNav />);
-    const expected: [string, string, boolean][] = [
-      ["Screener", "/screener", false],
-      ["Watchlist", "/watchlist", true],
-      ["Momentum", "/momentum", true],
-      ["Sectors", "/sectors", true],
-      ["Breadth", "/breadth", true],
-      ["Settings", "/settings", true],
+    const expected: [string, string][] = [
+      ["Fathom", "/screener"],
+      ["Screener", "/screener"],
+      ["Watchlist", "/watchlist"],
+      ["Momentum", "/momentum"],
+      ["Sectors", "/sectors"],
+      ["Breadth", "/breadth"],
+      ["Settings", "/settings"],
     ];
-    for (const [name, href, newTab] of expected) {
+    for (const [name, href] of expected) {
       const link = screen.getByRole("link", { name });
       expect(link).toHaveAttribute("href", href);
-      if (newTab) expect(link).toHaveAttribute("target", "_blank");
-      else expect(link).not.toHaveAttribute("target");
+      expect(link).toHaveAttribute("target", "_blank");
     }
   });
 
@@ -55,20 +55,36 @@ describe("TopNav", () => {
     expect((replay!.target as HTMLAnchorElement).target).toBe("_blank");
   });
 
-  it("leaves Screener and already-modified clicks alone", () => {
+  it("leaves already-modified clicks alone", () => {
     render(<TopNav />);
-    expect(fireEvent.click(screen.getByRole("link", { name: "Screener" }), { defaultPrevented: false })).toBeDefined();
     expect(fireEvent.click(screen.getByRole("link", { name: "Momentum" }), { ctrlKey: true })).toBe(true);
   });
 
+  it.each(["/screener", "/watchlist", "/tickers/AAPL"])("on %s, every nav link and the logo open in a new tab", (path) => {
+    h.pathname = path;
+    render(<TopNav />);
+    for (const link of screen.getAllByRole("link")) {
+      expect(link).toHaveAttribute("target", "_blank");
+    }
+  });
+
   it.each(["/momentum", "/sectors", "/breadth", "/breadth/XLK", "/settings"])(
-    "on %s, Screener and the logo open in a new tab too",
+    "on %s, every nav link and the logo navigate in the same tab",
     (path) => {
       h.pathname = path;
       render(<TopNav />);
-      for (const name of ["Fathom", "Screener"]) {
-        expect(screen.getByRole("link", { name })).toHaveAttribute("target", "_blank");
+      for (const link of screen.getAllByRole("link")) {
+        expect(link).not.toHaveAttribute("target");
       }
+      const seen: MouseEvent[] = [];
+      const spy = (e: Event) => {
+        seen.push(e as MouseEvent);
+        e.preventDefault(); // jsdom has no navigation
+      };
+      document.addEventListener("click", spy);
+      fireEvent.click(screen.getByRole("link", { name: "Screener" }));
+      document.removeEventListener("click", spy);
+      expect(seen).toHaveLength(1); // no replayed background-tab click
     }
   );
 

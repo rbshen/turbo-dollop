@@ -99,7 +99,7 @@ considered alternative. Default sort is 3M descending; header clicks re-sort cli
 cells always sink. ETF labels are **not** links — `/tickers/<ETF>` still renders the
 stock-shaped page (there is no dedicated ETF ticker-page layout; a companion investigation for
 one was never shipped). The nav item "Sectors" opens in a new tab like Momentum/Watchlist/
-Settings. Layout, tint legibility and narrow-width behavior were never verified on screen (no
+Settings (except when clicked from Momentum, Sectors, Breadth or Settings, where nav links go same-tab). Layout, tint legibility and narrow-width behavior were never verified on screen (no
 browser was available).
 
 ## Why the app's ETF returns differ from a published sector index (2026-09-25 investigation)
