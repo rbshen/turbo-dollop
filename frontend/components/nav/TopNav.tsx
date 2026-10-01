@@ -38,9 +38,10 @@ export function TopNav() {
         </Link>
         <div className="flex min-w-0 items-center gap-0.5">
           <span
+            aria-current={onTickerPage ? "page" : undefined}
             className={cn(
               "rounded-md px-3 py-1.5 text-sm font-medium",
-              onTickerPage ? "bg-brand/15 text-brand" : "text-text-tertiary"
+              onTickerPage ? "bg-surface-2 text-text-primary" : "text-text-tertiary"
             )}
           >
             Ticker Analysis
@@ -51,10 +52,11 @@ export function TopNav() {
               <Link
                 key={href}
                 href={href}
+                aria-current={active ? "page" : undefined}
                 {...(["/watchlist", "/momentum", "/sectors", "/breadth", "/settings"].includes(href) ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                 className={cn(
                   "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                  active ? "bg-brand/15 text-brand" : "text-text-secondary hover:bg-white/5 hover:text-text-primary"
+                  active ? "bg-surface-2 text-text-primary" : "text-text-secondary hover:bg-white/5 hover:text-text-primary"
                 )}
               >
                 {label}

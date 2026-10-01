@@ -39,4 +39,11 @@ describe("Tabs", () => {
     render(<Tabs value="summary" onValueChange={() => {}} items={items} />);
     expect(screen.getByText("12")).toBeInTheDocument();
   });
+
+  it("names the tab list only when an aria-label is given", () => {
+    const { rerender } = render(<Tabs value="summary" onValueChange={() => {}} items={items} />);
+    expect(screen.getByRole("tablist")).not.toHaveAttribute("aria-label");
+    rerender(<Tabs value="summary" onValueChange={() => {}} items={items} aria-label="Views" />);
+    expect(screen.getByRole("tablist", { name: "Views" })).toBeInTheDocument();
+  });
 });

@@ -16,6 +16,11 @@ import type { SecCrossCheck } from "@/lib/api/types";
 // click -- there is no batch/bulk trigger anywhere in this component.
 export type SecCellCheckField = "incomeTaxesPaid" | "interestPaid";
 
+const FIELD_NAME: Record<SecCellCheckField, string> = {
+  incomeTaxesPaid: "income taxes paid",
+  interestPaid: "interest paid",
+};
+
 interface Props {
   ticker: string;
   field: SecCellCheckField;
@@ -49,10 +54,11 @@ export function SecCellCheckButton({ ticker, field, periodEnd, currency = "USD" 
       <button
         type="button"
         onClick={handleClick}
+        aria-label={`Check SEC EDGAR figure for ${FIELD_NAME[field]}, period ending ${periodEnd}`}
         title="Check SEC EDGAR's filed figure for this period"
         className="ml-1.5 inline-flex align-middle text-text-tertiary transition-colors hover:text-brand"
       >
-        <MagnifyingGlass size={12} weight="bold" />
+        <MagnifyingGlass size={12} weight="bold" aria-hidden="true" />
       </button>
     );
   }

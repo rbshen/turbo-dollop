@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ScheduledJobsSection } from "@/components/settings/ScheduledJobsSection";
@@ -66,5 +66,70 @@ describe("ScheduledJobsSection", () => {
 
     expect(screen.getByText("Failed").className).toMatch(/text-negative/);
     expect(screen.getByText("boom").className).toMatch(/text-negative/);
+  });
+});
+
+// Characterization of the cadence strip (Daily, Weekly, Monthly). How an entry is found and how it shows as
+// selected are the markup-dependent parts, so they live in these helpers.
+const groupEntry = (name: RegExp) => screen.getByRole("tab", { name });
+const groupSelected = (el: HTMLElement) => el.getAttribute("aria-selected") === "true";
+
+describe("ScheduledJobsSection: the cadence strip", () => {
+  const jobs = [
+    job({ job_name: "daily_a", description: "Daily A", cadence_group: "daily", sort_minutes: 200 }),
+    job({ job_name: "daily_b", description: "Daily B", cadence_group: "daily", sort_minutes: 100 }),
+    job({ job_name: "weekly_a", description: "Weekly A", cadence_group: "weekly" }),
+  ];
+
+  it("starts on Daily, shows each group's job count and lists only that group, earliest first", () => {
+    mockData(jobs);
+    render(<ScheduledJobsSection />);
+    expect(groupEntry(/^Daily/)).toHaveTextContent("2");
+    expect(groupEntry(/^Weekly/)).toHaveTextContent("1");
+    expect(groupEntry(/^Monthly/)).toHaveTextContent("0");
+    expect(groupSelected(groupEntry(/^Daily/))).toBe(true);
+    expect(groupSelected(groupEntry(/^Weekly/))).toBe(false);
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Daily B");
+    expect(rows[1]).toHaveTextContent("Daily A");
+  });
+
+  it("switches to the chosen group, and says so when it has no jobs", () => {
+    mockData(jobs);
+    render(<ScheduledJobsSection />);
+    fireEvent.click(groupEntry(/^Weekly/));
+    expect(screen.getByText("Weekly A")).toBeInTheDocument();
+    expect(screen.queryByText("Daily A")).not.toBeInTheDocument();
+    expect(groupSelected(groupEntry(/^Weekly/))).toBe(true);
+    expect(groupSelected(groupEntry(/^Daily/))).toBe(false);
+    fireEvent.click(groupEntry(/^Monthly/));
+    expect(screen.getByText("No monthly jobs.")).toBeInTheDocument();
+  });
+});
+
+// Session 16: the strip is the shared Tabs primitive (with its count figure), neutral selected state, a named list.
+describe("ScheduledJobsSection: the cadence strip is a neutral tab list", () => {
+  it("is a named tablist with Daily, Weekly and Monthly tabs", () => {
+    mockData([job({})]);
+    render(<ScheduledJobsSection />);
+    const list = screen.getByRole("tablist", { name: "Job cadence" });
+    expect(within(list).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Daily1", "Weekly0", "Monthly0"]);
+  });
+
+  it("draws the selected tab with the neutral underline and text-primary, and no brand blue", () => {
+    mockData([job({})]);
+    render(<ScheduledJobsSection />);
+    expect(groupEntry(/^Daily/)).toHaveClass("data-[active]:border-text-primary", "data-[active]:text-text-primary");
+    for (const name of [/^Daily/, /^Weekly/, /^Monthly/]) expect(groupEntry(name).className).not.toMatch(/brand/);
+  });
+
+  it("moves between tabs with the arrow keys", async () => {
+    mockData([job({})]);
+    render(<ScheduledJobsSection />);
+    const daily = groupEntry(/^Daily/);
+    daily.focus();
+    fireEvent.keyDown(daily, { key: "ArrowRight" });
+    await waitFor(() => expect(groupEntry(/^Weekly/)).toHaveFocus());
   });
 });

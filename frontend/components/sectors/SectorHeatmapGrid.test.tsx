@@ -118,3 +118,22 @@ describe("SectorHeatmapGrid", () => {
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 });
+
+// Session 16: the active column is neutral (text-primary plus the arrow and aria-sort), never brand blue.
+describe("SectorHeatmapGrid: the active column header is neutral", () => {
+  it("draws the active header in text-primary and the others in text-tertiary, with no brand blue", () => {
+    const { container } = render(<SectorHeatmapGrid data={DATA} />);
+    expect(screen.getByRole("button", { name: /3M/ })).toHaveClass("text-text-primary");
+    expect(screen.getByRole("button", { name: /3M/ }).className).not.toMatch(/text-text-tertiary/);
+    expect(screen.getByRole("button", { name: /1Y/ })).toHaveClass("text-text-tertiary");
+    expect(container.innerHTML).not.toMatch(/(bg|text|border)-brand/);
+  });
+
+  it("moves the neutral mark and aria-sort together when another header is chosen", () => {
+    render(<SectorHeatmapGrid data={DATA} />);
+    fireEvent.click(screen.getByRole("button", { name: /1Y/ }));
+    expect(screen.getByRole("button", { name: /1Y/ })).toHaveClass("text-text-primary");
+    expect(screen.getByRole("button", { name: /3M/ })).toHaveClass("text-text-tertiary");
+    expect(screen.getByRole("columnheader", { name: /1Y/ })).not.toHaveAttribute("aria-sort", "none");
+  });
+});

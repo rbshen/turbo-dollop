@@ -6,6 +6,7 @@ import { useCronHealth } from "@/lib/hooks/useCronHealth";
 import type { CronJobHealthOut } from "@/lib/api/types";
 import { Section } from "@/components/ui/section";
 import { Status, type StatusTone } from "@/components/ui/status";
+import { Tabs } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
@@ -59,27 +60,17 @@ export function ScheduledJobsSection() {
         <p className="mt-3 text-sm text-text-secondary">Scheduled job monitoring is currently disabled (CRON_HEALTH_ENABLED=false).</p>
       ) : (
         <>
-          <div className="mt-3 flex gap-1 border-b border-border-subtle">
-            {GROUP_ORDER.map((group) => {
-              const count = cronHealth.jobs.filter((job) => job.cadence_group === group).length;
-              const isActive = group === activeGroup;
-              return (
-                <button
-                  key={group}
-                  type="button"
-                  onClick={() => setActiveGroup(group)}
-                  className={cn(
-                    "border-b-2 px-3 py-1.5 text-sm font-medium transition-colors",
-                    isActive
-                      ? "border-brand text-brand"
-                      : "border-transparent text-text-tertiary hover:text-text-primary"
-                  )}
-                >
-                  {GROUP_LABELS[group]} <span className="text-xs text-text-tertiary">({count})</span>
-                </button>
-              );
-            })}
-          </div>
+          <Tabs
+            aria-label="Job cadence"
+            className="mt-3"
+            value={activeGroup}
+            onValueChange={(next) => setActiveGroup(next as CronJobHealthOut["cadence_group"])}
+            items={GROUP_ORDER.map((group) => ({
+              value: group,
+              label: GROUP_LABELS[group],
+              count: cronHealth.jobs.filter((job) => job.cadence_group === group).length,
+            }))}
+          />
 
           <Table className="table-fixed">
             <colgroup>

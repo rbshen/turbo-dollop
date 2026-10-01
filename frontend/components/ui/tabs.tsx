@@ -23,13 +23,15 @@ export interface TabsProps {
   onValueChange: (value: string) => void;
   items: TabItem[];
   className?: string;
+  /** Names the tab list for assistive tech; optional, and absent by default. */
+  "aria-label"?: string;
   children?: ReactNode;
 }
 
-export function Tabs({ value, onValueChange, items, className, children }: TabsProps) {
+export function Tabs({ value, onValueChange, items, className, children, "aria-label": ariaLabel }: TabsProps) {
   return (
     <TabsPrimitive.Root value={value} onValueChange={(next) => onValueChange(String(next))}>
-      <TabsPrimitive.List className={cn("flex gap-8 overflow-x-auto border-b border-border-subtle", className)}>
+      <TabsPrimitive.List aria-label={ariaLabel} className={cn("flex gap-8 overflow-x-auto border-b border-border-subtle", className)}>
         {items.map((item) => (
           <TabsPrimitive.Tab
             key={item.value}

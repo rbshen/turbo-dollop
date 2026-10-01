@@ -46,7 +46,7 @@ export function SectorHeatmapGrid({ data }: Props) {
                   type="button"
                   onClick={() => setSort((current) => nextSort(current, window))}
                   className={`flex w-full items-center justify-end gap-1 rounded-md px-2 py-1 text-right text-xs font-semibold uppercase tracking-widest transition-colors hover:text-text-primary ${
-                    active ? "text-brand" : "text-text-tertiary"
+                    active ? "text-text-primary" : "text-text-tertiary"
                   }`}
                 >
                   {windowLabel(window)}

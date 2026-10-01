@@ -5,6 +5,7 @@ import { useState } from "react";
 import { FinancialsStatementTable } from "@/components/ticker/FinancialsStatementTable";
 import { HistoricalTrendsGrid } from "@/components/ticker/HistoricalTrendsGrid";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { Tabs } from "@/components/ui/tabs";
 import type { FinancialsStatementOut } from "@/lib/api/types";
 import { useFinancials } from "@/lib/hooks/useFinancials";
 
@@ -60,23 +61,12 @@ export function FinancialsTab({ ticker }: Props) {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 overflow-x-auto border-b border-border-card">
-          {STATEMENT_TABS.map(({ key, label }) => {
-            const isActive = key === statement;
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setStatement(key)}
-                className={`shrink-0 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
-                  isActive ? "border-brand text-brand" : "border-transparent text-text-secondary hover:text-text-primary"
-                }`}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
+        <Tabs
+          aria-label="Financial statement"
+          value={statement}
+          onValueChange={(next) => setStatement(next as StatementKey)}
+          items={STATEMENT_TABS.map(({ key, label }) => ({ value: key, label }))}
+        />
 
         <SegmentedControl
           aria-label="Statement period"

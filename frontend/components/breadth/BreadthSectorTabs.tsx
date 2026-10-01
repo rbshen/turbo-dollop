@@ -31,9 +31,11 @@ function Tab({ href, label, title, isActive }: { href: string; label: string; ti
       title={title}
       role="tab"
       aria-selected={isActive}
+      aria-current={isActive ? "page" : undefined}
       className={cn(
         "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-        isActive ? "bg-brand/15 text-brand" : "text-text-tertiary hover:bg-surface-2 hover:text-text-primary"
+        // Selected is the neutral surface-2 fill with text-primary; a hover is text only, so it never looks selected.
+        isActive ? "bg-surface-2 text-text-primary" : "text-text-tertiary hover:text-text-primary"
       )}
     >
       {label}
