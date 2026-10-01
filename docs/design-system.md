@@ -2,7 +2,7 @@
 
 A calm, data-first interface for fundamental investing.
 
-> This is the living style guide for Fathom's frontend. It was drafted in a claude.ai chat working from a read-only audit of the codebase, decided against a two-way A/B comparison ("Direction B, quiet minimalist"), and implemented page-by-page on the `ui/design-system` branch (sessions 1 through 14). Token names and values are authored in `frontend/app/globals.css` — this document explains what they mean and when to use them, it is not a second source of truth for the values themselves. Chart-specific rules live in `docs/design-system-charts.md`. The build history and open items are in `docs/decisions.md`.
+> This is the living style guide for Fathom's frontend. It was drafted in a claude.ai chat working from a read-only audit of the codebase, decided against a two-way A/B comparison ("Direction B, quiet minimalist"), and implemented page-by-page on the `ui/design-system` branch (sessions 1 through 16). Token names and values are authored in `frontend/app/globals.css` — this document explains what they mean and when to use them, it is not a second source of truth for the values themselves. Chart-specific rules live in `docs/design-system-charts.md`. The build history and open items are in `docs/decisions.md`.
 
 ## Principles
 
@@ -38,9 +38,9 @@ A calm, data-first interface for fundamental investing.
 
 | The job | Use |
 | --- | --- |
-| Move between pages | TopNav (one item current, underlined) |
+| Move between pages | TopNav (one item current: `surface-2` fill, `text-primary`, `aria-current="page"`) |
 | Move between areas of Settings | SideNav |
-| Switch between views of one ticker | Tabs (neutral underline) |
+| Switch between views of one ticker, or between a few groups of one table (the Financials statement, the Scheduled jobs cadence) | Tabs (neutral underline), with an `aria-label` where the page has more than one tab list |
 | Change a data option on the same view | SegmentedControl, the one implementation in `components/ui/segmented-control` with a neutral selected state (fixed 2–6 options only — use Tabs instead for an unbounded set, e.g. the Watchlist switcher) |
 | Show or hide an overlay on a chart, independently of the others | `Switch` with a visible sentence-case label where the row has room; where it does not (a row of ten), an `outline` `sm` `Button` with `aria-pressed` and a neutral selected state. Never a segmented control (the options are not exclusive) and never brand blue (see "Ticker page controls, part C1") |
 | Do something | Button: one `primary` per region, `ghost` for everything else. `outline` (ghost with a hairline border that turns `brand` on hover) is for a secondary action that has to read as a button inside a dense panel. The Screener uses it for Sort direction, Save current view, Reset and Recompute all scores (session 10, part 2); nothing in the Screener hand-writes the "ghost plus `border-border-input hover:border-brand`" override any more. The Watchlist page and the two shared buttons follow in session 11 (see "Watchlist page and shared buttons" below); an icon-only button is a `Button` with an `icon` size and an `aria-label` |
@@ -233,6 +233,8 @@ The top-nav ticker search, the chart and price-target toggles, the segmented-con
 - **Text-glyph icons:** the "Saved ✓" status (`SettingsLayout`, `SavedFiltersBar`), the "Recomputed ✓" label (`RecomputeButton`), "Hide details −" (`ChecklistCard`) and "Hide reasoning −" (`AnalysisSectionCard`), the sector heatmap's "↓ ↑" (`SectorHeatmapGrid`), "Browse by sector →" (the Breadth page), and the "⚠" in the Watchlist table and `MetricsGrid`. The "⚠️" emoji in `OutlierWarningNote` and `OverallAssessmentCard` break the no-emoji rule. The pills' "▲ ▼" (`status.tsx`) and the arrows inside chart labels ("Live →", "Price data starts →") are content and stay.
 - **Also still to do:** the Screener "Add to Watchlist" label and `Step3Card`'s Title Case labels.
 
+(Both lists above were closed by sessions 15 and 16: the two Screener triggers moved onto the kit in session 16, see part C3.)
+
 ### Ticker page controls, part C2 (session 15)
 
 The cleanup sweep after part C1: keyboard focus on two icon buttons, icons in place of emoji and text glyphs, sentence-case strings, the multi-select trigger's name, the 32px primary `sm` button and the last hand-written buttons. The decisions are in `docs/decisions.md` ("Session 15"); this section is what the code now does.
@@ -249,6 +251,30 @@ The cleanup sweep after part C1: keyboard focus on two icon buttons, icons in pl
 
 **Small fixes.** Focus returns to the "New watchlist" row button when the naming step is cancelled; ArrowUp in the ticker search with nothing highlighted goes to the last result.
 
+
+### Ticker page controls, part C3 (session 16)
+
+Two bugs found in the browser (the Speculative growth tooltips and the expanded Analysis cards), and the neutral-selection and accessibility leftovers of the C2 sweep. The decisions are in `docs/decisions.md` ("Session 16"); this section is what the code now does.
+
+**Tooltip wrapping rule.** A hand-built tooltip bubble (`role="tooltip"`) always sets its own `whitespace-normal`, because it usually sits inside a nowrap parent (a pill, a pill group) and `white-space` is inherited. It has a bounded width that never passes the viewport (`w-64` capped at `min(18rem, 100vw - 2rem)`), keeps its padding, sits at `z-30`, and is never inside an `overflow-hidden` ancestor. Position: from `md` it is centred under its icon; below `md` the icon's wrapper is `static`, so the bubble anchors to the nearest `relative` ancestor (the ticker header's pill row) and starts at that row's left edge, which keeps it on screen wherever the pill wrapped to. The two bubbles are `SpeculativeGrowthInfoIcon` and `SpeculativeGrowthFakeGrowthWarning`; no other `role="tooltip"` exists. (The "ⓘ" and "⚠" spans in `MetricsGrid` and `RecommendationDetailsTable` use the native `title` attribute, not a bubble.)
+
+**Details alignment rule.** Expanded "Show reasoning" or "Show details" content sits in the same column as the text it expands, so its left edge is the paragraph's left edge in both states. `AnalysisSectionCard` is `[score column, w-52] [text column]`: the text column holds the title, blurb, methodology, notes, the toggle (top right of the column) and the expanded list, so toggling only grows the column downward. The list is list-outside with `pl-5`: markers hang in that padding, bullet text is indented one step (1.25rem) from the paragraph. The whole card is still clickable: the toggle button's `::after` is stretched over the `relative` Collapsible root, and the list is `relative` so it paints above that overlay (clicks on the list do not toggle). `ChecklistCard` is a single stack with no side column, so its details were already flush with its title and paragraph; a test pins that. `CollapsibleFilterSection` is a section header with full-width content and no side column, so it is not this pattern. The cards have no breakpoint at which the score column stacks above the text (there is none in the code); at very narrow widths the fixed 208px score column leaves the text column little room, which is older than this session and not changed.
+
+**Neutral selected treatment for navigation.** A current or selected navigation item is neutral and never brand blue, with `aria-current="page"` on a current link (and `aria-selected` where it is a tab). The treatment per place: TopNav (the current page and the Ticker Analysis indicator) is a `surface-2` fill with `text-primary`; the Breadth sector tabs the same, with a text-only hover so a hover never looks selected; the sector heatmap's active column header is `text-primary` (with the arrow and `aria-sort`); the Financials statement strip and the Scheduled jobs cadence strip are the shared `Tabs` primitive (neutral underline). Brand blue stays for real actions and links.
+
+**Strips on Tabs.** The Financials statement strip and the Scheduled jobs cadence strip are `Tabs`, each with an `aria-label` ("Financial statement", "Job cadence"). `Tabs` gained one optional prop, `aria-label`, for this (absent by default, no default changed). Behaviour: the selection state is still local `useState`; the cadence counts show through `Tabs`' own `count` figure (so "Daily (2)" reads "Daily 2" in the mono figure style); keyboard is the standard tab model (one tab stop, arrow keys move between tabs, Enter or Space selects) instead of one tab stop per button.
+
+**Accessible names.** `SecCellCheckButton` (the SEC EDGAR check icon on two Cash Flow rows) is named "Check SEC EDGAR figure for <field>, period ending <date>" and keeps its `title`; its icon is `aria-hidden`. No other icon-only button with a title and no `aria-label` exists.
+
+**The two Screener dropdown triggers.** The Saved views trigger is `Button variant="outline" size="sm"` (32px, `text-xs`, like Save current view and Reset beside it) with the `CaretDown` icon, `gap-1.5` to keep its width, and a neutral border on hover (`hover:border-border-input`: it opens a list, it is not an action; the other outline buttons still turn `brand`). The multi-select trigger is the kit's boxed field: `FIELD_BOX_CLASS` (36px, `radius-md`, 1px `border-control`, `page` fill) at the column's full width, label left and `CaretDown` right as in `Select`, `text-sm`, with no hover border. Its text is `text-secondary` with nothing chosen and the filter-active tone once something is. Behaviour, focus handling, ARIA names and keyboard handling are unchanged.
+
+**What is left after session 16, counted by grep at the end of the session** (source only, not tests, not `app/styleguide`):
+
+- **`brand` on a selected or current state:** none. Remaining `brand` uses are actions, links, focus rings and one data bar: `Button` primary and the outline hover, the `Checkbox` and `Switch` focus rings, `MomentumBanner`, the `TickerNotFound` link button, the `SecCellCheckButton` icon's hover, `ScreenerCard`'s card hover, the Breadth page's link, and `ReversalCard`'s freshness bar (`bg-brand`, a progress fill; Principle 2 says brand is never status, so it is arguably a miss, left for the owner).
+- **`outline-none`:** none (two comments only).
+- **Hand-written bordered buttons:** none. The tone-coloured hover overrides on `Button variant="outline"` (warn and negative in `AddToWatchlistButton`, `WatchlistTable`, `SavedFiltersBar`'s overwrite and the Custom valuation Confirm buttons) are deliberate tone changes.
+- **Icon-only buttons without an `aria-label`:** none.
+- **Text glyphs in controls:** none in a button. Content glyphs remain: the pills' "▲ ▼", "⚠" and "ⓘ" in table and metric cells (title-only spans, mouse only), "Saved ✓" and "Recomputed ✓", "↳" sub-bullets and the arrows inside chart labels.
 
 ## Settings layout
 
@@ -377,7 +403,8 @@ none or several chosen, but just the option's name with exactly one, plus the �
 the explicit name "<label>: <summary>" and a decorative `CaretDown` (see "Screener results controls"). None of it has been checked with
 a screen reader. Session 10 swapped the option checkboxes for the bare neutral `Checkbox` without
 changing any of this. The popover is built entirely on named tokens
-(`border-input`, `surface`, `surface-2`, `brand` for the trigger's hover border,
-`text-secondary`/`text-tertiary`). Used by
+(`border-input`, `surface`, `surface-2`,
+`text-secondary`/`text-tertiary`); the trigger itself is the kit's boxed field since session 16
+(no hover border). Used by
 `FundamentalFilters.tsx` and `TechnicalFilters.tsx` for every Screener multi-select filter. The
 5c-era "left deliberately unstyled" state (see `docs/decisions.md`) is fully superseded.
