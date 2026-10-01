@@ -32,7 +32,7 @@ How every chart is coloured, drawn and worded. Companion to `docs/design-system.
 - **Axis text** `text-secondary`, 12px `figure-sm` mono. **Axis lines and pane separators** `border-card`.
 - **Gridlines:** none. Trend bars have no axes at all.
 - **Tooltip:** `surface` fill, `border-card` outline, `radius-md`, `shadow-popover`. Labels `text-secondary`, values `text-primary` in mono, always with a sign on a change (+1.26%, −7.49%).
-- **Active range or toggle button:** `surface-2` fill and `text-primary`, like SegmentedControl.
+- **Active range or toggle:** `surface-2` fill and `text-primary`, neutral and never brand blue. A choose-one range is a SegmentedControl; an independent overlay is a Switch, or an `outline` `sm` Button with `aria-pressed` where a row of them has no room for switches (the Chart tab's overlay toggles).
 - **Legend:** `caption` in `text-secondary`, a 6px dot in the series colour. Non-interactive.
 
 ## States
