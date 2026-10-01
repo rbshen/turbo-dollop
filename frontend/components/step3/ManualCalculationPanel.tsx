@@ -14,12 +14,13 @@ import {
   pctText,
 } from "@/components/step3/Step3Card";
 import { ValuationGauge } from "@/components/step3/ValuationGauge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FIELD_ERROR_CLASS, FieldProvider, useFieldContextValue } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/Select";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
-import { apiDelete, apiPost, apiPut } from "@/lib/api/client";
+import { apiDelete, apiPost, apiPut, errorDetail } from "@/lib/api/client";
 import { fmtMoney, fmtNumber, fmtPct } from "@/lib/format";
 import { useTickerCustomValuation } from "@/lib/hooks/useTickerCustomValuation";
 import { isIncompleteNumberPrefix } from "@/lib/numberInput";
@@ -366,10 +367,18 @@ function ManualInputRow({
   );
 }
 
-// Live slider for Growth Yr 1-5/6-10/11-20 and Discount Rate -- percentage
+// Live slider for growth yr 1-5/6-10/11-20 and discount rate -- percentage
 // value + label on one row, sublabel below, full-width native range input
 // below that (updates live on every drag tick via onChange, matching the
 // design handoff's interaction spec).
+//
+// The label is a real <label for>, the sublabel is the input's description,
+// and aria-valuetext carries the same text as the readout ("+14.6%") because
+// the input's own value is the bare number (14.6). .range-slider:focus in
+// globals.css removes the outline (and the global CSS is not edited here), so
+// the focus ring is restored with utility classes -- they sit in a later
+// cascade layer than that rule. Arrow/Home/End/Page keys are the browser's own:
+// nothing here handles a key.
 function SliderField({
   label,
   sublabel,
@@ -387,24 +396,35 @@ function SliderField({
   max: number;
   step: number;
 }) {
+  const id = useId();
   const n = parseFloat(value);
   const clamped = Number.isNaN(n) ? min : Math.min(max, Math.max(min, n));
   const fillPct = ((clamped - min) / (max - min)) * 100;
+  const sublabelId = `${id}-note`;
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-sm text-text-secondary">{label}</span>
+        <label htmlFor={id} className="text-sm text-text-secondary">
+          {label}
+        </label>
         <span className="font-mono text-sm font-semibold text-text-primary">{Number.isNaN(n) ? "—" : fmtPct(n, 1)}</span>
       </div>
-      {sublabel && <div className="text-[10px] text-text-tertiary">{sublabel}</div>}
+      {sublabel && (
+        <div id={sublabelId} className="text-[10px] text-text-tertiary">
+          {sublabel}
+        </div>
+      )}
       <input
+        id={id}
         type="range"
         min={min}
         max={max}
         step={step}
         value={Number.isNaN(n) ? 0 : n}
         onChange={(e) => onChange(e.target.value)}
-        className="range-slider"
+        aria-valuetext={Number.isNaN(n) ? "No value" : fmtPct(n, 1)}
+        aria-describedby={sublabel ? sublabelId : undefined}
+        className="range-slider focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         style={{ "--range-fill": `${fillPct}%` } as CSSProperties}
       />
     </div>
@@ -425,15 +445,12 @@ async function revalidateEverywhere(ticker: string) {
   await mutate("/screener");
 }
 
+// client.ts's request() embeds the backend's own HTTPException detail after
+// " - " (e.g. "PUT ... failed: 400 - Missing required inputs for PSG") --
+// surface just that part when present, since it's genuinely actionable
+// ("which field is missing"), not just "it failed".
 function errorMessage(err: unknown, fallback: string): string {
-  if (!(err instanceof Error)) return fallback;
-  // client.ts's request() embeds the backend's own HTTPException detail
-  // after " - " (e.g. "PUT ... failed: 400 - Missing required inputs for
-  // PSG") -- surface just that part when present, since it's genuinely
-  // actionable ("which field is missing"), not just "it failed".
-  const marker = " - ";
-  const idx = err.message.indexOf(marker);
-  return idx === -1 ? fallback : err.message.slice(idx + marker.length);
+  return errorDetail(err) ?? fallback;
 }
 
 export function ManualCalculationPanel({ ticker, autoData }: Props) {
@@ -442,7 +459,7 @@ export function ManualCalculationPanel({ ticker, autoData }: Props) {
   if (error) {
     return (
       <Card>
-        <p className="text-sm text-negative">Couldn&apos;t load Custom Valuation — {error.message}</p>
+        <p className="text-sm text-negative">Couldn&apos;t load custom valuation — {error.message}</p>
       </Card>
     );
   }
@@ -555,7 +572,7 @@ function ManualCalculationControls({
   }
 
   function handleDeactivate() {
-    void runAction(() => apiPost(`/tickers/${ticker}/custom-valuation/deactivate`), "Failed to revert to Auto — please try again.");
+    void runAction(() => apiPost(`/tickers/${ticker}/custom-valuation/deactivate`), "Failed to revert to auto — please try again.");
   }
 
   function handleDelete() {
@@ -576,7 +593,7 @@ function ManualCalculationControls({
   return (
     <Card className="space-y-6">
       <div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
-        <h2 className={SECTION_HEADING_CLASS}>Custom Valuation</h2>
+        <h2 className={SECTION_HEADING_CLASS}>Custom valuation</h2>
         {/* The kit native Select, with a visible "Method" label to its left.
             The kit field is 36px, taller than this title row's 32px (the
             Model Valuation card's title row is min-h-8 so the two columns
@@ -613,22 +630,22 @@ function ManualCalculationControls({
       />
 
       <div className="flex items-center justify-between text-sm">
-        <span className="text-text-tertiary">Discount/Premium</span>
+        <span className="text-text-tertiary">Discount/premium</span>
         <span className="font-mono text-text-primary">{pctText(result?.discount_premium_pct ?? null)}</span>
       </div>
 
       {isTwentyYearMethod && (
         <div className="space-y-5">
           <SliderField
-            label="Growth Yr 1-5"
+            label="Growth yr 1-5"
             sublabel={autoData.inputs.growth_yr_1_5_source ?? "% per year"}
             value={form.growthYr15}
             onChange={field("growthYr15")}
             {...GROWTH_SLIDER}
           />
-          <SliderField label="Growth Yr 6-10" value={form.growthYr610} onChange={field("growthYr610")} {...GROWTH_SLIDER} />
-          <SliderField label="Growth Yr 11-20 (terminal)" value={form.growthYr1120} onChange={field("growthYr1120")} {...GROWTH_SLIDER} />
-          <SliderField label="Discount Rate (CAPM)" value={form.discountRate} onChange={field("discountRate")} {...DISCOUNT_RATE_SLIDER} />
+          <SliderField label="Growth yr 6-10" value={form.growthYr610} onChange={field("growthYr610")} {...GROWTH_SLIDER} />
+          <SliderField label="Growth yr 11-20 (terminal)" value={form.growthYr1120} onChange={field("growthYr1120")} {...GROWTH_SLIDER} />
+          <SliderField label="Discount rate (CAPM)" value={form.discountRate} onChange={field("discountRate")} {...DISCOUNT_RATE_SLIDER} />
         </div>
       )}
 
@@ -709,44 +726,41 @@ function ManualCalculationControls({
           <span className="font-semibold text-text-primary">{saved.is_active ? "Custom" : "Auto"}</span>
           {saved.saved && saved.saved_at && <> — saved {new Date(saved.saved_at).toLocaleString()}</>}
         </span>
+        {/* sm outline is 32px, like the RefreshButton/ExportMenu in a dense row;
+            Save is the one primary (primary at sm is 28px, so h-8 matches
+            the outline buttons beside it, as on AddToWatchlistButton).
+            Activate and Delete keep their positive and negative tone as
+            colour classes on the outline button. */}
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={actionPending}
-            className="rounded-md border border-border-input bg-surface px-3 py-1 font-medium text-text-primary transition-colors hover:border-brand disabled:cursor-not-allowed disabled:opacity-50"
-          >
+          <Button variant="primary" size="sm" className="h-8" onClick={handleSave} disabled={actionPending}>
             {actionPending ? "Working…" : "Save"}
-          </button>
+          </Button>
           {saved.saved && !saved.is_active && (
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-positive/40 bg-positive/10 text-positive hover:border-positive hover:bg-positive/10 hover:text-positive"
               onClick={handleActivate}
               disabled={actionPending}
-              className="rounded-md border border-positive/40 bg-positive/10 px-3 py-1 font-medium text-positive transition-colors hover:border-positive disabled:cursor-not-allowed disabled:opacity-50"
             >
               Activate
-            </button>
+            </Button>
           )}
           {saved.saved && saved.is_active && (
-            <button
-              type="button"
-              onClick={handleDeactivate}
-              disabled={actionPending}
-              className="rounded-md border border-border-input bg-surface px-3 py-1 font-medium text-text-primary transition-colors hover:border-brand disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Revert to Auto
-            </button>
+            <Button variant="outline" size="sm" onClick={handleDeactivate} disabled={actionPending}>
+              Revert to auto
+            </Button>
           )}
           {saved.saved && !confirmingDelete && (
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-negative/40 bg-negative/10 text-negative hover:border-negative hover:bg-negative/10 hover:text-negative"
               onClick={() => setConfirmingDelete(true)}
               disabled={actionPending}
-              className="rounded-md border border-negative/40 bg-negative/10 px-3 py-1 font-medium text-negative transition-colors hover:border-negative disabled:cursor-not-allowed disabled:opacity-50"
             >
               Delete
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -755,25 +769,15 @@ function ManualCalculationControls({
         <div className="space-y-3 rounded-md border border-negative/40 bg-negative/10 p-4">
           <p className="text-sm text-negative">
             Delete this saved custom valuation for {ticker}?
-            {saved.is_active && " This will also revert the ticker to Auto Calculation everywhere it's shown."}
+            {saved.is_active && " This will also revert the ticker to auto calculation everywhere it's shown."}
           </p>
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={actionPending}
-              className="rounded-md border border-negative/60 bg-negative/15 px-4 py-1.5 text-sm font-medium text-negative transition-colors hover:border-negative disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {actionPending ? "Deleting…" : "Confirm Delete"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirmingDelete(false)}
-              disabled={actionPending}
-              className="rounded-md border border-border-input bg-surface-2 px-4 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-            >
+            <Button variant="danger" onClick={handleDelete} disabled={actionPending}>
+              {actionPending ? "Deleting…" : "Confirm delete"}
+            </Button>
+            <Button variant="outline" onClick={() => setConfirmingDelete(false)} disabled={actionPending}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}

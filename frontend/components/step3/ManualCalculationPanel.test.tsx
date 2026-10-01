@@ -629,10 +629,10 @@ describe("ManualCalculationPanel: the action bar", () => {
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith(`/tickers/${TICKER}/custom-valuation/activate`));
   });
 
-  it("an active valuation offers Revert to Auto, which posts to the deactivate endpoint", async () => {
+  it("an active valuation offers Revert to auto, which posts to the deactivate endpoint", async () => {
     hook = { data: makeSaved({ is_active: true }) };
     await mountPanel();
-    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Save", "Revert to Auto", "Delete"]);
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Save", "Revert to auto", "Delete"]);
     expect(screen.getByText(/Active:/)).toHaveTextContent("Active: Custom");
     apiPost.mockClear();
     fireEvent.click(btn(/^revert to auto$/i));
@@ -824,6 +824,149 @@ describe("ManualCalculationPanel: the rows (kit Input)", () => {
     expect(debt).not.toHaveAttribute("min");
     expect(debt).not.toHaveAttribute("max");
     expect(debt).not.toHaveAttribute("step");
+  });
+});
+
+describe("ManualCalculationPanel: sliders (accessibility)", () => {
+  const NAMES = ["Growth yr 1-5", "Growth yr 6-10", "Growth yr 11-20 (terminal)", "Discount rate (CAPM)"];
+
+  it("names each slider by its visible label", async () => {
+    await mountPanel();
+    for (const name of NAMES) {
+      const slider = screen.getByRole("slider", { name });
+      expect(slider).toHaveAttribute("type", "range");
+    }
+  });
+
+  it("gives each slider an aria-valuetext equal to the readout beside it", async () => {
+    await mountPanel();
+    const [g15, g610, g1120, discount] = NAMES.map((name) => screen.getByRole("slider", { name }));
+    expect(g15).toHaveAttribute("aria-valuetext", "+15.0%");
+    expect(g610).toHaveAttribute("aria-valuetext", "+9.0%");
+    expect(g1120).toHaveAttribute("aria-valuetext", "+4.0%");
+    expect(discount).toHaveAttribute("aria-valuetext", "+8.5%");
+    fireEvent.change(g15, { target: { value: "-12.5" } });
+    expect(g15).toHaveAttribute("aria-valuetext", "-12.5%");
+    expect(screen.getByText("-12.5%")).toBeInTheDocument();
+  });
+
+  it("says 'No value' when the readout is a dash", async () => {
+    await mountPanel(makeAuto({ inputs: { growth_yr_1_5: null } }));
+    expect(screen.getByRole("slider", { name: "Growth yr 1-5" })).toHaveAttribute("aria-valuetext", "No value");
+  });
+
+  it("links the analyst-source note as the first slider's description", async () => {
+    await mountPanel();
+    expect(screen.getByRole("slider", { name: "Growth yr 1-5" })).toHaveAccessibleDescription("Analyst consensus");
+    expect(screen.getByRole("slider", { name: "Growth yr 6-10" })).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("keeps the .range-slider styling and restores a visible keyboard focus ring", async () => {
+    await mountPanel();
+    for (const slider of sliders()) {
+      expect(slider).toHaveClass("range-slider", "focus-visible:outline-2", "focus-visible:outline-offset-2", "focus-visible:outline-brand");
+      expect(slider.className).not.toMatch(/outline-none/);
+    }
+  });
+
+  it("leaves the arrow, Home, End and Page keys to the browser", async () => {
+    await mountPanel();
+    const slider = screen.getByRole("slider", { name: "Growth yr 1-5" });
+    for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]) {
+      // fireEvent returns false only when something called preventDefault.
+      expect(fireEvent.keyDown(slider, { key })).toBe(true);
+    }
+  });
+});
+
+describe("ManualCalculationPanel: buttons (kit)", () => {
+  it("Save is the one primary button, 32px like the outline buttons beside it", async () => {
+    hook = { data: makeSaved() };
+    await mountPanel();
+    const save = btn(/^save$/i);
+    expect(save).toHaveClass("bg-brand", "h-8", "text-xs");
+    expect(save).toHaveAttribute("type", "button");
+    for (const name of [/^activate$/i, /^delete$/i]) {
+      expect(btn(name)).toHaveClass("h-8", "border", "text-xs");
+      expect(btn(name).className).not.toMatch(/bg-brand/);
+    }
+  });
+
+  it("Revert to auto is a plain outline button", async () => {
+    hook = { data: makeSaved({ is_active: true }) };
+    await mountPanel();
+    expect(btn(/^revert to auto$/i)).toHaveClass("border-border-input", "h-8", "text-text-secondary");
+  });
+
+  it("Activate and Delete keep their positive and negative tone", async () => {
+    hook = { data: makeSaved() };
+    await mountPanel();
+    expect(btn(/^activate$/i)).toHaveClass("text-positive", "border-positive/40", "bg-positive/10");
+    expect(btn(/^activate$/i).className).not.toMatch(/text-text-secondary|border-border-input/);
+    expect(btn(/^delete$/i)).toHaveClass("text-negative", "border-negative/40", "bg-negative/10");
+    expect(btn(/^delete$/i).className).not.toMatch(/text-text-secondary|border-border-input/);
+  });
+
+  it("the delete confirmation has a danger Confirm delete and an outline Cancel, both 36px", async () => {
+    hook = { data: makeSaved() };
+    await mountPanel();
+    fireEvent.click(btn(/^delete$/i));
+    expect(btn(/^confirm delete$/i)).toHaveClass("text-negative", "h-9");
+    expect(btn(/^cancel$/i)).toHaveClass("border-border-input", "h-9");
+  });
+
+  it("shows 'Deleting…' while the delete is in flight", async () => {
+    let release: () => void = () => {};
+    apiDelete.mockImplementation(() => new Promise<void>((r) => (release = r)));
+    hook = { data: makeSaved() };
+    await mountPanel();
+    fireEvent.click(btn(/^delete$/i));
+    fireEvent.click(btn(/^confirm delete$/i));
+    expect(await screen.findByRole("button", { name: /deleting…/i })).toBeDisabled();
+    expect(btn(/^cancel$/i)).toBeDisabled();
+    await act(async () => release());
+  });
+
+  it("every button has an accessible name and none is hand-built", async () => {
+    hook = { data: makeSaved({ is_active: true }) };
+    await mountPanel();
+    fireEvent.click(btn(/^delete$/i));
+    for (const b of screen.getAllByRole("button")) {
+      expect(b).toHaveAccessibleName();
+      expect(b.className).toMatch(/inline-flex/);
+    }
+    expect(document.querySelector('[class*="outline-none"]')).toBeNull();
+  });
+
+  it("the revert action falls back to its own sentence-case message", async () => {
+    hook = { data: makeSaved({ is_active: true }) };
+    await mountPanel();
+    apiPost.mockImplementation(async (path: string) => {
+      if (path === CALC_PATH) return CALC_OK;
+      throw new Error("POST failed: 500");
+    });
+    fireEvent.click(btn(/^revert to auto$/i));
+    expect(await screen.findByText("Failed to revert to auto — please try again.")).toBeInTheDocument();
+  });
+});
+
+describe("ManualCalculationPanel: sentence case", () => {
+  it("uses sentence case for the heading, the readout label and every row and slider label", async () => {
+    await mountPanel();
+    expect(screen.getByRole("heading", { name: "Custom valuation" })).toBeInTheDocument();
+    expect(screen.getByText("Discount/premium")).toBeInTheDocument();
+    const text = document.body.textContent ?? "";
+    for (const old of ["Custom Valuation", "Discount/Premium", "Growth Yr", "Discount Rate", "Total Debt", "Shares Outstanding", "Revert to Auto"]) {
+      expect(text).not.toContain(old);
+    }
+  });
+
+  it("keeps the backend's own strings untouched", async () => {
+    apiPost.mockImplementation(async (path: string) =>
+      path === CALC_PATH ? { ...CALC_OK, intrinsic_value_per_share: null, error: "Missing Required Inputs For PSG" } : undefined,
+    );
+    await mountPanel();
+    expect(await screen.findByText("Missing Required Inputs For PSG")).toBeInTheDocument();
   });
 });
 
