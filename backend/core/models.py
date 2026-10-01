@@ -128,12 +128,15 @@ class TrendAnalysis(SQLModel, table=True):
 
     ticker: str = Field(primary_key=True)
     computed_at: datetime
-    trend_state: str  # "uptrend" | "downtrend"
+    # trend_state/persistence_count/warning_flag/blended_score/bar_level: the trend engine is gone, these
+    # legacy NOT NULL columns survive only until the _OBSOLETE_COLUMNS drop. The defaults let an INSERT
+    # (SQLAlchemy applies Column defaults to Core inserts too) satisfy NOT NULL; nothing reads them.
+    trend_state: str = "uptrend"  # "uptrend" | "downtrend"
     magnitude_tier: str | None = None  # "weak" | "confirmed" | "strong" | None
-    persistence_count: int
+    persistence_count: int = 0
     bars_since_confirmation: int | None = None
     last_confirmed_swing_json: str | None = None
-    warning_flag: bool
+    warning_flag: bool = False
     warning_swing_json: str | None = None
     # Whether ANY pullback warning has fired since trend_state's own most
     # recent flip -- lets the Trend Continuation card distinguish "no
@@ -178,8 +181,8 @@ class TrendAnalysis(SQLModel, table=True):
     reversal_history_json: str | None = None
     efficiency_ratio: float | None = None
     regime: str | None = None  # "trending" | "range-bound" | None
-    blended_score: float
-    bar_level: int  # 1-5, see analysis/trend_structure/conviction.py
+    blended_score: float = 0.0
+    bar_level: int = 3  # 1-5, see analysis/trend_structure/conviction.py
     # A/D Bullish Divergence (see analysis/trend_structure/classification.py)
     # -- nullable, unlike the pure engine's own always-real bool/None-date
     # output, specifically because core/db.py::_add_missing_columns adds

@@ -86,14 +86,12 @@ def test_compute_and_store_trend_analysis_persists_and_returns_matching_result(m
     result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
 
     assert result.ticker == "AAPL"
-    assert result.trend_state in ("uptrend", "downtrend")
-    assert 1 <= result.bar_level <= 5
 
     with Session(engine) as session:
         row = session.exec(select(TrendAnalysis).where(TrendAnalysis.ticker == "AAPL")).first()
     assert row is not None
-    assert row.trend_state == result.trend_state
-    assert row.bar_level == result.bar_level
+    assert row.weinstein_weeks_available == result.weinstein_weeks_available
+    assert row.bars_as_of == _synthetic_rows().index.max().date()
 
 
 def test_compute_and_store_trend_analysis_raises_when_there_are_no_bars(monkeypatch):
@@ -149,15 +147,8 @@ def test_get_trend_analysis_data_returns_fresh_cached_row_without_recomputing(mo
                 ticker="AAPL",
                 computed_at=datetime.now(),
                 bars_as_of=date(2026, 9, 17),
-                trend_state="uptrend",
-                magnitude_tier="strong",
-                persistence_count=4,
-                bars_since_confirmation=1,
-                warning_flag=False,
-                efficiency_ratio=0.5,
-                regime="trending",
-                blended_score=8.0,
-                bar_level=5,
+                weinstein_stage="advance",
+                weinstein_weeks_available=120,
             )
         )
         session.commit()
@@ -169,8 +160,7 @@ def test_get_trend_analysis_data_returns_fresh_cached_row_without_recomputing(mo
 
     result = asyncio.run(get_trend_analysis_data("AAPL", cache_only=False))
 
-    assert result.bar_level == 5
-    assert result.blended_score == 8.0
+    assert result.weinstein_stage == "advance"
 
 
 def test_get_trend_analysis_data_falls_back_to_stale_row_when_no_bars_can_be_fetched(monkeypatch):
@@ -183,13 +173,8 @@ def test_get_trend_analysis_data_falls_back_to_stale_row_when_no_bars_can_be_fet
             TrendAnalysis(
                 ticker="AAPL",
                 computed_at=stale_time,
-                trend_state="downtrend",
-                magnitude_tier="weak",
-                persistence_count=1,
-                bars_since_confirmation=5,
-                warning_flag=False,
-                blended_score=-3.0,
-                bar_level=2,
+                weinstein_stage="decline",
+                weinstein_weeks_available=120,
             )
         )
         session.commit()
@@ -201,68 +186,13 @@ def test_get_trend_analysis_data_falls_back_to_stale_row_when_no_bars_can_be_fet
 
     result = asyncio.run(get_trend_analysis_data("AAPL", cache_only=False))
 
-    assert result.bar_level == 2  # served the stale row rather than nothing
+    assert result.weinstein_stage == "decline"  # served the stale row rather than nothing
 
 
-def test_swing_detail_json_round_trips_through_a_real_compute(monkeypatch):
-    """Exercises the actual JSON serialize/deserialize path for
-    last_confirmed_swing (a real dataclass -> str column -> SwingDetailOut
-    round trip), not just a mocked-out shortcut."""
-    engine = _fresh_engine()
-    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
-
-    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
-        return _synthetic_rows()
-
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
-
-    result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
-
-    if result.last_confirmed_swing is not None:
-        assert isinstance(result.last_confirmed_swing.date, date)
-        assert isinstance(result.last_confirmed_swing.ratio, float)
-
-    reread = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
-    assert reread.last_confirmed_swing == result.last_confirmed_swing
 
 
-def test_ad_bullish_divergence_fields_round_trip_through_a_real_compute(monkeypatch):
-    engine = _fresh_engine()
-    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
-
-    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
-        return _synthetic_rows()
-
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
-
-    result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
-
-    assert isinstance(result.ad_bullish_divergence, bool)
-    if result.ad_bullish_divergence:
-        assert isinstance(result.ad_divergence_swing_date, date)
-    else:
-        assert result.ad_divergence_swing_date is None
-
-    reread = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
-    assert reread.ad_bullish_divergence == result.ad_bullish_divergence
-    assert reread.ad_divergence_swing_date == result.ad_divergence_swing_date
 
 
-def test_pullback_occurred_since_flip_round_trips_through_a_real_compute(monkeypatch):
-    engine = _fresh_engine()
-    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
-
-    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
-        return _synthetic_rows()
-
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
-
-    result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
-
-    assert isinstance(result.pullback_occurred_since_flip, bool)
-
-    reread = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
-    assert reread.pullback_occurred_since_flip == result.pullback_occurred_since_flip
 
 
 def _synthetic_downtrend_rows(n: int = 150, ticker: str = "AAPL") -> pd.DataFrame:
@@ -281,68 +211,14 @@ def _synthetic_downtrend_rows(n: int = 150, ticker: str = "AAPL") -> pd.DataFram
     return _frame_from_closes(closes, open_off=0.05, high_off=0.3, low_off=0.3)
 
 
-def test_reversal_history_round_trips_through_a_real_compute(monkeypatch):
-    """Exercises the actual JSON serialize/deserialize path for
-    reversal_history (a real list[ReversalCandidate] -> str column ->
-    list[ReversalCandidateOut] round trip), not just a mocked-out
-    shortcut -- using a genuine downtrend so the list isn't trivially
-    empty."""
-    engine = _fresh_engine()
-    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
-
-    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
-        return _synthetic_downtrend_rows()
-
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
-
-    result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
-
-    assert result.trend_state == "downtrend"
-    assert len(result.reversal_history) >= 1
-    for candidate in result.reversal_history:
-        assert candidate.swing.classification == "LL"
-        assert isinstance(candidate.ad_bullish_divergence, bool)
-        if candidate.ad_bullish_divergence:
-            assert isinstance(candidate.ad_divergence_swing_date, date)
-        else:
-            assert candidate.ad_divergence_swing_date is None
-
-    reread = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
-    assert reread.reversal_history == result.reversal_history
 
 
-def test_sma_position_fields_round_trip_through_a_real_compute(monkeypatch):
-    engine = _fresh_engine()
-    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
-
-    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
-        return _synthetic_rows()
-
-    monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
-
-    result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
-
-    # _synthetic_rows() produces 150 bars -- enough for SMA20/50, not SMA200.
-    assert result.sma20_position_pct is not None
-    assert result.sma20_cross in ("up", "down", None)
-    assert result.sma50_position_pct is not None
-    assert result.sma50_cross in ("up", "down", None)
-    assert result.sma200_position_pct is None
-    assert result.sma200_cross is None
-
-    reread = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
-    assert reread.sma20_position_pct == result.sma20_position_pct
-    assert reread.sma20_cross == result.sma20_cross
-    assert reread.sma50_position_pct == result.sma50_position_pct
-    assert reread.sma50_cross == result.sma50_cross
-    assert reread.sma200_position_pct == result.sma200_position_pct
-    assert reread.sma200_cross == result.sma200_cross
 
 
-def test_ad_bullish_divergence_reads_as_none_on_a_legacy_pre_migration_row():
-    """A row written before this feature's ALTER TABLE migration has NULL in
-    both new columns -- must read back as None (falsy), not raise a
-    validation error. This is also the regression test for the
+def test_weinstein_fields_read_as_none_on_a_legacy_pre_migration_row():
+    """A row written before the Weinstein columns' ALTER TABLE migration has
+    NULL in them -- must read back as None (falsy), not raise a validation
+    error. This is also the regression test for the
     "NEVER COMPUTED" Weinstein state (weinstein_weeks_available is None
     alongside weinstein_stage is None) -- distinct from
     test_weinstein_stage_reads_as_none_below_min_weeks_required's
@@ -355,16 +231,7 @@ def test_ad_bullish_divergence_reads_as_none_on_a_legacy_pre_migration_row():
             TrendAnalysis(
                 ticker="AAPL",
                 computed_at=datetime.now(),
-                trend_state="uptrend",
-                magnitude_tier="strong",
-                persistence_count=4,
-                bars_since_confirmation=1,
-                warning_flag=False,
-                efficiency_ratio=0.5,
-                regime="trending",
-                blended_score=8.0,
-                bar_level=5,
-                # ad_bullish_divergence/ad_divergence_swing_date deliberately omitted
+                # every weinstein_* column deliberately omitted
             )
         )
         session.commit()
@@ -372,15 +239,6 @@ def test_ad_bullish_divergence_reads_as_none_on_a_legacy_pre_migration_row():
     with Session(engine) as session:
         row = session.exec(select(TrendAnalysis).where(TrendAnalysis.ticker == "AAPL")).first()
 
-    assert row.ad_bullish_divergence is None
-    assert row.ad_divergence_swing_date is None
-    assert row.pullback_occurred_since_flip is None
-    assert row.sma20_position_pct is None
-    assert row.sma20_cross is None
-    assert row.sma50_position_pct is None
-    assert row.sma50_cross is None
-    assert row.sma200_position_pct is None
-    assert row.sma200_cross is None
     assert row.weinstein_stage is None
     assert row.weinstein_stage_since_date is None
     assert row.weinstein_stage_since_is_lower_bound is None
@@ -589,15 +447,8 @@ def _insert_row(engine, *, computed_at: datetime, bars_as_of: date | None) -> No
                 ticker="AAPL",
                 computed_at=computed_at,
                 bars_as_of=bars_as_of,
-                trend_state="uptrend",
-                magnitude_tier="strong",
-                persistence_count=4,
-                bars_since_confirmation=1,
-                warning_flag=False,
-                efficiency_ratio=0.5,
-                regime="trending",
-                blended_score=8.0,
-                bar_level=5,
+                weinstein_stage="advance",
+                weinstein_weeks_available=120,
             )
         )
         session.commit()
@@ -667,7 +518,7 @@ def test_a_row_is_not_recomputed_when_only_the_old_timer_expired_but_its_bars_ar
     result = asyncio.run(get_trend_analysis_data("AAPL"))
 
     assert calls == []
-    assert result.bar_level == 5
+    assert result.weinstein_stage == "advance"
 
 
 def test_a_row_from_before_the_column_existed_is_recomputed_once(monkeypatch):
@@ -695,7 +546,7 @@ def test_cache_only_reads_never_recompute_regardless_of_how_stale_bars_as_of_is(
     result = asyncio.run(get_trend_analysis_data("AAPL", cache_only=True))
 
     assert calls == []
-    assert result.bar_level == 5
+    assert result.weinstein_stage == "advance"
 
 
 # ---------------------------------------------------------------------------
@@ -730,17 +581,9 @@ def test_weinstein_settings_are_read_live_and_persisted_on_the_row(monkeypatch):
     assert reread.weinstein_params == second.weinstein_params
 
 
-def test_swing_engine_only_sees_its_own_trailing_window_while_weinstein_gets_the_full_history(monkeypatch):
+def test_weinstein_gets_the_full_fetch_window_of_history(monkeypatch):
     engine = _fresh_engine()
     monkeypatch.setattr(trend_analysis_data_module, "engine", engine)
-    seen: dict[str, int] = {}
-    real = trend_analysis_data_module.compute_trend_structure
-
-    def spy(ohlcv):
-        seen["trend_rows"] = len(ohlcv)
-        return real(ohlcv)
-
-    monkeypatch.setattr(trend_analysis_data_module, "compute_trend_structure", spy)
 
     async def fake_get_or_fetch_bars(ticker, interval, lookback_days, auto_adjust=False, **kwargs):
         assert lookback_days == trend_analysis_data_module.WEINSTEIN_LOOKBACK_DAYS
@@ -748,20 +591,4 @@ def test_swing_engine_only_sees_its_own_trailing_window_while_weinstein_gets_the
 
     monkeypatch.setattr(trend_analysis_data_module, "get_or_fetch_bars", fake_get_or_fetch_bars)
     result = asyncio.run(compute_and_store_trend_analysis("AAPL"))
-    assert seen["trend_rows"] <= trend_analysis_data_module.LOOKBACK_DAYS + 1
-    assert result.weinstein_weeks_available > 200  # ~1500 calendar days of weekly bars, not the 730-day slice
-
-
-def test_trend_window_cuts_exactly_where_the_730_day_cache_request_used_to(monkeypatch):
-    """Widening the fetch for Weinstein must not move the swing engine's
-    inputs: cut = today - (LOOKBACK_DAYS - 1) inclusive, like the shared
-    cache's own `needed_start`."""
-    monkeypatch.setattr(trend_analysis_data_module, "_eastern_today", lambda reference=None: date(2026, 9, 26))
-    idx = pd.date_range("2021-01-01", "2026-09-25", freq="D")
-    frame = pd.DataFrame({"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1}, index=idx)
-    window = trend_analysis_data_module._trend_window(frame)
-    assert window.index.min() == pd.Timestamp("2026-09-26") - pd.Timedelta(days=729)
-    assert window.index.max() == pd.Timestamp("2026-09-25")
-
-    stale = frame[frame.index <= "2024-06-30"]  # last bar far behind today -> anchored on the last bar
-    assert trend_analysis_data_module._trend_window(stale).index.min() == pd.Timestamp("2024-06-30") - pd.Timedelta(days=729)
+    assert result.weinstein_weeks_available > 200  # ~1500 calendar days of weekly bars

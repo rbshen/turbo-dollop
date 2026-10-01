@@ -13,8 +13,7 @@ import pandas as pd
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
-from analysis.trend_structure.engine import compute_trend_structure
-from analysis.trend_structure.types import PullbackCycle, ReversalCandidate, SwingDetail, TrendStructureResult, WeinsteinStageResult
+from analysis.trend_structure.types import PullbackCycle, ReversalCandidate, SwingDetail, WeinsteinStageResult
 from analysis.trend_structure.weinstein import WeinsteinParams, compute_weinstein_stage
 from analysis.trend_structure.weinstein_pending import WeinsteinPendingEtaScenario, WeinsteinPendingResult, compute_weinstein_pending
 from clients.shared_bars_cache import DAILY_INTERVAL, _eastern_today, _most_recent_completed_trading_date, get_or_fetch_bars
@@ -238,7 +237,6 @@ def _pending_out_from_result(pending_result: WeinsteinPendingResult) -> Weinstei
 
 def _upsert(
     ticker: str,
-    result: TrendStructureResult,
     weinstein_result: WeinsteinStageResult,
     pending_result: WeinsteinPendingResult,
     computed_at: datetime,
@@ -260,30 +258,6 @@ def _upsert(
         fields = {
             "computed_at": computed_at,
             "bars_as_of": bars_as_of,
-            "trend_state": result.trend_state,
-            "magnitude_tier": result.magnitude_tier,
-            "persistence_count": result.persistence_count,
-            "bars_since_confirmation": result.bars_since_confirmation,
-            "last_confirmed_swing_json": _swing_detail_to_json(result.last_confirmed_swing),
-            "warning_flag": result.warning_flag,
-            "warning_swing_json": _swing_detail_to_json(result.warning_swing),
-            "pullback_occurred_since_flip": result.pullback_occurred_since_flip,
-            "trend_started_json": _swing_detail_to_json(result.trend_started),
-            "trend_started_is_lower_bound": result.trend_started_is_lower_bound,
-            "pullback_history_json": _pullback_history_to_json(result.pullback_history),
-            "reversal_history_json": _reversal_history_to_json(result.reversal_history),
-            "efficiency_ratio": result.efficiency_ratio,
-            "regime": result.regime,
-            "blended_score": result.blended_score,
-            "bar_level": result.bar_level,
-            "ad_bullish_divergence": result.ad_bullish_divergence,
-            "ad_divergence_swing_date": result.ad_divergence_swing_date,
-            "sma20_position_pct": result.sma20_position_pct,
-            "sma20_cross": result.sma20_cross,
-            "sma50_position_pct": result.sma50_position_pct,
-            "sma50_cross": result.sma50_cross,
-            "sma200_position_pct": result.sma200_position_pct,
-            "sma200_cross": result.sma200_cross,
             "weinstein_stage": weinstein_result.stage,
             "weinstein_stage_since_date": weinstein_result.stage_since_date,
             "weinstein_stage_since_is_lower_bound": weinstein_result.stage_since_is_lower_bound,
@@ -314,30 +288,6 @@ def _row_to_out(row: TrendAnalysis) -> TrendAnalysisOut:
     return TrendAnalysisOut(
         ticker=row.ticker,
         computed_at=row.computed_at,
-        trend_state=row.trend_state,
-        magnitude_tier=row.magnitude_tier,
-        persistence_count=row.persistence_count,
-        bars_since_confirmation=row.bars_since_confirmation,
-        last_confirmed_swing=_swing_detail_from_json(row.last_confirmed_swing_json),
-        warning_flag=row.warning_flag,
-        warning_swing=_swing_detail_from_json(row.warning_swing_json),
-        pullback_occurred_since_flip=row.pullback_occurred_since_flip,
-        trend_started=_swing_detail_from_json(row.trend_started_json),
-        trend_started_is_lower_bound=row.trend_started_is_lower_bound,
-        pullback_history=_pullback_history_from_json(row.pullback_history_json),
-        reversal_history=_reversal_history_from_json(row.reversal_history_json),
-        efficiency_ratio=row.efficiency_ratio,
-        regime=row.regime,
-        blended_score=row.blended_score,
-        bar_level=row.bar_level,
-        ad_bullish_divergence=row.ad_bullish_divergence,
-        ad_divergence_swing_date=row.ad_divergence_swing_date,
-        sma20_position_pct=row.sma20_position_pct,
-        sma20_cross=row.sma20_cross,
-        sma50_position_pct=row.sma50_position_pct,
-        sma50_cross=row.sma50_cross,
-        sma200_position_pct=row.sma200_position_pct,
-        sma200_cross=row.sma200_cross,
         weinstein_stage=row.weinstein_stage,
         weinstein_stage_since_date=row.weinstein_stage_since_date,
         weinstein_stage_since_is_lower_bound=row.weinstein_stage_since_is_lower_bound,
@@ -398,8 +348,7 @@ def compute_and_store_from_frames(
     `params` (the live Weinstein Settings) is read from the DB when the
     caller doesn't pass it -- the nightly job reads it once per run and
     passes it in. `ohlcv` may hold up to WEINSTEIN_LOOKBACK_DAYS of history:
-    the Weinstein engine replays all of it, while the swing/BOS engine only
-    ever sees its own trailing LOOKBACK_DAYS."""
+    the Weinstein engine replays all of it."""
     ticker = normalize_ticker(ticker)
     if ohlcv is None or ohlcv.empty:
         raise ValueError(f"No price history available for {ticker}")
@@ -407,41 +356,16 @@ def compute_and_store_from_frames(
     if params is None:
         params = _load_params()
 
-    result = compute_trend_structure(_trend_window(ohlcv))
     weinstein_result = compute_weinstein_stage(
         ohlcv, benchmark_ohlcv if benchmark_ohlcv is not None else pd.DataFrame(columns=["open", "high", "low", "close", "volume"]), params
     )
     pending_result = compute_weinstein_pending(ohlcv, params)
     computed_at = datetime.now()
-    weinstein_stage_changed = _upsert(ticker, result, weinstein_result, pending_result, computed_at, ohlcv.index.max().date(), params)
+    weinstein_stage_changed = _upsert(ticker, weinstein_result, pending_result, computed_at, ohlcv.index.max().date(), params)
 
     return TrendAnalysisOut(
         ticker=ticker,
         computed_at=computed_at,
-        trend_state=result.trend_state,
-        magnitude_tier=result.magnitude_tier,
-        persistence_count=result.persistence_count,
-        bars_since_confirmation=result.bars_since_confirmation,
-        last_confirmed_swing=_swing_detail_out(result.last_confirmed_swing),
-        warning_flag=result.warning_flag,
-        warning_swing=_swing_detail_out(result.warning_swing),
-        pullback_occurred_since_flip=result.pullback_occurred_since_flip,
-        trend_started=_swing_detail_out(result.trend_started),
-        trend_started_is_lower_bound=result.trend_started_is_lower_bound,
-        pullback_history=_pullback_history_out(result.pullback_history),
-        reversal_history=_reversal_history_out(result.reversal_history),
-        efficiency_ratio=result.efficiency_ratio,
-        regime=result.regime,
-        blended_score=result.blended_score,
-        bar_level=result.bar_level,
-        ad_bullish_divergence=result.ad_bullish_divergence,
-        ad_divergence_swing_date=result.ad_divergence_swing_date,
-        sma20_position_pct=result.sma20_position_pct,
-        sma20_cross=result.sma20_cross,
-        sma50_position_pct=result.sma50_position_pct,
-        sma50_cross=result.sma50_cross,
-        sma200_position_pct=result.sma200_position_pct,
-        sma200_cross=result.sma200_cross,
         weinstein_stage=weinstein_result.stage,
         weinstein_stage_since_date=weinstein_result.stage_since_date,
         weinstein_stage_since_is_lower_bound=weinstein_result.stage_since_is_lower_bound,

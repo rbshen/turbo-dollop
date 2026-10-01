@@ -1064,9 +1064,6 @@ class TickerScoreOut(BaseModel):
     weinstein_vs_ma_pct: float | None = None
     # See models.py::TickerScore.weinstein_pending_direction.
     weinstein_pending_direction: str | None = None
-    # See models.py::TickerScore.reversal_status/pullback_status.
-    reversal_status: str | None = None
-    pullback_status: str | None = None
     # See models.py::TickerScore.bb_rsi_entry_signal. None for the
     # overwhelming majority of tickers -- this signal only ever exists for
     # members of a watchlist named W1 through W5.
@@ -1236,74 +1233,18 @@ class WeinsteinPendingOut(BaseModel):
 
 
 class TrendAnalysisOut(BaseModel):
-    """Latest trend-structure analysis for one ticker -- see
-    analysis/trend_structure/ for the full swing/BOS/blended-score
-    methodology and models.py::TrendAnalysis for the persisted shape this
-    mirrors. None (the whole object, via the endpoint returning `| None`)
-    for a ticker with no computed row yet, rather than a fabricated
-    all-null result -- distinguishes "not computed yet" from "computed as
-    neutral." This is designed to feed a future ticker-page "Technical" tab
-    (not built this round) -- the Watchlist table no longer surfaces any of
-    this data at all (removed 2026-09-06, see CLAUDE.md's "Trend structure
-    analysis (Technical)" section)."""
+    """Latest Weinstein stage analysis for one ticker -- see
+    models.py::TrendAnalysis for the persisted shape this mirrors. The
+    "trend" name is historical: the swing/BOS trend-structure fields this
+    once carried were removed, Weinstein is all that remains. None (the
+    whole object, via the endpoint returning `| None`) for a ticker with no
+    computed row yet, rather than a fabricated all-null result --
+    distinguishes "not computed yet" from "computed as neutral." """
 
     ticker: str
     computed_at: datetime
-    trend_state: str  # "uptrend" | "downtrend"
-    magnitude_tier: str | None = None  # "weak" | "confirmed" | "strong" | None
-    persistence_count: int
-    bars_since_confirmation: int | None = None
-    last_confirmed_swing: SwingDetailOut | None = None
-    warning_flag: bool
-    warning_swing: SwingDetailOut | None = None
-    # See models.py::TrendAnalysis.pullback_occurred_since_flip's own
-    # comment. Nullable for the same pre-existing-row reason as
-    # ad_bullish_divergence/sma*_cross above.
-    pullback_occurred_since_flip: bool | None = None
-    # The swing that triggered trend_state's own most recent genuine flip.
-    # trend_started_is_lower_bound=True means no genuine flip has occurred
-    # anywhere in the ticker's available cached history -- the current
-    # trend covers the entire history, so this date is the earliest we can
-    # see, not necessarily the true start (mirrors
-    # weinstein_stage_since_date/_is_lower_bound's identical convention).
-    # Both null for a row computed before this field existed (same
-    # migration-safety convention as pullback_occurred_since_flip above).
-    trend_started: SwingDetailOut | None = None
-    trend_started_is_lower_bound: bool | None = None
-    # Every pullback cycle that has resolved within the CURRENT trend (i.e.
-    # since trend_started), oldest first -- reset empty on every genuine
-    # flip, same trigger as trend_started/pullback_occurred_since_flip's
-    # own reset. A still-pending (unresolved) warning is not in this list,
-    # only warning_flag/warning_swing describe that. Empty list (not null)
-    # for a row computed before this field existed, since an empty history
-    # is indistinguishable from "genuinely none yet" either way -- no
-    # migration-safety null needed here, unlike the other Phase-1 fields.
-    pullback_history: list[PullbackCycleOut] = []
-    # Every confirmed LL swing within the CURRENT downtrend (i.e. since
-    # trend_started), oldest first -- reset on every genuine flip, same
-    # trigger as pullback_history above, but UNLIKE pullback_history,
-    # seeded with the flip-triggering LL itself as its first entry when
-    # flipping INTO a downtrend (see state_machine.py::run_state_machine),
-    # so a freshly-flipped downtrend's history isn't empty while
-    # last_confirmed_swing/ReversalCard's own "Confirmed" checklist item is
-    # already showing that same LL as satisfied. Always empty while
-    # trend_state is "uptrend". Empty list (not null) for a row computed
-    # before this field existed, same reasoning as pullback_history above.
-    reversal_history: list[ReversalCandidateOut] = []
-    efficiency_ratio: float | None = None
-    regime: str | None = None  # "trending" | "range-bound" | None
-    blended_score: float
-    bar_level: int
-    ad_bullish_divergence: bool | None = None
-    ad_divergence_swing_date: date | None = None
-    sma20_position_pct: float | None = None
-    sma20_cross: Literal["up", "down"] | None = None
-    sma50_position_pct: float | None = None
-    sma50_cross: Literal["up", "down"] | None = None
-    sma200_position_pct: float | None = None
-    sma200_cross: Literal["up", "down"] | None = None
-    # Weinstein Stage Analysis -- a fully independent second lens computed
-    # on weekly bars, see models.py::TrendAnalysis's own comment for field
+    # Weinstein Stage Analysis, computed on weekly bars, see
+    # models.py::TrendAnalysis's own comment for field
     # semantics (weinstein_stage_changed vs. weinstein_breakout_confirmed
     # in particular -- different comparisons, computed at different layers).
     weinstein_stage: Literal["base", "advance", "top", "decline"] | None = None
