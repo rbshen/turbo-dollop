@@ -193,3 +193,44 @@ def test_cron_health_disabled_reports_enabled_false_and_no_jobs(monkeypatch):
         response = client.get("/api/config/cron-health")
     assert response.status_code == 200
     assert response.json() == {"enabled": False, "jobs": []}
+
+
+def test_disabled_job_reads_skipped_with_a_disabled_message_never_overdue(monkeypatch):
+    # nightly_corporate_events is commented out of the crontab (DISABLED_CRON_JOBS). Its last
+    # success is far older than the 36 h daily window, which would read "overdue".
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(
+            CronRunLog(
+                job_name="pipeline.nightly_corporate_events",
+                started_at=datetime.now() - timedelta(days=9),
+                finished_at=datetime.now() - timedelta(days=9),
+                status="success",
+            )
+        )
+        session.commit()
+    with TestClient(app) as client:
+        response = client.get("/api/config/cron-health")
+    job = _job(response.json(), "pipeline.nightly_corporate_events")
+    assert job["health_status"] == "skipped"
+    assert job["message"].startswith("Disabled since 2026-10-01:")
+    assert job["last_success_at"] is not None
+    assert job["skipped_since"].startswith("2026-10-01")
+
+
+def test_disabled_job_with_no_runs_is_skipped_not_unknown(monkeypatch):
+    _fresh_engine(monkeypatch)
+    with TestClient(app) as client:
+        response = client.get("/api/config/cron-health")
+    job = _job(response.json(), "pipeline.nightly_corporate_events")
+    assert job["health_status"] == "skipped"
+    assert job["last_run"] is None
+
+
+def test_every_other_job_is_unaffected_by_the_disabled_list(monkeypatch):
+    _fresh_engine(monkeypatch)
+    with TestClient(app) as client:
+        response = client.get("/api/config/cron-health")
+    for job in response.json()["jobs"]:
+        if job["job_name"] not in cron_health.DISABLED_CRON_JOBS:
+            assert job["health_status"] == "unknown"

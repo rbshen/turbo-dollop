@@ -9,7 +9,20 @@ marker reads them yet.
 
 ## Refresh job
 
-`pipeline/nightly_corporate_events.py` (cron 2:45 AM server time; registered in `core/cron_health.py`).
+**Disabled 2026-10-01 pending investigation** (about 1,165 FMP calls per run at 406-527 requests/min, over Starter's
+300/min; see `docs/decisions.md`). The cron line is commented out and the job is listed in
+`core/cron_health.py::DISABLED_CRON_JOBS`; the code, tables and rows are untouched and the cache serves as-is.
+What degrades while it is off: the Chart tab's E/D markers are the cache's **only** reader (the next-earnings date,
+the scores and the fundamentals jobs read the separate `earnings`/`latest` row in `FundamentalsCache`, group
+`fundamentals`, and are unaffected). Nothing fetches on demand, so (1) a company that reports after the last run (the
+2026-10-01 02:47 refresh) gets no new "E" marker, because a marker needs back-filled actuals (as of 10-01: 2 tickers
+report within 7 days, 25 within 14, about 300 within 30, about 530 within 60); (2) a dividend declared after that run has
+no "D" marker (441 dividend payers; 70 had a future ex-date row cached, 371 did not); (3) a ticker never cached, such as
+anything first opened after 10-01 02:47 (the ETFs GLD, IBIT, QQQ, SMH, SOXX, XLK, XLV), has no markers at all until
+`uv run python -m pipeline.nightly_corporate_events --tickers X,Y` is run for it (2 calls per ticker, plus 1 for splits
+when due). No retention prune runs either, which is harmless. To re-enable, see `backend/OPS_RUNBOOK.md`.
+
+`pipeline/nightly_corporate_events.py` (cron 2:45 AM server time when enabled; registered in `core/cron_health.py`).
 Earnings and dividends refresh nightly. Splits refresh **weekly** (`SPLITS_REFRESH_DAYS = 6`, via
 `splits_due`): a ticker's splits are due when never fetched, or last successfully fetched at least 6 days
 ago. The check is judged off `CorporateEventFetch`, not the weekday, so a missed run self-heals the next

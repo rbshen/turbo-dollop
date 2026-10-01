@@ -72,7 +72,8 @@ amount). They are drawn on a **fixed row along the price pane's floor, independe
 - **Degradation:** no note is shown for either an empty or a failed fetch (the Chart tab has no "not
   tracked" note for its other overlays either), and the toggles stay. Sparse cases: ETFs have dividends
   but no earnings; non-payers and recent IPOs have earnings only; a ticker never cached by the nightly
-  corporate-events job has no markers.
+  corporate-events job has no markers. (The job is disabled since 2026-10-01, so the markers are frozen at its last
+  run, 10-01 02:47: see `docs/specs/corporate-events.md`.)
 
 ### Rendering (fixed-row placement, bare letters)
 

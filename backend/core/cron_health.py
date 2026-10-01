@@ -15,7 +15,7 @@ script's actual wiring all agree)."""
 import traceback
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Iterator, Literal, NamedTuple
 
 from sqlmodel import Session, SQLModel, select
@@ -166,6 +166,31 @@ JOB_METADATA: dict[str, JobMetadata] = {
 }
 
 
+class DisabledJob(NamedTuple):
+    """A job deliberately removed from the live crontab (its line commented out in
+    crontab.txt) but kept in CRON_JOB_NAMES/JOB_METADATA so the page still lists it."""
+
+    since: date
+    reason: str
+
+
+# Jobs whose crontab line is commented out on purpose. Without this entry a disabled
+# job would read "Overdue" 36 hours after its last run (its last success just ages).
+# With it, the page shows the neutral "Skipped" pill and "Disabled since <date>:
+# <reason>" whatever the run history says. test_cron_wiring.py requires a job here to
+# be ABSENT from crontab.txt (and every other job to be present), so enabling and
+# disabling are each one two-line step that cannot be half done.
+# To re-enable a job: uncomment its crontab.txt line, delete its entry here, run
+# `crontab crontab.txt` from backend/ and check `crontab -l`.
+DISABLED_CRON_JOBS: dict[str, DisabledJob] = {
+    "pipeline.nightly_corporate_events": DisabledJob(
+        date(2026, 10, 1),
+        "pending investigation: about 1,165 FMP calls per run at 406-527 requests/min, over Starter's 300/min. "
+        "The Chart tab serves the cached E/D markers.",
+    ),
+}
+
+
 def _truncated_error_summary(exc: Exception) -> str:
     summary = "".join(traceback.format_exception_only(type(exc), exc)).strip()
     return redact_apikey(summary)[:_ERROR_SUMMARY_MAX_CHARS]
@@ -307,6 +332,24 @@ def _job_health(job_name: str, session: Session, now: datetime) -> CronJobHealth
         .limit(1)
     ).first()
     last_success_at = most_recent_success.finished_at if most_recent_success else None
+
+    disabled = DISABLED_CRON_JOBS.get(job_name)
+    if disabled is not None:
+        # Same neutral "skipped" state a group-off job gets: nothing is wrong, nothing is
+        # running. Takes precedence over run history, so an old success never ages into
+        # "overdue" and a stray manual run never flips it to ok/failed.
+        return CronJobHealthOut(
+            job_name=job_name,
+            health_status="skipped",
+            message=f"Disabled since {disabled.since.isoformat()}: {disabled.reason}",
+            last_run=_run_out(most_recent) if most_recent is not None else None,
+            last_success_at=last_success_at,
+            skipped_since=datetime.combine(disabled.since, time.min),
+            description=metadata.description,
+            cadence_group=metadata.cadence_group,
+            time_label=metadata.time_label,
+            sort_minutes=metadata.sort_minutes,
+        )
 
     if most_recent is None:
         return CronJobHealthOut(

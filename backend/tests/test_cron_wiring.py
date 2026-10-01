@@ -6,7 +6,7 @@ system exists to close. This test fails loudly if that ever happens."""
 import re
 from pathlib import Path
 
-from core.cron_health import CRON_JOB_NAMES, JOB_METADATA
+from core.cron_health import CRON_JOB_NAMES, DISABLED_CRON_JOBS, JOB_METADATA
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 CRONTAB_PATH = BACKEND_DIR / "crontab.txt"
@@ -28,11 +28,17 @@ def _crontab_module_names() -> set[str]:
 
 
 def test_crontab_and_cron_job_names_agree():
+    # A job in DISABLED_CRON_JOBS is deliberately commented out of crontab.txt but still
+    # listed in CRON_JOB_NAMES/JOB_METADATA; every other job must be scheduled.
+    assert set(DISABLED_CRON_JOBS) <= set(CRON_JOB_NAMES), (
+        f"DISABLED_CRON_JOBS names a job that is not in CRON_JOB_NAMES: {set(DISABLED_CRON_JOBS) - set(CRON_JOB_NAMES)}"
+    )
     crontab_modules = _crontab_module_names()
-    assert crontab_modules == set(CRON_JOB_NAMES), (
+    expected = set(CRON_JOB_NAMES) - set(DISABLED_CRON_JOBS)
+    assert crontab_modules == expected, (
         f"crontab.txt and CRON_JOB_NAMES have drifted apart. "
-        f"In crontab.txt but not CRON_JOB_NAMES: {crontab_modules - set(CRON_JOB_NAMES)}. "
-        f"In CRON_JOB_NAMES but not crontab.txt: {set(CRON_JOB_NAMES) - crontab_modules}."
+        f"In crontab.txt but not CRON_JOB_NAMES (or listed in DISABLED_CRON_JOBS): {crontab_modules - expected}. "
+        f"In CRON_JOB_NAMES but not crontab.txt (and not in DISABLED_CRON_JOBS): {expected - crontab_modules}."
     )
 
 
@@ -135,6 +141,10 @@ def test_nightly_chain_runs_in_the_agreed_order():
 
 
 def test_corporate_events_runs_after_technical_jobs_and_before_fundamentals():
+    if "pipeline.nightly_corporate_events" in DISABLED_CRON_JOBS:
+        # Disabled 2026-10-01 (see DISABLED_CRON_JOBS): no schedule to check. Re-enabling
+        # it makes this assertion live again.
+        return
     events = _daily_minute_of_day("pipeline.nightly_corporate_events")
     assert _daily_minute_of_day("pipeline.nightly_market_breadth") < events
     assert events < _daily_minute_of_day("pipeline.nightly_fundamentals_fetch")

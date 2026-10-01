@@ -253,7 +253,21 @@ under a fresh date). The page prints its own as-of date, so a job that has
 quietly stopped reads as an old date. Check `Processed` first -- a
 shortfall is FMP not serving a fund or a renamed symbol.
 
-**`nightly_corporate_events`** (2:45 AM, Phase 6a) — refreshes the FMP-backed earnings /
+**`nightly_corporate_events`** — **DISABLED since 2026-10-01 pending investigation** (about 1,165 calls per run at 406-527
+requests/min, over Starter's 300/min). Its `crontab.txt` line is commented out and the installed crontab matches (pre-change
+copy: `backend/crontab.backup-2026-10-01.txt`); the code, tables and cached rows are untouched. The Scheduled Jobs page shows it
+as "Skipped — Disabled since 2026-10-01: ..." (`core/cron_health.py::DISABLED_CRON_JOBS`), not Overdue. Effect: the Chart tab's
+E/D markers (the cache's only reader) keep serving the frozen cache; newly reported earnings and newly declared dividends get no
+marker, and a ticker first opened after 10-01 02:47 has none at all until you run
+`uv run python -m pipeline.nightly_corporate_events --tickers X,Y` for it (details: docs/specs/corporate-events.md). Nothing else
+depends on it (no job reads its output). **Re-enable:** (1) uncomment the `45 2 * * *` line in `backend/crontab.txt`; (2) delete
+the `pipeline.nightly_corporate_events` entry from `DISABLED_CRON_JOBS` in `backend/core/cron_health.py` (the wiring test fails
+if only one of the two is done); (3) from `backend/` run `crontab crontab.txt`, then `crontab -l` and confirm the line is there;
+(4) decide the slot first: the job runs at 406-527 requests/min, so keep it away from fundamentals (see docs/decisions.md).
+**Roll back this change:** `crontab backend/crontab.backup-2026-10-01.txt` restores the installed crontab, and `git revert` of the
+disabling commit restores the repo.
+
+(Description of the job when enabled, 2:45 AM, Phase 6a:) refreshes the FMP-backed earnings /
 dividends / splits cache (`CorporateEvent`, `CorporateEventFetch`; `data/corporate_events_data.py`)
 for every US-listed tracked ticker: two calls per ticker nightly (`/earnings`, `/dividends`, group
 `corporate_events`) plus `/splits` weekly (when never fetched or last fetched >= 6 days ago), each
@@ -506,6 +520,10 @@ site-wide `CronHealthBanner`/`FmpPausedBanner` pair was deleted and folded
 into this Settings section instead, so a healthy day no longer shows
 anything outside Settings; nobody needs to proactively check this endpoint
 or tail a log.
+
+A job commented out of the crontab on purpose goes in `core/cron_health.py::DISABLED_CRON_JOBS` (job -> date + reason): it stays in
+`CRON_JOB_NAMES`, shows as "Skipped — Disabled since <date>: <reason>" instead of aging into Overdue, and `test_cron_wiring.py`
+requires it to be absent from `crontab.txt`. Currently: `nightly_corporate_events`.
 
 `CRON_JOB_NAMES` in `core/cron_health.py` is the single source of truth for
 which 15 jobs exist — `tests/test_cron_wiring.py` fails loudly if

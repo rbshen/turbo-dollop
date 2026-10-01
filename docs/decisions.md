@@ -271,6 +271,26 @@ the 2026-09-30 entry above are unchanged; corporate events (2:45) onward did not
 index-list refreshes (1:00-1:10) now run after the technical jobs instead of before, so a constituent change is
 picked up by the next night's technical run (one-day lag, Sundays only).
 
+### 2026-10-01 — nightly_corporate_events disabled pending investigation
+
+The job's crontab line is commented out (`backend/crontab.txt`, and the installed crontab via `crontab crontab.txt`;
+the pre-change crontab is saved as `backend/crontab.backup-2026-10-01.txt`). **Reason:** it makes about 1,165 FMP
+calls per run (2 per ticker, `/earnings` + `/dividends`, about 1,770 on the weekly splits night) at 406 to 527
+requests per minute (concurrency-bound, 10 per second at peak), over the Starter tier's 300 per minute; the owner is
+investigating why and will decide separately how to bring it back. Nothing else moved (the reschedule is paused).
+**Mechanism chosen:** comment out the cron line, plus one entry in `core/cron_health.py::DISABLED_CRON_JOBS` so the
+Scheduled Jobs page shows the job as the neutral "Skipped" pill with "Disabled since 2026-10-01: ..." instead of
+"Overdue" after 36 hours; `test_cron_wiring.py` requires a job in that dict to be absent from `crontab.txt` and every
+other job to be present, so the two cannot get out of step. **Rejected:** switching the `corporate_events` data group
+off in Settings (documented, and the job then records a real `skipped` run, but the state lives in the DB, not in git or
+the crontab, and the process would still start every night); deleting the job from `CRON_JOB_NAMES`/`JOB_METADATA` (hides
+it from the page and makes re-enabling a four-place edit); a new "Disabled" health value (touches the API type, the
+frontend pill map and `/styleguide`). **What degrades:** the Chart tab's E/D markers (the cache's only reader) keep
+serving the cached rows; only the newest ones go missing (see `docs/specs/corporate-events.md`, "Disabled"). Code, cache
+and data are untouched. **Re-enable:** uncomment the line, delete the `DISABLED_CRON_JOBS` entry, `crontab crontab.txt`
+from `backend/`, check `crontab -l`. The "corporate events after the technical jobs and before fundamentals" test is
+skipped while the job is disabled and is live again on re-enable.
+
 ### 2026-09-30 — Session 11: Watchlist page and shared buttons
 
 The Watchlist page controls and the two buttons shared with other pages move onto the session 8 to 10 primitives. Made by the owner; this entry records what was decided and what was delivered. Spec: "Watchlist page and shared buttons (session 11)" in `docs/design-system.md`. Four commits on local `main`, not pushed: docs; characterization tests and the Watchlist page; `RefreshButton` and `ExportMenu`; styleguide and cleanup.

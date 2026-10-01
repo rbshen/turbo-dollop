@@ -12,7 +12,7 @@
 # priority). Order, each job in its own slot:
 #   last close -> Weinstein + bar-cache fill -> Liquidity Zone (support/resistance)
 #   -> BB+RSI -> Warren -> Sector ETF heatmap -> Market Breadth
-#   -> corporate events -> FMP fundamentals -> analyst price-target
+#   -> corporate events (DISABLED 2026-10-01, see below) -> FMP fundamentals -> analyst price-target
 #   -> score recompute -> SQLite backup
 # Hard ordering constraints (pinned by tests/test_cron_wiring.py):
 #   * the Weinstein/bar-cache job (pipeline.nightly_trend_calculation -- the "trend" name is
@@ -81,7 +81,15 @@
 # ticker; feeds the Chart tab's E/D markers. ~2-4 min. Chart data, not a score
 # input, so it sits after the technical signals and before fundamentals.
 # See pipeline/nightly_corporate_events.py.
-45 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_corporate_events >> /home/shen/fathom/backend/logs/nightly_corporate_events_cron.log 2>&1
+#
+# DISABLED 2026-10-01 pending investigation: ~1,165 FMP calls per run at 406-527
+# requests/min, over the Starter tier's 300/min. The code, cache and data are
+# untouched (the Chart tab keeps serving the cached E/D markers). Also listed in
+# core/cron_health.py::DISABLED_CRON_JOBS so the Scheduled Jobs page shows it as
+# disabled, not overdue. To re-enable: uncomment the line below, delete the
+# DISABLED_CRON_JOBS entry, then `crontab crontab.txt` from backend/ and check
+# `crontab -l`. See backend/OPS_RUNBOOK.md (nightly_corporate_events).
+# 45 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_corporate_events >> /home/shen/fathom/backend/logs/nightly_corporate_events_cron.log 2>&1
 
 # 2:50 Monthly Momentum snapshot (3mo/6mo/12mo composite trailing-return ranking
 # over the Moat-rated universe). Moved from 3:05 on 2026-09-30 so it no longer
