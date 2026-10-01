@@ -143,7 +143,7 @@ describe("ScreenerResultsControlsMock: multi-select trigger", () => {
     render(<ScreenerResultsControlsMock />);
     expect(frame("multi-0").getByRole("button", { name: "Sector: none selected" })).toHaveTextContent("Sector");
     expect(frame("multi-1").getByRole("button", { name: "Sector: Technology" })).toHaveTextContent("Technology");
-    expect(frame("multi-3").getByRole("button", { name: "Sector: 3 selected" })).toHaveTextContent("Sector (3)");
+    expect(frame("multi-3").getByRole("button", { name: "Sector (3): 3 selected" })).toHaveTextContent("Sector (3)");
   });
 
   it("opens into the real checkbox popover", () => {

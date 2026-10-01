@@ -35,7 +35,9 @@ vi.mock("@/components/screener/ScreenerCard", () => ({
   ScreenerCard: ({ data }: { data: { ticker: string } }) => <div data-testid="card">{data.ticker}</div>,
 }));
 vi.mock("@/components/screener/RecomputeButton", () => ({ RecomputeButton: () => null }));
-vi.mock("@/components/ticker/AddToWatchlistButton", () => ({ AddToWatchlistButton: () => null }));
+vi.mock("@/components/ticker/AddToWatchlistButton", () => ({
+  AddToWatchlistButton: ({ label }: { label?: string }) => <span data-testid="add-to-watchlist-label">{label}</span>,
+}));
 
 function scoreRow(ticker: string, overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
   return {
@@ -99,6 +101,13 @@ beforeEach(() => {
   h.saved = [];
 });
 afterEach(cleanup);
+
+describe("the results header", () => {
+  it("passes the sentence-case Add to watchlist label to the shared button", () => {
+    render(<ScreenerPage />);
+    expect(screen.getByTestId("add-to-watchlist-label")).toHaveTextContent("Add to watchlist");
+  });
+});
 
 describe("loading a saved view", () => {
   it("applies its filters, sort, direction and universe", () => {

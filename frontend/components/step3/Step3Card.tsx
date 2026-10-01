@@ -32,6 +32,22 @@ export const METHOD_LABELS: Record<string, string> = {
   PASS: "No method applies",
 };
 
+// Display-only sentence case for a label that arrives in Title Case ("Discounted Cash Flow (Operating CF)" ->
+// "Discounted cash flow (operating CF)"; the backend's "Operating Cash Flow (Current)" -> "Operating cash flow
+// (current)"): later Title-case words, with or without a bracket or a trailing comma, drop to lower case, while
+// acronyms ("CF", "CAPM", "CapEx") and the first word are left alone. Nothing stored or sent is touched.
+export function sentenceCaseLabel(label: string): string {
+  return label
+    .split(" ")
+    .map((word, i) => (i > 0 && /^\(?[A-Z][a-z]+[,)]*$/.test(word) ? word.toLowerCase() : word))
+    .join(" ");
+}
+
+/** A method's display name in sentence case (the option values and METHOD_LABELS themselves are unchanged). */
+export function methodLabel(method: string): string {
+  return sentenceCaseLabel(METHOD_LABELS[method] ?? method);
+}
+
 const PB_BAND_LABELS: Record<keyof Step3PBBands, string> = {
   minus_2sd: "Mean − 2 SD",
   minus_1sd: "Mean − 1 SD",
@@ -112,7 +128,7 @@ export function PBBandsTable({
       <TableHeader>
         <TableRow className="h-9">
           <TableHead className="border-b border-border-subtle">Band</TableHead>
-          <TableHead className="border-b border-border-subtle text-right">Intrinsic Value</TableHead>
+          <TableHead className="border-b border-border-subtle text-right">Intrinsic value</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -128,7 +144,7 @@ export function PBBandsTable({
         ))}
         {lastClose != null && (
           <TableRow dense>
-            <TableCell className="border-b border-border-subtle text-text-tertiary">Last Close</TableCell>
+            <TableCell className="border-b border-border-subtle text-text-tertiary">Last close</TableCell>
             <TableCell className="border-b border-border-subtle text-right font-mono text-text-secondary">{fmtMoney(lastClose, currency)}</TableCell>
           </TableRow>
         )}
@@ -177,7 +193,7 @@ export function ValuationContextNotes({ data }: { data: Step3Out }) {
       )}
       {data.dividend_yield_pct != null && (
         <p>
-          Dividend Yield: {fmtPct(data.dividend_yield_pct, 1)}
+          Dividend yield: {fmtPct(data.dividend_yield_pct, 1)}
           {/* The exact configured threshold isn't on this payload (only
               whether it was met) -- see /settings for the live value,
               editable there since Piece 4. */}
@@ -226,7 +242,7 @@ export function Step3Card({ ticker }: Props) {
   return (
     <div className="space-y-6">
       <details className="text-sm">
-        <summary className="cursor-pointer text-xs uppercase tracking-widest text-text-tertiary">Method selection reasoning</summary>
+        <summary className="cursor-pointer text-xs text-text-tertiary">Method selection reasoning</summary>
         <ul className="mt-2 space-y-1 text-xs text-text-tertiary">
           {data.method_reasoning.map((step, i) => (
             <li key={i}>
@@ -252,7 +268,7 @@ export function Step3Card({ ticker }: Props) {
               h2, ~20px) renders shorter than the other column's, shifting
               everything below (price, gauge, slider) up relative to it. */}
           <div className="flex min-h-8 items-center">
-            <h2 className={SECTION_HEADING_CLASS}>Model Valuation · {METHOD_LABELS[data.selected_method] ?? data.selected_method}</h2>
+            <h2 className={SECTION_HEADING_CLASS}>Model valuation · {methodLabel(data.selected_method)}</h2>
           </div>
 
           {isPass ? (
@@ -287,15 +303,15 @@ export function Step3Card({ ticker }: Props) {
                   to land at different heights between the two columns. */}
               <Table className="text-sm">
                 <TableBody>
-                  <InputRow label="Discount/Premium" value={pctText(data.discount_premium_pct)} />
+                  <InputRow label="Discount/premium" value={pctText(data.discount_premium_pct)} />
                   {isTwentyYearMethod && (
                     <>
-                      <InputRow label="Growth Yr 1-5" value={pctText(data.inputs.growth_yr_1_5)} sublabel={data.inputs.growth_yr_1_5_source ?? "Unavailable"} />
-                      <InputRow label="Growth Yr 6-10" value={pctText(data.inputs.growth_yr_6_10)} />
-                      <InputRow label="Growth Yr 11-20 (terminal)" value={pctText(data.inputs.growth_yr_11_20)} />
-                      <InputRow label={data.inputs.current_value_label ?? "Current Value"} sublabel="(in millions)" value={millionsText(data.inputs.current_value, quoteCurrency)} />
+                      <InputRow label="Growth yr 1-5" value={pctText(data.inputs.growth_yr_1_5)} sublabel={data.inputs.growth_yr_1_5_source ?? "Unavailable"} />
+                      <InputRow label="Growth yr 6-10" value={pctText(data.inputs.growth_yr_6_10)} />
+                      <InputRow label="Growth yr 11-20 (terminal)" value={pctText(data.inputs.growth_yr_11_20)} />
+                      <InputRow label={sentenceCaseLabel(data.inputs.current_value_label ?? "Current value")} sublabel="(in millions)" value={millionsText(data.inputs.current_value, quoteCurrency)} />
                       <InputRow
-                        label="Discount Rate (CAPM)"
+                        label="Discount rate (CAPM)"
                         value={
                           data.inputs.discount_rate != null ? (
                             <span>
@@ -308,12 +324,12 @@ export function Step3Card({ ticker }: Props) {
                         }
                       />
                       <InputRow
-                        label="Shares Outstanding"
+                        label="Shares outstanding"
                         value={data.inputs.shares_outstanding != null ? data.inputs.shares_outstanding.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "—"}
                       />
-                      <InputRow label="Total Debt" sublabel="(in millions)" value={millionsText(data.inputs.total_debt, quoteCurrency)} />
+                      <InputRow label="Total debt" sublabel="(in millions)" value={millionsText(data.inputs.total_debt, quoteCurrency)} />
                       <InputRow
-                        label={`Cash${data.inputs.cash_and_st_investments_includes_short_term_investments ? " + ST Investments" : ""}`}
+                        label={`Cash${data.inputs.cash_and_st_investments_includes_short_term_investments ? " + ST investments" : ""}`}
                         sublabel="(in millions)"
                         value={millionsText(data.inputs.cash_and_st_investments, quoteCurrency)}
                       />
@@ -321,9 +337,9 @@ export function Step3Card({ ticker }: Props) {
                   )}
                   {isPSG && (
                     <>
-                      <InputRow label="Sales Per Share" value={data.inputs.sales_per_share != null ? fmtMoney(data.inputs.sales_per_share, quoteCurrency) : "—"} />
-                      <InputRow label="Projected Growth Rate" value={pctText(data.inputs.projected_growth_rate)} />
-                      <InputRow label="Fair PSG Ratio" value={data.inputs.fair_psg_ratio != null ? fmtNumber(data.inputs.fair_psg_ratio) : "—"} />
+                      <InputRow label="Sales per share" value={data.inputs.sales_per_share != null ? fmtMoney(data.inputs.sales_per_share, quoteCurrency) : "—"} />
+                      <InputRow label="Projected growth rate" value={pctText(data.inputs.projected_growth_rate)} />
+                      <InputRow label="Fair PSG ratio" value={data.inputs.fair_psg_ratio != null ? fmtNumber(data.inputs.fair_psg_ratio) : "—"} />
                     </>
                   )}
                 </TableBody>

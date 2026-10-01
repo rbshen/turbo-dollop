@@ -70,7 +70,7 @@ describe("MultiSelectDropdown: opening and focus", () => {
 
   it("reflects the selection in the options and in the trigger text", () => {
     render(<Harness initial={["b", "c"]} />);
-    expect(trigger()).toHaveAccessibleName("Letters: 2 selected");
+    expect(trigger()).toHaveAccessibleName("Letters (2): 2 selected");
     expect(trigger()).toHaveTextContent("Letters (2)"); // the visible text is unchanged
     open();
     expect(boxes().map((b) => b.checked)).toEqual([false, true, true]);
@@ -82,13 +82,23 @@ describe("MultiSelectDropdown: the trigger's accessible name and caret", () => {
   it.each([
     [[] as string[], "Letters: none selected", "Letters"],
     [["b"], "Letters: Bravo", "Bravo"],
-    [["a", "c"], "Letters: 2 selected", "Letters (2)"],
-    [["a", "b", "c"], "Letters: 3 selected", "Letters (3)"],
+    [["a", "c"], "Letters (2): 2 selected", "Letters (2)"],
+    [["a", "b", "c"], "Letters (3): 3 selected", "Letters (3)"],
   ])("with %j selected it is named %s and still reads %s", (initial, name, visible) => {
     render(<Harness initial={initial} />);
     expect(trigger()).toHaveAccessibleName(name);
     expect(trigger()).toHaveTextContent(new RegExp(`^${visible.replace(/[()]/g, "\\$&")}$`));
   });
+
+  it.each([[[] as string[]], [["b"]], [["a", "c"]], [["a", "b", "c"]]])(
+    "with %j selected the visible text is contained in the accessible name (label in name)",
+    (initial) => {
+      render(<Harness initial={initial} />);
+      const visible = (trigger().textContent ?? "").trim();
+      expect(visible).not.toBe("");
+      expect(trigger().getAttribute("aria-label")).toContain(visible);
+    },
+  );
 
   it("follows the selection as options are toggled", () => {
     render(<Harness />);
@@ -96,7 +106,7 @@ describe("MultiSelectDropdown: the trigger's accessible name and caret", () => {
     fireEvent.click(boxes()[0]);
     expect(trigger()).toHaveAccessibleName("Letters: Alpha");
     fireEvent.click(boxes()[2]);
-    expect(trigger()).toHaveAccessibleName("Letters: 2 selected");
+    expect(trigger()).toHaveAccessibleName("Letters (2): 2 selected");
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
     expect(trigger()).toHaveAccessibleName("Letters: none selected");
   });

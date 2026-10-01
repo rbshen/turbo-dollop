@@ -8,9 +8,9 @@ import {
   FIELD_LABEL_CELL_CLASS,
   FIELD_ROW_CLASS,
   FIELD_VALUE_CELL_CLASS,
-  METHOD_LABELS,
   PBBandsTable,
   SECTION_HEADING_CLASS,
+  methodLabel,
   pctText,
 } from "@/components/step3/Step3Card";
 import { ValuationGauge } from "@/components/step3/ValuationGauge";
@@ -70,16 +70,10 @@ function realMethodFor(selection: MethodSelection, savedMethod: Step3Method | nu
   return selection === "SAVED_CUSTOM" ? (savedMethod ?? "DCF") : selection;
 }
 
-// Display-only sentence case for a METHOD_LABELS entry ("Discounted Cash Flow
-// (Operating CF)" -> "Discounted cash flow (operating CF)"): later Title-case
-// words drop to lower case, acronyms ("CF") and the first word are left alone.
-// METHOD_LABELS itself (Step3Card's, also used by the Model Valuation title) is
-// not edited here, and the option values never change.
+// A method's display name in sentence case (Step3Card's methodLabel, shared with the Model Valuation title):
+// METHOD_LABELS itself is not edited, and the option values never change.
 function methodOptionLabel(method: string): string {
-  return (METHOD_LABELS[method] ?? method)
-    .split(" ")
-    .map((word, i) => (i > 0 && /^\(?[A-Z][a-z]+\)?$/.test(word) ? word.toLowerCase() : word))
-    .join(" ");
+  return methodLabel(method);
 }
 
 // Presentation-only mirror of step3_data.py's own current_value_labels dict

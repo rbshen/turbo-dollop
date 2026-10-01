@@ -31,6 +31,15 @@ function isOn(el: HTMLElement): boolean {
   return el.getAttribute("aria-pressed") === "true";
 }
 
+describe("EconomicMoatTab: the headings", () => {
+  it("has a page heading and a rating label", () => {
+    render(<EconomicMoatTab ticker="AAPL" />);
+    const heading = screen.getByRole("heading", { level: 2, name: "Economic moat" });
+    const label = screen.getByText("Current rating");
+    for (const el of [heading, label]) expect(el.className).not.toMatch(/uppercase|tracking-widest/);
+  });
+});
+
 describe("EconomicMoatTab: the rating switch", () => {
   it("is a named group of three sentence-case segments with a neutral selected state, not brand blue", () => {
     render(<EconomicMoatTab ticker="AAPL" />);

@@ -72,7 +72,7 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
   return (
     <div className="space-y-6 py-6">
       <div>
-        <h2 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Economic Moat</h2>
+        <h2 className="font-heading text-sm font-semibold text-text-primary">Economic moat</h2>
         <p className="mt-1 text-sm text-text-secondary">
           A manually-set classification, not computed from data. Once set, Financials / Growth Rate / Profitability /
           Debt combined occupy 69% of Overall Assessment and Moat occupies the other 31% — see the Overall Assessment
@@ -82,7 +82,7 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
 
       <div className="space-y-4 rounded-lg border border-border-card bg-surface p-6">
         <div className="space-y-3">
-          <p className="text-xs uppercase tracking-widest text-text-tertiary">Current Rating</p>
+          <p className="text-xs text-text-tertiary">Current rating</p>
           <SegmentedControl
             aria-label="Economic moat rating"
             className="flex flex-wrap"

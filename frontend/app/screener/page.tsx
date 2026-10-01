@@ -192,7 +192,7 @@ export default function ScreenerPage() {
             <RecomputeButton />
             <AddToWatchlistButton
               tickers={sorted.map((row) => row.ticker)}
-              label="Add to Watchlist"
+              label="Add to watchlist"
               confirmDescription={`all ${sorted.length} filtered tickers`}
               disabled={sorted.length === 0}
             />

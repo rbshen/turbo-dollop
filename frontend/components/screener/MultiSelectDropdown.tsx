@@ -105,9 +105,15 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Prop
 
   const selectedLabel = selected.length === 1 ? (options.find((o) => o.value === selected[0])?.label ?? selected[0]) : "";
   const summary = selected.length === 0 ? label : selected.length === 1 ? selectedLabel : `${label} (${selected.length})`;
-  // The accessible name is "<label>: <summary>" ("Sector: none selected",
-  // "Sector: Technology", "Sector: 3 selected"); the visible text above is unchanged.
-  const nameSummary = selected.length === 0 ? "none selected" : selected.length === 1 ? selectedLabel : `${selected.length} selected`;
+  // The accessible name always contains the visible text (label-in-name): "Sector: none selected" and
+  // "Sector: Technology" are "<label>: <state>", and with several chosen it is "<visible text>: <n> selected"
+  // ("Sector (3): 3 selected"). The visible text itself is unchanged: a longer one would not fit the column.
+  const accessibleName =
+    selected.length === 0
+      ? `${label}: none selected`
+      : selected.length === 1
+        ? `${label}: ${selectedLabel}`
+        : `${summary}: ${selected.length} selected`;
   const active = selected.length > 0;
 
   return (
@@ -122,7 +128,7 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Prop
             close();
           }
         }}
-        aria-label={`${label}: ${nameSummary}`}
+        aria-label={accessibleName}
         aria-haspopup="listbox"
         aria-expanded={open}
         className={cn(
