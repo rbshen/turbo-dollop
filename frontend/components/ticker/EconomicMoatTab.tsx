@@ -4,10 +4,12 @@ import { useState } from "react";
 import { mutate } from "swr";
 
 import { SegmentedControl } from "@/components/shared/SegmentedControl";
+import { Button } from "@/components/ui/button";
 import { apiPut } from "@/lib/api/client";
 import type { TickerMoatOut } from "@/lib/api/types";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
 import { MOAT_LABELS, type MoatValue } from "@/lib/overallScore";
+import { pillLabel } from "@/lib/tierColor";
 
 interface Props {
   ticker: string;
@@ -96,7 +98,7 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
         {pending && (
           <div className="space-y-3 rounded-md border border-warn/40 bg-warn/10 p-4">
             <p className="text-sm text-warn">
-              Set Economic Moat to <span className="font-semibold">{MOAT_LABELS[pending]}</span>? This changes how
+              Set economic moat to <span className="font-semibold">{pillLabel(MOAT_LABELS[pending])}</span>? This changes how
               Overall Assessment is scored for {ticker}.
             </p>
             <div className="flex items-center gap-3">
@@ -108,14 +110,9 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
               >
                 {saving ? "Saving…" : "Confirm"}
               </button>
-              <button
-                type="button"
-                onClick={() => setPending(null)}
-                disabled={saving}
-                className="rounded-md border border-border-input bg-surface-2 px-4 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-              >
+              <Button variant="outline" onClick={() => setPending(null)} disabled={saving}>
                 Cancel
-              </button>
+              </Button>
             </div>
             {saveError && <p className="text-sm text-negative">{saveError}</p>}
           </div>

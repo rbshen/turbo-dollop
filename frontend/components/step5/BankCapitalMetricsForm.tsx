@@ -3,10 +3,16 @@
 import { useState } from "react";
 import { mutate } from "swr";
 
-import { apiPut } from "@/lib/api/client";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { FormField } from "@/components/ui/form-field";
+import { Input } from "@/components/ui/input";
+import { NumberField } from "@/components/ui/number-field";
+import { apiPut, errorDetail } from "@/lib/api/client";
 import type { Step5Out, TickerBankCapitalMetricsIn, TickerBankCapitalMetricsOut } from "@/lib/api/types";
 import { useTickerBankCapitalMetrics } from "@/lib/hooks/useTickerBankCapitalMetrics";
 import { fmtPct } from "@/lib/format";
+import { checkNumber } from "@/lib/numberInput";
 
 interface Props {
   ticker: string;
@@ -51,22 +57,29 @@ function BankCapitalMetricsControls({ ticker, data, step5 }: { ticker: string; d
       pending.npl !== initial.npl ||
       pending.nplAsOf !== initial.nplAsOf);
 
+  // Both ratios are optional floats on the backend (no bounds), so a box is
+  // either empty, a number, or invalid text -- never corrected or clamped.
+  const cet1Check = checkNumber(displayed.cet1, { optional: true });
+  const nplCheck = checkNumber(displayed.npl, { optional: true });
+  const invalid = cet1Check.error !== null || nplCheck.error !== null;
+
   function update(field: keyof PendingState, value: string) {
+    setSaveError(null);
     setPending({ ...displayed, [field]: value });
   }
 
+  function handleCancel() {
+    setSaveError(null);
+    setPending(null);
+  }
+
   async function handleConfirm() {
-    if (!pending) return;
+    if (!pending || invalid) return;
     setSaving(true);
     setSaveError(null);
     try {
-      const cet1 = pending.cet1.trim() === "" ? null : parseFloat(pending.cet1);
-      const npl = pending.npl.trim() === "" ? null : parseFloat(pending.npl);
-      if ((pending.cet1.trim() !== "" && Number.isNaN(cet1)) || (pending.npl.trim() !== "" && Number.isNaN(npl))) {
-        setSaveError("Enter a valid number.");
-        setSaving(false);
-        return;
-      }
+      const cet1 = cet1Check.value;
+      const npl = nplCheck.value;
       const body: TickerBankCapitalMetricsIn = {
         cet1_ratio_pct: cet1,
         cet1_as_of: pending.cet1AsOf.trim() === "" ? null : pending.cet1AsOf,
@@ -80,8 +93,9 @@ function BankCapitalMetricsControls({ ticker, data, step5 }: { ticker: string; d
       await mutate((key) => typeof key === "string" && key.startsWith(`/tickers/${ticker}`));
       await mutate("/screener");
       setPending(null);
-    } catch {
-      setSaveError("Failed to save — please try again.");
+    } catch (e) {
+      const detail = errorDetail(e);
+      setSaveError(detail ? `Failed to save — ${detail}` : "Failed to save — please try again.");
     } finally {
       setSaving(false);
     }
@@ -94,9 +108,9 @@ function BankCapitalMetricsControls({ ticker, data, step5 }: { ticker: string; d
   const autoNpl = step5.npl_source === "auto" ? step5.ratios.npl_ratio?.value ?? null : null;
 
   return (
-    <div className="space-y-4 rounded-lg border border-border-card bg-surface p-6">
+    <Card className="space-y-4">
       <div>
-        <h3 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">CET1 &amp; NPL Ratios</h3>
+        <h3 className="text-sm font-medium text-text-primary">CET1 &amp; NPL ratios</h3>
         <p className="mt-1 text-sm text-text-secondary">
           CET1 has no automated source (manual entry only). NPL is auto-computed where available; entering a value here
           overrides it.
@@ -104,48 +118,48 @@ function BankCapitalMetricsControls({ ticker, data, step5 }: { ticker: string; d
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <label className="block text-xs uppercase tracking-widest text-text-tertiary" htmlFor={`${ticker}-cet1`}>
-            CET1 Ratio (%)
-          </label>
-          <input
-            id={`${ticker}-cet1`}
-            type="number"
-            step="0.01"
-            value={displayed.cet1}
-            onChange={(e) => update("cet1", e.target.value)}
-            placeholder="Not yet entered"
-            className="w-full rounded-md border border-border-control bg-surface-2 px-2 py-1.5 font-mono text-sm text-text-primary focus:border-brand focus:outline-none"
-          />
-          <input
-            type="text"
-            value={displayed.cet1AsOf}
-            onChange={(e) => update("cet1AsOf", e.target.value)}
-            placeholder="As of (e.g. Q2 2026)"
-            className="w-full rounded-md border border-border-control bg-surface-2 px-2 py-1.5 text-xs text-text-secondary focus:border-brand focus:outline-none"
-          />
+        <div className="space-y-4">
+          <FormField label="CET1 ratio" htmlFor={`${ticker}-cet1`} error={cet1Check.error}>
+            <NumberField
+              value={displayed.cet1}
+              onChange={(value) => update("cet1", value)}
+              size="medium"
+              optional
+              unit="%"
+              placeholder="Not yet entered"
+            />
+          </FormField>
+          <FormField label="CET1 as of" htmlFor={`${ticker}-cet1-as-of`}>
+            <Input
+              type="text"
+              size="medium"
+              value={displayed.cet1AsOf}
+              onChange={(e) => update("cet1AsOf", e.target.value)}
+              placeholder="e.g. Q2 2026"
+            />
+          </FormField>
         </div>
 
-        <div className="space-y-2">
-          <label className="block text-xs uppercase tracking-widest text-text-tertiary" htmlFor={`${ticker}-npl`}>
-            NPL Ratio override (%)
-          </label>
-          <input
-            id={`${ticker}-npl`}
-            type="number"
-            step="0.01"
-            value={displayed.npl}
-            onChange={(e) => update("npl", e.target.value)}
-            placeholder={autoNpl != null ? `auto: ${fmtPct(autoNpl, 1)}` : "Not available"}
-            className="w-full rounded-md border border-border-control bg-surface-2 px-2 py-1.5 font-mono text-sm text-text-primary focus:border-brand focus:outline-none"
-          />
-          <input
-            type="text"
-            value={displayed.nplAsOf}
-            onChange={(e) => update("nplAsOf", e.target.value)}
-            placeholder="As of (leave blank to keep auto)"
-            className="w-full rounded-md border border-border-control bg-surface-2 px-2 py-1.5 text-xs text-text-secondary focus:border-brand focus:outline-none"
-          />
+        <div className="space-y-4">
+          <FormField label="NPL ratio override" htmlFor={`${ticker}-npl`} error={nplCheck.error}>
+            <NumberField
+              value={displayed.npl}
+              onChange={(value) => update("npl", value)}
+              size="medium"
+              optional
+              unit="%"
+              placeholder={autoNpl != null ? `auto: ${fmtPct(autoNpl, 1)}` : "Not available"}
+            />
+          </FormField>
+          <FormField label="NPL as of" htmlFor={`${ticker}-npl-as-of`} hint="Leave blank to keep auto.">
+            <Input
+              type="text"
+              size="medium"
+              value={displayed.nplAsOf}
+              onChange={(e) => update("nplAsOf", e.target.value)}
+              placeholder="e.g. Q1 2026"
+            />
+          </FormField>
           {autoNpl != null && (
             <p className="text-xs text-text-tertiary">
               Auto-computed: {fmtPct(autoNpl, 1)} (as of {step5.npl_as_of}) — editable above.
@@ -163,23 +177,19 @@ function BankCapitalMetricsControls({ ticker, data, step5 }: { ticker: string; d
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={saving}
+              disabled={saving || invalid}
               className="rounded-md border border-warn/60 bg-warn/15 px-4 py-1.5 text-sm font-medium text-warn transition-colors hover:border-warn disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? "Saving…" : "Confirm"}
             </button>
-            <button
-              type="button"
-              onClick={() => setPending(null)}
-              disabled={saving}
-              className="rounded-md border border-border-input bg-surface-2 px-4 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-            >
+            <Button variant="outline" onClick={handleCancel} disabled={saving}>
               Cancel
-            </button>
+            </Button>
           </div>
+          {invalid && <p className="text-sm text-text-secondary">Fix the highlighted fields to save.</p>}
           {saveError && <p className="text-sm text-negative">{saveError}</p>}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
