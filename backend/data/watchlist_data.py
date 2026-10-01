@@ -143,6 +143,7 @@ async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
         speculative_growth_qualifies=score.speculative_growth_qualifies if score else None,
         consensus_rating=rating,
         added_at=watchlist_ticker.added_at,
+        is_etf=bool(score.is_etf) if score else False,
     )
 
 

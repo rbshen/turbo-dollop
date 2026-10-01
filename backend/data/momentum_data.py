@@ -57,7 +57,13 @@ async def compute_and_store_momentum_snapshot(anchor_date: date) -> dict:
     # from the universe here, the same way a missing Moat rating already
     # is -- no separate skip step needed, since scored_rows already carries
     # both fields off the one query above.
-    moat_by_ticker = {row.ticker: row.moat for row in scored_rows if row.moat in MOAT_VALUES and row.delisted_at is None}
+    # ETFs/funds are excluded as well: this is a stock momentum ranking, and an ETF can't be given a
+    # Moat through the API any more (PUT /moat rejects it) -- this covers a rating set before that.
+    moat_by_ticker = {
+        row.ticker: row.moat
+        for row in scored_rows
+        if row.moat in MOAT_VALUES and row.delisted_at is None and not row.is_etf
+    }
     skipped_delisted = sorted(
         row.ticker for row in scored_rows if row.moat in MOAT_VALUES and row.delisted_at is not None
     )

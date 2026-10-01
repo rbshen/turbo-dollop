@@ -58,6 +58,7 @@ from clients.fmp_client import fmp_client
 from core.logging_config import configure_logging
 from core.models import FundamentalsCache, IndexConstituent, TickerScore, WatchlistTicker
 from core.tickers import normalize_ticker
+from data.etf_data import known_etf_tickers
 from data.segmentation_data import get_segmentation_data
 from data.step1_data import get_step1_data
 from data.step2_data import get_step2_data
@@ -134,6 +135,17 @@ def load_full_tracked_universe(session: Session) -> list[str]:
     return sorted(set(index_tickers) | set(cached_tickers) | set(scored_tickers) | set(watchlist_tickers))
 
 
+def load_fundamentals_fetch_universe(session: Session) -> list[str]:
+    """load_full_tracked_universe minus tickers already known to be an ETF or fund: they have no
+    income statement, balance sheet, ratios or estimates (FMP answers every one of those with `[]`,
+    ~25 wasted calls per ETF per staleness window) and the ETF page reads none of them. An ETF's
+    own data (/etf/info, bars) is fetched on view or by the technical jobs, not here. Only this job
+    filters; the score recompute, momentum and search still see the full universe."""
+    universe = load_full_tracked_universe(session)
+    etfs = known_etf_tickers(session, universe)
+    return [ticker for ticker in universe if ticker not in etfs]
+
+
 async def _refresh_one_ticker(ticker: str) -> None:
     await get_step1_data(ticker)
     await get_step2_data(ticker)
@@ -181,7 +193,7 @@ async def main(tickers: list[str] | None = None) -> dict:
 
     if tickers is None:
         with Session(engine) as session:
-            tickers = load_full_tracked_universe(session)
+            tickers = load_fundamentals_fetch_universe(session)
 
     if not tickers:
         logger.error("No tickers to process -- run refresh_sp500_list.py/refresh_dow_list.py first, or pass an explicit ticker list.")
@@ -245,7 +257,7 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     if args.limit:
         init_db()
         with Session(engine) as session:
-            all_tickers = load_full_tracked_universe(session)
+            all_tickers = load_fundamentals_fetch_universe(session)
         return all_tickers[: args.limit]
     return None
 

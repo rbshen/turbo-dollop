@@ -7,6 +7,7 @@ from core.data_groups import group_live
 from core.db import engine
 from core.schemas import TickerSearchResult
 from core.tickers import is_us_listed, normalize_ticker
+from data.etf_data import known_etf_tickers
 from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
 
 SEARCH_RESULT_LIMIT = 10
@@ -70,7 +71,17 @@ def _search_tracked_universe(query: str) -> list[TickerSearchResult]:
     prefix_matches = [t for t in universe if t.startswith(normalized_query)]
     substring_matches = [t for t in universe if normalized_query in t and t not in prefix_matches]
     matches = (prefix_matches + substring_matches)[:SEARCH_RESULT_LIMIT]
-    return [TickerSearchResult(symbol=t) for t in matches]
+    return _mark_known_etfs([TickerSearchResult(symbol=t) for t in matches])
+
+
+def _mark_known_etfs(results: list[TickerSearchResult]) -> list[TickerSearchResult]:
+    """Sets is_etf on the results the app already knows are an ETF/fund (local DB only -- see
+    TickerSearchResult.is_etf for why this is not an FMP lookup)."""
+    with Session(engine) as session:
+        etfs = known_etf_tickers(session, [r.symbol for r in results])
+    for result in results:
+        result.is_etf = result.symbol in etfs
+    return results
 
 
 async def search_tickers(query: str) -> list[TickerSearchResult]:
@@ -147,4 +158,4 @@ async def search_tickers(query: str) -> list[TickerSearchResult]:
         if len(results) >= SEARCH_RESULT_LIMIT:
             break
 
-    return results
+    return _mark_known_etfs(results)

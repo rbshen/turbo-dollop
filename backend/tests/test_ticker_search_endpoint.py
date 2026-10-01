@@ -16,7 +16,7 @@ def test_search_endpoint_returns_results(monkeypatch):
         response = client.get("/api/tickers/search", params={"q": "AAP"})
 
     assert response.status_code == 200
-    assert response.json() == [{"symbol": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ"}]
+    assert response.json() == [{"symbol": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ", "is_etf": False}]
 
 
 def test_search_endpoint_defaults_to_empty_query(monkeypatch):

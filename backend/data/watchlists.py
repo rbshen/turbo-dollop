@@ -31,6 +31,10 @@ def list_watchlist_tickers(session: Session, watchlist_id: int) -> list[Watchlis
 # into each nightly job (see docs/specs/liquidity-zones.md, CLAUDE.md "Watchlists").
 MONITORED_WATCHLIST_PATTERN = re.compile(r"E[1-9][0-9]*|ETF")
 
+# The list the ETF page's "Add to watchlist" button adds to (created on first use). It is itself a
+# monitored list -- is_monitored_watchlist_name(ETF_WATCHLIST_NAME) is pinned by tests.
+ETF_WATCHLIST_NAME = "ETF"
+
 _NATURAL_SORT_DIGITS = re.compile(r"(\d+)")
 
 

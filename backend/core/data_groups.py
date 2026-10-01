@@ -108,6 +108,12 @@ GROUPS: dict[str, GroupMeta] = {
         "Intraday bars", "Premium", True, True,
         ("Warren RSI/ADX/WVF entry signal (2h)", "BB+RSI entry signal (2h)", "Chart tab entry-signal markers"),
     ),
+    # ETF page Overview tab (fund facts + sector weights): `/etf/info` only -- no holdings,
+    # country-weight or asset-exposure endpoint is used. Premium is an UNVERIFIED guess at the
+    # lowest tier FMP lists it on (FMP's docs/pricing pages 403 to our fetcher); the value is
+    # editable in Settings and the 402 safety net (canary SPY, see CANARY_SYMBOL_OVERRIDES)
+    # corrects a wrong guess at runtime.
+    "etf_info": GroupMeta("ETF info", "Premium", True, True, ("ETF page Overview tab",)),
     # Shelved 2026-09-27 (see CLAUDE.md's "Institutional Ownership" entry) -- same
     # reasoning as `news`: tried against real tickers, judged low decision-value for
     # short-premium/short-term trading (13F's quarterly cadence + 45+ day reporting lag
@@ -174,7 +180,12 @@ ENDPOINT_GROUP: dict[str, str] = {
     "/delisted-companies": "index_membership",
     "/institutional-ownership/symbol-positions-summary": "institutional_ownership",
     "/institutional-ownership/extract-analytics/holder": "institutional_ownership",
+    "/etf/info": "etf_info",
 }
+
+# Endpoints whose 402 canary (and probe) must use a symbol other than AAPL: AAPL is not an ETF, so
+# /etf/info answers it with `200 []`, which would never confirm a plan-level restriction.
+CANARY_SYMBOL_OVERRIDES: dict[str, str] = {"/etf/info": "SPY"}
 
 # Endpoints reached by more than one group, and the group each caller passes
 # explicitly. Documented (and asserted by the registry test) so the mixing is
@@ -192,8 +203,8 @@ ENDPOINT_GROUP_OVERRIDES_USED: dict[str, dict[str, str]] = {
 }
 
 # Canary request per live group, used by FMPClient.probe_group (weekly and on
-# plan edit) to see whether a plan_restricted group works again. Always AAPL
-# and always a cheap single-row call.
+# plan edit) to see whether a plan_restricted group works again. AAPL
+# (SPY for the ETF group, see CANARY_SYMBOL_OVERRIDES) and always a cheap single-row call.
 PROBE_ENDPOINTS: dict[str, tuple[str, dict]] = {
     "fundamentals": ("/income-statement", {"symbol": "AAPL", "period": "annual", "limit": 1}),
     "profile_quote": ("/quote", {"symbol": "AAPL"}),
@@ -210,6 +221,8 @@ PROBE_ENDPOINTS: dict[str, tuple[str, dict]] = {
     # AAPL 13F data -- cheap, single-row, and stable indefinitely (unlike the current
     # quarter, which is never a safe canary since it's routinely empty pre-filing).
     "institutional_ownership": ("/institutional-ownership/symbol-positions-summary", {"symbol": "AAPL", "year": 2020, "quarter": 1}),
+    # SPY, not AAPL (the one exception to "always AAPL"): AAPL is a stock, /etf/info returns `200 []` for it.
+    "etf_info": ("/etf/info", {"symbol": "SPY"}),
 }
 
 # Bulk/batch endpoints (none are used today -- Rule: never call them). If one
@@ -248,6 +261,7 @@ STATEMENT_TYPE_GROUP: dict[str, str] = {
     "sec_company_facts": "fundamentals",
     "institutional_ownership_summary": "institutional_ownership",
     "institutional_ownership_holders": "institutional_ownership",
+    "etf_info": "etf_info",
 }
 
 

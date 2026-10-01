@@ -9,6 +9,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 from sqlalchemy import and_, or_
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, func, select
 
 from data.analyst_ratings_data import get_analyst_ratings_data
@@ -28,6 +29,7 @@ from helpers.discount_rate_config import (
     update_discount_rate_config,
 )
 from core.logging_config import apply_redaction_filters
+from data.etf_data import get_etf_overview, is_known_etf
 from data.liquidity_zone_data import get_liquidity_zone_data
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from data.market_breadth_data import get_market_breadth
@@ -54,6 +56,8 @@ from core.schemas import (
     DataSourceHealthOut,
     DiscountRateConfigIn,
     DiscountRateConfigOut,
+    EtfOverviewOut,
+    EtfWatchlistAddOut,
     FinancialsOut,
     DataGroupMasterIn,
     DataGroupPlanIn,
@@ -138,11 +142,13 @@ from data.watchlist_data import get_watchlist_rows
 from data.watchlists import (
     add_watchlist_ticker,
     bulk_add_watchlist_tickers,
+    ETF_WATCHLIST_NAME,
     count_net_new_tickers,
     create_watchlist,
     delete_watchlist,
     get_watchlist_by_name,
     get_watchlist_ticker,
+    is_monitored_watchlist_name,
     list_watchlist_tickers,
     list_watchlists,
     remove_watchlist_ticker,
@@ -349,6 +355,14 @@ async def ticker_summary(ticker: str) -> TickerSummaryOut:
         # would leak the key into the response body the moment that stops
         # being true for some future call site.
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
+
+
+# ETF page Overview tab (FMP /etf/info only). Never 5xx for an FMP problem: an off group or a failed
+# fetch is a normal `status: "unavailable"` body, so the Overview can say so while the Technical and
+# Chart tabs keep working.
+@app.get("/api/tickers/{ticker}/etf-overview", response_model=EtfOverviewOut)
+async def ticker_etf_overview(ticker: str) -> EtfOverviewOut:
+    return await get_etf_overview(ticker)
 
 
 @app.get("/api/tickers/{ticker}/step1", response_model=Step1Out)
@@ -770,6 +784,10 @@ def ticker_moat(ticker: str) -> TickerMoatOut:
 async def update_ticker_moat(ticker: str, body: TickerMoatIn) -> TickerMoatOut:
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
+        # An Economic Moat is a company judgement; an ETF has none, and a Moat-rated ticker is what
+        # enters the monthly stock momentum universe (data/momentum_data.py).
+        if is_known_etf(session, ticker):
+            raise HTTPException(status_code=400, detail=f"{ticker} is an ETF or fund; an Economic Moat can't be set on it")
         row = set_ticker_moat(session, ticker, body.moat)
     # cache_only=True -- a moat change alone shouldn't trigger a surprise FMP
     # fetch (same philosophy as recompute_ticker_scores.py); this just makes
@@ -934,6 +952,7 @@ def _watchlist_out(row: Watchlist, tickers: list) -> WatchlistOut:
         created_at=row.created_at,
         updated_at=row.updated_at,
         tickers=[WatchlistTickerOut(ticker=t.ticker, added_at=t.added_at) for t in tickers],
+        monitored=is_monitored_watchlist_name(row.name),
     )
 
 
@@ -1034,6 +1053,35 @@ def watchlist_remove_ticker(watchlist_id: int, ticker: str) -> None:
         deleted = remove_watchlist_ticker(session, watchlist_id, normalize_ticker(ticker))
     if not deleted:
         raise HTTPException(status_code=404, detail=f"{normalize_ticker(ticker)} not found in watchlist {watchlist_id}")
+
+
+@app.post("/api/tickers/{ticker}/etf-watchlist", response_model=EtfWatchlistAddOut)
+def ticker_add_to_etf_watchlist(ticker: str) -> EtfWatchlistAddOut:
+    """The ETF page's "Add to watchlist": adds the ticker to the list named "ETF" (a monitored list,
+    see data/watchlists.py), creating it on first use. Idempotent -- an ETF already on that list
+    answers 200 with added=false. The 100-ticker cap applies like anywhere else (400)."""
+    ticker = normalize_ticker(ticker)
+    with Session(engine) as session:
+        watchlist = get_watchlist_by_name(session, ETF_WATCHLIST_NAME)
+        if watchlist is None:
+            try:
+                watchlist = create_watchlist(session, ETF_WATCHLIST_NAME)
+            except IntegrityError:  # a concurrent request created it first (unique name)
+                session.rollback()
+                watchlist = get_watchlist_by_name(session, ETF_WATCHLIST_NAME)
+        if get_watchlist_ticker(session, watchlist.id, ticker) is not None:
+            return EtfWatchlistAddOut(watchlist_id=watchlist.id, watchlist_name=watchlist.name, added=False)
+        existing_count, _ = count_net_new_tickers(session, watchlist.id, [ticker])
+        if existing_count >= WATCHLIST_CAPACITY:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f'The "{watchlist.name}" watchlist is full ({existing_count}/{WATCHLIST_CAPACITY} tickers). '
+                    f"Remove an ETF from it on the Watchlists page, then try again."
+                ),
+            )
+        add_watchlist_ticker(session, watchlist.id, ticker)
+        return EtfWatchlistAddOut(watchlist_id=watchlist.id, watchlist_name=watchlist.name, added=True)
 
 
 @app.get("/api/watchlists/{watchlist_id}/rows", response_model=list[WatchlistRowOut])

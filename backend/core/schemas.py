@@ -43,6 +43,11 @@ class TickerSearchResult(BaseModel):
     symbol: str
     name: str | None = None
     exchange: str | None = None
+    # True only for a ticker the app already KNOWS is an ETF/fund (cached profile or TickerScore):
+    # FMP's search endpoints carry no security-type field and a per-result /profile call would
+    # both cost FMP calls and add every searched ticker to the tracked universe. An ETF never
+    # opened or watchlisted before is therefore unlabelled until its page is first viewed.
+    is_etf: bool = False
 
 
 class TickerSummaryOut(BaseModel):
@@ -1121,6 +1126,9 @@ class WatchlistOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     tickers: list[WatchlistTickerOut]
+    # data.watchlists.is_monitored_watchlist_name(name) -- the nightly technical jobs read this list.
+    # Computed here so the frontend never has to re-implement the naming rule.
+    monitored: bool = False
 
 
 # Shared by create and rename -- strips surrounding whitespace before
@@ -1745,6 +1753,9 @@ class WatchlistRowOut(BaseModel):
     # no cached analyst-ratings data for this ticker yet -- never null.
     consensus_rating: str
     added_at: datetime
+    # TickerScore.is_etf of the cache-only score row; the table shows an "ETF" marker in place of
+    # the (always blank) score cells. False for a never-viewed ticker with no score row.
+    is_etf: bool = False
 
 
 class ScreenerMeta(BaseModel):
@@ -2084,3 +2095,49 @@ class InstitutionalOwnershipOut(BaseModel):
     # Explains a degraded ownership_valid=False state -- None otherwise.
     note: str | None = None
 
+
+
+class EtfSectorWeightOut(BaseModel):
+    sector: str
+    # Percent of the fund (0-100), as FMP reports it in /etf/info `sectorsList[].exposure`.
+    weight: float
+
+
+class EtfOverviewOut(BaseModel):
+    """ETF page Overview tab, from FMP /etf/info only (see data/etf_data.py).
+
+    status "ok": fund facts present; every fact FMP did not return is None (the UI omits it).
+    "unavailable": nothing to show -- the etf_info data group is off (or not on the plan) with no
+    cached row, or the fetch failed with no cached row; `reason` says which.
+    "no_data": FMP answered but has no fund record for this ticker (`[]`)."""
+
+    ticker: str
+    status: Literal["ok", "unavailable", "no_data"]
+    reason: Literal["group_off", "fetch_failed"] | None = None
+    name: str | None = None
+    issuer: str | None = None
+    asset_class: str | None = None
+    # Percent (0.09 means 0.09%), None when absent.
+    expense_ratio: float | None = None
+    assets_under_management: float | None = None
+    holdings_count: int | None = None
+    nav: float | None = None
+    nav_currency: str | None = None
+    avg_volume: float | None = None
+    inception_date: str | None = None
+    domicile: str | None = None
+    description: str | None = None
+    website: str | None = None
+    # Largest first. EMPTY when the fund is not an equity fund, or when the only entry is
+    # "Cash & Others 100%" -- the UI then shows its "not shown for funds that don't hold stocks" note.
+    sector_weights: list[EtfSectorWeightOut] = []
+    # When FMP last updated the record (/etf/info `updatedAt`), and when this app last fetched it.
+    updated_at: str | None = None
+    fetched_at: datetime | None = None
+
+
+class EtfWatchlistAddOut(BaseModel):
+    watchlist_id: int
+    watchlist_name: str
+    # False when the ticker was already on the ETF watchlist (the call is idempotent).
+    added: bool

@@ -10,6 +10,16 @@ from core.models import IndexConstituent
 from data.ticker_search import search_tickers
 
 
+@pytest.fixture(autouse=True)
+def _isolated_search_engine(monkeypatch):
+    """search_tickers marks known ETFs from the local DB (data.etf_data.known_etf_tickers): every test
+    gets an empty in-memory one so none reads the real database."""
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+    monkeypatch.setattr(ticker_search, "engine", engine)
+    return engine
+
+
 def test_merges_and_dedupes_symbol_and_name_matches(monkeypatch):
     async def fake_search_symbol(query, limit):
         return [

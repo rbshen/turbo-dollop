@@ -6,6 +6,7 @@ import httpx
 
 from core.config import settings
 from core.data_groups import (
+    CANARY_SYMBOL_OVERRIDES,
     PROBE_ENDPOINTS,
     clear_restricted,
     describe_off,
@@ -57,15 +58,17 @@ class FMPGroupDisabledError(FMPDisabledError):
 _CANARY_SYMBOL = "AAPL"
 
 
-def _canary_params(params: dict) -> dict | None:
-    """The same request with the symbol swapped for AAPL, or None when
-    there is nothing to swap (symbol-less endpoint, or already AAPL -- the
-    failing call itself then IS the canary)."""
+def _canary_params(params: dict, endpoint: str | None = None) -> dict | None:
+    """The same request with the symbol swapped for AAPL (or the endpoint's own
+    CANARY_SYMBOL_OVERRIDES symbol -- SPY for /etf/info), or None when there is
+    nothing to swap (symbol-less endpoint, or already the canary -- the failing
+    call itself then IS the canary)."""
+    canary_symbol = CANARY_SYMBOL_OVERRIDES.get(endpoint, _CANARY_SYMBOL) if endpoint else _CANARY_SYMBOL
     for key in ("symbol", "symbols", "query"):
         if key in params:
-            if str(params[key]).upper() == _CANARY_SYMBOL:
+            if str(params[key]).upper() == canary_symbol:
                 return None
-            return {**params, key: _CANARY_SYMBOL}
+            return {**params, key: canary_symbol}
     return None
 
 
@@ -192,7 +195,7 @@ class FMPClient:
         if the canary ALSO gets a 402. An endpoint with no symbol/query
         parameter has no canary to vary -- the failing call is its own
         canary."""
-        canary = _canary_params(params)
+        canary = _canary_params(params, endpoint)
         if canary is None:
             confirmed = True
         else:
@@ -246,6 +249,12 @@ class FMPClient:
 
     async def get_quote(self, ticker: str) -> dict | list:
         return await self.get("/quote", {"symbol": ticker})
+
+    async def get_etf_info(self, ticker: str) -> dict | list:
+        """Fund facts + embedded sector weights (one row; `[]` for a non-ETF). The only ETF
+        endpoint the app uses -- never /etf/holdings, /etf/sector-weightings, /etf/country-weightings
+        or /etf/asset-exposure."""
+        return await self.get("/etf/info", {"symbol": ticker})
 
     async def get_forex_quote(self, from_currency: str) -> dict | list:
         """Spot rate for `from_currency` -> USD, via the same `/quote`

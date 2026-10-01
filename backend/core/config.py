@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     # hit FMP, without pretending news is as static as financials. See
     # news_data.py.
     news_cache_ttl_minutes: int = 20
+    # ETF /etf/info (fund facts, NAV, AUM, avg volume, sector weights). Fetched only when an ETF page's
+    # Overview tab is opened (no nightly job), one small row per ETF. NAV/AUM/avg volume move daily,
+    # the descriptive fields essentially never do, so a 1-day window keeps the numbers current without
+    # a refetch on every view. A failed refetch serves the stale row (data/etf_data.py).
+    etf_info_staleness_days: int = 1
     # SEC EDGAR's fair-use policy requires a descriptive User-Agent
     # identifying the requester with real contact info (a bare/generic UA
     # gets 403'd) -- override via SEC_EDGAR_USER_AGENT in .env with a real
