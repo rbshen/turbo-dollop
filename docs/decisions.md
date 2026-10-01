@@ -361,6 +361,17 @@ Stage 4a of 5. The four behaviour-bearing items left after session 13: `TickerSe
 
 **Live-behaviour changes authorised:** the kit input and focus ring on the ticker search; toggle and segmented-control styling and semantics as classified above; the brand-blue selected state replaced by neutral at the migrated segmented-control call sites; the keyboard slider focus ring; the new parse warning; sentence-case labels at touched call sites. Nothing else.
 
+**Delivered, and where the brief and the code differed.** The code was ground truth:
+
+- **No `aria-activedescendant` existed** on the search box (the options have no ids), so there was none to keep; none was added. The highlighted option is shown with `aria-selected` and a `surface-2` fill, and focus stays in the input.
+- **The search box is 36px, not matched to the nav links.** The nav is a fixed `h-12` (48px) and the kit `Input` is 36px (the old one was 32px; the links are 33px), so the nav height cannot change and the kit height was kept rather than a one-off size. The width moved to the wrapper (the kit has no 160px or 224px token).
+- **ArrowUp from "nothing highlighted"** lands on the second-to-last result (the index starts at -1), an old quirk pinned by a test and left alone.
+- **Re-clicking the selected chart range** used to reset the zoom (the old buttons called the handler whatever the state); the kit control ignores a re-click, so it no longer does. Every other segmented call site was unaffected, because their handlers were no-ops for the same value.
+- **The ten chart overlays are `outline` `sm` buttons, not switches**, because a row of labelled switches always wraps (see the design-system section); the toggles row is 32px high where the old text buttons were 25px. The Zoom in and Zoom out buttons were not toggles and were left as they were.
+- **The parse warning follows the brief's rule exactly** (`parseFloat` reads a number but `Number()` does not), so text `Number` accepts but `parseFloat` reads differently ("0x10" is read as 0) shows no warning.
+- **The sliders' session 13 utility classes were removed**: the global rule alone gives the keyboard ring.
+- **Tests.** `TickerSearch`, `ChartTab`, `FinancialsTab` and `SentimentOverTimeCard` had none and gained characterization tests written green against the old code; `EconomicMoatTab` gained three. Selector updates: the moat segments are matched by their sentence-case names, the price-target overlay is found as a `switch`, and the segmented call sites check `aria-pressed`.
+
 **What remains after this session (C2).** The Screener "Add to Watchlist" label, `Step3Card`'s Title Case labels, the remaining text-glyph icons, and the warn-toned Confirm buttons in the Bank and Moat save panels. The exact file and line lists are in the session report.
 
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)

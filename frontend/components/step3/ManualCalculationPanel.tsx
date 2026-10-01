@@ -23,6 +23,7 @@ import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { apiDelete, apiPost, apiPut, errorDetail } from "@/lib/api/client";
 import { fmtMoney, fmtNumber, fmtPct } from "@/lib/format";
 import { useTickerCustomValuation } from "@/lib/hooks/useTickerCustomValuation";
+import { joinIds } from "@/lib/formControl";
 import { isIncompleteNumberPrefix } from "@/lib/numberInput";
 import { cn } from "@/lib/utils";
 import type {
@@ -306,6 +307,20 @@ function formatDisplay(kind: FieldKind, raw: string, currency: string = "USD"): 
 // box is still focused.
 const UNREADABLE_NUMBER_MESSAGE = "Enter a number.";
 
+// The warning is for text parseNum reads only a prefix of: parseFloat gets a number but Number() rejects the whole
+// text ("12abc" is read as 12, "1,234" as 1). Fully numeric text ("1e3", "+4") passes Number, so it never warns, and
+// text that reads as nothing keeps the error above (parseFloat is NaN there, so this returns null). It is advice
+// only: nothing here changes what parseNum returns, what is sent or what is calculated.
+function prefixOnlyReading(text: string): number | null {
+  const trimmed = text.trim();
+  if (trimmed === "") return null;
+  const n = parseFloat(trimmed);
+  if (Number.isNaN(n) || !Number.isNaN(Number(trimmed))) return null;
+  return n;
+}
+
+const FIELD_WARNING_CLASS = "text-xs text-warn";
+
 function ManualInputRow({
   label,
   sublabel,
@@ -325,6 +340,8 @@ function ManualInputRow({
   const id = useId();
   const unreadable = value.trim() !== "" && parseNum(value) === null && !(focused && isIncompleteNumberPrefix(value));
   const field = useFieldContextValue(id, { hint: sublabel, error: unreadable ? UNREADABLE_NUMBER_MESSAGE : undefined });
+  const readAs = unreadable ? null : prefixOnlyReading(value);
+  const warningId = `${id}-warning`;
   return (
     <FieldProvider value={field}>
       <TableRow className={FIELD_ROW_CLASS}>
@@ -354,11 +371,17 @@ function ManualInputRow({
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             onChange={(e) => onChange(e.target.value)}
+            aria-describedby={readAs !== null ? joinIds(field.hintId, warningId) : undefined}
             className="text-right font-mono tabular-nums"
           />
           {unreadable && (
             <p id={field.errorId} role="alert" className={cn(FIELD_ERROR_CLASS, "text-left font-sans")}>
               {UNREADABLE_NUMBER_MESSAGE}
+            </p>
+          )}
+          {readAs !== null && (
+            <p id={warningId} role="status" className={cn(FIELD_WARNING_CLASS, "text-left font-sans")}>
+              {`Read as ${readAs}. ${value.includes(",") ? "Remove the comma." : "Check the text."}`}
             </p>
           )}
         </TableCell>
@@ -374,10 +397,10 @@ function ManualInputRow({
 //
 // The label is a real <label for>, the sublabel is the input's description,
 // and aria-valuetext carries the same text as the readout ("+14.6%") because
-// the input's own value is the bare number (14.6). .range-slider:focus in
-// globals.css removes the outline (and the global CSS is not edited here), so
-// the focus ring is restored with utility classes -- they sit in a later
-// cascade layer than that rule. Arrow/Home/End/Page keys are the browser's own:
+// the input's own value is the bare number (14.6). The keyboard focus ring is
+// the global *:focus-visible one: .range-slider only removes the outline for
+// a focus that is not :focus-visible (globals.css), so a mouse press shows no
+// ring and a key press does. Arrow/Home/End/Page keys are the browser's own:
 // nothing here handles a key.
 function SliderField({
   label,
@@ -424,7 +447,7 @@ function SliderField({
         onChange={(e) => onChange(e.target.value)}
         aria-valuetext={Number.isNaN(n) ? "No value" : fmtPct(n, 1)}
         aria-describedby={sublabel ? sublabelId : undefined}
-        className="range-slider focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        className="range-slider"
         style={{ "--range-fill": `${fillPct}%` } as CSSProperties}
       />
     </div>

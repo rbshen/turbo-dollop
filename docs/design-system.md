@@ -226,7 +226,12 @@ The top-nav ticker search, the chart and price-target toggles, the segmented-con
 
 **Parse warning.** In a Custom valuation row, text that `parseFloat` reads only a prefix of shows a polite line in the same slot as the "Enter a number." error, in `warn`: "Read as 12. Check the text." for "12abc", and "Read as 1. Remove the comma." for "1,234". It is linked to the box with `aria-describedby` and never blocks Save, the calculation or the value sent (still 12 and 1). Fully numeric text ("1e3", "+4"), empty text and the start of a number ("-", ".", "-." while the box has focus) show nothing. "Enter a number." wins when the text reads as nothing. The number in the line is plain text. Text that `Number` accepts but `parseFloat` reads differently ("0x10" is read as 0) is not warned about.
 
-**What is left after session 14 (C2).** Hand-written "ghost plus border" buttons, `outline-none` and text-glyph icons that remain are listed in the session report; the known items are the Screener "Add to Watchlist" label, `Step3Card`'s Title Case labels, the Bank and Moat Confirm buttons, the Zoom in and Zoom out buttons, and the glyph affordances named under session 11.
+**What is left after session 14 (C2), counted by grep at the end of the session.**
+
+- **"Ghost plus border" hand-written buttons:** the two Screener dropdown triggers (`SavedFiltersBar` and `MultiSelectDropdown`, each `h-8 border border-border-input hover:border-brand`). `ScreenerCard`'s `hover:border-brand` is a card hover, not a button. Hand-written buttons of another pattern: the warn-toned Confirm buttons in the Bank and Moat save panels, and the Chart tab's Zoom in and Zoom out buttons (borderless, `text-tertiary`).
+- **`outline-none`:** only `focus:outline-none` on the two info-icon buttons, `SpeculativeGrowthInfoIcon` and `SpeculativeGrowthFakeGrowthWarning`, which changes only the icon's colour on keyboard focus and so shows no ring. Everything else that matches is a comment saying a control has none.
+- **Text-glyph icons:** the "Saved ✓" status (`SettingsLayout`, `SavedFiltersBar`), the "Recomputed ✓" label (`RecomputeButton`), "Hide details −" (`ChecklistCard`) and "Hide reasoning −" (`AnalysisSectionCard`), the sector heatmap's "↓ ↑" (`SectorHeatmapGrid`), "Browse by sector →" (the Breadth page), and the "⚠" in the Watchlist table and `MetricsGrid`. The "⚠️" emoji in `OutlierWarningNote` and `OverallAssessmentCard` break the no-emoji rule. The pills' "▲ ▼" (`status.tsx`) and the arrows inside chart labels ("Live →", "Price data starts →") are content and stay.
+- **Also still to do:** the Screener "Add to Watchlist" label and `Step3Card`'s Title Case labels.
 
 ## Settings layout
 

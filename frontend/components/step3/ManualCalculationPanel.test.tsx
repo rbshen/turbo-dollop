@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -827,6 +830,114 @@ describe("ManualCalculationPanel: the rows (kit Input)", () => {
   });
 });
 
+describe("ManualCalculationPanel: the parse warning", () => {
+  const warningOf = (input: HTMLInputElement) => input.closest("td")!.querySelector('[role="status"]');
+
+  it.each([
+    ["12abc", "Read as 12. Check the text.", 12_000_000],
+    ["1,234", "Read as 1. Remove the comma.", 1_000_000],
+    ["12 abc", "Read as 12. Check the text.", 12_000_000],
+    ["1.2.3", "Read as 1.2. Check the text.", 1_200_000],
+    ["5,5abc", "Read as 5. Remove the comma.", 5_000_000],
+    ["-7x", "Read as -7. Check the text.", -7_000_000],
+  ])("warns for %j: %j, and still sends %j", async (text, message, sent) => {
+    await mountPanel();
+    const debt = rowInput(/^Total debt$/i);
+    fireEvent.focus(debt);
+    type(debt, text);
+    const warning = warningOf(debt);
+    expect(warning).toHaveTextContent(message);
+    expect(warning).toHaveAttribute("role", "status"); // an implicitly polite live region, so it never interrupts
+    expect(lastCalc()).toMatchObject({ total_debt: sent });
+    expect(debt.value).toBe(text);
+  });
+
+  it("links the warning to the box with aria-describedby, after the sublabel", async () => {
+    await mountPanel();
+    const debt = rowInput(/^Total debt$/i);
+    type(debt, "12abc");
+    expect(debt).toHaveAccessibleDescription("(in millions) Read as 12. Check the text.");
+    expect(debt).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("is a warn-toned line in the error slot's size, not an alert or an error", async () => {
+    await mountPanel();
+    type(rowInput(/^Total debt$/i), "12abc");
+    const warning = screen.getByRole("status", { name: "" });
+    expect(warning).toHaveClass("text-xs", "text-warn");
+    expect(warning.className).not.toMatch(/text-negative/);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it.each(["", "   ", "12.5", "1e3", "+4", "-3", ".5", "5.", "1E3", " 7 ", "0"])("shows no warning for fully numeric or empty text %j", async (text) => {
+    await mountPanel();
+    const debt = rowInput(/^Total debt$/i);
+    type(debt, text);
+    expect(warningOf(debt)).toBeNull();
+    expect(debt).toHaveAccessibleDescription("(in millions)");
+  });
+
+  it("shows no warning for '-', '.' and '-.' while the box has focus", async () => {
+    await mountPanel();
+    const debt = rowInput(/^Total debt$/i);
+    for (const text of ["-", ".", "-."]) {
+      fireEvent.focus(debt);
+      type(debt, text);
+      expect(warningOf(debt)).toBeNull();
+    }
+  });
+
+  it("leaves 'Enter a number.' in charge for text that reads as nothing, and shows no warning with it", async () => {
+    await mountPanel();
+    const debt = rowInput(/^Total debt$/i);
+    for (const text of ["abc", "-", ".", "-.", "--5"]) {
+      type(debt, text);
+      expect(screen.getByRole("alert")).toHaveTextContent("Enter a number.");
+      expect(warningOf(debt)).toBeNull();
+    }
+  });
+
+  it("clears the moment the text is fully numeric, and swaps to the error if the text stops reading at all", async () => {
+    await mountPanel();
+    const debt = rowInput(/^Total debt$/i);
+    type(debt, "12abc");
+    expect(warningOf(debt)).not.toBeNull();
+    type(debt, "12");
+    expect(warningOf(debt)).toBeNull();
+    type(debt, "12abc");
+    type(debt, "abc");
+    expect(warningOf(debt)).toBeNull();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
+  it("warns on every kind of row, in its own row, with the parsed number as plain text", async () => {
+    await mountPanel();
+    const shares = rowInput(/^Shares outstanding$/i);
+    type(shares, "1,500");
+    expect(warningOf(shares)).toHaveTextContent("Read as 1. Remove the comma.");
+    expect(warningOf(rowInput(/^Total debt$/i))).toBeNull();
+  });
+
+  it("never blocks Save or the calculation, and Save sends what the parse reads", async () => {
+    await mountPanel();
+    type(rowInput(/^Total debt$/i), "12abc");
+    expect(btn(/^save$/i)).toBeEnabled();
+    fireEvent.click(btn(/^save$/i));
+    await waitFor(() => expect(apiPut).toHaveBeenCalledTimes(1));
+    expect(apiPut.mock.calls[0][1]).toMatchObject({ total_debt: 12_000_000 });
+  });
+
+  it("shows the idle formatted value as before once the box loses focus, with the warning still in place", async () => {
+    await mountPanel();
+    const debt = rowInput(/^Total debt$/i);
+    fireEvent.focus(debt);
+    type(debt, "12abc");
+    fireEvent.blur(debt);
+    expect(debt.value).toBe("$12.00");
+    expect(warningOf(debt)).toHaveTextContent("Read as 12. Check the text.");
+  });
+});
+
 describe("ManualCalculationPanel: sliders (accessibility)", () => {
   const NAMES = ["Growth yr 1-5", "Growth yr 6-10", "Growth yr 11-20 (terminal)", "Discount rate (CAPM)"];
 
@@ -861,12 +972,20 @@ describe("ManualCalculationPanel: sliders (accessibility)", () => {
     expect(screen.getByRole("slider", { name: "Growth yr 6-10" })).not.toHaveAttribute("aria-describedby");
   });
 
-  it("keeps the .range-slider styling and restores a visible keyboard focus ring", async () => {
+  it("keeps the .range-slider styling and leaves the ring to the global :focus-visible rule", async () => {
     await mountPanel();
     for (const slider of sliders()) {
-      expect(slider).toHaveClass("range-slider", "focus-visible:outline-2", "focus-visible:outline-offset-2", "focus-visible:outline-brand");
-      expect(slider.className).not.toMatch(/outline-none/);
+      expect(slider.className).toBe("range-slider");
     }
+  });
+
+  it("globals.css removes the slider's outline only for a focus that is not :focus-visible", () => {
+    const css = readFileSync(path.resolve(__dirname, "../../app/globals.css"), "utf8");
+    expect(css).toMatch(/\.range-slider:focus:not\(:focus-visible\)\s*\{\s*outline:\s*none;\s*\}/);
+    // The old rule took the ring away from keyboard focus too.
+    expect(css).not.toMatch(/\.range-slider:focus\s*\{/);
+    // The global keyboard ring it relies on is still there.
+    expect(css).toMatch(/\*:focus-visible\s*\{\s*outline:\s*2px solid var\(--color-brand\);/);
   });
 
   it("leaves the arrow, Home, End and Page keys to the browser", async () => {

@@ -236,7 +236,9 @@
     );
     cursor: pointer;
   }
-  .range-slider:focus {
+  /* Mouse focus shows no ring; keyboard focus keeps the global 2px brand
+     :focus-visible outline (base layer), which this rule must not touch. */
+  .range-slider:focus:not(:focus-visible) {
     outline: none;
   }
   .range-slider::-webkit-slider-runnable-track {
