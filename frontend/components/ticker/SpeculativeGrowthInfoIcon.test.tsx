@@ -214,3 +214,31 @@ describe("the two icon buttons' keyboard focus ring", () => {
     expect(button).toHaveAttribute("aria-describedby", "speculative-growth-info-tooltip");
   });
 });
+
+// Bug fix (session 16): the header puts the icons in a whitespace-nowrap group, and a bubble that does not set its own
+// white-space inherits it and runs on as one line past its box. Each bubble wraps in its own box and is bounded.
+describe("both tooltip bubbles wrap inside their own box", () => {
+  it.each([
+    ["About Speculative Growth", () => <SpeculativeGrowthInfoIcon />],
+    ["Potential fake growth warning", () => <SpeculativeGrowthFakeGrowthWarning />],
+  ])("%s: whitespace-normal, a width bound that never passes the viewport, and above the tabs", (name, ui) => {
+    render(ui());
+    fireEvent.mouseEnter(screen.getByRole("button", { name }));
+    const bubble = screen.getByRole("tooltip");
+    expect(bubble).toHaveClass("whitespace-normal", "w-64", "max-w-[min(18rem,calc(100vw-2rem))]", "z-30", "p-2.5");
+    expect(bubble.className).not.toMatch(/whitespace-nowrap/);
+    expect(bubble.className).not.toMatch(/overflow-hidden/);
+  });
+
+  it.each([
+    ["About Speculative Growth", () => <SpeculativeGrowthInfoIcon />],
+    ["Potential fake growth warning", () => <SpeculativeGrowthFakeGrowthWarning />],
+  ])("%s: centred under the icon from md, and starts at the pill row's left edge below md", (name, ui) => {
+    render(ui());
+    const button = screen.getByRole("button", { name });
+    fireEvent.mouseEnter(button);
+    const bubble = screen.getByRole("tooltip");
+    expect(bubble).toHaveClass("md:left-1/2", "md:-translate-x-1/2", "max-md:left-0", "max-md:max-w-[min(20rem,100%)]");
+    expect(button.parentElement).toHaveClass("static", "md:relative");
+  });
+});

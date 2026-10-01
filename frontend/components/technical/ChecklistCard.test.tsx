@@ -62,3 +62,27 @@ describe("ChecklistCard: the details toggle", () => {
     expect(icons[1]).toHaveClass("hidden", "group-data-[panel-open]:block");
   });
 });
+
+// Session 16: this card has no side column (a single stack), so the expanded details already start at the same left
+// edge as the title and paragraph. Pinned so a future column cannot silently reintroduce the offset.
+describe("ChecklistCard: the expanded details line up with the paragraph", () => {
+  it("has the details and the header text as children of one stack, with no left offset on either path", () => {
+    const { container } = card(true);
+    fireEvent.click(screen.getByRole("button"));
+    const root = container.firstElementChild as HTMLElement;
+    const textBlock = screen.getByText("Blurb").parentElement as HTMLElement;
+    const details = screen.getByText("First check").closest("ul")!.closest("[data-slot=collapsible-content]") as HTMLElement;
+    // Path from the root to each: the header row holds the text block, the collapsible holds the details.
+    expect(textBlock.parentElement!.parentElement).toBe(root);
+    expect(details.parentElement!.parentElement).toBe(root);
+    for (const el of [textBlock, textBlock.parentElement!, details, details.parentElement!, screen.getByText("First check").closest("ul")!]) {
+      expect(el.className).not.toMatch(/(^|\s)(-?ml|-?pl|-?px|-?mx)-/);
+    }
+  });
+
+  it("is the same in the always-expanded variant", () => {
+    const { container } = card(false);
+    const root = container.firstElementChild as HTMLElement;
+    expect(screen.getByText("First check").closest("ul")!.parentElement).toBe(root);
+  });
+});

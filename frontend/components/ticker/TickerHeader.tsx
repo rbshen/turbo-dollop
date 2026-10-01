@@ -114,8 +114,9 @@ export function TickerHeaderView({ data, assessment, actions, moat, specGrowth, 
       {/* Row 2.5: Assessment/Valuation/Moat/etc. status pills -- six wide when
           everything applies. Whole pills wrap onto the next line (never
           break inside one), 8px apart both ways; the Speculative growth
-          pill's icons sit in a nowrap group with it so they never split. */}
-      <div className="flex flex-wrap items-center gap-2">
+          pill's icons sit in a nowrap group with it so they never split.
+          `relative` is the anchor the two icon tooltips use below md. */}
+      <div className="relative flex flex-wrap items-center gap-2">
         {assessment}
         <MoatPill moat={moat} />
         <FairValuePill

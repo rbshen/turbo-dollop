@@ -59,3 +59,69 @@ describe("AnalysisSectionCard: the reasoning toggle", () => {
     expect(icons[1]).toHaveClass("hidden", "group-data-[panel-open]:block");
   });
 });
+
+// Bug fix (session 16): the expanded list used to sit outside the row, indented by a fixed 10.4rem, so it started
+// 3.6rem left of the paragraph. It now lives in the same text column as the title and paragraph.
+describe("AnalysisSectionCard: the expanded list lines up with the paragraph", () => {
+  const column = () => screen.getByText("Blurb").closest('[data-slot="analysis-text-column"]') as HTMLElement;
+
+  it("keeps the title, paragraph, methodology and the list in one text column that is the score column's sibling", () => {
+    card();
+    fireEvent.click(screen.getByRole("button"));
+    const col = column();
+    expect(col).not.toBeNull();
+    expect(col).toContainElement(screen.getByText("Financials"));
+    expect(col).toContainElement(screen.getByText("Method"));
+    const list = screen.getByRole("list");
+    expect(col).toContainElement(list);
+    // The score and the pill are the column's sibling, never its ancestor.
+    const score = screen.getByText("82");
+    expect(col).not.toContainElement(score);
+    expect(score.closest("div")!.parentElement).toBe(col.parentElement);
+  });
+
+  it("puts the list flush with the column: no margin or padding on the list's own container, one hanging step inside it", () => {
+    card();
+    fireEvent.click(screen.getByRole("button"));
+    const list = screen.getByRole("list");
+    expect(list).toHaveClass("list-disc", "pl-5");
+    expect(list.className).not.toMatch(/(^|\s)(ml|mx|pl)-\[/);
+    expect(list.className).not.toMatch(/10\.4rem/);
+    // Nothing between the column and the list adds a left offset.
+    for (let el: HTMLElement | null = list.parentElement; el && el !== column(); el = el.parentElement) {
+      expect(el.className).not.toMatch(/(^|\s)(-?ml|-?pl|-?px|-?mx)-/);
+    }
+  });
+
+  it("is the same column in both states, so toggling never moves it", () => {
+    card();
+    const before = column();
+    fireEvent.click(screen.getByRole("button"));
+    expect(column()).toBe(before);
+    expect(column()).toContainElement(screen.getByRole("list"));
+    fireEvent.click(screen.getByRole("button"));
+    expect(column()).toBe(before);
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+  });
+
+  it("keeps the toggle in the column's header row at the right, and the whole card clickable through the toggle's overlay", () => {
+    card();
+    const trigger = screen.getByRole("button");
+    expect(trigger.parentElement).toHaveClass("flex", "justify-between");
+    expect(column()).toContainElement(trigger);
+    expect(trigger).toHaveClass("shrink-0", "after:absolute", "after:inset-0");
+    expect(trigger.closest("[data-slot=collapsible]")).toHaveClass("relative");
+  });
+
+  it("paints the list above the overlay, so it neither toggles nor loses text selection", () => {
+    card();
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getByRole("list").closest("[data-slot=collapsible-content]")).toHaveClass("relative");
+  });
+
+  it("puts the list in the text column when there is no score column too", () => {
+    render(<AnalysisSectionCard title="Financials" score={null} verdict="" blurb="Blurb" methodology="Method" bullets={[{ key: "b", text: "A bullet", tierClassName: "" }]} />);
+    fireEvent.click(screen.getByRole("button"));
+    expect(column()).toContainElement(screen.getByRole("list"));
+  });
+});

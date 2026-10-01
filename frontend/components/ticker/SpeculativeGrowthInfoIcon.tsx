@@ -16,13 +16,21 @@ export const SPECULATIVE_GROWTH_INFO_COPY =
 // hover state closed. `visible` is the OR of both; the panel is only
 // mounted (not just visually hidden) while `visible` is false, but since
 // it's absolutely positioned this never affects layout either way.
+//
+// The bubble sets `whitespace-normal` itself because it sits inside
+// TickerHeader's nowrap pill group and would otherwise inherit
+// `white-space: nowrap` and run on as one line. From md up it is centred
+// under the icon (256px, never wider than the viewport minus 2rem); below md
+// the icon wrapper is `static`, so the bubble anchors to the pill row
+// (`relative` in TickerHeader) and starts at the row's left edge, which
+// keeps it inside the screen wherever the pill wrapped to.
 export function SpeculativeGrowthInfoIcon() {
   const [hovered, setHovered] = useState(false);
   const [tapped, setTapped] = useState(false);
   const visible = hovered || tapped;
 
   return (
-    <span className="relative inline-flex items-center">
+    <span className="static inline-flex items-center md:relative">
       <button
         type="button"
         aria-label="About Speculative Growth"
@@ -41,7 +49,7 @@ export function SpeculativeGrowthInfoIcon() {
         <div
           id="speculative-growth-info-tooltip"
           role="tooltip"
-          className="absolute left-1/2 top-full z-20 mt-1.5 w-64 -translate-x-1/2 rounded-md border border-border-input bg-surface p-2.5 text-xs font-normal leading-snug text-text-secondary shadow-lg"
+          className="absolute top-full z-30 mt-1.5 w-64 max-w-[min(18rem,calc(100vw-2rem))] whitespace-normal rounded-md border border-border-input bg-surface p-2.5 text-left text-xs font-normal leading-snug text-text-secondary shadow-lg max-md:left-0 max-md:w-auto max-md:max-w-[min(20rem,100%)] md:left-1/2 md:-translate-x-1/2"
         >
           {SPECULATIVE_GROWTH_INFO_COPY}
         </div>
