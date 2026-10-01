@@ -72,7 +72,7 @@ was added; the index scrapers only run on Sundays).
 ### ETF endpoint (2026-10-01)
 
 `/etf/info` -> group `etf_info` (cache key `etf_info`), the only ETF endpoint used; see `docs/specs/etf-page.md`. Its tier
-(Premium) is an unverified guess. Its canary/probe symbol is **SPY**, not AAPL (`CANARY_SYMBOL_OVERRIDES` in
+is Starter (the owner's recorded value, seeded as the code default since 2026-10-02; not FMP-verified). Its canary/probe symbol is **SPY**, not AAPL (`CANARY_SYMBOL_OVERRIDES` in
 `core/data_groups.py`), because AAPL answers `200 []`. `/etf/holdings`, `/etf/sector-weightings`,
 `/etf/country-weightings` and `/etf/asset-exposure` are deliberately not registered or called.
 

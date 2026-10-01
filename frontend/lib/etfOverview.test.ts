@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { EtfOverviewOut } from "@/lib/api/types";
-import { fundDataAsOf, fundFacts, unavailableMessage } from "@/lib/etfOverview";
+import type { EtfOverviewOut, EtfTradingDataOut } from "@/lib/api/types";
+import { fundDataAsOf, fundFacts, tradingDataCaption, tradingDataRows, unavailableMessage } from "@/lib/etfOverview";
 
 const BASE: EtfOverviewOut = {
   ticker: "SPY",
@@ -21,6 +21,7 @@ const BASE: EtfOverviewOut = {
   description: "An ETF.",
   website: null,
   sector_weights: [],
+  trading_data: null,
   updated_at: "2026-10-01T00:50:10.019Z",
   fetched_at: null,
 };
@@ -70,5 +71,84 @@ describe("fundDataAsOf / unavailableMessage", () => {
     expect(off).toMatch(/data group is off/);
     expect(failed).toMatch(/Couldn't load/);
     expect(none).toMatch(/no fund details for SPY/);
+  });
+});
+
+const TRADING: EtfTradingDataOut = {
+  perf_1m: 4.21,
+  perf_ytd: -3.4,
+  perf_1y: 20.05,
+  perf_as_of: "2026-10-01",
+  week52_low: 555.6,
+  week52_high: 748.65,
+  avg_volume_30d: 41_200_000,
+  avg_dollar_volume_20d: 29_800_000_000,
+  distribution_ttm_per_share: 3.09182,
+  distribution_ttm_yield_pct: 0.42,
+  beta: 1.23,
+};
+const NONE: EtfTradingDataOut = {
+  perf_1m: null, perf_ytd: null, perf_1y: null, perf_as_of: null, week52_low: null, week52_high: null,
+  avg_volume_30d: null, avg_dollar_volume_20d: null, distribution_ttm_per_share: null,
+  distribution_ttm_yield_pct: null, beta: null,
+};
+
+describe("tradingDataRows", () => {
+  it("lists every row in order, signed returns coloured, mono-ready values", () => {
+    expect(tradingDataRows(TRADING)).toEqual([
+      { label: "1M performance", value: "+4.21%", tone: "positive" },
+      { label: "YTD performance", value: "-3.40%", tone: "negative" },
+      { label: "1Y performance", value: "+20.05%", tone: "positive" },
+      { label: "52-week range", value: "$555.60 – $748.65" },
+      { label: "Average volume (30d)", value: "41.20M" },
+      { label: "Average dollar volume (20d)", value: "$29.80B" },
+      { label: "Distribution yield (TTM)", value: "0.42% ($3.09/sh)" },
+      { label: "Beta", value: "1.23" },
+    ]);
+  });
+
+  it("omits a bond or commodity fund's beta and a fund with no distribution, keeping the rest", () => {
+    const rows = tradingDataRows({ ...TRADING, beta: null, distribution_ttm_per_share: null, distribution_ttm_yield_pct: null });
+    expect(rows.map((r) => r.label)).not.toContain("Beta");
+    expect(rows.map((r) => r.label)).not.toContain("Distribution yield (TTM)");
+    expect(rows).toHaveLength(6);
+  });
+
+  it("omits performance rows whose bars were missing", () => {
+    const labels = tradingDataRows({ ...TRADING, perf_1m: null, perf_ytd: null, perf_1y: null, perf_as_of: null }).map((r) => r.label);
+    expect(labels).toEqual(["52-week range", "Average volume (30d)", "Average dollar volume (20d)", "Distribution yield (TTM)", "Beta"]);
+  });
+
+  it("treats zero like missing: never a 0 row, and a half-known 52-week range is dropped", () => {
+    const rows = tradingDataRows({
+      ...TRADING, perf_1m: 0, beta: 0, distribution_ttm_yield_pct: 0, week52_high: 0, avg_volume_30d: 0,
+    });
+    expect(rows.map((r) => r.label)).toEqual(["YTD performance", "1Y performance", "Average dollar volume (20d)"]);
+  });
+
+  it("shows the yield alone when the per-share figure is unavailable", () => {
+    const row = tradingDataRows({ ...NONE, distribution_ttm_yield_pct: 5.0 })[0];
+    expect(row).toEqual({ label: "Distribution yield (TTM)", value: "5.00%" });
+  });
+
+  it("is empty for a null block and for a block where every value is unavailable", () => {
+    expect(tradingDataRows(null)).toEqual([]);
+    expect(tradingDataRows(NONE)).toEqual([]);
+  });
+});
+
+describe("tradingDataCaption", () => {
+  it("names the as-of date and the yield basis, only for rows that are shown", () => {
+    const caption = tradingDataCaption(TRADING, tradingDataRows(TRADING));
+    expect(caption).toContain("through 2026-10-01");
+    expect(caption).toContain("dividends are not included");
+    expect(caption).toContain("not an SEC yield");
+  });
+
+  it("drops the notes for rows that are not shown, and is null with no rows", () => {
+    const t = { ...TRADING, perf_1m: null, perf_ytd: null, perf_1y: null, distribution_ttm_yield_pct: null };
+    expect(tradingDataCaption(t, tradingDataRows(t))).toBeNull();
+    expect(tradingDataCaption(NONE, [])).toBeNull();
+    expect(tradingDataCaption(null, [])).toBeNull();
   });
 });

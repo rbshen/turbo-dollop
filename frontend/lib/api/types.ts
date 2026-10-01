@@ -1667,6 +1667,26 @@ export interface EtfSectorWeightOut {
   weight: number;
 }
 
+// backend/core/schemas.py::EtfTradingDataOut -- the Overview's "Trading data" block, built from cached rows
+// only. A null (or zero) value is omitted by the UI.
+export interface EtfTradingDataOut {
+  // Percent price returns from cached daily bars (split-adjusted, no dividends), as of `perf_as_of`.
+  perf_1m: number | null;
+  perf_ytd: number | null;
+  perf_1y: number | null;
+  // ISO date of the last completed session with a bar.
+  perf_as_of: string | null;
+  week52_low: number | null;
+  week52_high: number | null;
+  avg_volume_30d: number | null;
+  avg_dollar_volume_20d: number | null;
+  // Trailing-12-month distribution per share (FMP profile `lastDividend`) and its yield on the current price, percent.
+  distribution_ttm_per_share: number | null;
+  distribution_ttm_yield_pct: number | null;
+  // Equity funds only.
+  beta: number | null;
+}
+
 export interface EtfOverviewOut {
   ticker: string;
   // "unavailable": the etf_info data group is off (or the fetch failed) and nothing is cached.
@@ -1689,6 +1709,8 @@ export interface EtfOverviewOut {
   website: string | null;
   // Largest first; EMPTY for a non-equity fund or a lone "Cash & Others 100%".
   sector_weights: EtfSectorWeightOut[];
+  // null when the status is not "ok" or every Trading data value is unavailable (the block is then hidden).
+  trading_data: EtfTradingDataOut | null;
   updated_at: string | null;
   fetched_at: string | null;
 }

@@ -362,7 +362,10 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                   <Badge size="compact" missing />
                 )}
               </TableCell>
-              <TableCell className={ratingColorClass(row.consensus_rating)}>{row.consensus_rating.toUpperCase()}</TableCell>
+              <TableCell className={ratingColorClass(row.consensus_rating)}>
+                {/* A fund has no analyst consensus and the backend makes no call for it: a dash, not "N/A". */}
+                {row.is_etf ? "—" : row.consensus_rating.toUpperCase()}
+              </TableCell>
               <TableCell className="text-right font-mono text-text-secondary">
                 {row.market_cap != null && fmtCompactMoney(row.market_cap, row.quote_currency ?? "USD")}
               </TableCell>

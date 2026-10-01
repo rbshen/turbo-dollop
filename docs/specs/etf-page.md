@@ -25,14 +25,17 @@ same lazy tab mounting). The summary request is still the gate for both, so a ba
   `data/momentum_data.py` additionally drops `TickerScore.is_etf` rows from the monthly momentum universe (covers a
   rating set before the guard).
 
-## Overview tab (FMP `/etf/info` only)
+## Overview tab (FMP `/etf/info`, plus a cache-only Trading data block)
 
-`GET /api/tickers/{t}/etf-overview` -> `EtfOverviewOut`. Two columns, 7/5 (`lg:grid-cols-12`).
+`GET /api/tickers/{t}/etf-overview` -> `EtfOverviewOut`. Two columns, 7/5 (`lg:grid-cols-12`). The fund facts, About text
+and sector weights come from FMP `/etf/info`; the **Trading data** block (below) is computed from rows the app already
+caches and adds no FMP call.
 
 - **Left:** "Fund facts" as `DefinitionRow`s (mono, right-aligned values): issuer, asset class, expense ratio (percent,
   `0.09%`), assets under management (compact money), holdings count, NAV, average volume, inception date, domicile.
-  Then "About this fund": the description as plain text. A fact FMP did not return is **omitted**, not blank; a `0` that
-  FMP uses for "unknown" (GLD's `holdingsCount`, NAV, AUM, volume) is omitted too (the expense ratio keeps a real 0).
+  Then "Trading data" (next section), then "About this fund": the description as plain text. A fact FMP did not return is
+  **omitted**, not blank; a `0` that FMP uses for "unknown" (GLD's `holdingsCount`, NAV, AUM, volume) is omitted too (the
+  expense ratio keeps a real 0).
 - **Right:** "Sector weights" as single-series (`series-1`) bars, largest first, exact figure printed. Shown only for
   equity funds (`assetClass` Equity, or unknown with a real sector list). For any other asset class, or when the only
   entry is "Cash & Others 100%" (what FMP returns for bond and commodity funds), the section shows "Sector weights are
@@ -41,6 +44,40 @@ same lazy tab mounting). The summary request is still the gate for both, so a ba
   (group off, master off, above plan or restricted, and nothing cached) or `fetch_failed` (call failed and nothing
   cached); `no_data` (FMP answered `[]`: a stock or closed-end fund). A failed refetch with a cached row serves the stale
   row; an off group serves its cached row even if stale. The Technical and Chart tabs never depend on this call.
+
+### Trading data block (2026-10-02)
+
+`EtfOverviewOut.trading_data` (`EtfTradingDataOut`, built by `data/etf_data.py::_trading_data`), rendered by
+`EtfOverviewTab` between Fund facts and About this fund with the same `DefinitionRow` style, a sentence-case section
+title and a 13px tertiary caption (`lib/etfOverview.ts::tradingDataRows` / `tradingDataCaption`). It is built only when
+`status` is `ok` (the unavailable and no-data states show their message alone) and is **None, and the section hidden,
+when every row is omitted**. No new FMP call, endpoint, table or cron job: every input is a cache-only read.
+
+| Row | Source | Omitted when |
+|---|---|---|
+| 1M, YTD, 1Y performance | cached daily bars (`SharedBarsCache`, interval `1d`) via `clients/shared_bars_cache.py::read_cached_completed_daily_bars` and `scoring/etf_returns.py::compute_window_returns` | no bar reaches back far enough for that window, bars are stale, or the value rounds to 0.00 |
+| 52-week range | cached `quote` row (`yearLow` / `yearHigh`) | either end missing or 0 |
+| Average volume (30d), average dollar volume (20d) | the same cached bars (30 calendar days of volume; close x volume over the last 20 bars) | no bars, or 0 |
+| Distribution yield (TTM) | cached `profile` `lastDividend` / current price (cached quote price, else the last bar close), shown with the per-share amount | `lastDividend` null, zero or negative, or no price |
+| Beta | cached `profile` `beta` | asset class (from `/etf/info`) is not Equity (bond, commodity, other, unknown), or 0 |
+
+- **Performance basis.** Split-adjusted **price** return, not total return: FMP's daily bars are not dividend-adjusted, the same
+  basis the Sector Heatmap uses (`docs/specs/sector-heatmap.md`), and the same calendar-offset windows (last close on/before
+  `anchor - 1 month` / `1 year`; YTD base is the prior year's last close). It does **not** read the 7-day-cached
+  `price_change` row, so it is never a week old. The anchor is the newest completed-session bar; the caption names its date.
+- **Bar coverage.** The read is a pure cache read (it never fetches, writes or widens the shared cache), so an ETF with no
+  cached bars shows no performance or volume rows until the next `nightly_trend_calculation` (or until its Technical/Chart tab
+  fetches them). The read covers 400 calendar days, so a 1Y window needs a bar on/before `anchor - 1 year`: a cache only
+  one year wide, or a fund younger than a year, omits 1Y (never a clamped since-listing value). A bar dated after the last
+  completed session (an in-progress one) is dropped, as is a last bar written before its own session's close (the
+  provisional-bar rule); a newest bar more than 5 calendar days behind the last completed session omits every
+  performance row.
+- **Distribution.** FMP's profile `lastDividend` is the **trailing-12-month** distribution per share, not the last payment
+  (verified in `docs/etf-profile-and-watchlist-columns-2026-10-02.md`), so the row is labelled "Distribution yield (TTM)" and
+  the caption says it is not an SEC yield. It under-reads for a fund listed less than a year; that is not special-cased.
+- **Deliberately not shown:** the profile's `marketCap` (it contradicts the AUM in Fund facts; AUM stays the only size
+  figure), the profile's `averageVolume` (identical to Fund facts' value). "Average volume (30d)" here is the bar-derived
+  30-calendar-day figure and so differs from Fund facts' `/etf/info` "Average volume" (which is closer to a 50-63 day average).
 
 ## Technical and Chart tabs
 
@@ -57,17 +94,20 @@ zones and the chart are all bar-based, so none needed hiding. Adapted:
 
 - Group `etf_info` ("ETF info"), feeds the Overview tab. Endpoint `/etf/info` only (`ENDPOINT_GROUP`); cache key
   `FundamentalsCache(ticker, "etf_info", "latest")` (`STATEMENT_TYPE_GROUP`). No new table, no cron job.
-- **Tier: `Premium`, unverified.** FMP's docs and pricing pages return 403 to our fetcher, and the API does not report
-  tiers, so the lowest tier FMP lists it on could not be confirmed. The repo's tiers are Starter/Premium/Ultimate; if FMP's
-  docs badge it "Basic" that is the repo's Starter. Premium was chosen as the conservative guess (it has no effect while
-  the plan is Ultimate and is editable in Settings > FMP data groups); the 402 safety net corrects a wrong guess at
-  runtime.
+- **Tier: `Starter`**, the owner's recorded value (Settings > FMP data groups, 2026-10-02), now also the code default
+  (`GROUPS["etf_info"]`). It is not FMP-verified: FMP's docs and pricing pages return 403 to our fetcher and the API does
+  not report tiers. The code default only matters when the row is first created: `core/data_groups.py::_seed` creates
+  *missing* rows and never rewrites an existing one, so a live DB value (Premium, Starter or anything else) is left alone.
+  The tier is editable in Settings and the 402 safety net corrects a wrong value at runtime. (Until 2026-10-02 the seed was
+  Premium, a conservative guess.)
 - **Canary SPY, not AAPL** (`PROBE_ENDPOINTS["etf_info"]`, and `CANARY_SYMBOL_OVERRIDES` for the 402 canary in
   `FMPClient._handle_plan_restriction`): AAPL answers `200 []` on `/etf/info`, which could never confirm a plan-level 402.
   This is the one exception to "the canary is always AAPL".
-- **TTL: `Settings.etf_info_staleness_days = 1`.** The row is fetched only when an ETF Overview is opened (no nightly
-  job), it is one small row (~1-2.5 KB), and NAV, AUM and average volume move daily while the descriptive fields do not
-  change. One day keeps the numbers current without a call per view; never hard-code it at a call site.
+- **TTL: `Settings.etf_info_staleness_days = 1`.** The row is fetched on demand: when an ETF Overview is opened and the
+  cached row is older than one day (a cache hit makes no call). There is no nightly job for it and
+  `nightly_fundamentals_fetch` skips ETFs. It is one small row (~1-2.5 KB), and NAV, AUM and average volume move daily while
+  the descriptive fields do not change, so one day keeps the numbers current without a call per view; never hard-code it
+  at a call site. The Trading data block reads the cached `etf_info` row only through the same call (for the asset class).
 - Off = cache-only (stale row served); the ticker-page badge (`TAB_GROUPS.overview = ["etf_info"]`) shows "not
   refreshing -- as of <date>".
 
@@ -89,14 +129,44 @@ so the frontend never re-implements the naming rule. An ETF only on an unmonitor
   `TickerScore.is_etf` row). An ETF never opened, scored or watchlisted is therefore **not labelled** until its page is
   first viewed.
 - **Watchlist rows:** `WatchlistRowOut.is_etf` (from the score row) shows an "ETF" badge in the Analysis cell in place of
-  the blank score.
+  the blank score, and the Rating cell shows a dash: `data/watchlist_data.py::_compose_row` makes **no** `/grades-consensus`
+  call for an ETF row (FMP answers `[]` for a fund, so it was one wasted call and one empty cached row per ETF per window)
+  and the row carries the `N/A` placeholder (`NO_CONSENSUS_RATING`), which sorts last. The consensus call is made after the
+  row's cache-only reads because it depends on them; a ticker with no score row (no cached profile) is not known to be an
+  ETF and still makes it. Stock rows are unchanged.
 - **Sectors heatmap:** each sector label is one `Link` to `/tickers/<ETF>` (new tab, like other ticker links).
 - **`nightly_fundamentals_fetch`** skips known ETFs/funds when it builds its own universe
   (`load_fundamentals_fetch_universe`); an explicit `--tickers` list is still honoured. The score recompute, momentum and
   search still use the full tracked universe.
 
+## `/summary` for an ETF: the stock-only fetches are skipped (2026-10-02)
+
+`data/ticker_summary.py::get_summary` decides `is_etf` (`isEtf || isFund`, the app's one rule) from the **profile**, which is
+always the first fetch (so the first-ever open of an ETF is recognised before any stock-only call), and for an ETF/fund it
+skips everything only a company has an answer for: `/earnings`, `/ratios` (latest and TTM), the quarterly balance sheet and
+income statement, `/enterprise-values`, `/financial-growth`, the SPY comparison row, and Step 2 / Step 3 (which would
+themselves fetch analyst estimates, annual ratios, cash flow, key metrics ...). FMP answered every one of them `[]`, so
+nothing is lost: no call, **no empty `FundamentalsCache` row**. The fetches live in
+`_fetch_stock_only_data`; the stock path runs them unchanged and in the same order.
+
+Kept, because they return real data for a fund: `/profile`, `/quote` (force-fetched on a live view, with the last-close
+fallback), `/stock-price-change`, and the 45-day daily-price fetch behind the header's volume fields. The summary an ETF gets
+back is identical to the old cascade's except `perf_5y_vs_spy_*` (now None: the "5Y vs SPY" pill is a stock comparison the
+ETF header does not show) and `valuation_source` (None instead of `"auto"`; `fair_value_*` and `eps_growth_3_5y` were
+already None). Applies to both the live and the `cache_only` path (the latter makes no call either way).
+
+Calls on the first-ever open of an ETF (a fresh cache): **18 before, 4 after** (profile, quote, price change, daily prices);
+a repeat open within the staleness windows makes 1 (the live quote) before and after. Measured by
+`tests/test_etf_summary_short_circuit.py`.
+
+Not covered: `POST /api/tickers/{t}/refresh` still runs `compute_ticker_score(cache_only=False)`, whose Step 1/2/4/5 calls are
+not short-circuited (the ETF page has no Refresh button, and `nightly_fundamentals_fetch` skips known ETFs). A custom
+valuation saved against an ETF (not creatable from the ETF page) is not read by the summary.
+
 ## Known limits
 
-- `/summary` for an ETF still runs the stock cascade (statements, ratios, step 2/3 scoring), all answered `[]`: about ten
-  wasted cached calls per ETF per window. Cutting it needs an `is_etf` short-circuit inside `get_summary`; not done.
 - The caption says "Exchange-traded fund" for every `isEtf || isFund` ticker, including a mutual fund or closed-end fund.
+- Empty stock-statement rows cached for an ETF before 2026-10-02 stay in `FundamentalsCache` (2026-10-02 read-only check of
+  the live DB: 103 empty rows across the 7 cached ETFs, plus 4 non-empty `earnings` rows whose `epsActual` is all null).
+  Nothing reads them for an ETF and nothing refreshes them any more, so `pipeline.prune_cache` (it deletes every
+  `FundamentalsCache` row older than `Settings.cache_retention_days`, 180 days) removes them in time; they were not deleted by hand.

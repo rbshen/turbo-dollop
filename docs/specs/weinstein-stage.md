@@ -335,7 +335,8 @@ All null when not currently pending. `TrendAnalysisOut` gains the same fields ne
 optional `pending` object so a non-pending ticker's payload is unchanged.
 
 **Deliberately out of scope for this round**: Watchlist/Screener surfacing of the pending state
-(the existing Weinstein columns there show only the stage itself); a symmetric "how many weeks
+(today only the Screener card's Weinstein pill shows the stage itself; the Watchlist has had no
+Weinstein column since the Watchlist UI columns were removed on 2026-09-06); a symmetric "how many weeks
 until an *existing* stage would be at risk of reversing" read; backtesting the band-cushion
 diagnostic beyond the single-ticker illustration above; a dedicated mean-reversion/downside
 scenario.

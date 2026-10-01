@@ -461,6 +461,21 @@ Built from `docs/etf-page-investigation-2026-10-01.md`; full behaviour in `docs/
   which lists are monitored from the backend (`WatchlistOut.monitored`) rather than matching names.
 - **Search label is local knowledge only** (FMP search has no type; a per-result profile call would add every searched ticker to the tracked universe).
 
+### 2026-10-02 — ETF page extras and removal of wasted FMP calls
+
+Behaviour in `docs/specs/etf-page.md`. Decisions worth keeping:
+
+- **Trading data is computed from what is already cached, not from FMP's `price_change`.** Performance is a split-adjusted price return
+  from the cached daily bars (the Sector Heatmap basis), so it is never up to 7 days old; if bars are missing the row is omitted rather
+  than falling back to the stale row. Distribution yield is the profile's trailing-12-month `lastDividend` over the current price,
+  labelled TTM (it is not the last payment, and not an SEC yield). Beta is shown for equity funds only. Profile `marketCap` is never
+  shown: it contradicts the `/etf/info` AUM, which stays the only size figure. Any zero/null row is omitted; no rows, no block.
+- **An ETF/fund short-circuits `get_summary`.** The profile is fetched first, and for a fund every stock-only fetch (and Step 2/3) is
+  skipped: 18 -> 4 FMP calls on a first open, no empty cache rows. The stock path is untouched.
+- **ETF rows on the Watchlists page make no `/grades-consensus` call** and show a dash in Rating. This is the only Watchlist change here;
+  the ETF-specific column set is a separate task.
+- **`etf_info` is seeded at Starter**, matching the owner's recorded tier. The seed never rewrites an existing row.
+
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
 - **`MultiSelect` primitive — resolved, built.** `components/screener/MultiSelectDropdown.tsx` is

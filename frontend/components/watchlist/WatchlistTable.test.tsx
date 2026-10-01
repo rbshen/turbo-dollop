@@ -257,6 +257,22 @@ describe("WatchlistTable: ETF rows", () => {
     expect(analysisCell("AAPL")).not.toHaveTextContent("ETF");
   });
 
+  it("shows a dash in the Rating cell of an ETF row, while a stock row keeps its rating", () => {
+    render(
+      <WatchlistTable
+        watchlist={WATCHLIST}
+        rows={[ROWS[0], ETF_ROW]}
+        sortRules={DEFAULT_SORT_RULES}
+        onSortRulesChange={vi.fn()}
+      />,
+    );
+    const ratingCell = (ticker: string) =>
+      (screen.getByText(ticker).closest("tr") as HTMLElement).querySelectorAll("td")[8]; // ... Analysis, Rating
+    expect(ratingCell("QQQ")).toHaveTextContent("—");
+    expect(ratingCell("QQQ")).not.toHaveTextContent("N/A");
+    expect(ratingCell("AAPL")).toHaveTextContent("BUY");
+  });
+
   it("an unscored non-ETF still shows the missing dash, not the marker", () => {
     render(
       <WatchlistTable

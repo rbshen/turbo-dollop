@@ -6,6 +6,8 @@ import {
   SECTOR_WEIGHTS_NOT_SHOWN_NOTE,
   fundDataAsOf,
   fundFacts,
+  tradingDataCaption,
+  tradingDataRows,
   unavailableMessage,
 } from "@/lib/etfOverview";
 import { useEtfOverview } from "@/lib/hooks/useEtfOverview";
@@ -47,6 +49,8 @@ export function EtfOverviewView({ overview }: { overview: EtfOverviewOut }) {
   }
 
   const facts = fundFacts(overview);
+  const trading = tradingDataRows(overview.trading_data);
+  const tradingCaption = tradingDataCaption(overview.trading_data, trading);
   const asOf = fundDataAsOf(overview);
 
   return (
@@ -59,6 +63,16 @@ export function EtfOverviewView({ overview }: { overview: EtfOverviewOut }) {
                 <DefinitionRow key={f.label} label={f.label} value={f.value} />
               ))}
             </div>
+          </Section>
+        )}
+        {trading.length > 0 && (
+          <Section title="Trading data">
+            <div>
+              {trading.map((r) => (
+                <DefinitionRow key={r.label} label={r.label} value={r.value} tone={r.tone} />
+              ))}
+            </div>
+            {tradingCaption && <p className="mt-3 text-xs text-text-tertiary">{tradingCaption}</p>}
           </Section>
         )}
         {overview.description && (
