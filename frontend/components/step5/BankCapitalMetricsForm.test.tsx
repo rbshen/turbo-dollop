@@ -309,3 +309,14 @@ describe("BankCapitalMetricsForm: typed validation and the kit controls", () => 
     expect(screen.queryByText(/Failed to save/)).not.toBeInTheDocument();
   });
 });
+
+describe("BankCapitalMetricsForm: the Confirm button", () => {
+  it("is the one primary Button, in the warn fill, 36px like the outline Cancel beside it", () => {
+    render(<BankCapitalMetricsForm ticker="JPM" step5={makeStep5()} />);
+    fireEvent.change(cet1(), { target: { value: "12.5" } });
+    expect(confirm()).toHaveClass("bg-warn", "text-on-brand", "px-4", "h-9", "text-sm"); // primary, with the warn fill winning over brand
+    expect(confirm().className).not.toMatch(/border-warn|bg-warn\/15|bg-brand/);
+    expect(confirm()).toHaveAttribute("type", "button");
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveClass("h-9", "border");
+  });
+});

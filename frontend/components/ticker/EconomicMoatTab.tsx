@@ -104,14 +104,10 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
               Overall Assessment is scored for {ticker}.
             </p>
             <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={handleConfirm}
-                disabled={saving}
-                className="rounded-md border border-warn/60 bg-warn/15 px-4 py-1.5 text-sm font-medium text-warn transition-colors hover:border-warn disabled:cursor-not-allowed disabled:opacity-50"
-              >
+              {/* The one primary of the panel, in the warn fill: confirming changes how Overall Assessment is scored. */}
+              <Button variant="primary" className="bg-warn hover:bg-warn/80" onClick={handleConfirm} disabled={saving}>
                 {saving ? "Saving…" : "Confirm"}
-              </button>
+              </Button>
               <Button variant="outline" onClick={() => setPending(null)} disabled={saving}>
                 Cancel
               </Button>

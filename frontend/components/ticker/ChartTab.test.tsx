@@ -199,6 +199,15 @@ describe("ChartTab: zoom and states", () => {
     expect(chartProps.zoomIndex).toBe(1);
   });
 
+  it("draws Zoom in and Zoom out as outline sm Buttons with their words, matching the toggles beside them", () => {
+    render(<ChartTab ticker="AAPL" />);
+    for (const name of ["Zoom in", "Zoom out"]) {
+      expect(btn(name)).toHaveClass("border", "border-border-input", "h-8", "text-xs");
+      expect(btn(name)).toHaveAttribute("type", "button");
+    }
+    expect(btn("Zoom out")).toHaveClass("disabled:opacity-45");
+  });
+
   it("disables Zoom in when the chart says it cannot zoom further", () => {
     render(<ChartTab ticker="AAPL" />);
     act(() => chartProps.onZoomBoundsChange({ canZoomIn: false, canZoomOut: true }));

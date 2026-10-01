@@ -174,14 +174,10 @@ function BankCapitalMetricsControls({ ticker, data, step5 }: { ticker: string; d
             Save these CET1/NPL values? This recomputes Debt and Overall Assessment for {ticker}.
           </p>
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleConfirm}
-              disabled={saving || invalid}
-              className="rounded-md border border-warn/60 bg-warn/15 px-4 py-1.5 text-sm font-medium text-warn transition-colors hover:border-warn disabled:cursor-not-allowed disabled:opacity-50"
-            >
+            {/* The one primary of the panel, in the warn fill: confirming overwrites the computed values. */}
+            <Button variant="primary" className="bg-warn hover:bg-warn/80" onClick={handleConfirm} disabled={saving || invalid}>
               {saving ? "Saving…" : "Confirm"}
-            </button>
+            </Button>
             <Button variant="outline" onClick={handleCancel} disabled={saving}>
               Cancel
             </Button>

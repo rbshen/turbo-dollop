@@ -196,20 +196,12 @@ export function ChartTab({ ticker }: Props) {
           ))}
         </div>
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => setZoomIndex((i) => Math.max(0, i - 1))}
-            disabled={!zoomBounds.canZoomOut}
-            className="rounded px-2.5 py-1 text-xs font-medium text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-tertiary"
-          >
+          <Button variant="outline" size="sm" onClick={() => setZoomIndex((i) => Math.max(0, i - 1))} disabled={!zoomBounds.canZoomOut}>
             Zoom out
-          </button>
-          <button
-            onClick={() => setZoomIndex((i) => i + 1)}
-            disabled={!zoomBounds.canZoomIn}
-            className="rounded px-2.5 py-1 text-xs font-medium text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-tertiary"
-          >
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setZoomIndex((i) => i + 1)} disabled={!zoomBounds.canZoomIn}>
             Zoom in
-          </button>
+          </Button>
         </div>
       </div>
 

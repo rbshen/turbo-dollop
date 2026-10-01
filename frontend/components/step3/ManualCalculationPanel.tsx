@@ -744,12 +744,12 @@ function ManualCalculationControls({
           {saved.saved && saved.saved_at && <> — saved {new Date(saved.saved_at).toLocaleString()}</>}
         </span>
         {/* sm outline is 32px, like the RefreshButton/ExportMenu in a dense row;
-            Save is the one primary (primary at sm is 28px, so h-8 matches
-            the outline buttons beside it, as on AddToWatchlistButton).
+            Save is the one primary (primary at sm is 32px, like the outline
+            buttons beside it, as on AddToWatchlistButton).
             Activate and Delete keep their positive and negative tone as
             colour classes on the outline button. */}
         <div className="flex flex-wrap gap-2">
-          <Button variant="primary" size="sm" className="h-8" onClick={handleSave} disabled={actionPending}>
+          <Button variant="primary" size="sm" onClick={handleSave} disabled={actionPending}>
             {actionPending ? "Working…" : "Save"}
           </Button>
           {saved.saved && !saved.is_active && (

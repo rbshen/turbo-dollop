@@ -51,7 +51,7 @@ describe("AddToWatchlistButton: trigger and popover", () => {
     expect(screen.queryByText("Growth")).not.toBeInTheDocument();
   });
 
-  it("is the 32px primary button: brand fill, h-8 (not the kit's 28px primary sm), a decorative Plus and the word Watchlist", () => {
+  it("is the 32px primary button: brand fill, h-8 from the kit's primary sm size (no override), a decorative Plus and the word Watchlist", () => {
     render(<AddToWatchlistButton tickers={["AAPL"]} />);
     const trigger = screen.getByRole("button", { name: "Add to watchlist" });
     expect(trigger).toHaveClass("bg-brand", "h-8");

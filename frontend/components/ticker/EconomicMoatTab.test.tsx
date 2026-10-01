@@ -111,6 +111,15 @@ describe("EconomicMoatTab: confirm panel", () => {
     expect(cancel).not.toHaveClass("bg-surface-2");
   });
 
+  it("draws Confirm as the one primary Button in the warn fill, 36px like the outline Cancel beside it", () => {
+    render(<EconomicMoatTab ticker="AAPL" />);
+    pick("Wide moat");
+    const confirmButton = screen.getByRole("button", { name: "Confirm" });
+    expect(confirmButton).toHaveClass("bg-warn", "text-on-brand", "px-4", "h-9", "text-sm"); // primary, with the warn fill winning over brand
+    expect(confirmButton.className).not.toMatch(/border-warn|bg-warn\/15|bg-brand/);
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveClass("h-9", "border");
+  });
+
   it("does not ask when the current rating is picked again", () => {
     render(<EconomicMoatTab ticker="AAPL" />);
     pick("Narrow moat");

@@ -235,10 +235,9 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
       <Button
         ref={triggerRef}
         variant="primary"
+        // primary at sm is 32px, like the outline RefreshButton beside it in the
+        // ticker header and the Screener results-header buttons.
         size="sm"
-        // primary at sm is 28px in the kit; 32px matches the outline RefreshButton
-        // beside it in the ticker header and the Screener results-header buttons.
-        className="h-8"
         onClick={() => setPanel((p) => (p === "idle" ? "picking" : "idle"))}
         disabled={disabled}
         aria-expanded={panel === "picking"}

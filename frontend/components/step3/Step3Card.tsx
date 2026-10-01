@@ -263,10 +263,11 @@ export function Step3Card({ ticker }: Props) {
           is conditional on isPass. */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <Card className="space-y-6">
-          {/* min-h-8 matches Custom Valuation's title row, whose height is
-              set by its h-8 method <select> -- without it this row (a bare
-              h2, ~20px) renders shorter than the other column's, shifting
-              everything below (price, gauge, slider) up relative to it. */}
+          {/* min-h-8 matches Custom valuation's title row, which is 32px
+              (its 36px method <select> carries a -my-0.5 margin so the row
+              stays at h-8) -- without it this row (a bare h2, ~20px) renders
+              shorter than the other column's, shifting everything below
+              (price, gauge, slider) up relative to it. */}
           <div className="flex min-h-8 items-center">
             <h2 className={SECTION_HEADING_CLASS}>Model valuation · {methodLabel(data.selected_method)}</h2>
           </div>

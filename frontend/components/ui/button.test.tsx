@@ -49,6 +49,30 @@ describe("Button", () => {
     expect(button).not.toHaveClass("h-7");
   });
 
+  it("makes a small primary button 32px too, so it matches an outline button beside it", () => {
+    render(
+      <Button variant="primary" size="sm">
+        Save
+      </Button>,
+    );
+    const button = screen.getByRole("button", { name: "Save" });
+    expect(button).toHaveClass("bg-brand", "h-8", "text-xs");
+    expect(button).not.toHaveClass("h-7");
+  });
+
+  it("leaves the default primary at 36px and the small ghost and danger at 28px", () => {
+    render(
+      <>
+        <Button variant="primary">Default</Button>
+        <Button variant="ghost" size="sm">Ghost</Button>
+        <Button variant="danger" size="sm">Danger</Button>
+      </>,
+    );
+    expect(screen.getByRole("button", { name: "Default" })).toHaveClass("h-9");
+    expect(screen.getByRole("button", { name: "Ghost" })).toHaveClass("h-7");
+    expect(screen.getByRole("button", { name: "Danger" })).toHaveClass("h-7");
+  });
+
   it("leaves the existing variants untouched (a small ghost is still 28px, no border)", () => {
     render(
       <Button size="sm">Plain</Button>,

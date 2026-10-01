@@ -6,11 +6,11 @@ import { UniverseSelector } from "@/components/screener/UniverseSelector";
 
 afterEach(cleanup);
 
-// Regression test for the session-5c swap off the pre-session-1
-// shared/SegmentedControl.tsx onto the shared ui/segmented-control.tsx
-// primitive -- confirms the value/onValueChange adapter still surfaces a
-// plain ScreenerUniverse to the caller, and that re-clicking the already-
-// active segment is a no-op (unchanged single-select behavior).
+// Regression test for the session-5c swap onto the shared ui/segmented-control.tsx
+// primitive (the old components/shared/SegmentedControl was merged into it and
+// deleted in session 14) -- confirms the value/onValueChange adapter still
+// surfaces a plain ScreenerUniverse to the caller, and that re-clicking the
+// already-active segment is a no-op (unchanged single-select behavior).
 describe("UniverseSelector", () => {
   it("calls onChange with the clicked universe", () => {
     const onChange = vi.fn();
