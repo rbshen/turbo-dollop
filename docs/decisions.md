@@ -289,6 +289,26 @@ The Watchlist page controls and the two buttons shared with other pages move ont
 
 **Deferred.** `AddToWatchlistButton` and the rest of the ticker page (the remaining hand-written outline overrides are all in ticker-page files) migrate in the ticker-page session, and `AddToWatchlistButton` should adopt the shared watchlist-name length constant then.
 
+### 2026-10-01 — Session 12: ticker page controls, part A
+
+Stage 2 of 4 of the ticker page. `AddToWatchlistButton`, `BankCapitalMetricsForm` and the Economic moat tab's Cancel button move onto the session 8 to 11 primitives. Made by the owner; this entry records what was decided before the build. Spec: "Ticker page controls, part A (session 12)" in `docs/design-system.md`. Three commits on local `main`, not pushed: docs; `AddToWatchlistButton` (characterization tests and the migration); `BankCapitalMetricsForm` and the Moat button (the same).
+
+**Scope.** In: the three components above. Out and unchanged: `ManualCalculationPanel`, `TickerSearch`, the chart and price-target toggle buttons, both `SegmentedControl`s, the Screener files (only verified, since `AddToWatchlistButton` renders in its results header), `TickerHeader` beyond verifying its layout, Settings, the Watchlist page, the backend and `components/ui` itself.
+
+**Decisions (the owner's; not re-decided).**
+
+1. **`AddToWatchlistButton` trigger** is `Button variant="primary"` at 32px, the height of today's hand-rolled brand button and of the outline `RefreshButton` beside it in the ticker header and the Screener results-header buttons. Computed heights are checked in both places. (The brief called this `size="sm"`; in the code primary at `sm` is 28px, only `outline` at `sm` is 32px, so the build adds `h-8` on the button. See the session report.)
+2. **Every other bordered hand-written button in the popover** becomes `outline` (secondary) or `primary` (the single confirming submit), at the size the popover fits; its width and structure stay. Text glyphs become Phosphor icons ("Added ✓" is a `Check` plus "Added"); icon-only buttons get an `aria-label`.
+3. **New-watchlist input** is the kit `Input` (no class overrides, no `focus:outline-none`) named "New watchlist name", with `maxLength` from `WATCHLIST_NAME_MAX_LENGTH`. This **adds** a limit: the backend `WatchlistName` allows 1 to 100 characters after trimming, and the old input had none. Trimming and the empty-name rule are unchanged; a server rejection shows inline, linked to the input, with the shared `errorDetail` message.
+4. **Popover behaviour is unchanged** (which lists show, toggling membership, create-and-add, loading and error states, closing after success). Escape closes it and returns focus to the trigger, and an outside click closes it; each is added only if missing.
+5. **`BankCapitalMetricsForm`:** the two native `type="number"` inputs become `NumberField` (typed only, no stepper, "%" unit, optional) and the two text inputs become `Input` in a `FormField`, each with a visible sentence-case label and an inline error; the uppercase wide-tracking label style goes; nothing is silently clamped or corrected. Bounds mirror only what the backend enforces (nothing: both ratios are plain optional floats) and unenforced browser hints are dropped. The hand-rolled container becomes the kit `Card`; its secondary button becomes `outline`; every `focus:outline-none` goes. Save logic, payload, endpoint and cache invalidation stay identical (numbers stay numbers). A non-numeric entry blocks Save with an inline error and never leaves a sticky failure; a server rejection shows its message inline.
+6. **Economic moat tab:** only its hand-written bordered Cancel button becomes `outline`, plus sentence case for that button's strings and its immediate label. Its `SegmentedControl`, card structure and everything else are untouched (the `SegmentedControl` merge is a later session).
+7. **Sentence case, display only,** for every string in the touched components. Identifiers, stored values and what is sent to the backend are unchanged.
+
+**Live-behaviour changes authorised:** button and input styling and icons; accessible names; the new-watchlist length limit and its inline server error; popover Escape and focus return if missing; the Bank form's native spinners and scroll-wheel changes gone, typed validation with inline errors and sentence-case labels; sentence-case strings. Nothing else.
+
+**What remains after this session.** `ManualCalculationPanel` (the last hand-written ghost-plus-border button and `focus:outline-none` inputs among the ticker-page files), the confirm buttons in the Bank and Moat save panels (warn-toned, hand-written), the Moat tab's uppercase headings, both `SegmentedControl` implementations (to be merged), `TickerSearch` and the chart and price-target toggles.
+
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
 - **`MultiSelect` primitive — resolved, built.** `components/screener/MultiSelectDropdown.tsx` is
