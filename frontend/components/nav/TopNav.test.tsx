@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TopNav } from "@/components/nav/TopNav";
@@ -37,6 +37,55 @@ describe("TopNav", () => {
       if (newTab) expect(link).toHaveAttribute("target", "_blank");
       else expect(link).not.toHaveAttribute("target");
     }
+  });
+
+  it("replays a plain click on a new-tab link as a modifier-click, so the tab opens in the background", () => {
+    render(<TopNav />);
+    const seen: MouseEvent[] = [];
+    const spy = (e: Event) => {
+      seen.push(e as MouseEvent);
+      e.preventDefault(); // jsdom has no navigation
+    };
+    document.addEventListener("click", spy);
+    const notPrevented = fireEvent.click(screen.getByRole("link", { name: "Momentum" }));
+    document.removeEventListener("click", spy);
+    expect(notPrevented).toBe(false); // the original click is cancelled...
+    const replay = seen.find((e) => e.ctrlKey || e.metaKey);
+    expect(replay).toBeDefined(); // ...and replayed with a modifier
+    expect((replay!.target as HTMLAnchorElement).target).toBe("_blank");
+  });
+
+  it("leaves Screener and already-modified clicks alone", () => {
+    render(<TopNav />);
+    expect(fireEvent.click(screen.getByRole("link", { name: "Screener" }), { defaultPrevented: false })).toBeDefined();
+    expect(fireEvent.click(screen.getByRole("link", { name: "Momentum" }), { ctrlKey: true })).toBe(true);
+  });
+
+  it.each(["/momentum", "/sectors", "/breadth", "/breadth/XLK", "/settings"])(
+    "on %s, every nav link and the logo navigate in the same tab",
+    (path) => {
+      h.pathname = path;
+      render(<TopNav />);
+      for (const link of screen.getAllByRole("link")) {
+        expect(link).not.toHaveAttribute("target");
+      }
+      const seen: MouseEvent[] = [];
+      const spy = (e: Event) => {
+        seen.push(e as MouseEvent);
+        e.preventDefault(); // jsdom has no navigation
+      };
+      document.addEventListener("click", spy);
+      fireEvent.click(screen.getByRole("link", { name: "Momentum" }));
+      document.removeEventListener("click", spy);
+      expect(seen).toHaveLength(1); // no replayed background-tab click
+    }
+  );
+
+  it.each(["/screener", "/watchlist", "/tickers/AAPL"])("on %s, the new-tab links still open a new tab", (path) => {
+    h.pathname = path;
+    render(<TopNav />);
+    expect(screen.getByRole("link", { name: "Momentum" })).toHaveAttribute("target", "_blank");
+    expect(screen.getByRole("link", { name: "Screener" })).not.toHaveAttribute("target");
   });
 
   it("marks the link for the current page and no other", () => {

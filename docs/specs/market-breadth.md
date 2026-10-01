@@ -213,7 +213,7 @@ universe existed). No range param: the whole series is returned (~250 rows/year,
 ## UI
 
 `app/breadth/page.tsx` / `app/breadth/[sector]/page.tsx`, `components/breadth/`,
-`lib/marketBreadth.ts`; top-nav "Breadth" opens in a new tab, like Sectors/Momentum: 4
+`lib/marketBreadth.ts`; top-nav "Breadth" opens in a new tab, like Sectors/Momentum (except when clicked from Momentum, Sectors, Breadth or Settings, where nav links go same-tab): 4
 latest-reading stat tiles (20-day, 50-day, 200-day, net new highs, with denominators;
 `sm:grid-cols-2 lg:grid-cols-4`), then two synced recharts
 panels (never combined into one dual-axis chart — a percentage series and a signed count series

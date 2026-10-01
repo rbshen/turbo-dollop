@@ -6,7 +6,7 @@ Why the current design exists and what state the migration is in. Companion to `
 
 Goal: a consistent, modern, minimalist UI. Style guide first, then every page follows it. Process: a report-only Claude Code frontend audit (read-only, no changes), a design system drafted in a claude.ai chat from that audit, two directions compared on a visual canvas (A = consolidated version of the old look, B = quiet minimalist), **B chosen**, then implementation page-by-page in fresh Claude Code sessions on one long-lived branch, `ui/design-system`.
 
-Deliberate UX kept from the old app, not touched by the redesign: in the Screener, clicking a ticker opens a new tab (same for Watchlist ticker clicks), and nav links clicked from the Screener open in a new tab, so the Screener's filters stay in place. Other pages don't need this.
+Deliberate UX kept from the old app, not touched by the redesign: in the Screener, clicking a ticker opens a new tab (same for Watchlist ticker clicks), and nav links clicked from the Screener open in a new tab, so the Screener's filters stay in place. Other pages don't need this. The exception runs the other way: on Momentum, Sectors, Breadth (and `/breadth/<sector>`) and Settings, every top-nav item and the logo navigate in the same tab (2026-10-01).
 
 ## Session-by-session build log
 
