@@ -2,7 +2,7 @@
 
 A calm, data-first interface for fundamental investing.
 
-> This is the living style guide for Fathom's frontend. It was drafted in a claude.ai chat working from a read-only audit of the codebase, decided against a two-way A/B comparison ("Direction B, quiet minimalist"), and implemented page-by-page on the `ui/design-system` branch (sessions 1 through 12). Token names and values are authored in `frontend/app/globals.css` — this document explains what they mean and when to use them, it is not a second source of truth for the values themselves. Chart-specific rules live in `docs/design-system-charts.md`. The build history and open items are in `docs/decisions.md`.
+> This is the living style guide for Fathom's frontend. It was drafted in a claude.ai chat working from a read-only audit of the codebase, decided against a two-way A/B comparison ("Direction B, quiet minimalist"), and implemented page-by-page on the `ui/design-system` branch (sessions 1 through 13). Token names and values are authored in `frontend/app/globals.css` — this document explains what they mean and when to use them, it is not a second source of truth for the values themselves. Chart-specific rules live in `docs/design-system-charts.md`. The build history and open items are in `docs/decisions.md`.
 
 ## Principles
 
@@ -44,6 +44,7 @@ A calm, data-first interface for fundamental investing.
 | Change a data option on the same view | SegmentedControl (fixed 2–6 options only — use Tabs instead for an unbounded set, e.g. the Watchlist switcher) |
 | Do something | Button: one `primary` per region, `ghost` for everything else. `outline` (ghost with a hairline border that turns `brand` on hover) is for a secondary action that has to read as a button inside a dense panel. The Screener uses it for Sort direction, Save current view, Reset and Recompute all scores (session 10, part 2); nothing in the Screener hand-writes the "ghost plus `border-border-input hover:border-brand`" override any more. The Watchlist page and the two shared buttons follow in session 11 (see "Watchlist page and shared buttons" below); an icon-only button is a `Button` with an `icon` size and an `aria-label` |
 | Sort a list by a field and a direction | A `Select` labelled "Sort by" for the field plus one `outline` toggle `Button` (an arrow icon, "Asc" or "Desc") for the direction. Not a segmented control, and not a column header (see "Screener results controls") |
+| Adjust a percentage by dragging (the Custom valuation growth and discount-rate sliders) | The native `.range-slider` range input, with a real `<label for>`, `aria-valuetext` carrying the displayed value ("+14.6%"), and the global keyboard focus ring. Not a custom slider |
 | Enter a typed value (a number, or short text) on a form page | `NumberField` for numbers, `Input` for text, each in a `FormField` or a Settings row |
 | Choose one of a few options on a form page | Native `Select` (in its themed shell), at `short` or `medium` size. Not a SegmentedControl: that is for switching a view, not for a saved setting |
 | Filter a number to a range (a Min/Max pair) | `RangeField`: one label, a unit in the label row, two `short` boxed boxes. Never two separate fields |
@@ -62,7 +63,7 @@ A calm, data-first interface for fundamental investing.
 
 ## Form controls
 
-The controls for typing, choosing and toggling a value on a form page. Built 2026-09-30 (session 8) and shown in `/styleguide`. All five Settings forms (REIT dividend yield, Economic moat, Discount rate, Weinstein, Liquidity) use them as of session 9, and the Screener sidebar's fields (the Watchlist scope select, every Min/Max range, the multi-selects' checkboxes and the two chips) use them as of session 10. The Screener's results controls (the sort select and direction button, the saved-views bar and its naming row, pagination, the multi-select trigger's name) follow in session 10, part 2; see "Screener results controls" below. The Watchlist name editor moved onto the kit in session 11, and `AddToWatchlistButton` and `BankCapitalMetricsForm` in session 12 (see "Ticker page controls, part A"). `Select` always takes a `size`. The `/styleguide` "Screener sidebar (mock)" section stays as the reference for the sidebar, and "Screener results controls (mock)" for the controls around the results.
+The controls for typing, choosing and toggling a value on a form page. Built 2026-09-30 (session 8) and shown in `/styleguide`. All five Settings forms (REIT dividend yield, Economic moat, Discount rate, Weinstein, Liquidity) use them as of session 9, and the Screener sidebar's fields (the Watchlist scope select, every Min/Max range, the multi-selects' checkboxes and the two chips) use them as of session 10. The Screener's results controls (the sort select and direction button, the saved-views bar and its naming row, pagination, the multi-select trigger's name) follow in session 10, part 2; see "Screener results controls" below. The Watchlist name editor moved onto the kit in session 11, and `AddToWatchlistButton` and `BankCapitalMetricsForm` in session 12 (see "Ticker page controls, part A"), and the Custom valuation panel's select, rows and buttons in session 13 (see "Ticker page controls, part B"). `Select` always takes a `size`. The `/styleguide` "Screener sidebar (mock)" section stays as the reference for the sidebar, and "Screener results controls (mock)" for the controls around the results.
 
 | Control | Component | Job |
 | --- | --- | --- |
@@ -164,7 +165,7 @@ The controls around the results: the Sort row, Pagination, the saved-views bar a
 - *Overwrite confirm.* The message on its own line (about 405px on one line, so it wraps to two at 222px; a long unbroken name breaks), then "Overwrite" and "Cancel" on the row below (about 155px), in the same 222px.
 - *Names with "/".* Verified 2026-09-30 against the real routes (see `docs/decisions.md`): a view named with "/" cannot be saved or deleted (`PUT` and `DELETE /api/screener/filters/{name}` answer 404, because the client sends the name as one path segment and the server decodes `%2F` back to "/" before routing). Spaces, "?", "#", "%", "+", a backslash, ";", "&" and non-ASCII names all save, list, load and delete correctly. So the naming input rejects "/" with an inline message and never alters the typed text; the backend is unchanged.
 
-**Outline Button.** Sort direction, Save current view, Reset, the naming step's and overwrite row's buttons and Recompute all scores are `Button variant="outline"`. Recompute's logic is unchanged (styling only). The Watchlist page and the shared `RefreshButton` and `ExportMenu` joined them in session 11 (next section). The ticker page followed in session 12 (`AddToWatchlistButton`, `BankCapitalMetricsForm`, the Moat tab's Cancel); only `ManualCalculationPanel.tsx` still hand-writes the override. Inside the Screener the only hand-written `border-border-input hover:border-brand` left are the two dropdown triggers (`MultiSelectDropdown`, and the saved-views trigger), which are not action buttons, and the card hover on `ScreenerCard`.
+**Outline Button.** Sort direction, Save current view, Reset, the naming step's and overwrite row's buttons and Recompute all scores are `Button variant="outline"`. Recompute's logic is unchanged (styling only). The Watchlist page and the shared `RefreshButton` and `ExportMenu` joined them in session 11 (next section). The ticker page followed in session 12 (`AddToWatchlistButton`, `BankCapitalMetricsForm`, the Moat tab's Cancel) and session 13 (`ManualCalculationPanel`); no ticker-page action button hand-writes the override any more. Inside the Screener the only hand-written `border-border-input hover:border-brand` left are the two dropdown triggers (`MultiSelectDropdown`, and the saved-views trigger), which are not action buttons, and the card hover on `ScreenerCard`.
 
 ### Watchlist page and shared buttons (session 11)
 
@@ -184,7 +185,7 @@ The Watchlist page's controls and the two buttons shared with other pages moved 
 
 **Watchlist table remove buttons.** Remove (`Minus`), confirm (`Check`, `warn` tone) and cancel (`X`) are `outline` `icon-sm` buttons, 32px squares inside the 44px rows, with their existing accessible names and titles. The remove button keeps its negative hover and error tone; the "−" glyph is gone.
 
-**What is left after session 11.** Superseded by session 12, below: only `ManualCalculationPanel.tsx` still has a hand-written "ghost plus `border-border-input hover:border-brand`" button and `focus:outline-none` inputs. Elsewhere the only hand-written `hover:border-brand` are the two Screener dropdown triggers and the `ScreenerCard` hover. Text-glyph affordances still in the code: the "Saved ✓" status (the Settings footer and the saved-views bar) and the "Recomputed ✓" button label, "Hide details −" and "Hide reasoning −", the sector heatmap's "↓ ↑" and "Browse by sector →"; the table's " ⚠" and the pills' "▲ ▼" are cell and pill content and stay.
+**What is left after session 11.** Superseded by sessions 12 and 13, below: no ticker-page file hand-writes a "ghost plus `border-border-input hover:border-brand`" button or a `focus:outline-none` input any more. Elsewhere the only hand-written `hover:border-brand` are the two Screener dropdown triggers and the `ScreenerCard` hover. Text-glyph affordances still in the code: the "Saved ✓" status (the Settings footer and the saved-views bar) and the "Recomputed ✓" button label, "Hide details −" and "Hide reasoning −", the sector heatmap's "↓ ↑" and "Browse by sector →"; the table's " ⚠" and the pills' "▲ ▼" are cell and pill content and stay.
 
 ### Ticker page controls, part A (session 12)
 
@@ -195,6 +196,18 @@ The Watchlist page's controls and the two buttons shared with other pages moved 
 **`BankCapitalMetricsForm`.** A kit `Card`. CET1 and NPL are `NumberField`s (optional, unit "%", `medium`) and their "as of" boxes are `Input`s, each in a `FormField` with a visible sentence-case label. There are no bounds because the backend has none (`TickerBankCapitalMetricsIn` is four optional values). Text that is not a number marks the field invalid with an inline error and disables Confirm; an error never survives the edit that fixes it. A rejection from the server is shown with its own message.
 
 **Economic moat tab.** Only the Cancel button is `outline`; the rest of the tab is as it was.
+
+### Ticker page controls, part B (session 13)
+
+`ManualCalculationPanel`, the Valuation tab's right-hand "Custom valuation" card, moved onto the kit. The decisions are in `docs/decisions.md` ("Session 13"); this section is what the code now does. Its calculation, its payloads and its number parsing and formatting are untouched.
+
+**Method select.** A native kit `Select` with the real `<label for>` "Method" (`text-xs` `text-secondary`) to its left in the card's title row, id `manual-method`. Size token `wide` (320px, capped to the container). The option values and their order are unchanged; the labels are sentence case, display only (`METHOD_LABELS` in `Step3Card` is not edited, the panel re-cases each label as it draws it). The saved entry reads "<method> · custom". The row keeps its 32px height (the Model Valuation card's title row is `min-h-8` and the two columns align row for row), so the 36px select carries a `-my-0.5` margin rather than growing the row.
+
+**Formatted rows.** Every row is the kit `Input` (right-aligned, mono, `full` width in the value cell) wired as a `FormField` control: a real `<label for>` in the label cell, the "(in millions)" note as its linked hint, and an inline `role="alert"` error under the box for text that is not a number. None became `NumberField`: a row shows formatted text ("$48,253.00", "+35.0%") while idle and the raw number while focused, and parses with `parseFloat` (so "12abc" reads 12, "1e3" reads 1000 and "+4" reads 4), none of which `NumberField` can do (it holds the raw text only and rejects those). The parse, the format and what is sent are exactly as before; the error appears only for non-empty text the existing parse reads as nothing at all, which is the text the old code silently sent as `null`. Nothing blocks Save or the calculation, and nothing is clamped or corrected. There are no min or max: the backend has none for these fields and the panel never had any.
+
+**Sliders.** The `.range-slider` styling and the live recalculation on every tick are unchanged. Each slider has its label as a real `<label for>`, its note linked with `aria-describedby`, an `aria-valuetext` equal to the readout beside it ("+14.6%"), and a visible keyboard focus ring (the global `.range-slider:focus { outline: none }` removed it; the ring is restored with utility classes on the input, because the global CSS is not edited). Arrow, Home, End and Page keys are the browser's own.
+
+**Action buttons.** All six are `Button`. In the status bar they are `size="sm"`, 32px (the same height as the outline `RefreshButton` and `ExportMenu` in a dense row): Save is the one `primary` (with `h-8`, as `AddToWatchlistButton`), Revert to auto is `outline`, and Activate and Delete are `outline` with their positive and negative tone kept as colour classes (the session 11 precedent). In the delete confirmation, Confirm delete is `danger` and Cancel is `outline`, both at the default 36px. No button in the panel was an icon or a glyph, so none gained an icon.
 
 ## Settings layout
 
@@ -299,7 +312,7 @@ sampled.
    reads `border-border-control`/`border-border-input` (the correct, prefixed form) — confirmed
    by grepping for the bare `control` class fragment app-wide and finding only correctly-prefixed
    hits (`TickerSearch.tsx`, `NumberStepper.tsx`, `Select.tsx`, `AddToWatchlistButton.tsx`,
-   `ManualCalculationPanel.tsx` ×2, `BankCapitalMetricsForm.tsx` ×4, `SavedFiltersBar.tsx`,
+   `BankCapitalMetricsForm.tsx` ×4, `SavedFiltersBar.tsx`,
    `checkbox.tsx`, `input.tsx` ×2, `WatchlistFilters.tsx`, `app/screener/page.tsx`) plus unrelated
    component/comment hits (`SegmentedControl`, code comments) — no bare, unprefixed
    `control` class survives anywhere. **Screener update (session 10):** `WatchlistFilters.tsx` no
