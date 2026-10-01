@@ -1,6 +1,7 @@
 import { Status } from "@/components/ui/status";
 import { useLiquidityZoneConfig } from "@/lib/hooks/useLiquidityZoneConfig";
 import type { BrokenZoneOut, LiquidityZoneOut, LiquidityZonesOut, ZoneOut } from "@/lib/api/types";
+import { MONITORED_WATCHLISTS_PHRASE } from "@/lib/monitoredWatchlists";
 
 // Matches the chart's own chart-zone-broken-support/chart-zone-broken-resistance tokens (see
 // frontend/components/chart/TickerChart.tsx and lib/chartTokens.ts) -- both read the same named design-system
@@ -20,10 +21,9 @@ interface Props {
 const DEFAULT_NUM_ZONES = 3;
 
 const DISCLAIMER =
-  'Unbreached swing-low support / swing-high resistance levels, clustered by price -- only a LATER swing of the same kind invalidates an earlier one, an ordinary price move through a level does not. A dashed "Broken" row (if present) is the single most recently broken level per side that\'s still close enough to current price to be relevant -- see its own tooltip-style caption for exactly when it formed and broke. Computed nightly for tickers in the "W1" or "W2" watchlists only. Informational only, not a trading signal.';
+  'Unbreached swing-low support / swing-high resistance levels, clustered by price -- only a LATER swing of the same kind invalidates an earlier one, an ordinary price move through a level does not. A dashed "Broken" row (if present) is the single most recently broken level per side that\'s still close enough to current price to be relevant -- see its own tooltip-style caption for exactly when it formed and broke. Computed nightly for tickers on a watchlist named E<number> or "ETF" only. Informational only, not a trading signal.';
 
-const UNAVAILABLE_MESSAGE =
-  'No Liquidity Zone data tracked for this ticker -- this check only runs nightly for tickers in the "W1" or "W2" watchlists.';
+const UNAVAILABLE_MESSAGE = `No Liquidity Zone data tracked for this ticker -- this check only runs nightly for tickers on ${MONITORED_WATCHLISTS_PHRASE}.`;
 
 function fmtPrice(price: number): string {
   return `$${price.toFixed(2)}`;

@@ -17,6 +17,7 @@ import {
 } from "@/components/settings/SettingsLayout";
 import { useSettingsSave, type SettingsSaver } from "@/components/settings/useSettingsSave";
 import { checkNumber, type NumberRules } from "@/lib/numberInput";
+import { MONITORED_WATCHLISTS_PHRASE } from "@/lib/monitoredWatchlists";
 
 // The bounds are the server's own (LiquidityZoneConfigIn in backend/core/
 // schemas.py). A value outside a bound, or a non-integer in an integer field,
@@ -113,7 +114,7 @@ function LiquidityZoneForm({ data, saver }: { data: LiquidityZoneConfigOut; save
   return (
     <SettingsSection
       title="Liquidity zones"
-      intro="Support and resistance levels found from swings in price, computed nightly for watchlists named W1 through W5 only. One set of settings is shared by the Daily and Weekly computations. A change applies on the next nightly run, not retroactively."
+      intro={`Support and resistance levels found from swings in price, computed nightly for tickers on ${MONITORED_WATCHLISTS_PHRASE} only. One set of settings is shared by the Daily and Weekly computations. A change applies on the next nightly run, not retroactively.`}
     >
       <SettingsGroup title="Detection">
         <NumberSettingRow

@@ -12,6 +12,7 @@ import {
   WEINSTEIN_STAGE_FILTER_OPTIONS,
   type ScreenerFilterState,
 } from "@/lib/screenerFilters";
+import { MONITORED_WATCHLISTS_PHRASE } from "@/lib/monitoredWatchlists";
 
 interface Props {
   filters: ScreenerFilterState;
@@ -58,7 +59,7 @@ export function TechnicalFilters({ filters, onFiltersChange }: Props) {
             onChange={(e) => patch({ bbRsiEntrySignal: e.target.checked })}
           />
           <p className="text-xs text-text-tertiary">
-            BB + RSI entry and Warren entry only ever match tickers on a watchlist named W1 through W5.
+            BB + RSI entry and Warren entry only ever match tickers on {MONITORED_WATCHLISTS_PHRASE}.
           </p>
         </div>
       </div>

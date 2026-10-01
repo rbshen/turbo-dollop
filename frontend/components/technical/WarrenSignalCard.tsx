@@ -1,5 +1,6 @@
 import { ChecklistCard, type ChecklistItem } from "@/components/technical/ChecklistCard";
 import type { TechnicalEntrySignalOut } from "@/lib/api/types";
+import { MONITORED_WATCHLISTS_PHRASE } from "@/lib/monitoredWatchlists";
 
 interface Props {
   data: TechnicalEntrySignalOut | null;
@@ -8,8 +9,7 @@ interface Props {
 const DISCLAIMER =
   "RSI/ADX/WVF buy-and-sell state machine (Yellow/Gray/Blue Up and Down arrows, a trailing stop line, and a gray-suppression latch after 2 stop-outs since the last Blue trigger), ported from a reference trading bot. \"Active\" tracks the state machine's own in-trade status (the last event was a buy-side arrow), not a fixed time window. The stop line is a live computed reference level, not a trailing/executed stop -- there's no position being tracked. Display-only -- Fathom does not execute trades. Informational only, not a trading signal.";
 
-const UNAVAILABLE_MESSAGE =
-  'No Warren RSI/ADX/WVF entry signal tracked for this ticker -- this check only runs nightly for tickers in a "W1"-"W5" watchlist.';
+const UNAVAILABLE_MESSAGE = `No Warren RSI/ADX/WVF entry signal tracked for this ticker -- this check only runs nightly for tickers on ${MONITORED_WATCHLISTS_PHRASE}.`;
 
 const SOURCE_LABEL: Record<string, string> = {
   fmp: "Financial Modeling Prep",

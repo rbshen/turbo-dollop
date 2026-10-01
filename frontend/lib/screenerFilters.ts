@@ -141,12 +141,12 @@ export interface ScreenerFilterState {
   speculativeGrowth: boolean;
   // Same boolean-checkbox shape as speculativeGrowth above -- but unlike
   // every other Technical filter, this one only ever matches tickers on
-  // a watchlist named W1 through W5 (see TechnicalFilters.tsx's
+  // a monitored watchlist (named E<number> or ETF) (see TechnicalFilters.tsx's
   // own caption), since bb_rsi_entry_signal is null for every other ticker.
   bbRsiEntrySignal: boolean;
   // Multi-select over Warren's 3 Up-kinds (Blue/Yellow/Gray Up), OR
   // semantics -- matches Weinstein Stage's array-filter pattern above,
-  // not bbRsiEntrySignal's single-checkbox shape. Same W1-W5-only
+  // not bbRsiEntrySignal's single-checkbox shape. Same monitored-watchlist-only
   // scoping as bbRsiEntrySignal (warren_active_signal_kind is null for
   // every other ticker).
   warrenSignalKinds: string[];

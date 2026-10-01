@@ -624,12 +624,12 @@ export interface TickerScoreOut {
   weinstein_pending_direction: "advance" | "decline" | null;
   // See TickerScore.bb_rsi_entry_signal. null for the overwhelming
   // majority of tickers -- this signal only ever exists for
-  // members of a watchlist named W1 through W5.
+  // members of a monitored watchlist (named E<number> or ETF).
   bb_rsi_entry_signal: boolean | null;
   // See TickerScore.warren_active_signal_kind -- the ticker's currently
   // active Warren buy state (all three of Blue/Yellow/Gray Up are
   // equally valid "active" states, see that field's own backend
-  // comment), or null when not currently active. Same W1-W5-only
+  // comment), or null when not currently active. Same monitored-watchlist-only
   // scoping as bb_rsi_entry_signal.
   warren_active_signal_kind: "blue_up" | "yellow_up" | "gray_up" | null;
   // See TickerScore.warren_last_buy_fired_at.
@@ -1315,7 +1315,7 @@ export interface WeinsteinPendingOut {
 
 // Latest BB+RSI (2h) technical entry-signal read for one ticker -- see
 // backend's models.py::TechnicalEntrySignal. Only ever populated for
-// tickers on a watchlist named W1 through W5 (see
+// tickers on a monitored watchlist (named E<number> or ETF) (see
 // pipeline/nightly_entry_signal_calculation.py); GET
 // /api/tickers/{ticker}/entry-signal returns null for every other ticker,
 // same "not computed yet, not a fabricated neutral result" convention as
@@ -1509,7 +1509,7 @@ export interface ChartOut {
   warren_signal_markers: ChartMarkerOut[];
   warren_signal_available: boolean;
   // zones_available mirrors entry_signal_available's convention -- false
-  // means not tracked (not on a watchlist named W1 through W5, or the
+  // means not tracked (not on a monitored watchlist (named E<number> or ETF), or the
   // nightly LP job hasn't reached it yet), not "genuinely zero zones".
   zones: ChartZoneOut[];
   zones_available: boolean;
