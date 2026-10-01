@@ -1,4 +1,5 @@
 export type TickerTab =
+  | "overview"
   | "summary"
   | "financials"
   | "ratios"
@@ -47,3 +48,13 @@ export const TICKER_TABS: TickerTabDef[] = [
 ];
 
 export const DEFAULT_TICKER_TAB: TickerTab = "summary";
+
+// The ETF variant of the ticker page (docs/specs/etf-page.md): no Financials, Ratios, Analysis,
+// Valuation, Moat or Analyst Ratings tab -- an ETF has none of that data.
+export const ETF_TICKER_TABS: TickerTabDef[] = [
+  { key: "overview", label: "Overview" },
+  { key: "technical", label: "Technical" },
+  { key: "chart", label: "Chart" },
+];
+
+export const DEFAULT_ETF_TICKER_TAB: TickerTab = "overview";

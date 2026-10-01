@@ -22,7 +22,7 @@ in the code is unmapped, so this inventory can't silently drift from the code wi
 noticing — an unmapped endpoint fails closed by design (see `CLAUDE.md`'s "Data groups"
 section).
 
-**35 distinct endpoint paths total** (34 fully gated by a single group; `/quote`, `/earnings`,
+**36 distinct endpoint paths total** (35 fully gated by a single group; `/quote`, `/earnings`,
 and `/historical-price-eod/full` are each reached by two groups via an explicit override).
 
 ### Multi-group endpoints (the same URL, two purposes)
@@ -68,6 +68,13 @@ FMP-verified facts — several DB tiers (Starter) are lower than the code's own 
 `index_membership`) show no recorded `last_success_at` even though their code paths exist and
 run — not investigated further (the news tab may simply not have been viewed since that column
 was added; the index scrapers only run on Sundays).
+
+### ETF endpoint (2026-10-01)
+
+`/etf/info` -> group `etf_info` (cache key `etf_info`), the only ETF endpoint used; see `docs/specs/etf-page.md`. Its tier
+(Premium) is an unverified guess. Its canary/probe symbol is **SPY**, not AAPL (`CANARY_SYMBOL_OVERRIDES` in
+`core/data_groups.py`), because AAPL answers `200 []`. `/etf/holdings`, `/etf/sector-weightings`,
+`/etf/country-weightings` and `/etf/asset-exposure` are deliberately not registered or called.
 
 ### Unwired, dead, one-shot, or shelved
 

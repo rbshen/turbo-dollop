@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowDown, ArrowUp } from "@phosphor-icons/react";
+import Link from "next/link";
 import { useState } from "react";
 
 import type { SectorHeatmapOut } from "@/lib/api/types";
@@ -13,9 +14,9 @@ interface Props {
 }
 
 /** ETFs as rows, return windows as columns -- a plain CSS grid, no charting
- * library. Ticker labels are deliberately NOT links: /tickers/<ETF> still
- * renders the stock-shaped page. Sorting is client-side, so a re-sort never
- * refetches. */
+ * library. Each sector label links to the ETF's page (/tickers/<ETF>, the ETF
+ * variant of the ticker page), in a new tab like every other ticker link in
+ * the app. Sorting is client-side, so a re-sort never refetches. */
 export function SectorHeatmapGrid({ data }: Props) {
   const [sort, setSort] = useState(DEFAULT_HEATMAP_SORT);
   const rows = sortHeatmapRows(data.rows, sort);
@@ -64,9 +65,16 @@ export function SectorHeatmapGrid({ data }: Props) {
 
         {rows.map((row) => (
           <div key={row.ticker} role="row" className="contents">
-            <div role="rowheader" className="flex items-baseline gap-2 px-2 py-2.5">
-              <span className="font-mono text-sm font-bold text-text-primary">{row.ticker}</span>
-              <span className="truncate text-xs text-text-secondary">{row.name}</span>
+            <div role="rowheader" className="px-2 py-2.5">
+              <Link
+                href={`/tickers/${row.ticker}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-baseline gap-2"
+              >
+                <span className="font-mono text-sm font-bold text-text-primary group-hover:underline">{row.ticker}</span>
+                <span className="truncate text-xs text-text-secondary">{row.name}</span>
+              </Link>
             </div>
             {data.windows.map((window) => {
               const cell = row.cells[window];

@@ -344,7 +344,12 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                 )}
               </TableCell>
               <TableCell className="text-center">
-                {row.overall_score != null ? (
+                {row.is_etf ? (
+                  // A fund has no score: the marker replaces the otherwise-blank cell.
+                  <Badge size="compact" tone="neutral" title="Exchange-traded fund -- not scored">
+                    ETF
+                  </Badge>
+                ) : row.overall_score != null ? (
                   <Badge
                     size="compact"
                     tone={toneForNullable(row.overall_score, row.overall_verdict)}

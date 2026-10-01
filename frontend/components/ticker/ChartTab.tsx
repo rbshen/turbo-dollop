@@ -12,6 +12,8 @@ import type { ChartRange } from "@/lib/api/types";
 
 interface Props {
   ticker: string;
+  /** The ETF page: funds report no earnings, so the Earnings overlay toggle is hidden (and forced off). */
+  isEtf?: boolean;
 }
 
 const RANGE_OPTIONS: { key: ChartRange; label: string }[] = [
@@ -121,7 +123,7 @@ function ChartSkeleton() {
   );
 }
 
-export function ChartTab({ ticker }: Props) {
+export function ChartTab({ ticker, isEtf }: Props) {
   const [range, setRange] = useState<ChartRange>("D_6M");
   // Loaded from localStorage during render, not in an effect -- mirrors Watchlist sort rules' own "adjust state
   // during rendering" pattern (app/watchlist/page.tsx's sortState/activeId), which this project's lint config
@@ -182,7 +184,7 @@ export function ChartTab({ ticker }: Props) {
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1">
-          {TOGGLE_OPTIONS.filter((opt) => opt.key !== "stage" || range === STAGE_TOGGLE_RANGE).map((opt) => (
+          {TOGGLE_OPTIONS.filter((opt) => (opt.key !== "stage" || range === STAGE_TOGGLE_RANGE) && !(isEtf && opt.key === "earnings")).map((opt) => (
             <Button
               key={opt.key}
               variant="outline"
@@ -222,7 +224,7 @@ export function ChartTab({ ticker }: Props) {
           quoteCurrency={quoteCurrency}
           showBbRsi={signalToggles.bbRsi}
           showWarren={signalToggles.warren}
-          showEarnings={signalToggles.earnings}
+          showEarnings={signalToggles.earnings && !isEtf}
           showDividends={signalToggles.dividends}
           showLpSupport={signalToggles.lpSupport}
           showLpResistance={signalToggles.lpResistance}

@@ -112,11 +112,6 @@ describe("SectorHeatmapGrid", () => {
     expect(xlk.querySelector('[data-window="ytd"]')).not.toHaveAttribute("title"); // blank in this fixture
     expect(xlk.querySelector('[data-window="1y"]')).toHaveAttribute("title", "1Y: from the Dec 31, 2025 close");
   });
-
-  it("does not link the ETF labels (the ETF page doesn't exist yet)", () => {
-    render(<SectorHeatmapGrid data={DATA} />);
-    expect(screen.queryByRole("link")).not.toBeInTheDocument();
-  });
 });
 
 // Session 16: the active column is neutral (text-primary plus the arrow and aria-sort), never brand blue.
@@ -135,5 +130,26 @@ describe("SectorHeatmapGrid: the active column header is neutral", () => {
     expect(screen.getByRole("button", { name: /1Y/ })).toHaveClass("text-text-primary");
     expect(screen.getByRole("button", { name: /3M/ })).toHaveClass("text-text-tertiary");
     expect(screen.getByRole("columnheader", { name: /1Y/ })).not.toHaveAttribute("aria-sort", "none");
+  });
+});
+
+describe("SectorHeatmapGrid: sector labels link to the ETF page", () => {
+  it("wraps each row label in one link to /tickers/<ETF>, opened in a new tab like other ticker links", () => {
+    render(<SectorHeatmapGrid data={DATA} />);
+    const headers = screen.getAllByRole("rowheader");
+    expect(headers).toHaveLength(3);
+    for (const header of headers) {
+      expect(within(header).getAllByRole("link")).toHaveLength(1);
+    }
+    const xlk = screen.getByRole("link", { name: /XLK/ });
+    expect(xlk).toHaveAttribute("href", "/tickers/XLK");
+    expect(xlk).toHaveAttribute("target", "_blank");
+    expect(xlk.getAttribute("rel")).toContain("noopener");
+    expect(xlk).toHaveTextContent("Technology");
+  });
+
+  it("links only the labels, not the sortable column headers or the return cells", () => {
+    render(<SectorHeatmapGrid data={DATA} />);
+    expect(screen.getAllByRole("link")).toHaveLength(3);
   });
 });

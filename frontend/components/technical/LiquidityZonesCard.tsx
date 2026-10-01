@@ -1,7 +1,7 @@
 import { Status } from "@/components/ui/status";
 import { useLiquidityZoneConfig } from "@/lib/hooks/useLiquidityZoneConfig";
 import type { BrokenZoneOut, LiquidityZoneOut, LiquidityZonesOut, ZoneOut } from "@/lib/api/types";
-import { MONITORED_WATCHLISTS_PHRASE } from "@/lib/monitoredWatchlists";
+import { notTrackedMessage } from "@/lib/monitoredWatchlists";
 
 // Matches the chart's own chart-zone-broken-support/chart-zone-broken-resistance tokens (see
 // frontend/components/chart/TickerChart.tsx and lib/chartTokens.ts) -- both read the same named design-system
@@ -13,6 +13,8 @@ const BROKEN_CLASS = {
 
 interface Props {
   data: LiquidityZonesOut | null;
+  /** The ETF page: the not-tracked state points at the ETF watchlist. */
+  isEtf?: boolean;
 }
 
 // Matches backend's helpers/liquidity_zone_config.py::DEFAULT_NUM_ZONES --
@@ -23,7 +25,7 @@ const DEFAULT_NUM_ZONES = 3;
 const DISCLAIMER =
   'Unbreached swing-low support / swing-high resistance levels, clustered by price -- only a LATER swing of the same kind invalidates an earlier one, an ordinary price move through a level does not. A dashed "Broken" row (if present) is the single most recently broken level per side that\'s still close enough to current price to be relevant -- see its own tooltip-style caption for exactly when it formed and broke. Computed nightly for tickers on a watchlist named E<number> or "ETF" only. Informational only, not a trading signal.';
 
-const UNAVAILABLE_MESSAGE = `No Liquidity Zone data tracked for this ticker -- this check only runs nightly for tickers on ${MONITORED_WATCHLISTS_PHRASE}.`;
+const UNAVAILABLE_CHECK = "Liquidity Zone data";
 
 function fmtPrice(price: number): string {
   return `$${price.toFixed(2)}`;
@@ -172,7 +174,7 @@ function EmptyTimeframe({ label }: { label: string }) {
   );
 }
 
-export function LiquidityZonesCard({ data }: Props) {
+export function LiquidityZonesCard({ data, isEtf }: Props) {
   // One shared cap for both timeframes (max_lps_per_side). Slots are sized to
   // the most zones any side actually has (capped), not the cap itself, so a
   // default cap of 10 doesn't pad every ladder with blank rows -- and the
@@ -198,7 +200,7 @@ export function LiquidityZonesCard({ data }: Props) {
             Not tracked
           </Status>
         </div>
-        <p className="rounded-md border border-warn/40 bg-warn/10 p-3 text-xs text-warn">{UNAVAILABLE_MESSAGE}</p>
+        <p className="rounded-md border border-warn/40 bg-warn/10 p-3 text-xs text-warn">{notTrackedMessage(UNAVAILABLE_CHECK, isEtf)}</p>
       </div>
     );
   }

@@ -214,3 +214,58 @@ describe("WatchlistTable remove button", () => {
     }
   });
 });
+
+describe("WatchlistTable: ETF rows", () => {
+  const ETF_ROW: WatchlistRowOut = {
+    ...ROWS[0],
+    ticker: "QQQ",
+    company_name: "Invesco QQQ Trust",
+    sector: null,
+    moat: null,
+    valuation_verdict: null,
+    valuation_source: null,
+    overall_score: null,
+    overall_verdict: null,
+    years: [],
+    revenue: [],
+    net_income: [],
+    cfo: null,
+    market_cap: null,
+    pe_ratio: null,
+    beta: null,
+    consensus_rating: "N/A",
+    is_etf: true,
+  };
+
+  function analysisCell(ticker: string) {
+    const row = screen.getByText(ticker).closest("tr") as HTMLElement;
+    return row.querySelectorAll("td")[7]; // Ticker, Sector, Rev, NI, CFO, Moat, Value, Analysis
+  }
+
+  it("shows an ETF marker in the Analysis cell instead of the blank/missing score", () => {
+    render(
+      <WatchlistTable
+        watchlist={WATCHLIST}
+        rows={[ROWS[0], ETF_ROW]}
+        sortRules={DEFAULT_SORT_RULES}
+        onSortRulesChange={vi.fn()}
+      />,
+    );
+    expect(analysisCell("QQQ")).toHaveTextContent("ETF");
+    expect(analysisCell("QQQ")).not.toHaveTextContent("—");
+    expect(analysisCell("AAPL")).toHaveTextContent("90"); // a stock row is unchanged
+    expect(analysisCell("AAPL")).not.toHaveTextContent("ETF");
+  });
+
+  it("an unscored non-ETF still shows the missing dash, not the marker", () => {
+    render(
+      <WatchlistTable
+        watchlist={WATCHLIST}
+        rows={[{ ...ETF_ROW, is_etf: false }]}
+        sortRules={DEFAULT_SORT_RULES}
+        onSortRulesChange={vi.fn()}
+      />,
+    );
+    expect(analysisCell("QQQ")).toHaveTextContent("—");
+  });
+});

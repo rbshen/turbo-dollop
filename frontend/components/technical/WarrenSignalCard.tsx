@@ -1,15 +1,17 @@
 import { ChecklistCard, type ChecklistItem } from "@/components/technical/ChecklistCard";
 import type { TechnicalEntrySignalOut } from "@/lib/api/types";
-import { MONITORED_WATCHLISTS_PHRASE } from "@/lib/monitoredWatchlists";
+import { notTrackedMessage } from "@/lib/monitoredWatchlists";
 
 interface Props {
   data: TechnicalEntrySignalOut | null;
+  /** The ETF page: the not-tracked state points at the ETF watchlist. */
+  isEtf?: boolean;
 }
 
 const DISCLAIMER =
   "RSI/ADX/WVF buy-and-sell state machine (Yellow/Gray/Blue Up and Down arrows, a trailing stop line, and a gray-suppression latch after 2 stop-outs since the last Blue trigger), ported from a reference trading bot. \"Active\" tracks the state machine's own in-trade status (the last event was a buy-side arrow), not a fixed time window. The stop line is a live computed reference level, not a trailing/executed stop -- there's no position being tracked. Display-only -- Fathom does not execute trades. Informational only, not a trading signal.";
 
-const UNAVAILABLE_MESSAGE = `No Warren RSI/ADX/WVF entry signal tracked for this ticker -- this check only runs nightly for tickers on ${MONITORED_WATCHLISTS_PHRASE}.`;
+const UNAVAILABLE_CHECK = "Warren RSI/ADX/WVF entry signal";
 
 const SOURCE_LABEL: Record<string, string> = {
   fmp: "Financial Modeling Prep",
@@ -30,7 +32,7 @@ function fmtDateTime(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-export function WarrenSignalCard({ data }: Props) {
+export function WarrenSignalCard({ data, isEtf }: Props) {
   if (!data) {
     return (
       <ChecklistCard
@@ -39,7 +41,7 @@ export function WarrenSignalCard({ data }: Props) {
         statusTone="neutral"
         blurb="RSI/ADX/WVF buy-and-sell state machine with a trailing stop line and gray-suppression latch, on 2-hour session candles."
         items={[]}
-        disclaimer={UNAVAILABLE_MESSAGE}
+        disclaimer={notTrackedMessage(UNAVAILABLE_CHECK, isEtf)}
       />
     );
   }

@@ -88,3 +88,11 @@ describe("text helpers", () => {
     }
   });
 });
+
+describe("ETF overview tab", () => {
+  it("is fed by the etf_info group, so a paused group shows the not-refreshing badge on it", () => {
+    expect(TAB_GROUPS.overview).toEqual(["etf_info"]);
+    const data = wrap([group({ key: "etf_info", label: "ETF info", state: "cached_only", reason: "user_off" })]);
+    expect(offGroupsFor(data, TAB_GROUPS.overview).map((g) => g.key)).toEqual(["etf_info"]);
+  });
+});

@@ -96,9 +96,8 @@ column** (each window's own largest |return| sets that column's intensity ceilin
 1pp so a flat column doesn't paint noise at full saturation) — tints are therefore not
 comparable across columns, stated on the page footnote; a fixed per-window clamp was the
 considered alternative. Default sort is 3M descending; header clicks re-sort client-side, blank
-cells always sink. ETF labels are **not** links — `/tickers/<ETF>` still renders the
-stock-shaped page (there is no dedicated ETF ticker-page layout; a companion investigation for
-one was never shipped). The nav item "Sectors" opens in a new tab like Momentum/Watchlist/
+cells always sink. Each ETF label is a link (one `Link` per row, new tab) to `/tickers/<ETF>`, which renders the ETF
+variant of the ticker page (`docs/specs/etf-page.md`; links added 2026-10-01 together with that page). The nav item "Sectors" opens in a new tab like Momentum/Watchlist/
 Settings (except when clicked from Momentum, Sectors, Breadth or Settings, where nav links go same-tab). Layout, tint legibility and narrow-width behavior were never verified on screen (no
 browser was available).
 

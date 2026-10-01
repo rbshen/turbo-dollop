@@ -4,7 +4,7 @@ import { mutate } from "swr";
 
 import { apiDelete, apiPost, apiPut } from "@/lib/api/client";
 import { useApiResource } from "@/lib/hooks/useApiResource";
-import type { WatchlistOut } from "@/lib/api/types";
+import type { EtfWatchlistAddOut, WatchlistOut } from "@/lib/api/types";
 
 const KEY = "/watchlists";
 
@@ -59,5 +59,14 @@ export async function removeTickerFromWatchlist(id: number, ticker: string): Pro
 export async function bulkAddTickersToWatchlist(id: number, tickers: string[]): Promise<BulkAddResult> {
   const result = await apiPost<BulkAddResult>(`${KEY}/${id}/tickers/bulk`, { tickers });
   await Promise.all([mutate(KEY), mutate(`${KEY}/${id}/rows`)]);
+  return result;
+}
+
+/** The ETF page's "Add to watchlist": adds the ticker to the list named "ETF" (created on first use). The
+ * backend call is idempotent -- an ETF already on the list answers `added: false`. A full list rejects
+ * with the backend's own message (see errorDetail). */
+export async function addTickerToEtfWatchlist(ticker: string): Promise<EtfWatchlistAddOut> {
+  const result = await apiPost<EtfWatchlistAddOut>(`/tickers/${encodeURIComponent(ticker)}/etf-watchlist`);
+  await Promise.all([mutate(KEY), mutate(`${KEY}/${result.watchlist_id}/rows`)]);
   return result;
 }

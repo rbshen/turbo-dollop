@@ -221,3 +221,21 @@ describe("ChartTab: zoom and states", () => {
     expect(screen.queryByTestId("chart")).not.toBeInTheDocument();
   });
 });
+
+describe("ChartTab: on an ETF page", () => {
+  it("hides the Earnings toggle (a fund has no earnings) and forces the overlay off, keeping every other toggle", () => {
+    render(<ChartTab ticker="QQQ" isEtf />);
+    expect(screen.queryByRole("button", { name: "Earnings" })).not.toBeInTheDocument();
+    expect(chartProps.showEarnings).toBe(false);
+    for (const [label, prop] of TOGGLES.filter(([l]) => l !== "Earnings")) {
+      expect(btn(label)).toBeInTheDocument();
+      expect(chartProps[prop]).toBe(true);
+    }
+  });
+
+  it("a stock keeps the Earnings toggle, on by default", () => {
+    render(<ChartTab ticker="AAPL" />);
+    expect(isOn(btn("Earnings"))).toBe(true);
+    expect(chartProps.showEarnings).toBe(true);
+  });
+});

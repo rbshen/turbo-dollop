@@ -133,7 +133,8 @@ Tickers on none of the monitored lists have no row at all.
   (sparse/early history, or price hasn't pulled back far enough to form one) shows a plain "No confirmed
   support/resistance levels yet" line while the rest of the card renders normally. A ticker never computed
   (on no monitored list, or not yet processed) renders the same "Not tracked" shape `BbRsiEntrySignalCard`
-  uses, explaining the monitored-list-only scoping (`lib/monitoredWatchlists.ts`), rather than four empty sections.
+  uses, explaining the monitored-list-only scoping (`lib/monitoredWatchlists.ts`), rather than four empty sections. On an ETF page
+  (`isEtf`) the copy points to the "ETF" list instead (`notTrackedMessage`, `docs/specs/etf-page.md`).
 - **Broken-zone row.** When `broken_support` / `broken_resistance` is non-null, a dashed "Broken" row
   (`BrokenZoneRow`, same colors as the chart, kept in sync manually) renders for that side. It is placed
   immediately adjacent to the current-price divider: appended after the regular resistance ladder and

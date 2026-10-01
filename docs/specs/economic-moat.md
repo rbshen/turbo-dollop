@@ -100,3 +100,7 @@ regardless of what Moat is set to.
 
 Selecting a rating shows a live preview immediately, but nothing is persisted until the user
 explicitly confirms — since doing so changes how Overall Assessment is scored for that ticker.
+
+## ETFs
+
+An Economic Moat is a company judgement, so it cannot be set on an ETF or fund: `PUT /api/tickers/{t}/moat` answers 400 for a ticker the app knows is an ETF/fund, the ETF page has no Moat tab or pill, and the monthly momentum snapshot excludes `TickerScore.is_etf` rows (see `docs/specs/etf-page.md`).

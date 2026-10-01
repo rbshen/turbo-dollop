@@ -2,6 +2,7 @@
 
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useApiResource } from "@/lib/hooks/useApiResource";
 import type { TickerSearchResult } from "@/lib/api/types";
@@ -127,6 +128,11 @@ export function TickerSearch() {
                 <span className="flex min-w-0 items-baseline gap-2">
                   <span className="shrink-0 font-mono font-semibold text-text-primary">{r.symbol}</span>
                   {r.name && <span className="truncate text-text-secondary">{r.name}</span>}
+                  {r.is_etf && (
+                    <Badge tone="neutral" size="compact" className="shrink-0">
+                      ETF
+                    </Badge>
+                  )}
                 </span>
                 {r.exchange && <span className="shrink-0 text-text-tertiary">{r.exchange}</span>}
               </button>

@@ -7,6 +7,7 @@ import { GroupOffBadge } from "@/components/shared/GroupOffBadge";
 import { AnalysisTab } from "@/components/ticker/AnalysisTab";
 import { AnalystRatingsTab } from "@/components/ticker/AnalystRatingsTab";
 import { ChartTab } from "@/components/ticker/ChartTab";
+import { EtfTickerPage } from "@/components/ticker/EtfTickerPage";
 import { EconomicMoatTab } from "@/components/ticker/EconomicMoatTab";
 import { FinancialsTab } from "@/components/ticker/FinancialsTab";
 import { RatiosTab } from "@/components/ticker/RatiosTab";
@@ -52,6 +53,12 @@ export function TickerTabsContainer({ ticker }: Props) {
         <span className="text-sm text-text-tertiary animate-pulse">Loading {ticker}…</span>
       </div>
     );
+  }
+
+  // An ETF/fund gets its own variant (Overview / Technical / Chart); everything below is the stock page,
+  // unchanged. Detection is the profile's isEtf || isFund (TickerSummaryOut.is_etf).
+  if (data.is_etf) {
+    return <EtfTickerPage ticker={ticker} data={data} />;
   }
 
   return (

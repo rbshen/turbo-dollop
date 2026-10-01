@@ -111,6 +111,10 @@ export interface TickerSearchResult {
   symbol: string;
   name: string | null;
   exchange: string | null;
+  // Only true for a ticker the app already knows is an ETF/fund (cached profile or score row) -- FMP's
+  // search carries no security type, so a never-opened ETF is not labelled. See backend TickerSearchResult.
+  // Optional only so existing fixtures (and /styleguide's mocks) keep compiling; the API always sends it.
+  is_etf?: boolean;
 }
 
 export type PerfVsSpyStatus = "outperform" | "underperform" | "match" | "no_data";
@@ -1166,6 +1170,10 @@ export interface WatchlistOut {
   created_at: string;
   updated_at: string;
   tickers: WatchlistTickerOut[];
+  // Whether the nightly technical jobs read this list (E<number> or "ETF"). Computed by the backend
+  // (data/watchlists.py) so the frontend never re-implements the naming rule.
+  // Optional only so existing fixtures (and /styleguide's mocks) keep compiling; the API always sends it.
+  monitored?: boolean;
 }
 
 // The Watchlist table's click-to-sort column headers (2026-09-05 redesign,
@@ -1243,6 +1251,9 @@ export interface WatchlistRowOut {
   // analyst-ratings data for this ticker yet.
   consensus_rating: string;
   added_at: string;
+  // The ticker is an ETF/fund: the table shows an "ETF" marker in place of the blank score cells.
+  // Optional only so existing fixtures keep compiling; the API always sends it.
+  is_etf?: boolean;
 }
 
 // Latest Weinstein Stage Analysis for one ticker -- see backend/core/schemas.py::
@@ -1646,4 +1657,45 @@ export interface MarketBreadthOut {
   latest: MarketBreadthPointOut | null;
   // Oldest first.
   series: MarketBreadthPointOut[];
+}
+
+// ETF page Overview tab -- backend/core/schemas.py::EtfOverviewOut, from FMP /etf/info only
+// (docs/specs/etf-page.md). Every fact FMP didn't return is null (the UI omits that row).
+export interface EtfSectorWeightOut {
+  sector: string;
+  // Percent of the fund, 0-100.
+  weight: number;
+}
+
+export interface EtfOverviewOut {
+  ticker: string;
+  // "unavailable": the etf_info data group is off (or the fetch failed) and nothing is cached.
+  // "no_data": FMP has no fund record for this ticker.
+  status: "ok" | "unavailable" | "no_data";
+  reason: "group_off" | "fetch_failed" | null;
+  name: string | null;
+  issuer: string | null;
+  asset_class: string | null;
+  // Percent: 0.09 means 0.09%.
+  expense_ratio: number | null;
+  assets_under_management: number | null;
+  holdings_count: number | null;
+  nav: number | null;
+  nav_currency: string | null;
+  avg_volume: number | null;
+  inception_date: string | null;
+  domicile: string | null;
+  description: string | null;
+  website: string | null;
+  // Largest first; EMPTY for a non-equity fund or a lone "Cash & Others 100%".
+  sector_weights: EtfSectorWeightOut[];
+  updated_at: string | null;
+  fetched_at: string | null;
+}
+
+export interface EtfWatchlistAddOut {
+  watchlist_id: number;
+  watchlist_name: string;
+  // false when the ticker was already on the ETF list (the call is idempotent).
+  added: boolean;
 }

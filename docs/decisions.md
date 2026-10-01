@@ -447,6 +447,20 @@ Stage 4c of 5. Two bugs the owner saw in the browser, then the leftovers of sess
 
 **Final state.** No source file selects or marks a current item with brand blue, hand-writes a ghost-plus-border button, sets `outline-none`, or has an icon-only button without an `aria-label`. The remaining `brand` uses and glyphs, each with why, are listed in the "What is left after session 16" bullets in `docs/design-system.md`.
 
+### 2026-10-01 — ETF page (Task B)
+
+Built from `docs/etf-page-investigation-2026-10-01.md`; full behaviour in `docs/specs/etf-page.md`. Decisions worth keeping:
+
+- **One endpoint, no holdings.** `/etf/info` only (it already carries the sector weights), behind one data group `etf_info`.
+  Cached in `FundamentalsCache`, 1-day TTL, no table, no cron job. The investigation's holdings table and second endpoint were dropped by the owner.
+- **Variant, not a route.** The ticker page branches on `is_etf`; the stock page is untouched. Header and tabs are ETF-specific
+  (Overview/Technical/Chart); no scoring, Moat, valuation or earnings surface. Moat is refused for ETFs in the API and excluded from momentum.
+- **Design.** Hairline sections and `DefinitionRow`s, 15px semibold section titles, 13px tertiary captions, sector bars in the single series colour, a
+  quiet disabled "On watchlist <name>" state instead of a second primary button. `/styleguide` deliberately not updated.
+- **One watchlist click.** The ETF button adds straight to the list named "ETF" (not the stock popover); the frontend learns
+  which lists are monitored from the backend (`WatchlistOut.monitored`) rather than matching names.
+- **Search label is local knowledge only** (FMP search has no type; a per-result profile call would add every searched ticker to the tracked universe).
+
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
 - **`MultiSelect` primitive — resolved, built.** `components/screener/MultiSelectDropdown.tsx` is

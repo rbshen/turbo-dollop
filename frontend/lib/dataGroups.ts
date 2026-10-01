@@ -51,6 +51,7 @@ export function asOfText(group: DataGroupOut): string {
  * neither must ever trigger this badge on a tab it doesn't actually feed
  * anything visible on. */
 export const TAB_GROUPS: Record<string, readonly string[]> = {
+  overview: ["etf_info"],
   summary: ["profile_quote", "fundamentals", "segmentation"],
   financials: ["fundamentals"],
   ratios: ["fundamentals"],

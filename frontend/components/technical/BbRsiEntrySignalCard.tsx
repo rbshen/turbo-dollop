@@ -1,15 +1,17 @@
 import { ChecklistCard, type ChecklistItem } from "@/components/technical/ChecklistCard";
 import type { TechnicalEntrySignalOut } from "@/lib/api/types";
-import { MONITORED_WATCHLISTS_PHRASE } from "@/lib/monitoredWatchlists";
+import { notTrackedMessage } from "@/lib/monitoredWatchlists";
 
 interface Props {
   data: TechnicalEntrySignalOut | null;
+  /** The ETF page: the not-tracked state points at the ETF watchlist. */
+  isEtf?: boolean;
 }
 
 const DISCLAIMER =
   "Bollinger Band %B + RSI oversold check on 2-hour candles, ported from a reference trading bot's entry condition. A fire stays \"active\" for 7 days after it happens. Stop price is a single computed reference level (close - ATR x 2 on the firing bar), not a live/trailing stop -- there's no position being tracked. Display-only -- Fathom does not execute trades. Informational only, not a trading signal.";
 
-const UNAVAILABLE_MESSAGE = `No BB+RSI entry signal tracked for this ticker -- this check only runs nightly for tickers on ${MONITORED_WATCHLISTS_PHRASE}.`;
+const UNAVAILABLE_CHECK = "BB+RSI entry signal";
 
 const SOURCE_LABEL: Record<string, string> = {
   fmp: "Financial Modeling Prep",
@@ -19,7 +21,7 @@ function fmtDateTime(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-export function BbRsiEntrySignalCard({ data }: Props) {
+export function BbRsiEntrySignalCard({ data, isEtf }: Props) {
   if (!data) {
     return (
       <ChecklistCard
@@ -28,7 +30,7 @@ export function BbRsiEntrySignalCard({ data }: Props) {
         statusTone="neutral"
         blurb="Bollinger Band %B in the bottom 5% of the band, combined with an oversold prior-bar RSI, on 2-hour session candles."
         items={[]}
-        disclaimer={UNAVAILABLE_MESSAGE}
+        disclaimer={notTrackedMessage(UNAVAILABLE_CHECK, isEtf)}
       />
     );
   }

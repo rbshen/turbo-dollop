@@ -11,9 +11,11 @@ import { useWarrenSignal } from "@/lib/hooks/useWarrenSignal";
 
 interface Props {
   ticker: string;
+  /** The ETF page: the three watchlist-gated cards' "not tracked" copy points at the ETF watchlist. */
+  isEtf?: boolean;
 }
 
-export function TechnicalTab({ ticker }: Props) {
+export function TechnicalTab({ ticker, isEtf }: Props) {
   const { data, error, isLoading } = useTrendAnalysis(ticker);
   // Independent fetch, independent table -- deliberately not gated on the
   // Weinstein load/error state above (see useEntrySignal's own
@@ -58,11 +60,11 @@ export function TechnicalTab({ ticker }: Props) {
       <WeinsteinStageCard data={data} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <BbRsiEntrySignalCard data={entrySignalData ?? null} />
-        <WarrenSignalCard data={warrenSignalData ?? null} />
+        <BbRsiEntrySignalCard data={entrySignalData ?? null} isEtf={isEtf} />
+        <WarrenSignalCard data={warrenSignalData ?? null} isEtf={isEtf} />
       </div>
 
-      <LiquidityZonesCard data={liquidityZonesData ?? null} />
+      <LiquidityZonesCard data={liquidityZonesData ?? null} isEtf={isEtf} />
     </div>
   );
 }

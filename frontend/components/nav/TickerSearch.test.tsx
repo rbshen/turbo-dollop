@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TickerSearch } from "@/components/nav/TickerSearch";
@@ -307,5 +307,27 @@ describe("TickerSearch: mouse", () => {
     hookState = { data: [...RESULTS], isLoading: false };
     type("aap");
     expect(options().every((r) => r.getAttribute("aria-selected") === "false")).toBe(true);
+  });
+});
+
+describe("TickerSearch: the ETF label", () => {
+  it("marks a result the backend flagged is_etf with a small ETF label, and no other", () => {
+    hookState = {
+      data: [
+        { symbol: "QQQ", name: "Invesco QQQ Trust", exchange: "NASDAQ", is_etf: true },
+        { symbol: "QQ", name: "QQ Corp", exchange: "NYSE", is_etf: false },
+        { symbol: "QQQM", name: "Invesco NASDAQ 100 ETF", exchange: "NASDAQ" },
+      ],
+      isLoading: false,
+    };
+    render(<TickerSearch />);
+    type("qq");
+
+    const [etf, stock, unflagged] = options();
+    expect(etf).toHaveTextContent("QQQ");
+    expect(etf).toHaveTextContent(/ETF$|ETFNASDAQ/);
+    expect(within(etf).getByText("ETF")).toBeInTheDocument();
+    expect(within(stock).queryByText("ETF")).not.toBeInTheDocument();
+    expect(within(unflagged).queryByText("ETF")).not.toBeInTheDocument();
   });
 });
