@@ -97,6 +97,9 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
   const [removeErrorMessage, setRemoveErrorMessage] = useState<Record<number, string>>({});
   const panelRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const newListTriggerRef = useRef<HTMLButtonElement>(null);
+  // Set when the naming step is cancelled, so focus lands on the "New watchlist" button once it is back.
+  const restoreNewListFocus = useRef(false);
   const panelId = useId();
   const newListErrorId = useId();
 
@@ -131,7 +134,15 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
     setNewListStep("naming");
   }
 
+  useEffect(() => {
+    if (newListStep === "idle" && restoreNewListFocus.current) {
+      restoreNewListFocus.current = false;
+      newListTriggerRef.current?.focus();
+    }
+  }, [newListStep]);
+
   function cancelNewList() {
+    restoreNewListFocus.current = true;
     setNewListStep("idle");
     setNewListName("");
     setNewListError(null);
@@ -335,7 +346,7 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
 
           <div className="mt-1 border-t border-border-subtle pt-1">
             {newListStep === "idle" ? (
-              <Button variant="ghost" size="sm" onClick={openNewList} className="w-full justify-start px-2">
+              <Button ref={newListTriggerRef} variant="ghost" size="sm" onClick={openNewList} className="w-full justify-start px-2">
                 <Plus size={12} weight="bold" aria-hidden="true" />
                 New watchlist
               </Button>

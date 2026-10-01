@@ -35,7 +35,7 @@ export function SpeculativeGrowthFakeGrowthWarning() {
         onFocus={() => setHovered(true)}
         onBlur={() => setHovered(false)}
         onClick={() => setTapped((v) => !v)}
-        className="inline-flex items-center justify-center rounded-full text-warn transition-colors hover:text-warn/80 focus:outline-none focus-visible:text-warn/80"
+        className="inline-flex items-center justify-center rounded-full text-warn transition-colors hover:text-warn/80 focus-visible:text-warn/80"
       >
         <Warning size={14} weight="bold" />
       </button>

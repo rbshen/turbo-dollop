@@ -67,7 +67,7 @@ export function TickerSearch() {
       setHighlighted((i) => (i + 1) % results.length);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setHighlighted((i) => (i - 1 + results.length) % results.length);
+      setHighlighted((i) => (i <= 0 ? results.length - 1 : i - 1));
     } else if (e.key === "Enter") {
       e.preventDefault();
       selectResult(results[highlighted >= 0 ? highlighted : 0]);

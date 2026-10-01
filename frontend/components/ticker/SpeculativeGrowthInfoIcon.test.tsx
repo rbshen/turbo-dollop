@@ -111,6 +111,17 @@ describe("SpeculativeGrowthFakeGrowthWarning tooltip behavior", () => {
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
+  it("shows the tooltip on keyboard focus, and hides it on blur", () => {
+    render(<SpeculativeGrowthFakeGrowthWarning />);
+    const button = screen.getByRole("button", { name: "Potential fake growth warning" });
+    fireEvent.focus(button);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(SPECULATIVE_GROWTH_FAKE_GROWTH_COPY);
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    fireEvent.blur(button);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    expect(button).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("tap (click) toggles the tooltip open, then closed", () => {
     render(<SpeculativeGrowthFakeGrowthWarning />);
     const button = screen.getByRole("button", { name: "Potential fake growth warning" });
@@ -181,5 +192,25 @@ describe("SpeculativeGrowthInfoIcon tooltip behavior", () => {
     const button = screen.getByRole("button", { name: "About Speculative Growth" });
     fireEvent.mouseEnter(button);
     expect(screen.getByRole("tooltip").className).toContain("absolute");
+  });
+});
+
+describe("the two icon buttons' keyboard focus ring", () => {
+  it.each([
+    ["About Speculative Growth", () => <SpeculativeGrowthInfoIcon />],
+    ["Potential fake growth warning", () => <SpeculativeGrowthFakeGrowthWarning />],
+  ])("%s does not remove its outline, so the global :focus-visible ring shows", (name, ui) => {
+    render(ui());
+    const button = screen.getByRole("button", { name });
+    expect(button.className).not.toMatch(/outline-none/);
+    expect(button.className).not.toMatch(/focus:outline/);
+  });
+
+  it("opens the tooltip on keyboard focus and keeps its accessible name", () => {
+    render(<SpeculativeGrowthInfoIcon />);
+    const button = screen.getByRole("button", { name: "About Speculative Growth" });
+    fireEvent.focus(button);
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(button).toHaveAttribute("aria-describedby", "speculative-growth-info-tooltip");
   });
 });

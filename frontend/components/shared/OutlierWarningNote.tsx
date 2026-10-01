@@ -1,3 +1,5 @@
+import { Warning } from "@phosphor-icons/react";
+
 import type { OutlierWarning } from "@/lib/api/types";
 import { fmtCompactMoney } from "@/lib/format";
 
@@ -21,7 +23,9 @@ export function OutlierWarningNote({ warnings, labels, currency = "USD" }: Props
   return (
     <div className="space-y-1 rounded-md border border-warn/40 bg-warn/10 p-3">
       <p className="text-sm text-warn">
-        ⚠️ One or more recent quarters look anomalous compared to trailing history — verify independently before
+        <Warning size={16} weight="bold" aria-hidden="true" className="-mt-0.5 mr-1.5 inline" />
+        <span className="sr-only">Warning: </span>
+        One or more recent quarters look anomalous compared to trailing history — verify independently before
         relying on these numbers.
       </p>
       <ul className="space-y-1.5 text-xs text-warn/80">

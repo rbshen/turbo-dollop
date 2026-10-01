@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowRight } from "@phosphor-icons/react";
 import Link from "next/link";
 
 import { MarketBreadthCharts } from "@/components/breadth/MarketBreadthCharts";
@@ -28,8 +29,9 @@ export default function BreadthPage() {
           )
         }
         actions={
-          <Link href="/breadth/XLK" className="text-xs text-brand hover:underline">
-            Browse by sector →
+          <Link href="/breadth/XLK" className="inline-flex items-center gap-1 text-xs text-brand hover:underline">
+            Browse by sector
+            <ArrowRight size={12} weight="bold" aria-hidden="true" />
           </Link>
         }
       />

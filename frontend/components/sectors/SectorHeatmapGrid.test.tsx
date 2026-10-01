@@ -34,6 +34,28 @@ function tickerOrder() {
   return screen.getAllByRole("rowheader").map((el) => el.textContent?.slice(0, 3));
 }
 
+describe("SectorHeatmapGrid: the sort direction icon", () => {
+  const icons = (name: RegExp) => screen.getByRole("button", { name }).querySelectorAll("svg");
+
+  it("shows one aria-hidden arrow on the active header only, and no arrow characters anywhere", () => {
+    const { container } = render(<SectorHeatmapGrid data={DATA} />);
+    expect(icons(/3M/)).toHaveLength(1);
+    expect(icons(/3M/)[0]).toHaveAttribute("aria-hidden", "true");
+    expect(icons(/1Y/)).toHaveLength(0);
+    expect(container.textContent).not.toMatch(/[\u2191\u2193]/);
+  });
+
+  it("swaps the arrow when the direction flips, and moves it with the active header", () => {
+    render(<SectorHeatmapGrid data={DATA} />);
+    const before = icons(/3M/)[0].innerHTML;
+    fireEvent.click(screen.getByRole("button", { name: /3M/ }));
+    expect(icons(/3M/)[0].innerHTML).not.toBe(before);
+    fireEvent.click(screen.getByRole("button", { name: /1Y/ }));
+    expect(icons(/1Y/)).toHaveLength(1);
+    expect(icons(/3M/)).toHaveLength(0);
+  });
+});
+
 describe("SectorHeatmapGrid", () => {
   it("renders one column header per window plus Sector, and one row per ETF", () => {
     render(<SectorHeatmapGrid data={DATA} />);

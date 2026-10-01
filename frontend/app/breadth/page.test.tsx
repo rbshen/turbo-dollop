@@ -49,6 +49,14 @@ function stubFetch(payload: unknown, status = 200) {
 beforeEach(() => stubFetch(ALL_BACKFILLED));
 
 describe("BreadthPage", () => {
+  it("links to Browse by sector, going to the first sector's page", () => {
+    renderPage();
+    const link = screen.getByRole("link", { name: /Browse by sector/ });
+    expect(link).toHaveAttribute("href", "/breadth/XLK");
+    expect(link.textContent).not.toMatch(/\u2192/);
+    expect(link.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+  });
+
   it("shows a loading state before data arrives", () => {
     renderPage();
     expect(screen.getByText("Loading market breadth…")).toBeInTheDocument();

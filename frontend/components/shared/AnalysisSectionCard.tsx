@@ -1,6 +1,6 @@
 "use client";
 
-import { CaretDown } from "@phosphor-icons/react";
+import { CaretDown, CaretUp } from "@phosphor-icons/react";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Verdict } from "@/components/ui/status";
@@ -86,9 +86,10 @@ export function AnalysisSectionCard({ title, score, verdict, blurb, methodology,
             </div>
           </div>
           <span className="flex shrink-0 items-center gap-1 pt-0.5 text-xs text-text-tertiary">
-            <span className="group-data-[panel-open]:hidden">Show reasoning +</span>
-            <span className="hidden group-data-[panel-open]:inline">Hide reasoning −</span>
-            <CaretDown size={12} className="transition-transform duration-200 group-data-[panel-open]:rotate-180" />
+            <span className="group-data-[panel-open]:hidden">Show reasoning</span>
+            <span className="hidden group-data-[panel-open]:inline">Hide reasoning</span>
+            <CaretDown size={12} aria-hidden="true" className="group-data-[panel-open]:hidden" />
+            <CaretUp size={12} aria-hidden="true" className="hidden group-data-[panel-open]:block" />
           </span>
         </CollapsibleTrigger>
 

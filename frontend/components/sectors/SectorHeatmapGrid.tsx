@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowDown, ArrowUp } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import type { SectorHeatmapOut } from "@/lib/api/types";
@@ -44,12 +45,17 @@ export function SectorHeatmapGrid({ data }: Props) {
                 <button
                   type="button"
                   onClick={() => setSort((current) => nextSort(current, window))}
-                  className={`w-full rounded-md px-2 py-1 text-right text-xs font-semibold uppercase tracking-widest transition-colors hover:text-text-primary ${
+                  className={`flex w-full items-center justify-end gap-1 rounded-md px-2 py-1 text-right text-xs font-semibold uppercase tracking-widest transition-colors hover:text-text-primary ${
                     active ? "text-brand" : "text-text-tertiary"
                   }`}
                 >
                   {windowLabel(window)}
-                  {active && <span aria-hidden> {sort.direction === "desc" ? "↓" : "↑"}</span>}
+                  {active &&
+                    (sort.direction === "desc" ? (
+                      <ArrowDown size={12} weight="bold" aria-hidden="true" />
+                    ) : (
+                      <ArrowUp size={12} weight="bold" aria-hidden="true" />
+                    ))}
                 </button>
               </div>
             );

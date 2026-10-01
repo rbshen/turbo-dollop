@@ -432,3 +432,37 @@ describe("AddToWatchlistButton: new watchlist", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toHaveClass("border-border-input");
   });
 });
+
+describe("AddToWatchlistButton: the naming step's focus", () => {
+  function startNaming() {
+    render(<AddToWatchlistButton tickers={["AAPL"]} />);
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "New watchlist" }));
+  }
+
+  it("moves focus into the name box when the step opens", () => {
+    startNaming();
+    expect(screen.getByRole("textbox", { name: "New watchlist name" })).toHaveFocus();
+  });
+
+  it("returns focus to the 'New watchlist' button after Cancel", () => {
+    startNaming();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("textbox", { name: "New watchlist name" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New watchlist" })).toHaveFocus();
+  });
+
+  it("returns focus there after Escape in the name box too, without closing the popover", () => {
+    startNaming();
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "New watchlist name" }), { key: "Escape" });
+    expect(screen.getByRole("button", { name: "New watchlist" })).toHaveFocus();
+    expect(screen.getByText("Growth")).toBeInTheDocument();
+  });
+
+  it("does not pull focus anywhere when the popover is closed without a naming step", () => {
+    render(<AddToWatchlistButton tickers={["AAPL"]} />);
+    open();
+    fireEvent.mouseDown(document.body);
+    expect(screen.getByRole("button", { name: "Add to watchlist" })).not.toHaveFocus();
+  });
+});

@@ -187,9 +187,11 @@ describe("TickerSearch: keyboard", () => {
     expect(options()[0]).toHaveAttribute("aria-selected", "true");
   });
 
-  it("ArrowUp from nothing highlighted lands on the second-to-last result (the index starts at -1, so -2 wraps to length - 2), then steps up and wraps", () => {
+  it("ArrowUp from nothing highlighted goes to the last result, then steps up and wraps from the first", () => {
     render(<TickerSearch />);
     type("aa");
+    fireEvent.keyDown(box(), { key: "ArrowUp" });
+    expect(options()[2]).toHaveAttribute("aria-selected", "true");
     fireEvent.keyDown(box(), { key: "ArrowUp" });
     expect(options()[1]).toHaveAttribute("aria-selected", "true");
     fireEvent.keyDown(box(), { key: "ArrowUp" });

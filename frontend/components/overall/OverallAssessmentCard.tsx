@@ -1,5 +1,7 @@
 "use client";
 
+import { Warning } from "@phosphor-icons/react";
+
 import { CircularScoreBadge } from "@/components/overall/CircularScoreBadge";
 import { Status, Verdict } from "@/components/ui/status";
 import { useOverallAssessment } from "@/lib/hooks/useOverallAssessment";
@@ -81,14 +83,18 @@ export function OverallAssessmentView({ result }: { result: OverallAssessment })
 
           {result.failingSteps.length > 0 && (
             <p className="text-sm text-warn">
-              ⚠️ {result.failingSteps.join(", ")} failed — reflected in the weighted score above, but worth reviewing
+              <Warning size={16} weight="bold" aria-hidden="true" className="-mt-0.5 mr-1.5 inline" />
+              <span className="sr-only">Warning: </span>
+              {result.failingSteps.join(", ")} failed — reflected in the weighted score above, but worth reviewing
               directly.
             </p>
           )}
 
           {result.cautionSteps.length > 0 && (
             <p className="text-sm text-caution">
-              ⚠️ {result.cautionSteps.join(", ")} passed with caution — a real breach was excused by its tiebreaker,
+              <Warning size={16} weight="bold" aria-hidden="true" className="-mt-0.5 mr-1.5 inline" />
+              <span className="sr-only">Warning: </span>
+              {result.cautionSteps.join(", ")} passed with caution — a real breach was excused by its tiebreaker,
               reflected in the weighted score above, but worth reviewing directly.
             </p>
           )}

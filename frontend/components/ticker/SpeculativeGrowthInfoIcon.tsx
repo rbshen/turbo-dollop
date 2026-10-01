@@ -33,7 +33,7 @@ export function SpeculativeGrowthInfoIcon() {
         onFocus={() => setHovered(true)}
         onBlur={() => setHovered(false)}
         onClick={() => setTapped((v) => !v)}
-        className="inline-flex items-center justify-center rounded-full text-text-tertiary transition-colors hover:text-text-secondary focus:outline-none focus-visible:text-text-secondary"
+        className="inline-flex items-center justify-center rounded-full text-text-tertiary transition-colors hover:text-text-secondary focus-visible:text-text-secondary"
       >
         <Info size={14} weight="bold" />
       </button>

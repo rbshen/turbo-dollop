@@ -1,4 +1,4 @@
-import { CaretDown, CheckCircle, XCircle } from "@phosphor-icons/react";
+import { CaretDown, CaretUp, CheckCircle, XCircle } from "@phosphor-icons/react";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Status, type StatusTone } from "@/components/ui/status";
@@ -146,9 +146,10 @@ export function ChecklistCard({ title, statusLabel, statusTone, blurb, items, ex
       {collapsible ? (
         <Collapsible>
           <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-text-tertiary">
-            <span className="group-data-[panel-open]:hidden">Show details +</span>
-            <span className="hidden group-data-[panel-open]:inline">Hide details −</span>
-            <CaretDown size={12} className="transition-transform duration-200 group-data-[panel-open]:rotate-180" />
+            <span className="group-data-[panel-open]:hidden">Show details</span>
+            <span className="hidden group-data-[panel-open]:inline">Hide details</span>
+            <CaretDown size={12} aria-hidden="true" className="group-data-[panel-open]:hidden" />
+            <CaretUp size={12} aria-hidden="true" className="hidden group-data-[panel-open]:block" />
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="mt-3">
