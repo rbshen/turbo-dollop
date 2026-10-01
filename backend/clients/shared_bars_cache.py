@@ -521,6 +521,35 @@ async def get_or_fetch_bars_batch(
         return _load_frames(session, tickers, interval, needed_start)
 
 
+def read_cached_completed_daily_bars(
+    ticker: str, lookback_days: int, reference: datetime | None = None
+) -> pd.DataFrame:
+    """One ticker's cached daily bars through the most recent COMPLETED session -- a pure READ: it never
+    fetches and never writes (unlike get_or_fetch_bars_batch), so an on-demand page view cannot widen or
+    refresh the shared cache or spend an FMP call. Empty (never raises) when nothing is cached.
+
+    A bar dated after the last completed session (a live, in-progress one) is dropped, and so is a last
+    bar written before its own session's close (the provisional-bar rule get_or_fetch_bars_batch refetches
+    on): either would read as a final close and bend every return that ends on it."""
+    now = reference or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    completed = _most_recent_completed_trading_date(now)
+    with Session(engine) as session:
+        span = _cache_span(session, [ticker], DAILY_INTERVAL)
+        provisional = ticker in _provisional_last_bar_tickers(session, [ticker], span, now)
+        frame = _load_frames(
+            session, [ticker], DAILY_INTERVAL, _eastern_today(now) - timedelta(days=lookback_days)
+        ).get(ticker)
+    if frame is None or frame.empty:
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+    live_bar_dropped = bool((frame.index.normalize() > pd.Timestamp(completed)).any())
+    frame = frame[frame.index.normalize() <= pd.Timestamp(completed)]
+    if provisional and not live_bar_dropped and not frame.empty:
+        frame = frame.iloc[:-1]
+    return frame
+
+
 def prune_old_bars(reference: datetime | None = None, dry_run: bool = False) -> dict[str, int]:
     """Deletes bars older than RETENTION_DAYS[interval], measured back from
     today (US/Eastern), per bar -- never whole rows. Returns the number of

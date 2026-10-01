@@ -1,5 +1,6 @@
 import logging
 from datetime import date, timedelta
+from typing import NamedTuple
 
 import httpx
 from sqlmodel import Session, select
@@ -136,6 +137,152 @@ def _resolve_perf_vs_spy(
     return pct, status, insufficient_history
 
 
+class _StockOnlyData(NamedTuple):
+    """The fetches that only a company (not a fund) has an answer for. For an ETF/fund, FMP answers every one
+    of them `[]`, so `get_summary` skips them and uses `_NO_STOCK_ONLY_DATA` -- exactly what the cascade produced for a fund,
+    minus the calls and the empty cache rows."""
+
+    earnings_data: dict | list
+    most_recent_earnings_date: date | None
+    balance_sheet_data: dict | list
+    income_quarterly_data: dict | list
+    enterprise_values_data: dict | list
+    ratios_ttm: dict
+    financial_growth: dict
+
+
+_NO_STOCK_ONLY_DATA = _StockOnlyData([], None, {}, {}, {}, {}, {})
+
+
+async def _fetch_stock_only_data(
+    session: Session, ticker: str, staleness_days: int, cache_only: bool
+) -> _StockOnlyData:
+    earnings_data = await safe_fetch(
+        "earnings",
+        get_or_fetch(
+            session, ticker, "earnings", "latest", lambda: fmp_client.get_earnings(ticker), staleness_days, cache_only
+        ),
+    )
+    # Reduced from the same /earnings fetch above, not a second fetch --
+    # get_summary already needs this data for next_earnings_date below.
+    # Moved ahead of `ratios`/`enterprise_values` (2026-08-16) so both
+    # can use it too -- both are computed from/snapshot the latest
+    # reported financials, the same earnings-tied update cadence as the
+    # 8 statement types 4498c33 already switched.
+    most_recent_earnings_date = most_recent_reported_earnings_date(
+        earnings_data if isinstance(earnings_data, list) else []
+    )
+    # No longer read here (pe_ratio is trailing now, from ratios_ttm below), but kept: the
+    # "ratios"/"latest" cache key it fills is shared -- speculative_growth_data.py reads it and
+    # step3_data.py fetches it -- so dropping the call would change what a ticker-page view
+    # warms for them. It adds no call the app didn't already make.
+    await safe_fetch(
+        "ratios",
+        get_or_fetch_earnings_aware(
+            session,
+            ticker,
+            "ratios",
+            "latest",
+            lambda: fmp_client.get_ratios(ticker),
+            staleness_days,
+            most_recent_earnings_date,
+            cache_only,
+        ),
+    )
+    # Same cache key Step 4/Step 5/the Financials tab also populate
+    # ("balance_sheet_statement"/"quarterly") -- limit is
+    # TOTAL_QUARTERS_NEEDED to match them (bumped from 1 in the
+    # Financials tab commit; this call site was missed then, and its
+    # limit-1 fetch racing against theirs on a fresh ticker page load
+    # would win and cache a thin 1-row result for everyone, since this
+    # is the default tab and fetches first). This call site still only
+    # reads row 0 below, so the deeper fetch doesn't change anything
+    # here. compute_debt_metrics is the same shared calculation Step 5's
+    # debt ratios use, so the header and Step 5's card can never show
+    # inconsistent numbers for the same ticker.
+    balance_sheet_data = await safe_fetch(
+        "balance_sheet_statement_quarterly",
+        get_or_fetch_earnings_aware(
+            session,
+            ticker,
+            "balance_sheet_statement",
+            "quarterly",
+            lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
+            staleness_days,
+            most_recent_earnings_date,
+            cache_only,
+        ),
+    )
+    income_quarterly_data = await safe_fetch(
+        "income_statement_quarterly",
+        get_or_fetch_earnings_aware(
+            session,
+            ticker,
+            "income_statement",
+            "quarterly",
+            lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
+            staleness_days,
+            most_recent_earnings_date,
+            cache_only,
+        ),
+    )
+    enterprise_values_data = await safe_fetch(
+        "enterprise_values",
+        get_or_fetch_earnings_aware(
+            session,
+            ticker,
+            "enterprise_values",
+            "quarter",
+            lambda: fmp_client.get_enterprise_values(ticker, "quarter", 1),
+            staleness_days,
+            most_recent_earnings_date,
+            cache_only,
+        ),
+    )
+    # Same cache key ratios_data.py (the Ratios tab) already populates --
+    # shared, not duplicated, so visiting either tab first warms it for
+    # the other.
+    ratios_ttm = _first(
+        await safe_fetch(
+            "ratios_ttm",
+            get_or_fetch_earnings_aware(
+                session,
+                ticker,
+                "ratios",
+                "ttm",
+                lambda: fmp_client.get_ratios_ttm(ticker),
+                staleness_days,
+                most_recent_earnings_date,
+                cache_only,
+            ),
+        )
+    )
+    financial_growth = _first(
+        await safe_fetch(
+            "financial_growth",
+            get_or_fetch_earnings_aware(
+                session,
+                ticker,
+                "financial_growth",
+                "annual",
+                lambda: fmp_client.get_financial_growth(ticker, "annual", 1),
+                staleness_days,
+                most_recent_earnings_date,
+                cache_only,
+            ),
+        )
+    )
+    return _StockOnlyData(
+        earnings_data,
+        most_recent_earnings_date,
+        balance_sheet_data,
+        income_quarterly_data,
+        enterprise_values_data,
+        ratios_ttm,
+        financial_growth,
+    )
+
+
 async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = True) -> TickerSummaryOut:
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
@@ -208,6 +355,9 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
                 if isinstance(profile_raw, list) and not profile_raw:
                     raise TickerNotFoundError(ticker)
             profile = _first(profile_raw)
+        # The app's one ETF rule (also TickerSummaryOut.is_etf below). Decided from the profile alone, which is
+        # always the first fetch, so a never-seen ETF is recognised before any stock-only call is made.
+        is_etf = bool(profile.get("isEtf") or profile.get("isFund"))
         # Price is fetched fresh on every live ticker-page view rather than
         # riding the fundamentals staleness window -- quote is its own cache
         # key, independent of profile/ratios/etc., so this doesn't force a
@@ -271,9 +421,12 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
         # (get_or_fetch's cache key is (ticker, category, period), so this
         # naturally namespaces to its own row). Reuse price_change directly
         # when ticker IS "SPY", rather than issuing a second, redundant fetch
-        # for the identical cache row.
+        # for the identical cache row. Skipped for an ETF/fund: the "5Y vs SPY" pill is a stock comparison
+        # the ETF page does not show (see docs/specs/etf-page.md), so the SPY row is not fetched for it.
         spy_price_change = (
-            price_change
+            {}
+            if is_etf
+            else price_change
             if ticker == "SPY"
             else _first(
                 await safe_fetch(
@@ -284,120 +437,21 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
                 )
             )
         )
-        earnings_data = await safe_fetch(
-            "earnings",
-            get_or_fetch(
-                session, ticker, "earnings", "latest", lambda: fmp_client.get_earnings(ticker), staleness_days, cache_only
-            ),
-        )
-        # Reduced from the same /earnings fetch above, not a second fetch --
-        # get_summary already needs this data for next_earnings_date below.
-        # Moved ahead of `ratios`/`enterprise_values` (2026-08-16) so both
-        # can use it too -- both are computed from/snapshot the latest
-        # reported financials, the same earnings-tied update cadence as the
-        # 8 statement types 4498c33 already switched.
-        most_recent_earnings_date = most_recent_reported_earnings_date(
-            earnings_data if isinstance(earnings_data, list) else []
-        )
-        # No longer read here (pe_ratio is trailing now, from ratios_ttm below), but kept: the
-        # "ratios"/"latest" cache key it fills is shared -- speculative_growth_data.py reads it and
-        # step3_data.py fetches it -- so dropping the call would change what a ticker-page view
-        # warms for them. It adds no call the app didn't already make.
-        await safe_fetch(
-            "ratios",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "ratios",
-                "latest",
-                lambda: fmp_client.get_ratios(ticker),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        # Same cache key Step 4/Step 5/the Financials tab also populate
-        # ("balance_sheet_statement"/"quarterly") -- limit is
-        # TOTAL_QUARTERS_NEEDED to match them (bumped from 1 in the
-        # Financials tab commit; this call site was missed then, and its
-        # limit-1 fetch racing against theirs on a fresh ticker page load
-        # would win and cache a thin 1-row result for everyone, since this
-        # is the default tab and fetches first). This call site still only
-        # reads row 0 below, so the deeper fetch doesn't change anything
-        # here. compute_debt_metrics is the same shared calculation Step 5's
-        # debt ratios use, so the header and Step 5's card can never show
-        # inconsistent numbers for the same ticker.
-        balance_sheet_data = await safe_fetch(
-            "balance_sheet_statement_quarterly",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "balance_sheet_statement",
-                "quarterly",
-                lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        income_quarterly_data = await safe_fetch(
-            "income_statement_quarterly",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "income_statement",
-                "quarterly",
-                lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        enterprise_values_data = await safe_fetch(
-            "enterprise_values",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "enterprise_values",
-                "quarter",
-                lambda: fmp_client.get_enterprise_values(ticker, "quarter", 1),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        # Same cache key ratios_data.py (the Ratios tab) already populates --
-        # shared, not duplicated, so visiting either tab first warms it for
-        # the other.
-        ratios_ttm = _first(
-            await safe_fetch(
-                "ratios_ttm",
-                get_or_fetch_earnings_aware(
-                    session,
-                    ticker,
-                    "ratios",
-                    "ttm",
-                    lambda: fmp_client.get_ratios_ttm(ticker),
-                    staleness_days,
-                    most_recent_earnings_date,
-                    cache_only,
-                ),
-            )
-        )
-        financial_growth = _first(
-            await safe_fetch(
-                "financial_growth",
-                get_or_fetch_earnings_aware(
-                    session,
-                    ticker,
-                    "financial_growth",
-                    "annual",
-                    lambda: fmp_client.get_financial_growth(ticker, "annual", 1),
-                    staleness_days,
-                    most_recent_earnings_date,
-                    cache_only,
-                ),
-            )
+        # Stock-only fetches (statements, ratios, growth, earnings, enterprise values): a fund has none of
+        # them, so for an ETF/fund they are skipped -- no FMP call, no empty cached row. The profile above is
+        # always fetched first, which is what makes the first-ever open of an ETF work.
+        (
+            earnings_data,
+            most_recent_earnings_date,
+            balance_sheet_data,
+            income_quarterly_data,
+            enterprise_values_data,
+            ratios_ttm,
+            financial_growth,
+        ) = (
+            _NO_STOCK_ONLY_DATA
+            if is_etf
+            else await _fetch_stock_only_data(session, ticker, staleness_days, cache_only)
         )
         # ~45 calendar days is enough to cover both the 30-calendar-day
         # average-volume window and the 20-trading-day average-dollar-volume
@@ -476,8 +530,8 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
         for group in debt_metrics.outlier_flags
         for fq in group.flagged
     ]
-    perf_5y_vs_spy_pct, perf_5y_vs_spy_status, perf_5y_insufficient_history = _resolve_perf_vs_spy(
-        ticker, price_change, spy_price_change
+    perf_5y_vs_spy_pct, perf_5y_vs_spy_status, perf_5y_insufficient_history = (
+        (None, None, False) if is_etf else _resolve_perf_vs_spy(ticker, price_change, spy_price_change)
     )
 
     # Step 2/Step 3 each manage their own Session(engine) block, separate
@@ -488,17 +542,23 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
     # pure redundant work, not a correctness issue. get_active_valuation
     # (not get_step3_data directly) so the header's FairValuePill reflects
     # an active custom valuation the same way the Valuation tab does.
-    step2_out = await get_step2_data(ticker, cache_only)
-    step3_out = await get_active_valuation(ticker, cache_only, step2_out=step2_out)
-    fair_value_method = (
-        FAIR_VALUE_METHOD_LABELS.get(step3_out.selected_method) if step3_out.selected_method != "PASS" else None
-    )
+    # Both are skipped for an ETF/fund (EPS growth and a fair value mean nothing for a fund, and each makes
+    # several empty FMP calls): their fields below read None.
+    if is_etf:
+        step2_out = step3_out = None
+        fair_value_method = None
+    else:
+        step2_out = await get_step2_data(ticker, cache_only)
+        step3_out = await get_active_valuation(ticker, cache_only, step2_out=step2_out)
+        fair_value_method = (
+            FAIR_VALUE_METHOD_LABELS.get(step3_out.selected_method) if step3_out.selected_method != "PASS" else None
+        )
 
     return TickerSummaryOut(
         company_name=profile.get("companyName"),
         ticker=ticker,
         exchange=profile.get("exchangeShortName") or profile.get("exchange"),
-        is_etf=bool(profile.get("isEtf") or profile.get("isFund")),
+        is_etf=is_etf,
         sector=profile.get("sector"),
         industry=profile.get("industry"),
         description=profile.get("description"),
@@ -528,7 +588,7 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
         perf_5y_insufficient_history=perf_5y_insufficient_history,
         week52_high=quote.get("yearHigh"),
         week52_low=quote.get("yearLow"),
-        eps_growth_3_5y=step2_out.growth_rate,
+        eps_growth_3_5y=step2_out.growth_rate if step2_out else None,
         revenue_growth_yoy=(
             financial_growth["revenueGrowth"] * 100 if financial_growth.get("revenueGrowth") is not None else None
         ),
@@ -542,11 +602,11 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
         interest_expense_ttm=debt_metrics.interest_expense_ttm,
         interest_income_ttm=debt_metrics.interest_income_ttm,
         outlier_warnings=outlier_warnings,
-        fair_value_price=step3_out.intrinsic_value_per_share,
-        fair_value_verdict=step3_out.verdict,
+        fair_value_price=step3_out.intrinsic_value_per_share if step3_out else None,
+        fair_value_verdict=step3_out.verdict if step3_out else None,
         fair_value_method=fair_value_method,
-        valuation_source=step3_out.valuation_source,
-        fair_value_reported_currency=step3_out.inputs.reported_currency,
+        valuation_source=step3_out.valuation_source if step3_out else None,
+        fair_value_reported_currency=step3_out.inputs.reported_currency if step3_out else None,
         quote_currency=quote_currency,
         reported_currency=reported_currency,
         index_memberships=index_memberships,

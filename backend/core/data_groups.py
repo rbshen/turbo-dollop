@@ -109,11 +109,11 @@ GROUPS: dict[str, GroupMeta] = {
         ("Warren RSI/ADX/WVF entry signal (2h)", "BB+RSI entry signal (2h)", "Chart tab entry-signal markers"),
     ),
     # ETF page Overview tab (fund facts + sector weights): `/etf/info` only -- no holdings,
-    # country-weight or asset-exposure endpoint is used. Premium is an UNVERIFIED guess at the
-    # lowest tier FMP lists it on (FMP's docs/pricing pages 403 to our fetcher); the value is
-    # editable in Settings and the 402 safety net (canary SPY, see CANARY_SYMBOL_OVERRIDES)
-    # corrects a wrong guess at runtime.
-    "etf_info": GroupMeta("ETF info", "Premium", True, True, ("ETF page Overview tab",)),
+    # country-weight or asset-exposure endpoint is used. Starter is the owner's recorded tier (set in
+    # Settings 2026-10-02; FMP's docs/pricing pages 403 to our fetcher, so it is not FMP-verified). The seed
+    # only matters at first-time row creation -- an existing row (_seed) is never touched. The 402 safety
+    # net (canary SPY, see CANARY_SYMBOL_OVERRIDES) corrects a wrong value at runtime.
+    "etf_info": GroupMeta("ETF info", "Starter", True, True, ("ETF page Overview tab",)),
     # Shelved 2026-09-27 (see CLAUDE.md's "Institutional Ownership" entry) -- same
     # reasoning as `news`: tried against real tickers, judged low decision-value for
     # short-premium/short-term trading (13F's quarterly cadence + 45+ day reporting lag

@@ -15,6 +15,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import clients.fmp_client as fmp_client_module
+import clients.shared_bars_cache as shared_bars_cache
 import core.data_groups as dg
 import core.main as main
 import data.etf_data as etf_data
@@ -77,6 +78,7 @@ GLD_INFO = {
 def _patch_info(monkeypatch, engine, payload=None, error: Exception | None = None):
     """Patches etf_data's engine and the client call; returns the call counter."""
     monkeypatch.setattr(etf_data, "engine", engine)
+    monkeypatch.setattr(shared_bars_cache, "engine", engine)  # the Trading data block reads cached daily bars
     calls = {"n": 0}
 
     async def fake_get_etf_info(ticker):
@@ -115,7 +117,7 @@ def _seed_info_cache(engine, ticker, payload, age_days=0):
 def test_etf_info_group_is_registered_gated_and_probed_with_spy():
     meta = dg.GROUPS["etf_info"]
     assert meta.live and meta.default_enabled
-    assert meta.default_tier == "Premium"  # unverified guess, editable in Settings; never Ultimate
+    assert meta.default_tier == "Starter"  # the owner's recorded tier, editable in Settings; never Ultimate
     assert dg.ENDPOINT_GROUP["/etf/info"] == "etf_info"
     assert dg.STATEMENT_TYPE_GROUP["etf_info"] == "etf_info"
     assert dg.PROBE_ENDPOINTS["etf_info"] == ("/etf/info", {"symbol": "SPY"})
@@ -553,3 +555,106 @@ def test_nightly_main_fetches_only_non_etfs_from_the_universe(monkeypatch, tmp_p
     result = asyncio.run(nightly.main())
 
     assert result["processed"] == 1 and set(fetched) == {"AAPL"}
+
+
+# ---------------------------------------------------------------------------
+# etf_info tier default: Starter for a fresh seed, an existing row is never touched
+# ---------------------------------------------------------------------------
+
+
+def test_a_fresh_seed_creates_the_etf_info_row_at_starter():
+    assert dg.get_snapshot().groups["etf_info"].required_tier == "Starter"
+
+
+@pytest.mark.parametrize("edited_tier", ["Premium", "Ultimate", "Starter"])
+def test_reseeding_never_overwrites_an_existing_etf_info_tier(edited_tier):
+    dg.get_snapshot()  # first seed
+    dg.set_required_tier("etf_info", edited_tier)
+    dg.invalidate_cache()  # forces _load -> _seed again, as a restart would
+
+    assert dg.get_snapshot().groups["etf_info"].required_tier == edited_tier
+
+
+# ---------------------------------------------------------------------------
+# Watchlist: an ETF row makes no consensus-rating call and carries the placeholder
+# ---------------------------------------------------------------------------
+
+
+def _watchlist_rows(monkeypatch, score_by_ticker):
+    consensus_calls: list[str] = []
+
+    async def fake_score(ticker, cache_only=False):
+        return score_by_ticker.get(ticker)
+
+    async def fake_consensus(ticker):
+        consensus_calls.append(ticker)
+        return "Buy"
+
+    async def fake_exchange(ticker):
+        return "NASDAQ"
+
+    async def fake_step1(ticker, cache_only=False):
+        return Step1Out(
+            ticker=ticker, years=[], revenue=[], net_income=[], operating_income=[], gross_margin=[], net_margin=[],
+            score=0, verdict="n/a", components={}, weights={},
+        )
+
+    monkeypatch.setattr(watchlist_data, "compute_ticker_score", fake_score)
+    monkeypatch.setattr(watchlist_data, "_consensus_rating", fake_consensus)
+    monkeypatch.setattr(watchlist_data, "_cached_exchange", fake_exchange)
+    monkeypatch.setattr(watchlist_data, "get_step1_data", fake_step1)
+    tickers = [WatchlistTicker(watchlist_id=1, ticker=t, added_at=datetime(2026, 1, 1)) for t in score_by_ticker]
+    rows = asyncio.run(watchlist_data.get_watchlist_rows(tickers))
+    return {r.ticker: r for r in rows}, consensus_calls
+
+
+def test_an_etf_row_skips_the_consensus_call_and_a_stock_row_still_makes_it(monkeypatch):
+    scores = {
+        "QQQ": TickerScore(ticker="QQQ", company_name="Invesco QQQ", is_etf=True, computed_at=datetime(2026, 1, 1)),
+        "AAPL": TickerScore(ticker="AAPL", company_name="Apple", is_etf=False, computed_at=datetime(2026, 1, 1)),
+    }
+    rows, consensus_calls = _watchlist_rows(monkeypatch, scores)
+
+    assert consensus_calls == ["AAPL"]
+    assert rows["QQQ"].consensus_rating == watchlist_data.NO_CONSENSUS_RATING == "N/A" and rows["QQQ"].is_etf
+    assert rows["AAPL"].consensus_rating == "Buy"
+
+
+def test_a_row_with_no_score_is_not_assumed_to_be_an_etf(monkeypatch):
+    rows, consensus_calls = _watchlist_rows(monkeypatch, {"NEWCO": None})
+
+    assert consensus_calls == ["NEWCO"] and rows["NEWCO"].is_etf is False
+
+
+def test_the_real_consensus_fetch_is_not_reached_for_an_etf_and_writes_no_empty_row(monkeypatch):
+    """End to end through the real _consensus_rating: an in-memory engine, FMP counted."""
+    engine = _engine()
+    monkeypatch.setattr(watchlist_data, "engine", engine)
+    fmp_calls: list[str] = []
+
+    async def fake_grades(ticker):
+        fmp_calls.append(ticker)
+        return []
+
+    monkeypatch.setattr(watchlist_data.fmp_client, "get_grades_consensus", fake_grades)
+
+    async def fake_score(ticker, cache_only=False):
+        return TickerScore(ticker=ticker, company_name="x", is_etf=(ticker == "GLD"), computed_at=datetime(2026, 1, 1))
+
+    async def fake_exchange(ticker):
+        return "AMEX"
+
+    async def fake_step1(ticker, cache_only=False):
+        return Step1Out(
+            ticker=ticker, years=[], revenue=[], net_income=[], operating_income=[], gross_margin=[], net_margin=[],
+            score=0, verdict="n/a", components={}, weights={},
+        )
+
+    monkeypatch.setattr(watchlist_data, "compute_ticker_score", fake_score)
+    monkeypatch.setattr(watchlist_data, "_cached_exchange", fake_exchange)
+    monkeypatch.setattr(watchlist_data, "get_step1_data", fake_step1)
+    asyncio.run(watchlist_data.get_watchlist_rows([WatchlistTicker(watchlist_id=1, ticker="GLD", added_at=datetime(2026, 1, 1))]))
+
+    assert fmp_calls == []
+    with Session(engine) as session:
+        assert session.exec(select(FundamentalsCache)).all() == []

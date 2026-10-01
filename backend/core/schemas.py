@@ -2103,6 +2103,32 @@ class EtfSectorWeightOut(BaseModel):
     weight: float
 
 
+class EtfTradingDataOut(BaseModel):
+    """The Overview's "Trading data" block (data/etf_data.py::_trading_data). Built only from rows the app
+    already holds -- cached daily bars, the cached quote and profile, the cached /etf/info asset class --
+    so it never costs an FMP call. A value that is None (unavailable) or zero is omitted by the UI, and
+    the whole block is None on the Overview when every value is.
+
+    perf_* are percent price returns from the cached daily bars (split-adjusted, NOT dividend-adjusted),
+    measured to `perf_as_of`, the last completed session with a bar."""
+
+    perf_1m: float | None = None
+    perf_ytd: float | None = None
+    perf_1y: float | None = None
+    perf_as_of: date | None = None
+    week52_low: float | None = None
+    week52_high: float | None = None
+    # Share volume over the trailing 30 calendar days / close x volume over the last 20 trading days.
+    avg_volume_30d: float | None = None
+    avg_dollar_volume_20d: float | None = None
+    # FMP profile `lastDividend` is the TRAILING-12-MONTH distribution per share (not the last payment);
+    # the yield is that over the current price, in percent. Not an SEC yield.
+    distribution_ttm_per_share: float | None = None
+    distribution_ttm_yield_pct: float | None = None
+    # Only for an equity fund (asset class from /etf/info); None for bond, commodity and other funds.
+    beta: float | None = None
+
+
 class EtfOverviewOut(BaseModel):
     """ETF page Overview tab, from FMP /etf/info only (see data/etf_data.py).
 
@@ -2131,6 +2157,8 @@ class EtfOverviewOut(BaseModel):
     # Largest first. EMPTY when the fund is not an equity fund, or when the only entry is
     # "Cash & Others 100%" -- the UI then shows its "not shown for funds that don't hold stocks" note.
     sector_weights: list[EtfSectorWeightOut] = []
+    # None when status is not "ok", or when every Trading data value is unavailable.
+    trading_data: EtfTradingDataOut | None = None
     # When FMP last updated the record (/etf/info `updatedAt`), and when this app last fetched it.
     updated_at: str | None = None
     fetched_at: datetime | None = None

@@ -30,6 +30,10 @@ LATEST_YEARS_SHOWN = 5
 # concurrently alongside these.
 _LIVE_FETCH_CONCURRENCY = asyncio.Semaphore(8)
 
+# WatchlistRowOut.consensus_rating is never null: this is the "no rating" placeholder (also what an ETF
+# row carries without any FMP call). The table renders it dim, and the sort puts it last.
+NO_CONSENSUS_RATING = "N/A"
+
 
 async def _cached_exchange(ticker: str) -> str | None:
     # Cache-only read of the same "profile"/"latest" cache entry get_summary
@@ -83,19 +87,18 @@ async def _consensus_rating(ticker: str) -> str:
                     ),
                 )
             )
-    return grades_consensus.get("consensus") or "N/A"
+    return grades_consensus.get("consensus") or NO_CONSENSUS_RATING
 
 
 async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
     ticker = normalize_ticker(watchlist_ticker.ticker)
-    score, rating, exchange, step1 = await asyncio.gather(
+    score, exchange, step1 = await asyncio.gather(
         # cache_only=True: opening the Watchlist page must not trigger a
         # live FMP refetch cascade across every ticker in the list, same
         # reasoning as the Screener page. Returns None for a ticker with no
         # cached profile at all -- that's fine, this row just renders with
         # null score fields (see below).
         compute_ticker_score(ticker, cache_only=True),
-        _consensus_rating(ticker),
         _cached_exchange(ticker),
         # Same cache-only Step1Out compute_ticker_score already runs
         # internally -- re-derived here rather than widening TickerScore's
@@ -105,6 +108,12 @@ async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
         # True) only ever reads FundamentalsCache.
         get_step1_data(ticker, cache_only=True),
     )
+    # The one live call per row, made after the cache reads above because it depends on them: a fund has
+    # no analyst consensus (FMP answers `[]` for every ETF), so an ETF row skips the call -- and the
+    # cached empty row it would write -- and carries the placeholder, which the table renders as a dash.
+    # `score` is None only for a ticker with no cached profile, which cannot be known to be an ETF.
+    is_etf = bool(score.is_etf) if score else False
+    rating = NO_CONSENSUS_RATING if is_etf else await _consensus_rating(ticker)
 
     years = step1.years[-LATEST_YEARS_SHOWN:]
     revenue = step1.revenue[-LATEST_YEARS_SHOWN:]
@@ -143,7 +152,7 @@ async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
         speculative_growth_qualifies=score.speculative_growth_qualifies if score else None,
         consensus_rating=rating,
         added_at=watchlist_ticker.added_at,
-        is_etf=bool(score.is_etf) if score else False,
+        is_etf=is_etf,
     )
 
 
