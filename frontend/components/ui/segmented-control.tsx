@@ -22,11 +22,14 @@ export interface SegmentedControlProps {
   onValueChange: (value: string) => void;
   options: SegmentedControlOption[];
   className?: string;
+  /** Names the group for assistive technology ("Chart range"); optional. */
+  "aria-label"?: string;
 }
 
-export function SegmentedControl({ value, onValueChange, options, className }: SegmentedControlProps) {
+export function SegmentedControl({ value, onValueChange, options, className, "aria-label": ariaLabel }: SegmentedControlProps) {
   return (
     <ToggleGroup
+      aria-label={ariaLabel}
       value={[value]}
       onValueChange={(next) => {
         if (next.length > 0) onValueChange(next[0]);

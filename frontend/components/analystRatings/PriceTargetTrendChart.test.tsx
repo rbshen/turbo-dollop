@@ -61,26 +61,35 @@ describe("PriceTargetTrendChart", () => {
   it("shows the accumulating-history message and no toggle when there's no target data at all", () => {
     render(<PriceTargetTrendChart history={HISTORY_NO_TARGETS} />);
     expect(screen.getByText(/hasn't accumulated yet/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Overlay stock price" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Overlay stock price" })).not.toBeInTheDocument();
   });
 
   it("renders the plain single-series chart with no toggle when there's zero overlap with price data", () => {
     render(<PriceTargetTrendChart history={HISTORY_ZERO_OVERLAP} />);
-    expect(screen.queryByRole("button", { name: "Overlay stock price" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Overlay stock price" })).not.toBeInTheDocument();
     expect(chartPanel().querySelectorAll("path.recharts-line-curve, path.recharts-area-area")).toHaveLength(1);
   });
 
   it("defaults to the single-series view (toggle present but off) when overlap exists", () => {
     render(<PriceTargetTrendChart history={HISTORY_FULL_OVERLAP} />);
-    const toggle = screen.getByRole("button", { name: "Overlay stock price" });
-    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    const toggle = screen.getByRole("switch", { name: "Overlay stock price" });
+    expect(toggle).not.toBeChecked();
     // The default RechartsAreaChart renders an Area, not a Line -- still one series.
     expect(chartPanel().querySelectorAll("path.recharts-area-area")).toHaveLength(1);
   });
 
+  it("is a Switch with its visible sentence-case label, on a row that keeps the old 25px height", () => {
+    render(<PriceTargetTrendChart history={HISTORY_FULL_OVERLAP} />);
+    const toggle = screen.getByRole("switch", { name: "Overlay stock price" });
+    expect(toggle).toBeInTheDocument();
+    expect(screen.getByText("Overlay stock price")).toBeVisible();
+    expect(toggle.closest("div.flex")).toHaveClass("min-h-[25px]", "justify-end");
+  });
+
   it("switches to a two-line comparison, correctly colored, with a legend, when the toggle is switched on", () => {
     render(<PriceTargetTrendChart history={HISTORY_FULL_OVERLAP} />);
-    fireEvent.click(screen.getByRole("button", { name: "Overlay stock price" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Overlay stock price" }));
+    expect(screen.getByRole("switch", { name: "Overlay stock price" })).toBeChecked();
 
     const strokes = Array.from(chartPanel().querySelectorAll("path.recharts-line-curve")).map((el) => el.getAttribute("stroke"));
     expect(strokes).toEqual(["var(--color-series-1)", "var(--color-series-2)"]);
@@ -91,13 +100,13 @@ describe("PriceTargetTrendChart", () => {
 
   it("does not draw a truncation marker when the price line already starts at the target line's own first point", () => {
     render(<PriceTargetTrendChart history={HISTORY_FULL_OVERLAP} />);
-    fireEvent.click(screen.getByRole("button", { name: "Overlay stock price" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Overlay stock price" }));
     expect(screen.queryByText("Price data starts →")).not.toBeInTheDocument();
   });
 
   it("draws a dashed marker labeling where the price line actually starts when it starts later than the target line", () => {
     render(<PriceTargetTrendChart history={HISTORY_TRUNCATED} />);
-    fireEvent.click(screen.getByRole("button", { name: "Overlay stock price" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Overlay stock price" }));
 
     expect(screen.getByText("Price data starts →")).toBeInTheDocument();
     const dashed = Array.from(chartPanel().querySelectorAll("line")).filter((el) => el.getAttribute("stroke-dasharray") === "2 3");
@@ -106,10 +115,10 @@ describe("PriceTargetTrendChart", () => {
 
   it("toggling back off returns to the exact original single-series view", () => {
     render(<PriceTargetTrendChart history={HISTORY_FULL_OVERLAP} />);
-    const toggle = screen.getByRole("button", { name: "Overlay stock price" });
+    const toggle = screen.getByRole("switch", { name: "Overlay stock price" });
     fireEvent.click(toggle);
     fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(toggle).not.toBeChecked();
     expect(chartPanel().querySelectorAll("path.recharts-area-area")).toHaveLength(1);
     expect(chartPanel().querySelectorAll("path.recharts-line-curve")).toHaveLength(0);
   });

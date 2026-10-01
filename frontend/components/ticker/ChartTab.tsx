@@ -4,6 +4,8 @@ import { useCallback, useState } from "react";
 
 import { TickerChart } from "@/components/chart/TickerChart";
 import type { ZoomBounds } from "@/components/chart/TickerChart";
+import { Button } from "@/components/ui/button";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useTickerChart } from "@/lib/hooks/useTickerChart";
 import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
 import type { ChartRange } from "@/lib/api/types";
@@ -170,34 +172,27 @@ export function ChartTab({ ticker }: Props) {
             OHLC price chart with EMA(21), SMA(50/200), Bollinger Bands(20, 2), Full Stochastic(5, 3, 3, EMA), and RSI(14). Informational only.
           </p>
         </div>
-        <div className="flex items-center gap-1">
-          {RANGE_OPTIONS.map((opt) => (
-            <button
-              key={opt.key}
-              onClick={() => handleRangeChange(opt.key)}
-              className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                range === opt.key ? "bg-surface-2 text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-surface-2"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          aria-label="Chart range"
+          value={range}
+          onValueChange={(next) => handleRangeChange(next as ChartRange)}
+          options={RANGE_OPTIONS.map((opt) => ({ value: opt.key, label: opt.label }))}
+        />
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1">
           {TOGGLE_OPTIONS.filter((opt) => opt.key !== "stage" || range === STAGE_TOGGLE_RANGE).map((opt) => (
-            <button
+            <Button
               key={opt.key}
+              variant="outline"
+              size="sm"
               onClick={() => handleToggleChange(opt.key)}
               aria-pressed={signalToggles[opt.key]}
-              className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                signalToggles[opt.key] ? "bg-surface-2 text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-surface-2"
-              }`}
+              className={signalToggles[opt.key] ? "bg-surface-2 text-text-primary" : undefined}
             >
               {opt.label}
-            </button>
+            </Button>
           ))}
         </div>
         <div className="flex items-center gap-1">

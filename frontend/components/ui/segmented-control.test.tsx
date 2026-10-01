@@ -33,4 +33,11 @@ describe("SegmentedControl", () => {
     fireEvent.click(screen.getByRole("button", { name: "S&P 500" }));
     expect(onValueChange).not.toHaveBeenCalled();
   });
+
+  it("names the group when given an aria-label, and is an unnamed group otherwise", () => {
+    const { rerender } = render(<SegmentedControl value="sp500" onValueChange={() => {}} options={options} />);
+    expect(screen.getByRole("group")).not.toHaveAttribute("aria-label");
+    rerender(<SegmentedControl value="sp500" onValueChange={() => {}} options={options} aria-label="Index universe" />);
+    expect(screen.getByRole("group", { name: "Index universe" })).toBeInTheDocument();
+  });
 });

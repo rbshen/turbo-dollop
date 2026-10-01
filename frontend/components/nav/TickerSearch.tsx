@@ -2,6 +2,7 @@
 
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
+import { Input } from "@/components/ui/input";
 import { useApiResource } from "@/lib/hooks/useApiResource";
 import type { TickerSearchResult } from "@/lib/api/types";
 
@@ -76,9 +77,12 @@ export function TickerSearch() {
   const showDropdown = open && query !== null;
 
   return (
-    <div ref={containerRef} className="relative">
-      <input
+    // The width lives on the wrapper (160px, 224px from `sm`); the kit Input fills it, 36px high inside the nav's
+    // fixed 48px, so the nav does not change height.
+    <div ref={containerRef} className="relative w-40 sm:w-56">
+      <Input
         type="text"
+        size="full"
         value={value}
         onChange={(e) => {
           setValue(e.target.value.toUpperCase());
@@ -87,11 +91,11 @@ export function TickerSearch() {
         onFocus={() => setOpen(true)}
         onKeyDown={handleKeyDown}
         placeholder="Search ticker…"
+        aria-label="Search ticker"
         role="combobox"
         aria-expanded={showDropdown}
         aria-autocomplete="list"
         aria-controls="ticker-search-listbox"
-        className="h-8 w-40 rounded-md border border-border-control bg-surface px-3 text-xs text-text-primary placeholder:text-text-tertiary outline-none focus:border-brand sm:w-56"
       />
 
       {showDropdown && (

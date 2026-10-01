@@ -5,6 +5,7 @@ import { Line, LineChart, ReferenceLine, XAxis, YAxis } from "recharts";
 
 import { RechartsAreaChart } from "@/components/charts/RechartsAreaChart";
 import { ChartLegend } from "@/components/charts/ChartLegend";
+import { Switch } from "@/components/ui/switch";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import type { RatingHistoryPoint } from "@/lib/api/types";
 import { capXAxisTickInterval, computeNiceTicksRange } from "@/lib/charts";
@@ -53,16 +54,9 @@ export function PriceTargetTrendChart({ history, currency = "USD" }: Props) {
   return (
     <div className="space-y-2">
       {hasPriceOverlay && (
-        <div className="flex justify-end">
-          <button
-            onClick={() => setShowPriceOverlay((v) => !v)}
-            aria-pressed={showPriceOverlay}
-            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-              showPriceOverlay ? "bg-surface-2 text-text-primary" : "text-text-tertiary hover:text-text-secondary hover:bg-surface-2"
-            }`}
-          >
-            Overlay stock price
-          </button>
+        // min-h keeps the row at the 25px the old text button gave it, so the chart below does not move.
+        <div className="flex min-h-[25px] items-center justify-end">
+          <Switch label="Overlay stock price" checked={showPriceOverlay} onChange={(e) => setShowPriceOverlay(e.target.checked)} />
         </div>
       )}
       {showPriceOverlay && hasPriceOverlay ? (
