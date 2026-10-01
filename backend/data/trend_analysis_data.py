@@ -1,35 +1,31 @@
-"""Orchestration layer for trend-structure analysis -- same get_stepN_data
+"""Orchestration layer for the Weinstein stage analysis -- same get_stepN_data
 shape as data/step4_data.py: fetches raw data (via clients/shared_bars_cache.py),
-calls the pure calculation engine (analysis/trend_structure/), and
-persists/reads the result (models.py::TrendAnalysis). Independent of FMP
-entirely -- FMP daily bars (via the shared bars cache) are the sole data source for this feature.
+calls the pure calculation engines (analysis/trend_structure/weinstein*.py), and
+persists/reads the result (models.py::TrendAnalysis). FMP daily bars (via the
+shared bars cache) are the sole data source. The "trend" names here are
+historical: the swing/BOS trend-structure engine was removed, Weinstein is all
+this module computes now.
 """
 
 import json
 from dataclasses import asdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 
 import pandas as pd
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
-from analysis.trend_structure.types import PullbackCycle, ReversalCandidate, SwingDetail, WeinsteinStageResult
+from analysis.trend_structure.types import WeinsteinStageResult
 from analysis.trend_structure.weinstein import WeinsteinParams, compute_weinstein_stage
 from analysis.trend_structure.weinstein_pending import WeinsteinPendingEtaScenario, WeinsteinPendingResult, compute_weinstein_pending
-from clients.shared_bars_cache import DAILY_INTERVAL, _eastern_today, _most_recent_completed_trading_date, get_or_fetch_bars
+from clients.shared_bars_cache import DAILY_INTERVAL, _most_recent_completed_trading_date, get_or_fetch_bars
 from core.db import engine
 from core.models import TrendAnalysis
-from core.schemas import PullbackCycleOut, ReversalCandidateOut, SwingDetailOut, TrendAnalysisOut, WeinsteinParamsOut, WeinsteinPendingEtaScenarioOut, WeinsteinPendingOut
+from core.schemas import TrendAnalysisOut, WeinsteinParamsOut, WeinsteinPendingEtaScenarioOut, WeinsteinPendingOut
 from core.tickers import normalize_ticker
 from helpers.weinstein_config import load_weinstein_params
 
-# 2 calendar years of daily bars -- unchanged from the period="2y" this
-# feature always fetched; also what Weinstein's own bootstrap-convergence
-# validation (CLAUDE.md) was measured against.
-LOOKBACK_DAYS = 730
-
-# The Weinstein engine replays ~5 years of daily bars (its own, longer window
-# -- the swing/BOS engine keeps LOOKBACK_DAYS). An EMA/sticky state machine
+# The Weinstein engine replays ~5 years of daily bars. An EMA/sticky state machine
 # needs a long run-in: the previous 2y window left only ~70 classified weeks
 # and made "since" dates and the current stage depend on where the window
 # happened to start. 1825 = 365*5, the same window the validated simulation
@@ -45,120 +41,6 @@ def _params_out(params: WeinsteinParams) -> WeinsteinParamsOut:
 def _params_out_from_row(row: TrendAnalysis) -> WeinsteinParamsOut | None:
     params = WeinsteinParams.from_json(row.weinstein_params_json)
     return _params_out(params) if params else None
-
-
-def _swing_detail_to_json(detail: SwingDetail | None) -> str | None:
-    if detail is None:
-        return None
-    payload = asdict(detail)
-    payload["date"] = detail.date.isoformat()
-    return json.dumps(payload)
-
-
-def _swing_detail_dict_to_out(payload: dict) -> SwingDetailOut:
-    return SwingDetailOut(
-        date=date.fromisoformat(payload["date"]),
-        price=payload["price"],
-        margin=payload["margin"],
-        atr=payload["atr"],
-        ratio=payload["ratio"],
-        # .get(), not [...]: a row computed before this field existed has no
-        # "classification" key in its stored JSON at all -- reads as None
-        # until the next nightly run rewrites it (see SwingDetailOut's own
-        # comment).
-        classification=payload.get("classification"),
-    )
-
-
-def _swing_detail_from_json(raw: str | None) -> SwingDetailOut | None:
-    if raw is None:
-        return None
-    return _swing_detail_dict_to_out(json.loads(raw))
-
-
-def _swing_detail_out(detail: SwingDetail | None) -> SwingDetailOut | None:
-    if detail is None:
-        return None
-    return SwingDetailOut(
-        date=detail.date, price=detail.price, margin=detail.margin, atr=detail.atr, ratio=detail.ratio, classification=detail.classification
-    )
-
-
-def _pullback_history_to_json(history: list[PullbackCycle]) -> str:
-    payload = [
-        {
-            "warning_swing": {**asdict(cycle.warning_swing), "date": cycle.warning_swing.date.isoformat()},
-            "resolving_swing": {**asdict(cycle.resolving_swing), "date": cycle.resolving_swing.date.isoformat()},
-        }
-        for cycle in history
-    ]
-    return json.dumps(payload)
-
-
-def _pullback_history_from_json(raw: str | None) -> list[PullbackCycleOut]:
-    # [] (not None) for a pre-existing row computed before this field
-    # existed -- see models.py::TrendAnalysis.pullback_history_json's own
-    # comment on why an empty list, not a nullable field, is the right
-    # migration-safety shape here.
-    if raw is None:
-        return []
-    return [
-        PullbackCycleOut(
-            warning_swing=_swing_detail_dict_to_out(entry["warning_swing"]),
-            resolving_swing=_swing_detail_dict_to_out(entry["resolving_swing"]),
-        )
-        for entry in json.loads(raw)
-    ]
-
-
-def _pullback_history_out(history: list[PullbackCycle]) -> list[PullbackCycleOut]:
-    return [
-        PullbackCycleOut(
-            warning_swing=_swing_detail_out(cycle.warning_swing),
-            resolving_swing=_swing_detail_out(cycle.resolving_swing),
-        )
-        for cycle in history
-    ]
-
-
-def _reversal_history_to_json(history: list[ReversalCandidate]) -> str:
-    payload = [
-        {
-            "swing": {**asdict(candidate.swing), "date": candidate.swing.date.isoformat()},
-            "ad_bullish_divergence": candidate.ad_bullish_divergence,
-            "ad_divergence_swing_date": candidate.ad_divergence_swing_date.isoformat() if candidate.ad_divergence_swing_date else None,
-        }
-        for candidate in history
-    ]
-    return json.dumps(payload)
-
-
-def _reversal_history_from_json(raw: str | None) -> list[ReversalCandidateOut]:
-    # [] (not None) for a pre-existing row computed before this field
-    # existed -- see models.py::TrendAnalysis.reversal_history_json's own
-    # comment on why an empty list, not a nullable field, is the right
-    # migration-safety shape here.
-    if raw is None:
-        return []
-    return [
-        ReversalCandidateOut(
-            swing=_swing_detail_dict_to_out(entry["swing"]),
-            ad_bullish_divergence=entry["ad_bullish_divergence"],
-            ad_divergence_swing_date=date.fromisoformat(entry["ad_divergence_swing_date"]) if entry["ad_divergence_swing_date"] else None,
-        )
-        for entry in json.loads(raw)
-    ]
-
-
-def _reversal_history_out(history: list[ReversalCandidate]) -> list[ReversalCandidateOut]:
-    return [
-        ReversalCandidateOut(
-            swing=_swing_detail_out(candidate.swing),
-            ad_bullish_divergence=candidate.ad_bullish_divergence,
-            ad_divergence_swing_date=candidate.ad_divergence_swing_date,
-        )
-        for candidate in history
-    ]
 
 
 def _pending_eta_to_json(eta: dict[str, WeinsteinPendingEtaScenario] | None) -> str | None:
@@ -301,19 +183,6 @@ def _row_to_out(row: TrendAnalysis) -> TrendAnalysisOut:
         weinstein_params=_params_out_from_row(row),
         pending=_pending_out_from_row(row),
     )
-
-
-def _trend_window(ohlcv: pd.DataFrame) -> pd.DataFrame:
-    """The swing/BOS engine's own trailing LOOKBACK_DAYS of `ohlcv`, cut
-    EXACTLY where the shared bars cache used to cut its 730-day request
-    (today - (LOOKBACK_DAYS - 1), inclusive), so widening the fetch for
-    Weinstein leaves this engine's inputs -- and every trend score -- byte-
-    identical. Anchored on the last bar instead when that bar is more than a
-    week behind today (a stale/delisted ticker, or a test fixture)."""
-    last_bar = ohlcv.index.max().normalize()
-    today = pd.Timestamp(_eastern_today(datetime.now(timezone.utc)))
-    anchor = today if 0 <= (today - last_bar).days <= 7 else last_bar
-    return ohlcv[ohlcv.index >= anchor - pd.Timedelta(days=LOOKBACK_DAYS - 1)]
 
 
 def _load_params() -> WeinsteinParams:

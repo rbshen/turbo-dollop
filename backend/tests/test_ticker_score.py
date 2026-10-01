@@ -299,11 +299,6 @@ def test_weinstein_stage_is_copied_from_trend_analysis(monkeypatch):
             TrendAnalysis(
                 ticker="AAPL",
                 computed_at=datetime(2026, 9, 6),
-                trend_state="uptrend",
-                persistence_count=5,
-                warning_flag=False,
-                blended_score=4.2,
-                bar_level=3,
                 weinstein_stage="advance",
                 weinstein_stage_since_date=date(2026, 1, 5),
                 weinstein_stage_since_is_lower_bound=False,

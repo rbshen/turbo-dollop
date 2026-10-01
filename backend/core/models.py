@@ -109,109 +109,24 @@ class LongHistoryBars(SQLModel, table=True):
 
 
 class TrendAnalysis(SQLModel, table=True):
-    """Latest trend-structure analysis per ticker (swing/BOS/blended-score
-    engine, see analysis/trend_structure/ and data/trend_analysis_data.py)
-    -- sourced from FMP bars (SharedBarsCache above), independent of
-    FMP entirely. Ticker-PK, no surrogate id, `computed_at` (not
-    `fetched_at`) naming -- same "this is a derived value" convention as
-    TickerScore, not a raw fetch cache. Upserted per run, latest-only (no
-    history needed), written by pipeline/nightly_trend_calculation.py.
-
-    last_confirmed_swing_json/warning_swing_json are plain `str`, manually
-    json.dumps/loads'd -- there is no native JSON column type anywhere in
-    this codebase (see FundamentalsCache.raw_json/SavedScreenerFilter.
-    filters_json/TickerCustomValuation.parameters_json for the established
-    convention this follows). Either can be None: last_confirmed_swing_json
-    is None only for a brand-new/too-thin swing history that's never
-    produced a weak-confirmed-or-stronger swing yet; warning_swing_json is
-    None whenever warning_flag is False."""
+    """Latest Weinstein stage analysis per ticker (see
+    analysis/trend_structure/weinstein*.py and data/trend_analysis_data.py)
+    -- sourced from FMP bars (SharedBarsCache above). The table, class and
+    module names are historical: the swing/BOS trend-structure engine that
+    once shared this row was removed, and only Weinstein columns remain.
+    Ticker-PK, no surrogate id, `computed_at` (not `fetched_at`) naming --
+    same "this is a derived value" convention as TickerScore, not a raw
+    fetch cache. Upserted per run, latest-only (no history needed), written
+    by pipeline/nightly_trend_calculation.py."""
 
     ticker: str = Field(primary_key=True)
     computed_at: datetime
-    # trend_state/persistence_count/warning_flag/blended_score/bar_level: the trend engine is gone, these
-    # legacy NOT NULL columns survive only until the _OBSOLETE_COLUMNS drop. The defaults let an INSERT
-    # (SQLAlchemy applies Column defaults to Core inserts too) satisfy NOT NULL; nothing reads them.
-    trend_state: str = "uptrend"  # "uptrend" | "downtrend"
-    magnitude_tier: str | None = None  # "weak" | "confirmed" | "strong" | None
-    persistence_count: int = 0
-    bars_since_confirmation: int | None = None
-    last_confirmed_swing_json: str | None = None
-    warning_flag: bool = False
-    warning_swing_json: str | None = None
-    # Whether ANY pullback warning has fired since trend_state's own most
-    # recent flip -- lets the Trend Continuation card distinguish "no
-    # pullback since the last flip" from "a pullback occurred and has since
-    # been resolved" (see analysis/trend_structure/types.py::
-    # TrendStructureResult.pullback_occurred_since_flip). Nullable for the
-    # usual _add_missing_columns-has-no-backfill reason: a pre-existing row
-    # reads NULL until the next nightly run rewrites it.
-    pullback_occurred_since_flip: bool | None = None
-    # The swing that triggered trend_state's own most recent genuine flip
-    # (see analysis/trend_structure/state_machine.py::TrendMachineState.
-    # flip_swing). trend_started_is_lower_bound=True means no genuine flip
-    # has occurred anywhere in the ticker's available cached history -- the
-    # current trend covers the entire history, so this date is the
-    # earliest we can see, not necessarily the true start (mirrors
-    # weinstein_stage_since_date/_is_lower_bound's identical convention).
-    # Nullable for the same _add_missing_columns-has-no-backfill reason as
-    # pullback_occurred_since_flip above.
-    trend_started_json: str | None = None
-    trend_started_is_lower_bound: bool | None = None
-    # Every pullback cycle that has resolved within the CURRENT trend --
-    # see analysis/trend_structure/state_machine.py::TrendMachineState.
-    # pullback_history and TrendAnalysisOut.pullback_history's own comments
-    # for the full contract. Plain `str` JSON (a list of {warning_swing,
-    # resolving_swing} objects, each shaped like last_confirmed_swing_json's
-    # own SwingDetail dict), same convention as every other JSON-shaped
-    # field on this table (see the class docstring). Nullable for the usual
-    # _add_missing_columns-has-no-backfill reason; reads as an empty list
-    # (not None) at the API boundary either way, since a pre-existing row
-    # and a genuinely-empty history are indistinguishable and both mean
-    # "nothing to show" to a caller.
-    pullback_history_json: str | None = None
-    # Every confirmed LL swing within the CURRENT downtrend -- see
-    # analysis/trend_structure/state_machine.py::TrendMachineState.
-    # reversal_history and TrendAnalysisOut.reversal_history's own comments
-    # for the full contract. Plain `str` JSON (a list of {swing,
-    # ad_bullish_divergence, ad_divergence_swing_date} objects, `swing`
-    # shaped like last_confirmed_swing_json's own SwingDetail dict), same
-    # convention as pullback_history_json above. Nullable for the same
-    # _add_missing_columns-has-no-backfill reason; reads as an empty list
-    # (not None) at the API boundary either way.
-    reversal_history_json: str | None = None
-    efficiency_ratio: float | None = None
-    regime: str | None = None  # "trending" | "range-bound" | None
-    blended_score: float = 0.0
-    bar_level: int = 3  # 1-5, see analysis/trend_structure/conviction.py
-    # A/D Bullish Divergence (see analysis/trend_structure/classification.py)
-    # -- nullable, unlike the pure engine's own always-real bool/None-date
-    # output, specifically because core/db.py::_add_missing_columns adds
-    # columns via a raw ALTER TABLE with no backfill: existing rows read as
-    # NULL until the next nightly run rewrites every field. A nullable
-    # Python type avoids a validation error on that transient legacy read;
-    # every consumer already treats None the same as False.
-    ad_bullish_divergence: bool | None = None
-    ad_divergence_swing_date: date | None = None
-    # SMA (20/50/200) position tracking (see
-    # analysis/trend_structure/sma_position.py) -- nullable for the same
-    # reason as ad_bullish_divergence above: _add_missing_columns's ALTER
-    # TABLE has no backfill, so existing rows read NULL until the next
-    # nightly run rewrites every field. cross is a plain str ("up"/"down"),
-    # same enum-like-string convention trend_state/regime already use.
-    sma20_position_pct: float | None = None
-    sma20_cross: str | None = None
-    sma50_position_pct: float | None = None
-    sma50_cross: str | None = None
-    sma200_position_pct: float | None = None
-    sma200_cross: str | None = None
-    # Weinstein Stage Analysis (see analysis/trend_structure/weinstein.py) --
-    # a fully independent second lens, computed on WEEKLY bars resampled
-    # from the same daily OHLCV history, not merged with the swing/BOS
-    # fields above. Nullable for the same _add_missing_columns-has-no-
-    # backfill reason as ad_bullish_divergence/sma20_cross: existing rows
-    # read NULL until the next nightly run rewrites every field.
-    # weinstein_stage: "base" | "advance" | "top" | "decline" | None, same
-    # plain-str enum convention as trend_state/regime.
+    # Weinstein Stage Analysis (see analysis/trend_structure/weinstein.py),
+    # computed on WEEKLY bars resampled from daily OHLCV history. Nullable
+    # because core/db.py::_add_missing_columns adds columns with no backfill:
+    # existing rows read NULL until the next nightly run rewrites every field.
+    # weinstein_stage: "base" | "advance" | "top" | "decline" | None, a plain-str
+    # enum.
     weinstein_stage: str | None = None
     # First week of the CURRENT stage (see WeinsteinStageResult's own
     # docstring for the walk-back definition).
@@ -871,17 +786,6 @@ class TickerScore(SQLModel, table=True):
     # regardless of how far out the ETA is. Backs the Screener Weinstein Stage
     # filter's "Pending" option. NULL = not pending or not yet recomputed.
     weinstein_pending_direction: str | None = None
-    # Reversal / Trend Continuation ("Pullback") status -- ported from the
-    # Technical tab's own ReversalCard.tsx::reversalStatus /
-    # TrendContinuationCard.tsx::resolutionStatus (see
-    # analysis/trend_structure/technical_status.py), kept in each card's own
-    # vocabulary rather than a forced shared enum. Computed in
-    # compute_ticker_score() from the same TrendAnalysis sibling read as the
-    # weinstein_* fields above, not a live recomputation of the swing/BOS
-    # engine. None whenever no TrendAnalysis row exists yet, same "no
-    # signal" convention as weinstein_stage.
-    reversal_status: str | None = None  # "not_present" | "confirmed" | "confirmed_stale"
-    pullback_status: str | None = None  # "no_pullback" | "pending" | "recovered" | "invalidated"
     # BB+RSI (2h) technical entry signal -- the DERIVED active state
     # (data/entry_signal_data.py::is_entry_signal_active on the matching
     # TechnicalEntrySignal row's fired_at, same session.get() sibling-read

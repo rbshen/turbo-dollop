@@ -1,181 +1,26 @@
-"""Shared dataclasses for the trend-structure engine (see engine.py) --
-mirrors analysis/ma_magnet's dataclass-based style for structured returns.
-See CLAUDE.md's "Trend structure analysis (Technical)" section for the full
-methodology these types represent.
+"""Shared types for the Weinstein stage engine (see weinstein.py). The
+package name `trend_structure` is historical: the daily-bar swing/BOS
+trend-structure engine that once lived alongside it was removed, Weinstein
+(plus the chart's Stochastic helper) is all that remains here.
 """
 
 from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
-SwingKind = Literal["high", "low"]
-TrendState = Literal["uptrend", "downtrend"]
-MagnitudeTier = Literal["weak", "confirmed", "strong"]
-Regime = Literal["trending", "range-bound"]
-Classification = Literal["HH", "HL", "LH", "LL"]
-SmaCross = Literal["up", "down"]
 WeinsteinStage = Literal["base", "advance", "top", "decline"]
-
-# The ratio (margin/ATR) threshold for a "confirmed" swing -- shared between
-# state_machine.py (a genuine trend_state flip) and classification.py (which
-# LL swings are eligible to build the A/D Bullish Divergence trailing-3
-# floor). Lives here, not in either of those two files, since state_machine
-# imports FROM classification -- classification importing the constant back
-# from state_machine would be circular.
-CONFIRMED_RATIO = 1.0
-
-
-@dataclass(frozen=True)
-class SwingPoint:
-    """A single fractal swing high or low, before classification."""
-
-    date: date
-    price: float
-    kind: SwingKind
-
-
-@dataclass(frozen=True)
-class SwingDetail:
-    """A classified swing's full detail -- used for both
-    last_confirmed_swing and warning_swing in TrendStructureResult."""
-
-    date: date
-    price: float
-    margin: float
-    atr: float
-    ratio: float
-    # HH/HL/LH/LL -- added for the Technical tab's Reversal/Trend
-    # Continuation checklists (2026-09-06), which need to know WHICH kind of
-    # swing last_confirmed_swing/warning_swing actually is, not just its
-    # ratio/magnitude. Always populated for a freshly computed swing (every
-    # ClassifiedSwing carries a classification); SwingDetailOut's own copy
-    # of this field is nullable purely for the pre-existing-row migration
-    # safety reason documented there.
-    classification: Classification
-
-
-@dataclass(frozen=True)
-class PullbackCycle:
-    """One completed warning-to-resolution pullback cycle within the
-    CURRENT trend -- the swing that set warning_flag, paired with the
-    same-direction confirming swing that later cleared it. Only ever
-    recorded once a cycle actually resolves (see state_machine.py::
-    run_state_machine); a pullback still pending has no PullbackCycle yet
-    -- that's what warning_flag/warning_swing already describe."""
-
-    warning_swing: SwingDetail
-    resolving_swing: SwingDetail
-
-
-@dataclass(frozen=True)
-class ReversalCandidate:
-    """One confirmed LL swing within the CURRENT downtrend -- a candidate
-    reversal event, whether or not A/D Bullish Divergence was present at
-    it. Unlike PullbackCycle, this is a single-point event, not a
-    warning-to-resolution pair: every confirmed LL is its own reversal
-    candidate, not just the ones that happen to resolve something.
-    ad_bullish_divergence/ad_divergence_swing_date are copied verbatim from
-    this swing's own ClassifiedSwing (see classification.py) -- the
-    trailing-3 divergence floor they're computed against is deliberately
-    trend-boundary-agnostic (see classification.py's own docstring), so
-    scoping THIS LIST to the current downtrend must never re-derive or
-    re-scope the divergence value itself."""
-
-    swing: SwingDetail
-    ad_bullish_divergence: bool
-    ad_divergence_swing_date: date | None
-
-
-@dataclass(frozen=True)
-class TrendStructureResult:
-    trend_state: TrendState
-    # None only when the swing history is too thin to have ever produced a
-    # weak-confirmed-or-stronger swing yet (see state_machine.py) -- not a
-    # case the spec enumerates, but one a short/thin real history can hit.
-    magnitude_tier: MagnitudeTier | None
-    persistence_count: int
-    bars_since_confirmation: int | None
-    last_confirmed_swing: SwingDetail | None
-    warning_flag: bool
-    warning_swing: SwingDetail | None
-    # True once ANY confirmed LH (uptrend) or HL (downtrend) warning has
-    # fired since the current trend_state's own most recent flip -- persists
-    # across a later warning_flag clear (a same-direction confirming swing),
-    # since that's a resolved pullback, not "no pullback ever happened."
-    # Reset to False only by a genuine flip (including the initial
-    # bootstrap). Lets a caller distinguish "no pullback has occurred since
-    # the last flip" from "a pullback occurred and has since been resolved"
-    # -- both of which otherwise read identically as warning_flag=False (see
-    # state_machine.py::run_state_machine).
-    pullback_occurred_since_flip: bool
-    # The swing that triggered the CURRENT trend_state's own most recent
-    # genuine flip -- renamed from state_machine.py's own `flip_swing` at
-    # this boundary (this is the "public" shape TrendAnalysisOut mirrors,
-    # where the API/UI vocabulary is "when did the trend start," not
-    # "which swing flipped it"). trend_started_is_lower_bound=True means no
-    # genuine flip has ever occurred anywhere in the ticker's available
-    # classified history -- the current trend covers the entire history, so
-    # this date is the earliest we can see, not necessarily the true start
-    # (mirrors WeinsteinStageResult.stage_since_date/_is_lower_bound's
-    # identical convention for the same shape of problem).
-    trend_started: SwingDetail | None
-    trend_started_is_lower_bound: bool
-    # Every pullback cycle that has resolved within the CURRENT trend (i.e.
-    # since trend_started), oldest first -- reset to empty on every genuine
-    # flip, the same trigger trend_started/pullback_occurred_since_flip
-    # reset on (see state_machine.py::run_state_machine). A still-pending
-    # (unresolved) warning is NOT in this list -- that's warning_flag/
-    # warning_swing's own job. Bounded by construction: it only ever grows
-    # across the swings of one trend segment, never across a flip.
-    pullback_history: list[PullbackCycle]
-    # Every confirmed LL swing within the CURRENT downtrend (i.e. since
-    # trend_started), oldest first -- reset on every genuine flip like
-    # pullback_history above, but UNLIKE pullback_history, seeded with the
-    # flip-triggering LL itself as its first entry when flipping INTO a
-    # downtrend (see state_machine.py::run_state_machine) -- a fresh
-    # downtrend's history is never empty while last_confirmed_swing/
-    # ReversalCard's own "Confirmed" checklist item is already showing that
-    # same LL as satisfied. Always empty while trend_state is "uptrend"
-    # (only LL swings while trend_state=="downtrend" are ever appended).
-    reversal_history: list[ReversalCandidate]
-    efficiency_ratio: float | None
-    regime: Regime | None
-    blended_score: float
-    bar_level: int
-    # A/D Bullish Divergence -- see classification.py's own docstring for the
-    # full matching/comparison definition. True only for the ticker's MOST
-    # RECENT confirmed LL swing; ad_divergence_swing_date is the matched
-    # Chaikin Oscillator low's own bar date (None whenever the flag is False).
-    ad_bullish_divergence: bool
-    ad_divergence_swing_date: date | None
-    # SMA (20/50/200) position tracking -- (close - SMA)/SMA*100 for the
-    # latest bar, plus a prior-day-vs-current-day cross flag. See
-    # sma_position.py::compute_sma_position for the full definition
-    # (including why crossing compares prior-day SMA, not today's SMA
-    # reused). None (both fields) whenever fewer than the SMA's own window
-    # of bars exist yet; cross alone is None whenever there's no valid prior
-    # bar to compare against, even if position_pct itself is real.
-    sma20_position_pct: float | None
-    sma20_cross: SmaCross | None
-    sma50_position_pct: float | None
-    sma50_cross: SmaCross | None
-    sma200_position_pct: float | None
-    sma200_cross: SmaCross | None
 
 
 @dataclass(frozen=True)
 class WeinsteinStageResult:
     """Stan Weinstein's classic 4-stage (Base/Advance/Top/Decline) reading,
-    computed on WEEKLY bars (see weinstein.py) -- a fully independent second
-    lens from the daily-bar swing/BOS engine above (TrendStructureResult),
-    not merged into it, since it needs an extra benchmark series and
-    operates on a different (weekly, resampled) timeframe entirely. See
-    weinstein.py's own module docstring for the full mechanism.
+    computed on WEEKLY bars (see weinstein.py), which needs an extra
+    benchmark series and operates on a weekly, resampled timeframe. See weinstein.py's own module docstring for the
+    full mechanism.
 
     stage is None (and every other field None/False) only when there's too
     little daily history to produce even MIN_WEEKS_REQUIRED weekly bars yet
-    (e.g. a recent IPO) -- mirrors sma_position.py's graceful-degradation
-    convention, never an exception.
+    (e.g. a recent IPO) -- a graceful degradation, never an exception.
     """
 
     stage: WeinsteinStage | None

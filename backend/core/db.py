@@ -26,6 +26,23 @@ _OBSOLETE_COLUMNS: list[tuple[str, str]] = [
     ("savedscreenerfilter", "country"),
     # Verified tick confirmed to have zero downstream effect (2026-09-27).
     ("datagroupsetting", "tier_verified"),
+    # Trend-structure (swing/BOS) engine removed (2026-10-01): the TrendAnalysis trend columns, whose
+    # NOT NULL ones (trend_state, persistence_count, warning_flag, blended_score, bar_level) would
+    # otherwise reject every INSERT now that the model no longer supplies them.
+    *[
+        ("trendanalysis", col)
+        for col in (
+            "trend_state", "magnitude_tier", "persistence_count", "bars_since_confirmation",
+            "last_confirmed_swing_json", "warning_flag", "warning_swing_json", "pullback_occurred_since_flip",
+            "trend_started_json", "trend_started_is_lower_bound", "pullback_history_json", "reversal_history_json",
+            "efficiency_ratio", "regime", "blended_score", "bar_level", "ad_bullish_divergence",
+            "ad_divergence_swing_date", "sma20_position_pct", "sma20_cross", "sma50_position_pct", "sma50_cross",
+            "sma200_position_pct", "sma200_cross",
+        )
+    ],
+    # Screener Reversal/Pullback filters removed with the same engine.
+    ("tickerscore", "reversal_status"),
+    ("tickerscore", "pullback_status"),
 ]
 
 

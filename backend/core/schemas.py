@@ -1141,45 +1141,6 @@ class WatchlistUpdateIn(BaseModel):
     sort_direction: str | None = None
 
 
-class SwingDetailOut(BaseModel):
-    """A single classified swing's detail -- used for both
-    last_confirmed_swing and warning_swing below. See
-    analysis/trend_structure/types.py::SwingDetail."""
-
-    date: date
-    price: float
-    margin: float
-    atr: float
-    ratio: float
-    # HH/HL/LH/LL. Nullable purely for pre-existing cached rows computed
-    # before this field existed (_add_missing_columns-has-no-backfill
-    # convention, same as ad_bullish_divergence/sma*_position_pct above) --
-    # a fresh compute always populates it.
-    classification: Literal["HH", "HL", "LH", "LL"] | None = None
-
-
-class PullbackCycleOut(BaseModel):
-    """One completed warning-to-resolution pullback cycle within the
-    ticker's CURRENT trend. See
-    analysis/trend_structure/types.py::PullbackCycle and
-    TrendAnalysisOut.pullback_history's own comment for the full contract."""
-
-    warning_swing: SwingDetailOut
-    resolving_swing: SwingDetailOut
-
-
-class ReversalCandidateOut(BaseModel):
-    """One confirmed LL swing within the ticker's CURRENT downtrend -- a
-    single-point event, not a warning-to-resolution pair like
-    PullbackCycleOut above. See
-    analysis/trend_structure/types.py::ReversalCandidate and
-    TrendAnalysisOut.reversal_history's own comment for the full contract."""
-
-    swing: SwingDetailOut
-    ad_bullish_divergence: bool
-    ad_divergence_swing_date: date | None = None
-
-
 class WeinsteinParamsOut(BaseModel):
     ma_length: int
     ma_type: Literal["SMA", "EMA"]
