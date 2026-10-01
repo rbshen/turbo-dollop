@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TopNav } from "@/components/nav/TopNav";
@@ -38,6 +38,39 @@ describe("TopNav", () => {
       else expect(link).not.toHaveAttribute("target");
     }
   });
+
+  it("replays a plain click on a new-tab link as a modifier-click, so the tab opens in the background", () => {
+    render(<TopNav />);
+    const seen: MouseEvent[] = [];
+    const spy = (e: Event) => {
+      seen.push(e as MouseEvent);
+      e.preventDefault(); // jsdom has no navigation
+    };
+    document.addEventListener("click", spy);
+    const notPrevented = fireEvent.click(screen.getByRole("link", { name: "Momentum" }));
+    document.removeEventListener("click", spy);
+    expect(notPrevented).toBe(false); // the original click is cancelled...
+    const replay = seen.find((e) => e.ctrlKey || e.metaKey);
+    expect(replay).toBeDefined(); // ...and replayed with a modifier
+    expect((replay!.target as HTMLAnchorElement).target).toBe("_blank");
+  });
+
+  it("leaves Screener and already-modified clicks alone", () => {
+    render(<TopNav />);
+    expect(fireEvent.click(screen.getByRole("link", { name: "Screener" }), { defaultPrevented: false })).toBeDefined();
+    expect(fireEvent.click(screen.getByRole("link", { name: "Momentum" }), { ctrlKey: true })).toBe(true);
+  });
+
+  it.each(["/momentum", "/sectors", "/breadth", "/breadth/XLK", "/settings"])(
+    "on %s, Screener and the logo open in a new tab too",
+    (path) => {
+      h.pathname = path;
+      render(<TopNav />);
+      for (const name of ["Fathom", "Screener"]) {
+        expect(screen.getByRole("link", { name })).toHaveAttribute("target", "_blank");
+      }
+    }
+  );
 
   it("marks the link for the current page and no other", () => {
     h.pathname = "/momentum";
