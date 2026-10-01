@@ -798,3 +798,31 @@ describe("SavedFiltersBar: names containing '/'", () => {
     }
   );
 });
+
+// Session 16: the trigger is an outline Button at sm (32px, like the Save and Reset buttons beside it) with the CaretDown
+// icon, not a hand-written ghost-plus-border button. Its border stays neutral on hover.
+describe("SavedFiltersBar: the trigger is a Button", () => {
+  it("is an outline Button at size sm: 32px, the input border, the same text size as its neighbours", () => {
+    renderBar();
+    const t = trigger();
+    expect(t).toHaveClass("h-8", "text-xs", "border", "border-border-input", "bg-transparent", "px-3");
+    expect(t.className).not.toMatch(/bg-surface(?!-)/);
+    expect(t).toHaveAttribute("type", "button");
+    expect(screen.getByRole("button", { name: "Save current view" })).toHaveClass("h-8", "text-xs", "border-border-input");
+  });
+
+  it("does not turn its border brand on hover (a neutral disclosure, not an action)", () => {
+    renderBar();
+    expect(trigger()).toHaveClass("hover:border-border-input");
+    expect(trigger().className).not.toMatch(/hover:border-brand/);
+  });
+
+  it("keeps a decorative 12px caret at the end of the label, and a truncating label", () => {
+    renderBar();
+    const icon = trigger().querySelector("svg");
+    expect(icon).toHaveAttribute("aria-hidden", "true");
+    expect(icon).toHaveClass("shrink-0", "text-text-tertiary");
+    expect(trigger().firstElementChild).toHaveClass("truncate");
+    expect(trigger()).toHaveClass("gap-1.5");
+  });
+});

@@ -186,19 +186,21 @@ export function SavedFiltersBarView({
   return (
     <div className="flex flex-col items-stretch gap-2">
       <div ref={listRef} className="relative" onKeyDown={handleListKeyDown}>
-        <button
+        <Button
           ref={triggerRef}
-          type="button"
+          variant="outline"
+          size="sm"
           onClick={() => setListOpen((o) => !o)}
           aria-expanded={listOpen}
           aria-controls={listOpen ? panelId : undefined}
-          className="flex h-8 items-center gap-1.5 rounded-md border border-border-input bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
+          // gap-1.5 keeps the old width; the border stays neutral on hover (this is a disclosure, not an action).
+          className="gap-1.5 hover:border-border-input"
         >
           {/* Same "show the active selection instead of the generic label"
               convention MultiSelectDropdown's trigger already uses. */}
           <span className="truncate">{activeName ?? `Saved views${saved && saved.length > 0 ? ` (${saved.length})` : ""}`}</span>
           <CaretDown size={12} weight="bold" aria-hidden="true" className="shrink-0 text-text-tertiary" />
-        </button>
+        </Button>
 
         {listOpen && (
           <div

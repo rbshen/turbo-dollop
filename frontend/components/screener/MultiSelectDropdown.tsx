@@ -4,6 +4,7 @@ import { CaretDown } from "@phosphor-icons/react";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { Checkbox } from "@/components/ui/checkbox";
+import { FIELD_BOX_CLASS } from "@/lib/formControl";
 import { FILTER_ACTIVE_LABEL_CLASS } from "@/lib/screenerFilters";
 import { cn } from "@/lib/utils";
 
@@ -132,12 +133,15 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Prop
         aria-haspopup="listbox"
         aria-expanded={open}
         className={cn(
-          "flex h-8 items-center gap-1.5 rounded-md border border-border-input bg-surface px-3 text-xs font-medium transition-colors hover:border-brand hover:text-text-primary",
+          // The kit's boxed field (36px, radius-md, border-control, page fill) at full column width, with Select's caret.
+          // No hover border: the box never turns brand.
+          FIELD_BOX_CLASS,
+          "flex w-full items-center justify-between gap-2 text-left hover:text-text-primary",
           active ? FILTER_ACTIVE_LABEL_CLASS : "text-text-secondary"
         )}
       >
-        {summary}
-        <CaretDown size={12} weight="bold" aria-hidden="true" className="text-text-tertiary" />
+        <span className="min-w-0 truncate">{summary}</span>
+        <CaretDown size={12} weight="bold" aria-hidden="true" className="shrink-0 text-text-tertiary" />
       </button>
 
       {open && (

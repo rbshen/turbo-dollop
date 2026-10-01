@@ -300,3 +300,44 @@ describe("MultiSelectDropdown: closing", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
   });
 });
+
+// Session 16: the trigger is the kit's boxed field (the same 36px box, border, radius and caret as Select) at the
+// sidebar column's full width, and its border never turns brand on hover. The behaviour above is untouched.
+describe("MultiSelectDropdown: the trigger is a boxed field", () => {
+  it("is the kit's 36px box: h-9, radius-md, a 1px border-control, the page fill, at full width", () => {
+    render(<Harness />);
+    const t = trigger();
+    expect(t).toHaveClass("h-9", "rounded-md", "border", "border-border-control", "bg-page", "w-full", "text-sm");
+    expect(t.className).not.toMatch(/h-8|border-border-input|bg-surface/);
+  });
+
+  it("has no brand border or fill, in any state, and does not hand-write the ghost-plus-border look", () => {
+    render(<Harness />);
+    expect(trigger().className).not.toMatch(/brand/);
+    cleanup();
+    render(<Harness initial={["a", "b"]} />);
+    expect(trigger().className).not.toMatch(/brand/);
+  });
+
+  it("puts the label on the left and a decorative caret on the right, the same 12px bold caret as Select", () => {
+    render(<Harness />);
+    const t = trigger();
+    expect(t).toHaveClass("flex", "justify-between");
+    expect(t.firstElementChild).toHaveTextContent("Letters");
+    expect(t.firstElementChild).toHaveClass("truncate");
+    const icon = t.querySelector("svg");
+    expect(icon).toHaveAttribute("aria-hidden", "true");
+    expect(icon).toHaveClass("shrink-0", "text-text-tertiary");
+  });
+
+  it("is secondary text when nothing is chosen, and the filter-active tone once something is", () => {
+    render(<Harness />);
+    expect(trigger()).toHaveClass("text-text-secondary");
+    expect(trigger()).not.toHaveClass("text-filter-active");
+    cleanup();
+    render(<Harness initial={["a"]} />);
+    expect(trigger()).toHaveClass("text-filter-active");
+    expect(trigger()).not.toHaveClass("text-text-secondary");
+    expect(trigger()).not.toHaveClass("text-text-primary");
+  });
+});
