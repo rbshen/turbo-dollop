@@ -622,13 +622,6 @@ export interface TickerScoreOut {
   weinstein_vs_ma_pct: number | null;
   // See TickerScore.weinstein_pending_direction -- non-null iff the Flip-ETA card shows.
   weinstein_pending_direction: "advance" | "decline" | null;
-  // Reversal / Trend Continuation ("Pullback") status -- same values as
-  // ReversalCard.tsx's ReversalStatus / TrendContinuationCard.tsx's
-  // ResolutionStatus, just lower_snake_case (backend-computed, see
-  // analysis/trend_structure/technical_status.py), not a forced shared
-  // enum between the two. null when no TrendAnalysis row exists yet.
-  reversal_status: "not_present" | "confirmed" | "confirmed_stale" | null;
-  pullback_status: "no_pullback" | "pending" | "recovered" | "invalidated" | null;
   // See TickerScore.bb_rsi_entry_signal. null for the overwhelming
   // majority of tickers -- this signal only ever exists for
   // members of a watchlist named W1 through W5.
@@ -1252,93 +1245,14 @@ export interface WatchlistRowOut {
   added_at: string;
 }
 
-// A single classified swing's detail -- used for both last_confirmed_swing
-// and warning_swing below. See backend's SwingDetailOut/SwingDetail.
-export interface SwingDetailOut {
-  date: string;
-  price: number;
-  margin: number;
-  atr: number;
-  ratio: number;
-  // null for a row computed before this field existed (migration-safety
-  // convention, see backend's SwingDetailOut) -- a fresh compute always
-  // populates it.
-  classification: "HH" | "HL" | "LH" | "LL" | null;
-}
-
-// Latest trend-structure analysis for one ticker (swing/BOS/blended-score
-// engine) -- see backend/core/schemas.py::TrendAnalysisOut and
-// analysis/trend_structure/ for the full methodology. Designed to feed a
-// future ticker-page "Technical" tab (not built this round) -- the
-// Watchlist table no longer surfaces any of this data at all (removed
-// 2026-09-06, see WatchlistTable.tsx's own column-order comment).
+// Latest Weinstein Stage Analysis for one ticker -- see backend/core/schemas.py::
+// TrendAnalysisOut and docs/specs/weinstein-stage.md. The name is historical:
+// this endpoint once also carried the swing/BOS trend-structure fields, which
+// were removed (Weinstein is the only lens it serves now).
 export interface TrendAnalysisOut {
   ticker: string;
   computed_at: string;
-  trend_state: "uptrend" | "downtrend";
-  magnitude_tier: "weak" | "confirmed" | "strong" | null;
-  persistence_count: number;
-  bars_since_confirmation: number | null;
-  last_confirmed_swing: SwingDetailOut | null;
-  warning_flag: boolean;
-  warning_swing: SwingDetailOut | null;
-  // Whether ANY pullback warning has fired since trend_state's own most
-  // recent flip -- distinguishes "no pullback since the last flip" from "a
-  // pullback occurred and has since been resolved," both of which otherwise
-  // read identically as warning_flag=false. Null for a row computed before
-  // this field existed (same migration-safety convention as classification
-  // above) -- a fresh compute always populates it. See backend's
-  // models.py::TrendAnalysis for the full rationale.
-  pullback_occurred_since_flip: boolean | null;
-  // The swing that triggered trend_state's own most recent genuine flip.
-  // trend_started_is_lower_bound=true means no genuine flip has occurred
-  // anywhere in the ticker's available cached history -- the current trend
-  // covers the entire history, so this date is the earliest we can see,
-  // not necessarily the true start (mirrors weinstein_stage_since_date/
-  // _is_lower_bound's identical convention below). Both null for a row
-  // computed before this field existed (same migration-safety convention
-  // as pullback_occurred_since_flip above).
-  trend_started: SwingDetailOut | null;
-  trend_started_is_lower_bound: boolean | null;
-  // Every pullback cycle that has resolved within the CURRENT trend (i.e.
-  // since trend_started), oldest first -- reset empty on every genuine
-  // flip, same trigger as trend_started/pullback_occurred_since_flip's own
-  // reset. A still-pending (unresolved) warning is NOT in this list --
-  // that's warning_flag/warning_swing's own job. Always a real array
-  // (never null), including for a row computed before this field existed
-  // -- an empty history there is indistinguishable from "genuinely none
-  // yet" either way. See backend's core/schemas.py::PullbackCycleOut.
-  pullback_history: { warning_swing: SwingDetailOut; resolving_swing: SwingDetailOut }[];
-  // Every confirmed LL swing within the CURRENT downtrend (i.e. since
-  // trend_started), oldest first -- reset on every genuine flip, same
-  // trigger as pullback_history above. UNLIKE pullback_history, seeded
-  // with the flip-triggering LL itself as its first entry when flipping
-  // INTO a downtrend, so a freshly-flipped downtrend's history isn't
-  // empty while last_confirmed_swing/ReversalCard's own "Confirmed"
-  // checklist item is already showing that same LL as satisfied. Always
-  // empty while trend_state is "uptrend". Always a real array (never
-  // null), same migration-safety convention as pullback_history above.
-  // See backend's core/schemas.py::ReversalCandidateOut.
-  reversal_history: { swing: SwingDetailOut; ad_bullish_divergence: boolean; ad_divergence_swing_date: string | null }[];
-  efficiency_ratio: number | null;
-  regime: "trending" | "range-bound" | null;
-  blended_score: number;
-  bar_level: 1 | 2 | 3 | 4 | 5;
-  ad_bullish_divergence: boolean;
-  ad_divergence_swing_date: string | null;
-  // SMA (20/50/200) position tracking -- pre-existing backend fields that
-  // were never threaded through this interface until now (found while
-  // adding the Weinstein Stage fields below, which touch this exact
-  // interface). See backend's TrendAnalysisOut/sma_position.py for the
-  // full definition.
-  sma20_position_pct: number | null;
-  sma20_cross: "up" | "down" | null;
-  sma50_position_pct: number | null;
-  sma50_cross: "up" | "down" | null;
-  sma200_position_pct: number | null;
-  sma200_cross: "up" | "down" | null;
-  // Weinstein Stage Analysis -- a fully independent second lens computed
-  // on weekly bars. weinstein_stage_changed vs. weinstein_breakout_confirmed
+  // Computed on weekly bars. weinstein_stage_changed vs. weinstein_breakout_confirmed
   // are DIFFERENT comparisons computed at different layers -- see backend's
   // models.py::TrendAnalysis for the exact semantics of each.
   weinstein_stage: "base" | "advance" | "top" | "decline" | null;

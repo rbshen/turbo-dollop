@@ -107,7 +107,7 @@ describe("sentence case, with stored values unchanged", () => {
     for (const label of ["Growth rate", "Mkt cap", "Overall", "Financials", "Profitability", "Debt", "Quote", "P/E", "Growth", "Beta"]) {
       expect(screen.getByRole("group", { name: label })).toBeInTheDocument();
     }
-    for (const label of ["Sector", "Company type", "Moat", "Valuation", "5Y vs SPY", "Weinstein stage", "Reversal", "Pullback", "Warren entry (2h)"]) {
+    for (const label of ["Sector", "Company type", "Moat", "Valuation", "5Y vs SPY", "Weinstein stage", "Warren entry (2h)"]) {
       expect(screen.getByRole("button", { name: new RegExp(`^${label.replace(/[()]/g, "\\$&")}`) })).toBeInTheDocument();
     }
     expect(screen.queryByText("Growth Rate")).toBeNull();

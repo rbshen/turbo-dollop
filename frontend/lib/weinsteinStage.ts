@@ -14,23 +14,13 @@ export const WEINSTEIN_STAGE_LABEL: Record<WeinsteinStage, string> = {
   decline: "Stage 4 · Decline",
 };
 
-// Plain text-color-only variant, for SummaryStrip's value text (no
-// background/pill chrome there, matching how the Trend stat is colored).
-export const WEINSTEIN_STAGE_TEXT_CLASS: Record<WeinsteinStage, string> = {
-  advance: "text-positive",
-  decline: "text-negative",
-  top: "text-warn",
-  base: "text-text-tertiary",
-};
-
 // A Weinstein stage is its own 4-state classification (Base/Advance/Top/
 // Decline), not a Pass/Fail-style score tier -- deliberately NOT derived
 // from lib/tierColor.ts, which has no notion of "stage" at all. Kept as its
 // own map here (rather than forced onto tierColor's tiers) so the pill/card
 // coloring stays: advance=positive (green) / decline=negative (red) are the
 // two directional extremes; top reuses the amber `warn` tone
-// TrendContinuationCard's "pullback pending" state uses (a caution, not yet
-// a reversal); base is neutral, since a base isn't bullish OR bearish.
+// caution tone used elsewhere (not yet a reversal); base is neutral, since a base isn't bullish OR bearish.
 export const WEINSTEIN_STAGE_TONE: Record<WeinsteinStage, StatusTone> = {
   advance: "positive",
   decline: "negative",
@@ -81,12 +71,9 @@ export function formatWeinsteinSince(sinceDate: string, isLowerBound: boolean, f
   return isLowerBound ? `Since at least ${fmtDate(sinceDate)}` : `Since ${fmtDate(sinceDate)}`;
 }
 
-// Same data-visibility caveat wording as NearTermCard.tsx's
-// TREND_STARTED_LOWER_BOUND_CAVEAT, for the identical shape of problem on a
-// different lens (weekly stage vs. daily trend) -- shown alongside
-// formatWeinsteinSince's "at least" framing wherever isLowerBound is true,
-// so both "since" readings a user might encounter on this tab explain
-// themselves the same way rather than one being a bare, unexplained date.
+// Data-visibility caveat -- shown alongside formatWeinsteinSince's "at least"
+// framing wherever isLowerBound is true, so the "since" reading explains
+// itself rather than being a bare, unexplained date.
 export const WEINSTEIN_LOWER_BOUND_CAVEAT =
   "Data starts here — the stage may have begun earlier than our price history shows.";
 

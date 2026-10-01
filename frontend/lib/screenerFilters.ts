@@ -99,29 +99,6 @@ export const WEINSTEIN_STAGE_FILTER_OPTIONS: MultiSelectOption[] = [
   { value: WEINSTEIN_PENDING_FILTER_VALUE, label: "Pending" },
 ];
 
-// No "not_present" option -- same reasoning as Weinstein Stage above: it's
-// the structural default/majority state (most tickers, and every
-// uptrending one, read this way -- see ReversalCard.tsx's own state-machine
-// invariant comment), not something a user filters *for*. Labels are local
-// to this dropdown ("Confirmed"/"Confirmed (stale)"), not re-exported from
-// ReversalPill.tsx -- this filter's own group label already reads
-// "Reversal", so repeating that word in each option would be redundant,
-// same rationale as VS_SPY_FILTER_OPTIONS above.
-export const REVERSAL_STATUS_FILTER_OPTIONS: MultiSelectOption[] = [
-  { value: "confirmed", label: "Confirmed" },
-  { value: "confirmed_stale", label: "Confirmed (stale)" },
-];
-
-// No "no_pullback" option -- same reasoning as Reversal above: it's the
-// default state for a healthy, uninterrupted uptrend, not a state worth
-// filtering for. Labels are local to this dropdown, not re-exported from
-// PullbackPill.tsx, for the same redundancy reason.
-export const PULLBACK_STATUS_FILTER_OPTIONS: MultiSelectOption[] = [
-  { value: "pending", label: "Pending" },
-  { value: "recovered", label: "Recovered" },
-  { value: "invalidated", label: "Invalidated" },
-];
-
 // Fixed 3-value set matching Warren's own Up-kind vocabulary exactly
 // (see TickerScore.warren_active_signal_kind) -- no "not active" option,
 // same reasoning as Weinstein Stage above: a ticker with no currently
@@ -129,7 +106,7 @@ export const PULLBACK_STATUS_FILTER_OPTIONS: MultiSelectOption[] = [
 // filter is active. Labels are local to this dropdown (matching
 // WarrenSignalCard.tsx's own KIND_LABELS text), not imported from there --
 // this filter's own group label already reads "Warren entry (2h)", same
-// redundancy rationale as VS_SPY_FILTER_OPTIONS/REVERSAL_STATUS_FILTER_OPTIONS
+// redundancy rationale as VS_SPY_FILTER_OPTIONS
 // above. Replaced an earlier single combined checkbox (Blue+Yellow only,
 // Gray Up excluded entirely) once Gray Up became a real, independently
 // selectable option.
@@ -158,8 +135,6 @@ export interface ScreenerFilterState {
   valuationVerdict: string[];
   vsSpy: string[];
   weinsteinStages: string[];
-  reversalStatuses: string[];
-  pullbackStatuses: string[];
   // Plain boolean, unlike the array filters above -- a checkbox, not a
   // multi-select. false (default) means "no filtering by this criterion";
   // true means "show only qualifies=true" (see filterTickerScores below).
@@ -194,8 +169,6 @@ export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
   valuationVerdict: [],
   vsSpy: [],
   weinsteinStages: [],
-  reversalStatuses: [],
-  pullbackStatuses: [],
   speculativeGrowth: false,
   bbRsiEntrySignal: false,
   warrenSignalKinds: [],
@@ -227,8 +200,6 @@ export const TECHNICAL_FILTER_KEYS: readonly FilterKey[] = [
   "beta",
   "vsSpy",
   "weinsteinStages",
-  "reversalStatuses",
-  "pullbackStatuses",
   "warrenSignalKinds",
   "bbRsiEntrySignal",
 ];
@@ -332,12 +303,6 @@ export function filterTickerScores(
       const matchesPending =
         filters.weinsteinStages.includes(WEINSTEIN_PENDING_FILTER_VALUE) && row.weinstein_pending_direction != null;
       if (!matchesStage && !matchesPending) return false;
-    }
-    if (filters.reversalStatuses.length > 0 && !filters.reversalStatuses.includes(row.reversal_status ?? "not_present")) {
-      return false;
-    }
-    if (filters.pullbackStatuses.length > 0 && !filters.pullbackStatuses.includes(row.pullback_status ?? "no_pullback")) {
-      return false;
     }
     if (filters.speculativeGrowth && !row.speculative_growth_qualifies) return false;
     if (filters.bbRsiEntrySignal && !row.bb_rsi_entry_signal) return false;

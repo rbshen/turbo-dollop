@@ -26,7 +26,7 @@ interface Props {
 }
 
 const DISCLAIMER =
-  "Classic technical stage-analysis framework (Stan Weinstein); not backtested against Fathom's own criteria the way the Reversal/Trend Continuation checks above are. Informational only, not a trading signal.";
+  "Classic technical stage-analysis framework (Stan Weinstein); not backtested against Fathom's own criteria. Informational only, not a trading signal.";
 
 // Two distinct null-stage messages, deliberately not conflated -- see
 // lib/weinsteinStage.ts::weinsteinUnavailableReason for the full mechanism.
@@ -45,8 +45,7 @@ function fmtPct(value: number): string {
 
 // "Pending confirmation" + ETA sub-block -- see docs/
 // weinstein_pending_confirmation_investigation_2026-09-22.md for the design
-// this implements. Styled like TrendContinuationCard's own amber "pullback
-// pending" state (the `warn` token), since this is the same shape of
+// this implements. Styled with the amber `warn` token, since this is a
 // "not yet, but close" caution reading. Rendered via ChecklistCard's `extra`
 // slot, so it appears below the checklist itself, above the disclaimer, only
 // when the ticker is currently pending.

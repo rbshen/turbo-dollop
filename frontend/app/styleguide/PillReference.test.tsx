@@ -12,12 +12,6 @@ describe("PillReference", () => {
   it("renders every pill family representation from mock data", () => {
     render(<PillReference />);
 
-    // Pullback / Reversal states
-    expect(screen.getByText("Pullback pending")).toBeInTheDocument();
-    expect(screen.getAllByText("Pullback recovered").length).toBeGreaterThan(0);
-    expect(screen.getByText("Trend invalidated")).toBeInTheDocument();
-    expect(screen.getByText("Reversal (stale)")).toBeInTheDocument();
-
     // Jobs statuses
     for (const word of ["Success", "Failed", "Overdue", "Skipped", "Unknown"]) {
       expect(screen.getAllByText(word).length).toBeGreaterThan(0);

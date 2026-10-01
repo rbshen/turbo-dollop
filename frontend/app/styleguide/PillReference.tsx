@@ -14,8 +14,6 @@ import { JobStatusPill } from "@/components/settings/ScheduledJobsSection";
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
 import { ChecklistCard } from "@/components/technical/ChecklistCard";
 import { IndexMembershipPill } from "@/components/ticker/IndexMembershipPill";
-import { PullbackPill } from "@/components/ticker/PullbackPill";
-import { ReversalPill } from "@/components/ticker/ReversalPill";
 import { TickerHeaderView } from "@/components/ticker/TickerHeader";
 import { WeinsteinStagePill } from "@/components/ticker/WeinsteinStagePill";
 import { WatchlistTable } from "@/components/watchlist/WatchlistTable";
@@ -239,8 +237,6 @@ const SCREENER_CARD: TickerScoreOut = {
   weinstein_ma_slope_pct: null,
   weinstein_vs_ma_pct: null,
   weinstein_pending_direction: null,
-  reversal_status: "confirmed",
-  pullback_status: "recovered",
   bb_rsi_entry_signal: null,
   warren_active_signal_kind: null,
   warren_last_buy_fired_at: null,
@@ -511,25 +507,6 @@ export function PillReference() {
       </Group>
 
       <Group
-        title="Pullback and Reversal pills — every state"
-        note="Both render through the shared pill. “No pullback” and “not present” show nothing at all (the common, unremarkable state), so they have no pill to display."
-      >
-        <div className="flex flex-col gap-3">
-          <Row label="Pullback">
-            <PullbackPill status="pending" />
-            <PullbackPill status="recovered" />
-            <PullbackPill status="invalidated" />
-            <span className="text-xs text-text-tertiary">no_pullback → renders nothing</span>
-          </Row>
-          <Row label="Reversal">
-            <ReversalPill status="confirmed" />
-            <ReversalPill status="confirmed_stale" />
-            <span className="text-xs text-text-tertiary">not_present → renders nothing</span>
-          </Row>
-        </div>
-      </Group>
-
-      <Group
         title="Technical-tab ChecklistCard chips — every tone"
         note="The status chip at the top right of each Technical-tab card takes a tone, not a class string."
       >
@@ -580,7 +557,7 @@ export function PillReference() {
 
       <Group
         title="In context — Screener card with every pill"
-        note="The maximum: the score's verdict pill, the kind badge, Moat, Valuation, 5Y vs SPY, Stage, Reversal and Pullback — 8 pills. (Real ScreenerCard, mock row; the card is a link.)"
+        note="The maximum: the score's verdict pill, the kind badge, Moat, Valuation, 5Y vs SPY and Stage — 6 pills. (Real ScreenerCard, mock row; the card is a link.)"
       >
         <div className="max-w-xs">
           <ScreenerCard data={SCREENER_CARD} />

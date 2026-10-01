@@ -4,70 +4,19 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Status, type StatusTone } from "@/components/ui/status";
 import { pillLabel } from "@/lib/tierColor";
 
-/** "Aug 12, 2026" -- shared by Reversal/Trend Continuation's swing-date
- * details, mirroring ValuationGauge.tsx's own inline toLocaleDateString
+/** "Aug 12, 2026" -- shared by the Weinstein card's since-date details,
+ * mirroring ValuationGauge.tsx's own inline toLocaleDateString
  * convention (this app has no shared fmtDate helper). */
 export function fmtSwingDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
-
-/** Small uppercase section label, shared by Trend Continuation's "Right
- * now"/"Past cycles this trend" and Reversal's "Past candidates this
- * trend" sub-sections. */
-export function SectionHeading({ children }: { children: React.ReactNode }) {
-  return <p className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">{children}</p>;
-}
-
-export interface TimelineDot {
-  key: string;
-  date: string;
-  /** Tailwind background color class for the dot itself, e.g. "bg-warn"
-   * (pullback began), "bg-positive" (resolved / divergence present), or
-   * "bg-border-subtle" (neutral / no divergence). */
-  dotClassName: string;
-  /** Hover tooltip explaining this specific dot. */
-  title: string;
-  /** Appended after the date as " · <caption>" -- e.g. "12 bars ago". */
-  caption?: string;
-}
-
-/** A horizontal, horizontally-scrollable row of dated dots connected by
- * hairlines -- shared low-level shape behind both Trend Continuation's
- * pullback-cycle timeline (two-color alternating warning/resolved PAIRS)
- * and Reversal's reversal-candidate timeline (single-point events colored
- * by whether A/D Bullish Divergence was present). The two callers differ
- * in what a "point" means and how it's colored, not in this rendering
- * shape, so only the row-of-dots primitive is shared -- each card keeps
- * its own function for turning its own data into `dots`. Renders nothing
- * for an empty list, same "only show when meaningful" contract every
- * other piece of this timeline follows. */
-export function DotTimeline({ dots }: { dots: TimelineDot[] }) {
-  if (dots.length === 0) return null;
-  return (
-    <div className="flex items-start overflow-x-auto pb-1">
-      {dots.map((dot, i) => (
-        <div key={dot.key} className="flex items-center">
-          {i > 0 && <div className="h-px w-4 shrink-0 bg-border-subtle" />}
-          <div className="flex shrink-0 flex-col items-center gap-1">
-            <span className={`h-2 w-2 rounded-full ${dot.dotClassName}`} title={dot.title} />
-            <span className="whitespace-nowrap text-[10px] text-text-tertiary">
-              {fmtSwingDate(dot.date)}
-              {dot.caption ? ` · ${dot.caption}` : ""}
-            </span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 export interface ChecklistItem {
   key: string;
   label: string;
   /** Boolean rows (most checklist items) render a check/x icon.
-   * Status-only rows (e.g. Trend Continuation's "Resolution status", which
-   * isn't a pass/fail check) omit `met` and set `statusText`/`toneClass`
-   * instead. */
+   * Status-only rows (not a pass/fail check) omit `met` and set
+   * `statusText`/`toneClass` instead. */
   met?: boolean;
   statusText?: string;
   toneClass?: string;
@@ -82,8 +31,7 @@ interface Props {
   statusTone: StatusTone;
   blurb: string;
   items: ChecklistItem[];
-  /** Rendered below the checklist -- e.g. Trend Continuation's freshness
-   * bar. Optional since Reversal has no equivalent. */
+  /** Rendered below the checklist -- e.g. the Weinstein card's pending block. */
   extra?: React.ReactNode;
   /** The backtest-result caveat, shown directly on the card per this
    * feature's own "informational, not a trading signal" requirement --
@@ -93,13 +41,9 @@ interface Props {
   /** When true, the checklist items render inside a Collapsible (same
    * primitive AnalysisSectionCard uses for its reasoning bullets),
    * collapsed by default with a "Show details +"/"Hide details -" toggle.
-   * Defaults to false -- Reversal/Trend Continuation stay always-expanded,
-   * unchanged from their original design (see the removed comment this
-   * replaced: those two cards' own status pill is the at-a-glance signal,
-   * so their few items were always meant to be visible immediately).
-   * Weinstein Stage Analysis is the one consumer that opts in, since its
-   * checklist is longer and mostly supporting detail behind the stage
-   * pill itself. */
+   * Defaults to false (always-expanded). Weinstein Stage Analysis opts in,
+   * since its checklist is longer and mostly supporting detail behind the
+   * stage pill itself. */
   collapsible?: boolean;
 }
 

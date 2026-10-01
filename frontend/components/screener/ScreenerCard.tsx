@@ -2,8 +2,6 @@ import Link from "next/link";
 
 import { MoatPill } from "@/components/ticker/MoatPill";
 import { PerfVsSpyPill } from "@/components/ticker/PerfVsSpyPill";
-import { PullbackPill } from "@/components/ticker/PullbackPill";
-import { ReversalPill } from "@/components/ticker/ReversalPill";
 import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGrowthPill";
 import { WeinsteinStagePill } from "@/components/ticker/WeinsteinStagePill";
 import { ScoreBadge } from "@/components/step1/ScoreBadge";
@@ -71,17 +69,13 @@ export function ScreenerCard({ data }: Props) {
         </div>
       )}
 
-      {/* Technical row -- Weinstein Stage, Reversal, Pullback -- kept
-          separate from the fundamental row above so the two families of
-          signal (fundamentals-driven vs. price-structure-driven) don't
-          visually blend together. */}
-      {(data.weinstein_stage != null ||
-        (data.reversal_status != null && data.reversal_status !== "not_present") ||
-        (data.pullback_status != null && data.pullback_status !== "no_pullback")) && (
+      {/* Technical row -- Weinstein Stage -- kept separate from the
+          fundamental row above so the two families of signal
+          (fundamentals-driven vs. price-structure-driven) don't visually
+          blend together. */}
+      {data.weinstein_stage != null && (
         <div className="flex flex-wrap items-center gap-1.5">
           <WeinsteinStagePill data={data} labelSet="screener" />
-          <ReversalPill status={data.reversal_status} />
-          <PullbackPill status={data.pullback_status} />
         </div>
       )}
 
