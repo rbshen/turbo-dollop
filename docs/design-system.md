@@ -233,6 +233,23 @@ The top-nav ticker search, the chart and price-target toggles, the segmented-con
 - **Text-glyph icons:** the "Saved ✓" status (`SettingsLayout`, `SavedFiltersBar`), the "Recomputed ✓" label (`RecomputeButton`), "Hide details −" (`ChecklistCard`) and "Hide reasoning −" (`AnalysisSectionCard`), the sector heatmap's "↓ ↑" (`SectorHeatmapGrid`), "Browse by sector →" (the Breadth page), and the "⚠" in the Watchlist table and `MetricsGrid`. The "⚠️" emoji in `OutlierWarningNote` and `OverallAssessmentCard` break the no-emoji rule. The pills' "▲ ▼" (`status.tsx`) and the arrows inside chart labels ("Live →", "Price data starts →") are content and stay.
 - **Also still to do:** the Screener "Add to Watchlist" label and `Step3Card`'s Title Case labels.
 
+### Ticker page controls, part C2 (session 15)
+
+The cleanup sweep after part C1: keyboard focus on two icon buttons, icons in place of emoji and text glyphs, sentence-case strings, the multi-select trigger's name, the 32px primary `sm` button and the last hand-written buttons. The decisions are in `docs/decisions.md` ("Session 15"); this section is what the code now does.
+
+**Focus ring on the two info icons.** `SpeculativeGrowthInfoIcon` and `SpeculativeGrowthFakeGrowthWarning` no longer set `focus:outline-none`, so the global 2px `brand` `:focus-visible` ring shows on a keyboard focus (they still open their tooltip on focus, hover and tap, as before).
+
+**Icons, not glyphs or emoji.** The "⚠️" emoji in `OutlierWarningNote` and `OverallAssessmentCard` are the Phosphor `Warning` icon (`aria-hidden`, drawn in the note's own tone class); the sentence next to it is unchanged. "Show details +" and "Hide details −" (`ChecklistCard`) and "Show reasoning +" and "Hide reasoning −" (`AnalysisSectionCard`) are the text with a Phosphor `CaretDown` when collapsed and `CaretUp` when expanded; the "+" and "−" characters are gone, and `aria-expanded` and the toggle behaviour are as they were. The sector heatmap's sort direction and the "Browse by sector" link use `ArrowDown`, `ArrowUp` and `ArrowRight` beside the text. A glyph that is content, not a control, stays: the pills' "▲ ▼", the "⚠" text in table and metric cells, the status labels "Saved ✓" and "Recomputed ✓", and the arrows inside chart labels ("Live →" and "Price data starts →", which are SVG text on a chart).
+
+**Sentence case.** `Step3Card`'s Model Valuation labels and title read in sentence case, the same way the Custom valuation panel beside them does ("Growth yr 1-5", "Total debt", "Discount/premium"); the Screener button reads "Add to watchlist" (as the ticker header's does); the Economic moat tab's headings are sentence case without the uppercase tracking. Display only: no identifier, stored value or payload changed.
+
+**Multi-select trigger.** The visible text is unchanged ("Sector", the one chosen option's name, or "Sector (3)"), and the accessible name now contains the visible text in every state: "Sector: none selected", "Sector: Technology", and "Sector (3): 3 selected" (it was "Sector: 3 selected", which did not contain "Sector (3)"). The visible text was not changed to the name's wording because the longest trigger label would not fit the 222px column ("BB + RSI entry (2h): 3 selected" is about 240px).
+
+**Button.** `primary` at `sm` is 32px (`h-8`, a compound variant, like `outline` at `sm`), so the explicit `h-8` on the ticker header's Add to watchlist button and on the Custom valuation Save button is gone. The Bank and Moat save panels' Confirm buttons are `Button variant="primary"` with the `warn` fill kept (the action overwrites a score), 36px like the Cancel beside them. The Chart tab's Zoom in and Zoom out are `outline` `sm` buttons with a `Plus` and a `Minus` icon and the same words.
+
+**Small fixes.** Focus returns to the "New watchlist" row button when the naming step is cancelled; ArrowUp in the ticker search with nothing highlighted goes to the last result.
+
+
 ## Settings layout
 
 Every Settings section is built from four components in `components/settings/SettingsLayout.tsx` (built 2026-09-30, shown in `/styleguide`, used by all five form sections of the Settings page; Scheduled jobs and FMP data groups are not built from it, see "Immediate-apply sections" below):
@@ -335,14 +352,15 @@ sampled.
 5. **`border-control` typo — done, zero remaining occurrences.** Every class in the codebase now
    reads `border-border-control`/`border-border-input` (the correct, prefixed form) — confirmed
    by grepping for the bare `control` class fragment app-wide and finding only correctly-prefixed
-   hits (`TickerSearch.tsx`, `NumberStepper.tsx`, `Select.tsx`, `AddToWatchlistButton.tsx`,
-   `BankCapitalMetricsForm.tsx` ×4, `SavedFiltersBar.tsx`,
-   `checkbox.tsx`, `input.tsx` ×2, `WatchlistFilters.tsx`, `app/screener/page.tsx`) plus unrelated
-   component/comment hits (`SegmentedControl`, code comments) — no bare, unprefixed
-   `control` class survives anywhere. **Screener update (session 10):** `WatchlistFilters.tsx` no
-   longer holds one (its select is the shared `Select`) and `RangeInput.tsx` is deleted, its ranges
-   now being `RangeField`s that take the token from `lib/formControl.ts`. `app/screener/page.tsx`
-   (the sort select) and `SavedFiltersBar.tsx` hand-wrote it until session 10, part 2, which moved both onto `Select`, `Input` and `Button`.
+   hits plus unrelated component/comment hits — no bare, unprefixed `control` class survives
+   anywhere. **Updated 2026-10-01 (session 15):** the hits listed at the time have since moved
+   onto the form-control kit, so the correctly-prefixed class now lives in only a few places: the
+   shared box in `lib/formControl.ts` (every `Input`, `NumberField` and `Select`), the stepper
+   buttons in `number-field.tsx`, the `Checkbox` and `Switch` boxes, and the styleguide. Gone since
+   (each by its own session): `TickerSearch.tsx` (the kit `Input`, session 14), `BankCapitalMetricsForm.tsx`
+   (`NumberField` and `Input`, session 12), `AddToWatchlistButton.tsx` (session 12), `SavedFiltersBar.tsx`
+   and `app/screener/page.tsx` (session 10, part 2), `WatchlistFilters.tsx`, `NumberStepper.tsx` and
+   `RangeInput.tsx` (session 10 and earlier; the last two are deleted).
 
 ## `MultiSelect` primitive — built, not a placeholder
 

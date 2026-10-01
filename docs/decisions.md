@@ -48,6 +48,7 @@ All sessions below are commits on `ui/design-system`, not pushed to `origin` unt
 - **Session 12 — Ticker page controls, part A (2026-10-01).** `AddToWatchlistButton`, `BankCapitalMetricsForm` and the Economic moat tab's Cancel button moved onto the kit, in three commits (docs, `AddToWatchlistButton`, the Bank form and the Moat button). See the entry below.
 - **Session 13 — Ticker page controls, part B (2026-10-01).** `ManualCalculationPanel` (the Valuation tab's Custom valuation column) moved onto the kit: the method select, the formatted rows, the action buttons and the sliders' accessibility, in three commits (docs; characterization tests, the select and the rows; the buttons and sliders), local, not pushed. See the entry below.
 - **Session 14 — Ticker page and shell controls, part C1 (2026-10-01).** The top-nav ticker search, the chart and price-target toggles, the merge of the two `SegmentedControl` implementations, the slider keyboard focus rule and a non-blocking parse warning in the Custom valuation rows, in four commits (docs; search and toggles; the merge; the slider rule and the warning), local, not pushed. See the entry below.
+- **Session 15 — Ticker page and shell controls, part C2, cleanup sweep (2026-10-01).** The leftovers from sessions 12 to 14: two icon buttons' keyboard ring, the emoji and text glyphs, sentence-case strings, the multi-select trigger's name, the 32px primary `sm` button, the Bank, Moat and Zoom buttons, a focus return and an ArrowUp fix, and the stale docs and comments, in four commits (docs; accessibility and icons; sentence case and the multi-select name; buttons and cleanups), local, not pushed. See the entry below.
 
 ## Design reversals
 
@@ -292,6 +293,8 @@ The Watchlist page controls and the two buttons shared with other pages move ont
 
 **Deferred.** `AddToWatchlistButton` and the rest of the ticker page (the remaining hand-written outline overrides are all in ticker-page files) migrate in the ticker-page session, and `AddToWatchlistButton` should adopt the shared watchlist-name length constant then.
 
+*Update 2026-10-01: completed by sessions 12 to 15 (`AddToWatchlistButton` and the shared constant in session 12; the rest of the ticker page in sessions 12 to 15). The text above is the record of what was deferred, not what is left.*
+
 ### 2026-10-01 — Session 12: ticker page controls, part A
 
 Stage 2 of 4 of the ticker page. `AddToWatchlistButton`, `BankCapitalMetricsForm` and the Economic moat tab's Cancel button move onto the session 8 to 11 primitives. Made by the owner; this entry records what was decided before the build. Spec: "Ticker page controls, part A (session 12)" in `docs/design-system.md`. Three commits on local `main`, not pushed: docs; `AddToWatchlistButton` (characterization tests and the migration); `BankCapitalMetricsForm` and the Moat button (the same).
@@ -311,6 +314,8 @@ Stage 2 of 4 of the ticker page. `AddToWatchlistButton`, `BankCapitalMetricsForm
 **Live-behaviour changes authorised:** button and input styling and icons; accessible names; the new-watchlist length limit and its inline server error; popover Escape and focus return if missing; the Bank form's native spinners and scroll-wheel changes gone, typed validation with inline errors and sentence-case labels; sentence-case strings. Nothing else.
 
 **What remains after this session.** `ManualCalculationPanel` (the last hand-written ghost-plus-border button and `focus:outline-none` inputs among the ticker-page files), the confirm buttons in the Bank and Moat save panels (warn-toned, hand-written), the Moat tab's uppercase headings, both `SegmentedControl` implementations (to be merged), `TickerSearch` and the chart and price-target toggles.
+
+*Update 2026-10-01: completed by sessions 13 to 15 (`ManualCalculationPanel` in session 13; the segmented-control merge, `TickerSearch` and the toggles in session 14; the Confirm buttons and the Moat headings in session 15).*
 
 ### 2026-10-01 — Session 13: ticker page controls, part B
 
@@ -345,6 +350,8 @@ Stage 3 of 4 of the ticker page. `ManualCalculationPanel` (`components/step3/Man
 
 **What remains after this session.** The confirm buttons in the Bank and Moat save panels (warn-toned, hand-written), the Moat tab's uppercase headings, both `SegmentedControl` implementations (to be merged), `TickerSearch` and the chart and price-target toggles. Nothing in the panel is left unmigrated (the sliders keep their custom styling by decision); the unresolved items are the two `parseFloat` behaviours listed above.
 
+*Update 2026-10-01: completed by sessions 14 and 15 (the Confirm buttons, the segmented-control merge, `TickerSearch` and the toggles; the `parseFloat` prefix reading now shows a warning, session 14). The "h-8 method select" and Title Case notes about `Step3Card` were cleared in session 15.*
+
 ### 2026-10-01 — Session 14: ticker page and shell controls, part C1
 
 Stage 4a of 5. The four behaviour-bearing items left after session 13: `TickerSearch`, the chart and price-target toggles, the `SegmentedControl` merge, and the slider focus rule plus the manual-calculation parse warning. Made by the owner; this entry records what was decided before the build. Spec: "Ticker page controls, part C1 (session 14)" in `docs/design-system.md`. Four commits on local `main`, not pushed: docs; `TickerSearch` and the toggles (characterization tests and the migration); the merge; the slider rule and the warning.
@@ -373,6 +380,30 @@ Stage 4a of 5. The four behaviour-bearing items left after session 13: `TickerSe
 - **Tests.** `TickerSearch`, `ChartTab`, `FinancialsTab` and `SentimentOverTimeCard` had none and gained characterization tests written green against the old code; `EconomicMoatTab` gained three. Selector updates: the moat segments are matched by their sentence-case names, the price-target overlay is found as a `switch`, and the segmented call sites check `aria-pressed`.
 
 **What remains after this session (C2).** The Screener "Add to Watchlist" label, `Step3Card`'s Title Case labels, the remaining text-glyph icons, and the warn-toned Confirm buttons in the Bank and Moat save panels. The exact file and line lists are in the session report.
+
+*Update 2026-10-01: completed by session 15.*
+
+### 2026-10-01 — Session 15: ticker page and shell controls, part C2, cleanup sweep
+
+Stage 4b of 5. The leftovers from sessions 12 to 14. Made by the owner; this entry records what was decided before the build and "Delivered" records what the code does. Spec: "Ticker page controls, part C2 (session 15)" in `docs/design-system.md`. Four commits on local `main`, not pushed: docs; accessibility and icons; sentence case and the multi-select name; buttons and cleanups.
+
+**Scope.** In: the two Speculative growth icon buttons; every emoji and text-glyph control found by grep; `Step3Card`'s labels, the Screener "Add to watchlist" label and the Economic moat tab's headings; `MultiSelectDropdown`'s trigger name; the `Button` `primary` `sm` size; the Bank and Moat Confirm buttons and the Chart tab's Zoom buttons; `AddToWatchlistButton`'s focus after Cancel; the ticker search's ArrowUp; and stale comments and docs. Out and unchanged: search logic, ranking and fetching; chart data; calculation logic; the backend; `app/styleguide`; the status labels "Saved ✓" and "Recomputed ✓" (they stay as status text); the pills' "▲ ▼", the "⚠" text glyph in table and metric cells and the chart-label arrows (content, not controls); the chart range's re-click behaviour (left as it is).
+
+**Decisions (the owner's; not re-decided).**
+
+1. Both icon buttons lose `focus:outline-none`, so the global 2px `brand` `:focus-visible` ring shows; nothing else about them changes.
+2. Each warning emoji becomes the Phosphor `Warning` icon (`aria-hidden`, in the existing tone class) with the text, layout and any accessible name kept.
+3. "Hide details −" and "Hide reasoning −" become text plus `CaretUp` (expanded) and `CaretDown` (collapsed); the heatmap "↓ ↑", "Browse by sector →" and "Live →" become `ArrowDown`, `ArrowUp` and `ArrowRight`. Behaviour, links and sorting do not change; a glyph that is content rather than a control is left and reported.
+4. Sentence case, display only: `Step3Card`'s labels (consistent with the Custom valuation panel), the Screener's "Add to watchlist" and the Moat tab's headings (the uppercase tracking removed). No identifier, stored value or payload changes.
+5. The multi-select trigger's visible text must be contained in its accessible name in all three states (WCAG label-in-name), by the smallest change; the 21 keyboard tests stay.
+6. `primary` at `sm` is 32px by a compound variant, and `AddToWatchlistButton`'s `h-8` goes. If any usage would shift layout, the compound variant is not used and a new explicitly named size is added instead.
+7. The Bank and Moat Confirm buttons become `Button` (`primary` for the confirming action, the warn tone kept where it says the action overwrites), sized to match their neighbours; Zoom in and Zoom out become `outline` `sm` buttons (icons if icon-only, text if they have visible text). Behaviour, disabled states and payloads are unchanged.
+8. Small fixes: the stale comment in `lib/watchlistName.ts`; focus returns to the "New watchlist" row button after Cancel in the naming step (with a test); ArrowUp with nothing highlighted goes to the last result (with a test, replacing the test that pinned the old behaviour).
+9. Stale docs: Housekeeping item 5, the "what remains" notes in the Session 11, 12 and 13 entries (dated notes, not rewritten history), the comment in `UniverseSelector.test.tsx`, and the `Step3Card` comment about an "h-8 method select".
+
+**Live-behaviour changes authorised:** the keyboard ring on two icon buttons; icons replacing glyphs and emoji; sentence-case labels at the listed places; the multi-select trigger's name; the 32px `primary` `sm`; the Bank, Moat and Zoom buttons on `Button`; focus return after Cancel; the ArrowUp fix; corrected comments and docs. Nothing else.
+
+**Final state.** After this session no source file hand-writes a ghost-plus-border button except the two Screener dropdown triggers (see the session report for the final sweep, which lists every remaining hit and whether it is deliberate).
 
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
