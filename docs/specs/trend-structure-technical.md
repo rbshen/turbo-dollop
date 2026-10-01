@@ -48,7 +48,7 @@ nightly job, has its own document: [Weinstein Stage](weinstein-stage.md).
   is no native JSON column type anywhere in it). Bars come from `SharedBarsCache` (see
   `docs/specs/fmp-data-and-bar-cache.md`), deliberately not `core/cache.py`, which is hard-wired
   to `FundamentalsCache`'s (ticker, statement_type, period)+raw_json shape.
-- **Nightly job** (`pipeline/nightly_trend_calculation.py`, **2:05 AM**, after the 2:00 last-close
+- **Nightly job** (`pipeline/nightly_trend_calculation.py`, **12:05 AM**, after the 12:00 last-close
   snapshot and before the 3:30 AM backup; the 3:25 score recompute then copies its
   `weinstein_*` output onto `TickerScore`): sweeps the full tracked universe
   (`load_full_tracked_universe`, shared with the fundamentals/score-recompute jobs) via **one**

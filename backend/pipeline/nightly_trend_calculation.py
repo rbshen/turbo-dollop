@@ -48,7 +48,7 @@ from pipeline.stale_data_health_check import load_delisted_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_trend_calculation.log"
 
-# Monday=0 .. Sunday=6, judged in UTC (the cron's own clock: 2:05 UTC).
+# Monday=0 .. Sunday=6, judged in UTC (the cron's own clock: 12:05 UTC).
 WEEKLY_RESYNC_WEEKDAY_UTC = 6
 
 logger = logging.getLogger(__name__)

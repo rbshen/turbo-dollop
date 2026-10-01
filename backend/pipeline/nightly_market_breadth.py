@@ -6,7 +6,7 @@ scoring/market_breadth.py for the pure math. Bars come from SharedBarsCache (FMP
 nightly_trend_calculation.py it is skipped -- a real `skipped` cron status -- while the
 `daily_prices` group is off (Phase 6b: no fallback provider).
 
-Scheduled at 2:40 AM, AFTER the 2:05 trend job that fetches every S&P 500
+Scheduled at 12:40 AM, AFTER the 12:05 trend job that fetches every S&P 500
 ticker's 2y daily bars into SharedBarsCache: this reads that warm cache
 (~3s, zero incremental FMP requests). Run before it -- or after a failed
 trend job -- it self-heals with one live ~503-request batch (~30s-5min) and

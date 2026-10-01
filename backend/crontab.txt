@@ -6,7 +6,8 @@
 # in the scripts themselves needs touching for a schedule change.
 
 # ---------------------------------------------------------------------------
-# Nightly chain, 2:00-3:30 AM server time (UTC). Order reordered 2026-09-30:
+# Nightly chain, 12:00-12:40 AM then 2:45-3:30 AM server time (UTC); technical
+# jobs moved from 2:00-2:40 to 12:00-12:40 on 2026-10-01. Order reordered 2026-09-30:
 # technical jobs first, fundamentals later (technical data is the higher
 # priority). Order, each job in its own slot:
 #   last close -> trend + Weinstein -> Liquidity Zone (support/resistance)
@@ -26,52 +27,52 @@
 # with ModuleNotFoundError.
 # ---------------------------------------------------------------------------
 
-# 2:00 Last official close per ticker (FMP /historical-price-eod/full, one call
+# 12:00 Last official close per ticker (FMP /historical-price-eod/full, one call
 # per tracked US ticker, ~1-1.5 min paced) -- the ticker header's price fallback
 # when the live FMP quote is unavailable. Independent of the shared bars cache,
 # so it has no ordering constraint and goes first. Skipped (a real `skipped` cron
 # status) while `daily_prices` is off. See pipeline/nightly_last_close_snapshot.py.
-0 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_last_close_snapshot >> /home/shen/fathom/backend/logs/nightly_last_close_snapshot_cron.log 2>&1
+0 0 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_last_close_snapshot >> /home/shen/fathom/backend/logs/nightly_last_close_snapshot_cron.log 2>&1
 
-# 2:05 Trend-structure (swing/BOS/blended-score) + Weinstein stage calculation.
+# 12:05 Trend-structure (swing/BOS/blended-score) + Weinstein stage calculation.
 # Reads FMP daily bars (data group daily_prices) through the shared bars cache and
 # is the ONLY job that fills the daily-bar cache -- LP, Sector and Breadth below
 # read it warm. 10-minute window (typical 1-3 min, max seen ~6 min). Reports a
 # real `skipped` status while daily_prices is off. See pipeline/nightly_trend_calculation.py.
-5 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_trend_calculation >> /home/shen/fathom/backend/logs/nightly_trend_calculation_cron.log 2>&1
+5 0 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_trend_calculation >> /home/shen/fathom/backend/logs/nightly_trend_calculation_cron.log 2>&1
 
-# 2:15 Liquidity Zone (LP, support/resistance) detection recompute. Scoped to the
+# 12:15 Liquidity Zone (LP, support/resistance) detection recompute. Scoped to the
 # W1-W5 watchlist union only. Reads daily bars through the shared bars cache (the
 # same "1d" rows the trend job fills; skipped while daily_prices is off). ~10s.
 # See pipeline/nightly_liquidity_zone_calculation.py.
-15 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_liquidity_zone_calculation >> /home/shen/fathom/backend/logs/nightly_liquidity_zone_calculation_cron.log 2>&1
+15 0 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_liquidity_zone_calculation >> /home/shen/fathom/backend/logs/nightly_liquidity_zone_calculation_cron.log 2>&1
 
-# 2:20 BB+RSI (2h) technical entry-signal calculation. Scoped to the W1-W5
+# 12:20 BB+RSI (2h) technical entry-signal calculation. Scoped to the W1-W5
 # watchlist union. Reads FMP 60m bars (data group intraday_bars) through the
 # shared bars cache; real `skipped` status while that group is off. Must run
 # BEFORE Warren (BB+RSI creates the 60d row, Warren widens it to 2y). 5-minute
 # window (typical 10-40s, max seen ~130s). See pipeline/nightly_entry_signal_calculation.py.
-20 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_entry_signal_calculation >> /home/shen/fathom/backend/logs/nightly_entry_signal_calculation_cron.log 2>&1
+20 0 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_entry_signal_calculation >> /home/shen/fathom/backend/logs/nightly_entry_signal_calculation_cron.log 2>&1
 
-# 2:25 Warren RSI/ADX/WVF (2h) entry-signal calculation. Same W1-W5 scoping, but
+# 12:25 Warren RSI/ADX/WVF (2h) entry-signal calculation. Same W1-W5 scoping, but
 # a full 2-year lookback and a whole state-machine replay each run. Observed
 # ~100s; theoretical worst case (500 tickers) ~9 min, hence the 10-minute window.
 # See pipeline/nightly_warren_signal_calculation.py and docs/specs/warren-signal.md.
-25 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_warren_signal_calculation >> /home/shen/fathom/backend/logs/nightly_warren_signal_calculation_cron.log 2>&1
+25 0 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_warren_signal_calculation >> /home/shen/fathom/backend/logs/nightly_warren_signal_calculation_cron.log 2>&1
 
-# 2:35 Sector ETF heatmap recompute (11 SPDR sector ETFs x 7 trailing total-return
+# 12:35 Sector ETF heatmap recompute (11 SPDR sector ETFs x 7 trailing total-return
 # windows). One shared-bars-cache batch of 11 tickers (~4s; skipped while
 # daily_prices is off). See pipeline/nightly_sector_heatmap.py.
-35 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_sector_heatmap >> /home/shen/fathom/backend/logs/nightly_sector_heatmap_cron.log 2>&1
+35 0 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_sector_heatmap >> /home/shen/fathom/backend/logs/nightly_sector_heatmap_cron.log 2>&1
 
-# 2:40 Market-breadth recompute (S&P 500: % above 50-/200-day SMA, net new 52-week
-# highs minus lows). AFTER the 2:05 trend job, which fetches all 503 constituents'
+# 12:40 Market-breadth recompute (S&P 500: % above 50-/200-day SMA, net new 52-week
+# highs minus lows). AFTER the 12:05 trend job, which fetches all 503 constituents'
 # 2y daily bars into SharedBarsCache, so this is a warm-cache read (~3-15s, zero
 # incremental FMP requests). Run earlier, or after a failed trend job, it
 # self-heals with one live ~503-request batch (~30s-5min). Skipped while
 # daily_prices is off. Raises (heartbeat failure) rather than saving a row when
 # <97% of constituents have a bar. See pipeline/nightly_market_breadth.py.
-40 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_market_breadth >> /home/shen/fathom/backend/logs/nightly_market_breadth_cron.log 2>&1
+40 0 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_market_breadth >> /home/shen/fathom/backend/logs/nightly_market_breadth_cron.log 2>&1
 
 # 2:45 FMP earnings/dividends/splits cache (Phase 6a) -- full-history replace per
 # ticker; feeds the Chart tab's E/D markers. ~2-4 min. Chart data, not a score
@@ -114,7 +115,7 @@
 
 # 3:25 Full-universe TickerScore recompute -- MUST run after every job whose
 # output compute_ticker_score copies onto TickerScore: trend-structure/Weinstein
-# (2:05), BB+RSI (2:20) and Warren (2:25), and before the backup so the backup
+# (12:05), BB+RSI (12:20) and Warren (12:25), and before the backup so the backup
 # holds it. Pinned by tests/test_cron_wiring.py::test_score_recompute_runs_after_
 # every_job_it_copies_from. Fundamentals-derived fields are already fresh from the
 # 2:55 fetch's inline recompute; this sweep picks up the technical fields and the
@@ -148,7 +149,7 @@
 
 # Weekly Dow Jones constituent list refresh, Sundays at 1:10 AM server time
 # -- staggered a few minutes after the S&P 500/Nasdaq-100 refreshes above
-# (both still run before the 2 AM nightly chain) so the FMP fetches don't
+# (both still run before the 2:45 AM jobs; the 12:xx technical jobs now run first) so the FMP fetches don't
 # overlap. Sourced from FMP's own /dowjones-constituent endpoint (see
 # dow_scraper.py) -- not a Wikipedia scrape, since FMP Ultimate's
 # constituent endpoints became available on this plan (confirmed live
@@ -157,7 +158,7 @@
 
 # Weekly maintenance window, Sundays 1:15-1:35 AM -- staggered 5 minutes
 # apart (same pattern as the three list refreshes above), all still ahead of
-# the 2 AM nightly chain. See backend/OPS_RUNBOOK.md for what each of these
+# the 2:45 AM jobs. See backend/OPS_RUNBOOK.md for what each of these
 # does and what to check if one fails.
 
 # Cache pruning: deletes FundamentalsCache rows older than

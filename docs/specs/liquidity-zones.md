@@ -109,13 +109,13 @@ never stored.
 
 ## Nightly job
 
-`pipeline/nightly_liquidity_zone_calculation.py`, **2:15 AM** server time (UTC), a dedicated job rather than
+`pipeline/nightly_liquidity_zone_calculation.py`, **12:15 AM** server time (UTC), a dedicated job rather than
 part of `nightly_entry_signal_calculation.py`, even though both are scoped to the same deduped W1-W5
 watchlist union (`data/watchlists.py::list_tickers_across_watchlists`). It is separate because every
 pipeline script maps 1:1 to one feature, because it needs a different data group (`daily_prices`, versus
 BB+RSI's `intraday_bars`), and because separate `cron_heartbeat` names keep failure attribution clean (an
 FMP outage affecting Liquidity Zones must not read as a BB+RSI health failure or vice versa). It sits right after the
-2:05 trend job (whose bar-cache fill it reads warm) and before BB+RSI (2:20); `backup_db` runs at 3:30 (see
+12:05 trend job (whose bar-cache fill it reads warm) and before BB+RSI (12:20); `backup_db` runs at 3:30 (see
 `backend/crontab.txt` for the current slots), since this job can make live FMP calls on a cold cache. It is registered in `core/cron_health.py`'s `CRON_JOB_NAMES` /
 `_EXPECTED_CADENCE_HOURS` as `pipeline.nightly_liquidity_zone_calculation`. The job is skipped while the
 `daily_prices` group is off. After the per-ticker loop it sweeps rows whose `computed_at` is older than

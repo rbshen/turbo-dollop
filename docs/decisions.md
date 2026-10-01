@@ -263,6 +263,14 @@ requested order; placed after the technical jobs, before fundamentals. Order pin
 `backend/tests/test_cron_wiring.py::test_nightly_chain_runs_in_the_agreed_order`. Known exposure: a cold-cache
 fundamentals run (up to ~65 min) can overlap price-target; recompute and backup are cache-only and still run on time.
 
+### 2026-10-01 — Technical nightly jobs moved to 12:00-12:40 AM UTC
+
+Last close 2:00 → 12:00, trend + Weinstein 2:05 → 12:05, Liquidity Zone 2:15 → 12:15, BB+RSI 2:20 → 12:20,
+Warren 2:25 → 12:25, Sector ETF 2:35 → 12:35, Market Breadth 2:40 → 12:40. Order and every hard constraint from
+the 2026-09-30 entry above are unchanged; corporate events (2:45) onward did not move. Side effect: the Sunday
+index-list refreshes (1:00-1:10) now run after the technical jobs instead of before, so a constituent change is
+picked up by the next night's technical run (one-day lag, Sundays only).
+
 ### 2026-09-30 — Session 11: Watchlist page and shared buttons
 
 The Watchlist page controls and the two buttons shared with other pages move onto the session 8 to 10 primitives. Made by the owner; this entry records what was decided and what was delivered. Spec: "Watchlist page and shared buttons (session 11)" in `docs/design-system.md`. Four commits on local `main`, not pushed: docs; characterization tests and the Watchlist page; `RefreshButton` and `ExportMenu`; styleguide and cleanup.

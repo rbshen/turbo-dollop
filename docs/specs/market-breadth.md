@@ -72,7 +72,7 @@ from today's constituents. A re-run fills 0.
 
 ## Nightly job and coverage gate
 
-`pipeline.nightly_market_breadth`, 2:40 AM (after the 2:05 trend job, which warms the shared
+`pipeline.nightly_market_breadth`, 12:40 AM (after the 12:05 trend job, which warms the shared
 cache; before corporate events at 2:45). Reuses the SAME `get_or_fetch_bars_batch` call the trend job
 already made, so after it this is a warm-cache read (~3s, zero incremental FMP requests) — if
 the trend job failed, this job self-heals with one live ~503-request fetch (30s-5min) that could

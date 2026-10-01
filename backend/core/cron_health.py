@@ -58,7 +58,7 @@ CRON_JOB_NAMES: list[str] = [
     "pipeline.backup_db",
 ]
 
-# Expected cadence per job, with slack -- daily jobs (2:00 AM through 3:30 AM)
+# Expected cadence per job, with slack -- daily jobs (12:00 AM through 3:30 AM)
 # flagged overdue past ~36h (tolerates one missed run without a false
 # alarm the next morning); weekly-Sunday jobs (1:00-1:30 AM) past ~8 days;
 # the one monthly job (momentum) past ~35 days (safely past any month length). First-
@@ -119,28 +119,28 @@ JOB_METADATA: dict[str, JobMetadata] = {
         "Recompute 5-step scores, full universe", "daily", "3:25 AM", 3 * 60 + 25
     ),
     "pipeline.nightly_trend_calculation": JobMetadata(
-        "Trend structure + Weinstein stage, weekly resample", "daily", "2:05 AM", 2 * 60 + 5
+        "Trend structure + Weinstein stage, weekly resample", "daily", "12:05 AM", 5
     ),
     "pipeline.nightly_corporate_events": JobMetadata(
         "Earnings / dividends / splits cache from FMP (Chart E/D markers)", "daily", "2:45 AM", 2 * 60 + 45
     ),
     "pipeline.nightly_last_close_snapshot": JobMetadata(
-        "Last official close per ticker from FMP (header price fallback)", "daily", "2:00 AM", 2 * 60
+        "Last official close per ticker from FMP (header price fallback)", "daily", "12:00 AM", 0
     ),
     "pipeline.nightly_entry_signal_calculation": JobMetadata(
-        "BB+RSI (2h) entry signal, W1-W5 watchlists", "daily", "2:20 AM", 2 * 60 + 20
+        "BB+RSI (2h) entry signal, W1-W5 watchlists", "daily", "12:20 AM", 20
     ),
     "pipeline.nightly_liquidity_zone_calculation": JobMetadata(
-        "Support/resistance zone detection, W1-W5 watchlists", "daily", "2:15 AM", 2 * 60 + 15
+        "Support/resistance zone detection, W1-W5 watchlists", "daily", "12:15 AM", 15
     ),
     "pipeline.nightly_warren_signal_calculation": JobMetadata(
-        "Warren RSI/ADX/WVF (2h) entry signal, W1-W5 watchlists", "daily", "2:25 AM", 2 * 60 + 25
+        "Warren RSI/ADX/WVF (2h) entry signal, W1-W5 watchlists", "daily", "12:25 AM", 25
     ),
     "pipeline.nightly_sector_heatmap": JobMetadata(
-        "Sector ETF heatmap (11 SPDR sectors x 7 total-return windows)", "daily", "2:35 AM", 2 * 60 + 35
+        "Sector ETF heatmap (11 SPDR sectors x 7 total-return windows)", "daily", "12:35 AM", 35
     ),
     "pipeline.nightly_market_breadth": JobMetadata(
-        "Market breadth (S&P 500 % above 50/200-day SMA, net new 52-week highs)", "daily", "2:40 AM", 2 * 60 + 40
+        "Market breadth (S&P 500 % above 50/200-day SMA, net new 52-week highs)", "daily", "12:40 AM", 40
     ),
     "pipeline.backup_db": JobMetadata("Nightly SQLite backup + rotation", "daily", "3:30 AM", 3 * 60 + 30),
     "scrapers.refresh_sp500_list": JobMetadata("Keeps your S&P 500 stock list up to date", "weekly", "Sun 1:00 AM", 60),
