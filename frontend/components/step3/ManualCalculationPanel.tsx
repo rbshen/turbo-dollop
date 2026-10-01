@@ -1,7 +1,6 @@
 "use client";
 
-import { CaretDown } from "@phosphor-icons/react";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useId, useState, type CSSProperties } from "react";
 import { mutate } from "swr";
 import useSWRMutation from "swr/mutation";
 
@@ -16,10 +15,15 @@ import {
 } from "@/components/step3/Step3Card";
 import { ValuationGauge } from "@/components/step3/ValuationGauge";
 import { Card } from "@/components/ui/card";
+import { FIELD_ERROR_CLASS, FieldProvider, useFieldContextValue } from "@/components/ui/form-field";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/Select";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { apiDelete, apiPost, apiPut } from "@/lib/api/client";
 import { fmtMoney, fmtNumber, fmtPct } from "@/lib/format";
 import { useTickerCustomValuation } from "@/lib/hooks/useTickerCustomValuation";
+import { isIncompleteNumberPrefix } from "@/lib/numberInput";
+import { cn } from "@/lib/utils";
 import type {
   Step3CurrentValueCandidates,
   Step3ManualOut,
@@ -64,17 +68,29 @@ function realMethodFor(selection: MethodSelection, savedMethod: Step3Method | nu
   return selection === "SAVED_CUSTOM" ? (savedMethod ?? "DCF") : selection;
 }
 
+// Display-only sentence case for a METHOD_LABELS entry ("Discounted Cash Flow
+// (Operating CF)" -> "Discounted cash flow (operating CF)"): later Title-case
+// words drop to lower case, acronyms ("CF") and the first word are left alone.
+// METHOD_LABELS itself (Step3Card's, also used by the Model Valuation title) is
+// not edited here, and the option values never change.
+function methodOptionLabel(method: string): string {
+  return (METHOD_LABELS[method] ?? method)
+    .split(" ")
+    .map((word, i) => (i > 0 && /^\(?[A-Z][a-z]+\)?$/.test(word) ? word.toLowerCase() : word))
+    .join(" ");
+}
+
 // Presentation-only mirror of step3_data.py's own current_value_labels dict
 // -- Manual Calculation picks its "Current Value" label/default purely from
 // the method the user selects here, independent of whichever method Auto
 // picked for this ticker.
 const CURRENT_VALUE_LABELS: Record<string, string> = {
-  DCF: "Operating Cash Flow (Current)",
-  DFCF: "Free Cash Flow (Current)",
-  DNI: "Net Income (Current)",
-  DNI_NORMALIZED: "Net Income (Smoothed, 5yr avg)",
-  CF_NORMALIZED: "Operating Cash Flow (Smoothed, 5yr avg)",
-  FCF_NORMALIZED: "Free Cash Flow (Smoothed, 5yr avg)",
+  DCF: "Operating cash flow (current)",
+  DFCF: "Free cash flow (current)",
+  DNI: "Net income (current)",
+  DNI_NORMALIZED: "Net income (smoothed, 5yr avg)",
+  CF_NORMALIZED: "Operating cash flow (smoothed, 5yr avg)",
+  FCF_NORMALIZED: "Free cash flow (smoothed, 5yr avg)",
 };
 
 // Generous, not data-derived -- growth/discount rate sliders must never
@@ -275,6 +291,20 @@ function formatDisplay(kind: FieldKind, raw: string, currency: string = "USD"): 
 // unfocused and the raw editable number while focused/being typed --
 // standard "format on blur" pattern. The raw string in parent form state
 // is unchanged either way; only this row's own render output differs.
+//
+// Not a NumberField: that holds the raw text only (no format-on-blur) and
+// rejects what parseFloat reads ("12abc", "1e3", "+4"), so converting would
+// change what the row shows or what it sends. The kit Input is wired the way a
+// FormField wires a control (a real <label for>, the sublabel as its linked
+// hint, an inline error) -- the table row keeps the label and the box in
+// their two cells, which FormField's stacked layout cannot do.
+//
+// The error is for text the parse above reads as nothing at all (parseNum ->
+// null, which is also what gets sent): it never blocks, clamps or corrects.
+// "-", "." and "-." are the start of a number, so they show no error while the
+// box is still focused.
+const UNREADABLE_NUMBER_MESSAGE = "Enter a number.";
+
 function ManualInputRow({
   label,
   sublabel,
@@ -291,32 +321,48 @@ function ManualInputRow({
   currency?: string;
 }) {
   const [focused, setFocused] = useState(false);
+  const id = useId();
+  const unreadable = value.trim() !== "" && parseNum(value) === null && !(focused && isIncompleteNumberPrefix(value));
+  const field = useFieldContextValue(id, { hint: sublabel, error: unreadable ? UNREADABLE_NUMBER_MESSAGE : undefined });
   return (
-    <TableRow className={FIELD_ROW_CLASS}>
-      <TableCell className={FIELD_LABEL_CELL_CLASS}>
-        <div className="text-sm">{label}</div>
-        {/* Always rendered, matching InputRow -- a blank placeholder line
-            keeps every row's label cell (and therefore the row) identically
-            tall, whether or not this particular field has a real sub-note. */}
-        <div className="truncate text-[10px] text-text-tertiary">{sublabel || " "}</div>
-      </TableCell>
-      {/* Reuses InputRow's exact FIELD_VALUE_CELL_CLASS (not a local
-          align-top/padding copy) so this row's vertical alignment can never
-          drift from Auto Calculation's read-only rows again -- one shared
-          template for both "value is plain text" and "value is an input
-          box". */}
-      <TableCell className={FIELD_VALUE_CELL_CLASS}>
-        <input
-          type="text"
-          inputMode="decimal"
-          value={focused ? value : formatDisplay(kind, value, currency)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded border border-border-control bg-page px-2 py-1 text-right font-mono text-sm text-text-primary focus:border-brand focus:outline-none"
-        />
-      </TableCell>
-    </TableRow>
+    <FieldProvider value={field}>
+      <TableRow className={FIELD_ROW_CLASS}>
+        <TableCell className={FIELD_LABEL_CELL_CLASS}>
+          <label htmlFor={id} className="block text-sm">
+            {label}
+          </label>
+          {/* Always rendered, matching InputRow -- a blank placeholder line
+              keeps every row's label cell (and therefore the row) identically
+              tall, whether or not this particular field has a real sub-note. */}
+          <div id={field.hintId} className="truncate text-[10px] text-text-tertiary">
+            {sublabel || " "}
+          </div>
+        </TableCell>
+        {/* Reuses InputRow's exact FIELD_VALUE_CELL_CLASS (not a local
+            align-top/padding copy) so this row's vertical alignment can never
+            drift from Auto Calculation's read-only rows again -- one shared
+            template for both "value is plain text" and "value is an input
+            box". The kit Input is 36px, so pt-3 + the box fills the row's
+            h-12 exactly; only an error line makes a row taller. */}
+        <TableCell className={FIELD_VALUE_CELL_CLASS}>
+          <Input
+            type="text"
+            inputMode="decimal"
+            size="full"
+            value={focused ? value : formatDisplay(kind, value, currency)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onChange={(e) => onChange(e.target.value)}
+            className="text-right font-mono tabular-nums"
+          />
+          {unreadable && (
+            <p id={field.errorId} role="alert" className={cn(FIELD_ERROR_CLASS, "text-left font-sans")}>
+              {UNREADABLE_NUMBER_MESSAGE}
+            </p>
+          )}
+        </TableCell>
+      </TableRow>
+    </FieldProvider>
   );
 }
 
@@ -531,27 +577,28 @@ function ManualCalculationControls({
     <Card className="space-y-6">
       <div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
         <h2 className={SECTION_HEADING_CLASS}>Custom Valuation</h2>
-        {/* appearance-none strips the browser's native <select> chrome --
-            CaretDown restores the dropdown affordance manually. Compact and
-            right-aligned inline with the title, not a full-width field
-            below it with its own "Method" label. */}
-        <div className="relative">
-          <select
-            id="manual-method"
-            value={selection}
-            onChange={(e) => handleSelectionChange(e.target.value as MethodSelection)}
-            className="h-8 max-w-[220px] appearance-none truncate rounded-md border border-border-control bg-surface-2 py-1 pl-2.5 pr-7 text-xs text-text-primary focus:border-brand focus:outline-none"
-          >
+        {/* The kit native Select, with a visible "Method" label to its left.
+            The kit field is 36px, taller than this title row's 32px (the
+            Model Valuation card's title row is min-h-8 so the two columns
+            align row for row), so the group takes -my-0.5 and the row keeps
+            its height. wide (320px) fits the nine method labels; the saved
+            entry ("<method> · custom") can be longer and clips when closed.
+            Below the width where label and select fit together the label
+            wraps above the select instead of overflowing. */}
+        <div className="-my-0.5 flex max-w-full flex-wrap items-center gap-x-2">
+          <label htmlFor="manual-method" className="text-xs text-text-secondary">
+            Method
+          </label>
+          <Select id="manual-method" size="wide" value={selection} onChange={(e) => handleSelectionChange(e.target.value as MethodSelection)}>
             {/* Only rendered once a custom valuation is saved -- there's
                 exactly one (no versioning), so at most one such entry. */}
-            {saved.saved && saved.method && <option value="SAVED_CUSTOM">{METHOD_LABELS[saved.method]} · Custom</option>}
+            {saved.saved && saved.method && <option value="SAVED_CUSTOM">{methodOptionLabel(saved.method)} · custom</option>}
             {METHOD_OPTIONS.map((m) => (
               <option key={m} value={m}>
-                {METHOD_LABELS[m]}
+                {methodOptionLabel(m)}
               </option>
             ))}
-          </select>
-          <CaretDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary" />
+          </Select>
         </div>
       </div>
 
@@ -591,15 +638,15 @@ function ManualCalculationControls({
             <>
               <ManualInputRow label={CURRENT_VALUE_LABELS[method]} sublabel="(in millions)" value={form.currentValue} onChange={field("currentValue")} kind="millions" currency={quoteCurrency} />
               <ManualInputRow
-                label="Shares Outstanding"
+                label="Shares outstanding"
                 sublabel="(in millions)"
                 value={form.sharesOutstanding}
                 onChange={field("sharesOutstanding")}
                 kind="sharesMillions"
               />
-              <ManualInputRow label="Total Debt" sublabel="(in millions)" value={form.totalDebt} onChange={field("totalDebt")} kind="millions" currency={quoteCurrency} />
+              <ManualInputRow label="Total debt" sublabel="(in millions)" value={form.totalDebt} onChange={field("totalDebt")} kind="millions" currency={quoteCurrency} />
               <ManualInputRow
-                label={`Cash${autoData.inputs.cash_and_st_investments_includes_short_term_investments ? " + ST Investments" : ""}`}
+                label={`Cash${autoData.inputs.cash_and_st_investments_includes_short_term_investments ? " + ST investments" : ""}`}
                 sublabel="(in millions)"
                 value={form.cashAndSt}
                 onChange={field("cashAndSt")}
@@ -612,7 +659,7 @@ function ManualCalculationControls({
           {isPB && (
             <>
               <ManualInputRow
-                label={isPBStandard ? "Book Value Per Share (standard)" : "Book Value Per Share (custom)"}
+                label={isPBStandard ? "Book value per share (standard)" : "Book value per share (custom)"}
                 value={isPBStandard ? form.bookValuePerShareStandard : form.bookValuePerShare}
                 onChange={field(isPBStandard ? "bookValuePerShareStandard" : "bookValuePerShare")}
                 kind="currency"
@@ -635,9 +682,9 @@ function ManualCalculationControls({
 
           {isPSG && (
             <>
-              <ManualInputRow label="Sales Per Share" value={form.salesPerShare} onChange={field("salesPerShare")} kind="currency" currency={quoteCurrency} />
-              <ManualInputRow label="Projected Growth Rate" value={form.projectedGrowthRate} onChange={field("projectedGrowthRate")} kind="pct" />
-              <ManualInputRow label="Fair PSG Ratio" value={form.fairPsgRatio} onChange={field("fairPsgRatio")} kind="ratio" />
+              <ManualInputRow label="Sales per share" value={form.salesPerShare} onChange={field("salesPerShare")} kind="currency" currency={quoteCurrency} />
+              <ManualInputRow label="Projected growth rate" value={form.projectedGrowthRate} onChange={field("projectedGrowthRate")} kind="pct" />
+              <ManualInputRow label="Fair PSG ratio" value={form.fairPsgRatio} onChange={field("fairPsgRatio")} kind="ratio" />
             </>
           )}
         </TableBody>
