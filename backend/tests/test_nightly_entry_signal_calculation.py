@@ -66,10 +66,10 @@ def _patch_store(monkeypatch, fail_for: set[str] | None = None):
     return calls
 
 
-def test_main_processes_the_union_of_w1_and_w2_deduped(monkeypatch, tmp_path):
+def test_main_processes_the_union_of_e1_and_e2_deduped(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
-    _seed_watchlist(engine, "W1", ["AAPL", "MSFT"])
-    _seed_watchlist(engine, "W2", ["MSFT", "GOOG"])  # MSFT overlaps -- must not be double-processed
+    _seed_watchlist(engine, "E1", ["AAPL", "MSFT"])
+    _seed_watchlist(engine, "E2", ["MSFT", "GOOG"])  # MSFT overlaps -- must not be double-processed
     _seed_watchlist(engine, "Some Other List", ["ZZZZ"])  # never consulted
 
     batch_calls = _patch_batch_fetch(
@@ -86,20 +86,21 @@ def test_main_processes_the_union_of_w1_and_w2_deduped(monkeypatch, tmp_path):
     assert summary["failed"] == 0
 
 
-def test_main_also_includes_a_third_watchlist_named_w3(monkeypatch, tmp_path):
+def test_main_also_includes_a_watchlists_named_e10_and_etf(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
-    _seed_watchlist(engine, "W1", ["AAPL"])
-    _seed_watchlist(engine, "W3", ["GOOG"])  # not just a hardcoded pair -- W3 counts too
-    _seed_watchlist(engine, "W6", ["ZZZZ"])  # out of the 1-5 range -- never consulted
+    _seed_watchlist(engine, "E1", ["AAPL"])
+    _seed_watchlist(engine, "E10", ["GOOG"])  # not just a hardcoded pair -- E10 (no upper limit) counts too
+    _seed_watchlist(engine, "ETF", ["SPY"])  # the one non-numbered monitored list
+    _seed_watchlist(engine, "W1", ["ZZZZ"])  # the retired name -- no longer monitored, never consulted
 
-    batch_calls = _patch_batch_fetch(monkeypatch, {"AAPL": _fake_bars(), "GOOG": _fake_bars()})
+    batch_calls = _patch_batch_fetch(monkeypatch, {"AAPL": _fake_bars(), "GOOG": _fake_bars(), "SPY": _fake_bars()})
     store_calls = _patch_store(monkeypatch)
 
     summary = asyncio.run(nightly_entry_signal.main())
 
-    assert set(batch_calls[0][0]) == {"AAPL", "GOOG"}
-    assert sorted(store_calls) == ["AAPL", "GOOG"]
-    assert summary["processed"] == 2
+    assert set(batch_calls[0][0]) == {"AAPL", "GOOG", "SPY"}
+    assert sorted(store_calls) == ["AAPL", "GOOG", "SPY"]
+    assert summary["processed"] == 3
 
 
 def test_main_returns_empty_summary_when_no_matching_watchlist_exists(monkeypatch, tmp_path):
@@ -115,7 +116,7 @@ def test_main_returns_empty_summary_when_no_matching_watchlist_exists(monkeypatc
 
 def test_main_processes_whichever_matching_watchlist_exists_when_the_other_does_not(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
-    _seed_watchlist(engine, "W1", ["AAPL"])  # "W2" never created
+    _seed_watchlist(engine, "E1", ["AAPL"])  # "E2" never created
 
     batch_calls = _patch_batch_fetch(monkeypatch, {"AAPL": _fake_bars()})
     store_calls = _patch_store(monkeypatch)
@@ -129,8 +130,8 @@ def test_main_processes_whichever_matching_watchlist_exists_when_the_other_does_
 
 def test_main_returns_empty_summary_when_both_watchlists_have_no_tickers(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
-    _seed_watchlist(engine, "W1", [])
-    _seed_watchlist(engine, "W2", [])
+    _seed_watchlist(engine, "E1", [])
+    _seed_watchlist(engine, "E2", [])
 
     summary = asyncio.run(nightly_entry_signal.main())
 
@@ -142,7 +143,7 @@ def test_main_returns_empty_summary_when_both_watchlists_have_no_tickers(monkeyp
 
 def test_a_ticker_with_no_bars_is_a_failure_not_a_crash(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
-    _seed_watchlist(engine, "W1", ["AAPL", "NODATA"])
+    _seed_watchlist(engine, "E1", ["AAPL", "NODATA"])
 
     _patch_batch_fetch(monkeypatch, {"AAPL": _fake_bars()})  # NODATA absent from the batch result
     store_calls = _patch_store(monkeypatch)
@@ -157,7 +158,7 @@ def test_a_ticker_with_no_bars_is_a_failure_not_a_crash(monkeypatch, tmp_path):
 
 def test_a_failing_ticker_does_not_abort_the_sweep(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
-    _seed_watchlist(engine, "W1", ["AAPL", "BADCO", "MSFT"])
+    _seed_watchlist(engine, "E1", ["AAPL", "BADCO", "MSFT"])
 
     _patch_batch_fetch(monkeypatch, {"AAPL": _fake_bars(), "BADCO": _fake_bars(), "MSFT": _fake_bars()})
     store_calls = _patch_store(monkeypatch, fail_for={"BADCO"})
@@ -170,7 +171,7 @@ def test_a_failing_ticker_does_not_abort_the_sweep(monkeypatch, tmp_path):
 
 def test_main_sweeps_a_row_stale_beyond_the_seven_day_window(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
-    _seed_watchlist(engine, "W1", ["AAPL"])  # DROPPED is on neither list any more
+    _seed_watchlist(engine, "E1", ["AAPL"])  # DROPPED is on neither list any more
 
     stale_computed_at = datetime.now() - timedelta(days=8)
     with Session(engine) as session:

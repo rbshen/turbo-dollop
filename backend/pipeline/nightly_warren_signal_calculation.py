@@ -1,5 +1,5 @@
 """Standalone script: nightly Warren RSI/ADX/WVF (2h) technical entry-signal
-recompute, scoped to the same union of every watchlist named W1 through W5
+recompute, scoped to the same union of every watchlist named E<number> or ETF
 that pipeline/nightly_entry_signal_calculation.py (BB+RSI) reads. See
 CLAUDE.md's Warren signal section for the full methodology.
 
@@ -10,7 +10,7 @@ here since Warren's fetch (2-year lookback) and computation shape (a full
 state-machine replay every run -- see analysis/warren_signal/
 state_machine.py's own docstring for why this is safe) are fundamentally
 different from BB+RSI's (60-day lookback, latest-day-only), even though both
-run on the same W1-W5 union.
+run on the same monitored-watchlist union.
 
 Reads every watchlist ticker's intraday bars through the shared bars cache
 (clients/shared_bars_cache.py, interval "60m", one batch call for whatever
@@ -25,7 +25,7 @@ this script once already backfills all available history, since every run
 replays from scratch.
 
 Measured cost -- CORRECTED 2026-09-12 after a real run against the live
-98-ticker W1-W5 union exposed a flaw in the original pre-shipping estimate
+98-ticker monitored-watchlist union (then W1-W5) exposed a flaw in the original pre-shipping estimate
 (see CLAUDE.md's Warren signal section for the full story): the original
 synthetic benchmark fed the state-machine replay ALREADY-BUILT 2h candles
 directly, entirely skipping the cost of build_2h_session_candles' own
@@ -45,7 +45,6 @@ Run:
 
 import asyncio
 import logging
-import re
 import time
 from pathlib import Path
 
@@ -57,11 +56,10 @@ from core.data_groups import job_skip_reason
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from data.warren_signal_data import compute_and_store_warren_signal, prune_warren_signal_events, sweep_stale_warren_signals
-from data.watchlists import list_tickers_across_watchlists
+from data.watchlists import MONITORED_WATCHLIST_PATTERN, list_monitored_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_warren_signal_calculation.log"
 
-WATCHLIST_NAME_PATTERN = re.compile(r"^W[1-5]$")
 # 2 calendar years -- the 60m-interval history window (~730 days).
 LOOKBACK_DAYS = 730
 
@@ -83,13 +81,13 @@ async def main() -> dict:
         return {"skipped": True, "skip_reason": skip_reason}
 
     with Session(engine) as session:
-        tickers, matched_names = list_tickers_across_watchlists(session, WATCHLIST_NAME_PATTERN)
+        tickers, matched_names = list_monitored_tickers(session)
 
     if not matched_names:
-        logger.warning("No watchlist matching %s exists.", WATCHLIST_NAME_PATTERN.pattern)
+        logger.warning("No watchlist matching %s exists.", MONITORED_WATCHLIST_PATTERN.pattern)
 
     if not tickers:
-        logger.error("No tickers found across %s -- nothing to process.", matched_names or WATCHLIST_NAME_PATTERN.pattern)
+        logger.error("No tickers found across %s -- nothing to process.", matched_names or MONITORED_WATCHLIST_PATTERN.pattern)
         swept = sweep_stale_warren_signals()
         pruned = prune_warren_signal_events()
         return {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "swept": swept, "pruned": pruned}

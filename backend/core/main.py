@@ -579,7 +579,7 @@ async def ticker_entry_signal(ticker: str, signal_type: str = "bb_rsi") -> Techn
     # Cache-only, same as get_trend_analysis_data's degrade-to-null
     # convention -- but there's no live-fetch fallback path here at all
     # (see data/entry_signal_data.py's own docstring): this signal only
-    # ever exists for tickers on a watchlist named W1 through W5,
+    # ever exists for tickers on a watchlist named E<number> or ETF,
     # refreshed by pipeline/nightly_entry_signal_calculation.py (bb_rsi) or
     # pipeline/nightly_warren_signal_calculation.py (warren), not on
     # demand. One endpoint, two backing reads -- matches how the DB itself
@@ -594,7 +594,7 @@ def ticker_liquidity_zones(ticker: str) -> LiquidityZonesOut | None:
     # Cache-only, same convention as ticker_entry_signal above -- no
     # live-fetch fallback path at all (see data/liquidity_zone_data.py's
     # own docstring): this only ever exists for tickers on a watchlist
-    # named W1 through W5, refreshed by
+    # named E<number> or ETF, refreshed by
     # pipeline/nightly_liquidity_zone_calculation.py, not on demand.
     return get_liquidity_zone_data(ticker)
 

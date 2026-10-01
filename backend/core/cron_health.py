@@ -128,13 +128,13 @@ JOB_METADATA: dict[str, JobMetadata] = {
         "Last official close per ticker from FMP (header price fallback)", "daily", "12:00 AM", 0
     ),
     "pipeline.nightly_entry_signal_calculation": JobMetadata(
-        "BB+RSI (2h) entry signal, W1-W5 watchlists", "daily", "12:20 AM", 20
+        "BB+RSI (2h) entry signal, E<number> and ETF watchlists", "daily", "12:20 AM", 20
     ),
     "pipeline.nightly_liquidity_zone_calculation": JobMetadata(
-        "Support/resistance zone detection, W1-W5 watchlists", "daily", "12:15 AM", 15
+        "Support/resistance zone detection, E<number> and ETF watchlists", "daily", "12:15 AM", 15
     ),
     "pipeline.nightly_warren_signal_calculation": JobMetadata(
-        "Warren RSI/ADX/WVF (2h) entry signal, W1-W5 watchlists", "daily", "12:25 AM", 25
+        "Warren RSI/ADX/WVF (2h) entry signal, E<number> and ETF watchlists", "daily", "12:25 AM", 25
     ),
     "pipeline.nightly_sector_heatmap": JobMetadata(
         "Sector ETF heatmap (11 SPDR sectors x 7 total-return windows)", "daily", "12:35 AM", 35

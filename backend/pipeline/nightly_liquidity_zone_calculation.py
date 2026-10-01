@@ -1,5 +1,5 @@
 """Standalone script: nightly Liquidity Zone (LP) detection recompute,
-scoped to the union of every watchlist named W1 through W5 (up to 100
+scoped to the union of every watchlist named E<number> or ETF (up to 100
 tickers each, deduped -- a ticker on more than one matching watchlist is
 only processed once) -- NOT the full tracked universe, same scoping as
 pipeline/nightly_entry_signal_calculation.py. See CLAUDE.md's "Liquidity
@@ -27,7 +27,6 @@ Run:
 
 import asyncio
 import logging
-import re
 import time
 from pathlib import Path
 
@@ -40,13 +39,12 @@ from core.data_groups import job_skip_reason
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from data.liquidity_zone_data import LOOKBACK_DAYS, compute_and_store_liquidity_zones, sweep_stale_liquidity_zones
-from data.watchlists import list_tickers_across_watchlists
+from data.watchlists import MONITORED_WATCHLIST_PATTERN, list_monitored_tickers
 from helpers.liquidity_zone_config import get_liquidity_zone_settings, to_engine_settings
 from pipeline.stale_data_health_check import load_delisted_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_liquidity_zone_calculation.log"
 
-WATCHLIST_NAME_PATTERN = re.compile(r"^W[1-5]$")
 
 logger = logging.getLogger(__name__)
 
@@ -66,19 +64,19 @@ async def main() -> dict:
         return {"skipped": True, "skip_reason": skip_reason}
 
     with Session(engine) as session:
-        tickers, matched_names = list_tickers_across_watchlists(session, WATCHLIST_NAME_PATTERN)
+        tickers, matched_names = list_monitored_tickers(session)
         settings = to_engine_settings(get_liquidity_zone_settings(session))
         delisted = load_delisted_tickers(session)
 
     if not matched_names:
-        logger.warning("No watchlist matching %s exists.", WATCHLIST_NAME_PATTERN.pattern)
+        logger.warning("No watchlist matching %s exists.", MONITORED_WATCHLIST_PATTERN.pattern)
 
     skipped_delisted = sorted(set(tickers) & delisted)
     if skipped_delisted:
         tickers = [t for t in tickers if t not in delisted]
 
     if not tickers:
-        logger.error("No tickers found across %s -- nothing to process.", matched_names or WATCHLIST_NAME_PATTERN.pattern)
+        logger.error("No tickers found across %s -- nothing to process.", matched_names or MONITORED_WATCHLIST_PATTERN.pattern)
         swept = sweep_stale_liquidity_zones()
         return {
             "processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "swept": swept,

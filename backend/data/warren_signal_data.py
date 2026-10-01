@@ -48,7 +48,7 @@ DEFAULT_SIGNAL_TYPE = "warren"
 DEFAULT_TIMEFRAME = "2h"
 
 # How long a row can go un-recomputed (e.g. its ticker dropped off every
-# W1-W5 watchlist) before sweep_stale_warren_signals clears it -- same
+# monitored watchlist) before sweep_stale_warren_signals clears it -- same
 # value/reasoning as entry_signal_data.py::STALE_AFTER_DAYS.
 STALE_AFTER_DAYS = 7
 
@@ -267,7 +267,7 @@ async def get_warren_signal_data(
 ) -> TechnicalEntrySignalOut | None:
     """Cache-only read -- never triggers a live fetch. Returns None if this
     ticker/signal_type/timeframe has never been computed (not a member of
-    any W1-W5 watchlist, or the nightly job hasn't reached it yet)."""
+    any monitored watchlist, or the nightly job hasn't reached it yet)."""
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = session.get(TechnicalEntrySignal, (ticker, signal_type, timeframe))

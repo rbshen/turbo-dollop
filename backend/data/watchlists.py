@@ -23,21 +23,44 @@ def list_watchlist_tickers(session: Session, watchlist_id: int) -> list[Watchlis
     )
 
 
-def list_tickers_across_watchlists(session: Session, name_pattern: re.Pattern[str]) -> tuple[list[str], list[str]]:
-    """Union of tickers across every watchlist whose name matches
-    `name_pattern` (matched watchlists visited in ascending name order via
-    list_watchlists), deduped (first-seen order preserved) so a ticker
-    present on more than one matching watchlist is only returned once.
-    Shared by nightly_entry_signal_calculation.py and
-    nightly_liquidity_zone_calculation.py, both scoped to the same
-    ^W[1-5]$ pattern rather than a fixed pair of names -- a user can add a
-    W3/W4/W5 watchlist later with no code change.
+# The one definition of which watchlists the nightly technical jobs (Liquidity Zones,
+# BB+RSI, Warren) read, and which on-demand "not tracked" text refers to. A watchlist is
+# "monitored" when its name is E<positive integer> (E1, E6, E10, ... -- no upper limit) or
+# exactly "ETF". Case-sensitive full match, no leading zeros: E0, E01, e1, ETFs, W1 and
+# "W score passed" are all NOT monitored. Replaced the ^W[1-5]$ pattern that was copied
+# into each nightly job (see docs/specs/liquidity-zones.md, CLAUDE.md "Watchlists").
+MONITORED_WATCHLIST_PATTERN = re.compile(r"E[1-9][0-9]*|ETF")
 
-    Returns (tickers, matched_names) so callers can log which watchlists
-    were actually included -- unlike a fixed name list, there's no notion
-    of a "missing" name here, only however many (zero or more) watchlists
-    happen to match right now."""
-    matched = [w for w in list_watchlists(session) if name_pattern.fullmatch(w.name)]
+_NATURAL_SORT_DIGITS = re.compile(r"(\d+)")
+
+
+def is_monitored_watchlist_name(name: str) -> bool:
+    return MONITORED_WATCHLIST_PATTERN.fullmatch(name) is not None
+
+
+def _natural_name_key(name: str) -> list[tuple[int, int | str]]:
+    """E1, E2, ..., E10, ETF -- digits compare numerically ("E10" after "E9", not after
+    "E1"). Each part is tagged so an int is never compared against a str."""
+    return [(0, int(part)) if part.isdigit() else (1, part) for part in _NATURAL_SORT_DIGITS.split(name) if part]
+
+
+def list_monitored_watchlists(session: Session) -> list[Watchlist]:
+    """Every monitored watchlist (see MONITORED_WATCHLIST_PATTERN), in natural name order."""
+    matched = [w for w in list_watchlists(session) if is_monitored_watchlist_name(w.name)]
+    return sorted(matched, key=lambda w: _natural_name_key(w.name))
+
+
+def list_monitored_tickers(session: Session) -> tuple[list[str], list[str]]:
+    """Union of tickers across every monitored watchlist (visited in natural name order),
+    deduped (first-seen order preserved) so a ticker on more than one list is only
+    returned once. Shared by nightly_liquidity_zone_calculation.py,
+    nightly_entry_signal_calculation.py, nightly_warren_signal_calculation.py and the
+    daily-bars backfill.
+
+    Returns (tickers, matched_names) so callers can log which watchlists were actually
+    included -- there is no notion of a "missing" name, only however many (zero or more)
+    watchlists happen to match right now."""
+    matched = list_monitored_watchlists(session)
     seen: set[str] = set()
     tickers: list[str] = []
     for watchlist in matched:

@@ -100,7 +100,7 @@ async def main(tickers: list[str] | None = None) -> dict:
     # processed/failed below.
     #
     # Reads through the shared bars cache (interval "1d"): every ticker also
-    # on a W1-W5 watchlist overlaps Liquidity Zones' own (wider, ~4yr)
+    # on a monitored watchlist overlaps Liquidity Zones' own (wider, ~4yr)
     # daily need, so whichever of the two jobs runs first each night does
     # the one live fetch for that ticker and the other reads it back --
     # this job never has to know or care which. auto_adjust=False

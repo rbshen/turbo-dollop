@@ -429,7 +429,7 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
     warren_signal_available = warren_signal is not None
 
     # Also independent of the bar fetch -- another plain cache-only read
-    # (see data/liquidity_zone_data.py), scoped to the same W1-W5
+    # (see data/liquidity_zone_data.py), scoped to the same monitored
     # watchlists as entry_signal above (a separate nightly job,
     # so the two can occasionally diverge for a just-added ticker, but the
     # scope condition is the same). Unlike entry_signal, this one isn't

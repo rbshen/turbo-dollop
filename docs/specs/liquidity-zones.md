@@ -107,8 +107,8 @@ never stored.
 ## Nightly job
 
 `pipeline/nightly_liquidity_zone_calculation.py`, **12:15 AM** server time (UTC), a dedicated job rather than
-part of `nightly_entry_signal_calculation.py`, even though both are scoped to the same deduped W1-W5
-watchlist union (`data/watchlists.py::list_tickers_across_watchlists`). It is separate because every
+part of `nightly_entry_signal_calculation.py`, even though both are scoped to the same deduped monitored-
+watchlist union (`data/watchlists.py::list_monitored_tickers`; lists named `E<number>` or `ETF`). It is separate because every
 pipeline script maps 1:1 to one feature, because it needs a different data group (`daily_prices`, versus
 BB+RSI's `intraday_bars`), and because separate `cron_heartbeat` names keep failure attribution clean (an
 FMP outage affecting Liquidity Zones must not read as a BB+RSI health failure or vice versa). It sits right after the
@@ -116,8 +116,8 @@ FMP outage affecting Liquidity Zones must not read as a BB+RSI health failure or
 `backend/crontab.txt` for the current slots), since this job can make live FMP calls on a cold cache. It is registered in `core/cron_health.py`'s `CRON_JOB_NAMES` /
 `_EXPECTED_CADENCE_HOURS` as `pipeline.nightly_liquidity_zone_calculation`. The job is skipped while the
 `daily_prices` group is off. After the per-ticker loop it sweeps rows whose `computed_at` is older than
-`STALE_AFTER_DAYS` (7), e.g. a ticker dropped from every W1-W5 list, clearing rather than deleting them.
-Tickers on none of W1-W5 have no row at all.
+`STALE_AFTER_DAYS` (7), e.g. a ticker dropped from every monitored list, clearing rather than deleting them.
+Tickers on none of the monitored lists have no row at all.
 
 ## API and UI
 
@@ -132,8 +132,8 @@ Tickers on none of W1-W5 have no row at all.
 - **Empty-zone behavior (explicitly decided):** a side with zero currently-valid zones for a timeframe
   (sparse/early history, or price hasn't pulled back far enough to form one) shows a plain "No confirmed
   support/resistance levels yet" line while the rest of the card renders normally. A ticker never computed
-  (on none of W1-W5, or not yet processed) renders the same "Not tracked" shape `BbRsiEntrySignalCard`
-  uses, explaining the W1-W5-only scoping, rather than four empty sections.
+  (on no monitored list, or not yet processed) renders the same "Not tracked" shape `BbRsiEntrySignalCard`
+  uses, explaining the monitored-list-only scoping (`lib/monitoredWatchlists.ts`), rather than four empty sections.
 - **Broken-zone row.** When `broken_support` / `broken_resistance` is non-null, a dashed "Broken" row
   (`BrokenZoneRow`, same colors as the chart, kept in sync manually) renders for that side. It is placed
   immediately adjacent to the current-price divider: appended after the regular resistance ladder and

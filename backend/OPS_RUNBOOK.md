@@ -522,6 +522,33 @@ accumulating normally the whole time — this is a display kill-switch, not
 a pause of the monitoring itself, useful for an extended FMP pause where
 that display would just be noise the operator already knows about.
 
+## Monitored-watchlist rename (W1-W5 -> E1-E5), 2026-10-02
+
+The nightly Liquidity Zone / BB+RSI / Warren jobs read every watchlist named `E<number>` or exactly `ETF`
+(rule: `data/watchlists.py`, `MONITORED_WATCHLIST_PATTERN`). `pipeline/rename_monitored_watchlists.py` renames
+the old `W1`..`W5` lists to `E1`..`E5`. It changes only `watchlist.name` (everything else references a list by id),
+matches those five exact names only (never `W score passed`, `W6`, ...), and is idempotent.
+
+    cd backend
+    uv run python -m pipeline.rename_monitored_watchlists --dry-run     # preview, writes nothing
+    uv run python -m pipeline.rename_monitored_watchlists               # logical backup + full DB backup, then rename
+    uv run python -m pipeline.rename_monitored_watchlists --rollback    # E1..E5 back to W1..W5, by id
+
+- **Backups, in order, before any write:** a JSON dump of `watchlist`, `watchlistticker` and `savedscreenerfilter`
+  to `backend/backups/watchlist_rename_<ts>.json` (the rename plan lives in it; `--rollback` reads the newest one,
+  or `--backup-file PATH`), then `pipeline.backup_db.create_backup`. The full backup needs ~1.25x the DB size free;
+  if it refuses, the script exits 1 having written nothing. Free space (prune `backend/backups/`) and re-run, or pass
+  `--skip-full-backup` to rely on the logical backup plus the nightly backup.
+- **Run it** with no nightly job mid-flight and before the 00:15 UTC slot (jobs read list names once, at start).
+  If code ships without the migration the three jobs log "No watchlist matching ... exists", process nothing,
+  and the sweep only clears readings after 7 days.
+- **Verify:** the log (`logs/rename_monitored_watchlists.log`) lists each `Renamed id N: W<n> -> E<n>`; then
+  `GET /api/watchlists` shows E1-E5 with the same ids and ticker counts, and the next morning each of the three
+  nightly logs reads `... for <n> tickers across ['E1', 'E2', ...]`.
+- **Rollback:** `--rollback` (above); a list the user has since renamed again is skipped, and it aborts if a
+  list called `W<n>` has been re-created. Last resort: restore the full backup.
+- Not a cron job, so no `CRON_JOB_NAMES`/crontab entry.
+
 ## Weekly index constituent refresh (S&P 500 / Nasdaq-100 / Dow)
 
 Cron: `crontab.txt`, Sundays 1:00 AM (S&P 500), 1:05 AM (Nasdaq-100), and

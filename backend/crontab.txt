@@ -44,19 +44,20 @@
 5 0 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_trend_calculation >> /home/shen/fathom/backend/logs/nightly_trend_calculation_cron.log 2>&1
 
 # 12:15 Liquidity Zone (LP, support/resistance) detection recompute. Scoped to the
-# W1-W5 watchlist union only. Reads daily bars through the shared bars cache (the
-# same "1d" rows the 12:05 bar-cache job fills; skipped while daily_prices is off). ~10s.
+# monitored-watchlist union only (E<number> and ETF lists). Reads daily bars through the
+# shared bars cache (the same "1d" rows the 12:05 bar-cache job fills; skipped while
+# daily_prices is off). ~10s.
 # See pipeline/nightly_liquidity_zone_calculation.py.
 15 0 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_liquidity_zone_calculation >> /home/shen/fathom/backend/logs/nightly_liquidity_zone_calculation_cron.log 2>&1
 
-# 12:20 BB+RSI (2h) technical entry-signal calculation. Scoped to the W1-W5
-# watchlist union. Reads FMP 60m bars (data group intraday_bars) through the
-# shared bars cache; real `skipped` status while that group is off. Must run
+# 12:20 BB+RSI (2h) technical entry-signal calculation. Scoped to the monitored
+# watchlist union (E<number> and ETF lists). Reads FMP 60m bars (data group
+# intraday_bars) through the shared bars cache; real `skipped` status while that group is off. Must run
 # BEFORE Warren (BB+RSI creates the 60d row, Warren widens it to 2y). 5-minute
 # window (typical 10-40s, max seen ~130s). See pipeline/nightly_entry_signal_calculation.py.
 20 0 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_entry_signal_calculation >> /home/shen/fathom/backend/logs/nightly_entry_signal_calculation_cron.log 2>&1
 
-# 12:25 Warren RSI/ADX/WVF (2h) entry-signal calculation. Same W1-W5 scoping, but
+# 12:25 Warren RSI/ADX/WVF (2h) entry-signal calculation. Same monitored-watchlist scoping, but
 # a full 2-year lookback and a whole state-machine replay each run. Observed
 # ~100s; theoretical worst case (500 tickers) ~9 min, hence the 10-minute window.
 # See pipeline/nightly_warren_signal_calculation.py and docs/specs/warren-signal.md.

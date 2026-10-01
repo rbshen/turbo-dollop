@@ -1,5 +1,5 @@
 """Standalone script: nightly BB+RSI (2h) technical entry-signal recompute,
-scoped to the union of every watchlist named W1 through W5 (up to 100
+scoped to the union of every watchlist named E<number> or ETF (up to 100
 tickers each, deduped -- a ticker on more than one matching watchlist is
 only processed once) -- NOT the full tracked universe, unlike every other
 nightly job in this package. See CLAUDE.md's technical entry-signal
@@ -34,7 +34,6 @@ Run:
 
 import asyncio
 import logging
-import re
 import time
 from pathlib import Path
 
@@ -46,11 +45,10 @@ from core.data_groups import job_skip_reason
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from data.entry_signal_data import compute_and_store_entry_signal, prune_entry_signal_events, sweep_stale_entry_signals
-from data.watchlists import list_tickers_across_watchlists
+from data.watchlists import MONITORED_WATCHLIST_PATTERN, list_monitored_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_entry_signal_calculation.log"
 
-WATCHLIST_NAME_PATTERN = re.compile(r"^W[1-5]$")
 LOOKBACK_DAYS = 60
 
 logger = logging.getLogger(__name__)
@@ -71,13 +69,13 @@ async def main() -> dict:
         return {"skipped": True, "skip_reason": skip_reason}
 
     with Session(engine) as session:
-        tickers, matched_names = list_tickers_across_watchlists(session, WATCHLIST_NAME_PATTERN)
+        tickers, matched_names = list_monitored_tickers(session)
 
     if not matched_names:
-        logger.warning("No watchlist matching %s exists.", WATCHLIST_NAME_PATTERN.pattern)
+        logger.warning("No watchlist matching %s exists.", MONITORED_WATCHLIST_PATTERN.pattern)
 
     if not tickers:
-        logger.error("No tickers found across %s -- nothing to process.", matched_names or WATCHLIST_NAME_PATTERN.pattern)
+        logger.error("No tickers found across %s -- nothing to process.", matched_names or MONITORED_WATCHLIST_PATTERN.pattern)
         swept = sweep_stale_entry_signals()
         pruned = prune_entry_signal_events()
         return {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "swept": swept, "pruned": pruned}

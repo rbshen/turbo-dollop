@@ -1,7 +1,7 @@
 # Warren RSI/ADX/WVF entry signal (2h) (Technical)
 
 A fifth, fully independent technical entry-signal lens. Alongside BB+RSI it is the second entry in the
-technical-signal family, both scoped to the same W1-W5 watchlist union and running on the same 2h adapter
+technical-signal family, both scoped to the same monitored-watchlist union (lists named `E<number>` or `ETF`, `data/watchlists.py`) and running on the same 2h adapter
 (FMP 60m bars, resampled into 2h session candles). It is ported from a reference Pine script ("ANY TICKER
 Δ1,3,4"). Buy-side (Blue/Yellow/Gray Up), sell-side (Blue/Yellow/Gray Down), the trailing stop line and the
 gray-suppression state machine are all in scope, not an entry-only subset. The code lives in
@@ -33,7 +33,7 @@ already backfills all available history.
 
 **Cost.** The dominant per-ticker cost is `build_2h_session_candles`' own per-day resample loop over the full
 2-year history (~0.9-1.0s/ticker), not the replay itself (~30-40ms/ticker). A real run on the live 98-ticker
-W1-W5 union took 98.9s, which extrapolates to roughly 9 minutes at the 500-ticker worst case. That is why the
+union (then the lists `W1`-`W5`, now `E1`-`E5`) took 98.9s, which extrapolates to roughly 9 minutes at the 500-ticker worst case. That is why the
 job has its own ~15-minute cron window rather than a slot in a 5-minute gap. The shared, already-tested
 `build_2h_session_candles` was deliberately not optimized, since BB+RSI depends on it. Any future benchmark
 should go through the same entry point the real nightly job calls, not a lower-level convenience function.
@@ -156,7 +156,7 @@ with no argument by both nightly jobs (no call site hardcodes a number).
 10-minute allocation (observed ~100s, theoretical worst ~9 min) before the sector heatmap at 12:35. `backup_db` runs at 3:30. It is a dedicated script rather than part of `nightly_entry_signal_calculation.py`, for the same "one
 feature, one script" reasoning as the Liquidity Zone job (see `docs/specs/liquidity-zones.md`), doubly
 justified since Warren's 2-year-lookback / full-replay shape is fundamentally different from BB+RSI's
-60-day / latest-day-only one, even though both share the W1-W5 scope and the shared 60m bars cache. It reads
+60-day / latest-day-only one, even though both share the monitored-watchlist scope and the shared 60m bars cache. It reads
 the cache at the full 730-day width rather than through `clients/technical_sources.py`'s BB+RSI-sized 60-day
 reader. It is wired into `core/cron_health.py`'s `CRON_JOB_NAMES` / `_EXPECTED_CADENCE_HOURS`.
 

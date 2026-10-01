@@ -229,9 +229,9 @@ class TechnicalEntrySignal(SQLModel, table=True):
     will coexist per ticker rather than replace this one row.
 
     Unlike TrendAnalysis, this table is scoped to the union of every
-    watchlist named W1 through W5 the nightly job reads, not the full
+    watchlist named E<number> or ETF the nightly job reads, not the full
     tracked universe -- a ticker on none of them simply has no row
-    here, which is the intended "this filter only ever matches W1-W5
+    here, which is the intended "this filter only ever matches monitored
     tickers" behavior, not a gap to work around.
 
     Originally had a `fired: bool` column, replaced by `fired_at` below
@@ -383,7 +383,7 @@ class LiquidityZoneAnalysis(SQLModel, table=True):
     docstring gives: Daily and Weekly need to coexist as independent rows
     per ticker, not parallel daily_/weekly_-prefixed columns on one row.
 
-    Scoped to the union of every watchlist named W1 through W5 the
+    Scoped to the union of every watchlist named E<number> or ETF the
     nightly job reads, same as TechnicalEntrySignal -- a ticker on none of
     them simply has no rows here.
 
@@ -795,7 +795,7 @@ class TickerScore(SQLModel, table=True):
     # nightly-snapshot staleness every other TickerScore field already has
     # -- not re-derived live per Screener page view. None for the
     # overwhelming majority of tickers, since this signal is only ever
-    # computed for members of a watchlist named W1 through W5 (see
+    # computed for members of a watchlist named E<number> or ETF (see
     # pipeline/nightly_entry_signal_calculation.py), not the full tracked
     # universe. A universe ticker on none of them reads None here
     # exactly the same way a row computed before this field existed would
@@ -813,7 +813,7 @@ class TickerScore(SQLModel, table=True):
     # states, unlike an earlier version of this field that was a single
     # Blue+Yellow-only boolean excluding Gray Up as a selectable option
     # entirely. None for the overwhelming majority of tickers, same
-    # W1-W5-only scoping as bb_rsi_entry_signal.
+    # monitored-watchlist-only scoping as bb_rsi_entry_signal.
     warren_active_signal_kind: str | None = None
     # Max fired_at across every WarrenSignalEvent buy-side arrow (Blue/
     # Yellow/Gray Up) ever recorded for this ticker -- data/
@@ -826,7 +826,7 @@ class TickerScore(SQLModel, table=True):
     # filter built on it -- always the combined Blue/Yellow/Gray Up
     # recency regardless of which kind(s) a user has filtered for. None
     # whenever no buy arrow has ever fired for this ticker (including
-    # every ticker outside W1-W5, same as warren_active_signal_kind
+    # every ticker outside the monitored watchlists, same as warren_active_signal_kind
     # above).
     warren_last_buy_fired_at: datetime | None = None
     # Set when pipeline/stale_data_health_check.py::sync_delisted_flags finds
