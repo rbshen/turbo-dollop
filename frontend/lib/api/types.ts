@@ -651,6 +651,9 @@ export interface ScreenerMeta {
   // cached-ticker count), so total_constituents there always equals the
   // response length.
   total_constituents: number;
+  // universe="all" only: stock rows hidden because the ticker was not viewed for 30 days and is in no
+  // other nightly-universe rule (backend data/tracked_universe.py). 0 for an index universe.
+  hidden_inactive: number;
 }
 
 export interface SavedScreenerFilter {

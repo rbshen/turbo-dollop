@@ -24,7 +24,7 @@ daily-timeframe question (Part 2).
   `core/cache.py`, which is hard-wired to `FundamentalsCache`'s shape.
 - **Nightly job** (`pipeline/nightly_trend_calculation.py`, **1:05 AM**, after the 1:00
   last-close snapshot; the 3:25 score recompute then copies its `weinstein_*` output onto
-  `TickerScore`): sweeps the full tracked universe (`load_full_tracked_universe`) via **one**
+  `TickerScore`): sweeps the tracked universe (`load_tracked_universe`, [Tracked universe](tracked-universe.md)) via **one**
   batch read (`clients.shared_bars_cache.get_or_fetch_bars_batch`), runs the Weinstein engines and
   upserts per ticker — never one live fetch per ticker. It is the one nightly job that actually
   fetches daily bars (Sunday UTC is a full resync); the LP, Sector Heatmap, Market Breadth and

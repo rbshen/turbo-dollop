@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({
   rows: {} as Record<string, unknown[] | undefined>,
   errors: {} as Record<string, Error | undefined>,
   universeCalls: [] as string[],
+  hiddenInactive: 0,
   watchlists: [] as unknown[],
   saved: [] as unknown[],
 }));
@@ -23,7 +24,7 @@ vi.mock("@/lib/hooks/useScreener", () => ({
     h.universeCalls.push(universe);
     return { data: h.rows[universe], error: h.errors[universe] };
   },
-  useScreenerMeta: () => ({ data: { universe: "all", total_constituents: 500 } }),
+  useScreenerMeta: () => ({ data: { universe: "all", total_constituents: 500, hidden_inactive: h.hiddenInactive } }),
 }));
 vi.mock("@/lib/hooks/useWatchlists", () => ({ useWatchlists: () => ({ data: h.watchlists }) }));
 vi.mock("@/lib/hooks/useSavedFilters", () => ({
@@ -96,6 +97,7 @@ function loadSavedView(name: string) {
 beforeEach(() => {
   h.rows = { all: ALL_ROWS, sp500: ALL_ROWS.slice(0, 3), nasdaq: ALL_ROWS.slice(0, 2), dow: ALL_ROWS.slice(0, 1) };
   h.errors = {};
+  h.hiddenInactive = 0;
   h.universeCalls = [];
   h.watchlists = [watchlist(1, "W1", ["AAA", "CCC"]), watchlist(2, "Other", ["BBB"])];
   h.saved = [];
@@ -384,6 +386,18 @@ describe("the sidebar across a universe switch", () => {
     h.rows.sp500 = ALL_ROWS.slice(0, 3);
     rerender(<ScreenerPage />);
     expect(screen.getByText(/3 of 500 S&P 500 tickers/)).toBeInTheDocument();
+  });
+});
+
+describe("the hidden-ticker note", () => {
+  it("says how many viewed-only tickers the 30-day rule hides, and nothing when none are hidden", () => {
+    h.hiddenInactive = 20;
+    const { unmount } = render(<ScreenerPage />);
+    expect(screen.getByText(/4 of 500 All tickers · 20 not viewed in 30 days are hidden/)).toBeInTheDocument();
+    unmount();
+    h.hiddenInactive = 0;
+    render(<ScreenerPage />);
+    expect(screen.queryByText(/not viewed in 30 days/)).toBeNull();
   });
 });
 

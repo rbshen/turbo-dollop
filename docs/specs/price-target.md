@@ -84,11 +84,11 @@ cached for the 1-day window like any other answer), or **failed** (non-200, time
 or nothing available because the `analyst_ratings` group went off mid-run with nothing cached).
 no_data is not a failure.
 
-**Universe** (`load_us_price_target_universe`): `load_full_tracked_universe` (index membership +
-ever-viewed + scored + watchlisted) filtered to US-listed tickers via the cached profile
-exchange, minus `delisted_at`-flagged tickers — 580 tickers as of the last full-universe run
-(grew from an earlier 518-ticker S&P-500-plus-Dow scope once the wider universe function was
-substituted in). **Known ETFs/funds are then skipped** (`load_price_target_run_universe`, the same
+**Universe** (`load_us_price_target_universe`): `load_tracked_universe` (index, any watchlist, the system
+set, manual data, viewed in the last 30 days; delisted-flagged excluded, see
+[Tracked universe](tracked-universe.md)) filtered to US-listed tickers via the cached profile
+exchange — 580 tickers on 2026-10-01, before the 30-day expiry existed (grew from an earlier
+518-ticker S&P-500-plus-Dow scope once the wider universe function was substituted in). **Known ETFs/funds are then skipped** (`load_price_target_run_universe`, the same
 `known_etf_tickers` filter `nightly_fundamentals_fetch` uses, 2026-10-02): an ETF has no analyst
 targets, FMP answers `[]`, and every ETF opened on the ETF page would otherwise add one permanent
 nightly miss. The skip count shows in the job message ("K skipped (ETF)"). An explicit ticker list

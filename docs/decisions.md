@@ -272,6 +272,29 @@ index-list refreshes (1:00-1:10) now ran after the technical jobs instead of bef
 picked up by the next night's technical run (one-day lag, Sundays only). **Superseded 2026-10-02 (next entry): the
 refreshes now run at 12:00-12:10 AM, before the 1:00 AM chain, so the lag no longer exists.**
 
+### 2026-10-02 — Tracked universe: a viewed-only ticker expires 30 days after its last view
+
+**Supersedes** the 2026-08-06 "index + ever-viewed + watchlisted" decision, under which a ticker opened once stayed in
+every nightly job forever (595 tickers on 2026-10-02: 518 index members, 13 watchlist-only, 64 viewed-only). Investigation:
+`docs/tracked-universe-expiry-investigation-2026-10-02.md`; spec: `docs/specs/tracked-universe.md`. **Rule (owner):** in the
+nightly universe only if (a) S&P 500 / Nasdaq-100 / Dow member, (b) on any watchlist, (c) in the system set (the 11 sector
+ETFs plus SPY), or (d) viewed in the last 30 days; viewing re-adds it; nothing is deleted. **Added by the owner the same day:**
+(e) a Moat rating, custom valuation or bank-capital entry never expires (Monthly Momentum would otherwise silently lose 29
+of its 403 rows), and a delisted flag removes a ticker from every job at once.
+**Mechanism:** one helper `data/tracked_universe.py::load_tracked_universe` read by every nightly and weekly job (the old
+wide set stays as `load_all_known_tickers` for the non-US purge, the delisted sync, the search fallback and the backfills);
+`TickerView(ticker, last_viewed_at)` written by `GET /summary` after it succeeds, at most once per ticker per day;
+`init_db()` seeds it once for every existing ticker with the migration time (30 days of grace, idempotent). **User-facing
+effects:** the Screener's default `all` universe hides expired rows (`ScreenerMeta.hidden_inactive`, shown in the page
+subtitle; saved views just show fewer rows); the header score chip recomputes a row older than 36 h on view; the ETF
+Overview fetches daily bars on view when the cache is empty or behind (about one call, on demand only). **Delisted
+flag:** it is no longer permanent: the weekly sync clears it when the whole delisted list was read, the ticker is off it, and a
+live `/profile` says `isActivelyTrading: true`. **Unchanged on purpose:** `prune_cache` (an expired ticker's cache rows go about
+210 days after its last view; its score row stays), every cron time, Liquidity Zone/BB+RSI/Warren (monitored watchlists
+only). **Effect (projected from the live DB):** universe 595 -> 590 on the first run (the 5 delisted leave at once) -> 563 on
+day 31 (20 stocks and 7 ETFs expire); about 3 FMP calls per dropped ticker per night. **Open:** a future ETF momentum
+universe must be added to `SYSTEM_TICKERS`.
+
 ### 2026-10-02 — Cron reschedule: Sunday block first, technical chain 1:00-1:40, fundamentals 2:00
 
 All UTC (the box is UTC). Weekly index-list refreshes 1:00/1:05/1:10 → **12:00/12:05/12:10 AM Sunday** and the Sunday

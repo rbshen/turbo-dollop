@@ -433,9 +433,10 @@ keep serving and the Warren/BB+RSI nightly jobs record `skipped`.
 ## Delisted-ticker handling (2026-09-23; detection replaced in Phase 6a)
 
 **TWTR, WBA, EA, AVB, EQR** are the five flagged tickers (TWTR, WBA, EA delisted; AVB and EQR merged
-into Vivmark Residential, VMRK, trading from 2026-08-18) and stay in `load_full_tracked_universe`
-forever (any ticker that ever got a `TickerScore` row never drops out), so the nightly bar jobs
-would re-attempt them every night. **Provenance (corrected 2026-09-30):** all five carry
+into Vivmark Residential, VMRK, trading from 2026-08-18). Until 2026-10-02 they stayed in the nightly
+universe forever (any ticker that ever got a `TickerScore` row never dropped out), so the nightly bar jobs
+re-attempted them every night; since then a flagged ticker is excluded from `load_tracked_universe`
+(`docs/specs/tracked-universe.md`) altogether, including the weekly fundamentals refetch. **Provenance (corrected 2026-09-30):** all five carry
 `delisted_at = 2026-09-24 10:17:02`, written by a manual `stale_data_health_check` run under the
 *earlier staleness heuristic* (SharedBarsCache last daily bar more than 30 days old), not by the
 `/delisted-companies` sync below — the sync only sets a NULL flag, so it never rewrote them, and
@@ -448,24 +449,28 @@ FMP's own delisted date is not stored anywhere.
   week); a tracked ticker listed with a delisted date on/before today is flagged. (An earlier
   version of this section said this was "verified against the live endpoint" for the five tickers
   above; that is not reproducible from cached data and is not what set their flags, see above.)
-- **Detection rules.** Absence is never evidence: no flag for an unlisted ticker, and an existing
-  flag is **never cleared** (the earlier staleness heuristic, live-probe revival and auto-clear
-  are gone). Guards on a hit: a delisted date in the future is a scheduled delisting (ignored); a
+- **Detection rules.** Absence is never evidence: no flag for an unlisted ticker. Guards on a hit: a delisted date in the future is a scheduled delisting (ignored); a
   symbol whose cached profile `ipoDate` is after the delisted date is a reused symbol (ignored);
   FMP's `BF.B` matches our `BF-B`. A page error uses what was fetched and reports "delisted list
   incomplete" (paging ties can also drop a row at a page boundary; the weekly rerun catches it).
-  **Open decision:** a relisted symbol stays flagged until someone clears `delisted_at` by hand.
+  **Clearing (2026-10-02):** a flag is cleared by the weekly run only when the whole list was read (`complete`), the
+  ticker is no longer on it as a qualifying hit, AND a live `/profile` call says `isActivelyTrading: true` (at most 50
+  re-checks a run). An incomplete list, a failed call or an inactive profile keep the flag. `sync_delisted_flags` takes
+  the wide known set (`load_all_known_tickers`): the tracked universe excludes flagged tickers, which would make them
+  impossible to match or clear. The manual `delisted_at = None` recipe in `backend/OPS_RUNBOOK.md` still works.
 - **The nightly bar jobs skip a flagged ticker** via
   `stale_data_health_check.load_delisted_tickers(session)`: Trend, Liquidity Zones and
   `data/momentum_data.py::compute_and_store_momentum_snapshot` drop it from the fetch and compute
-  loop, and each summary carries `skipped_delisted_count`. Scoped to the DB-derived universe
+  loop, and each summary carries `skipped_delisted_count` (the universe already excludes them, so the count is read
+  from the flag table directly). Scoped to the DB-derived universe
   only — the 1:05 job's `--tickers`/`--limit` escape hatch bypasses it. Market Breadth and Sector
   Heatmap need no change (their universes — `IndexConstituent` sp500 and 11 fixed ETFs — never
   contained these).
 - **Nothing is ever deleted**: `TickerScore`, `FundamentalsCache`, Watchlist and ticker-page
   history stay intact; the flag stops price-bar re-fetching and (since 2026-09-30) hides the ticker
   from every Screener universe and the Screener's meta count (see overview.md, "Screener excludes
-  delisted tickers"). The row itself is still recomputed nightly.
+  delisted tickers"). The row itself is no longer recomputed nightly (the flag removes it from the universe since
+  2026-10-02), so it stays frozen at its last values.
 
 ## US-listed tickers only (non-US cleanup, 2026-09-26)
 
@@ -492,7 +497,7 @@ last-close and corporate-events universes.
 - **Weekly safety net**: `pipeline.stale_data_health_check` first runs `pipeline/non_us_purge.py`,
   deleting any tracked ticker whose cached profile exchange is not a US venue (or, with no
   profile, whose symbol is dotted) from every table with a `ticker` column. Local-only.
-  **Refuses (deletes nothing) if more than 2% of the tracked universe would go**
+  **Refuses (deletes nothing) if more than 2% of the known tickers (`load_all_known_tickers`) would go**
   (`DEFAULT_MAX_FRACTION = 0.02`) — that signals an exchange-name mismatch in `US_EXCHANGES`, not
   real non-US tickers; the report and heartbeat say "REFUSED".
 - Legacy `source="yahoo"` handling in the shared bars cache is behaviour, not a stray reference,

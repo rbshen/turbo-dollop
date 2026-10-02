@@ -160,10 +160,10 @@ outputs onto `TickerScore`, so it has to run after all three). Each can also be 
 `uv run python -m pipeline.<name>` from `backend/`.
 
 **`nightly_score_recompute`** — cache-only `TickerScore` recompute
-(`compute_ticker_score(cache_only=True)`) across every ticker with any
-cached FMP data or an existing score row, not just the S&P 500/Dow
-constituent list the nightly fetch job's own end-of-loop recompute
-covers. Zero FMP calls, so it runs daily rather than weekly, and is safe
+(`compute_ticker_score(cache_only=True)`) across the tracked universe
+(`data/tracked_universe.py`, see "Tracked universe" below), not just the
+S&P 500/Dow constituent list the nightly fetch job's own end-of-loop
+recompute covers. Zero FMP calls, so it runs daily rather than weekly, and is safe
 to run anytime. Success: a log line `Recompute complete. Processed: N.
 ... Failed: 0.` in `backend/logs/nightly_score_recompute.log`. Built
 after an investigation found tickers viewed ad hoc (outside the index
@@ -208,8 +208,8 @@ mismatches against 36 for stage alone.)
 (`backend/analysis/trend_structure/weinstein.py`; the "trend" job, package,
 table and endpoint names are historical -- the swing/BOS trend-structure
 engine they were named for was removed 2026-10-01) for the same
-full tracked universe `nightly_fundamentals_fetch`/`nightly_score_recompute`
-use, upserting one `TrendAnalysis` row per ticker
+tracked universe `nightly_fundamentals_fetch`/`nightly_score_recompute`
+use (`data/tracked_universe.py`), upserting one `TrendAnalysis` row per ticker
 (`data/trend_analysis_data.py`). Sourced from FMP daily bars (data group `daily_prices`) through
 the shared bars cache, not fundamentals endpoints. Fetches the whole
 universe's OHLCV in **one** batch
@@ -384,9 +384,9 @@ cleanly rather than leaving a gap. The only real caveat (shared with
 `logrotate`'s own copytruncate mode) is a narrow race window where a
 line written by a live process exactly during the rotation is lost.
 
-**`stale_data_health_check`** — reports how many tickers in the full
-tracked universe (not just S&P 500/Dow — widened 2026-09-11, see the
-script's own module docstring) haven't had their `profile` cache row
+**`stale_data_health_check`** — reports how many tickers in the
+tracked universe (not just S&P 500/Dow — widened 2026-09-11; since 2026-10-02 an expired or
+delisted ticker is not refreshed on purpose, so it is not reported) haven't had their `profile` cache row
 refreshed within 10 days (a 3-day buffer past the 7-day staleness window,
 to tolerate one missed nightly run without a false alarm). Prints a
 readable report (fresh / stale / never-fetched counts, plus the actual
@@ -412,13 +412,15 @@ universe-membership check, the same job family as the index scrapers, not
 earnings/dividends/splits). It pages FMP's `/delisted-companies` (group `index_membership`,
 ~157 sequential calls of 100 rows) and sets `TickerScore.delisted_at` for any tracked ticker
 listed with a delisted date on/before today (a reused symbol — profile `ipoDate` after the
-delisted date — is ignored). **A ticker the endpoint does not list is never flagged and an
-existing flag is never cleared**; the old stale-bar/Massive+Yahoo heuristic and auto-clear are
-gone. Nightly Weinstein/Liquidity Zone/Momentum skip a flagged ticker's fetch/compute entirely.
+delisted date — is ignored). **A ticker the endpoint does not list is never flagged.** Since
+2026-10-02 an existing flag **is** cleared when the whole list was read, the ticker is no
+longer on it, and a live `/profile` call says `isActivelyTrading: true` (the heartbeat message
+then says `delisted flag cleared: X`); the sync reads the wide known set
+(`load_all_known_tickers`) because a flagged ticker is excluded from the tracked universe. Nightly Weinstein/Liquidity Zone/Momentum skip a flagged ticker's fetch/compute entirely.
 Nothing is ever deleted. The cron heartbeat message names anything newly flagged, or says
 `delisted sync skipped (index_membership off)` / `delisted list incomplete` (a page failed; the
 next weekly run retries).
-**To manually clear a flag** (a relisted symbol stays flagged until you do this):
+**To manually clear a flag** (normally unnecessary now; use it when the automatic re-check cannot, e.g. FMP's profile still reads inactive):
 ```
 uv run python -c "
 from sqlmodel import Session
@@ -555,6 +557,40 @@ writes: `GET /api/config/cron-health` returns `{"enabled": false, "jobs":
 accumulating normally the whole time — this is a display kill-switch, not
 a pause of the monitoring itself, useful for an extended FMP pause where
 that display would just be noise the operator already knows about.
+
+## Tracked universe (which tickers the nightly jobs process), 2026-10-02
+
+Spec: `docs/specs/tracked-universe.md`. One helper, `data/tracked_universe.py::load_tracked_universe`: index members,
+any watchlist, the system set (11 sector ETFs plus SPY), tickers with manual data (Moat, custom valuation, bank
+capital), and tickers viewed in the last 30 days, minus delisted-flagged. A viewed-only ticker not opened for 30 days
+leaves the nightly jobs and the Screener's `all` universe (its data stays; viewing it again re-adds it). `GET
+/api/tickers/{t}/summary` records a view (`TickerView`, at most one write per ticker per day).
+
+**First start after deploy.** `init_db()` creates `tickerview` and, because it is empty, seeds one row per existing ticker
+(cached profile, score row, watchlist entry or index member: 595 on 2026-10-02) with `last_viewed_at = now`, so nothing
+expires for 30 days. A second `init_db()` (restart, any cron job) does nothing. It runs in the backend's startup and in
+every cron job, whichever starts first on the new code; the log line is `Seeded N ticker_view rows ...`.
+
+**Back up first** (the seed only adds rows, but take the usual copy): `cd backend && uv run python -m pipeline.backup_db`
+(writes a compressed copy into `backend/backups/`; mind the free space on `/`, see `backup_db` above), or stop the app and
+`cp fathom.db fathom.db.pre-ticker-view`.
+
+**Verify after restart:**
+1. `uv run python -m pipeline.tracked_universe_report`: expect `TickerView rows: 595` (about), first and last view within the
+   same minute, by reason `index 518, viewed 27, watchlist 13, manual 29, system 3, delisted 5` (the 5 delisted are out at
+   once, so "in the nightly universe" reads 590), and no ticker leaving within 7 days. `--days 35` lists the 27 that leave
+   on day 31.
+2. Or in SQL: `SELECT COUNT(*), MIN(last_viewed_at), MAX(last_viewed_at) FROM tickerview;`
+3. Next morning, the nightly messages: the Weinstein job still reads `... 5 skipped as delisted`, fundamentals processes ~5 fewer
+   tickers than before, and the score recompute log says `for 590 tickers`.
+4. Open any ticker page, then re-run the report: that ticker's `last_viewed_at` is now today's date.
+5. About day 31 (2026-11-02 if first started 2026-10-02): the 27 viewed-only tickers drop out (590 -> 563), the Screener
+   subtitle reads "20 not viewed in 30 days are hidden" (stocks only), and the nightly call counts fall by roughly 3 per
+   dropped ticker.
+
+**Roll back:** revert the commits and restart. `tickerview` is an inert table the old code ignores (drop it only if you
+want it gone: `DROP TABLE tickerview;`); no other table changed. A cleared delisted flag is restored with
+`UPDATE tickerscore SET delisted_at = datetime('now') WHERE ticker = '...'`.
 
 ## Monitored-watchlist rename (W1-W5 -> E1-E5), 2026-10-02
 

@@ -137,9 +137,10 @@ its own rows and still shows an ETF a user explicitly added.
 
 - **How ETFs got in**: nothing ever filtered them. FMP's search returns ETFs; viewing one
   (`GET /api/tickers/{t}/score`'s fallback, or the Watchlist's `compute_ticker_score`) writes a
-  `TickerScore` row, and `load_full_tracked_universe` then keeps it in every nightly sweep
-  (profile cached ⇒ "ever-viewed"). The Screener's default universe, `all`, returns every
-  `TickerScore` row; an ETF is never an index constituent, so `sp500`/`dow`/`nasdaq` never held
+  `TickerScore` row, and the tracked universe then kept it in every nightly sweep
+  (profile cached ⇒ "ever-viewed"; since 2026-10-02 a viewed-only ticker leaves the sweeps 30 days after its last
+  view, see [Tracked universe](tracked-universe.md)). The Screener's default universe, `all`, returns every
+  `TickerScore` row in the nightly universe; an ETF is never an index constituent, so `sp500`/`dow`/`nasdaq` never held
   one. At the time of the fix the real DB had 1 ETF among 581 rows (SPY, viewed via search only).
 - **Detector**: FMP `/profile`'s `isEtf`/`isFund` — the same flag
   `classify_company_type(is_fund=...)` reads (returning company type `"ETF"`; see
@@ -217,3 +218,14 @@ Assessment or Valuation in either direction:
   Heatmap, Market Breadth) computed from price bars, never from the fundamentals pipeline. See
   [Weinstein Stage](weinstein-stage.md),
   [Sector Heatmap](sector-heatmap.md), and [Market Breadth](market-breadth.md).
+
+## Screener hides expired viewed-only tickers (2026-10-02)
+
+`universe=all` returns the `TickerScore` rows of the **tracked universe** (`data/tracked_universe.py`, see
+[Tracked universe](tracked-universe.md)), not every row: a ticker that was only ever opened by hand and not for 30 days,
+with no watchlist, index, system-set or manual-data (Moat, custom valuation, bank capital) reason to stay, has left the
+nightly jobs, so its frozen score is hidden rather than shown as current. `GET /api/screener/meta` adds
+`hidden_inactive` (stock rows hidden, `universe=all` only, 0 otherwise); the page subtitle appends "N not viewed in 30
+days are hidden" when it is above 0. Viewing the ticker again re-adds it immediately and recomputes its score (the header
+chip refreshes a row older than 36 hours). Saved views store filters, not results, and simply show fewer rows. The
+sp500/dow/nasdaq universes are unchanged. The Watchlist is unaffected (it computes its rows on demand).

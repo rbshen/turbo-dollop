@@ -39,6 +39,7 @@ backend/     FastAPI app, organized into packages by role (2026-08-05
                news_data.py, segmentation_data.py, moat.py,
                etf_data.py (ETF page Overview + "known ETF" lookups),
                watchlist_data.py, watchlists.py, saved_screener_filters.py,
+               tracked_universe.py (the one nightly-universe definition),
                ticker_score.py, trend_analysis_data.py (the
                "trend" names are historical -- Weinstein only; see
                docs/specs/weinstein-stage.md).
@@ -63,6 +64,7 @@ backend/     FastAPI app, organized into packages by role (2026-08-05
                nightly_liquidity_zone_calculation.py,
                nightly_price_target_snapshot.py,
                monthly_momentum_snapshot.py, recompute_ticker_scores.py,
+               tracked_universe_report.py (read-only universe report),
                audit_fixture_contamination.py, refresh.py, prune_cache.py,
                backup_db.py, rotate_logs.py, stale_data_health_check.py --
                see backend/OPS_RUNBOOK.md for what each of the latter
@@ -92,6 +94,10 @@ Every cron entry in `crontab.txt` invokes its script as `-m package.module` (e.g
 Each watchlist is capped at `WATCHLIST_CAPACITY` (100 tickers, `backend/core/main.py`) — adding tickers past the cap is rejected with an explanatory error rather than silently truncating.
 
 **Monitored watchlists.** A watchlist whose name is `E<positive integer>` (`E1`, `E6`, `E10`, ... -- no upper limit on the number of lists) or exactly `ETF` has a special role beyond ordinary user-created lists: the Liquidity Zone (LP), BB+RSI and Warren nightly jobs read from the deduped union of every such list (see docs/specs/liquidity-zones.md for the full mechanism) -- a ticker on more than one monitored list is only processed once, and a ticker on none of them has no row in any of those features' tables at all. The rule is defined once, in `data/watchlists.py` (`MONITORED_WATCHLIST_PATTERN`, `is_monitored_watchlist_name`, `list_monitored_tickers`): case-sensitive full match, no leading zeros (`E0`, `E01`, `e1`, `ETFs`, `W1` are NOT monitored). The three jobs and the daily-bars backfill all call that helper -- never re-declare the pattern in a job (`tests/test_watchlists.py` fails if one does). The ETF page's "Add to watchlist" button (`POST /api/tickers/{t}/etf-watchlist`) adds to the list named `ETF`, creating it on first use; `WatchlistOut.monitored` tells the frontend which lists are monitored so it never re-implements the name rule (see docs/specs/etf-page.md). Changing the name of a monitored list silently drops it from the jobs, and its readings are cleared after 7 days. The lists were `W1`-`W5` until 2026-10-02 (migrated by `pipeline/rename_monitored_watchlists.py`, see `backend/OPS_RUNBOOK.md`); there is no cap on how many lists exist, only the 100-ticker cap above on each list. In practice the number of monitored tickers is bounded by the nightly cron slot widths (about 1.7-2.4 s of CPU per ticker across the three jobs; BB+RSI's 5-minute slot overruns around 235-510 tickers). `docs/watchlist-rename-investigation-2026-10-02.md` has the load numbers.
+
+## Tracked universe (which tickers the nightly jobs process)
+
+Defined once, in `backend/data/tracked_universe.py::load_tracked_universe` (spec: docs/specs/tracked-universe.md; replaces the 2026-08-06 "index + ever-viewed + watchlisted" rule): a ticker is in when it is not delisted-flagged and is (a) an S&P 500, Nasdaq-100 or Dow member, (b) on any watchlist, (c) in `SYSTEM_TICKERS` (the 11 sector ETFs plus SPY, protection only, never insertion), (d) viewed in the last 30 days (`TickerView.last_viewed_at`, written by `GET /api/tickers/{t}/summary` after it succeeds, at most once per ticker per day), or (e) carrying manual data (Moat, custom valuation, bank-capital entry), which never expires because Monthly Momentum is "Moat-rated tracked tickers". A viewed-only ticker not opened for 30 days is **expired**: it leaves every nightly job and the Screener's `all` universe (`ScreenerMeta.hidden_inactive` counts the hidden stock rows), its data stays, and viewing it again re-adds it (the header score chip recomputes a row older than 36 h). **A future ETF momentum universe must be added to `SYSTEM_TICKERS`.** `load_all_known_tickers` is the old wide set, kept for the non-US purge, the delisted sync, the search fallback and the backfills. Never re-declare the union in a job or call the removed `load_full_tracked_universe` (`tests/test_tracked_universe.py` fails if one does). `core/db.py::init_db` seeds `TickerView` once for every existing ticker with the migration time (30 days of grace; idempotent). A delisted flag removes a ticker from every job immediately and is cleared by the weekly sync when FMP no longer lists it and its live profile says `isActivelyTrading`. Operations (verify, back up, roll back): `backend/OPS_RUNBOOK.md`, "Tracked universe".
 
 ## Caching policy
 
@@ -151,6 +157,8 @@ Full mechanism, exact cadence windows, and past incidents are documented in `bac
 Scoring methodology and feature-specific detail live in `docs/specs/*.md` and `docs/archive/*.md`, not in this file.
 
 **Scoring methodology:** Financials — docs/specs/financials.md. Growth Rate — docs/specs/growth-rate.md. Debt — docs/specs/debt.md. Profitability — docs/specs/profitability.md. Valuation (Step 3) — docs/specs/valuation.md. Overall Assessment step weighting, Screener ETF exclusion — docs/specs/overview.md. Company classification / non-lender ticker overrides / Bank CET1-NPL standard — docs/specs/company-type-variations.md. Economic Moat — docs/specs/economic-moat.md. Glossary of terms — docs/specs/glossary.md. Speculative Growth lens — docs/specs/speculative-growth.md.
+
+**Tracked universe** (nightly ticker set, 30-day view expiry, protected set, seed, delisted clearing) — docs/specs/tracked-universe.md.
 
 **ETF page** (ticker page variant for `isEtf || isFund`: Overview/Technical/Chart, `/etf/info`, `etf_info` group, ETF watchlist button, Moat guard) — docs/specs/etf-page.md.
 

@@ -25,7 +25,7 @@ same lazy tab mounting). The summary request is still the gate for both, so a ba
   `data/momentum_data.py` additionally drops `TickerScore.is_etf` rows from the monthly momentum universe (covers a
   rating set before the guard).
 
-## Overview tab (FMP `/etf/info`, plus a cache-only Trading data block)
+## Overview tab (FMP `/etf/info`, plus a Trading data block read from cache, after an on-demand bar warm-up)
 
 `GET /api/tickers/{t}/etf-overview` -> `EtfOverviewOut`. Two columns, 7/5 (`lg:grid-cols-12`). The fund facts, About text
 and sector weights come from FMP `/etf/info`; the **Trading data** block (below) is computed from rows the app already
@@ -51,7 +51,7 @@ caches and adds no FMP call.
 `EtfOverviewTab` between Fund facts and About this fund with the same `DefinitionRow` style, a sentence-case section
 title and a 13px tertiary caption (`lib/etfOverview.ts::tradingDataRows` / `tradingDataCaption`). It is built only when
 `status` is `ok` (the unavailable and no-data states show their message alone) and is **None, and the section hidden,
-when every row is omitted**. No new FMP call, endpoint, table or cron job: every input is a cache-only read.
+when every row is omitted**. No new endpoint, table or cron job: every input is a cache-only read; the one possible FMP call is the on-demand daily-bar warm-up described under "Bar coverage" (2026-10-02).
 
 | Row | Source | Omitted when |
 |---|---|---|
@@ -65,9 +65,11 @@ when every row is omitted**. No new FMP call, endpoint, table or cron job: every
   basis the Sector Heatmap uses (`docs/specs/sector-heatmap.md`), and the same calendar-offset windows (last close on/before
   `anchor - 1 month` / `1 year`; YTD base is the prior year's last close). It does **not** read the 7-day-cached
   `price_change` row, so it is never a week old. The anchor is the newest completed-session bar; the caption names its date.
-- **Bar coverage.** The read is a pure cache read (it never fetches, writes or widens the shared cache), so an ETF with no
-  cached bars shows no performance or volume rows until the next `nightly_trend_calculation` (or until its Technical/Chart tab
-  fetches them). The read covers 400 calendar days, so a 1Y window needs a bar on/before `anchor - 1 year`: a cache only
+- **Bar coverage.** The read itself is a pure cache read (it never fetches, writes or widens the shared cache). Since
+  2026-10-02 the Overview request first runs `_warm_daily_bars`: when the shared daily-bar cache holds none or is behind the
+  last completed session (a first view, or an ETF that left the nightly universe 30 days after its last view), it fetches
+  and caches them through `get_or_fetch_bars` (one FMP call, only then, never from a nightly job; a failure is swallowed
+  and the block simply stays as it was). An ETF in the nightly universe always has current bars, so it costs nothing. The read covers 400 calendar days, so a 1Y window needs a bar on/before `anchor - 1 year`: a cache only
   one year wide, or a fund younger than a year, omits 1Y (never a clamped since-listing value). A bar dated after the last
   completed session (an in-progress one) is dropped, as is a last bar written before its own session's close (the
   provisional-bar rule); a newest bar more than 5 calendar days behind the last completed session omits every
@@ -136,8 +138,9 @@ so the frontend never re-implements the naming rule. An ETF only on an unmonitor
   ETF and still makes it. Stock rows are unchanged.
 - **Sectors heatmap:** each sector label is one `Link` to `/tickers/<ETF>` (new tab, like other ticker links).
 - **`nightly_fundamentals_fetch`** skips known ETFs/funds when it builds its own universe
-  (`load_fundamentals_fetch_universe`); an explicit `--tickers` list is still honoured. The score recompute, momentum and
-  search still use the full tracked universe.
+  (`load_fundamentals_fetch_universe`); an explicit `--tickers` list is still honoured. The score recompute and momentum
+  use the tracked universe (an ETF viewed-only for 30 days leaves it, see [Tracked universe](tracked-universe.md)); search
+  uses the wide known set.
 
 ## `/summary` for an ETF: the stock-only fetches are skipped (2026-10-02)
 

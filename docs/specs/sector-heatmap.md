@@ -132,3 +132,8 @@ revisiting against the app's current (FMP-only) price-data architecture before t
 back up, since the investigation's own source-selection reasoning (recommending Yahoo, at the
 time the app's price-only provider) predates the FMP migration and Yahoo's later full removal
 (see `docs/archive/claude-md-history-fmp-migration.md`, "Phase 6b").
+
+**If the ETF momentum ranking is ever built, its ETF universe must be added to `SYSTEM_TICKERS` in
+`data/tracked_universe.py`** (see [Tracked universe](tracked-universe.md)): a ticker outside the nightly universe stops
+refreshing 30 days after its last view, which would silently freeze that ranking's inputs. Today the system set is the 11
+sector ETFs plus SPY only.
