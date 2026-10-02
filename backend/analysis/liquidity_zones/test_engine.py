@@ -150,3 +150,71 @@ def test_kept_breached_threshold_uses_raw_valid_swings_not_cluster_representativ
 
     assert 94.0 in [z.price for z in result.support]  # 94/95 clustered to 94
     assert result.broken_support is None
+
+
+# ---------------------------------------------------------------------------
+# with_timestamps (intraday callers): additive, daily/weekly results unchanged
+# ---------------------------------------------------------------------------
+
+
+def _intraday_ohlc(low: list[float], high: list[float]) -> pd.DataFrame:
+    # Four candles a day (09:30/11:30/13:30/15:30) on a naive ET wall-clock index, so several swings share one date.
+    idx = pd.DatetimeIndex([pd.Timestamp("2026-01-05 09:30") + pd.Timedelta(days=i // 4, hours=2 * (i % 4)) for i in range(len(low))])
+    close = [(lo + hi) / 2 for lo, hi in zip(low, high)]
+    return pd.DataFrame({"open": close, "high": high, "low": low, "close": close, "volume": [1000] * len(low)}, index=idx)
+
+
+def test_with_timestamps_default_leaves_every_timestamp_field_none():
+    low = [100, 100, 90, 100, 100, 100, 100, 100, 100]
+    high = [105, 105, 92, 105, 105, 105, 130, 105, 105]
+    result = compute_liquidity_zones(_ohlc(low, high), _s(cluster_pct=2.0))
+    assert result.support and all(z.formed_ts is None for z in result.support + result.resistance)
+
+
+def test_with_timestamps_does_not_change_anything_but_the_new_fields():
+    low = [100, 100, 90, 100, 100, 100, 100, 100, 100]
+    high = [105, 105, 92, 105, 105, 105, 130, 105, 105]
+    df = _intraday_ohlc(low, high)
+    plain = compute_liquidity_zones(df, _s(cluster_pct=2.0))
+    stamped = compute_liquidity_zones(df, _s(cluster_pct=2.0), with_timestamps=True)
+    strip = lambda zs: [(z.price, z.cluster_size, z.formed_at) for z in zs]  # noqa: E731
+    assert strip(stamped.support) == strip(plain.support) and strip(stamped.resistance) == strip(plain.resistance)
+    assert stamped.last_price == plain.last_price
+
+
+def test_with_timestamps_records_the_exact_swing_bar_not_just_the_date():
+    low = [100, 100, 90, 100, 100, 100, 100, 100, 100]
+    high = [105, 105, 92, 105, 105, 105, 130, 105, 105]
+    df = _intraday_ohlc(low, high)
+    result = compute_liquidity_zones(df, _s(), with_timestamps=True)
+    support = result.support[0]
+    assert support.price == 90 and support.formed_ts == df.index[2].to_pydatetime()
+    assert support.formed_ts.hour == 13 and support.formed_ts.date() == support.formed_at  # 3rd candle = 13:30
+    resistance = result.resistance[0]
+    assert resistance.price == 130 and resistance.formed_ts == df.index[6].to_pydatetime()
+
+
+def test_with_timestamps_distinguishes_two_swings_on_the_same_date():
+    # k=1 swing lows at candles 1 and 3 (both unbreached), same trading day.
+    low = [100, 90, 100, 95, 100, 100]
+    df = _intraday_ohlc(low, [v + 5 for v in low])
+    result = compute_liquidity_zones(df, _s(swing_bars_each_side=1), with_timestamps=True)
+    stamps = sorted(z.formed_ts for z in result.support)
+    assert stamps == [df.index[1].to_pydatetime(), df.index[3].to_pydatetime()]
+    assert df.index[1].date() == df.index[3].date() and df.index[1] != df.index[3]
+
+
+def test_with_timestamps_carries_through_clustering_and_the_broken_zone():
+    # 99 (earlier) and 100 cluster (1%): support representative is the lowest member (99), with ITS timestamp.
+    low = [105, 99, 105, 100, 105, 105, 105]
+    df = _intraday_ohlc(low, [v + 5 for v in low])
+    clustered = compute_liquidity_zones(df, _s(swing_bars_each_side=1, cluster_pct=2.0), with_timestamps=True)
+    assert [(z.price, z.cluster_size) for z in clustered.support] == [(99, 2)]
+    assert clustered.support[0].formed_ts == df.index[1].to_pydatetime()
+
+    # A swing low (95) later breached by a lower low: reported as the kept-broken support with both stamps.
+    low2 = [100, 95, 100, 100, 94, 100, 100, 100]
+    df2 = _intraday_ohlc(low2, [v + 5 for v in low2])
+    broken = compute_liquidity_zones(df2, _s(swing_bars_each_side=1, breach_recency_bars=10), with_timestamps=True).broken_support
+    assert broken is not None and broken.price == 95
+    assert broken.formed_ts == df2.index[1].to_pydatetime() and broken.breached_ts == df2.index[4].to_pydatetime()

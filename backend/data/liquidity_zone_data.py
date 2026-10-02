@@ -12,6 +12,7 @@ never on either watchlist or hasn't been processed yet.
 """
 
 import json
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -20,7 +21,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session
 
 from analysis.liquidity_zones.engine import compute_liquidity_zones
-from analysis.liquidity_zones.types import BrokenZone, LiquidityZoneSettings, Zone
+from analysis.liquidity_zones.types import BrokenZone, LiquidityZoneResult, LiquidityZoneSettings, Zone
 from analysis.trend_structure.weinstein import resample_to_weekly
 from core.db import engine
 from core.models import LiquidityZoneAnalysis
@@ -37,6 +38,12 @@ LOOKBACK_DAYS = 4 * 365
 
 # Sliced from the same fetched frame the Weekly timeframe resamples in full.
 DAILY_LOOKBACK = pd.DateOffset(years=1)
+
+# The 2H.90D Chart range's own LP read (computed live on 2h candles, never stored): `breach_recency_bars`
+# is in each timeframe's native bars (see LiquidityZoneSettings), and the shared setting's 5 would mean ~1.25
+# sessions on 2h candles versus 5 days on the daily chart -- so 2h is hardcoded to 20 candles (5 sessions).
+# Every other LP setting stays the shared one; there is deliberately no Settings UI for this.
+LP_2H_BREACH_RECENCY_BARS = 20
 
 # How long a row can go un-recomputed (e.g. its ticker dropped off every
 # monitored watchlist) before sweep_stale_liquidity_zones clears it.
@@ -135,6 +142,16 @@ def compute_and_store_liquidity_zones(ticker: str, ohlcv: pd.DataFrame, source: 
             stmt = stmt.on_conflict_do_update(index_elements=["ticker", "timeframe"], set_=fields)
             session.execute(stmt)
         session.commit()
+
+
+def compute_liquidity_zones_2h(candles: pd.DataFrame, settings: LiquidityZoneSettings) -> LiquidityZoneResult:
+    """LP over a full 2h candle series (naive-ET window-start index) for the Chart tab's 2H.90D range.
+    Pure compute, no storage. Zones carry their exact swing-candle timestamp (formed_ts); the CALLER
+    filters to the visible window AFTER this runs, so the per-side cap/clustering see every valid swing in
+    the full history -- the same cap-then-filter order the daily chart has."""
+    return compute_liquidity_zones(
+        candles, replace(settings, breach_recency_bars=LP_2H_BREACH_RECENCY_BARS), with_timestamps=True
+    )
 
 
 def get_liquidity_zone_data(ticker: str) -> LiquidityZonesOut | None:

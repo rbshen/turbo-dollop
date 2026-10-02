@@ -5,7 +5,7 @@ full methodology.
 """
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 
@@ -21,6 +21,9 @@ class SwingEvent:
     date: date
     price: float
     breach_pos: int | None
+    # Exact bar timestamp, set only when the caller asks for it (intraday series, where several swings
+    # share one date); None keeps daily/weekly results unchanged.
+    ts: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,7 @@ class Zone:
     price: float
     cluster_size: int
     formed_at: date
+    formed_ts: datetime | None = None  # exact swing-bar timestamp (intraday only; see SwingEvent.ts)
 
 
 @dataclass(frozen=True)
@@ -54,6 +58,8 @@ class BrokenZone:
     price: float
     formed_at: date
     breached_at: date
+    formed_ts: datetime | None = None  # intraday only; see SwingEvent.ts
+    breached_ts: datetime | None = None
 
 
 @dataclass(frozen=True)

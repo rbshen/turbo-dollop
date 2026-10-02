@@ -51,3 +51,13 @@ def test_cluster_pct_zero_disables_clustering():
 
 def test_empty_input_returns_no_zones():
     assert cluster_prices([], cluster_pct=2.0, representative="min") == []
+
+
+def test_optional_timestamp_rides_along_to_the_representative_member():
+    from datetime import date, datetime
+
+    items = [(100.0, date(2026, 1, 1), datetime(2026, 1, 1, 9, 30)), (98.0, date(2026, 1, 1), datetime(2026, 1, 1, 11, 30)), (90.0, date(2026, 1, 2), datetime(2026, 1, 2, 9, 30))]
+    zones = cluster_prices(items, 2.0, "min")
+    assert [(z.price, z.cluster_size, z.formed_ts) for z in zones] == [(98.0, 2, datetime(2026, 1, 1, 11, 30)), (90.0, 1, datetime(2026, 1, 2, 9, 30))]
+    assert [z.formed_ts for z in cluster_prices(items, 0.0, "min")] == [i[2] for i in items]
+    assert cluster_prices([(100.0, date(2026, 1, 1))], 2.0, "min")[0].formed_ts is None  # 2-tuples unchanged

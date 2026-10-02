@@ -245,3 +245,41 @@ def test_sweep_is_idempotent_on_an_already_cleared_row(monkeypatch):
     _seed_row(engine, stale_computed_at, support_json="[]", resistance_json="[]")
 
     assert sweep_stale_liquidity_zones(now=now) == 0  # both already "[]" -- nothing left to clear
+
+
+# --- 2H.90D Chart range: live LP read on 2h candles ---------------------------------------------------------
+
+
+def _candles_2h(n: int = 80) -> pd.DataFrame:
+    """Four candles a day on a naive ET window-start index, one clean swing low early and one breached later."""
+    idx = pd.DatetimeIndex([pd.Timestamp("2026-01-05 09:30") + pd.Timedelta(days=i // 4, hours=2 * (i % 4)) for i in range(n)])
+    low, high = [100.0] * n, [105.0] * n
+    low[10] = 90.0
+    high[30] = 130.0
+    close = [(lo + hi) / 2 for lo, hi in zip(low, high)]
+    return pd.DataFrame({"open": close, "high": high, "low": low, "close": close, "volume": 1000}, index=idx)
+
+
+def test_2h_compute_hardcodes_breach_recency_to_20_candles_and_leaves_other_settings_shared():
+    from data.liquidity_zone_data import LP_2H_BREACH_RECENCY_BARS, compute_liquidity_zones_2h
+
+    assert LP_2H_BREACH_RECENCY_BARS == 20
+    candles = _candles_2h()
+    # A swing low breached 12 candles before the end: outside the shared 5-bar recency, inside the 2h 20.
+    candles.loc[candles.index[66], "low"] = 80.0  # breaches the 90 swing (and is itself the new lowest)
+    shared = LiquidityZoneSettings(swing_bars_each_side=2, cluster_pct=0.0, max_lps_per_side=3, breach_recency_bars=5)
+    result = compute_liquidity_zones_2h(candles, shared)
+    assert result.broken_support is not None and result.broken_support.price == 90.0
+    assert result.broken_support.formed_ts == candles.index[10].to_pydatetime()
+    # ...and with the 2h override ignoring the (small) shared value, the zone caps/swings still come from the shared settings.
+    assert len(result.support) <= 3 and len(result.resistance) <= 3
+
+
+def test_2h_compute_returns_timestamps_and_does_not_touch_the_database(monkeypatch):
+    from data.liquidity_zone_data import compute_liquidity_zones_2h
+
+    engine = _fresh_engine(monkeypatch)
+    result = compute_liquidity_zones_2h(_candles_2h(), LiquidityZoneSettings(swing_bars_each_side=2, cluster_pct=0.0, max_lps_per_side=3))
+    assert result.resistance and result.resistance[0].formed_ts == _candles_2h().index[30].to_pydatetime()
+    with Session(engine) as session:
+        assert session.exec(select(LiquidityZoneAnalysis)).all() == []

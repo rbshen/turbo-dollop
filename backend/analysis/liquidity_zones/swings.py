@@ -35,12 +35,13 @@ def find_swing_highs(high: pd.Series, k: int) -> pd.Series:
     return is_high.fillna(False)
 
 
-def annotate_swings(prices: pd.Series, is_swing: pd.Series, kind: str) -> list[SwingEvent]:
+def annotate_swings(prices: pd.Series, is_swing: pd.Series, kind: str, with_ts: bool = False) -> list[SwingEvent]:
     """Builds the ordered list of swing events and, for each, the position
     of the first LATER BAR (swing or not) that breaches it -- for
     kind="low" (support), a bar whose Low is strictly below the level; for
     kind="high" (resistance), a bar whose High is strictly above it.
     `prices` is the Low series for "low" and the High series for "high".
+    `with_ts` additionally records each swing bar's exact timestamp (intraday callers).
     Once breached, a level stays breached (only the first breach is
     recorded). Matches the reference Pine script's per-bar
     `if not breached and low < price` check.
@@ -56,7 +57,8 @@ def annotate_swings(prices: pd.Series, is_swing: pd.Series, kind: str) -> list[S
         hits = np.flatnonzero(later < price) if kind == "low" else np.flatnonzero(later > price)
         breach_pos = int(pos + 1 + hits[0]) if len(hits) else None
         bar_date = index[pos].date() if hasattr(index[pos], "date") else index[pos]
-        events.append(SwingEvent(pos=int(pos), date=bar_date, price=float(price), breach_pos=breach_pos))
+        ts = index[pos].to_pydatetime() if with_ts else None
+        events.append(SwingEvent(pos=int(pos), date=bar_date, price=float(price), breach_pos=breach_pos, ts=ts))
     return events
 
 

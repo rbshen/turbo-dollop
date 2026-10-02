@@ -70,7 +70,14 @@ def _select_broken_zone(
         best = min(candidates, key=lambda e: (e.price, -e.breach_pos, -e.pos))
     else:
         best = max(candidates, key=lambda e: (e.price, e.breach_pos, e.pos))
-    return BrokenZone(price=best.price, formed_at=best.date, breached_at=_bar_date(index, best.breach_pos))
+    with_ts = best.ts is not None
+    return BrokenZone(
+        price=best.price,
+        formed_at=best.date,
+        breached_at=_bar_date(index, best.breach_pos),
+        formed_ts=best.ts,
+        breached_ts=index[best.breach_pos].to_pydatetime() if with_ts else None,
+    )
 
 
 def _cap_zones(zones: list[Zone], last_price: float, settings: LiquidityZoneSettings) -> list[Zone]:
@@ -86,13 +93,15 @@ def _cap_zones(zones: list[Zone], last_price: float, settings: LiquidityZoneSett
     return [z for z in zones if id(z) in keep_ids]
 
 
-def compute_liquidity_zones(df: pd.DataFrame, settings: LiquidityZoneSettings) -> LiquidityZoneResult:
+def compute_liquidity_zones(df: pd.DataFrame, settings: LiquidityZoneSettings, with_timestamps: bool = False) -> LiquidityZoneResult:
     """df needs lowercase open/high/low/close/volume columns and a
     DatetimeIndex, ascending by date (matching every other engine in this
     codebase). Returns up to `max_lps_per_side` clustered support zones
     (below the last close) and resistance zones (above it), nearest
     first, plus at most one kept-breached zone per side (see this module's
-    docstring)."""
+    docstring). `with_timestamps=True` (intraday callers) also records each zone's exact swing-bar
+    timestamp (Zone.formed_ts / BrokenZone.formed_ts); the default leaves every result field
+    exactly as before."""
     if df.empty:
         raise ValueError("compute_liquidity_zones requires a non-empty OHLC frame")
 
@@ -103,20 +112,20 @@ def compute_liquidity_zones(df: pd.DataFrame, settings: LiquidityZoneSettings) -
     is_swing_low = find_swing_lows(df["low"], settings.swing_bars_each_side)
     is_swing_high = find_swing_highs(df["high"], settings.swing_bars_each_side)
 
-    low_events = annotate_swings(df["low"], is_swing_low, kind="low")
-    high_events = annotate_swings(df["high"], is_swing_high, kind="high")
+    low_events = annotate_swings(df["low"], is_swing_low, kind="low", with_ts=with_timestamps)
+    high_events = annotate_swings(df["high"], is_swing_high, kind="high", with_ts=with_timestamps)
 
     valid_lows = valid_prices_at(low_events, last_pos)
     valid_highs = valid_prices_at(high_events, last_pos)
 
     # Support: highest price first (adjacency for clustering), representative = lowest member.
-    support_items = sorted(((e.price, e.date) for e in valid_lows), key=lambda item: item[0], reverse=True)
+    support_items = sorted(((e.price, e.date, e.ts) for e in valid_lows), key=lambda item: item[0], reverse=True)
     all_support_zones = cluster_prices(support_items, settings.cluster_pct, representative="min")
     support_zones = [z for z in all_support_zones if z.price <= last_price]
     support_zones.sort(key=lambda z: z.price, reverse=True)  # nearest (highest) first
 
     # Resistance: lowest price first (adjacency for clustering), representative = highest member.
-    resistance_items = sorted(((e.price, e.date) for e in valid_highs), key=lambda item: item[0])
+    resistance_items = sorted(((e.price, e.date, e.ts) for e in valid_highs), key=lambda item: item[0])
     all_resistance_zones = cluster_prices(resistance_items, settings.cluster_pct, representative="max")
     resistance_zones = [z for z in all_resistance_zones if z.price >= last_price]
     resistance_zones.sort(key=lambda z: z.price)  # nearest (lowest) first

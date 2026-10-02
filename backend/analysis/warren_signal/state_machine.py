@@ -25,8 +25,18 @@ from datetime import datetime
 
 import pandas as pd
 
-from .indicators import compute_dmi_adx, compute_pivot_high, compute_pivot_low_major, compute_rsi_wilder, compute_scan_blue, compute_wvf_buy
-from .types import WarrenReplayResult, WarrenSignalEvent
+from .indicators import (
+    RSI_OVERBOUGHT,
+    RSI_OVERSOLD,
+    SCAN_BLUE_RSI_THRESHOLD,
+    compute_dmi_adx,
+    compute_pivot_high,
+    compute_pivot_low_major,
+    compute_rsi_wilder,
+    compute_scan_blue,
+    compute_wvf_buy,
+)
+from .types import WarrenReplayResult, WarrenSeries, WarrenSignalEvent
 
 STOP_PERCENT = 10.0
 BEAR1_RSI_THRESHOLD = 80.81
@@ -35,6 +45,18 @@ YELLOW_SELL_WVF_THRESHOLD = 0.40
 YELLOW_SELL_ADX_THRESHOLD = 40.0
 
 UP_KINDS = frozenset({"blue_up", "yellow_up", "gray_up"})
+
+
+def warren_reference_levels() -> dict[str, list[float]]:
+    """The thresholds the state machine actually compares against, read from the same constants it
+    uses (never restated), grouped by the indicator pane they belong on: RSI 12 (Blue trigger), 30
+    (oversold), 70 (overbought), 80.81 (bear1), 84.75 (Yellow-sell); ADX 40 (Yellow-sell gate,
+    `adx < 40`); WVF 0.40 (Yellow-sell gate, `wvf_buy <= 0.40`)."""
+    return {
+        "rsi": [float(SCAN_BLUE_RSI_THRESHOLD), float(RSI_OVERSOLD), float(RSI_OVERBOUGHT), BEAR1_RSI_THRESHOLD, YELLOW_SELL_RSI_THRESHOLD],
+        "adx": [YELLOW_SELL_ADX_THRESHOLD],
+        "wvf": [YELLOW_SELL_WVF_THRESHOLD],
+    }
 
 
 def _replay_from_signals(
@@ -153,13 +175,10 @@ def _replay_from_signals(
     )
 
 
-def replay(candles: pd.DataFrame) -> WarrenReplayResult:
-    """candles must already be the 2h session candles (see
-    analysis/entry_signal/resample.py::build_2h_session_candles, reused
-    directly -- this state machine doesn't care how its bars were built,
-    only that they're the app's own "2h" convention), with high/low/close
-    columns and a datetime index. Computes every indicator vectorized, then
-    delegates the sequential part to _replay_from_signals above."""
+def replay_with_series(candles: pd.DataFrame) -> tuple[WarrenReplayResult, WarrenSeries]:
+    """replay() plus the indicator series it computed along the way (RSI, +DI, -DI, ADX, WVF). The
+    result is identical to replay()'s -- same arrays feed the same state machine -- so a chart plotting
+    these series can never disagree with the arrows."""
     if candles.empty:
         raise ValueError("No candles given to replay against")
 
@@ -168,7 +187,7 @@ def replay(candles: pd.DataFrame) -> WarrenReplayResult:
     low = candles["low"]
 
     rsi = compute_rsi_wilder(close)
-    _, _, adx = compute_dmi_adx(high, low, close)
+    plus_di, minus_di, adx = compute_dmi_adx(high, low, close)
     wvf_buy = compute_wvf_buy(close, low)
 
     scan3 = compute_pivot_low_major(rsi)
@@ -183,7 +202,7 @@ def replay(candles: pd.DataFrame) -> WarrenReplayResult:
     timestamps = [ts.to_pydatetime().replace(tzinfo=None) if isinstance(ts, pd.Timestamp) else ts for ts in candles.index]
     rsi_vals = [float(v) if v == v else None for v in rsi.to_numpy()]  # NaN check without a numpy import here
 
-    return _replay_from_signals(
+    result = _replay_from_signals(
         scan3=scan3.to_numpy(),
         scan4=scan4.to_numpy(),
         bear1=bear1.to_numpy(),
@@ -194,3 +213,15 @@ def replay(candles: pd.DataFrame) -> WarrenReplayResult:
         low_vals=low.to_numpy(),
         timestamps=timestamps,
     )
+    return result, WarrenSeries(rsi=rsi, plus_di=plus_di, minus_di=minus_di, adx=adx, wvf=wvf_buy)
+
+
+def replay(candles: pd.DataFrame) -> WarrenReplayResult:
+    """candles must already be the 2h session candles (see
+    analysis/entry_signal/resample.py::build_2h_session_candles, reused
+    directly -- this state machine doesn't care how its bars were built,
+    only that they're the app's own "2h" convention), with high/low/close
+    columns and a datetime index. Computes every indicator vectorized, then
+    delegates the sequential part to _replay_from_signals above. See
+    replay_with_series for the variant that also returns the indicator series."""
+    return replay_with_series(candles)[0]

@@ -315,3 +315,52 @@ def test_replay_end_to_end_smoke_test_runs_against_real_indicator_pipeline():
     assert result.as_of is not None
     assert isinstance(result.events, list)
     assert result.stop_count >= 0
+
+
+# ---------------------------------------------------------------------------
+# replay_with_series / warren_reference_levels (2H.90D chart pane data)
+# ---------------------------------------------------------------------------
+
+import numpy as np
+
+from analysis.warren_signal import indicators as wi
+from analysis.warren_signal.state_machine import replay_with_series, warren_reference_levels
+
+
+def _wavy_candles(n: int = 400) -> pd.DataFrame:
+    rng = np.random.default_rng(3)
+    closes = 100 + np.cumsum(rng.normal(0, 1.2, n)) + 8 * np.sin(np.arange(n) / 9)
+    idx = pd.date_range("2026-01-05 09:30", periods=n, freq="2h", tz="America/New_York")
+    return pd.DataFrame(
+        {"open": closes, "high": closes + 1.0, "low": closes - 1.0, "close": closes, "volume": 1000}, index=idx
+    )
+
+
+def test_replay_with_series_returns_the_same_result_as_replay():
+    candles = _wavy_candles()
+    result, _ = replay_with_series(candles)
+    assert result == replay(candles)
+
+
+def test_replay_with_series_exposes_the_exact_indicator_series_the_machine_used():
+    candles = _wavy_candles()
+    _, series = replay_with_series(candles)
+    close, high, low = candles["close"], candles["high"], candles["low"]
+    pdi, mdi, adx = wi.compute_dmi_adx(high, low, close)
+    pd.testing.assert_series_equal(series.rsi, wi.compute_rsi_wilder(close))
+    pd.testing.assert_series_equal(series.plus_di, pdi)
+    pd.testing.assert_series_equal(series.minus_di, mdi)
+    pd.testing.assert_series_equal(series.adx, adx)
+    pd.testing.assert_series_equal(series.wvf, wi.compute_wvf_buy(close, low))
+    assert all(len(s) == len(candles) and s.index.equals(candles.index) for s in (series.rsi, series.plus_di, series.minus_di, series.adx, series.wvf))
+    assert series.rsi.iloc[-1] == series.rsi.iloc[-1]  # warmed up by the end
+
+
+def test_replay_with_series_raises_on_empty_candles():
+    with pytest.raises(ValueError):
+        replay_with_series(pd.DataFrame(columns=["open", "high", "low", "close"]))
+
+
+def test_reference_levels_come_from_the_engine_constants():
+    levels = warren_reference_levels()
+    assert levels == {"rsi": [12.0, 30.0, 70.0, 80.81, 84.75], "adx": [40.0], "wvf": [0.40]}

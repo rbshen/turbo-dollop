@@ -6,6 +6,8 @@ structured returns.
 from dataclasses import dataclass
 from datetime import datetime
 
+import pandas as pd
+
 # Every buy/sell arrow this engine can fire. Up-kinds are buy-side
 # (scanOverSold3/scanOverSold4-derived), Down-kinds are sell-side
 # (bear1/wvf+rsiOverbought/rsi84.75/rsiOverbought-derived). Order here has
@@ -56,3 +58,17 @@ class WarrenReplayResult:
     gray_suppressed: bool
     stop_count: int
     live_stop_price: float | None
+
+
+@dataclass(frozen=True)
+class WarrenSeries:
+    """The indicator series the state machine reads, exposed so a chart can plot exactly what drove the
+    arrows (the same objects replay() used -- not a second calculation). All share the candles' index;
+    leading values are NaN until each indicator's warm-up completes. `wvf` is wvfBuy
+    ((highest close over 22 bars - low) / highest close * 100), the only WVF the state machine uses."""
+
+    rsi: pd.Series
+    plus_di: pd.Series
+    minus_di: pd.Series
+    adx: pd.Series
+    wvf: pd.Series
