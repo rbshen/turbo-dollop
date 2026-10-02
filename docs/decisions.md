@@ -291,6 +291,25 @@ Starter's 300/min). Pinned by `test_cron_wiring.py` (order, Sunday block before 
 price-target) and `JOB_METADATA` labels/`sort_minutes`. Transition: applied 2026-10-02 after the night's run, so no job ran
 twice or was skipped; the first run on the new schedule is 2026-10-03 1:00 AM (daily) and Sunday 2026-10-04 12:00 AM (weekly).
 
+### 2026-10-02 — Honest nightly job status: no_data vs failed, one shared failure threshold, messages on the five silent jobs
+
+Findings in `docs/nightly-failures-and-schedule-ui-2026-10-02.md`. **The problem:** the price-target job read "Success" with
+"8 failed" (16 on 2026-10-02), but every one of those was an HTTP 200 with an empty body (ETFs and thinly covered stocks have no
+analyst targets), and the page only turned red when every ticker failed, so a real regression would have been invisible
+against a standing "8 failed". Five jobs also showed no message at all. **Decided:** (1) the price-target job skips known ETFs
+and funds (the `nightly_fundamentals_fetch` filter) and classifies the rest written / no_data / failed, message "N written, M no
+analyst data, K skipped (ETF), F failed", 24-hour cache unchanged; (2) one shared helper,
+`core.cron_health.check_failure_threshold`, marks a run failed (the existing red state) at failed/attempted >= **5%** or when
+everything fails, with the rate rule only from **25 attempted** so one stray error never flips a run (1/25 = 4%; two do);
+no_data and skip counts are message-only; (3) fundamentals, BB+RSI, Warren, score recompute and backup_db set a short message
+(counts or sizes), and the first four feed their per-ticker failures to the same helper; (4) the Scheduled Jobs Time cell
+wraps (`whitespace-normal`, the precedent of the Description and Message cells) so "1st–5th, 2:50 AM" no longer spills 19px
+into the Status column. **Rejected:** a new "partial/warning" health value (touches the API type, the pill map, the tests and
+the design system's Status table); counting no_data in the threshold; widening the Time column (takes room from Message and
+stays fragile); dropping PARA or any ticker (a separate expiry task covers strays). **Known limit:** fundamentals only counts
+exceptions that escape a ticker's refresh; per-statement FMP errors swallowed inside `get_stepN_data` are not visible to it.
+Cron times unchanged.
+
 ### 2026-10-01 — nightly_corporate_events disabled pending investigation
 
 The job's crontab line is commented out (`backend/crontab.txt`, and the installed crontab via `crontab crontab.txt`;

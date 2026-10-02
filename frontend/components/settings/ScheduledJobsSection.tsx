@@ -101,7 +101,7 @@ export function ScheduledJobsSection() {
                       <div className="text-text-primary">{job.description}</div>
                       <div className="font-mono text-[11px] text-text-tertiary">{job.job_name}</div>
                     </TableCell>
-                    <TableCell className="font-mono text-xs tabular-nums text-text-secondary">{job.time_label}</TableCell>
+                    <TableCell className="whitespace-normal font-mono text-xs tabular-nums text-text-secondary">{job.time_label}</TableCell>
                     <TableCell>
                       <JobStatusPill status={job.health_status} />
                     </TableCell>

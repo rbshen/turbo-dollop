@@ -77,27 +77,41 @@ one earlier manual test run → `live_consensus`).
 row the Analyst Ratings tab itself uses (1-day staleness), so tab views and the nightly job
 share one fetch — the tab's own At-a-Glance figure is now at most 1 day old after a nightly run.
 Every row written is tagged `live_consensus`; re-running for the same `(ticker, snapshot_date)`
-updates the row rather than duplicating it. An empty/absent FMP response raises per ticker
-(counted as a failure) instead of writing an all-null row.
+updates the row rather than duplicating it. Each ticker the job tries ends in one of three states
+(2026-10-02): **written** (a snapshot row), **no_data** (FMP answered HTTP 200 with an empty body:
+no analyst coverage; nothing is written, so there is never an all-null row, and the empty body is
+cached for the 1-day window like any other answer), or **failed** (non-200, timeout, any exception,
+or nothing available because the `analyst_ratings` group went off mid-run with nothing cached).
+no_data is not a failure.
 
 **Universe** (`load_us_price_target_universe`): `load_full_tracked_universe` (index membership +
 ever-viewed + scored + watchlisted) filtered to US-listed tickers via the cached profile
 exchange, minus `delisted_at`-flagged tickers — 580 tickers as of the last full-universe run
 (grew from an earlier 518-ticker S&P-500-plus-Dow scope once the wider universe function was
-substituted in). **`BF-B` symbol-format fix**: FMP's three `/price-target-*` endpoints only
+substituted in). **Known ETFs/funds are then skipped** (`load_price_target_run_universe`, the same
+`known_etf_tickers` filter `nightly_fundamentals_fetch` uses, 2026-10-02): an ETF has no analyst
+targets, FMP answers `[]`, and every ETF opened on the ETF page would otherwise add one permanent
+nightly miss. The skip count shows in the job message ("K skipped (ETF)"). An explicit ticker list
+(`--tickers`, tests) bypasses the filter, as in the fundamentals job; an ETF never opened, scored
+or watchlisted is not yet "known" and is attempted once (one no_data, cached). **`BF-B` symbol-format fix**: FMP's three `/price-target-*` endpoints only
 recognize it as `BF.B` (`PRICE_TARGET_SYMBOL_OVERRIDES`, a one-entry allowlist scoped to only
 those three endpoints) — `/profile` and `/grades-consensus` want the hyphen form, and `BRK-B`
 must **not** be remapped (it answers with genuinely different data under each spelling, unlike
-BF-B). A handful of tickers (ERIE, L, NWS, and a few ETF/OTC names) genuinely have no FMP
-price-target coverage (also SPY, TECL, PARA) and fail harmlessly every night — a run normally reports
-~8 failures; expected, not a regression.
+BF-B). A handful of tickers (ERIE, L, NWS, EVVTY and SINGY (OTC ADRs) and PARA, which FMP now maps to
+Banzai International) genuinely have no FMP price-target coverage and report **no_data** every night (6 on
+2026-10-02, the same ones every run); they are not failures, and the ETFs that used to be in this list
+(SPY, TECL, GLD, IBIT, QQQ, SMH, SOXX, TLT, XLK, XLV on 2026-10-02) are now skipped.
 
 **Skip/failure status**: the existing `analyst_ratings` group-off skip guard already recorded a
 real `skipped` `CronRunLog` status (fixed as part of the broader 2026-09-24 data-groups work).
-The gap this build closed was a different silent-success case — a run where *every* ticker
-failed (FMP down, key revoked) previously still logged plain `success`; `record_outcome()` now
-distinguishes gated (`skipped`) / all-failed (`failure`, raises) / partial-success
-(`success`, "N written, M failed").
+A later build closed a different silent-success case — a run where *every* ticker failed (FMP down,
+key revoked) previously still logged plain `success`. Since 2026-10-02 `record_outcome()` distinguishes
+gated (`skipped`) / over the failure threshold (`failure`, raises) / otherwise `success` with the message
+"N written, M no analyst data, K skipped (ETF), F failed". The threshold is the shared
+`core.cron_health.check_failure_threshold`: failed / attempted >= 5% (attempted = every ticker tried,
+no_data included, ETF skips excluded; the rate rule needs at least 25 attempted) or everything failed.
+no_data and the ETF skips are message-only and never enter it. A run that is red shows the same counts
+in its message.
 
 **Chart split tried, then reverted the same week.** `PriceTargetTrendChart.tsx` briefly drew two
 series (dashed = legacy, solid-with-dots = live) when a ticker's history spanned both

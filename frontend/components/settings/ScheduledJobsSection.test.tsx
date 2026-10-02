@@ -40,6 +40,14 @@ describe("ScheduledJobsSection", () => {
     expect(screen.getByRole("heading", { name: "Scheduled jobs" })).toBeInTheDocument();
   });
 
+  it("lets the Time cell wrap so a long label cannot spill into the Status column", () => {
+    mockData([job({ time_label: "1st–5th, 2:50 AM" })]);
+    render(<ScheduledJobsSection />);
+
+    const cell = screen.getByText("1st–5th, 2:50 AM");
+    expect(cell.className).toMatch(/whitespace-normal/);
+  });
+
   it("renders a skipped job as a neutral pill, not the retired sky-blue", () => {
     mockData([job({ job_name: "nightly_liquidity_zone_calculation", health_status: "skipped", message: "skipped (group daily_prices off)" })]);
     render(<ScheduledJobsSection />);

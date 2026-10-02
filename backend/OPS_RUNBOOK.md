@@ -521,6 +521,22 @@ into this Settings section instead, so a healthy day no longer shows
 anything outside Settings; nobody needs to proactively check this endpoint
 or tail a log.
 
+**Status messages and the failure threshold (2026-10-02).** A job that tracks per-ticker work sets
+`run.message` (stored in `CronRunLog.error_summary`, shown on the Scheduled Jobs page) and runs its failed
+count through one shared rule, `core/cron_health.py::check_failure_threshold(attempted, failed, summary)`:
+the run is marked `failure` (the existing red state; no new health value) when **failed / attempted >= 5%**
+(`FAILURE_RATE_THRESHOLD`) **or everything attempted failed**. The 5% rate rule only applies from **25
+attempted** (`FAILURE_RATE_MIN_ATTEMPTED`), so a tiny run (a `--tickers` test, a short watchlist) cannot flip
+on one error; "no data" and "skipped" counts appear in the message but never in the rule. What each job now
+reports: price-target "N written, M no analyst data, K skipped (ETF), F failed"; fundamentals "N refreshed, F
+failed, C FMP calls, D min"; BB+RSI and Warren "N computed, F failed, S swept, P pruned"; score recompute "N
+scored, S skipped (no cached profile), F failed" (skips are not in the denominator); backup "X MB, N old
+backup(s) pruned" (no threshold: any error raises). Limits: fundamentals only counts an exception that escapes a
+ticker's refresh -- most per-statement FMP errors are swallowed inside `get_stepN_data` (`safe_fetch`) and are
+invisible to this count. What to do when a run goes red on the threshold: the red text starts with the normal
+counts and ends "-- N% failed (limit 5%)" or "-- all N attempted failed"; the per-ticker reasons are in the
+job's own `backend/logs/<job>.log` ("Tickers with failures: ...").
+
 A job commented out of the crontab on purpose goes in `core/cron_health.py::DISABLED_CRON_JOBS` (job -> date + reason): it stays in
 `CRON_JOB_NAMES`, shows as "Skipped — Disabled since <date>: <reason>" instead of aging into Overdue, and `test_cron_wiring.py`
 requires it to be absent from `crontab.txt`. Currently: `nightly_corporate_events`.
