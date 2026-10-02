@@ -2,6 +2,7 @@ from sqlmodel import Session, select
 
 from core.data_groups import group_for_statement_type, group_live, master_on
 from core.db import engine
+from core.history_merge import INVALIDATED_AT, is_history_key
 from core.models import FundamentalsCache
 from core.schemas import RefreshResult
 from core.tickers import normalize_ticker
@@ -34,9 +35,12 @@ def groups_blocking_refresh(ticker: str) -> list[str]:
 
 
 def clear_ticker_cache(ticker: str) -> RefreshResult:
-    """Deletes every FundamentalsCache row for this ticker (all statement
-    types/periods), so the next fetch of any kind for this ticker is a cold
-    start and hits FMP fresh regardless of the staleness window. Only ever
+    """Makes every FundamentalsCache row for this ticker stale, so the next fetch of any kind
+    hits FMP fresh regardless of the staleness window. A history row (core/history_merge.py:
+    statements, ratios, key-metrics, estimates, segmentation, ...) is NOT deleted: it keeps its
+    rows and gets fetched_at = INVALIDATED_AT, so the refetch is merged with it and a plan
+    that returns a shorter answer cannot turn this button into a history wipe. Every other row
+    is deleted, as before. `cleared_entries` counts both. Only ever
     touches FundamentalsCache -- never GrowthCatalystNote, which is
     manually-curated user data, not fetched-from-FMP cache.
 
@@ -56,7 +60,11 @@ def clear_ticker_cache(ticker: str) -> RefreshResult:
         statement_types = sorted({row.statement_type for row in rows})
         cleared = len(rows)
         for row in rows:
-            session.delete(row)
+            if is_history_key(row.statement_type, row.period):
+                row.fetched_at = INVALIDATED_AT
+                session.add(row)
+            else:
+                session.delete(row)
         session.commit()
 
     return RefreshResult(ticker=ticker, cleared_entries=cleared, statement_types=statement_types)

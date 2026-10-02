@@ -558,6 +558,29 @@ Behaviour in `docs/specs/etf-page.md`. Decisions worth keeping:
   the ETF-specific column set is a separate task.
 - **`etf_info` is seeded at Starter**, matching the owner's recorded tier. The seed never rewrites an existing row.
 
+### 2026-10-02 — History protection: a shorter FMP answer never shortens cached history
+
+Built from `docs/fmp-starter-downgrade-impact-2026-10-02.md` (section 3 and change-list item 1). Behaviour and the full table of cache
+writes are in `docs/specs/fmp-data-and-bar-cache.md` ("History protection"). Decisions worth keeping:
+
+- **One merge rule at the one write path**, not per caller: `core/history_merge.py` + `core/cache.py::_write_cache_row`. An allow-list
+  (`HISTORY_KEYS`) decides which keys merge; every cached statement type must be on the history or the snapshot list (a test enforces it).
+  `earnings/latest` stays a plain overwrite on purpose: its scheduled-date rows would go stale in a merge.
+- **Merge, newest wins, capped at `max(len(cached), len(new))`.** Never shorter, but not unbounded either: a full answer still gives
+  exactly the new response, so readers that pad/trim to 10 years or 12 quarters see no difference.
+- **An empty or error body keeps the cached rows but still stamps `fetched_at`.** Not stamping would make a plan that answers `[]` for
+  everything re-fetch about 7,000 calls a night; stamping is what the old code did for an empty body.
+- **Return the merged rows from the cache call**, so the request that triggered the refresh and every later read agree.
+- **A clamp is informational, not a failure.** Counted per ticker, shown as `N history-clamped` (and `M empty-body kept`) in the
+  nightly fundamentals message; it never enters `check_failure_threshold`.
+- **Bars were not safe by construction** (a 20+-bar answer replaced the cache). The replace path now keeps older bars only when the
+  answer is shorter than both the cache and the request and its overlap agrees; a restatement (split) still replaces, because splicing two
+  price bases is worse than a shorter series. Ordinary window-moving trims are untouched.
+- **Refresh button no longer deletes history rows**: it marks them stale (`fetched_at = 1970-01-01`) so the refetch merges. Deviation from
+  the old "cold start" wording, taken because the button was a one-click path to the same loss; `prune_cache` skips marked rows.
+- **Left unchanged, recorded as remaining exposure:** the 180-day `prune_cache` age delete (untouched tickers rebuild at the depth the plan
+  serves) and a restated-and-clamped bar history (replaced, logged). `/styleguide` not touched.
+
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
 - **`MultiSelect` primitive — resolved, built.** `components/screener/MultiSelectDropdown.tsx` is

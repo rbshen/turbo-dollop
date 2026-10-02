@@ -497,6 +497,31 @@ its warm cache.
   on it.
 - `backfill_fmp_daily_bars` no longer has `--scope`/a parity gate (US only; non-US tickers are skipped).
 
+### History protection and the cache history audit (2026-10-02)
+
+A shorter, empty or error FMP answer never shortens a cached statement history (`core/history_merge.py`; spec: docs/specs/fmp-data-and-bar-cache.md,
+"History protection"). What you will see:
+
+- **`nightly_fundamentals_fetch` message** gains `, N history-clamped` (tickers whose answer had fewer periods than cached, older ones kept) and
+  `, M empty-body kept` (an empty/error body ignored over a non-empty row). Both are informational: the job does not go red for them. The log
+  has one `History clamped for TICKER (key): ...` or `Empty/invalid body ignored for TICKER ...` line per ticker per run. A count near the size of
+  the universe after a plan change means the new plan serves less history than the cache holds: the cache is intact; decide whether the shorter
+  window matters.
+- **Compare before and after a plan change** (read-only, no FMP call, opens the file `mode=ro`):
+
+  ```bash
+  cd backend
+  uv run python -m pipeline.cache_history_audit --json > ~/audit-before.json     # before changing the plan
+  uv run python -m pipeline.cache_history_audit --json > ~/audit-after.json      # after a nightly run or two
+  diff ~/audit-before.json ~/audit-after.json
+  uv run python -m pipeline.cache_history_audit                                  # human-readable table
+  ```
+
+  Per cache key: tickers per number of periods held and the oldest period (statements, ratios, key metrics, estimates, segmentation, grades
+  history), bars and span per ticker (daily, 60m, long history), rows per ticker (corporate events). Nothing should get shorter.
+- **Refresh button**: history rows are kept and marked stale (`fetched_at` = 1970-01-01) rather than deleted, so the refetch merges. A `fetched_at`
+  of 1970 on a statement row is that marker, not corruption; `prune_cache` leaves such rows alone.
+
 ### Cron job heartbeat / health monitoring
 
 Cross-cutting, not one specific script — `core/cron_health.py` wraps every

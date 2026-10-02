@@ -19,7 +19,8 @@ Behaviour (per ticker, single-flight -- concurrent first opens make ONE FMP call
                                    overlap check on shared dates; a mismatch means FMP
                                    restated history (split / spin-off / symbol reuse), so
                                    the full window is refetched and REPLACES the row.
-                                   No shrink guard: any non-empty answer replaces.
+                                   No shrink guard: any non-empty answer replaces (a restated
+                                   AND shorter answer is logged/counted in core.history_merge).
   * group off                   -> an existing row is served as-is (cached-only, never
                                    wiped); no row -> None.
   * group live, FMP error/empty -> cold: None, nothing written. Warm-but-stale: the
@@ -46,6 +47,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
 from clients.daily_bar_sources import (
+    FMP_COVERAGE_SLACK_DAYS,
     FMP_OVERLAP_DAYS,
     FMP_OVERLAP_TOLERANCE,
     fmp_rows_to_frame,
@@ -53,6 +55,7 @@ from clients.daily_bar_sources import (
 from clients.fmp_client import FMPGroupDisabledError, fmp_client
 from core.data_groups import effective_state
 from core.db import engine
+from core.history_merge import history_clamps
 from core.models import LongHistoryBars
 
 logger = logging.getLogger(__name__)
@@ -192,9 +195,19 @@ async def get_long_history(
             return cached  # FMP down / empty: the same-basis row a few days behind beats switching basis
         if _restated(cached, top_up):
             logger.info("FMP restated %s's history; refetching its full long-history window", ticker)
-            full = await _fetch(client, ticker, today - timedelta(days=365 * LONG_HISTORY_YEARS + 2), today, reference)
+            requested_from = today - timedelta(days=365 * LONG_HISTORY_YEARS + 2)
+            full = await _fetch(client, ticker, requested_from, today, reference)
             if full is None:
                 return cached
+            slack = timedelta(days=FMP_COVERAGE_SLACK_DAYS)
+            if full.index.min() > cached.index.min() + slack and full.index.min().date() > requested_from + slack:
+                # Restated AND shorter than held (a plan that clamps the window): the older bars are on the
+                # pre-restatement basis, so the replace still goes ahead -- but it is made visible.
+                history_clamps.record_clamp(
+                    ticker, "long_history",
+                    f"restated history refetched from {full.index.min():%Y-%m-%d}, the cache held bars from {cached.index.min():%Y-%m-%d}",
+                    store="bars",
+                )
             _write(ticker, full, datetime.now(), replace=True)
         else:
             _write(ticker, top_up, datetime.now(), replace=False)

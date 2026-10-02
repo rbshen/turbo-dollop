@@ -36,6 +36,7 @@ from clients.shared_bars_cache import RETENTION_DAYS, prune_old_bars
 from core.config import settings
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
+from core.history_merge import INVALIDATED_AT
 from core.logging_config import configure_logging
 from core.models import FundamentalsCache
 
@@ -48,12 +49,13 @@ def prune_cache(retention_days: int, dry_run: bool = False) -> int:
     """Returns the number of rows deleted (or that would be deleted, under
     --dry-run)."""
     cutoff = datetime.now() - timedelta(days=retention_days)
+    # A row an explicit Refresh marked stale (fetched_at == INVALIDATED_AT, pipeline/refresh.py) holds history that
+    # has not been re-fetched yet; it is not "old", so it is never pruned by age.
+    aged = (FundamentalsCache.fetched_at < cutoff, FundamentalsCache.fetched_at > INVALIDATED_AT)
     with Session(engine) as session:
-        count = session.exec(
-            select(func.count()).select_from(FundamentalsCache).where(FundamentalsCache.fetched_at < cutoff)
-        ).one()
+        count = session.exec(select(func.count()).select_from(FundamentalsCache).where(*aged)).one()
         if count and not dry_run:
-            session.execute(delete(FundamentalsCache).where(FundamentalsCache.fetched_at < cutoff))
+            session.execute(delete(FundamentalsCache).where(*aged))
             session.commit()
     return count
 

@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 
 from clients.fmp_client import FMPGroupDisabledError
 from core.data_groups import describe_off, group_for_statement_type, statement_type_live
+from core.history_merge import INVALIDATED_AT, history_clamps, is_history_key, merge_history
 from core.models import FundamentalsCache
 
 logger = logging.getLogger(__name__)
@@ -32,8 +33,15 @@ def _load_cache_row(session: Session, ticker: str, statement_type: str, period: 
 
 def _write_cache_row(
     session: Session, ticker: str, statement_type: str, period: str, data: dict | list, fetched_at: datetime
-) -> None:
-    raw_json = json.dumps(data)
+) -> dict | list:
+    """The one FundamentalsCache write path (get_or_fetch, get_or_fetch_earnings_aware and force_fetch all end
+    here). Returns the payload now stored, which the caller must hand back instead of `data`: for a history key
+    (core/history_merge.py) that is the merged row, so the call that triggered the refresh sees the same rows every
+    later cache read will. Every other key stores and returns `data` unchanged."""
+    stored = data
+    if is_history_key(statement_type, period):
+        stored = _merge_with_cached_history(session, ticker, statement_type, period, data)
+    raw_json = json.dumps(stored)
     # Upsert, not a plain insert: two concurrent requests for the same cache
     # key (e.g. TickerHeader and Step1Card both mounting on a fresh ticker
     # page and racing to cache "profile", or React Strict Mode double-firing
@@ -54,6 +62,42 @@ def _write_cache_row(
     )
     session.execute(stmt)
     session.commit()
+    return stored
+
+
+def _merge_with_cached_history(
+    session: Session, ticker: str, statement_type: str, period: str, data: dict | list
+) -> dict | list:
+    """core/history_merge.py's rule applied against the row as it is NOW (re-read here, not the copy a caller loaded
+    before awaiting FMP). An empty/error body over a non-empty row keeps the cached rows and still stamps fetched_at
+    (so a systematically empty answer cannot make every later call re-fetch); a shorter answer is merged and counted."""
+    row = _load_cache_row(session, ticker, statement_type, period)
+    cached = None
+    if row is not None:
+        try:
+            cached = json.loads(row.raw_json)
+        except ValueError:
+            cached = None
+    merge = merge_history(cached, data)
+    label = f"{statement_type}/{period}"
+    if merge.empty_kept:
+        history_clamps.record_empty_kept(
+            ticker, label, f"FMP returned {_describe_body(data)}; kept the {merge.cached_count} cached periods"
+        )
+    elif merge.clamped:
+        history_clamps.record_clamp(
+            ticker,
+            label,
+            f"FMP returned {merge.new_count} periods (oldest {merge.oldest_new}) but {merge.cached_count} are cached "
+            f"(oldest {merge.oldest_cached}); older cached periods kept",
+        )
+    return merge.rows
+
+
+def _describe_body(data: object) -> str:
+    if isinstance(data, list):
+        return "an empty list" if not data else f"{len(data)} unusable rows"
+    return "no body" if data is None else f"a non-list body ({type(data).__name__})"
 
 
 async def get_or_fetch(
@@ -87,8 +131,7 @@ async def get_or_fetch(
         return json.loads(row.raw_json) if row else None
 
     data = await fetch_fn()
-    _write_cache_row(session, ticker, statement_type, period, data, now)
-    return data
+    return _write_cache_row(session, ticker, statement_type, period, data, now)
 
 
 def _is_earnings_aware_stale(
@@ -101,6 +144,8 @@ def _is_earnings_aware_stale(
     failed fetch, or a ticker FMP has no earnings history for) fails safe to
     the same flat-window check get_or_fetch itself uses, per this feature's
     own fail-safe requirement."""
+    if row.fetched_at <= INVALIDATED_AT:
+        return True  # an explicit refresh (pipeline/refresh.py) kept the rows but marked them stale
     now = datetime.now()
     if most_recent_earnings_date is None:
         return now - row.fetched_at >= timedelta(days=fallback_staleness_days)
@@ -145,8 +190,7 @@ async def get_or_fetch_earnings_aware(
         return json.loads(row.raw_json) if row else None
 
     data = await fetch_fn()
-    _write_cache_row(session, ticker, statement_type, period, data, datetime.now())
-    return data
+    return _write_cache_row(session, ticker, statement_type, period, data, datetime.now())
 
 
 async def force_fetch(
@@ -156,8 +200,9 @@ async def force_fetch(
     period: str,
     fetch_fn: Callable[[], Awaitable[dict | list]],
 ) -> dict | list:
-    """Like get_or_fetch, but always calls fetch_fn() and overwrites the
-    cache row regardless of fetched_at -- for one-off targeted refreshes
+    """Like get_or_fetch, but always calls fetch_fn() and writes the
+    cache row regardless of fetched_at (a history key still goes through core/history_merge.py, so a refresh
+    can never leave it shorter) -- for one-off targeted refreshes
     that must ignore the normal staleness window (e.g. backfilling a cache
     key after a fetch-limit change, see bulk_refresh_step4_annual.py; also
     used by ticker_summary.py's live quote fetch, which deliberately wants
@@ -182,23 +227,7 @@ async def force_fetch(
         )
 
     data = await fetch_fn()
-    raw_json = json.dumps(data)
-    now = datetime.now()
-
-    stmt = sqlite_insert(FundamentalsCache).values(
-        ticker=ticker,
-        statement_type=statement_type,
-        period=period,
-        fetched_at=now,
-        raw_json=raw_json,
-    )
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["ticker", "statement_type", "period"],
-        set_={"raw_json": raw_json, "fetched_at": now},
-    )
-    session.execute(stmt)
-    session.commit()
-    return data
+    return _write_cache_row(session, ticker, statement_type, period, data, datetime.now())
 
 
 async def safe_fetch(label: str, coro: Awaitable[dict | list]) -> dict | list:

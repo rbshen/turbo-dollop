@@ -14,6 +14,7 @@ import data.step3_data as step3_data
 import data.step5_data as step5_data
 import data.ticker_score as ticker_score
 import data.ticker_summary as ticker_summary
+from core.history_merge import INVALIDATED_AT
 from core.models import FundamentalsCache, GrowthCatalystNote, TickerScore
 from pipeline.refresh import clear_ticker_cache
 from core.schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
@@ -37,7 +38,7 @@ def _fresh_engine(monkeypatch, *modules):
     return test_engine
 
 
-def test_clear_ticker_cache_removes_all_entries_for_the_ticker(monkeypatch):
+def test_clear_ticker_cache_clears_the_ticker_and_keeps_history_rows_marked_stale(monkeypatch):
     test_engine = _fresh_engine(monkeypatch, refresh)
 
     with Session(test_engine) as session:
@@ -55,8 +56,14 @@ def test_clear_ticker_cache_removes_all_entries_for_the_ticker(monkeypatch):
 
     with Session(test_engine) as session:
         remaining = session.exec(select(FundamentalsCache)).all()
-    assert len(remaining) == 1
-    assert remaining[0].ticker == "NVDA"
+    # AAPL's profile is deleted; its two statement rows are history rows (core/history_merge.py): kept, marked stale so
+    # the refetch merges with them instead of replacing them. Other tickers are untouched.
+    assert sorted((r.ticker, r.statement_type, r.period) for r in remaining) == [
+        ("AAPL", "income_statement", "annual"),
+        ("AAPL", "income_statement", "quarterly"),
+        ("NVDA", "profile", "latest"),
+    ]
+    assert {r.ticker: r.fetched_at for r in remaining if r.statement_type == "income_statement"}["AAPL"] == INVALIDATED_AT
 
 
 def test_clear_ticker_cache_never_touches_growth_catalyst_notes(monkeypatch):

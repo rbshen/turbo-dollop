@@ -506,6 +506,92 @@ last-close and corporate-events universes.
   (`pipeline/backfills/non_us_cleanup.py`, `--dry-run`, idempotent) and the leftovers sweep are
   recorded in `docs/archive/claude-md-history-fmp-migration.md`.
 
+## History protection (2026-10-02)
+
+Why: a statement cache row is a whole FMP response, and every refresh used to overwrite it wholesale
+(`INSERT ... ON CONFLICT DO UPDATE SET raw_json`). A plan that silently clamps `limit=10` to 5 rows, or answers with
+a partial, empty or error body, would have replaced a cached 10-year history within about one earnings cycle (a 402
+is safe: it raises before the write). Source: `docs/fmp-starter-downgrade-impact-2026-10-02.md` (items 3 and 4, change
+list item 1). Code: `core/history_merge.py` (the rule, the registry, the tracker), `core/cache.py::_write_cache_row`.
+
+### Every history-bearing write, old and new behaviour
+
+| Store / key | Old | New |
+|---|---|---|
+| `FundamentalsCache` `income_statement`, `cash_flow_statement`, `balance_sheet_statement` x `annual`, `quarterly` | overwrite | **merge** |
+| `key_metrics/annual`, `ratios/annual_10y`, `ratios/latest`, `financial_growth/annual`, `enterprise_values/quarter`, `financial_statement_full_as_reported` x `annual`, `quarterly` | overwrite | **merge** (the limit-1 keys degenerate to "replace, unless the body is empty") |
+| `analyst_estimates/latest`, `grades_historical/latest`, `revenue_product_segmentation/annual`, `revenue_geographic_segmentation/annual` | overwrite | **merge** |
+| `key_metrics/ttm`, `ratios/ttm`, `profile`, `quote`, `price_change`, `forex_rate`, `etf_info`, `grades_consensus`, `price_target_*`, `news`, `sec_company_facts`, `institutional_ownership_*`, `earnings/latest`, `historical_price_eod/*` | overwrite | unchanged (single snapshots, shelved, or not history). `earnings/latest` is deliberately not merged: its 8 rows include scheduled dates, and a rescheduled date would leave a phantom past "report" behind |
+| `SharedBarsCache` `1d` and `60m`, replace path (weekly Sunday resync, coverage gap, restatement) | delete the ticker's bars, insert the answer (any answer of 20+ bars) | **upsert instead** when FMP answered with less history than the cache holds AND than was asked for AND the overlap agrees; otherwise unchanged (see below) |
+| `SharedBarsCache` incremental top-up | upsert per bar | unchanged (already safe) |
+| `LongHistoryBars` | cold: replace (nothing to lose); warm: top-up upsert; restatement: replace | unchanged behaviour, a restated AND shorter answer is now logged and counted |
+| `CorporateEvent` | upsert only, never deletes (regression test `test_a_narrower_second_response_never_deletes_cached_rows`); `prune_old_events` by event date only | verified, unchanged |
+| `IndexConstituent` | delete-then-insert behind sanity floors | unchanged (a short list is refused by the floors) |
+| Deletes: `pipeline/refresh.py::clear_ticker_cache` (Refresh button), `prune_cache` (180 days), the purges | delete | Refresh: a history row is **kept and marked stale** instead of deleted (below); prune: skips a marked row; the age prune and the ticker purges are deliberate and unchanged |
+
+**Bars were not safe by construction** (the downgrade report called them safe in practice): a full answer of 20 or more
+bars replaced the ticker's rows even when shorter than the cache. They are safe today only because the nightly window
+(1,825 days) sits inside Starter's 5 years.
+
+### The merge rule (`core.history_merge.merge_history`)
+
+1. A row in the new response replaces the cached row for the **same period** (identified by `date`, first 10 chars), so
+   a restatement still updates.
+2. Cached rows for periods the new response does not contain are kept, newest first, up to
+   `max(len(cached), len(new))` rows in total. The stored history is never shorter than before; a full-length answer
+   gives exactly the new response (the 10-year window still rolls forward by a year; it does not grow without bound).
+3. An empty, null, error or non-list body never replaces a non-empty cached row. The row's `fetched_at` is still stamped
+   (what the code did for an empty body before), so a systematically empty answer cannot make every later call
+   re-fetch (about 7,000 calls a night otherwise).
+4. Rows stay a list of the same dicts, newest first; no reader changes.
+5. The caller gets the merged rows back, not the raw response, so the call that triggered a refresh sees what every later
+   cache read will.
+
+Edge cases: no cached row, or a cached empty list: the answer is stored as is, even if empty (a failed attempt is
+recorded as before). A row without a `date` on either side: periods cannot be told apart, so the safe count rule
+applies (take the new answer only if it is at least as long). A cached row longer than the limit (an older, wider
+fetch) is never cut down. The cap can drop only the oldest cached rows, never a new row. Forward-looking keys
+(`analyst_estimates`): cached periods the clamped answer lacks are kept, so a stale estimate for a period FMP no
+longer lists survives until the window rolls it out. Quarterly and annual rows are separate keys and never mix.
+
+### Making a clamp visible
+
+`core.history_merge.history_clamps` (a `ClampTracker`). A **clamp** is: the response has fewer periods than the cached
+row and the oldest cached period is older than the oldest returned. It is logged once per ticker per run
+(`History clamped for AAPL (income_statement/annual): FMP returned 5 periods (oldest 2022-12-31) but 10 are cached
+(oldest 2016-12-31); older cached periods kept`) and counted per ticker. An empty/invalid body over a non-empty row is
+logged and counted separately (`Empty/invalid body ignored ...`). `nightly_fundamentals_fetch` resets the tracker at
+the start of a run and appends `N history-clamped` and `M empty-body kept` (each only when non-zero) to its status
+message through the existing message and `check_failure_threshold` path; neither enters the threshold, so they never
+turn the job red. In a long-lived server process the log is once per ticker per process. Bars use the same tracker
+under store `bars` (log only; the bar jobs' messages are unchanged).
+
+### Bars: the replace guard (`clients/shared_bars_cache.py::_shorter_answer_keeps_cached_history`)
+
+Applies only to a `replace=True` write from `get_or_fetch_bars_batch` (which passes `requested_from`). The older bars are
+**kept** (the write becomes an upsert) when the answer starts more than `FMP_COVERAGE_SLACK_DAYS` (10) after both the
+first cached bar and the window that was asked for, and the overlapping closes agree within `FMP_OVERLAP_TOLERANCE`
+(0.5%). Not applied, so replace as before: an answer that starts at the requested window (ordinary trimming as the window
+moves on), a young listing, a restated overlap (a split: keeping the old bars would splice two price bases into one
+series, so the shorter, consistent answer wins and is logged), a 60m ticker still holding legacy non-FMP rows (those must
+be replaced), and callers that do not pass `requested_from` (the one-off backfill). A kept history also stops the
+coverage check from re-fetching the whole window every night.
+
+### Refresh button and prune
+
+`clear_ticker_cache` no longer deletes a history row: it keeps the rows and sets `fetched_at = INVALIDATED_AT`
+(1970-01-01), which every freshness rule reads as stale (`_is_earnings_aware_stale` checks it first, so the 2-day
+post-earnings buffer does not postpone the refetch). The refetch is then merged. Non-history rows are deleted as before,
+`cleared_entries` still counts all of them. `prune_cache` never prunes a marked row. The 180-day age prune of untouched
+rows is unchanged: a ticker not touched for 6 months loses its rows and would rebuild at whatever depth the plan serves.
+
+### Audit
+
+`uv run python -m pipeline.cache_history_audit [--json] [--db FILE]` (read-only: the file is opened `mode=ro`, no
+`init_db`, no FMP call). Per cache key it lists how many tickers hold N periods and the oldest period; bars: bars and
+span per ticker; corporate events: rows per ticker. Run it with `--json` before a plan change and again after, and diff.
+See `backend/OPS_RUNBOOK.md`.
+
 ## Endpoint feasibility work not yet wired into the app
 
 ### Extended-hours pricing (P5, unbuilt)

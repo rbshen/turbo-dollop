@@ -25,7 +25,8 @@ backend/     FastAPI app, organized into packages by role (2026-08-05
                not `main:app`), models.py (SQLModel tables), db.py
                (engine/init_db), schemas.py (API response models),
                config.py (Settings/BASE_DIR), cache.py (get_or_fetch/
-               safe_fetch), logging_config.py.
+               safe_fetch), history_merge.py (the history-protection
+               merge rule), logging_config.py.
   clients/     Thin external API clients: fmp_client.py, sec_edgar.py,
                daily_bar_sources.py (the FMP daily/60m bar sources),
                shared_bars_cache.py (the SharedBarsCache get-or-fetch),
@@ -103,6 +104,10 @@ Defined once, in `backend/data/tracked_universe.py::load_tracked_universe` (spec
 
 Fundamentals change infrequently, so raw FMP pulls are cached in a local SQLite database (`backend/core/models.py::FundamentalsCache`, via SQLModel) keyed by `(ticker, statement_type, period)`, with a `fetched_at` timestamp on each row. Before refetching from FMP, check whether a cached entry is fresher than the configurable staleness window — `Settings.cache_staleness_days` in `backend/core/config.py`, default 7 days, overridable via the `CACHE_STALENESS_DAYS` env var. Never hardcode the staleness window at a call site.
 
+### History protection (2026-10-02)
+
+A cached statement row is a whole FMP response, so it is **never overwritten by a shorter one**: every `FundamentalsCache` write (`core/cache.py::_write_cache_row`, the single write path for `get_or_fetch`, `get_or_fetch_earnings_aware` and `force_fetch`) goes through the one rule in `core/history_merge.py` for the keys in `HISTORY_KEYS` (income/balance/cash-flow statements annual and quarterly, key-metrics, ratios, enterprise values, financial growth, as-reported, analyst estimates, grades history, segmentation): new rows replace cached rows for the same period (a restatement still updates), cached older periods the answer lacks are kept (up to `max(len(cached), len(new))`), and an empty, null, error or non-list body never replaces a non-empty row. The caller is handed the merged rows. A new cached statement type must be added to `HISTORY_KEYS` or `SNAPSHOT_STATEMENT_TYPES` (`tests/test_history_merge.py` fails otherwise). A clamp (fewer periods than cached, oldest cached older than oldest returned) is logged once per ticker per run and counted into `nightly_fundamentals_fetch`'s message as `N history-clamped` (informational, never red). The Refresh button keeps history rows and marks them stale (`INVALIDATED_AT`) instead of deleting them; the shared bars cache's replace path keeps the older bars when FMP answers with less history than held and than asked. Read-only audit: `uv run python -m pipeline.cache_history_audit`. Detail: docs/specs/fmp-data-and-bar-cache.md, "History protection"; `CorporateEvent` was already upsert-only.
+
 ### Data groups: pausing FMP (per-group toggles, replaces `FMP_ENABLED`)
 
 **2026-09-24: the global `FMP_ENABLED` env flag and `INSIDER_ACTIVITY_ENABLED` were deleted** (no `.env` shim; only `FMP_API_KEY`/`FMP_BASE_URL` remain in `.env`). FMP on/off is now per **data group**, stored in the DB (`core/data_groups.py`, tables `DataGroupSetting` -- one row per group -- and the singleton `DataGroupGlobal`; lazy-seeded like `LiquidityZoneConfig`, 5 s in-process cache invalidated on write) and edited live from Settings > FMP data groups, with no restart. Cron jobs are separate processes and read the same DB.
@@ -164,7 +169,7 @@ Scoring methodology and feature-specific detail live in `docs/specs/*.md` and `d
 
 **Technical-analysis lenses:** Weinstein Stage Analysis (also covers the historically named `TrendAnalysis` table / `nightly_trend_calculation` job / `/trend-analysis` endpoint) — docs/specs/weinstein-stage.md. Sector Heatmap — docs/specs/sector-heatmap.md. Market Breadth — docs/specs/market-breadth.md. Chart indicators (Stochastic, etc.) — docs/specs/chart-indicators.md. Price-target snapshot — docs/specs/price-target.md. Liquidity Zone (LP) detection — docs/specs/liquidity-zones.md. Warren RSI/ADX/WVF entry signal — docs/specs/warren-signal.md. Chart tab fetch behavior, earnings/dividend markers — docs/specs/chart-tab.md. Institutional Ownership (shelved feature) — docs/specs/institutional-ownership.md.
 
-**Data infrastructure:** FMP endpoint/cache-key → data-group mappings, shared bars cache, daily/long-history/intraday price fetch mechanism, delisted-ticker handling, US-listed-only (non-US) handling — docs/specs/fmp-data-and-bar-cache.md. Corporate events (earnings/dividends/splits cache) — docs/specs/corporate-events.md.
+**Data infrastructure:** FMP endpoint/cache-key → data-group mappings, shared bars cache, daily/long-history/intraday price fetch mechanism, delisted-ticker handling, US-listed-only (non-US) handling — docs/specs/fmp-data-and-bar-cache.md. Corporate events (earnings/dividends/splits cache) — docs/specs/corporate-events.md. History protection (merge rule for shorter/empty FMP answers, clamp counting, bars replace guard, audit command) — docs/specs/fmp-data-and-bar-cache.md, "History protection".
 
 **History** (scoring-rubric history, technical-signal investigations, watchlist-rename history, FMP migration phases, shelved/deleted features, incident write-ups): docs/archive/claude-md-history-scoring.md, docs/archive/claude-md-history-technical-signals.md, docs/archive/claude-md-history-fmp-migration.md, docs/archive/claude-md-history-features.md.
 

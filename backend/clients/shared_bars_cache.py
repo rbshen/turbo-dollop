@@ -50,6 +50,8 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
 from clients.daily_bar_sources import (
+    FMP_COVERAGE_SLACK_DAYS,
+    FMP_OVERLAP_TOLERANCE,
     FMPIntradaySource,
     get_daily_bar_source,
     non_fmp_intraday_tickers,
@@ -57,6 +59,7 @@ from clients.daily_bar_sources import (
 )
 from core.data_groups import effective_state
 from core.db import engine
+from core.history_merge import history_clamps
 from core.models import SharedBarsCache
 
 logger = logging.getLogger(__name__)
@@ -262,9 +265,57 @@ def _cache_span(session: Session, tickers: list[str], interval: str) -> dict[str
     return span
 
 
+def _shorter_answer_keeps_cached_history(
+    session: Session, ticker: str, interval: str, index: pd.DatetimeIndex, df: pd.DataFrame, requested_from: date
+) -> bool:
+    """History protection for a REPLACE write (docs/specs/fmp-data-and-bar-cache.md, "History protection"): True when
+    `df` starts more than FMP_COVERAGE_SLACK_DAYS after BOTH the ticker's first cached bar and the window that was
+    asked for (`requested_from`) -- i.e. FMP answered with less history than the cache holds and than it was asked
+    for, as a plan that clamps the window does. (An answer that starts at the requested window is just the window
+    having moved on since the cache was first filled; that is ordinary trimming, not a clamp, and replaces as
+    before.) AND its closes agree with the cached ones within FMP_OVERLAP_TOLERANCE,
+    so the older bars are still on the same basis and must be kept (the write is then an upsert). It is False
+    (replace, as before) when the answer is not shorter, when the overlap disagrees (FMP restated history -- a split
+    -- so the old bars are on a stale basis and keeping them would splice two bases into one series), and for a 60m
+    ticker still holding legacy non-FMP rows (those must be replaced, never layered under FMP bars). A shortening
+    that does go ahead is still logged once per ticker per run and counted (store "bars")."""
+    cached_first, cached_last = session.exec(
+        select(func.min(SharedBarsCache.bar_time), func.max(SharedBarsCache.bar_time)).where(
+            SharedBarsCache.ticker == ticker, SharedBarsCache.interval == interval
+        )
+    ).one()
+    new_first = index.min().to_pydatetime()
+    slack = timedelta(days=FMP_COVERAGE_SLACK_DAYS)
+    if cached_first is None or new_first <= cached_first + slack:
+        return False
+    if interval == INTRADAY_INTERVAL:
+        requested_from = min(requested_from, cached_first.date())  # FMPIntradaySource never asks for less than it holds
+    if new_first.date() <= requested_from + slack:
+        return False
+    if interval == INTRADAY_INTERVAL and non_fmp_intraday_tickers(session, [ticker]):
+        return False
+    cached = dict(
+        session.exec(
+            select(SharedBarsCache.bar_time, SharedBarsCache.close).where(
+                SharedBarsCache.ticker == ticker, SharedBarsCache.interval == interval, SharedBarsCache.bar_time >= new_first
+            )
+        ).all()
+    )
+    span = f"{interval}: FMP answered from {new_first:%Y-%m-%d}, the cache holds bars from {cached_first:%Y-%m-%d}"
+    for ts, close in zip(index.to_pydatetime(), df["close"].astype(float).tolist()):
+        old = cached.get(ts)
+        if old is None or ts >= cached_last or not old:
+            continue
+        if abs(close / float(old) - 1.0) > FMP_OVERLAP_TOLERANCE:
+            history_clamps.record_clamp(ticker, interval, f"{span}; the overlap disagrees (restated), so the older bars were replaced", store="bars")
+            return False
+    history_clamps.record_clamp(ticker, interval, f"{span}; the older bars were kept", store="bars")
+    return True
+
+
 def _write_rows(
     session: Session, ticker: str, interval: str, df: pd.DataFrame, fetched_at: datetime, replace: bool = False,
-    source: str | None = None,
+    source: str | None = None, requested_from: date | None = None,
 ) -> None:
     """Upserts every bar in `df` in ONE executemany round trip. (A per-row
     execute loop was measured to dominate this module's cost at
@@ -277,7 +328,10 @@ def _write_rows(
     at their own boundary before reaching here.
 
     `source` is provenance ("fmp"; legacy rows may read "yahoo" or NULL), only meaningful for "60m" rows (see
-    SharedBarsCache.source); "1d" callers leave it None."""
+    SharedBarsCache.source); "1d" callers leave it None.
+
+    `requested_from` (the first date the fetch asked for) opts a `replace=True` write into history protection
+    (_shorter_answer_keeps_cached_history); a caller that leaves it None keeps the plain delete-and-replace."""
     index = pd.DatetimeIndex(df.index)
     if index.tz is not None:
         # Re-express in Eastern wall-clock time before dropping tzinfo --
@@ -298,6 +352,8 @@ def _write_rows(
     ]
     if not values:
         return
+    if replace and requested_from is not None and _shorter_answer_keeps_cached_history(session, ticker, interval, index, df, requested_from):
+        replace = False
     if replace:
         # A complete fresh history (FMP restated the past -- split, spin-off,
         # symbol reuse): drop this ticker's old rows and insert the new ones in
@@ -515,7 +571,10 @@ async def get_or_fetch_bars_batch(
             for ticker, df in fetched.items():
                 if df is not None and not df.empty:
                     source = "fmp" if interval == INTRADAY_INTERVAL else None
-                    _write_rows(session, ticker, interval, df, fetched_at, replace=ticker in replace_tickers, source=source)
+                    _write_rows(
+                        session, ticker, interval, df, fetched_at, replace=ticker in replace_tickers, source=source,
+                        requested_from=today - timedelta(days=to_fetch[ticker]),
+                    )
 
     with Session(engine) as session:
         return _load_frames(session, tickers, interval, needed_start)

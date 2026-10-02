@@ -48,7 +48,9 @@ a delete-and-replace would silently wipe older cached history. `CorporateEventFe
 lets the reader tell "fetched, FMP has none" (TSLA pays no dividend) from "never fetched". FMP returns the
 whole history as long as `limit` is large enough (`EARNINGS_LIMIT` 1000, `DIVIDENDS_LIMIT` 2000; e.g. AAPL
 has 165 earnings rows back to 1985 and 92 dividends). The regression test is
-`test_a_narrower_second_response_never_deletes_cached_rows`.
+`test_a_narrower_second_response_never_deletes_cached_rows`. Re-verified 2026-10-02 against the history-protection work
+(`docs/specs/fmp-data-and-bar-cache.md`): an empty, error or shorter answer deletes nothing, and the 4-year prune removes by event
+date only; this store needed no change.
 
 ## 4-year trailing retention
 
