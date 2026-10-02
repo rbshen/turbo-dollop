@@ -1621,6 +1621,9 @@ class MomentumSnapshotRowOut(BaseModel):
     composite_score: float
     rank: int
     overall_score: int | None = None
+    # Informational only -- not part of the composite/rank. None for snapshots that predate them.
+    return_1w: float | None = None
+    return_1mo: float | None = None
 
 
 class MomentumOut(BaseModel):

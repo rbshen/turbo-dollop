@@ -57,6 +57,8 @@ def test_current_and_previous_return_the_right_months(monkeypatch):
                 return_12mo=0.35,
                 composite_score=0.25,
                 rank=1,
+                return_1w=0.01,
+                return_1mo=0.04,
             )
         )
         session.commit()
@@ -68,6 +70,11 @@ def test_current_and_previous_return_the_right_months(monkeypatch):
     assert current["as_of_date"] == "2026-08-31"
     assert current["rows"][0]["overall_score"] == 70
     assert current["rows"][0]["company_name"] == "AAA Inc"
+    assert current["rows"][0]["return_1w"] == 0.01
+    assert current["rows"][0]["return_1mo"] == 0.04
+    # A snapshot stored before these columns existed reads back as null, never an error.
+    assert previous["rows"][0]["return_1w"] is None
+    assert previous["rows"][0]["return_1mo"] is None
     assert previous["as_of_date"] == "2026-07-31"
 
 

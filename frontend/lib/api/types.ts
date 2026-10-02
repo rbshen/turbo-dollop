@@ -1614,6 +1614,10 @@ export interface MomentumSnapshotRowOut {
   return_12mo: number;
   composite_score: number;
   rank: number;
+  // Informational only -- never part of composite_score/rank. null on snapshots computed before
+  // these existed, or when the ticker lacks a price that far back.
+  return_1w: number | null;
+  return_1mo: number | null;
   // Fathom's Overall Assessment score, for context only -- never used in
   // this ranking. Joined live from TickerScore, same as company_name.
   overall_score: number | null;

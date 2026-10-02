@@ -1,7 +1,8 @@
 """Standalone script: monthly Momentum snapshot -- a 3-way composite
 price-momentum signal (3mo/6mo/12mo trailing return average) over Fathom's
 Moat-rated universe. See data/momentum_data.py for the compute/persist
-logic and scoring/momentum.py for the pure ranking engine. Makes ZERO FMP
+logic and scoring/momentum.py for the pure ranking engine. Each row also stores informational-only
+1w/1mo returns (never part of the composite or rank). Makes ZERO FMP
 fundamentals calls (a shared-bars-cache batch fetch of FMP daily bars); skipped -- a real
 `skipped` cron status -- while the `daily_prices` group is off, same as
 nightly_trend_calculation.py.

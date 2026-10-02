@@ -327,9 +327,9 @@ const WATCHLIST: WatchlistOut = {
 };
 
 const MOMENTUM_ROWS: MomentumSnapshotRowOut[] = [
-  { ticker: "NVDA", company_name: "NVIDIA Corporation", moat: "wide_moat", return_3mo: 0.214, return_6mo: 0.488, return_12mo: 1.02, composite_score: 0.64, rank: 1, overall_score: 92 },
-  { ticker: "PLTR", company_name: "Palantir Technologies", moat: "narrow_moat", return_3mo: 0.182, return_6mo: 0.35, return_12mo: 0.91, composite_score: 0.52, rank: 2, overall_score: 78 },
-  { ticker: "XYZ", company_name: "Momentum Without A Score", moat: "no_moat", return_3mo: 0.11, return_6mo: 0.2, return_12mo: 0.4, composite_score: 0.24, rank: 3, overall_score: null },
+  { ticker: "NVDA", company_name: "NVIDIA Corporation", moat: "wide_moat", return_3mo: 0.214, return_6mo: 0.488, return_12mo: 1.02, composite_score: 0.64, rank: 1, overall_score: 92, return_1w: 0.021, return_1mo: 0.064 },
+  { ticker: "PLTR", company_name: "Palantir Technologies", moat: "narrow_moat", return_3mo: 0.182, return_6mo: 0.35, return_12mo: 0.91, composite_score: 0.52, rank: 2, overall_score: 78, return_1w: -0.012, return_1mo: 0.03 },
+  { ticker: "XYZ", company_name: "Momentum Without A Score", moat: "no_moat", return_3mo: 0.11, return_6mo: 0.2, return_12mo: 0.4, composite_score: 0.24, rank: 3, overall_score: null, return_1w: null, return_1mo: null },
 ];
 
 function overallResult(overrides: Partial<OverallAssessment>): OverallAssessment {

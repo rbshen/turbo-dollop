@@ -946,6 +946,10 @@ class MomentumSnapshot(SQLModel, table=True):
     return_12mo: float
     composite_score: float
     rank: int
+    # Informational only (never part of composite_score/rank); None on snapshots computed before
+    # these were added, or when the ticker lacks a price that far back.
+    return_1w: float | None = None
+    return_1mo: float | None = None
 
 
 class SectorEtfReturn(SQLModel, table=True):

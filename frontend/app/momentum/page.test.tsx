@@ -22,6 +22,8 @@ const CURRENT: MomentumOut = {
       composite_score: 10.083,
       rank: 1,
       overall_score: 47,
+      return_1w: 0.0123,
+      return_1mo: -0.0456,
     },
   ],
 };

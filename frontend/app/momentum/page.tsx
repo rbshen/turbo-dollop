@@ -3,7 +3,6 @@
 import { useState } from "react";
 
 import { PageContainer } from "@/components/layout/PageContainer";
-import { MomentumBanner } from "@/components/momentum/MomentumBanner";
 import { MomentumTable } from "@/components/momentum/MomentumTable";
 import { PageHeader } from "@/components/ui/page-header";
 import { Section } from "@/components/ui/section";
@@ -19,11 +18,11 @@ const PERIOD_OPTIONS: { value: MomentumPeriod; label: string }[] = [
 
 const TOP_N = 10;
 
-// MomentumTable's own column count (Rank, Ticker, Moat, 3mo, 6mo, 12mo,
-// Composite, Score) -- used only to size this page-level loading
+// MomentumTable's own column count (Rank, Ticker, Moat, 1w, 1mo, 3mo, 6mo,
+// 12mo, Composite, Score) -- used only to size this page-level loading
 // skeleton's colSpan, since the skeleton renders before MomentumTable
 // itself (and its real header) ever mounts.
-const TABLE_COLUMN_COUNT = 8;
+const TABLE_COLUMN_COUNT = 10;
 
 export default function MomentumPage() {
   const [period, setPeriod] = useState<MomentumPeriod>("current");
@@ -31,7 +30,6 @@ export default function MomentumPage() {
 
   return (
     <>
-      <MomentumBanner />
       <PageContainer className="space-y-6 pb-12">
         <PageHeader
           title="Momentum"

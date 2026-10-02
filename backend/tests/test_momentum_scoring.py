@@ -70,3 +70,33 @@ def test_ranking_order_descending_with_alphabetical_tiebreak():
 
 def test_empty_input_returns_empty_list():
     assert compute_momentum_ranking({}, ANCHOR) == []
+
+
+def test_1w_and_1mo_are_informational_and_do_not_affect_composite_or_rank():
+    # Flat $100 then $200 at the anchor: 1w/1mo return is also 100%. A second ticker with the same
+    # 3/6/12mo returns but a different recent path must get the same composite.
+    flat = _series("2024-08-01", "2026-08-28", 100.0, 100.0)
+    flat.loc[ANCHOR] = 200.0
+    flat = flat.sort_index()
+
+    ramp = _series("2024-08-01", "2026-08-28", 100.0, 100.0)
+    ramp.loc[pd.Timestamp("2026-08-24") : pd.Timestamp("2026-08-28"), "close"] = 150.0
+    ramp.loc[ANCHOR] = 200.0
+    ramp = ramp.sort_index()
+
+    by_ticker = {r.ticker: r for r in compute_momentum_ranking({"FLAT": flat, "RAMP": ramp}, ANCHOR)}
+
+    assert by_ticker["FLAT"].return_1w == pytest.approx(1.0, abs=1e-6)
+    assert by_ticker["FLAT"].return_1mo == pytest.approx(1.0, abs=1e-6)
+    assert by_ticker["RAMP"].return_1w == pytest.approx(200.0 / 150.0 - 1.0, abs=1e-6)
+    assert by_ticker["RAMP"].composite_score == pytest.approx(by_ticker["FLAT"].composite_score, abs=1e-6)
+
+
+def test_ticker_with_full_history_gets_1w_and_1mo_values():
+    df = _series("2025-08-29", "2026-08-31", 100.0, 150.0)
+
+    result = compute_momentum_ranking({"X": df}, ANCHOR)
+
+    assert len(result) == 1
+    assert result[0].return_1w is not None
+    assert result[0].return_1mo is not None

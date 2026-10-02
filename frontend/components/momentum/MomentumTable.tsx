@@ -23,6 +23,12 @@ function handleRowClick(e: MouseEvent<HTMLTableRowElement>, ticker: string) {
   window.open(`/tickers/${ticker}`, "_blank", "noopener,noreferrer");
 }
 
+// null on snapshots that predate these columns (or a ticker without a price that far back).
+function InfoReturnCell({ value }: { value: number | null }) {
+  if (value == null) return <TableCell className="text-right font-mono text-text-tertiary">—</TableCell>;
+  return <TableCell className={`text-right font-mono ${pnlClass(value)}`}>{fmtPct(value * 100)}</TableCell>;
+}
+
 export function MomentumTable({ rows }: Props) {
   if (rows.length === 0) {
     return <p className="text-xs text-text-tertiary">No tickers in this snapshot.</p>;
@@ -35,6 +41,8 @@ export function MomentumTable({ rows }: Props) {
           <TableHead className={`${HEAD_CLASS} w-12 text-center`}>Rank</TableHead>
           <TableHead className={`${HEAD_CLASS} w-[280px]`}>Ticker</TableHead>
           <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Moat</TableHead>
+          <TableHead className={`${HEAD_CLASS} text-right`}>1 w</TableHead>
+          <TableHead className={`${HEAD_CLASS} text-right`}>1 mo</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>3 mo</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>6 mo</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>12 mo</TableHead>
@@ -64,6 +72,9 @@ export function MomentumTable({ rows }: Props) {
                 {MOAT_LABEL_SHORT[row.moat]}
               </Badge>
             </TableCell>
+            {/* 1w/1mo are informational only -- the ranking uses 3/6/12 mo. */}
+            <InfoReturnCell value={row.return_1w} />
+            <InfoReturnCell value={row.return_1mo} />
             <TableCell className={`text-right font-mono ${pnlClass(row.return_3mo)}`}>{fmtPct(row.return_3mo * 100)}</TableCell>
             <TableCell className={`text-right font-mono ${pnlClass(row.return_6mo)}`}>{fmtPct(row.return_6mo * 100)}</TableCell>
             <TableCell className={`text-right font-mono ${pnlClass(row.return_12mo)}`}>{fmtPct(row.return_12mo * 100)}</TableCell>

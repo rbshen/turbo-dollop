@@ -21,6 +21,8 @@ const ROWS: MomentumSnapshotRowOut[] = [
     composite_score: 10.083,
     rank: 1,
     overall_score: 47,
+    return_1w: 0.0123,
+    return_1mo: -0.0456,
   },
   {
     ticker: "MRVL",
@@ -32,6 +34,8 @@ const ROWS: MomentumSnapshotRowOut[] = [
     composite_score: 1.333,
     rank: 8,
     overall_score: null,
+    return_1w: 0.005,
+    return_1mo: 0.02,
   },
 ];
 
@@ -95,5 +99,17 @@ describe("MomentumTable whole-row click", () => {
     render(<MomentumTable rows={ROWS} />);
     screen.getByRole("link", { name: "SNDK" }).click();
     expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it("shows 1w/1mo returns, and a dash when they are missing", () => {
+    render(<MomentumTable rows={[ROWS[0], { ...ROWS[1], return_1w: null, return_1mo: null }]} />);
+    expect(screen.getByText("1 w")).toBeInTheDocument();
+    expect(screen.getByText("1 mo")).toBeInTheDocument();
+    const sndk = screen.getByText("SNDK").closest("tr")!;
+    expect(sndk).toHaveTextContent("1.23%");
+    expect(sndk).toHaveTextContent("-4.56%");
+    const mrvl = screen.getByText("MRVL").closest("tr")!;
+    expect(mrvl.querySelectorAll("td")[3]).toHaveTextContent("—");
+    expect(mrvl.querySelectorAll("td")[4]).toHaveTextContent("—");
   });
 });

@@ -105,6 +105,8 @@ async def compute_and_store_momentum_snapshot(anchor_date: date) -> dict:
                     return_12mo=row.return_12mo,
                     composite_score=row.composite_score,
                     rank=row.rank,
+                    return_1w=row.return_1w,
+                    return_1mo=row.return_1mo,
                 )
             )
         session.commit()
@@ -172,6 +174,8 @@ def get_momentum_snapshot(period: MomentumPeriod = "current") -> MomentumOut:
                 composite_score=row.composite_score,
                 rank=row.rank,
                 overall_score=context.overall_score if context else None,
+                return_1w=row.return_1w,
+                return_1mo=row.return_1mo,
             )
         )
 
