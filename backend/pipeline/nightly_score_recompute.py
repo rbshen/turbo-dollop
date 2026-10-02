@@ -52,7 +52,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from core.cron_health import cron_heartbeat
+from core.cron_health import check_failure_threshold, cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from core.tickers import normalize_ticker
@@ -100,7 +100,17 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     return None
 
 
+def record_outcome(result: dict, run) -> None:
+    """Heartbeat mapping: a "N scored, S skipped (no cached profile), F failed" message that raises
+    (heartbeat "failure") past core.cron_health.check_failure_threshold. Skipped tickers are
+    not attempted work, so they are left out of the threshold's denominator."""
+    processed, skipped, failed = result["processed"], result.get("skipped", 0), result["failed"]
+    message = f"{processed - skipped - failed} scored, {skipped} skipped (no cached profile), {failed} failed"
+    check_failure_threshold(processed - skipped, failed, message)
+    run.message = message
+
+
 if __name__ == "__main__":
     cli_args = _parse_args()
-    with cron_heartbeat("pipeline.nightly_score_recompute"):
-        asyncio.run(main(_resolve_cli_tickers(cli_args)))
+    with cron_heartbeat("pipeline.nightly_score_recompute") as run:
+        record_outcome(asyncio.run(main(_resolve_cli_tickers(cli_args))), run)

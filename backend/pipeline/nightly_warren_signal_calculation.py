@@ -51,7 +51,7 @@ from pathlib import Path
 from sqlmodel import Session
 
 from clients.shared_bars_cache import INTRADAY_INTERVAL, get_or_fetch_bars_batch
-from core.cron_health import cron_heartbeat
+from core.cron_health import check_failure_threshold, cron_heartbeat
 from core.data_groups import job_skip_reason
 from core.db import engine, init_db
 from core.logging_config import configure_logging
@@ -140,8 +140,18 @@ async def main() -> dict:
     }
 
 
+def record_outcome(summary: dict, run) -> None:
+    """Heartbeat mapping: "skipped" for a gated run, else a "N computed, F failed, S swept, P pruned"
+    message that raises (heartbeat "failure") past core.cron_health.check_failure_threshold."""
+    if summary.get("skipped"):
+        run.skip(summary["skip_reason"])
+        return
+    processed, failed = summary["processed"], summary["failed"]
+    message = f"{processed - failed} computed, {failed} failed, {summary['swept']} swept, {summary['pruned']} pruned"
+    check_failure_threshold(processed, failed, message)
+    run.message = message
+
+
 if __name__ == "__main__":
     with cron_heartbeat("pipeline.nightly_warren_signal_calculation") as run:
-        summary = asyncio.run(main())
-        if summary.get("skipped"):
-            run.skip(summary["skip_reason"])
+        record_outcome(asyncio.run(main()), run)

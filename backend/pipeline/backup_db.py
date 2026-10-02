@@ -123,15 +123,15 @@ def _check_free_space(db_path: Path, backup_dir: Path) -> None:
         )
 
 
-def create_backup(
+def _create_backup(
     db_path: Path = DEFAULT_DB_PATH,
     backup_dir: Path = DEFAULT_BACKUP_DIR,
     keep_daily: int = BACKUP_KEEP_DAILY,
     keep_weekly: int = BACKUP_KEEP_WEEKLY,
-) -> Path:
+) -> tuple[Path, list[Path]]:
     """Creates one new compressed backup and prunes old ones per the tiered
     retention rule (`select_backups_to_prune`).
-    Returns the path to the new backup file. `db_path`/`backup_dir` are
+    Returns (path to the new backup file, the old backups pruned). `db_path`/`backup_dir` are
     explicit parameters (not hardcoded to the real DB path) so tests can
     point this at a throwaway SQLite file instead of the real DB -- see
     CLAUDE.md's "Ad-hoc reproduction scripts must not touch the real
@@ -173,7 +173,17 @@ def create_backup(
     pruned = _prune_old_backups(backup_dir, db_path.stem, keep_daily, keep_weekly)
     if pruned:
         logger.info("Pruned %d old backup(s): %s", len(pruned), ", ".join(p.name for p in pruned))
-    return dest_path
+    return dest_path, pruned
+
+
+def create_backup(
+    db_path: Path = DEFAULT_DB_PATH,
+    backup_dir: Path = DEFAULT_BACKUP_DIR,
+    keep_daily: int = BACKUP_KEEP_DAILY,
+    keep_weekly: int = BACKUP_KEEP_WEEKLY,
+) -> Path:
+    """`_create_backup` returning just the new backup's path (the long-standing signature)."""
+    return _create_backup(db_path, backup_dir, keep_daily, keep_weekly)[0]
 
 
 def select_backups_to_prune(paths: list[Path], stem: str, keep_daily: int, keep_weekly: int) -> list[Path]:
@@ -217,9 +227,10 @@ def _prune_old_backups(backup_dir: Path, stem: str, keep_daily: int, keep_weekly
     return to_delete
 
 
-def main() -> Path:
+def main() -> tuple[Path, float, int]:
+    """Returns (backup path, size in MB, number of old backups pruned) for the heartbeat message."""
     configure_logging(LOG_PATH)
-    backup_path = create_backup()
+    backup_path, pruned = _create_backup()
     size_mb = backup_path.stat().st_size / (1024 * 1024)
     logger.info(
         "Backup created: %s (%.1f MB). Retention: %d daily + %d weekly kept.",
@@ -228,9 +239,14 @@ def main() -> Path:
         BACKUP_KEEP_DAILY,
         BACKUP_KEEP_WEEKLY,
     )
-    return backup_path
+    return backup_path, size_mb, len(pruned)
+
+
+def record_outcome(size_mb: float, pruned: int, run) -> None:
+    run.message = f"{size_mb:.1f} MB, {pruned} old backup(s) pruned"
 
 
 if __name__ == "__main__":
-    with cron_heartbeat("pipeline.backup_db"):
-        main()
+    with cron_heartbeat("pipeline.backup_db") as run:
+        _, size_mb, pruned = main()
+        record_outcome(size_mb, pruned, run)

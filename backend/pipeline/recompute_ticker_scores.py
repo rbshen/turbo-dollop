@@ -102,6 +102,7 @@ async def recompute_all(tickers: list[str] | None = None) -> dict:
 
     return {
         "processed": len(tickers),
+        "skipped": skipped,
         "failed": len(failures),
         "duration_seconds": duration,
         "failures": failures,

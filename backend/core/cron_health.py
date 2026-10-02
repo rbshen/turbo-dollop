@@ -191,6 +191,35 @@ DISABLED_CRON_JOBS: dict[str, DisabledJob] = {
 }
 
 
+# Failure-rate rule shared by every job that reports attempted/failed counts (see
+# check_failure_threshold). Judgment-call values, easy to retune here in one place.
+#   - 5%: the failed share of attempted tickers at or above which the run is marked failed.
+#   - 25 attempted: below this the rate rule is off and only "everything failed" counts, so a
+#     tiny run (a --tickers test, a short watchlist) cannot flip on one error. 25 is chosen so
+#     that a single failure is always under 5% once the rate rule applies (1/25 = 4%), i.e. one
+#     stray error never turns a run red; two do (2/25 = 8%).
+FAILURE_RATE_THRESHOLD = 0.05
+FAILURE_RATE_MIN_ATTEMPTED = 25
+
+
+def check_failure_threshold(attempted: int, failed: int, summary: str) -> None:
+    """Raise RuntimeError (which cron_heartbeat records as status "failure", the existing red
+    state) when a job's run should not read as healthy: everything attempted failed, or
+    failed / attempted >= FAILURE_RATE_THRESHOLD with at least FAILURE_RATE_MIN_ATTEMPTED
+    attempted. `attempted` is every ticker the job actually tried (it includes tickers that
+    legitimately returned no data, and excludes ones skipped up front); "no data" and
+    "skipped" counts belong in `summary` only and never enter the threshold. `summary` is the
+    job's normal one-line message, reused as the head of the error text so the red message
+    keeps the counts."""
+    if attempted <= 0 or failed <= 0:
+        return
+    rate = failed / attempted
+    if failed >= attempted:
+        raise RuntimeError(f"{summary} -- all {attempted} attempted failed")
+    if attempted >= FAILURE_RATE_MIN_ATTEMPTED and rate >= FAILURE_RATE_THRESHOLD:
+        raise RuntimeError(f"{summary} -- {rate:.1%} failed (limit {FAILURE_RATE_THRESHOLD:.0%})")
+
+
 def _truncated_error_summary(exc: Exception) -> str:
     summary = "".join(traceback.format_exception_only(type(exc), exc)).strip()
     return redact_apikey(summary)[:_ERROR_SUMMARY_MAX_CHARS]

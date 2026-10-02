@@ -52,7 +52,7 @@ from pathlib import Path
 from sqlmodel import Session, select
 
 from core.data_groups import job_skip_reason
-from core.cron_health import cron_heartbeat
+from core.cron_health import check_failure_threshold, cron_heartbeat
 from core.db import engine, init_db
 from clients.fmp_client import fmp_client
 from core.logging_config import configure_logging
@@ -262,9 +262,24 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     return None
 
 
+def record_outcome(result: dict, run) -> None:
+    """Heartbeat mapping: "skipped" for a gated run, else a "N refreshed, F failed, C FMP calls,
+    D min" message that raises (heartbeat "failure") past core.cron_health.check_failure_threshold.
+    Only exceptions that escape a ticker's refresh are counted; get_stepN_data swallows most
+    per-statement FMP errors internally (safe_fetch), so those never reach this count."""
+    if result.get("skipped"):
+        run.skip(result["skip_reason"])
+        return
+    processed, failed = result["processed"], result["failed"]
+    message = (
+        f"{processed - failed} refreshed, {failed} failed, "
+        f"{result['calls_made']:,} FMP calls, {result['duration_seconds'] / 60:.1f} min"
+    )
+    check_failure_threshold(processed, failed, message)
+    run.message = message
+
+
 if __name__ == "__main__":
     cli_args = _parse_args()
     with cron_heartbeat("pipeline.nightly_fundamentals_fetch") as run:
-        result = asyncio.run(main(_resolve_cli_tickers(cli_args)))
-        if result.get("skipped"):
-            run.skip(result["skip_reason"])
+        record_outcome(asyncio.run(main(_resolve_cli_tickers(cli_args))), run)
