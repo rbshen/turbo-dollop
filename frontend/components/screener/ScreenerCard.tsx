@@ -75,7 +75,7 @@ export function ScreenerCard({ data }: Props) {
           blend together. */}
       {data.weinstein_stage != null && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <WeinsteinStagePill data={data} labelSet="screener" />
+          <WeinsteinStagePill data={data} />
         </div>
       )}
 

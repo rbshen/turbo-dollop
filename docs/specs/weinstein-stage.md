@@ -163,9 +163,10 @@ Screener card has no params, so its pill tooltip says "MA").
   (`lib/screenerFilters.ts::filterTickerScores`), like every other Screener multi-select: the
   Screener has never had server-side filtering for any criterion (`GET /api/screener` takes only
   `universe`), so a Weinstein query param would have been a new, inconsistent pattern rather than
-  a mirror of `perf_5y_vs_spy_*`/`speculative_growth_qualifies`. It shows as a compact
-  "S1"/"S2"/"S3"/"S4" pill (`WeinsteinStagePill`'s `labelSet="screener"` tier — unlike
-  `MoatPill`/`PerfVsSpyPill`, each stage gets its own distinct short label) and a "Weinstein
+  a mirror of `perf_5y_vs_spy_*`/`speculative_growth_qualifies`. It shows as a
+  `WeinsteinStagePill` — the same pill, with the same full "Stage 2 · Advance" wording
+  (`WEINSTEIN_STAGE_LABEL`), as the ticker header; there is no short "S1"–"S4" tier (removed
+  2026-10-02) — and a "Weinstein
   stage" filter dropdown in the Screener sidebar's Technical section (label sentence-cased
   2026-09-30; the option labels "Stage 1 · Base" ... and the stored keys `base`/`advance`/`top`/
   `decline`/`pending` are unchanged)

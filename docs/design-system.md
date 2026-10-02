@@ -302,7 +302,7 @@ A section that saves several independent panels (Discount Rate has one per regio
 
 One family, two components, two sizes. `Status` (a labelled state, with an optional ▲/▼ direction glyph) and `Badge` (a short value or label, with a `missing` state) render the same pill; `Verdict` is `Status` for a verdict word. They never differ in look, only in what they are for. Nothing in the app hand-rolls a pill, a dot or an inline status colour — a new status goes through these. That includes the Screener's `PullbackPill` and `ReversalPill`, which were the reference style and now render through `Status` themselves (2026-09-29), and the Technical tab's `ChecklistCard` status chip.
 
-**Anatomy.** `radius-md` (8px). Fill is the tone colour at 16% opacity, text is the tone colour at full strength, and there is no border. This is the look of the Screener's Weinstein stage pill ("S2", "S3" and so on), which is the reference style (it was originally set by the Pullback/Reversal pills, since removed with the trend-structure feature). No new colours: every tone reuses an existing token.
+**Anatomy.** `radius-md` (8px). Fill is the tone colour at 16% opacity, text is the tone colour at full strength, and there is no border. This is the look of the Weinstein stage pill ("Stage 2 · Advance" and so on; the Screener card shows the same wording as the ticker header), which is the reference style (it was originally set by the Pullback/Reversal pills, since removed with the trend-structure feature). No new colours: every tone reuses an existing token.
 
 | Size | Type | Padding | Height | Where |
 | --- | --- | --- | --- | --- |

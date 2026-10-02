@@ -9,7 +9,6 @@ import {
   WEINSTEIN_LOWER_BOUND_CAVEAT,
   WEINSTEIN_STAGE_LABEL,
   WEINSTEIN_STAGE_TONE,
-  type WeinsteinStage,
 } from "@/lib/weinsteinStage";
 import type { TrendAnalysisOut } from "@/lib/api/types";
 import { pillLabel } from "@/lib/tierColor";
@@ -34,27 +33,12 @@ type WeinsteinStagePillData = Pick<
   weinstein_params?: TrendAnalysisOut["weinstein_params"];
 };
 
-// Screener card: compact "S1"-"S4" text to fit alongside the other 3 pills
-// at the narrower card width. Unlike Moat/PerfVsSpy's own "screener" tier
-// (which maps every value to the same repeated word, since color alone
-// conveys state there), each Weinstein stage gets its own distinct short
-// label -- which stage it is is the whole point of this pill.
-const LABELS_SCREENER: Record<WeinsteinStage, string> = { base: "S1", advance: "S2", top: "S3", decline: "S4" };
-
-const LABEL_SETS: Record<"full" | "screener", Record<WeinsteinStage, string>> = {
-  full: WEINSTEIN_STAGE_LABEL,
-  screener: LABELS_SCREENER,
-};
-
 interface Props {
   // null (or undefined while loading) renders nothing -- a ticker with too
   // little price history for a stage read yet isn't "no stage",
   // it's "not computed," and gets no pill at all rather than a placeholder
   // (same "only show when meaningful" contract as MoatPill/SpeculativeGrowthPill).
   data: WeinsteinStagePillData | null | undefined;
-  // Which label wording tier to use -- see LABEL_SETS above. Defaults to
-  // the full "Stage 2 · Advance"-style wording.
-  labelSet?: "full" | "screener";
 }
 
 function buildTooltip(data: WeinsteinStagePillData): string {
@@ -77,13 +61,13 @@ function buildTooltip(data: WeinsteinStagePillData): string {
   return lines.join("\n");
 }
 
-export function WeinsteinStagePill({ data, labelSet = "full" }: Props) {
+export function WeinsteinStagePill({ data }: Props) {
   if (!data || !data.weinstein_stage) return null;
   const stage = data.weinstein_stage;
 
   return (
     <Status tone={WEINSTEIN_STAGE_TONE[stage]} title={buildTooltip(data)}>
-      {pillLabel(LABEL_SETS[labelSet][stage])}
+      {pillLabel(WEINSTEIN_STAGE_LABEL[stage])}
       {/* Pending confirmation -- without this, the extra tooltip line
           buildTooltip appends is invisible (a native `title` attribute
           gives no visual cue at all that there's more to hover for), so
