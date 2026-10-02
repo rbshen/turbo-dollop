@@ -11,6 +11,8 @@ type ChartProps = Record<string, unknown> & { onZoomBoundsChange: (b: ZoomBounds
 let chartProps: ChartProps;
 const chartRanges: string[] = [];
 let chartData: { chart_available: boolean } | undefined;
+// Optional per-range override of what the hook returns (so a test can make one range unavailable).
+const chartDataByRange: Record<string, { chart_available: boolean }> = {};
 
 vi.mock("@/components/chart/TickerChart", () => ({
   TickerChart: (props: ChartProps) => {
@@ -21,7 +23,7 @@ vi.mock("@/components/chart/TickerChart", () => ({
 vi.mock("@/lib/hooks/useTickerChart", () => ({
   useTickerChart: (_ticker: string, range: string) => {
     chartRanges.push(range);
-    return { data: chartData, error: undefined, isLoading: false };
+    return { data: chartDataByRange[range] ?? chartData, error: undefined, isLoading: false };
   },
 }));
 vi.mock("@/lib/hooks/useTickerSummary", () => ({ useTickerSummary: () => ({ data: { quote_currency: "USD" } }) }));
@@ -46,6 +48,7 @@ beforeEach(() => {
   window.localStorage.clear();
   chartRanges.length = 0;
   chartData = { chart_available: true };
+  for (const k of Object.keys(chartDataByRange)) delete chartDataByRange[k];
 });
 afterEach(cleanup);
 
@@ -60,10 +63,21 @@ function btn(name: string) {
 }
 
 describe("ChartTab: the range buttons", () => {
-  it("offers the four ranges and starts on D · 6M", () => {
+  it("offers the five ranges, 2H · 90D leftmost, and starts on D · 6M", () => {
     render(<ChartTab ticker="AAPL" />);
-    for (const label of ["D · 6M", "D · 1Y", "D · 2Y", "W · 4Y"]) expect(btn(label)).toBeInTheDocument();
+    const group = screen.getByRole("group", { name: "Chart range" });
+    const labels = Array.from(group.querySelectorAll("button")).map((b) => b.textContent);
+    expect(labels).toEqual(["2H · 90D", "D · 6M", "D · 1Y", "D · 2Y", "W · 4Y"]);
     expect(chartRanges[0]).toBe("D_6M");
+    expect(isOn(btn("D · 6M"))).toBe(true);
+    expect(isOn(btn("2H · 90D"))).toBe(false);
+  });
+
+  it("requests the 2H range from the chart hook when 2H · 90D is clicked", () => {
+    render(<ChartTab ticker="AAPL" />);
+    fireEvent.click(btn("2H · 90D"));
+    expect(chartRanges.at(-1)).toBe("2H_90D");
+    expect(isOn(btn("2H · 90D"))).toBe(true);
   });
 
   it("is one segmented group named 'Chart range', with the selected range pressed", () => {
@@ -237,5 +251,100 @@ describe("ChartTab: on an ETF page", () => {
     render(<ChartTab ticker="AAPL" />);
     expect(isOn(btn("Earnings"))).toBe(true);
     expect(chartProps.showEarnings).toBe(true);
+  });
+});
+
+
+describe("ChartTab: the 2H · 90D range", () => {
+  const OFFERED = ["BB+RSI", "Warren", "LP Support", "LP Resistance"];
+  const HIDDEN: [string, string][] = [
+    ["Earnings", "showEarnings"],
+    ["Dividends", "showDividends"],
+    ["BB", "showBollinger"],
+    ["EMA 21", "showEma21"],
+    ["SMA 50", "showSma50"],
+    ["SMA 200", "showSma200"],
+  ];
+
+  it("shows only BB+RSI, Warren, LP Support and LP Resistance, all on by default", () => {
+    render(<ChartTab ticker="AAPL" />);
+    fireEvent.click(btn("2H · 90D"));
+    for (const label of OFFERED) expect(isOn(btn(label))).toBe(true);
+    for (const [label] of HIDDEN) expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stage" })).not.toBeInTheDocument();
+    expect(chartProps).toMatchObject({ showBbRsi: true, showWarren: true, showLpSupport: true, showLpResistance: true });
+  });
+
+  it("forces every hidden overlay off in what the chart is told, even when saved on", () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ stage: true }));
+    render(<ChartTab ticker="AAPL" />);
+    fireEvent.click(btn("2H · 90D"));
+    for (const [, prop] of HIDDEN) expect(chartProps[prop]).toBe(false);
+    expect(chartProps.showStage).toBe(false);
+  });
+
+  it("never overwrites saved values for the hidden toggles, and switching back restores them", () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ema21: false, sma200: false, bollinger: true }));
+    render(<ChartTab ticker="AAPL" />);
+    fireEvent.click(btn("2H · 90D"));
+    fireEvent.click(btn("Warren")); // writes the whole object: the hidden values must ride along untouched
+    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}");
+    expect(saved).toMatchObject({ warren: false, ema21: false, sma200: false, bollinger: true });
+    fireEvent.click(btn("D · 6M"));
+    expect(isOn(btn("EMA 21"))).toBe(false);
+    expect(isOn(btn("SMA 200"))).toBe(false);
+    expect(isOn(btn("BB"))).toBe(true);
+    expect(chartProps).toMatchObject({ showEma21: false, showSma200: false, showBollinger: true, showWarren: false });
+  });
+
+  it("an offered toggle still flips only its own overlay", () => {
+    render(<ChartTab ticker="AAPL" />);
+    fireEvent.click(btn("2H · 90D"));
+    fireEvent.click(btn("LP Support"));
+    expect(chartProps).toMatchObject({ showLpSupport: false, showLpResistance: true, showBbRsi: true, showWarren: true });
+  });
+
+  it("describes 2-hour candles, the 09:30 ET alignment and the last 90 days; the daily ranges keep their copy", () => {
+    render(<ChartTab ticker="AAPL" />);
+    expect(screen.getByText(/Bollinger Bands\(20, 2\)/)).toBeInTheDocument();
+    fireEvent.click(btn("2H · 90D"));
+    const copy = screen.getByText(/2-hour candles aligned to the 09:30 ET open/);
+    expect(copy.textContent).toMatch(/last 90 days/);
+    expect(copy.textContent).toMatch(/any ticker/); // never implies monitored-only
+    expect(copy.textContent).not.toMatch(/monitored|tracked/i);
+    expect(screen.queryByText(/Bollinger Bands\(20, 2\)/)).not.toBeInTheDocument();
+  });
+
+  it("an unavailable 2H chart shows the unavailable state, keeps every range button, and disables zoom", () => {
+    chartDataByRange["2H_90D"] = { chart_available: false };
+    render(<ChartTab ticker="9988.HK" />);
+    fireEvent.click(btn("2H · 90D"));
+    expect(screen.getByText("No chart data available for 9988.HK.")).toBeInTheDocument();
+    expect(screen.queryByTestId("chart")).not.toBeInTheDocument();
+    for (const label of ["2H · 90D", "D · 6M", "D · 1Y", "D · 2Y", "W · 4Y"]) expect(btn(label)).toBeInTheDocument();
+    expect(btn("Zoom in")).toBeDisabled();
+    expect(btn("Zoom out")).toBeDisabled();
+  });
+
+  it("switching from an unavailable 2H view to another range recovers cleanly (chart back, zoom usable, bounds reset)", () => {
+    chartDataByRange["2H_90D"] = { chart_available: false };
+    render(<ChartTab ticker="9988.HK" />);
+    fireEvent.click(btn("2H · 90D"));
+    fireEvent.click(btn("D · 1Y"));
+    expect(screen.queryByText(/No chart data available/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("chart")).toBeInTheDocument();
+    expect(btn("Zoom in")).toBeEnabled();
+    expect(btn("Zoom out")).toBeDisabled(); // fresh bounds: nothing to zoom out of yet
+    expect(chartProps.zoomIndex).toBe(0);
+    fireEvent.click(btn("2H · 90D")); // and back again
+    expect(screen.getByText(/No chart data available/)).toBeInTheDocument();
+  });
+
+  it("the ETF Earnings guard is unaffected on the daily ranges while 2H hides it for everyone", () => {
+    render(<ChartTab ticker="QQQ" isEtf />);
+    expect(screen.queryByRole("button", { name: "Earnings" })).not.toBeInTheDocument();
+    fireEvent.click(btn("2H · 90D"));
+    expect(chartProps.showEarnings).toBe(false);
+    expect(OFFERED.every((l) => isOn(btn(l)))).toBe(true);
   });
 });

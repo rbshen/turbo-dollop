@@ -10,6 +10,27 @@ import { TooltipCard } from "@/components/ui/tooltip";
 import type { ChartOut } from "@/lib/api/types";
 import { buildStageColoredBars, WEINSTEIN_MA_COLOR } from "@/lib/chartWeinstein";
 import { readChartColors } from "@/lib/chartTokens";
+import { etIsoToFakeUtc, fakeUtcToEtIso, formatCandleLegendTime } from "@/lib/chartTime";
+import {
+  extendAutoscale,
+  MAIN_PANE_HEIGHT,
+  nominalLabelTops,
+  PANE_SEPARATOR_HEIGHT,
+  subPaneSpecs,
+  SUB_PANE_SCALE_MARGINS_2H,
+  totalChartHeight,
+} from "@/lib/chartPanes";
+import type { PaneSpec } from "@/lib/chartPanes";
+import { zoneExtensionPoints, zoneLinePoints } from "@/lib/chartZoneLines";
+import type { ZonePoint } from "@/lib/chartZoneLines";
+import {
+  barSpacingForZoomLevel,
+  clampToPanBounds,
+  computePanBounds,
+  computeRightOffset,
+  computeZoomLevelMultipliers,
+  MAX_BAR_SPACING_CAP,
+} from "@/lib/chartZoom";
 import type { ChartColors } from "@/lib/chartTokens";
 
 // Ported from Options Tracker's PositionChart.tsx (lightweight-charts
@@ -61,138 +82,9 @@ const RSI_OVERSOLD = 30;
 const STOCH_OVERBOUGHT = 80;
 const STOCH_OVERSOLD = 20;
 
-// rightOffset (the empty right-edge margin) is a bar-COUNT, not a pixel
-// width -- lightweight-charts fits barSpacing to (bar count + rightOffset)
-// bars across the pane's fixed pixel width, so the same rightOffset=10
-// produces a visibly different pixel margin per range (D_6M's ~126 bars
-// stretch each bar wider than D_2Y's ~504 bars packed into the same
-// width). BASE_RIGHT_OFFSET (10) is D_1Y's own already-tuned margin;
-// REFERENCE_D1Y_BAR_COUNT (252, the standard trading-days-per-year
-// convention -- D_1Y's own 365-calendar-day visible window) is the bar
-// count that margin was tuned against. computeRightOffset scales it by
-// the CURRENTLY-rendered range's own real bar count, so every range ends
-// up with the same PIXEL margin D_1Y already had -- confirmed
-// algebraically (and via a standalone numerical simulation replicating
-// this library's own fitContent()/setVisibleRange() math) that pane
-// WIDTH cancels out of this ratio entirely: the corrected value is
-// correct at every window width without re-reading anything from the
-// live chart, so no resize-time recomputation is needed -- it's derived
-// once from data.bars.length, before the chart is even created.
-const BASE_RIGHT_OFFSET = 10;
-const REFERENCE_D1Y_BAR_COUNT = 252;
-
-function computeRightOffset(barCount: number): number {
-  return (BASE_RIGHT_OFFSET * barCount) / REFERENCE_D1Y_BAR_COUNT;
-}
-
-// Pan/zoom bounds, computed directly from the fetched data rather than read back off
-// the timeScale. Root-cause fix for a bug where the old code called
-// chart.timeScale().fitContent() and then SYNCHRONOUSLY read
-// getVisibleLogicalRange() to capture these bounds: fitContent() in
-// lightweight-charts 5.2.0 only queues a deferred InvalidateMask (applied on the next
-// requestAnimationFrame) rather than recomputing barSpacing/rightOffset immediately,
-// so that synchronous read captured the timeScale's PRE-fit state (barSpacing still
-// at the library's hardcoded default of 6, not the true fitted value) -- producing a
-// minFrom far to the right of the true first bar, silently clamping panning ~1-4
-// months short of the true window start depending on pane width/range. Confirmed via
-// a jsdom + real-library harness against live chart data, independent of LP zones and
-// not zoom-level-dependent (the bad value was fixed once at mount).
-//
-// minFrom is always 0: the candle series is confirmed (via a live
-// /api/tickers/{ticker}/chart check) to be the earliest-starting series of the bunch
-// -- no indicator ever has a data point before the first candle -- so index 0 of the
-// shared timeScale is always the true first bar, regardless of pane width or timing.
-// maxTo mirrors exactly what fitContent() was trying to produce (last real bar +
-// the configured right margin); hand-tracing _internal_setVisibleRange's math confirms
-// this is self-correcting at RAF-apply time regardless of the LP zone-line
-// extension's own baseIndex bump below (extendZoneLinesToEdge), since the library
-// derives whatever rightOffset is needed to realize this exact {from,to} using
-// whatever baseIndex is current when the queued range is actually applied.
-function computePanBounds(barCount: number): { minFrom: number; maxTo: number } {
-  return { minFrom: 0, maxTo: barCount - 1 + computeRightOffset(barCount) };
-}
-
-// Shared by the pan-clamp handler (subscribeVisibleLogicalRangeChange, below) and
-// the zoom-level effect: translate {from,to} left/right to bring `to` back under
-// maxTo (preserving the requested width, i.e. the current zoom level/pan gesture),
-// then -- only if that translation would still leave `from` short of minFrom (the
-// requested span is wider than the entire fetched range plus margin) -- clamp
-// `from` up to minFrom outright, which narrows the span. One shared implementation
-// so pan and button-zoom can never drift into two subtly different clamp shapes.
-function clampToPanBounds(from: number, to: number, minFrom: number, maxTo: number): { from: number; to: number } {
-  if (to > maxTo) {
-    from -= to - maxTo;
-    to = maxTo;
-  }
-  if (from < minFrom) {
-    from = minFrom;
-  }
-  return { from, to };
-}
-
-// Discrete ladder of zoom levels, replacing free-form pointer zoom (wheel/
-// pinch/drag-to-scale -- see makeChartOptions' handleScale:false below). Each
-// multiplier scales the range's own "fit" bar spacing (paneWidth / (barCount +
-// rightOffset), i.e. exactly what computePanBounds's maxTo already shows
-// end-to-end) -- so level 0 is always precisely the fit level, which is why
-// "zoom out" naturally has nothing left to do at index 0 (matches the requirement
-// that zoom-out cannot go past the equivalent of fitContent()). Three levels
-// total (one fit + two zoom-in steps), geometric rather than linear spacing --
-// equal RATIOS between consecutive bar-spacing values read as equal perceived
-// zoom steps (bar width is what the eye judges, and halving/doubling a width
-// feels like the same-size jump whether it's 3px->6px or 30px->60px; equal
-// linear increments would instead make the first click feel huge and the second
-// feel trivial).
-//
-// The max multiplier is range-aware, not a shared constant -- a flat 4.5x for
-// every range (the original design) zoomed each range to a very different
-// ABSOLUTE bar density, since each range's "fit" spacing starts from a very
-// different bar count (D_6M's ~126 bars vs. D_2Y's ~504): confirmed via a
-// dedicated investigation that a flat 4.5x always lands at exactly 1/4.5
-// (~22%) of a range's own bar count regardless of range, i.e. ~29 bars for
-// D_6M (arguably already over-zoomed) vs. ~116 for D_2Y (still fairly wide).
-// computeZoomLevelMultipliers instead derives the multiplier from the range's
-// OWN bar count so every range converges on roughly the same ABSOLUTE
-// TARGET_VISIBLE_BARS_AT_MAX_ZOOM bars visible at max zoom -- computed from
-// `data.bars.length` (the real per-ticker count already used for
-// computeRightOffset/computePanBounds), not a hardcoded per-range guess, so a
-// thin-history ticker degrades the same way the rest of this file already
-// does. Floored at 1 so a range/ticker whose bar count is already below the
-// target (max zoom would otherwise be a multiplier < 1, i.e. zoomed OUT past
-// fit) just gets a flat, inert ladder instead -- canZoomIn's own check
-// naturally disables the button in that case since barSpacing stops
-// increasing. Capped at MAX_BAR_SPACING_CAP so a still-small-bar-count range
-// can't zoom in to where a single candle swallows most of the pane --
-// canZoomIn's own cap-aware check (see the zoom-apply effect below) disables
-// the button once a level's effective (capped) spacing stops increasing, even
-// if that happens before the ladder's last index.
-const TARGET_VISIBLE_BARS_AT_MAX_ZOOM = 50;
-const MAX_BAR_SPACING_CAP = 60;
-
-function computeZoomLevelMultipliers(barCount: number, rightOffset: number): number[] {
-  const maxMultiplier = Math.max(1, (barCount + rightOffset) / TARGET_VISIBLE_BARS_AT_MAX_ZOOM);
-  return [1, Math.sqrt(maxMultiplier), maxMultiplier];
-}
-
-function barSpacingForZoomLevel(fitBarSpacing: number, levelIndex: number, multipliers: number[]): number {
-  return Math.min(fitBarSpacing * multipliers[levelIndex], MAX_BAR_SPACING_CAP);
-}
-
-// Fixed pixel heights per pane -- unchanged from the three-separate-charts
-// era, just applied via Pane.setHeight() now instead of each chart's own
-// `height` option.
-const MAIN_PANE_HEIGHT = 580;
-const RSI_PANE_HEIGHT = 100;
-const STOCH_PANE_HEIGHT = 100;
-// lightweight-charts' own pane-separator height (confirmed as a fixed 1px
-// constant in lightweight-charts.development.mjs), which the library now
-// draws natively between panes sharing one chart, replacing the old CSS
-// `border-t` divider between three separate chart divs. Only used below to
-// compute the RSI/Stochastic overlay labels' vertical offset -- a 1px miss
-// here would be a cosmetically negligible label position, not a layout
-// break, since the panes' own real heights are set directly via
-// setHeight() regardless of this constant.
-const PANE_SEPARATOR_HEIGHT = 1;
+// Pane heights (MAIN_PANE_HEIGHT, the per-pane sub-pane height, PANE_SEPARATOR_HEIGHT -- lightweight-charts' fixed 1px
+// pane separator, which the library draws natively between panes sharing one chart) and the per-range sub-pane list
+// live in lib/chartPanes.ts; they are applied below via setStretchFactor().
 
 // Minimum price-scale (y-axis) width, purely a readability floor now (e.g.
 // for a hypothetical ticker where every pane's labels happen to be very
@@ -224,7 +116,7 @@ interface OhlcState {
   c: number;
 }
 
-function makeChartOptions(rightOffset: number, height: number, colors: ChartColors) {
+function makeChartOptions(rightOffset: number, height: number, colors: ChartColors, intraday: boolean) {
   return {
     layout: {
       background: { color: colors.page },
@@ -295,7 +187,9 @@ function makeChartOptions(rightOffset: number, height: number, colors: ChartColo
     // margin instead of zeroing it.
     timeScale: {
       borderColor: colors.borderCard,
-      timeVisible: false,
+      // The 2H·90D range's UTCTimestamp times (fake-UTC ET wall-clock, see lib/chartTime.ts) show HH:MM on the axis
+      // and crosshair; the daily/weekly business-day strings stay date-only.
+      timeVisible: intraday,
       rightOffset,
       shiftVisibleRangeOnNewBar: false,
       fixLeftEdge: true,
@@ -327,6 +221,21 @@ interface OverlayVisibility {
   showStage?: boolean;
 }
 
+// 2H·90D times arrive as naive-ET ISO strings and become fake-UTC UTCTimestamps (lib/chartTime.ts); every other range
+// keeps its "YYYY-MM-DD" strings untouched (the identity mapping, same array instances).
+function isIntraday(data: Pick<ChartOut, "timeframe">): boolean {
+  return data.timeframe === "2h";
+}
+
+function timeMapper(data: Pick<ChartOut, "timeframe">): (t: string) => Time {
+  return isIntraday(data) ? etIsoToFakeUtc : (t) => t as Time;
+}
+
+function retime<P extends { time: string }>(points: P[], data: Pick<ChartOut, "timeframe">): P[] {
+  if (!isIntraday(data)) return points;
+  return points.map((p) => ({ ...p, time: etIsoToFakeUtc(p.time) })) as unknown as P[];
+}
+
 function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisibility, colors: ChartColors) {
   // No paneIndex passed -- defaults to pane 0, the main price pane.
   const candle = chart.addSeries(CandlestickSeries, {
@@ -346,7 +255,7 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
     // left disabled.
     priceLineVisible: false,
   });
-  candle.setData(data.bars);
+  candle.setData(retime(data.bars, data));
 
   // Overlay visibility is set at creation time via the `visible` series option (not by skipping series creation
   // outright) so a later toggle-on can flip it back via applyOptions({ visible: true }) -- see the overlayApiRef
@@ -376,7 +285,7 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
       crosshairMarkerVisible: false,
       visible: overlayToggleForKey[key],
     });
-    line.setData(pts);
+    line.setData(retime(pts, data));
     overlaySeries[key] = line;
   }
 
@@ -394,7 +303,7 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
       crosshairMarkerVisible: false,
       visible: !!visibility.showStage,
     });
-    stageMaSeries.setData(data.weinstein_ma);
+    stageMaSeries.setData(retime(data.weinstein_ma, data));
   }
 
   const bollingerSeries: ISeriesApi<"Line">[] = [];
@@ -413,7 +322,7 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
         crosshairMarkerVisible: false,
         visible: visibility.showBollinger,
       });
-      bb.setData(data.bollinger.map((b) => ({ time: b.time, value: b[key] })));
+      bb.setData(retime(data.bollinger, data).map((b) => ({ time: b.time, value: b[key] })));
       bollingerSeries.push(bb);
     }
   }
@@ -439,12 +348,15 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
   // last value -- kept false since enabling it would reintroduce the
   // exact full-width-regardless-of-formed_at problem this LineSeries
   // switch was built to fix, just via a different mechanism.
-  const zoneLines: { series: ISeriesApi<"Line">; points: { time: string; value: number }[] }[] = [];
+  const zoneLines: { series: ISeriesApi<"Line">; points: ZonePoint[] }[] = [];
   const lpSupportSeries: ISeriesApi<"Line">[] = [];
   const lpResistanceSeries: ISeriesApi<"Line">[] = [];
   for (const zone of data.zones) {
     const isSupport = zone.side === "support";
-    const points = data.bars.filter((b) => b.time >= zone.formed_at).map((b) => ({ time: b.time, value: zone.price }));
+    // Numeric (fake-UTC) comparison on the 2H·90D range, string comparison on daily/weekly -- see
+    // lib/chartZoneLines.ts. The zone starts at its swing candle either way.
+    const toTime = timeMapper(data);
+    const points = zoneLinePoints(data.bars.map((b) => ({ time: toTime(b.time) as string | number })), toTime(zone.formed_at) as string | number, zone.price);
     if (!points.length) continue;
     const color = zone.broken
       ? isSupport
@@ -462,7 +374,7 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
       crosshairMarkerVisible: false,
       visible: isSupport ? visibility.showLpSupport : visibility.showLpResistance,
     });
-    zoneLine.setData(points);
+    zoneLine.setData(points as { time: Time; value: number }[]);
     zoneLines.push({ series: zoneLine, points });
     (isSupport ? lpSupportSeries : lpResistanceSeries).push(zoneLine);
   }
@@ -531,8 +443,9 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
 // setMarkers() calls in the component itself (see the showBbRsi/showWarren effects) -- keeps both call sites
 // byte-identical instead of two hand-maintained copies of the same mapping.
 function buildEntrySignalMarkers(data: ChartOut, color: string) {
+  const toTime = timeMapper(data);
   return data.entry_signal_markers.map((marker) => ({
-    time: marker.time,
+    time: toTime(marker.time),
     position: "belowBar" as const,
     color,
     shape: "arrowUp" as const,
@@ -543,10 +456,11 @@ function buildEntrySignalMarkers(data: ChartOut, color: string) {
 
 function buildWarrenMarkers(data: ChartOut, colors: ChartColors) {
   const styles = warrenMarkerStyle(colors);
+  const toTime = timeMapper(data);
   return data.warren_signal_markers.map((marker) => {
     const style = styles[marker.kind] ?? styles.gray_up;
     return {
-      time: marker.time,
+      time: toTime(marker.time),
       position: style.position,
       color: style.color,
       shape: style.shape,
@@ -554,27 +468,6 @@ function buildWarrenMarkers(data: ChartOut, colors: ChartColors) {
       size: 1,
     };
   });
-}
-
-// Generates `count` distinct, strictly-increasing "YYYY-MM-DD" dates after
-// `lastTime`, spaced `incrementDays` apart. Used only to extend LP zone
-// lines into the empty rightOffset margin -- see extendZoneLinesToEdge's
-// own comment for why the actual calendar spacing between these synthetic
-// dates doesn't affect how many pixels of the margin they end up
-// covering (lightweight-charts spaces bars by ordinal position among
-// known distinct time values, not by elapsed calendar time between them),
-// so incrementDays is chosen purely so a synthetic date still LOOKS like
-// a plausible next trading day/week for this timeframe, not because the
-// exact gap size matters for rendering.
-function futureDateStrings(lastTime: string, count: number, incrementDays: number): string[] {
-  const base = new Date(`${lastTime}T00:00:00Z`);
-  const out: string[] = [];
-  for (let i = 1; i <= count; i++) {
-    const d = new Date(base);
-    d.setUTCDate(d.getUTCDate() + incrementDays * i);
-    out.push(d.toISOString().slice(0, 10));
-  }
-  return out;
 }
 
 // Extends each LP zone's LineSeries from the last real bar into the
@@ -618,7 +511,7 @@ function futureDateStrings(lastTime: string, count: number, incrementDays: numbe
 // way to the true edge with the default left on, and landed at exactly 100%
 // with it off -- see this round's commit message for the full numbers.
 function extendZoneLinesToEdge(
-  zoneLines: { series: ISeriesApi<"Line">; points: { time: string; value: number }[] }[],
+  zoneLines: { series: ISeriesApi<"Line">; points: ZonePoint[] }[],
   timeframe: string,
   rightOffset: number
 ) {
@@ -634,25 +527,24 @@ function extendZoneLinesToEdge(
   // synthetic point lands just past the true edge, simply clipped/
   // invisible there rather than falling short of it. Rounding up is the
   // safe direction; rounding down never is.
-  const pointCount = Math.ceil(rightOffset);
-  const incrementDays = timeframe === "weekly" ? 7 : 1;
+  // The synthetic margin points (lib/chartZoneLines.ts::zoneExtensionPoints): `ceil(rightOffset)` of them, as future
+  // date strings on the daily/weekly ranges (unchanged) and as numeric timestamps 2h apart on the 2H·90D range.
   for (const { series, points } of zoneLines) {
-    if (!points.length) continue;
-    const last = points[points.length - 1];
-    const extension = futureDateStrings(last.time, pointCount, incrementDays).map((time) => ({ time, value: last.value }));
-    series.setData([...points, ...extension]);
+    const extension = zoneExtensionPoints(points, rightOffset, timeframe);
+    if (!extension.length) continue;
+    series.setData([...points, ...extension] as { time: Time; value: number }[]);
   }
 }
 
-function addRefLine(series: ISeriesApi<"Line">, price: number, color: string) {
+function addRefLine(series: ISeriesApi<"Line">, price: number, color: string, opts: { dashed?: boolean; axisLabel?: boolean } = {}) {
   // Static reference lines (not derived from data), drawn via
   // createPriceLine rather than a plotted series.
   series.createPriceLine({
     price,
     color,
     lineWidth: 1,
-    lineStyle: LineStyle.Solid,
-    axisLabelVisible: true,
+    lineStyle: opts.dashed ? LineStyle.Dashed : LineStyle.Solid,
+    axisLabelVisible: opts.axisLabel ?? true,
     title: "",
   });
 }
@@ -695,6 +587,65 @@ function addStochasticSeries(chart: IChartApi, data: ChartOut, paneIndex: number
   dSeries.setData(data.stochastic.map((p) => ({ time: p.time, value: p.d })));
   addRefLine(kSeries, STOCH_OVERBOUGHT, colors.chartRefline);
   addRefLine(kSeries, STOCH_OVERSOLD, colors.chartRefline);
+}
+
+// --- 2H·90D sub-panes: the Warren engine's own series (ChartOut.warren_*), never the daily rsi/stochastic fields ---
+//
+// Colors reuse the existing chart tokens (no new ones): RSI keeps the daily RSI pane's grey line with red beyond
+// 30/70; ADX is the blue (chart-ema21), +DI the up green and -DI the down red; WVF the Warren amber
+// (chart-warren-yellow). Reference lines are chart-refline: the classic RSI 30/70 solid, every Warren-specific
+// threshold (RSI 12/80.81/84.75, ADX 40, WVF 0.40) dashed. Price-axis labels are drawn only where they cannot
+// collide (RSI 12/30/70, ADX 40, WVF 0.40) -- 80.81 and 84.75 sit about 3px apart on a 100px pane -- and the
+// pane's own label lists every level instead. Each series' autoscale is widened to include its levels, so a line
+// is always inside the scale, and the pane keeps SUB_PANE_SCALE_MARGINS_2H of headroom at the top for its label.
+
+const WARREN_CLASSIC_RSI_LEVELS = new Set([RSI_OVERBOUGHT, RSI_OVERSOLD]);
+
+function addWarrenSubPane(chart: IChartApi, spec: PaneSpec, data: ChartOut, paneIndex: number, colors: ChartColors) {
+  const levels = data.warren_levels;
+  const lineOpts = { lineWidth: 1 as const, priceLineVisible: false, lastValueVisible: false };
+  const withLevels = (values: number[], clamp?: { min?: number; max?: number }) => ({
+    autoscaleInfoProvider: (original: () => ReturnType<typeof extendAutoscale>) => extendAutoscale(original(), values, clamp),
+  });
+
+  if (spec.id === "warren-rsi") {
+    const rsiLevels = levels?.rsi ?? [];
+    const series = chart.addSeries(LineSeries, { color: colors.chartBand, ...lineOpts, ...withLevels(rsiLevels, { min: 0, max: 100 }) }, paneIndex);
+    series.setData(
+      retime(data.warren_rsi, data).map((p) => ({
+        time: p.time as Time,
+        value: p.value,
+        color: p.value > RSI_OVERBOUGHT || p.value < RSI_OVERSOLD ? colors.chartDown : colors.chartBand,
+      }))
+    );
+    for (const level of rsiLevels) {
+      const classic = WARREN_CLASSIC_RSI_LEVELS.has(level);
+      addRefLine(series, level, colors.chartRefline, { dashed: level !== RSI_OVERBOUGHT && level !== RSI_OVERSOLD, axisLabel: classic || level === 12 });
+    }
+  } else if (spec.id === "warren-adx") {
+    const adxLevels = levels?.adx ?? [];
+    const adx = chart.addSeries(LineSeries, { color: colors.chartEma21, ...lineOpts, ...withLevels(adxLevels) }, paneIndex);
+    const plus = chart.addSeries(LineSeries, { color: colors.chartUp, ...lineOpts }, paneIndex);
+    const minus = chart.addSeries(LineSeries, { color: colors.chartDown, ...lineOpts }, paneIndex);
+    adx.setData(retime(data.warren_adx, data) as { time: Time; value: number }[]);
+    plus.setData(retime(data.warren_plus_di, data) as { time: Time; value: number }[]);
+    minus.setData(retime(data.warren_minus_di, data) as { time: Time; value: number }[]);
+    for (const level of adxLevels) addRefLine(adx, level, colors.chartRefline, { dashed: true });
+  } else if (spec.id === "warren-wvf") {
+    const wvfLevels = levels?.wvf ?? [];
+    const series = chart.addSeries(LineSeries, { color: colors.chartWarrenYellow, ...lineOpts, ...withLevels(wvfLevels) }, paneIndex);
+    series.setData(retime(data.warren_wvf, data) as { time: Time; value: number }[]);
+    for (const level of wvfLevels) addRefLine(series, level, colors.chartRefline, { dashed: true });
+  }
+  // After the pane's series exist: addSeries(..., paneIndex) is what creates the pane, and the library rejects
+  // price-scale options for a pane that does not exist yet. The margins reserve top headroom for the pane label.
+  chart.priceScale("right", paneIndex).applyOptions({ scaleMargins: SUB_PANE_SCALE_MARGINS_2H });
+}
+
+function addSubPane(chart: IChartApi, spec: PaneSpec, data: ChartOut, paneIndex: number, colors: ChartColors) {
+  if (spec.id === "rsi") addRsiSeries(chart, data, paneIndex, colors);
+  else if (spec.id === "stochastic") addStochasticSeries(chart, data, paneIndex, colors);
+  else addWarrenSubPane(chart, spec, data, paneIndex, colors);
 }
 
 export interface ZoomBounds {
@@ -745,10 +696,15 @@ export function TickerChart({
   const defaultOhlc: OhlcState | null = lastBar ? { o: lastBar.open, h: lastBar.high, l: lastBar.low, c: lastBar.close } : null;
   const [hoverOhlc, setHoverOhlc] = useState<OhlcState | null>(null);
   const ohlc = hoverOhlc ?? defaultOhlc;
+  // 2H·90D only: the hovered candle's naive-ET start (ISO), shown in the legend with its full window. Like hoverOhlc,
+  // set only from the crosshair handler; null falls back to the latest candle.
+  const intraday = isIntraday(data);
+  const [hoverTime, setHoverTime] = useState<string | null>(null);
+  const legendTime = intraday ? (hoverTime ?? lastBar?.time ?? null) : null;
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const rsiLabelRef = useRef<HTMLDivElement>(null);
-  const stochLabelRef = useRef<HTMLDivElement>(null);
+  // One label per sub-pane, in pane order (see paneSpecs below); positioned from the chart's real pane geometry.
+  const labelRefs = useRef<(HTMLDivElement | null)[]>([]);
   // Populated by the chart-creation effect below; read by the showBbRsi/showWarren toggle effects further down to
   // flip marker visibility via setMarkers() without recreating the chart.
   const markersApiRef = useRef<{
@@ -790,34 +746,19 @@ export function TickerChart({
   // initial mount uses the same resolved colors, not a fresh (cheap, but unnecessary) re-read.
   const colorsRef = useRef<ChartColors | null>(null);
 
-  // Pane layout: main is always pane 0; RSI/Stochastic each get the next
-  // free pane index only when they have data -- a thin-history ticker
-  // missing one or both indicators (still too little warm-up) must not
-  // leave an empty gap pane, exactly like the old conditionally-rendered
-  // divs. Computed here, once per data change, so both the chart-creation
-  // effect below and the overlay-label JSX stay in sync by construction
-  // instead of by two hand-maintained copies of "does RSI exist."
-  const hasRsi = data.rsi.length > 0;
-  const hasStochastic = data.stochastic.length > 0;
-  let nextPaneIndex = 1;
-  const rsiPaneIndex = hasRsi ? nextPaneIndex++ : null;
-  const stochPaneIndex = hasStochastic ? nextPaneIndex++ : null;
-
-  const totalHeight =
-    MAIN_PANE_HEIGHT +
-    (hasRsi ? PANE_SEPARATOR_HEIGHT + RSI_PANE_HEIGHT : 0) +
-    (hasStochastic ? PANE_SEPARATOR_HEIGHT + STOCH_PANE_HEIGHT : 0);
-  // Pre-layout placeholder only, from the *nominal* pane-height constants -- never
-  // actually visible, since the layout effect below overwrites both labels' real
-  // `top` from the chart's own post-layout paneSize() before the browser paints.
-  // Needed here only because these constants don't equal the chart's real rendered
-  // pane heights (the chart's `height` option must also budget for the shared time
-  // axis row, which these nominal sums never accounted for -- confirmed via
-  // lightweight-charts.development.mjs's _private__adjustSizeImpl, which subtracts
-  // timeAxisHeight from the given `height` before splitting panes), so using them
-  // as a final value silently landed both labels a few px into the wrong pane.
-  const rsiLabelTop = MAIN_PANE_HEIGHT + PANE_SEPARATOR_HEIGHT;
-  const stochLabelTop = MAIN_PANE_HEIGHT + PANE_SEPARATOR_HEIGHT + (hasRsi ? RSI_PANE_HEIGHT + PANE_SEPARATOR_HEIGHT : 0);
+  // Pane layout: main is always pane 0; the sub-panes come from the range's pane-spec list (lib/chartPanes.ts) --
+  // RSI/Stochastic (each only when it has data) on the daily/weekly ranges, Warren RSI/ADX/WVF on 2H·90D -- so a
+  // thin-history ticker missing an indicator never leaves an empty gap pane. Computed here, once per data change,
+  // so the chart-creation effect below and the overlay-label JSX stay in sync by construction.
+  const paneSpecs = subPaneSpecs(data);
+  const paneKey = paneSpecs.map((spec) => spec.id).join(",");
+  const totalHeight = totalChartHeight(paneSpecs);
+  // Pre-layout placeholder tops only, from the *nominal* pane heights -- never actually visible, since the layout
+  // effect below overwrites every label's real `top` from the chart's own post-layout paneSize() before paint.
+  // (The chart's `height` option must also budget for the shared time axis row, which these nominal sums never
+  // accounted for -- confirmed via lightweight-charts.development.mjs's _private__adjustSizeImpl, which subtracts
+  // timeAxisHeight from the given `height` before splitting panes -- so they are not a final value.)
+  const nominalTops = nominalLabelTops(paneSpecs);
 
   useLayoutEffect(() => {
     if (!containerRef.current) return;
@@ -831,7 +772,7 @@ export function TickerChart({
     const colors = readChartColors();
     colorsRef.current = colors;
 
-    const chart = createChart(containerRef.current, makeChartOptions(rightOffset, totalHeight, colors));
+    const chart = createChart(containerRef.current, makeChartOptions(rightOffset, totalHeight, colors, intraday));
 
     const {
       candle,
@@ -877,8 +818,7 @@ export function TickerChart({
       stageMa: stageMaSeries,
     };
     candleSeriesRef.current = candle;
-    if (rsiPaneIndex !== null) addRsiSeries(chart, data, rsiPaneIndex, colors);
-    if (stochPaneIndex !== null) addStochasticSeries(chart, data, stochPaneIndex, colors);
+    paneSpecs.forEach((spec, i) => addSubPane(chart, spec, data, i + 1, colors));
 
     // addSeries(..., paneIndex) above already created each pane on demand
     // -- setStretchFactor() here locks in the fixed pixel split (580/100/
@@ -892,10 +832,9 @@ export function TickerChart({
     // a direct, independent assignment with no cross-pane side effects,
     // so all three panes land on their intended ratio regardless of call
     // order -- RSI and Stochastic (equal stretch factors) are guaranteed
-    // pixel-identical to each other, not just approximately close.
+    // pixel-identical to each other, not just approximately close (the three 2H·90D sub-panes likewise).
     chart.panes()[0].setStretchFactor(MAIN_PANE_HEIGHT);
-    if (rsiPaneIndex !== null) chart.panes()[rsiPaneIndex].setStretchFactor(RSI_PANE_HEIGHT);
-    if (stochPaneIndex !== null) chart.panes()[stochPaneIndex].setStretchFactor(STOCH_PANE_HEIGHT);
+    paneSpecs.forEach((spec, i) => chart.panes()[i + 1].setStretchFactor(spec.height));
 
     // Analytic pan bounds -- computed directly from data.bars.length/rightOffset,
     // never read back off the timeScale. See computePanBounds's own comment for
@@ -962,15 +901,14 @@ export function TickerChart({
     let labelPositioningCancelled = false;
     const positionLabelsFromRealPaneGeometry = () => {
       if (labelPositioningCancelled) return;
-      const mainPaneHeight = chart.paneSize(0).height;
-      if (rsiLabelRef.current && rsiPaneIndex !== null) {
-        rsiLabelRef.current.style.top = `${mainPaneHeight + PANE_SEPARATOR_HEIGHT}px`;
-      }
-      if (stochLabelRef.current && stochPaneIndex !== null) {
-        const rsiPaneHeight = rsiPaneIndex !== null ? chart.paneSize(rsiPaneIndex).height : 0;
-        const stochTop = mainPaneHeight + PANE_SEPARATOR_HEIGHT + (rsiPaneIndex !== null ? rsiPaneHeight + PANE_SEPARATOR_HEIGHT : 0);
-        stochLabelRef.current.style.top = `${stochTop}px`;
-      }
+      // Label k sits at the top of sub-pane k: the heights of every pane above it plus a separator per boundary.
+      // Only panes < k are measured, all of which exist by this frame.
+      let top = 0;
+      paneSpecs.forEach((_, i) => {
+        top += chart.paneSize(i).height + PANE_SEPARATOR_HEIGHT;
+        const label = labelRefs.current[i];
+        if (label) label.style.top = `${top}px`;
+      });
     };
     const positionLabelsRafId = requestAnimationFrame(positionLabelsFromRealPaneGeometry);
 
@@ -981,6 +919,7 @@ export function TickerChart({
     // three independent charts).
     chart.subscribeCrosshairMove((params) => {
       if (params.time !== undefined) {
+        setHoverTime(typeof params.time === "number" ? fakeUtcToEtIso(params.time) : null);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const bar = params.seriesData.get(candle as any) as any;
         if (bar && bar.open !== undefined) {
@@ -988,6 +927,7 @@ export function TickerChart({
         }
       } else {
         setHoverOhlc(null); // falls back to defaultOhlc (the latest bar) above
+        setHoverTime(null);
       }
 
       // Event-label hover: lightweight-charts 5.2.0 reports a custom primitive's hit via hoveredInfo (objectKind
@@ -1032,7 +972,7 @@ export function TickerChart({
     // (read once, via closure); a later toggle flip is handled by the separate effects below via
     // setMarkers()/applyOptions({ visible }), without tearing down and recreating the whole chart.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, totalHeight, rsiPaneIndex, stochPaneIndex]);
+  }, [data, totalHeight, paneKey]);
 
   // Applies the button-driven discrete zoom level (see computeZoomLevelMultipliers) --
   // deliberately a separate, lightweight effect from the chart-creation one above
@@ -1147,7 +1087,7 @@ export function TickerChart({
     if (!candle) return;
     const staged = showStage && data.weinstein_stages?.length > 0;
     if (!staged) {
-      candle.setData(data.bars);
+      candle.setData(retime(data.bars, data));
       return;
     }
     const colors = colorsRef.current;
@@ -1168,6 +1108,7 @@ export function TickerChart({
         <div className="absolute top-2 left-3 z-10 select-none pointer-events-none">
           {ohlc && (
             <div className="flex items-center gap-2.5 text-xs font-mono">
+              {legendTime && <span className="text-text-secondary">{formatCandleLegendTime(legendTime)}</span>}
               <span className="text-text-tertiary">
                 O <span className="text-text-secondary">{fmtMoney(ohlc.o, quoteCurrency)}</span>
               </span>
@@ -1184,25 +1125,23 @@ export function TickerChart({
           )}
         </div>
 
-        {hasRsi && (
+        {paneSpecs.map((spec, i) => (
           <div
-            ref={rsiLabelRef}
+            key={spec.id}
+            ref={(el) => {
+              labelRefs.current[i] = el;
+            }}
             className="absolute left-3 z-10 text-[10px] font-mono text-text-tertiary select-none pointer-events-none"
-            style={{ top: rsiLabelTop }} // placeholder; corrected from real pane geometry in the layout effect above
+            style={{ top: nominalTops[i] }} // placeholder; corrected from real pane geometry in the layout effect above
           >
-            RSI (14)
+            {spec.label}
+            {spec.legend?.map((item) => (
+              <span key={item.text} className={`ml-1.5 ${item.className}`}>
+                {item.text}
+              </span>
+            ))}
           </div>
-        )}
-
-        {hasStochastic && (
-          <div
-            ref={stochLabelRef}
-            className="absolute left-3 z-10 text-[10px] font-mono text-text-tertiary select-none pointer-events-none"
-            style={{ top: stochLabelTop }} // placeholder; corrected from real pane geometry in the layout effect above
-          >
-            Full Stochastic (5, 3, 3) EMA
-          </div>
-        )}
+        ))}
 
         <div ref={containerRef} className="w-full" style={{ height: totalHeight }} />
 

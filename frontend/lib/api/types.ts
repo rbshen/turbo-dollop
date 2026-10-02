@@ -1497,16 +1497,26 @@ export interface ChartDividendMarkerOut {
   amount: number;
 }
 
-export type ChartRange = "D_6M" | "D_1Y" | "D_2Y" | "W_4Y";
+export type ChartRange = "2H_90D" | "D_6M" | "D_1Y" | "D_2Y" | "W_4Y";
 
 export interface ChartStagePointOut {
   time: string; // "YYYY-MM-DD"
   stage: "base" | "advance" | "top" | "decline";
 }
 
+// Warren's reference levels, read by the backend from the engine's own constants: RSI 12/30/70/80.81/84.75,
+// ADX 40, WVF 0.40.
+export interface ChartWarrenLevelsOut {
+  rsi: number[];
+  adx: number[];
+  wvf: number[];
+}
+
 export interface ChartOut {
   range: ChartRange;
-  timeframe: string; // "daily" | "weekly"
+  // On "2h" (the 2H_90D range) every time -- bars, markers, zone formed_at, Warren series -- is a naive-ET
+  // "YYYY-MM-DDTHH:MM:SS" candle-START stamp (09:30/11:30/13:30/15:30); otherwise "YYYY-MM-DD".
+  timeframe: string; // "2h" | "daily" | "weekly"
   bars: ChartBarOut[];
   ema21: ChartLinePointOut[];
   sma50: ChartLinePointOut[];
@@ -1535,7 +1545,9 @@ export interface ChartOut {
   warren_signal_available: boolean;
   // zones_available mirrors entry_signal_available's convention -- false
   // means not tracked (not on a monitored watchlist (named E<number> or ETF), or the
-  // nightly LP job hasn't reached it yet), not "genuinely zero zones".
+  // nightly LP job hasn't reached it yet), not "genuinely zero zones". On the 2H_90D range all three
+  // availability flags (entry_signal/warren_signal/zones) mean only "bars exist": signals and zones are computed on
+  // demand for every ticker, monitored or not.
   zones: ChartZoneOut[];
   zones_available: boolean;
   // Earnings-report dates / dividend ex-dates in the visible window, read from the nightly CorporateEvent
@@ -1545,6 +1557,14 @@ export interface ChartOut {
   earnings_markers: ChartEarningsMarkerOut[];
   dividend_markers: ChartDividendMarkerOut[];
   events_source: "fmp" | null;
+  // 2H_90D only (empty/null elsewhere): the Warren engine's own indicator series for the three sub-panes, and the
+  // reference levels its state machine uses. Distinct from `rsi` above (the daily ranges' EWM RSI).
+  warren_rsi: ChartLinePointOut[];
+  warren_adx: ChartLinePointOut[];
+  warren_plus_di: ChartLinePointOut[];
+  warren_minus_di: ChartLinePointOut[];
+  warren_wvf: ChartLinePointOut[];
+  warren_levels: ChartWarrenLevelsOut | null;
   source: "fmp";
   chart_available: boolean; // false only for a genuinely bad/delisted ticker with no bars at all
 }

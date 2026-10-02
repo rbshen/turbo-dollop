@@ -9,6 +9,8 @@ import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useTickerChart } from "@/lib/hooks/useTickerChart";
 import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
 import type { ChartRange } from "@/lib/api/types";
+import { DEFAULT_SIGNAL_TOGGLES, effectiveToggles, INTRADAY_CHART_RANGE, visibleToggleOptions } from "@/lib/chartToggles";
+import type { SignalToggles } from "@/lib/chartToggles";
 
 interface Props {
   ticker: string;
@@ -17,65 +19,21 @@ interface Props {
 }
 
 const RANGE_OPTIONS: { key: ChartRange; label: string }[] = [
+  { key: "2H_90D", label: "2H · 90D" },
   { key: "D_6M", label: "D · 6M" },
   { key: "D_1Y", label: "D · 1Y" },
   { key: "D_2Y", label: "D · 2Y" },
   { key: "W_4Y", label: "W · 4Y" },
 ];
 
-// Chart-tab-only overlay visibility toggles -- scoped to this tab's own TickerChart rendering (see TickerChart.tsx's
+// Chart-tab-only overlay visibility toggles (types, defaults, and which toggles each range offers are in
+// lib/chartToggles.ts) -- scoped to this tab's own TickerChart rendering (see TickerChart.tsx's
 // showXxx props); the Technical tab's BbRsiEntrySignalCard/WarrenSignalCard and the EMA/SMA/Bollinger/LP series data
 // itself are otherwise untouched -- toggling one of these only flips series/marker visibility, never refetches or
 // recomputes anything. Persisted the same way Watchlist sort rules are (app/watchlist/page.tsx) -- a single
 // localStorage key, read/written inside try/catch for private-window/blocked-storage cases, silently falling back
 // to the default (all on) rather than throwing during render.
 const SIGNAL_TOGGLE_STORAGE_KEY = "fathom-chart-signal-toggles";
-
-interface SignalToggles {
-  bbRsi: boolean;
-  warren: boolean;
-  earnings: boolean;
-  dividends: boolean;
-  lpSupport: boolean;
-  lpResistance: boolean;
-  bollinger: boolean;
-  ema21: boolean;
-  sma50: boolean;
-  sma200: boolean;
-  stage: boolean;
-}
-
-const DEFAULT_SIGNAL_TOGGLES: SignalToggles = {
-  bbRsi: true,
-  warren: true,
-  earnings: true,
-  dividends: true,
-  lpSupport: true,
-  lpResistance: true,
-  bollinger: true,
-  ema21: true,
-  sma50: true,
-  sma200: true,
-  // Off by default; W/4Y only (see STAGE_TOGGLE_RANGE).
-  stage: false,
-};
-
-const TOGGLE_OPTIONS: { key: keyof SignalToggles; label: string }[] = [
-  { key: "bbRsi", label: "BB+RSI" },
-  { key: "warren", label: "Warren" },
-  { key: "earnings", label: "Earnings" },
-  { key: "dividends", label: "Dividends" },
-  { key: "lpSupport", label: "LP Support" },
-  { key: "lpResistance", label: "LP Resistance" },
-  { key: "bollinger", label: "BB" },
-  { key: "ema21", label: "EMA 21" },
-  { key: "sma50", label: "SMA 50" },
-  { key: "sma200", label: "SMA 200" },
-  { key: "stage", label: "Stage" },
-];
-
-// The Weinstein "Stage" toggle only exists on the weekly view -- the daily ranges neither show the button nor apply it.
-const STAGE_TOGGLE_RANGE: ChartRange = "W_4Y";
 
 function loadSignalToggles(): SignalToggles {
   if (typeof window === "undefined") return DEFAULT_SIGNAL_TOGGLES;
@@ -113,6 +71,13 @@ const _SKELETON_HEIGHTS = [
   71, 50, 64, 48,
 ];
 
+// Header copy per range. The 2H·90D range is described on its own terms: 2-hour candles aligned to the 09:30 ET open
+// (09:30 / 11:30 / 13:30, then the short 15:30-16:00 one), the last 90 days, and Warren's three indicator panes.
+const DAILY_DESCRIPTION =
+  "OHLC price chart with EMA(21), SMA(50/200), Bollinger Bands(20, 2), Full Stochastic(5, 3, 3, EMA), and RSI(14). Informational only.";
+const INTRADAY_DESCRIPTION =
+  "2-hour candles aligned to the 09:30 ET open (09:30, 11:30, 13:30, and the short 15:30–16:00 candle) over the last 90 days, with BB+RSI and Warren signals and Liquidity Zones computed on demand for any ticker, and Warren's RSI(14), ADX(14) with +DI/−DI, and WVF(22) panes. Times are US Eastern. Informational only.";
+
 function ChartSkeleton() {
   return (
     <div className="h-[630px] rounded-lg border border-border-card bg-page relative flex items-end gap-[2px] px-4 pb-10 animate-pulse">
@@ -138,6 +103,10 @@ export function ChartTab({ ticker, isEtf }: Props) {
   }
   const signalToggles = toggleState.toggles;
   const { data, error, isLoading } = useTickerChart(ticker, range);
+  // What the chart is told: each saved toggle ANDed with "this range offers it" (hidden toggles are forced off but
+  // their saved value is left alone, so switching back restores it).
+  const shown = effectiveToggles(signalToggles, range, !!isEtf);
+  const chartShown = !error && !!data && data.chart_available;
   // Same SWR key TickerTabsContainer's own header fetch already uses -- a
   // cache hit, not a new request. OHLC prices are quote-domain (the
   // ticker's actual traded market currency), same as the header's own
@@ -163,6 +132,7 @@ export function ChartTab({ ticker, isEtf }: Props) {
   function handleRangeChange(next: ChartRange) {
     setRange(next);
     setZoomIndex(0); // a new range has its own bar count/fit level -- start back at fitContent()'s equivalent
+    setZoomBounds({ canZoomIn: true, canZoomOut: false }); // the next chart reports its own; never carry the last one's
   }
 
   return (
@@ -171,7 +141,7 @@ export function ChartTab({ ticker, isEtf }: Props) {
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Chart</h2>
           <p className="mt-1 text-sm text-text-secondary">
-            OHLC price chart with EMA(21), SMA(50/200), Bollinger Bands(20, 2), Full Stochastic(5, 3, 3, EMA), and RSI(14). Informational only.
+            {range === INTRADAY_CHART_RANGE ? INTRADAY_DESCRIPTION : DAILY_DESCRIPTION}
           </p>
         </div>
         <SegmentedControl
@@ -184,7 +154,7 @@ export function ChartTab({ ticker, isEtf }: Props) {
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1">
-          {TOGGLE_OPTIONS.filter((opt) => (opt.key !== "stage" || range === STAGE_TOGGLE_RANGE) && !(isEtf && opt.key === "earnings")).map((opt) => (
+          {visibleToggleOptions(range, !!isEtf).map((opt) => (
             <Button
               key={opt.key}
               variant="outline"
@@ -198,10 +168,10 @@ export function ChartTab({ ticker, isEtf }: Props) {
           ))}
         </div>
         <div className="flex items-center gap-1">
-          <Button variant="outline" size="sm" onClick={() => setZoomIndex((i) => Math.max(0, i - 1))} disabled={!zoomBounds.canZoomOut}>
+          <Button variant="outline" size="sm" onClick={() => setZoomIndex((i) => Math.max(0, i - 1))} disabled={!chartShown || !zoomBounds.canZoomOut}>
             Zoom out
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setZoomIndex((i) => i + 1)} disabled={!zoomBounds.canZoomIn}>
+          <Button variant="outline" size="sm" onClick={() => setZoomIndex((i) => i + 1)} disabled={!chartShown || !zoomBounds.canZoomIn}>
             Zoom in
           </Button>
         </div>
@@ -213,7 +183,12 @@ export function ChartTab({ ticker, isEtf }: Props) {
 
       {!error && data && !data.chart_available && (
         <div className="flex h-48 items-center justify-center rounded-lg border border-border-card bg-page text-xs text-text-tertiary">
-          No chart data available for {ticker}.
+          <div className="text-center">
+            <p>No chart data available for {ticker}.</p>
+            {range === INTRADAY_CHART_RANGE && (
+              <p className="mt-1">2-hour data is not available for this ticker right now (e.g. a non-US listing).</p>
+            )}
+          </div>
         </div>
       )}
 
@@ -222,17 +197,17 @@ export function ChartTab({ ticker, isEtf }: Props) {
           key={range}
           data={data}
           quoteCurrency={quoteCurrency}
-          showBbRsi={signalToggles.bbRsi}
-          showWarren={signalToggles.warren}
-          showEarnings={signalToggles.earnings && !isEtf}
-          showDividends={signalToggles.dividends}
-          showLpSupport={signalToggles.lpSupport}
-          showLpResistance={signalToggles.lpResistance}
-          showBollinger={signalToggles.bollinger}
-          showEma21={signalToggles.ema21}
-          showSma50={signalToggles.sma50}
-          showSma200={signalToggles.sma200}
-          showStage={range === STAGE_TOGGLE_RANGE && signalToggles.stage}
+          showBbRsi={shown.bbRsi}
+          showWarren={shown.warren}
+          showEarnings={shown.earnings}
+          showDividends={shown.dividends}
+          showLpSupport={shown.lpSupport}
+          showLpResistance={shown.lpResistance}
+          showBollinger={shown.bollinger}
+          showEma21={shown.ema21}
+          showSma50={shown.sma50}
+          showSma200={shown.sma200}
+          showStage={shown.stage}
           zoomIndex={zoomIndex}
           onZoomBoundsChange={handleZoomBoundsChange}
         />
