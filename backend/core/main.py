@@ -194,7 +194,28 @@ async def update_data_groups_plan(body: DataGroupPlanIn) -> DataGroupsOut:
     dg.set_fmp_plan(body.fmp_plan)
     # A plan edit (an upgrade, typically) re-probes restricted groups so they
     # self-heal without waiting for the weekly sweep.
-    await fmp_client.reprobe_restricted_groups()
+    await fmp_client.reprobe_restricted()
+    return build_data_groups_out()
+
+
+@app.post("/api/config/data-groups/{group}/retest", response_model=DataGroupsOut)
+async def retest_data_group_variants(group: str) -> DataGroupsOut:
+    """Manual override: re-test every restricted request variant of this group with its own replay. A restriction
+    clears only if that same request now succeeds (no calls while the master switch or the group is off)."""
+    if group not in dg.GROUPS:
+        raise HTTPException(status_code=404, detail=f"Unknown data group: {group}")
+    await fmp_client.reprobe_restricted_variants(group)
+    return build_data_groups_out()
+
+
+@app.delete("/api/config/data-groups/{group}/variants", response_model=DataGroupsOut)
+def clear_data_group_variant(group: str, key: str) -> DataGroupsOut:
+    """Manual override: drop a variant restriction without a probe. If FMP still refuses it, the next real request
+    re-detects it (that request plus one canary call)."""
+    if group not in dg.GROUPS:
+        raise HTTPException(status_code=404, detail=f"Unknown data group: {group}")
+    if not dg.clear_variant(group, key, "cleared manually"):
+        raise HTTPException(status_code=404, detail=f"No restricted variant {key} in group {group}")
     return build_data_groups_out()
 
 

@@ -1149,6 +1149,24 @@ class DataGroupSetting(SQLModel, table=True):
     updated_at: datetime | None = None
 
 
+class DataGroupVariant(SQLModel, table=True):
+    """One FMP request VARIANT FMP refused with a canary-confirmed HTTP 402 (2026-10-02,
+    core/data_groups.py "Request variants"), recorded instead of marking the whole group plan_restricted.
+    A variant is an endpoint plus the parameters that decide plan access (`period`, `limit`), e.g.
+    `/income-statement?limit=12&period=quarter`; the symbol is never part of it. The group stays live,
+    every other variant keeps working, and only this variant's own replay (`params_json`: the variant's
+    parameters with the canary symbol) can clear the row. A row exists exactly while the variant is restricted."""
+
+    group_key: str = Field(primary_key=True)
+    variant_key: str = Field(primary_key=True)
+    endpoint: str
+    label: str
+    params_json: str  # the minimal replay: variant params + the canary symbol
+    restricted_since: datetime
+    last_error: str | None = None
+    last_probe_at: datetime | None = None
+
+
 class DataGroupGlobal(SQLModel, table=True):
     """Singleton (key="default") holding the master "disable all FMP" switch,
     the user's current FMP plan tier, and the global key-problem marker set

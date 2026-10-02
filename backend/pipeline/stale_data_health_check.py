@@ -278,10 +278,12 @@ def _format_report(result: dict, total: int, threshold_days: int) -> str:
 
 def _reprobe_restricted_groups() -> dict[str, str]:
     """Weekly re-probe of any FMP data group marked plan_restricted (canary
-    AAPL call) so a plan upgrade self-heals without a manual step. Never
-    fails the job: a probe error just leaves the group as it was."""
+    AAPL call) and of every restricted request VARIANT (each with its own
+    replay, so only that same request can clear it) so a plan upgrade
+    self-heals without a manual step. Never fails the job: a probe error just
+    leaves the state as it was."""
     try:
-        return asyncio.run(fmp_client.reprobe_restricted_groups())
+        return asyncio.run(fmp_client.reprobe_restricted())
     except Exception:
         logger.warning("Restricted-group re-probe failed", exc_info=True)
         return {}

@@ -50,7 +50,7 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
-from core.data_groups import job_skip_reason
+from core.data_groups import job_skip_reason, variant_unavailable
 from core.cron_health import check_failure_threshold, cron_heartbeat
 from core.db import engine, init_db
 from clients.fmp_client import fmp_client
@@ -147,6 +147,7 @@ async def main(tickers: list[str] | None = None) -> dict:
     configure_logging(LOG_PATH)
     logger = logging.getLogger(__name__)
     init_db()
+    variant_unavailable.reset()  # core/data_groups.py: tickers that hit a restricted request variant, this run
     history_clamps.reset()  # core/history_merge.py: the once-per-ticker-per-run clamp log/count starts here
 
     skip_reason = job_skip_reason("fundamentals")
@@ -211,12 +212,22 @@ async def main(tickers: list[str] | None = None) -> dict:
             empty_kept,
         )
 
+    unavailable = variant_unavailable.tickers()
+    if unavailable:
+        logger.warning(
+            "Request variant unavailable on this plan for %d ticker(s) (served from cache where cached): %s",
+            unavailable,
+            ", ".join(sorted(variant_unavailable.variants())),
+        )
+
     return {
         "processed": len(tickers),
         "failed": len(failures),
         "calls_made": calls_made,
         "duration_seconds": duration,
         "failures": failures,
+        "variant_unavailable": unavailable,
+        "variants_unavailable": len(variant_unavailable.variants()),
         "history_clamped": clamped,
         "history_empty_kept": empty_kept,
     }
@@ -244,7 +255,7 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
 
 def record_outcome(result: dict, run) -> None:
     """Heartbeat mapping: "skipped" for a gated run, else a "N refreshed, F failed, C FMP calls,
-    D min[, N history-clamped][, M empty-body kept]" message that raises (heartbeat "failure") past core.cron_health.check_failure_threshold.
+    D min[, N variant-unavailable (V request types refused by the plan)][, N history-clamped][, M empty-body kept]" message that raises (heartbeat "failure") past core.cron_health.check_failure_threshold.
     Only exceptions that escape a ticker's refresh are counted; get_stepN_data swallows most
     per-statement FMP errors internally (safe_fetch), so those never reach this count."""
     if result.get("skipped"):
@@ -255,7 +266,10 @@ def record_outcome(result: dict, run) -> None:
         f"{processed - failed} refreshed, {failed} failed, "
         f"{result['calls_made']:,} FMP calls, {result['duration_seconds'] / 60:.1f} min"
     )
-    # Informational only (core/history_merge.py): neither count enters the failure threshold below.
+    # Informational only: none of these counts enters the failure threshold below, and none replaces a real
+    # per-ticker failure (those are the "failed" count above, still judged by check_failure_threshold).
+    if result.get("variant_unavailable"):
+        message += f", {result['variant_unavailable']} variant-unavailable ({result.get('variants_unavailable', 0)} request types refused by the plan)"
     if result.get("history_clamped"):
         message += f", {result['history_clamped']} history-clamped"
     if result.get("history_empty_kept"):

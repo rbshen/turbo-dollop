@@ -7,7 +7,7 @@ import httpx
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
-from clients.fmp_client import FMPGroupDisabledError
+from clients.fmp_client import FMPGroupDisabledError, FMPVariantUnavailableError
 from core.data_groups import describe_off, group_for_statement_type, statement_type_live
 from core.history_merge import INVALIDATED_AT, history_clamps, is_history_key, merge_history
 from core.models import FundamentalsCache
@@ -100,6 +100,22 @@ def _describe_body(data: object) -> str:
     return "no body" if data is None else f"a non-list body ({type(data).__name__})"
 
 
+async def _fetch_or_serve_cached(
+    fetch_fn: Callable[[], Awaitable[dict | list]], row: FundamentalsCache | None
+) -> tuple[bool, dict | list]:
+    """(fetched, payload). A request VARIANT FMP refuses with a confirmed 402 (core/data_groups.py "Request
+    variants") raises FMPVariantUnavailableError with no network call: the cached row, however stale, is served
+    instead (the variant-level counterpart of the group-off cache-only branch), and nothing is written -- an
+    unavailable variant never stores an empty row, so the first successful call after the plan changes is a normal
+    refresh. With no cached row it re-raises, which safe_fetch turns into "no data", like any failed fetch."""
+    try:
+        return True, await fetch_fn()
+    except FMPVariantUnavailableError:
+        if row is None:
+            raise
+        return False, json.loads(row.raw_json)
+
+
 async def get_or_fetch(
     session: Session,
     ticker: str,
@@ -130,8 +146,8 @@ async def get_or_fetch(
         # throughout step*_data.py).
         return json.loads(row.raw_json) if row else None
 
-    data = await fetch_fn()
-    return _write_cache_row(session, ticker, statement_type, period, data, now)
+    fetched, data = await _fetch_or_serve_cached(fetch_fn, row)
+    return _write_cache_row(session, ticker, statement_type, period, data, now) if fetched else data
 
 
 def _is_earnings_aware_stale(
@@ -189,8 +205,8 @@ async def get_or_fetch_earnings_aware(
         # See get_or_fetch's own comment on this same condition.
         return json.loads(row.raw_json) if row else None
 
-    data = await fetch_fn()
-    return _write_cache_row(session, ticker, statement_type, period, data, datetime.now())
+    fetched, data = await _fetch_or_serve_cached(fetch_fn, row)
+    return _write_cache_row(session, ticker, statement_type, period, data, datetime.now()) if fetched else data
 
 
 async def force_fetch(
@@ -226,8 +242,8 @@ async def force_fetch(
             group=group,
         )
 
-    data = await fetch_fn()
-    return _write_cache_row(session, ticker, statement_type, period, data, datetime.now())
+    fetched, data = await _fetch_or_serve_cached(fetch_fn, _load_cache_row(session, ticker, statement_type, period))
+    return _write_cache_row(session, ticker, statement_type, period, data, datetime.now()) if fetched else data
 
 
 async def safe_fetch(label: str, coro: Awaitable[dict | list]) -> dict | list:

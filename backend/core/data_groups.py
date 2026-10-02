@@ -13,9 +13,14 @@ required tier <= my plan AND status != plan_restricted (see
 `effective_state`). "Off" always means cache-only: the last cached row is
 served, nothing is ever wiped.
 
+A 402 normally marks the whole group `plan_restricted` (after a canary confirms it). For the groups in
+`VARIANT_GROUPS` (`fundamentals`) it instead restricts ONE request variant -- endpoint + `period`/`limit` --
+recorded in `DataGroupVariant`; the group stays live (see "Request variants" below).
+
 Gate points (see CLAUDE.md "Data groups"):
   * clients.fmp_client.FMPClient.get -- ENDPOINT_GROUP (endpoint -> group),
-    raises FMPGroupDisabledError (a FMPDisabledError subclass).
+    raises FMPGroupDisabledError (a FMPDisabledError subclass); for a restricted
+    variant it raises FMPVariantUnavailableError (also a FMPDisabledError), no call made.
   * core.cache get_or_fetch / get_or_fetch_earnings_aware / force_fetch --
     STATEMENT_TYPE_GROUP (FundamentalsCache.statement_type -> group).
   * nightly jobs -- `job_skip_reason(group)`.
@@ -25,6 +30,7 @@ statement type used in the code is unmapped.
 `engine` is a module-level reference so tests can monkeypatch it
 independently (the per-module engine-isolation convention)."""
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -34,7 +40,7 @@ from sqlalchemy import func
 from sqlmodel import Session, SQLModel, select
 
 from core.db import engine
-from core.models import DataGroupGlobal, DataGroupSetting, FundamentalsCache
+from core.models import DataGroupGlobal, DataGroupSetting, DataGroupVariant, FundamentalsCache
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +50,8 @@ FAILING_AFTER_CONSECUTIVE = 3
 # Throttle for last_success_at writes -- FMPClient.get succeeds thousands of
 # times a night; one write per group per interval is plenty for a chip.
 SUCCESS_WRITE_INTERVAL_SECONDS = 60.0
+
+_TABLES = [DataGroupSetting.__table__, DataGroupGlobal.__table__, DataGroupVariant.__table__]
 
 TIERS = ("Starter", "Premium", "Ultimate")
 DEFAULT_FMP_PLAN = "Ultimate"
@@ -225,6 +233,92 @@ PROBE_ENDPOINTS: dict[str, tuple[str, dict]] = {
     "etf_info": ("/etf/info", {"symbol": "SPY"}),
 }
 
+# ---------------------------------------------------------------------------
+# Request variants (2026-10-02): a 402 restricts ONE variant, not the group
+# ---------------------------------------------------------------------------
+# A plan can refuse one way of asking (period=quarter, a large `limit`) while serving the same endpoint
+# another way. For a group listed here, a canary-confirmed 402 is recorded against the failing request VARIANT
+# (endpoint + the parameters that decide plan access) in DataGroupVariant; the group stays live, every other
+# variant keeps working, and FMPClient.get answers a restricted variant with FMPVariantUnavailableError
+# immediately, with no FMP call. Only that variant's own replay can clear it (FMPClient.probe_variant), so a
+# probe of a different request can no longer un-restrict it (the weekly flap of the group-level canary).
+# Every other group keeps the group-level 402 behaviour above; docs/specs/fmp-data-and-bar-cache.md lists which
+# of them could flap the same way. Opting a group in is one line here.
+VARIANT_GROUPS: frozenset[str] = frozenset({"fundamentals"})
+
+# The request parameters that can decide plan access. Everything else (symbol, from/to, apikey) is never part
+# of a variant: the symbol is what the canary varies, and a date window is not a plan-gating parameter here.
+VARIANT_PARAMS: tuple[str, ...] = ("period", "limit")
+
+_VARIANT_NOUNS: dict[str, str] = {
+    "/income-statement": "income statement",
+    "/balance-sheet-statement": "balance sheet",
+    "/cash-flow-statement": "cash flow statement",
+    "/key-metrics": "key metrics",
+    "/key-metrics-ttm": "key metrics (TTM)",
+    "/ratios": "ratios",
+    "/ratios-ttm": "ratios (TTM)",
+    "/enterprise-values": "enterprise values",
+    "/financial-growth": "financial growth",
+    "/financial-statement-full-as-reported": "as-reported statements",
+    "/analyst-estimates": "analyst estimates",
+    "/earnings": "earnings",
+    "/quote": "FX quote",
+}
+_PERIOD_WORDS = {"quarter": "quarterly", "annual": "annual"}
+
+
+def variant_of(endpoint: str, params: dict | None) -> tuple[str, dict]:
+    """(variant_key, variant params). `/income-statement?limit=12&period=quarter` for period=quarter, limit=12."""
+    vparams = {k: params[k] for k in VARIANT_PARAMS if params and k in params}
+    key = endpoint + ("?" + "&".join(f"{k}={vparams[k]}" for k in sorted(vparams)) if vparams else "")
+    return key, vparams
+
+
+def variant_label(endpoint: str, vparams: dict) -> str:
+    noun = _VARIANT_NOUNS.get(endpoint, endpoint.strip("/").replace("-", " "))
+    period = _PERIOD_WORDS.get(str(vparams.get("period", "")), str(vparams.get("period", "")))
+    label = f"{period} {noun}".strip()
+    if "limit" in vparams:
+        label += f" (limit {vparams['limit']})"
+    return label[:1].upper() + label[1:]
+
+
+@dataclass
+class VariantState:
+    group: str
+    variant_key: str
+    endpoint: str
+    label: str
+    params: dict  # the minimal replay: the variant's parameters plus the canary symbol
+    restricted_since: datetime
+    last_error: str | None = None
+    last_probe_at: datetime | None = None
+
+
+class VariantUnavailableTracker:
+    """Which tickers hit an unavailable (restricted) request variant this run -- a counter for the nightly
+    fundamentals message, informational only (it is never part of the failure threshold). `reset()` starts a
+    run; in a long-lived server process it just accumulates (bounded by the ticker count)."""
+
+    def __init__(self) -> None:
+        self._tickers: dict[str, set[str]] = {}
+
+    def reset(self) -> None:
+        self._tickers.clear()
+
+    def record(self, ticker: str, variant_key: str) -> None:
+        self._tickers.setdefault(ticker, set()).add(variant_key)
+
+    def tickers(self) -> int:
+        return len(self._tickers)
+
+    def variants(self) -> set[str]:
+        return {v for vs in self._tickers.values() for v in vs}
+
+
+variant_unavailable = VariantUnavailableTracker()
+
 # Bulk/batch endpoints (none are used today -- Rule: never call them). If one
 # is ever added it must be listed here AND be Ultimate; the registry test
 # enforces that every listed path is in ENDPOINT_GROUP's Ultimate-tier group.
@@ -296,6 +390,7 @@ class Snapshot:
     key_problem_at: datetime | None
     key_problem_detail: str | None
     groups: dict[str, GroupState] = field(default_factory=dict)
+    variants: dict[tuple[str, str], VariantState] = field(default_factory=dict)
 
 
 _cache: tuple[int, float, Snapshot] | None = None  # (id(engine), loaded_at, snapshot)
@@ -332,11 +427,12 @@ def _seed(session: Session) -> None:
 
 
 def _load() -> Snapshot:
-    SQLModel.metadata.create_all(engine, tables=[DataGroupSetting.__table__, DataGroupGlobal.__table__])
+    SQLModel.metadata.create_all(engine, tables=_TABLES)
     with Session(engine) as session:
         _seed(session)
         g = session.get(DataGroupGlobal, "default")
         rows = session.exec(select(DataGroupSetting)).all()
+        variant_rows = session.exec(select(DataGroupVariant)).all()
         return Snapshot(
             master_on=g.master_on,
             fmp_plan=g.fmp_plan,
@@ -349,6 +445,14 @@ def _load() -> Snapshot:
                 )
                 for r in rows
                 if r.group_key in GROUPS
+            },
+            variants={
+                (v.group_key, v.variant_key): VariantState(
+                    v.group_key, v.variant_key, v.endpoint, v.label, json.loads(v.params_json),
+                    v.restricted_since, v.last_error, v.last_probe_at,
+                )
+                for v in variant_rows
+                if v.group_key in GROUPS
             },
         )
 
@@ -453,13 +557,30 @@ def job_skip_reason(*groups: str) -> str | None:
     return "skipped (" + "; ".join(parts) + ")"
 
 
+def variant_restriction(group: str, endpoint: str, params: dict | None) -> VariantState | None:
+    """The restricted-variant record for this request, or None (not restricted, or the group is not a variant group)."""
+    if group not in VARIANT_GROUPS:
+        return None
+    snap = get_snapshot()
+    if not snap.variants:
+        return None
+    return snap.variants.get((group, variant_of(endpoint, params)[0]))
+
+
+def restricted_variants(group: str | None = None) -> list[VariantState]:
+    return sorted(
+        (v for v in get_snapshot().variants.values() if group is None or v.group == group),
+        key=lambda v: (v.group, v.variant_key),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Writes (each invalidates the cache)
 # ---------------------------------------------------------------------------
 
 
 def _write(fn) -> None:
-    SQLModel.metadata.create_all(engine, tables=[DataGroupSetting.__table__, DataGroupGlobal.__table__])
+    SQLModel.metadata.create_all(engine, tables=_TABLES)
     with Session(engine) as session:
         _seed(session)
         fn(session)
@@ -537,6 +658,62 @@ def clear_restricted(group: str) -> None:
     _write(fn)
 
 
+def mark_variant_restricted(group: str, endpoint: str, params: dict | None, detail: str, canary_symbol: str = "AAPL") -> bool:
+    """Record a canary-confirmed 402 against this request variant (the group stays live). True when the variant was
+    newly restricted (logged once); an already-restricted variant is left as it is."""
+    key, vparams = variant_of(endpoint, params)
+    if group not in GROUPS:
+        raise ValueError(f"unknown data group: {group}")
+    created = False
+
+    def fn(s: Session) -> None:
+        nonlocal created
+        if s.get(DataGroupVariant, (group, key)) is not None:
+            return
+        created = True
+        s.add(
+            DataGroupVariant(
+                group_key=group, variant_key=key, endpoint=endpoint, label=variant_label(endpoint, vparams),
+                params_json=json.dumps({**vparams, "symbol": canary_symbol}), restricted_since=datetime.now(),
+                last_error=detail[:300],
+            )
+        )
+
+    _write(fn)
+    if created:
+        logger.warning("FMP request variant RESTRICTED (group %s stays live): %s -- %s", group, key, detail)
+    return created
+
+
+def clear_variant(group: str, variant_key: str, reason: str = "cleared") -> bool:
+    """Remove a variant restriction. True when one existed (logged once)."""
+    existed = False
+
+    def fn(s: Session) -> None:
+        nonlocal existed
+        row = s.get(DataGroupVariant, (group, variant_key))
+        if row is not None:
+            existed = True
+            s.delete(row)
+
+    _write(fn)
+    if existed:
+        logger.warning("FMP request variant CLEARED (group %s): %s -- %s", group, variant_key, reason)
+    return existed
+
+
+def record_variant_probe(group: str, variant_key: str, detail: str) -> None:
+    """A re-probe that was refused again: stamp it (the restriction itself is unchanged)."""
+
+    def fn(s: Session) -> None:
+        row = s.get(DataGroupVariant, (group, variant_key))
+        if row is not None:
+            row.last_probe_at, row.last_error = datetime.now(), detail[:300]
+            s.add(row)
+
+    _write(fn)
+
+
 def set_key_problem(detail: str | None) -> None:
     """detail=None clears the marker."""
 
@@ -605,7 +782,7 @@ def backfill_last_success_from_cache() -> dict[str, datetime | None]:
     for statement_type, group in STATEMENT_TYPE_GROUP.items():
         types_by_group.setdefault(group, []).append(statement_type)
 
-    SQLModel.metadata.create_all(engine, tables=[DataGroupSetting.__table__, DataGroupGlobal.__table__])
+    SQLModel.metadata.create_all(engine, tables=_TABLES)
     result: dict[str, datetime | None] = {}
     with Session(engine) as session:
         _seed(session)

@@ -775,6 +775,17 @@ class TickerCustomValuationOut(Step3ManualParams):
     active_verdict: Step3ManualOut
 
 
+class DataGroupVariantOut(BaseModel):
+    """A request variant FMP refused with a canary-confirmed 402 (core/data_groups.py "Request variants"): the
+    group stays live and only this way of asking is unavailable."""
+
+    key: str  # `/income-statement?limit=12&period=quarter`
+    label: str  # "Quarterly income statement (limit 12)"
+    restricted_since: datetime
+    last_error: str | None = None
+    last_probe_at: datetime | None = None
+
+
 class DataGroupOut(BaseModel):
     key: str
     label: str
@@ -795,6 +806,8 @@ class DataGroupOut(BaseModel):
     feeds: list[str]
     # False when the toggle can't take effect right now (master off / not on plan)
     can_toggle: bool
+    # Request variants the plan refuses while the group itself stays live.
+    unavailable_variants: list[DataGroupVariantOut] = []
 
 
 class DataGroupsOut(BaseModel):

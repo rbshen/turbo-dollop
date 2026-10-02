@@ -41,17 +41,19 @@ def _get(client, coro):
 
 
 def test_402_with_canary_also_402_marks_group_restricted(monkeypatch):
+    # profile_quote is not a variant group (core/data_groups.py VARIANT_GROUPS), so it keeps the group-level safety net;
+    # `fundamentals` is covered by tests/test_fmp_variant_restrictions.py.
     h = _status_by_symbol({"0700.HK": 402, "AAPL": 402})
     _install(monkeypatch, h)
     with pytest.raises(httpx.HTTPStatusError):
-        asyncio.run(FMPClient(api_key="x").get_income_statement("0700.HK", "annual", 1))
+        asyncio.run(FMPClient(api_key="x").get_profile("0700.HK"))
     assert h.seen == ["0700.HK", "AAPL"]  # failing call, then the canary
-    assert dg.effective_state("fundamentals") == (False, "restricted")
-    assert dg.get_snapshot().groups["fundamentals"].restricted_since is not None
+    assert dg.effective_state("profile_quote") == (False, "restricted")
+    assert dg.get_snapshot().groups["profile_quote"].restricted_since is not None
     # ...and the group is now short-circuited: no further network call
     n = len(h.seen)
     with pytest.raises(fmp_client_module.FMPGroupDisabledError):
-        asyncio.run(FMPClient(api_key="x").get_income_statement("MSFT", "annual", 1))
+        asyncio.run(FMPClient(api_key="x").get_profile("MSFT"))
     assert len(h.seen) == n
 
 
@@ -59,8 +61,8 @@ def test_402_symbol_scoped_canary_ok_does_not_mark(monkeypatch):
     h = _status_by_symbol({"0700.HK": 402})  # AAPL -> 200
     _install(monkeypatch, h)
     with pytest.raises(httpx.HTTPStatusError):
-        asyncio.run(FMPClient(api_key="x").get_income_statement("0700.HK", "annual", 1))
-    assert dg.effective_state("fundamentals") == (True, "live")
+        asyncio.run(FMPClient(api_key="x").get_profile("0700.HK"))
+    assert dg.effective_state("profile_quote") == (True, "live")
 
 
 def test_402_on_aapl_itself_is_its_own_canary(monkeypatch):

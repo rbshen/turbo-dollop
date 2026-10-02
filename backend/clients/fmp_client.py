@@ -8,15 +8,23 @@ from core.config import settings
 from core.data_groups import (
     CANARY_SYMBOL_OVERRIDES,
     PROBE_ENDPOINTS,
+    VARIANT_GROUPS,
     clear_restricted,
+    clear_variant,
     describe_off,
     effective_state,
     get_snapshot,
     group_for_endpoint,
     mark_restricted,
+    mark_variant_restricted,
     record_group_failure,
     record_group_success,
+    record_variant_probe,
+    restricted_variants,
     set_key_problem,
+    variant_of,
+    variant_restriction,
+    variant_unavailable,
 )
 from core.data_source_health import record_success
 
@@ -55,6 +63,20 @@ class FMPGroupDisabledError(FMPDisabledError):
         self.group = group
 
 
+class FMPVariantUnavailableError(FMPDisabledError):
+    """Raised by FMPClient.get, with NO network call, for a request VARIANT (endpoint + period/limit) FMP already
+    refused with a canary-confirmed 402 -- "not available on this plan". The group itself is live and every other
+    variant works. Subclasses FMPDisabledError (so httpx.HTTPError), so safe_fetch and every `except
+    httpx.HTTPError` site treats it as "no data for this variant", exactly like an empty response; core.cache
+    catches it to serve a stale cached row and never writes anything for it."""
+
+    def __init__(self, message: str, group: str, variant_key: str, label: str) -> None:
+        super().__init__(message)
+        self.group = group
+        self.variant_key = variant_key
+        self.label = label
+
+
 _CANARY_SYMBOL = "AAPL"
 
 
@@ -70,6 +92,11 @@ def _canary_params(params: dict, endpoint: str | None = None) -> dict | None:
                 return None
             return {**params, key: canary_symbol}
     return None
+
+
+def _symbol_of(params: dict | None) -> str | None:
+    value = (params or {}).get("symbol")
+    return str(value) if value else None
 
 
 def _safe(fn, *args) -> None:
@@ -143,6 +170,15 @@ class FMPClient:
             raise FMPGroupDisabledError(
                 f"data group {group} is off ({describe_off(group)}) -- refusing live call to {endpoint}", group=group
             )
+        if group in VARIANT_GROUPS:
+            restricted = variant_restriction(group, endpoint, params)
+            if restricted is not None:
+                self._record_unavailable(params, restricted.variant_key)
+                raise FMPVariantUnavailableError(
+                    f"{restricted.label} is not available on this plan (FMP 402 since "
+                    f"{restricted.restricted_since:%Y-%m-%d}) -- no call made to {endpoint}",
+                    group=group, variant_key=restricted.variant_key, label=restricted.label,
+                )
         query = {**(params or {}), "apikey": self.api_key}
         try:
             response = await self._send(endpoint, query)
@@ -159,7 +195,10 @@ class FMPClient:
             # A key problem, not a plan restriction: global warning, no group blamed.
             _safe(set_key_problem, f"HTTP {status} from {endpoint}")
         elif status == 402:
-            await self._handle_plan_restriction(group, endpoint, params or {})
+            if group in VARIANT_GROUPS:
+                await self._handle_variant_restriction(group, endpoint, params or {})
+            else:
+                await self._handle_plan_restriction(group, endpoint, params or {})
         elif status == 429:
             pass  # rate limit: never marks anything
         else:
@@ -187,6 +226,36 @@ class FMPClient:
                 continue
             return response
         raise AssertionError("unreachable")  # loop always returns above
+
+    @staticmethod
+    def _record_unavailable(params: dict | None, variant_key: str) -> None:
+        symbol = _symbol_of(params)
+        if symbol:
+            variant_unavailable.record(symbol, variant_key)
+
+    async def _handle_variant_restriction(self, group: str, endpoint: str, params: dict) -> None:
+        """The variant-level counterpart of _handle_plan_restriction (groups in VARIANT_GROUPS). A 402 can be
+        symbol-scoped (0941.HK, BRK.B and BF.B 402 on every statement endpoint), so the failing call alone never
+        restricts anything: replay the SAME variant (endpoint + period/limit, nothing else) for the canary symbol,
+        and record the restriction against that variant only if the canary ALSO gets a 402. A canary that answers
+        200 means symbol-scoped (nothing recorded); a 429, a 5xx or a transport error means inconclusive (nothing
+        recorded). The group is never marked."""
+        key, vparams = variant_of(endpoint, params)
+        canary_symbol = CANARY_SYMBOL_OVERRIDES.get(endpoint, _CANARY_SYMBOL)
+        failing_symbol = _symbol_of(params)
+        if failing_symbol is None or failing_symbol.upper() == canary_symbol:
+            confirmed = True  # the failing call is its own canary
+        else:
+            try:
+                response = await self._send(endpoint, {**vparams, "symbol": canary_symbol, "apikey": self.api_key})
+                confirmed = response.status_code == 402
+            except httpx.HTTPError:
+                confirmed = False  # inconclusive -- never restrict on a failed probe
+        if confirmed:
+            _safe(mark_variant_restricted, group, endpoint, params, f"HTTP 402 on {key} (canary confirmed)", canary_symbol)
+            self._record_unavailable(params, key)
+        else:
+            logger.warning("FMP 402 for %s was symbol-scoped or unconfirmed (canary not 402); variant %s left available", endpoint, key)
 
     async def _handle_plan_restriction(self, group: str, endpoint: str, params: dict) -> None:
         """A 402 can be symbol-scoped (e.g. a non-US symbol on a US-only
@@ -232,6 +301,42 @@ class FMPClient:
         if response.status_code in (401, 403):
             _safe(set_key_problem, f"HTTP {response.status_code} from {endpoint} (re-probe)")
         return "inconclusive"
+
+    async def probe_variant(self, group: str, variant_key: str) -> str:
+        """Re-test one restricted variant with ITS OWN replay (the variant's parameters + the canary symbol), bypassing
+        the variant gate. "ok" (200: the restriction is cleared), "restricted" (402: stays, stamped) or "inconclusive"
+        (anything else: untouched). Only this exact request can clear it."""
+        state = next((v for v in restricted_variants(group) if v.variant_key == variant_key), None)
+        if state is None:
+            return "inconclusive"
+        try:
+            response = await self._send(state.endpoint, {**state.params, "apikey": self.api_key})
+        except httpx.HTTPError:
+            return "inconclusive"
+        if response.status_code < 400:
+            _safe(clear_variant, group, variant_key, "re-probe succeeded")
+            return "ok"
+        if response.status_code == 402:
+            _safe(record_variant_probe, group, variant_key, f"HTTP 402 on {variant_key} (re-probe)")
+            return "restricted"
+        if response.status_code in (401, 403):
+            _safe(set_key_problem, f"HTTP {response.status_code} from {state.endpoint} (re-probe)")
+        return "inconclusive"
+
+    async def reprobe_restricted_variants(self, group: str | None = None) -> dict[str, str]:
+        """Re-probe every restricted variant (weekly, when the plan is edited, and from Settings), each with its
+        own replay. No-op while the master switch is off or the variant's group is not live (zero calls)."""
+        if not get_snapshot().master_on:
+            return {}
+        out: dict[str, str] = {}
+        for state in restricted_variants(group):
+            if effective_state(state.group)[0]:
+                out[f"{state.group}:{state.variant_key}"] = await self.probe_variant(state.group, state.variant_key)
+        return out
+
+    async def reprobe_restricted(self) -> dict[str, str]:
+        """Groups AND variants: what the weekly health check and a plan edit call."""
+        return {**await self.reprobe_restricted_groups(), **await self.reprobe_restricted_variants()}
 
     async def reprobe_restricted_groups(self) -> dict[str, str]:
         """Re-probe every group currently plan_restricted (weekly, and when the

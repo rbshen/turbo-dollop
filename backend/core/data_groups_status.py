@@ -3,7 +3,7 @@
 stays free of schema imports."""
 
 import core.data_groups as dg
-from core.schemas import DataGroupOut, DataGroupsOut
+from core.schemas import DataGroupOut, DataGroupsOut, DataGroupVariantOut
 
 _STATE_BY_REASON = {
     "live": "live",
@@ -37,6 +37,13 @@ def build_data_groups_out() -> DataGroupsOut:
                 last_error=st.last_error,
                 feeds=list(meta.feeds),
                 can_toggle=snap.master_on and reason not in ("above_plan", "restricted"),
+                unavailable_variants=[
+                    DataGroupVariantOut(
+                        key=v.variant_key, label=v.label, restricted_since=v.restricted_since,
+                        last_error=v.last_error, last_probe_at=v.last_probe_at,
+                    )
+                    for v in dg.restricted_variants(key)
+                ],
             )
         )
     return DataGroupsOut(

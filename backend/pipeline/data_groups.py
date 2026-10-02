@@ -5,12 +5,16 @@ way to flip the master switch when the API/UI is down.
     uv run python -m pipeline.data_groups resume      # master ON (per-group settings untouched)
     uv run python -m pipeline.data_groups status      # one line per group
     uv run python -m pipeline.data_groups backfill-last-success  # seed 'last success' from cache fetched_at (idempotent)
+    uv run python -m pipeline.data_groups variants    # list restricted request variants (a 402'd period/limit; the group stays live)
+    uv run python -m pipeline.data_groups retest      # re-test every restricted variant with its own request; clears only on success
+    uv run python -m pipeline.data_groups clear-variant --group fundamentals --key '/income-statement?limit=12&period=quarter'
 
 Takes effect live -- no backend restart (the API/cron processes re-read the
 DB within a few seconds). Not a cron job (no cron_heartbeat / CRON_JOB_NAMES
 entry): it is manual-only."""
 
 import argparse
+import asyncio
 import sys
 
 import core.data_groups as dg
@@ -42,12 +46,21 @@ def format_status() -> str:
             f"{key:<19} {state:<22} {st.required_tier:<9} "
             f"{_fmt_dt(st.last_success_at)}{wired}"
         )
+    variants = dg.restricted_variants()
+    if variants:
+        lines.append("")
+        lines.append("Restricted request variants (group stays live):")
+        for v in variants:
+            probed = f", last re-test {_fmt_dt(v.last_probe_at)}" if v.last_probe_at else ""
+            lines.append(f"  {v.group:<14} {v.label}  [{v.variant_key}]  since {_fmt_dt(v.restricted_since)}{probed}")
     return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Manage FMP data-group toggles.")
-    parser.add_argument("command", choices=["pause-all", "resume", "status", "backfill-last-success"])
+    parser.add_argument("command", choices=["pause-all", "resume", "status", "backfill-last-success", "variants", "retest", "clear-variant"])
+    parser.add_argument("--group", default=None, help="clear-variant: the group")
+    parser.add_argument("--key", default=None, help="clear-variant: the variant key shown by `variants`")
     args = parser.parse_args(argv)
 
     init_db()
@@ -57,6 +70,15 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "backfill-last-success":
         for group, value in dg.backfill_last_success_from_cache().items():
             print(f"{group:<19} {_fmt_dt(value) if value else 'unchanged / no cache rows'}")
+    elif args.command == "retest":
+        from clients.fmp_client import fmp_client
+
+        results = asyncio.run(fmp_client.reprobe_restricted_variants())
+        print("\n".join(f"{k}: {v}" for k, v in results.items()) or "No restricted variants to re-test (or the master switch is off).")
+    elif args.command == "clear-variant":
+        if not (args.group and args.key):
+            parser.error("clear-variant needs --group and --key")
+        print("Cleared." if dg.clear_variant(args.group, args.key, "cleared manually (CLI)") else "No such restricted variant.")
     elif args.command == "resume":
         dg.set_master(True)
         print("FMP master switch ON -- each group follows its own setting again.")
