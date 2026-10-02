@@ -265,6 +265,13 @@ def _cache_span(session: Session, tickers: list[str], interval: str) -> dict[str
     return span
 
 
+def has_cached_bars(ticker: str, interval: str) -> bool:
+    """True when the shared cache holds any bar for (ticker, interval) -- the Chart tab's 2H.90D range reads
+    through the cache for such a ticker and fetches WITHOUT writing for one that has none."""
+    with Session(engine) as session:
+        return bool(_cache_span(session, [ticker], interval))
+
+
 def _shorter_answer_keeps_cached_history(
     session: Session, ticker: str, interval: str, index: pd.DatetimeIndex, df: pd.DataFrame, requested_from: date
 ) -> bool:

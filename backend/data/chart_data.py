@@ -34,6 +34,11 @@ this module embodies:
    nightly CorporateEvent cache (Phase 6a; no live fetch). Fetched concurrently with
    the candles and never able to fail or stall them.
 
+5. **2H_90D (2026-10-02)**: the last 90 calendar days of 2h session candles, with Warren/BB+RSI/LP all computed
+   on demand from one 730-day candle series (see _get_chart_data_2h). Bars come from the shared 60m bars cache
+   for a ticker that has rows there (the monitored ones) and from a live, uncached, parallel-window FMP fetch for
+   any other ticker (docs/specs/chart-tab.md).
+
 Known, accepted asymmetry that closes over time: W_4Y shows 4 years of price
 (RANGE_CONFIG's own visible_days), but signal-event markers only reach back as
 far as events have actually been accumulated. The 2h-interval history
@@ -49,18 +54,28 @@ window with no matching events).
 
 import asyncio
 import logging
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 import httpx
+import numpy as np
 import pandas as pd
 from sqlmodel import Session, select
 
-from analysis.entry_signal.indicators import BB_LENGTH, BB_STD, compute_rsi
+from analysis.entry_signal.indicators import BB_LENGTH, BB_STD, check_buy_signal, compute_bollinger_bands, compute_rsi
+from analysis.entry_signal.resample import build_2h_session_candles_fast, drop_forming_candles, index_by_window_start
 from analysis.trend_structure.stochastic import compute_stochastic
 from analysis.trend_structure.weinstein import compute_stage_series, resample_to_weekly
-from clients.daily_bar_sources import fmp_rows_to_frame
+from analysis.warren_signal.state_machine import replay_with_series, warren_reference_levels
+from clients.daily_bar_sources import _is_half_day, fmp_intraday_rows_to_frame, fmp_rows_to_frame
 from clients.fmp_client import fmp_client
 from clients.long_history_bars import get_long_history
+from clients.shared_bars_cache import (
+    INTRADAY_INTERVAL,
+    _eastern_today,
+    _most_recent_completed_intraday_bar_start,
+    get_or_fetch_bars_batch,
+    has_cached_bars,
+)
 from core.data_groups import group_live
 from core.db import engine
 from core.models import TechnicalEntrySignalEvent, WarrenSignalEvent
@@ -74,14 +89,16 @@ from core.schemas import (
     ChartOut,
     ChartStagePointOut,
     ChartStochasticPointOut,
+    ChartWarrenLevelsOut,
     ChartZoneOut,
     LiquidityZoneOut,
 )
 from core.tickers import normalize_ticker
 from data.chart_events_data import DividendEvent, EarningsEvent, fetch_chart_events
 from data.entry_signal_data import get_entry_signal_data
-from data.liquidity_zone_data import get_liquidity_zone_data
+from data.liquidity_zone_data import compute_liquidity_zones_2h, get_liquidity_zone_data
 from data.warren_signal_data import get_warren_signal_data
+from helpers.liquidity_zone_config import get_liquidity_zone_settings, to_engine_settings
 from helpers.weinstein_config import load_weinstein_params
 
 # Human-readable label per Warren signal_kind -- everything else about a
@@ -109,6 +126,10 @@ logger = logging.getLogger(__name__)
 # only visible_days is halved. W_4Y has `history_days` instead: the long-history daily bars
 # trimmed to that and resampled to weekly (point 3c).
 RANGE_CONFIG: dict[str, dict] = {
+    # 2H_90D (docs/specs/chart-tab.md): `lookback_days` is the nightly Warren job's own replay window (its
+    # LOOKBACK_DAYS; replay starts at today-729d), so the on-demand state machine sees the same context as the
+    # stored events; only the last `visible_days` calendar days are shown. Pinned equal by a test.
+    "2H_90D": {"timeframe": "2h", "lookback_days": 730, "visible_days": 90},
     "D_6M": {"timeframe": "daily", "lookback_days": 730, "visible_days": 365 // 2},
     "D_1Y": {"timeframe": "daily", "lookback_days": 730, "visible_days": 365},
     "D_2Y": {"timeframe": "daily", "lookback_days": 1825, "visible_days": 365 * 2},
@@ -407,7 +428,213 @@ def _dividend_markers(visible_index: pd.DatetimeIndex, events: list[DividendEven
     return out
 
 
+# ---------------------------------------------------------------------------
+# 2H_90D range: last 90 calendar days of 2h session candles, everything computed on demand
+# ---------------------------------------------------------------------------
+
+INTRADAY_RANGE = "2H_90D"
+# The uncached-ticker fetch: the 730-day window is split into parallel windows of this many days (measured
+# ~1.1-1.7s versus ~6s for the sequential paging the nightly source uses; ~441 bars per window, well inside
+# FMP's per-call row count). Neighbouring windows share their boundary date -- the duplicates are dropped.
+_INTRADAY_WINDOW_DAYS = 90
+
+
+async def _fetch_intraday_uncached(ticker: str, now: datetime, lookback_days: int) -> pd.DataFrame:
+    """730 days of 60m bars straight from FMP in parallel windows, NEVER written anywhere (the viewed
+    ticker is not on a monitored list, so it has no SharedBarsCache row and must not get one). All-or-nothing:
+    any failed or malformed window yields an empty frame -- a partial history would shift every indicator."""
+    today = _eastern_today(now)
+    a = today - timedelta(days=lookback_days - 1)
+    windows: list[tuple[date, date]] = []
+    while True:
+        b = min(a + timedelta(days=_INTRADAY_WINDOW_DAYS), today)
+        windows.append((a, b))
+        if b >= today:
+            break
+        a = b
+    results = await asyncio.gather(
+        *(fmp_client.get_historical_chart_1hour(ticker, x.isoformat(), y.isoformat()) for x, y in windows),
+        return_exceptions=True,
+    )
+    rows: list = []
+    for result in results:
+        if isinstance(result, (httpx.HTTPError, ValueError)):
+            logger.warning("FMP 60m fetch failed for %s (%s)", ticker, type(result).__name__)
+            return _empty_ohlcv()
+        if isinstance(result, BaseException):
+            raise result
+        if not isinstance(result, list):
+            logger.warning("FMP 60m answer for %s was not a list", ticker)
+            return _empty_ohlcv()
+        rows.extend(result)
+    frame = fmp_intraday_rows_to_frame(rows, _most_recent_completed_intraday_bar_start(now))
+    if frame.empty:
+        return _empty_ohlcv()
+    frame.index = frame.index.tz_localize("America/New_York")
+    return frame
+
+
+async def _fetch_intraday_bars(ticker: str, now: datetime) -> pd.DataFrame:
+    """Raw 60m bars (lowercase OHLCV, America/New_York tz-aware index) for the 2H_90D range, or an empty
+    frame. Never raises (a store/FMP problem degrades to an empty chart, like the other ranges).
+
+    - A ticker that already has SharedBarsCache rows (the monitored ones) reads through the cache's own
+      close-aware get-or-fetch: warm = a DB read, stale = one incremental FMP call (which also tops the
+      cache up for the nightly jobs). With the `intraday_bars` group off that path serves the cached rows
+      as they are.
+    - Any other ticker is fetched live and uncached (_fetch_intraday_uncached); with the group off it has
+      no bars, so the chart is unavailable."""
+    lookback_days = RANGE_CONFIG[INTRADAY_RANGE]["lookback_days"]
+    try:
+        if has_cached_bars(ticker, INTRADAY_INTERVAL):
+            frames = await get_or_fetch_bars_batch([ticker], INTRADAY_INTERVAL, lookback_days, auto_adjust=False, reference=now)
+            frame = frames.get(ticker)
+            return frame if frame is not None else _empty_ohlcv()
+        if not group_live("intraday_bars"):
+            return _empty_ohlcv()
+        return await _fetch_intraday_uncached(ticker, now, lookback_days)
+    except Exception as exc:  # noqa: BLE001 -- fail soft, log the type only
+        logger.warning("2H bar fetch failed for %s (%s)", ticker, type(exc).__name__)
+        return _empty_ohlcv()
+
+
+def _iso(ts: pd.Timestamp | datetime) -> str:
+    """Naive-ET wall-clock "YYYY-MM-DDTHH:MM:SS" -- the 2H_90D wire time (the candle's window START)."""
+    return ts.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _points_2h(series: pd.Series, mask: pd.Series | np.ndarray) -> list[ChartLinePointOut]:
+    visible = series[mask].dropna()
+    return [ChartLinePointOut(time=_iso(idx), value=float(v)) for idx, v in visible.items()]
+
+
+def _zones_2h(result, visible_start: pd.Timestamp) -> list[ChartZoneOut]:
+    """LP zones from the full-history 2h read, kept only when the establishing swing CANDLE is inside the
+    visible window (same rule as the daily chart's _filter_zones, at candle rather than date granularity).
+    The per-side cap already happened inside the engine, over every valid swing -- cap-then-filter, as daily."""
+    zones: list[ChartZoneOut] = []
+    for side, zone_list in (("support", result.support), ("resistance", result.resistance)):
+        for z in zone_list:
+            if z.formed_ts is not None and z.formed_ts >= visible_start:
+                zones.append(ChartZoneOut(side=side, price=z.price, formed_at=_iso(z.formed_ts)))
+    for side, broken in (("support", result.broken_support), ("resistance", result.broken_resistance)):
+        if broken is not None and broken.formed_ts is not None and broken.formed_ts >= visible_start:
+            zones.append(ChartZoneOut(side=side, price=broken.price, formed_at=_iso(broken.formed_ts), broken=True))
+    return zones
+
+
+def _unavailable_2h(range_key: str) -> ChartOut:
+    return ChartOut(
+        range=range_key,
+        timeframe="2h",
+        bars=[],
+        ema21=[],
+        sma50=[],
+        sma200=[],
+        bollinger=[],
+        stochastic=[],
+        rsi=[],
+        entry_signal_available=False,
+        warren_signal_available=False,
+        zones_available=False,
+        source="fmp",
+        chart_available=False,
+    )
+
+
+async def _get_chart_data_2h(ticker: str, range_key: str, now: datetime | None = None) -> ChartOut:
+    """The 2H_90D range. Everything is computed here, on demand, from ONE 2h candle series (730 days, the
+    nightly Warren window) and only then sliced to the visible 90 calendar days:
+
+    - Warren: the state machine replays the whole series (it is stateful, and the nightly job does the same),
+      its own RSI/ADX/+DI/-DI/WVF series feed the panes (the very objects it read -- never a second
+      calculation), and its events become markers.
+    - BB+RSI: the engine's own check_buy_signal on every visible candle -- one marker per candle, no
+      first-per-day dedup.
+    - LP: computed over the full series (cap then filter), then limited to zones whose swing candle is visible.
+
+    The forming candle is dropped BEFORE any of that (drop_forming_candles), so no indicator, arrow or zone
+    ever sees a partial candle. Candle time everywhere is the window START (09:30/11:30/13:30/15:30), naive ET.
+    The availability flags are simply "there are bars": on demand, every ticker has signals and zones.
+    Skipped here by design: daily bars, corporate events, Stochastic, EMA/SMA/Bollinger, Weinstein."""
+    ticker = normalize_ticker(ticker)
+    cfg = RANGE_CONFIG[range_key]
+    now = now or datetime.now(timezone.utc)
+
+    raw = await _fetch_intraday_bars(ticker, now)
+    candles = pd.DataFrame()
+    if not raw.empty:
+        candles = drop_forming_candles(build_2h_session_candles_fast(raw), now, is_half_day=_is_half_day)
+    if candles.empty:
+        return _unavailable_2h(range_key)
+    candles = index_by_window_start(candles)
+
+    visible_start = pd.Timestamp(_eastern_today(now)) - pd.Timedelta(days=cfg["visible_days"])
+    mask = candles.index >= visible_start
+    first_visible = int(mask.argmax()) if mask.any() else len(candles)
+
+    # Warren: full replay, then slice.
+    result, series = replay_with_series(candles)
+    warren_markers = sorted(
+        (
+            ChartMarkerOut(time=_iso(e.fired_at), label=_WARREN_KIND_LABELS[e.kind], kind=e.kind)
+            for e in result.events
+            if pd.Timestamp(e.fired_at) >= visible_start
+        ),
+        key=lambda m: (m.time, m.kind),
+    )
+
+    # BB+RSI: the same RSI(EWM)/%B the nightly signal uses, over the same full series.
+    close = candles["close"]
+    bb_rsi = compute_rsi(close)
+    _, _, pct_b = compute_bollinger_bands(close)
+    entry_markers = [
+        ChartMarkerOut(time=_iso(candles.index[i]), label="BB+RSI", kind="bb_rsi")
+        for i in range(first_visible, len(candles))
+        if check_buy_signal(bb_rsi, pct_b, i)
+    ]
+
+    # LP: shared settings (breach recency hardcoded for 2h inside compute_liquidity_zones_2h).
+    with Session(engine) as session:
+        settings = to_engine_settings(get_liquidity_zone_settings(session))
+    zones = _zones_2h(compute_liquidity_zones_2h(candles, settings), visible_start)
+
+    visible = candles[mask]
+    bars = [
+        ChartBarOut(time=_iso(idx), open=float(r["open"]), high=float(r["high"]), low=float(r["low"]), close=float(r["close"]))
+        for idx, r in visible.iterrows()
+    ]
+    available = bool(bars)
+    return ChartOut(
+        range=range_key,
+        timeframe=cfg["timeframe"],
+        bars=bars,
+        ema21=[],
+        sma50=[],
+        sma200=[],
+        bollinger=[],
+        stochastic=[],
+        rsi=[],
+        entry_signal_markers=entry_markers,
+        entry_signal_available=available,
+        warren_signal_markers=warren_markers,
+        warren_signal_available=available,
+        zones=zones,
+        zones_available=available,
+        warren_rsi=_points_2h(series.rsi, mask),
+        warren_adx=_points_2h(series.adx, mask),
+        warren_plus_di=_points_2h(series.plus_di, mask),
+        warren_minus_di=_points_2h(series.minus_di, mask),
+        warren_wvf=_points_2h(series.wvf, mask),
+        warren_levels=ChartWarrenLevelsOut(**warren_reference_levels()),
+        source="fmp",
+        chart_available=available,
+    )
+
+
 async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
+    if RANGE_CONFIG[range_key]["timeframe"] == "2h":
+        return await _get_chart_data_2h(ticker, range_key)
     ticker = normalize_ticker(ticker)
     cfg = RANGE_CONFIG[range_key]
 

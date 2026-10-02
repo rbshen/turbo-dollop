@@ -129,9 +129,13 @@ def session_window_start(ts: pd.Timestamp) -> pd.Timestamp:
 
 def index_by_window_start(candles: pd.DataFrame) -> pd.DataFrame:
     """Re-indexes candles (indexed by last-bar timestamp, tz-aware ET) by their window START as a naive
-    America/New_York wall-clock DatetimeIndex -- the chart's candle time. One candle per window, so unique."""
+    America/New_York wall-clock DatetimeIndex -- the chart's candle time. One candle per window, so unique.
+    Vectorised (same mapping as session_window_start, wall-clock arithmetic on the naive time)."""
     out = candles.copy()
-    out.index = pd.DatetimeIndex([session_window_start(ts).tz_localize(None) for ts in candles.index], name="window_start")
+    naive = candles.index.tz_localize(None)
+    minutes = naive.hour * 60 + naive.minute
+    start = np.select([minutes >= m for m in reversed(_WINDOW_START_MIN)], list(reversed(_WINDOW_START_MIN)), default=_SESSION_OPEN_MIN)
+    out.index = pd.DatetimeIndex(naive.normalize() + pd.to_timedelta(start, unit="m"), name="window_start")
     return out
 
 

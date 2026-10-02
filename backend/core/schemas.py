@@ -1363,7 +1363,7 @@ class LiquidityZonesOut(BaseModel):
 
 
 class ChartBarOut(BaseModel):
-    time: str  # "YYYY-MM-DD"
+    time: str  # "YYYY-MM-DD"; on the 2H_90D range the naive-ET candle START "YYYY-MM-DDTHH:MM:SS" (09:30/11:30/13:30/15:30)
     open: float
     high: float
     low: float
@@ -1420,7 +1420,7 @@ class ChartMarkerOut(BaseModel):
     analysis.warren_signal.types.SIGNAL_KINDS for a Warren marker. `label`
     stays human-readable text ("BB+RSI", "Blue Up", "Yellow Down", ...)."""
 
-    time: str  # "YYYY-MM-DD"
+    time: str  # "YYYY-MM-DD"; "YYYY-MM-DDTHH:MM:SS" (the candle start) on the 2H_90D range
     label: str  # "BB+RSI" | "Blue Up" | "Yellow Up" | "Gray Up" | "Blue Down" | "Yellow Down" | "Gray Down"
     kind: str  # "bb_rsi" | one of analysis.warren_signal.types.SIGNAL_KINDS
 
@@ -1440,7 +1440,7 @@ class ChartZoneOut(BaseModel):
 
     side: str  # "support" | "resistance"
     price: float
-    formed_at: str  # "YYYY-MM-DD"
+    formed_at: str  # "YYYY-MM-DD"; the swing candle's "YYYY-MM-DDTHH:MM:SS" start on the 2H_90D range
     broken: bool = False
 
 
@@ -1470,6 +1470,16 @@ class ChartDividendMarkerOut(BaseModel):
     amount: float
 
 
+class ChartWarrenLevelsOut(BaseModel):
+    """Warren's own reference levels, read from the engine constants (analysis.warren_signal.state_machine.
+    warren_reference_levels) so the panes can never drift from the thresholds the arrows use. RSI: 12 (Blue
+    trigger), 30, 70, 80.81 (bear1), 84.75 (Yellow-sell); ADX: 40; WVF: 0.40."""
+
+    rsi: list[float]
+    adx: list[float]
+    wvf: list[float]
+
+
 class ChartOut(BaseModel):
     """OHLC + indicators for one ticker-page Chart tab view -- see
     data/chart_data.py for the fetch/compute mechanism. Computed fully
@@ -1483,8 +1493,8 @@ class ChartOut(BaseModel):
     unlike every other field on this schema, these are a cache-only read,
     not computed from the bars fetched for this same request."""
 
-    range: str  # "D_6M" | "D_1Y" | "D_2Y" | "W_4Y"
-    timeframe: str  # "daily" | "weekly"
+    range: str  # "2H_90D" | "D_6M" | "D_1Y" | "D_2Y" | "W_4Y"
+    timeframe: str  # "2h" | "daily" | "weekly"
     bars: list[ChartBarOut]
     ema21: list[ChartLinePointOut]
     sma50: list[ChartLinePointOut]
@@ -1537,6 +1547,17 @@ class ChartOut(BaseModel):
     earnings_markers: list[ChartEarningsMarkerOut] = []
     dividend_markers: list[ChartDividendMarkerOut] = []
     events_source: str | None = None
+    # 2H_90D only (empty/None on every other range): the Warren engine's OWN indicator series -- the same
+    # objects its state machine read, not a second calculation -- for the three sub-panes, plus its
+    # reference levels. Deliberately not the `rsi` field above (that is the EWM-seeded RSI(14) the daily
+    # ranges plot). ADX/+DI/-DI/WVF are percentages-scale values (WVF is wvfBuy). Times are naive-ET
+    # "YYYY-MM-DDTHH:MM:SS" candle-start stamps, like every other time on a 2H_90D response.
+    warren_rsi: list[ChartLinePointOut] = []
+    warren_adx: list[ChartLinePointOut] = []
+    warren_plus_di: list[ChartLinePointOut] = []
+    warren_minus_di: list[ChartLinePointOut] = []
+    warren_wvf: list[ChartLinePointOut] = []
+    warren_levels: ChartWarrenLevelsOut | None = None
     # Always "fmp" (Yahoo removed in Phase 6b); an empty chart is chart_available=False.
     source: str
     chart_available: bool  # False only for a genuinely bad/delisted ticker with no bars at all

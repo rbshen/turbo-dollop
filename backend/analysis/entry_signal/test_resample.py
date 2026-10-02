@@ -236,3 +236,13 @@ def test_drop_forming_accepts_naive_now_as_utc_and_empty_input():
     now_utc_naive = pd.Timestamp("2026-01-05 21:30").to_pydatetime()  # 16:30 ET
     assert len(drop_forming_candles(candles, now_utc_naive)) == 4
     assert drop_forming_candles(candles.iloc[0:0], now_utc_naive).empty
+
+
+def test_index_by_window_start_vectorised_matches_the_scalar_mapping_including_dst_dates():
+    rows = []
+    for i, d in enumerate(["2026-03-06", "2026-03-09", "2026-11-02", "2026-11-27"]):
+        rows += _session_bars(d, HALF_DAY if d == "2026-11-27" else FULL_DAY, seed=i)
+    candles = build_2h_session_candles_fast(pd.DataFrame(rows).set_index("timestamp"))
+    got = index_by_window_start(candles).index
+    expected = [session_window_start(ts).tz_localize(None) for ts in candles.index]
+    assert list(got) == expected and got.tz is None
