@@ -198,7 +198,7 @@ Key mechanics:
   (6 × 365 days) and **3y of `60m`** (3 × 365 days) bars, trimmed per bar (never whole rows, so a
   survivor's last bar — what freshness reads — is untouched and `min(bar_time)` just moves
   forward to the first survivor) by `prune_old_bars`, run weekly from the existing
-  `pipeline.prune_cache` job (Sundays 1:15 AM per `crontab.txt`; no new cron entry, so nothing new for `CRON_JOB_NAMES`)
+  `pipeline.prune_cache` job (Sundays 12:15 AM per `crontab.txt`; no new cron entry, so nothing new for `CRON_JOB_NAMES`)
   and previewable with its `--dry-run`. Windows are chosen against the consumers' real fetch
   tiers: each is >= the widest tier fetched (1d: Liquidity Zones' 4y lookback → the `5y` tier;
   60m: Warren's 730d → `2y`) plus a year of headroom, and BELOW the next tier up (`10y`), so a
@@ -239,12 +239,12 @@ Key mechanics:
 ### Downstream ordering: the Screener's copy of technical fields
 
 `compute_ticker_score` copies `weinstein_*` from
-`TrendAnalysis` (written by the 12:05 Weinstein/bar-cache job), `bb_rsi_entry_signal` from the 12:20 BB+RSI job's
-row, and `warren_active_signal_kind`/`warren_last_buy_fired_at` from the 12:25 Warren job's rows.
+`TrendAnalysis` (written by the 1:05 Weinstein/bar-cache job), `bb_rsi_entry_signal` from the 1:20 BB+RSI job's
+row, and `warren_active_signal_kind`/`warren_last_buy_fired_at` from the 1:25 Warren job's rows.
 The full-universe recompute (`pipeline.nightly_score_recompute`) therefore runs at **3:25 AM**,
 after all three and before the 3:30 backup (cache-only, zero FMP calls, ~30s; Warren is ~2 min
-today, ~9 min theoretical worst case). Nothing else depends on that order: the 12:05 job reads
-only the shared bars cache and its own universe. The 2:55 fundamentals fetch (since the 2026-09-30 reorder, technical jobs first) scores each
+today, ~9 min theoretical worst case). Nothing else depends on that order: the 1:05 job reads
+only the shared bars cache and its own universe. The 2:00 fundamentals fetch (since the 2026-09-30 reorder, technical jobs first) scores each
 ticker inline after the technical jobs, so it already sees same-night technical fields; the 3:25 sweep
 is the backstop for ad-hoc tickers outside the index universe. Pinned by
 `tests/test_cron_wiring.py::test_score_recompute_runs_after_every_job_it_copies_from` (and
@@ -281,7 +281,7 @@ archived in `docs/archive/claude-md-history-fmp-migration.md`.
   `unserved_tickers` out-parameter and keeps its cached bars; `daily_prices` off / master off /
   above plan / restricted reports the whole batch unserved — **cache-only, and the daily-bar jobs
   record `skipped`** (Phase 6b). Heartbeat message: `N not served by FMP (cached bars kept)`.
-- **Nightly incremental** (only the 12:05 bar-cache job actually fetches; Liquidity Zones/Heatmap/
+- **Nightly incremental** (only the 1:05 bar-cache job actually fetches; Liquidity Zones/Heatmap/
   Breadth/Momentum read its warm cache): per ticker, one `full?from=<last cached bar - 7d>` call
   (`FMP_OVERLAP_DAYS`). The last cached bar is always overwritten; any EARLIER overlapping close
   that differs from the cache by more than 0.5% (`FMP_OVERLAP_TOLERANCE`) means FMP restated
@@ -290,7 +290,7 @@ archived in `docs/archive/claude-md-history-fmp-migration.md`.
   calendar or bulk endpoint is used (`eod-bulk` etc. are Ultimate). A cache starting within 10
   days of the window start counts as covering it; a young listing (< 5y of history, ~22 tickers)
   is refetched in full each night (cheap: short histories). **The Sunday (UTC) run is a weekly
-  full resync**: the 12:05 job passes `force=True` (`WEEKLY_RESYNC_WEEKDAY_UTC`), so every ticker
+  full resync**: the 1:05 job passes `force=True` (`WEEKLY_RESYNC_WEEKDAY_UTC`), so every ticker
   is refetched and replaced, closing the sub-0.5% restatement gap. Measured at the time: ~590
   calls, ~62 s at concurrency 10 (`FMP_CONCURRENCY`), paced to 50% (`FMP_RATE_FRACTION`) of the
   plan's documented rate (`FMP_PLAN_REQUESTS_PER_MIN`: Starter 300, Premium 750, Ultimate 3000);
@@ -442,7 +442,7 @@ would re-attempt them every night. **Provenance (corrected 2026-09-30):** all fi
 FMP's own delisted date is not stored anywhere.
 
 - **`TickerScore.delisted_at: datetime | None`** (nullable, `_add_missing_columns`-backfilled) is
-  set by `pipeline/stale_data_health_check.py::sync_delisted_flags` (weekly, Sundays 1:30 AM) from
+  set by `pipeline/stale_data_health_check.py::sync_delisted_flags` (weekly, Sundays 12:30 AM) from
   FMP `/delisted-companies` (group `index_membership`). The endpoint's page size is capped at 100
   (~157 pages / ~15.6k rows / ~15.4k unique symbols on 2026-09-26, so ~157 sequential calls a
   week); a tracked ticker listed with a delisted date on/before today is flagged. (An earlier
@@ -459,7 +459,7 @@ FMP's own delisted date is not stored anywhere.
   `stale_data_health_check.load_delisted_tickers(session)`: Trend, Liquidity Zones and
   `data/momentum_data.py::compute_and_store_momentum_snapshot` drop it from the fetch and compute
   loop, and each summary carries `skipped_delisted_count`. Scoped to the DB-derived universe
-  only — the 12:05 job's `--tickers`/`--limit` escape hatch bypasses it. Market Breadth and Sector
+  only — the 1:05 job's `--tickers`/`--limit` escape hatch bypasses it. Market Breadth and Sector
   Heatmap need no change (their universes — `IndexConstituent` sp500 and 11 fixed ETFs — never
   contained these).
 - **Nothing is ever deleted**: `TickerScore`, `FundamentalsCache`, Watchlist and ticker-page

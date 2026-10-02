@@ -20,7 +20,7 @@ report within 7 days, 25 within 14, about 300 within 30, about 530 within 60); (
 no "D" marker (441 dividend payers; 70 had a future ex-date row cached, 371 did not); (3) a ticker never cached, such as
 anything first opened after 10-01 02:47 (the ETFs GLD, IBIT, QQQ, SMH, SOXX, XLK, XLV), has no markers at all until
 `uv run python -m pipeline.nightly_corporate_events --tickers X,Y` is run for it (2 calls per ticker, plus 1 for splits
-when due). No retention prune runs either, which is harmless. To re-enable, see `backend/OPS_RUNBOOK.md`.
+when due). No retention prune runs either, which is harmless. To re-enable, see `backend/OPS_RUNBOOK.md`; the planned slot is **1:50 AM** (after Market Breadth, ending before the 2:00 fundamentals start, never overlapping it).
 
 `pipeline/nightly_corporate_events.py` (cron 2:45 AM server time when enabled; registered in `core/cron_health.py`).
 Earnings and dividends refresh nightly. Splits refresh **weekly** (`SPLITS_REFRESH_DAYS = 6`, via

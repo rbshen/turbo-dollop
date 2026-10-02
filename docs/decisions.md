@@ -268,8 +268,28 @@ fundamentals run (up to ~65 min) can overlap price-target; recompute and backup 
 Last close 2:00 → 12:00, trend + Weinstein 2:05 → 12:05, Liquidity Zone 2:15 → 12:15, BB+RSI 2:20 → 12:20,
 Warren 2:25 → 12:25, Sector ETF 2:35 → 12:35, Market Breadth 2:40 → 12:40. Order and every hard constraint from
 the 2026-09-30 entry above are unchanged; corporate events (2:45) onward did not move. Side effect: the Sunday
-index-list refreshes (1:00-1:10) now run after the technical jobs instead of before, so a constituent change is
-picked up by the next night's technical run (one-day lag, Sundays only).
+index-list refreshes (1:00-1:10) now ran after the technical jobs instead of before, so a constituent change was
+picked up by the next night's technical run (one-day lag, Sundays only). **Superseded 2026-10-02 (next entry): the
+refreshes now run at 12:00-12:10 AM, before the 1:00 AM chain, so the lag no longer exists.**
+
+### 2026-10-02 — Cron reschedule: Sunday block first, technical chain 1:00-1:40, fundamentals 2:00
+
+All UTC (the box is UTC). Weekly index-list refreshes 1:00/1:05/1:10 → **12:00/12:05/12:10 AM Sunday** and the Sunday
+maintenance jobs (prune_cache, rotate_logs, audit_fixture_contamination, stale_data_health_check, purge_invalid_tickers)
+1:15-1:35 → **12:15-12:35 AM**. The daily technical jobs moved one hour later, minute offsets kept: last close 1:00,
+trend + Weinstein 1:05, Liquidity Zone 1:15, BB+RSI 1:20, Warren 1:25, Sector heatmap 1:35, Market Breadth 1:40.
+Fundamentals 2:55 → **2:00**. Unchanged: momentum 2:50 (1st-5th), price-target 3:10, score recompute 3:25, backup 3:30.
+**Why:** the 2026-10-01 move to 12:00-12:40 had pushed the Sunday refreshes after the chain (constituent changes a night
+late); the Sunday block now runs first again, and the chain starts with a clean hour. Fundamentals at 2:00 keeps it away
+from price-target: a 64.5-minute run (the worst seen, 2026-09-15) ends ~3:04, 5.5 minutes before 3:10 and 20 minutes before
+the 3:25 recompute (the 44.6-minute 2026-10-01 run ended ~2:45). **Measured margins:** Sunday block ends by ~12:33 (the
+slowest, stale_data_health_check, max 2.6 min) against a 1:00 start; the chain ends by ~1:45 in the worst case (Warren's
+9-minute theoretical), so 1:45-2:00 is clear. **Overlaps:** momentum (2:50, days 1-5, 4 calls, ~10 s) overlaps fundamentals
+only on a run longer than 50 minutes, negligibly. **Corporate events** stays disabled (2026-10-01 entry); its planned
+re-enable slot is **1:50 AM** so it ends before fundamentals starts and never overlaps it (its 406-527 requests/min is over
+Starter's 300/min). Pinned by `test_cron_wiring.py` (order, Sunday block before the chain, fundamentals + 65 min <=
+price-target) and `JOB_METADATA` labels/`sort_minutes`. Transition: applied 2026-10-02 after the night's run, so no job ran
+twice or was skipped; the first run on the new schedule is 2026-10-03 1:00 AM (daily) and Sunday 2026-10-04 12:00 AM (weekly).
 
 ### 2026-10-01 — nightly_corporate_events disabled pending investigation
 

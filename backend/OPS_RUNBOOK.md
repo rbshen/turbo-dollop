@@ -154,7 +154,7 @@ monitoring" below.
 ## Maintenance scripts (`backend/pipeline/`)
 
 All of the scripts below are wired into `crontab.txt`'s weekly maintenance
-window (Sundays 1:15–1:35 AM), the daily backup at 3:30 AM, or the daily
+window (Sundays 12:15–12:35 AM), the daily backup at 3:30 AM, or the daily
 3:25 AM full-universe score recompute (deliberately last before the backup -- it copies the Weinstein, BB+RSI and Warren
 outputs onto `TickerScore`, so it has to run after all three). Each can also be run manually with
 `uv run python -m pipeline.<name>` from `backend/`.
@@ -174,8 +174,8 @@ row like that on its next view (`core/main.py::ticker_score_out`), but
 this sweep is the backstop for a ticker that's never viewed again.
 
 **Why it runs at 3:25 AM, after the technical jobs (moved from 2:50 on
-2026-09-19; whole nightly chain re-timed 2026-09-30, technical first):** it copies Weinstein (12:05), BB+RSI (12:20) and Warren
-(12:25) output onto `TickerScore` for the Screener. At 2:50 it ran before all
+2026-09-19; whole nightly chain re-timed 2026-09-30, technical first):** it copies Weinstein (1:05), BB+RSI (1:20) and Warren
+(1:25) output onto `TickerScore` for the Screener. At 2:50 it ran before all
 three, so the Screener always showed the *previous* night's stage/signal —
 up to a full day stale (36 of 579 tickers' Screener Weinstein stage
 disagreed with their own `TrendAnalysis` row). `tests/test_cron_wiring.py::
@@ -199,7 +199,7 @@ EOF
 ```
 
 (Output is `(tickers compared, stage mismatches, since-date mismatches)`. The
-since-date check is the more sensitive one: the 12:05 job's replay can revise
+since-date check is the more sensitive one: the 1:05 job's replay can revise
 a ticker's since-date without changing its stage, so it catches a stale copy
 the stage check misses — on the day the reorder shipped it read 173
 mismatches against 36 for stage alone.)
@@ -234,7 +234,7 @@ a reason to see it in the failure list.
 sector ETFs (`XLK XLF XLV XLE XLI XLY XLP XLU XLB XLRE XLC`) x 7 trailing
 total-return windows (1w/1m/3m/6m/9m/YTD/1y), upserting 77 `SectorEtfReturn`
 rows per session (`data/sector_heatmap_data.py`). One shared-bars-cache batch (FMP daily bars);
-skipped while `daily_prices` is off. Runs at 12:35 AM
+skipped while `daily_prices` is off. Runs at 1:35 AM
 and re-derives the same anchor (the last completed session) on weekends and
 holidays, upserting over its own rows -- harmless. **Scheduled and live** as of
 2026-09-21 (installed via `crontab crontab.txt` from `backend/`; `crontab -l`
@@ -263,7 +263,7 @@ marker, and a ticker first opened after 10-01 02:47 has none at all until you ru
 depends on it (no job reads its output). **Re-enable:** (1) uncomment the `45 2 * * *` line in `backend/crontab.txt`; (2) delete
 the `pipeline.nightly_corporate_events` entry from `DISABLED_CRON_JOBS` in `backend/core/cron_health.py` (the wiring test fails
 if only one of the two is done); (3) from `backend/` run `crontab crontab.txt`, then `crontab -l` and confirm the line is there;
-(4) decide the slot first: the job runs at 406-527 requests/min, so keep it away from fundamentals (see docs/decisions.md).
+(4) **use the planned slot 1:50 AM (`50 1 * * *`), not the old 2:45 line** that stays commented in `crontab.txt`: the job runs at 406-527 requests/min for ~2-4 min, fundamentals starts at 2:00 (since the 2026-10-02 reschedule), so it must end before 2:00 and never overlap it; 1:50 follows Market Breadth (ends ~1:41, worst ~1:45). Edit the commented line's time fields when you uncomment it and update `JOB_METADATA` (`time_label` "1:50 AM", `sort_minutes` 110) to match; `test_corporate_events_runs_after_technical_jobs_and_before_fundamentals` goes live again and passes at 1:50.
 **Roll back this change:** `crontab backend/crontab.backup-2026-10-01.txt` restores the installed crontab, and `git revert` of the
 disabling commit restores the repo.
 
@@ -282,7 +282,7 @@ only if **every** ticker failed. Skipped (real `skipped` status) while `corporat
 cache then keeps serving. Check it: `select event_type, count(*) from corporateevent group by 1` and
 `select max(fetched_at) from corporateeventfetch`.
 
-**`nightly_last_close_snapshot`** (12:00 AM, Phase 6a) — caches each US-listed tracked ticker's last
+**`nightly_last_close_snapshot`** (1:00 AM, Phase 6a) — caches each US-listed tracked ticker's last
 official close (`TickerLastClose`, latest-only; `data/last_close_data.py`), one
 `/historical-price-eod/full` call each (group `daily_prices`). It is the ticker header's price
 fallback: served when the live FMP quote fails or `profile_quote` is off. Success: `Last-close
@@ -295,9 +295,9 @@ session for the S&P 500 (`IndexConstituent` `sp500`, via `load_sp500_tickers`):
 the % of constituents closing above their own 20-, 50- and 200-day SMA, and new
 52-week highs minus new 52-week lows (intraday High/Low, 252 sessions,
 ties count) — `data/market_breadth_data.py`, `scoring/market_breadth.py`.
-FMP bars from `SharedBarsCache`; skipped while `daily_prices` is off. Runs at 12:40 AM, **after** the 12:05 bar-cache job that warms
+FMP bars from `SharedBarsCache`; skipped while `daily_prices` is off. Runs at 1:40 AM, **after** the 1:05 bar-cache job that warms
 `SharedBarsCache` with all 503 tickers' 2y daily bars, so the normal run is a
-~3s warm-cache read. If the 12:05 job failed or overran it self-heals with one
+~3s warm-cache read. If the 1:05 job failed or overran it self-heals with one
 live batch (~30s–5min), which could overlap the 2:45 corporate-events start (writer-lock
 contention only). A weekend/holiday run re-derives the same anchor and
 upserts over its own row. **Coverage gate:** if fewer than 97% of constituents
@@ -460,13 +460,13 @@ its next view.
 Daily bars (`SharedBarsCache` "1d") come from FMP `/historical-price-eod/full` for US-listed
 tickers (data group `daily_prices`) -- the only provider (Massive was removed in Phase 6a, Yahoo in Phase 6b). Non-US
 listings get no nightly bars (the P3 `daily_prices_intl` group and phantom-bar filter were removed in
-the Phase 6a follow-up, 2026-09-26). Only `pipeline.nightly_trend_calculation` (12:05) fetches; LZ/Sector/Breadth/Momentum read
+the Phase 6a follow-up, 2026-09-26). Only `pipeline.nightly_trend_calculation` (1:05) fetches; LZ/Sector/Breadth/Momentum read
 its warm cache.
 
 - **Nightly:** per ticker one call from `last cached bar - 7d` (overlap). The last cached bar is
   overwritten; any earlier overlapping close off by > 0.5% means FMP restated history (split,
   spin-off, symbol reuse) and that ticker is refetched over its full window and REPLACED. ~600
-  calls, ~1-2 min. **Sundays (UTC)** the 12:05 job passes `force=True` -> every ticker gets a full
+  calls, ~1-2 min. **Sundays (UTC)** the 1:05 job passes `force=True` -> every ticker gets a full
   refetch + replace (the weekly resync).
 - **Heartbeat message** of each daily-bar job: `N not served by FMP (cached bars kept)`.
   A large N means FMP is failing/empty for those tickers. Their cached bars are left as they are.
@@ -557,7 +557,7 @@ matches those five exact names only (never `W score passed`, `W6`, ...), and is 
   or `--backup-file PATH`), then `pipeline.backup_db.create_backup`. The full backup needs ~1.25x the DB size free;
   if it refuses, the script exits 1 having written nothing. Free space (prune `backend/backups/`) and re-run, or pass
   `--skip-full-backup` to rely on the logical backup plus the nightly backup.
-- **Run it** with no nightly job mid-flight and before the 00:15 UTC slot (jobs read list names once, at start).
+- **Run it** with no nightly job mid-flight and before the 01:15 UTC slot (the first monitored-list job, Liquidity Zones) (jobs read list names once, at start).
   If code ships without the migration the three jobs log "No watchlist matching ... exists", process nothing,
   and the sweep only clears readings after 7 days.
 - **Verify:** the log (`logs/rename_monitored_watchlists.log`) lists each `Renamed id N: W<n> -> E<n>`; then
@@ -569,8 +569,8 @@ matches those five exact names only (never `W score passed`, `W6`, ...), and is 
 
 ## Weekly index constituent refresh (S&P 500 / Nasdaq-100 / Dow)
 
-Cron: `crontab.txt`, Sundays 1:00 AM (S&P 500), 1:05 AM (Nasdaq-100), and
-1:10 AM (Dow). Scripts: `scrapers/refresh_sp500_list.py`,
+Cron: `crontab.txt`, Sundays 12:00 AM (S&P 500), 12:05 AM (Nasdaq-100), and
+12:10 AM (Dow), before the 1:00 AM daily chain (moved from 1:00-1:10 on 2026-10-02). Scripts: `scrapers/refresh_sp500_list.py`,
 `scrapers/refresh_nasdaq_list.py`, `scrapers/refresh_dow_list.py`.
 
 **Known failure mode (2026-08-02 -- 2026-08-05): silent `IntegrityError`

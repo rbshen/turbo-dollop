@@ -7,7 +7,7 @@ live. Independent of FMP and of Step 1-5/Overall Assessment scoring --
 zero FMP calls, no data-group guard needed.
 
 Bars come from SharedBarsCache via clients.shared_bars_cache.
-get_or_fetch_bars_batch with the SAME call the 2:05 trend job makes
+get_or_fetch_bars_batch with the SAME call the 1:05 trend job makes
 (1d, 730 days, auto_adjust=False), so a run after it is a warm-cache read
 with zero incremental FMP requests; if the trend job failed or overran
 this self-heals with one live fetch and writes through the shared cache

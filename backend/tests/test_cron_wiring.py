@@ -113,7 +113,9 @@ def test_job_metadata_sort_minutes_match_crontab():
         )
 
 
-# The nightly chain order (2026-09-30): technical first, fundamentals later.
+# The nightly chain order (2026-09-30): technical first, fundamentals later. Times
+# since the 2026-10-02 reschedule: technical 1:00-1:40, fundamentals 2:00, price-target
+# 3:10, recompute 3:25, backup 3:30.
 # Each consecutive pair must be scheduled strictly later than the one before,
 # so a schedule edit can't silently regress the agreed order. Hard constraints
 # (trend fills the bar cache before LP/Sector/Breadth; BB+RSI before Warren;
@@ -159,3 +161,35 @@ def test_no_two_daily_jobs_share_a_minute():
         key = (hour, minute)
         assert key not in seen, f"{module} and {seen[key]} both start at {hour}:{minute}"
         seen[key] = module
+
+
+def _weekly_minutes() -> dict[str, int]:
+    """module -> minute-of-day, for every job scheduled on a single weekday (the weekly block)."""
+    out = {}
+    for module, (minute, hour, dom, month, dow) in _crontab_schedule().items():
+        if dow != "*":
+            assert (dom, month, dow) == ("*", "*", "0"), f"{module}: weekly jobs are expected on Sunday (dow 0), got {dow!r}"
+            out[module] = int(hour) * 60 + int(minute)
+    return out
+
+
+def test_sunday_block_finishes_before_the_daily_chain_starts():
+    """The index-list refreshes and the weekly maintenance jobs (Sundays 12:00-12:35 AM, the
+    slowest, stale_data_health_check, ~2.6 min) run BEFORE the 1:00 AM daily chain, so a
+    constituent change is picked up the same night and nothing overlaps the first job.
+    Needs at least 15 minutes between the last weekly start and the first daily job."""
+    weekly = _weekly_minutes()
+    assert len(weekly) == 8, f"expected the 8 weekly jobs, got {sorted(weekly)}"
+    first_daily = _daily_minute_of_day("pipeline.nightly_last_close_snapshot")
+    assert max(weekly.values()) + 15 <= first_daily, (
+        f"the last weekly job starts at minute {max(weekly.values())} but the daily chain starts at {first_daily}: "
+        f"keep >= 15 min so the slowest weekly job finishes first"
+    )
+
+
+def test_fundamentals_starts_after_the_technical_chain_with_room_for_a_long_run():
+    """Fundamentals (typically 1-5 min, 44.6 on the 2026-10-01 cache-expiry wave, 64.5 worst seen)
+    must end before price-target (3:10): 64.5 min after its start leaves >= 5 minutes."""
+    fundamentals = _daily_minute_of_day("pipeline.nightly_fundamentals_fetch")
+    assert _daily_minute_of_day("pipeline.nightly_market_breadth") + 15 <= fundamentals
+    assert fundamentals + 65 <= _daily_minute_of_day("pipeline.nightly_price_target_snapshot")

@@ -22,7 +22,7 @@ daily-timeframe question (Part 2).
   latest-only, upserted per run — the same convention as `TickerScore`). Bars come from
   `SharedBarsCache` (see [FMP data and bar cache](fmp-data-and-bar-cache.md)), deliberately not
   `core/cache.py`, which is hard-wired to `FundamentalsCache`'s shape.
-- **Nightly job** (`pipeline/nightly_trend_calculation.py`, **12:05 AM**, after the 12:00
+- **Nightly job** (`pipeline/nightly_trend_calculation.py`, **1:05 AM**, after the 1:00
   last-close snapshot; the 3:25 score recompute then copies its `weinstein_*` output onto
   `TickerScore`): sweeps the full tracked universe (`load_full_tracked_universe`) via **one**
   batch read (`clients.shared_bars_cache.get_or_fetch_bars_batch`), runs the Weinstein engines and
@@ -132,7 +132,7 @@ Screener card has no params, so its pill tooltip says "MA").
   A benchmark-fetch failure that run degrades every ticker's Mansfield RS/breakout fields to
   null/false (the same `na()`-passes-through convention) rather than counting as a per-ticker
   failure. The nightly job fetches whatever `rs_benchmark` names.
-- **Cron**: the `pipeline/nightly_trend_calculation.py` run (12:05 AM) — no separate cron job.
+- **Cron**: the `pipeline/nightly_trend_calculation.py` run (1:05 AM) — no separate cron job.
 
 ### Surfacing
 
