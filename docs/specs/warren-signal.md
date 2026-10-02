@@ -176,6 +176,18 @@ reader. It is wired into `core/cron_health.py`'s `CRON_JOB_NAMES` / `_EXPECTED_C
   via a second `createSeriesMarkers` call on the same candle series, styled by a
   `kind -> {color, shape, position}` lookup (Blue/Yellow/Gray x Up/Down; Up arrows below the bar, Down arrows
   above).
+- **2H·90D Chart range (2026-10-02): computed on demand, not read from `WarrenSignalEvent`.** For any ticker the Chart tab
+  replays the state machine over the same window as the nightly job (`today-729d`, 730 days of 60m bars resampled with the vectorised
+  `build_2h_session_candles_fast`), drops the forming candle first, then slices the arrows to the last 90 days. Markers are **per candle**
+  (one per (candle, kind)), time-stamped by the candle's window start, not bucketed per day/week as the daily ranges' stored-event markers are.
+  `replay_with_series` additionally returns the RSI, +DI, -DI, ADX and WVF(`wvfBuy`) series the machine used (the existing `replay()` and its outputs
+  are unchanged) and `warren_reference_levels()` reads the thresholds from the same constants (RSI 12/30/70/80.81/84.75, ADX 40, WVF 0.40), so the three panes
+  always match the arrows. Warm-up matters: a 90-day-only replay gives different arrows, and the Wilder RSI differs from the chart's EWM RSI by up to ~19
+  points on 90 days of data (it converges to ~1e-14 with 730 days). **Consistency with stored data (checked 2026-10-02, 108 monitored tickers, last 90 days):**
+  the Technical tab's latest-state row matched the on-demand replay for 105 of 105 tickers; of 346 stored arrows, 330 reproduced and 16 (14 tickers) did not, none
+  the other way round. 14 of the 16 were written before the FMP bar switch (2026-09-26); the other two (CRM, NTAP) sit at borderline RSI thresholds (e.g. 84.32 against 84.75). Every
+  one of the 16 is at a threshold margin, and stored events are insert-only, so on-demand is the truth for the current bars and stored history can contain a few such stragglers. For BB+RSI the stored events mix
+  the backfill's first-fire-of-day with the nightly job's last-fire-of-day, which is why the 2H range shows every firing candle instead.
 - **Technical tab:** `WarrenSignalCard`, structurally mirroring `BbRsiEntrySignalCard`, surfaces the last
   signal's kind and timestamp, the live stop line, and the gray-suppression latch with its stop count.
 - **Test isolation:** any test that reaches `get_chart_data` must isolate a fresh engine for

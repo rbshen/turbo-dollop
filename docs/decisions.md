@@ -601,6 +601,21 @@ Built from `docs/fmp-starter-downgrade-impact-2026-10-02.md` item 2; behaviour i
 - **Scoring was not touched.** Step 5 reads `insufficient_data` for Standard/REIT tickers and the Overall Assessment goes empty when quarterly
   data is refused; the table in the spec records every caller's behaviour for the later annual-fallback task.
 
+### 2026-10-02 — Chart tab 2H·90D range
+
+Owner decisions, built in four commits (engines, endpoint, frontend, docs); behaviour in `docs/specs/chart-tab.md` section 3.
+
+- **Available for every ticker**, monitored or not; the three availability flags mean "bars exist" on this range. Warren, BB+RSI and LP are computed on demand and stored nowhere.
+- **Bars:** the shared bars cache for a ticker that already has `60m` rows, otherwise a live fetch of 9 parallel 90-day windows that **writes nothing** (a viewed-only ticker must not grow the cache). Intraday group off means cached bars only; none means unavailable. No in-memory cache (warm ~100 ms, cold 1.4-2.1 s).
+- **Candle time = window start** (09:30/11:30/13:30/15:30), naive-ET strings; the frontend encodes ET wall-clock as UTC seconds, so DST cannot shift anything. The legend shows the full window.
+- **The forming candle is dropped** from display and every computation (clock and last-bar checks), so no arrow ever repaints.
+- **BB+RSI markers are one per firing candle** (no first-per-day dedup); the stored events mix first- and last-of-day, so matching them was not possible anyway.
+- **Warren replays from `today-729d` (the nightly window), then slices to 90 days.** Its own indicator series feed the panes (no second calculation); thresholds come from the engine constants.
+- **LP uses the current shared settings live, with `breach_recency_bars` hardcoded to 20 candles for 2h**, over the full series, then filtered to the 90-day window (cap, then filter).
+- **Per-range toggles:** only BB+RSI, Warren, LP Support, LP Resistance; the rest hidden and forced off without touching saved values (the Stage precedent). Default range stays D·6M.
+- **Panes:** Warren RSI, ADX with ±DI, WVF replace RSI/Stochastic at the same 580/100 stretch factors; existing tokens only (see `docs/design-system-charts.md`).
+- **The nightly Warren job and the old 2h builder are untouched.** The vectorised builder is bit-identical on all 108 cached tickers; switching the nightly job to it (about 100 s down to about 10 s) is a separate, unmade decision.
+
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
 - **`MultiSelect` primitive — resolved, built.** `components/screener/MultiSelectDropdown.tsx` is

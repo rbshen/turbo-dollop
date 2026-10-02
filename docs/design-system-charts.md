@@ -47,4 +47,4 @@ How every chart is coloured, drawn and worded. Companion to `docs/design-system.
 
 Chart geometry (heights, bar gap, corner radius) stays as it was before the redesign: trend bars 64px (32px in the Watchlist), Analyst Ratings 216px, Chart tab 580px main pane and 100px sub-panes.
 
-The Chart tab (candlestick) colour palette was deliberately kept as-is rather than redesigned — see `docs/decisions.md`.
+The Chart tab (candlestick) colour palette was deliberately kept as-is rather than redesigned — see `docs/decisions.md`. The 2H·90D range's three Warren sub-panes add no tokens: RSI `chart-band` (red beyond 30/70), ADX `chart-ema21`, +DI `chart-up`, -DI `chart-down`, WVF `chart-warren-yellow`, reference lines `chart-refline` (classic 30/70 solid, Warren thresholds dashed).

@@ -67,10 +67,21 @@ The 2026-09-25 alignment seeded `cluster_pct` 2.0 and `max_lps_per_side` 10; the
 reflect a later change (commit `159753a`, "new max-zones default"), so read the helper for the live
 values. The table replaced the per-timeframe `LiquidityZoneConfig` table, which is orphaned on disk (a new
 table because `_add_missing_columns` cannot relax its NOT NULL columns); old tuned values were not carried
-over. A settings change takes effect on the **next nightly run**, not retroactively. This feature has no
-live-recompute path the way Step 3's discount rate does. BB+RSI's own thresholds (`RSI_LENGTH`, `BB_STD`,
+over. A settings change takes effect on the **next nightly run**, not retroactively. The stored Daily/Weekly rows have no
+live-recompute path the way Step 3's discount rate does -- **with one exception (2026-10-02): the Chart tab's 2H·90D range
+recomputes LP live on 2h candles with the current settings** (below), so a settings edit shows there at once and can differ from the Technical-tab card until the nightly run. BB+RSI's own thresholds (`RSI_LENGTH`, `BB_STD`,
 etc.) remain hardcoded constants with no settings UI; this feature was the first Technical-tab lens with
 DB-backed settings.
+
+## The 2H·90D Chart range (live, never stored)
+
+A third timeframe, `2h`, exists only on the Chart tab (`data/liquidity_zone_data.py::compute_liquidity_zones_2h`, called from `data/chart_data.py`). It is **computed on
+every request for any ticker** from the 730-day 2h candle series (candle time = window start, naive ET), with the shared `LiquidityZoneSettings` except
+**`breach_recency_bars`, hardcoded to 20 candles (5 sessions)** (`LP_2H_BREACH_RECENCY_BARS`; the shared 5 would mean ~1.25 sessions on 2h, and
+there is no Settings UI for the override). Swing, cluster and breach logic are the same pure engine (the kept-broken level applies); the engine records each zone's exact swing-candle timestamp
+via an additive optional field (`Zone.formed_ts`, `BrokenZone.formed_ts/breached_ts`, `with_timestamps=True`), so daily and weekly results are unchanged. Order is **cap, then filter**,
+as on the daily chart: the per-side cap and clustering see every valid swing in the full 730-day series, then only zones whose swing candle is inside the visible 90-day window are
+returned (so fewer than the cap can plot). Nothing is written to `LiquidityZoneAnalysis`; the monitored-watchlist scope above does not apply to this range.
 
 ## Data source
 
