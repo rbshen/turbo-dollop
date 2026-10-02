@@ -2,10 +2,10 @@ from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 import core.main as main
-from core.models import IndexConstituent, TickerScore
+from core.models import IndexConstituent, TickerScore, TickerView
 
 
 def _fresh_engine(monkeypatch):
@@ -17,6 +17,15 @@ def _fresh_engine(monkeypatch):
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(main, "engine", engine)
     return engine
+
+
+def _mark_viewed(engine):
+    """Gives every scored ticker a recent view, i.e. the legacy "ever viewed" state this file's older tests
+    were written for (a viewed-only ticker is in the Screener's `all` universe for 30 days)."""
+    with Session(engine) as session:
+        for ticker in session.exec(select(TickerScore.ticker)).all():
+            session.add(TickerView(ticker=ticker, last_viewed_at=datetime.now()))
+        session.commit()
 
 
 def test_screener_list_returns_stored_rows(monkeypatch):
@@ -118,6 +127,7 @@ def test_screener_list_universe_all_returns_every_cached_ticker_regardless_of_in
         session.add(TickerScore(ticker="ARM", company_name="Arm Holdings", computed_at=datetime(2026, 1, 1)))
         session.commit()
 
+    _mark_viewed(engine)
     with TestClient(main.app) as client:
         response = client.get("/api/screener", params={"universe": "all"})
 
@@ -157,8 +167,8 @@ def test_screener_meta_returns_the_total_constituent_count_for_the_selected_univ
         dow_response = client.get("/api/screener/meta", params={"universe": "dow"})
 
     assert default_response.status_code == 200
-    assert default_response.json() == {"universe": "sp500", "total_constituents": 2}
-    assert dow_response.json() == {"universe": "dow", "total_constituents": 1}
+    assert default_response.json() == {"universe": "sp500", "total_constituents": 2, "hidden_inactive": 0}
+    assert dow_response.json() == {"universe": "dow", "total_constituents": 1, "hidden_inactive": 0}
 
 
 def test_screener_meta_universe_all_counts_every_ticker_score_row(monkeypatch):
@@ -172,10 +182,11 @@ def test_screener_meta_universe_all_counts_every_ticker_score_row(monkeypatch):
         session.add(TickerScore(ticker="ARM", company_name="Arm Holdings", computed_at=datetime(2026, 1, 1)))
         session.commit()
 
+    _mark_viewed(engine)
     with TestClient(main.app) as client:
         response = client.get("/api/screener/meta", params={"universe": "all"})
 
-    assert response.json() == {"universe": "all", "total_constituents": 2}
+    assert response.json() == {"universe": "all", "total_constituents": 2, "hidden_inactive": 0}
 
 
 def test_screener_meta_universe_all_excludes_etfs_to_match_the_pages_client_side_drop(monkeypatch):
@@ -194,10 +205,11 @@ def test_screener_meta_universe_all_excludes_etfs_to_match_the_pages_client_side
         session.add(TickerScore(ticker="NOTYPE", is_etf=None, company_type=None, computed_at=at))  # legacy, unclassified
         session.commit()
 
+    _mark_viewed(engine)
     with TestClient(main.app) as client:
         response = client.get("/api/screener/meta", params={"universe": "all"})
 
-    assert response.json() == {"universe": "all", "total_constituents": 3}
+    assert response.json() == {"universe": "all", "total_constituents": 3, "hidden_inactive": 0}
 
 
 def test_screener_list_still_returns_etf_rows_and_their_is_etf_flag(monkeypatch):
@@ -209,6 +221,7 @@ def test_screener_list_still_returns_etf_rows_and_their_is_etf_flag(monkeypatch)
         session.add(TickerScore(ticker="SPY", is_etf=True, company_type="ETF", computed_at=datetime(2026, 1, 1)))
         session.commit()
 
+    _mark_viewed(engine)
     with TestClient(main.app) as client:
         response = client.get("/api/screener", params={"universe": "all"})
 
@@ -221,7 +234,7 @@ def test_screener_meta_is_zero_when_no_constituents_stored(monkeypatch):
     with TestClient(main.app) as client:
         response = client.get("/api/screener/meta")
 
-    assert response.json() == {"universe": "sp500", "total_constituents": 0}
+    assert response.json() == {"universe": "sp500", "total_constituents": 0, "hidden_inactive": 0}
 
 
 def test_screener_recompute_never_calls_the_script_entry_point(monkeypatch):
@@ -284,6 +297,7 @@ def test_screener_list_excludes_a_delisted_ticker_from_every_universe(monkeypatc
     engine = _fresh_engine(monkeypatch)
     _seed_delisted_and_live(engine)
 
+    _mark_viewed(engine)
     with TestClient(main.app) as client:
         for universe in _UNIVERSES:
             tickers = {row["ticker"] for row in client.get("/api/screener", params={"universe": universe}).json()}
@@ -298,6 +312,7 @@ def test_screener_list_does_not_expose_the_delisted_flag(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     _seed_delisted_and_live(engine)
 
+    _mark_viewed(engine)
     with TestClient(main.app) as client:
         rows = client.get("/api/screener", params={"universe": "all"}).json()
 
@@ -308,15 +323,17 @@ def test_screener_meta_excludes_a_delisted_ticker_from_every_universe_count(monk
     engine = _fresh_engine(monkeypatch)
     _seed_delisted_and_live(engine)
 
+    _mark_viewed(engine)
     with TestClient(main.app) as client:
         for universe in _UNIVERSES:
             assert client.get("/api/screener/meta", params={"universe": universe}).json() == {
                 "universe": universe,
                 "total_constituents": 1,
+                "hidden_inactive": 0,
             }
         all_response = client.get("/api/screener/meta", params={"universe": "all"})
 
-    assert all_response.json() == {"universe": "all", "total_constituents": 4}
+    assert all_response.json() == {"universe": "all", "total_constituents": 4, "hidden_inactive": 0}
 
 
 def test_screener_meta_index_count_still_counts_a_constituent_with_no_ticker_score_row(monkeypatch):
@@ -334,7 +351,7 @@ def test_screener_meta_index_count_still_counts_a_constituent_with_no_ticker_sco
     with TestClient(main.app) as client:
         response = client.get("/api/screener/meta", params={"universe": "sp500"})
 
-    assert response.json() == {"universe": "sp500", "total_constituents": 2}
+    assert response.json() == {"universe": "sp500", "total_constituents": 2, "hidden_inactive": 0}
 
 
 def test_screener_list_returns_a_null_pe_ratio_as_null(monkeypatch):
@@ -347,6 +364,7 @@ def test_screener_list_returns_a_null_pe_ratio_as_null(monkeypatch):
         session.add(TickerScore(ticker="LOSS", company_name="l", is_etf=False, pe_ratio=None, computed_at=now))
         session.commit()
 
+    _mark_viewed(engine)
     with TestClient(main.app) as client:
         rows = {row["ticker"]: row for row in client.get("/api/screener", params={"universe": "all"}).json()}
 

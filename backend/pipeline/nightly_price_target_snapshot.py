@@ -57,7 +57,7 @@ from core.models import PriceTargetSnapshot
 from clients.daily_bar_sources import _profile_exchanges
 from core.tickers import is_us_listed, normalize_ticker
 from data.etf_data import known_etf_tickers
-from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
+from data.tracked_universe import load_tracked_universe
 from pipeline.stale_data_health_check import load_delisted_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_price_target_snapshot.log"
@@ -68,12 +68,12 @@ TARGET_REQUESTS_PER_MINUTE = 220
 
 
 def load_us_price_target_universe(session: Session) -> list[str]:
-    """The full tracked universe (`load_full_tracked_universe`: index + ever-viewed
-    + scored + watchlisted) narrowed to US-LISTED tickers -- listing exchange off
+    """The tracked universe (`load_tracked_universe`: index, watchlist, system
+    set, manual data, viewed in the last 30 days) narrowed to US-LISTED tickers -- listing exchange off
     the cached FMP profile via `core.tickers.is_us_listed`, the same rule that
     routes daily bars, not domicile (TSM/BABA count, HKSE names don't) -- minus
     tickers flagged delisted, which would only fail every night."""
-    tracked = load_full_tracked_universe(session)
+    tracked = load_tracked_universe(session)
     exchanges = _profile_exchanges(tracked)
     delisted = load_delisted_tickers(session)
     return [t for t in tracked if t not in delisted and is_us_listed(t, exchanges.get(t))]

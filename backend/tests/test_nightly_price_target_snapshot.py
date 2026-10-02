@@ -306,7 +306,7 @@ def test_group_off_mid_run_with_nothing_cached_is_a_failure_not_no_data(monkeypa
 def test_run_universe_skips_known_etfs_and_counts_them(monkeypatch, tmp_path):
     import json
 
-    from core.models import TickerScore
+    from core.models import TickerScore, TickerView
 
     engine = _fresh_engine(monkeypatch, tmp_path)
     now = datetime(2026, 10, 2)
@@ -322,6 +322,7 @@ def test_run_universe_skips_known_etfs_and_counts_them(monkeypatch, tmp_path):
             profile("TECL", isEtf=False, isFund=False),
         ])
         session.add(TickerScore(ticker="TECL", computed_at=now, is_etf=True))  # ETF by score row
+        session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now()) for t in ("AAPL", "QQQ", "VTSAX", "TECL")])
         session.commit()
         monkeypatch.setattr(monthly, "_profile_exchanges", lambda tickers: {t: "NASDAQ" for t in tickers})
         assert monthly.load_price_target_run_universe(session) == (["AAPL"], 3)
@@ -344,7 +345,7 @@ def test_main_skips_etfs_from_the_default_universe_but_not_from_an_explicit_list
 def test_universe_is_us_listed_tracked_tickers_minus_delisted(monkeypatch, tmp_path):
     import json
 
-    from core.models import TickerScore
+    from core.models import TickerScore, TickerView
 
     engine = _fresh_engine(monkeypatch, tmp_path)
     now = datetime(2026, 9, 25)
@@ -361,6 +362,7 @@ def test_universe_is_us_listed_tracked_tickers_minus_delisted(monkeypatch, tmp_p
             profile("TWTR", "NYSE"),  # delisted-flagged -> out
         ])
         session.add(TickerScore(ticker="TWTR", computed_at=now, delisted_at=now))
+        session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now()) for t in ("AAPL", "TSM", "SPY", "0005.HK", "TWTR")])
         session.commit()
         monkeypatch.setattr(monthly, "_profile_exchanges", lambda tickers: {"AAPL": "NASDAQ", "TSM": "NYSE", "SPY": "AMEX", "0005.HK": "HKSE", "TWTR": "NYSE"})
         assert monthly.load_us_price_target_universe(session) == ["AAPL", "SPY", "TSM"]

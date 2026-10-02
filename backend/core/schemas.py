@@ -1766,6 +1766,9 @@ class ScreenerMeta(BaseModel):
     # between the two is what the Screener page's "X of Y" transparency
     # note is built from.
     total_constituents: int
+    # universe=all only: stock rows hidden because the ticker was not viewed for 30 days (see
+    # data/tracked_universe.py); 0 for an index universe.
+    hidden_inactive: int = 0
 
 
 class FinancialsLineItem(BaseModel):

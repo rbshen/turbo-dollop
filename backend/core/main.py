@@ -2,6 +2,7 @@ import csv
 import io
 import json
 import re
+from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from typing import Literal
 
@@ -49,6 +50,7 @@ from data.saved_screener_filters import delete_saved_filter, list_saved_filters,
 from data.segmentation_data import get_segmentation_data
 from data.speculative_growth_data import get_speculative_growth_data
 from data.ticker_search import search_tickers
+from data.tracked_universe import load_expired_tickers, load_tracked_universe, record_ticker_view
 from core.schemas import (
     AnalystRatingsOut,
     ChartOut,
@@ -344,7 +346,12 @@ async def ticker_search(q: str = "") -> list[TickerSearchResult]:
 @app.get("/api/tickers/{ticker}/summary", response_model=TickerSummaryOut)
 async def ticker_summary(ticker: str) -> TickerSummaryOut:
     try:
-        return await get_summary(ticker)
+        summary = await get_summary(ticker)
+        # A page view: keeps the ticker in the nightly universe for 30 days (data/tracked_universe.py).
+        # Only after the summary succeeded (a 404 is never recorded); at most one write per ticker per
+        # day; never raises.
+        record_ticker_view(ticker)
+        return summary
     except TickerNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Ticker '{exc.ticker}' not found") from exc
     except httpx.HTTPError as exc:
@@ -738,6 +745,9 @@ async def ticker_refresh(ticker: str) -> RefreshResult:
     return result
 
 
+SCORE_STALE_AFTER = timedelta(hours=36)
+
+
 # The ticker header's Assessment chip's data source -- a cheap read of the
 # same precomputed row Screener/Watchlist use, instead of the chip fetching
 # /step1,2,4,5 individually and blending them client-side (the Analysis
@@ -765,8 +775,19 @@ async def ticker_score_out(ticker: str) -> TickerScoreOut | None:
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = session.get(TickerScore, ticker)
-    if row is None or row.overall_score is None:
-        row = await compute_ticker_score(ticker, cache_only=True)
+    # A ticker that left the nightly universe (not viewed for 30 days, see data/tracked_universe.py)
+    # keeps a frozen row, so the first view after a long gap must not serve it as current: recompute,
+    # live this time (cache_only=False -- the same staleness-gated fetches the page's own tabs make).
+    # Nightly keeps every universe member's row far inside the window, so this never fires for them.
+    # An ETF has no Assessment chip and a delisted ticker is frozen on purpose: both keep their row.
+    frozen = (
+        row is not None
+        and not row.is_etf
+        and row.delisted_at is None
+        and row.computed_at < datetime.now() - SCORE_STALE_AFTER
+    )
+    if row is None or row.overall_score is None or frozen:
+        row = await compute_ticker_score(ticker, cache_only=not frozen)
     return TickerScoreOut(**row.model_dump()) if row is not None else None
 
 
@@ -839,14 +860,19 @@ def screener_list(universe: Universe = "sp500") -> list[TickerScoreOut]:
     # picks up rows for any ticker ever viewed individually (see
     # compute_ticker_score's other call sites), which must not leak into
     # a named-index list. universe="all" is the deliberate escape hatch for
-    # that: every cached ticker, index member or not. A delisted-flagged
+    # that: every ticker in the nightly universe (data/tracked_universe.py), index member or
+    # not. A viewed-only ticker not opened for 30 days has left that universe, so its frozen row
+    # is hidden here until it is viewed again (screener_meta reports how many). A delisted-flagged
     # ticker (TickerScore.delisted_at set) is excluded from every universe --
     # the page's Watchlist scope is applied client-side over this response, so
     # it inherits the exclusion. The flag itself is deliberately not exposed
     # in TickerScoreOut; screener_meta below applies the same condition.
     with Session(engine) as session:
         if universe == "all":
-            rows = session.exec(select(TickerScore).where(TickerScore.delisted_at.is_(None))).all()
+            tracked = load_tracked_universe(session)
+            rows = session.exec(
+                select(TickerScore).where(TickerScore.ticker.in_(tracked), TickerScore.delisted_at.is_(None))
+            ).all()
         else:
             universe_tickers = select(IndexConstituent.ticker).where(IndexConstituent.index_name == universe)
             rows = session.exec(
@@ -860,25 +886,38 @@ def screener_meta(universe: Universe = "sp500") -> ScreenerMeta:
     # A ticker with no cached profile at all (e.g. BRK.B/BF.B's FMP 402) gets
     # no TickerScore row -- this lets the UI show an honest "X of Y" count
     # rather than silently presenting a partial list as complete. universe=
-    # "all" has no such gap by definition (it IS the cached-ticker count),
+    # "all" has no such gap by definition (it IS the tracked-ticker count),
     # so total_constituents there always equals screener_list's own length --
     # minus ETFs, which the Screener page drops client-side (see
     # screenerFilters.ts::excludeEtfs, same rule incl. the company_type
-    # fallback for a row with no is_etf yet) and which would otherwise read
-    # as a permanently "missing" ticker in the "X of Y" note.
+    # fallback for a row with no is_etf yet) and which would otherwise
+    # read as a permanently "missing" ticker in the "X of Y" note.
     # Delisted-flagged tickers are excluded here exactly as in screener_list,
     # so "X of Y" doesn't count a ticker the list can never show: universe=all
     # filters the TickerScore rows, an index universe drops constituents whose
     # TickerScore row is flagged (a constituent with no row is unaffected).
+    # hidden_inactive (universe=all only): stock rows hidden because the ticker was not viewed for
+    # 30 days and is in no other rule -- the number the page shows so a shorter list is explained.
+    hidden_inactive = 0
     with Session(engine) as session:
         if universe == "all":
             is_stock = or_(
                 TickerScore.is_etf.is_(False),
                 and_(TickerScore.is_etf.is_(None), or_(TickerScore.company_type.is_(None), TickerScore.company_type != "ETF")),
             )
+            tracked = load_tracked_universe(session)
             total_constituents = session.exec(
-                select(func.count()).select_from(TickerScore).where(is_stock, TickerScore.delisted_at.is_(None))
+                select(func.count())
+                .select_from(TickerScore)
+                .where(is_stock, TickerScore.delisted_at.is_(None), TickerScore.ticker.in_(tracked))
             ).one()
+            expired = list(load_expired_tickers(session))
+            if expired:
+                hidden_inactive = session.exec(
+                    select(func.count())
+                    .select_from(TickerScore)
+                    .where(is_stock, TickerScore.delisted_at.is_(None), TickerScore.ticker.in_(expired))
+                ).one()
         else:
             delisted_tickers = select(TickerScore.ticker).where(TickerScore.delisted_at.is_not(None))
             total_constituents = session.exec(
@@ -886,7 +925,7 @@ def screener_meta(universe: Universe = "sp500") -> ScreenerMeta:
                 .select_from(IndexConstituent)
                 .where(IndexConstituent.index_name == universe, IndexConstituent.ticker.not_in(delisted_tickers))
             ).one()
-    return ScreenerMeta(universe=universe, total_constituents=total_constituents)
+    return ScreenerMeta(universe=universe, total_constituents=total_constituents, hidden_inactive=hidden_inactive)
 
 
 @app.post("/api/screener/recompute", response_model=RecomputeSummary)

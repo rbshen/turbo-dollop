@@ -8,7 +8,7 @@ from core.db import engine
 from core.schemas import TickerSearchResult
 from core.tickers import is_us_listed, normalize_ticker
 from data.etf_data import known_etf_tickers
-from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
+from data.tracked_universe import load_all_known_tickers
 
 SEARCH_RESULT_LIMIT = 10
 
@@ -58,7 +58,7 @@ def _rank_key(index: int, symbol: str, name: str | None, query: str) -> tuple[in
 def _search_tracked_universe(query: str) -> list[TickerSearchResult]:
     """the profile_quote group is off fallback -- prefix/substring match against the
     app's own tracked ticker universe (index constituents + ever-viewed +
-    watchlisted, see load_full_tracked_universe) instead of FMP's live
+    watchlisted, see load_all_known_tickers) instead of FMP's live
     symbol/name search. That function returns bare ticker symbols only, no
     company name, so this only matches the query against the SYMBOL --
     materially narrower than the live path (no name matching), which is
@@ -66,7 +66,7 @@ def _search_tracked_universe(query: str) -> list[TickerSearchResult]:
     on every search."""
     normalized_query = query.strip().upper()
     with Session(engine) as session:
-        universe = load_full_tracked_universe(session)
+        universe = load_all_known_tickers(session)
 
     prefix_matches = [t for t in universe if t.startswith(normalized_query)]
     substring_matches = [t for t in universe if normalized_query in t and t not in prefix_matches]

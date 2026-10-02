@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlmodel import Session, SQLModel, create_engine
 
 import pipeline.recompute_ticker_scores as recompute
-from core.models import FundamentalsCache, IndexConstituent, TickerScore, Watchlist, WatchlistTicker
+from core.models import FundamentalsCache, IndexConstituent, TickerScore, Watchlist, WatchlistTicker, TickerView
 
 
 def _fresh_engine(monkeypatch, tmp_path):
@@ -38,7 +38,7 @@ def test_default_scope_sweeps_the_full_tracked_universe_not_just_indices(monkeyp
     """Regression guard for the 2026-08-15 staleness bug (TSM/ASML/MELI --
     watchlist-only, not index members -- missed a scoring fix that this
     job's old S&P 500 + Dow-only default never reached). tickers=None must
-    now resolve via load_full_tracked_universe, matching
+    now resolve via load_tracked_universe, matching
     nightly_score_recompute.py's own scope exactly."""
     engine = _fresh_engine(monkeypatch, tmp_path)
     with Session(engine) as session:
@@ -49,6 +49,8 @@ def test_default_scope_sweeps_the_full_tracked_universe_not_just_indices(monkeyp
         session.add(FundamentalsCache(ticker="IREN", statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
         # SEZL: has a TickerScore row but no remaining cache/index/watchlist entry.
         session.add(TickerScore(ticker="SEZL", overall_score=66, overall_verdict="Fail", computed_at=datetime.now()))
+        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now()))
+        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now()))
         session.commit()
 
         # TSM: watchlisted only -- not indexed, not cached, not scored. The

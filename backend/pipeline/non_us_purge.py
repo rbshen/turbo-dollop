@@ -28,7 +28,7 @@ from sqlmodel import Session, select
 
 from core.models import FundamentalsCache
 from core.tickers import is_us_listed
-from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
+from data.tracked_universe import load_all_known_tickers
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ def _cached_exchanges(session: Session, tickers: list[str]) -> dict[str, str]:
 
 def find_non_us_tickers(session: Session) -> dict[str, str | None]:
     """{ticker: cached exchange or None} for every tracked ticker that is not US-listed."""
-    tickers = sorted(load_full_tracked_universe(session))
+    tickers = sorted(load_all_known_tickers(session))
     exchanges = _cached_exchanges(session, tickers)
     return {t: exchanges.get(t) for t in tickers if not is_us_listed(t, exchanges.get(t))}
 
@@ -101,7 +101,7 @@ def purge_non_us_tickers(
     """Detect and remove every non-US ticker. With `max_fraction`, refuses (deletes nothing) when the
     hit list exceeds that share of the tracked universe."""
     with Session(engine) as session:
-        universe_size = len(load_full_tracked_universe(session))
+        universe_size = len(load_all_known_tickers(session))
         found = find_non_us_tickers(session)
     result: dict = {"tickers": sorted(found), "rows": {}, "refused": False}
     if not found:

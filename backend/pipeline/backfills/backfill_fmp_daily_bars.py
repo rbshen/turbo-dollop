@@ -59,7 +59,8 @@ from core.models import SharedBarsCache, TickerScore
 from core.tickers import normalize_ticker
 from data.sector_heatmap_data import SECTOR_ETFS
 from data.watchlists import list_monitored_tickers
-from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe, load_sp500_tickers
+from data.tracked_universe import load_all_known_tickers
+from pipeline.nightly_fundamentals_fetch import load_sp500_tickers
 from pipeline.stale_data_health_check import load_delisted_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent.parent / "logs" / "backfill_fmp_daily_bars.log"
@@ -75,7 +76,7 @@ MOAT_VALUES = {"wide_moat", "narrow_moat", "no_moat"}
 def _resolve_universe(session: Session) -> list[str]:
     """Union of every daily-bar consumer's own universe, deduped and normalized (callers
     route/filter US vs non-US themselves)."""
-    tickers: set[str] = set(load_full_tracked_universe(session))
+    tickers: set[str] = set(load_all_known_tickers(session))
     tickers.update(load_sp500_tickers(session))
     lz_tickers, _ = list_monitored_tickers(session)
     tickers.update(lz_tickers)

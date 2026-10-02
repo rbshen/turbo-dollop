@@ -270,7 +270,8 @@ def test_every_row_omitted_means_no_block(env):
     # Nothing cached at all: no profile, no quote, no bars.
     overview = _overview(COMMODITY_INFO, "GLD")
     assert overview.status == "ok" and overview.trading_data is None
-    assert not calls
+    # The only FMP call is the on-demand daily-bar warm-up (failing here, which it swallows).
+    assert set(calls) == {"get_historical_price_eod"}
     # A profile that only carries zeros / nothing usable is the same.
     _put(engine, "SLV", "profile", [{"isEtf": True, "beta": 0, "lastDividend": 0}])
     assert _overview(COMMODITY_INFO, "SLV").trading_data is None
@@ -297,3 +298,73 @@ def test_reading_bars_never_writes_or_widens_the_shared_cache(env):
     with Session(engine) as session:
         after = session.exec(select(shared_bars_cache.SharedBarsCache)).all()
     assert len(before) == len(after) and {r.fetched_at for r in before} == {r.fetched_at for r in after}
+
+
+# --- on-demand daily-bar warm-up (2026-10-02): a viewed ETF with no/behind bars gets them fetched ----
+
+
+def _record_bar_fetches(monkeypatch, engine, *, write_history=False, raise_error=False):
+    fetches = []
+
+    async def fake_get_or_fetch_bars(ticker, interval, lookback_days, **kwargs):
+        fetches.append((ticker, interval, lookback_days))
+        if raise_error:
+            raise RuntimeError("FMP is down")
+        if write_history:
+            _flat_history(engine, ticker, last_close=110.0)
+
+    monkeypatch.setattr(etf_data, "get_or_fetch_bars", fake_get_or_fetch_bars)
+    return fetches
+
+
+def test_an_etf_with_no_cached_bars_gets_them_fetched_so_the_block_is_not_empty(env, monkeypatch):
+    engine, _ = env
+    _put(engine, "QQQ", "profile", [PROFILE])
+    fetches = _record_bar_fetches(monkeypatch, engine, write_history=True)
+
+    td = _overview(EQUITY_INFO).trading_data
+
+    assert fetches == [("QQQ", DAILY_INTERVAL, etf_data.TRADING_DATA_BAR_LOOKBACK_DAYS)]  # one fetch, daily bars
+    assert td is not None and td.perf_1m == pytest.approx(10.0)
+
+
+def test_current_bars_are_not_refetched(env, monkeypatch):
+    engine, _ = env
+    _flat_history(engine, "QQQ")
+    fetches = _record_bar_fetches(monkeypatch, engine)
+
+    _overview(EQUITY_INFO)
+
+    assert fetches == []  # an ETF in the nightly universe always has current bars: zero extra calls
+
+
+def test_bars_behind_the_last_completed_session_are_refreshed(env, monkeypatch):
+    engine, _ = env
+    completed = _most_recent_completed_trading_date()
+    old_days = _session_days(300, completed - timedelta(days=25))  # an ETF that left the universe a while ago
+    _bars(engine, "QQQ", {d: 100.0 for d in old_days})
+    fetches = _record_bar_fetches(monkeypatch, engine)
+
+    _overview(EQUITY_INFO)
+
+    assert [f[0] for f in fetches] == ["QQQ"]
+
+
+def test_a_failed_bar_fetch_never_breaks_the_overview(env, monkeypatch):
+    engine, _ = env
+    _put(engine, "QQQ", "profile", [PROFILE])
+    fetches = _record_bar_fetches(monkeypatch, engine, raise_error=True)
+
+    overview = _overview(EQUITY_INFO)
+
+    assert fetches and overview.status == "ok"
+
+
+def test_no_bar_fetch_when_the_overview_is_not_ok(env, monkeypatch):
+    engine, _ = env
+    fetches = _record_bar_fetches(monkeypatch, engine)
+    INFO_RESPONSE["payload"] = []  # FMP answers [] -> no_data
+
+    overview = asyncio.run(etf_data.get_etf_overview("AAPL"))
+
+    assert overview.status != "ok" and fetches == []

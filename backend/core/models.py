@@ -1176,6 +1176,18 @@ class TickerLastClose(SQLModel, table=True):
     fetched_at: datetime
 
 
+class TickerView(SQLModel, table=True):
+    """When a ticker's page was last opened, the "(d) viewed in the last 30 days" leg of the
+    nightly universe (data/tracked_universe.py). Written by GET /api/tickers/{t}/summary after it
+    succeeds, at most once per day per ticker (`record_ticker_view`); never by a job. Seeded once by
+    `core.db.init_db` for every ticker that existed when the table was introduced (2026-10-02), each
+    with the migration time, so no viewed-only ticker leaves the nightly jobs for 30 days. A row is
+    never deleted: expiry is a filter, not a purge."""
+
+    ticker: str = Field(primary_key=True)
+    last_viewed_at: datetime
+
+
 class CorporateEvent(SQLModel, table=True):
     """FMP-sourced earnings dates, dividends and splits per ticker (Phase 6a), refreshed
     by pipeline/nightly_corporate_events.py with an UPSERT on (ticker, event_type,

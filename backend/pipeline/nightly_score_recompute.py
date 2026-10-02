@@ -1,8 +1,8 @@
-"""Standalone script: cache-only TickerScore recompute across the FULL
-tracked universe -- index constituents, any ticker with cached FMP data, any
-ticker with an existing TickerScore row, and any watchlisted ticker (see
-nightly_fundamentals_fetch.py::load_full_tracked_universe, reused here rather
-than duplicated). Reuses recompute_ticker_scores.py::recompute_all() verbatim
+"""Standalone script: cache-only TickerScore recompute across the tracked
+universe (data/tracked_universe.py::load_tracked_universe, reused here rather
+than duplicated). A ticker that expired (not viewed for 30 days and in no
+other rule) is no longer re-scored: its TickerScore row stays, frozen, and
+the Screener hides it until the ticker is viewed again. Reuses recompute_ticker_scores.py::recompute_all() verbatim
 for the actual per-ticker work (compute_ticker_score(cache_only=True),
 exception isolation, summary shape).
 
@@ -56,7 +56,7 @@ from core.cron_health import check_failure_threshold, cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from core.tickers import normalize_ticker
-from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
+from data.tracked_universe import load_tracked_universe
 from pipeline.recompute_ticker_scores import recompute_all
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_score_recompute.log"
@@ -74,7 +74,7 @@ async def main(tickers: list[str] | None = None) -> dict:
 
     if tickers is None:
         with Session(engine) as session:
-            tickers = load_full_tracked_universe(session)
+            tickers = load_tracked_universe(session)
 
     logger.info("Starting full-universe cache-only score recompute for %d tickers.", len(tickers))
     return await recompute_all(tickers)
@@ -95,7 +95,7 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     if args.limit:
         init_db()
         with Session(engine) as session:
-            all_tickers = load_full_tracked_universe(session)
+            all_tickers = load_tracked_universe(session)
         return all_tickers[: args.limit]
     return None
 

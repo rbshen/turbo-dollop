@@ -1,8 +1,9 @@
 """Standalone script: nightly Weinstein stage recompute (and the daily-bar
-cache fill) across the full tracked universe. The "trend" name is historical:
+cache fill) across the tracked universe. The "trend" name is historical:
 the swing/BOS trend-structure engine was removed and only Weinstein remains.
-Universe: nightly_fundamentals_fetch.py::load_full_tracked_universe, reused here
-rather than duplicated.
+Universe: data/tracked_universe.py::load_tracked_universe, the one definition every
+nightly job shares (index, watchlist, system set, manual data, viewed in the last 30 days;
+delisted-flagged excluded).
 
 Reads daily bars through the shared bars cache (clients/shared_bars_cache.py), which fetches
 from FMP `/historical-price-eod/full` (data group `daily_prices`). Skipped (a real `skipped` cron status) while the `daily_prices` data group is off --
@@ -19,7 +20,7 @@ fetch -- but is never added to `tickers` itself, so it never gets its own
 TrendAnalysis row and a benchmark fetch failure degrades every ticker's Weinstein RS/breakout fields to
 null/false rather than counting as a per-ticker failure.
 
-Run against the full tracked universe:
+Run against the tracked universe:
     uv run python -m pipeline.nightly_trend_calculation
 
 Run against a small subset first:
@@ -45,7 +46,7 @@ from core.logging_config import configure_logging
 from core.tickers import normalize_ticker
 from data.trend_analysis_data import WEINSTEIN_LOOKBACK_DAYS, compute_and_store_from_frames
 from helpers.weinstein_config import load_weinstein_params
-from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
+from data.tracked_universe import load_tracked_universe
 from pipeline.stale_data_health_check import load_delisted_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_trend_calculation.log"
@@ -75,10 +76,12 @@ async def main(tickers: list[str] | None = None) -> dict:
     skipped_delisted: list[str] = []
     if tickers is None:
         with Session(engine) as session:
-            tickers = load_full_tracked_universe(session)
+            tickers = load_tracked_universe(session)
             delisted = load_delisted_tickers(session)
         if delisted:
-            skipped_delisted = sorted(set(tickers) & delisted)
+            # The universe already excludes delisted-flagged tickers; the count is kept for the job
+            # message ("N skipped as delisted"), and the filter stays as a belt-and-braces.
+            skipped_delisted = sorted(delisted)
             tickers = [t for t in tickers if t not in delisted]
 
     if not tickers:
@@ -178,7 +181,7 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     if args.limit:
         init_db()
         with Session(engine) as session:
-            all_tickers = load_full_tracked_universe(session)
+            all_tickers = load_tracked_universe(session)
         return all_tickers[: args.limit]
     return None
 

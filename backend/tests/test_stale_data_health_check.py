@@ -6,7 +6,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 import pipeline.nightly_fundamentals_fetch as nightly
 import pipeline.stale_data_health_check as health_check
-from core.models import FundamentalsCache, IndexConstituent, TickerScore, Watchlist, WatchlistTicker
+from core.models import FundamentalsCache, IndexConstituent, TickerScore, TickerView, Watchlist, WatchlistTicker
 
 
 def _fresh_engine(monkeypatch, tmp_path):
@@ -18,7 +18,19 @@ def _fresh_engine(monkeypatch, tmp_path):
     # Safety net: sync_delisted_flags makes live FMP calls (paged /delisted-companies) -- the
     # default fake serves an empty list, so no test reaches the network by accident.
     _patch_delisted(monkeypatch, [])
+    _patch_profile(monkeypatch, [])  # same net for the relist re-check's live /profile call
     return engine
+
+
+def _patch_profile(monkeypatch, payload):
+    calls: list[str] = []
+
+    async def fake(ticker):
+        calls.append(ticker)
+        return payload
+
+    monkeypatch.setattr(health_check.fmp_client, "get_profile", fake)
+    return calls
 
 
 def _patch_delisted(monkeypatch, rows: list[dict], *, page_size: int = 100, fail_from_page: int | None = None):
@@ -119,6 +131,8 @@ def test_main_uses_the_full_tracked_universe_not_just_index_constituents(monkeyp
 
         # SEZL: has a TickerScore row only, no cache, no index membership.
         session.add(TickerScore(ticker="SEZL", overall_score=66, overall_verdict="Fail", computed_at=datetime.now()))
+        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now()))
+        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now()))
 
         # ASML: watchlisted only -- not indexed, not cached, not scored.
         watchlist = Watchlist(name="Main", created_at=datetime.now(), updated_at=datetime.now())
@@ -156,7 +170,7 @@ def test_flags_a_tracked_ticker_listed_as_delisted(monkeypatch, tmp_path):
 
     result = health_check.sync_delisted_flags(["TWTR", "AAPL"])
 
-    assert result == {"newly_flagged": ["TWTR"], "skipped": False, "complete": True}
+    assert result == {"newly_flagged": ["TWTR"], "cleared": [], "skipped": False, "complete": True}
     assert _delisted_at(engine, "TWTR") is not None and _delisted_at(engine, "AAPL") is None
 
 
@@ -172,7 +186,8 @@ def test_pages_until_an_empty_page(monkeypatch, tmp_path):
 
 def test_absence_from_the_list_is_never_evidence(monkeypatch, tmp_path):
     """No flag for an unlisted ticker however stale its bars are, and an existing flag is
-    never cleared by absence (no staleness heuristic, no revival)."""
+    never cleared by absence ALONE: clearing also needs a live profile that says it is trading
+    (see the relist tests below); here the profile answers nothing, so the flag stays."""
     engine = _fresh_engine(monkeypatch, tmp_path)
     with Session(engine) as session:
         session.add(TickerScore(ticker="OLDFLAG", overall_score=50, computed_at=datetime.now(), delisted_at=datetime(2026, 1, 1)))
@@ -245,7 +260,7 @@ def test_a_page_error_uses_what_was_fetched_and_reports_incomplete(monkeypatch, 
 
     result = health_check.sync_delisted_flags(["EARLY", "UNSEEN"])
 
-    assert result == {"newly_flagged": ["EARLY"], "skipped": False, "complete": False}
+    assert result == {"newly_flagged": ["EARLY"], "cleared": [], "skipped": False, "complete": False}
 
 
 def test_skipped_without_any_fetch_while_index_membership_is_off(monkeypatch, tmp_path):
@@ -279,7 +294,7 @@ def test_sync_delisted_flags_never_touches_other_ticker_score_fields(monkeypatch
 
 def test_sync_delisted_flags_empty_ticker_list(monkeypatch, tmp_path):
     _fresh_engine(monkeypatch, tmp_path)
-    assert health_check.sync_delisted_flags([]) == {"newly_flagged": [], "skipped": False, "complete": True}
+    assert health_check.sync_delisted_flags([]) == {"newly_flagged": [], "cleared": [], "skipped": False, "complete": True}
 
 
 def test_load_delisted_tickers_returns_only_flagged(monkeypatch, tmp_path):
@@ -304,5 +319,85 @@ def test_main_integrates_delisted_flagging_into_its_result_and_report(monkeypatc
 
     result = health_check.main(threshold_days=10)
 
-    assert result["delisted"] == {"newly_flagged": ["TWTR"], "skipped": False, "complete": True}
+    assert result["delisted"] == {"newly_flagged": ["TWTR"], "cleared": [], "skipped": False, "complete": True}
     assert "Newly flagged delisted: TWTR" in capsys.readouterr().out
+
+
+# --- Clearing a flag that no longer holds (relisted ticker / mistaken flag, 2026-10-02) ---
+
+
+def _seed_flagged(engine, ticker="RELIST"):
+    with Session(engine) as session:
+        session.add(TickerScore(ticker=ticker, overall_score=50, computed_at=datetime.now(), delisted_at=datetime(2026, 9, 24)))
+        session.commit()
+
+
+def test_a_flag_is_cleared_when_off_the_complete_list_and_the_profile_is_trading(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_flagged(engine)
+    profile_calls = _patch_profile(monkeypatch, [{"symbol": "RELIST", "isActivelyTrading": True}])
+
+    result = health_check.sync_delisted_flags(["RELIST"])
+
+    assert result["cleared"] == ["RELIST"] and _delisted_at(engine, "RELIST") is None
+    assert profile_calls == ["RELIST"]
+
+
+def test_a_flag_stays_when_the_profile_says_not_trading(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_flagged(engine)
+    _patch_profile(monkeypatch, [{"symbol": "RELIST", "isActivelyTrading": False}])
+
+    assert health_check.sync_delisted_flags(["RELIST"])["cleared"] == []
+    assert _delisted_at(engine, "RELIST") == datetime(2026, 9, 24)
+
+
+def test_a_flag_stays_while_the_ticker_is_still_on_the_delisted_list(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_flagged(engine)
+    _patch_delisted(monkeypatch, [_listed("RELIST", "2026-08-17")])
+    profile_calls = _patch_profile(monkeypatch, [{"isActivelyTrading": True}])
+
+    assert health_check.sync_delisted_flags(["RELIST"])["cleared"] == []
+    assert _delisted_at(engine, "RELIST") == datetime(2026, 9, 24) and profile_calls == []
+
+
+def test_a_flag_stays_when_the_delisted_list_was_incomplete(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_flagged(engine)
+    _patch_delisted(monkeypatch, [], fail_from_page=0)
+    profile_calls = _patch_profile(monkeypatch, [{"isActivelyTrading": True}])
+
+    result = health_check.sync_delisted_flags(["RELIST"])
+
+    assert result["complete"] is False and result["cleared"] == []
+    assert _delisted_at(engine, "RELIST") == datetime(2026, 9, 24) and profile_calls == []
+
+
+def test_a_failed_profile_call_keeps_the_flag(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_flagged(engine)
+
+    async def boom(ticker):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(health_check.fmp_client, "get_profile", boom)
+
+    assert health_check.sync_delisted_flags(["RELIST"])["cleared"] == []
+    assert _delisted_at(engine, "RELIST") == datetime(2026, 9, 24)
+
+
+def test_main_syncs_delisted_flags_over_the_wide_set_not_the_expiring_universe(monkeypatch, tmp_path):
+    """A flagged ticker is not in the tracked universe (it is excluded), yet the sync must still see it or
+    it could never be matched, re-listed or cleared."""
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_flagged(engine)
+    with Session(engine) as session:
+        _seed_profile(session, "RELIST", days_old=1, ipo_date="2000-01-01")
+        session.commit()
+    _patch_profile(monkeypatch, [{"isActivelyTrading": True}])
+
+    result = health_check.main(threshold_days=10)
+
+    assert result["delisted"]["cleared"] == ["RELIST"]
+    assert "RELIST" not in result["fresh"]  # the staleness report is over the nightly universe

@@ -124,6 +124,19 @@ def _block_live_fmp_daily_bars(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_tracked_universe_engine(monkeypatch):
+    """GET /summary records a page view (data.tracked_universe.record_ticker_view, which swallows its own
+    errors), so every test reaching that route needs its own in-memory TickerView table: otherwise the
+    write would hit the real engine, trip the write guard above and be swallowed, hiding a real bug."""
+    import data.tracked_universe as tracked_universe
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(engine)
+    monkeypatch.setattr(tracked_universe, "engine", engine)
+    return engine
+
+
+@pytest.fixture(autouse=True)
 def _isolate_long_history_engine(monkeypatch):
     """clients/long_history_bars.py reads/writes its own table (LongHistoryBars) on its own
     `engine` reference: every test gets a fresh in-memory one, so none can touch (or depend on

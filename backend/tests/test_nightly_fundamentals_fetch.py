@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlmodel import Session, SQLModel, create_engine
 
 import pipeline.nightly_fundamentals_fetch as nightly
-from core.models import FundamentalsCache, IndexConstituent, TickerScore, Watchlist, WatchlistTicker
+from core.models import FundamentalsCache, IndexConstituent, TickerScore, TickerView, Watchlist, WatchlistTicker
 
 
 def _fresh_engine(monkeypatch, tmp_path):
@@ -77,7 +77,7 @@ def test_load_universe_tickers_unions_sp500_dow_and_nasdaq_without_duplicates(mo
     assert sorted(tickers) == ["AAPL", "ADBE", "AMGN", "MMM"]
 
 
-def test_load_full_tracked_universe_unions_index_score_cache_and_watchlist_tickers(monkeypatch, tmp_path):
+def test_load_tracked_universe_unions_index_score_cache_and_watchlist_tickers(monkeypatch, tmp_path):
     engine = _fresh_engine(monkeypatch, tmp_path)
     with Session(engine) as session:
         # AAPL: index member only.
@@ -89,6 +89,9 @@ def test_load_full_tracked_universe_unions_index_score_cache_and_watchlist_ticke
         # MSFT: appears in two of the sources above -- must not be double-counted.
         session.add(IndexConstituent(index_name="sp500", ticker="MSFT", company_name="Microsoft", last_synced_at=datetime.now()))
         session.add(FundamentalsCache(ticker="MSFT", statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
+        # IREN and SEZL are viewed-only tickers: they stay in only while the view is recent.
+        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now()))
+        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now()))
         session.commit()
 
         # ASML: watchlisted only -- not indexed, not cached, not scored. This is
@@ -101,12 +104,12 @@ def test_load_full_tracked_universe_unions_index_score_cache_and_watchlist_ticke
         session.commit()
 
     with Session(engine) as session:
-        tickers = nightly.load_full_tracked_universe(session)
+        tickers = nightly.load_tracked_universe(session)
 
     assert tickers == ["AAPL", "ASML", "IREN", "MSFT", "SEZL"]
 
 
-def test_load_full_tracked_universe_excludes_non_profile_cache_rows(monkeypatch, tmp_path):
+def test_load_tracked_universe_excludes_non_profile_cache_rows(monkeypatch, tmp_path):
     # FundamentalsCache also stores non-ticker lookups under a ticker-shaped key --
     # confirmed live via Valuation's FX spot-rate cache (statement_type="forex_rate",
     # ticker="EURUSD"). A currency pair must never enter the universe this job runs
@@ -118,7 +121,7 @@ def test_load_full_tracked_universe_excludes_non_profile_cache_rows(monkeypatch,
         session.commit()
 
     with Session(engine) as session:
-        tickers = nightly.load_full_tracked_universe(session)
+        tickers = nightly.load_tracked_universe(session)
 
     assert tickers == ["AAPL"]
 
@@ -276,7 +279,7 @@ def test_fmp_disabled_skips_the_run_before_any_fetch_or_universe_lookup(monkeypa
     def fail_if_queried(*args, **kwargs):
         raise AssertionError("must not resolve the ticker universe while FMP is paused")
 
-    monkeypatch.setattr(nightly, "load_full_tracked_universe", fail_if_queried)
+    monkeypatch.setattr(nightly, "load_tracked_universe", fail_if_queried)
 
     summary = asyncio.run(nightly.main())  # tickers=None -- would normally resolve the full universe
 

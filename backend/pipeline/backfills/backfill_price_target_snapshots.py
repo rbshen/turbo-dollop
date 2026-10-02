@@ -1,6 +1,6 @@
 """One-time standalone script: backfills PriceTargetSnapshot with a
 reconstructed monthly price-target-consensus history, for every ticker in
-the full tracked universe (see load_full_tracked_universe -- deliberately
+the full tracked universe (see load_all_known_tickers -- deliberately
 broader than nightly_price_target_snapshot.py's own ongoing
 load_universe_tickers scope, since a backfill's whole point is maximal
 historical coverage; the monthly cron itself is unchanged by this script).
@@ -50,7 +50,7 @@ from core.logging_config import configure_logging
 from core.models import PriceTargetSnapshot
 from core.tickers import normalize_ticker
 from helpers.price_target_history import reconstruct_monthly_snapshots
-from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
+from data.tracked_universe import load_all_known_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent.parent / "logs" / "backfill_price_target_snapshots.log"
 
@@ -117,7 +117,7 @@ async def main(tickers: list[str] | None = None, dry_run: bool = False) -> dict:
 
     if tickers is None:
         with Session(engine) as session:
-            tickers = load_full_tracked_universe(session)
+            tickers = load_all_known_tickers(session)
 
     if not tickers:
         logger.error("No tickers to process -- run refresh_sp500_list.py/refresh_dow_list.py first, or pass an explicit ticker list.")
@@ -189,7 +189,7 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     if args.limit:
         init_db()
         with Session(engine) as session:
-            all_tickers = load_full_tracked_universe(session)
+            all_tickers = load_all_known_tickers(session)
         return all_tickers[: args.limit]
     return None
 

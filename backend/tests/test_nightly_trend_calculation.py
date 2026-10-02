@@ -6,7 +6,7 @@ from sqlmodel import Session, SQLModel, create_engine
 import pipeline.nightly_trend_calculation as nightly_trend
 from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER
 from helpers.weinstein_config import update_weinstein_settings
-from core.models import FundamentalsCache, TickerScore
+from core.models import FundamentalsCache, TickerScore, TickerView
 
 
 def _fresh_engine(monkeypatch, tmp_path):
@@ -59,6 +59,8 @@ def test_main_sweeps_the_full_tracked_universe_when_no_tickers_passed(monkeypatc
     with Session(engine) as session:
         session.add(FundamentalsCache(ticker="IREN", statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
         session.add(TickerScore(ticker="SEZL", overall_score=66, overall_verdict="Fail", computed_at=datetime.now()))
+        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now()))
+        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now()))
         session.commit()
 
     batch_calls = _patch_batch_fetch(monkeypatch, {"IREN": [1], "SEZL": [1]})
@@ -80,6 +82,8 @@ def test_main_skips_a_ticker_flagged_as_delisted(monkeypatch, tmp_path):
     with Session(engine) as session:
         session.add(TickerScore(ticker="TWTR", overall_score=50, computed_at=datetime.now(), delisted_at=datetime.now()))
         session.add(TickerScore(ticker="AAPL", overall_score=90, computed_at=datetime.now()))
+        session.add(TickerView(ticker="TWTR", last_viewed_at=datetime.now()))
+        session.add(TickerView(ticker="AAPL", last_viewed_at=datetime.now()))
         session.commit()
 
     batch_calls = _patch_batch_fetch(monkeypatch, {"AAPL": [1]})
@@ -258,3 +262,21 @@ def test_configured_rs_benchmark_is_fetched_and_settings_are_passed_to_every_com
     (bench, params), = received
     assert bench == ["qqq-rows"]
     assert (params.ma_type, params.ma_length, params.within_range_pct, params.slope_lookback) == ("SMA", 26, 4.0, 4)
+
+
+def test_main_skips_an_expired_viewed_only_ticker(monkeypatch, tmp_path):
+    from datetime import timedelta
+
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    with Session(engine) as session:
+        for ticker, days in (("RECENT", 3), ("EXPIRED", 45)):
+            session.add(FundamentalsCache(ticker=ticker, statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
+            session.add(TickerView(ticker=ticker, last_viewed_at=datetime.now() - timedelta(days=days)))
+        session.commit()
+    batch_calls = _patch_batch_fetch(monkeypatch, {"RECENT": [1], "EXPIRED": [1]})
+    store_calls = _patch_store(monkeypatch)
+
+    summary = asyncio.run(nightly_trend.main(tickers=None))
+
+    assert "EXPIRED" not in batch_calls[0][0] and {t for t, _ in store_calls} == {"RECENT"}
+    assert summary["processed"] == 1

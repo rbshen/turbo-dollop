@@ -1,0 +1,170 @@
+"""The one definition of which tickers the nightly (and weekly) jobs process -- the "tracked
+universe" -- and of when a page view counts toward it. Spec: docs/specs/tracked-universe.md.
+
+A ticker is in `load_tracked_universe` when it is not flagged delisted AND at least one of:
+
+  (a) it is a member of the S&P 500, Nasdaq-100 or Dow list (`IndexConstituent`);
+  (b) it is on ANY watchlist, monitored or not (`WatchlistTicker`);
+  (c) it is in `SYSTEM_TICKERS` (the 11 sector ETFs plus SPY) and the app already knows it;
+  (d) its page was opened in the last `TRACKED_VIEW_WINDOW_DAYS` days (`TickerView`);
+  (e) it carries manual data the owner entered: a Moat rating, a custom valuation or a bank-capital
+      entry. Never expires, because the Monthly Momentum ranking is "Moat-rated tracked tickers" and
+      would otherwise silently shed them.
+
+A ticker outside all of those is "expired": it stays in the DB with all its data (nothing is deleted),
+it just drops out of the nightly jobs and the Screener's `all` universe until it is viewed again.
+`load_all_known_tickers` is the old wide set (every ticker the app holds any row for) for the jobs
+whose whole point is to see everything: the non-US purge, the delisted-flag sync and the search fallback.
+
+**A future ETF momentum universe MUST be added to the protected set here** (and to the spec). Today
+the only system sets are the sector ETFs and SPY; the ETF momentum ranking is "investigated, not built"
+(docs/specs/sector-heatmap.md). Protection, not insertion: a system ticker the app has never seen is
+not added to anything, so nothing here creates a new row or a new FMP call.
+
+Defined once, imported everywhere: `tests/test_tracked_universe.py` fails if a job or the Screener
+re-declares the union or reads the old function names."""
+
+import logging
+from datetime import datetime, time, timedelta
+
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlmodel import Session, select
+
+from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER
+from core.db import engine
+from core.models import (
+    FundamentalsCache,
+    IndexConstituent,
+    TickerBankCapitalMetrics,
+    TickerCustomValuation,
+    TickerMoat,
+    TickerScore,
+    TickerView,
+    WatchlistTicker,
+)
+from core.tickers import normalize_ticker
+from data.sector_heatmap_data import SECTOR_ETFS
+
+logger = logging.getLogger(__name__)
+
+TRACKED_VIEW_WINDOW_DAYS = 30
+
+# (c) The system set: tickers the app itself needs, not the owner. Today: the 11 SPDR sector ETFs
+# (Sector Heatmap) and SPY (the Weinstein RS benchmark and the 5Y-vs-SPY comparison). ADD A FUTURE ETF
+# MOMENTUM UNIVERSE HERE -- see the module docstring.
+SYSTEM_TICKERS: frozenset[str] = frozenset(symbol for symbol, _ in SECTOR_ETFS) | {WEINSTEIN_BENCHMARK_TICKER}
+
+# Why a known ticker is in or out. The first matching reason wins, in this order.
+DELISTED = "delisted"
+INDEX = "index"
+WATCHLIST = "watchlist"
+SYSTEM = "system"
+MANUAL = "manual"
+VIEWED = "viewed"
+EXPIRED = "expired"
+OUT_OF_UNIVERSE = frozenset({DELISTED, EXPIRED})
+
+
+INDEX_NAMES = ("sp500", "dow", "nasdaq")  # IndexConstituent.index_name values rule (a) covers
+
+
+def load_index_tickers(session: Session) -> set[str]:
+    return set(session.exec(select(IndexConstituent.ticker).where(IndexConstituent.index_name.in_(INDEX_NAMES))).all())
+
+
+def load_watchlist_tickers(session: Session) -> set[str]:
+    return set(session.exec(select(WatchlistTicker.ticker)).all())
+
+
+def load_all_known_tickers(session: Session) -> list[str]:
+    """The old, wide "tracked" set: index constituents, any ticker with a cached FMP *profile* (not any
+    FundamentalsCache ticker: that table also caches FX pairs such as EURUSD under ticker-shaped keys),
+    any TickerScore row, any watchlist entry. Never expires and includes delisted tickers. For the
+    purge, delisted-sync and search-fallback jobs only; everything that fetches uses
+    `load_tracked_universe`."""
+    profiles = session.exec(
+        select(FundamentalsCache.ticker).where(FundamentalsCache.statement_type == "profile").distinct()
+    ).all()
+    scored = session.exec(select(TickerScore.ticker)).all()
+    return sorted(load_index_tickers(session) | set(profiles) | set(scored) | load_watchlist_tickers(session))
+
+
+def load_manual_data_tickers(session: Session) -> set[str]:
+    """Rule (e): a Moat rating, any custom valuation (active or not: switching it off is not deleting
+    the owner's work), or a bank-capital entry."""
+    tickers: set[str] = set()
+    for column in (TickerMoat.ticker, TickerCustomValuation.ticker, TickerBankCapitalMetrics.ticker):
+        tickers |= set(session.exec(select(column)).all())
+    return tickers
+
+
+def load_delisted_flagged(session: Session) -> set[str]:
+    return set(session.exec(select(TickerScore.ticker).where(TickerScore.delisted_at.is_not(None))).all())
+
+
+def classify_known_tickers(session: Session, now: datetime | None = None) -> dict[str, str]:
+    """{ticker: reason} for every known ticker. A reason in OUT_OF_UNIVERSE (delisted, expired) means the
+    nightly jobs skip it; any other reason means it is in. The single source for the universe, the
+    Screener's hidden count and the verification report."""
+    now = now or datetime.now()
+    cutoff = now - timedelta(days=TRACKED_VIEW_WINDOW_DAYS)
+    known = set(load_all_known_tickers(session))
+    index = load_index_tickers(session)
+    watchlist = load_watchlist_tickers(session)
+    system = SYSTEM_TICKERS & known
+    manual = load_manual_data_tickers(session) & known
+    viewed = set(session.exec(select(TickerView.ticker).where(TickerView.last_viewed_at >= cutoff)).all()) & known
+    delisted = load_delisted_flagged(session)
+
+    reasons: dict[str, str] = {}
+    for ticker in known:
+        if ticker in delisted:
+            reasons[ticker] = DELISTED
+        elif ticker in index:
+            reasons[ticker] = INDEX
+        elif ticker in watchlist:
+            reasons[ticker] = WATCHLIST
+        elif ticker in system:
+            reasons[ticker] = SYSTEM
+        elif ticker in manual:
+            reasons[ticker] = MANUAL
+        elif ticker in viewed:
+            reasons[ticker] = VIEWED
+        else:
+            reasons[ticker] = EXPIRED
+    return reasons
+
+
+def load_tracked_universe(session: Session, now: datetime | None = None) -> list[str]:
+    """The sorted tickers every nightly and weekly job iterates (rules above)."""
+    reasons = classify_known_tickers(session, now)
+    return sorted(t for t, reason in reasons.items() if reason not in OUT_OF_UNIVERSE)
+
+
+def load_expired_tickers(session: Session, now: datetime | None = None) -> set[str]:
+    """Known, not delisted, but outside the universe because they were not viewed for 30 days."""
+    return {t for t, reason in classify_known_tickers(session, now).items() if reason == EXPIRED}
+
+
+def record_ticker_view(ticker: str, now: datetime | None = None) -> bool:
+    """Marks `ticker` as viewed now, at most once per calendar day: one statement, no pre-read, that
+    inserts the row or moves `last_viewed_at` forward only when the stored value is from an earlier day.
+    Returns True when it wrote. Never raises: a DB problem must not break the page that called it."""
+    now = now or datetime.now()
+    ticker = normalize_ticker(ticker)
+    start_of_day = datetime.combine(now.date(), time.min)
+    try:
+        stmt = sqlite_insert(TickerView).values(ticker=ticker, last_viewed_at=now)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["ticker"],
+            set_={"last_viewed_at": now},
+            where=TickerView.__table__.c.last_viewed_at < start_of_day,
+        )
+        with Session(engine) as session:
+            result = session.execute(stmt)
+            session.commit()
+        return result.rowcount > 0
+    except Exception:  # noqa: BLE001 -- a view record is best-effort by design
+        logger.warning("record_ticker_view failed for %s", ticker, exc_info=True)
+        return False
+

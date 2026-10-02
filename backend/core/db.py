@@ -1,9 +1,14 @@
-from sqlalchemy import inspect, text
+import logging
+from datetime import datetime
+
+from sqlalchemy import DateTime, bindparam, inspect, text
 from sqlmodel import SQLModel, create_engine
 
 from core.config import BASE_DIR, settings
 
 import core.models  # noqa: F401  (registers tables on SQLModel.metadata)
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = (BASE_DIR / settings.database_path).resolve()
 engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
@@ -98,8 +103,39 @@ def _ensure_unique_indexes() -> None:
             conn.execute(text(f'CREATE UNIQUE INDEX IF NOT EXISTS "{name}" ON "{table}" ({cols})'))
 
 
+# One-time seed of TickerView (data/tracked_universe.py), written when the table was introduced
+# (2026-10-02). Every ticker the app already held a profile, score row, watchlist entry or index
+# membership for is stamped "viewed now", so nothing leaves the nightly universe for 30 days after the
+# first start on the new code. Gate: the table is empty. Once any row exists (the seed's own, or a real
+# view) a later init_db() does nothing, so the grace dates never move on a repeated call, a restart or a
+# cron job's init_db(). Plain SQL on purpose: core must not import data.
+_SEED_TICKER_VIEWS_SQL = text(
+    """
+    INSERT OR IGNORE INTO tickerview (ticker, last_viewed_at)
+    SELECT ticker, :now FROM (
+        SELECT ticker FROM fundamentalscache WHERE statement_type = 'profile'
+        UNION SELECT ticker FROM tickerscore
+        UNION SELECT ticker FROM watchlistticker
+        UNION SELECT ticker FROM indexconstituent WHERE index_name IN ('sp500', 'dow', 'nasdaq')
+    )
+    """
+).bindparams(bindparam("now", type_=DateTime()))
+
+
+def _seed_ticker_views(now: datetime | None = None) -> int:
+    """Returns the number of rows seeded (0 when the table already has rows)."""
+    with engine.begin() as conn:
+        if conn.execute(text("SELECT 1 FROM tickerview LIMIT 1")).first() is not None:
+            return 0
+        seeded = conn.execute(_SEED_TICKER_VIEWS_SQL, {"now": now or datetime.now()}).rowcount
+    if seeded:
+        logger.info("Seeded %d ticker_view rows (30-day grace from now for every existing ticker).", seeded)
+    return seeded
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _add_missing_columns()
     _ensure_unique_indexes()
     _drop_obsolete_columns()
+    _seed_ticker_views()

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
@@ -91,7 +91,7 @@ def test_returns_an_existing_row_unchanged_without_recomputing(monkeypatch):
                 company_name="Apple Inc.",
                 overall_score=85,
                 overall_verdict="Pass",
-                computed_at=datetime(2026, 1, 1),
+                computed_at=datetime.now() - timedelta(hours=2),
             )
         )
         session.commit()
@@ -104,7 +104,6 @@ def test_returns_an_existing_row_unchanged_without_recomputing(monkeypatch):
     assert body["ticker"] == "AAPL"
     assert body["overall_score"] == 85
     assert body["overall_verdict"] == "Pass"
-    assert body["computed_at"] == "2026-01-01T00:00:00"
     assert calls == []  # a stored row is read directly, never recomputed
 
 
@@ -120,7 +119,7 @@ def test_recomputes_when_existing_row_has_no_overall_score(monkeypatch):
                 step4_verdict="insufficient_data",
                 overall_score=None,
                 overall_verdict=None,
-                computed_at=datetime(2026, 1, 1),
+                computed_at=datetime.now() - timedelta(hours=2),
             )
         )
         session.commit()
@@ -174,3 +173,54 @@ def test_returns_null_when_even_the_fallback_has_no_cached_profile(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() is None
+
+
+def _row(**kwargs):
+    defaults = dict(ticker="AAPL", company_name="Apple Inc.", overall_score=85, overall_verdict="Pass")
+    return TickerScore(**{**defaults, **kwargs})
+
+
+def test_a_row_older_than_36_hours_is_recomputed_live(monkeypatch):
+    # The first view of a ticker that left the nightly universe must not serve its frozen row.
+    engine = _fresh_shared_engine(monkeypatch)
+    calls = _patch_score_steps(monkeypatch)
+    with Session(engine) as session:
+        session.add(_row(computed_at=datetime.now() - timedelta(days=20)))
+        session.commit()
+
+    with TestClient(main.app) as client:
+        body = client.get("/api/tickers/AAPL/score").json()
+
+    assert len(calls) == 5 and all(cache_only is False for _, cache_only in calls)  # live, not cache-only
+    assert body["overall_score"] != 85  # replaced by the fresh compute
+    with Session(engine) as session:
+        assert session.get(TickerScore, "AAPL").computed_at > datetime.now() - timedelta(minutes=5)
+
+
+def test_a_row_inside_36_hours_is_served_as_is(monkeypatch):
+    engine = _fresh_shared_engine(monkeypatch)
+    calls = _patch_score_steps(monkeypatch)
+    with Session(engine) as session:
+        session.add(_row(computed_at=datetime.now() - timedelta(hours=35)))
+        session.commit()
+
+    with TestClient(main.app) as client:
+        assert client.get("/api/tickers/AAPL/score").json()["overall_score"] == 85
+
+    assert calls == []
+
+
+def test_an_old_etf_or_delisted_row_is_not_recomputed(monkeypatch):
+    engine = _fresh_shared_engine(monkeypatch)
+    calls = _patch_score_steps(monkeypatch)
+    old = datetime.now() - timedelta(days=20)
+    with Session(engine) as session:
+        session.add(_row(ticker="QQQ", is_etf=True, computed_at=old))  # no Assessment chip on the ETF page
+        session.add(_row(ticker="EA", delisted_at=old, computed_at=old))  # frozen on purpose
+        session.commit()
+
+    with TestClient(main.app) as client:
+        assert client.get("/api/tickers/QQQ/score").json()["overall_score"] == 85
+        assert client.get("/api/tickers/EA/score").json()["overall_score"] == 85
+
+    assert calls == []

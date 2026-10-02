@@ -1,22 +1,13 @@
-"""Standalone script: reports how many tickers in the full tracked universe
-(index constituents UNION cached UNION scored UNION watchlisted -- see
-nightly_fundamentals_fetch.py::load_full_tracked_universe, reused here)
-haven't had their FundamentalsCache "profile" row refreshed within the
-staleness threshold -- a readable freshness report, not a silent check.
+"""Standalone script: reports how many tickers in the tracked universe
+(data/tracked_universe.py::load_tracked_universe -- the nightly set: index,
+watchlist, system set, manual data, viewed in the last 30 days; delisted and
+expired tickers are not refreshed on purpose, so they are not reported) haven't
+had their FundamentalsCache "profile" row refreshed within the staleness
+threshold -- a readable freshness report, not a silent check.
 "profile" is fetched on every nightly refresh cycle (see
 nightly_fundamentals_fetch.py::_refresh_one_ticker), so its fetched_at is a
 reliable proxy for "did this ticker's nightly refresh actually happen
-recently." Cache-only, zero FMP calls, safe to run anytime.
-
-Widened from S&P 500 + Dow only to the full tracked universe (2026-09-11,
-cron audit finding #6/B): nightly_fundamentals_fetch.py has refreshed the
-full tracked universe (not just the index) since 2026-08-06, but this
-report was never widened to match, so a watchlisted-only or ad-hoc-viewed
-ticker whose nightly refresh silently broke would never have surfaced here
--- the same index-only-vs-full-universe blind-spot shape already fixed once
-in nightly_score_recompute.py/recompute_ticker_scores.py (see CLAUDE.md's
-Speculative Growth section). The report is expected to get noisier (~572
-vs ~530 tickers) as a direct, intended consequence.
+recently." Cache-only, zero FMP calls apart from the delisted sync below.
 
 **Also hosts the delisted-ticker flag, a second, independent check over the same
 universe -- not a "profile" freshness thing at all.** sync_delisted_flags pages FMP's
@@ -30,7 +21,7 @@ a symbol whose cached profile `ipoDate` is AFTER the listed delisted date is a r
 symbol (a different, newer company) and is not flagged. Chosen as the host (over
 audit_fixture_contamination.py, which is about test-fixture leakage, and
 purge_invalid_tickers.py, which deletes rows -- the opposite of "never delete history")
-because it already computes load_full_tracked_universe weekly. This is the one live-FMP
+because it already walks the known-ticker set weekly (`load_all_known_tickers`, the wide set). This is the one live-FMP
 call this otherwise cache-only script makes (~160 sequential pages of 100 rows; the
 endpoint's page size is capped at 100), under the `index_membership` data group
 (moved from `corporate_events` 2026-09-27 -- this check is about tracked-ticker
@@ -70,7 +61,7 @@ from core.models import FundamentalsCache, TickerScore
 from core.data_groups import group_live
 from core.tickers import normalize_ticker
 from pipeline.non_us_purge import DEFAULT_MAX_FRACTION, purge_non_us_tickers
-from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
+from data.tracked_universe import load_all_known_tickers, load_tracked_universe
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "stale_data_health_check.log"
 
@@ -176,28 +167,71 @@ def find_delisted_hits(tickers: list[str], listed: list[dict], today: date | Non
     return hits
 
 
+# Most flagged tickers a single weekly run re-checks with a live /profile call (a bound on calls, not a
+# real limit: today 5 are flagged).
+MAX_RELIST_RECHECKS = 50
+
+
+async def _is_actively_trading(ticker: str) -> bool:
+    """True only when a live FMP /profile answers with `isActivelyTrading: true`. Any failure, an empty
+    answer or a missing field is "not shown to be trading", so the flag stays."""
+    try:
+        payload = await fmp_client.get_profile(ticker)
+    except httpx.HTTPError:
+        return False
+    row = payload[0] if isinstance(payload, list) and payload else payload
+    return isinstance(row, dict) and row.get("isActivelyTrading") is True
+
+
+async def _recheck_flagged(candidates: list[str]) -> list[str]:
+    return [t for t in candidates if await _is_actively_trading(t)]
+
+
 def sync_delisted_flags(tickers: list[str]) -> dict:
-    """Sets TickerScore.delisted_at for tracked tickers FMP lists as delisted. Returns
-    {"newly_flagged": [...sorted], "skipped": bool, "complete": bool}. Never clears a
-    flag and never acts on a ticker the endpoint does not list (see the module
-    docstring). Skipped (nothing fetched) while the `index_membership` group is not live."""
+    """Sets TickerScore.delisted_at for known tickers FMP lists as delisted, and clears a flag that no
+    longer holds. Returns {"newly_flagged": [...sorted], "cleared": [...sorted], "skipped": bool,
+    "complete": bool}. Skipped (nothing fetched) while the `index_membership` data group is not live.
+
+    **Flagging:** a ticker the endpoint does not list is never flagged (absence is not evidence).
+
+    **Clearing (2026-10-02, so a relisted ticker or a mistaken flag is not permanent):** a flagged ticker
+    is only cleared when BOTH (1) this run read the whole delisted list (`complete`) and the ticker is no
+    longer on it as a qualifying hit, AND (2) a live /profile call says `isActivelyTrading: true`. An
+    incomplete list, a failed profile call or an inactive profile leave the flag exactly as it was. A
+    flagged ticker leaves every nightly universe, so nothing else would ever look at it again.
+
+    `tickers` must be the WIDE known set (`load_all_known_tickers`): the tracked universe excludes
+    flagged tickers, which would make them impossible to match here."""
     if not tickers:
-        return {"newly_flagged": [], "skipped": False, "complete": True}
+        return {"newly_flagged": [], "cleared": [], "skipped": False, "complete": True}
     if not group_live("index_membership"):
         logger.info("Delisted-flag sync skipped (group index_membership is not live)")
-        return {"newly_flagged": [], "skipped": True, "complete": False}
+        return {"newly_flagged": [], "cleared": [], "skipped": True, "complete": False}
     listed, complete = asyncio.run(_fetch_delisted_companies())
     hits = find_delisted_hits(tickers, listed)
     newly_flagged: list[str] = []
     now = datetime.now()
     with Session(engine) as session:
+        flagged_now = {row.ticker for row in session.exec(select(TickerScore).where(TickerScore.delisted_at.is_not(None))).all()}
         for row in session.exec(select(TickerScore).where(TickerScore.ticker.in_(list(hits)))).all():
             if row.delisted_at is None:
                 row.delisted_at = now
                 newly_flagged.append(row.ticker)
         if newly_flagged:
             session.commit()
-    return {"newly_flagged": sorted(newly_flagged), "skipped": False, "complete": complete}
+
+    cleared: list[str] = []
+    if complete:
+        candidates = sorted((flagged_now & set(tickers)) - set(hits))[:MAX_RELIST_RECHECKS]
+        if candidates:
+            cleared = sorted(asyncio.run(_recheck_flagged(candidates)))
+        if cleared:
+            with Session(engine) as session:
+                for row in session.exec(select(TickerScore).where(TickerScore.ticker.in_(cleared))).all():
+                    row.delisted_at = None
+                session.commit()
+            logger.info("Delisted flag cleared (FMP lists them no longer and the profile is actively trading): %s", cleared)
+    return {"newly_flagged": sorted(newly_flagged), "cleared": cleared, "skipped": False, "complete": complete}
 
 
 def load_delisted_tickers(session: Session) -> set[str]:
@@ -206,7 +240,7 @@ def load_delisted_tickers(session: Session) -> set[str]:
     Weinstein, Liquidity Zones, Momentum) to skip a flagged ticker's own
     fetch/compute entirely, rather than retrying a doomed provider
     lookup for it every night. Mirrors nightly_fundamentals_fetch.py::
-    load_full_tracked_universe's own "defined once, imported everywhere"
+    data/tracked_universe.py's own "defined once, imported everywhere"
     convention."""
     return set(session.exec(select(TickerScore.ticker).where(TickerScore.delisted_at.is_not(None))).all())
 
@@ -227,8 +261,11 @@ def _format_report(result: dict, total: int, threshold_days: int) -> str:
     delisted = result.get("delisted") or {}
     if delisted.get("skipped"):
         lines.append("  Delisted-flag sync: skipped (index_membership group not live)")
-    elif delisted.get("newly_flagged"):
-        lines.append(f"  Newly flagged delisted: {', '.join(delisted['newly_flagged'])}")
+    else:
+        if delisted.get("newly_flagged"):
+            lines.append(f"  Newly flagged delisted: {', '.join(delisted['newly_flagged'])}")
+        if delisted.get("cleared"):
+            lines.append(f"  Delisted flag cleared (relisted): {', '.join(delisted['cleared'])}")
     non_us = result.get("non_us") or {}
     if non_us.get("refused"):
         lines.append(f"  Non-US purge: REFUSED ({len(non_us['tickers'])} candidates, over the safety cap -- see log)")
@@ -264,10 +301,14 @@ def main(threshold_days: int = DEFAULT_STALE_THRESHOLD_DAYS) -> dict:
     init_db()
     non_us = _purge_non_us()
     with Session(engine) as session:
-        tickers = load_full_tracked_universe(session)
+        # Staleness is reported over the nightly universe (an expired ticker is not refreshed on
+        # purpose, so it must not read as a stale one); the delisted sync and the non-US purge need
+        # every ticker the app holds a row for.
+        tickers = load_tracked_universe(session)
+        known = load_all_known_tickers(session)
     result = check_staleness(tickers, threshold_days)
     result["non_us"] = non_us
-    result["delisted"] = sync_delisted_flags(tickers)
+    result["delisted"] = sync_delisted_flags(known)
     result["reprobe"] = _reprobe_restricted_groups()
     report = _format_report(result, len(tickers), threshold_days)
     logger.info("\n%s", report)
@@ -289,6 +330,8 @@ if __name__ == "__main__":
         message = f"{len(result['stale'])} stale, {len(result['never_fetched'])} never-fetched"
         if delisted["newly_flagged"]:
             message += f"; newly delisted: {', '.join(delisted['newly_flagged'])}"
+        if delisted.get("cleared"):
+            message += f"; delisted flag cleared: {', '.join(delisted['cleared'])}"
         if delisted.get("skipped"):
             message += "; delisted sync skipped (corporate_events off)"
         elif not delisted.get("complete", True):

@@ -23,7 +23,7 @@ from clients.shared_bars_cache import DAILY_INTERVAL, get_or_fetch_bars_batch, s
 from core.db import engine
 from core.models import MomentumSnapshot, TickerScore
 from core.schemas import MomentumOut, MomentumPeriod, MomentumSnapshotRowOut
-from pipeline.nightly_fundamentals_fetch import load_full_tracked_universe
+from data.tracked_universe import load_tracked_universe
 from scoring.momentum import compute_momentum_ranking
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ async def compute_and_store_momentum_snapshot(anchor_date: date) -> dict:
     frontend's This month/Previous month toggle reads prior months'
     history directly from them."""
     with Session(engine) as session:
-        tickers = load_full_tracked_universe(session)
+        tickers = load_tracked_universe(session)
         scored_rows = session.exec(select(TickerScore).where(TickerScore.ticker.in_(tickers))).all()
 
     # Delisted (TickerScore.delisted_at set -- see pipeline/
@@ -64,9 +64,14 @@ async def compute_and_store_momentum_snapshot(anchor_date: date) -> dict:
         for row in scored_rows
         if row.moat in MOAT_VALUES and row.delisted_at is None and not row.is_etf
     }
-    skipped_delisted = sorted(
-        row.ticker for row in scored_rows if row.moat in MOAT_VALUES and row.delisted_at is not None
-    )
+    # The tracked universe already excludes delisted-flagged tickers, so they never reach scored_rows;
+    # the count is read directly so a Moat-rated delisted ticker is still reported, not silently lost.
+    with Session(engine) as session:
+        skipped_delisted = sorted(
+            session.exec(
+                select(TickerScore.ticker).where(TickerScore.moat.in_(MOAT_VALUES), TickerScore.delisted_at.is_not(None))
+            ).all()
+        )
     universe = sorted(moat_by_ticker)
     logger.info(
         "Momentum snapshot: %d Moat-rated tickers in universe for anchor %s (%d skipped as delisted).",

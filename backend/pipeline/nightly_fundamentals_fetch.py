@@ -1,9 +1,8 @@
 """Standalone script: nightly fundamentals refresh for every ticker in the
-full tracked universe -- index constituents (S&P 500 + Dow + Nasdaq-100, see
-sp500_scraper.py / dow_scraper.py / nasdaq_scraper.py / IndexConstituent) UNION any ticker with
-cached FMP data, an existing TickerScore row, or a Watchlist entry (the
-2026-08-06 "index + ever-viewed + watchlisted" decision, see
-load_full_tracked_universe below) -- via the app's existing cache-aware
+tracked universe (data/tracked_universe.py::load_tracked_universe: index
+constituents, any watchlist, the system set, tickers with manual data, and
+tickers viewed in the last 30 days; delisted-flagged tickers excluded), minus
+known ETFs/funds, via the app's existing cache-aware
 fetch pipeline --
 get_step1_data / get_step2_data / get_step4_data / get_step5_data /
 get_summary / get_segmentation_data. Nothing bespoke here: these are the
@@ -56,7 +55,7 @@ from core.cron_health import check_failure_threshold, cron_heartbeat
 from core.db import engine, init_db
 from clients.fmp_client import fmp_client
 from core.logging_config import configure_logging
-from core.models import FundamentalsCache, IndexConstituent, TickerScore, WatchlistTicker
+from core.models import IndexConstituent
 from core.tickers import normalize_ticker
 from data.etf_data import known_etf_tickers
 from data.segmentation_data import get_segmentation_data
@@ -66,6 +65,7 @@ from data.step4_data import get_step4_data
 from data.step5_data import get_step5_data
 from data.ticker_score import compute_ticker_score
 from data.ticker_summary import get_summary
+from data.tracked_universe import load_tracked_universe
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_fundamentals_fetch.log"
 
@@ -102,46 +102,13 @@ def load_universe_tickers(session: Session) -> list[str]:
     return sorted(set(load_sp500_tickers(session)) | set(load_dow_tickers(session)) | set(load_nasdaq_tickers(session)))
 
 
-def load_full_tracked_universe(session: Session) -> list[str]:
-    """Union of every ticker this app tracks: index constituents (S&P 500 + Dow),
-    any ticker with at least one cached FMP *profile* fetch, any ticker with a
-    TickerScore row, and any ticker on any Watchlist -- the 2026-08-06 "index +
-    ever-viewed + watchlisted" decision. Watchlisting a ticker doesn't itself
-    trigger a fetch or score (see watchlists.py/watchlist_data.py), so Watchlist
-    must be unioned explicitly rather than assumed to already be covered by the
-    scored/cached sets.
-
-    Deliberately filtered to statement_type=="profile" rather than every
-    FundamentalsCache.ticker: this table also caches non-ticker lookups under a
-    ticker-shaped key -- confirmed live via CADUSD/DKKUSD/EURUSD/TWDUSD, FX
-    spot-rate rows Valuation's currency-conversion step caches under
-    statement_type="forex_rate" (see CLAUDE.md's Valuation FX section). Unlike
-    nightly_score_recompute.py's cache_only sweep (harmless either way -- scoring
-    a currency pair just yields no TickerScore), this job makes live FMP calls
-    per ticker, so an unfiltered union would burn a wasted get_profile("EURUSD")
-    call every night, forever. "profile" is the same ground-truth signal
-    purge_invalid_tickers.py already uses to recognize a real ticker lookup.
-
-    Shared with nightly_score_recompute.py, which imports this rather than keeping
-    its own copy -- the "ever-viewed" half of this decision landed there first
-    (2026-08-09) without Watchlist, while this job never got either half; one
-    definition keeps both jobs' universes from drifting apart again."""
-    index_tickers = load_universe_tickers(session)
-    cached_tickers = session.exec(
-        select(FundamentalsCache.ticker).where(FundamentalsCache.statement_type == "profile").distinct()
-    ).all()
-    scored_tickers = session.exec(select(TickerScore.ticker)).all()
-    watchlist_tickers = session.exec(select(WatchlistTicker.ticker).distinct()).all()
-    return sorted(set(index_tickers) | set(cached_tickers) | set(scored_tickers) | set(watchlist_tickers))
-
-
 def load_fundamentals_fetch_universe(session: Session) -> list[str]:
-    """load_full_tracked_universe minus tickers already known to be an ETF or fund: they have no
+    """The tracked universe minus tickers already known to be an ETF or fund: they have no
     income statement, balance sheet, ratios or estimates (FMP answers every one of those with `[]`,
     ~25 wasted calls per ETF per staleness window) and the ETF page reads none of them. An ETF's
     own data (/etf/info, bars) is fetched on view or by the technical jobs, not here. Only this job
     filters; the score recompute, momentum and search still see the full universe."""
-    universe = load_full_tracked_universe(session)
+    universe = load_tracked_universe(session)
     etfs = known_etf_tickers(session, universe)
     return [ticker for ticker in universe if ticker not in etfs]
 
@@ -171,8 +138,8 @@ async def _refresh_one_ticker(ticker: str) -> None:
 
 
 async def main(tickers: list[str] | None = None) -> dict:
-    """`tickers=None` means "use the full tracked universe" (index + ever-viewed +
-    watchlisted, see load_full_tracked_universe) -- passing an explicit list (used
+    """`tickers=None` means "use the tracked universe" (see
+    data/tracked_universe.py) -- passing an explicit list (used
     by the CLI's --limit/--tickers and by tests) bypasses the DB lookup entirely.
     Returns the run summary dict so tests can assert on it directly rather than
     scraping the log."""

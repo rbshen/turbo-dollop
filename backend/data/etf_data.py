@@ -1,5 +1,5 @@
-"""ETF page data: the Overview tab (FMP `/etf/info`, plus the cache-only "Trading data" block) and "is this
-ticker a known ETF" lookups.
+"""ETF page data: the Overview tab (FMP `/etf/info`, plus the "Trading data" block: cache-only reads, preceded by
+an on-demand daily-bar warm-up when the bars cache is empty or behind) and "is this ticker a known ETF" lookups.
 
 `/etf/info` is the one ETF endpoint the app calls (data group `etf_info`, cache key
 `(ticker, "etf_info", "latest")` in FundamentalsCache, TTL `Settings.etf_info_staleness_days`).
@@ -19,7 +19,13 @@ from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from clients.fmp_client import fmp_client
-from clients.shared_bars_cache import _most_recent_completed_trading_date, read_cached_completed_daily_bars
+from clients.shared_bars_cache import (
+    DAILY_INTERVAL,
+    _most_recent_completed_trading_date,
+    get_or_fetch_bars,
+    read_cached_completed_daily_bars,
+    stale_ticker_count,
+)
 from core.cache import get_or_fetch
 from core.config import settings
 from core.db import engine
@@ -208,6 +214,20 @@ async def _trading_data(ticker: str, asset_class: str | None) -> EtfTradingDataO
     return data if any(v is not None for v in values.values()) else None
 
 
+async def _warm_daily_bars(ticker: str) -> None:
+    """Fetches and caches this ETF's daily bars when the shared cache holds none or is behind the last
+    completed session, so the Trading data block is not empty on a first view (or on the first view of an
+    ETF that left the nightly universe, 30 days unviewed -- see data/tracked_universe.py). One FMP call in
+    that case, zero when the cache is current (an ETF in the nightly universe always is). On-demand only:
+    it runs from the Overview request, never from a nightly job. Never raises: a failed fetch just leaves
+    the block as it was (the data group being off included)."""
+    try:
+        if stale_ticker_count([ticker], DAILY_INTERVAL)[0]:
+            await get_or_fetch_bars(ticker, DAILY_INTERVAL, TRADING_DATA_BAR_LOOKBACK_DAYS)
+    except Exception:  # noqa: BLE001 -- best-effort warm-up
+        logger.warning("Daily-bar warm-up failed for ETF %s", ticker, exc_info=True)
+
+
 async def get_etf_overview(ticker: str) -> EtfOverviewOut:
     """Never raises for an FMP problem: the group being off, or a failed fetch, with nothing cached
     comes back as status "unavailable" (the Overview shows its own state; the Technical and Chart
@@ -239,6 +259,7 @@ async def get_etf_overview(ticker: str) -> EtfOverviewOut:
         return EtfOverviewOut(ticker=ticker, status="unavailable", reason="fetch_failed" if failed else "group_off")
     overview = _overview_from_payload(ticker, payload, row.fetched_at if row else None)
     if overview.status == "ok":
+        await _warm_daily_bars(ticker)
         overview.trading_data = await _trading_data(ticker, overview.asset_class)
     return overview
 

@@ -27,7 +27,7 @@ def _series(price_at_anchor: float) -> pd.DataFrame:
 def _patch_universe_and_prices(
     monkeypatch, tickers: list[str], histories: dict[str, pd.DataFrame], unserved_tickers: list[str] | None = None
 ):
-    monkeypatch.setattr(momentum_data, "load_full_tracked_universe", lambda session: tickers)
+    monkeypatch.setattr(momentum_data, "load_tracked_universe", lambda session: tickers)
     fallback = unserved_tickers or []
 
     async def fake_get_bars_batch(requested_tickers, interval, lookback_days, auto_adjust=True, unserved_tickers=None, **kwargs):

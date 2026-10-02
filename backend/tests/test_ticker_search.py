@@ -204,7 +204,7 @@ def test_fmp_disabled_falls_back_to_tracked_universe_without_calling_fmp(monkeyp
 
     results = asyncio.run(search_tickers("aap"))
 
-    # load_full_tracked_universe returns a sorted list, so matches come back
+    # load_all_known_tickers returns a sorted list, so matches come back
     # alphabetically (AAPD before AAPL) rather than any relevance ranking --
     # MSFT correctly excluded (doesn't match the "AAP" prefix/substring).
     assert [r.symbol for r in results] == ["AAPD", "AAPL"]
@@ -217,6 +217,6 @@ def test_fmp_disabled_empty_query_returns_empty_without_touching_the_db(monkeypa
     def fail_if_called(session):
         raise AssertionError("should not reach the tracked-universe fallback for an empty query")
 
-    monkeypatch.setattr(ticker_search, "load_full_tracked_universe", fail_if_called)
+    monkeypatch.setattr(ticker_search, "load_all_known_tickers", fail_if_called)
 
     assert asyncio.run(search_tickers("")) == []

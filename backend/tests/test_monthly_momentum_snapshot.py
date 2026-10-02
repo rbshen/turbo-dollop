@@ -49,7 +49,7 @@ def test_anchor_day_computes_and_persists_a_snapshot(monkeypatch, tmp_path):
         session.add(TickerScore(ticker="AAA", moat="wide_moat", company_name="AAA Inc", overall_score=70, computed_at=datetime.now()))
         session.commit()
 
-    monkeypatch.setattr(momentum_data, "load_full_tracked_universe", lambda session: ["AAA"])
+    monkeypatch.setattr(momentum_data, "load_tracked_universe", lambda session: ["AAA"])
     _stub_stale_count(monkeypatch)
 
     async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):

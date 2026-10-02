@@ -24,7 +24,7 @@ import data.ticker_search as ticker_search
 import data.watchlist_data as watchlist_data
 import pipeline.nightly_fundamentals_fetch as nightly
 from clients.fmp_client import FMPClient
-from core.models import FundamentalsCache, MomentumSnapshot, TickerMoat, TickerScore, Watchlist, WatchlistTicker
+from core.models import FundamentalsCache, MomentumSnapshot, TickerMoat, TickerScore, Watchlist, WatchlistTicker, TickerView
 from core.schemas import Step1Out
 from data.watchlists import ETF_WATCHLIST_NAME, is_monitored_watchlist_name
 
@@ -428,7 +428,7 @@ def test_momentum_snapshot_excludes_a_moat_rated_etf(monkeypatch):
     index = pd.bdate_range(start="2024-08-01", end="2026-08-31")
     history = pd.DataFrame({"close": [100.0] * (len(index) - 1) + [150.0]}, index=index)
 
-    monkeypatch.setattr(momentum_data, "load_full_tracked_universe", lambda session: ["WIDE", "QQQ"])
+    monkeypatch.setattr(momentum_data, "load_tracked_universe", lambda session: ["WIDE", "QQQ"])
 
     async def fake_bars(tickers, interval, lookback_days, auto_adjust=True, unserved_tickers=None, **kwargs):
         return {t: history for t in tickers}
@@ -524,9 +524,10 @@ def test_fundamentals_fetch_universe_skips_known_etfs_but_the_full_universe_keep
         session.add(_profile_row("AAPL", isEtf=False, isFund=False))
         session.add(TickerScore(ticker="SPY", is_etf=True, computed_at=datetime.now()))
         session.add(TickerScore(ticker="MSFT", is_etf=False, computed_at=datetime.now()))
+        session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now()) for t in ("QQQ", "PTY", "AAPL", "SPY", "MSFT")])
         session.commit()
 
-        assert nightly.load_full_tracked_universe(session) == ["AAPL", "MSFT", "PTY", "QQQ", "SPY"]
+        assert nightly.load_tracked_universe(session) == ["AAPL", "MSFT", "PTY", "QQQ", "SPY"]
         assert nightly.load_fundamentals_fetch_universe(session) == ["AAPL", "MSFT"]
 
 
@@ -537,6 +538,7 @@ def test_nightly_main_fetches_only_non_etfs_from_the_universe(monkeypatch, tmp_p
     with Session(engine) as session:
         session.add(_profile_row("QQQ", isEtf=True))
         session.add(_profile_row("AAPL", isEtf=False))
+        session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now()) for t in ("QQQ", "AAPL")])
         session.commit()
 
     fetched = []
