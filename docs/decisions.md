@@ -581,6 +581,26 @@ writes are in `docs/specs/fmp-data-and-bar-cache.md` ("History protection"). Dec
 - **Left unchanged, recorded as remaining exposure:** the 180-day `prune_cache` age delete (untouched tickers rebuild at the depth the plan
   serves) and a restated-and-clamped bar history (replaced, logged). `/styleguide` not touched.
 
+### 2026-10-02 — A 402 restricts one request variant, not the data group
+
+Built from `docs/fmp-starter-downgrade-impact-2026-10-02.md` item 2; behaviour in `docs/specs/fmp-data-and-bar-cache.md`
+("Request variants"). Decisions worth keeping:
+
+- **Only `fundamentals` is a variant group (`VARIANT_GROUPS`).** It is the group where one parameter (`period=quarter`) can be refused
+  while the same endpoint serves another, and where the group-level canary demonstrably flaps (the probe asks annual). The other groups keep the
+  group-level canary because their restriction also drives the cache gate and the nightly jobs' `skipped` status; changing that is a separate
+  decision. They are listed with a flap-risk rating in the spec.
+- **Variant = endpoint + `period` + `limit`.** `limit` is in the key because the downgrade report left open that Starter may refuse a limit
+  rather than clamp it; including it costs one extra 2-call discovery per distinct value and avoids blocking requests that work.
+- **A restricted variant raises, it does not return `[]`.** An empty return would be written to the cache (and stamp it fresh). The typed
+  error is an `httpx.HTTPError` subclass, so every existing `safe_fetch` site already reads it as "no data"; `core.cache` serves the stale
+  cached quarterly rows instead, and writes nothing. Deviation from the literal "return a result": same effect for callers, no empty row.
+- **Only the variant's own replay clears it.** This is what ends the weekly flap. A manual Re-test (Settings) and `clear-variant` (API/CLI) exist
+  for the owner; Re-test sits in the group row where the note is, no new panel.
+- **The nightly count is informational** (`N variant-unavailable`) and is kept out of `check_failure_threshold`; the `failed` count is untouched.
+- **Scoring was not touched.** Step 5 reads `insufficient_data` for Standard/REIT tickers and the Overall Assessment goes empty when quarterly
+  data is refused; the table in the spec records every caller's behaviour for the later annual-fallback task.
+
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
 - **`MultiSelect` primitive — resolved, built.** `components/screener/MultiSelectDropdown.tsx` is

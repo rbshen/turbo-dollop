@@ -24,6 +24,15 @@ export interface OutlierWarning {
 
 export type DataGroupState = "live" | "cached_only" | "not_on_plan" | "restricted" | "failing";
 
+/** A request variant FMP refused (HTTP 402, canary-confirmed): the group stays live, only this way of asking is unavailable. */
+export interface DataGroupVariantOut {
+  key: string;
+  label: string;
+  restricted_since: string;
+  last_error: string | null;
+  last_probe_at: string | null;
+}
+
 export interface DataGroupOut {
   key: string;
   label: string;
@@ -39,6 +48,8 @@ export interface DataGroupOut {
   last_error: string | null;
   feeds: string[];
   can_toggle: boolean;
+  /** Request variants the plan refuses while the group itself stays live. */
+  unavailable_variants?: DataGroupVariantOut[];
 }
 
 export interface DataGroupsOut {

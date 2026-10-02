@@ -64,6 +64,7 @@ canary-confirmed to return HTTP 402 (re-checked weekly by
 `pipeline.stale_data_health_check` and when you edit "My FMP plan"); "Failing" means
 3+ consecutive non-402 errors; a red "FMP rejected the API key" line means 401/403.
 The 402 path has only been tested against simulated responses.
+For `fundamentals` a 402 restricts only the refused request variant (e.g. quarterly statements); see "Restricted request variants" below.
 
 ## Checking logs
 
@@ -521,6 +522,28 @@ A shorter, empty or error FMP answer never shortens a cached statement history (
   history), bars and span per ticker (daily, 60m, long history), rows per ticker (corporate events). Nothing should get shorter.
 - **Refresh button**: history rows are kept and marked stale (`fetched_at` = 1970-01-01) rather than deleted, so the refetch merges. A `fetched_at`
   of 1970 on a statement row is that marker, not corruption; `prune_cache` leaves such rows alone.
+
+### Restricted request variants (2026-10-02)
+
+If FMP refuses one way of asking (say `period=quarter`) the `fundamentals` group stays **Live**; only that request variant is
+recorded as restricted (table `datagroupvariant`, created by `init_db` on the next start) and Settings > FMP data groups shows
+"Quarterly data not on plan: ..." under the group with a **Re-test** button. Spec: docs/specs/fmp-data-and-bar-cache.md, "Request variants".
+
+- **List / re-test / clear** (no API needed):
+
+  ```bash
+  cd backend
+  uv run python -m pipeline.data_groups variants        # restricted variants, since when, last re-test
+  uv run python -m pipeline.data_groups retest          # replays each with its own request; clears only on a 200 (a few FMP calls)
+  uv run python -m pipeline.data_groups clear-variant --group fundamentals --key '/income-statement?limit=12&period=quarter'
+  ```
+
+- **Logs:** one line when a variant becomes restricted (`FMP request variant RESTRICTED ...`) and one when it clears (`... CLEARED ...`); the
+  nightly fundamentals message carries `N variant-unavailable (V request types refused by the plan)`. That count is informational: the job stays green;
+  decide from it whether the missing data matters (today Step 5 is `insufficient_data` for Standard/REIT stocks without quarterly balance sheets).
+- **Weekly re-probe** (`stale_data_health_check`, Sunday) and a plan edit re-test every restricted variant with its own request, so an upgrade
+  self-heals and a still-refused variant stays restricted without flapping.
+- A symbol-scoped 402 (BRK.B, BF.B, 0941.HK), a 429, a 5xx or a timeout restricts nothing.
 
 ### Cron job heartbeat / health monitoring
 

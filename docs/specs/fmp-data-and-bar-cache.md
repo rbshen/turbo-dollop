@@ -592,6 +592,101 @@ rows is unchanged: a ticker not touched for 6 months loses its rows and would re
 span per ticker; corporate events: rows per ticker. Run it with `--json` before a plan change and again after, and diff.
 See `backend/OPS_RUNBOOK.md`.
 
+## Request variants: a 402 restricts one request type, not the group (2026-10-02)
+
+Source: `docs/fmp-starter-downgrade-impact-2026-10-02.md`, item 2. Code: `core/data_groups.py` (registry, `DataGroupVariant`
+table), `clients/fmp_client.py` (`_handle_variant_restriction`, `probe_variant`), `core/cache.py::_fetch_or_serve_cached`.
+
+**Before.** `FMPClient._handle_plan_restriction` replayed the failing call's parameters for AAPL; a second 402 marked the
+whole group `plan_restricted`. A 402 on `period=quarter` therefore switched off every `fundamentals` call (annual,
+TTM, `/earnings`, the forex rate, the nightly job). The weekly re-probe asked for annual data (`PROBE_ENDPOINTS`), got a
+200 and cleared the group, and the next quarterly call re-marked it: it flapped weekly. A nightly run could flip the
+group on its first ticker, refresh nothing for the rest and still report success.
+
+**After, for the groups in `VARIANT_GROUPS` (`fundamentals` only).**
+
+- **Variant key** = endpoint + the parameters that can decide plan access, `period` and `limit` (`VARIANT_PARAMS`), e.g.
+  `/income-statement?limit=12&period=quarter`, `/ratios-ttm` (no variant parameters). The symbol and date windows are never
+  part of it. `limit` is included so a plan that refuses `limit=10` only restricts that request, not `limit=1`. Each
+  quarterly endpoint is its own variant (a refusal on the income statement does not block the balance sheet; each is
+  discovered once, costing the failing call plus one canary).
+- **Detection.** A 402 is replayed once for the canary symbol with exactly the variant's parameters (SPY for `/etf/info`;
+  nothing else is carried over). Only a second 402 records the restriction (`DataGroupVariant`, one row per restricted
+  variant, one log line `FMP request variant RESTRICTED ...`). A 200 canary = symbol-scoped (0941.HK, BRK.B, BF.B): nothing
+  recorded. A 429, 5xx, timeout or transport error on either call = nothing recorded. A 401/403 stays a key problem. The
+  group is never marked. A 402 on the canary symbol itself is its own canary.
+- **A restricted variant.** `FMPClient.get` raises `FMPVariantUnavailableError` ("... is not available on this plan") with
+  **no FMP call**. It subclasses `FMPDisabledError`, hence `httpx.HTTPError`, so `safe_fetch` and every
+  `except httpx.HTTPError` site read it as "no data for this variant" (`{}`, then the same `[]`/`None` handling as an empty
+  response). Raising rather than returning `[]` is deliberate: an empty return would be written to the cache.
+  `core.cache` catches it, serves the stale cached row if there is one and writes nothing (not even `fetched_at`); with no
+  row it re-raises. Annual requests and every other endpoint keep working.
+- **Re-probing.** `FMPClient.reprobe_restricted_variants` (weekly in `pipeline.stale_data_health_check`, on a plan edit, and
+  manually) replays each restricted variant with its own stored parameters. A 200 clears it (one log line `... CLEARED`),
+  a 402 keeps it (stamps `last_probe_at`), anything else leaves it. Nothing else can clear it, so there is no flapping
+  (`tests/test_fmp_variant_restrictions.py` runs two weekly cycles). No calls while the master switch or the group is off.
+- **Manual override.** Settings > FMP data groups: a note under the group name ("Quarterly data not on plan: income
+  statement, balance sheet, ...", the group chip stays **Live**) with a **Re-test** button (`POST
+  /api/config/data-groups/{group}/retest`). Also `DELETE /api/config/data-groups/{group}/variants?key=...` (drop one
+  without a probe; it is re-detected by the next real 402) and the CLI `uv run python -m pipeline.data_groups
+  variants | retest | clear-variant`.
+- **Nightly job.** `variant_unavailable` (a per-run tracker like the history clamp's) counts the tickers that hit an
+  unavailable variant; `nightly_fundamentals_fetch` appends `, N variant-unavailable (V request types refused by the
+  plan)` to its message. It is informational: it never enters `check_failure_threshold`, and the `failed` count (a real
+  exception escaping a ticker) is judged exactly as before, so it hides no real per-ticker error.
+- **Not variant groups** keep the group-level canary unchanged. Opting one in is one line in `VARIANT_GROUPS`.
+
+Existing group-level rows (a `fundamentals` group already `plan_restricted` in the DB, none known) still clear through the
+group re-probe.
+
+### What each caller shows when a `period=quarter` variant is unavailable
+
+Pinned by `tests/test_variant_unavailable_callers.py` (each runs its own happy-path fixtures with every quarterly request
+unavailable; none raises, none stores a quarterly or empty row, and cached quarterly rows are served untouched). This is
+current behaviour, input for the later Step 5 annual-fallback task; scoring was not changed.
+
+| Caller | With the quarterly variants unavailable |
+|---|---|
+| Step 1 (`step1_data`) | TTM column kept, its cells `None` (revenue, NI, CFO, FCF); scored on the annual points, score unchanged in the fixture. (The downgrade report said the TTM point is dropped; the column stays, blank.) |
+| Step 4 (`step4_data`) | TTM revenue/NI/COGS/OCF/buybacks and balance-sheet snapshots `None`; CCC has no TTM point; ROE/ROIC TTM survive (they come from `/key-metrics-ttm`, not a `period=quarter` request); score unchanged in the fixture |
+| Step 5 (`step5_data`) Standard/REIT | `verdict = "insufficient_data"`, score `None` (its whole input is the latest quarterly balance sheet); the Overall Assessment then has no score. This is the item for the annual-fallback task |
+| Step 3 (`step3_data`) | `insufficient_data = True`, no intrinsic value (TTM CFO/NI/FCF, net debt and shares come from quarterly rows) |
+| Ticker header (`ticker_summary`) | `enterprise_value`, `total_debt`, `ebitda_ttm`, `interest_expense_ttm`, `interest_income_ttm`, `reported_currency` blank; P/E (`/ratios-ttm` + last close), price and market cap unaffected |
+| Financials tab | quarterly tables padded with "—", TTM column cells blank; annual tables intact |
+| Ratios tab | TTM column kept (values from the TTM endpoints), its label loses the date: "TTM" instead of "TTM (2026-06-27)" |
+| Speculative Growth | `cfo_recent_direction` and `cash_runway_years` `None`; qualification still evaluated |
+| Step 2 | not affected (annual estimates) |
+| Banks' as-reported quarterly (`step5_data`), backfill scripts, shelved institutional ownership | same `safe_fetch`/`except` paths; not separately exercised |
+
+### Other groups at the same flapping risk (report only; unchanged)
+
+Every non-variant group uses the group-level canary. It flaps when a failing request and the group's `PROBE_ENDPOINTS`
+request differ in a plan-gating way: the 402 is confirmed by replaying the failing parameters, the weekly probe succeeds with
+different ones, the restriction clears and the next real call re-marks it.
+
+| Group | Probe vs possible failing request | Risk |
+|---|---|---|
+| `daily_prices` | probe is a 4-day 2024 window; a failing call is a long window (Chart 5y, nightly 1,825 days) | **High** if a window-length cap answers 402 |
+| `intraday_bars` | probe is a 1-day window; real calls are a 730-day window with paging | **High** under the same cap |
+| `corporate_events` | probe `/dividends limit=1`; failing could be `/earnings limit=1000`, `/dividends limit=2000`, `/splits` (job disabled today) | Medium |
+| `analyst_ratings` | probe `/grades-consensus`; failing could be `/grades-historical limit=120` or `/price-target-*` | Medium |
+| `index_membership` | probe `/dowjones-constituent`; failing could be S&P 500, Nasdaq-100 or `/delisted-companies`; above plan on Starter, so never probed today | Medium (latent) |
+| `profile_quote` | probe `/quote`; failing could be `/stock-price-change` or `/search-*` | Low-medium |
+| `segmentation` | probe product; failing could be geographic | Low |
+| `daily_prices_long` | probe is a 2016 window, the real call a 10-year window | Low |
+| `etf_info`, `news`, `institutional_ownership` | one endpoint, probe = replay | none |
+
+### Registry fields a later per-variant tier would need
+
+Today a tier is one `DataGroupSetting.required_tier` per group, compared with `DataGroupGlobal.fmp_plan` in
+`effective_state_from`. A per-variant tier would touch: `GroupMeta.default_tier` and `DataGroupSetting.required_tier`
+(add a per-variant value, e.g. a `DataGroupVariantSetting(group_key, variant_key, required_tier)` table or a
+`VARIANT_TIERS` map next to `VARIANT_PARAMS`); `ENDPOINT_GROUP` (endpoint -> group, no parameters) and
+`PROBE_ENDPOINTS` (one probe per group, not per variant); `STATEMENT_TYPE_GROUP` and `core.cache.statement_type_live`
+(keyed by statement type, so they cannot say "quarterly off, annual on"; would need `(statement_type, period)`);
+`effective_state_from` plus an `above_plan` check in `FMPClient.get` for a variant; `DataGroupOut.required_tier` and the
+Settings tier Select (a row per variant); and the per-plan limit clamps (change-list item 5 of the downgrade report).
+
 ## Endpoint feasibility work not yet wired into the app
 
 ### Extended-hours pricing (P5, unbuilt)

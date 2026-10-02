@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { DataGroupOut, DataGroupsOut } from "@/lib/api/types";
-import { TAB_GROUPS, asOfText, disableWarning, offGroupsFor, reasonText } from "@/lib/dataGroups";
+import { TAB_GROUPS, asOfText, disableWarning, offGroupsFor, reasonText, unavailableNote } from "@/lib/dataGroups";
 
 function group(over: Partial<DataGroupOut> = {}): DataGroupOut {
   return {
@@ -94,5 +94,24 @@ describe("ETF overview tab", () => {
     expect(TAB_GROUPS.overview).toEqual(["etf_info"]);
     const data = wrap([group({ key: "etf_info", label: "ETF info", state: "cached_only", reason: "user_off" })]);
     expect(offGroupsFor(data, TAB_GROUPS.overview).map((g) => g.key)).toEqual(["etf_info"]);
+  });
+});
+
+describe("unavailableNote", () => {
+  const variant = (label: string) => ({ key: label, label, restricted_since: "2026-10-02T03:00:00Z", last_error: null, last_probe_at: null });
+
+  it("is null when nothing is refused", () => {
+    expect(unavailableNote(group())).toBeNull();
+    expect(unavailableNote(group({ unavailable_variants: [] }))).toBeNull();
+  });
+
+  it("names quarterly data compactly, dropping the limit suffix", () => {
+    const g = group({ unavailable_variants: [variant("Quarterly income statement (limit 12)"), variant("Quarterly balance sheet (limit 12)")] });
+    expect(unavailableNote(g)).toBe("Quarterly data not on plan: income statement, balance sheet");
+  });
+
+  it("lists any other refused variant as is", () => {
+    const g = group({ unavailable_variants: [variant("Annual income statement (limit 10)")] });
+    expect(unavailableNote(g)).toBe("Not on plan: Annual income statement");
   });
 });

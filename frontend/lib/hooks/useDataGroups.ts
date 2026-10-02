@@ -2,7 +2,7 @@
 
 import useSWR, { mutate } from "swr";
 
-import { apiFetch, apiPut } from "@/lib/api/client";
+import { apiFetch, apiPost, apiPut } from "@/lib/api/client";
 import type { DataGroupUpdateIn, DataGroupsOut } from "@/lib/api/types";
 
 const KEY = "/config/data-groups";
@@ -25,3 +25,10 @@ async function put(path: string, body: unknown): Promise<DataGroupsOut> {
 export const setMaster = (master_on: boolean) => put(`${KEY}/master`, { master_on });
 export const setFmpPlan = (fmp_plan: string) => put(`${KEY}/plan`, { fmp_plan });
 export const updateGroup = (group: string, body: DataGroupUpdateIn) => put(`${KEY}/${group}`, body);
+
+/** Manual override: re-test a group's restricted request variants with their own requests; one clears only if FMP now serves it. */
+export async function retestGroupVariants(group: string): Promise<DataGroupsOut> {
+  const next = await apiPost<DataGroupsOut>(`${KEY}/${group}/retest`);
+  await mutate(KEY, next, { revalidate: false });
+  return next;
+}

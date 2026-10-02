@@ -24,6 +24,18 @@ export function reasonText(group: DataGroupOut): string {
   }
 }
 
+/** The note under a live group whose plan refuses some request variants (a 402 on period=quarter, say): what is
+ * not available, in words. Null when nothing is refused. */
+export function unavailableNote(group: DataGroupOut): string | null {
+  const variants = group.unavailable_variants ?? [];
+  if (variants.length === 0) return null;
+  const names = [...new Set(variants.map((v) => v.label.replace(/ \(limit \d+\)$/, "")))];
+  if (names.every((n) => n.startsWith("Quarterly "))) {
+    return `Quarterly data not on plan: ${names.map((n) => n.slice("Quarterly ".length)).join(", ")}`;
+  }
+  return `Not on plan: ${names.join(", ")}`;
+}
+
 /** Warning shown before turning a group off: what stops refreshing. */
 export function disableWarning(group: DataGroupOut): string {
   const wired = group.wired ? group.feeds : [];

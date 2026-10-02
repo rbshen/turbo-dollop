@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 
-import { updateGroup, useDataGroups } from "@/lib/hooks/useDataGroups";
+import { retestGroupVariants, updateGroup, useDataGroups } from "@/lib/hooks/useDataGroups";
 import { FmpHealthSummaryCard } from "@/components/settings/FmpHealthSummaryCard";
-import { STATE_LABEL, disableWarning, reasonText } from "@/lib/dataGroups";
+import { STATE_LABEL, disableWarning, reasonText, unavailableNote } from "@/lib/dataGroups";
 import { errorDetail } from "@/lib/api/client";
 import { formatRelativeTime } from "@/lib/relativeTime";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/section";
 import { Select } from "@/components/ui/Select";
 import { Switch } from "@/components/ui/switch";
@@ -37,6 +38,7 @@ export function FmpGroupsTable({
   failure,
   onToggle,
   onTier,
+  onRetest,
 }: {
   groups: DataGroupOut[];
   tiers: string[];
@@ -46,6 +48,8 @@ export function FmpGroupsTable({
   failure: { key: string; message: string } | null;
   onToggle: (group: DataGroupOut, enabled: boolean) => void;
   onTier: (group: DataGroupOut, tier: string) => void;
+  /** Re-test the group's refused request variants (shown only when it has some). */
+  onRetest?: (group: DataGroupOut) => void;
 }) {
   return (
     <Table>
@@ -77,6 +81,16 @@ export function FmpGroupsTable({
                 {g.key}
                 {!g.wired && " · not wired yet"}
               </div>
+              {unavailableNote(g) && (
+                <div className="mt-1 flex items-center gap-2 text-xs text-text-secondary">
+                  <span title={(g.unavailable_variants ?? []).map((v) => v.label).join("\n")}>{unavailableNote(g)}</span>
+                  {onRetest && (
+                    <Button variant="ghost" size="sm" disabled={busy} onClick={() => onRetest(g)}>
+                      Re-test
+                    </Button>
+                  )}
+                </div>
+              )}
               {failure?.key === g.key && (
                 <p role="alert" className="mt-1 text-xs text-negative">
                   {failure.message}
@@ -162,6 +176,7 @@ export function FmpDataGroupsSection() {
         failure={failure}
         onToggle={onToggle}
         onTier={(group, tier) => void run(group.key, () => updateGroup(group.key, { required_tier: tier }))}
+        onRetest={(group) => void run(group.key, () => retestGroupVariants(group.key))}
       />
 
       <FmpHealthSummaryCard />

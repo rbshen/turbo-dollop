@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FmpDataGroupsSection } from "@/components/settings/FmpDataGroupsSection";
-import { useDataGroups } from "@/lib/hooks/useDataGroups";
+import { retestGroupVariants, useDataGroups } from "@/lib/hooks/useDataGroups";
 import type { DataGroupOut, DataGroupsOut } from "@/lib/api/types";
 
 vi.mock("@/lib/hooks/useDataGroups", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/hooks/useDataGroups")>();
-  return { ...actual, useDataGroups: vi.fn() };
+  return { ...actual, useDataGroups: vi.fn(), retestGroupVariants: vi.fn() };
 });
 const mockedHook = vi.mocked(useDataGroups);
 
@@ -70,5 +70,30 @@ describe("FmpDataGroupsSection", () => {
 
     const pill = screen.getByText("Live");
     expect(pill.className).toMatch(/text-positive/);
+  });
+
+  it("keeps a group live and notes the request variants the plan refuses, with a Re-test button", async () => {
+    const quarter = (name: string) => ({
+      key: `/${name}?limit=12&period=quarter`,
+      label: `Quarterly ${name} (limit 12)`,
+      restricted_since: "2026-10-02T03:00:00Z",
+      last_error: null,
+      last_probe_at: null,
+    });
+    mockData([group({ unavailable_variants: [quarter("income statement"), quarter("balance sheet")] })]);
+    vi.mocked(retestGroupVariants).mockResolvedValue({} as never);
+    render(<FmpDataGroupsSection />);
+
+    expect(screen.getByText("Live")).toBeInTheDocument(); // the group itself is not restricted
+    expect(screen.getByText("Quarterly data not on plan: income statement, balance sheet")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Re-test" }));
+    await waitFor(() => expect(retestGroupVariants).toHaveBeenCalledWith("fundamentals"));
+  });
+
+  it("shows no note and no Re-test button when nothing is refused", () => {
+    mockData([group({})]);
+    render(<FmpDataGroupsSection />);
+    expect(screen.queryByText(/not on plan/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Re-test" })).toBeNull();
   });
 });
