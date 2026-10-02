@@ -1,11 +1,11 @@
-# ETFs screener: read-model, endpoints and refresh job (steps 3 and 4 of the build)
+# ETFs screener: read-model, endpoints, refresh job and page (steps 3 to 5 of the build)
 
-Built 2026-10-02 from the ETFs screener investigation. **Backend only**: the table, a write helper, two read endpoints,
-a stock/ETF `kind` on saved views (step 3) and the refresh job code (step 4). **The job is built but UNREGISTERED**: it
+Built 2026-10-02 from the ETFs screener investigation. Backend: the table, a write helper, two read endpoints,
+a stock/ETF `kind` on saved views (step 3) and the refresh job code (step 4); frontend: the `/etfs` page (step 5). **The job is built but UNREGISTERED**: it
 is not in `crontab.txt`, `CRON_JOB_NAMES`, `_EXPECTED_CADENCE_HOURS` or `JOB_METADATA` until step 6 (the nightly schedule
 is being reworked), so nothing fills the table on its own yet and `GET /api/etf-screener` returns `[]` until it is run by
-hand. Not built: the frontend page (step 5), the registration (step 6) and the cutover that takes ETFs out of the
-stock-side jobs (step 7, checklist at the end).
+hand. The frontend page (step 5) is built, see "Frontend" below. Not built: the registration (step 6) and the cutover
+that takes ETFs out of the stock-side jobs (step 7, checklist at the end).
 
 The ETF universe (which ETFs are in) is `data/tracked_universe.py::load_etf_universe`, see
 [Tracked universe](tracked-universe.md), "The ETF universe". The ETF page itself is [ETF page](etf-page.md).
@@ -77,6 +77,48 @@ view can share a name. `GET /api/screener/filters`, `PUT /api/screener/filters/{
 `DELETE /api/screener/filters/{name}` take an optional `?kind=` query parameter defaulting to `stock` (any other value is
 a 422); with no parameter they behave exactly as before. `SavedScreenerFilterOut` gained a `kind` field. Deleting a
 watchlist still removes every view that references it, whatever its kind.
+
+## Frontend: the ETFs page (step 5)
+
+Route `/etfs` (`app/etfs/page.tsx`, tab title "ETFs"), second item of the top nav (Stocks, **ETFs**, Watchlist, ...). The
+Stocks Screener's nav label and heading were renamed in the same change: "Screener" -> "Stocks", page heading and tab title
+"Stocks Screener"; the route stays `/screener` and `/` still redirects to it. The page is the Stocks page's shell
+(header, Sort row, sidebar plus 3-column card grid, 18 per page, saved views, Reset) with client-side filtering, sorting
+and paging over `GET /api/etf-screener`. No universe selector, no Recompute button; the Watchlist filter is never dimmed
+and lists every watchlist (ETF and E1-E5 included). The header's "Add to watchlist" adds the filtered tickers, as on the
+Stocks page.
+
+- **Data and keys.** `lib/hooks/useEtfScreener.ts` (`/etf-screener`, `/etf-screener/meta`) and
+  `lib/hooks/useSavedEtfFilters.ts` (key `/etf-screener/filters`, request `/screener/filters?kind=etf`). **No ETF SWR key
+  starts with `/screener`**, so the Moat / Valuation / Bank-capital `mutate("/screener")` calls and the Recompute sweep
+  never refresh ETF data (`lib/hooks/useEtfScreener.test.tsx` pins it). The stock saved-views hook is unchanged (key
+  `/screener/filters`, no `kind`).
+- **Sidebar**, in order: **Watchlist**, **Fundamental** (Asset class multi-select from `meta.asset_classes`; ranges
+  Expense ratio %, Quote USD, 1D change %, AUM USD with the `500M` / `2B` suffixes), **Technical** (Beta; 1Y vs SPY in
+  percentage points; Weinstein stage with "Pending"; Warren entry (2h); BB + RSI entry (2h) with the monitored-lists
+  caption). Section titles are the Stocks page's singular "Fundamental" / "Technical". "Quote" is the price range, as on the
+  Stocks page, plus a separate 1D change range. The `return_1y` column has no filter or sort (not on the Stocks page).
+- **Sort options:** AUM (default, descending), Expense ratio, Quote, 1D change, Beta, 1Y vs SPY, Warren signal recency,
+  Weinstein: stage since. Nulls last in both directions.
+- **Null rule.** An active range excludes a row whose value is null, as on the Stocks page. That includes Beta: it is null
+  for a non-equity fund (the backend's rule, not re-applied on the client), so a Beta range drops those funds; the card shows
+  a dash. The meta `ranges` are not used by the page.
+- **Card** (`components/etf-screener/EtfScreenerCard.tsx`): ticker, name, asset class badge, Weinstein pill, then Quote, 1D,
+  AUM, Exp. ratio, 1Y vs SPY ("+3.5 pp"), Beta. The whole card is a link to `/tickers/X`, `target="_blank"` (the same
+  inline new-tab pattern as `ScreenerCard`; the nav's background-tab click replay is nav-only).
+- **States.** Zero rows: "ETF data hasn't been loaded yet. It is filled by the nightly ETF job." (until step 6 registers
+  the job). Rows but no match: "No ETFs match the current filters." Subtitle: "X of `total_etfs` ETFs", then "— N match the
+  current filters" and "· K not viewed in 30 days are hidden" (`hidden_inactive`), or the watchlist flavour as on the
+  Stocks page.
+- **Shared vs twin.** Shared as they were or parameterized: `SortControls` (an `options` prop, default the stock list),
+  `SavedFiltersBarView` (generic over universe, sort field, filter state and saved row; the stock `SavedFiltersBar` and the new
+  `SavedEtfFiltersBar` wrap it), `WatchlistFilters`, `CollapsibleFilterSection`, `Pagination`, `MultiSelectDropdown`,
+  `RangeField`, `Checkbox`, `AddToWatchlistButton`, `WeinsteinStagePill`, and in `lib/screenerFilters.ts` the range test
+  (`inRange`), counting rule (`countActiveIn`) and null-last sort (`sortRows`) that the stock functions now call. ETF twins
+  (bound to the ETF row or state): `EtfScreenerCard`, `EtfFundamentalFilters`, `EtfTechnicalFilters`
+  (`components/etf-screener/`) and `lib/etfScreenerFilters.ts` (state, filter, sort).
+- Tests: `app/etfs/page.test.tsx`, `components/etf-screener/*.test.tsx`, `lib/etfScreenerFilters.test.ts`,
+  `lib/hooks/useEtfScreener.test.tsx`, the nav tests in `components/nav/TopNav.test.tsx`.
 
 ## How the schema reaches the live DB
 

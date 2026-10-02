@@ -172,7 +172,7 @@ export default function ScreenerPage() {
   return (
     <PageContainer className="space-y-6 pb-12">
       <PageHeader
-        title="Screener"
+        title="Stocks Screener"
         subtitle={
           !data ? undefined : watchlistActive && selectedWatchlist ? (
             <>
@@ -230,9 +230,9 @@ export default function ScreenerPage() {
               a half-typed view name, range drafts) stay mounted across a universe
               switch. */}
           {error ? (
-            <p className="py-12 text-sm text-negative">Failed to load the Screener.</p>
+            <p className="py-12 text-sm text-negative">Failed to load the Stocks Screener.</p>
           ) : !data ? (
-            <p className="py-12 text-sm text-text-tertiary animate-pulse">Loading Screener…</p>
+            <p className="py-12 text-sm text-text-tertiary animate-pulse">Loading Stocks Screener…</p>
           ) : (
             <>
               {sorted.length === 0 ? (

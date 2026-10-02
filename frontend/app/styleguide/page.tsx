@@ -574,7 +574,7 @@ function PageHeaderDemo() {
   const [range, setRange] = useState("sp500");
   return (
     <PageHeader
-      title="Screener"
+      title="Stocks Screener"
       subtitle="584 of 584 tickers"
       actions={
         <>

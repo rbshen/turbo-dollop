@@ -167,7 +167,7 @@ Screener card has no params, so its pill tooltip says "MA").
   `WeinsteinStagePill` — the same pill, with the same full "Stage 2 · Advance" wording
   (`WEINSTEIN_STAGE_LABEL`), as the ticker header; there is no short "S1"–"S4" tier (removed
   2026-10-02) — and a "Weinstein
-  stage" filter dropdown in the Screener sidebar's Technical section (label sentence-cased
+  stage" filter dropdown in the Stocks Screener sidebar's Technical section (and the ETFs page's, same options; label sentence-cased
   2026-09-30; the option labels "Stage 1 · Base" ... and the stored keys `base`/`advance`/`top`/
   `decline`/`pending` are unchanged)
   (`components/screener/TechnicalFilters.tsx`, which now holds other technical filters too). A

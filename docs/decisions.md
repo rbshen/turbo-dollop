@@ -51,6 +51,8 @@ All sessions below are commits on `ui/design-system`, not pushed to `origin` unt
 - **Session 15 — Ticker page and shell controls, part C2, cleanup sweep (2026-10-01).** The leftovers from sessions 12 to 14: two icon buttons' keyboard ring, the emoji and text glyphs, sentence-case strings, the multi-select trigger's name, the 32px primary `sm` button, the Bank, Moat and Zoom buttons, a focus return and an ArrowUp fix, and the stale docs and comments, in four commits (docs; accessibility and icons; sentence case and the multi-select name; buttons and cleanups), local, not pushed. See the entry below.
 - **Session 16 — Ticker page and shell controls, part C3 (2026-10-01).** Two browser-found bugs (the Speculative growth tooltips overflowing their box, the expanded Analysis cards not lining up with their paragraph) and the neutral-selection and accessibility leftovers: five navigation places off brand blue, two tab strips onto `Tabs`, an accessible name for the SEC check icon, and the two Screener dropdown triggers onto the kit. Four commits on local `main` (docs, the two bug fixes, items 1 to 3, the triggers); see the entry below.
 
+- **ETFs page and the "Stocks" rename (2026-10-02).** Step 5 of the ETFs screener. The top nav is Stocks, ETFs, Watchlist, Momentum, Sectors, Breadth, Settings; "Screener" is now "Stocks" (heading and tab title "Stocks Screener"). Routes, API paths, file, component and SWR-key names are unchanged, and `/` still redirects to `/screener`. The new `/etfs` page is the Stocks Screener's shell over `GET /api/etf-screener`, with ETF twins only where a component is bound to the stock row or filter state. Spec: "Frontend" in `docs/specs/etf-screener.md`.
+
 ## Design reversals
 
 ### 2026-09-29 — Status becomes a pill everywhere

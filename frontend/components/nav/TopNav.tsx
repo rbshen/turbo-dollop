@@ -14,7 +14,8 @@ interface NavLink {
 }
 
 const NAV_LINKS: NavLink[] = [
-  { href: "/screener", label: "Screener" },
+  { href: "/screener", label: "Stocks" },
+  { href: "/etfs", label: "ETFs" },
   { href: "/watchlist", label: "Watchlist" },
   { href: "/momentum", label: "Momentum" },
   { href: "/sectors", label: "Sectors" },
@@ -46,7 +47,7 @@ function openInBackgroundTab(e: ReactMouseEvent<HTMLAnchorElement>) {
 
 // Ticker Analysis has no landing page of its own -- per the design
 // handoff, it's "reached by searching a ticker or navigating from
-// Screener/Watchlist," not by clicking this item directly. It renders as
+// Stocks/ETFs/Watchlist," not by clicking this item directly. It renders as
 // a plain active-state indicator (highlighted only while already on a
 // ticker page), not a link to nowhere.
 export function TopNav() {

@@ -22,7 +22,7 @@ export function TickerNotFound({ ticker }: Props) {
           href="/screener"
           className="rounded-md bg-brand/15 px-3 py-1.5 text-sm font-medium text-brand hover:bg-brand/25"
         >
-          Go to Screener
+          Go to Stocks Screener
         </Link>
         <Link
           href="/watchlist"

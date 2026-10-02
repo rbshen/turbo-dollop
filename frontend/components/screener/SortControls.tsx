@@ -24,17 +24,24 @@ export const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: "weinstein_stage_since", label: "Weinstein: stage since" },
 ];
 
-interface Props {
-  sortField: SortField;
+interface Props<F extends string> {
+  sortField: F;
   sortDirection: SortDirection;
-  onChange: (field: SortField, direction: SortDirection) => void;
+  onChange: (field: F, direction: SortDirection) => void;
+  // The field choices. The Stocks page passes none and gets SORT_OPTIONS; the ETFs page passes its own.
+  options?: readonly { value: F; label: string }[];
 }
 
 // The results header's Sort row: a labelled native Select for the field (size
 // "wide": "medium" clips the longest label, "Warren signal recency") and one
 // outline toggle for the direction. The Button's default size is 36px, the same
 // height as the Select. Wraps below lg instead of overflowing.
-export function SortControls({ sortField, sortDirection, onChange }: Props) {
+export function SortControls<F extends string = SortField>({
+  sortField,
+  sortDirection,
+  onChange,
+  options = SORT_OPTIONS as unknown as readonly { value: F; label: string }[],
+}: Props<F>) {
   const fieldId = useId();
   const descending = sortDirection === "desc";
   const DirectionIcon = descending ? ArrowDown : ArrowUp;
@@ -43,8 +50,8 @@ export function SortControls({ sortField, sortDirection, onChange }: Props) {
       <label htmlFor={fieldId} className="text-xs text-text-secondary">
         Sort by
       </label>
-      <Select id={fieldId} size="wide" value={sortField} onChange={(e) => onChange(e.target.value as SortField, sortDirection)}>
-        {SORT_OPTIONS.map((opt) => (
+      <Select id={fieldId} size="wide" value={sortField} onChange={(e) => onChange(e.target.value as F, sortDirection)}>
+        {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
           </option>

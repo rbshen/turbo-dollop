@@ -1,3 +1,4 @@
+import type { EtfFilterState, EtfSortField } from "@/lib/etfScreenerFilters";
 import type { ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
 
 export interface SecCrossCheck {
@@ -680,6 +681,62 @@ export interface SavedScreenerFilter {
   watchlist_id: number | null;
   created_at: string;
   updated_at: string;
+}
+
+/** A saved ETFs-page view (`GET /api/screener/filters?kind=etf`). Same row shape as the stock view; the server stores
+ * `universe` as an opaque string, and an ETF view always sends "all" (the ETFs page has one universe). */
+export interface SavedEtfFilter {
+  id: number;
+  name: string;
+  kind: "etf";
+  universe: string;
+  sort_field: EtfSortField;
+  sort_direction: SortDirection;
+  filters: EtfFilterState;
+  watchlist_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A row of `GET /api/etf-screener` (backend EtfScreenerRowOut). Percent fields are percent numbers (0.09 = 0.09%);
+ * `vs_spy_1y` is percentage points; `beta` is already null for a non-equity fund. Every value can be null. */
+export interface EtfScreenerRowOut {
+  ticker: string;
+  name: string | null;
+  asset_class: string | null;
+  expense_ratio: number | null;
+  aum: number | null;
+  last_price: number | null;
+  pct_change_1d: number | null;
+  beta: number | null;
+  return_1y: number | null;
+  vs_spy_1y: number | null;
+  weinstein_stage: "base" | "advance" | "top" | "decline" | null;
+  weinstein_stage_since_date: string | null;
+  weinstein_stage_since_is_lower_bound: boolean | null;
+  weinstein_ma_slope_pct: number | null;
+  weinstein_vs_ma_pct: number | null;
+  weinstein_pending_direction: "advance" | "decline" | null;
+  bb_rsi_entry_signal: boolean | null;
+  warren_active_signal_kind: "blue_up" | "yellow_up" | "gray_up" | null;
+  warren_last_buy_fired_at: string | null;
+  as_of_date: string | null;
+  info_updated_at: string | null;
+  updated_at: string | null;
+}
+
+export interface EtfRange {
+  min: number | null;
+  max: number | null;
+}
+
+/** `GET /api/etf-screener/meta`. `total_etfs - row_count` is the "X of Y" gap; `ranges` has every key always. */
+export interface EtfScreenerMeta {
+  total_etfs: number;
+  row_count: number;
+  hidden_inactive: number;
+  asset_classes: string[];
+  ranges: Record<string, EtfRange>;
 }
 
 export interface RecomputeSummary {

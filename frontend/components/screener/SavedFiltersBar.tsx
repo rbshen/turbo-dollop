@@ -6,21 +6,34 @@ import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
-import { deleteScreenerFilter, saveScreenerFilter, useSavedFilters, type SaveScreenerFilterBody } from "@/lib/hooks/useSavedFilters";
+import { deleteScreenerFilter, saveScreenerFilter, useSavedFilters, type SaveViewBody } from "@/lib/hooks/useSavedFilters";
 import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
 import type { ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
 import { cn } from "@/lib/utils";
 
-interface Props {
-  universe: ScreenerUniverse;
-  sortField: SortField;
+// Generic over what a view holds, so the Stocks and ETFs pages share this one bar: the universe, sort field and
+// filter-state types, and the saved row the list shows. The stock instantiation is the default.
+interface Props<
+  TUniverse extends string = ScreenerUniverse,
+  TSort extends string = SortField,
+  TFilters = ScreenerFilterState,
+  TSaved extends SavedViewRow = SavedScreenerFilter,
+> {
+  universe: TUniverse;
+  sortField: TSort;
   sortDirection: SortDirection;
-  filters: ScreenerFilterState;
+  filters: TFilters;
   // The WATCHLIST universe filter's current selection, persisted alongside
   // universe/sortField/etc. on save -- see SavedScreenerFilter.watchlist_id.
   watchlistId: number | null;
-  onLoad: (saved: SavedScreenerFilter) => void;
+  onLoad: (saved: TSaved) => void;
   onReset: () => void;
+}
+
+// The part of a saved view this bar itself reads.
+interface SavedViewRow {
+  id: number;
+  name: string;
 }
 
 export type SaveStep = "idle" | "naming" | "confirmOverwrite";
@@ -44,9 +57,10 @@ const STATUS_LABELS: Record<Status, string> = {
 // never altered: the box shows this message and Save stays off.
 const NAME_SLASH_ERROR = 'A view name cannot contain "/".';
 
-interface SavedFiltersBarViewProps extends Props {
-  saved: SavedScreenerFilter[] | undefined;
-  onSave: (name: string, body: SaveScreenerFilterBody) => Promise<unknown>;
+interface SavedFiltersBarViewProps<TUniverse extends string, TSort extends string, TFilters, TSaved extends SavedViewRow>
+  extends Props<TUniverse, TSort, TFilters, TSaved> {
+  saved: TSaved[] | undefined;
+  onSave: (name: string, body: SaveViewBody<TUniverse, TSort, TFilters>) => Promise<unknown>;
   onDelete: (name: string) => Promise<unknown>;
   // Initial state, so the /styleguide can show the popover, the naming step and
   // the overwrite confirm without clicking. The app never sets these.
@@ -63,7 +77,12 @@ export function SavedFiltersBar(props: Props) {
   return <SavedFiltersBarView {...props} saved={saved} onSave={saveScreenerFilter} onDelete={deleteScreenerFilter} />;
 }
 
-export function SavedFiltersBarView({
+export function SavedFiltersBarView<
+  TUniverse extends string = ScreenerUniverse,
+  TSort extends string = SortField,
+  TFilters = ScreenerFilterState,
+  TSaved extends SavedViewRow = SavedScreenerFilter,
+>({
   universe,
   sortField,
   sortDirection,
@@ -78,7 +97,7 @@ export function SavedFiltersBarView({
   defaultSaveStep = "idle",
   defaultName = "",
   defaultActiveName = null,
-}: SavedFiltersBarViewProps) {
+}: SavedFiltersBarViewProps<TUniverse, TSort, TFilters, TSaved>) {
   const [listOpen, setListOpen] = useState(defaultListOpen);
   const [saveStep, setSaveStep] = useState<SaveStep>(defaultSaveStep);
   const [name, setName] = useState(defaultName);
@@ -166,7 +185,7 @@ export function SavedFiltersBarView({
     await doSave(trimmedName);
   }
 
-  async function handleDelete(s: SavedScreenerFilter, index: number) {
+  async function handleDelete(s: TSaved, index: number) {
     if (deleteState?.name === s.name && deleteState.status === "deleting") return;
     // Where focus goes once this row is gone: the next row, else the previous
     // one, else the trigger -- so it is never dropped onto <body>.

@@ -165,7 +165,7 @@ Scoring methodology and feature-specific detail live in `docs/specs/*.md` and `d
 
 **Tracked universe** (nightly ticker set, 30-day view expiry, protected set, seed, delisted clearing) — docs/specs/tracked-universe.md.
 
-**ETFs screener** (read-model table `EtfScreenerRow`, `/api/etf-screener` endpoints, equity-only Beta, saved-view `kind`; backend only so far) — docs/specs/etf-screener.md.
+**ETFs screener** (read-model table `EtfScreenerRow`, `/api/etf-screener` endpoints, equity-only Beta, saved-view `kind`; the `/etfs` page ("ETFs" in the top nav, built step 5; the old "Screener" nav item and page are now "Stocks" / "Stocks Screener", same `/screener` route) — docs/specs/etf-screener.md.
 
 **ETF page** (ticker page variant for `isEtf || isFund`: Overview/Technical/Chart, `/etf/info`, `etf_info` group, ETF watchlist button, Moat guard) — docs/specs/etf-page.md.
 

@@ -147,7 +147,7 @@ describe("loading a saved view", () => {
     render(<ScreenerPage />);
     loadSavedView("Legacy");
     expect(cards()).toEqual(["CCC", "DDD"]);
-    expect(screen.queryByText("Failed to load the Screener.")).toBeNull();
+    expect(screen.queryByText("Failed to load the Stocks Screener.")).toBeNull();
   });
 
   it("scopes to a saved watchlist that still exists, forcing the universe to All", () => {
@@ -315,9 +315,9 @@ describe("the sidebar across a universe switch", () => {
     expect(lastUniverse()).toBe("sp500");
 
     // loading shows in the results area only
-    expect(screen.getByText("Loading Screener…")).toBeInTheDocument();
+    expect(screen.getByText("Loading Stocks Screener…")).toBeInTheDocument();
     expect(cards()).toEqual([]);
-    expect(screen.getByRole("heading", { name: "Screener" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Stocks Screener" })).toBeInTheDocument();
     expect(sortSelect()).toBeInTheDocument();
     // ...and the sidebar is the very same, untouched state
     expect(screen.queryByRole("group", { name: "Beta" })).toBeNull();
@@ -333,7 +333,7 @@ describe("the sidebar across a universe switch", () => {
     fireEvent.click(screen.getByRole("button", { name: "S&P 500" }));
     h.rows.sp500 = ALL_ROWS.slice(0, 3);
     rerender(<ScreenerPage />);
-    expect(screen.queryByText("Loading Screener…")).toBeNull();
+    expect(screen.queryByText("Loading Stocks Screener…")).toBeNull();
     // Overall max 60 leaves CCC (40); DDD's null score is excluded from sp500's three rows anyway
     expect(cards()).toEqual(["CCC"]);
     expect(screen.queryByRole("group", { name: "Beta" })).toBeNull();
@@ -348,10 +348,10 @@ describe("the sidebar across a universe switch", () => {
     render(<ScreenerPage />);
     typeInto(groupBox("Overall", "Minimum"), "70");
     fireEvent.click(screen.getByRole("button", { name: "S&P 500" }));
-    expect(screen.getByText("Failed to load the Screener.")).toBeInTheDocument();
+    expect(screen.getByText("Failed to load the Stocks Screener.")).toBeInTheDocument();
     expect(groupBox("Overall", "Minimum").value).toBe("70");
     expect(screen.getByRole("button", { name: /^Reset/ })).toBeInTheDocument();
-    expect(screen.queryByText("Loading Screener…")).toBeNull();
+    expect(screen.queryByText("Loading Stocks Screener…")).toBeNull();
   });
 
   it("keeps the last known Sector and Company type options while the new universe loads", () => {
@@ -359,7 +359,7 @@ describe("the sidebar across a universe switch", () => {
     render(<ScreenerPage />);
     const openMulti = (label: string) => fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${label}`) }));
     fireEvent.click(screen.getByRole("button", { name: "Dow 30" }));
-    expect(screen.getByText("Loading Screener…")).toBeInTheDocument();
+    expect(screen.getByText("Loading Stocks Screener…")).toBeInTheDocument();
     openMulti("Sector");
     expect(within(screen.getByRole("listbox")).getAllByRole("option").map((o) => o.textContent)).toEqual(["Energy", "Healthcare", "Technology"]);
     openMulti("Sector"); // close it again

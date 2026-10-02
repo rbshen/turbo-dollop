@@ -25,7 +25,8 @@ describe("TopNav", () => {
     render(<TopNav />);
     const expected: [string, string][] = [
       ["Fathom", "/screener"],
-      ["Screener", "/screener"],
+      ["Stocks", "/screener"],
+      ["ETFs", "/etfs"],
       ["Watchlist", "/watchlist"],
       ["Momentum", "/momentum"],
       ["Sectors", "/sectors"],
@@ -60,7 +61,7 @@ describe("TopNav", () => {
     expect(fireEvent.click(screen.getByRole("link", { name: "Momentum" }), { ctrlKey: true })).toBe(true);
   });
 
-  it.each(["/screener", "/watchlist", "/tickers/AAPL"])("on %s, every nav link and the logo open in a new tab", (path) => {
+  it.each(["/screener", "/etfs", "/watchlist", "/tickers/AAPL"])("on %s, every nav link and the logo open in a new tab", (path) => {
     h.pathname = path;
     render(<TopNav />);
     for (const link of screen.getAllByRole("link")) {
@@ -82,7 +83,7 @@ describe("TopNav", () => {
         e.preventDefault(); // jsdom has no navigation
       };
       document.addEventListener("click", spy);
-      fireEvent.click(screen.getByRole("link", { name: "Screener" }));
+      fireEvent.click(screen.getByRole("link", { name: "Stocks" }));
       document.removeEventListener("click", spy);
       expect(seen).toHaveLength(1); // no replayed background-tab click
     }
@@ -92,10 +93,33 @@ describe("TopNav", () => {
     h.pathname = "/momentum";
     render(<TopNav />);
     expect(isCurrent(screen.getByRole("link", { name: "Momentum" }))).toBe(true);
-    for (const name of ["Screener", "Watchlist", "Sectors", "Breadth", "Settings"]) {
+    for (const name of ["Stocks", "ETFs", "Watchlist", "Sectors", "Breadth", "Settings"]) {
       expect(isCurrent(screen.getByRole("link", { name }))).toBe(false);
     }
     expect(isCurrent(screen.getByText("Ticker Analysis"))).toBe(false);
+  });
+
+  it("lists the pages in order: Stocks, ETFs, Watchlist, then the rest", () => {
+    render(<TopNav />);
+    const labels = screen.getAllByRole("link").map((a) => a.textContent);
+    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Momentum", "Sectors", "Breadth", "Settings"]);
+    expect(screen.queryByRole("link", { name: "Screener" })).not.toBeInTheDocument();
+  });
+
+  it("marks ETFs (and only ETFs) on /etfs", () => {
+    h.pathname = "/etfs";
+    render(<TopNav />);
+    expect(isCurrent(screen.getByRole("link", { name: "ETFs" }))).toBe(true);
+    for (const name of ["Stocks", "Watchlist", "Momentum", "Sectors", "Breadth", "Settings"]) {
+      expect(isCurrent(screen.getByRole("link", { name }))).toBe(false);
+    }
+  });
+
+  it("marks Stocks on /screener, and the logo keeps linking to the home page's route", () => {
+    render(<TopNav />);
+    expect(isCurrent(screen.getByRole("link", { name: "Stocks" }))).toBe(true);
+    expect(isCurrent(screen.getByRole("link", { name: "ETFs" }))).toBe(false);
+    expect(screen.getByRole("link", { name: "Fathom" })).toHaveAttribute("href", "/screener");
   });
 
   it("marks Ticker Analysis (not a link) on a ticker page, and no link", () => {
@@ -103,7 +127,7 @@ describe("TopNav", () => {
     render(<TopNav />);
     expect(isCurrent(screen.getByText("Ticker Analysis"))).toBe(true);
     expect(screen.queryByRole("link", { name: "Ticker Analysis" })).not.toBeInTheDocument();
-    for (const name of ["Screener", "Watchlist", "Momentum", "Sectors", "Breadth", "Settings"]) {
+    for (const name of ["Stocks", "ETFs", "Watchlist", "Momentum", "Sectors", "Breadth", "Settings"]) {
       expect(isCurrent(screen.getByRole("link", { name }))).toBe(false);
     }
   });
@@ -122,7 +146,7 @@ describe("TopNav: the current item is neutral", () => {
     const { container } = render(<TopNav />);
     const current = screen.getByRole("link", { name: "Sectors" });
     expect(current).toHaveClass("bg-surface-2", "text-text-primary");
-    expect(screen.getByRole("link", { name: "Screener" })).not.toHaveClass("bg-surface-2");
+    expect(screen.getByRole("link", { name: "Stocks" })).not.toHaveClass("bg-surface-2");
     expect(container.innerHTML).not.toMatch(/(bg|text|border)-brand/);
   });
 

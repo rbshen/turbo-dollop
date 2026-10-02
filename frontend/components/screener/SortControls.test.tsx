@@ -105,3 +105,26 @@ describe("SortControls: layout", () => {
     expect(container.firstElementChild).toHaveClass("flex", "flex-wrap", "justify-end");
   });
 });
+
+describe("SortControls: custom options", () => {
+  it("lists exactly the options it is given, and reports the picked field typed as that set", () => {
+    const onChange = vi.fn();
+    render(
+      <SortControls
+        sortField="aum"
+        sortDirection="asc"
+        onChange={onChange}
+        options={[
+          { value: "aum", label: "AUM" },
+          { value: "beta", label: "Beta" },
+        ]}
+      />
+    );
+    expect(Array.from(select().options).map((o) => [o.value, o.textContent])).toEqual([
+      ["aum", "AUM"],
+      ["beta", "Beta"],
+    ]);
+    fireEvent.change(select(), { target: { value: "beta" } });
+    expect(onChange).toHaveBeenCalledWith("beta", "asc");
+  });
+});

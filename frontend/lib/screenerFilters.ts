@@ -217,9 +217,15 @@ export function countActiveFilters(
   watchlistActive: boolean,
   keys: readonly FilterKey[] = ALL_FILTER_KEYS
 ): number {
+  return countActiveIn(filters, watchlistActive, keys);
+}
+
+/** The counting rule behind countActiveFilters, for any filter-state shape
+ * (the ETFs page has its own state, see etfScreenerFilters.ts). */
+export function countActiveIn<S extends object>(filters: S, watchlistActive: boolean, keys: readonly (keyof S)[]): number {
   let count = watchlistActive ? 1 : 0;
   for (const key of keys) {
-    const value = filters[key];
+    const value = filters[key] as RangeFilter | string[] | boolean | null | undefined;
     if (value == null) continue;
     if (Array.isArray(value)) {
       if (value.length > 0) count += 1;
@@ -236,7 +242,7 @@ export function countActiveFilters(
 // active filter can never be satisfied by a null value (e.g. filtering
 // "Overall score > 70" must exclude an Incomplete ticker with no Overall
 // score at all, not treat the missing value as passing).
-function inRange(value: number | null, range: RangeFilter): boolean {
+export function inRange(value: number | null | undefined, range: RangeFilter): boolean {
   if (range.min == null && range.max == null) return true;
   if (value == null) return false;
   if (range.min != null && value < range.min) return false;
@@ -349,10 +355,20 @@ function sortValue(row: TickerScoreOut, field: SortField): number | null {
 }
 
 export function sortTickerScores(rows: TickerScoreOut[], field: SortField, direction: SortDirection): TickerScoreOut[] {
+  return sortRows(rows, (row) => sortValue(row, field), direction);
+}
+
+/** An ISO date/datetime string as epoch ms, null for no value (the date-typed sort fields). */
+export function isoToMs(value: string | null | undefined): number | null {
+  return value ? Date.parse(value) : null;
+}
+
+/** The one sort rule: by `valueOf`, nulls last in either direction. Shared by the Stocks and ETFs pages. */
+export function sortRows<T>(rows: T[], valueOf: (row: T) => number | null, direction: SortDirection): T[] {
   const dir = direction === "asc" ? 1 : -1;
   return [...rows].sort((a, b) => {
-    const av = sortValue(a, field);
-    const bv = sortValue(b, field);
+    const av = valueOf(a);
+    const bv = valueOf(b);
     // Nulls always sort to the end, regardless of direction -- an
     // Incomplete ticker (or, for warren_signal_recency, a ticker with no
     // Warren buy signal history at all) shouldn't jump to the top just

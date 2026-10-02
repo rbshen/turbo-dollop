@@ -150,7 +150,7 @@ its own rows and still shows an ETF a user explicitly added.
   same as BLK). Already cached — no new FMP field or fetch.
 - **Mechanism**: `TickerSummaryOut.is_etf` (from the profile, `data/ticker_summary.py`) →
   `TickerScore.is_etf` (nullable, `_add_missing_columns`, no backfill) → `TickerScoreOut.is_etf`.
-  The Screener page applies `frontend/lib/screenerFilters.ts::excludeEtfs` to the fetched rows
+  The Stocks Screener page (`/screener`) applies `frontend/lib/screenerFilters.ts::excludeEtfs` to the fetched rows
   once, *before* counts, Sector/Company-type options and filters derive from them, so "ETF" isn't
   even a selectable Company type. `core/main.py::screener_meta` for `universe=all` excludes them
   too, so the "X of Y" note doesn't show an ETF as a missing ticker.
