@@ -7,6 +7,7 @@ from sqlmodel import SQLModel, create_engine
 from core.config import BASE_DIR, settings
 
 import core.models  # noqa: F401  (registers tables on SQLModel.metadata)
+from core.models import SavedScreenerFilter
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,42 @@ def _add_missing_columns() -> None:
                 conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {column_type}'))
 
 
+_SAVED_FILTER_UNIQUE_NAME = "uq_saved_screener_filter_name_kind"
+
+
+def _migrate_saved_filter_kind() -> bool:
+    """SavedScreenerFilter gained `kind` ("stock" / "etf") with its name unique PER KIND (2026-10-02). The
+    live table was created with UNIQUE(name) as a table constraint, which SQLite cannot drop or alter, and
+    _add_missing_columns could only add `kind` as a plain nullable column: so this rebuilds the table once.
+    Idempotent: a table whose DDL already names the per-kind constraint (a fresh create_all, or a table
+    already rebuilt) is left alone. Every existing row is copied with kind = 'stock', ids and timestamps kept,
+    all in one transaction (SQLite DDL is transactional, so a failure leaves the old table exactly as it
+    was). Returns True when it rebuilt. Must run before _add_missing_columns."""
+    inspector = inspect(engine)
+    if not inspector.has_table("savedscreenerfilter"):
+        return False
+    with engine.begin() as conn:
+        ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'savedscreenerfilter'")).scalar()
+        if ddl is None or _SAVED_FILTER_UNIQUE_NAME in ddl:
+            return False
+        old_columns = {col["name"] for col in inspector.get_columns("savedscreenerfilter")}
+        # sqlite3 opens a transaction only before DML, so BEGIN explicitly to put the DDL inside one.
+        conn.exec_driver_sql("BEGIN")
+        conn.execute(text('ALTER TABLE "savedscreenerfilter" RENAME TO "savedscreenerfilter_old"'))
+        conn.execute(text('DROP INDEX IF EXISTS "ix_savedscreenerfilter_name"'))
+        SavedScreenerFilter.__table__.create(bind=conn)
+        copied = [c.name for c in SavedScreenerFilter.__table__.columns if c.name != "kind" and c.name in old_columns]
+        cols = ", ".join(f'"{c}"' for c in copied)
+        conn.execute(
+            text(
+                f'INSERT INTO "savedscreenerfilter" ({cols}, "kind") SELECT {cols}, \'stock\' FROM "savedscreenerfilter_old"'
+            )
+        )
+        conn.execute(text('DROP TABLE "savedscreenerfilter_old"'))
+    logger.info("Rebuilt savedscreenerfilter with a per-kind unique name (existing views kept as kind 'stock').")
+    return True
+
+
 # (index name, table, columns). _add_missing_columns is add-column-only and
 # create_all skips indexes on pre-existing tables, so a unique index that must
 # exist on an already-populated DB is created here, idempotently.
@@ -135,6 +172,7 @@ def _seed_ticker_views(now: datetime | None = None) -> int:
 
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
+    _migrate_saved_filter_kind()
     _add_missing_columns()
     _ensure_unique_indexes()
     _drop_obsolete_columns()

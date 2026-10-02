@@ -39,6 +39,14 @@ logger = logging.getLogger(__name__)
 
 ETF_INFO_STATEMENT_TYPE = "etf_info"
 
+
+def is_equity_asset_class(asset_class: str | None) -> bool:
+    """The one definition of an equity fund, from /etf/info `assetClass`. The values seen in the live cache
+    (2026-10-02, 10 ETFs) are "Equity", "Fixed Income", "Commodities" and "Alternatives"; only "Equity" is
+    equity (case and surrounding whitespace ignored). None or anything else (including a value FMP adds
+    later) is not, so the equity-only figures (Beta, sector weights) stay hidden rather than guessed."""
+    return asset_class is not None and asset_class.strip().lower() == "equity"
+
 # FMP's placeholder sector for the part of a fund that is not stocks. A non-equity fund (bond,
 # commodity) reports ONLY this, at 100% -- meaningless as a "sector weight".
 _CASH_AND_OTHERS = "cash & others"
@@ -69,7 +77,7 @@ def _text(value) -> str | None:
 
 def _sector_weights(asset_class: str | None, sectors_list) -> list[EtfSectorWeightOut]:
     """Largest first; empty for a non-equity fund or when the list is only "Cash & Others"."""
-    if asset_class is not None and asset_class.lower() != "equity":
+    if asset_class is not None and not is_equity_asset_class(asset_class):
         return []
     entries: list[EtfSectorWeightOut] = []
     for item in sectors_list if isinstance(sectors_list, list) else []:
@@ -195,7 +203,7 @@ async def _trading_data(ticker: str, asset_class: str | None) -> EtfTradingDataO
     low, high = _positive(quote.get("yearLow")), _positive(quote.get("yearHigh"))
     price = _positive(quote.get("price")) or stats.get("last_close")
     per_share = _positive(profile.get("lastDividend"))
-    is_equity = asset_class is not None and asset_class.lower() == "equity"
+    is_equity = is_equity_asset_class(asset_class)
 
     data = EtfTradingDataOut(
         perf_1m=stats.get("perf_1m"),

@@ -620,10 +620,14 @@ class SavedScreenerFilter(SQLModel, table=True):
     Nullable -- most saved views have no watchlist scoping at all.
 """
 
-    __table_args__ = (UniqueConstraint("name", name="uq_saved_screener_filter_name"),)
+    __table_args__ = (UniqueConstraint("name", "kind", name="uq_saved_screener_filter_name_kind"),)
 
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True)
+    # "stock" (the Stocks Screener, every row that existed before the ETF screener) or "etf". A name is
+    # unique per kind, so one name can exist once for each. A pre-existing table had UNIQUE(name) only,
+    # which SQLite cannot alter in place: core/db.py::_migrate_saved_filter_kind rebuilds it once.
+    kind: str = Field(default="stock", sa_column_kwargs={"server_default": "stock"})
     universe: str
     sort_field: str
     sort_direction: str
@@ -1196,6 +1200,48 @@ class TickerLastClose(SQLModel, table=True):
     close: float
     as_of_date: date
     fetched_at: datetime
+
+
+class EtfScreenerRow(SQLModel, table=True):
+    """One pre-computed row per ETF for the ETFs screener (docs/specs/etf-screener.md): the ETF counterpart
+    of TickerScore, kept as its own table because an ETF has none of TickerScore's fundamentals and needs
+    fund fields (asset class, expense ratio, AUM) TickerScore has no column for. Written by the ETF
+    nightly job (not built yet) through data/etf_screener_data.py::upsert_etf_screener_row; read only for
+    tickers in data/tracked_universe.py::load_etf_universe, so an expired ETF keeps its row but is hidden.
+
+    Every value column is nullable: a row is filled in pieces (/etf/info fields, bar-derived figures, the
+    Weinstein/signal fields each come from a different source). Units: expense_ratio, pct_change_1d,
+    return_1y, vs_spy_1y and the two Weinstein percentages are PERCENT numbers (0.09 means 0.09%, not 9%);
+    vs_spy_1y is percentage points (the ETF's 1Y return minus SPY's). `beta` is stored raw as FMP's profile
+    reports it; the endpoint nulls it unless asset_class is equity (is_equity_asset_class)."""
+
+    ticker: str = Field(primary_key=True)
+    name: str | None = None
+    # /etf/info
+    asset_class: str | None = None
+    expense_ratio: float | None = None
+    aum: float | None = None
+    # Quote (from bars)
+    last_price: float | None = None
+    pct_change_1d: float | None = None
+    # Technicals
+    beta: float | None = None
+    return_1y: float | None = None
+    vs_spy_1y: float | None = None
+    weinstein_stage: str | None = None
+    weinstein_stage_since_date: date | None = None
+    weinstein_stage_since_is_lower_bound: bool | None = None
+    weinstein_ma_slope_pct: float | None = None
+    weinstein_vs_ma_pct: float | None = None
+    weinstein_pending_direction: str | None = None
+    # Only ever set for an ETF on a monitored watchlist (the ETF list is one), like TickerScore's.
+    bb_rsi_entry_signal: bool | None = None
+    warren_active_signal_kind: str | None = None
+    warren_last_buy_fired_at: datetime | None = None
+    # Bookkeeping: the session date the price figures are for, FMP's /etf/info `updatedAt`, last write.
+    as_of_date: date | None = None
+    info_updated_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class TickerView(SQLModel, table=True):

@@ -1099,6 +1099,9 @@ class RecomputeSummary(BaseModel):
     failures: list[tuple[str, str]] = []
 
 
+SavedFilterKind = Literal["stock", "etf"]
+
+
 class SavedScreenerFilterIn(BaseModel):
     universe: str
     sort_field: str
@@ -1112,6 +1115,7 @@ class SavedScreenerFilterIn(BaseModel):
 class SavedScreenerFilterOut(BaseModel):
     id: int
     name: str
+    kind: SavedFilterKind = "stock"
     universe: str
     sort_field: str
     sort_direction: str
@@ -1800,6 +1804,53 @@ class WatchlistRowOut(BaseModel):
     # TickerScore.is_etf of the cache-only score row; the table shows an "ETF" marker in place of
     # the (always blank) score cells. False for a never-viewed ticker with no score row.
     is_etf: bool = False
+
+
+class EtfScreenerRowOut(BaseModel):
+    """A row of GET /api/etf-screener (models.py::EtfScreenerRow). `beta` is already nulled for a non-equity
+    fund. Percent fields are percent numbers (0.09 = 0.09%); see the model."""
+
+    ticker: str
+    name: str | None = None
+    asset_class: str | None = None
+    expense_ratio: float | None = None
+    aum: float | None = None
+    last_price: float | None = None
+    pct_change_1d: float | None = None
+    beta: float | None = None
+    return_1y: float | None = None
+    vs_spy_1y: float | None = None
+    weinstein_stage: str | None = None
+    weinstein_stage_since_date: date | None = None
+    weinstein_stage_since_is_lower_bound: bool | None = None
+    weinstein_ma_slope_pct: float | None = None
+    weinstein_vs_ma_pct: float | None = None
+    weinstein_pending_direction: str | None = None
+    bb_rsi_entry_signal: bool | None = None
+    warren_active_signal_kind: str | None = None
+    warren_last_buy_fired_at: datetime | None = None
+    as_of_date: date | None = None
+    info_updated_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class EtfRangeOut(BaseModel):
+    min: float | None = None
+    max: float | None = None
+
+
+class EtfScreenerMeta(BaseModel):
+    # ETFs in the ETF universe (data/tracked_universe.py::load_etf_universe), with or without a row yet.
+    total_etfs: int
+    # How many of them have a row, i.e. len(GET /api/etf-screener). total_etfs - row_count is the "X of Y" gap.
+    row_count: int
+    # Expired ETFs (not opened for 30 days, on no watchlist, not a seed) the universe hides.
+    hidden_inactive: int = 0
+    # Distinct non-null asset classes among the returned rows, sorted.
+    asset_classes: list[str] = []
+    # Min/max over the returned rows for every numeric filter, always all keys (null/null when no value):
+    # expense_ratio, aum, last_price, pct_change_1d, beta (after the equity-only rule), return_1y, vs_spy_1y.
+    ranges: dict[str, EtfRangeOut] = {}
 
 
 class ScreenerMeta(BaseModel):

@@ -165,6 +165,8 @@ Scoring methodology and feature-specific detail live in `docs/specs/*.md` and `d
 
 **Tracked universe** (nightly ticker set, 30-day view expiry, protected set, seed, delisted clearing) — docs/specs/tracked-universe.md.
 
+**ETFs screener** (read-model table `EtfScreenerRow`, `/api/etf-screener` endpoints, equity-only Beta, saved-view `kind`; backend only so far) — docs/specs/etf-screener.md.
+
 **ETF page** (ticker page variant for `isEtf || isFund`: Overview/Technical/Chart, `/etf/info`, `etf_info` group, ETF watchlist button, Moat guard) — docs/specs/etf-page.md.
 
 **Technical-analysis lenses:** Weinstein Stage Analysis (also covers the historically named `TrendAnalysis` table / `nightly_trend_calculation` job / `/trend-analysis` endpoint) — docs/specs/weinstein-stage.md. Sector Heatmap — docs/specs/sector-heatmap.md. Market Breadth — docs/specs/market-breadth.md. Chart indicators (Stochastic, etc.) — docs/specs/chart-indicators.md. Price-target snapshot — docs/specs/price-target.md. Liquidity Zone (LP) detection — docs/specs/liquidity-zones.md. Warren RSI/ADX/WVF entry signal — docs/specs/warren-signal.md. Chart tab fetch behavior, earnings/dividend markers, and the intraday 2H·90D range (2h candles, on-demand Warren/BB+RSI/LP for any ticker, Warren RSI/ADX/WVF panes) — docs/specs/chart-tab.md. Institutional Ownership (shelved feature) — docs/specs/institutional-ownership.md.

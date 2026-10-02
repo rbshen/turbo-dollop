@@ -31,6 +31,7 @@ from helpers.discount_rate_config import (
 )
 from core.logging_config import apply_redaction_filters
 from data.etf_data import get_etf_overview, is_known_etf
+from data.etf_screener_data import etf_screener_meta, list_etf_screener_rows
 from data.liquidity_zone_data import get_liquidity_zone_data
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from data.market_breadth_data import get_market_breadth
@@ -56,6 +57,8 @@ from core.schemas import (
     ChartOut,
     CronHealthOut,
     DataSourceHealthOut,
+    EtfScreenerMeta,
+    EtfScreenerRowOut,
     DiscountRateConfigIn,
     DiscountRateConfigOut,
     EtfOverviewOut,
@@ -82,6 +85,7 @@ from core.schemas import (
     RefreshResult,
     ReitDividendYieldConfigIn,
     ReitDividendYieldConfigOut,
+    SavedFilterKind,
     SavedScreenerFilterIn,
     SavedScreenerFilterOut,
     ScreenerMeta,
@@ -959,10 +963,26 @@ async def screener_recompute() -> RecomputeSummary:
     return RecomputeSummary(**summary)
 
 
+# The ETFs screener (docs/specs/etf-screener.md). Deliberately NOT under /api/screener: the frontend's SWR keys
+# for these are `/etf-screener...`, so neither the Moat/Valuation/Bank-capital `mutate("/screener")` calls nor
+# the Recompute button's `startsWith("/screener")` sweep ever refresh ETF data. Rows are limited to the ETF universe (data/tracked_universe.py::load_etf_universe), so an expired ETF is not returned.
+@app.get("/api/etf-screener", response_model=list[EtfScreenerRowOut])
+def etf_screener_list() -> list[EtfScreenerRowOut]:
+    with Session(engine) as session:
+        return list_etf_screener_rows(session)
+
+
+@app.get("/api/etf-screener/meta", response_model=EtfScreenerMeta)
+def etf_screener_meta_route() -> EtfScreenerMeta:
+    with Session(engine) as session:
+        return etf_screener_meta(session)
+
+
 def _saved_filter_out(row: SavedScreenerFilter) -> SavedScreenerFilterOut:
     return SavedScreenerFilterOut(
         id=row.id,
         name=row.name,
+        kind=row.kind,
         universe=row.universe,
         sort_field=row.sort_field,
         sort_direction=row.sort_direction,
@@ -974,18 +994,19 @@ def _saved_filter_out(row: SavedScreenerFilter) -> SavedScreenerFilterOut:
 
 
 @app.get("/api/screener/filters", response_model=list[SavedScreenerFilterOut])
-def screener_filters_list() -> list[SavedScreenerFilterOut]:
+def screener_filters_list(kind: SavedFilterKind = "stock") -> list[SavedScreenerFilterOut]:
     with Session(engine) as session:
-        rows = list_saved_filters(session)
+        rows = list_saved_filters(session, kind)
     return [_saved_filter_out(row) for row in rows]
 
 
 @app.put("/api/screener/filters/{name}", response_model=SavedScreenerFilterOut)
-def screener_filters_upsert(name: str, body: SavedScreenerFilterIn) -> SavedScreenerFilterOut:
+def screener_filters_upsert(name: str, body: SavedScreenerFilterIn, kind: SavedFilterKind = "stock") -> SavedScreenerFilterOut:
     with Session(engine) as session:
         row = upsert_saved_filter(
             session,
             name=name,
+            kind=kind,
             universe=body.universe,
             sort_field=body.sort_field,
             sort_direction=body.sort_direction,
@@ -996,9 +1017,9 @@ def screener_filters_upsert(name: str, body: SavedScreenerFilterIn) -> SavedScre
 
 
 @app.delete("/api/screener/filters/{name}", status_code=204)
-def screener_filters_delete(name: str) -> None:
+def screener_filters_delete(name: str, kind: SavedFilterKind = "stock") -> None:
     with Session(engine) as session:
-        deleted = delete_saved_filter(session, name)
+        deleted = delete_saved_filter(session, name, kind)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"No saved filter named '{name}'")
 

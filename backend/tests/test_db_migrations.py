@@ -125,3 +125,127 @@ def test_drops_the_removed_tier_verified_column(monkeypatch):
         cols = [r[1] for r in conn.execute(text("PRAGMA table_info(datagroupsetting)"))]
         assert "tier_verified" not in cols
         assert conn.execute(text("SELECT group_key FROM datagroupsetting")).scalar_one() == "fundamentals"
+
+
+# --- SavedScreenerFilter.kind: the one-time table rebuild (2026-10-02) ---------------------------------
+
+_OLD_SAVED_FILTER_DDL = """
+CREATE TABLE savedscreenerfilter (
+    id INTEGER NOT NULL,
+    name VARCHAR NOT NULL,
+    universe VARCHAR NOT NULL,
+    sort_field VARCHAR NOT NULL,
+    sort_direction VARCHAR NOT NULL,
+    filters_json VARCHAR NOT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL, "watchlist_id" INTEGER,
+    PRIMARY KEY (id),
+    CONSTRAINT uq_saved_screener_filter_name UNIQUE (name)
+)
+"""
+
+
+def _old_saved_filter_db(monkeypatch):
+    """The live table's real pre-`kind` shape (UNIQUE(name) as a table constraint), with 3 rows."""
+    engine = _fresh_engine(monkeypatch)
+    with engine.begin() as conn:
+        conn.execute(text(_OLD_SAVED_FILTER_DDL))
+        conn.execute(text("CREATE INDEX ix_savedscreenerfilter_name ON savedscreenerfilter (name)"))
+        for id_, name, watchlist_id in ((5, "No Moat >SPY", None), (8, "Wide All", 7), (9, "Narrow All", None)):
+            conn.execute(
+                text(
+                    "INSERT INTO savedscreenerfilter (id, name, universe, sort_field, sort_direction, filters_json,"
+                    " created_at, updated_at, watchlist_id) VALUES (:id, :n, 'all', 'overall_score', 'desc', '{\"x\": 1}',"
+                    " '2026-09-01 10:00:00', '2026-09-02 11:00:00', :w)"
+                ),
+                {"id": id_, "n": name, "w": watchlist_id},
+            )
+    return engine
+
+
+def _saved_rows(engine):
+    with engine.connect() as conn:
+        return conn.execute(
+            text("SELECT id, name, kind, watchlist_id, filters_json, created_at, updated_at FROM savedscreenerfilter ORDER BY id")
+        ).fetchall()
+
+
+def test_the_rebuild_keeps_every_existing_view_as_a_stock_view(monkeypatch):
+    engine = _old_saved_filter_db(monkeypatch)
+
+    assert db_module._migrate_saved_filter_kind() is True
+
+    assert _saved_rows(engine) == [
+        (5, "No Moat >SPY", "stock", None, '{"x": 1}', "2026-09-01 10:00:00", "2026-09-02 11:00:00"),
+        (8, "Wide All", "stock", 7, '{"x": 1}', "2026-09-01 10:00:00", "2026-09-02 11:00:00"),
+        (9, "Narrow All", "stock", None, '{"x": 1}', "2026-09-01 10:00:00", "2026-09-02 11:00:00"),
+    ]
+    with engine.connect() as conn:
+        tables = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+        index_names = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='index'"))}
+    assert "savedscreenerfilter_old" not in tables
+    assert "ix_savedscreenerfilter_name" in index_names
+
+
+def test_after_the_rebuild_a_name_is_unique_per_kind_not_globally(monkeypatch):
+    engine = _old_saved_filter_db(monkeypatch)
+    db_module._migrate_saved_filter_kind()
+
+    from data.saved_screener_filters import get_saved_filter, upsert_saved_filter
+
+    with Session(engine) as session:
+        kwargs = dict(universe="all", sort_field="aum", sort_direction="asc", filters_json="{}")
+        upsert_saved_filter(session, name="Wide All", kind="etf", **kwargs)  # same name as a stock view
+        upsert_saved_filter(session, name="Wide All", **kwargs)  # updates the stock one in place (no new row)
+        assert get_saved_filter(session, "Wide All", "etf").sort_field == "aum"
+        assert get_saved_filter(session, "Wide All").id == 8  # the original row, updated
+        assert get_saved_filter(session, "Wide All").sort_field == "aum"
+
+
+def test_the_rebuild_is_idempotent_and_leaves_a_fresh_database_alone(monkeypatch):
+    engine = _old_saved_filter_db(monkeypatch)
+    assert db_module._migrate_saved_filter_kind() is True
+    before = _saved_rows(engine)
+    assert db_module._migrate_saved_filter_kind() is False
+    assert _saved_rows(engine) == before
+
+    fresh = _fresh_engine(monkeypatch)
+    SQLModel.metadata.create_all(fresh)  # a new install gets the per-kind constraint straight from the model
+    assert db_module._migrate_saved_filter_kind() is False
+
+
+def test_the_rebuild_does_nothing_when_the_table_does_not_exist(monkeypatch):
+    _fresh_engine(monkeypatch)
+    assert db_module._migrate_saved_filter_kind() is False
+
+
+def test_a_failure_mid_rebuild_rolls_back_to_the_untouched_old_table(monkeypatch):
+    engine = _old_saved_filter_db(monkeypatch)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(db_module.SavedScreenerFilter.__table__, "create", boom)
+    try:
+        db_module._migrate_saved_filter_kind()
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("the failure should propagate")
+
+    with engine.connect() as conn:
+        ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE name = 'savedscreenerfilter'")).scalar()
+        names = [r[0] for r in conn.execute(text("SELECT name FROM savedscreenerfilter ORDER BY id"))]
+        leftover = conn.execute(text("SELECT name FROM sqlite_master WHERE name = 'savedscreenerfilter_old'")).first()
+    assert "uq_saved_screener_filter_name UNIQUE (name)" in ddl  # the original table, unchanged
+    assert names == ["No Moat >SPY", "Wide All", "Narrow All"]
+    assert leftover is None
+
+
+def test_init_db_rebuilds_then_adds_the_etf_table(monkeypatch):
+    engine = _old_saved_filter_db(monkeypatch)
+    db_module.init_db()
+    with engine.connect() as conn:
+        tables = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+    assert "etfscreenerrow" in tables
+    assert [r[2] for r in _saved_rows(engine)] == ["stock", "stock", "stock"]
