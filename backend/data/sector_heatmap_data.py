@@ -35,8 +35,9 @@ from scoring.etf_returns import WINDOWS, compute_window_returns
 logger = logging.getLogger(__name__)
 
 # Fixed for this round, in display order (roughly by index weight). Names
-# are the funds' own SPDR sector labels, hand-written -- ETFs are not in
-# TickerScore, so there is nothing to join them from.
+# are the funds' own SPDR sector labels, hand-written -- most of these ETFs
+# have no TickerScore row (only one the app has opened does, e.g. XLK and XLV
+# today), and the row carries no sector label anyway, so nothing is joined.
 SECTOR_ETFS: list[tuple[str, str]] = [
     ("XLK", "Technology"),
     ("XLF", "Financials"),

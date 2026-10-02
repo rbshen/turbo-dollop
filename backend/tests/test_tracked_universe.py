@@ -175,6 +175,189 @@ def test_the_wide_known_set_never_expires_and_keeps_delisted_tickers(engine):
     assert set(_universe(engine)) < set(wide)  # the nightly universe is always a subset of the wide set
 
 
+# --- the ETF side (additive: nothing reads it yet) --------------------------------------------------
+
+ETF_PROFILE = '{"isEtf": true}'
+
+
+def _etf(session, ticker, days_ago=None, *, fund=False):
+    """A known ETF: a cached profile carrying the flag, optionally viewed `days_ago` days before NOW."""
+    flag = "isFund" if fund else "isEtf"
+    session.add(
+        FundamentalsCache(
+            ticker=ticker, statement_type="profile", period="latest", fetched_at=NOW, raw_json=f'{{"{flag}": true}}'
+        )
+    )
+    if days_ago is not None:
+        _viewed(session, ticker, days_ago)
+
+
+def _etf_reasons(engine, now=NOW):
+    with Session(engine) as session:
+        return tu.classify_etf_tickers(session, now)
+
+
+def _etf_universe(engine, now=NOW):
+    with Session(engine) as session:
+        return tu.load_etf_universe(session, now)
+
+
+def test_etf_seed_tickers_are_spy_plus_the_sector_etfs_and_system_tickers_is_untouched():
+    from data.sector_heatmap_data import SECTOR_ETFS
+
+    assert tu.ETF_SEED_TICKERS == {"SPY"} | {symbol for symbol, _ in SECTOR_ETFS}
+    assert len(tu.ETF_SEED_TICKERS) == 12
+    assert tu.SYSTEM_TICKERS == {"SPY", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"}
+
+
+def test_seeds_are_in_the_etf_universe_with_no_profile_row_and_no_view(engine):
+    reasons = _etf_reasons(engine)  # an empty database
+    assert set(reasons) == set(tu.ETF_SEED_TICKERS)
+    assert set(reasons.values()) == {tu.SYSTEM}
+    assert _etf_universe(engine) == sorted(tu.ETF_SEED_TICKERS)
+
+
+def test_each_etf_reason(engine):
+    with Session(engine) as session:
+        _etf(session, "RECENT", 3)
+        _etf(session, "OLDVIEW", 45)
+        _etf(session, "NEVERVIEWED")
+        _etf(session, "GONE", 1)
+        session.add(TickerScore(ticker="GONE", computed_at=NOW, delisted_at=NOW))
+        _etf(session, "SPY", 400)  # a seed the app has seen, long unviewed
+        watchlist = Watchlist(name="Scratch list", created_at=NOW, updated_at=NOW)
+        session.add(watchlist)
+        session.commit()
+        _etf(session, "WLETF", 400)
+        session.add(WatchlistTicker(watchlist_id=watchlist.id, ticker="WLETF", added_at=NOW))
+        session.commit()
+
+    reasons = _etf_reasons(engine)
+    assert reasons["RECENT"] == tu.VIEWED
+    assert reasons["OLDVIEW"] == tu.EXPIRED and reasons["NEVERVIEWED"] == tu.EXPIRED
+    assert reasons["GONE"] == tu.DELISTED
+    assert reasons["WLETF"] == tu.WATCHLIST
+    assert reasons["SPY"] == tu.SYSTEM
+    universe = _etf_universe(engine)
+    assert {"RECENT", "WLETF", "SPY"} <= set(universe)
+    assert not {"OLDVIEW", "NEVERVIEWED", "GONE"} & set(universe)
+    assert set(universe) == set(tu.ETF_SEED_TICKERS) | {"RECENT", "WLETF"}
+
+
+def test_an_etf_on_any_watchlist_never_expires_monitored_or_not(engine):
+    with Session(engine) as session:
+        plain = Watchlist(name="Anything", created_at=NOW, updated_at=NOW)
+        monitored = Watchlist(name="ETF", created_at=NOW, updated_at=NOW)
+        session.add_all([plain, monitored])
+        session.commit()
+        for ticker, watchlist in (("QQQ", plain), ("GLD", monitored)):
+            _etf(session, ticker, 5000)
+            session.add(WatchlistTicker(watchlist_id=watchlist.id, ticker=ticker, added_at=NOW))
+        session.commit()
+
+    for years in (0, 1, 5):
+        reasons = _etf_reasons(engine, NOW + timedelta(days=365 * years))
+        assert reasons["QQQ"] == reasons["GLD"] == tu.WATCHLIST
+
+
+@pytest.mark.parametrize("days_ago, expected_in", [(0, True), (29, True), (30, True), (31, False), (200, False)])
+def test_the_etf_view_window_boundary_is_30_days_like_stocks(engine, days_ago, expected_in):
+    with Session(engine) as session:
+        _etf(session, "QQQ", days_ago)
+        session.commit()
+    assert ("QQQ" in _etf_universe(engine)) is expected_in
+
+
+def test_a_fund_flag_counts_as_an_etf_and_re_viewing_an_expired_etf_puts_it_back(engine):
+    with Session(engine) as session:
+        _etf(session, "MUTUAL", 90, fund=True)
+        session.commit()
+    assert _etf_reasons(engine)["MUTUAL"] == tu.EXPIRED
+
+    assert tu.record_ticker_view("mutual", now=NOW) is True
+    assert _etf_reasons(engine)["MUTUAL"] == tu.VIEWED
+
+
+def test_index_and_manual_reasons_never_apply_to_an_etf(engine):
+    with Session(engine) as session:
+        _etf(session, "MOATETF", 400)
+        session.add(TickerMoat(ticker="MOATETF", moat="wide_moat", updated_at=NOW))  # a rating set before the guard
+        _etf(session, "INDEXETF", 400)
+        session.add(IndexConstituent(index_name="sp500", ticker="INDEXETF", company_name="i", last_synced_at=NOW))
+        session.commit()
+
+    reasons = _etf_reasons(engine)
+    assert reasons["MOATETF"] == reasons["INDEXETF"] == tu.EXPIRED
+    assert tu.INDEX not in reasons.values() and tu.MANUAL not in reasons.values()
+
+
+def test_a_delisted_seed_is_delisted_not_system(engine):
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="XLC", computed_at=NOW, delisted_at=NOW, is_etf=True))
+        session.commit()
+    assert _etf_reasons(engine)["XLC"] == tu.DELISTED
+    assert "XLC" not in _etf_universe(engine)
+
+
+def test_hidden_inactive_etfs_counts_only_expired_ones(engine):
+    with Session(engine) as session:
+        _etf(session, "FRESH", 2)
+        _etf(session, "OLD1", 40)
+        _etf(session, "OLD2", 90)
+        _etf(session, "GONE", 90)
+        session.add(TickerScore(ticker="GONE", computed_at=NOW, delisted_at=NOW))
+        _etf(session, "SPY", 900)  # a seed never expires
+        session.commit()
+        assert tu.load_expired_etfs(session, NOW) == {"OLD1", "OLD2"}
+        assert tu.count_hidden_inactive_etfs(session, NOW) == 2
+
+
+def test_the_partition_is_exhaustive_with_no_overlap_and_seeds_always_land_on_the_etf_side(engine):
+    with Session(engine) as session:
+        session.add(IndexConstituent(index_name="sp500", ticker="IDX", company_name="i", last_synced_at=NOW))
+        _profile(session, "OLD")
+        _etf(session, "QQQ", 1)
+        _etf(session, "SPY", 1)
+        _profile(session, "XLK")  # a seed whose profile row lacks the ETF flag: still the ETF side
+        session.add(TickerScore(ticker="SCORED_ETF", computed_at=NOW, is_etf=True))
+        session.add(TickerScore(ticker="SCORED_STOCK", computed_at=NOW, is_etf=False))
+        session.commit()
+        known = set(tu.load_all_known_tickers(session))
+        stock_side, etf_side = tu.partition_known_tickers(session)
+
+    assert stock_side & etf_side == set()
+    assert known <= stock_side | etf_side
+    assert stock_side == known - etf_side  # nothing on the stock side that is not known
+    assert stock_side == {"IDX", "OLD", "SCORED_STOCK"}
+    assert etf_side == {"QQQ", "SPY", "XLK", "SCORED_ETF"} | set(tu.ETF_SEED_TICKERS)
+
+
+def test_adding_the_etf_side_leaves_the_stock_side_union_unchanged(engine):
+    """Pin: until the cutover step, load_tracked_universe still holds the ETFs exactly as before."""
+    with Session(engine) as session:
+        session.add(IndexConstituent(index_name="sp500", ticker="IDX", company_name="i", last_synced_at=NOW))
+        _profile(session, "VIEWED")
+        _viewed(session, "VIEWED", 3)
+        _etf(session, "QQQ", 3)  # a viewed ETF
+        _etf(session, "OLDETF", 90)  # an expired ETF
+        _etf(session, "SPY", 400)  # a known seed
+        _profile(session, "XLK")
+        watchlist = Watchlist(name="L", created_at=NOW, updated_at=NOW)
+        session.add(watchlist)
+        session.commit()
+        _etf(session, "WLETF", 400)
+        session.add(WatchlistTicker(watchlist_id=watchlist.id, ticker="WLETF", added_at=NOW))
+        session.commit()
+
+    # The ETFs are still in the stock-side universe; the seeds the app never saw (XLB, XLC, ...) still are not.
+    assert _universe(engine) == ["IDX", "QQQ", "SPY", "VIEWED", "WLETF", "XLK"]
+    assert _reasons(engine)["OLDETF"] == tu.EXPIRED
+    assert _reasons(engine)["SPY"] == tu.SYSTEM
+    # ...and calling the ETF side changes nothing about it.
+    _etf_universe(engine)
+    assert _universe(engine) == ["IDX", "QQQ", "SPY", "VIEWED", "WLETF", "XLK"]
+
+
 # --- recording a view -------------------------------------------------------------------------------
 
 

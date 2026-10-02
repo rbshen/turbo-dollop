@@ -36,6 +36,33 @@ one classification.
 It never expires and includes delisted tickers. It is for the jobs whose point is to see everything: the weekly
 non-US purge, the delisted-flag sync, the search fallback while `profile_quote` is off, and the one-off backfills.
 
+## The ETF universe (added 2026-10-02, not wired to any job yet)
+
+Step 2 of the ETFs screener (additive only). `load_tracked_universe` above is **unchanged**: the stock-side jobs still
+hold the ETFs (Weinstein, last close, score recompute) until a later cutover step. Nothing reads the functions below
+yet; there is no endpoint, table, cron job or write for them.
+
+- **Partition.** `partition_known_tickers(session)` splits the wide known set into (stock side, ETF side) using
+  `data/etf_data.py::known_etf_tickers` (a `TickerScore.is_etf` row, or a cached profile with `isEtf`/`isFund`) plus
+  `ETF_SEED_TICKERS`. The two sides are disjoint and together hold every known ticker; the ETF side also carries the
+  seeds the app has never seen. An ETF is only recognised once its profile or score row exists, so an unopened ETF
+  stays on the stock side until it is opened.
+- **Seed list.** `ETF_SEED_TICKERS` = SPY + the 11 sector SPDR ETFs, built from `SECTOR_ETFS` (never retyped). A seed
+  is in the ETF universe with reason `system` even with no profile row. It is its own constant: `SYSTEM_TICKERS` is
+  untouched (it still protects the same tickers on the stock side). Today they have the same members. A future ETF
+  momentum universe goes into both while both are live.
+- **Rules**, via the same first-match `_classify` as the stock side (shared with `classify_known_tickers`; same
+  `TRACKED_VIEW_WINDOW_DAYS`, same delisted flag): `delisted` > `watchlist` > `system` > `viewed` > `expired`. The
+  `index` and `manual` reasons do not apply to an ETF (no ETF is an index constituent, and Moat cannot be set on one).
+  An ETF on **any** watchlist, monitored or not, never expires while it stays there. "Searched" means "opened": the
+  `TickerView` that `GET /api/tickers/{t}/summary` records; search itself writes nothing.
+- **Functions.** `classify_etf_tickers` ({ticker: reason}), `load_etf_universe` (sorted, delisted and expired
+  removed), `load_expired_etfs`, and `count_hidden_inactive_etfs` (the ETF counterpart of
+  `ScreenerMeta.hidden_inactive`; it counts expired ETFs, not table rows, because the ETF read-model does not exist
+  yet).
+- **Guard.** `tests/test_tracked_universe.py` pins that the stock-side union is unchanged and that the partition is
+  exhaustive with no overlap.
+
 ## Who uses which
 
 | Expiring `load_tracked_universe` | Wide `load_all_known_tickers` |

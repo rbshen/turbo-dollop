@@ -43,6 +43,7 @@ from core.models import (
     WatchlistTicker,
 )
 from core.tickers import normalize_ticker
+from data.etf_data import known_etf_tickers
 from data.sector_heatmap_data import SECTOR_ETFS
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,12 @@ TRACKED_VIEW_WINDOW_DAYS = 30
 # (Sector Heatmap) and SPY (the Weinstein RS benchmark and the 5Y-vs-SPY comparison). ADD A FUTURE ETF
 # MOMENTUM UNIVERSE HERE -- see the module docstring.
 SYSTEM_TICKERS: frozenset[str] = frozenset(symbol for symbol, _ in SECTOR_ETFS) | {WEINSTEIN_BENCHMARK_TICKER}
+
+# The ETF-side universe's seed list (`load_etf_universe`): SPY plus the 11 sector SPDR ETFs, always in the ETF
+# universe with reason "system", even when the app holds no profile for them yet. Same members as
+# SYSTEM_TICKERS today but deliberately its own constant: SYSTEM_TICKERS protects tickers on the stock-side
+# jobs and stays untouched until the ETF cutover. A future ETF momentum universe is added here as well.
+ETF_SEED_TICKERS: frozenset[str] = frozenset(symbol for symbol, _ in SECTOR_ETFS) | {WEINSTEIN_BENCHMARK_TICKER}
 
 # Why a known ticker is in or out. The first matching reason wins, in this order.
 DELISTED = "delisted"
@@ -102,17 +109,22 @@ def load_delisted_flagged(session: Session) -> set[str]:
     return set(session.exec(select(TickerScore.ticker).where(TickerScore.delisted_at.is_not(None))).all())
 
 
-def classify_known_tickers(session: Session, now: datetime | None = None) -> dict[str, str]:
-    """{ticker: reason} for every known ticker. A reason in OUT_OF_UNIVERSE (delisted, expired) means the
-    nightly jobs skip it; any other reason means it is in. The single source for the universe, the
-    Screener's hidden count and the verification report."""
+def _classify(
+    session: Session,
+    known: set[str],
+    now: datetime | None,
+    *,
+    index: set[str],
+    manual: set[str],
+    system: set[str],
+) -> dict[str, str]:
+    """The one first-match-wins classification, shared by the stock side (`classify_known_tickers`) and the
+    ETF side (`classify_etf_tickers`). The caller decides which tickers are in play (`known`) and which of
+    them each rule covers (`index`, `manual`, `system`); watchlist, view window and delisted flag are the
+    same for both sides."""
     now = now or datetime.now()
     cutoff = now - timedelta(days=TRACKED_VIEW_WINDOW_DAYS)
-    known = set(load_all_known_tickers(session))
-    index = load_index_tickers(session)
     watchlist = load_watchlist_tickers(session)
-    system = SYSTEM_TICKERS & known
-    manual = load_manual_data_tickers(session) & known
     viewed = set(session.exec(select(TickerView.ticker).where(TickerView.last_viewed_at >= cutoff)).all()) & known
     delisted = load_delisted_flagged(session)
 
@@ -135,6 +147,21 @@ def classify_known_tickers(session: Session, now: datetime | None = None) -> dic
     return reasons
 
 
+def classify_known_tickers(session: Session, now: datetime | None = None) -> dict[str, str]:
+    """{ticker: reason} for every known ticker. A reason in OUT_OF_UNIVERSE (delisted, expired) means the
+    nightly jobs skip it; any other reason means it is in. The single source for the universe, the
+    Screener's hidden count and the verification report."""
+    known = set(load_all_known_tickers(session))
+    return _classify(
+        session,
+        known,
+        now,
+        index=load_index_tickers(session),
+        manual=load_manual_data_tickers(session) & known,
+        system=set(SYSTEM_TICKERS) & known,
+    )
+
+
 def load_tracked_universe(session: Session, now: datetime | None = None) -> list[str]:
     """The sorted tickers every nightly and weekly job iterates (rules above)."""
     reasons = classify_known_tickers(session, now)
@@ -144,6 +171,47 @@ def load_tracked_universe(session: Session, now: datetime | None = None) -> list
 def load_expired_tickers(session: Session, now: datetime | None = None) -> set[str]:
     """Known, not delisted, but outside the universe because they were not viewed for 30 days."""
     return {t for t, reason in classify_known_tickers(session, now).items() if reason == EXPIRED}
+
+
+# --- the ETF side (docs/specs/tracked-universe.md, "ETF universe") ----------------------------------------
+# Additive: nothing calls these yet, and `load_tracked_universe` above is unchanged (it still holds the ETFs).
+
+
+def partition_known_tickers(session: Session) -> tuple[set[str], set[str]]:
+    """(stock side, ETF side) of the wide known set. A known ticker is on the ETF side when
+    `known_etf_tickers` says so or it is an `ETF_SEED_TICKERS` member, otherwise on the stock side, so the
+    two sides are disjoint and together hold every known ticker. The ETF side also carries the seeds the app
+    has never seen (a seed needs no profile row)."""
+    known = set(load_all_known_tickers(session))
+    etfs = (set(known_etf_tickers(session, known)) if known else set()) | ETF_SEED_TICKERS
+    return known - etfs, (known & etfs) | ETF_SEED_TICKERS
+
+
+def classify_etf_tickers(session: Session, now: datetime | None = None) -> dict[str, str]:
+    """{ticker: reason} for every ETF-side ticker. Same first-match rule as `classify_known_tickers`, minus the
+    reasons that cannot apply to a fund: no index membership, no manual data (a Moat cannot be set on an ETF).
+    An ETF on ANY watchlist (monitored or not) is in for as long as it stays there; a seed is "system"
+    unless delisted; anything else is "viewed" within the 30-day window or "expired"."""
+    _, etf_known = partition_known_tickers(session)
+    return _classify(session, etf_known, now, index=set(), manual=set(), system=set(ETF_SEED_TICKERS))
+
+
+def load_etf_universe(session: Session, now: datetime | None = None) -> list[str]:
+    """The sorted ETF-side universe: every ETF-side ticker that is neither delisted nor expired."""
+    reasons = classify_etf_tickers(session, now)
+    return sorted(t for t, reason in reasons.items() if reason not in OUT_OF_UNIVERSE)
+
+
+def load_expired_etfs(session: Session, now: datetime | None = None) -> set[str]:
+    """Known ETFs, not delisted, outside the ETF universe because they were not viewed for 30 days."""
+    return {t for t, reason in classify_etf_tickers(session, now).items() if reason == EXPIRED}
+
+
+def count_hidden_inactive_etfs(session: Session, now: datetime | None = None) -> int:
+    """How many ETFs the ETF universe hides as inactive: the ETF counterpart of `ScreenerMeta.hidden_inactive`
+    (core/main.py::screener_meta counts the hidden stock rows). Counts expired ETFs, not rows of any table
+    (the ETF read-model does not exist yet); a delisted ETF is not "inactive" and a seed never expires."""
+    return len(load_expired_etfs(session, now))
 
 
 def record_ticker_view(ticker: str, now: datetime | None = None) -> bool:

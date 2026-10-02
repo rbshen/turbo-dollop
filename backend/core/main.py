@@ -778,8 +778,8 @@ SCORE_STALE_AFTER = timedelta(hours=36)
 # universe-filtered list endpoint, and Watchlist doesn't read the stored
 # row at all (compute_ticker_score(cache_only=True) live per row instead).
 # Falls back to that same cache-only compute when no row exists yet (a
-# ticker outside the full tracked universe -- see
-# nightly_fundamentals_fetch.py::load_full_tracked_universe -- has never
+# ticker outside the tracked universe -- see
+# data/tracked_universe.py::load_tracked_universe -- has never
 # been swept by any nightly job) so the chip still works on a ticker's very
 # first view, mirroring Watchlist's own fallback rather than leaving the
 # chip blank until a refresh/nightly run. Either path makes zero FMP calls.
@@ -788,7 +788,7 @@ SCORE_STALE_AFTER = timedelta(hours=36)
 # frozen mid-race (e.g. compute_ticker_score reading a partially-warm
 # cache while a concurrent request was still populating it) or computed
 # before its inputs were ever fully cached otherwise reads blank forever,
-# since nothing else revisits a ticker outside the full tracked universe
+# since nothing else revisits a ticker outside the tracked universe
 # (see nightly_score_recompute.py for the periodic sweep that covers it).
 # Still zero FMP calls either way.
 @app.get("/api/tickers/{ticker}/score", response_model=TickerScoreOut | None)
