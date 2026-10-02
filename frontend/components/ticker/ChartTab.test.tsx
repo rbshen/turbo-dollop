@@ -304,15 +304,13 @@ describe("ChartTab: the 2H · 90D range", () => {
     expect(chartProps).toMatchObject({ showLpSupport: false, showLpResistance: true, showBbRsi: true, showWarren: true });
   });
 
-  it("describes 2-hour candles, the 09:30 ET alignment and the last 90 days; the daily ranges keep their copy", () => {
+  it("shows no descriptive text under the Chart heading, on any range", () => {
     render(<ChartTab ticker="AAPL" />);
-    expect(screen.getByText(/Bollinger Bands\(20, 2\)/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Chart" })).toBeInTheDocument();
+    expect(screen.queryByText(/Bollinger Bands/)).not.toBeInTheDocument();
     fireEvent.click(btn("2H · 90D"));
-    const copy = screen.getByText(/2-hour candles aligned to the 09:30 ET open/);
-    expect(copy.textContent).toMatch(/last 90 days/);
-    expect(copy.textContent).toMatch(/any ticker/); // never implies monitored-only
-    expect(copy.textContent).not.toMatch(/monitored|tracked/i);
-    expect(screen.queryByText(/Bollinger Bands\(20, 2\)/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/2-hour candles/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Informational only/)).not.toBeInTheDocument();
   });
 
   it("an unavailable 2H chart shows the unavailable state, keeps every range button, and disables zoom", () => {

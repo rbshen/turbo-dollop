@@ -71,13 +71,6 @@ const _SKELETON_HEIGHTS = [
   71, 50, 64, 48,
 ];
 
-// Header copy per range. The 2H·90D range is described on its own terms: 2-hour candles aligned to the 09:30 ET open
-// (09:30 / 11:30 / 13:30, then the short 15:30-16:00 one), the last 90 days, and Warren's three indicator panes.
-const DAILY_DESCRIPTION =
-  "OHLC price chart with EMA(21), SMA(50/200), Bollinger Bands(20, 2), Full Stochastic(5, 3, 3, EMA), and RSI(14). Informational only.";
-const INTRADAY_DESCRIPTION =
-  "2-hour candles aligned to the 09:30 ET open (09:30, 11:30, 13:30, and the short 15:30–16:00 candle) over the last 90 days, with BB+RSI and Warren signals and Liquidity Zones computed on demand for any ticker, and Warren's RSI(14), ADX(14) with +DI/−DI, and WVF(22) panes. Times are US Eastern. Informational only.";
-
 function ChartSkeleton() {
   return (
     <div className="h-[630px] rounded-lg border border-border-card bg-page relative flex items-end gap-[2px] px-4 pb-10 animate-pulse">
@@ -140,9 +133,6 @@ export function ChartTab({ ticker, isEtf }: Props) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Chart</h2>
-          <p className="mt-1 text-sm text-text-secondary">
-            {range === INTRADAY_CHART_RANGE ? INTRADAY_DESCRIPTION : DAILY_DESCRIPTION}
-          </p>
         </div>
         <SegmentedControl
           aria-label="Chart range"
