@@ -101,22 +101,21 @@ export function TickerHeaderView({ data, assessment, actions, moat, specGrowth, 
         <div className="flex shrink-0 items-center gap-2">{actions}</div>
       </div>
 
-      {/* Row 2: price + change only. */}
-      <div className="flex flex-wrap items-center gap-3">
-        {data.price != null && (
-          <span className="font-mono text-xl font-bold tabular-nums text-text-primary">
-            {fmtMoney(data.price, data.quote_currency)}
-          </span>
-        )}
-        <PriceChange change={data.change} changePercent={data.change_percent} currency={data.quote_currency} />
-      </div>
-
-      {/* Row 2.5: Assessment/Valuation/Moat/etc. status pills -- six wide when
-          everything applies. Whole pills wrap onto the next line (never
-          break inside one), 8px apart both ways; the Speculative growth
-          pill's icons sit in a nowrap group with it so they never split.
-          `relative` is the anchor the two icon tooltips use below md. */}
+      {/* Row 2: price + change, then the Assessment/Valuation/Moat/etc. status
+          pills beside them -- six wide when everything applies. Whole pills
+          wrap onto the next line (never break inside one), 8px apart both
+          ways; the price + change group wraps as a unit, and the Speculative
+          growth pill's icons sit in a nowrap group with it so they never
+          split. `relative` is the anchor the two icon tooltips use below md. */}
       <div className="relative flex flex-wrap items-center gap-2">
+        <div className="mr-1 flex items-center gap-3">
+          {data.price != null && (
+            <span className="font-mono text-xl font-bold tabular-nums text-text-primary">
+              {fmtMoney(data.price, data.quote_currency)}
+            </span>
+          )}
+          <PriceChange change={data.change} changePercent={data.change_percent} currency={data.quote_currency} />
+        </div>
         {assessment}
         <MoatPill moat={moat} />
         <FairValuePill
