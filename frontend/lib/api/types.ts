@@ -1244,6 +1244,9 @@ export interface WatchlistRowOut {
   step5_verdict: string | null;
   overall_score: number | null;
   overall_verdict: string | null;
+  // The nightly official close from the DB (no FMP call); null until the nightly last-close job has
+  // written the ticker. Denominated in quote_currency below.
+  last_price: number | null;
   market_cap: number | null;
   // See TickerScoreOut.quote_currency above.
   quote_currency: string | null;
@@ -1618,6 +1621,10 @@ export interface MomentumSnapshotRowOut {
   // these existed, or when the ticker lacks a price that far back.
   return_1w: number | null;
   return_1mo: number | null;
+  // The nightly official close from the DB (no FMP call); null until the nightly last-close job has
+  // written the ticker. Denominated in quote_currency (null = USD).
+  last_price: number | null;
+  quote_currency: string | null;
   // Fathom's Overall Assessment score, for context only -- never used in
   // this ranking. Joined live from TickerScore, same as company_name.
   overall_score: number | null;

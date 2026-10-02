@@ -10,6 +10,7 @@ from clients.fmp_client import fmp_client
 from core.models import WatchlistTicker
 from core.schemas import WatchlistRowOut
 from core.tickers import normalize_ticker
+from data.last_close_data import get_cached_last_closes
 from data.step1_data import get_step1_data
 from data.ticker_score import compute_ticker_score
 
@@ -90,7 +91,7 @@ async def _consensus_rating(ticker: str) -> str:
     return grades_consensus.get("consensus") or NO_CONSENSUS_RATING
 
 
-async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
+async def _compose_row(watchlist_ticker: WatchlistTicker, last_close: float | None) -> WatchlistRowOut:
     ticker = normalize_ticker(watchlist_ticker.ticker)
     score, exchange, step1 = await asyncio.gather(
         # cache_only=True: opening the Watchlist page must not trigger a
@@ -144,6 +145,7 @@ async def _compose_row(watchlist_ticker: WatchlistTicker) -> WatchlistRowOut:
         overall_verdict=score.overall_verdict if score else None,
         market_cap=score.market_cap if score else None,
         quote_currency=score.quote_currency if score else None,
+        last_price=last_close,
         reported_currency=score.reported_currency if score else None,
         pe_ratio=score.pe_ratio if score else None,
         beta=score.beta if score else None,
@@ -165,4 +167,6 @@ async def get_watchlist_rows(tickers: list[WatchlistTicker]) -> list[WatchlistRo
     ~20-30 ticker watchlist gather() turns what could be several sequential
     FMP round-trips into one parallel batch rather than N times a single
     round-trip's latency."""
-    return list(await asyncio.gather(*[_compose_row(t) for t in tickers]))
+    # One batched DB read of the nightly last close for the whole list (no FMP call).
+    last_closes = get_cached_last_closes([normalize_ticker(t.ticker) for t in tickers])
+    return list(await asyncio.gather(*[_compose_row(t, last_closes.get(normalize_ticker(t.ticker))) for t in tickers]))

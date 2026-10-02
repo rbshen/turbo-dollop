@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 
 import httpx
 import pandas as pd
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from clients.daily_bar_sources import FMP_CONCURRENCY, FMP_PLAN_REQUESTS_PER_MIN, FMP_RATE_FRACTION, _Pacer, fmp_rows_to_frame
 from clients.fmp_client import fmp_client
@@ -49,6 +49,15 @@ def get_cached_last_close(ticker: str) -> tuple[float, date] | None:
     with Session(engine) as session:
         row = session.get(TickerLastClose, ticker)
         return (row.close, row.as_of_date) if row else None
+
+
+def get_cached_last_closes(tickers: list[str]) -> dict[str, float]:
+    """{ticker: last official close} for every ticker in `tickers` that has a cached row, in one query."""
+    if not tickers:
+        return {}
+    with Session(engine) as session:
+        rows = session.exec(select(TickerLastClose).where(TickerLastClose.ticker.in_(tickers))).all()
+        return {row.ticker: row.close for row in rows}
 
 
 def _upsert(ticker: str, close: float, as_of: date, now: datetime) -> None:

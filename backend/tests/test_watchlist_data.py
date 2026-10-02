@@ -59,6 +59,7 @@ def _patch(monkeypatch, score):
     monkeypatch.setattr(watchlist_data, "_consensus_rating", fake_consensus_rating)
     monkeypatch.setattr(watchlist_data, "_cached_exchange", fake_cached_exchange)
     monkeypatch.setattr(watchlist_data, "get_step1_data", fake_get_step1_data)
+    monkeypatch.setattr(watchlist_data, "get_cached_last_closes", lambda tickers: {})
 
 
 def test_speculative_growth_qualifies_true_flows_into_the_row(monkeypatch):
@@ -123,3 +124,18 @@ def test_quote_currency_none_when_no_ticker_score_row(monkeypatch):
 
     assert rows[0].quote_currency is None
     assert rows[0].reported_currency is None
+
+
+def test_last_price_is_the_cached_last_close_and_none_when_uncached(monkeypatch):
+    _patch(monkeypatch, _score())
+    monkeypatch.setattr(watchlist_data, "get_cached_last_closes", lambda tickers: {"AAPL": 187.25})
+    rows = asyncio.run(
+        get_watchlist_rows(
+            [
+                WatchlistTicker(watchlist_id=1, ticker="aapl", added_at=datetime(2026, 1, 1)),
+                WatchlistTicker(watchlist_id=1, ticker="MSFT", added_at=datetime(2026, 1, 1)),
+            ]
+        )
+    )
+
+    assert [r.last_price for r in rows] == [187.25, None]

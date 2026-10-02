@@ -23,6 +23,7 @@ from clients.shared_bars_cache import DAILY_INTERVAL, get_or_fetch_bars_batch, s
 from core.db import engine
 from core.models import MomentumSnapshot, TickerScore
 from core.schemas import MomentumOut, MomentumPeriod, MomentumSnapshotRowOut
+from data.last_close_data import get_cached_last_closes
 from data.tracked_universe import load_tracked_universe
 from scoring.momentum import compute_momentum_ranking
 
@@ -158,6 +159,8 @@ def get_momentum_snapshot(period: MomentumPeriod = "current") -> MomentumOut:
         context_rows = session.exec(select(TickerScore).where(TickerScore.ticker.in_(tickers))).all()
         context_by_ticker = {row.ticker: row for row in context_rows}
 
+    last_closes = get_cached_last_closes(tickers)
+
     computed_at = snapshot_rows[0].computed_at if snapshot_rows else None
 
     out_rows = []
@@ -176,6 +179,8 @@ def get_momentum_snapshot(period: MomentumPeriod = "current") -> MomentumOut:
                 overall_score=context.overall_score if context else None,
                 return_1w=row.return_1w,
                 return_1mo=row.return_1mo,
+                last_price=last_closes.get(row.ticker),
+                quote_currency=context.quote_currency if context else None,
             )
         )
 

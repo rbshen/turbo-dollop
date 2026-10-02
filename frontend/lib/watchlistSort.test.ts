@@ -26,6 +26,7 @@ function row(overrides: Partial<WatchlistRowOut> = {}): WatchlistRowOut {
     step5_verdict: null,
     overall_score: null,
     overall_verdict: null,
+    last_price: null,
     market_cap: null,
     quote_currency: null,
     reported_currency: null,

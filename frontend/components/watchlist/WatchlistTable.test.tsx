@@ -49,6 +49,7 @@ const ROWS: WatchlistRowOut[] = [
     step5_verdict: "Pass",
     overall_score: 90,
     overall_verdict: "Pass",
+    last_price: 187.25,
     market_cap: 3_000_000_000_000,
     quote_currency: "USD",
     reported_currency: "USD",
@@ -61,6 +62,24 @@ const ROWS: WatchlistRowOut[] = [
     added_at: "2026-01-01T00:00:00Z",
   },
 ];
+
+describe("WatchlistTable Last column", () => {
+  it("shows the last price right after Sector, and nothing when uncached", () => {
+    render(
+      <WatchlistTable
+        watchlist={WATCHLIST}
+        rows={[ROWS[0], { ...ROWS[0], ticker: "NOPX", last_price: null }]}
+        sortRules={DEFAULT_SORT_RULES}
+        onSortRulesChange={vi.fn()}
+      />
+    );
+    const headers = [...document.querySelectorAll("thead th")].map((h) => h.textContent?.trim());
+    expect(headers.indexOf("Last")).toBe(headers.indexOf("Sector") + 1);
+    const col = headers.indexOf("Last");
+    expect(screen.getByText("AAPL").closest("tr")!.querySelectorAll("td")[col]).toHaveTextContent("$187.25");
+    expect(screen.getByText("NOPX").closest("tr")!.querySelectorAll("td")[col]).toHaveTextContent(/^$/);
+  });
+});
 
 describe("WatchlistTable sticky header", () => {
   // bg-page (not a visible surface fill) -- 2026-09-28 design-system change:
@@ -230,6 +249,7 @@ describe("WatchlistTable: ETF rows", () => {
     revenue: [],
     net_income: [],
     cfo: null,
+    last_price: null,
     market_cap: null,
     pe_ratio: null,
     beta: null,
@@ -239,7 +259,7 @@ describe("WatchlistTable: ETF rows", () => {
 
   function analysisCell(ticker: string) {
     const row = screen.getByText(ticker).closest("tr") as HTMLElement;
-    return row.querySelectorAll("td")[7]; // Ticker, Sector, Rev, NI, CFO, Moat, Value, Analysis
+    return row.querySelectorAll("td")[8]; // Ticker, Sector, Last, Rev, NI, CFO, Moat, Value, Analysis
   }
 
   it("shows an ETF marker in the Analysis cell instead of the blank/missing score", () => {
@@ -267,7 +287,7 @@ describe("WatchlistTable: ETF rows", () => {
       />,
     );
     const ratingCell = (ticker: string) =>
-      (screen.getByText(ticker).closest("tr") as HTMLElement).querySelectorAll("td")[8]; // ... Analysis, Rating
+      (screen.getByText(ticker).closest("tr") as HTMLElement).querySelectorAll("td")[9]; // ... Analysis, Rating
     expect(ratingCell("QQQ")).toHaveTextContent("—");
     expect(ratingCell("QQQ")).not.toHaveTextContent("N/A");
     expect(ratingCell("AAPL")).toHaveTextContent("BUY");

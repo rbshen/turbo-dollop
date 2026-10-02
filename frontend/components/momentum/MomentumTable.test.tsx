@@ -23,6 +23,8 @@ const ROWS: MomentumSnapshotRowOut[] = [
     overall_score: 47,
     return_1w: 0.0123,
     return_1mo: -0.0456,
+    last_price: 1234.5,
+    quote_currency: "USD",
   },
   {
     ticker: "MRVL",
@@ -36,6 +38,8 @@ const ROWS: MomentumSnapshotRowOut[] = [
     overall_score: null,
     return_1w: 0.005,
     return_1mo: 0.02,
+    last_price: null,
+    quote_currency: null,
   },
 ];
 
@@ -63,7 +67,7 @@ describe("MomentumTable", () => {
   });
 
   it("renders a null overall_score as an em dash, not a fabricated 0", () => {
-    render(<MomentumTable rows={[ROWS[1]]} />);
+    render(<MomentumTable rows={[{ ...ROWS[1], last_price: 10 }]} />);
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 
@@ -109,7 +113,16 @@ describe("MomentumTable whole-row click", () => {
     expect(sndk).toHaveTextContent("1.23%");
     expect(sndk).toHaveTextContent("-4.56%");
     const mrvl = screen.getByText("MRVL").closest("tr")!;
-    expect(mrvl.querySelectorAll("td")[3]).toHaveTextContent("—");
     expect(mrvl.querySelectorAll("td")[4]).toHaveTextContent("—");
+    expect(mrvl.querySelectorAll("td")[5]).toHaveTextContent("—");
+  });
+
+  it("shows the last price after the ticker, and a dash when uncached", () => {
+    render(<MomentumTable rows={ROWS} />);
+    expect(screen.getByText("Last")).toBeInTheDocument();
+    const sndk = screen.getByText("SNDK").closest("tr")!;
+    expect(sndk.querySelectorAll("td")[2]).toHaveTextContent("$1,234.50");
+    const mrvl = screen.getByText("MRVL").closest("tr")!;
+    expect(mrvl.querySelectorAll("td")[2]).toHaveTextContent("—");
   });
 });

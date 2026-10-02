@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { SortHeader } from "@/components/ui/sort-header";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { SortableField, WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
-import { fmtCompactMoney, fmtNumber, fmtSignedCompactMoneyTooltip } from "@/lib/format";
+import { fmtCompactMoney, fmtMoney, fmtNumber, fmtSignedCompactMoneyTooltip } from "@/lib/format";
 import { toneForNullable } from "@/lib/tierColor";
 import { cn } from "@/lib/utils";
 import { removeTickerFromWatchlist } from "@/lib/hooks/useWatchlists";
@@ -185,10 +185,10 @@ function SortableHead({
 // question is carried in each icon's title/aria-label instead.
 type RemoveState = "idle" | "confirming" | "removing" | "error";
 
-// Ticker, Sector, Rev, NI, CFO, Moat, Value, Analysis, Rating, Mkt cap,
+// Ticker, Sector, Last, Rev, NI, CFO, Moat, Value, Analysis, Rating, Mkt cap,
 // Beta, P/E, remove -- matches the header row below; used only to span the
 // loading skeleton's rows across every column.
-const COLUMN_COUNT = 13;
+const COLUMN_COUNT = 14;
 
 export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesChange }: Props) {
   const sorted = useMemo(() => (rows ? sortWatchlistRows(rows, sortRules) : []), [rows, sortRules]);
@@ -251,6 +251,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
           <SortableHead field="sector" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-[250px]`}>
             Sector
           </SortableHead>
+          <TableHead className={`${HEAD_CLASS} text-right`}>Last</TableHead>
           <TableHead className={`${HEAD_CLASS} w-14 text-center`}>Rev</TableHead>
           <TableHead className={`${HEAD_CLASS} w-14 text-center`}>NI</TableHead>
           <TableHead className={`${HEAD_CLASS} w-14 text-center`}>CFO</TableHead>
@@ -319,6 +320,9 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
               </TableCell>
               <TableCell className="w-[250px] max-w-[250px] truncate text-text-secondary" title={row.sector ?? undefined}>
                 {row.sector}
+              </TableCell>
+              <TableCell className="text-right font-mono text-text-secondary">
+                {row.last_price != null && fmtMoney(row.last_price, row.quote_currency ?? "USD")}
               </TableCell>
               <TableCell className="text-center">
                 <TrendCell years={row.years} values={row.revenue} currency={row.reported_currency ?? "USD"} />

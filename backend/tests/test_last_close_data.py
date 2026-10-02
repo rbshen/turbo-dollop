@@ -100,3 +100,13 @@ def test_record_outcome_success_skipped_and_all_failed():
     assert run.message == "2 written, 1 failed"
     with pytest.raises(RuntimeError):
         job.record_outcome({"processed": 3, "written": 0, "failed": 3}, Run())
+
+
+def test_get_cached_last_closes_is_one_batched_read(engine):
+    with Session(engine) as session:
+        session.add(TickerLastClose(ticker="AAA", close=50.0, as_of_date=SESSION, fetched_at=datetime(2026, 9, 26)))
+        session.add(TickerLastClose(ticker="BBB", close=60.0, as_of_date=SESSION, fetched_at=datetime(2026, 9, 26)))
+        session.commit()
+
+    assert lc.get_cached_last_closes(["AAA", "CCC"]) == {"AAA": 50.0}
+    assert lc.get_cached_last_closes([]) == {}

@@ -1624,6 +1624,10 @@ class MomentumSnapshotRowOut(BaseModel):
     # Informational only -- not part of the composite/rank. None for snapshots that predate them.
     return_1w: float | None = None
     return_1mo: float | None = None
+    # The nightly official close (models.py::TickerLastClose), read from the DB -- no FMP call. None for a
+    # ticker the nightly last-close job has not written yet. `quote_currency` joined live from TickerScore.
+    last_price: float | None = None
+    quote_currency: str | None = None
 
 
 class MomentumOut(BaseModel):
@@ -1774,6 +1778,9 @@ class WatchlistRowOut(BaseModel):
     # See models.py::TickerScore.quote_currency -- None (treat as "USD")
     # for a row computed before this field existed.
     quote_currency: str | None = None
+    # The nightly official close (models.py::TickerLastClose), cache-only like every other field here.
+    # None for a ticker the nightly last-close job has not written yet; denominated in quote_currency.
+    last_price: float | None = None
     # See models.py::TickerScore.reported_currency -- what the Revenue/Net
     # Income/CFO mini trend chart below (years/revenue/net_income/cfo) is
     # denominated in. Must always match the Financials tab's own

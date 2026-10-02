@@ -4,9 +4,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
+import data.last_close_data as last_close_data
 import data.momentum_data as momentum_data
 from core.main import app
-from core.models import MomentumSnapshot, TickerScore
+from core.models import MomentumSnapshot, TickerLastClose, TickerScore
 
 
 def _fresh_engine(monkeypatch):
@@ -17,6 +18,7 @@ def _fresh_engine(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(momentum_data, "engine", engine)
+    monkeypatch.setattr(last_close_data, "engine", engine)
     return engine
 
 
@@ -32,7 +34,12 @@ def test_empty_before_any_snapshot(monkeypatch):
 def test_current_and_previous_return_the_right_months(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     with Session(engine) as session:
-        session.add(TickerScore(ticker="AAA", moat="wide_moat", company_name="AAA Inc", overall_score=70, computed_at=datetime.now()))
+        session.add(
+            TickerScore(
+                ticker="AAA", moat="wide_moat", company_name="AAA Inc", overall_score=70, quote_currency="USD", computed_at=datetime.now()
+            )
+        )
+        session.add(TickerLastClose(ticker="AAA", close=123.45, as_of_date=date(2026, 9, 25), fetched_at=datetime.now()))
         session.add(
             MomentumSnapshot(
                 ticker="AAA",
@@ -72,6 +79,9 @@ def test_current_and_previous_return_the_right_months(monkeypatch):
     assert current["rows"][0]["company_name"] == "AAA Inc"
     assert current["rows"][0]["return_1w"] == 0.01
     assert current["rows"][0]["return_1mo"] == 0.04
+    # The nightly last close is read from TickerLastClose; a row without one reads back null.
+    assert current["rows"][0]["last_price"] == 123.45
+    assert current["rows"][0]["quote_currency"] == "USD"
     # A snapshot stored before these columns existed reads back as null, never an error.
     assert previous["rows"][0]["return_1w"] is None
     assert previous["rows"][0]["return_1mo"] is None

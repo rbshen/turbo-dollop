@@ -24,6 +24,8 @@ const CURRENT: MomentumOut = {
       overall_score: 47,
       return_1w: 0.0123,
       return_1mo: -0.0456,
+      last_price: 1234.5,
+      quote_currency: "USD",
     },
   ],
 };

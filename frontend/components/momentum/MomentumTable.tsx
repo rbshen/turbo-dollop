@@ -4,7 +4,7 @@ import { MOAT_LABEL_SHORT, MOAT_TONE } from "@/components/ticker/MoatPill";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { MomentumSnapshotRowOut } from "@/lib/api/types";
-import { fmtPct, pnlClass } from "@/lib/format";
+import { fmtMoney, fmtPct, pnlClass } from "@/lib/format";
 
 const HEAD_CLASS = "text-xs font-medium text-text-tertiary";
 
@@ -40,6 +40,7 @@ export function MomentumTable({ rows }: Props) {
         <TableRow className="h-9">
           <TableHead className={`${HEAD_CLASS} w-12 text-center`}>Rank</TableHead>
           <TableHead className={`${HEAD_CLASS} w-[280px]`}>Ticker</TableHead>
+          <TableHead className={`${HEAD_CLASS} text-right`}>Last</TableHead>
           <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Moat</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>1 w</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>1 mo</TableHead>
@@ -66,6 +67,9 @@ export function MomentumTable({ rows }: Props) {
               <p className="truncate text-xs text-text-secondary" title={row.company_name ?? undefined}>
                 {row.company_name ?? "—"}
               </p>
+            </TableCell>
+            <TableCell className="text-right font-mono text-text-secondary">
+              {row.last_price != null ? fmtMoney(row.last_price, row.quote_currency ?? "USD") : "—"}
             </TableCell>
             <TableCell className="text-center">
               <Badge size="compact" tone={MOAT_TONE[row.moat]}>
