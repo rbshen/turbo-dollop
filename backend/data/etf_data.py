@@ -11,6 +11,7 @@ convention)."""
 
 import logging
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import date, datetime
 
 import httpx
@@ -236,10 +237,23 @@ async def _warm_daily_bars(ticker: str) -> None:
         logger.warning("Daily-bar warm-up failed for ETF %s", ticker, exc_info=True)
 
 
-async def get_etf_overview(ticker: str) -> EtfOverviewOut:
-    """Never raises for an FMP problem: the group being off, or a failed fetch, with nothing cached
-    comes back as status "unavailable" (the Overview shows its own state; the Technical and Chart
-    tabs do not depend on this). A failed refetch with a stale row cached serves the stale row."""
+@dataclass(frozen=True)
+class EtfInfoLoad:
+    """What `load_etf_info` found: the cached-or-fetched /etf/info payload (None when nothing could be
+    obtained), the cache row's fetched_at, and whether a live fetch was attempted and failed (a stale
+    cached row, when there is one, is still returned as the payload)."""
+
+    payload: dict | list | None
+    fetched_at: datetime | None
+    failed: bool
+
+
+async def load_etf_info(ticker: str, cache_only: bool = False) -> EtfInfoLoad:
+    """The one way to get a ticker's /etf/info row: `get_or_fetch` on the `etf_info` key with its 1-day TTL
+    (`Settings.etf_info_staleness_days`), so a fresh cache makes no FMP call. An off / not-on-plan group serves
+    the cached row (even if stale) exactly as the statement caches do. A failed live fetch falls back to the
+    cached row and reports `failed=True`. `cache_only=True` never calls FMP at all (nothing cached -> payload
+    None, failed False). Shared by the Overview tab and the ETF screener job."""
     ticker = normalize_ticker(ticker)
     failed = False
     with Session(engine) as session:
@@ -251,6 +265,7 @@ async def get_etf_overview(ticker: str) -> EtfOverviewOut:
                 "latest",
                 lambda: fmp_client.get_etf_info(ticker),
                 settings.etf_info_staleness_days,
+                cache_only=cache_only,
             )
         except httpx.HTTPError as exc:
             logger.warning("FMP fetch failed for etf_info %s: %s", ticker, exc)
@@ -260,12 +275,22 @@ async def get_etf_overview(ticker: str) -> EtfOverviewOut:
                 settings.etf_info_staleness_days, cache_only=True,
             )
         row = _cached_row(session, ticker) if payload is not None else None
+        fetched_at = row.fetched_at if row else None
+    return EtfInfoLoad(payload=payload, fetched_at=fetched_at, failed=failed)
 
+
+async def get_etf_overview(ticker: str) -> EtfOverviewOut:
+    """Never raises for an FMP problem: the group being off, or a failed fetch, with nothing cached
+    comes back as status "unavailable" (the Overview shows its own state; the Technical and Chart
+    tabs do not depend on this). A failed refetch with a stale row cached serves the stale row."""
+    ticker = normalize_ticker(ticker)
+    loaded = await load_etf_info(ticker)
+    payload, failed = loaded.payload, loaded.failed
     if payload is None:
         # get_or_fetch returns None without calling FMP only when the group is not live (cache-only
         # semantics) and nothing is cached; a failed live fetch is the other way to get here.
         return EtfOverviewOut(ticker=ticker, status="unavailable", reason="fetch_failed" if failed else "group_off")
-    overview = _overview_from_payload(ticker, payload, row.fetched_at if row else None)
+    overview = _overview_from_payload(ticker, payload, loaded.fetched_at)
     if overview.status == "ok":
         await _warm_daily_bars(ticker)
         overview.trading_data = await _trading_data(ticker, overview.asset_class)

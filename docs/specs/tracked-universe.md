@@ -39,7 +39,7 @@ non-US purge, the delisted-flag sync, the search fallback while `profile_quote` 
 ## The ETF universe (added 2026-10-02, not wired to any nightly job yet)
 
 Step 2 of the ETFs screener (additive only). `load_tracked_universe` above is **unchanged**: the stock-side jobs still
-hold the ETFs (Weinstein, last close, score recompute) until a later cutover step. Only the ETF screener endpoints read the functions below; there is no cron job and no write for them.
+hold the ETFs (Weinstein, last close, score recompute) until a later cutover step. Only the ETF screener endpoints and the (unregistered) ETF screener refresh job read the functions below; no registered cron job does.
 
 - **Partition.** `partition_known_tickers(session)` splits the wide known set into (stock side, ETF side) using
   `data/etf_data.py::known_etf_tickers` (a `TickerScore.is_etf` row, or a cached profile with `isEtf`/`isFund`) plus
@@ -59,8 +59,8 @@ hold the ETFs (Weinstein, last close, score recompute) until a later cutover ste
   removed), `load_expired_etfs`, and `count_hidden_inactive_etfs` (the ETF counterpart of
   `ScreenerMeta.hidden_inactive`; it counts expired ETFs, not table rows, because the ETF read-model does not exist
   yet).
-- **Read by** `GET /api/etf-screener` and `/meta` (`data/etf_screener_data.py`, see [ETFs screener](etf-screener.md)); no
-  nightly job reads it yet.
+- **Read by** `GET /api/etf-screener` and `/meta` (`data/etf_screener_data.py`) and by the ETF screener refresh
+  (`data/etf_screener_refresh.py`, unregistered until step 6), see [ETFs screener](etf-screener.md).
 - **Guard.** `tests/test_tracked_universe.py` pins that the stock-side union is unchanged and that the partition is
   exhaustive with no overlap.
 

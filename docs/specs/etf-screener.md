@@ -1,9 +1,11 @@
-# ETFs screener: read-model and endpoints (step 3 of the build)
+# ETFs screener: read-model, endpoints and refresh job (steps 3 and 4 of the build)
 
-Built 2026-10-02 from the ETFs screener investigation. **Backend data layer only**: the table, a write helper, two read
-endpoints and a stock/ETF `kind` on saved views. Not built yet: the nightly ETF job that fills the table (step 4), the
-frontend page, and the cutover that takes ETFs out of the stock-side jobs. Until the job exists the table is empty and
-`GET /api/etf-screener` returns `[]`.
+Built 2026-10-02 from the ETFs screener investigation. **Backend only**: the table, a write helper, two read endpoints,
+a stock/ETF `kind` on saved views (step 3) and the refresh job code (step 4). **The job is built but UNREGISTERED**: it
+is not in `crontab.txt`, `CRON_JOB_NAMES`, `_EXPECTED_CADENCE_HOURS` or `JOB_METADATA` until step 6 (the nightly schedule
+is being reworked), so nothing fills the table on its own yet and `GET /api/etf-screener` returns `[]` until it is run by
+hand. Not built: the frontend page (step 5), the registration (step 6) and the cutover that takes ETFs out of the
+stock-side jobs (step 7, checklist at the end).
 
 The ETF universe (which ETFs are in) is `data/tracked_universe.py::load_etf_universe`, see
 [Tracked universe](tracked-universe.md), "The ETF universe". The ETF page itself is [ETF page](etf-page.md).
@@ -50,7 +52,8 @@ stock endpoints (`/api/screener`, `/meta`, `/recompute`, `/filters`) are untouch
 
 - **`GET /api/etf-screener`** -> `list[EtfScreenerRowOut]`, sorted by ticker. Only rows whose ticker is in
   `load_etf_universe` (a join on the universe): an expired ETF keeps its row but is not returned, and a re-view brings it
-  back. A seed (SPY or a sector SPDR) is returned as soon as it has a row, profile or no. Empty table -> `[]`.
+  back once the next refresh has rebuilt its row (a successful live run deletes the rows of ETFs that left the universe,
+see "Retention"). A seed (SPY or a sector SPDR) is returned as soon as it has a row, profile or no. Empty table -> `[]`.
 - **`GET /api/etf-screener/meta`** -> `EtfScreenerMeta`: `total_etfs` (ETFs in the universe, with or without a row),
   `row_count` (rows returned; `total_etfs - row_count` is the "X of Y" gap), `hidden_inactive`
   (`count_hidden_inactive_etfs`), `asset_classes` (distinct non-null values among the returned rows, sorted) and `ranges`
@@ -92,10 +95,88 @@ hand and nothing needs a separate deploy step beyond restarting the backend on t
 - Tests: `tests/test_db_migrations.py` (rebuild, idempotence, rollback, uniqueness per kind),
   `tests/test_saved_screener_filters.py`, `tests/test_etf_screener.py`.
 
-## For the step-4 job
+## The refresh job (step 4)
 
-- Write through `upsert_etf_screener_row`; pass only what the run computed. Iterate `load_etf_universe`.
-- Weinstein / signal fields are copied from `TrendAnalysis` / `TechnicalEntrySignal` (the ETFs are still in the stock-side
-  Weinstein job until the cutover, so those rows exist; after the cutover the ETF job must compute or take them).
-- Store `beta` raw; do not apply the equity rule at write time.
-- Seeds the app has never opened (nine sector SPDRs) have no profile or `/etf/info` yet: the job must fetch them.
+Code: `data/etf_screener_refresh.py::refresh_etf_screener(tickers=None, *, cache_only=False, dry_run=False)`; entry point
+`pipeline/nightly_etf_screener.py` (`uv run python -m pipeline.nightly_etf_screener [--tickers ..] [--cache-only]
+[--dry-run]`). For each ticker in `load_etf_universe` it computes the row's fields and writes them through
+`upsert_etf_screener_row`. Every source is an existing path; nothing is reimplemented.
+
+| Field(s) | Source |
+|---|---|
+| `last_price`, `pct_change_1d`, `as_of_date` | the shared daily-bar cache: one `get_or_fetch_bars_batch` (5 years, `auto_adjust=False`, the same call the Weinstein job makes; a current wide cache makes no FMP call), then `read_cached_completed_daily_bars` per ticker (completed sessions only, the provisional-bar rule applies). Split-adjusted close, no dividend adjustment. `pct_change_1d` is the last two bars; `as_of_date` is the newest bar's date |
+| `return_1y` | `scoring/etf_returns.py::compute_window_returns`, window `1y`, anchored on the ETF's newest bar (None for a fund younger than a year or a newest bar more than 5 days stale) |
+| `vs_spy_1y` | `return_1y` minus SPY's 1Y return from the same bars, **percentage points**. SPY must have a bar on the ETF's own `as_of_date` (the same window); otherwise it is left unset and logged. SPY itself reads 0.0 |
+| `asset_class`, `expense_ratio`, `aum`, `info_updated_at` | `/etf/info` through `data/etf_data.py::load_etf_info` (`get_or_fetch`, 1-day TTL `etf_info_staleness_days`; the `etf_info` group toggle and the 402 safety net apply; off or failing = the cached row is served). `info_updated_at` is `updatedAt` as naive UTC. AUM is `assetsUnderManagement`, never the profile's `marketCap` |
+| `name`, `beta` | the cached profile (30-day TTL `profile_staleness_days`). `beta` is stored **raw** (the equity-only rule is applied on read); a beta of 0 or NaN is FMP's "unknown" and is not stored. `name` is the profile's `companyName`; `/etf/info`'s `name` is used only when the profile has none and did not fail |
+| `weinstein_*` (stage, since_date, is_lower_bound, ma_slope_pct, vs_ma_pct, pending_direction) | the pure engines `compute_weinstein_stage` / `compute_weinstein_pending` on the ETF's cached bars with the live Settings > Weinstein parameters and the configured RS benchmark's bars (default SPY); a missing benchmark degrades the RS fields inside the engine, not the stage. `TrendAnalysis` is **not** written (the stock job owns it) |
+| `bb_rsi_entry_signal`, `warren_active_signal_kind`, `warren_last_buy_fired_at` | **read, not computed**: from `TechnicalEntrySignal` (`bb_rsi`/`warren`) and `WarrenSignalEvent` through `is_entry_signal_active`, `warren_active_up_kind`, `last_buy_signal_fired_at`, the helpers `data/ticker_score.py` uses. The monitored-watchlist jobs produce them for tickers on `E<n>` lists and the `ETF` list; any other ETF has no row, so these are None. Not copied from `TickerScore` |
+
+### Null and partial-write rules
+
+- Only fields **computed successfully this run** are passed to the upsert, so a source that failed, or has nothing, never
+  overwrites a stored value with NULL (one ETF's `/etf/info` outage keeps its last asset class, expense ratio and AUM;
+  a run with no bars keeps the last price and returns). A fund too young for a 1Y return, a seed with no cached info, a
+  stage that could not be determined: those columns are simply not written.
+- **Exception: the three signal fields** are a deterministic local read, so "no signal row" is a real answer and is
+  written as NULL (a signal that ended is cleared). But a run whose only computed fields are those never **creates** a row
+  (a seed with nothing cached stays row-less); it may update a row that exists.
+- One source raising (bars, Weinstein, signals, `/etf/info`, profile) costs only its own fields and is recorded in that
+  ETF's `errors`; one ETF raising (for example the upsert) is logged and the run continues. `failed` counts ETFs with
+  any error. The pipeline entry point applies `core.cron_health.check_failure_threshold` (all failed, or >= 5% of >= 25).
+- Seeds the app has never opened (the nine sector SPDRs today) get a first-time fetch through the same paths (profile,
+  `/etf/info`, bars), which also caches their profile, so they are known ETFs from then on.
+- A fresh cache makes no FMP call: `/etf/info` (1 day), profile (30 days), bars (the shared cache's own freshness rule).
+
+### Modes
+
+- **Live** (default): fetches what is stale, writes rows, then prunes. Skipped (a real `skipped` cron status) while the
+  `daily_prices` group is off (`job_skip_reason`); `etf_info` / `profile_quote` off serve cached rows.
+- **`cache_only`**: no bar fetch, no `/etf/info` or profile call (stale cached rows are used as they are): no network
+  call at all. Still writes rows, and never prunes.
+- **`dry_run`**: computes and returns everything (the summary's `results`, per ETF: `fields`, `notes`, `errors`), writes
+  no `EtfScreenerRow` and prunes nothing (`would_prune` reports the count). It does **not** stop the normal read-through
+  caches from filling when it is not also `cache_only`; **`--cache-only --dry-run` is the run that writes nothing at
+  all**, and the CLI then skips `init_db()` and the log file, so it can run against the real database read-only.
+- `cron_heartbeat("pipeline.nightly_etf_screener")` is in the `__main__` block (already matching the future
+  `CRON_JOB_NAMES` entry) and is used for a real run only; `--cache-only` / `--dry-run` write no `CronRunLog` row.
+  `tests/test_cron_wiring.py` only iterates `CRON_JOB_NAMES`, so an unregistered module with a heartbeat does not trip it.
+
+### Retention
+
+After a **successful live run** (not `cache_only`, not `dry_run`, no explicit `--tickers`), `EtfScreenerRow` rows for
+tickers no longer in `load_etf_universe` (expired, delisted, or not an ETF) are deleted
+(`prune_etf_screener_rows`). A run counts as successful when the batch bar fetch did not raise **and** the failure
+threshold was not breached (the same rule the heartbeat applies); otherwise nothing is pruned. An ETF re-opened after
+expiry is back in the universe at once and gets its row at the next refresh.
+
+### Registration (step 6) must add
+
+- `crontab.txt`: a daily line `... -m pipeline.nightly_etf_screener >> .../logs/nightly_etf_screener_cron.log 2>&1`, then
+  `crontab crontab.txt` from `backend/` and `crontab -l` checked against the file. Slot: after the Weinstein/bar-cache
+  job (it reads the bars that job fills and rides the same incremental fetch), after LP, BB+RSI and Warren (it reads
+  their output for the signal fields), and before the score recompute and backup; the exact minute is the schedule
+  rework's call (about 1-2 minutes for 20 ETFs, dominated by pacing).
+- `core/cron_health.py`: `"pipeline.nightly_etf_screener"` in `CRON_JOB_NAMES`, a `_EXPECTED_CADENCE_HOURS` entry (24),
+  a `JOB_METADATA` entry (display name, description, expected time).
+- `tests/test_cron_wiring.py` may need the new job added to its ordering assertions (the chain-order list, and
+  "after the jobs it copies from"), and `backend/OPS_RUNBOOK.md` the job's row.
+
+## Cutover checklist (step 7: taking the ETFs out of the stock-side jobs)
+
+Until then `load_tracked_universe` still holds every ETF (`tests/test_tracked_universe.py` pins it). What the stock-side
+jobs provide for an ETF today, and what the cutover must do about each:
+
+| Provided today by | What it gives an ETF | After the cutover |
+|---|---|---|
+| `nightly_trend_calculation` (1:05) | the **5-year daily bars** in the shared cache, and the `TrendAnalysis` row (Weinstein). SPY's bars ride along regardless of the universe | The ETF job fetches its own bars (one batch, same cache), so the bars stay. The ETF's **`TrendAnalysis` row stops being refreshed**. Its readers: the ETF page's Technical tab (recomputes on demand when stale: fine), Watchlist rows (`cache_only`, so a watchlisted ETF's stage would freeze), `TickerScore`. Decide whether the ETF job also writes `TrendAnalysis` (reuse `compute_and_store_from_frames`) or the Watchlist reads `EtfScreenerRow` |
+| `nightly_last_close_snapshot` (1:00) | `TickerLastClose`, the ticker header's price fallback when the live quote fails | ETFs lose it. Either the last-close job unions the ETF universe, or the ETF job writes `TickerLastClose` |
+| `nightly_score_recompute` (3:25) | the `TickerScore` row for each ETF: `is_etf` (read by `known_etf_tickers` and the Watchlist), `company_name`, `last_price`, `beta`, `market_cap`, the `weinstein_*` copy, the signal copy | Frozen. Nothing reads them for the ETF screener (it has its own table; the Stocks Screener excludes ETFs). `known_etf_tickers` still finds an ETF through its cached profile. Check the Watchlist's ETF rows, which call `compute_ticker_score(cache_only=True)` live |
+| `stale_data_health_check`, `tracked_universe_report` | the ETFs in the staleness / universe reports | ETFs drop out of the stock report; add the ETF side if wanted |
+| Sector Heatmap, Market Breadth | **nothing** (own fixed lists, own fetches) | unaffected |
+| `nightly_fundamentals_fetch`, `nightly_price_target_snapshot`, Monthly Momentum | **nothing** (already skip ETFs) | unaffected |
+
+Also at the cutover: `load_tracked_universe` becomes the stock side of `partition_known_tickers` (and the unchanged-union
+pin test is rewritten on purpose); `SYSTEM_TICKERS` keeps protecting SPY and the sector SPDRs only if they should stay on
+the stock side, otherwise retire it in favour of `ETF_SEED_TICKERS`; `ScreenerMeta.hidden_inactive` (stocks) and
+`count_hidden_inactive_etfs` must not double-count.
