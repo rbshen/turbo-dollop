@@ -594,13 +594,15 @@ the run is marked `failure` (the existing red state; no new health value) when *
 attempted** (`FAILURE_RATE_MIN_ATTEMPTED`), so a tiny run (a `--tickers` test, a short watchlist) cannot flip
 on one error; "no data" and "skipped" counts appear in the message but never in the rule. What each job now
 reports: price-target "N written, M no analyst data, K skipped (ETF), F failed"; fundamentals "N refreshed, F
-failed, C FMP calls, D min"; BB+RSI and Warren "N computed, F failed, S swept, P pruned"; score recompute "N
+failed, C FMP calls, D min"; BB+RSI and Warren "N computed, F failed, S swept, P pruned, K still stale after fetch"; score recompute "N
 scored, S skipped (no cached profile), F failed" (skips are not in the denominator); backup "X MB, N old
 backup(s) pruned" (no threshold: any error raises). Limits: fundamentals only counts an exception that escapes a
 ticker's refresh -- most per-statement FMP errors are swallowed inside `get_stepN_data` (`safe_fetch`) and are
 invisible to this count. What to do when a run goes red on the threshold: the red text starts with the normal
 counts and ends "-- N% failed (limit 5%)" or "-- all N attempted failed"; the per-ticker reasons are in the
 job's own `backend/logs/<job>.log` ("Tickers with failures: ...").
+
+**Stale count on the two 2h signal jobs (2026-10-03).** BB+RSI and Warren run `stale_ticker_count(tickers, "60m")` right after their bars read and report the result as "K still stale after fetch" (message, run summary, and "Stale: K." in the log line), the same guard the daily-bar jobs use. K is how many monitored tickers' newest cached 60m bar is older than the most recently completed bar (an FMP error or empty answer leaves the old bars in place, so the job still computes and reports success on them). It is informational: it never feeds the failure threshold, and a stale ticker is still computed. Expect K to jump to roughly the whole watchlist on the night of a market holiday or early close (the helper is weekday-aware, not holiday-aware, and expects a 15:30 bar). Any other non-zero K: check the job's own log for "FMP intraday fetch failed for <ticker>" lines.
 
 A job commented out of the crontab on purpose goes in `core/cron_health.py::DISABLED_CRON_JOBS` (job -> date + reason): it stays in
 `CRON_JOB_NAMES`, shows as "Skipped — Disabled since <date>: <reason>" instead of aging into Overdue, and `test_cron_wiring.py`

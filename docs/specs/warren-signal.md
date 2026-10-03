@@ -158,7 +158,7 @@ feature, one script" reasoning as the Liquidity Zone job (see `docs/specs/liquid
 justified since Warren's 2-year-lookback / full-replay shape is fundamentally different from BB+RSI's
 60-day / latest-day-only one, even though both share the monitored-watchlist scope and the shared 60m bars cache. It reads
 the cache at the full 730-day width rather than through `clients/technical_sources.py`'s BB+RSI-sized 60-day
-reader. It is wired into `core/cron_health.py`'s `CRON_JOB_NAMES` / `_EXPECTED_CADENCE_HOURS`.
+reader. It is wired into `core/cron_health.py`'s `CRON_JOB_NAMES` / `_EXPECTED_CADENCE_HOURS`. After its bars read it reports how many tickers' cached 60m bars are still stale (`stale_ticker_count`, same guard and "K still stale after fetch" message as BB+RSI and the daily-bar jobs); informational only, so it neither fails the run nor skips a ticker.
 
 ## API and UI
 
