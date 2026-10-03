@@ -212,20 +212,46 @@ def test_screener_meta_universe_all_excludes_etfs_to_match_the_pages_client_side
     assert response.json() == {"universe": "all", "total_constituents": 3, "hidden_inactive": 0}
 
 
-def test_screener_list_still_returns_etf_rows_and_their_is_etf_flag(monkeypatch):
-    # The exclusion is the page's job (client-side, like every other
-    # Screener filter) -- the endpoint keeps serving every row and just
-    # carries the flag the page needs.
+def test_screener_all_universe_no_longer_returns_etf_rows_after_the_cutover(monkeypatch):
+    # ETF cutover 2026-10-03: the ETFs have their own universe and page (/api/etf-screener), so the stock universe the
+    # `all` Screener reads holds none; an ETF's old TickerScore row stays in the table, frozen, and is simply not served.
     engine = _fresh_engine(monkeypatch)
     with Session(engine) as session:
         session.add(TickerScore(ticker="SPY", is_etf=True, company_type="ETF", computed_at=datetime(2026, 1, 1)))
+        session.add(TickerScore(ticker="AAPL", is_etf=False, computed_at=datetime(2026, 1, 1)))
         session.commit()
 
     _mark_viewed(engine)
     with TestClient(main.app) as client:
         response = client.get("/api/screener", params={"universe": "all"})
+        meta = client.get("/api/screener/meta", params={"universe": "all"})
 
-    assert [(row["ticker"], row["is_etf"]) for row in response.json()] == [("SPY", True)]
+    assert [(row["ticker"], row["is_etf"]) for row in response.json()] == [("AAPL", False)]
+    assert meta.json()["total_constituents"] == 1
+    with Session(engine) as session:
+        assert session.get(TickerScore, "SPY") is not None  # not deleted
+
+
+def test_hidden_inactive_counts_expired_stocks_only_and_never_overlaps_the_etf_count(monkeypatch):
+    from data.tracked_universe import count_hidden_inactive_etfs
+
+    engine = _fresh_engine(monkeypatch)
+    old = datetime.now() - timedelta(days=90)
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="OLDSTOCK", is_etf=False, computed_at=old))
+        session.add(TickerScore(ticker="OLDETF", is_etf=True, company_type="ETF", computed_at=old))
+        session.add(TickerScore(ticker="NEWSTOCK", is_etf=False, computed_at=old))
+        for ticker in ("OLDSTOCK", "OLDETF"):
+            session.add(TickerView(ticker=ticker, last_viewed_at=old))
+        session.add(TickerView(ticker="NEWSTOCK", last_viewed_at=datetime.now()))
+        session.commit()
+
+    with TestClient(main.app) as client:
+        meta = client.get("/api/screener/meta", params={"universe": "all"}).json()
+    with Session(engine) as session:
+        etf_hidden = count_hidden_inactive_etfs(session)
+    assert (meta["total_constituents"], meta["hidden_inactive"]) == (1, 1)  # NEWSTOCK in; OLDSTOCK hidden; the ETF in neither
+    assert etf_hidden == 1  # OLDETF counted once, on the ETF side only
 
 
 def test_screener_meta_is_zero_when_no_constituents_stored(monkeypatch):

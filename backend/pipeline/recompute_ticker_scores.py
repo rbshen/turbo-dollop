@@ -1,6 +1,6 @@
 """Standalone script: re-score every ticker in the tracked universe
 (data/tracked_universe.py::load_tracked_universe, the one definition every
-nightly job shares: index, watchlist, system set, manual data, viewed in the
+nightly job shares: stocks only (ETF cutover 2026-10-03): index, watchlist, manual data, viewed in the
 last 30 days; delisted-flagged excluded) -- reading ONLY already-cached raw data -- makes zero FMP
 calls. This exists specifically for when scoring logic changes (which has
 happened repeatedly in this project -- e.g. the Step 4 window extension)

@@ -21,6 +21,7 @@ import core.main as main
 import data.etf_data as etf_data
 import data.momentum_data as momentum_data
 import data.ticker_search as ticker_search
+import data.tracked_universe as tracked_universe
 import data.watchlist_data as watchlist_data
 import pipeline.nightly_fundamentals_fetch as nightly
 from clients.fmp_client import FMPClient
@@ -516,7 +517,7 @@ def test_watchlist_row_carries_is_etf_from_the_score_row(monkeypatch):
     assert {r.ticker: r.is_etf for r in rows} == {"QQQ": True, "AAPL": False}
 
 
-def test_fundamentals_fetch_universe_skips_known_etfs_but_the_full_universe_keeps_them(monkeypatch):
+def test_fundamentals_fetch_universe_has_no_etf_since_the_cutover_but_the_wide_known_set_keeps_them(monkeypatch):
     engine = _engine()
     with Session(engine) as session:
         session.add(_profile_row("QQQ", isEtf=True))
@@ -527,7 +528,8 @@ def test_fundamentals_fetch_universe_skips_known_etfs_but_the_full_universe_keep
         session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now()) for t in ("QQQ", "PTY", "AAPL", "SPY", "MSFT")])
         session.commit()
 
-        assert nightly.load_tracked_universe(session) == ["AAPL", "MSFT", "PTY", "QQQ", "SPY"]
+        assert nightly.load_tracked_universe(session) == ["AAPL", "MSFT"]  # the stock side only
+        assert set(tracked_universe.load_all_known_tickers(session)) >= {"AAPL", "MSFT", "PTY", "QQQ", "SPY"}
         assert nightly.load_fundamentals_fetch_universe(session) == ["AAPL", "MSFT"]
 
 

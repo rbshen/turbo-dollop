@@ -170,8 +170,9 @@ its own rows and still shows an ETF a user explicitly added.
   `docs/archive/claude-md-history-features.md`.
 - **Fixed since (2026-10-02)**: `nightly_fundamentals_fetch` no longer fetches an ETF's statements: it skips known
   ETFs/funds when it builds its own universe (`load_fundamentals_fetch_universe`; see [ETF page](etf-page.md)). The
-  ETFs still sit in the stock-side tracked universe for the Weinstein, last-close and score-recompute jobs; a separate
-  ETF-side universe exists (`load_etf_universe`, [Tracked universe](tracked-universe.md)) but nothing reads it yet.
+  ETFs sat in the stock-side tracked universe until the **2026-10-03 cutover**; they now have their own universe
+  (`load_etf_universe`, [Tracked universe](tracked-universe.md)) refreshed by the nightly ETF job, which also writes
+  their `TrendAnalysis` and `TickerLastClose` ([ETFs screener](etf-screener.md)).
 
 ## Screener excludes delisted tickers (2026-09-30)
 

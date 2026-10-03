@@ -139,3 +139,28 @@ def test_last_price_is_the_cached_last_close_and_none_when_uncached(monkeypatch)
     )
 
     assert [r.last_price for r in rows] == [187.25, None]
+
+
+def test_an_etf_rows_price_is_the_cached_last_close_the_etf_job_writes(monkeypatch):
+    """ETF cutover 2026-10-03: the stock-side last-close job no longer covers ETFs; the nightly ETF job writes their
+    TickerLastClose rows, and the Watchlist's price column reads exactly that table (no TickerScore involved)."""
+    from datetime import date
+
+    from sqlalchemy.pool import StaticPool
+    from sqlmodel import SQLModel, create_engine, Session
+
+    import data.last_close_data as last_close_data
+    from core.models import TickerLastClose
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(engine)
+    monkeypatch.setattr(last_close_data, "engine", engine)
+    with Session(engine) as session:
+        session.add(TickerLastClose(ticker="QQQ", close=749.58, as_of_date=date(2026, 10, 2), fetched_at=datetime(2026, 10, 3)))
+        session.commit()
+    _patch(monkeypatch, _score("QQQ"))
+    monkeypatch.setattr(watchlist_data, "get_cached_last_closes", last_close_data.get_cached_last_closes)  # undo _patch's stub
+
+    rows = asyncio.run(get_watchlist_rows([WatchlistTicker(watchlist_id=1, ticker="QQQ", added_at=datetime(2026, 1, 1))]))
+
+    assert rows[0].last_price == 749.58

@@ -5,30 +5,31 @@ ever-viewed + watchlisted" rule, under which a ticker viewed once stayed in ever
 
 ## The rule
 
-`data/tracked_universe.py::load_tracked_universe(session, now=None)` is the one definition of which tickers the nightly
-and weekly jobs iterate. A ticker is in when it is **not delisted-flagged** and at least one of:
+`data/tracked_universe.py::load_tracked_universe(session, now=None)` is the one definition of which **stocks** the nightly
+and weekly stock-side jobs iterate: the stock side of `partition_known_tickers`. **Since the ETF cutover (2026-10-03) no
+ETF is in it** (see "The ETF universe" below). A stock is in when it is **not delisted-flagged** and at least one of:
 
 | | Rule | Source |
 |---|---|---|
 | a | member of the S&P 500, Nasdaq-100 or Dow list | `IndexConstituent` (`index_name` in `sp500`, `dow`, `nasdaq`) |
 | b | on **any** watchlist, monitored or not | `WatchlistTicker` |
-| c | in `SYSTEM_TICKERS` (the 11 sector ETFs plus SPY) **and already known to the app** | constant, built from `SECTOR_ETFS` and `WEINSTEIN_BENCHMARK_TICKER` |
-| d | its page was opened in the last 30 days (`TRACKED_VIEW_WINDOW_DAYS`) | `TickerView.last_viewed_at` |
-| e | it carries manual data: a Moat rating, any custom valuation (active or not), or a bank-capital entry | `TickerMoat`, `TickerCustomValuation`, `TickerBankCapitalMetrics` |
+| c | its page was opened in the last 30 days (`TRACKED_VIEW_WINDOW_DAYS`) | `TickerView.last_viewed_at` |
+| d | it carries manual data: a Moat rating, any custom valuation (active or not), or a bank-capital entry | `TickerMoat`, `TickerCustomValuation`, `TickerBankCapitalMetrics` |
+
+(The former rule "in `SYSTEM_TICKERS`, the 11 sector ETFs plus SPY" was retired at the cutover: those are ETFs, kept in
+the ETF universe by `ETF_SEED_TICKERS`.)
 
 Anything else that the app holds data for is **expired**: it stays in the DB with all its data (nothing is ever deleted
 by this rule), and drops out of the nightly jobs and the Screener's `all` universe until it is viewed again. The first
-matching reason wins and is reported as `delisted`, `index`, `watchlist`, `system`, `manual`, `viewed` or `expired`
+matching reason wins and is reported as `delisted`, `index`, `watchlist`, `manual`, `viewed` or `expired` (`system` is ETF-side only)
 (`classify_known_tickers`); the universe, the Screener's hidden count and the verification report all derive from that
 one classification.
 
-- **Rule (e) exists because of Monthly Momentum.** Its universe is "tracked tickers with a Moat rating"; without (e) a
+- **Rule (d) exists because of Monthly Momentum.** Its universe is "tracked tickers with a Moat rating"; without (e) a
   Moat-rated ticker not opened for 30 days would silently leave the next snapshot. A delisted ticker is excluded even if
   it has a Moat (the Momentum job still reports it as `skipped_delisted_count`).
-- **Rule (c) is protection, not insertion.** A system ticker the app has never seen is not added to anything, so the rule
-  creates no row and no FMP call. **A future ETF momentum universe must be added to `SYSTEM_TICKERS`** (the ETF momentum
-  ranking is "investigated, not built", `docs/specs/sector-heatmap.md`). There is a comment at the constant and the
-  guard test pins today's membership.
+- **A future ETF momentum universe must be added to `ETF_SEED_TICKERS`** (the ETF momentum ranking is "investigated, not
+  built", `docs/specs/sector-heatmap.md`); protection on the ETF side creates no row and no FMP call for an unseen ticker.
 - **A delisted flag always wins** (`TickerScore.delisted_at`), over an index, a watchlist or manual data.
 
 `load_all_known_tickers(session)` is the old wide set: index members, any ticker with a cached FMP *profile* (not any
@@ -36,10 +37,12 @@ one classification.
 It never expires and includes delisted tickers. It is for the jobs whose point is to see everything: the weekly
 non-US purge, the delisted-flag sync, the search fallback while `profile_quote` is off, and the one-off backfills.
 
-## The ETF universe (added 2026-10-02, not wired to any nightly job yet)
+## The ETF universe (added 2026-10-02; the stock/ETF cutover was done 2026-10-03)
 
-Step 2 of the ETFs screener (additive only). `load_tracked_universe` above is **unchanged**: the stock-side jobs still
-hold the ETFs (Weinstein, last close, score recompute) until a later cutover step. Only the ETF screener endpoints and the (unregistered) ETF screener refresh job read the functions below; no registered cron job does.
+Added at step 2 of the ETFs screener, wired in at step 7. Before the cutover the stock-side jobs also held the ETFs
+(Weinstein, last close, score recompute); now `load_tracked_universe` is the stock side of the partition and the ETF side
+below is read by `GET /api/etf-screener`, `pipeline/nightly_etf_screener.py` (1:45 AM, which also writes the ETFs'
+`TrendAnalysis` and `TickerLastClose`), the ETF part of `stale_data_health_check` and `tracked_universe_report`.
 
 - **Partition.** `partition_known_tickers(session)` splits the wide known set into (stock side, ETF side) using
   `data/etf_data.py::known_etf_tickers` (a `TickerScore.is_etf` row, or a cached profile with `isEtf`/`isFund`) plus
@@ -47,9 +50,9 @@ hold the ETFs (Weinstein, last close, score recompute) until a later cutover ste
   seeds the app has never seen. An ETF is only recognised once its profile or score row exists, so an unopened ETF
   stays on the stock side until it is opened.
 - **Seed list.** `ETF_SEED_TICKERS` = SPY + the 11 sector SPDR ETFs, built from `SECTOR_ETFS` (never retyped). A seed
-  is in the ETF universe with reason `system` even with no profile row. It is its own constant: `SYSTEM_TICKERS` is
-  untouched (it still protects the same tickers on the stock side). Today they have the same members. A future ETF
-  momentum universe goes into both while both are live.
+  is in the ETF universe with reason `system` even with no profile row. `SYSTEM_TICKERS`, which used to protect
+  the same tickers on the stock side, was retired at the cutover (nothing else consumed it). A future ETF momentum
+  universe goes into `ETF_SEED_TICKERS`.
 - **Rules**, via the same first-match `_classify` as the stock side (shared with `classify_known_tickers`; same
   `TRACKED_VIEW_WINDOW_DAYS`, same delisted flag): `delisted` > `watchlist` > `system` > `viewed` > `expired`. The
   `index` and `manual` reasons do not apply to an ETF (no ETF is an index constituent, and Moat cannot be set on one).
@@ -57,23 +60,23 @@ hold the ETFs (Weinstein, last close, score recompute) until a later cutover ste
   `TickerView` that `GET /api/tickers/{t}/summary` records; search itself writes nothing.
 - **Functions.** `classify_etf_tickers` ({ticker: reason}), `load_etf_universe` (sorted, delisted and expired
   removed), `load_expired_etfs`, and `count_hidden_inactive_etfs` (the ETF counterpart of
-  `ScreenerMeta.hidden_inactive`; it counts expired ETFs, not table rows, because the ETF read-model does not exist
-  yet).
+  `ScreenerMeta.hidden_inactive`; it counts expired ETFs, not table rows). Because the sides are disjoint, it never overlaps
+  `ScreenerMeta.hidden_inactive`, which counts expired stock rows only.
 - **Read by** `GET /api/etf-screener` and `/meta` (`data/etf_screener_data.py`) and by the ETF screener refresh
-  (`data/etf_screener_refresh.py`, unregistered until step 6), see [ETFs screener](etf-screener.md).
-- **Guard.** `tests/test_tracked_universe.py` pins that the stock-side union is unchanged and that the partition is
-  exhaustive with no overlap.
+  (`data/etf_screener_refresh.py`), see [ETFs screener](etf-screener.md).
+- **Guard.** `tests/test_tracked_universe.py` pins that the stock universe holds no ETF (viewed, expired, seed or
+  watchlisted), that the stock and ETF sides are exhaustive with no overlap, and that `SYSTEM_TICKERS` is gone.
 
 ## Who uses which
 
 | Expiring `load_tracked_universe` | Wide `load_all_known_tickers` |
 |---|---|
-| last-close snapshot and price-target snapshot (`load_us_price_target_universe`, minus non-US, delisted, and known ETFs for price targets) | `non_us_purge` and its 2% refusal guard |
+| last-close snapshot and price-target snapshot (`load_us_price_target_universe`, minus non-US and delisted; the known-ETF filter for price targets is now a belt-and-braces guard) | `non_us_purge` and its 2% refusal guard |
 | `nightly_trend_calculation` (Weinstein and the bar-cache fill) | `sync_delisted_flags` (a flagged ticker must stay matchable) |
 | `nightly_fundamentals_fetch` (minus known ETFs/funds) | the search fallback |
 | `nightly_score_recompute`, `recompute_ticker_scores` (and `POST /api/screener/recompute`) | the daily-bar and price-target backfills |
 | `monthly_momentum_snapshot` (`data/momentum_data.py`) | |
-| `stale_data_health_check`'s staleness report | |
+| `stale_data_health_check`'s stock staleness report (the ETF side is reported separately from `load_etf_universe`) | |
 | Screener `GET /api/screener?universe=all` and `/screener/meta` | |
 
 Not on this list because they never used the universe: Liquidity Zones, BB+RSI and Warren (monitored watchlists only),

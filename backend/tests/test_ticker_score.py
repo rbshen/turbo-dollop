@@ -640,3 +640,19 @@ def test_a_recompute_overwrites_a_previously_stored_pe_with_null(monkeypatch):
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
     assert row is not None and row.pe_ratio is None
+
+
+def test_an_etfs_stage_comes_from_its_trend_analysis_row_even_when_its_ticker_score_row_has_stopped_refreshing(monkeypatch):
+    # ETF cutover 2026-10-03: nightly_score_recompute no longer touches ETFs, so an ETF's TickerScore row goes stale. The
+    # Watchlist's compute_ticker_score(cache_only=True) re-derives the row live and copies the stage from TrendAnalysis,
+    # which the nightly ETF job now writes -- so the stage is current without any recompute sweep.
+    engine = _fresh_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="AAPL", computed_at=datetime(2026, 9, 29), is_etf=True, weinstein_stage="base"))
+        session.add(TrendAnalysis(ticker="AAPL", computed_at=datetime(2026, 10, 3), weinstein_stage="advance"))
+        session.commit()
+    _patch_all(monkeypatch, summary=_summary())
+
+    result = asyncio.run(compute_ticker_score("AAPL", cache_only=True))
+
+    assert result.weinstein_stage == "advance"

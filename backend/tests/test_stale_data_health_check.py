@@ -401,3 +401,45 @@ def test_main_syncs_delisted_flags_over_the_wide_set_not_the_expiring_universe(m
 
     assert result["delisted"]["cleared"] == ["RELIST"]
     assert "RELIST" not in result["fresh"]  # the staleness report is over the nightly universe
+
+
+# --- the ETF side (cutover 2026-10-03) ---
+
+
+def test_etf_staleness_uses_the_oldest_of_the_three_rows_the_etf_job_writes(monkeypatch, tmp_path):
+    from datetime import date
+
+    from core.models import EtfScreenerRow, TickerLastClose, TrendAnalysis
+
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    now = datetime.now()
+    with Session(engine) as session:
+        for ticker, days in (("FRESH", 1), ("OLD", 15)):
+            stamp = now - timedelta(days=days)
+            session.add(EtfScreenerRow(ticker=ticker, updated_at=stamp))
+            session.add(TrendAnalysis(ticker=ticker, computed_at=now if ticker == "OLD" else stamp))  # oldest one decides
+            session.add(TickerLastClose(ticker=ticker, close=1.0, as_of_date=date.today(), fetched_at=now))
+        session.add(EtfScreenerRow(ticker="NOLAST", updated_at=now))
+        session.add(TrendAnalysis(ticker="NOLAST", computed_at=now))  # no last close yet: never fetched
+        session.commit()
+
+    result = health_check.check_etf_staleness(["FRESH", "OLD", "NOLAST", "NOTHING"], threshold_days=10)
+
+    assert result["fresh"] == ["FRESH"]
+    assert result["stale"] == [("OLD", 15)]
+    assert result["never_fetched"] == ["NOLAST", "NOTHING"]
+
+
+def test_main_reports_the_etf_side_separately_and_keeps_etfs_out_of_the_stock_figures(monkeypatch, tmp_path, capsys):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    with Session(engine) as session:
+        session.add(IndexConstituent(index_name="sp500", ticker="AAPL", company_name="Apple", last_synced_at=datetime.now()))
+        _seed_profile(session, "AAPL", days_old=1)
+        session.commit()
+
+    result = health_check.main(threshold_days=10)
+
+    assert result["fresh"] == ["AAPL"]  # stock figures: the seeds (SPY, XLK, ...) are not counted here
+    assert "SPY" in result["etf"]["never_fetched"]  # a seed with no rows yet
+    out = capsys.readouterr().out
+    assert "Stale-data health check (1 tickers" in out and "ETF side (12 ETFs" in out

@@ -1,6 +1,6 @@
 """Standalone script: reports how many tickers in the tracked universe
 (data/tracked_universe.py::load_tracked_universe -- the nightly set: index,
-watchlist, system set, manual data, viewed in the last 30 days; delisted and
+watchlist, manual data, viewed in the last 30 days; STOCKS only since the 2026-10-03 ETF cutover; delisted and
 expired tickers are not refreshed on purpose, so they are not reported) haven't
 had their FundamentalsCache "profile" row refreshed within the staleness
 threshold -- a readable freshness report, not a silent check.
@@ -8,6 +8,11 @@ threshold -- a readable freshness report, not a silent check.
 nightly_fundamentals_fetch.py::_refresh_one_ticker), so its fetched_at is a
 reliable proxy for "did this ticker's nightly refresh actually happen
 recently." Cache-only, zero FMP calls apart from the delisted sync below.
+
+**ETF side (cutover 2026-10-03):** the ETFs have their own universe (`load_etf_universe`) refreshed by
+pipeline/nightly_etf_screener.py, so they are reported separately (`check_etf_staleness`, read-only): an ETF is stale
+when the oldest of its EtfScreenerRow / TrendAnalysis / TickerLastClose rows is past the threshold, never-fetched when
+one is missing. Informational, like the stock side.
 
 **Also hosts the delisted-ticker flag, a second, independent check over the same
 universe -- not a "profile" freshness thing at all.** sync_delisted_flags pages FMP's
@@ -57,11 +62,11 @@ from clients.fmp_client import fmp_client
 from core.cron_health import cron_heartbeat
 from core.db import engine, init_db
 from core.logging_config import configure_logging
-from core.models import FundamentalsCache, TickerScore
+from core.models import EtfScreenerRow, FundamentalsCache, TickerLastClose, TickerScore, TrendAnalysis
 from core.data_groups import group_live
 from core.tickers import normalize_ticker
 from pipeline.non_us_purge import DEFAULT_MAX_FRACTION, purge_non_us_tickers
-from data.tracked_universe import load_all_known_tickers, load_tracked_universe
+from data.tracked_universe import load_all_known_tickers, load_etf_universe, load_tracked_universe
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "stale_data_health_check.log"
 
@@ -100,6 +105,30 @@ def check_staleness(tickers: list[str], threshold_days: int) -> dict:
                 stale.append((ticker, days))
             else:
                 fresh.append(ticker)
+    return {"fresh": fresh, "stale": stale, "never_fetched": never_fetched}
+
+
+def check_etf_staleness(etfs: list[str], threshold_days: int) -> dict:
+    """Read-only freshness of the ETF side (cutover 2026-10-03): the nightly ETF job writes an ETF's EtfScreenerRow,
+    TrendAnalysis and TickerLastClose together, so an ETF is stale when the OLDEST of those three is past the
+    threshold and "never fetched" when any of them is missing (a seed with nothing cached has none yet).
+    Returns {"fresh": [...], "stale": [(ticker, days), ...], "never_fetched": [...]}, like `check_staleness`."""
+    fresh: list[str] = []
+    stale: list[tuple[str, int]] = []
+    never_fetched: list[str] = []
+    now = datetime.now()
+    with Session(engine) as session:
+        for ticker in etfs:
+            stamps = (
+                session.exec(select(EtfScreenerRow.updated_at).where(EtfScreenerRow.ticker == ticker)).first(),
+                session.exec(select(TrendAnalysis.computed_at).where(TrendAnalysis.ticker == ticker)).first(),
+                session.exec(select(TickerLastClose.fetched_at).where(TickerLastClose.ticker == ticker)).first(),
+            )
+            if any(stamp is None for stamp in stamps):
+                never_fetched.append(ticker)
+                continue
+            days = (now - min(stamps)).days
+            (stale.append((ticker, days)) if days > threshold_days else fresh.append(ticker))
     return {"fresh": fresh, "stale": stale, "never_fetched": never_fetched}
 
 
@@ -245,7 +274,19 @@ def load_delisted_tickers(session: Session) -> set[str]:
     return set(session.exec(select(TickerScore.ticker).where(TickerScore.delisted_at.is_not(None))).all())
 
 
-def _format_report(result: dict, total: int, threshold_days: int) -> str:
+def _format_etf_section(etf: dict, total: int, threshold_days: int) -> list[str]:
+    lines = [
+        f"  ETF side ({total} ETFs in the ETF universe, oldest of screener row / trend row / last close, threshold {threshold_days} days):",
+        f"    Fresh: {len(etf['fresh'])}   Stale: {len(etf['stale'])}   Never fetched: {len(etf['never_fetched'])}",
+    ]
+    if etf["stale"]:
+        lines.append("    Stale ETFs: " + ", ".join(f"{t} ({d}d)" for t, d in sorted(etf["stale"], key=lambda pair: -pair[1])))
+    if etf["never_fetched"]:
+        lines.append("    Never-fetched ETFs: " + ", ".join(sorted(etf["never_fetched"])))
+    return lines
+
+
+def _format_report(result: dict, total: int, threshold_days: int, etf_total: int = 0) -> str:
     lines = [
         f"Stale-data health check ({total} tickers, staleness threshold {threshold_days} days):",
         f"  Fresh:         {len(result['fresh'])}",
@@ -258,6 +299,8 @@ def _format_report(result: dict, total: int, threshold_days: int) -> str:
             lines.append(f"    {ticker}: {days}d")
     if result["never_fetched"]:
         lines.append("  Never-fetched tickers: " + ", ".join(sorted(result["never_fetched"])))
+    if result.get("etf"):
+        lines += _format_etf_section(result["etf"], etf_total, threshold_days)
     delisted = result.get("delisted") or {}
     if delisted.get("skipped"):
         lines.append("  Delisted-flag sync: skipped (index_membership group not live)")
@@ -307,12 +350,14 @@ def main(threshold_days: int = DEFAULT_STALE_THRESHOLD_DAYS) -> dict:
         # purpose, so it must not read as a stale one); the delisted sync and the non-US purge need
         # every ticker the app holds a row for.
         tickers = load_tracked_universe(session)
+        etfs = load_etf_universe(session)
         known = load_all_known_tickers(session)
     result = check_staleness(tickers, threshold_days)
+    result["etf"] = check_etf_staleness(etfs, threshold_days)
     result["non_us"] = non_us
     result["delisted"] = sync_delisted_flags(known)
     result["reprobe"] = _reprobe_restricted_groups()
-    report = _format_report(result, len(tickers), threshold_days)
+    report = _format_report(result, len(tickers), threshold_days, etf_total=len(etfs))
     logger.info("\n%s", report)
     print(report)
     return result
@@ -330,6 +375,8 @@ if __name__ == "__main__":
         result = main(cli_args.days)
         delisted = result.get("delisted") or {"newly_flagged": []}
         message = f"{len(result['stale'])} stale, {len(result['never_fetched'])} never-fetched"
+        etf = result.get("etf") or {"stale": [], "never_fetched": []}
+        message += f"; ETFs: {len(etf['stale'])} stale, {len(etf['never_fetched'])} never-fetched"
         if delisted["newly_flagged"]:
             message += f"; newly delisted: {', '.join(delisted['newly_flagged'])}"
         if delisted.get("cleared"):

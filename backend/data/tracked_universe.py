@@ -1,25 +1,27 @@
 """The one definition of which tickers the nightly (and weekly) jobs process -- the "tracked
 universe" -- and of when a page view counts toward it. Spec: docs/specs/tracked-universe.md.
 
-A ticker is in `load_tracked_universe` when it is not flagged delisted AND at least one of:
+`load_tracked_universe` is the STOCK side of `partition_known_tickers` (ETF cutover, 2026-10-03: the ETFs have their
+own universe, `load_etf_universe`, refreshed by pipeline/nightly_etf_screener.py). A stock is in it when it is not
+flagged delisted AND at least one of:
 
   (a) it is a member of the S&P 500, Nasdaq-100 or Dow list (`IndexConstituent`);
   (b) it is on ANY watchlist, monitored or not (`WatchlistTicker`);
-  (c) it is in `SYSTEM_TICKERS` (the 11 sector ETFs plus SPY) and the app already knows it;
-  (d) its page was opened in the last `TRACKED_VIEW_WINDOW_DAYS` days (`TickerView`);
-  (e) it carries manual data the owner entered: a Moat rating, a custom valuation or a bank-capital
+  (c) its page was opened in the last `TRACKED_VIEW_WINDOW_DAYS` days (`TickerView`);
+  (d) it carries manual data the owner entered: a Moat rating, a custom valuation or a bank-capital
       entry. Never expires, because the Monthly Momentum ranking is "Moat-rated tracked tickers" and
       would otherwise silently shed them.
+(The old "system set" rule, `SYSTEM_TICKERS` = the 11 sector ETFs plus SPY, is retired: those are ETFs, protected on the
+ETF side by `ETF_SEED_TICKERS`.)
 
 A ticker outside all of those is "expired": it stays in the DB with all its data (nothing is deleted),
 it just drops out of the nightly jobs and the Screener's `all` universe until it is viewed again.
 `load_all_known_tickers` is the old wide set (every ticker the app holds any row for) for the jobs
 whose whole point is to see everything: the non-US purge, the delisted-flag sync and the search fallback.
 
-**A future ETF momentum universe MUST be added to the protected set here** (and to the spec). Today
-the only system sets are the sector ETFs and SPY; the ETF momentum ranking is "investigated, not built"
-(docs/specs/sector-heatmap.md). Protection, not insertion: a system ticker the app has never seen is
-not added to anything, so nothing here creates a new row or a new FMP call.
+**A future ETF momentum universe MUST be added to `ETF_SEED_TICKERS`** (and to the spec); the ETF momentum ranking is
+"investigated, not built" (docs/specs/sector-heatmap.md). Protection, not insertion on the stock side: nothing here
+creates a new row or a new FMP call.
 
 Defined once, imported everywhere: `tests/test_tracked_universe.py` fails if a job or the Screener
 re-declares the union or reads the old function names."""
@@ -50,15 +52,10 @@ logger = logging.getLogger(__name__)
 
 TRACKED_VIEW_WINDOW_DAYS = 30
 
-# (c) The system set: tickers the app itself needs, not the owner. Today: the 11 SPDR sector ETFs
-# (Sector Heatmap) and SPY (the Weinstein RS benchmark and the 5Y-vs-SPY comparison). ADD A FUTURE ETF
-# MOMENTUM UNIVERSE HERE -- see the module docstring.
-SYSTEM_TICKERS: frozenset[str] = frozenset(symbol for symbol, _ in SECTOR_ETFS) | {WEINSTEIN_BENCHMARK_TICKER}
-
-# The ETF-side universe's seed list (`load_etf_universe`): SPY plus the 11 sector SPDR ETFs, always in the ETF
-# universe with reason "system", even when the app holds no profile for them yet. Same members as
-# SYSTEM_TICKERS today but deliberately its own constant: SYSTEM_TICKERS protects tickers on the stock-side
-# jobs and stays untouched until the ETF cutover. A future ETF momentum universe is added here as well.
+# The ETF-side universe's seed list (`load_etf_universe`): the tickers the app itself needs, not the owner: the 11
+# SPDR sector ETFs (Sector Heatmap) and SPY (the Weinstein RS benchmark and the 5Y-vs-SPY comparison). Always in the
+# ETF universe with reason "system", even when the app holds no profile for them yet. (Replaces the stock-side
+# SYSTEM_TICKERS, retired at the cutover.) ADD A FUTURE ETF MOMENTUM UNIVERSE HERE.
 ETF_SEED_TICKERS: frozenset[str] = frozenset(symbol for symbol, _ in SECTOR_ETFS) | {WEINSTEIN_BENCHMARK_TICKER}
 
 # Why a known ticker is in or out. The first matching reason wins, in this order.
@@ -148,33 +145,35 @@ def _classify(
 
 
 def classify_known_tickers(session: Session, now: datetime | None = None) -> dict[str, str]:
-    """{ticker: reason} for every known ticker. A reason in OUT_OF_UNIVERSE (delisted, expired) means the
-    nightly jobs skip it; any other reason means it is in. The single source for the universe, the
-    Screener's hidden count and the verification report."""
-    known = set(load_all_known_tickers(session))
+    """{ticker: reason} for every STOCK-side known ticker (ETFs are classified by `classify_etf_tickers`; the
+    two sides are disjoint). A reason in OUT_OF_UNIVERSE (delisted, expired) means the nightly jobs skip it;
+    any other reason means it is in. The single source for the universe, the Screener's hidden count and the
+    verification report."""
+    known, _ = partition_known_tickers(session)
     return _classify(
         session,
         known,
         now,
         index=load_index_tickers(session),
         manual=load_manual_data_tickers(session) & known,
-        system=set(SYSTEM_TICKERS) & known,
+        system=set(),
     )
 
 
 def load_tracked_universe(session: Session, now: datetime | None = None) -> list[str]:
-    """The sorted tickers every nightly and weekly job iterates (rules above)."""
+    """The sorted STOCK tickers every stock-side nightly and weekly job iterates (rules above). No ETF is in it."""
     reasons = classify_known_tickers(session, now)
     return sorted(t for t, reason in reasons.items() if reason not in OUT_OF_UNIVERSE)
 
 
 def load_expired_tickers(session: Session, now: datetime | None = None) -> set[str]:
-    """Known, not delisted, but outside the universe because they were not viewed for 30 days."""
+    """Known stocks, not delisted, but outside the universe because they were not viewed for 30 days."""
     return {t for t, reason in classify_known_tickers(session, now).items() if reason == EXPIRED}
 
 
 # --- the ETF side (docs/specs/tracked-universe.md, "ETF universe") ----------------------------------------
-# Additive: nothing calls these yet, and `load_tracked_universe` above is unchanged (it still holds the ETFs).
+# `partition_known_tickers` splits the wide known set; `load_tracked_universe` above is its stock side, the functions
+# below its ETF side. Since the cutover (2026-10-03) the nightly ETF job (pipeline/nightly_etf_screener.py) owns the ETFs.
 
 
 def partition_known_tickers(session: Session) -> tuple[set[str], set[str]]:
@@ -210,7 +209,8 @@ def load_expired_etfs(session: Session, now: datetime | None = None) -> set[str]
 def count_hidden_inactive_etfs(session: Session, now: datetime | None = None) -> int:
     """How many ETFs the ETF universe hides as inactive: the ETF counterpart of `ScreenerMeta.hidden_inactive`
     (core/main.py::screener_meta counts the hidden stock rows). Counts expired ETFs, not rows of any table
-    (the ETF read-model does not exist yet); a delisted ETF is not "inactive" and a seed never expires."""
+    (the ETF read-model's own rows are not what is counted); a delisted ETF is not "inactive" and a seed never expires.
+    `ScreenerMeta.hidden_inactive` counts expired STOCKS only, so the two never overlap (the sides are disjoint)."""
     return len(load_expired_etfs(session, now))
 
 

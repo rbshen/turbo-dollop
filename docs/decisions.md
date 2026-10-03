@@ -295,7 +295,7 @@ live `/profile` says `isActivelyTrading: true`. **Unchanged on purpose:** `prune
 210 days after its last view; its score row stays), every cron time, Liquidity Zone/BB+RSI/Warren (monitored watchlists
 only). **Effect (projected from the live DB):** universe 595 -> 590 on the first run (the 5 delisted leave at once) -> 563 on
 day 31 (20 stocks and 7 ETFs expire); about 3 FMP calls per dropped ticker per night. **Open:** a future ETF momentum
-universe must be added to `SYSTEM_TICKERS`.
+universe must be added to `ETF_SEED_TICKERS` (`SYSTEM_TICKERS` was retired by the 2026-10-03 ETF cutover entry below).
 
 ### 2026-10-02 — Cron reschedule: Sunday block first, technical chain 1:00-1:40, fundamentals 2:00
 
@@ -644,3 +644,15 @@ are resolved except the analyst-label rename. Remaining before the branch is rea
 confirm build clean and all tests passing (last checked 2026-09-29: `tsc`/`eslint`/backend and
 frontend test suites all clean), decide whether to do the analyst-label rename now or leave it
 as a follow-up, then review the whole `ui/design-system` branch before pushing/merging.
+
+### 2026-10-03 — ETF cutover: ETFs leave the stock-side jobs
+Step 7 of the ETFs screener. **Decision (owner):** `load_tracked_universe` is the stock side of `partition_known_tickers`, so no
+ETF is in the stock universe (live: 600 -> 581 tickers, exactly the 19 ETFs); the nightly ETF job (1:45 AM) owns everything the
+stock jobs gave an ETF: it writes `TrendAnalysis` from the one Weinstein computation shared with the `EtfScreenerRow` fields, and
+`TickerLastClose` through the stock-side helper, plus the weekly (Sunday UTC) full bar resync for its own bars. `SYSTEM_TICKERS` is
+retired (no other consumer; `ETF_SEED_TICKERS` has the same members). **Unchanged on purpose:** every cron time, the Watchlist and
+ticker pages (they read the same tables), existing ETF `TickerScore` rows (left in place, frozen; the Stocks Screener already hides
+them and `/api/screener?universe=all` no longer serves them). **Audit:** no prune/cleanup keys on the stock universe (age, empty
+profile, non-US exchange, or the ETF universe), pinned by `tests/test_etf_rows_survive_maintenance.py`. **Side effects:** the 11
+sector ETFs' bars are now filled by the Sector Heatmap job (1:35) instead of arriving warm from the 1:05 job (11 calls, still one batch).
+Detail: `docs/specs/etf-screener.md`, "Cutover".

@@ -5,8 +5,7 @@ a stock/ETF `kind` on saved views (step 3) and the refresh job code (step 4); fr
 **1:45 AM** in `crontab.txt`, in `CRON_JOB_NAMES`, `_EXPECTED_CADENCE_HOURS` (36 h, the shared daily value) and
 `JOB_METADATA`, after Warren (ends by ~1:31) and before the planned corporate-events slot (1:50), fundamentals (2:00), the
 recompute and the backup (`tests/test_cron_wiring.py::test_etf_screener_runs_after_its_inputs_with_room_on_both_sides`).
-The frontend page (step 5) is built, see "Frontend" below. Not built: the cutover that takes ETFs out of the
-stock-side jobs (step 7, checklist at the end).
+The frontend page (step 5) is built, see "Frontend" below. The cutover that took ETFs out of the stock-side jobs (step 7) is done, see "Cutover" at the end.
 
 The ETF universe (which ETFs are in) is `data/tracked_universe.py::load_etf_universe`, see
 [Tracked universe](tracked-universe.md), "The ETF universe". The ETF page itself is [ETF page](etf-page.md).
@@ -216,21 +215,21 @@ expiry is back in the universe at once and gets its row at the next refresh.
 - `tests/test_cron_wiring.py` may need the new job added to its ordering assertions (the chain-order list, and
   "after the jobs it copies from"), and `backend/OPS_RUNBOOK.md` the job's row.
 
-## Cutover checklist (step 7: taking the ETFs out of the stock-side jobs)
+## Cutover (step 7, done 2026-10-03): ETFs leave the stock-side jobs
 
-Until then `load_tracked_universe` still holds every ETF (`tests/test_tracked_universe.py` pins it). What the stock-side
-jobs provide for an ETF today, and what the cutover must do about each:
+Done in two commits: phase A (additive: the ETF job also writes `TrendAnalysis` and `TickerLastClose`, ran live and verified
+against a before-snapshot) and phase B (the switch). Record of what the stock-side jobs provided for an ETF and what replaced it:
 
-| Provided today by | What it gives an ETF | After the cutover |
+| Provided by | What it gave an ETF | Now |
 |---|---|---|
-| `nightly_trend_calculation` (1:05) | the **5-year daily bars** in the shared cache, and the `TrendAnalysis` row (Weinstein). SPY's bars ride along regardless of the universe | The ETF job fetches its own bars (one batch, same cache), so the bars stay. The ETF's **`TrendAnalysis` row stops being refreshed**. Its readers: the ETF page's Technical tab (recomputes on demand when stale: fine), Watchlist rows (`cache_only`, so a watchlisted ETF's stage would freeze), `TickerScore`. Decide whether the ETF job also writes `TrendAnalysis` (reuse `compute_and_store_from_frames`) or the Watchlist reads `EtfScreenerRow` |
-| `nightly_last_close_snapshot` (1:00) | `TickerLastClose`, the ticker header's price fallback when the live quote fails | ETFs lose it. Either the last-close job unions the ETF universe, or the ETF job writes `TickerLastClose` |
-| `nightly_score_recompute` (3:25) | the `TickerScore` row for each ETF: `is_etf` (read by `known_etf_tickers` and the Watchlist), `company_name`, `last_price`, `beta`, `market_cap`, the `weinstein_*` copy, the signal copy | Frozen. Nothing reads them for the ETF screener (it has its own table; the Stocks Screener excludes ETFs). `known_etf_tickers` still finds an ETF through its cached profile. Check the Watchlist's ETF rows, which call `compute_ticker_score(cache_only=True)` live |
-| `stale_data_health_check`, `tracked_universe_report` | the ETFs in the staleness / universe reports | ETFs drop out of the stock report; add the ETF side if wanted |
-| Sector Heatmap, Market Breadth | **nothing** (own fixed lists, own fetches) | unaffected |
-| `nightly_fundamentals_fetch`, `nightly_price_target_snapshot`, Monthly Momentum | **nothing** (already skip ETFs) | unaffected |
+| `nightly_trend_calculation` (1:05) | the 5-year daily bars in the shared cache, the `TrendAnalysis` row, the Sunday full resync | The ETF job fetches its own bars (one batch, same cache, Sunday `force_resync`) and writes `TrendAnalysis` from the one Weinstein computation shared with `EtfScreenerRow`. SPY's bars still ride along in the stock job's batch (the RS benchmark, independent of the universe) |
+| `nightly_last_close_snapshot` (1:00) | `TickerLastClose` | The ETF job writes it through `refresh_last_closes` |
+| `nightly_score_recompute` (3:25) | the ETF `TickerScore` row | **Frozen, left in place, never deleted.** Nothing reads it for the ETF screener; the Watchlist re-derives an ETF row live (`compute_ticker_score(cache_only=True)`, stage from `TrendAnalysis`, price from `TickerLastClose`); `known_etf_tickers` still finds an ETF through its profile or that old row |
+| `stale_data_health_check`, `tracked_universe_report` | the ETFs in the stock reports | Stock figures exclude ETFs; both reports have a separate ETF side |
+| Sector Heatmap, Market Breadth | nothing (own lists, own fetches) | unaffected. The Heatmap (1:35) now does the 11 sector ETFs' bar fetch itself (they used to arrive warm from 1:05); the ETF job (1:45) then reads them warm |
+| `nightly_fundamentals_fetch`, `nightly_price_target_snapshot`, Monthly Momentum | nothing (already skipped ETFs) | unaffected (the known-ETF filters remain as a belt-and-braces guard) |
 
-Also at the cutover: `load_tracked_universe` becomes the stock side of `partition_known_tickers` (and the unchanged-union
-pin test is rewritten on purpose); `SYSTEM_TICKERS` keeps protecting SPY and the sector SPDRs only if they should stay on
-the stock side, otherwise retire it in favour of `ETF_SEED_TICKERS`; `ScreenerMeta.hidden_inactive` (stocks) and
-`count_hidden_inactive_etfs` must not double-count.
+`SYSTEM_TICKERS` was retired (`ETF_SEED_TICKERS` has the same members and no other consumer existed). The pin test that said the
+stock universe was "unchanged" was rewritten on purpose to pin the stock-only behavior. `ScreenerMeta.hidden_inactive` counts expired
+stock rows and `count_hidden_inactive_etfs` expired ETFs; the sides are disjoint, so they never double-count. An unopened ETF the app
+has never seen has no profile or score row, so it stays on the stock side until it is opened.

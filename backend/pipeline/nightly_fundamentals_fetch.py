@@ -1,6 +1,6 @@
 """Standalone script: nightly fundamentals refresh for every ticker in the
 tracked universe (data/tracked_universe.py::load_tracked_universe: index
-constituents, any watchlist, the system set, tickers with manual data, and
+constituents, any watchlist, tickers with manual data, and
 tickers viewed in the last 30 days; delisted-flagged tickers excluded), minus
 known ETFs/funds, via the app's existing cache-aware
 fetch pipeline --

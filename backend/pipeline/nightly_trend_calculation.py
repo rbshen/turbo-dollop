@@ -2,7 +2,7 @@
 cache fill) across the tracked universe. The "trend" name is historical:
 the swing/BOS trend-structure engine was removed and only Weinstein remains.
 Universe: data/tracked_universe.py::load_tracked_universe, the one definition every
-nightly job shares (index, watchlist, system set, manual data, viewed in the last 30 days;
+nightly job shares (stocks only since the 2026-10-03 ETF cutover: index, watchlist, manual data, viewed in the last 30 days;
 delisted-flagged excluded).
 
 Reads daily bars through the shared bars cache (clients/shared_bars_cache.py), which fetches

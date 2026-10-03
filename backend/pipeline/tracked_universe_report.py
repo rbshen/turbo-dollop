@@ -1,4 +1,5 @@
-"""Read-only report on the nightly universe (data/tracked_universe.py): how many known tickers are in
+"""Read-only report on the nightly universes (data/tracked_universe.py): the stock side and the ETF side (since the
+2026-10-03 cutover they are disjoint): how many known tickers are in
 and out, by reason, the TickerView grace dates, and which viewed-only tickers expire in the next N
 days. Makes no FMP call and writes nothing (it does not even call init_db), so it is safe to run
 anytime, including right after a restart to verify the TickerView seed.
@@ -16,7 +17,13 @@ from sqlmodel import Session, select
 
 from core.db import engine
 from core.models import TickerView
-from data.tracked_universe import OUT_OF_UNIVERSE, TRACKED_VIEW_WINDOW_DAYS, classify_known_tickers, load_all_known_tickers
+from data.tracked_universe import (
+    OUT_OF_UNIVERSE,
+    TRACKED_VIEW_WINDOW_DAYS,
+    classify_etf_tickers,
+    classify_known_tickers,
+    load_all_known_tickers,
+)
 
 
 def build_report(session: Session, now: datetime | None = None, within_days: int = 7) -> dict:
@@ -25,8 +32,19 @@ def build_report(session: Session, now: datetime | None = None, within_days: int
     views = {row.ticker: row.last_viewed_at for row in session.exec(select(TickerView)).all()}
     expiry = {t: views[t] + timedelta(days=TRACKED_VIEW_WINDOW_DAYS) for t, reason in reasons.items() if reason == "viewed"}
     horizon = now + timedelta(days=within_days)
+    etf_reasons = classify_etf_tickers(session, now)
+    etf_expiry = {t: views[t] + timedelta(days=TRACKED_VIEW_WINDOW_DAYS) for t, reason in etf_reasons.items() if reason == "viewed"}
     return {
+        "etf": {
+            "known": len(etf_reasons),
+            "in_universe": sum(1 for r in etf_reasons.values() if r not in OUT_OF_UNIVERSE),
+            "by_reason": dict(Counter(etf_reasons.values())),
+            "expiring": sorted((t, d) for t, d in etf_expiry.items() if d <= horizon),
+            "delisted": sorted(t for t, r in etf_reasons.items() if r == "delisted"),
+            "expired": sorted(t for t, r in etf_reasons.items() if r == "expired"),
+        },
         "known": len(load_all_known_tickers(session)),
+        "known_stock": len(reasons),
         "in_universe": sum(1 for r in reasons.values() if r not in OUT_OF_UNIVERSE),
         "by_reason": dict(Counter(reasons.values())),
         "ticker_view_rows": len(views),
@@ -41,7 +59,8 @@ def build_report(session: Session, now: datetime | None = None, within_days: int
 
 def format_report(report: dict) -> str:
     lines = [
-        f"Known tickers: {report['known']}; in the nightly universe: {report['in_universe']}",
+        f"Known tickers: {report['known']} ({report['known_stock']} stocks, {report['etf']['known']} ETFs); "
+        f"in the stock nightly universe: {report['in_universe']}",
         "By reason: " + ", ".join(f"{k} {v}" for k, v in sorted(report["by_reason"].items())),
         f"TickerView rows: {report['ticker_view_rows']}"
         + (f" (first {report['first_view']:%Y-%m-%d %H:%M}, last {report['last_view']:%Y-%m-%d %H:%M})" if report["ticker_view_rows"] else ""),
@@ -49,6 +68,15 @@ def format_report(report: dict) -> str:
         f"Expired (viewed-only, not viewed for {TRACKED_VIEW_WINDOW_DAYS} days): {', '.join(report['expired']) or 'none'}",
         f"Leaving within {report['within_days']} days: "
         + (", ".join(f"{t} ({d:%Y-%m-%d})" for t, d in report["expiring"]) or "none"),
+    ]
+    etf = report["etf"]
+    lines += [
+        f"ETF side: {etf['known']} known, {etf['in_universe']} in the ETF universe (refreshed by nightly_etf_screener); "
+        "by reason: " + ", ".join(f"{k} {v}" for k, v in sorted(etf["by_reason"].items())),
+        f"ETF delisted-flagged (excluded): {', '.join(etf['delisted']) or 'none'}",
+        f"ETF expired (viewed-only, not viewed for {TRACKED_VIEW_WINDOW_DAYS} days): {', '.join(etf['expired']) or 'none'}",
+        f"ETFs leaving within {report['within_days']} days: "
+        + (", ".join(f"{t} ({d:%Y-%m-%d})" for t, d in etf["expiring"]) or "none"),
     ]
     return "\n".join(lines)
 

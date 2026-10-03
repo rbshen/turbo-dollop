@@ -303,7 +303,9 @@ def test_group_off_mid_run_with_nothing_cached_is_a_failure_not_no_data(monkeypa
     assert (summary["no_data"], summary["failed"]) == (0, 1)
 
 
-def test_run_universe_skips_known_etfs_and_counts_them(monkeypatch, tmp_path):
+def test_run_universe_has_no_etf_since_the_cutover_so_none_is_left_to_skip(monkeypatch, tmp_path):
+    # Cutover 2026-10-03: the tracked universe is the stock side, so the known-ETF filter in
+    # load_price_target_run_universe now finds nothing to drop (it stays as a belt-and-braces guard).
     import json
 
     from core.models import TickerScore, TickerView
@@ -325,7 +327,7 @@ def test_run_universe_skips_known_etfs_and_counts_them(monkeypatch, tmp_path):
         session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now()) for t in ("AAPL", "QQQ", "VTSAX", "TECL")])
         session.commit()
         monkeypatch.setattr(monthly, "_profile_exchanges", lambda tickers: {t: "NASDAQ" for t in tickers})
-        assert monthly.load_price_target_run_universe(session) == (["AAPL"], 3)
+        assert monthly.load_price_target_run_universe(session) == (["AAPL"], 0)
 
 
 def test_main_skips_etfs_from_the_default_universe_but_not_from_an_explicit_list(monkeypatch, tmp_path):
@@ -357,12 +359,12 @@ def test_universe_is_us_listed_tracked_tickers_minus_delisted(monkeypatch, tmp_p
         session.add_all([
             profile("AAPL", "NASDAQ"),
             profile("TSM", "NYSE"),  # foreign domicile, US listing -> in
-            profile("SPY", "AMEX"),
+            profile("OXY", "NYSE"),
             profile("0005.HK", "HKSE"),  # non-US listing -> out
             profile("TWTR", "NYSE"),  # delisted-flagged -> out
         ])
         session.add(TickerScore(ticker="TWTR", computed_at=now, delisted_at=now))
-        session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now()) for t in ("AAPL", "TSM", "SPY", "0005.HK", "TWTR")])
+        session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now()) for t in ("AAPL", "TSM", "OXY", "0005.HK", "TWTR")])
         session.commit()
-        monkeypatch.setattr(monthly, "_profile_exchanges", lambda tickers: {"AAPL": "NASDAQ", "TSM": "NYSE", "SPY": "AMEX", "0005.HK": "HKSE", "TWTR": "NYSE"})
-        assert monthly.load_us_price_target_universe(session) == ["AAPL", "SPY", "TSM"]
+        monkeypatch.setattr(monthly, "_profile_exchanges", lambda tickers: {"AAPL": "NASDAQ", "TSM": "NYSE", "OXY": "NYSE", "0005.HK": "HKSE", "TWTR": "NYSE"})
+        assert monthly.load_us_price_target_universe(session) == ["AAPL", "OXY", "TSM"]

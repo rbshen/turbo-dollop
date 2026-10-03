@@ -332,7 +332,7 @@ value (never overwritten with NULL, except the three signal fields, where no row
 run it prunes rows of ETFs no longer in the universe. Failure rule: `check_failure_threshold` (all failed, or >= 5% of >= 25).
 Success: a log line with `N ETFs, N written, 0 failed` in `backend/logs/nightly_etf_screener.log`. Manual runs:
 `uv run python -m pipeline.nightly_etf_screener [--tickers SPY,QQQ] [--cache-only] [--dry-run]` (`--cache-only --dry-run`
-writes nothing at all). Stock-side jobs still process the ETFs too; that is removed at step 7 (docs/specs/etf-screener.md).
+writes nothing at all). Since the **2026-10-03 cutover (step 7)** it is the only job that refreshes an ETF's `TrendAnalysis` (from the one Weinstein computation shared with the screener row) and `TickerLastClose` (and the ETFs' own Sunday bar resync); the stock-side jobs no longer process ETFs, and an ETF's `TickerScore` row is frozen (left in place, never deleted). Its message reads `N ETFs, N written, N trend rows, N last closes, F failed, ...`: `trend rows` and `last closes` should equal `ETFs` on a healthy night. Check these first if an ETF's stage or price looks stale on the Watchlist or ticker page. Rollback of the cutover: `git revert` the step-7 phase B commit (the stock universe holds the ETFs again; the ETF job's extra writes are harmless).
 
 **`prune_cache`** — deletes `FundamentalsCache` rows older than
 `Settings.cache_retention_days` (180 days by default; distinct from the
@@ -624,7 +624,7 @@ that display would just be noise the operator already knows about.
 ## Tracked universe (which tickers the nightly jobs process), 2026-10-02
 
 Spec: `docs/specs/tracked-universe.md`. One helper, `data/tracked_universe.py::load_tracked_universe`: index members,
-any watchlist, the system set (11 sector ETFs plus SPY), tickers with manual data (Moat, custom valuation, bank
+any watchlist, tickers with manual data (Moat, custom valuation, bank
 capital), and tickers viewed in the last 30 days, minus delisted-flagged. A viewed-only ticker not opened for 30 days
 leaves the nightly jobs and the Screener's `all` universe (its data stays; viewing it again re-adds it). `GET
 /api/tickers/{t}/summary` records a view (`TickerView`, at most one write per ticker per day).
