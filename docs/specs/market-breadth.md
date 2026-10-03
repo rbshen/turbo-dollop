@@ -228,8 +228,9 @@ position about the zero line, so it isn't color-only. The dashed "Live →" mark
 once there is a non-backfilled session. Layout, colors/contrast, label collisions, the hover
 tooltip and cross-panel sync, and narrow widths were never verified on screen (no browser).
 
-**Known limits**: not holiday-aware (a holiday costs one extra harmless refetch, as for every
-`SharedBarsCache` consumer); `constituents` is today's count from the weekly Wikipedia scrape (a
+**Known limits**: holiday-aware via the shared daily helper (XNYS calendar since 2026-10-03, weekday-only
+fallback if the calendar cannot be loaded: there a holiday costs a whole-universe refetch to no effect, see
+fmp-data-and-bar-cache.md "Known limits"); `constituents` is today's count from the weekly Wikipedia scrape (a
 same-week index change is picked up a week late); the job imports the private
 `_load_frames`/`_most_recent_completed_trading_date` from `clients/shared_bars_cache.py`
 (`sector_heatmap_data.py` already sets that precedent).

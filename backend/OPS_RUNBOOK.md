@@ -238,7 +238,9 @@ total-return windows (1w/1m/3m/6m/9m/YTD/1y), upserting 77 `SectorEtfReturn`
 rows per session (`data/sector_heatmap_data.py`). One shared-bars-cache batch (FMP daily bars);
 skipped while `daily_prices` is off. Runs at 1:35 AM
 and re-derives the same anchor (the last completed session) on weekends and
-holidays, upserting over its own rows -- harmless. **Scheduled and live** as of
+holidays, upserting over its own rows -- harmless (the freshness check knows holidays, so no refetch happens
+either; only if the XNYS calendar cannot be loaded does a holiday cost a whole-universe refetch, with a one-time
+"XNYS calendar unavailable" warning in the log). **Scheduled and live** as of
 2026-09-21 (installed via `crontab crontab.txt` from `backend/`; `crontab -l`
 should show the `30 3 * * *` entry -- editing `crontab.txt` alone does
 nothing). After storing, it prunes snapshots older than the rolling
@@ -290,7 +292,8 @@ official close (`TickerLastClose`, latest-only; `data/last_close_data.py`), one
 fallback: served when the live FMP quote fails or `profile_quote` is off. Success: `Last-close
 snapshot complete (as of <date>). Processed: N. Written: N. Failed: M.`; a few failures (a symbol FMP
 has no bars for) are normal; the job raises only if it wrote nothing at all. Skipped while
-`daily_prices` is off. Weekend/holiday runs re-cache the same session idempotently.
+`daily_prices` is off. Weekend/holiday runs re-cache the same session idempotently (this job has no freshness
+gate and always makes one call per ticker; its "as of" now names the last real session, not the holiday).
 
 **`nightly_market_breadth`** — computes one `MarketBreadthSnapshot` row per
 session for the S&P 500 (`IndexConstituent` `sp500`, via `load_sp500_tickers`):
@@ -302,7 +305,8 @@ FMP bars from `SharedBarsCache`; skipped while `daily_prices` is off. Runs at 1:
 ~3s warm-cache read. If the 1:05 job failed or overran it self-heals with one
 live batch (~30s–5min), which could overlap the 2:45 corporate-events start (writer-lock
 contention only). A weekend/holiday run re-derives the same anchor and
-upserts over its own row. **Coverage gate:** if fewer than 97% of constituents
+upserts over its own row, with no refetch (holiday-aware freshness since 2026-10-03; weekday-only fallback if the
+XNYS calendar cannot be loaded). **Coverage gate:** if fewer than 97% of constituents
 (i.e. more than 15 of 503 missing) have a bar on the anchor session, the job
 **raises** — `cron-health` shows it failed — and writes nothing, rather than
 saving percentages computed over a shrunken universe; the error names the

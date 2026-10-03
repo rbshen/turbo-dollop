@@ -144,9 +144,9 @@ oversight:**
   "Shared bars cache" below): kept the cache — it fetches once per ticker per night regardless,
   so a genuinely-current warm row is real, load-bearing savings there — and instead added a
   **market-close-aware freshness check on top of the existing TTL**: compare the cached series'
-  own last bar date against the most recently *completed* trading session (US/Eastern,
-  weekday-aware, deliberately not holiday-aware — a market holiday just costs one extra harmless
-  refetch), and force a live refetch (ignoring the TTL) whenever the two disagree.
+  own last bar date against the most recently *completed* trading session (US/Eastern; XNYS-calendar
+  aware since 2026-10-03, so a market holiday is not one missed session — see "Freshness is
+  close-aware" below), and force a live refetch (ignoring the TTL) whenever the two disagree.
 
 **Confirmed live in production this fix was necessary, not theoretical**: a follow-up
 investigation found this exact bug pattern *compounding* for the Liquidity Zone job specifically
@@ -185,8 +185,12 @@ Key mechanics:
   calendar days).
 - **Freshness is close-aware, never a flat TTL** (`_is_stale`): a row is trusted only if its LAST
   bar matches the most recently completed session for its interval. Daily:
-  `_most_recent_completed_trading_date()` (US/Eastern, weekday-aware, still NOT holiday-aware — a
-  separate, later change). 60m: `_most_recent_completed_intraday_bar_start()` — holiday- and
+  `_most_recent_completed_trading_date()` — holiday- and early-close-aware since 2026-10-03 (same
+  mechanism as the 60m one below): the newest XNYS session in the last 14 days whose real close
+  (16:00, or 13:00 on an early close) is at or before the reference, so a holiday, a weekend and
+  the morning after all resolve to the last real session. If the calendar cannot be imported or
+  consulted it logs once and falls back to `_weekday_only_completed_trading_date` (the old logic: 16:00
+  ET cutoff, Sat/Sun only, so a holiday reads as one missed session and refetches). 60m: `_most_recent_completed_intraday_bar_start()` — holiday- and
   early-close-aware since 2026-10-03: it walks the XNYS calendar (`pandas_market_calendars`, lazily
   imported; the schedule lookup is `helpers/trading_calendar.py::xnys_sessions`, cached per window).
   FMP labels bars by start; slots run 60 min from the open, the last one cut at the session's real
@@ -230,16 +234,26 @@ Key mechanics:
   one recompute. (It previously trusted a stored row on a flat 1-day `computed_at` timer, which
   served a row a full session behind from the 4pm ET close until the next nightly trend run and
   recomputed an unchanged row every weekend day.) `cache_only=True` reads never recompute.
-- **Known limits.** The DAILY helper (`_most_recent_completed_trading_date`) is not holiday-aware: a
-  market holiday looks like one missed session and costs one extra (harmless) refetch that day — and,
-  for the trend endpoint above, one recompute per on-demand read that day. Making it session-aware is
-  a separate later change (its callers anchor sector heatmap, breadth, trend `bars_as_of`, ...). The
-  60m helper is calendar-aware (above): before 2026-10-03 it was not, and the "one extra refetch" was
-  wrong for it — every holiday night, and the half-day night plus the nights after it up to the next
+- **Known limits.** Both helpers are calendar-aware (XNYS, with a weekday-only fallback if the
+  calendar cannot be loaded). Before 2026-10-03 the DAILY helper was not, and its "one extra harmless
+  refetch" was wrong: the condition never clears within the night (FMP has no bar for a holiday), so each
+  of the five daily jobs (trend, LP, sector, breadth, ETF screener) refetched its own whole universe
+  (about 1,239 FMP calls per wrong night), the stale count read the whole universe, a Friday holiday did
+  this three nights running (Fri/Sat/Sun UTC fires), and every on-demand read (ETF warm-up, trend endpoint,
+  long-history top-up) repeated a call per view — 31 of 743 nights 2024-09-20..2026-10-02, replay now 0
+  wrong. Displayed "as of" dates were never wrong (heatmap, breadth and `bars_as_of` take the anchor from
+  the data). Remaining limits: **early-close days** — from the session's real 13:00 close the daily helper
+  returns that day, while `_provisional_last_bar_tickers` and `long_history_bars._is_fresh` keep a hard-coded
+  16:00 (+10 min settle), so a bar written between 13:00 and 16:10 ET that day counts as provisional and is
+  refetched once more (conservative; no cron job runs then, only on-demand reads); **non-US tickers** — the
+  freshness clock is the US session, none are in the daily jobs since 2026-09-26, and if they return a US
+  holiday must not be read as "fresh" for a market that traded (needs a per-exchange calendar, not built).
+  The 60m helper was fixed the same way on 2026-10-03; before that the "one extra refetch" was
+  wrong for it too — every holiday night, and the half-day night plus the nights after it up to the next
   session (four in a row around Thanksgiving), refetched every monitored ticker in BOTH 2h jobs (~210
   calls a night) and the stale count read everything stale (40 of 743 nightly runs 2024-09-20..2026-10-02).
   Unscheduled closures are unknown to the calendar until `pandas_market_calendars` is upgraded; on such a
-  night the 60m check behaves as the old logic did (one wasted refetch, a high stale count).
+  night the 60m and daily checks behave as the old logic did (a wasted refetch, a high stale count).
 - **Other technical-signal consumers have no read-time freshness gate.** BB+RSI, Warren and
   Liquidity Zones read cache-only and recompute unconditionally every night; their only timers
   are the 7-day `STALE_AFTER_DAYS` abandonment sweeps (`entry_signal_data.py`,

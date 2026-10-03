@@ -96,8 +96,8 @@ resamples the full frame for Weekly. Each stored row's `source` is always `"fmp"
 `daily_price_sources.py` module was deleted 2026-09-19 when the shared bars cache took over.)
 
 **Freshness.** A cached bar row is trusted only if its own last bar matches the most recently completed
-session (`shared_bars_cache._most_recent_completed_trading_date`: US/Eastern, weekday-aware, deliberately
-NOT holiday-aware); otherwise a live refetch is forced regardless of the flat staleness window. The nightly
+session (`shared_bars_cache._most_recent_completed_trading_date`: US/Eastern, XNYS holiday- and early-close-aware
+since 2026-10-03, weekday-only fallback if the calendar cannot be loaded); otherwise a live refetch is forced regardless of the flat staleness window. The nightly
 job originally missed this: because it fetches tickers sequentially at a fixed wall-clock time, whether a
 row looked "stale" depended on run-speed jitter, leaving some rows 1-3 nights stale. The cache is kept for
 this job (one fetch per ticker per night, so a warm and genuinely current row still means zero live FMP
