@@ -179,6 +179,129 @@ def test_restated_overlap_triggers_a_full_refetch_and_replace(_engine):
     assert out["AAPL"].index[0] < pd.Timestamp("2026-06-25")
 
 
+# ---- restatement check: the newest cached session is provisional, only OLDER sessions are compared ----
+
+def _scaled(bars, factor, keep=lambda ts: True):
+    return [(t, c * factor if keep(t) else c) for t, c in bars]
+
+
+def _new_engine(monkeypatch):
+    """A second empty in-memory DB bound to the source module, for a test that runs several independent scenarios."""
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+    monkeypatch.setattr(dbs, "engine", engine)
+    return engine
+
+
+def _cached_close(engine, ticker, ts):
+    with Session(engine) as session:
+        return session.exec(
+            select(SharedBarsCache.close).where(
+                SharedBarsCache.ticker == ticker, SharedBarsCache.interval == "60m", SharedBarsCache.bar_time == ts
+            )
+        ).one()
+
+
+def test_a_provisional_correction_in_the_newest_cached_session_is_upserted_without_a_refetch(monkeypatch, _engine):
+    feed = _bars(date(2026, 6, 1), TODAY)
+    _seed(_engine, "AAPL", [b for b in feed if date(2026, 6, 20) <= b[0].date() <= date(2026, 9, 24)], "fmp")
+    newest = date(2026, 9, 24)
+    # FMP's next-night correction: one mid-session bar moves 3%, the last bar 5% (both >0.5%), everything else equal.
+    corrected = [
+        (t, c * 1.03 if (t.date() == newest and t.hour == 11) else c * 1.05 if (t.date() == newest and t.hour == 15) else c)
+        for t, c in feed
+    ]
+    fake = FakeChart(corrected, page=1000)
+    _patch_chain(monkeypatch, fake)
+    original_11 = _cached_close(_engine, "AAPL", datetime(2026, 9, 24, 11, 30))
+    with Session(_engine) as session:
+        older_rows_before = len(session.exec(select(SharedBarsCache).where(SharedBarsCache.bar_time < datetime(2026, 9, 24))).all())
+
+    replace: list[str] = []
+    _run(FMPIntradaySource(client=fake), {"AAPL": 90}, replace_tickers=replace)
+    assert replace == [] and len(fake.calls) == 1  # no restatement declared: one incremental call, nothing replaced
+
+    asyncio.run(cache.get_or_fetch_bars_batch(["AAPL"], "60m", 90, reference=REF))
+    assert len(fake.calls) == 2  # the cache's own incremental call -- still no second (full) fetch
+    assert _cached_close(_engine, "AAPL", datetime(2026, 9, 24, 11, 30)) == pytest.approx(original_11 * 1.03)
+    assert _cached_close(_engine, "AAPL", datetime(2026, 9, 24, 15, 30)) == pytest.approx(
+        dict(feed)[datetime(2026, 9, 24, 15, 30)] * 1.05
+    )
+    assert _cached_close(_engine, "AAPL", datetime(2026, 9, 25, 15, 30)) is not None  # the new session landed too
+    with Session(_engine) as session:
+        assert len(session.exec(select(SharedBarsCache).where(SharedBarsCache.bar_time < datetime(2026, 9, 24))).all()) == older_rows_before
+
+
+def test_a_shift_in_older_cached_sessions_inside_the_overlap_still_triggers_the_full_refetch(_engine):
+    feed = _bars(date(2026, 6, 1), TODAY)
+    _seed(_engine, "AAPL", [b for b in feed if date(2026, 6, 20) <= b[0].date() <= date(2026, 9, 24)], "fmp")
+    # A split signature: every bar before the newest cached session moves (the newest session itself is not looked at).
+    fake = FakeChart(_scaled(feed, 2.0, keep=lambda t: t.date() < date(2026, 9, 24)), page=1000)
+    replace: list[str] = []
+    out = _run(FMPIntradaySource(client=fake), {"AAPL": 90}, replace_tickers=replace)
+    assert replace == ["AAPL"] and len(fake.calls) == 2
+    assert out["AAPL"].index[0] < pd.Timestamp("2026-06-25")
+
+
+def test_the_overlap_window_and_exemption_boundaries(monkeypatch):
+    feed = _bars(date(2026, 6, 1), TODAY)
+    seeded = [b for b in feed if date(2026, 6, 20) <= b[0].date() <= date(2026, 9, 24)]
+    oldest_compared = date(2026, 9, 24) - timedelta(days=dbs.INTRADAY_OVERLAP_DAYS)  # Sat 2026-09-19
+    # One day BEFORE the compared window moved: ignored. The first compared day moved: restated.
+    for moved, expect_hit in ((oldest_compared - timedelta(days=1), False), (date(2026, 9, 21), True)):
+        _seed(_new_engine(monkeypatch), "AAPL", seeded, "fmp")
+        fake = FakeChart(_scaled(feed, 2.0, keep=lambda t, d=moved: t.date() == d), page=1000)
+        replace: list[str] = []
+        _run(FMPIntradaySource(client=fake), {"AAPL": 90}, replace_tickers=replace)
+        assert (replace == ["AAPL"]) is expect_hit, moved
+
+
+HOLIDAYS_2026 = {
+    date(2026, 1, 1), date(2026, 1, 19), date(2026, 2, 16), date(2026, 4, 3), date(2026, 5, 25), date(2026, 6, 19),
+    date(2026, 7, 3), date(2026, 9, 7), date(2026, 11, 26), date(2026, 12, 25),
+}
+
+
+def _is_session(d: date) -> bool:
+    return d.weekday() < 5 and d not in HOLIDAYS_2026
+
+
+def test_every_2026_session_has_at_least_two_older_sessions_inside_the_overlap_window():
+    d, worst = date(2026, 1, 5), None
+    while d <= date(2026, 12, 31):
+        if _is_session(d):
+            older = sum(_is_session(d - timedelta(days=i)) for i in range(1, dbs.INTRADAY_OVERLAP_DAYS + 1))
+            worst = older if worst is None else min(worst, older)
+        d += timedelta(days=1)
+    assert worst >= 2
+
+
+def test_after_a_long_weekend_an_older_session_is_still_compared(monkeypatch):
+    """Labor Day Monday 2026-09-07 is a holiday: the newest cached session is Tue 09-08, the older ones in the window are
+    Thu 09-03 and Fri 09-04. (With the former 3-day window none were left.)"""
+    ref = datetime(2026, 9, 9, 1, 0, tzinfo=timezone.utc)  # 21:00 ET on 09-08: the session is complete
+    feed = [b for b in _bars(date(2026, 6, 1), date(2026, 9, 8)) if b[0].date() != date(2026, 9, 7)]
+    # the cache's last bar is Tue 09-08 11:30 (newest session, partly cached); Thu/Fri bars are the older sessions
+    for scaled_days, expect_hit in (({date(2026, 9, 3)}, True), ({date(2026, 9, 4)}, True), ({date(2026, 9, 8)}, False)):
+        _seed(_new_engine(monkeypatch), "AAPL", [b for b in feed if b[0].date() <= date(2026, 9, 4)] + [b for b in feed if b[0].date() == date(2026, 9, 8)][:3], "fmp")
+        fake = FakeChart(_scaled(feed, 2.0, keep=lambda t, s=scaled_days: t.date() in s), page=1000)
+        replace: list[str] = []
+        asyncio.run(FMPIntradaySource(client=fake).get_intraday_bars({"AAPL": 90}, reference=ref, replace_tickers=replace))
+        assert (replace == ["AAPL"]) is expect_hit, scaled_days
+
+
+def test_a_cache_with_no_older_session_in_the_window_declares_no_restatement(_engine):
+    """A gap in the cached bars (or a one-session tail): nothing to compare, so nothing is declared restated and the
+    incremental frame is upserted -- it never silently escalates to a full refetch."""
+    feed = _bars(date(2026, 6, 1), TODAY)
+    seeded = [b for b in feed if date(2026, 6, 20) <= b[0].date() <= date(2026, 9, 10)] + [b for b in feed if b[0].date() == date(2026, 9, 24)]
+    _seed(_engine, "AAPL", seeded, "fmp")  # nothing cached between 09-11 and 09-23
+    fake = FakeChart(_scaled(feed, 2.0, keep=lambda t: t.date() < date(2026, 9, 24)), page=1000)
+    replace: list[str] = []
+    _run(FMPIntradaySource(client=fake), {"AAPL": 90}, replace_tickers=replace)
+    assert replace == [] and len(fake.calls) == 1
+
+
 @pytest.mark.parametrize("source", [None, "yahoo"])
 def test_non_fmp_history_is_fully_replaced_never_layered(_engine, source):
     _seed(_engine, "AAPL", _bars(date(2026, 6, 20), date(2026, 9, 24)), source)
