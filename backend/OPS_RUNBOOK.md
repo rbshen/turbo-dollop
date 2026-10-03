@@ -359,13 +359,13 @@ own `Connection.backup()` API, then prunes with a tiered retention rule
 ISO week's (Mon–Sun) last backup: the Sunday one normally, the latest
 earlier day if a Sunday run failed. Both tiers count backups actually on
 disk, not calendar days, so a multi-day outage never shrinks retention below
-7 copies. Every file on a kept date is kept (a manual same-day re-run doesn't
+3 copies. Every file on a kept date is kept (a manual same-day re-run doesn't
 displace anything); files that don't match `fathom_YYYYMMDD_HHMMSS.db.gz`
 exactly are never pruned. Tunable via `BACKUP_KEEP_DAILY`/`BACKUP_KEEP_WEEKLY`
 in `pipeline/backup_db.py`; the constants apply on the next run, and
 already-on-disk files are judged against them then (nothing is force-deleted
 out-of-band). Success: `Backup created: .../backups/fathom_<timestamp>.db.gz
-(N MB). Retention: 7 daily + 4 weekly kept.` in `backend/logs/backup_db.log`,
+(N MB). Retention: 3 daily + 4 weekly kept.` in `backend/logs/backup_db.log`,
 plus a `Pruned N old backup(s): ...` line whenever anything was deleted.
 Before writing anything, it checks the volume has at least 1.25x the DB's size
 free (`BACKUP_FREE_SPACE_FACTOR` — the run briefly holds an uncompressed copy

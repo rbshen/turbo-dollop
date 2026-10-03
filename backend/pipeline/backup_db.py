@@ -35,11 +35,11 @@ LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "backup_db.log"
 #     last backup -- the Sunday one under normal operation, falling back to
 #     the latest earlier day if a Sunday run failed, so one bad night can't
 #     cost a whole week. Weekly copies are additional to the daily window,
-#     not carved out of it: 7 + 4 = 11 dates at steady state, reaching
+#     not carved out of it: 3 + 4 = 7 dates at steady state, reaching
 #     back ~5 weeks.
 # Both tiers count distinct dates present on disk, not calendar days back, so
-# an outage never shrinks retention below 7 daily copies.
-BACKUP_KEEP_DAILY = 7
+# an outage never shrinks retention below 3 daily copies.
+BACKUP_KEEP_DAILY = 3
 BACKUP_KEEP_WEEKLY = 4
 
 # Free-space preflight. Each run writes an UNCOMPRESSED copy of the DB
