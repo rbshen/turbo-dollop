@@ -249,3 +249,22 @@ def test_init_db_rebuilds_then_adds_the_etf_table(monkeypatch):
         tables = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
     assert "etfscreenerrow" in tables
     assert [r[2] for r in _saved_rows(engine)] == ["stock", "stock", "stock"]
+
+
+def test_an_old_tickerview_table_gains_the_added_columns_and_keeps_its_rows(monkeypatch):
+    """Opt-in universe step 2: TickerView gained nullable added_at / added_source. The live table was created with
+    only (ticker, last_viewed_at): the add-missing-columns sweep must add both, leave every existing row untouched
+    (NULL in the new columns) and be a no-op the second time."""
+    engine = _fresh_engine(monkeypatch)
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE tickerview (ticker VARCHAR NOT NULL, last_viewed_at DATETIME NOT NULL, PRIMARY KEY (ticker))"))
+        conn.execute(text("INSERT INTO tickerview VALUES ('AAPL', '2026-10-02 07:00:52.930737'), ('QQQ', '2026-10-03 02:16:16.264082')"))
+
+    _add_missing_columns()
+    _add_missing_columns()  # idempotent
+
+    with engine.connect() as conn:
+        columns = {row[1]: row[2] for row in conn.execute(text("PRAGMA table_info(tickerview)"))}
+        rows = conn.execute(text("SELECT ticker, last_viewed_at, added_at, added_source FROM tickerview ORDER BY ticker")).all()
+    assert columns == {"ticker": "VARCHAR", "last_viewed_at": "DATETIME", "added_at": "DATETIME", "added_source": "VARCHAR"}
+    assert rows == [("AAPL", "2026-10-02 07:00:52.930737", None, None), ("QQQ", "2026-10-03 02:16:16.264082", None, None)]

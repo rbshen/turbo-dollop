@@ -446,3 +446,29 @@ def test_the_job_is_not_registered_anywhere():
     assert not any("wipe" in name for name in CRON_JOB_NAMES)
     assert "wipe_untouched" not in (backend / "crontab.txt").read_text()
     assert "cron_heartbeat(" not in Path(wipe.__file__).read_text().split('"""', 2)[2]
+
+
+# --- the real added loader (opt-in universe step 2) -----------------------------------------------------------------------
+
+
+def test_run_reads_the_real_added_set_from_tickerview(tmp_path):
+    engine = make_engine(tmp_path)
+    seed_wipe_tables(engine, "ADDED", view_days_ago=90)
+    seed_wipe_tables(engine, "PLAIN", view_days_ago=90)
+    with Session(engine) as session:
+        row = session.get(TickerView, "ADDED")
+        row.added_at, row.added_source = NOW - timedelta(days=80), "grandfathered"
+        session.add(row)
+        session.commit()
+        assert tu.load_added_tickers(session) == {"ADDED"}
+    dry = wipe.run(engine, apply=False, now=NOW)  # added=None: the real loader
+    by = {o.ticker: o for o in dry.outcomes}
+    assert by["ADDED"].decision == tu.DECISION_PROTECTED and by["ADDED"].protections == (tu.PROTECTION_ADDED,)
+    assert by["PLAIN"].decision == tu.DECISION_WIPE
+    applied = wipe.run(engine, apply=True, now=NOW)
+    assert [o.ticker for o in applied.outcomes if o.outcome == wipe.WIPED] == ["PLAIN"]
+    assert all(n == 1 for n in count_wipe_rows(engine, "ADDED").values())
+
+
+def test_the_placeholder_loader_is_gone():
+    assert wipe.load_added_tickers is tu.load_added_tickers

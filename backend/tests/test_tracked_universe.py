@@ -728,3 +728,74 @@ def test_the_report_has_a_separate_etf_side_that_does_not_overlap_the_stock_side
     assert [t for t, _ in etf["expiring"]] == ["QQQ"]
     text = format_report(report)
     assert "ETF side:" in text and "ETF expired" in text and "ETFs leaving within 7 days: QQQ (2026-11-20)" in text
+
+
+# --- opt-in universe, step 2: the added state (docs/specs/tracked-universe.md "Planned") -------------------------------
+
+
+def test_record_ticker_view_never_clears_or_changes_the_added_fields(engine):
+    added_at = datetime(2026, 10, 3, 8, 0)
+    with Session(engine) as session:
+        session.add(TickerView(ticker="ADDED", last_viewed_at=datetime(2026, 11, 14, 9), added_at=added_at, added_source="grandfathered"))
+        session.commit()
+    for now in (datetime(2026, 11, 15, 9), datetime(2026, 11, 15, 21), datetime(2026, 11, 16, 8), datetime(2026, 12, 25, 8)):
+        tu.record_ticker_view("ADDED", now=now)  # same day (no write) and later days (a write): both leave the fields alone
+        with Session(engine) as session:
+            row = session.get(TickerView, "ADDED")
+            assert (row.added_at, row.added_source) == (added_at, "grandfathered")
+    assert _last_viewed(engine, "ADDED") == datetime(2026, 12, 25, 8)
+    # a brand-new view starts with both NULL
+    tu.record_ticker_view("PLAIN", now=NOW)
+    with Session(engine) as session:
+        row = session.get(TickerView, "PLAIN")
+        assert (row.added_at, row.added_source) == (None, None)
+
+
+def test_load_added_tickers_and_the_stock_etf_split(engine):
+    with Session(engine) as session:
+        for ticker, raw in (("STK", "{}"), ("ETF", '{"isEtf": true}'), ("PLAIN", "{}")):
+            session.add(FundamentalsCache(ticker=ticker, statement_type="profile", period="latest", fetched_at=NOW, raw_json=raw))
+        session.add(TickerView(ticker="STK", last_viewed_at=NOW, added_at=NOW, added_source="user"))
+        session.add(TickerView(ticker="ETF", last_viewed_at=NOW, added_at=NOW, added_source="grandfathered"))
+        session.add(TickerView(ticker="PLAIN", last_viewed_at=NOW))
+        session.commit()
+        assert tu.load_added_tickers(session) == {"STK", "ETF"}
+        assert tu.load_added_by_side(session) == ({"STK"}, {"ETF"})
+
+
+def test_the_universes_are_identical_with_and_without_added_at_populated(engine):
+    """The classification flip is a LATER step: until then added_at/added_source change no universe, no reason and no
+    hidden count, whatever they hold (including an added ticker that is expired by the old rule)."""
+    with Session(engine) as session:
+        session.add(IndexConstituent(index_name="sp500", ticker="IDX", company_name="i", last_synced_at=NOW))
+        for ticker, raw in (
+            ("IDX", "{}"), ("VIEWED", "{}"), ("OLDSTOCK", "{}"), ("VIEWEDETF", '{"isEtf": true}'), ("OLDETF", '{"isEtf": true}'),
+            ("NEVER", "{}"),
+        ):
+            session.add(FundamentalsCache(ticker=ticker, statement_type="profile", period="latest", fetched_at=NOW, raw_json=raw))
+        _viewed(session, "VIEWED", 3)
+        _viewed(session, "OLDSTOCK", 60)
+        _viewed(session, "VIEWEDETF", 3)
+        _viewed(session, "OLDETF", 60)
+        session.commit()
+
+    def snapshot():
+        with Session(engine) as session:
+            return (
+                tu.load_tracked_universe(session, NOW),
+                tu.load_etf_universe(session, NOW),
+                tu.classify_known_tickers(session, NOW),
+                tu.classify_etf_tickers(session, NOW),
+                tu.load_expired_tickers(session, NOW),
+                tu.load_expired_etfs(session, NOW),
+                tu.count_hidden_inactive_etfs(session, NOW),
+            )
+
+    without = snapshot()
+    with Session(engine) as session:
+        for row in session.exec(select(TickerView)).all():  # every view row, expired ones included, becomes added
+            row.added_at, row.added_source = NOW, "user"
+            session.add(row)
+        session.commit()
+    assert snapshot() == without
+    assert "OLDSTOCK" not in without[0] and without[2]["OLDSTOCK"] == tu.EXPIRED  # an added ticker still expires today

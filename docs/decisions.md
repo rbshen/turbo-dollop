@@ -680,3 +680,13 @@ the schema guard), `data/tracked_universe.py::classify_wipe_candidates` (raw pro
 `--apply` locked behind `FATHOM_ALLOW_WIPE_APPLY=1`. **Still to come:** step 2 (the `added_at`/`added_source` columns, the real added loader, the grandfathering of
 the 25 viewed-only tickers BEFORE the classification flips `viewed` to `added`), the API and buttons, removal of `hidden_inactive`, the docs sweep for "hidden, not
 deleted"/"viewing re-adds", the first `--apply` after a backup and disk check, and (after the reschedule) the cron registration.
+
+### 2026-10-03 — Opt-in universe, step 2: the added state and the grandfather backfill; the flip waits for the Add button
+**Built:** nullable `TickerView.added_at` / `added_source` (`user` | `grandfathered`), `load_added_tickers` (the wipe job's protection now reads it), and
+`pipeline/grandfather_universe.py` (dry run by default; marks the tickers whose only reason today is `viewed` as added, `grandfathered`). **Decision (owner):
+the classification flip (`viewed` becomes `added`, new `browsed` reason) is deferred until the Add button and its endpoints exist (step 3).** Reason: the flip
+makes "viewed" stop admitting a ticker, so without an Add button there would be no way to add a new ticker and the universe would freeze; grandfathering first
+means nothing in a screener today drops out when it ships. Until then `_classify`, every universe, the screeners and the nightly jobs ignore the two columns
+(pinned by a test), and `ScreenerMeta.hidden_inactive` keeps its current meaning. `--apply` on the wipe job stays locked; nothing is registered in cron.
+**Live run (2026-10-03):** pre-write snapshot `backend/backups/pre_universe_step2_20261003.db.gz` (outside the pruner), columns added by the `uvicorn --reload`
+`init_db`, then the grandfather backfill; see the step-2 report for the verification.

@@ -13,9 +13,9 @@ deletion order are `data/ticker_data_registry.py`.
 
 **DRY-RUN IS THE DEFAULT and writes nothing**: it opens the database read-only (`mode=ro`), never calls `init_db`,
 never creates the log file, never stamps an adoption. `--apply` is LOCKED: it refuses unless the environment variable
-FATHOM_ALLOW_WIPE_APPLY=1 is set. **Until the opt-in universe ships (step 2), the added set is empty**: with it empty,
-every viewed-only ticker (including the 25 the live universe holds today) would be wiped on day 30, so the lock stays
-on until the added loader, the `added_at` column and the grandfathering are in place.
+FATHOM_ALLOW_WIPE_APPLY=1 is set. The added set is the real one since step 2
+(`TickerView.added_at`, `load_added_tickers`): added tickers are protected. The lock stays on until the remaining
+checklist in docs/specs/tracked-universe.md ("Planned: opt-in universe and wipe") is done.
 
 Apply mode: one transaction per ticker, opened with BEGIN IMMEDIATE (the journal mode is not WAL, so a long delete
 would block the API: each ticker is small). Inside it the decision is re-checked from scratch (a ticker touched or
@@ -27,7 +27,7 @@ Run by hand (from backend/):
     uv run python -m pipeline.wipe_untouched_tickers                      # dry run: every decision, rows that WOULD go
     uv run python -m pipeline.wipe_untouched_tickers --tickers AAP,BB     # restrict to these tickers
     uv run python -m pipeline.wipe_untouched_tickers --limit 10           # act on at most 10 tickers (wipes first, oldest touch first)
-    FATHOM_ALLOW_WIPE_APPLY=1 uv run python -m pipeline.wipe_untouched_tickers --apply   # LOCKED: do not run before step 2
+    FATHOM_ALLOW_WIPE_APPLY=1 uv run python -m pipeline.wipe_untouched_tickers --apply   # LOCKED: see the checklist in docs/specs/tracked-universe.md
 """
 
 import argparse
@@ -58,6 +58,7 @@ from data.tracked_universe import (
     WIPE_IDLE_DAYS,
     WipeDecision,
     classify_wipe_candidates,
+    load_added_tickers,
 )
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "wipe_untouched_tickers.log"
@@ -108,15 +109,10 @@ def check_apply_allowed(environ: dict | None = None) -> None:
     """Raises ApplyLockedError unless FATHOM_ALLOW_WIPE_APPLY is exactly "1"."""
     if (environ if environ is not None else os.environ).get(ALLOW_APPLY_ENV) != "1":
         raise ApplyLockedError(
-            f"--apply is locked: it deletes data for good and the opt-in universe (the added set) is not live yet, "
-            f"so every viewed-only ticker would count as unprotected. Set {ALLOW_APPLY_ENV}=1 to release the lock "
-            f"(only after the step-2 checklist in docs/decisions.md 2026-10-03 is done)."
+            f"--apply is locked: it deletes data for good, and the opt-in universe is not live yet (no Add button, no "
+            f"classification flip). Set {ALLOW_APPLY_ENV}=1 to release the lock, only after the checklist in "
+            f"docs/specs/tracked-universe.md ('Planned: opt-in universe and wipe') is done."
         )
-
-
-def load_added_tickers(session: Session) -> set[str]:
-    """The explicitly added tickers. PLACEHOLDER until step 2 (the `added_at` column on TickerView): empty."""
-    return set()
 
 
 def read_only_engine(db_path: str | Path) -> Engine:

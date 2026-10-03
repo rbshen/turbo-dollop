@@ -283,6 +283,21 @@ class WipeDecision:
     delisted: bool
 
 
+def load_added_tickers(session: Session) -> set[str]:
+    """Tickers the owner explicitly added (`TickerView.added_at` not null), stock and ETF alike. Read by the wipe
+    (an added ticker is protected: it never expires by the 30-day rule). NOT read by `_classify` or any universe:
+    until the classification flip ships, an added ticker is still in or out of the universe by the rules above."""
+    return set(session.exec(select(TickerView.ticker).where(TickerView.added_at.is_not(None))).all())
+
+
+def load_added_by_side(session: Session) -> tuple[set[str], set[str]]:
+    """(added stocks, added ETFs), split by the same partition the two universes use. For the later steps (the ETF
+    `EtfScreenerRow` write on Add, the flip); nothing reads it yet."""
+    added = load_added_tickers(session)
+    stocks, etfs = partition_known_tickers(session)
+    return added & stocks, added & etfs
+
+
 def load_any_index_tickers(session: Session) -> set[str]:
     """Every ticker in `IndexConstituent`, whatever its `index_name`. Wider than `load_index_tickers` (which is
     the three names the universe rule covers): a future index added to the table protects its members from the

@@ -1250,10 +1250,19 @@ class TickerView(SQLModel, table=True):
     succeeds, at most once per day per ticker (`record_ticker_view`); never by a job. Seeded once by
     `core.db.init_db` for every ticker that existed when the table was introduced (2026-10-02), each
     with the migration time, so no viewed-only ticker leaves the nightly jobs for 30 days. A row is
-    never deleted: expiry is a filter, not a purge."""
+    never deleted: expiry is a filter, not a purge.
+
+    Opt-in universe, step 2 (2026-10-03; docs/specs/tracked-universe.md, "Planned: opt-in universe and wipe"): the two
+    nullable columns below are the "added" state. `added_at` set means the owner explicitly added the ticker (or the
+    grandfather backfill did); such a ticker never expires by the 30-day rule and leaves only through the future Remove
+    button. `added_source` is 'user' or 'grandfathered'. `record_ticker_view` never writes either column. NOT YET READ
+    BY THE CLASSIFICATION: `data/tracked_universe.py::_classify` still treats any recent `last_viewed_at` as "viewed"
+    (the flip comes with the Add button); only `load_added_tickers` and the wipe job read them."""
 
     ticker: str = Field(primary_key=True)
     last_viewed_at: datetime
+    added_at: datetime | None = None
+    added_source: str | None = None  # 'user' | 'grandfathered'
 
 
 class CorporateEvent(SQLModel, table=True):

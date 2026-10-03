@@ -69,8 +69,8 @@ below is read by `GET /api/etf-screener`, `pipeline/nightly_etf_screener.py` (1:
 
 ## Planned: opt-in universe and wipe (NOT YET ACTIVE)
 
-**Status: step 1 only.** The classification above is unchanged (`viewed` is still a reason, a view still re-adds a ticker, nothing is deleted by any
-scheduled job). What exists is a registry, a pure decision function and a manual wipe job that is **dry-run only**. Decisions and rationale:
+**Status: steps 1 and 2 done (2026-10-03), still not active.** The classification above is unchanged (`viewed` is still a reason, a view still re-adds a ticker, nothing is deleted by any
+scheduled job). What exists is a registry, a pure decision function, the added state (two columns, a loader, a grandfather backfill) and a manual wipe job that is **dry-run only**. Decisions and rationale:
 `docs/decisions.md` (2026-10-03); investigation: `docs/universe-add-wipe-investigation-2026-10-03.md`.
 
 **The design.** A ticker the user opens but does not **Add** is *browsed*: it works, but is in no screener and no nightly job. **Add** makes it *added*
@@ -81,7 +81,7 @@ note). **Added tickers never expire by the 30-day rule.** The wipe removes a tic
 protection and is not added; delisted tickers follow the same rule. A ticker with stored data and no `TickerView` row and no protection is *adopted*
 (stamped now, logged), never wiped blind, and becomes eligible 30 days later. After a wipe the ticker has no state, so the Add button reappears.
 
-**What exists (step 1).**
+**What exists (steps 1 and 2).**
 
 - `data/ticker_data_registry.py`: every table with a per-ticker key, classified WIPE (with the deletion order, `TickerView` last), PROTECTING
   (`IndexConstituent`, `WatchlistTicker`, `TickerMoat`, `TickerCustomValuation`, `TickerBankCapitalMetrics`, `GrowthCatalystNote`) or KEEP
@@ -92,15 +92,27 @@ protection and is not added; delisted tickers follow the same rule. A ticker wit
   `not due` / `ignored`), the protection reasons, last touch and days idle, computed from the RAW sets (never from `_classify`, which answers
   `delisted` first). `load_manual_data_tickers` now includes `GrowthCatalystNote` and reads its table list from the registry's `MANUAL_DATA_MODELS`.
 - `pipeline/wipe_untouched_tickers.py` (manual, **not registered**: no crontab line, no `CRON_JOB_NAMES`/cadence/metadata entry, no heartbeat). Dry run is the
-  default: read-only connection, no `init_db`, no log file, adopts nothing. `--apply` is locked behind `FATHOM_ALLOW_WIPE_APPLY=1`; it runs one
+  default: read-only connection, no `init_db`, no log file, adopts nothing. `--apply` is locked behind `FATHOM_ALLOW_WIPE_APPLY=1`; the added set it protects is the real `load_added_tickers`; it runs one
   `BEGIN IMMEDIATE` transaction per ticker, re-checks the decision inside it, deletes in registry order, adopts per the rule. `--tickers`, `--limit`
   (wipes oldest touch first, then adoptions).
 
-**Not done, in order (step 2 and later).** Add `TickerView.added_at` / `added_source`; supply the real added loader (the job's `load_added_tickers` is an empty
-placeholder); grandfather the 25 viewed-only tickers as added BEFORE the classification flips `viewed` to `added` (otherwise 18 stocks leave the Stocks
-Screener and 7 ETF rows are deleted by the 1:45 job); then the flip, the API and buttons, removal of `ScreenerMeta.hidden_inactive` and its UI, the first
-`--apply` (after a backup and a disk check), and the cron registration after the reschedule. With the added set still empty, `--apply` would wipe every
-viewed-only ticker on day 30: that is why it is locked.
+- **The added state (step 2).** `TickerView.added_at` (datetime) and `TickerView.added_source` (`'user'` or `'grandfathered'`), both nullable, added to
+  an existing database by the `init_db` add-missing-columns sweep (rows untouched, NULL). `record_ticker_view` never writes them (pinned by a test).
+  `data/tracked_universe.py::load_added_tickers(session)` returns the tickers with `added_at` set; `load_added_by_side` splits them stock / ETF. Only the wipe
+  job reads the loader (an added ticker is protected); **`_classify` and every universe, screener and nightly job ignore the columns** (pinned by a test:
+  the universes and reasons are identical with and without `added_at` populated, an added-but-expired ticker still reads `expired`).
+- **`pipeline/grandfather_universe.py` (step 2, manual, not registered).** Marks every ticker whose only reason today is `viewed` (from
+  `classify_known_tickers` / `classify_etf_tickers`, never a hard-coded list) as added with source `grandfathered`, `added_at` = now (UTC), in one
+  `BEGIN IMMEDIATE` transaction that rolls back unless exactly the selected rows change. Dry run by default (read-only, no `init_db`, no log file). Idempotent
+  (an already added ticker is skipped, never overwritten); a ticker with any protection (re-checked from the raw sets, e.g. an index name outside the three the
+  universe knows, or the live `rs_benchmark`) is refused. **Run live 2026-10-03: 25 tickers (18 stocks, 7 ETFs).**
+
+**Not done, in order (step 3 and later).** The API (`GET`/`POST`/`DELETE /api/tickers/{t}/universe`) and the Add / Remove buttons (an ETF's `EtfScreenerRow`
+written at once, a stock's score computed at once); then the **classification flip** (`viewed` becomes `added`, new `browsed` reason, `expired` = idle past 30
+days awaiting wipe; added tickers never expire), which must come AFTER the Add button exists (before it there is no way to add a new ticker, so a flip now would
+freeze the universe) and after the grandfathering (done); removal of `ScreenerMeta.hidden_inactive` and its UI (until step 3 removes it the field keeps its
+current meaning, the count of expired stock rows, which is 0 until about 2026-11-01); the first `--apply` of the wipe (after a backup and a disk check); and
+the cron registration after the reschedule. With the grandfathering done the added set is real, but `--apply` stays locked until the flip and the buttons ship.
 
 **Doc lines the classification-flip step must update** (they still describe "hidden, not deleted" or "viewing re-adds"; deliberately unedited until then):
 `CLAUDE.md` (Tracked universe paragraph; the "Nothing is ever deleted" wording); this file, "The rule" ("nothing is ever deleted by this rule", L22-24) and
