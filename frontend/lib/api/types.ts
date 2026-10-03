@@ -1819,3 +1819,48 @@ export interface EtfWatchlistAddOut {
   // false when the ticker was already on the ETF list (the call is idempotent).
   added: boolean;
 }
+
+// Mirrors core/schemas.py UniverseStatusOut / UniverseAddOut / UniverseRemoveOut
+// (GET / POST / DELETE /api/tickers/{t}/universe; docs/specs/tracked-universe.md, "API").
+export type UniverseState = "protected" | "added" | "browsed";
+
+export interface UniverseStatusOut {
+  ticker: string;
+  // null when no profile (or score row) is cached yet for the ticker.
+  kind: "stock" | "etf" | null;
+  // Membership in the real universe. Use this, never `state`, for any "In universe" wording: a protected ticker can
+  // have it false (a Moat-only ticker with no profile, an index name outside the three tracked ones, a delisted one).
+  in_universe: boolean;
+  // delisted | index | watchlist | system | manual | added | browsed | expired | untracked, or null when unknown.
+  classification: string | null;
+  state: UniverseState;
+  // Protections, e.g. "index:sp500", "watchlist:E3", "seed", "benchmark", "rs_benchmark", "manual:moat".
+  reasons: string[];
+  can_add: boolean;
+  can_remove: boolean;
+  added_at: string | null;
+  added_source: "user" | "grandfathered" | null;
+  delisted: boolean;
+}
+
+export interface UniverseAddOut {
+  status: UniverseStatusOut;
+  // false for an idempotent repeat or a protected ticker (nothing written).
+  changed: boolean;
+  // Stock only: did the immediate live score compute produce a row (null for an ETF or a no-op).
+  score_computed: boolean | null;
+  // ETF only: was the screener card written now (null for a stock or a no-op).
+  row_written: boolean | null;
+  // e.g. "fundamentals_group_off", "daily_prices_group_off", "no_data", "failed".
+  reason: string | null;
+  error: string | null;
+  fmp_calls: number | null;
+  message: string;
+}
+
+export interface UniverseRemoveOut {
+  status: UniverseStatusOut;
+  // false when the ticker was not added (no-op).
+  changed: boolean;
+  message: string;
+}

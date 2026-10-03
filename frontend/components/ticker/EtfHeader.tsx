@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { EtfWatchlistButton } from "@/components/ticker/EtfWatchlistButton";
 import { PriceChange } from "@/components/ticker/PriceChange";
+import { UniverseControl } from "@/components/ticker/UniverseControl";
 import type { EtfOverviewOut, TickerSummaryOut } from "@/lib/api/types";
 import { fmtMoney } from "@/lib/format";
 import { useEtfOverview } from "@/lib/hooks/useEtfOverview";
@@ -21,8 +22,8 @@ interface ViewProps {
 }
 
 /** ETF header: fund name, ticker, price and daily change, a caption ("Exchange-traded fund" + asset class)
- * and the one watchlist button. No Assessment/Moat/Valuation/Speculative growth/5Y-vs-SPY pills and no
- * next-earnings line (a fund has none of them), and no sector/industry eyebrow (FMP reports every ETF as
+ * and the action slot (the universe control, then the watchlist button). No Assessment/Moat/Valuation/Speculative
+ * growth/5Y-vs-SPY pills and no next-earnings line (a fund has none of them), and no sector/industry eyebrow (FMP reports every ETF as
  * "Financial Services · Asset Management", which is misleading). */
 export function EtfHeaderView({ data, assetClass, actions }: ViewProps) {
   return (
@@ -61,7 +62,12 @@ export function EtfHeader({ data }: { data: TickerSummaryOut }) {
     <EtfHeaderView
       data={data}
       assetClass={overview?.status === "ok" ? overview.asset_class : undefined}
-      actions={<EtfWatchlistButton ticker={data.ticker} />}
+      actions={
+        <>
+          <UniverseControl key={data.ticker} ticker={data.ticker} />
+          <EtfWatchlistButton ticker={data.ticker} />
+        </>
+      }
     />
   );
 }

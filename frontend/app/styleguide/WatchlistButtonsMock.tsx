@@ -9,10 +9,11 @@
 import type { ReactNode } from "react";
 
 import { RefreshButton } from "@/components/ticker/RefreshButton";
+import { UniverseControlView } from "@/components/ticker/UniverseControl";
 import { ExportMenu } from "@/components/watchlist/ExportMenu";
 import { WatchlistDeleteButton } from "@/components/watchlist/WatchlistDeleteButton";
 import { WatchlistNameEditor } from "@/components/watchlist/WatchlistNameEditor";
-import type { WatchlistOut } from "@/lib/api/types";
+import type { UniverseAddOut, UniverseRemoveOut, UniverseStatusOut, WatchlistOut } from "@/lib/api/types";
 
 const MOCK_WATCHLIST: WatchlistOut = {
   id: -1,
@@ -37,6 +38,32 @@ const mockRemoveRejected = () => new Promise<never>((_, reject) => setTimeout(()
 const mockRefresh = () => later(undefined, 1200);
 const mockRefreshRejected = () => new Promise<never>((_, reject) => setTimeout(() => reject(new Error("POST failed: 503")), 800));
 const noop = () => {};
+
+const MOCK_UNIVERSE: UniverseStatusOut = {
+  ticker: "MOCK",
+  kind: "stock",
+  in_universe: false,
+  classification: "browsed",
+  state: "browsed",
+  reasons: [],
+  can_add: true,
+  can_remove: false,
+  added_at: null,
+  added_source: null,
+  delisted: false,
+};
+const MOCK_UNIVERSE_ADDED: UniverseStatusOut = { ...MOCK_UNIVERSE, in_universe: true, classification: "added", state: "added", can_add: false, can_remove: true };
+const MOCK_UNIVERSE_PROTECTED: UniverseStatusOut = {
+  ...MOCK_UNIVERSE,
+  in_universe: true,
+  classification: "index",
+  state: "protected",
+  reasons: ["index:sp500", "watchlist:E3", "manual:moat"],
+  can_add: false,
+};
+const mockUniverseAdd = () => later({ changed: true } as UniverseAddOut, 1500);
+const mockUniverseAddRejected = () => new Promise<never>((_, reject) => setTimeout(() => reject(new Error("POST /tickers/MOCK/universe failed: 400 - MOCK is not US-listed.")), 800));
+const mockUniverseRemove = () => later({ changed: true } as UniverseRemoveOut, 800);
 
 function Frame({ title, note, children, testId }: { title: string; note?: ReactNode; children: ReactNode; testId?: string }) {
   return (
@@ -156,6 +183,41 @@ export function WatchlistButtonsMock() {
         </div>
       </Frame>
 
+      <Frame
+        title="Universe control"
+        testId="universe-section"
+        note="The real UniverseControlView, the control the stock and ETF ticker headers share, drawn from a mock status with mock requests. It is deliberately quieter than the primary Add to watchlist button beside it: an outline Add, a ghost Remove with an inline two-step confirm, and plain text-tertiary labels. Every other state (loading, a failed status, delisted, non-US, kind unknown, a protected ticker not in the universe) renders nothing."
+      >
+        <div className="flex flex-wrap items-start gap-x-12 gap-y-8">
+          <Case caption="Browsed: Add (click for the live cycle)" testId="universe-add">
+            <UniverseControlView status={MOCK_UNIVERSE} add={mockUniverseAdd} remove={mockUniverseRemove} />
+          </Case>
+          <Case caption="Adding" testId="universe-adding">
+            <UniverseControlView status={MOCK_UNIVERSE} add={mockUniverseAdd} remove={mockUniverseRemove} defaultPhase="adding" />
+          </Case>
+          <Case caption="Add rejected (click for a live failure)" testId="universe-add-error">
+            <UniverseControlView status={MOCK_UNIVERSE} add={mockUniverseAddRejected} remove={mockUniverseRemove} defaultMessage={{ tone: "error", text: "MOCK is not US-listed." }} />
+          </Case>
+          <Case caption="Added, score not computed (note)" testId="universe-note">
+            <UniverseControlView
+              status={MOCK_UNIVERSE_ADDED}
+              add={mockUniverseAdd}
+              remove={mockUniverseRemove}
+              defaultMessage={{ tone: "note", text: "Added. The score will be filled in by the nightly run." }}
+            />
+          </Case>
+          <Case caption="Added: In universe + Remove" testId="universe-added">
+            <UniverseControlView status={MOCK_UNIVERSE_ADDED} add={mockUniverseAdd} remove={mockUniverseRemove} />
+          </Case>
+          <Case caption="Remove: confirming" testId="universe-confirming">
+            <UniverseControlView status={MOCK_UNIVERSE_ADDED} add={mockUniverseAdd} remove={mockUniverseRemove} defaultPhase="confirming" />
+          </Case>
+          <Case caption="Protected: label only" testId="universe-protected">
+            <UniverseControlView status={MOCK_UNIVERSE_PROTECTED} add={mockUniverseAdd} remove={mockUniverseRemove} />
+          </Case>
+        </div>
+      </Frame>
+
       <Frame title="Computed sizes" testId="watchlist-buttons-note">
         <div className="max-w-3xl text-xs text-text-secondary">
           <p className="mb-2 text-text-tertiary">Computed from the Button size tokens, not measured in a browser.</p>
@@ -168,6 +230,10 @@ export function WatchlistButtonsMock() {
               <tr>
                 <td className="py-0.5 pr-4 font-sans">Export list, Refresh data (outline sm)</td>
                 <td className="py-0.5">32px high, the same as before and the same as the Add to watchlist button beside Refresh</td>
+              </tr>
+              <tr>
+                <td className="py-0.5 pr-4 font-sans">Add to Universe (outline sm), Remove from Universe (ghost sm)</td>
+                <td className="py-0.5">32px high as an outline, 28px as a ghost, both quieter than the 32px primary Add to watchlist beside them</td>
               </tr>
               <tr>
                 <td className="py-0.5 pr-4 font-sans">Rename and delete triggers (ghost icon-sm)</td>

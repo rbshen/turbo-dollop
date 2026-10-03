@@ -124,7 +124,7 @@ added and idle.
 - `pipeline/wipe_untouched_tickers.py` (manual, **not registered**: no crontab line, no `CRON_JOB_NAMES`/cadence/metadata entry, no heartbeat). Dry run is the
   default (read-only connection, no `init_db`, no log file, adopts nothing). `--apply` is locked behind `FATHOM_ALLOW_WIPE_APPLY=1`; it runs one `BEGIN IMMEDIATE`
   transaction per ticker, re-checks the decision inside it, deletes in registry order, adopts per the rule. `--tickers`, `--limit` (wipes oldest touch first, then
-  adoptions). **Still to do before the lock is released:** the Add/Remove buttons (step 3b), a fresh backup with the disk check, a first `--apply --limit` on a handful of
+  adoptions). **Still to do before the lock is released:** (the Add/Remove buttons are built, step 3b), a fresh backup with the disk check, a first `--apply --limit` on a handful of
   tickers, then the cron registration after the nightly reschedule. With the real added set the live dry run reads: 0 wipe today, the 25 grandfathered tickers protected
   by `added`, and at 2026-11-03 only AVB, EQR, TWTR, WBA (4,088 rows) plus the 5 adoptions (CROX, DXC, ROKU, SNAP, VFC).
 
@@ -165,6 +165,40 @@ watchlist row for (`classification: null`). A ticker under an index name outside
 - **A watchlist add writes nothing for a stock and no `added_at` for anyone.** A ticker added, then watchlisted, then unlisted keeps its added state (`protected` while
   listed, `added` again after); one only ever watchlisted falls back to `browsed`. An ETF watchlist add (the ETF list endpoint, the generic add, the bulk add) writes the
   ETF's card at once through `ensure_etf_screener_rows` (best effort, never fails the add; see [ETFs screener](etf-screener.md)).
+
+## Frontend (step 3b, 2026-10-03)
+
+One shared component, `components/ticker/UniverseControl.tsx`, rendered by **both** `TickerHeader` (stock) and `EtfHeader` (ETF) in the header's action slot, before the
+watchlist button (`AddToWatchlistButton` / `EtfWatchlistButton`) and `RefreshButton`. It is keyed by ticker. Types are in `lib/api/types.ts` (`UniverseStatusOut`,
+`UniverseAddOut`, `UniverseRemoveOut`, matching `core/schemas.py`); the hook and the actions are `lib/hooks/useUniverse.ts` (`useUniverseStatus`, `addToUniverse`,
+`removeFromUniverse`); the display rule and the reason labels are `lib/universe.ts` (`universeDisplay`, `universeReasonLabel`). The presentational
+`UniverseControlView` takes the status and the two actions as props (the styleguide draws every state from it with mock requests).
+
+**What it shows** (the same for stock and ETF; decided from the GET response only, and every "In universe" wording is gated on `in_universe`, never on `state`):
+
+| Status | Shows |
+|---|---|
+| `state` browsed, `can_add` | outline button "Add to Universe" |
+| `state` added, `can_remove`, `in_universe` | quiet "In universe" label + ghost "Remove from Universe" (inline two-step confirm: "Remove from Universe?" + Confirm + Cancel, no modal) |
+| `state` protected, `in_universe` | quiet non-interactive "In universe · <reasons>", no button |
+| anything else: protected with `in_universe` false, delisted (any state), browsed with `can_add` false (non-US), `kind` null, status loading or failed | **nothing**, and never an error banner for a failed status request |
+
+**Reason labels** (one helper, an unknown code prints raw): `index:sp500` S&P 500, `index:nasdaq` Nasdaq-100, `index:dow` Dow, `watchlist:<name>` "Watchlist <name>", `seed`
+Seed ETF, `benchmark` Benchmark, `rs_benchmark` RS benchmark, `manual:moat` Moat, `manual:custom_valuation` Custom valuation, `manual:bank_capital` Bank capital,
+`manual:growth_note` Growth note, `delisted` Delisted (a classification, never sent in `reasons`). Several read comma-separated.
+
+**Add** (`POST`): the button shows "Adding…" and is disabled for the duration (a stock 3-10 s, an ETF 1-3 s); the rest of the page is not blocked. On success a stock with
+`score_computed: false` shows one line, the response's `message` (it names the cause: fundamentals group off, compute failed, not enough data), falling back to "Added. The
+score will be filled in by the nightly run."; an ETF with `row_written: false` shows "Added. The card appears after tonight's run."; otherwise no note. On error (400 non-US,
+404 empty profile, 409 delisted, 503 profile group off) the plain `detail` shows inline under the button, no SWR key is touched and the status is unchanged.
+**Remove** (`DELETE`): Confirm -> "Removing…". A 409 (a protection appeared, e.g. the ticker was put on a watchlist in another tab) shows the message and revalidates the status
+key, so the control redraws as the protected label.
+
+**SWR keys revalidated after a successful Add or Remove** (`isUniverseAffectedKey`, one `mutate(predicate)`): `/tickers/{t}/universe`, `/tickers/{t}/score`, every key
+starting `/screener` (the Stocks Screener sweep `RecomputeButton` also makes), the ETFs screener's `/etf-screener` and `/etf-screener/meta` (exact keys: they deliberately
+sit outside the `/screener` prefix, see `useEtfScreener.ts`), `/watchlists`, and each `/watchlists/{id}/rows`. The ETF saved views key (`/etf-screener/filters`) and other
+tickers' keys are untouched. The status hook is a plain `useApiResource` (SWR defaults): the GET is cache-only, so neither the read nor its revalidation touches
+`TickerView` or FMP.
 
 ## Verifying
 

@@ -151,6 +151,7 @@ says ETF; at most 5 per request, one call, best effort: a failure is logged and 
 computes nothing (`_worth_writing`) leaves no row; the response says so and the card appears after the next nightly run. `DELETE
 /api/tickers/{t}/universe` (Remove) deletes the ETF's row; until the classification flip a recently viewed ETF is still in `load_etf_universe`
 by the old rule, so the 1:45 job can rebuild it. See `docs/specs/tracked-universe.md`, "API".
+The ETF page header's **Add to Universe / Remove from Universe** control (step 3b, `components/ticker/UniverseControl.tsx`, shared with the stock header) calls those two routes; after either it revalidates `/etf-screener` and `/etf-screener/meta` (exact keys, outside the `/screener` prefix) so an open ETFs page picks up the new or removed card. An Add whose card was not written shows "Added. The card appears after tonight's run." See `docs/specs/tracked-universe.md`, "Frontend".
 
 | Field(s) | Source |
 |---|---|

@@ -10,6 +10,7 @@ import { RefreshButton } from "@/components/ticker/RefreshButton";
 import { SpeculativeGrowthFakeGrowthWarning } from "@/components/ticker/SpeculativeGrowthFakeGrowthWarning";
 import { SpeculativeGrowthInfoIcon } from "@/components/ticker/SpeculativeGrowthInfoIcon";
 import { SpeculativeGrowthPill } from "@/components/ticker/SpeculativeGrowthPill";
+import { UniverseControl } from "@/components/ticker/UniverseControl";
 import { WeinsteinStagePill } from "@/components/ticker/WeinsteinStagePill";
 import { Status } from "@/components/ui/status";
 import { useSpeculativeGrowth } from "@/lib/hooks/useSpeculativeGrowth";
@@ -67,7 +68,7 @@ interface ViewProps {
   data: HeaderData;
   /** The Overall Assessment verdict pill (hook-driven in the app). */
   assessment: ReactNode;
-  /** The Add-to-watchlist / Refresh buttons (hook-driven in the app). */
+  /** The Universe control / Add-to-watchlist / Refresh buttons (hook-driven in the app). */
   actions: ReactNode;
   moat: MoatValue | null | undefined;
   specGrowth: SpeculativeGrowthOut | null | undefined;
@@ -164,6 +165,7 @@ export function TickerHeader({ symbol, data }: Props) {
       assessment={<AssessmentChip symbol={symbol} />}
       actions={
         <>
+          <UniverseControl key={data.ticker} ticker={data.ticker} />
           <AddToWatchlistButton tickers={[data.ticker]} />
           <RefreshButton ticker={data.ticker} />
         </>

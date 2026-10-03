@@ -123,6 +123,8 @@ zones and the chart are all bar-based, so none needed hiding. Adapted:
 Watchlists page. Which lists are monitored comes from `WatchlistOut.monitored` (backend `is_monitored_watchlist_name`),
 so the frontend never re-implements the naming rule. An ETF only on an unmonitored list still shows the primary button.
 
+The header's action slot also holds the shared `UniverseControl` (Add to / Remove from the opt-in universe, before the watchlist button), the same component the stock header uses; see [Tracked universe](tracked-universe.md), "Frontend".
+
 ## Related changes
 
 - **Search:** `TickerSearchResult.is_etf` renders a small "ETF" badge. FMP's search has no security-type field and a
