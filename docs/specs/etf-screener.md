@@ -151,7 +151,7 @@ Code: `data/etf_screener_refresh.py::refresh_etf_screener(tickers=None, *, cache
 | `vs_spy_1y` | `return_1y` minus SPY's 1Y return from the same bars, **percentage points**. SPY must have a bar on the ETF's own `as_of_date` (the same window); otherwise it is left unset and logged. SPY itself reads 0.0 |
 | `asset_class`, `expense_ratio`, `aum`, `info_updated_at` | `/etf/info` through `data/etf_data.py::load_etf_info` (`get_or_fetch`, 1-day TTL `etf_info_staleness_days`; the `etf_info` group toggle and the 402 safety net apply; off or failing = the cached row is served). `info_updated_at` is `updatedAt` as naive UTC. AUM is `assetsUnderManagement`, never the profile's `marketCap` |
 | `name`, `beta` | the cached profile (30-day TTL `profile_staleness_days`). `beta` is stored **raw** (the equity-only rule is applied on read); a beta of 0 or NaN is FMP's "unknown" and is not stored. `name` is the profile's `companyName`; `/etf/info`'s `name` is used only when the profile has none and did not fail |
-| `weinstein_*` (stage, since_date, is_lower_bound, ma_slope_pct, vs_ma_pct, pending_direction) | the pure engines `compute_weinstein_stage` / `compute_weinstein_pending` on the ETF's cached bars with the live Settings > Weinstein parameters and the configured RS benchmark's bars (default SPY); a missing benchmark degrades the RS fields inside the engine, not the stage. `TrendAnalysis` is **not** written (the stock job owns it) |
+| `weinstein_*` (stage, since_date, is_lower_bound, ma_slope_pct, vs_ma_pct, pending_direction) | the pure engines `compute_weinstein_stage` / `compute_weinstein_pending` on the ETF's cached bars with the live Settings > Weinstein parameters and the configured RS benchmark's bars (default SPY); a missing benchmark degrades the RS fields inside the engine, not the stage. Computed **once** per ETF (`data/trend_analysis_data.py::compute_weinstein_results`); the same result is also stored to the ETF's `TrendAnalysis` row on a live run (step 7, see "Other tables the job writes"), so the two always agree |
 | `bb_rsi_entry_signal`, `warren_active_signal_kind`, `warren_last_buy_fired_at` | **read, not computed**: from `TechnicalEntrySignal` (`bb_rsi`/`warren`) and `WarrenSignalEvent` through `is_entry_signal_active`, `warren_active_up_kind`, `last_buy_signal_fired_at`, the helpers `data/ticker_score.py` uses. The monitored-watchlist jobs produce them for tickers on `E<n>` lists and the `ETF` list; any other ETF has no row, so these are None. Not copied from `TickerScore` |
 
 ### Null and partial-write rules
@@ -174,6 +174,19 @@ Code: `data/etf_screener_refresh.py::refresh_etf_screener(tickers=None, *, cache
 
 - **Live** (default): fetches what is stale, writes rows, then prunes. Skipped (a real `skipped` cron status) while the
   `daily_prices` group is off (`job_skip_reason`); `etf_info` / `profile_quote` off serve cached rows.
+### Other tables the job writes (step 7, Phase A, 2026-10-03)
+
+A **live** run also writes, for every ETF it processes, the two rows the stock-side jobs used to provide:
+- **`TrendAnalysis`**, from the one Weinstein computation above, through `store_weinstein_results` (the store half of
+  `compute_and_store_from_frames`, which now calls the same two functions). Written only when a stage was determined (the stock
+  job writes a NULL stage; this job leaves the previous row alone). A store failure is that ETF's `trend_analysis` error and
+  costs only that table.
+- **`TickerLastClose`**, through `data/last_close_data.py::refresh_last_closes` (one `/historical-price-eod/full` call per ETF, the same
+  completed-session rule). A failed ETF keeps its stored close and is recorded as that ETF's `last_close` error.
+- The weekly full bar resync (Sunday UTC, the stock-side bar job's rule) is also done for the ETFs' own bars (`force_resync`).
+`cache_only` and `dry_run` write **neither** (`cache_only` still writes `EtfScreenerRow` rows, as before; it has no network to
+fetch a last close with). The run summary gains `trend_written` and `last_close_written`, also in the cron message.
+
 - **`cache_only`**: no bar fetch, no `/etf/info` or profile call (stale cached rows are used as they are): no network
   call at all. Still writes rows, and never prunes.
 - **`dry_run`**: computes and returns everything (the summary's `results`, per ETF: `fields`, `notes`, `errors`), writes

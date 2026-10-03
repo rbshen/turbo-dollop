@@ -16,6 +16,8 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import clients.shared_bars_cache as shared_bars_cache
 import data.etf_data as etf_data
+import data.last_close_data as last_close_data
+import data.trend_analysis_data as trend_analysis_data
 import data.etf_screener_refresh as refresh
 import data.tracked_universe as tu
 import pipeline.nightly_etf_screener as job
@@ -28,8 +30,10 @@ from core.models import (
     EtfScreenerRow,
     FundamentalsCache,
     TechnicalEntrySignal,
+    TickerLastClose,
     TickerScore,
     TickerView,
+    TrendAnalysis,
     WarrenSignalEvent,
     Watchlist,
     WatchlistTicker,
@@ -46,9 +50,12 @@ PROFILE = {"companyName": "Invesco QQQ Trust, Series 1", "isEtf": True, "beta": 
 def env(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     SQLModel.metadata.create_all(engine)
-    for module in (refresh, etf_data, tu, shared_bars_cache):
+    for module in (refresh, etf_data, tu, shared_bars_cache, trend_analysis_data, last_close_data):
         monkeypatch.setattr(module, "engine", engine)
-    state = {"fmp_calls": [], "batch_calls": [], "info": {}, "profile": {}, "batch_error": None, "bars_on_fetch": {}}
+    state = {
+        "fmp_calls": [], "batch_calls": [], "batch_kwargs": [], "info": {}, "profile": {}, "batch_error": None,
+        "bars_on_fetch": {}, "eod_calls": [], "eod": {},
+    }
 
     async def get_etf_info(ticker):
         state["fmp_calls"].append(("etf_info", ticker))
@@ -68,8 +75,19 @@ def env(monkeypatch):
             raise AssertionError(f"unexpected /profile call for {ticker}")
         return value
 
+    async def get_historical_price_eod(ticker, start, end):
+        # The last-close helper's one call per ETF (kept out of "fmp_calls", which pins the info/profile caches).
+        state["eod_calls"].append(ticker)
+        value = state["eod"].get(ticker, "default")
+        if isinstance(value, Exception):
+            raise value
+        if value == "default":
+            value = [{"date": _most_recent_completed_trading_date().isoformat(), "close": 123.45}]
+        return value
+
     async def batch(tickers, interval, lookback_days, **kwargs):
         state["batch_calls"].append(list(tickers))
+        state["batch_kwargs"].append(kwargs)
         if state["batch_error"] is not None:
             raise state["batch_error"]
         for ticker, closes in state["bars_on_fetch"].items():  # simulates the cache fill a live fetch performs
@@ -78,6 +96,7 @@ def env(monkeypatch):
 
     monkeypatch.setattr(fmp_client, "get_etf_info", get_etf_info)
     monkeypatch.setattr(fmp_client, "get_profile", get_profile)
+    monkeypatch.setattr(fmp_client, "get_historical_price_eod", get_historical_price_eod)
     monkeypatch.setattr(refresh, "get_or_fetch_bars_batch", batch)
     state["engine"] = engine
     return state
@@ -620,3 +639,172 @@ def test_an_existing_row_has_its_ended_signal_cleared_but_a_row_is_never_created
 
     assert _row(engine, "QQQ").bb_rsi_entry_signal is None and _row(engine, "QQQ").warren_active_signal_kind is None
     assert _row(engine, "XLB") is None and result["results"]["XLB"].written is False
+
+
+# --- cutover step 7: the job also owns the ETFs' TrendAnalysis and TickerLastClose rows -------------------------
+
+
+def _trend(engine, ticker) -> TrendAnalysis | None:
+    with Session(engine) as session:
+        return session.get(TrendAnalysis, ticker)
+
+
+def _last_close(engine, ticker) -> TickerLastClose | None:
+    with Session(engine) as session:
+        return session.get(TickerLastClose, ticker)
+
+
+def _two_etfs(engine):
+    for ticker in ("QQQ", "TLT"):
+        _etf(engine, ticker)
+        _bars(engine, ticker, _ramp())
+    _bars(engine, "SPY", _ramp())
+
+
+def test_a_live_run_writes_trend_analysis_computed_once_and_equal_to_the_screener_row(env, monkeypatch):
+    engine = env["engine"]
+    _two_etfs(engine)
+    calls = []
+    real = refresh.compute_weinstein_results
+    monkeypatch.setattr(refresh, "compute_weinstein_results", lambda *a, **k: calls.append(a[0].attrs.get("t")) or real(*a, **k))
+
+    summary = _run(tickers=["QQQ", "TLT"])
+
+    assert len(calls) == 2  # ONE Weinstein computation per ETF feeds both tables
+    assert summary["trend_written"] == 2 and summary["failed"] == 0
+    for ticker in ("QQQ", "TLT"):
+        trend, row = _trend(engine, ticker), _row(engine, ticker)
+        assert trend is not None and trend.weinstein_stage is not None
+        assert trend.bars_as_of == _most_recent_completed_trading_date()
+        assert row.weinstein_stage == trend.weinstein_stage
+        assert row.weinstein_stage_since_date == trend.weinstein_stage_since_date
+        assert row.weinstein_ma_slope_pct == trend.weinstein_ma_slope_pct
+        assert row.weinstein_vs_ma_pct == trend.weinstein_vs_ma_pct
+        assert row.weinstein_pending_direction == trend.weinstein_pending_direction
+    # the same stage the stock job's engine entry point would have stored for these bars
+    df = refresh.read_cached_completed_daily_bars("QQQ", refresh.WEINSTEIN_LOOKBACK_DAYS)
+    with Session(engine) as session:
+        params = load_weinstein_params(session)
+    expected = compute_weinstein_stage(df, refresh.read_cached_completed_daily_bars("SPY", refresh.WEINSTEIN_LOOKBACK_DAYS), params)
+    assert _trend(engine, "QQQ").weinstein_stage == expected.stage
+
+
+def test_a_live_run_writes_ticker_last_close_for_every_target_through_the_stock_side_helper(env):
+    engine = env["engine"]
+    _two_etfs(engine)
+    env["eod"]["QQQ"] = [{"date": _most_recent_completed_trading_date().isoformat(), "close": 701.25}]
+
+    summary = _run(tickers=["QQQ", "TLT"])
+
+    assert sorted(env["eod_calls"]) == ["QQQ", "TLT"]
+    assert _last_close(engine, "QQQ").close == 701.25
+    assert _last_close(engine, "QQQ").as_of_date == _most_recent_completed_trading_date()
+    assert _last_close(engine, "TLT").close == 123.45
+    assert summary["last_close_written"] == 2
+
+
+def test_dry_run_and_cache_only_write_no_trend_analysis_and_no_last_close(env):
+    engine = env["engine"]
+    _two_etfs(engine)
+
+    _run(tickers=["QQQ", "TLT"], dry_run=True)
+    assert _trend(engine, "QQQ") is None and _last_close(engine, "QQQ") is None
+    assert env["eod_calls"] == []
+
+    summary = _run(tickers=["QQQ", "TLT"], cache_only=True)
+    assert summary["written"] == 2  # the EtfScreenerRow is still written in cache_only mode ...
+    assert summary["trend_written"] == 0 and summary["last_close_written"] == 0
+    assert _trend(engine, "QQQ") is None and _trend(engine, "TLT") is None  # ... and nothing else
+    assert _last_close(engine, "QQQ") is None and _last_close(engine, "TLT") is None
+    assert env["eod_calls"] == []
+
+
+def test_a_seed_with_nothing_cached_gets_a_last_close_but_no_trend_row_and_no_screener_row(env):
+    engine = env["engine"]  # nothing cached for XLB: no profile, no info, no bars
+    env["info"]["XLB"] = {}  # /etf/info answers, no fund record
+    env["profile"]["XLB"] = []
+
+    summary = _run(tickers=["XLB"])
+
+    assert _trend(engine, "XLB") is None  # no bars: no Weinstein result, so no TrendAnalysis row (and no raise)
+    assert _row(engine, "XLB") is None
+    assert _last_close(engine, "XLB").close == 123.45
+    assert summary["trend_written"] == 0 and summary["failed"] == 0
+
+
+def test_trend_analysis_partial_write_rule_an_undetermined_stage_keeps_the_previous_row(env):
+    engine = env["engine"]
+    _etf(engine, "QQQ")
+    _bars(engine, "QQQ", _history(120.0, sessions=60))  # ~12 weeks: too little weekly history for a stage
+    _bars(engine, "SPY", _ramp())
+    with Session(engine) as session:
+        session.add(TrendAnalysis(ticker="QQQ", computed_at=datetime(2026, 9, 1), weinstein_stage="advance"))
+        session.commit()
+
+    summary = _run(tickers=["QQQ"])
+
+    assert _trend(engine, "QQQ").weinstein_stage == "advance" and _trend(engine, "QQQ").computed_at == datetime(2026, 9, 1)
+    assert summary["trend_written"] == 0
+
+
+def test_a_failed_last_close_keeps_the_stored_close_and_is_recorded_as_that_etfs_error(env):
+    engine = env["engine"]
+    _two_etfs(engine)
+    with Session(engine) as session:
+        session.add(TickerLastClose(ticker="QQQ", close=500.0, as_of_date=date(2026, 9, 1), fetched_at=datetime(2026, 9, 2)))
+        session.commit()
+    env["eod"]["QQQ"] = httpx.ReadTimeout("slow")
+    env["eod"]["TLT"] = []  # FMP answers with nothing usable
+
+    summary = _run(tickers=["QQQ", "TLT"])
+
+    assert _last_close(engine, "QQQ").close == 500.0 and _last_close(engine, "TLT") is None
+    assert summary["last_close_written"] == 0 and summary["failed"] == 2
+    assert dict(summary["failures"])["QQQ"].startswith("last_close: ReadTimeout")
+    assert _row(engine, "QQQ") is not None and _trend(engine, "QQQ") is not None  # every other source still wrote
+
+
+def test_a_trend_analysis_write_failing_costs_only_that_table(env, monkeypatch):
+    engine = env["engine"]
+    _two_etfs(engine)
+
+    def boom(*a, **k):
+        raise RuntimeError("db locked")
+
+    monkeypatch.setattr(refresh, "store_weinstein_results", boom)
+    summary = _run(tickers=["QQQ"])
+
+    assert _trend(engine, "QQQ") is None and _row(engine, "QQQ").weinstein_stage is not None
+    assert summary["failed"] == 1 and "trend_analysis: db locked" in summary["failures"][0][1]
+    assert _last_close(engine, "QQQ") is not None
+
+
+def test_force_resync_reaches_the_bar_fetch_and_the_pipeline_passes_it_by_weekday(env, monkeypatch):
+    engine = env["engine"]
+    _two_etfs(engine)
+
+    _run(tickers=["QQQ"])
+    _run(tickers=["QQQ"], force_resync=True)
+    assert [k["force"] for k in env["batch_kwargs"]] == [False, True]
+
+    seen = []
+
+    async def fake_refresh(tickers, **kwargs):
+        seen.append(kwargs["force_resync"])
+        return {}
+
+    monkeypatch.setattr(job, "refresh_etf_screener", fake_refresh)
+    monkeypatch.setattr(job, "init_db", lambda: None)
+    monkeypatch.setattr(job, "configure_logging", lambda *_: None)
+
+    class _Sunday:
+        @staticmethod
+        def now(tz=None):
+            return datetime(2026, 10, 4, 1, 45, tzinfo=tz)  # a Sunday
+
+    asyncio.run(job.main())
+    monkeypatch.setattr(job, "datetime", type("D", (), {"now": staticmethod(lambda tz=None: datetime(2026, 10, 5, 1, 45, tzinfo=tz))}))
+    asyncio.run(job.main())
+    monkeypatch.setattr(job, "datetime", _Sunday)
+    asyncio.run(job.main())
+    assert seen[1:] == [False, True]

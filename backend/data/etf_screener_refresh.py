@@ -11,12 +11,18 @@ Where each field comes from (all existing paths, nothing reimplemented):
   * asset_class, expense_ratio, aum, info_updated_at -- /etf/info via data/etf_data.py::load_etf_info (1-day TTL).
   * name, beta -- the cached FMP profile (30-day TTL), beta stored RAW (the equity-only rule is applied on read).
   * Weinstein fields -- the pure engines analysis/trend_structure/weinstein*.py with the live Settings and the same
-    benchmark behaviour as pipeline/nightly_trend_calculation.py. TrendAnalysis is NOT written (the stock job owns it).
+    benchmark behaviour as pipeline/nightly_trend_calculation.py, computed ONCE per ETF
+    (data/trend_analysis_data.py::compute_weinstein_results): the one result feeds both the EtfScreenerRow fields and the
+    ETF's TrendAnalysis row (cutover step 7: the stock job no longer refreshes ETFs, so this job owns that row).
+  * TickerLastClose -- data/last_close_data.py::refresh_last_closes, the helper the stock-side last-close job uses (one
+    /historical-price-eod/full call per ETF, same completed-session semantics), for the same reason.
   * Signal fields -- read from TechnicalEntrySignal / WarrenSignalEvent, the tables the monitored-watchlist jobs
     fill, through the same helpers data/ticker_score.py uses.
 
 Partial-write rule: only fields computed successfully THIS run are passed to the upsert, so a transient failure of
-one source never overwrites a good stored value with NULL. The one exception is the three signal fields, a
+one source never overwrites a good stored value with NULL. The same holds for the other two tables this job writes:
+a TrendAnalysis row is written only when a stage was actually determined (the stock job writes a NULL stage; this
+job leaves the previous row alone), and a failed last-close fetch keeps the stored close. The one exception is the three signal fields, a
 deterministic local read where "no signal row" is the true answer. A source that has nothing (a fund younger than a
 year has no 1Y return, a seed never opened has no cached info) contributes nothing.
 
@@ -26,14 +32,15 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pandas as pd
 from sqlalchemy import delete
 from sqlmodel import Session, select
 
-from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER, WeinsteinParams, compute_weinstein_stage
-from analysis.trend_structure.weinstein_pending import compute_weinstein_pending
+from analysis.trend_structure.types import WeinsteinStageResult
+from analysis.trend_structure.weinstein import WEINSTEIN_BENCHMARK_TICKER, WeinsteinParams
+from analysis.trend_structure.weinstein_pending import WeinsteinPendingResult
 from clients.daily_bar_sources import UnservedTickers
 from clients.fmp_client import fmp_client
 from clients.shared_bars_cache import (
@@ -52,7 +59,8 @@ from data.entry_signal_data import DEFAULT_SIGNAL_TYPE, DEFAULT_TIMEFRAME, is_en
 from data.etf_data import _number, _overview_from_payload, _text, load_etf_info
 from data.etf_screener_data import upsert_etf_screener_row
 from data.tracked_universe import load_etf_universe
-from data.trend_analysis_data import WEINSTEIN_LOOKBACK_DAYS
+from data.last_close_data import refresh_last_closes
+from data.trend_analysis_data import WEINSTEIN_LOOKBACK_DAYS, compute_weinstein_results, store_weinstein_results
 from data.warren_signal_data import (
     DEFAULT_SIGNAL_TYPE as WARREN_SIGNAL_TYPE,
     DEFAULT_TIMEFRAME as WARREN_TIMEFRAME,
@@ -83,6 +91,10 @@ class EtfRefreshResult:
     # /etf/info's name: used only when the profile gave none and did not fail (so a profile outage cannot swap a
     # stored name for the other source's wording).
     info_name: str | None = None
+    # The one Weinstein computation (stage, pending, newest bar date), kept so the run can store the same result to
+    # TrendAnalysis. None when no stage was determined.
+    weinstein: tuple[WeinsteinStageResult, WeinsteinPendingResult, date] | None = None
+    trend_analysis_written: bool = False
 
 
 def _bar_fields(ticker: str, bars: pd.DataFrame, spy_bars: pd.DataFrame, result: EtfRefreshResult) -> None:
@@ -132,11 +144,11 @@ def _weinstein_fields(bars: pd.DataFrame, benchmark_bars: pd.DataFrame, params: 
     a stage was actually determined."""
     if bars.empty:
         return
-    stage = compute_weinstein_stage(bars, benchmark_bars if not benchmark_bars.empty else _EMPTY_BARS, params)
+    stage, pending = compute_weinstein_results(bars, benchmark_bars if not benchmark_bars.empty else _EMPTY_BARS, params)
     if stage.stage is None:
         result.notes.append("Weinstein stage not determined (too little weekly history): Weinstein fields not computed")
         return
-    pending = compute_weinstein_pending(bars, params)
+    result.weinstein = (stage, pending, bars.index.max().date())
     result.fields.update(
         weinstein_stage=stage.stage,
         weinstein_stage_since_date=stage.stage_since_date,
@@ -261,6 +273,29 @@ async def _refresh_one(
     return result
 
 
+def _store_trend_analysis(ticker: str, params: WeinsteinParams, result: EtfRefreshResult) -> None:
+    """Writes the ETF's TrendAnalysis row from the Weinstein result already computed for its EtfScreenerRow fields.
+    Its own failure costs only this table (recorded in the ETF's `errors`)."""
+    stage, pending, bars_as_of = result.weinstein
+    try:
+        store_weinstein_results(ticker, stage, pending, bars_as_of, params)
+        result.trend_analysis_written = True
+    except Exception as exc:  # noqa: BLE001 -- must not cost the EtfScreenerRow write
+        _record_source_error(result, "trend_analysis", exc)
+
+
+async def _refresh_last_closes(targets: list[str]) -> dict[str, str]:
+    """TickerLastClose for every target through the stock-side helper (it writes the rows itself, one per ticker, and
+    leaves a failing ticker's stored close alone). Returns {ticker: reason} for the ones it could not write. The
+    helper raising outright counts as a failure of every target."""
+    try:
+        summary = await refresh_last_closes(targets)
+    except Exception as exc:  # noqa: BLE001 -- the other sources still run
+        logger.error("ETF screener: last-close refresh failed - %s", exc)
+        return {ticker: type(exc).__name__ for ticker in targets}
+    return dict(summary["failures"])
+
+
 def prune_etf_screener_rows(keep: list[str], dry_run: bool = False) -> int:
     """Deletes EtfScreenerRow rows whose ticker is not in `keep` (the ETF universe: an expired or delisted ETF).
     Returns the number deleted (or that would be). Genuinely deleted, like the other retention prunes."""
@@ -299,6 +334,7 @@ async def refresh_etf_screener(
     cache_only: bool = False,
     dry_run: bool = False,
     now: datetime | None = None,
+    force_resync: bool = False,
 ) -> dict:
     """Refreshes the EtfScreenerRow of each ticker (default: the whole ETF universe).
 
@@ -307,6 +343,11 @@ async def refresh_etf_screener(
     dry_run: computes and returns everything but writes no EtfScreenerRow and prunes nothing. It does NOT stop the normal
         read-through caches (FMP responses, bars) from filling when it is not also cache_only: for a run that writes
         nothing at all, pass both.
+    A LIVE run (neither cache_only nor dry_run) also writes each ETF's TrendAnalysis row (from the one Weinstein
+    computation above) and its TickerLastClose row; cache_only and dry_run write neither (and cache_only has no
+    network to fetch a last close with).
+    force_resync: the weekly full resync the stock-side bar job does (every ticker's whole window refetched, so a small
+    provider restatement cannot leave a permanent basis offset); the pipeline passes it on the same weekday.
     Retention: after a LIVE run that is not cache_only / dry_run and whose fetch phase succeeded (the batch bar
     fetch did not raise and the failure threshold was not breached), rows for tickers no longer in the ETF universe
     are deleted. `tickers=` (an explicit list) never prunes.
@@ -326,7 +367,8 @@ async def refresh_etf_screener(
     if not cache_only and targets:
         try:
             await get_or_fetch_bars_batch(
-                wanted, DAILY_INTERVAL, WEINSTEIN_LOOKBACK_DAYS, auto_adjust=False, unserved_tickers=unserved
+                wanted, DAILY_INTERVAL, WEINSTEIN_LOOKBACK_DAYS, auto_adjust=False, unserved_tickers=unserved,
+                force=force_resync,
             )
         except Exception as exc:  # noqa: BLE001 -- bars missing for everyone; the other sources still run
             batch_failed = True
@@ -338,11 +380,18 @@ async def refresh_etf_screener(
     spy_bars = read_bars(VS_BENCHMARK_TICKER)
     benchmark_bars = spy_bars if benchmark == VS_BENCHMARK_TICKER else read_bars(benchmark)
 
+    live = not cache_only and not dry_run
+    last_close_failures = await _refresh_last_closes(targets) if live and targets else {}
+
     results: dict[str, EtfRefreshResult] = {}
     for index, ticker in enumerate(targets, start=1):
         result = EtfRefreshResult(ticker)
         try:
             result = await _refresh_one(ticker, read_bars(ticker), spy_bars, benchmark_bars, params, cache_only)
+            if ticker in last_close_failures:
+                result.errors.append(f"last_close: {last_close_failures[ticker]}")
+            if live and result.weinstein is not None:
+                _store_trend_analysis(ticker, params, result)
             if not dry_run:
                 with Session(engine) as session:
                     if _worth_writing(session, ticker, result.fields):
@@ -374,6 +423,8 @@ async def refresh_etf_screener(
     summary = {
         "processed": attempted,
         "written": sum(1 for r in results.values() if r.written),
+        "trend_written": sum(1 for r in results.values() if r.trend_analysis_written),
+        "last_close_written": (len(targets) - len(last_close_failures)) if live else 0,
         "failed": len(failures),
         "failures": failures,
         "pruned": pruned,

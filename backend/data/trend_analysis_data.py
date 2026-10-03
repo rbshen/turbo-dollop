@@ -225,12 +225,32 @@ def compute_and_store_from_frames(
     if params is None:
         params = _load_params()
 
+    weinstein_result, pending_result = compute_weinstein_results(ohlcv, benchmark_ohlcv, params)
+    return store_weinstein_results(ticker, weinstein_result, pending_result, ohlcv.index.max().date(), params)
+
+
+def compute_weinstein_results(
+    ohlcv: pd.DataFrame, benchmark_ohlcv: pd.DataFrame | None, params: WeinsteinParams
+) -> tuple[WeinsteinStageResult, WeinsteinPendingResult]:
+    """The pure engines (stage, then pending) on already-fetched daily bars, no DB. Split out so a caller that needs
+    the result for more than the TrendAnalysis row (the ETF screener job, which also copies fields onto its own
+    row) computes Weinstein ONCE and hands the same result to `store_weinstein_results`."""
     weinstein_result = compute_weinstein_stage(
         ohlcv, benchmark_ohlcv if benchmark_ohlcv is not None else pd.DataFrame(columns=["open", "high", "low", "close", "volume"]), params
     )
-    pending_result = compute_weinstein_pending(ohlcv, params)
+    return weinstein_result, compute_weinstein_pending(ohlcv, params)
+
+
+def store_weinstein_results(
+    ticker: str,
+    weinstein_result: WeinsteinStageResult,
+    pending_result: WeinsteinPendingResult,
+    bars_as_of: date,
+    params: WeinsteinParams,
+) -> TrendAnalysisOut:
+    """Upserts one ticker's TrendAnalysis row from results already computed by `compute_weinstein_results`."""
     computed_at = datetime.now()
-    weinstein_stage_changed = _upsert(ticker, weinstein_result, pending_result, computed_at, ohlcv.index.max().date(), params)
+    weinstein_stage_changed = _upsert(ticker, weinstein_result, pending_result, computed_at, bars_as_of, params)
 
     return TrendAnalysisOut(
         ticker=ticker,
