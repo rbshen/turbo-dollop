@@ -689,4 +689,6 @@ makes "viewed" stop admitting a ticker, so without an Add button there would be 
 means nothing in a screener today drops out when it ships. Until then `_classify`, every universe, the screeners and the nightly jobs ignore the two columns
 (pinned by a test), and `ScreenerMeta.hidden_inactive` keeps its current meaning. `--apply` on the wipe job stays locked; nothing is registered in cron.
 **Live run (2026-10-03):** pre-write snapshot `backend/backups/pre_universe_step2_20261003.db.gz` (outside the pruner), columns added by the `uvicorn --reload`
-`init_db`, then the grandfather backfill; see the step-2 report for the verification.
+`init_db`, then the grandfather backfill at 08:33 UTC: 25 tickers marked (18 stocks, 7 ETFs: exactly the expected list), `last_viewed_at` of every row unchanged,
+stock universe 581 and ETF universe 19 unchanged, `GET /api/screener?universe=all` 581 and `/api/etf-screener` 19 unchanged, `hidden_inactive` 0. Wipe dry run
+afterwards: 25 protected-by-added, no candidate today; at 2026-11-03 only AVB, EQR, TWTR, WBA (4,088 rows) would be wiped, plus the 5 orphans adopted.
