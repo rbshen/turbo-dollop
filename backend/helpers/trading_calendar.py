@@ -6,11 +6,29 @@ scratch work already relied on for month-end/next-trading-day logic (see
 CLAUDE.md's Momentum section) -- reused here rather than picked fresh.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from functools import lru_cache
+from zoneinfo import ZoneInfo
 
 import pandas_market_calendars as mcal
 
 _XNYS = mcal.get_calendar("XNYS")
+_EASTERN = ZoneInfo("America/New_York")
+
+
+@lru_cache(maxsize=16)
+def xnys_sessions(start: date, end: date) -> tuple[tuple[date, datetime, datetime], ...]:
+    """The NYSE sessions in [start, end] as (session date, open, close), the times tz-aware US/Eastern: 09:30 and
+    16:00 normally, 13:00 on an early close; a holiday or weekend simply has no entry. Cached per (start, end), so a
+    caller that asks with the same window all day (the 60m freshness check) pays for one schedule lookup.
+
+    NOT imported at module level anywhere in the cache/API path: importing this module loads pandas_market_calendars
+    (~0.9 s). clients/shared_bars_cache.py imports it lazily inside the function that needs it."""
+    schedule = _XNYS.schedule(start_date=start, end_date=end)
+    return tuple(
+        (day.date(), opened.tz_convert(_EASTERN).to_pydatetime(), closed.tz_convert(_EASTERN).to_pydatetime())
+        for day, opened, closed in zip(schedule.index, schedule["market_open"], schedule["market_close"])
+    )
 
 
 def resolve_month_end_anchor(today: date) -> date | None:
