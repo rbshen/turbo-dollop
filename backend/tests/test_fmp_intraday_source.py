@@ -165,7 +165,7 @@ def test_incremental_is_one_overlapping_call_and_does_not_replace(_engine):
     replace: list[str] = []
     out = _run(FMPIntradaySource(client=fake), {"AAPL": 90}, replace_tickers=replace)
     assert len(fake.calls) == 1
-    assert fake.calls[0][1] == (date(2026, 9, 24) - timedelta(days=3)).isoformat()
+    assert fake.calls[0][1] == (date(2026, 9, 24) - timedelta(days=dbs.INTRADAY_OVERLAP_DAYS)).isoformat()
     assert replace == [] and out["AAPL"].index[-1] == pd.Timestamp("2026-09-25 15:30")
 
 

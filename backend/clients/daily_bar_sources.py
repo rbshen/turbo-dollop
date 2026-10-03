@@ -175,7 +175,11 @@ def _existing_span(tickers: list[str]) -> dict[str, tuple[date, date]]:
 # compared to the cache -- a mismatch means the provider restated history
 # (split / spin-off / symbol reuse) and that ticker gets a full refetch.
 FMP_OVERLAP_DAYS = 7
-FMP_OVERLAP_TOLERANCE = 0.005  # 0.5% -- finalised bars agree to ~0.1%; any real restatement is far larger
+FMP_OVERLAP_TOLERANCE = 0.005
+# ^ 0.5%. Settled bars agree to well under this and a real restatement (split / spin-off) moves every older bar by far
+# more. It is NOT a bound on the newest session's 60m bars: FMP delivers those provisionally and corrects them the next
+# night (up to 1.7% on a close in the 2026-10-03 measurement), so the 60m check never compares them -- see
+# INTRADAY_OVERLAP_DAYS and FMPIntradaySource.
 # A cache whose first bar starts within this many days of the requested window's
 # start still counts as covering it (weekends/holidays at the boundary; a row
 # fetched at "5y" starts a few days short of 1825 days, and the boundary moves a
@@ -378,7 +382,15 @@ def get_daily_bar_source() -> DailyBarSource:
 # dividends, 2026-09-26). `extended=true` is never requested (clock-anchored bars).
 
 INTRADAY_MAX_PAGES = 40  # ~9 pages cover 730 days; the cap only stops a runaway loop
-INTRADAY_OVERLAP_DAYS = 3
+# Calendar days of cached history re-requested each night, counted back from the newest cached session's date. The
+# newest cached session is excluded from the restatement check: FMP's first answer for a session is provisional (a bar
+# can miss most of its trades and the close/high/low/volume are corrected the next night), while sessions older than
+# that were stable in a 105-ticker, 730-day diff (2026-10-03). The overlap re-writes the newest session with the
+# corrected bars every night regardless. With 5 days every NYSE session in 2024-2026 has at least two older
+# sessions in the window (the longest scheduled closure, a holiday plus a weekend, is 3 days); with an unscheduled
+# multi-day closure, a ticker whose cache holds one session, or a gap in its cached bars, nothing is compared, no
+# restatement is declared, and the incremental frame is upserted.
+INTRADAY_OVERLAP_DAYS = 5
 INTRADAY_PAGE_DONE_DAYS = 6  # a page whose oldest bar is within this of `from` reached it (weekend/holiday slack)
 INTRADAY_MIN_FULL_BARS = 20
 _RTH_FIRST, _RTH_LAST = dtime(9, 30), dtime(15, 30)
@@ -468,9 +480,11 @@ class FMPIntradaySource:
       not ALL FMP-sourced (SharedBarsCache.source != "fmp" -- Yahoo-era rows must be replaced,
       never layered under FMP bars). Starts at the earlier of the requested window and the
       cached first bar, so nothing already held is lost. Reported in `replace_tickers`.
-    - otherwise INCREMENTAL, overlapping: `from = last cached bar - 3d`; the overlapping closes
-      (other than the last cached bar) must match the cache within 0.5%, else FMP restated
-      history and the ticker is refetched in full and replaced.
+    - otherwise INCREMENTAL, overlapping: `from = newest cached session's date - INTRADAY_OVERLAP_DAYS`. The
+      closes of the cached sessions OLDER than the newest one inside that window must match the cache within
+      0.5%, else FMP restated history (split / spin-off) and the ticker is refetched in full and replaced.
+      Every bar of the newest cached session is exempt (provisional, corrected by FMP the next night); the new
+      frame still overwrites it with the corrected values.
 
     Returns {} while the group is not live (cached-only); every ticker not in the result is added to
     `unserved_tickers`. A ticker with an error / empty / thin answer is simply left out. Sessions with fewer bars than expected are logged and kept in `short_sessions`."""
@@ -556,21 +570,25 @@ class FMPIntradaySource:
             return frame if not frame.empty else None
 
         def restated(ticker: str, frame: pd.DataFrame, last_bar: datetime) -> bool:
-            start = last_bar - timedelta(days=INTRADAY_OVERLAP_DAYS)
+            """True when FMP's answer disagrees with cached sessions OLDER than the newest cached one.
+
+            Compared set: cached bars dated in [newest session date - INTRADAY_OVERLAP_DAYS, newest session
+            date), close only, 0.5% tolerance. The whole newest session is exempt, not just its last bar."""
+            newest_day = datetime.combine(last_bar.date(), dtime.min)
+            start = newest_day - timedelta(days=INTRADAY_OVERLAP_DAYS)
             with Session(engine) as session:
                 cached = {
                     pd.Timestamp(bt): close
                     for bt, close in session.exec(
                         select(SharedBarsCache.bar_time, SharedBarsCache.close).where(
                             SharedBarsCache.interval == "60m", SharedBarsCache.ticker == ticker,
-                            SharedBarsCache.bar_time >= start,
+                            SharedBarsCache.bar_time >= start, SharedBarsCache.bar_time < newest_day,
                         )
                     ).all()
                 }
-            last_ts = pd.Timestamp(last_bar)
             for ts, close in frame["close"].items():
                 old = cached.get(ts)
-                if old is None or ts >= last_ts or not old:
+                if old is None or not old:
                     continue
                 if abs(float(close) / float(old) - 1.0) > FMP_OVERLAP_TOLERANCE:
                     return True
@@ -589,7 +607,12 @@ class FMPIntradaySource:
             else:
                 frame = await fetch(ticker, last_bar.date() - timedelta(days=INTRADAY_OVERLAP_DAYS))
                 if frame is not None and restated(ticker, frame, last_bar):
-                    logger.info("FMP restated %s's overlapping intraday history; refetching in full", ticker)
+                    logger.info(
+                        "FMP intraday %s: cached sessions older than the newest differ from FMP by more than %.1f%% "
+                        "(split / spin-off signature, not the routine next-day correction of the newest session); "
+                        "refetching in full",
+                        ticker, FMP_OVERLAP_TOLERANCE * 100,
+                    )
                     frame = await fetch(ticker, min(window_start, first_bar.date()))
                     full = True
             if frame is None:
