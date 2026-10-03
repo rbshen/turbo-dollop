@@ -1844,8 +1844,6 @@ class EtfScreenerMeta(BaseModel):
     total_etfs: int
     # How many of them have a row, i.e. len(GET /api/etf-screener). total_etfs - row_count is the "X of Y" gap.
     row_count: int
-    # Expired ETFs (not opened for 30 days, on no watchlist, not a seed) the universe hides.
-    hidden_inactive: int = 0
     # Distinct non-null asset classes among the returned rows, sorted.
     asset_classes: list[str] = []
     # Min/max over the returned rows for every numeric filter, always all keys (null/null when no value):
@@ -1861,9 +1859,6 @@ class ScreenerMeta(BaseModel):
     # between the two is what the Screener page's "X of Y" transparency
     # note is built from.
     total_constituents: int
-    # universe=all only: stock rows hidden because the ticker was not viewed for 30 days (see
-    # data/tracked_universe.py); 0 for an index universe.
-    hidden_inactive: int = 0
 
 
 class FinancialsLineItem(BaseModel):
@@ -2273,17 +2268,22 @@ class EtfWatchlistAddOut(BaseModel):
 
 
 class UniverseStatusOut(BaseModel):
-    """GET /api/tickers/{t}/universe: the DESIGN state of a ticker (protected / added / browsed), computed from the raw
-    protection sets and `TickerView.added_at`, NOT from the current classification reason (which, until the flip step,
-    still lets any recently viewed ticker into the nightly universe). Cache-only: no FMP call, no write, no touch."""
+    """GET /api/tickers/{t}/universe: the state of a ticker (protected / added / browsed) and whether it is in the
+    universe. Since the classification flip (2026-10-03) `in_universe` and `classification` come from the same
+    classification the universes use, so they cannot disagree. Cache-only: no FMP call, no write, no TickerView touch."""
 
     ticker: str
     # 'stock' | 'etf'; null when no profile (or score row) is cached yet for the ticker.
     kind: Literal["stock", "etf"] | None = None
-    # protected or added.
+    # Membership in the real universe (`load_tracked_universe` / `load_etf_universe`), from the SAME classification
+    # (`classify_one`): protected-or-added AND not delisted AND known to the app. False for a delisted ticker even when
+    # protected or added, and for a protected ticker the app holds no profile, score, index or watchlist row for.
     in_universe: bool
+    # The classification reason: delisted | index | watchlist | system | manual | added | browsed | expired | untracked,
+    # or null when the app does not know the ticker (nothing cached, never opened).
+    classification: str | None = None
     # 'protected': at least one protection (reasons non-empty; added_at may also be set). 'added': explicitly added, no
-    # protection. 'browsed': neither.
+    # protection. 'browsed': neither (the classification may call it browsed, expired or untracked).
     state: Literal["protected", "added", "browsed"]
     # Protections, e.g. "index:sp500", "watchlist:E3", "seed", "benchmark", "rs_benchmark", "manual:moat".
     reasons: list[str]

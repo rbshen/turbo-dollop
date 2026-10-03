@@ -59,8 +59,8 @@ def test_main_sweeps_the_full_tracked_universe_when_no_tickers_passed(monkeypatc
     with Session(engine) as session:
         session.add(FundamentalsCache(ticker="IREN", statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
         session.add(TickerScore(ticker="SEZL", overall_score=66, overall_verdict="Fail", computed_at=datetime.now()))
-        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now()))
-        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now()))
+        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
+        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
         session.commit()
 
     batch_calls = _patch_batch_fetch(monkeypatch, {"IREN": [1], "SEZL": [1]})
@@ -82,8 +82,8 @@ def test_main_skips_a_ticker_flagged_as_delisted(monkeypatch, tmp_path):
     with Session(engine) as session:
         session.add(TickerScore(ticker="TWTR", overall_score=50, computed_at=datetime.now(), delisted_at=datetime.now()))
         session.add(TickerScore(ticker="AAPL", overall_score=90, computed_at=datetime.now()))
-        session.add(TickerView(ticker="TWTR", last_viewed_at=datetime.now()))
-        session.add(TickerView(ticker="AAPL", last_viewed_at=datetime.now()))
+        session.add(TickerView(ticker="TWTR", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
+        session.add(TickerView(ticker="AAPL", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
         session.commit()
 
     batch_calls = _patch_batch_fetch(monkeypatch, {"AAPL": [1]})
@@ -264,19 +264,21 @@ def test_configured_rs_benchmark_is_fetched_and_settings_are_passed_to_every_com
     assert (params.ma_type, params.ma_length, params.within_range_pct, params.slope_lookback) == ("SMA", 26, 4.0, 4)
 
 
-def test_main_skips_an_expired_viewed_only_ticker(monkeypatch, tmp_path):
+def test_main_skips_browsed_and_expired_tickers_but_keeps_an_added_one_at_any_idle_age(monkeypatch, tmp_path):
     from datetime import timedelta
 
     engine = _fresh_engine(monkeypatch, tmp_path)
     with Session(engine) as session:
-        for ticker, days in (("RECENT", 3), ("EXPIRED", 45)):
+        # ADDEDOLD: added, idle 90 days (never expires); BROWSED: opened 3 days ago, not added; EXPIRED: idle 45 days, not added
+        for ticker, days, added in (("ADDEDOLD", 90, True), ("BROWSED", 3, False), ("EXPIRED", 45, False)):
             session.add(FundamentalsCache(ticker=ticker, statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
-            session.add(TickerView(ticker=ticker, last_viewed_at=datetime.now() - timedelta(days=days)))
+            viewed = datetime.now() - timedelta(days=days)
+            session.add(TickerView(ticker=ticker, last_viewed_at=viewed, added_at=viewed if added else None, added_source="user" if added else None))
         session.commit()
-    batch_calls = _patch_batch_fetch(monkeypatch, {"RECENT": [1], "EXPIRED": [1]})
+    batch_calls = _patch_batch_fetch(monkeypatch, {"ADDEDOLD": [1], "BROWSED": [1], "EXPIRED": [1]})
     store_calls = _patch_store(monkeypatch)
 
     summary = asyncio.run(nightly_trend.main(tickers=None))
 
-    assert "EXPIRED" not in batch_calls[0][0] and {t for t, _ in store_calls} == {"RECENT"}
+    assert not {"BROWSED", "EXPIRED"} & set(batch_calls[0][0]) and {t for t, _ in store_calls} == {"ADDEDOLD"}
     assert summary["processed"] == 1

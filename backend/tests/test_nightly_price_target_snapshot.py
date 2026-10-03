@@ -324,7 +324,7 @@ def test_run_universe_has_no_etf_since_the_cutover_so_none_is_left_to_skip(monke
             profile("TECL", isEtf=False, isFund=False),
         ])
         session.add(TickerScore(ticker="TECL", computed_at=now, is_etf=True))  # ETF by score row
-        session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now()) for t in ("AAPL", "QQQ", "VTSAX", "TECL")])
+        session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user") for t in ("AAPL", "QQQ", "VTSAX", "TECL")])
         session.commit()
         monkeypatch.setattr(monthly, "_profile_exchanges", lambda tickers: {t: "NASDAQ" for t in tickers})
         assert monthly.load_price_target_run_universe(session) == (["AAPL"], 0)
@@ -364,7 +364,7 @@ def test_universe_is_us_listed_tracked_tickers_minus_delisted(monkeypatch, tmp_p
             profile("TWTR", "NYSE"),  # delisted-flagged -> out
         ])
         session.add(TickerScore(ticker="TWTR", computed_at=now, delisted_at=now))
-        session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now()) for t in ("AAPL", "TSM", "OXY", "0005.HK", "TWTR")])
+        session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user") for t in ("AAPL", "TSM", "OXY", "0005.HK", "TWTR")])
         session.commit()
         monkeypatch.setattr(monthly, "_profile_exchanges", lambda tickers: {"AAPL": "NASDAQ", "TSM": "NYSE", "OXY": "NYSE", "0005.HK": "HKSE", "TWTR": "NYSE"})
         assert monthly.load_us_price_target_universe(session) == ["AAPL", "OXY", "TSM"]

@@ -136,7 +136,7 @@ TickerChart.tsx`, `lib/chartTime.ts`, `chartPanes.ts`, `chartToggles.ts`, `chart
 - **Cached tickers read the shared bars cache** (`get_or_fetch_bars_batch`, interval `60m`, 730 days, close-aware: warm = a DB read,
   stale = one incremental FMP call that also tops the cache up). **Every other ticker is fetched live and uncached**:
   the 730 days split into 9 parallel 90-day windows (~1.1-2 s; the sequential paging the nightly source uses is ~6 s),
-  all-or-nothing (any failed window means no chart), nothing written, so a viewed-only ticker never gets cache rows.
+  all-or-nothing (any failed window means no chart), nothing written, so a browsed ticker never gets cache rows from it.
   With `intraday_bars` off, a cached ticker serves its cached bars and any other ticker has none.
   **This deliberately differs from the zero-cache rule of section 1**, which stays true for the four daily/weekly ranges.
 - **Window:** the response carries only the last 90 calendar days (~252 candles, which equals the `D·1Y` reference bar

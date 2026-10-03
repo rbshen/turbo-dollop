@@ -1,8 +1,8 @@
 """Read-only report on the nightly universes (data/tracked_universe.py): the stock side and the ETF side (since the
-2026-10-03 cutover they are disjoint): how many known tickers are in
-and out, by reason, the TickerView grace dates, and which viewed-only tickers expire in the next N
-days. Makes no FMP call and writes nothing (it does not even call init_db), so it is safe to run
-anytime, including right after a restart to verify the TickerView seed.
+2026-10-03 cutover they are disjoint): how many known tickers are in and out, by reason (delisted, index, watchlist,
+system, manual, added | browsed, expired, untracked), the TickerView dates, the EXPIRED tickers (idle past 30 days: the
+wipe's candidates, with delisted ones listed separately) and which browsed tickers become expired in the next N days.
+Makes no FMP call and writes nothing (it does not even call init_db), so it is safe to run anytime.
 
     uv run python -m pipeline.tracked_universe_report
     uv run python -m pipeline.tracked_universe_report --days 14
@@ -30,10 +30,10 @@ def build_report(session: Session, now: datetime | None = None, within_days: int
     now = now or datetime.now()
     reasons = classify_known_tickers(session, now)
     views = {row.ticker: row.last_viewed_at for row in session.exec(select(TickerView)).all()}
-    expiry = {t: views[t] + timedelta(days=TRACKED_VIEW_WINDOW_DAYS) for t, reason in reasons.items() if reason == "viewed"}
+    expiry = {t: views[t] + timedelta(days=TRACKED_VIEW_WINDOW_DAYS) for t, reason in reasons.items() if reason == "browsed"}
     horizon = now + timedelta(days=within_days)
     etf_reasons = classify_etf_tickers(session, now)
-    etf_expiry = {t: views[t] + timedelta(days=TRACKED_VIEW_WINDOW_DAYS) for t, reason in etf_reasons.items() if reason == "viewed"}
+    etf_expiry = {t: views[t] + timedelta(days=TRACKED_VIEW_WINDOW_DAYS) for t, reason in etf_reasons.items() if reason == "browsed"}
     return {
         "etf": {
             "known": len(etf_reasons),
@@ -65,8 +65,8 @@ def format_report(report: dict) -> str:
         f"TickerView rows: {report['ticker_view_rows']}"
         + (f" (first {report['first_view']:%Y-%m-%d %H:%M}, last {report['last_view']:%Y-%m-%d %H:%M})" if report["ticker_view_rows"] else ""),
         f"Delisted-flagged (excluded): {', '.join(report['delisted']) or 'none'}",
-        f"Expired (viewed-only, not viewed for {TRACKED_VIEW_WINDOW_DAYS} days): {', '.join(report['expired']) or 'none'}",
-        f"Leaving within {report['within_days']} days: "
+        f"Expired (browsed, idle over {TRACKED_VIEW_WINDOW_DAYS} days, awaiting the wipe): {', '.join(report['expired']) or 'none'}",
+        f"Browsed tickers becoming expired within {report['within_days']} days: "
         + (", ".join(f"{t} ({d:%Y-%m-%d})" for t, d in report["expiring"]) or "none"),
     ]
     etf = report["etf"]
@@ -74,8 +74,8 @@ def format_report(report: dict) -> str:
         f"ETF side: {etf['known']} known, {etf['in_universe']} in the ETF universe (refreshed by nightly_etf_screener); "
         "by reason: " + ", ".join(f"{k} {v}" for k, v in sorted(etf["by_reason"].items())),
         f"ETF delisted-flagged (excluded): {', '.join(etf['delisted']) or 'none'}",
-        f"ETF expired (viewed-only, not viewed for {TRACKED_VIEW_WINDOW_DAYS} days): {', '.join(etf['expired']) or 'none'}",
-        f"ETFs leaving within {report['within_days']} days: "
+        f"ETF expired (browsed, idle over {TRACKED_VIEW_WINDOW_DAYS} days, awaiting the wipe): {', '.join(etf['expired']) or 'none'}",
+        f"Browsed ETFs becoming expired within {report['within_days']} days: "
         + (", ".join(f"{t} ({d:%Y-%m-%d})" for t, d in etf["expiring"]) or "none"),
     ]
     return "\n".join(lines)
@@ -93,5 +93,5 @@ def main(within_days: int = 7) -> dict:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Read-only report on the nightly ticker universe.")
-    parser.add_argument("--days", type=int, default=7, help="List viewed-only tickers that leave within this many days.")
+    parser.add_argument("--days", type=int, default=7, help="List browsed tickers that become expired within this many days.")
     main(parser.parse_args().days)

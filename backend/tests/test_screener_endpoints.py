@@ -20,11 +20,11 @@ def _fresh_engine(monkeypatch):
 
 
 def _mark_viewed(engine):
-    """Gives every scored ticker a recent view, i.e. the legacy "ever viewed" state this file's older tests
-    were written for (a viewed-only ticker is in the Screener's `all` universe for 30 days)."""
+    """Marks every scored ticker added (and viewed): the way a ticker is in the Screener's `all` universe since the
+    opt-in flip (a bare view only makes it browsed)."""
     with Session(engine) as session:
         for ticker in session.exec(select(TickerScore.ticker)).all():
-            session.add(TickerView(ticker=ticker, last_viewed_at=datetime.now()))
+            session.add(TickerView(ticker=ticker, last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
         session.commit()
 
 
@@ -167,8 +167,8 @@ def test_screener_meta_returns_the_total_constituent_count_for_the_selected_univ
         dow_response = client.get("/api/screener/meta", params={"universe": "dow"})
 
     assert default_response.status_code == 200
-    assert default_response.json() == {"universe": "sp500", "total_constituents": 2, "hidden_inactive": 0}
-    assert dow_response.json() == {"universe": "dow", "total_constituents": 1, "hidden_inactive": 0}
+    assert default_response.json() == {"universe": "sp500", "total_constituents": 2}
+    assert dow_response.json() == {"universe": "dow", "total_constituents": 1}
 
 
 def test_screener_meta_universe_all_counts_every_ticker_score_row(monkeypatch):
@@ -186,7 +186,7 @@ def test_screener_meta_universe_all_counts_every_ticker_score_row(monkeypatch):
     with TestClient(main.app) as client:
         response = client.get("/api/screener/meta", params={"universe": "all"})
 
-    assert response.json() == {"universe": "all", "total_constituents": 2, "hidden_inactive": 0}
+    assert response.json() == {"universe": "all", "total_constituents": 2}
 
 
 def test_screener_meta_universe_all_excludes_etfs_to_match_the_pages_client_side_drop(monkeypatch):
@@ -209,7 +209,7 @@ def test_screener_meta_universe_all_excludes_etfs_to_match_the_pages_client_side
     with TestClient(main.app) as client:
         response = client.get("/api/screener/meta", params={"universe": "all"})
 
-    assert response.json() == {"universe": "all", "total_constituents": 3, "hidden_inactive": 0}
+    assert response.json() == {"universe": "all", "total_constituents": 3}
 
 
 def test_screener_all_universe_no_longer_returns_etf_rows_after_the_cutover(monkeypatch):
@@ -232,26 +232,25 @@ def test_screener_all_universe_no_longer_returns_etf_rows_after_the_cutover(monk
         assert session.get(TickerScore, "SPY") is not None  # not deleted
 
 
-def test_hidden_inactive_counts_expired_stocks_only_and_never_overlaps_the_etf_count(monkeypatch):
-    from data.tracked_universe import count_hidden_inactive_etfs
-
+def test_browsed_and_expired_stocks_are_not_in_the_all_universe_and_there_is_no_hidden_count(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     old = datetime.now() - timedelta(days=90)
     with Session(engine) as session:
-        session.add(TickerScore(ticker="OLDSTOCK", is_etf=False, computed_at=old))
+        for ticker in ("BROWSED", "OLDSTOCK", "ADDEDOLD", "NEWSTOCK"):
+            session.add(TickerScore(ticker=ticker, is_etf=False, computed_at=old))
         session.add(TickerScore(ticker="OLDETF", is_etf=True, company_type="ETF", computed_at=old))
-        session.add(TickerScore(ticker="NEWSTOCK", is_etf=False, computed_at=old))
-        for ticker in ("OLDSTOCK", "OLDETF"):
-            session.add(TickerView(ticker=ticker, last_viewed_at=old))
-        session.add(TickerView(ticker="NEWSTOCK", last_viewed_at=datetime.now()))
+        session.add(TickerView(ticker="BROWSED", last_viewed_at=datetime.now()))  # opened, not added
+        session.add(TickerView(ticker="OLDSTOCK", last_viewed_at=old))  # expired
+        session.add(TickerView(ticker="OLDETF", last_viewed_at=old))
+        session.add(TickerView(ticker="ADDEDOLD", last_viewed_at=old, added_at=old, added_source="user"))  # added: never expires
+        session.add(TickerView(ticker="NEWSTOCK", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
         session.commit()
 
     with TestClient(main.app) as client:
         meta = client.get("/api/screener/meta", params={"universe": "all"}).json()
-    with Session(engine) as session:
-        etf_hidden = count_hidden_inactive_etfs(session)
-    assert (meta["total_constituents"], meta["hidden_inactive"]) == (1, 1)  # NEWSTOCK in; OLDSTOCK hidden; the ETF in neither
-    assert etf_hidden == 1  # OLDETF counted once, on the ETF side only
+        listed = sorted(row["ticker"] for row in client.get("/api/screener", params={"universe": "all"}).json())
+    assert listed == ["ADDEDOLD", "NEWSTOCK"]
+    assert meta == {"universe": "all", "total_constituents": 2}  # no hidden_inactive since the opt-in flip
 
 
 def test_screener_meta_is_zero_when_no_constituents_stored(monkeypatch):
@@ -260,7 +259,7 @@ def test_screener_meta_is_zero_when_no_constituents_stored(monkeypatch):
     with TestClient(main.app) as client:
         response = client.get("/api/screener/meta")
 
-    assert response.json() == {"universe": "sp500", "total_constituents": 0, "hidden_inactive": 0}
+    assert response.json() == {"universe": "sp500", "total_constituents": 0}
 
 
 def test_screener_recompute_never_calls_the_script_entry_point(monkeypatch):
@@ -355,11 +354,10 @@ def test_screener_meta_excludes_a_delisted_ticker_from_every_universe_count(monk
             assert client.get("/api/screener/meta", params={"universe": universe}).json() == {
                 "universe": universe,
                 "total_constituents": 1,
-                "hidden_inactive": 0,
             }
         all_response = client.get("/api/screener/meta", params={"universe": "all"})
 
-    assert all_response.json() == {"universe": "all", "total_constituents": 4, "hidden_inactive": 0}
+    assert all_response.json() == {"universe": "all", "total_constituents": 4}
 
 
 def test_screener_meta_index_count_still_counts_a_constituent_with_no_ticker_score_row(monkeypatch):
@@ -377,7 +375,7 @@ def test_screener_meta_index_count_still_counts_a_constituent_with_no_ticker_sco
     with TestClient(main.app) as client:
         response = client.get("/api/screener/meta", params={"universe": "sp500"})
 
-    assert response.json() == {"universe": "sp500", "total_constituents": 2, "hidden_inactive": 0}
+    assert response.json() == {"universe": "sp500", "total_constituents": 2}
 
 
 def test_screener_list_returns_a_null_pe_ratio_as_null(monkeypatch):

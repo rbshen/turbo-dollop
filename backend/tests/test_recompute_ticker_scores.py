@@ -49,8 +49,8 @@ def test_default_scope_sweeps_the_full_tracked_universe_not_just_indices(monkeyp
         session.add(FundamentalsCache(ticker="IREN", statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
         # SEZL: has a TickerScore row but no remaining cache/index/watchlist entry.
         session.add(TickerScore(ticker="SEZL", overall_score=66, overall_verdict="Fail", computed_at=datetime.now()))
-        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now()))
-        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now()))
+        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
+        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
         session.commit()
 
         # TSM: watchlisted only -- not indexed, not cached, not scored. The

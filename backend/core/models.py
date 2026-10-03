@@ -1205,9 +1205,10 @@ class TickerLastClose(SQLModel, table=True):
 class EtfScreenerRow(SQLModel, table=True):
     """One pre-computed row per ETF for the ETFs screener (docs/specs/etf-screener.md): the ETF counterpart
     of TickerScore, kept as its own table because an ETF has none of TickerScore's fundamentals and needs
-    fund fields (asset class, expense ratio, AUM) TickerScore has no column for. Written by the ETF
-    nightly job (not built yet) through data/etf_screener_data.py::upsert_etf_screener_row; read only for
-    tickers in data/tracked_universe.py::load_etf_universe, so an expired ETF keeps its row but is hidden.
+    fund fields (asset class, expense ratio, AUM) TickerScore has no column for. Written through
+    data/etf_screener_data.py::upsert_etf_screener_row by the ETF nightly job (1:45 AM), by the Add API and by an ETF
+    watchlist add; read only for tickers in data/tracked_universe.py::load_etf_universe. A row of an ETF outside that
+    universe (browsed, expired, removed, delisted) is deleted by the nightly job's retention step (prune_etf_screener_rows).
 
     Every value column is nullable: a row is filled in pieces (/etf/info fields, bar-derived figures, the
     Weinstein/signal fields each come from a different source). Units: expense_ratio, pct_change_1d,
@@ -1245,19 +1246,19 @@ class EtfScreenerRow(SQLModel, table=True):
 
 
 class TickerView(SQLModel, table=True):
-    """When a ticker's page was last opened, the "(d) viewed in the last 30 days" leg of the
-    nightly universe (data/tracked_universe.py). Written by GET /api/tickers/{t}/summary after it
-    succeeds, at most once per day per ticker (`record_ticker_view`); never by a job. Seeded once by
-    `core.db.init_db` for every ticker that existed when the table was introduced (2026-10-02), each
-    with the migration time, so no viewed-only ticker leaves the nightly jobs for 30 days. A row is
-    never deleted: expiry is a filter, not a purge.
+    """The per-ticker state of the opt-in universe (data/tracked_universe.py, docs/specs/tracked-universe.md).
 
-    Opt-in universe, step 2 (2026-10-03; docs/specs/tracked-universe.md, "Planned: opt-in universe and wipe"): the two
-    nullable columns below are the "added" state. `added_at` set means the owner explicitly added the ticker (or the
-    grandfather backfill did); such a ticker never expires by the 30-day rule and leaves only through the future Remove
-    button. `added_source` is 'user' or 'grandfathered'. `record_ticker_view` never writes either column. NOT YET READ
-    BY THE CLASSIFICATION: `data/tracked_universe.py::_classify` still treats any recent `last_viewed_at` as "viewed"
-    (the flip comes with the Add button); only `load_added_tickers` and the wipe job read them."""
+    `last_viewed_at` is the "last touch": when the ticker's page was last opened, written by GET /api/tickers/{t}/summary
+    (at the start of the request for an existing row, after success for a first view; at most once per day per ticker;
+    never by a job; seeded once by `core.db.init_db` on 2026-10-02 for every ticker that existed then). It does NOT admit a
+    ticker to the universe: an unprotected, unadded ticker with a row is `browsed` (opened within 30 days) or `expired`
+    (idle longer), both outside the universe. It is the clock the wipe reads.
+
+    `added_at` / `added_source` ('user' or 'grandfathered'; both nullable) are the "added" state: set by the Add API (or the
+    2026-10-03 grandfather backfill), cleared only by Remove. An added ticker is in the universe at any idle age. A wipe
+    (pipeline/wipe_untouched_tickers.py, locked and unscheduled) deletes the row, and with it the added state, together with
+    every other per-ticker row of a ticker that is idle past 30 days, unprotected and not added. `record_ticker_view` never
+    writes either added column."""
 
     ticker: str = Field(primary_key=True)
     last_viewed_at: datetime

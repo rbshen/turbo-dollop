@@ -466,8 +466,8 @@ FMP's own delisted date is not stored anywhere.
   only — the 1:05 job's `--tickers`/`--limit` escape hatch bypasses it. Market Breadth and Sector
   Heatmap need no change (their universes — `IndexConstituent` sp500 and 11 fixed ETFs — never
   contained these).
-- **Nothing is ever deleted**: `TickerScore`, `FundamentalsCache`, Watchlist and ticker-page
-  history stay intact; the flag stops price-bar re-fetching and (since 2026-09-30) hides the ticker
+- **The flag deletes nothing**: `TickerScore`, `FundamentalsCache`, Watchlist and ticker-page
+  history stay intact (a delisted ticker follows the wipe rule like any other, but the wipe is locked and unscheduled); the flag stops price-bar re-fetching and (since 2026-09-30) hides the ticker
   from every Screener universe and the Screener's meta count (see overview.md, "Screener excludes
   delisted tickers"). The row itself is no longer recomputed nightly (the flag removes it from the universe since
   2026-10-02), so it stays frozen at its last values.

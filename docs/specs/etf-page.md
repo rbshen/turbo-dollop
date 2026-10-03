@@ -139,7 +139,7 @@ so the frontend never re-implements the naming rule. An ETF only on an unmonitor
 - **Sectors heatmap:** each sector label is one `Link` to `/tickers/<ETF>` (new tab, like other ticker links).
 - **`nightly_fundamentals_fetch`** skips known ETFs/funds when it builds its own universe
   (`load_fundamentals_fetch_universe`); an explicit `--tickers` list is still honoured. The score recompute and momentum
-  use the tracked universe (an ETF viewed-only for 30 days leaves it, see [Tracked universe](tracked-universe.md)); search
+  use the tracked universe (an ETF that was only opened, not added, is not in it, see [Tracked universe](tracked-universe.md)); search
   uses the wide known set.
 
 ## `/summary` for an ETF: the stock-only fetches are skipped (2026-10-02)

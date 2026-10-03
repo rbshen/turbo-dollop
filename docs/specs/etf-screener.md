@@ -51,12 +51,12 @@ Not under `/api/screener`, and the frontend SWR keys must be `/etf-screener...`,
 stock endpoints (`/api/screener`, `/meta`, `/recompute`, `/filters`) are untouched.
 
 - **`GET /api/etf-screener`** -> `list[EtfScreenerRowOut]`, sorted by ticker. Only rows whose ticker is in
-  `load_etf_universe` (a join on the universe): an expired ETF keeps its row but is not returned, and a re-view brings it
-  back once the next refresh has rebuilt its row (a successful live run deletes the rows of ETFs that left the universe,
-see "Retention"). A seed (SPY or a sector SPDR) is returned as soon as it has a row, profile or no. Empty table -> `[]`.
+  `load_etf_universe` (a join on the universe): an ETF outside it (browsed, expired, removed or delisted) is not returned,
+  and its row is **deleted** by the next successful live nightly run (see "Retention"); adding it again (the Add API) writes
+  its row at once. A seed (SPY or a sector SPDR) is returned as soon as it has a row, profile or no. Empty table -> `[]`.
 - **`GET /api/etf-screener/meta`** -> `EtfScreenerMeta`: `total_etfs` (ETFs in the universe, with or without a row),
-  `row_count` (rows returned; `total_etfs - row_count` is the "X of Y" gap), `hidden_inactive`
-  (`count_hidden_inactive_etfs`), `asset_classes` (distinct non-null values among the returned rows, sorted) and `ranges`
+  `row_count` (rows returned; `total_etfs - row_count` is the "X of Y" gap; the `hidden_inactive` count was removed with the
+  2026-10-03 opt-in flip), `asset_classes` (distinct non-null values among the returned rows, sorted) and `ranges`
   (min/max for `expense_ratio`, `aum`, `last_price`, `pct_change_1d`, `beta`, `return_1y`, `vs_spy_1y`; all keys always
   present, `null`/`null` when no value; `beta` is the post-rule value).
 
@@ -107,8 +107,7 @@ Stocks page.
   AUM, Exp. ratio, 1Y vs SPY ("+3.5 pp"), Beta. The whole card is a link to `/tickers/X`, `target="_blank"` (the same
   inline new-tab pattern as `ScreenerCard`; the nav's background-tab click replay is nav-only).
 - **States.** Zero rows: "ETF data hasn't been loaded yet. It is filled by the nightly ETF job." (until the job's first run). Rows but no match: "No ETFs match the current filters." Subtitle: "X of `total_etfs` ETFs", then "— N match the
-  current filters" and "· K not viewed in 30 days are hidden" (`hidden_inactive`), or the watchlist flavour as on the
-  Stocks page.
+  current filters" (no hidden-ticker note since the opt-in flip), or the watchlist flavour as on the Stocks page.
 - **Shared vs twin.** Shared as they were or parameterized: `SortControls` (an `options` prop, default the stock list),
   `SavedFiltersBarView` (generic over universe, sort field, filter state and saved row; the stock `SavedFiltersBar` and the new
   `SavedEtfFiltersBar` wrap it), `WatchlistFilters`, `CollapsibleFilterSection`, `Pagination`, `MultiSelectDropdown`,
@@ -208,10 +207,10 @@ fetch a last close with). The run summary gains `trend_written` and `last_close_
 ### Retention
 
 After a **successful live run** (not `cache_only`, not `dry_run`, no explicit `--tickers`), `EtfScreenerRow` rows for
-tickers no longer in `load_etf_universe` (expired, delisted, or not an ETF) are deleted
-(`prune_etf_screener_rows`). A run counts as successful when the batch bar fetch did not raise **and** the failure
-threshold was not breached (the same rule the heartbeat applies); otherwise nothing is pruned. An ETF re-opened after
-expiry is back in the universe at once and gets its row at the next refresh.
+tickers no longer in `load_etf_universe` (browsed, expired, removed, delisted, or not an ETF) are **deleted**, genuinely
+(`prune_etf_screener_rows`; the ETF read-model is the one place where leaving the universe already deletes). A run counts as successful when the batch bar fetch did not raise **and** the failure
+threshold was not breached (the same rule the heartbeat applies); otherwise nothing is pruned. Re-opening such an ETF does
+not bring it back (a view admits nobody): adding it does, and the Add API writes its row at once.
 
 ### Registration (step 6, done 2026-10-03)
 
@@ -234,12 +233,12 @@ against a before-snapshot) and phase B (the switch). Record of what the stock-si
 |---|---|---|
 | `nightly_trend_calculation` (1:05) | the 5-year daily bars in the shared cache, the `TrendAnalysis` row, the Sunday full resync | The ETF job fetches its own bars (one batch, same cache, Sunday `force_resync`) and writes `TrendAnalysis` from the one Weinstein computation shared with `EtfScreenerRow`. SPY's bars still ride along in the stock job's batch (the RS benchmark, independent of the universe) |
 | `nightly_last_close_snapshot` (1:00) | `TickerLastClose` | The ETF job writes it through `refresh_last_closes` |
-| `nightly_score_recompute` (3:25) | the ETF `TickerScore` row | **Frozen, left in place, never deleted.** Nothing reads it for the ETF screener; the Watchlist re-derives an ETF row live (`compute_ticker_score(cache_only=True)`, stage from `TrendAnalysis`, price from `TickerLastClose`); `known_etf_tickers` still finds an ETF through its profile or that old row |
+| `nightly_score_recompute` (3:25) | the ETF `TickerScore` row | **Frozen, left in place** (the 1:45 job and the cutover never delete it; the locked wipe would, with the rest of an unadded, unprotected ETF idle past 30 days). Nothing reads it for the ETF screener; the Watchlist re-derives an ETF row live (`compute_ticker_score(cache_only=True)`, stage from `TrendAnalysis`, price from `TickerLastClose`); `known_etf_tickers` still finds an ETF through its profile or that old row |
 | `stale_data_health_check`, `tracked_universe_report` | the ETFs in the stock reports | Stock figures exclude ETFs; both reports have a separate ETF side |
 | Sector Heatmap, Market Breadth | nothing (own lists, own fetches) | unaffected. The Heatmap (1:35) now does the 11 sector ETFs' bar fetch itself (they used to arrive warm from 1:05); the ETF job (1:45) then reads them warm |
 | `nightly_fundamentals_fetch`, `nightly_price_target_snapshot`, Monthly Momentum | nothing (already skipped ETFs) | unaffected (the known-ETF filters remain as a belt-and-braces guard) |
 
 `SYSTEM_TICKERS` was retired (`ETF_SEED_TICKERS` has the same members and no other consumer existed). The pin test that said the
-stock universe was "unchanged" was rewritten on purpose to pin the stock-only behavior. `ScreenerMeta.hidden_inactive` counts expired
-stock rows and `count_hidden_inactive_etfs` expired ETFs; the sides are disjoint, so they never double-count. An unopened ETF the app
+stock universe was "unchanged" was rewritten on purpose to pin the stock-only behavior. (`ScreenerMeta.hidden_inactive` and `count_hidden_inactive_etfs`
+were removed with the 2026-10-03 opt-in flip.) An unopened ETF the app
 has never seen has no profile or score row, so it stays on the stock side until it is opened.

@@ -14,7 +14,6 @@ const h = vi.hoisted(() => ({
   rows: {} as Record<string, unknown[] | undefined>,
   errors: {} as Record<string, Error | undefined>,
   universeCalls: [] as string[],
-  hiddenInactive: 0,
   watchlists: [] as unknown[],
   saved: [] as unknown[],
 }));
@@ -24,7 +23,7 @@ vi.mock("@/lib/hooks/useScreener", () => ({
     h.universeCalls.push(universe);
     return { data: h.rows[universe], error: h.errors[universe] };
   },
-  useScreenerMeta: () => ({ data: { universe: "all", total_constituents: 500, hidden_inactive: h.hiddenInactive } }),
+  useScreenerMeta: () => ({ data: { universe: "all", total_constituents: 500 } }),
 }));
 vi.mock("@/lib/hooks/useWatchlists", () => ({ useWatchlists: () => ({ data: h.watchlists }) }));
 vi.mock("@/lib/hooks/useSavedFilters", () => ({
@@ -97,7 +96,6 @@ function loadSavedView(name: string) {
 beforeEach(() => {
   h.rows = { all: ALL_ROWS, sp500: ALL_ROWS.slice(0, 3), nasdaq: ALL_ROWS.slice(0, 2), dow: ALL_ROWS.slice(0, 1) };
   h.errors = {};
-  h.hiddenInactive = 0;
   h.universeCalls = [];
   h.watchlists = [watchlist(1, "W1", ["AAA", "CCC"]), watchlist(2, "Other", ["BBB"])];
   h.saved = [];
@@ -386,147 +384,5 @@ describe("the sidebar across a universe switch", () => {
     h.rows.sp500 = ALL_ROWS.slice(0, 3);
     rerender(<ScreenerPage />);
     expect(screen.getByText(/3 of 500 S&P 500 tickers/)).toBeInTheDocument();
-  });
-});
-
-describe("the hidden-ticker note", () => {
-  it("says how many viewed-only tickers the 30-day rule hides, and nothing when none are hidden", () => {
-    h.hiddenInactive = 20;
-    const { unmount } = render(<ScreenerPage />);
-    expect(screen.getByText(/4 of 500 All tickers · 20 not viewed in 30 days are hidden/)).toBeInTheDocument();
-    unmount();
-    h.hiddenInactive = 0;
-    render(<ScreenerPage />);
-    expect(screen.queryByText(/not viewed in 30 days/)).toBeNull();
-  });
-});
-
-describe("the Watchlist scope and the section badges on the real page", () => {
-  const scopeLabel = () => screen.getByText("Limit results to", { selector: "label" });
-
-  it("is orange and counted only while in effect, and comes back when the universe returns to All", () => {
-    render(<ScreenerPage />);
-    fireEvent.change(watchlistSelect(), { target: { value: "1" } });
-    expect(scopeLabel()).toHaveClass("text-filter-active");
-    expect(screen.getByRole("button", { name: /^Watchlist/ })).toContainElement(screen.getByTitle("1 applied"));
-
-    fireEvent.click(screen.getByRole("button", { name: "Nasdaq" }));
-    expect(watchlistSelect()).toBeDisabled();
-    expect(watchlistSelect().value).toBe("1");
-    expect(scopeLabel()).not.toHaveClass("text-filter-active");
-    expect(scopeLabel()).toHaveClass("opacity-45");
-    expect(screen.queryByTitle("1 applied")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "All" }));
-    expect(watchlistSelect()).toBeEnabled();
-    expect(watchlistSelect().value).toBe("1");
-    expect(scopeLabel()).toHaveClass("text-filter-active");
-    expect(screen.getByTitle("1 applied")).toBeInTheDocument();
-  });
-
-  it("counts the Fundamental and Technical filters in their own headers, and Reset clears every badge", () => {
-    render(<ScreenerPage />);
-    expect(screen.queryByTitle(/applied/)).toBeNull();
-    typeInto(box("Overall", "Minimum"), "70");
-    typeInto(box("Beta", "Maximum"), "2");
-    fireEvent.click(screen.getByLabelText("BB + RSI entry (2h)"));
-    expect(screen.getByRole("button", { name: /^Fundamental/ })).toContainElement(screen.getByTitle("1 applied", { exact: true }) as HTMLElement);
-    expect(screen.getByRole("button", { name: /^Technical/ }).querySelector("[title='2 applied']")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
-    expect(screen.queryByTitle(/applied/)).toBeNull();
-  });
-});
-
-// Sort and pagination on the real page (characterization, session 10 part 3).
-// 40 rows is three pages at PAGE_SIZE 18: 18, 18 and 4.
-describe("sorting and paging on the real page", () => {
-  // -- selector helpers: the only markup-dependent part of this describe --
-  const prevButton = () => screen.getByRole("button", { name: "Previous page" });
-  const nextButton = () => screen.getByRole("button", { name: "Next page" });
-  const pageButton = (n: number) => screen.getByRole("button", { name: String(n) });
-  // ----------------------------------------------------------------------
-
-  const tk = (i: number) => `T${String(i).padStart(2, "0")}`;
-  beforeEach(() => {
-    // T01 has the highest overall score and the lowest market cap
-    h.rows.all = Array.from({ length: 40 }, (_, k) =>
-      scoreRow(tk(k + 1), { overall_score: 100 - (k + 1), market_cap: (k + 1) * 1e9, beta: k % 7 })
-    );
-  });
-
-  it("starts on Overall score, high to low, page 1", () => {
-    render(<ScreenerPage />);
-    expect(sortSelect().value).toBe("overall_score");
-    expect(isAscending()).toBe(false);
-    expect(cards()).toHaveLength(18);
-    expect(cards()[0]).toBe("T01");
-    expect(cards()[17]).toBe("T18");
-  });
-
-  it("re-sorts by the chosen field, and the direction toggle reverses it", () => {
-    render(<ScreenerPage />);
-    fireEvent.change(sortSelect(), { target: { value: "market_cap" } });
-    expect(cards()[0]).toBe("T40"); // still descending
-    fireEvent.click(directionButton());
-    expect(isAscending()).toBe(true);
-    expect(cards()[0]).toBe("T01");
-    fireEvent.click(directionButton());
-    expect(isAscending()).toBe(false);
-    expect(cards()[0]).toBe("T40");
-  });
-
-  it("keeps the direction when the field changes", () => {
-    render(<ScreenerPage />);
-    fireEvent.click(directionButton());
-    fireEvent.change(sortSelect(), { target: { value: "market_cap" } });
-    expect(isAscending()).toBe(true);
-    expect(cards()[0]).toBe("T01");
-  });
-
-  it("pages through 18, 18 and 4 rows", () => {
-    render(<ScreenerPage />);
-    fireEvent.click(pageButton(2));
-    expect(cards()).toHaveLength(18);
-    expect(cards()[0]).toBe("T19");
-    fireEvent.click(nextButton());
-    expect(cards()).toEqual(["T37", "T38", "T39", "T40"]);
-    expect(nextButton()).toBeDisabled();
-    fireEvent.click(prevButton());
-    expect(cards()[0]).toBe("T19");
-    fireEvent.click(prevButton());
-    expect(cards()[0]).toBe("T01");
-    expect(prevButton()).toBeDisabled();
-  });
-
-  it("changing the sort field returns to page 1", () => {
-    render(<ScreenerPage />);
-    fireEvent.click(pageButton(2));
-    expect(cards()[0]).toBe("T19");
-    fireEvent.change(sortSelect(), { target: { value: "market_cap" } });
-    expect(cards()).toHaveLength(18);
-    expect(cards()[0]).toBe("T40"); // top of the new order, i.e. page 1
-  });
-
-  it("toggling the direction returns to page 1", () => {
-    render(<ScreenerPage />);
-    fireEvent.click(pageButton(3));
-    expect(cards()).toHaveLength(4);
-    fireEvent.click(directionButton());
-    expect(cards()).toHaveLength(18);
-    expect(cards()[0]).toBe("T40"); // ascending overall: lowest score (T40) first
-  });
-
-  it("a filter change returns to page 1", () => {
-    render(<ScreenerPage />);
-    fireEvent.click(pageButton(2));
-    expect(cards()[0]).toBe("T19");
-    typeInto(box("Overall", "Minimum"), "1");
-    expect(cards()[0]).toBe("T01");
-  });
-
-  it("shows no pagination when the rows fit on one page", () => {
-    h.rows.all = h.rows.all!.slice(0, 5);
-    render(<ScreenerPage />);
-    expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
   });
 });

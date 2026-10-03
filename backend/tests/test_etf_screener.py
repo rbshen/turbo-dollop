@@ -38,12 +38,15 @@ def client(engine):
     return TestClient(main.app)
 
 
-def _known_etf(session, ticker, viewed_days_ago=1):
+def _known_etf(session, ticker, viewed_days_ago=1, added=True):
+    """A known ETF with a TickerView row. `added=True` (default) is the way an ETF is in the ETF universe since the
+    opt-in flip; `added=False` leaves it browsed (idle <= 30 days) or expired (idle longer): out."""
     session.add(
         FundamentalsCache(ticker=ticker, statement_type="profile", period="latest", fetched_at=NOW, raw_json='{"isEtf": true}')
     )
     if viewed_days_ago is not None:
-        session.add(TickerView(ticker=ticker, last_viewed_at=datetime.now() - timedelta(days=viewed_days_ago)))
+        viewed = datetime.now() - timedelta(days=viewed_days_ago)
+        session.add(TickerView(ticker=ticker, last_viewed_at=viewed, added_at=viewed if added else None, added_source="user" if added else None))
 
 
 # --- is_equity_asset_class ------------------------------------------------------------------------------
@@ -131,8 +134,8 @@ def test_the_list_is_empty_when_no_rows_exist(client):
 
 def test_the_list_returns_only_rows_for_tickers_in_the_etf_universe(engine, client):
     with Session(engine) as session:
-        _known_etf(session, "QQQ", viewed_days_ago=2)  # viewed: in
-        _known_etf(session, "OLDETF", viewed_days_ago=60)  # expired: out
+        _known_etf(session, "QQQ", viewed_days_ago=2)  # added: in
+        _known_etf(session, "OLDETF", viewed_days_ago=60, added=False)  # expired: out
         _known_etf(session, "GONE", viewed_days_ago=1)
         upsert_etf_screener_row(session, "QQQ", name="Invesco QQQ", asset_class="Equity")
         upsert_etf_screener_row(session, "OLDETF", name="Old")
@@ -195,17 +198,17 @@ def test_beta_is_null_unless_the_fund_is_equity_and_the_stored_value_is_untouche
 def test_meta_on_an_empty_table_counts_the_seeds_and_has_null_ranges(client):
     meta = client.get("/api/etf-screener/meta").json()
     assert meta["total_etfs"] == len(tu.ETF_SEED_TICKERS) and meta["row_count"] == 0
-    assert meta["hidden_inactive"] == 0 and meta["asset_classes"] == []
+    assert "hidden_inactive" not in meta and meta["asset_classes"] == []
     assert set(meta["ranges"]) == set(RANGE_FIELDS)
     assert all(r == {"min": None, "max": None} for r in meta["ranges"].values())
 
 
-def test_meta_reports_counts_asset_classes_ranges_and_hidden_inactive(engine, client):
+def test_meta_reports_counts_asset_classes_and_ranges(engine, client):
     with Session(engine) as session:
         _known_etf(session, "QQQ", 1)
         _known_etf(session, "TLT", 1)
-        _known_etf(session, "OLD1", 90)
-        _known_etf(session, "OLD2", 90)
+        _known_etf(session, "OLD1", 90, added=False)
+        _known_etf(session, "OLD2", 90, added=False)
         upsert_etf_screener_row(session, "QQQ", asset_class="Equity", expense_ratio=0.18, aum=5e11, beta=1.2,
                                 last_price=700.0, pct_change_1d=-0.5, return_1y=23.0, vs_spy_1y=7.6)
         upsert_etf_screener_row(session, "TLT", asset_class="Fixed Income", expense_ratio=0.15, aum=4.6e10, beta=2.4,
@@ -213,9 +216,9 @@ def test_meta_reports_counts_asset_classes_ranges_and_hidden_inactive(engine, cl
         upsert_etf_screener_row(session, "OLD1", asset_class="Commodities", expense_ratio=9.0, aum=1.0)  # hidden: not counted
 
     meta = client.get("/api/etf-screener/meta").json()
-    assert meta["total_etfs"] == len(tu.ETF_SEED_TICKERS) + 2  # + QQQ, TLT; the two expired ETFs are not in
+    assert meta["total_etfs"] == len(tu.ETF_SEED_TICKERS) + 2  # + QQQ, TLT; the two expired (unadded) ETFs are not in
     assert meta["row_count"] == 2
-    assert meta["hidden_inactive"] == 2
+    assert "hidden_inactive" not in meta  # removed with the opt-in flip
     assert meta["asset_classes"] == ["Equity", "Fixed Income"]
     r = meta["ranges"]
     assert r["expense_ratio"] == {"min": 0.15, "max": 0.18}

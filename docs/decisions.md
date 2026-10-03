@@ -275,6 +275,7 @@ picked up by the next night's technical run (one-day lag, Sundays only). **Super
 refreshes now run at 12:00-12:10 AM, before the 1:00 AM chain, so the lag no longer exists.**
 
 ### 2026-10-02 — Tracked universe: a viewed-only ticker expires 30 days after its last view
+**Superseded 2026-10-03 (the opt-in classification flip, the last entry below): a view no longer admits a ticker, a ticker only opened is `browsed` then `expired` (out of the universe, awaiting the locked wipe), the owner adds tickers, and `hidden_inactive` is gone. Kept as history.**
 
 **Supersedes** the 2026-08-06 "index + ever-viewed + watchlisted" decision, under which a ticker opened once stayed in
 every nightly job forever (595 tickers on 2026-10-02: 518 index members, 13 watchlist-only, 64 viewed-only). Investigation:
@@ -704,3 +705,20 @@ order 3a, then the classification flip, then 3b (the buttons).** Reason: Remove 
 by the old `viewed` rule) and the 1:45 job would rewrite a removed ETF's row, so no button should ship before the classification reads `added`. **Interim:** the
 status endpoint says `in_universe: false` for a browsed ticker the classification still admits for 30 days; documented in `docs/specs/tracked-universe.md`,
 "API". `_classify`, every universe, the screeners and the nightly jobs are unchanged (pinned by a test).
+
+### 2026-10-03 — Opt-in universe: the classification flip (`viewed` becomes `added`)
+**Decision (owner, executed):** build order was 3a (the API), the flip, then 3b (the buttons). The flip makes a ticker a member only through `index`, `watchlist`,
+`system` (seed ETFs, the benchmark constant, the live `rs_benchmark`), `manual` (Moat, custom valuation, bank capital, growth-catalyst note) or `added`
+(`TickerView.added_at` not null, at any idle age; leaves only through Remove). First-match order: `delisted`, `index`, `watchlist`, `system`, `manual`, `added`, then
+the three non-members `browsed` (opened within 30 days), `expired` (idle over 30) and `untracked` (known, no `TickerView` row). `delisted` still wins first and excludes a
+ticker from every universe. **Code:** one pure `_reason_for` shared by the bulk classification and `classify_one`, which backs `GET /api/tickers/{t}/universe`, so the status
+(`in_universe`, new `classification` field) cannot disagree with `load_tracked_universe` / `load_etf_universe`; the `system` rule now also covers the Weinstein benchmark
+constant and the live `rs_benchmark` (same set the wipe protects); `classify_wipe_candidates` agrees with the classification (`expired` is exactly a wipe candidate; the
+wipe candidates are `expired` plus the unprotected, unadded, idle delisted tickers), pinned over a generated matrix. **Removed:** `ScreenerMeta.hidden_inactive`,
+`EtfScreenerMeta.hidden_inactive`, `count_hidden_inactive_etfs`, `load_expired_tickers`, `load_expired_etfs`, the two page subtitles and their frontend types and tests, and the
+one-time `pipeline/grandfather_universe.py` (its selection rule, "reason == viewed", no longer exists; running it now would admit every browsed ticker). **Kept:** the
+`expired` list and the "browsed becoming expired within N days" list in `pipeline.tracked_universe_report` (they are the wipe's candidates, an operator view), and `INDEX_NAMES`
+for the `index` reason (the wipe's protection stays wider: any index name). **Live check (read-only, before committing):** stock universe 581 and ETF universe 19
+identical, the only reason changes `viewed` to `added` for the 25 grandfathered tickers (18 stocks, 7 ETFs), `GET /api/screener?universe=all` 581, sp500 503,
+`/api/etf-screener` 19. **Effect:** a newly opened ticker works but is in no screener and no nightly job until added; the 1:45 job still prunes the row of any ETF outside
+the ETF universe. The wipe stays dry-run only, `--apply` locked, unscheduled; the Add/Remove buttons are step 3b.

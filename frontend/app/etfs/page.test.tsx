@@ -71,7 +71,6 @@ function meta(overrides: Partial<EtfScreenerMeta> = {}): EtfScreenerMeta {
   return {
     total_etfs: 3,
     row_count: 3,
-    hidden_inactive: 0,
     asset_classes: ["Commodities", "Equity", "Fixed Income"],
     ranges: {},
     ...overrides,
@@ -167,13 +166,14 @@ describe("rows", () => {
     expect(within(spy).getByText("Beta").nextElementSibling).toHaveTextContent("1.00");
   });
 
-  it("subtitle reads 'X of Y ETFs' and adds the match count and the hidden count", () => {
-    h.meta = meta({ total_etfs: 5, hidden_inactive: 2 });
+  it("subtitle reads 'X of Y ETFs' and adds the match count (no hidden-ticker note since the opt-in universe)", () => {
+    h.meta = meta({ total_etfs: 5 });
     render(<EtfsPage />);
-    expect(screen.getByText(/^3 of 5 ETFs/)).toHaveTextContent("3 of 5 ETFs · 2 not viewed in 30 days are hidden");
+    expect(screen.getByText(/^3 of 5 ETFs/)).toHaveTextContent("3 of 5 ETFs");
+    expect(screen.queryByText(/not viewed in 30 days/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /^Asset class/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Equity" }));
-    expect(screen.getByText(/^3 of 5 ETFs/)).toHaveTextContent("3 of 5 ETFs — 1 match the current filters · 2 not viewed");
+    expect(screen.getByText(/^3 of 5 ETFs/)).toHaveTextContent("3 of 5 ETFs — 1 match the current filters");
   });
 
   it("passes the filtered tickers to Add to watchlist", () => {

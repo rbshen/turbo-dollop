@@ -49,8 +49,8 @@ def test_load_tracked_universe_unions_index_cache_and_score_tickers(monkeypatch,
         # SEZL: has a TickerScore row but (hypothetically) no remaining cache
         # rows -- still must be swept.
         session.add(TickerScore(ticker="SEZL", overall_score=66, overall_verdict="Fail", computed_at=datetime.now()))
-        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now()))
-        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now()))
+        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
+        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
         # MSFT: appears in two of the three sources -- must not be double-counted.
         session.add(IndexConstituent(index_name="sp500", ticker="MSFT", company_name="Microsoft", last_synced_at=datetime.now()))
         session.add(FundamentalsCache(ticker="MSFT", statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
@@ -78,8 +78,8 @@ def test_main_sweeps_the_full_tracked_universe_when_no_tickers_passed(monkeypatc
     with Session(engine) as session:
         session.add(FundamentalsCache(ticker="IREN", statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
         session.add(TickerScore(ticker="SEZL", overall_score=66, overall_verdict="Fail", computed_at=datetime.now()))
-        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now()))
-        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now()))
+        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
+        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
         session.commit()
     calls: list[tuple[str, bool]] = []
     _patch_compute(monkeypatch, calls)
@@ -115,18 +115,19 @@ def test_a_failing_ticker_does_not_abort_the_sweep(monkeypatch, tmp_path):
     assert summary["failures"] == [("BADCO", "simulated failure recomputing BADCO")]
 
 
-def test_main_does_not_rescore_an_expired_viewed_only_ticker(monkeypatch, tmp_path):
+def test_main_rescores_an_added_ticker_at_any_idle_age_but_not_a_browsed_or_expired_one(monkeypatch, tmp_path):
     from datetime import timedelta
 
     engine = _fresh_engine(monkeypatch, tmp_path)
     with Session(engine) as session:
-        for ticker, days in (("RECENT", 3), ("EXPIRED", 45)):
+        for ticker, days, added in (("ADDEDOLD", 90, True), ("BROWSED", 3, False), ("EXPIRED", 45, False)):
             session.add(FundamentalsCache(ticker=ticker, statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
-            session.add(TickerView(ticker=ticker, last_viewed_at=datetime.now() - timedelta(days=days)))
+            viewed = datetime.now() - timedelta(days=days)
+            session.add(TickerView(ticker=ticker, last_viewed_at=viewed, added_at=viewed if added else None, added_source="user" if added else None))
         session.commit()
     calls: list[tuple[str, bool]] = []
     _patch_compute(monkeypatch, calls)
 
     summary = asyncio.run(nightly_recompute.main(tickers=None))
 
-    assert {c[0] for c in calls} == {"RECENT"} and summary["processed"] == 1
+    assert {c[0] for c in calls} == {"ADDEDOLD"} and summary["processed"] == 1

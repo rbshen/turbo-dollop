@@ -402,7 +402,7 @@ line written by a live process exactly during the rotation is lost.
 
 **`stale_data_health_check`** — reports how many tickers in the
 tracked universe (not just S&P 500/Dow — widened 2026-09-11; since 2026-10-02 an expired or
-delisted ticker is not refreshed on purpose, so it is not reported) haven't had their `profile` cache row
+delisted ticker, and since 2026-10-03 any browsed or unadded one, is not refreshed on purpose, so it is not reported) haven't had their `profile` cache row
 refreshed within 10 days (a 3-day buffer past the 7-day staleness window,
 to tolerate one missed nightly run without a false alarm). Prints a
 readable report (fresh / stale / never-fetched counts, plus the actual
@@ -433,7 +433,7 @@ delisted date — is ignored). **A ticker the endpoint does not list is never fl
 longer on it, and a live `/profile` call says `isActivelyTrading: true` (the heartbeat message
 then says `delisted flag cleared: X`); the sync reads the wide known set
 (`load_all_known_tickers`) because a flagged ticker is excluded from the tracked universe. Nightly Weinstein/Liquidity Zone/Momentum skip a flagged ticker's fetch/compute entirely.
-Nothing is ever deleted. The cron heartbeat message names anything newly flagged, or says
+The sync deletes nothing (the locked, unscheduled wipe is the only deleter, and it treats a delisted ticker like any other). The cron heartbeat message names anything newly flagged, or says
 `delisted sync skipped (index_membership off)` / `delisted list incomplete` (a page failed; the
 next weekly run retries).
 **To manually clear a flag** (normally unnecessary now; use it when the automatic re-check cannot, e.g. FMP's profile still reads inactive):
@@ -621,39 +621,39 @@ accumulating normally the whole time — this is a display kill-switch, not
 a pause of the monitoring itself, useful for an extended FMP pause where
 that display would just be noise the operator already knows about.
 
-## Tracked universe (which tickers the nightly jobs process), 2026-10-02
+## Tracked universe (which tickers the nightly jobs process), opt-in since 2026-10-03
 
-Spec: `docs/specs/tracked-universe.md`. One helper, `data/tracked_universe.py::load_tracked_universe`: index members,
-any watchlist, tickers with manual data (Moat, custom valuation, bank
-capital), and tickers viewed in the last 30 days, minus delisted-flagged. A viewed-only ticker not opened for 30 days
-leaves the nightly jobs and the Screener's `all` universe (its data stays; viewing it again re-adds it). `GET
-/api/tickers/{t}/summary` records a view (`TickerView`, at most one write per ticker per day).
+Spec: `docs/specs/tracked-universe.md`. One helper, `data/tracked_universe.py::load_tracked_universe` (stocks) plus `load_etf_universe`: a ticker is in
+through an index (S&P 500 / Nasdaq-100 / Dow), any watchlist, the system set (seed ETFs, the benchmark, the live `rs_benchmark`), manual data (Moat, custom
+valuation, bank capital, growth-catalyst note) or because it was **added** (`TickerView.added_at`, any idle age); never when it is delisted-flagged. A ticker that
+was only opened is `browsed` (30 days) then `expired`, or `untracked` (no view record): not in the universe, data kept. Opening a page records a view
+(`TickerView.last_viewed_at`, at most one write per ticker per day, touched at the start of the request) but never admits it. `GET/POST/DELETE
+/api/tickers/{t}/universe` reads, adds and removes. The wipe (`pipeline/wipe_untouched_tickers.py`) is the only thing that deletes a ticker: dry run by default,
+`--apply` locked behind `FATHOM_ALLOW_WIPE_APPLY=1`, not in the crontab.
 
-**First start after deploy.** `init_db()` creates `tickerview` and, because it is empty, seeds one row per existing ticker
-(cached profile, score row, watchlist entry or index member: 595 on 2026-10-02) with `last_viewed_at = now`, so nothing
-expires for 30 days. A second `init_db()` (restart, any cron job) does nothing. It runs in the backend's startup and in
-every cron job, whichever starts first on the new code; the log line is `Seeded N ticker_view rows ...`.
+**Verify (read-only):**
+1. `cd backend && uv run python -m pipeline.tracked_universe_report`: by reason, live on 2026-10-03 after the flip: stocks `index 518, manual 32, added 18, watchlist 13,
+   delisted 5` (581 in the stock universe), ETFs `system 12, added 7` (19 in the ETF universe); `TickerView` rows 597. A newly opened ticker shows as `browsed`
+   (not in the universe) until it is added; browsed tickers become `expired` after 30 idle days (the report lists them, `--days N` previews).
+2. `uv run python -m pipeline.wipe_untouched_tickers` (dry run, writes nothing, needs no env var): 0 wipes today; the 25 grandfathered tickers are protected by
+   `added`; at 2026-11-03 only the delisted AVB, EQR, TWTR, WBA (4,088 rows) plus 5 adoptions (CROX, DXC, ROKU, SNAP, VFC). Once the wipe is scheduled, every `expired`
+   ticker and every unprotected, unadded delisted ticker idle over 30 days shows here first.
+3. SQL: `SELECT COUNT(*), COUNT(added_at) FROM tickerview;` (rows, added) and `SELECT ticker, added_source FROM tickerview WHERE added_at IS NOT NULL;`.
+4. The nightly messages and sizes: the stock jobs process the stock universe (581 tickers on 2026-10-03, minus the 5 delisted that are skipped by the flag), the ETF job
+   the 19 ETFs; a ticker opened but not added appears in none of them.
 
-**Back up first** (the seed only adds rows, but take the usual copy): `cd backend && uv run python -m pipeline.backup_db`
-(writes a compressed copy into `backend/backups/`; mind the free space on `/`, see `backup_db` above), or stop the app and
-`cp fathom.db fathom.db.pre-ticker-view`.
+**Opening a ticker and adding it.** A newly opened ticker works but is in no screener and no nightly job. Until the Add button ships (step 3b) the only ways in are
+`POST /api/tickers/{t}/universe` (stock: a live score compute, about 10-20 FMP calls; ETF: its screener row, about 2-4 calls), a watchlist add, or a Moat / custom
+valuation / bank-capital entry. Remove (`DELETE`) is refused while the ticker is protected.
 
-**Verify after restart:**
-1. `uv run python -m pipeline.tracked_universe_report`: expect `TickerView rows: 595` (about), first and last view within the
-   same minute, by reason `index 518, viewed 27, watchlist 13, manual 29, system 3, delisted 5` (the 5 delisted are out at
-   once, so "in the nightly universe" reads 590), and no ticker leaving within 7 days. `--days 35` lists the 27 that leave
-   on day 31.
-2. Or in SQL: `SELECT COUNT(*), MIN(last_viewed_at), MAX(last_viewed_at) FROM tickerview;`
-3. Next morning, the nightly messages: the Weinstein job still reads `... 5 skipped as delisted`, fundamentals processes ~5 fewer
-   tickers than before, and the score recompute log says `for 590 tickers`.
-4. Open any ticker page, then re-run the report: that ticker's `last_viewed_at` is now today's date.
-5. About day 31 (2026-11-02 if first started 2026-10-02): the 27 viewed-only tickers drop out (590 -> 563), the Screener
-   subtitle reads "20 not viewed in 30 days are hidden" (stocks only), and the nightly call counts fall by roughly 3 per
-   dropped ticker.
+**First start after the 2026-10-02 deploy (history).** `init_db()` created `tickerview` and, because it was empty, seeded one row per existing ticker with
+`last_viewed_at = now` (a second `init_db()` does nothing). Since the opt-in flip a seeded view admits nobody. The 2026-10-03 grandfather backfill marked the 25
+tickers that were then in the universe only through a view as added (pre-write snapshot `backend/backups/pre_universe_step2_20261003.db.gz`); its script was removed
+at the flip.
 
-**Roll back:** revert the commits and restart. `tickerview` is an inert table the old code ignores (drop it only if you
-want it gone: `DROP TABLE tickerview;`); no other table changed. A cleared delisted flag is restored with
-`UPDATE tickerscore SET delisted_at = datetime('now') WHERE ticker = '...'`.
+**Roll back the flip:** revert the flip commit and restart (the `added_at` / `added_source` columns are inert for the old code; no table changed). Under the old rule any
+view in the last 30 days admits a ticker again, and the 25 grandfathered tickers are in through their (seed or real) views until about 2026-11-01. A cleared delisted flag is
+restored with `UPDATE tickerscore SET delisted_at = datetime('now') WHERE ticker = '...'`.
 
 ## Monitored-watchlist rename (W1-W5 -> E1-E5), 2026-10-02
 

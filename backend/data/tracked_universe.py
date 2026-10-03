@@ -1,23 +1,31 @@
 """The one definition of which tickers the nightly (and weekly) jobs process -- the "tracked
-universe" -- and of when a page view counts toward it. Spec: docs/specs/tracked-universe.md.
+universe" -- and of how a ticker gets in and out of it. Spec: docs/specs/tracked-universe.md.
 
-`load_tracked_universe` is the STOCK side of `partition_known_tickers` (ETF cutover, 2026-10-03: the ETFs have their
-own universe, `load_etf_universe`, refreshed by pipeline/nightly_etf_screener.py). A stock is in it when it is not
-flagged delisted AND at least one of:
+**Opt-in universe (the classification flip, 2026-10-03).** A page view no longer admits a ticker. `load_tracked_universe` is
+the STOCK side of `partition_known_tickers` (the ETFs have their own universe, `load_etf_universe`, refreshed by
+pipeline/nightly_etf_screener.py). A known ticker is classified by the FIRST matching reason, in this order:
 
-  (a) it is a member of the S&P 500, Nasdaq-100 or Dow list (`IndexConstituent`);
-  (b) it is on ANY watchlist, monitored or not (`WatchlistTicker`);
-  (c) its page was opened in the last `TRACKED_VIEW_WINDOW_DAYS` days (`TickerView`);
-  (d) it carries manual data the owner entered: a Moat rating, a custom valuation, a bank-capital
-      entry or a growth-catalyst note. Never expires, because the Monthly Momentum ranking is "Moat-rated tracked tickers" and
-      would otherwise silently shed them.
-(The old "system set" rule, `SYSTEM_TICKERS` = the 11 sector ETFs plus SPY, is retired: those are ETFs, protected on the
-ETF side by `ETF_SEED_TICKERS`.)
+  delisted   flagged delisted (`TickerScore.delisted_at`): out of every universe, wins over everything below
+  index      member of the S&P 500, Nasdaq-100 or Dow list (`IndexConstituent`)             } in the universe by
+  watchlist  on ANY watchlist, monitored or not (`WatchlistTicker`)                         } design: protected,
+  system     a seed ETF (`ETF_SEED_TICKERS`), the Weinstein benchmark constant, or the     } never wiped, no
+             live `rs_benchmark` setting                                                    } Remove
+  manual     owner-entered data: a Moat, a custom valuation, a bank-capital entry, a       }
+             growth-catalyst note (never expires: Monthly Momentum is "Moat-rated tracked tickers")
+  added      `TickerView.added_at` set (the Add button, or the 2026-10-03 grandfather backfill): in the universe at ANY idle
+             age; leaves only through Remove (DELETE /api/tickers/{t}/universe)
+  browsed    has a `TickerView` row, last opened within `TRACKED_VIEW_WINDOW_DAYS` days, not added: NOT in the universe
+  expired    same, but idle for MORE than that many days: not in the universe, awaiting the wipe (pipeline/wipe_untouched_tickers.py,
+             locked and unscheduled)
+  untracked  known, unprotected, not added, and no `TickerView` row at all (e.g. a stock that left an index): not in the
+             universe; the wipe job adopts it (stamps a view) before it can ever expire
 
-A ticker outside all of those is "expired": it stays in the DB with all its data (nothing is deleted),
-it just drops out of the nightly jobs and the Screener's `all` universe until it is viewed again.
-`load_all_known_tickers` is the old wide set (every ticker the app holds any row for) for the jobs
-whose whole point is to see everything: the non-US purge, the delisted-flag sync and the search fallback.
+A ticker is IN the universe through delisted-free index, watchlist, system, manual or added only. Nothing is deleted by the
+classification: browsed, expired and untracked tickers keep all their data and drop out of the nightly jobs and the Screener's
+`all` universe (an ETF's `EtfScreenerRow` is pruned by the 1:45 job, as for any ETF outside the ETF universe). Opening a
+ticker's page records a view (the "last touch" the wipe reads) but never admits it. `load_all_known_tickers` is the wide set
+(every ticker the app holds any row for) for the jobs whose whole point is to see everything: the non-US purge, the
+delisted-flag sync and the search fallback.
 
 **A future ETF momentum universe MUST be added to `ETF_SEED_TICKERS`** (and to the spec); the ETF momentum ranking is
 "investigated, not built" (docs/specs/sector-heatmap.md). Protection, not insertion on the stock side: nothing here
@@ -67,15 +75,21 @@ INDEX = "index"
 WATCHLIST = "watchlist"
 SYSTEM = "system"
 MANUAL = "manual"
-VIEWED = "viewed"
+ADDED = "added"
+BROWSED = "browsed"
 EXPIRED = "expired"
-OUT_OF_UNIVERSE = frozenset({DELISTED, EXPIRED})
+UNTRACKED = "untracked"
+# Not in the universe: delisted, and the three "not added, unprotected" reasons.
+OUT_OF_UNIVERSE = frozenset({DELISTED, BROWSED, EXPIRED, UNTRACKED})
 
 
-INDEX_NAMES = ("sp500", "dow", "nasdaq")  # IndexConstituent.index_name values rule (a) covers
+INDEX_NAMES = ("sp500", "dow", "nasdaq")  # IndexConstituent.index_name values the `index` reason covers
 
 
 def load_index_tickers(session: Session) -> set[str]:
+    """Members of the three indexes that admit a ticker to the universe (live: exactly these three names exist). The
+    wipe's protection is wider on purpose (`load_any_index_tickers`: ANY index name): a ticker under some other index name
+    is never wiped, but is not admitted to the universe either."""
     return set(session.exec(select(IndexConstituent.ticker).where(IndexConstituent.index_name.in_(INDEX_NAMES))).all())
 
 
@@ -118,6 +132,48 @@ def load_delisted_flagged(session: Session) -> set[str]:
     return set(session.exec(select(TickerScore.ticker).where(TickerScore.delisted_at.is_not(None))).all())
 
 
+def load_system_tickers(session: Session) -> set[str]:
+    """Rule `system`: the seed ETFs (`ETF_SEED_TICKERS`), the Weinstein benchmark constant and the live `rs_benchmark`
+    setting: the tickers the app itself needs. The same set the wipe protects as seed / benchmark / rs_benchmark."""
+    system = set(ETF_SEED_TICKERS) | {WEINSTEIN_BENCHMARK_TICKER}
+    rs = read_rs_benchmark(session)
+    if rs:
+        system.add(rs)
+    return system
+
+
+def _reason_for(
+    *,
+    delisted: bool,
+    index: bool,
+    watchlist: bool,
+    system: bool,
+    manual: bool,
+    added: bool,
+    last_viewed: datetime | None,
+    cutoff: datetime,
+) -> str:
+    """The one first-match-wins rule for ONE ticker (order: delisted, index, watchlist, system, manual, added, browsed /
+    expired / untracked). Shared by the bulk classification (`_classify`) and the single-ticker one (`classify_one`, which
+    backs the status endpoint), so the two can never disagree. `browsed`: a TickerView row, last viewed on or after
+    `cutoff`; `expired`: last viewed strictly before it; `untracked`: no TickerView row."""
+    if delisted:
+        return DELISTED
+    if index:
+        return INDEX
+    if watchlist:
+        return WATCHLIST
+    if system:
+        return SYSTEM
+    if manual:
+        return MANUAL
+    if added:
+        return ADDED
+    if last_viewed is None:
+        return UNTRACKED
+    return BROWSED if last_viewed >= cutoff else EXPIRED
+
+
 def _classify(
     session: Session,
     known: set[str],
@@ -127,40 +183,35 @@ def _classify(
     manual: set[str],
     system: set[str],
 ) -> dict[str, str]:
-    """The one first-match-wins classification, shared by the stock side (`classify_known_tickers`) and the
-    ETF side (`classify_etf_tickers`). The caller decides which tickers are in play (`known`) and which of
-    them each rule covers (`index`, `manual`, `system`); watchlist, view window and delisted flag are the
-    same for both sides."""
+    """The bulk classification, shared by the stock side (`classify_known_tickers`) and the ETF side
+    (`classify_etf_tickers`). The caller decides which tickers are in play (`known`) and which of them each rule covers
+    (`index`, `manual`, `system`); watchlist, the added state, the view window and the delisted flag are the same for
+    both sides."""
     now = now or datetime.now()
     cutoff = now - timedelta(days=TRACKED_VIEW_WINDOW_DAYS)
     watchlist = load_watchlist_tickers(session)
-    viewed = set(session.exec(select(TickerView.ticker).where(TickerView.last_viewed_at >= cutoff)).all()) & known
+    added = load_added_tickers(session)
+    views = {row.ticker: row.last_viewed_at for row in session.exec(select(TickerView)).all()}
     delisted = load_delisted_flagged(session)
-
-    reasons: dict[str, str] = {}
-    for ticker in known:
-        if ticker in delisted:
-            reasons[ticker] = DELISTED
-        elif ticker in index:
-            reasons[ticker] = INDEX
-        elif ticker in watchlist:
-            reasons[ticker] = WATCHLIST
-        elif ticker in system:
-            reasons[ticker] = SYSTEM
-        elif ticker in manual:
-            reasons[ticker] = MANUAL
-        elif ticker in viewed:
-            reasons[ticker] = VIEWED
-        else:
-            reasons[ticker] = EXPIRED
-    return reasons
+    return {
+        ticker: _reason_for(
+            delisted=ticker in delisted,
+            index=ticker in index,
+            watchlist=ticker in watchlist,
+            system=ticker in system,
+            manual=ticker in manual,
+            added=ticker in added,
+            last_viewed=views.get(ticker),
+            cutoff=cutoff,
+        )
+        for ticker in known
+    }
 
 
 def classify_known_tickers(session: Session, now: datetime | None = None) -> dict[str, str]:
     """{ticker: reason} for every STOCK-side known ticker (ETFs are classified by `classify_etf_tickers`; the
-    two sides are disjoint). A reason in OUT_OF_UNIVERSE (delisted, expired) means the nightly jobs skip it;
-    any other reason means it is in. The single source for the universe, the Screener's hidden count and the
-    verification report."""
+    two sides are disjoint). A reason in OUT_OF_UNIVERSE (delisted, browsed, expired, untracked) means the nightly jobs
+    skip it; any other reason means it is in. The single source for the universe and the verification report."""
     known, _ = partition_known_tickers(session)
     return _classify(
         session,
@@ -168,7 +219,7 @@ def classify_known_tickers(session: Session, now: datetime | None = None) -> dic
         now,
         index=load_index_tickers(session),
         manual=load_manual_data_tickers(session) & known,
-        system=set(),
+        system=load_system_tickers(session),
     )
 
 
@@ -178,9 +229,40 @@ def load_tracked_universe(session: Session, now: datetime | None = None) -> list
     return sorted(t for t, reason in reasons.items() if reason not in OUT_OF_UNIVERSE)
 
 
-def load_expired_tickers(session: Session, now: datetime | None = None) -> set[str]:
-    """Known stocks, not delisted, but outside the universe because they were not viewed for 30 days."""
-    return {t for t, reason in classify_known_tickers(session, now).items() if reason == EXPIRED}
+def classify_one(session: Session, ticker: str, now: datetime | None = None) -> str | None:
+    """The reason `classify_known_tickers` / `classify_etf_tickers` would give ONE ticker, from targeted reads (same
+    `_reason_for`, same side rules), or None when the app does not know the ticker (no profile, score row, index row or
+    watchlist entry, and not a seed): such a ticker is in neither universe whatever protections it carries. Backs the
+    status endpoint, so `in_universe` is by construction membership in `load_tracked_universe` / `load_etf_universe`."""
+    ticker = normalize_ticker(ticker)
+    now = now or datetime.now()
+    known = (
+        ticker in ETF_SEED_TICKERS
+        or session.get(TickerScore, ticker) is not None
+        or session.exec(
+            select(FundamentalsCache.id)
+            .where(FundamentalsCache.ticker == ticker, FundamentalsCache.statement_type == "profile")
+            .limit(1)
+        ).first()
+        is not None
+        or session.exec(select(IndexConstituent.id).where(IndexConstituent.ticker == ticker).limit(1)).first() is not None
+        or session.exec(select(WatchlistTicker.id).where(WatchlistTicker.ticker == ticker).limit(1)).first() is not None
+    )
+    if not known:
+        return None
+    is_etf = ticker in ETF_SEED_TICKERS or bool(known_etf_tickers(session, [ticker]))
+    score = session.get(TickerScore, ticker)
+    view = session.get(TickerView, ticker)
+    return _reason_for(
+        delisted=score is not None and score.delisted_at is not None,
+        index=not is_etf and session.exec(select(IndexConstituent.id).where(IndexConstituent.ticker == ticker).limit(1)).first() is not None,
+        watchlist=session.exec(select(WatchlistTicker.id).where(WatchlistTicker.ticker == ticker).limit(1)).first() is not None,
+        system=ticker in load_system_tickers(session),
+        manual=not is_etf and any(session.get(model, ticker) is not None for model in MANUAL_DATA_MODELS),
+        added=view is not None and view.added_at is not None,
+        last_viewed=view.last_viewed_at if view is not None else None,
+        cutoff=now - timedelta(days=TRACKED_VIEW_WINDOW_DAYS),
+    )
 
 
 # --- the ETF side (docs/specs/tracked-universe.md, "ETF universe") ----------------------------------------
@@ -201,29 +283,16 @@ def partition_known_tickers(session: Session) -> tuple[set[str], set[str]]:
 def classify_etf_tickers(session: Session, now: datetime | None = None) -> dict[str, str]:
     """{ticker: reason} for every ETF-side ticker. Same first-match rule as `classify_known_tickers`, minus the
     reasons that cannot apply to a fund: no index membership, no manual data (a Moat cannot be set on an ETF).
-    An ETF on ANY watchlist (monitored or not) is in for as long as it stays there; a seed is "system"
-    unless delisted; anything else is "viewed" within the 30-day window or "expired"."""
+    An ETF on ANY watchlist (monitored or not) is in for as long as it stays there; a seed is "system" unless delisted;
+    anything else is "added" (in), or "browsed" / "expired" / "untracked" (out)."""
     _, etf_known = partition_known_tickers(session)
-    return _classify(session, etf_known, now, index=set(), manual=set(), system=set(ETF_SEED_TICKERS))
+    return _classify(session, etf_known, now, index=set(), manual=set(), system=load_system_tickers(session))
 
 
 def load_etf_universe(session: Session, now: datetime | None = None) -> list[str]:
-    """The sorted ETF-side universe: every ETF-side ticker that is neither delisted nor expired."""
+    """The sorted ETF-side universe: every ETF-side ticker that is in by design (not delisted, browsed, expired or untracked)."""
     reasons = classify_etf_tickers(session, now)
     return sorted(t for t, reason in reasons.items() if reason not in OUT_OF_UNIVERSE)
-
-
-def load_expired_etfs(session: Session, now: datetime | None = None) -> set[str]:
-    """Known ETFs, not delisted, outside the ETF universe because they were not viewed for 30 days."""
-    return {t for t, reason in classify_etf_tickers(session, now).items() if reason == EXPIRED}
-
-
-def count_hidden_inactive_etfs(session: Session, now: datetime | None = None) -> int:
-    """How many ETFs the ETF universe hides as inactive: the ETF counterpart of `ScreenerMeta.hidden_inactive`
-    (core/main.py::screener_meta counts the hidden stock rows). Counts expired ETFs, not rows of any table
-    (the ETF read-model's own rows are not what is counted); a delisted ETF is not "inactive" and a seed never expires.
-    `ScreenerMeta.hidden_inactive` counts expired STOCKS only, so the two never overlap (the sides are disjoint)."""
-    return len(load_expired_etfs(session, now))
 
 
 def record_ticker_view(ticker: str, now: datetime | None = None) -> bool:
@@ -297,11 +366,13 @@ def load_protection_reasons(session: Session, ticker: str) -> list[str]:
     return reasons
 
 
-# --- the wipe (docs/specs/tracked-universe.md, "Planned: opt-in universe and wipe": NOT YET ACTIVE) --------------
-# Pure decision logic for pipeline/wipe_untouched_tickers.py. It is computed from the RAW protection sets, never
-# from `_classify` reasons: `_classify` answers "delisted" first, so a delisted ticker that is also on a watchlist
-# would read as unprotected there. Nothing here writes; nothing here is read by a nightly job or a page yet, and the
-# classification above is unchanged (a `TickerView` row with no added state still reads as "viewed").
+# --- the wipe (docs/specs/tracked-universe.md, "The wipe"; the job itself is locked and unscheduled) -----------------
+# Pure decision logic for pipeline/wipe_untouched_tickers.py. It is computed from the RAW protection sets, never from
+# the classification reasons: `_classify` answers "delisted" first, so a delisted ticker that is also on a watchlist would
+# read as unprotected there. The two agree (pinned by tests/test_tracked_universe.py over a generated matrix): a ticker
+# the classification calls `expired` is exactly a wipe candidate, `added` is never one, `untracked` is the adoption case
+# (with data), and a `delisted` ticker is a candidate only when it is also unprotected, not added and idle past the cutoff.
+# Nothing here writes.
 
 WIPE_IDLE_DAYS = TRACKED_VIEW_WINDOW_DAYS  # the same 30 days: idle strictly MORE than this is due
 

@@ -52,7 +52,6 @@ from data.segmentation_data import get_segmentation_data
 from data.speculative_growth_data import get_speculative_growth_data
 from data.ticker_search import search_tickers
 from data.tracked_universe import (
-    load_expired_tickers,
     load_tracked_universe,
     record_ticker_view,
     touch_existing_ticker_view,
@@ -931,8 +930,8 @@ def screener_list(universe: Universe = "sp500") -> list[TickerScoreOut]:
     # compute_ticker_score's other call sites), which must not leak into
     # a named-index list. universe="all" is the deliberate escape hatch for
     # that: every ticker in the nightly universe (data/tracked_universe.py), index member or
-    # not. A viewed-only ticker not opened for 30 days has left that universe, so its frozen row
-    # is hidden here until it is viewed again (screener_meta reports how many). A delisted-flagged
+    # not. A ticker that was only opened (browsed) or expired is not in that universe, so its row is not
+    # listed here until the owner adds it (POST /api/tickers/{t}/universe). A delisted-flagged
     # ticker (TickerScore.delisted_at set) is excluded from every universe --
     # the page's Watchlist scope is applied client-side over this response, so
     # it inherits the exclusion. The flag itself is deliberately not exposed
@@ -966,9 +965,6 @@ def screener_meta(universe: Universe = "sp500") -> ScreenerMeta:
     # so "X of Y" doesn't count a ticker the list can never show: universe=all
     # filters the TickerScore rows, an index universe drops constituents whose
     # TickerScore row is flagged (a constituent with no row is unaffected).
-    # hidden_inactive (universe=all only): stock rows hidden because the ticker was not viewed for
-    # 30 days and is in no other rule -- the number the page shows so a shorter list is explained.
-    hidden_inactive = 0
     with Session(engine) as session:
         if universe == "all":
             is_stock = or_(
@@ -981,13 +977,6 @@ def screener_meta(universe: Universe = "sp500") -> ScreenerMeta:
                 .select_from(TickerScore)
                 .where(is_stock, TickerScore.delisted_at.is_(None), TickerScore.ticker.in_(tracked))
             ).one()
-            expired = list(load_expired_tickers(session))
-            if expired:
-                hidden_inactive = session.exec(
-                    select(func.count())
-                    .select_from(TickerScore)
-                    .where(is_stock, TickerScore.delisted_at.is_(None), TickerScore.ticker.in_(expired))
-                ).one()
         else:
             delisted_tickers = select(TickerScore.ticker).where(TickerScore.delisted_at.is_not(None))
             total_constituents = session.exec(
@@ -995,7 +984,7 @@ def screener_meta(universe: Universe = "sp500") -> ScreenerMeta:
                 .select_from(IndexConstituent)
                 .where(IndexConstituent.index_name == universe, IndexConstituent.ticker.not_in(delisted_tickers))
             ).one()
-    return ScreenerMeta(universe=universe, total_constituents=total_constituents, hidden_inactive=hidden_inactive)
+    return ScreenerMeta(universe=universe, total_constituents=total_constituents)
 
 
 @app.post("/api/screener/recompute", response_model=RecomputeSummary)

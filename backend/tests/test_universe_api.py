@@ -113,8 +113,8 @@ def test_browsed_stock(env):
     _profile(env, "AAA")
     _view(env, "AAA")
     assert _status(env, "aaa") == {
-        "ticker": "AAA", "kind": "stock", "in_universe": False, "state": "browsed", "reasons": [], "can_add": True,
-        "can_remove": False, "added_at": None, "added_source": None, "delisted": False,
+        "ticker": "AAA", "kind": "stock", "in_universe": False, "classification": "browsed", "state": "browsed", "reasons": [],
+        "can_add": True, "can_remove": False, "added_at": None, "added_source": None, "delisted": False,
     }
 
 
@@ -665,30 +665,84 @@ def test_ensure_etf_screener_rows_never_raises(env, monkeypatch):
 # --- the classification is untouched by any of this ---------------------------------------------------------------
 
 
-def test_universes_and_reasons_are_unchanged_by_status_add_and_remove(env):
-    for ticker, etf in (("STK", False), ("OLDSTK", False), ("FUND", True), ("OLDFUND", True), ("IDX", False)):
+def _memberships(env):
+    with Session(env) as s:
+        return set(tu.load_tracked_universe(s, datetime.now())) | set(tu.load_etf_universe(s, datetime.now()))
+
+
+def test_add_admits_and_remove_evicts_the_ticker_and_the_status_agrees_each_time(env):
+    for ticker, etf in (("STK", False), ("OLDSTK", False), ("FUND", True), ("OLDFUND", True)):
         _profile(env, ticker, etf=etf)
     _view(env, "STK", days_ago=3)
     _view(env, "OLDSTK", days_ago=60)
     _view(env, "FUND", days_ago=3)
     _view(env, "OLDFUND", days_ago=60)
-    add_protection(env, "index:sp500", "IDX")
-
-    def snapshot():
-        with Session(env) as s:
-            return (
-                tu.load_tracked_universe(s, datetime.now()), tu.load_etf_universe(s, datetime.now()),
-                tu.classify_known_tickers(s, datetime.now()), tu.classify_etf_tickers(s, datetime.now()),
-                tu.load_expired_tickers(s, datetime.now()), tu.load_expired_etfs(s, datetime.now()),
-            )
-
-    before = snapshot()
-    for ticker in ("STK", "OLDSTK", "FUND", "OLDFUND", "IDX"):
-        _status(env, ticker)
+    base = _memberships(env)
+    assert not {"STK", "OLDSTK", "FUND", "OLDFUND"} & base  # opened is not admitted, however recent
+    for ticker in ("STK", "OLDSTK", "FUND", "OLDFUND"):
+        assert _status(env, ticker)["in_universe"] is False
+    for ticker in ("STK", "OLDSTK", "FUND", "OLDFUND"):
         _post(f"/api/tickers/{ticker}/universe")
-        _status(env, ticker)
-    assert snapshot() == before  # added state is invisible to every universe (the flip is a later step)
-    for ticker in ("STK", "OLDSTK", "FUND", "OLDFUND", "IDX"):
+        assert _status(env, ticker)["in_universe"] is True and ticker in _memberships(env)
+    assert _memberships(env) == base | {"STK", "OLDSTK", "FUND", "OLDFUND"}
+    for ticker in ("STK", "OLDSTK", "FUND", "OLDFUND"):
         _delete(f"/api/tickers/{ticker}/universe")
-    assert snapshot() == before
-    assert before[2]["OLDSTK"] == tu.EXPIRED  # an added-then-removed expired ticker still expires today
+        assert _status(env, ticker)["in_universe"] is False and ticker not in _memberships(env)
+    assert _memberships(env) == base
+
+
+def test_removing_an_etf_takes_it_out_of_the_etf_universe_and_the_nightly_prune_would_delete_its_row(env, monkeypatch):
+    monkeypatch.setattr(etf_refresh, "engine", env)
+    _profile(env, "FUND", etf=True)
+    _view(env, "FUND", added=True)
+    with Session(env) as s:
+        s.add(EtfScreenerRow(ticker="FUND"))
+        s.add(EtfScreenerRow(ticker="SPY"))  # a seed: stays
+        s.commit()
+        assert "FUND" in tu.load_etf_universe(s)
+    # Remove clears the state AND deletes the row; put the row back to prove the 1:45 prune alone would remove it
+    _delete("/api/tickers/FUND/universe")
+    with Session(env) as s:
+        s.add(EtfScreenerRow(ticker="FUND"))
+        s.commit()
+        keep = tu.load_etf_universe(s)
+    assert "FUND" not in keep and "SPY" in keep
+    assert etf_refresh.prune_etf_screener_rows(keep, dry_run=True) == 1  # exactly FUND
+    assert etf_refresh.prune_etf_screener_rows(keep) == 1
+    with Session(env) as s:
+        assert sorted(r.ticker for r in s.exec(select(EtfScreenerRow)).all()) == ["SPY"]
+
+
+def test_the_status_agrees_with_universe_membership_across_the_state_matrix(env):
+    import itertools
+
+    protections = (None, "index:sp500", "watchlist", "moat", "growth_note")
+    cases = {}
+    for i, (protection, added, idle, delisted, etf) in enumerate(itertools.product(protections, (False, True), (None, 3, 400), (False, True), (False, True))):
+        ticker = f"X{i:03d}"
+        cases[ticker] = (protection, added, idle, delisted, etf)
+        _profile(env, ticker, etf=etf)
+        if idle is not None or added:
+            _view(env, ticker, days_ago=idle or 1, added=added)
+        if delisted:
+            with Session(env) as s:
+                s.add(TickerScore(ticker=ticker, computed_at=NOW, delisted_at=NOW))
+                s.commit()
+        if protection and not (etf and protection in ("index:sp500", "moat", "growth_note")):  # index / manual cannot apply to an ETF
+            add_protection(env, protection, ticker)
+    members = _memberships(env)
+    with Session(env) as s:
+        bulk = tu.classify_known_tickers(s, datetime.now()) | tu.classify_etf_tickers(s, datetime.now())
+        for ticker, case in cases.items():
+            status = um.get_universe_status(s, ticker)
+            assert status.in_universe == (ticker in members), (ticker, case, status.classification)
+            assert status.classification == bulk[ticker], (ticker, case)
+        # the three states are still derived from protections and added_at
+        assert um.get_universe_status(s, "X000").state == "browsed"
+
+
+def test_the_hidden_counts_are_gone_from_the_api_schemas():
+    from core.schemas import EtfScreenerMeta, ScreenerMeta
+
+    assert "hidden_inactive" not in ScreenerMeta.model_fields and "hidden_inactive" not in EtfScreenerMeta.model_fields
+    assert not hasattr(tu, "count_hidden_inactive_etfs") and not hasattr(tu, "load_expired_tickers") and not hasattr(tu, "load_expired_etfs")

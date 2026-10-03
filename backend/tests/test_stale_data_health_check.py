@@ -131,8 +131,8 @@ def test_main_uses_the_full_tracked_universe_not_just_index_constituents(monkeyp
 
         # SEZL: has a TickerScore row only, no cache, no index membership.
         session.add(TickerScore(ticker="SEZL", overall_score=66, overall_verdict="Fail", computed_at=datetime.now()))
-        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now()))
-        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now()))
+        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
+        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
 
         # ASML: watchlisted only -- not indexed, not cached, not scored.
         watchlist = Watchlist(name="Main", created_at=datetime.now(), updated_at=datetime.now())

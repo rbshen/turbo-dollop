@@ -183,7 +183,6 @@ export default function ScreenerPage() {
             <>
               {data.length} of {meta ? meta.total_constituents : "…"} {UNIVERSE_LABELS[universe]} tickers
               {sorted.length !== data.length && ` — ${sorted.length} match the current filters`}
-              {meta && meta.hidden_inactive > 0 && ` · ${meta.hidden_inactive} not viewed in 30 days are hidden`}
             </>
           )
         }

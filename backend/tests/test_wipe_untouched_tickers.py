@@ -185,12 +185,14 @@ def test_a_tickerview_only_ticker_idle_past_the_cutoff_is_a_wipe():
     assert d.decision == tu.DECISION_WIPE and not d.has_data
 
 
-def test_the_classification_is_untouched_a_stamped_view_still_reads_viewed():
-    """Adoption stamps a TickerView row; with no added state that reads as `viewed` today (docs: step 2 flips it)."""
+def test_an_adopted_ticker_reads_browsed_not_a_member_since_the_flip():
+    """Adoption stamps a TickerView row; since the opt-in flip a bare view reads `browsed` (outside the universe), so
+    adopting a former index member does not put it back in the nightly jobs."""
     engine = make_engine()
     seed_wipe_tables(engine, "ADOPTEE", view_days_ago=0)
     with Session(engine) as session:
-        assert tu.classify_known_tickers(session, NOW)["ADOPTEE"] == tu.VIEWED
+        assert tu.classify_known_tickers(session, NOW)["ADOPTEE"] == tu.BROWSED
+        assert "ADOPTEE" not in tu.load_tracked_universe(session, NOW)
 
 
 # --- apply -------------------------------------------------------------------------------------------------------

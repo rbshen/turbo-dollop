@@ -155,7 +155,7 @@ def _etf(engine, ticker, info=INFO, profile=PROFILE, viewed=True):
     _cache(engine, ticker, "etf_info", [dict(info)])
     if viewed:
         with Session(engine) as session:
-            session.add(TickerView(ticker=ticker, last_viewed_at=datetime.now()))
+            session.add(TickerView(ticker=ticker, last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
             session.commit()
 
 

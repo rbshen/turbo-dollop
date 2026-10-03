@@ -525,7 +525,7 @@ def test_fundamentals_fetch_universe_has_no_etf_since_the_cutover_but_the_wide_k
         session.add(_profile_row("AAPL", isEtf=False, isFund=False))
         session.add(TickerScore(ticker="SPY", is_etf=True, computed_at=datetime.now()))
         session.add(TickerScore(ticker="MSFT", is_etf=False, computed_at=datetime.now()))
-        session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now()) for t in ("QQQ", "PTY", "AAPL", "SPY", "MSFT")])
+        session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user") for t in ("QQQ", "PTY", "AAPL", "SPY", "MSFT")])
         session.commit()
 
         assert nightly.load_tracked_universe(session) == ["AAPL", "MSFT"]  # the stock side only
@@ -540,7 +540,7 @@ def test_nightly_main_fetches_only_non_etfs_from_the_universe(monkeypatch, tmp_p
     with Session(engine) as session:
         session.add(_profile_row("QQQ", isEtf=True))
         session.add(_profile_row("AAPL", isEtf=False))
-        session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now()) for t in ("QQQ", "AAPL")])
+        session.add_all([TickerView(ticker=t, last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user") for t in ("QQQ", "AAPL")])
         session.commit()
 
     fetched = []

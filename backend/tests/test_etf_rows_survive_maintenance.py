@@ -36,7 +36,7 @@ def _seed_etf(engine, ticker):
     with Session(engine) as session:
         session.add(FundamentalsCache(ticker=ticker, statement_type="profile", period="latest", fetched_at=now,
                                       raw_json=json.dumps([{"companyName": f"{ticker} fund", "isEtf": True}])))
-        session.add(TickerView(ticker=ticker, last_viewed_at=now))
+        session.add(TickerView(ticker=ticker, last_viewed_at=now, added_at=now, added_source="user"))
         session.add(TrendAnalysis(ticker=ticker, computed_at=now, weinstein_stage="advance"))
         session.add(TickerLastClose(ticker=ticker, close=100.0, as_of_date=date.today(), fetched_at=now))
         session.add(TickerScore(ticker=ticker, company_name=f"{ticker} fund", is_etf=True, computed_at=now - timedelta(days=3)))

@@ -48,7 +48,14 @@ def _profile(session, ticker):
 
 
 def _viewed(session, ticker, days_ago):
+    """Opened `days_ago` days before NOW, NOT added: browsed (idle <= 30 days) or expired (idle longer)."""
     session.add(TickerView(ticker=ticker, last_viewed_at=NOW - timedelta(days=days_ago)))
+
+
+def _added(session, ticker, days_ago=1, source="user"):
+    """Added (the Add button or the grandfather backfill), last opened `days_ago` days before NOW."""
+    viewed = NOW - timedelta(days=days_ago)
+    session.add(TickerView(ticker=ticker, last_viewed_at=viewed, added_at=viewed, added_source=source))
 
 
 def _universe(engine, now=NOW):
@@ -64,7 +71,7 @@ def _reasons(engine, now=NOW):
 # --- the rules ------------------------------------------------------------------------------------
 
 
-def test_each_rule_puts_a_ticker_in_and_a_viewed_only_ticker_expires(engine):
+def test_each_rule_puts_a_ticker_in_and_browsed_expired_and_untracked_stay_out(engine):
     with Session(engine) as session:
         session.add(IndexConstituent(index_name="sp500", ticker="IDX", company_name="i", last_synced_at=NOW))
         session.add(IndexConstituent(index_name="dow", ticker="DOW", company_name="d", last_synced_at=NOW))
@@ -73,18 +80,22 @@ def test_each_rule_puts_a_ticker_in_and_a_viewed_only_ticker_expires(engine):
         session.add(watchlist)
         session.commit()
         session.add(WatchlistTicker(watchlist_id=watchlist.id, ticker="WL", added_at=NOW))
-        for ticker in ("VIEWED", "STALEVIEW", "NEVER"):
+        for ticker in ("ADDED", "ADDEDOLD", "BROWSED", "STALEVIEW", "NEVER"):
             _profile(session, ticker)
-        _viewed(session, "VIEWED", 3)
+        _added(session, "ADDED", 3)
+        _added(session, "ADDEDOLD", 200)  # added, idle far past 30 days: never expires
+        _viewed(session, "BROWSED", 3)
         _viewed(session, "STALEVIEW", 45)
         session.commit()
 
     reasons = _reasons(engine)
     assert reasons["IDX"] == reasons["DOW"] == reasons["NDQ"] == tu.INDEX
     assert reasons["WL"] == tu.WATCHLIST
-    assert reasons["VIEWED"] == tu.VIEWED
-    assert reasons["STALEVIEW"] == tu.EXPIRED and reasons["NEVER"] == tu.EXPIRED
-    assert _universe(engine) == ["DOW", "IDX", "NDQ", "VIEWED", "WL"]
+    assert reasons["ADDED"] == reasons["ADDEDOLD"] == tu.ADDED
+    assert reasons["BROWSED"] == tu.BROWSED  # opened, not added: out
+    assert reasons["STALEVIEW"] == tu.EXPIRED  # idle past 30 days: out, awaiting the wipe
+    assert reasons["NEVER"] == tu.UNTRACKED  # no TickerView row at all: out
+    assert _universe(engine) == ["ADDED", "ADDEDOLD", "DOW", "IDX", "NDQ", "WL"]
 
 
 def test_an_index_row_under_another_index_name_is_not_membership(engine):
@@ -95,13 +106,17 @@ def test_an_index_row_under_another_index_name_is_not_membership(engine):
     assert _universe(engine) == []
 
 
-@pytest.mark.parametrize("days_ago, expected_in", [(0, True), (29, True), (30, True), (31, False), (200, False)])
-def test_the_view_window_boundary_is_30_days(engine, days_ago, expected_in):
+@pytest.mark.parametrize("days_ago, expected", [(0, tu.BROWSED), (29, tu.BROWSED), (30, tu.BROWSED), (31, tu.EXPIRED), (200, tu.EXPIRED)])
+def test_the_idle_window_is_30_days_and_a_bare_view_never_admits(engine, days_ago, expected):
     with Session(engine) as session:
         _profile(session, "AAA")
         _viewed(session, "AAA", days_ago)
+        _profile(session, "ADD")
+        _added(session, "ADD", days_ago)
         session.commit()
-    assert ("AAA" in _universe(engine)) is expected_in
+    assert _reasons(engine)["AAA"] == expected  # exactly 30 days idle is still browsed; 31 is expired
+    assert "AAA" not in _universe(engine)  # browsed and expired are both OUT
+    assert _reasons(engine)["ADD"] == tu.ADDED and "ADD" in _universe(engine)  # an added ticker is in at any idle age
 
 
 def test_manual_data_protects_a_ticker_that_was_never_viewed_again(engine):
@@ -154,16 +169,37 @@ def test_a_delisted_flag_removes_a_ticker_even_from_an_index_or_a_watchlist(engi
     assert _universe(engine) == []
 
 
-def test_re_viewing_an_expired_ticker_puts_it_back(engine):
+def test_delisted_wins_first_even_when_the_ticker_is_added_or_watchlisted(engine):
+    with Session(engine) as session:
+        for ticker in ("DLADD", "DLWL"):
+            _profile(session, ticker)
+            session.add(TickerScore(ticker=ticker, computed_at=NOW, delisted_at=NOW))
+        _added(session, "DLADD", 1)
+        watchlist = Watchlist(name="L", created_at=NOW, updated_at=NOW)
+        session.add(watchlist)
+        session.commit()
+        session.add(WatchlistTicker(watchlist_id=watchlist.id, ticker="DLWL", added_at=NOW))
+        session.commit()
+    assert _reasons(engine) == {"DLADD": tu.DELISTED, "DLWL": tu.DELISTED}
+    assert _universe(engine) == []
+
+
+def test_re_viewing_an_expired_ticker_makes_it_browsed_not_a_member_and_adding_admits_it(engine):
     with Session(engine) as session:
         _profile(session, "AAA")
         _viewed(session, "AAA", 90)
         session.commit()
-    assert _universe(engine) == []
+    assert _reasons(engine)["AAA"] == tu.EXPIRED and _universe(engine) == []
 
-    assert tu.record_ticker_view("aaa", now=NOW) is True
+    assert tu.record_ticker_view("aaa", now=NOW) is True  # the touch resets the clock ...
 
-    assert _universe(engine) == ["AAA"]
+    assert _reasons(engine)["AAA"] == tu.BROWSED and _universe(engine) == []  # ... but a view no longer admits
+    with Session(engine) as session:
+        row = session.get(TickerView, "AAA")
+        row.added_at, row.added_source = NOW, "user"
+        session.add(row)
+        session.commit()
+    assert _reasons(engine)["AAA"] == tu.ADDED and _universe(engine) == ["AAA"]
 
 
 def test_the_wide_known_set_never_expires_and_keeps_delisted_tickers(engine):
@@ -223,12 +259,14 @@ def test_seeds_are_in_the_etf_universe_with_no_profile_row_and_no_view(engine):
 
 def test_each_etf_reason(engine):
     with Session(engine) as session:
-        _etf(session, "RECENT", 3)
-        _etf(session, "OLDVIEW", 45)
-        _etf(session, "NEVERVIEWED")
+        _etf(session, "RECENT", 3)  # opened, not added: browsed
+        _etf(session, "OLDVIEW", 45)  # expired
+        _etf(session, "NEVERVIEWED")  # no TickerView row: untracked
         _etf(session, "GONE", 1)
         session.add(TickerScore(ticker="GONE", computed_at=NOW, delisted_at=NOW))
         _etf(session, "SPY", 400)  # a seed the app has seen, long unviewed
+        _etf(session, "ADDEDETF")
+        _added(session, "ADDEDETF", 400)  # added, idle for over a year: still in
         watchlist = Watchlist(name="Scratch list", created_at=NOW, updated_at=NOW)
         session.add(watchlist)
         session.commit()
@@ -237,49 +275,36 @@ def test_each_etf_reason(engine):
         session.commit()
 
     reasons = _etf_reasons(engine)
-    assert reasons["RECENT"] == tu.VIEWED
-    assert reasons["OLDVIEW"] == tu.EXPIRED and reasons["NEVERVIEWED"] == tu.EXPIRED
+    assert reasons["RECENT"] == tu.BROWSED
+    assert reasons["OLDVIEW"] == tu.EXPIRED and reasons["NEVERVIEWED"] == tu.UNTRACKED
     assert reasons["GONE"] == tu.DELISTED
     assert reasons["WLETF"] == tu.WATCHLIST
     assert reasons["SPY"] == tu.SYSTEM
+    assert reasons["ADDEDETF"] == tu.ADDED
     universe = _etf_universe(engine)
-    assert {"RECENT", "WLETF", "SPY"} <= set(universe)
-    assert not {"OLDVIEW", "NEVERVIEWED", "GONE"} & set(universe)
-    assert set(universe) == set(tu.ETF_SEED_TICKERS) | {"RECENT", "WLETF"}
+    assert not {"RECENT", "OLDVIEW", "NEVERVIEWED", "GONE"} & set(universe)
+    assert set(universe) == set(tu.ETF_SEED_TICKERS) | {"ADDEDETF", "WLETF"}
 
 
-def test_an_etf_on_any_watchlist_never_expires_monitored_or_not(engine):
-    with Session(engine) as session:
-        plain = Watchlist(name="Anything", created_at=NOW, updated_at=NOW)
-        monitored = Watchlist(name="ETF", created_at=NOW, updated_at=NOW)
-        session.add_all([plain, monitored])
-        session.commit()
-        for ticker, watchlist in (("QQQ", plain), ("GLD", monitored)):
-            _etf(session, ticker, 5000)
-            session.add(WatchlistTicker(watchlist_id=watchlist.id, ticker=ticker, added_at=NOW))
-        session.commit()
-
-    for years in (0, 1, 5):
-        reasons = _etf_reasons(engine, NOW + timedelta(days=365 * years))
-        assert reasons["QQQ"] == reasons["GLD"] == tu.WATCHLIST
-
-
-@pytest.mark.parametrize("days_ago, expected_in", [(0, True), (29, True), (30, True), (31, False), (200, False)])
-def test_the_etf_view_window_boundary_is_30_days_like_stocks(engine, days_ago, expected_in):
+@pytest.mark.parametrize("days_ago, expected", [(0, tu.BROWSED), (29, tu.BROWSED), (30, tu.BROWSED), (31, tu.EXPIRED), (200, tu.EXPIRED)])
+def test_the_etf_idle_window_is_30_days_like_stocks(engine, days_ago, expected):
     with Session(engine) as session:
         _etf(session, "QQQ", days_ago)
+        _etf(session, "TLT")
+        _added(session, "TLT", days_ago)
         session.commit()
-    assert ("QQQ" in _etf_universe(engine)) is expected_in
+    assert _etf_reasons(engine)["QQQ"] == expected and "QQQ" not in _etf_universe(engine)
+    assert _etf_reasons(engine)["TLT"] == tu.ADDED and "TLT" in _etf_universe(engine)
 
 
-def test_a_fund_flag_counts_as_an_etf_and_re_viewing_an_expired_etf_puts_it_back(engine):
+def test_a_fund_flag_counts_as_an_etf_and_re_viewing_an_expired_etf_makes_it_browsed(engine):
     with Session(engine) as session:
         _etf(session, "MUTUAL", 90, fund=True)
         session.commit()
     assert _etf_reasons(engine)["MUTUAL"] == tu.EXPIRED
 
     assert tu.record_ticker_view("mutual", now=NOW) is True
-    assert _etf_reasons(engine)["MUTUAL"] == tu.VIEWED
+    assert _etf_reasons(engine)["MUTUAL"] == tu.BROWSED and "MUTUAL" not in _etf_universe(engine)
 
 
 def test_index_and_manual_reasons_never_apply_to_an_etf(engine):
@@ -303,17 +328,20 @@ def test_a_delisted_seed_is_delisted_not_system(engine):
     assert "XLC" not in _etf_universe(engine)
 
 
-def test_hidden_inactive_etfs_counts_only_expired_ones(engine):
+def test_the_expired_etfs_are_the_etfs_outside_the_universe_that_wait_for_the_wipe(engine):
     with Session(engine) as session:
-        _etf(session, "FRESH", 2)
+        _etf(session, "FRESH", 2)  # browsed
         _etf(session, "OLD1", 40)
         _etf(session, "OLD2", 90)
         _etf(session, "GONE", 90)
         session.add(TickerScore(ticker="GONE", computed_at=NOW, delisted_at=NOW))
         _etf(session, "SPY", 900)  # a seed never expires
         session.commit()
-        assert tu.load_expired_etfs(session, NOW) == {"OLD1", "OLD2"}
-        assert tu.count_hidden_inactive_etfs(session, NOW) == 2
+    reasons = _etf_reasons(engine)
+    assert {t for t, r in reasons.items() if r == tu.EXPIRED} == {"OLD1", "OLD2"}
+    assert reasons["FRESH"] == tu.BROWSED and reasons["GONE"] == tu.DELISTED and reasons["SPY"] == tu.SYSTEM
+    assert not {"FRESH", "OLD1", "OLD2", "GONE"} & set(_etf_universe(engine))
+    assert not hasattr(tu, "count_hidden_inactive_etfs") and not hasattr(tu, "load_expired_etfs")  # removed with the flip
 
 
 def test_the_partition_is_exhaustive_with_no_overlap_and_seeds_always_land_on_the_etf_side(engine):
@@ -338,14 +366,15 @@ def test_the_partition_is_exhaustive_with_no_overlap_and_seeds_always_land_on_th
 
 def test_the_stock_universe_is_the_stock_side_only_and_the_two_universes_are_exhaustive_and_disjoint(engine):
     """The cutover pin (replaces the 2026-10-02 "unchanged union" pin): load_tracked_universe holds no ETF, whether the
-    ETF is viewed, expired, a known seed or watchlisted; the stock and ETF sides partition the known set."""
+    ETF is added, expired, a known seed or watchlisted; the stock and ETF sides partition the known set."""
     with Session(engine) as session:
         session.add(IndexConstituent(index_name="sp500", ticker="IDX", company_name="i", last_synced_at=NOW))
         _profile(session, "VIEWED")
-        _viewed(session, "VIEWED", 3)
+        _added(session, "VIEWED", 3)  # an added stock
         _profile(session, "OLDSTOCK")
         _viewed(session, "OLDSTOCK", 90)  # an expired stock
-        _etf(session, "QQQ", 3)  # a viewed ETF
+        _etf(session, "QQQ")
+        _added(session, "QQQ", 3)  # an added ETF
         _etf(session, "OLDETF", 90)  # an expired ETF
         _etf(session, "SPY", 400)  # a known seed
         _profile(session, "XLK")
@@ -369,10 +398,6 @@ def test_the_stock_universe_is_the_stock_side_only_and_the_two_universes_are_exh
         stock_side, etf_side = tu.partition_known_tickers(session)
         known = set(tu.load_all_known_tickers(session))
         assert stock_side & etf_side == set() and known <= stock_side | etf_side
-        # expired sets never overlap, so the two "hidden" counts cannot double-count a ticker
-        assert tu.load_expired_tickers(session, NOW) == {"OLDSTOCK"}
-        assert tu.load_expired_etfs(session, NOW) == {"OLDETF"}
-        assert tu.count_hidden_inactive_etfs(session, NOW) == 1
 
 
 # --- recording a view -------------------------------------------------------------------------------
@@ -496,17 +521,20 @@ def test_init_db_on_an_empty_database_seeds_nothing(engine):
         assert session.exec(select(TickerView)).all() == []
 
 
-def test_nothing_leaves_the_universe_in_the_first_30_days_and_viewed_only_tickers_leave_on_day_31(engine):
+def test_the_init_db_seed_never_admits_and_an_added_ticker_stays_in_at_any_age(engine):
+    """The 2026-10-02 seed stamps every existing ticker with a view; since the flip a view admits nobody, so the seeded
+    tickers that are not index/watchlist/added are out from day one, and an added ticker stays in at day 31 and beyond."""
     _legacy_db(engine)
     db._seed_ticker_views(now=NOW)
     with Session(engine) as session:
-        session.add(TickerScore(ticker="AAPL_VIEWED", computed_at=NOW))
-        session.add(TickerView(ticker="AAPL_VIEWED", last_viewed_at=NOW))
+        session.add(TickerScore(ticker="AAPL_ADDED", computed_at=NOW))
+        _added(session, "AAPL_ADDED", 0, source="grandfathered")
         session.commit()
-    everyone = {"IDX", "PROFILED", "SCORED", "WL", "AAPL_VIEWED"}
 
-    assert set(_universe(engine, NOW + timedelta(days=29, hours=23))) == everyone
-    assert set(_universe(engine, NOW + timedelta(days=31))) == {"IDX", "WL"}  # index and watchlist stay
+    assert set(_universe(engine, NOW)) == {"IDX", "WL", "AAPL_ADDED"}  # PROFILED and SCORED (seeded views only) are out
+    assert set(_universe(engine, NOW + timedelta(days=31))) == {"IDX", "WL", "AAPL_ADDED"}  # nothing changes at day 31
+    assert _reasons(engine, NOW)["PROFILED"] == tu.BROWSED
+    assert _reasons(engine, NOW + timedelta(days=31))["PROFILED"] == tu.EXPIRED  # idle past 30 days: awaiting the wipe
 
 
 # --- every job and the Screener read the helper -----------------------------------------------------
@@ -558,22 +586,25 @@ def test_no_module_keeps_the_old_union_or_its_name():
     assert offenders == []
 
 
-def test_the_job_level_universe_loaders_exclude_expired_and_delisted_tickers(engine, monkeypatch):
+def test_the_job_level_universe_loaders_exclude_browsed_expired_and_delisted_tickers(engine, monkeypatch):
     import pipeline.nightly_fundamentals_fetch as fundamentals
     import pipeline.nightly_price_target_snapshot as price_target
 
     monkeypatch.setattr(price_target, "_profile_exchanges", lambda tickers: {t: "NASDAQ" for t in tickers})
     with Session(engine) as session:
-        for ticker in ("KEEP", "EXPIRED", "GONE"):
+        for ticker in ("KEEP", "KEEPOLD", "BROWSED", "EXPIRED", "GONE"):
             session.add(FundamentalsCache(ticker=ticker, statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
         session.add(TickerScore(ticker="GONE", computed_at=datetime.now(), delisted_at=datetime.now()))
-        session.add(TickerView(ticker="KEEP", last_viewed_at=datetime.now()))
+        session.add(TickerView(ticker="KEEP", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
+        old = datetime.now() - timedelta(days=200)
+        session.add(TickerView(ticker="KEEPOLD", last_viewed_at=old, added_at=old, added_source="grandfathered"))  # added: never expires
+        session.add(TickerView(ticker="BROWSED", last_viewed_at=datetime.now()))
         session.add(TickerView(ticker="EXPIRED", last_viewed_at=datetime.now() - timedelta(days=60)))
-        session.add(TickerView(ticker="GONE", last_viewed_at=datetime.now()))
+        session.add(TickerView(ticker="GONE", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
         session.commit()
 
-        assert fundamentals.load_fundamentals_fetch_universe(session) == ["KEEP"]
-        assert price_target.load_us_price_target_universe(session) == ["KEEP"]
+        assert fundamentals.load_fundamentals_fetch_universe(session) == ["KEEP", "KEEPOLD"]
+        assert price_target.load_us_price_target_universe(session) == ["KEEP", "KEEPOLD"]
 
 
 # --- Screener: expired rows are hidden, a re-view brings them back ----------------------------------
@@ -583,19 +614,21 @@ def _scored(session, ticker, **kwargs):
     session.add(TickerScore(ticker=ticker, company_name=ticker, is_etf=False, computed_at=datetime.now(), **kwargs))
 
 
-def test_the_screener_hides_an_expired_viewed_only_row_and_a_view_brings_it_back(engine, monkeypatch):
+def test_the_screener_lists_added_rows_only_a_view_does_not_add_and_adding_does(engine, monkeypatch):
     from core.schemas import TickerSummaryOut
 
     now = datetime.now()
     with Session(engine) as session:
         session.add(IndexConstituent(index_name="sp500", ticker="IDX", company_name="i", last_synced_at=now))
         _scored(session, "IDX")
-        _scored(session, "RECENT")
+        _scored(session, "ADDED")
+        _scored(session, "BROWSED")
         _scored(session, "OLDVIEW")
         _scored(session, "DELISTED", delisted_at=now)
-        session.add(TickerView(ticker="RECENT", last_viewed_at=now - timedelta(days=5)))
+        session.add(TickerView(ticker="ADDED", last_viewed_at=now - timedelta(days=90), added_at=now - timedelta(days=90), added_source="user"))
+        session.add(TickerView(ticker="BROWSED", last_viewed_at=now - timedelta(days=5)))
         session.add(TickerView(ticker="OLDVIEW", last_viewed_at=now - timedelta(days=40)))
-        for ticker in ("RECENT", "OLDVIEW", "DELISTED"):
+        for ticker in ("ADDED", "BROWSED", "OLDVIEW", "DELISTED"):
             _profile(session, ticker)
         session.commit()
 
@@ -606,17 +639,22 @@ def test_the_screener_hides_an_expired_viewed_only_row_and_a_view_brings_it_back
     with TestClient(main.app) as client:
         rows = {r["ticker"] for r in client.get("/api/screener", params={"universe": "all"}).json()}
         meta = client.get("/api/screener/meta", params={"universe": "all"}).json()
-        assert rows == {"IDX", "RECENT"}
-        assert meta == {"universe": "all", "total_constituents": 2, "hidden_inactive": 1}  # OLDVIEW; not the delisted one
-        # An index universe is unaffected and reports nothing hidden.
-        assert client.get("/api/screener/meta", params={"universe": "sp500"}).json()["hidden_inactive"] == 0
+        assert rows == {"IDX", "ADDED"}  # the added row stays at 90 days idle; browsed and expired rows are not listed
+        assert meta == {"universe": "all", "total_constituents": 2}  # no hidden_inactive any more
+        assert client.get("/api/screener/meta", params={"universe": "sp500"}).json() == {"universe": "sp500", "total_constituents": 1}
 
-        client.get("/api/tickers/OLDVIEW/summary")  # the page view re-adds it
+        client.get("/api/tickers/OLDVIEW/summary")  # the page view touches the ticker but does NOT admit it
+        assert {r["ticker"] for r in client.get("/api/screener", params={"universe": "all"}).json()} == {"IDX", "ADDED"}
 
+    # adding is what admits it (done directly here; the API path is covered in tests/test_universe_api.py)
+    with Session(engine) as session:
+        row = session.get(TickerView, "OLDVIEW")
+        row.added_at, row.added_source = datetime.now(), "user"
+        session.add(row)
+        session.commit()
+    with TestClient(main.app) as client:
         rows = {r["ticker"] for r in client.get("/api/screener", params={"universe": "all"}).json()}
-        meta = client.get("/api/screener/meta", params={"universe": "all"}).json()
-    assert rows == {"IDX", "RECENT", "OLDVIEW"}
-    assert meta["hidden_inactive"] == 0 and meta["total_constituents"] == 3
+    assert rows == {"IDX", "ADDED", "OLDVIEW"}
 
 
 def test_a_saved_screener_view_stays_valid_and_just_shows_fewer_rows(engine):
@@ -689,24 +727,25 @@ def test_momentum_still_reports_a_moat_rated_delisted_ticker_as_skipped(engine, 
 # --- the verification report (read-only) ------------------------------------------------------------
 
 
-def test_the_report_counts_reasons_and_lists_who_leaves_soon(engine):
+def test_the_report_counts_reasons_and_lists_who_becomes_expired_soon(engine):
     from pipeline.tracked_universe_report import build_report, format_report
 
     with Session(engine) as session:
         session.add(IndexConstituent(index_name="sp500", ticker="IDX", company_name="i", last_synced_at=NOW))
-        for ticker in ("SOON", "LATER", "OLD"):
+        for ticker in ("SOON", "LATER", "OLD", "ADD", "UNSEEN"):
             _profile(session, ticker)
         session.add(TickerScore(ticker="GONE", computed_at=NOW, delisted_at=NOW))
         _viewed(session, "SOON", 25)
         _viewed(session, "LATER", 1)
         _viewed(session, "OLD", 60)
+        _added(session, "ADD", 90)
         session.commit()
         report = build_report(session, now=NOW, within_days=7)
 
-    assert report["by_reason"] == {"index": 1, "viewed": 2, "expired": 1, "delisted": 1}
-    assert report["in_universe"] == 3 and report["expired"] == ["OLD"] and report["delisted"] == ["GONE"]
+    assert report["by_reason"] == {"index": 1, "browsed": 2, "expired": 1, "added": 1, "untracked": 1, "delisted": 1}
+    assert report["in_universe"] == 2 and report["expired"] == ["OLD"] and report["delisted"] == ["GONE"]
     assert [t for t, _ in report["expiring"]] == ["SOON"]
-    assert "Leaving within 7 days: SOON (2026-11-20)" in format_report(report)
+    assert "Browsed tickers becoming expired within 7 days: SOON (2026-11-20)" in format_report(report)
 
 
 def test_the_report_has_a_separate_etf_side_that_does_not_overlap_the_stock_side(engine):
@@ -722,12 +761,12 @@ def test_the_report_has_a_separate_etf_side_that_does_not_overlap_the_stock_side
 
     assert report["by_reason"] == {"index": 1} and report["known_stock"] == 1  # no ETF in the stock figures
     etf = report["etf"]
-    assert etf["by_reason"]["viewed"] == 1 and etf["by_reason"]["expired"] == 1 and etf["by_reason"]["delisted"] == 1
+    assert etf["by_reason"]["browsed"] == 1 and etf["by_reason"]["expired"] == 1 and etf["by_reason"]["delisted"] == 1
     assert etf["by_reason"]["system"] == len(tu.ETF_SEED_TICKERS)
     assert etf["expired"] == ["OLDETF"] and etf["delisted"] == ["GONEETF"]
     assert [t for t, _ in etf["expiring"]] == ["QQQ"]
     text = format_report(report)
-    assert "ETF side:" in text and "ETF expired" in text and "ETFs leaving within 7 days: QQQ (2026-11-20)" in text
+    assert "ETF side:" in text and "ETF expired" in text and "Browsed ETFs becoming expired within 7 days: QQQ (2026-11-20)" in text
 
 
 # --- opt-in universe, step 2: the added state (docs/specs/tracked-universe.md "Planned") -------------------------------
@@ -763,39 +802,155 @@ def test_load_added_tickers_and_the_stock_etf_split(engine):
         assert tu.load_added_by_side(session) == ({"STK"}, {"ETF"})
 
 
-def test_the_universes_are_identical_with_and_without_added_at_populated(engine):
-    """The classification flip is a LATER step: until then added_at/added_source change no universe, no reason and no
-    hidden count, whatever they hold (including an added ticker that is expired by the old rule)."""
+def test_added_at_admits_exactly_the_added_tickers_at_any_idle_age_and_nothing_else_changes(engine):
+    """The flip pin (replaces the step-2 "identical with and without added_at" pin): populating `added_at` for a browsed or
+    expired ticker puts exactly that ticker in its side's universe, and no other membership or reason changes."""
     with Session(engine) as session:
         session.add(IndexConstituent(index_name="sp500", ticker="IDX", company_name="i", last_synced_at=NOW))
         for ticker, raw in (
-            ("IDX", "{}"), ("VIEWED", "{}"), ("OLDSTOCK", "{}"), ("VIEWEDETF", '{"isEtf": true}'), ("OLDETF", '{"isEtf": true}'),
+            ("IDX", "{}"), ("BROWSED", "{}"), ("OLDSTOCK", "{}"), ("BROWSEDETF", '{"isEtf": true}'), ("OLDETF", '{"isEtf": true}'),
             ("NEVER", "{}"),
         ):
             session.add(FundamentalsCache(ticker=ticker, statement_type="profile", period="latest", fetched_at=NOW, raw_json=raw))
-        _viewed(session, "VIEWED", 3)
+        _viewed(session, "BROWSED", 3)
         _viewed(session, "OLDSTOCK", 60)
-        _viewed(session, "VIEWEDETF", 3)
+        _viewed(session, "BROWSEDETF", 3)
         _viewed(session, "OLDETF", 60)
         session.commit()
 
     def snapshot():
         with Session(engine) as session:
             return (
-                tu.load_tracked_universe(session, NOW),
-                tu.load_etf_universe(session, NOW),
-                tu.classify_known_tickers(session, NOW),
-                tu.classify_etf_tickers(session, NOW),
-                tu.load_expired_tickers(session, NOW),
-                tu.load_expired_etfs(session, NOW),
-                tu.count_hidden_inactive_etfs(session, NOW),
+                tu.load_tracked_universe(session, NOW), tu.load_etf_universe(session, NOW),
+                tu.classify_known_tickers(session, NOW), tu.classify_etf_tickers(session, NOW),
             )
 
-    without = snapshot()
+    stocks, etfs, stock_reasons, etf_reasons = snapshot()
+    assert stocks == ["IDX"] and set(etfs) == set(tu.ETF_SEED_TICKERS)
+    assert {stock_reasons[t] for t in ("BROWSED", "OLDSTOCK", "NEVER")} == {tu.BROWSED, tu.EXPIRED, tu.UNTRACKED}
     with Session(engine) as session:
-        for row in session.exec(select(TickerView)).all():  # every view row, expired ones included, becomes added
-            row.added_at, row.added_source = NOW, "user"
+        for ticker in ("OLDSTOCK", "OLDETF"):  # the two long-idle ones
+            row = session.get(TickerView, ticker)
+            row.added_at, row.added_source = NOW - timedelta(days=60), "user"
             session.add(row)
         session.commit()
-    assert snapshot() == without
-    assert "OLDSTOCK" not in without[0] and without[2]["OLDSTOCK"] == tu.EXPIRED  # an added ticker still expires today
+    stocks2, etfs2, stock_reasons2, etf_reasons2 = snapshot()
+    assert stocks2 == ["IDX", "OLDSTOCK"] and set(etfs2) == set(tu.ETF_SEED_TICKERS) | {"OLDETF"}
+    changed = {t for t in stock_reasons if stock_reasons2[t] != stock_reasons[t]} | {t for t in etf_reasons if etf_reasons2[t] != etf_reasons[t]}
+    assert changed == {"OLDSTOCK", "OLDETF"}  # nothing else moved
+    assert stock_reasons2["OLDSTOCK"] == tu.ADDED and etf_reasons2["OLDETF"] == tu.ADDED
+
+
+# --- the classification and the wipe candidate logic agree (a generated matrix) -----------------------------------------
+
+IDLE_DAYS = (None, 3, 30, 31, 400)  # None = no TickerView row
+
+
+def _matrix_db(engine):
+    """One ticker per combination of protection x added x idle x delisted, all known (a cached profile), all stocks."""
+    import itertools
+
+    from wipe_seed import add_protection
+
+    protections = (None, "index:sp500", "watchlist", "moat", "custom_valuation", "bank_capital", "growth_note")
+    cases = {}
+    for i, (protection, added, idle, delisted) in enumerate(itertools.product(protections, (False, True), IDLE_DAYS, (False, True))):
+        cases[f"M{i:03d}"] = (protection, added, idle, delisted)
+    with Session(engine) as session:
+        for ticker, (protection, added, idle, delisted) in cases.items():
+            _profile(session, ticker)
+            if idle is not None:
+                if added:
+                    _added(session, ticker, idle)
+                else:
+                    _viewed(session, ticker, idle)
+            elif added:
+                session.add(TickerView(ticker=ticker, last_viewed_at=NOW, added_at=NOW, added_source="user"))  # added implies a row
+            if delisted:
+                session.add(TickerScore(ticker=ticker, computed_at=NOW, delisted_at=NOW))
+        session.commit()
+    for ticker, (protection, *_rest) in cases.items():
+        if protection:
+            add_protection(engine, protection, ticker, now=NOW)
+    return cases
+
+
+def test_expired_is_exactly_a_wipe_candidate_and_the_matrix_agrees_everywhere(engine):
+    cases = _matrix_db(engine)
+    with Session(engine) as session:
+        reasons = tu.classify_known_tickers(session, NOW)
+        added = tu.load_added_tickers(session)
+        wipe = tu.classify_wipe_candidates(session, NOW, added=added)
+        universe = set(tu.load_tracked_universe(session, NOW))
+    assert set(reasons) == set(cases)
+    for ticker, (protection, is_added, idle, delisted) in cases.items():
+        reason, decision = reasons[ticker], wipe[ticker].decision
+        in_by_design = protection is not None or is_added
+        assert (ticker in universe) == (in_by_design and not delisted), (ticker, cases[ticker], reason)  # delisted is never in
+        if reason == tu.EXPIRED:
+            assert decision == tu.DECISION_WIPE, (ticker, cases[ticker])  # expired is exactly a wipe candidate
+        if decision == tu.DECISION_WIPE:
+            assert reason in (tu.EXPIRED, tu.DELISTED), (ticker, cases[ticker], reason)
+            assert protection is None and not is_added
+        if is_added or protection is not None:
+            assert decision == tu.DECISION_PROTECTED  # protected by design: never a candidate
+        if reason == tu.UNTRACKED:
+            assert decision == tu.DECISION_ADOPT  # no TickerView row, no protection, data present
+        if reason == tu.BROWSED:
+            assert decision == tu.DECISION_NOT_DUE
+    expired = {t for t, r in reasons.items() if r == tu.EXPIRED}
+    delisted_candidates = {t for t, r in reasons.items() if r == tu.DELISTED and wipe[t].decision == tu.DECISION_WIPE}
+    assert {t for t, d in wipe.items() if d.decision == tu.DECISION_WIPE} == expired | delisted_candidates
+    assert expired and delisted_candidates  # the matrix really exercises both
+
+
+def test_classify_one_is_the_single_ticker_twin_of_the_bulk_classification(engine):
+    cases = _matrix_db(engine)
+    with Session(engine) as session:
+        bulk = tu.classify_known_tickers(session, NOW)
+        for ticker in cases:
+            assert tu.classify_one(session, ticker, NOW) == bulk[ticker], cases[ticker]
+        assert tu.classify_one(session, "NEVERSEEN", NOW) is None
+
+
+def test_the_live_rs_benchmark_and_the_benchmark_constant_are_system_in_both_the_classification_and_the_wipe(engine, monkeypatch):
+    from wipe_seed import add_protection
+
+    monkeypatch.setattr(tu, "ETF_SEED_TICKERS", frozenset())  # neither is a seed here
+    with Session(engine) as session:
+        for ticker in ("QQQX", "BENCH", tu.WEINSTEIN_BENCHMARK_TICKER):
+            _profile(session, ticker)
+            _viewed(session, ticker, 90)
+        session.commit()
+    add_protection(engine, "rs_benchmark", "QQQX", now=NOW)
+    with Session(engine) as session:
+        reasons = tu.classify_known_tickers(session, NOW) | tu.classify_etf_tickers(session, NOW)
+        wipe = tu.classify_wipe_candidates(session, NOW)
+    assert reasons["QQQX"] == tu.SYSTEM and reasons[tu.WEINSTEIN_BENCHMARK_TICKER] == tu.SYSTEM
+    assert reasons["BENCH"] == tu.EXPIRED and wipe["BENCH"].decision == tu.DECISION_WIPE
+    assert wipe["QQQX"].decision == wipe[tu.WEINSTEIN_BENCHMARK_TICKER].decision == tu.DECISION_PROTECTED
+
+
+def test_the_grandfathered_25_stay_in_both_universes_at_a_simulated_2026_11_03(engine):
+    """The live case: 18 stocks + 7 ETFs, views stamped 2026-10-02/03 by the seed, `added_at` 2026-10-03 08:33 (grandfathered).
+    A month later their views are 30+ days old: browsed tickers would be expired, but these are added, so they stay."""
+    stocks = "AAP ACHR AXTI BB BLDR CNI ETSY FLY IONQ JOBY MAN PARA RIVN SINGY TAP TMP TXG WCN".split()
+    etfs = "GLD IBIT QQQ SMH SOXX TECL TLT".split()
+    seeded = datetime(2026, 10, 2, 7, 0)
+    added_at = datetime(2026, 10, 3, 8, 33, 2)
+    with Session(engine) as session:
+        for ticker in stocks:
+            _profile(session, ticker)
+        for ticker in etfs:
+            _etf(session, ticker)
+        for ticker in stocks + etfs:
+            session.add(TickerView(ticker=ticker, last_viewed_at=seeded, added_at=added_at, added_source="grandfathered"))
+        # an unrelated opened-only ticker in the same situation DOES lapse
+        _profile(session, "OPENEDONLY")
+        session.add(TickerView(ticker="OPENEDONLY", last_viewed_at=seeded))
+        session.commit()
+    later = datetime(2026, 11, 3, 12, 0)
+    assert set(_universe(engine, later)) == set(stocks)
+    assert set(_etf_universe(engine, later)) == set(tu.ETF_SEED_TICKERS) | set(etfs)
+    assert _reasons(engine, later)["OPENEDONLY"] == tu.EXPIRED and "OPENEDONLY" not in _universe(engine, later)
+    assert {_reasons(engine, later)[t] for t in stocks} == {tu.ADDED}

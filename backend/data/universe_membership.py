@@ -1,11 +1,10 @@
 """The opt-in universe API's data layer (step 3a): the status of a ticker, Add, Remove, and the best-effort immediate
-ETF row for a watchlist add. Spec: docs/specs/tracked-universe.md ("Planned: opt-in universe and wipe" and "API").
+ETF row for a watchlist add. Spec: docs/specs/tracked-universe.md ("The opt-in universe" and "API").
 
-The status is the DESIGN state: protected (any index, any watchlist, a seed / the benchmark / the live rs_benchmark,
-owner-entered data) or added (`TickerView.added_at` set) or browsed. It is computed from the raw protection sets and
-`added_at`, NOT from the classification reason (`data/tracked_universe.py::_classify`), which, until the classification
-flip ships, still lets any recently viewed ticker into the nightly universe. Nothing here changes `_classify`, a
-universe, a screener or a nightly job.
+`state` is protected (any index, any watchlist, a seed / the benchmark / the live rs_benchmark, owner-entered data), added
+(`TickerView.added_at` set) or browsed (neither). `in_universe` and `classification` come from
+`data/tracked_universe.py::classify_one`, the single-ticker twin of the classification the universes use (since the flip,
+2026-10-03), so the status cannot disagree with `load_tracked_universe` / `load_etf_universe`.
 
 `get_universe_status` is cache-only: zero FMP calls, no write, no touch of `TickerView`.
 
@@ -32,7 +31,7 @@ from core.tickers import is_us_listed, normalize_ticker
 from data.etf_data import known_etf_tickers
 from data.etf_screener_refresh import refresh_etf_screener
 from data.ticker_score import compute_ticker_score
-from data.tracked_universe import load_protection_reasons
+from data.tracked_universe import OUT_OF_UNIVERSE, classify_one, load_protection_reasons
 from helpers.first import _first
 
 logger = logging.getLogger(__name__)
@@ -95,10 +94,12 @@ def get_universe_status(session: Session, ticker: str) -> UniverseStatusOut:
     else:
         state = "browsed"
     exchange = profile.get("exchange") if profile else None
+    classification = classify_one(session, ticker)  # the SAME rule the universes use: in_universe cannot disagree with them
     return UniverseStatusOut(
         ticker=ticker,
         kind=kind,
-        in_universe=state != "browsed",
+        in_universe=classification is not None and classification not in OUT_OF_UNIVERSE,
+        classification=classification,
         state=state,
         reasons=reasons,
         can_add=state == "browsed" and not delisted and is_us_listed(ticker, exchange),
@@ -226,8 +227,8 @@ async def _add_etf(ticker: str, status: UniverseStatusOut) -> UniverseAddOut:
 def remove_from_universe(ticker: str) -> UniverseRemoveOut:
     """Remove: refused (409, with the reasons) while any protection applies; a no-op when not added; otherwise clears
     `added_at` / `added_source` (never `last_viewed_at`). An ETF's EtfScreenerRow is deleted with it; a stock's
-    TickerScore and everything else stay (the wipe handles them later). Until the classification flip, a recently viewed
-    ticker is still in the nightly universe by the old rule, so the nightly job may rebuild an ETF's row."""
+    TickerScore and everything else stay (the wipe handles them later). Since the classification flip the ticker is
+    out of the universe at once (it reads browsed, or expired when idle), and the 1:45 job prunes an ETF's row anyway."""
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         status = get_universe_status(session, ticker)

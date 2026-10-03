@@ -85,7 +85,7 @@ or nothing available because the `analyst_ratings` group went off mid-run with n
 no_data is not a failure.
 
 **Universe** (`load_us_price_target_universe`): `load_tracked_universe` (index, any watchlist, the system
-set, manual data, viewed in the last 30 days; delisted-flagged excluded, see
+set, manual data, or added by the owner; delisted-flagged excluded, see
 [Tracked universe](tracked-universe.md)) filtered to US-listed tickers via the cached profile
 exchange — 580 tickers on 2026-10-01, before the 30-day expiry existed (grew from an earlier
 518-ticker S&P-500-plus-Dow scope once the wider universe function was substituted in). **Known ETFs/funds are then skipped** (`load_price_target_run_universe`, the same

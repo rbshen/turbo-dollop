@@ -2,7 +2,7 @@
 yet) will use, and the two reads behind GET /api/etf-screener and /api/etf-screener/meta.
 
 Rows live in models.py::EtfScreenerRow and are read only for tickers in
-data/tracked_universe.py::load_etf_universe: an expired ETF keeps its row but is not returned. The
+data/tracked_universe.py::load_etf_universe: a row of an ETF outside the universe is not returned (and the nightly ETF job deletes it). The
 equity-only Beta rule is applied here, at read time (the row stores FMP's raw beta).
 
 `engine` is not used here: every function takes the caller's Session (the callers own the per-module engine
@@ -17,7 +17,7 @@ from core.models import EtfScreenerRow
 from core.schemas import EtfRangeOut, EtfScreenerMeta, EtfScreenerRowOut
 from core.tickers import normalize_ticker
 from data.etf_data import is_equity_asset_class
-from data.tracked_universe import count_hidden_inactive_etfs, load_etf_universe
+from data.tracked_universe import load_etf_universe
 
 # The columns an upsert may set: every EtfScreenerRow column except the key and updated_at (always stamped).
 WRITABLE_FIELDS: frozenset[str] = frozenset(EtfScreenerRow.model_fields) - {"ticker", "updated_at"}
@@ -76,7 +76,6 @@ def etf_screener_meta(session: Session, now: datetime | None = None) -> EtfScree
     return EtfScreenerMeta(
         total_etfs=len(load_etf_universe(session, now)),
         row_count=len(rows),
-        hidden_inactive=count_hidden_inactive_etfs(session, now),
         asset_classes=sorted({row.asset_class for row in rows if row.asset_class}),
         ranges=ranges,
     )

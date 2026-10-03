@@ -90,8 +90,8 @@ def test_load_tracked_universe_unions_index_score_cache_and_watchlist_tickers(mo
         session.add(IndexConstituent(index_name="sp500", ticker="MSFT", company_name="Microsoft", last_synced_at=datetime.now()))
         session.add(FundamentalsCache(ticker="MSFT", statement_type="profile", period="latest", fetched_at=datetime.now(), raw_json="{}"))
         # IREN and SEZL are viewed-only tickers: they stay in only while the view is recent.
-        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now()))
-        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now()))
+        session.add(TickerView(ticker="IREN", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
+        session.add(TickerView(ticker="SEZL", last_viewed_at=datetime.now(), added_at=datetime.now(), added_source="user"))
         session.commit()
 
         # ASML: watchlisted only -- not indexed, not cached, not scored. This is
