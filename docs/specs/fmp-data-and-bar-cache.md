@@ -185,10 +185,17 @@ Key mechanics:
   calendar days).
 - **Freshness is close-aware, never a flat TTL** (`_is_stale`): a row is trusted only if its LAST
   bar matches the most recently completed session for its interval. Daily:
-  `_most_recent_completed_trading_date()` (US/Eastern, weekday-aware, NOT holiday-aware). 60m:
-  `_most_recent_completed_intraday_bar_start()` — FMP labels bars by start (09:30..15:30, the last
-  only 30 min); before 10:30 ET, on weekends, or pre-open it resolves to the prior trading day's
-  15:30 bar, so overnight/weekend re-runs are not falsely stale. A mismatch forces a live refetch.
+  `_most_recent_completed_trading_date()` (US/Eastern, weekday-aware, still NOT holiday-aware — a
+  separate, later change). 60m: `_most_recent_completed_intraday_bar_start()` — holiday- and
+  early-close-aware since 2026-10-03: it walks the XNYS calendar (`pandas_market_calendars`, lazily
+  imported; the schedule lookup is `helpers/trading_calendar.py::xnys_sessions`, cached per window).
+  FMP labels bars by start; slots run 60 min from the open, the last one cut at the session's real
+  close, so 09:30..15:30 (a 30-min final bar) normally and 09:30..12:30 on a 13:00 early close. During
+  a session it is the last slot fully elapsed; before the first bar completes, on weekends and on
+  holidays it is the previous session's last bar, so overnight/weekend/holiday re-runs are not falsely
+  stale. If the calendar cannot be imported or consulted it logs once and falls back to the old
+  weekday-only logic (`_weekday_only_intraday_bar_start`: 16:00 close, 15:30 last bar, no holidays).
+  A mismatch forces a live refetch.
   `force=True` still live-fetches unconditionally.
 - **Read path is deliberately not ORM-based.** Freshness/coverage come from one grouped MIN/MAX
   query per batch; the read is one column-only query with the caller's window trimmed in SQL;
@@ -223,9 +230,16 @@ Key mechanics:
   one recompute. (It previously trusted a stored row on a flat 1-day `computed_at` timer, which
   served a row a full session behind from the 4pm ET close until the next nightly trend run and
   recomputed an unchanged row every weekend day.) `cache_only=True` reads never recompute.
-- **Known limits.** Not holiday-aware: a market holiday looks like one missed session and costs
-  one extra (harmless) refetch that day — and, for the trend endpoint above, one recompute per
-  on-demand read that day.
+- **Known limits.** The DAILY helper (`_most_recent_completed_trading_date`) is not holiday-aware: a
+  market holiday looks like one missed session and costs one extra (harmless) refetch that day — and,
+  for the trend endpoint above, one recompute per on-demand read that day. Making it session-aware is
+  a separate later change (its callers anchor sector heatmap, breadth, trend `bars_as_of`, ...). The
+  60m helper is calendar-aware (above): before 2026-10-03 it was not, and the "one extra refetch" was
+  wrong for it — every holiday night, and the half-day night plus the nights after it up to the next
+  session (four in a row around Thanksgiving), refetched every monitored ticker in BOTH 2h jobs (~210
+  calls a night) and the stale count read everything stale (40 of 743 nightly runs 2024-09-20..2026-10-02).
+  Unscheduled closures are unknown to the calendar until `pandas_market_calendars` is upgraded; on such a
+  night the 60m check behaves as the old logic did (one wasted refetch, a high stale count).
 - **Other technical-signal consumers have no read-time freshness gate.** BB+RSI, Warren and
   Liquidity Zones read cache-only and recompute unconditionally every night; their only timers
   are the 7-day `STALE_AFTER_DAYS` abandonment sweeps (`entry_signal_data.py`,

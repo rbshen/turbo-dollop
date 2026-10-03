@@ -76,6 +76,10 @@ _MARKET_CLOSE_HOUR_ET = 16  # 4:00pm ET, ignored on minute precision, matching
 # 09:30/10:30/.../15:30 each trading day -- 7 bars, the LAST one only 30
 # minutes (15:30-16:00, since the session itself closes at 16:00) --
 # confirmed empirically against real provider output before writing this.
+# (A 13:00 early close has 4: 09:30..12:30.) These two grids now only serve
+# _weekday_only_intraday_bar_start, the fallback when the XNYS calendar
+# cannot be loaded; the calendar-aware path derives its slots from each
+# session's real open and close.
 _INTRADAY_BAR_START_MINUTES = [0, 60, 120, 180, 240, 300, 360]
 _INTRADAY_BAR_END_MINUTES = [60, 120, 180, 240, 300, 360, 390]
 
