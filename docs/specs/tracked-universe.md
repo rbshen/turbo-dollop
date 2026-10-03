@@ -14,7 +14,7 @@ ETF is in it** (see "The ETF universe" below). A stock is in when it is **not de
 | a | member of the S&P 500, Nasdaq-100 or Dow list | `IndexConstituent` (`index_name` in `sp500`, `dow`, `nasdaq`) |
 | b | on **any** watchlist, monitored or not | `WatchlistTicker` |
 | c | its page was opened in the last 30 days (`TRACKED_VIEW_WINDOW_DAYS`) | `TickerView.last_viewed_at` |
-| d | it carries manual data: a Moat rating, any custom valuation (active or not), or a bank-capital entry | `TickerMoat`, `TickerCustomValuation`, `TickerBankCapitalMetrics` |
+| d | it carries manual data: a Moat rating, any custom valuation (active or not), a bank-capital entry, or a growth-catalyst note | `TickerMoat`, `TickerCustomValuation`, `TickerBankCapitalMetrics`, `GrowthCatalystNote` (the list is `ticker_data_registry.MANUAL_DATA_MODELS`) |
 
 (The former rule "in `SYSTEM_TICKERS`, the 11 sector ETFs plus SPY" was retired at the cutover: those are ETFs, kept in
 the ETF universe by `ETF_SEED_TICKERS`.)
@@ -66,6 +66,50 @@ below is read by `GET /api/etf-screener`, `pipeline/nightly_etf_screener.py` (1:
   (`data/etf_screener_refresh.py`), see [ETFs screener](etf-screener.md).
 - **Guard.** `tests/test_tracked_universe.py` pins that the stock universe holds no ETF (viewed, expired, seed or
   watchlisted), that the stock and ETF sides are exhaustive with no overlap, and that `SYSTEM_TICKERS` is gone.
+
+## Planned: opt-in universe and wipe (NOT YET ACTIVE)
+
+**Status: step 1 only.** The classification above is unchanged (`viewed` is still a reason, a view still re-adds a ticker, nothing is deleted by any
+scheduled job). What exists is a registry, a pure decision function and a manual wipe job that is **dry-run only**. Decisions and rationale:
+`docs/decisions.md` (2026-10-03); investigation: `docs/universe-add-wipe-investigation-2026-10-03.md`.
+
+**The design.** A ticker the user opens but does not **Add** is *browsed*: it works, but is in no screener and no nightly job. **Add** makes it *added*
+(an ETF's `EtfScreenerRow` is written at once, a stock's score computed at once); **Remove** undoes it. Implicitly in the universe, never wiped, no
+Remove button, each protection sufficient alone: member of any index in `IndexConstituent`; on any watchlist; a seed ETF (`ETF_SEED_TICKERS`), the
+`WEINSTEIN_BENCHMARK_TICKER` or the live `rs_benchmark` setting; manual data (Moat, custom valuation incl. inactive, bank capital, growth-catalyst
+note). **Added tickers never expire by the 30-day rule.** The wipe removes a ticker whose `TickerView.last_viewed_at` is more than 30 days old, that has no
+protection and is not added; delisted tickers follow the same rule. A ticker with stored data and no `TickerView` row and no protection is *adopted*
+(stamped now, logged), never wiped blind, and becomes eligible 30 days later. After a wipe the ticker has no state, so the Add button reappears.
+
+**What exists (step 1).**
+
+- `data/ticker_data_registry.py`: every table with a per-ticker key, classified WIPE (with the deletion order, `TickerView` last), PROTECTING
+  (`IndexConstituent`, `WatchlistTicker`, `TickerMoat`, `TickerCustomValuation`, `TickerBankCapitalMetrics`, `GrowthCatalystNote`) or KEEP
+  (`SectorEtfReturn`). `newssentimentcache` (leftover of the removed Alpha Vantage feature, no model) is registered by name with its own DDL.
+  `FundamentalsCache` rows with `statement_type = 'forex_rate'` are never touched. `unclassified_ticker_tables(engine)` is the guard:
+  `tests/test_ticker_data_registry.py` fails when a table with a ticker-like column is not classified, and `--apply` refuses on one.
+- `data/tracked_universe.py::classify_wipe_candidates(session, now, added=(), tickers=None)`: per ticker a decision (`wipe` / `adopt` / `protected` /
+  `not due` / `ignored`), the protection reasons, last touch and days idle, computed from the RAW sets (never from `_classify`, which answers
+  `delisted` first). `load_manual_data_tickers` now includes `GrowthCatalystNote` and reads its table list from the registry's `MANUAL_DATA_MODELS`.
+- `pipeline/wipe_untouched_tickers.py` (manual, **not registered**: no crontab line, no `CRON_JOB_NAMES`/cadence/metadata entry, no heartbeat). Dry run is the
+  default: read-only connection, no `init_db`, no log file, adopts nothing. `--apply` is locked behind `FATHOM_ALLOW_WIPE_APPLY=1`; it runs one
+  `BEGIN IMMEDIATE` transaction per ticker, re-checks the decision inside it, deletes in registry order, adopts per the rule. `--tickers`, `--limit`
+  (wipes oldest touch first, then adoptions).
+
+**Not done, in order (step 2 and later).** Add `TickerView.added_at` / `added_source`; supply the real added loader (the job's `load_added_tickers` is an empty
+placeholder); grandfather the 25 viewed-only tickers as added BEFORE the classification flips `viewed` to `added` (otherwise 18 stocks leave the Stocks
+Screener and 7 ETF rows are deleted by the 1:45 job); then the flip, the API and buttons, removal of `ScreenerMeta.hidden_inactive` and its UI, the first
+`--apply` (after a backup and a disk check), and the cron registration after the reschedule. With the added set still empty, `--apply` would wipe every
+viewed-only ticker on day 30: that is why it is locked.
+
+**Doc lines the classification-flip step must update** (they still describe "hidden, not deleted" or "viewing re-adds"; deliberately unedited until then):
+`CLAUDE.md` (Tracked universe paragraph; the "Nothing is ever deleted" wording); this file, "The rule" ("nothing is ever deleted by this rule", L22-24) and
+"What the jobs and pages do for an expired ticker" ("viewing the ticker re-adds it at once", L108-111); `docs/specs/overview.md` L225-232 ("Viewing the ticker
+again re-adds it"); `docs/decisions.md` 2026-10-02 entry ("viewing re-adds; nothing is deleted"); `backend/OPS_RUNBOOK.md` "Tracked universe" ("viewing it again
+re-adds it", stale verify counts) and the delisted section ("Nothing is ever deleted"); `docs/specs/fmp-data-and-bar-cache.md` L469 ("Nothing is ever deleted");
+`docs/specs/etf-screener.md` L54 and the `EtfScreenerRow` / `etf_screener_data.py` docstrings ("an expired ETF keeps its row", contradicting its own Retention
+section and `prune_etf_screener_rows`), L227 ("never deleted"); `docs/nightly-failures-and-schedule-ui-2026-10-02.md` L241; `backend/data/tracked_universe.py` module
+docstring (L17) and `core/models.py::TickerView` ("A row is never deleted: expiry is a filter, not a purge"); the `ScreenerMeta.hidden_inactive` text in `overview.md`.
 
 ## Who uses which
 

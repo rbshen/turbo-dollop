@@ -656,3 +656,27 @@ them and `/api/screener?universe=all` no longer serves them). **Audit:** no prun
 profile, non-US exchange, or the ETF universe), pinned by `tests/test_etf_rows_survive_maintenance.py`. **Side effects:** the 11
 sector ETFs' bars are now filled by the Sector Heatmap job (1:35) instead of arriving warm from the 1:05 job (11 calls, still one batch).
 Detail: `docs/specs/etf-screener.md`, "Cutover".
+
+### 2026-10-03 — Opt-in universe and the wipe: decisions (step 1 built, nothing active)
+Investigation: `docs/universe-add-wipe-investigation-2026-10-03.md`; spec: `docs/specs/tracked-universe.md`, "Planned: opt-in universe and wipe".
+**Decisions (owner):**
+- **Opt-in universe.** A ticker the user opens but does not Add is "browsed": not in the screeners, not in the nightly jobs. Clicking Add makes it "added". The
+  Add and Remove buttons come in later steps. Stocks and ETFs alike. This replaces the 2026-10-02 rule "viewing an expired ticker re-adds it".
+- **Implicitly in the universe, never wiped, no Remove button; each protection is independent and sufficient on its own:** a member of any index in
+  `IndexConstituent` (live names: `sp500`, `nasdaq`, `dow`); on any watchlist, while it is; a seed ETF (`ETF_SEED_TICKERS`) plus `WEINSTEIN_BENCHMARK_TICKER`
+  plus the live `WeinsteinSettings.rs_benchmark`; manual data (`TickerMoat`, `TickerCustomValuation` incl. inactive rows, `TickerBankCapitalMetrics`,
+  `GrowthCatalystNote`).
+- **Added tickers never expire by the 30-day rule.** They leave only through the Remove button, so an added ticker is protected from the wipe.
+- **The wipe rule.** A ticker is wiped when its last touch (`TickerView.last_viewed_at`) is more than 30 days old AND it has no protection AND it is not added
+  (exactly 30 days idle is not due). Delisted tickers follow the same rule; delisted plus any protection stays.
+- **Adoption.** A ticker with stored data but NO `TickerView` row and no protection (a stock that left an index, an orphan) is never wiped blind: the wipe job
+  stamps `last_viewed_at = now` ("adopts" it, logged) and it becomes eligible 30 days after that.
+- **Wipe order per ticker:** derived tables first, caches next, `TickerView` last, one `BEGIN IMMEDIATE` transaction per ticker (the journal mode is not WAL), the
+  decision re-checked inside it. FundamentalsCache `forex_rate` rows (keys look like tickers: EURUSD, ...) are never touched.
+- **Not registered anywhere:** no crontab line, no `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS`/`JOB_METADATA` entry, no heartbeat, until the cron reschedule is done.
+**Built in step 1 (no schema change, no live write):** `data/ticker_data_registry.py` (every per-ticker table classified WIPE / PROTECTING / KEEP, the deletion order,
+the schema guard), `data/tracked_universe.py::classify_wipe_candidates` (raw protection sets, takes the added set as a parameter, default empty), the
+`GrowthCatalystNote` addition to `load_manual_data_tickers`, and `pipeline/wipe_untouched_tickers.py`: dry run by default (read-only connection, writes nothing),
+`--apply` locked behind `FATHOM_ALLOW_WIPE_APPLY=1`. **Still to come:** step 2 (the `added_at`/`added_source` columns, the real added loader, the grandfathering of
+the 25 viewed-only tickers BEFORE the classification flips `viewed` to `added`), the API and buttons, removal of `hidden_inactive`, the docs sweep for "hidden, not
+deleted"/"viewing re-adds", the first `--apply` after a backup and disk check, and (after the reschedule) the cron registration.

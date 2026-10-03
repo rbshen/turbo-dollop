@@ -8,8 +8,8 @@ flagged delisted AND at least one of:
   (a) it is a member of the S&P 500, Nasdaq-100 or Dow list (`IndexConstituent`);
   (b) it is on ANY watchlist, monitored or not (`WatchlistTicker`);
   (c) its page was opened in the last `TRACKED_VIEW_WINDOW_DAYS` days (`TickerView`);
-  (d) it carries manual data the owner entered: a Moat rating, a custom valuation or a bank-capital
-      entry. Never expires, because the Monthly Momentum ranking is "Moat-rated tracked tickers" and
+  (d) it carries manual data the owner entered: a Moat rating, a custom valuation, a bank-capital
+      entry or a growth-catalyst note. Never expires, because the Monthly Momentum ranking is "Moat-rated tracked tickers" and
       would otherwise silently shed them.
 (The old "system set" rule, `SYSTEM_TICKERS` = the 11 sector ETFs plus SPY, is retired: those are ETFs, protected on the
 ETF side by `ETF_SEED_TICKERS`.)
@@ -27,8 +27,11 @@ Defined once, imported everywhere: `tests/test_tracked_universe.py` fails if a j
 re-declares the union or reads the old function names."""
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, time, timedelta
+from typing import Iterable
 
+from sqlalchemy import inspect, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
@@ -37,15 +40,14 @@ from core.db import engine
 from core.models import (
     FundamentalsCache,
     IndexConstituent,
-    TickerBankCapitalMetrics,
-    TickerCustomValuation,
-    TickerMoat,
     TickerScore,
     TickerView,
     WatchlistTicker,
+    WeinsteinSettings,
 )
 from core.tickers import normalize_ticker
 from data.etf_data import known_etf_tickers
+from data.ticker_data_registry import MANUAL_DATA_MODELS, WIPE_TABLES
 from data.sector_heatmap_data import SECTOR_ETFS
 
 logger = logging.getLogger(__name__)
@@ -93,12 +95,21 @@ def load_all_known_tickers(session: Session) -> list[str]:
     return sorted(load_index_tickers(session) | set(profiles) | set(scored) | load_watchlist_tickers(session))
 
 
+def load_manual_data_tickers_by_table(session: Session) -> dict[str, set[str]]:
+    """{table name: tickers} for each owner-entered per-ticker table (`ticker_data_registry.MANUAL_DATA_MODELS`:
+    Moat, custom valuation, bank-capital entry, growth-catalyst note)."""
+    return {
+        model.__tablename__: set(session.exec(select(model.ticker)).all()) for model in MANUAL_DATA_MODELS
+    }
+
+
 def load_manual_data_tickers(session: Session) -> set[str]:
-    """Rule (e): a Moat rating, any custom valuation (active or not: switching it off is not deleting
-    the owner's work), or a bank-capital entry."""
+    """Rule (d): a Moat rating, any custom valuation (active or not: switching it off is not deleting
+    the owner's work), a bank-capital entry, or a growth-catalyst note. The list of tables is the registry's
+    `MANUAL_DATA_MODELS`, the one place a new user-entered table must be added."""
     tickers: set[str] = set()
-    for column in (TickerMoat.ticker, TickerCustomValuation.ticker, TickerBankCapitalMetrics.ticker):
-        tickers |= set(session.exec(select(column)).all())
+    for found in load_manual_data_tickers_by_table(session).values():
+        tickers |= found
     return tickers
 
 
@@ -236,3 +247,145 @@ def record_ticker_view(ticker: str, now: datetime | None = None) -> bool:
         logger.warning("record_ticker_view failed for %s", ticker, exc_info=True)
         return False
 
+
+
+# --- the wipe (docs/specs/tracked-universe.md, "Planned: opt-in universe and wipe": NOT YET ACTIVE) --------------
+# Pure decision logic for pipeline/wipe_untouched_tickers.py. It is computed from the RAW protection sets, never
+# from `_classify` reasons: `_classify` answers "delisted" first, so a delisted ticker that is also on a watchlist
+# would read as unprotected there. Nothing here writes; nothing here is read by a nightly job or a page yet, and the
+# classification above is unchanged (a `TickerView` row with no added state still reads as "viewed").
+
+WIPE_IDLE_DAYS = TRACKED_VIEW_WINDOW_DAYS  # the same 30 days: idle strictly MORE than this is due
+
+DECISION_WIPE = "wipe"  # idle past the cutoff, unprotected, not added
+DECISION_ADOPT = "adopt"  # has stored data, unprotected, and NO TickerView row: stamp it, never wipe blind
+DECISION_PROTECTED = "protected"  # at least one protection (each is sufficient on its own)
+DECISION_NOT_DUE = "not due"  # unprotected, has a TickerView row, idle for <= the cutoff
+DECISION_IGNORED = "ignored"  # no stored data, no TickerView row, no protection (only seen via --tickers)
+
+PROTECTION_INDEX = "index"
+PROTECTION_WATCHLIST = "watchlist"
+PROTECTION_SEED = "seed"
+PROTECTION_BENCHMARK = "benchmark"  # WEINSTEIN_BENCHMARK_TICKER
+PROTECTION_RS_BENCHMARK = "rs_benchmark"  # the live WeinsteinSettings.rs_benchmark value
+PROTECTION_ADDED = "added"
+PROTECTION_MANUAL_PREFIX = "manual:"  # + the table name, e.g. "manual:tickermoat"
+
+
+@dataclass(frozen=True)
+class WipeDecision:
+    ticker: str
+    decision: str
+    protections: tuple[str, ...]
+    last_viewed_at: datetime | None
+    days_idle: float | None  # None when there is no TickerView row
+    has_data: bool  # any row in a WIPE table other than TickerView (forex_rate rows never count)
+    delisted: bool
+
+
+def load_any_index_tickers(session: Session) -> set[str]:
+    """Every ticker in `IndexConstituent`, whatever its `index_name`. Wider than `load_index_tickers` (which is
+    the three names the universe rule covers): a future index added to the table protects its members from the
+    wipe without anyone remembering to touch this module."""
+    return set(session.exec(select(IndexConstituent.ticker)).all())
+
+
+def read_rs_benchmark(session: Session) -> str | None:
+    """The live Weinstein RS benchmark. A plain read: `helpers.weinstein_config.get_weinstein_settings` seeds the
+    row lazily (a write), which a dry run must never do, so the singleton row is read directly (None when
+    the table has no row yet)."""
+    row = session.get(WeinsteinSettings, "default")
+    return normalize_ticker(row.rs_benchmark) if row is not None and row.rs_benchmark else None
+
+
+def _tickers_with_data(session: Session, wanted: set[str] | None) -> set[str]:
+    """Tickers holding at least one row in a WIPE table other than TickerView; `wanted` narrows the lookup. A
+    FundamentalsCache row a table's `keep_where` names (forex_rate) never counts: its key is not a ticker."""
+    if wanted is not None and not wanted:
+        return set()
+    inspector = inspect(session.get_bind())
+    found: set[str] = set()
+    params: dict = {}
+    where_ticker = ""
+    if wanted is not None:
+        names = sorted(wanted)
+        params = {f"t{i}": ticker for i, ticker in enumerate(names)}
+        where_ticker = f"ticker IN ({', '.join(':' + key for key in params)})"
+    for entry in WIPE_TABLES:
+        if entry.name == TickerView.__tablename__ or not inspector.has_table(entry.name):
+            continue
+        clauses = [c for c in (where_ticker, f"NOT ({entry.keep_where})" if entry.keep_where else "") if c]
+        sql = f'SELECT DISTINCT "{entry.key_column}" FROM "{entry.name}"' + (f" WHERE {' AND '.join(clauses)}" if clauses else "")
+        found |= {row[0] for row in session.connection().execute(text(sql), params)}
+    return found
+
+
+def classify_wipe_candidates(
+    session: Session,
+    now: datetime | None = None,
+    *,
+    added: Iterable[str] = (),
+    tickers: Iterable[str] | None = None,
+) -> dict[str, WipeDecision]:
+    """{ticker: WipeDecision} for every ticker the app holds state for (stored data or a TickerView row), or for
+    exactly `tickers` when given. `added` is the set of explicitly added tickers (default empty: step 2 supplies the
+    real loader); an added ticker is protected, because added tickers never expire by the 30-day rule.
+
+    Order of evaluation: any protection -> protected; else no TickerView row -> adopt (stored data) or ignored (none);
+    else idle strictly more than WIPE_IDLE_DAYS -> wipe; else not due. Delisted tickers follow the same rule (the
+    flag is reported, never used): delisted + any protection stays, delisted unprotected idle > 30 days is wiped."""
+    now = now or datetime.now()
+    cutoff = now - timedelta(days=WIPE_IDLE_DAYS)
+    wanted = {normalize_ticker(t) for t in tickers} if tickers is not None else None
+
+    index = load_any_index_tickers(session)
+    watchlist = load_watchlist_tickers(session)
+    seeds = set(ETF_SEED_TICKERS)
+    benchmark = {WEINSTEIN_BENCHMARK_TICKER}
+    rs = read_rs_benchmark(session)
+    rs_benchmark = {rs} if rs else set()
+    manual = load_manual_data_tickers_by_table(session)
+    added_set = {normalize_ticker(t) for t in added}
+
+    views = {row.ticker: row.last_viewed_at for row in session.exec(select(TickerView)).all()}
+    stored = _tickers_with_data(session, wanted)
+    delisted = load_delisted_flagged(session)
+
+    universe = wanted if wanted is not None else (stored | set(views))
+    decisions: dict[str, WipeDecision] = {}
+    for ticker in sorted(universe):
+        protections: list[str] = []
+        if ticker in index:
+            protections.append(PROTECTION_INDEX)
+        if ticker in watchlist:
+            protections.append(PROTECTION_WATCHLIST)
+        if ticker in seeds:
+            protections.append(PROTECTION_SEED)
+        if ticker in benchmark:
+            protections.append(PROTECTION_BENCHMARK)
+        if ticker in rs_benchmark:
+            protections.append(PROTECTION_RS_BENCHMARK)
+        protections.extend(f"{PROTECTION_MANUAL_PREFIX}{table}" for table, found in sorted(manual.items()) if ticker in found)
+        if ticker in added_set:
+            protections.append(PROTECTION_ADDED)
+
+        last_viewed = views.get(ticker)
+        has_data = ticker in stored
+        if protections:
+            decision = DECISION_PROTECTED
+        elif last_viewed is None:
+            decision = DECISION_ADOPT if has_data else DECISION_IGNORED
+        elif last_viewed < cutoff:
+            decision = DECISION_WIPE
+        else:
+            decision = DECISION_NOT_DUE
+        decisions[ticker] = WipeDecision(
+            ticker=ticker,
+            decision=decision,
+            protections=tuple(protections),
+            last_viewed_at=last_viewed,
+            days_idle=(now - last_viewed).total_seconds() / 86400 if last_viewed is not None else None,
+            has_data=has_data,
+            delisted=ticker in delisted,
+        )
+    return decisions
