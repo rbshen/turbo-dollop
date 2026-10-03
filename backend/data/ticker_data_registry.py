@@ -141,6 +141,14 @@ LEGACY_TABLES: tuple[TickerTable, ...] = tuple(e for e in _ORDERED if e.legacy_d
 # The user-entered per-ticker models behind `load_manual_data_tickers` (the single list; the loader reads it).
 MANUAL_DATA_MODELS = (TickerMoat, TickerCustomValuation, TickerBankCapitalMetrics, GrowthCatalystNote)
 
+# The short reason label each user-entered table gives in the universe status API ("manual:moat").
+MANUAL_DATA_LABELS: dict[str, str] = {
+    "tickermoat": "moat",
+    "tickercustomvaluation": "custom_valuation",
+    "tickerbankcapitalmetrics": "bank_capital",
+    "growthcatalystnote": "growth_note",
+}
+
 # Columns whose name looks ticker-like but are not a per-ticker key: (table, column) -> why.
 NOT_A_TICKER_KEY: dict[tuple[str, str], str] = {
     ("marketbreadthgatelog", "missing_tickers_json"): "a capped sample of ticker names in a per-universe run log row",

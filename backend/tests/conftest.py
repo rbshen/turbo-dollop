@@ -129,10 +129,14 @@ def _isolate_tracked_universe_engine(monkeypatch):
     errors), so every test reaching that route needs its own in-memory TickerView table: otherwise the
     write would hit the real engine, trip the write guard above and be swallowed, hiding a real bug."""
     import data.tracked_universe as tracked_universe
+    import data.universe_membership as universe_membership
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     SQLModel.metadata.create_all(engine)
     monkeypatch.setattr(tracked_universe, "engine", engine)
+    # The opt-in universe API (data/universe_membership.py): its status read, and the best-effort ETF row write that
+    # a watchlist add triggers, must never see the real database from an unrelated watchlist/ETF test.
+    monkeypatch.setattr(universe_membership, "engine", engine)
     return engine
 
 

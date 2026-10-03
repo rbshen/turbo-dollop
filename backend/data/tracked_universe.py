@@ -42,12 +42,13 @@ from core.models import (
     IndexConstituent,
     TickerScore,
     TickerView,
+    Watchlist,
     WatchlistTicker,
     WeinsteinSettings,
 )
 from core.tickers import normalize_ticker
 from data.etf_data import known_etf_tickers
-from data.ticker_data_registry import MANUAL_DATA_MODELS, WIPE_TABLES
+from data.ticker_data_registry import MANUAL_DATA_LABELS, MANUAL_DATA_MODELS, WIPE_TABLES
 from data.sector_heatmap_data import SECTOR_ETFS
 
 logger = logging.getLogger(__name__)
@@ -247,6 +248,53 @@ def record_ticker_view(ticker: str, now: datetime | None = None) -> bool:
         logger.warning("record_ticker_view failed for %s", ticker, exc_info=True)
         return False
 
+
+
+def touch_existing_ticker_view(ticker: str, now: datetime | None = None) -> bool:
+    """The START-of-request counterpart of `record_ticker_view` (opt-in universe step 3a): when the ticker already has a
+    `TickerView` row, moves `last_viewed_at` forward at the very start of the summary request (at most once per
+    calendar day), so a wipe cannot catch a ticker that is being opened. One UPDATE, no insert: a ticker with no row
+    yet is created by `record_ticker_view` only after the summary succeeds (an invalid symbol never gets a row).
+    Never touches `added_at` / `added_source`. Returns True when it wrote. Never raises."""
+    now = now or datetime.now()
+    ticker = normalize_ticker(ticker)
+    start_of_day = datetime.combine(now.date(), time.min)
+    try:
+        stmt = (
+            TickerView.__table__.update()
+            .where(TickerView.__table__.c.ticker == ticker, TickerView.__table__.c.last_viewed_at < start_of_day)
+            .values(last_viewed_at=now)
+        )
+        with Session(engine) as session:
+            result = session.execute(stmt)
+            session.commit()
+        return result.rowcount > 0
+    except Exception:  # noqa: BLE001 -- a view record is best-effort by design
+        logger.warning("touch_existing_ticker_view failed for %s", ticker, exc_info=True)
+        return False
+
+
+def load_protection_reasons(session: Session, ticker: str) -> list[str]:
+    """The DESIGN-state protections of one ticker, with detail, for the universe status API: `index:<name>` per index,
+    `watchlist:<name>` per list, `seed`, `benchmark`, `rs_benchmark`, `manual:<label>` per owner-entered table. Same
+    protections as `classify_wipe_candidates` (a test pins that they agree) but as targeted single-ticker reads, and
+    without `added` (that is a state of its own, not a protection). Reads only."""
+    ticker = normalize_ticker(ticker)
+    reasons = [f"index:{name}" for name in sorted(set(session.exec(select(IndexConstituent.index_name).where(IndexConstituent.ticker == ticker)).all()))]
+    lists = session.exec(
+        select(Watchlist.name).join(WatchlistTicker, WatchlistTicker.watchlist_id == Watchlist.id).where(WatchlistTicker.ticker == ticker)
+    ).all()
+    reasons += [f"watchlist:{name}" for name in sorted(set(lists))]
+    if ticker in ETF_SEED_TICKERS:
+        reasons.append(PROTECTION_SEED)
+    if ticker == WEINSTEIN_BENCHMARK_TICKER:
+        reasons.append(PROTECTION_BENCHMARK)
+    if ticker == read_rs_benchmark(session):
+        reasons.append(PROTECTION_RS_BENCHMARK)
+    for model in MANUAL_DATA_MODELS:
+        if session.get(model, ticker) is not None:
+            reasons.append(f"manual:{MANUAL_DATA_LABELS[model.__tablename__]}")
+    return reasons
 
 
 # --- the wipe (docs/specs/tracked-universe.md, "Planned: opt-in universe and wipe": NOT YET ACTIVE) --------------

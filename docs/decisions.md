@@ -692,3 +692,15 @@ means nothing in a screener today drops out when it ships. Until then `_classify
 `init_db`, then the grandfather backfill at 08:33 UTC: 25 tickers marked (18 stocks, 7 ETFs: exactly the expected list), `last_viewed_at` of every row unchanged,
 stock universe 581 and ETF universe 19 unchanged, `GET /api/screener?universe=all` 581 and `/api/etf-screener` 19 unchanged, `hidden_inactive` 0. Wipe dry run
 afterwards: 25 protected-by-added, no candidate today; at 2026-11-03 only AVB, EQR, TWTR, WBA (4,088 rows) would be wiped, plus the 5 orphans adopted.
+
+### 2026-10-03 — Opt-in universe, step 3a: the API, the touch at the start of the request; build order 3a, flip, 3b
+**Built (backend only, no frontend):** `GET`/`POST`/`DELETE /api/tickers/{t}/universe` (`data/universe_membership.py`): a cache-only status that reports the DESIGN
+state (protected / added / browsed) from the raw protection sets and `added_at`, an idempotent Add (profile cached-first, non-US and delisted rejected, protected
+and already-added no-ops, `added_at` committed BEFORE the immediate compute so a failed compute never undoes the add; stock: a live `compute_ticker_score`; ETF:
+`refresh_etf_screener([X])` directly), and a Remove refused with 409 while any protection applies (an ETF's `EtfScreenerRow` is deleted with it). The summary
+route's `TickerView` touch moved to the start of the request for a ticker that already has a row (so a wipe cannot catch it mid-open); a first view still creates
+the row only after success. An ETF watchlist add (ETF list endpoint, generic add, bulk add) now writes the ETF's card at once, best effort. **Decision (owner): build
+order 3a, then the classification flip, then 3b (the buttons).** Reason: Remove would be ineffective until the flip (a recently viewed ticker stays in the universe
+by the old `viewed` rule) and the 1:45 job would rewrite a removed ETF's row, so no button should ship before the classification reads `added`. **Interim:** the
+status endpoint says `in_universe: false` for a browsed ticker the classification still admits for 30 days; documented in `docs/specs/tracked-universe.md`,
+"API". `_classify`, every universe, the screeners and the nightly jobs are unchanged (pinned by a test).

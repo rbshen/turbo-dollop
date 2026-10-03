@@ -51,8 +51,23 @@ from data.saved_screener_filters import delete_saved_filter, list_saved_filters,
 from data.segmentation_data import get_segmentation_data
 from data.speculative_growth_data import get_speculative_growth_data
 from data.ticker_search import search_tickers
-from data.tracked_universe import load_expired_tickers, load_tracked_universe, record_ticker_view
+from data.tracked_universe import (
+    load_expired_tickers,
+    load_tracked_universe,
+    record_ticker_view,
+    touch_existing_ticker_view,
+)
+from data.universe_membership import (
+    UniverseRejectedError,
+    add_to_universe,
+    ensure_etf_screener_rows,
+    get_universe_status,
+    remove_from_universe,
+)
 from core.schemas import (
+    UniverseAddOut,
+    UniverseRemoveOut,
+    UniverseStatusOut,
     AnalystRatingsOut,
     ChartOut,
     CronHealthOut,
@@ -370,12 +385,14 @@ async def ticker_search(q: str = "") -> list[TickerSearchResult]:
 
 @app.get("/api/tickers/{ticker}/summary", response_model=TickerSummaryOut)
 async def ticker_summary(ticker: str) -> TickerSummaryOut:
+    # A page view keeps the ticker in the nightly universe for 30 days and is the "last touch" the wipe reads
+    # (data/tracked_universe.py). A ticker that already has a TickerView row is touched at the START of the request, so a
+    # wipe cannot catch it mid-open; a ticker with no row yet gets one only after the summary succeeded (below), so an
+    # invalid symbol never creates one. Both are at most one write per ticker per day and never raise.
+    touch_existing_ticker_view(ticker)
     try:
         summary = await get_summary(ticker)
-        # A page view: keeps the ticker in the nightly universe for 30 days (data/tracked_universe.py).
-        # Only after the summary succeeded (a 404 is never recorded); at most one write per ticker per
-        # day; never raises.
-        record_ticker_view(ticker)
+        record_ticker_view(ticker)  # creates the row for a first view; a no-op when the start-of-request touch already wrote today
         return summary
     except TickerNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Ticker '{exc.ticker}' not found") from exc
@@ -387,6 +404,34 @@ async def ticker_summary(ticker: str) -> TickerSummaryOut:
         # would leak the key into the response body the moment that stops
         # being true for some future call site.
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
+
+
+# The opt-in universe API (docs/specs/tracked-universe.md, "API"). The status is the DESIGN state (protected / added /
+# browsed), not the classification reason; GET is cache-only (no FMP call, no write, no TickerView touch).
+@app.get("/api/tickers/{ticker}/universe", response_model=UniverseStatusOut)
+def ticker_universe_status(ticker: str) -> UniverseStatusOut:
+    with Session(engine) as session:
+        return get_universe_status(session, ticker)
+
+
+@app.post("/api/tickers/{ticker}/universe", response_model=UniverseAddOut)
+async def ticker_universe_add(ticker: str) -> UniverseAddOut:
+    try:
+        return await add_to_universe(ticker)
+    except TickerNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Ticker '{exc.ticker}' not found") from exc
+    except UniverseRejectedError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="FMP request failed") from exc  # not f"{exc}": it embeds the apikey URL
+
+
+@app.delete("/api/tickers/{ticker}/universe", response_model=UniverseRemoveOut)
+def ticker_universe_remove(ticker: str) -> UniverseRemoveOut:
+    try:
+        return remove_from_universe(ticker)
+    except UniverseRejectedError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
 # ETF page Overview tab (FMP /etf/info only). Never 5xx for an FMP problem: an off group or a failed
@@ -1091,7 +1136,7 @@ def _capacity_error(existing_count: int, net_new_count: int) -> HTTPException:
 
 
 @app.post("/api/watchlists/{watchlist_id}/tickers", response_model=WatchlistTickerOut, status_code=201)
-def watchlist_add_ticker(watchlist_id: int, body: WatchlistTickerIn) -> WatchlistTickerOut:
+async def watchlist_add_ticker(watchlist_id: int, body: WatchlistTickerIn) -> WatchlistTickerOut:
     ticker = normalize_ticker(body.ticker)
     with Session(engine) as session:
         watchlist = session.get(Watchlist, watchlist_id)
@@ -1107,11 +1152,14 @@ def watchlist_add_ticker(watchlist_id: int, body: WatchlistTickerIn) -> Watchlis
         if existing_count + net_new_count > WATCHLIST_CAPACITY:
             raise _capacity_error(existing_count, net_new_count)
         row = add_watchlist_ticker(session, watchlist_id, ticker)
-        return WatchlistTickerOut(ticker=row.ticker, added_at=row.added_at)
+        out = WatchlistTickerOut(ticker=row.ticker, added_at=row.added_at)
+    # An ETF with no EtfScreenerRow yet gets it now (best effort, one call, never fails the add); stocks: no write.
+    await ensure_etf_screener_rows([ticker])
+    return out
 
 
 @app.post("/api/watchlists/{watchlist_id}/tickers/bulk", response_model=WatchlistBulkAddOut)
-def watchlist_bulk_add_tickers(watchlist_id: int, body: WatchlistBulkAddIn) -> WatchlistBulkAddOut:
+async def watchlist_bulk_add_tickers(watchlist_id: int, body: WatchlistBulkAddIn) -> WatchlistBulkAddOut:
     tickers = [normalize_ticker(t) for t in body.tickers]
     with Session(engine) as session:
         watchlist = session.get(Watchlist, watchlist_id)
@@ -1125,6 +1173,7 @@ def watchlist_bulk_add_tickers(watchlist_id: int, body: WatchlistBulkAddIn) -> W
         if existing_count + net_new_count > WATCHLIST_CAPACITY:
             raise _capacity_error(existing_count, net_new_count)
         added, already_present = bulk_add_watchlist_tickers(session, watchlist_id, tickers)
+    await ensure_etf_screener_rows(tickers)  # best effort, one call for at most a few ETFs, never fails the add
     return WatchlistBulkAddOut(added=added, already_present=already_present)
 
 
@@ -1137,7 +1186,7 @@ def watchlist_remove_ticker(watchlist_id: int, ticker: str) -> None:
 
 
 @app.post("/api/tickers/{ticker}/etf-watchlist", response_model=EtfWatchlistAddOut)
-def ticker_add_to_etf_watchlist(ticker: str) -> EtfWatchlistAddOut:
+async def ticker_add_to_etf_watchlist(ticker: str) -> EtfWatchlistAddOut:
     """The ETF page's "Add to watchlist": adds the ticker to the list named "ETF" (a monitored list,
     see data/watchlists.py), creating it on first use. Idempotent -- an ETF already on that list
     answers 200 with added=false. The 100-ticker cap applies like anywhere else (400)."""
@@ -1162,7 +1211,9 @@ def ticker_add_to_etf_watchlist(ticker: str) -> EtfWatchlistAddOut:
                 ),
             )
         add_watchlist_ticker(session, watchlist.id, ticker)
-        return EtfWatchlistAddOut(watchlist_id=watchlist.id, watchlist_name=watchlist.name, added=True)
+        out = EtfWatchlistAddOut(watchlist_id=watchlist.id, watchlist_name=watchlist.name, added=True)
+    await ensure_etf_screener_rows([ticker])  # the ETF's card now, not after the 1:45 job; best effort, never fails the add
+    return out
 
 
 @app.get("/api/watchlists/{watchlist_id}/rows", response_model=list[WatchlistRowOut])

@@ -2267,3 +2267,56 @@ class EtfWatchlistAddOut(BaseModel):
     watchlist_name: str
     # False when the ticker was already on the ETF watchlist (the call is idempotent).
     added: bool
+
+
+# --- the opt-in universe API (docs/specs/tracked-universe.md, "API") --------------------------------------------------
+
+
+class UniverseStatusOut(BaseModel):
+    """GET /api/tickers/{t}/universe: the DESIGN state of a ticker (protected / added / browsed), computed from the raw
+    protection sets and `TickerView.added_at`, NOT from the current classification reason (which, until the flip step,
+    still lets any recently viewed ticker into the nightly universe). Cache-only: no FMP call, no write, no touch."""
+
+    ticker: str
+    # 'stock' | 'etf'; null when no profile (or score row) is cached yet for the ticker.
+    kind: Literal["stock", "etf"] | None = None
+    # protected or added.
+    in_universe: bool
+    # 'protected': at least one protection (reasons non-empty; added_at may also be set). 'added': explicitly added, no
+    # protection. 'browsed': neither.
+    state: Literal["protected", "added", "browsed"]
+    # Protections, e.g. "index:sp500", "watchlist:E3", "seed", "benchmark", "rs_benchmark", "manual:moat".
+    reasons: list[str]
+    # state == 'browsed', not delisted, and (profile not cached yet, or US-listed).
+    can_add: bool
+    # state == 'added' (so: added_at set and NO protection applies).
+    can_remove: bool
+    added_at: datetime | None = None
+    added_source: Literal["user", "grandfathered"] | None = None
+    delisted: bool
+
+
+class UniverseAddOut(BaseModel):
+    """POST /api/tickers/{t}/universe. `changed` is false for an idempotent repeat or a protected ticker (no write).
+    The add itself is durable even when the immediate compute fails (`score_computed` / `row_written` false + `error`)."""
+
+    status: UniverseStatusOut
+    changed: bool
+    # Stock only (null for an ETF or when nothing was added): did a live compute_ticker_score run and produce a row.
+    score_computed: bool | None = None
+    # ETF only (null for a stock or when nothing was added): was the EtfScreenerRow written now.
+    row_written: bool | None = None
+    # Why a compute/write did not happen, e.g. "fundamentals_group_off", "daily_prices_group_off", "no_data", "failed".
+    reason: str | None = None
+    error: str | None = None
+    # Not available: FMPClient keeps no per-request call counter.
+    fmp_calls: int | None = None
+    message: str
+
+
+class UniverseRemoveOut(BaseModel):
+    """DELETE /api/tickers/{t}/universe. `changed` is false when the ticker was not added (no-op)."""
+
+    status: UniverseStatusOut
+    changed: bool
+    message: str

@@ -107,12 +107,56 @@ protection and is not added; delisted tickers follow the same rule. A ticker wit
   (an already added ticker is skipped, never overwritten); a ticker with any protection (re-checked from the raw sets, e.g. an index name outside the three the
   universe knows, or the live `rs_benchmark`) is refused. **Run live 2026-10-03: 25 tickers (18 stocks, 7 ETFs).**
 
-**Not done, in order (step 3 and later).** The API (`GET`/`POST`/`DELETE /api/tickers/{t}/universe`) and the Add / Remove buttons (an ETF's `EtfScreenerRow`
-written at once, a stock's score computed at once); then the **classification flip** (`viewed` becomes `added`, new `browsed` reason, `expired` = idle past 30
-days awaiting wipe; added tickers never expire), which must come AFTER the Add button exists (before it there is no way to add a new ticker, so a flip now would
-freeze the universe) and after the grandfathering (done); removal of `ScreenerMeta.hidden_inactive` and its UI (until step 3 removes it the field keeps its
-current meaning, the count of expired stock rows, which is 0 until about 2026-11-01); the first `--apply` of the wipe (after a backup and a disk check); and
-the cron registration after the reschedule. With the grandfathering done the added set is real, but `--apply` stays locked until the flip and the buttons ship.
+**Not done, in order.** Step 3a (the API, below) is built. Next the **classification flip** (`viewed` becomes `added`, new `browsed` reason, `expired` = idle past 30
+days awaiting wipe; added tickers never expire). It comes AFTER the API exists (so a ticker can be added) and BEFORE the buttons (step 3b): otherwise Remove would
+be ineffective (a recently viewed ticker stays in the universe by the old rule) and the 1:45 job would rewrite a removed ETF's row. Then the buttons (3b); removal of
+`ScreenerMeta.hidden_inactive` and its UI (until then the field keeps its current meaning, the count of expired stock rows, which is 0 until about 2026-11-01); the
+first `--apply` of the wipe (after a backup and a disk check); and the cron registration after the reschedule. With the grandfathering done the added set is real, but
+`--apply` stays locked until the flip and the buttons ship.
+
+### API (step 3a, built 2026-10-03; no frontend yet)
+
+Three routes on `/api/tickers/{t}/universe` (`core/main.py`, logic in `data/universe_membership.py`, shapes in `core/schemas.py`:
+`UniverseStatusOut`, `UniverseAddOut`, `UniverseRemoveOut`). The ticker is normalized like every other route.
+
+**The status is the DESIGN state, not the classification reason.** In the universe by design = *protected* (any `IndexConstituent` row of any index name,
+any watchlist, `ETF_SEED_TICKERS` / `WEINSTEIN_BENCHMARK_TICKER` / the live `rs_benchmark`, manual data) or *added* (`TickerView.added_at` not null).
+**Interim difference until the classification flip ships:** `_classify` still lets any recently viewed ticker into the nightly universe, so a
+*browsed* ticker opened in the last 30 days is in the nightly jobs and screeners while the API says `in_universe: false`, and an *added* ticker that has
+been idle 30 days is `in_universe: true` here but expired in the classification. Nothing here changes `_classify`, a universe, a screener or a nightly job
+(pinned by a test).
+
+| State | Meaning | `in_universe` | `can_add` | `can_remove` |
+|---|---|---|---|---|
+| `protected` | at least one protection (`reasons` non-empty; `added_at` may also be set) | true | false | false |
+| `added` | `added_at` set, no protection | true | false | true |
+| `browsed` | neither | false | `not delisted` and (profile not cached, or US-listed) | false |
+
+- **`GET`**: cache-only, zero FMP calls, no write, never touches `TickerView`. Returns `ticker`, `kind` (`stock` / `etf` / null when no profile or score row
+  is cached), `in_universe`, `state`, `reasons` (`index:<name>`, `watchlist:<list name>`, `seed`, `benchmark`, `rs_benchmark`, `manual:moat` /
+  `custom_valuation` / `bank_capital` / `growth_note`), `can_add`, `can_remove`, `added_at`, `added_source`, `delisted`. A never-seen ticker reads
+  `kind: null`, `browsed`, `can_add: true` (POST fetches its profile).
+- **`POST`** (Add, idempotent): profile cached-first (a ticker just opened costs 0 calls; a never-seen one costs one live profile call; an empty profile
+  is a 404 and writes nothing; the profile group off with nothing cached is a 503) -> non-US rejected (400, the existing `is_us_listed` rule on the profile
+  `exchange`) -> delisted rejected (409) -> protected or already added: no-op, `changed: false`, no write -> otherwise ensure a `TickerView` row (created
+  with `last_viewed_at = now` when missing, an existing value kept), set `added_at` (naive UTC) and `added_source = 'user'`, **COMMIT**, and only then the
+  immediate compute; a failed compute never undoes the add. Kind comes from the profile (`isEtf` or `isFund`), never from the client.
+  - **Stock:** a live `compute_ticker_score(cache_only=False)`, the call `POST /refresh` makes. It runs Steps 1/2/4/5, the summary and speculative growth,
+    each through the cache, so the cost is whatever the opened page has not cached yet (estimate 10-20 FMP calls, 3-10 s; `fmp_calls` is null because
+    `FMPClient` keeps no per-request counter). `fundamentals` group off: a cache-only compute (zero calls) and `score_computed: false`,
+    `reason: "fundamentals_group_off"`. A raise or no data: still success, `score_computed: false`, `reason: "failed"` / `"no_data"`, `error` (apikey redacted).
+  - **ETF:** `refresh_etf_screener(tickers=[X])` (about 2-4 calls, 1-3 s), skipped while `daily_prices` is off (`row_written: false`,
+    `reason: "daily_prices_group_off"`). Nothing computed: `row_written: false`, `reason: "no_data"`, "appears after tonight's run". A raise: `reason: "failed"`.
+- **`DELETE`** (Remove): 409 with the reasons while any protection applies (a protected + added ticker too); a 200 no-op (`changed: false`) when not
+  added; otherwise clears `added_at` / `added_source`, never `last_viewed_at`. An ETF's `EtfScreenerRow` is deleted; a stock's `TickerScore` and all else stay
+  for the wipe.
+- **A watchlist add writes nothing for a stock and no `added_at` for anyone.** A ticker added, then watchlisted, then unlisted keeps its added state
+  (`protected` while listed, `added` again after); one only ever watchlisted falls back to `browsed`.
+- **The summary route's touch moved to the start of the request** for a ticker that already has a `TickerView` row (`touch_existing_ticker_view`, one
+  UPDATE, at most once per calendar day), so a wipe cannot catch a ticker mid-open. A ticker with no row still gets it only after the summary succeeds
+  (`record_ticker_view`), so an invalid symbol never creates one. Neither writes `added_at` / `added_source`.
+- **ETF watchlist adds write the card at once** (see `docs/specs/etf-screener.md`): the ETF list endpoint, the generic add and the bulk add call
+  `ensure_etf_screener_rows` (best effort, never fails the add).
 
 **Doc lines the classification-flip step must update** (they still describe "hidden, not deleted" or "viewing re-adds"; deliberately unedited until then):
 `CLAUDE.md` (Tracked universe paragraph; the "Nothing is ever deleted" wording); this file, "The rule" ("nothing is ever deleted by this rule", L22-24) and

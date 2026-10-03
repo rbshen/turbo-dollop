@@ -143,6 +143,16 @@ Code: `data/etf_screener_refresh.py::refresh_etf_screener(tickers=None, *, cache
 [--dry-run]`). For each ticker in `load_etf_universe` it computes the row's fields and writes them through
 `upsert_etf_screener_row`. Every source is an existing path; nothing is reimplemented.
 
+**Rows are also written outside the nightly run (opt-in universe, step 3a, 2026-10-03).** Both call `refresh_etf_screener(tickers=[...])`
+directly (an explicit list bypasses the universe and never prunes; not the pipeline `main()`, which calls `configure_logging`/`init_db`),
+gated on the `daily_prices` group like the job: (1) `POST /api/tickers/{t}/universe` (Add) writes the new ETF's row at once (about 2-4 FMP
+calls: one bars batch, one last close, `/etf/info` when not cached; the profile is already cached from the open); (2) an ETF **watchlist add**
+(`POST /api/tickers/{t}/etf-watchlist`, the generic add, the bulk add) writes the row for each ETF that has none (cached profile or score row
+says ETF; at most 5 per request, one call, best effort: a failure is logged and never fails or delays the add beyond that call). A write that
+computes nothing (`_worth_writing`) leaves no row; the response says so and the card appears after the next nightly run. `DELETE
+/api/tickers/{t}/universe` (Remove) deletes the ETF's row; until the classification flip a recently viewed ETF is still in `load_etf_universe`
+by the old rule, so the 1:45 job can rebuild it. See `docs/specs/tracked-universe.md`, "API".
+
 | Field(s) | Source |
 |---|---|
 | `last_price`, `pct_change_1d`, `as_of_date` | the shared daily-bar cache: one `get_or_fetch_bars_batch` (5 years, `auto_adjust=False`, the same call the Weinstein job makes; a current wide cache makes no FMP call), then `read_cached_completed_daily_bars` per ticker (completed sessions only, the provisional-bar rule applies). Split-adjusted close, no dividend adjustment. `pct_change_1d` is the last two bars; `as_of_date` is the newest bar's date |
