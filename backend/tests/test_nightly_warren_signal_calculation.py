@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from sqlmodel import Session, SQLModel, create_engine
 
+import clients.daily_bar_sources as daily_bar_sources
 import clients.shared_bars_cache as shared_bars_cache
 import data.warren_signal_data as warren_signal_data
 import pipeline.nightly_warren_signal_calculation as nightly_warren_signal
@@ -33,6 +34,7 @@ def _fresh_engine(monkeypatch, tmp_path):
     # stale_ticker_count reads clients.shared_bars_cache's OWN engine -- point it at the same in-memory DB (empty
     # unless a test seeds bars) so it never falls through to the real on-disk engine.
     monkeypatch.setattr(shared_bars_cache, "engine", engine)
+    monkeypatch.setattr(daily_bar_sources, "engine", engine)  # route_by_source reads cached profiles through this one
     monkeypatch.setattr(nightly_warren_signal, "LOG_PATH", tmp_path / "test_nightly_warren_signal_calculation.log")
     return engine
 

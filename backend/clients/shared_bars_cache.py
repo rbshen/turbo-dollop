@@ -730,8 +730,12 @@ def stale_ticker_count(tickers: list[str], interval: str, reference: datetime | 
     for `interval`, despite that fetch attempt (FMP down or the data group off,
     a data-provider-wide gap, or simply a ticker never requested).
 
+    For the "60m" interval, tickers that are not US-listed (clients/daily_bar_sources.py::route_by_source) are
+    left out of the count and of the returned list -- they never get 60m bars, so having none is expected.
+    The "1d" counts are unchanged.
+
     This is the stale-data guard every migrated nightly job (Trend,
-    Liquidity Zones, Sector Heatmap, Momentum) calls right after its own
+    Liquidity Zones, Sector Heatmap, Momentum, and the BB+RSI / Warren 60m jobs) calls right after its own
     get_or_fetch_bars_batch call, reporting the result via the existing
     CronRunContext.message (see core/cron_health.py) -- no schema or
     frontend change, this reuses the message field the Settings "Status"
@@ -745,6 +749,11 @@ def stale_ticker_count(tickers: list[str], interval: str, reference: datetime | 
     follow-up)."""
     if not tickers:
         return 0, []
+    if interval == INTRADAY_INTERVAL:
+        # Non-US listings never get 60m bars (route_by_source drops them before the fetch), so "no cached bars" is
+        # their expected state, not a fetch failure -- leave them out of the count. The daily-bar counts are
+        # unchanged: those jobs do not route by listing.
+        tickers = list(route_by_source({t: 0 for t in tickers})[0])
     with Session(engine) as session:
         span_by_ticker = _cache_span(session, tickers, interval)
     stale = [t for t in tickers if _is_stale(span_by_ticker.get(t, (None, None))[1], interval, reference)]
