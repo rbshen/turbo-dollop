@@ -178,8 +178,9 @@ Key mechanics:
   and the ever-growing stored span never ratchets the download wider. Tickers are grouped by
   needed period, one fetch pass per distinct period (a 572-ticker Trend run does not re-download
   everyone at 5y because ~100 are also Liquidity Zone tickers). Each consumer gets only its own
-  window back. Whichever overlapping job runs first each night does the one live fetch; no
-  cron-order assumption exists. Width tiers: daily `1mo/3mo/6mo/1y/2y/5y/10y` (30/90/180/365/730/
+  window back. Whichever overlapping job runs first each night does the one live fetch; correctness
+  never depends on the cron order (BB+RSI 1:20, Warren 1:25 is a convention: it only decides which of the two
+  pays for the fetch and its runtime). Width tiers: daily `1mo/3mo/6mo/1y/2y/5y/10y` (30/90/180/365/730/
   1825/3650 days), 60m `1mo..2y` only (no longer tier — the real 60m history limit is ~730
   calendar days).
 - **Freshness is close-aware, never a flat TTL** (`_is_stale`): a row is trusted only if its LAST
@@ -408,8 +409,18 @@ keep serving and the Warren/BB+RSI nightly jobs record `skipped`.
   `PROBE_ENDPOINTS`.
 - **`FMPIntradaySource`** (`clients/daily_bar_sources.py`, same shape as `FMPDailySource`): FULL
   fetch when never cached, narrower than requested, `force`, or the cached rows are not all FMP's;
-  otherwise INCREMENTAL `from = last bar - 3d` (`INTRADAY_OVERLAP_DAYS`) with a 0.5% overlap check
-  (mismatch = restated history → full refetch + replace). Full fetches page newest-first by moving
+  otherwise INCREMENTAL `from = <newest cached session's date> - 5d` (`INTRADAY_OVERLAP_DAYS`). The overlap
+  check compares the **close** of every cached bar from sessions OLDER than the newest cached session inside that
+  window (0.5%, `FMP_OVERLAP_TOLERANCE`); a mismatch = a split / spin-off signature → full refetch + replace.
+  **The whole newest cached session is exempt**: FMP delivers a session's bars provisionally on the first fetch
+  (a bar can miss most of its trades; closes moved up to 1.7% and volume up to 13x in the 2026-10-03 diff of
+  105 tickers) and corrects them the next night, while sessions older than the newest never changed in that
+  diff. The incremental frame still overwrites the newest session with the corrected bars every night, so no
+  refetch is needed for it. Before 2026-10-03 only the last cached bar was exempt, so 4-28 tickers a night
+  (a close in the newest session moved >0.5%) were refetched in full and replaced for nothing. With a 5-day
+  window every 2026 NYSE session has at least two older sessions to compare (longest scheduled closure: a
+  holiday plus a weekend, 3 days); where none is cached (a gap, a one-session tail, an unscheduled
+  multi-day closure) nothing is compared, no restatement is declared and the frame is upserted. Full fetches page newest-first by moving
   `to` to the oldest bar returned (~9 pages / 730 days), start no later than the cached first
   bar, and never write a partial history on a mid-paging error. Bars after the last completed bar
   are dropped. A ticker FMP does not serve (group off / restricted / error / thin answer) lands in
@@ -425,8 +436,10 @@ keep serving and the Warren/BB+RSI nightly jobs record `skipped`.
 - **Accepted side effect (reviewed, do not "fix"):** Warren signal dates replayed on FMP bars can
   differ slightly from the previous provider's, because small OHLC differences cross indicator
   thresholds on different bars. No compensating logic exists (measurement archived).
-- **Cost:** nightly ~105 calls (one overlapping incremental per ticker); a cold full backfill
-  ~945.
+- **Cost:** nightly ~105 calls (one overlapping incremental per ticker) PLUS a full ~9-page refetch for each
+  ticker whose cache is shorter than the requested window (a listing younger than 730 days: CRWV and SNDK on
+  2026-10-03, ~14 calls, Warren's 730-day request only) and for each genuine split / spin-off. Until 2026-10-03
+  the false "restated" hits added another ~36-250 calls a night (average ~140); a cold full backfill ~945.
 - **Not touched:** extended hours (P5), warm-up buffer / history depth / retention.
   `FMPTechnicalSource` is a thin reader of the shared cache.
 

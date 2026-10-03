@@ -152,7 +152,7 @@ with no argument by both nightly jobs (no call site hardcodes a number).
 
 ## Nightly job
 
-`pipeline.nightly_warren_signal_calculation`, scheduled **1:25 AM** server time (UTC), AFTER BB+RSI (1:20, which creates the 60d intraday row Warren widens) with its own
+`pipeline.nightly_warren_signal_calculation`, scheduled **1:25 AM** server time (UTC), after BB+RSI (1:20) by convention - the shared 60m row is already ~2y wide, so the order only decides which job does the night's fetch with its own
 10-minute allocation (observed ~100s, theoretical worst ~9 min) before the sector heatmap at 1:35. `backup_db` runs at 3:30. It is a dedicated script rather than part of `nightly_entry_signal_calculation.py`, for the same "one
 feature, one script" reasoning as the Liquidity Zone job (see `docs/specs/liquidity-zones.md`), doubly
 justified since Warren's 2-year-lookback / full-replay shape is fundamentally different from BB+RSI's

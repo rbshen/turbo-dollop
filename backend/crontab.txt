@@ -56,8 +56,10 @@
 
 # 1:20 BB+RSI (2h) technical entry-signal calculation. Scoped to the monitored
 # watchlist union (E<number> and ETF lists). Reads FMP 60m bars (data group
-# intraday_bars) through the shared bars cache; real `skipped` status while that group is off. Must run
-# BEFORE Warren (BB+RSI creates the 60d row, Warren widens it to 2y). 5-minute
+# intraday_bars) through the shared bars cache; real `skipped` status while that group is off. Runs
+# before Warren by convention only: the 60m cache row already holds ~2y of history, so whichever of the
+# two jobs runs first does the night's one incremental fetch and the other reads it back (the order
+# changes who pays that fetch, never the result). 5-minute
 # window (typical 10-40s, max seen ~130s). See pipeline/nightly_entry_signal_calculation.py.
 20 1 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_entry_signal_calculation >> /home/shen/fathom/backend/logs/nightly_entry_signal_calculation_cron.log 2>&1
 

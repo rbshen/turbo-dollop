@@ -1,8 +1,10 @@
 """Resamples raw intraday OHLCV bars into custom 2-hour session candles --
 ported from the reference bot's `build_2h_candles`, the one piece of its
-custom-candle construction this feature keeps. Deliberately shared by both
-source adapters (see clients/technical_sources.py) so the signal engine
-below stays source-agnostic, per this feature's own requirement.
+custom-candle construction this feature keeps. Shared by the BB+RSI engine
+(analysis/entry_signal/engine.py) and the Warren replay
+(data/warren_signal_data.py), so both signal engines stay independent of
+where the 60m bars come from (today only the shared bars cache,
+clients/shared_bars_cache.py).
 """
 
 from datetime import datetime, timezone
