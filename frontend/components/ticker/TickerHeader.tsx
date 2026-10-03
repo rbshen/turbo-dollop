@@ -10,7 +10,7 @@ import { RefreshButton } from "@/components/ticker/RefreshButton";
 import { SpeculativeGrowthFakeGrowthWarning } from "@/components/ticker/SpeculativeGrowthFakeGrowthWarning";
 import { SpeculativeGrowthInfoIcon } from "@/components/ticker/SpeculativeGrowthInfoIcon";
 import { SpeculativeGrowthPill } from "@/components/ticker/SpeculativeGrowthPill";
-import { UniverseControl } from "@/components/ticker/UniverseControl";
+import { useUniverseControl } from "@/components/ticker/UniverseControl";
 import { WeinsteinStagePill } from "@/components/ticker/WeinsteinStagePill";
 import { Status } from "@/components/ui/status";
 import { useSpeculativeGrowth } from "@/lib/hooks/useSpeculativeGrowth";
@@ -70,6 +70,8 @@ interface ViewProps {
   assessment: ReactNode;
   /** The Universe control / Add-to-watchlist / Refresh buttons (hook-driven in the app). */
   actions: ReactNode;
+  /** A small line under the action cluster (the universe Add/Remove note or error); never inside the row. */
+  actionsNote?: ReactNode;
   moat: MoatValue | null | undefined;
   specGrowth: SpeculativeGrowthOut | null | undefined;
   trend: TrendAnalysisOut | null | undefined;
@@ -77,12 +79,14 @@ interface ViewProps {
 
 // Presentational header -- all data arrives as props, so /styleguide can
 // render the real layout (including the wrapping pill row) from mock data.
-export function TickerHeaderView({ data, assessment, actions, moat, specGrowth, trend }: ViewProps) {
+export function TickerHeaderView({ data, assessment, actions, actionsNote, moat, specGrowth, trend }: ViewProps) {
   return (
     <div className="space-y-3 pt-4">
-      {/* Row 1: eyebrow + name/ticker/exchange, action buttons right-aligned */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+      {/* Row 1: eyebrow + name/ticker/exchange, action buttons right-aligned. Never wraps: the title block is the part
+          that shrinks (min-w-0) and wraps its own text, the action cluster is shrink-0 and flex-nowrap, so adding a
+          button (or a wide Confirm row) can never push the cluster onto a second row. */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           {(data.sector || data.industry) && (
             <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
               {data.sector}
@@ -99,7 +103,10 @@ export function TickerHeaderView({ data, assessment, actions, moat, specGrowth, 
             <IndexMembershipPill memberships={data.index_memberships} />
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">{actions}</div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <div className="flex flex-nowrap items-center gap-2 whitespace-nowrap">{actions}</div>
+          {actionsNote}
+        </div>
       </div>
 
       {/* Row 2: price + change, then the Assessment/Valuation/Moat/etc. status
@@ -158,6 +165,7 @@ export function TickerHeader({ symbol, data }: Props) {
   const { data: moatData } = useTickerMoat(symbol);
   const { data: specGrowthData } = useSpeculativeGrowth(symbol);
   const { data: trendData } = useTrendAnalysis(symbol);
+  const universe = useUniverseControl(data.ticker);
 
   return (
     <TickerHeaderView
@@ -165,11 +173,12 @@ export function TickerHeader({ symbol, data }: Props) {
       assessment={<AssessmentChip symbol={symbol} />}
       actions={
         <>
-          <UniverseControl key={data.ticker} ticker={data.ticker} />
+          {universe.control}
           <AddToWatchlistButton tickers={[data.ticker]} />
           <RefreshButton ticker={data.ticker} />
         </>
       }
+      actionsNote={universe.note}
       moat={moatData?.moat}
       specGrowth={specGrowthData}
       trend={trendData}

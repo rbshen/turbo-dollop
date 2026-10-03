@@ -1828,7 +1828,7 @@ export interface UniverseStatusOut {
   ticker: string;
   // null when no profile (or score row) is cached yet for the ticker.
   kind: "stock" | "etf" | null;
-  // Membership in the real universe. Use this, never `state`, for any "In universe" wording: a protected ticker can
+  // Membership in the real universe. Use this, never `state`, to decide membership: a protected ticker can
   // have it false (a Moat-only ticker with no profile, an index name outside the three tracked ones, a delisted one).
   in_universe: boolean;
   // delisted | index | watchlist | system | manual | added | browsed | expired | untracked, or null when unknown.

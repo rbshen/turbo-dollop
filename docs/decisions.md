@@ -722,3 +722,7 @@ for the `index` reason (the wipe's protection stays wider: any index name). **Li
 identical, the only reason changes `viewed` to `added` for the 25 grandfathered tickers (18 stocks, 7 ETFs), `GET /api/screener?universe=all` 581, sp500 503,
 `/api/etf-screener` 19. **Effect:** a newly opened ticker works but is in no screener and no nightly job until added; the 1:45 job still prunes the row of any ETF outside
 the ETF universe. The wipe stays dry-run only, `--apply` locked, unscheduled; the Add/Remove buttons are step 3b.
+
+### 2026-10-03 — Universe control: no "In universe" label, notes under the action cluster
+
+Step 3b showed an "In universe · <reasons>" label for protected tickers. For a ticker like GOOGL it read "In universe · Dow, Nasdaq-100, S&P 500, Watchlist E1, ..., Moat", wide enough that the Watchlist and Refresh buttons wrapped to a second row (the header row was `flex-wrap`). Removed: the header's index chip already shows index membership, so the label was redundant. The control is now only an Add or a Remove button (nothing for protected, delisted, non-US, loading, failed). The header row no longer wraps (title `min-w-0`, cluster `shrink-0 flex-nowrap`), and Add/Remove notes and errors render under the cluster, not in the row. The reason-label helper was deleted (nothing else used it). The Add/Remove API, the status rules and the revalidated SWR keys are unchanged.

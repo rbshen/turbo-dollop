@@ -123,7 +123,7 @@ zones and the chart are all bar-based, so none needed hiding. Adapted:
 Watchlists page. Which lists are monitored comes from `WatchlistOut.monitored` (backend `is_monitored_watchlist_name`),
 so the frontend never re-implements the naming rule. An ETF only on an unmonitored list still shows the primary button.
 
-The header's action slot also holds the shared `UniverseControl` (Add to / Remove from the opt-in universe, before the watchlist button), the same component the stock header uses; see [Tracked universe](tracked-universe.md), "Frontend".
+The header's action cluster also holds the shared universe button (Add to / Remove from Universe, first in the cluster, before the watchlist button; nothing for a protected or delisted ETF), the same flow the stock header uses, with its note or error under the cluster. The header row does not wrap (the title shrinks instead); see [Tracked universe](tracked-universe.md), "Frontend".
 
 ## Related changes
 

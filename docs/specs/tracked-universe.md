@@ -166,33 +166,36 @@ watchlist row for (`classification: null`). A ticker under an index name outside
   listed, `added` again after); one only ever watchlisted falls back to `browsed`. An ETF watchlist add (the ETF list endpoint, the generic add, the bulk add) writes the
   ETF's card at once through `ensure_etf_screener_rows` (best effort, never fails the add; see [ETFs screener](etf-screener.md)).
 
-## Frontend (step 3b, 2026-10-03)
+## Frontend (step 3b, 2026-10-03; simplified the same day)
 
-One shared component, `components/ticker/UniverseControl.tsx`, rendered by **both** `TickerHeader` (stock) and `EtfHeader` (ETF) in the header's action slot, before the
-watchlist button (`AddToWatchlistButton` / `EtfWatchlistButton`) and `RefreshButton`. It is keyed by ticker. Types are in `lib/api/types.ts` (`UniverseStatusOut`,
+One shared flow, `components/ticker/UniverseControl.tsx`, used by **both** `TickerHeader` (stock) and `EtfHeader` (ETF). `useUniverseControl(ticker)` returns two nodes:
+`control` (a single button or nothing) goes first in the header's action cluster, before the watchlist button (`AddToWatchlistButton` / `EtfWatchlistButton`) and
+`RefreshButton`; `note` (the success note / error line) goes **under** the cluster, never in the row. Types are in `lib/api/types.ts` (`UniverseStatusOut`,
 `UniverseAddOut`, `UniverseRemoveOut`, matching `core/schemas.py`); the hook and the actions are `lib/hooks/useUniverse.ts` (`useUniverseStatus`, `addToUniverse`,
-`removeFromUniverse`); the display rule and the reason labels are `lib/universe.ts` (`universeDisplay`, `universeReasonLabel`). The presentational
-`UniverseControlView` takes the status and the two actions as props (the styleguide draws every state from it with mock requests).
+`removeFromUniverse`); the display rule is `lib/universe.ts` (`universeAction`). `UniverseControlView` stacks the two for the styleguide, which draws each state from a
+mock status.
 
-**What it shows** (the same for stock and ETF; decided from the GET response only, and every "In universe" wording is gated on `in_universe`, never on `state`):
+**What it shows** (the same for stock and ETF; decided from the GET response only; "in the universe" is gated on `in_universe`, never on `state`). There is **no
+"In universe" label and no reasons label**: a protected ticker's membership already shows in the header (the index chip), and the first version's long label
+("In universe · Dow, Nasdaq-100, S&P 500, Watchlist E1, ...") pushed the Watchlist and Refresh buttons onto a second row.
 
 | Status | Shows |
 |---|---|
 | `state` browsed, `can_add` | outline button "Add to Universe" |
-| `state` added, `can_remove`, `in_universe` | quiet "In universe" label + ghost "Remove from Universe" (inline two-step confirm: "Remove from Universe?" + Confirm + Cancel, no modal) |
-| `state` protected, `in_universe` | quiet non-interactive "In universe · <reasons>", no button |
-| anything else: protected with `in_universe` false, delisted (any state), browsed with `can_add` false (non-US), `kind` null, status loading or failed | **nothing**, and never an error banner for a failed status request |
+| `state` added, `can_remove`, `in_universe` | ghost button "Remove from Universe" (inline two-step confirm: "Remove from Universe?" + Confirm + Cancel, no modal); the button itself is the indicator |
+| anything else: protected (any), delisted (any state), browsed with `can_add` false (non-US), `kind` null, status loading or failed | **nothing**, and never an error banner for a failed status request |
 
-**Reason labels** (one helper, an unknown code prints raw): `index:sp500` S&P 500, `index:nasdaq` Nasdaq-100, `index:dow` Dow, `watchlist:<name>` "Watchlist <name>", `seed`
-Seed ETF, `benchmark` Benchmark, `rs_benchmark` RS benchmark, `manual:moat` Moat, `manual:custom_valuation` Custom valuation, `manual:bank_capital` Bank capital,
-`manual:growth_note` Growth note, `delisted` Delisted (a classification, never sent in `reasons`). Several read comma-separated.
+**Header layout.** Row 1 of both headers is `flex items-start justify-between` with **no `flex-wrap`**: the title block is `min-w-0 flex-1` (the part that wraps or shrinks), and the
+actions are a right-hand column `shrink-0 flex-col items-end` holding the cluster (`flex flex-nowrap items-center gap-2 whitespace-nowrap`) and, below it, the note. Before
+3b the row was `flex-wrap` with a `shrink-0` cluster: fine for two short buttons, but a wider cluster could not fit beside the title and wrapped to a second row. A header
+test pins these classes for both headers.
 
 **Add** (`POST`): the button shows "Adding…" and is disabled for the duration (a stock 3-10 s, an ETF 1-3 s); the rest of the page is not blocked. On success a stock with
-`score_computed: false` shows one line, the response's `message` (it names the cause: fundamentals group off, compute failed, not enough data), falling back to "Added. The
+`score_computed: false` shows one line under the cluster, the response's `message` (it names the cause: fundamentals group off, compute failed, not enough data), falling back to "Added. The
 score will be filled in by the nightly run."; an ETF with `row_written: false` shows "Added. The card appears after tonight's run."; otherwise no note. On error (400 non-US,
-404 empty profile, 409 delisted, 503 profile group off) the plain `detail` shows inline under the button, no SWR key is touched and the status is unchanged.
-**Remove** (`DELETE`): Confirm -> "Removing…". A 409 (a protection appeared, e.g. the ticker was put on a watchlist in another tab) shows the message and revalidates the status
-key, so the control redraws as the protected label.
+404 empty profile, 409 delisted, 503 profile group off) the plain `detail` shows under the action cluster, no SWR key is touched and the status is unchanged.
+**Remove** (`DELETE`): Confirm -> "Removing…". A 409 (a protection appeared, e.g. the ticker was put on a watchlist in another tab) shows the message (under the cluster) and revalidates the status
+key, so the Remove button disappears (the ticker is now protected).
 
 **SWR keys revalidated after a successful Add or Remove** (`isUniverseAffectedKey`, one `mutate(predicate)`): `/tickers/{t}/universe`, `/tickers/{t}/score`, every key
 starting `/screener` (the Stocks Screener sweep `RecomputeButton` also makes), the ETFs screener's `/etf-screener` and `/etf-screener/meta` (exact keys: they deliberately

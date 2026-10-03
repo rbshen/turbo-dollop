@@ -128,3 +128,27 @@ describe("WatchlistButtonsMock: export and refresh", () => {
     for (const glyph of ["▾", "▴", "✓", "×", "−"]) expect(text).not.toContain(glyph);
   });
 });
+
+describe("WatchlistButtonsMock: universe control", () => {
+  it("draws Add, adding, a rejection, a note, Remove and the confirm; no protected frame and no 'In universe' label", () => {
+    render(<WatchlistButtonsMock />);
+    expect(frame("universe-add").getByRole("button", { name: "Add to Universe" })).toBeInTheDocument();
+    expect(frame("universe-adding").getByRole("button", { name: "Adding…" })).toBeDisabled();
+    expect(frame("universe-add-error").getByRole("alert")).toHaveTextContent("not US-listed");
+    expect(frame("universe-note").getByRole("status")).toHaveTextContent("Added. The score will be filled in by the nightly run.");
+    expect(frame("universe-added").getByRole("button", { name: "Remove from Universe" })).toBeInTheDocument();
+    expect(frame("universe-confirming").getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+    expect(screen.queryByTestId("universe-protected")).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("universe-section")).queryByText(/^In universe/)).not.toBeInTheDocument();
+  });
+
+  it("a live Add with the mock request never touches the network", async () => {
+    vi.useFakeTimers();
+    render(<WatchlistButtonsMock />);
+    fireEvent.click(frame("universe-add").getByRole("button", { name: "Add to Universe" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1600);
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});

@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { UniverseControl } from "@/components/ticker/UniverseControl";
+import { useUniverseControl } from "@/components/ticker/UniverseControl";
 import type { UniverseAddOut, UniverseRemoveOut, UniverseStatusOut } from "@/lib/api/types";
 
 let hookResult: { data: UniverseStatusOut | undefined; error?: Error };
@@ -47,41 +47,43 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+// A stand-in header: the control goes in the action row, the note in its own line under the row, exactly as the real
+// headers place them.
+function Harness({ ticker }: { ticker: string }) {
+  const { control, note } = useUniverseControl(ticker);
+  return (
+    <div>
+      <div data-testid="row">{control}</div>
+      <div data-testid="note">{note}</div>
+    </div>
+  );
+}
+
 function renderControl() {
-  return render(<UniverseControl ticker="ABC" />);
+  return render(<Harness ticker="ABC" />);
 }
 
 describe("display rules", () => {
-  it("browsed + can_add: an outline 'Add to Universe' button, quieter than the primary watchlist button", () => {
+  it("browsed + can_add: only an outline 'Add to Universe' button, quieter than the primary watchlist button", () => {
     renderControl();
     const button = screen.getByRole("button", { name: "Add to Universe" });
     expect(button).not.toHaveClass("bg-brand");
     expect(button).toHaveClass("border");
-    expect(screen.queryByText("In universe")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(screen.queryByText(/in universe/i)).not.toBeInTheDocument();
   });
 
-  it("added + can_remove: a quiet 'In universe' label and a 'Remove from Universe' action", () => {
+  it("added + can_remove: only the 'Remove from Universe' button, no 'In universe' label", () => {
     hookResult = { data: status(ADDED) };
     renderControl();
-    expect(screen.getByText("In universe")).toHaveClass("text-text-tertiary");
+    expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Remove from Universe" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Add to Universe" })).not.toBeInTheDocument();
-  });
-
-  it("protected + in_universe: a non-interactive label with readable reasons, no button", () => {
-    hookResult = { data: status(PROTECTED) };
-    renderControl();
-    expect(screen.getByText("In universe · S&P 500, Watchlist E3")).toBeInTheDocument();
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
-  });
-
-  it("an unknown reason code prints raw", () => {
-    hookResult = { data: status({ ...PROTECTED, reasons: ["something:new"] }) };
-    renderControl();
-    expect(screen.getByText("In universe · something:new")).toBeInTheDocument();
+    expect(screen.queryByText(/in universe/i)).not.toBeInTheDocument();
   });
 
   it.each([
+    ["protected (index and watchlist reasons)", status(PROTECTED)],
+    ["protected and added", status({ ...PROTECTED, added_at: "2026-10-03T00:00:00Z", added_source: "user" })],
     ["protected with in_universe false (Moat-only, no profile)", status({ state: "protected", can_add: false, in_universe: false, classification: null, reasons: ["manual:moat"] })],
     ["an unadmitted index name", status({ state: "protected", can_add: false, in_universe: false, reasons: ["index:russell"] })],
     ["delisted browsed", status({ delisted: true, can_add: false, classification: "delisted" })],
@@ -91,16 +93,61 @@ describe("display rules", () => {
   ])("renders nothing for %s", (_name, s) => {
     hookResult = { data: s };
     const { container } = renderControl();
-    expect(container).toBeEmptyDOMElement();
+    expect(screen.getByTestId("row")).toBeEmptyDOMElement();
+    expect(screen.getByTestId("note")).toBeEmptyDOMElement();
+    expect(container).not.toHaveTextContent(/universe/i);
   });
 
   it("renders nothing while loading and after a failed status request (no error banner)", () => {
     hookResult = { data: undefined };
-    const { container, rerender } = renderControl();
-    expect(container).toBeEmptyDOMElement();
+    const { rerender } = renderControl();
+    expect(screen.getByTestId("row")).toBeEmptyDOMElement();
     hookResult = { data: undefined, error: new Error("GET /tickers/ABC/universe failed: 500") };
-    rerender(<UniverseControl ticker="ABC" />);
-    expect(container).toBeEmptyDOMElement();
+    rerender(<Harness ticker="ABC" />);
+    expect(screen.getByTestId("row")).toBeEmptyDOMElement();
+    expect(screen.getByTestId("note")).toBeEmptyDOMElement();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("notes and errors", () => {
+  it("render in the note line, never inside the action row, and the button stays put", async () => {
+    addToUniverse.mockResolvedValue(addOut({ score_computed: false, message: "Added ABC, but the score is pending." }));
+    renderControl();
+    fireEvent.click(screen.getByRole("button", { name: "Add to Universe" }));
+    const note = await screen.findByRole("status");
+    expect(screen.getByTestId("note")).toContainElement(note);
+    expect(screen.getByTestId("row")).not.toContainElement(note);
+  });
+
+  it("an error also renders in the note line, not in the row", async () => {
+    addToUniverse.mockRejectedValue(new Error("POST /tickers/ABC/universe failed: 400 - ABC is not US-listed."));
+    renderControl();
+    fireEvent.click(screen.getByRole("button", { name: "Add to Universe" }));
+    const alert = await screen.findByRole("alert");
+    expect(screen.getByTestId("note")).toContainElement(alert);
+    expect(screen.getByTestId("row")).not.toContainElement(alert);
+    expect(screen.getByTestId("row")).toHaveTextContent("Add to Universe");
+  });
+
+  it("the Remove 409 message renders in the note line", async () => {
+    hookResult = { data: status(ADDED) };
+    removeFromUniverse.mockRejectedValue(new Error("DELETE /tickers/ABC/universe failed: 409 - ABC cannot be removed."));
+    renderControl();
+    fireEvent.click(screen.getByRole("button", { name: "Remove from Universe" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    const alert = await screen.findByRole("alert");
+    expect(screen.getByTestId("note")).toContainElement(alert);
+    expect(screen.getByTestId("row")).not.toContainElement(alert);
+  });
+
+  it("switching ticker clears a leftover message", async () => {
+    addToUniverse.mockRejectedValue(new Error("POST failed: 503 - group off"));
+    const { rerender } = renderControl();
+    fireEvent.click(screen.getByRole("button", { name: "Add to Universe" }));
+    await screen.findByRole("alert");
+    hookResult = { data: status({ ticker: "XYZ" }) };
+    rerender(<Harness ticker="XYZ" />);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
@@ -143,7 +190,7 @@ describe("Add flow", () => {
   it("ETF, row_written false: 'Added. The card appears after tonight's run.'", async () => {
     hookResult = { data: status({ ticker: "QQQ", kind: "etf" }) };
     addToUniverse.mockResolvedValue(addOut({ score_computed: null, row_written: false, reason: "no_data", message: "x" }));
-    render(<UniverseControl ticker="QQQ" />);
+    render(<Harness ticker="QQQ" />);
     fireEvent.click(screen.getByRole("button", { name: "Add to Universe" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Added. The card appears after tonight's run.");
     expect(addToUniverse).toHaveBeenCalledWith("QQQ");
@@ -152,7 +199,7 @@ describe("Add flow", () => {
   it("ETF, row_written true: no extra note", async () => {
     hookResult = { data: status({ ticker: "QQQ", kind: "etf" }) };
     addToUniverse.mockResolvedValue(addOut({ score_computed: null, row_written: true }));
-    render(<UniverseControl ticker="QQQ" />);
+    render(<Harness ticker="QQQ" />);
     fireEvent.click(screen.getByRole("button", { name: "Add to Universe" }));
     await waitFor(() => expect(addToUniverse).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByRole("button", { name: "Add to Universe" })).toBeEnabled());
@@ -232,7 +279,7 @@ describe("Remove flow", () => {
   it("once the status says browsed again, the Add button is back", () => {
     const { rerender } = renderControl();
     hookResult = { data: status() };
-    rerender(<UniverseControl ticker="ABC" />);
+    rerender(<Harness ticker="ABC" />);
     expect(screen.getByRole("button", { name: "Add to Universe" })).toBeInTheDocument();
   });
 });
