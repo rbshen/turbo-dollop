@@ -123,8 +123,10 @@ def _patch_no_fetch(monkeypatch, message: str = "must not fetch live"):
 
 
 # ---------------------------------------------------------------------------
-# _most_recent_completed_trading_date (ported verbatim from the deleted
-# clients/daily_price_sources.py -- same cases, still correct here).
+# _most_recent_completed_trading_date: the ordinary weekday cases ported from the
+# deleted clients/daily_price_sources.py, still correct under the XNYS-aware helper
+# (none of these dates is a holiday). Holiday, early-close and fallback cases live in
+# tests/test_daily_trading_date_calendar.py.
 # ---------------------------------------------------------------------------
 
 

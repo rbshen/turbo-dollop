@@ -77,9 +77,10 @@ def _close(frame: pd.DataFrame) -> pd.Series:
 def _resolve_anchor(closes: dict[str, pd.Series], completed_date: date) -> pd.Timestamp | None:
     """The latest bar date, across every fetched fund, that is not after the
     last COMPLETED session. Taking it from the data (rather than using the
-    weekday-aware `completed_date` directly, which is not holiday-aware)
-    means a market holiday anchors to the real last trading day, and the
-    `<= completed_date` cap drops an in-progress/live bar."""
+    `completed_date` directly) keeps the anchor the real last trading day even
+    where the helper's calendar fell back to weekday-only logic (a holiday
+    then names a date no bar carries), and the `<= completed_date` cap drops
+    an in-progress/live bar."""
     cap = pd.Timestamp(completed_date)
     latest: pd.Timestamp | None = None
     for series in closes.values():

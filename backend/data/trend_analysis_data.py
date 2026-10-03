@@ -299,11 +299,13 @@ def _is_row_stale(row: TrendAnalysis) -> bool:
     closes 4pm ET) and recomputed an unchanged one over weekends. `bars_as_of`
     NULL (a row from before that column existed) reads as stale.
 
-    Inherits the bars cache's own non-holiday-awareness: on a market holiday
-    the "most recently completed session" is the holiday itself, which no
-    bar will ever match, so this reads stale (and recomputes) on each
-    on-demand read that day -- cheap, and the bars cache refetches on the
-    same days for the same reason."""
+    Holiday-aware through the bars cache's helper (XNYS calendar, weekday-only
+    fallback if the calendar cannot be loaded): on a market holiday, over a
+    weekend and the morning after, the "most recently completed session" is
+    the last real session, so a row computed from it stays fresh. (Only
+    in the weekday-only fallback does the holiday itself become the expected
+    date, which no bar will ever match -- that reads stale and recomputes on
+    each on-demand read.)"""
     return row.bars_as_of is None or row.bars_as_of < _most_recent_completed_trading_date()
 
 

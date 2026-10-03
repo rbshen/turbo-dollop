@@ -70,7 +70,7 @@ INTRADAY_INTERVAL = "60m"
 _EASTERN = ZoneInfo("America/New_York")
 _MARKET_OPEN_ET = time(9, 30)
 _MARKET_CLOSE_HOUR_ET = 16  # 4:00pm ET, ignored on minute precision, matching
-# _most_recent_completed_trading_date's own established convention.
+# _weekday_only_completed_trading_date's own established convention.
 
 # The raw 60-minute bars are labeled by their START time and run
 # 09:30/10:30/.../15:30 each trading day -- 7 bars, the LAST one only 30
@@ -146,13 +146,12 @@ def _period_for(interval: str, lookback_days: int) -> str:
     return _period_steps(interval)[-1][0]
 
 
-def _most_recent_completed_trading_date(reference: datetime | None = None) -> date:
-    """The most recent US/Eastern calendar date whose regular trading
-    session has already closed, as of `reference` (default: now).
-    Weekend-aware, deliberately NOT holiday-aware -- ported verbatim from
-    the now-deleted clients/daily_price_sources.py, which this module
-    supersedes; that module's regression cases for this function were
-    ported into tests/test_shared_bars_cache.py."""
+def _weekday_only_completed_trading_date(reference: datetime | None = None) -> date:
+    """The pre-calendar implementation of _most_recent_completed_trading_date, kept as its fallback when the market
+    calendar cannot be loaded (and as the fallback _weekday_only_intraday_bar_start builds on): the most recent
+    US/Eastern calendar date whose regular session has already closed at a hard-coded 16:00 ET, stepping back over
+    Saturday and Sunday only. No holidays and no early closes -- on a holiday it returns the holiday itself, a date
+    no bar will ever carry. Ported verbatim from the deleted clients/daily_price_sources.py."""
     ref = reference or datetime.now(timezone.utc)
     if ref.tzinfo is None:
         ref = ref.replace(tzinfo=timezone.utc)
@@ -165,6 +164,51 @@ def _most_recent_completed_trading_date(reference: datetime | None = None) -> da
     return session_date
 
 
+_daily_calendar_fallback_logged = False
+
+
+def _calendar_completed_trading_date(ref: datetime) -> date:
+    """The calendar-aware core: the newest XNYS session in the 14 days up to `ref` whose close (the session's REAL
+    close: 16:00, or 13:00 on an early-close day) is at or before `ref`. The sessions come from
+    helpers/trading_calendar.py::xnys_sessions, imported lazily because pandas_market_calendars costs ~0.9 s to load.
+    A weekend, a holiday and a pre-close reference all fall through to the previous session. Raises on any lookup
+    problem; the public wrapper turns that into the weekday-only fallback."""
+    from helpers.trading_calendar import xnys_sessions
+
+    eastern_now = ref.astimezone(_EASTERN)
+    today = eastern_now.date()
+    for day, _opened, closed in reversed(xnys_sessions(today - timedelta(days=14), today)):
+        if closed <= eastern_now:
+            return day
+    raise LookupError(f"no completed XNYS session in the 14 days before {today}")
+
+
+def _most_recent_completed_trading_date(reference: datetime | None = None) -> date:
+    """The date of the most recent regular XNYS session that has already closed as of `reference` (default: now),
+    holiday- and early-close-aware: on a holiday, over a weekend, and before the close it is the previous session; on
+    an early-close day it is that day from the session's real 13:00 close on (not from 16:00). Used by the daily
+    freshness check (_is_stale -> the refetch decision and stale_ticker_count), the live-bar caps and the "as of"
+    anchors of every daily consumer.
+
+    Never raises: if the calendar cannot be imported or consulted, it logs ONCE per process and answers with
+    _weekday_only_completed_trading_date (the previous behavior: a holiday reads as one missed session, so every
+    ticker looks stale and is refetched to no effect)."""
+    global _daily_calendar_fallback_logged
+    ref = reference or datetime.now(timezone.utc)
+    if ref.tzinfo is None:
+        ref = ref.replace(tzinfo=timezone.utc)
+    try:
+        return _calendar_completed_trading_date(ref)
+    except Exception as exc:  # noqa: BLE001 -- the freshness path must never raise over a calendar problem
+        if not _daily_calendar_fallback_logged:
+            _daily_calendar_fallback_logged = True
+            logger.warning(
+                "XNYS calendar unavailable (%s: %s); the daily freshness check falls back to weekday-only logic "
+                "(holidays will read as stale)", type(exc).__name__, exc,
+            )
+        return _weekday_only_completed_trading_date(ref)
+
+
 def _weekday_only_intraday_bar_start(reference: datetime | None = None) -> datetime:
     """The pre-calendar implementation of _most_recent_completed_intraday_bar_start, kept as its fallback when the
     market calendar cannot be loaded: weekday-aware only -- a hard-coded 16:00 close and 15:30 last bar, no holidays,
@@ -173,7 +217,7 @@ def _weekday_only_intraday_bar_start(reference: datetime | None = None) -> datet
     The start-timestamp (naive, US/Eastern -- matching this module's own
     storage convention, see SharedBarsCache's own docstring) of the most
     recently completed 60-minute intraday bar as of `reference` (default:
-    now). Mirrors _most_recent_completed_trading_date's own weekday-aware,
+    now). Mirrors _weekday_only_completed_trading_date's own weekday-aware,
     not-holiday-aware convention, generalized to bar-of-day granularity.
 
     Before today's first bar has fully elapsed (before 10:30 ET on a
@@ -196,7 +240,7 @@ def _weekday_only_intraday_bar_start(reference: datetime | None = None) -> datet
                     completed_offset_minutes = start
 
     if completed_offset_minutes is None:
-        session_date = _most_recent_completed_trading_date(reference)
+        session_date = _weekday_only_completed_trading_date(reference)
         completed_offset_minutes = _INTRADAY_BAR_START_MINUTES[-1]
     else:
         session_date = eastern_now.date()
@@ -244,7 +288,7 @@ def _most_recent_completed_intraday_bar_start(reference: datetime | None = None)
     Used by the freshness check (_is_stale -> the refetch decision and stale_ticker_count), FMPIntradaySource
     (live-bar drop, short-session check) and the Chart tab's 2H.90D range. Never raises: if the calendar cannot be
     imported or consulted, it logs ONCE per process and answers with _weekday_only_intraday_bar_start (the previous
-    behavior). The DAILY helper, _most_recent_completed_trading_date, is still not holiday-aware."""
+    behavior). The DAILY helper, _most_recent_completed_trading_date, is calendar-aware the same way."""
     global _calendar_fallback_logged
     ref = reference or datetime.now(timezone.utc)
     if ref.tzinfo is None:

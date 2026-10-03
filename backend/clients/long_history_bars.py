@@ -31,8 +31,10 @@ The group is `daily_prices_long` (Premium). FMP caps a response at 5,000 rows
 (~19.9y), so a 10y request fits in one call and no paging exists. Never logged: the
 request URL (it embeds the API key); only the exception TYPE.
 
-The freshness clock is the US session for every ticker (a non-US ticker on a local-only
-holiday reads stale and costs one redundant, idempotent top-up per view).
+The freshness clock is the US (XNYS) session for every ticker: a US holiday no longer reads
+stale (clients/shared_bars_cache.py::_most_recent_completed_trading_date is calendar-aware,
+weekday-only if the calendar cannot be loaded -- there a holiday costs one redundant,
+idempotent top-up per view), while a non-US ticker on a local-only holiday still reads stale.
 """
 
 import asyncio
