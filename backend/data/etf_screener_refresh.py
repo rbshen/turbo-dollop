@@ -1,7 +1,7 @@
 """The ETF screener refresh (docs/specs/etf-screener.md, step 4): for every ETF in the ETF universe
 (data/tracked_universe.py::load_etf_universe) compute the fields of one models.py::EtfScreenerRow and write
 them through data/etf_screener_data.py::upsert_etf_screener_row. Entry point: pipeline/nightly_etf_screener.py
-(NOT registered as a cron job yet -- step 6).
+(registered as a cron job, 1:45 AM, since 2026-10-03 -- step 6).
 
 Where each field comes from (all existing paths, nothing reimplemented):
   * name, last_price, pct_change_1d, as_of_date, return_1y, vs_spy_1y -- the shared daily-bar cache

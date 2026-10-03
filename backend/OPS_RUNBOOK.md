@@ -121,6 +121,7 @@ configured):
 | Nightly Liquidity Zone (LP) calculation | `nightly_liquidity_zone_calculation.log` / `_cron.log` |
 | Nightly Sector ETF heatmap | `nightly_sector_heatmap.log` / `_cron.log` |
 | Nightly market breadth | `nightly_market_breadth.log` / `_cron.log` |
+| Nightly ETFs screener | `nightly_etf_screener.log` / `_cron.log` |
 | Nightly corporate-events cache (earnings/dividends/splits) | `nightly_corporate_events.log` / `_cron.log` |
 | Nightly last-close cache (header price fallback) | `nightly_last_close_snapshot.log` / `_cron.log` |
 | Nightly Warren RSI/ADX/WVF entry-signal calculation | `nightly_warren_signal_calculation.log` / `_cron.log` |
@@ -318,6 +319,20 @@ edit still needs `crontab crontab.txt` from `backend/` to take effect. The
 one-time history seed is `pipeline/backfills/backfill_market_breadth.py` (see
 its docstring; it also fills the 20-day columns onto rows that predate them,
 only where NULL, and is safe to re-run).
+
+**`nightly_etf_screener`** — refreshes the ETFs screener's read-model, one `EtfScreenerRow` per ETF in
+`data/tracked_universe.py::load_etf_universe` (19 at registration: the 11 sector SPDRs, SPY, QQQ, TLT, ...). Per ETF: fund facts
+from `/etf/info` and the profile, 1y / vs-SPY returns from the shared daily-bar cache, the Weinstein stage, and the
+Warren/BB+RSI/LP signal fields. **Registered 2026-10-03 (step 6), 1:45 AM** (daily line in `crontab.txt`, `JOB_METADATA`,
+`CRON_JOB_NAMES`, 36 h cadence like the other daily jobs): after the 1:05 bar-cache job and LP/BB+RSI/Warren (Warren ends by
+~1:31 at worst), before fundamentals (2:00), the planned corporate-events slot (1:50) and the 3:25 recompute / 3:30 backup.
+Steady state ~1-3 min and almost no FMP calls (fresh caches); the first run fetched ~40. Skipped (a real `skipped` status)
+while `daily_prices` is off; `etf_info` / `profile_quote` off serve cached rows. A field whose source failed keeps its last
+value (never overwritten with NULL, except the three signal fields, where no row is a real answer). After a successful live
+run it prunes rows of ETFs no longer in the universe. Failure rule: `check_failure_threshold` (all failed, or >= 5% of >= 25).
+Success: a log line with `N ETFs, N written, 0 failed` in `backend/logs/nightly_etf_screener.log`. Manual runs:
+`uv run python -m pipeline.nightly_etf_screener [--tickers SPY,QQQ] [--cache-only] [--dry-run]` (`--cache-only --dry-run`
+writes nothing at all). Stock-side jobs still process the ETFs too; that is removed at step 7 (docs/specs/etf-screener.md).
 
 **`prune_cache`** — deletes `FundamentalsCache` rows older than
 `Settings.cache_retention_days` (180 days by default; distinct from the

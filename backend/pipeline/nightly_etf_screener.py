@@ -2,11 +2,9 @@
 universe (data/tracked_universe.py::load_etf_universe). See data/etf_screener_refresh.py for what is computed from
 where, the partial-write rule and the retention rule, and docs/specs/etf-screener.md.
 
-**NOT REGISTERED (2026-10-02, step 4).** This module is deliberately absent from crontab.txt,
-core/cron_health.py::CRON_JOB_NAMES / _EXPECTED_CADENCE_HOURS / JOB_METADATA until step 6 of the ETFs screener
-build, because the nightly schedule is being reworked. It can be run by hand. The `cron_heartbeat` below is
-already in place (the name matches its future CRON_JOB_NAMES entry) and is used for a real run only; a
-`--cache-only` or `--dry-run` run is a manual inspection and writes no CronRunLog row.
+**Registered 2026-10-03 (step 6)**: daily at 1:45 AM in crontab.txt, and in core/cron_health.py::CRON_JOB_NAMES /
+_EXPECTED_CADENCE_HOURS / JOB_METADATA. The `cron_heartbeat` below is used for a real run only; a `--cache-only` or
+`--dry-run` run is a manual inspection and writes no CronRunLog row.
 
 Skipped (a real `skipped` cron status) while the `daily_prices` data group is off, like the other bar-reading jobs;
 a live run also needs `etf_info` and `profile_quote` for the fund facts (when off, cached rows are served).
@@ -61,7 +59,7 @@ def failure_summary(summary: dict) -> str:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Refresh the ETFs screener read-model (not a registered cron job yet).")
+    parser = argparse.ArgumentParser(description="Refresh the ETFs screener read-model .")
     parser.add_argument("--tickers", type=str, default=None, help="Comma-separated explicit ticker list (never prunes).")
     parser.add_argument("--cache-only", action="store_true", help="Compute from cached data only; no network call.")
     parser.add_argument(

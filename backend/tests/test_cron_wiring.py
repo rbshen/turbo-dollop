@@ -114,7 +114,7 @@ def test_job_metadata_sort_minutes_match_crontab():
 
 
 # The nightly chain order (2026-09-30): technical first, fundamentals later. Times
-# since the 2026-10-02 reschedule: technical 1:00-1:40, fundamentals 2:00, price-target
+# since the 2026-10-02 reschedule: technical 1:00-1:40, ETFs screener 1:45 (2026-10-03), fundamentals 2:00, price-target
 # 3:10, recompute 3:25, backup 3:30.
 # Each consecutive pair must be scheduled strictly later than the one before,
 # so a schedule edit can't silently regress the agreed order. Hard constraints
@@ -128,6 +128,7 @@ _NIGHTLY_CHAIN_ORDER = [
     "pipeline.nightly_warren_signal_calculation",
     "pipeline.nightly_sector_heatmap",
     "pipeline.nightly_market_breadth",
+    "pipeline.nightly_etf_screener",
     "pipeline.nightly_fundamentals_fetch",
     "pipeline.nightly_price_target_snapshot",
     "pipeline.nightly_score_recompute",
@@ -193,3 +194,24 @@ def test_fundamentals_starts_after_the_technical_chain_with_room_for_a_long_run(
     fundamentals = _daily_minute_of_day("pipeline.nightly_fundamentals_fetch")
     assert _daily_minute_of_day("pipeline.nightly_market_breadth") + 15 <= fundamentals
     assert fundamentals + 65 <= _daily_minute_of_day("pipeline.nightly_price_target_snapshot")
+
+
+def test_etf_screener_runs_after_its_inputs_with_room_on_both_sides():
+    """The ETF job reads the bars the trend job fills and the signal rows LP, BB+RSI and Warren write (Warren's
+    worst seen run is ~5.4 min, its window 10), so it needs >= 10 min after the latest of them starts + its window;
+    and it must end (steady state 1-3 min) before fundamentals, the planned corporate-events slot when enabled,
+    the recompute and the backup."""
+    etf = _daily_minute_of_day("pipeline.nightly_etf_screener")
+    assert etf >= _daily_minute_of_day("pipeline.nightly_warren_signal_calculation") + 15
+    for upstream in (
+        "pipeline.nightly_trend_calculation",
+        "pipeline.nightly_liquidity_zone_calculation",
+        "pipeline.nightly_entry_signal_calculation",
+        "pipeline.nightly_warren_signal_calculation",
+    ):
+        assert etf > _daily_minute_of_day(upstream)
+    assert etf + 10 <= _daily_minute_of_day("pipeline.nightly_fundamentals_fetch")
+    assert etf + 10 <= _daily_minute_of_day("pipeline.nightly_score_recompute")
+    assert etf + 10 <= _daily_minute_of_day("pipeline.backup_db")
+    if "pipeline.nightly_corporate_events" not in DISABLED_CRON_JOBS:
+        assert etf + 5 <= _daily_minute_of_day("pipeline.nightly_corporate_events")

@@ -64,6 +64,8 @@ backend/     FastAPI app, organized into packages by role (2026-08-05
                nightly_entry_signal_calculation.py,
                nightly_liquidity_zone_calculation.py,
                nightly_price_target_snapshot.py,
+               nightly_etf_screener.py (the ETFs screener read-model, 1:45 AM;
+               registered 2026-10-03, see docs/specs/etf-screener.md),
                monthly_momentum_snapshot.py, recompute_ticker_scores.py,
                tracked_universe_report.py (read-only universe report),
                audit_fixture_contamination.py, refresh.py, prune_cache.py,

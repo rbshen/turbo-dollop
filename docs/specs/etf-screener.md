@@ -1,11 +1,12 @@
 # ETFs screener: read-model, endpoints, refresh job and page (steps 3 to 5 of the build)
 
 Built 2026-10-02 from the ETFs screener investigation. Backend: the table, a write helper, two read endpoints,
-a stock/ETF `kind` on saved views (step 3) and the refresh job code (step 4); frontend: the `/etfs` page (step 5). **The job is built but UNREGISTERED**: it
-is not in `crontab.txt`, `CRON_JOB_NAMES`, `_EXPECTED_CADENCE_HOURS` or `JOB_METADATA` until step 6 (the nightly schedule
-is being reworked), so nothing fills the table on its own yet and `GET /api/etf-screener` returns `[]` until it is run by
-hand. The frontend page (step 5) is built, see "Frontend" below. Not built: the registration (step 6) and the cutover
-that takes ETFs out of the stock-side jobs (step 7, checklist at the end).
+a stock/ETF `kind` on saved views (step 3) and the refresh job code (step 4); frontend: the `/etfs` page (step 5). **The job is REGISTERED (step 6, 2026-10-03)**: daily at
+**1:45 AM** in `crontab.txt`, in `CRON_JOB_NAMES`, `_EXPECTED_CADENCE_HOURS` (36 h, the shared daily value) and
+`JOB_METADATA`, after Warren (ends by ~1:31) and before the planned corporate-events slot (1:50), fundamentals (2:00), the
+recompute and the backup (`tests/test_cron_wiring.py::test_etf_screener_runs_after_its_inputs_with_room_on_both_sides`).
+The frontend page (step 5) is built, see "Frontend" below. Not built: the cutover that takes ETFs out of the
+stock-side jobs (step 7, checklist at the end).
 
 The ETF universe (which ETFs are in) is `data/tracked_universe.py::load_etf_universe`, see
 [Tracked universe](tracked-universe.md), "The ETF universe". The ETF page itself is [ETF page](etf-page.md).
@@ -106,8 +107,7 @@ Stocks page.
 - **Card** (`components/etf-screener/EtfScreenerCard.tsx`): ticker, name, asset class badge, Weinstein pill, then Quote, 1D,
   AUM, Exp. ratio, 1Y vs SPY ("+3.5 pp"), Beta. The whole card is a link to `/tickers/X`, `target="_blank"` (the same
   inline new-tab pattern as `ScreenerCard`; the nav's background-tab click replay is nav-only).
-- **States.** Zero rows: "ETF data hasn't been loaded yet. It is filled by the nightly ETF job." (until step 6 registers
-  the job). Rows but no match: "No ETFs match the current filters." Subtitle: "X of `total_etfs` ETFs", then "— N match the
+- **States.** Zero rows: "ETF data hasn't been loaded yet. It is filled by the nightly ETF job." (until the job's first run). Rows but no match: "No ETFs match the current filters." Subtitle: "X of `total_etfs` ETFs", then "— N match the
   current filters" and "· K not viewed in 30 days are hidden" (`hidden_inactive`), or the watchlist flavour as on the
   Stocks page.
 - **Shared vs twin.** Shared as they were or parameterized: `SortControls` (an `options` prop, default the stock list),
@@ -180,9 +180,8 @@ Code: `data/etf_screener_refresh.py::refresh_etf_screener(tickers=None, *, cache
   no `EtfScreenerRow` and prunes nothing (`would_prune` reports the count). It does **not** stop the normal read-through
   caches from filling when it is not also `cache_only`; **`--cache-only --dry-run` is the run that writes nothing at
   all**, and the CLI then skips `init_db()` and the log file, so it can run against the real database read-only.
-- `cron_heartbeat("pipeline.nightly_etf_screener")` is in the `__main__` block (already matching the future
-  `CRON_JOB_NAMES` entry) and is used for a real run only; `--cache-only` / `--dry-run` write no `CronRunLog` row.
-  `tests/test_cron_wiring.py` only iterates `CRON_JOB_NAMES`, so an unregistered module with a heartbeat does not trip it.
+- `cron_heartbeat("pipeline.nightly_etf_screener")` is in the `__main__` block (matching its `CRON_JOB_NAMES` entry) and is used for a real run only; `--cache-only` /
+  `--dry-run` write no `CronRunLog` row.
 
 ### Retention
 
@@ -192,7 +191,7 @@ tickers no longer in `load_etf_universe` (expired, delisted, or not an ETF) are 
 threshold was not breached (the same rule the heartbeat applies); otherwise nothing is pruned. An ETF re-opened after
 expiry is back in the universe at once and gets its row at the next refresh.
 
-### Registration (step 6) must add
+### Registration (step 6, done 2026-10-03)
 
 - `crontab.txt`: a daily line `... -m pipeline.nightly_etf_screener >> .../logs/nightly_etf_screener_cron.log 2>&1`, then
   `crontab crontab.txt` from `backend/` and `crontab -l` checked against the file. Slot: after the Weinstein/bar-cache

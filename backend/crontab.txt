@@ -13,10 +13,11 @@
 # BEFORE the chain). Order reordered 2026-09-30: technical jobs first, fundamentals
 # later (technical data is the higher priority). Order, each job in its own slot:
 #   last close -> Weinstein + bar-cache fill -> Liquidity Zone (support/resistance)
-#   -> BB+RSI -> Warren -> Sector ETF heatmap -> Market Breadth
+#   -> BB+RSI -> Warren -> Sector ETF heatmap -> Market Breadth -> ETFs screener
 #   -> (corporate events: DISABLED 2026-10-01, planned slot 1:50 AM, see below)
 #   -> FMP fundamentals -> analyst price-target -> score recompute -> SQLite backup
-# Nothing else runs between 1:45 and 2:00, which the planned corporate-events slot needs.
+# Nothing else runs between 1:50 and 2:00, which the planned corporate-events slot needs (the ETFs
+# screener job at 1:45 is short, ~1-3 min, and ends before 1:50).
 # Hard ordering constraints (pinned by tests/test_cron_wiring.py):
 #   * the Weinstein/bar-cache job (pipeline.nightly_trend_calculation -- the "trend" name is
 #     historical) fills the shared daily-bar cache; LP, Sector and Breadth read it warm
@@ -79,6 +80,17 @@
 # daily_prices is off. Raises (heartbeat failure) rather than saving a row when
 # <97% of constituents have a bar. See pipeline/nightly_market_breadth.py.
 40 1 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_market_breadth >> /home/shen/fathom/backend/logs/nightly_market_breadth_cron.log 2>&1
+
+# 1:45 ETFs screener refresh (registered 2026-10-03, step 6 of the ETFs screener build): one
+# EtfScreenerRow per ETF in data/tracked_universe.py::load_etf_universe (~19 ETFs; fund facts
+# from /etf/info + profile, 1y/vs-SPY returns from the shared daily-bar cache, Weinstein stage,
+# the Warren/BB+RSI/LP signal fields). AFTER the 1:05 bar-cache job (bars) and LP, BB+RSI and
+# Warren (signals; Warren worst seen ~5.4 min, ends by ~1:31), BEFORE the 3:25 recompute and 3:30
+# backup. Steady state ~1-2 min (fresh caches make no FMP call; first run ~40 calls), and it ends
+# before the planned 1:50 corporate-events slot. Skipped (a real `skipped` status) while
+# `daily_prices` is off. Does NOT yet replace the stock-side jobs' handling of ETFs (step 7).
+# See pipeline/nightly_etf_screener.py and docs/specs/etf-screener.md.
+45 1 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_etf_screener >> /home/shen/fathom/backend/logs/nightly_etf_screener_cron.log 2>&1
 
 # 2:45 (old slot, see below) FMP earnings/dividends/splits cache (Phase 6a) -- full-history replace per
 # ticker; feeds the Chart tab's E/D markers. ~2-4 min. Chart data, not a score

@@ -45,6 +45,7 @@ CRON_JOB_NAMES: list[str] = [
     "pipeline.nightly_liquidity_zone_calculation",
     "pipeline.nightly_sector_heatmap",
     "pipeline.nightly_market_breadth",
+    "pipeline.nightly_etf_screener",
     "scrapers.refresh_sp500_list",
     "scrapers.refresh_nasdaq_list",
     "scrapers.refresh_dow_list",
@@ -79,6 +80,7 @@ _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.nightly_liquidity_zone_calculation": _DAILY_HOURS,
     "pipeline.nightly_sector_heatmap": _DAILY_HOURS,
     "pipeline.nightly_market_breadth": _DAILY_HOURS,
+    "pipeline.nightly_etf_screener": _DAILY_HOURS,
     "pipeline.backup_db": _DAILY_HOURS,
     "scrapers.refresh_sp500_list": _WEEKLY_HOURS,
     "scrapers.refresh_nasdaq_list": _WEEKLY_HOURS,
@@ -141,6 +143,9 @@ JOB_METADATA: dict[str, JobMetadata] = {
     ),
     "pipeline.nightly_market_breadth": JobMetadata(
         "Market breadth (S&P 500 % above 50/200-day SMA, net new 52-week highs)", "daily", "1:40 AM", 60 + 40
+    ),
+    "pipeline.nightly_etf_screener": JobMetadata(
+        "ETFs screener refresh (fund facts, returns, Weinstein stage, signals per ETF)", "daily", "1:45 AM", 60 + 45
     ),
     "pipeline.backup_db": JobMetadata("Nightly SQLite backup + rotation", "daily", "3:30 AM", 3 * 60 + 30),
     "scrapers.refresh_sp500_list": JobMetadata("Keeps your S&P 500 stock list up to date", "weekly", "Sun 12:00 AM", 0),
