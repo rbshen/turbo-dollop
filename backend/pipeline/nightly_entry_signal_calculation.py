@@ -39,6 +39,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
+from clients.shared_bars_cache import INTRADAY_INTERVAL, stale_ticker_count
 from clients.technical_sources import get_technical_source
 from core.cron_health import check_failure_threshold, cron_heartbeat
 from core.data_groups import job_skip_reason
@@ -78,12 +79,21 @@ async def main() -> dict:
         logger.error("No tickers found across %s -- nothing to process.", matched_names or MONITORED_WATCHLIST_PATTERN.pattern)
         swept = sweep_stale_entry_signals()
         pruned = prune_entry_signal_events()
-        return {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "swept": swept, "pruned": pruned}
+        return {
+            "processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": [], "swept": swept, "pruned": pruned,
+            "stale_count": 0,
+        }
 
     logger.info("Starting nightly entry-signal calculation for %d tickers across %s.", len(tickers), matched_names)
     start_time = time.monotonic()
 
     bars_by_ticker = await get_technical_source().get_intraday_bars(tickers, LOOKBACK_DAYS)
+
+    # Stale-data guard: after the fetch attempt above, how many tickers' cached 60m bars still don't reflect the
+    # most recently completed bar (an FMP error / empty answer leaves the cached bars as they were). Surfaced in
+    # the log line and the heartbeat message only -- same as nightly_trend_calculation.py -- never a failure and
+    # never a reason to skip a ticker's compute.
+    stale_count, _ = stale_ticker_count(tickers, INTRADAY_INTERVAL)
 
     failures: list[tuple[str, str]] = []
     for i, ticker in enumerate(tickers, start=1):
@@ -102,11 +112,12 @@ async def main() -> dict:
 
     duration = time.monotonic() - start_time
     logger.info(
-        "Nightly entry-signal calculation complete. Processed: %d. Failed: %d. Swept: %d. Pruned: %d. Duration: %.1fs.",
+        "Nightly entry-signal calculation complete. Processed: %d. Failed: %d. Swept: %d. Pruned: %d. Stale: %d. Duration: %.1fs.",
         len(tickers),
         len(failures),
         swept,
         pruned,
+        stale_count,
         duration,
     )
     if failures:
@@ -119,17 +130,22 @@ async def main() -> dict:
         "failures": failures,
         "swept": swept,
         "pruned": pruned,
+        "stale_count": stale_count,
     }
 
 
 def record_outcome(summary: dict, run) -> None:
-    """Heartbeat mapping: "skipped" for a gated run, else a "N computed, F failed, S swept, P pruned"
-    message that raises (heartbeat "failure") past core.cron_health.check_failure_threshold."""
+    """Heartbeat mapping: "skipped" for a gated run, else a "N computed, F failed, S swept, P pruned, K still stale
+    after fetch" message that raises (heartbeat "failure") past core.cron_health.check_failure_threshold. The stale
+    count is informational only (like the daily-bar jobs'): it is not part of the failure threshold."""
     if summary.get("skipped"):
         run.skip(summary["skip_reason"])
         return
     processed, failed = summary["processed"], summary["failed"]
-    message = f"{processed - failed} computed, {failed} failed, {summary['swept']} swept, {summary['pruned']} pruned"
+    message = (
+        f"{processed - failed} computed, {failed} failed, {summary['swept']} swept, {summary['pruned']} pruned, "
+        f"{summary['stale_count']} still stale after fetch"
+    )
     check_failure_threshold(processed, failed, message)
     run.message = message
 

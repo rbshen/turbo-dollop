@@ -1,12 +1,16 @@
 import asyncio
 from datetime import datetime, timedelta
 
+import numpy as np
 import pandas as pd
 from sqlmodel import Session, SQLModel, create_engine
 
+import clients.shared_bars_cache as shared_bars_cache
 import data.entry_signal_data as entry_signal_data
 import pipeline.nightly_entry_signal_calculation as nightly_entry_signal
-from core.models import TechnicalEntrySignal, Watchlist, WatchlistTicker
+from analysis.entry_signal.engine import compute_entry_signal
+from core.cron_health import CronRunContext
+from core.models import SharedBarsCache, TechnicalEntrySignal, Watchlist, WatchlistTicker
 
 
 def _fake_bars() -> pd.DataFrame:
@@ -24,6 +28,9 @@ def _fresh_engine(monkeypatch, tmp_path):
     # real core.db.engine, which the session-scoped write-guard in
     # conftest.py catches immediately.
     monkeypatch.setattr(entry_signal_data, "engine", engine)
+    # stale_ticker_count reads clients.shared_bars_cache's OWN engine -- point it at the same in-memory DB (empty
+    # unless a test seeds bars) so it never falls through to the real on-disk engine.
+    monkeypatch.setattr(shared_bars_cache, "engine", engine)
     monkeypatch.setattr(nightly_entry_signal, "LOG_PATH", tmp_path / "test_nightly_entry_signal_calculation.log")
     return engine
 
@@ -203,3 +210,81 @@ def test_main_sweeps_a_row_stale_beyond_the_seven_day_window(monkeypatch, tmp_pa
     assert row.fired_at is None
     assert row.pct_b is None
     assert row.computed_at == stale_computed_at  # last-known marker untouched
+
+
+def _seed_cached_bar(engine, ticker: str, bar_time: datetime) -> None:
+    with Session(engine) as session:
+        session.add(
+            SharedBarsCache(
+                ticker=ticker, interval="60m", bar_time=bar_time, open=1.0, high=1.0, low=1.0, close=1.0, volume=1,
+                fetched_at=datetime.now(), source="fmp",
+            )
+        )
+        session.commit()
+
+
+def _synthetic_60m_bars(days: int = 40) -> pd.DataFrame:
+    """Weekday 09:30..15:30 hourly bars (tz-aware America/New_York), a deterministic random walk."""
+    rng = np.random.default_rng(7)
+    stamps = [
+        pd.Timestamp(day.date()).tz_localize("America/New_York") + pd.Timedelta(hours=9, minutes=30) + pd.Timedelta(hours=h)
+        for day in pd.bdate_range(end="2026-09-30", periods=days)
+        for h in range(7)
+    ]
+    close = 100 + np.cumsum(rng.normal(0, 0.6, len(stamps)))
+    return pd.DataFrame(
+        {"open": close, "high": close + 0.3, "low": close - 0.3, "close": close, "volume": 1000}, index=pd.DatetimeIndex(stamps)
+    )
+
+
+def test_stale_cached_bars_are_counted_and_reported_but_a_fresh_ticker_is_not(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_watchlist(engine, "E1", ["FRESH", "STALE"])
+    latest = shared_bars_cache._most_recent_completed_intraday_bar_start()
+    _seed_cached_bar(engine, "FRESH", latest)  # reflects the most recently completed 60m bar
+    _seed_cached_bar(engine, "STALE", latest - timedelta(days=3))  # a fetch that never landed
+    _patch_batch_fetch(monkeypatch, {"FRESH": _fake_bars(), "STALE": _fake_bars()})
+    store_calls = _patch_store(monkeypatch)
+
+    summary = asyncio.run(nightly_entry_signal.main())
+
+    assert summary["stale_count"] == 1
+    assert sorted(store_calls) == ["FRESH", "STALE"]  # a stale ticker is still computed, only surfaced
+    assert summary["failed"] == 0
+    assert "Stale: 1." in (tmp_path / "test_nightly_entry_signal_calculation.log").read_text()
+
+    run = CronRunContext()
+    nightly_entry_signal.record_outcome(summary, run)  # the stale count never feeds the failure threshold
+    assert run.message == "2 computed, 0 failed, 0 swept, 0 pruned, 1 still stale after fetch"
+
+
+def test_a_ticker_with_no_cached_bars_at_all_counts_as_stale(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_watchlist(engine, "E1", ["AAPL"])
+    _patch_batch_fetch(monkeypatch, {"AAPL": _fake_bars()})
+    _patch_store(monkeypatch)
+
+    assert asyncio.run(nightly_entry_signal.main())["stale_count"] == 1
+
+
+def test_signal_output_is_identical_for_a_stale_and_a_fresh_ticker(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_watchlist(engine, "E1", ["FRESH", "STALE"])
+    latest = shared_bars_cache._most_recent_completed_intraday_bar_start()
+    _seed_cached_bar(engine, "FRESH", latest)
+    _seed_cached_bar(engine, "STALE", latest - timedelta(days=3))
+    bars = _synthetic_60m_bars()
+    _patch_batch_fetch(monkeypatch, {"FRESH": bars, "STALE": bars})  # real compute_and_store_entry_signal
+
+    summary = asyncio.run(nightly_entry_signal.main())
+
+    expected = compute_entry_signal(bars)
+    fields = ("as_of", "fired_at", "pct_b", "rsi", "close", "stop_price")
+    with Session(engine) as session:
+        rows = {t: session.get(TechnicalEntrySignal, (t, "bb_rsi", "2h")) for t in ("FRESH", "STALE")}
+    assert summary["stale_count"] == 1 and summary["failed"] == 0
+    for t, row in rows.items():
+        assert row is not None, t
+        assert row.as_of == expected.as_of
+        assert row.fired_at == expected.fired_at
+    assert [getattr(rows["FRESH"], f) for f in fields] == [getattr(rows["STALE"], f) for f in fields]

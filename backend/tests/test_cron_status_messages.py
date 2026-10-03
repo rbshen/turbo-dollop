@@ -87,18 +87,26 @@ def test_fundamentals_gated_run_is_skipped():
     assert run.skipped and run.message == "skipped (group fundamentals disabled)"
 
 
-@pytest.mark.parametrize("module", [entry_signal, warren])
-def test_signal_jobs_message_threshold_and_skip(module):
+@pytest.mark.parametrize(
+    "module, stale_part",
+    [(entry_signal, ", 2 still stale after fetch"), (warren, "")],
+)
+def test_signal_jobs_message_threshold_and_skip(module, stale_part):
     run = CronRunContext()
-    module.record_outcome({"processed": 105, "failed": 1, "swept": 3, "pruned": 12}, run)
-    assert run.message == "104 computed, 1 failed, 3 swept, 12 pruned"
+    module.record_outcome({"processed": 105, "failed": 1, "swept": 3, "pruned": 12, "stale_count": 2}, run)
+    assert run.message == "104 computed, 1 failed, 3 swept, 12 pruned" + stale_part
 
     with pytest.raises(RuntimeError, match="computed"):
-        module.record_outcome({"processed": 105, "failed": 6, "swept": 0, "pruned": 0}, CronRunContext())
+        module.record_outcome({"processed": 105, "failed": 6, "swept": 0, "pruned": 0, "stale_count": 0}, CronRunContext())
 
     empty = CronRunContext()  # no monitored tickers: processed 0 is a success, not a failure
-    module.record_outcome({"processed": 0, "failed": 0, "swept": 0, "pruned": 0}, empty)
-    assert empty.message == "0 computed, 0 failed, 0 swept, 0 pruned"
+    module.record_outcome({"processed": 0, "failed": 0, "swept": 0, "pruned": 0, "stale_count": 0}, empty)
+    assert empty.message == "0 computed, 0 failed, 0 swept, 0 pruned" + (", 0 still stale after fetch" if stale_part else "")
+
+    # A large stale count alone never fails the run (informational, like the daily-bar jobs).
+    all_stale = CronRunContext()
+    module.record_outcome({"processed": 105, "failed": 0, "swept": 0, "pruned": 0, "stale_count": 105}, all_stale)
+    assert not all_stale.skipped and all_stale.message
 
     gated = CronRunContext()
     module.record_outcome({"skipped": True, "skip_reason": "skipped (group intraday_bars disabled)"}, gated)
