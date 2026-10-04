@@ -809,3 +809,12 @@ TradingView export. **Why a separate endpoint, not a branch of `/rows`:** the st
 (which can still persist an ETF `TickerScore` row on the Watchlist path), Step 1 statements, the live `/grades-consensus` call and the 8-wide fetch semaphore. A page load therefore costs one select plus cache reads, makes
 no network call and writes nothing (pinned by `tests/test_etf_watchlist_rows.py`). Order is the list's added order (`list_watchlist_tickers`, `added_at`; tickers added in one bulk call share a timestamp and keep
 insertion order). A member with no `EtfScreenerRow` (just added, the 1:45 job or the add-time write has not reached it) is returned with null figures and a null name, so the table shows dashes instead of dropping it.
+
+### 2026-10-04 — The ETF table on the Watchlists page
+Step 4 of the ETF watchlist table. The list named exactly `ETF` renders `EtfWatchlistTable` over `GET /api/watchlists/{id}/etf-rows`; every other list is unchanged. **No generic column framework:** two fixed layouts, with
+the pieces both need extracted rather than copied (`components/watchlist/tableParts.tsx`: the sticky `HEAD_CLASS`, `SortableColumnHead`, the remove flow and cell, the skeleton, `openTickerPage`; `lib/watchlistSort.ts` gained
+`applyHeaderClickWith` / `parseSortRulesWith`, which the stock exports now call, so stock sorting is byte-for-byte the same behavior). **Separate sort state:** the ETF table has its own field set, default (AUM descending) and
+localStorage key (`fathom-etf-watchlist-sort-<id>`), so a rule stored for the stock table under the same list id can never reach it and a foreign or stale value falls back to the default. Nulls sort last in both directions, as
+in the stock table. **Headers are short** (Class, Exp %, Holdings, Avg Vol 30d, Yield %) and the 13 columns fit at 1280px without scrolling by fixed widths with a flexible Name; below that the table keeps a 1160px min-width and
+the container scrolls (calculation in `EtfWatchlistTable.tsx`; not browser-verified, per CLAUDE.md). **Null is "–"** (an en dash), not the screener card's em dash, as specified. **Export:** an ETF row has no sector, so the
+TradingView file puts the ETF list's tickers under a single `###Other` section. **Refresh:** `useWatchlists.ts::mutateWatchlistRows` revalidates `/rows` and `/etf-rows` after add, remove, bulk add and the ETF page's add.

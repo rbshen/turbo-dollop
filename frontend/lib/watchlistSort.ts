@@ -74,7 +74,7 @@ function rank(map: Record<string, number>, value: string | null): number {
 // regardless of direction, same convention screenerFilters.ts's
 // sortTickerScores uses for the same reason (an Incomplete/not-yet-computed
 // ticker shouldn't jump to the top just because "asc" was picked).
-function compareNullable(av: number | string | null, bv: number | string | null, dir: 1 | -1): number {
+export function compareNullable(av: number | string | null, bv: number | string | null, dir: 1 | -1): number {
   if (av == null && bv == null) return 0;
   if (av == null) return 1;
   if (bv == null) return -1;
@@ -91,7 +91,7 @@ function compareNullable(av: number | string | null, bv: number | string | null,
 // sort the missing value FIRST instead of last. Handling missing ranks
 // before the subtraction, exactly like compareNullable's own null checks,
 // avoids that.
-function compareRank(aRank: number, bRank: number, dir: 1 | -1): number {
+export function compareRank(aRank: number, bRank: number, dir: 1 | -1): number {
   const aMissing = !Number.isFinite(aRank);
   const bMissing = !Number.isFinite(bRank);
   if (aMissing && bMissing) return 0;
@@ -161,14 +161,24 @@ export function sortWatchlistRows(rows: WatchlistRowOut[], rules: SortRule[]): W
 // comment for what it means for row order, and app/watchlist/page.tsx's
 // loadSortRules for how it's told apart from "never set" when persisted.
 export function applyHeaderClick(rules: SortRule[], field: SortableField): SortRule[] {
+  return applyHeaderClickWith(rules, field, defaultDirectionFor);
+}
+
+// The click cycle above, independent of which table's field set it runs over -- shared with the ETF watchlist
+// table (lib/etfWatchlistSort.ts), which has its own fields and default directions.
+export function applyHeaderClickWith<F extends string>(
+  rules: { field: F; direction: SortDirection }[],
+  field: F,
+  defaultDirection: (field: F) => SortDirection
+): { field: F; direction: SortDirection }[] {
   const idx = rules.findIndex((r) => r.field === field);
   if (idx === -1) {
     if (rules.length >= MAX_SORT_RULES) return rules;
-    return [...rules, { field, direction: defaultDirectionFor(field) }];
+    return [...rules, { field, direction: defaultDirection(field) }];
   }
 
   const current = rules[idx];
-  if (current.direction === defaultDirectionFor(field)) {
+  if (current.direction === defaultDirection(field)) {
     const next = [...rules];
     next[idx] = { field, direction: current.direction === "asc" ? "desc" : "asc" };
     return next;
@@ -177,12 +187,12 @@ export function applyHeaderClick(rules: SortRule[], field: SortableField): SortR
   return rules.filter((_, i) => i !== idx);
 }
 
-function isSortRule(value: unknown): value is SortRule {
+function isRuleOver<F extends string>(value: unknown, fields: readonly F[]): value is { field: F; direction: SortDirection } {
   if (!value || typeof value !== "object") return false;
   const r = value as Record<string, unknown>;
   return (
     typeof r.field === "string" &&
-    (SORTABLE_FIELDS as string[]).includes(r.field) &&
+    (fields as readonly string[]).includes(r.field) &&
     (r.direction === "asc" || r.direction === "desc")
   );
 }
@@ -207,12 +217,22 @@ function isSortRule(value: unknown): value is SortRule {
 // directly (rather than reading localStorage itself) so it's a pure
 // function, testable without mocking `window`.
 export function parseSortRules(raw: string | null): SortRule[] {
-  if (raw == null) return DEFAULT_SORT_RULES;
+  return parseSortRulesWith(raw, SORTABLE_FIELDS, DEFAULT_SORT_RULES);
+}
+
+// The same parse over any table's field set and default: a rule naming a field outside `fields` (a stale or foreign
+// persisted value) makes the whole array fall back to `fallback`.
+export function parseSortRulesWith<F extends string>(
+  raw: string | null,
+  fields: readonly F[],
+  fallback: { field: F; direction: SortDirection }[]
+): { field: F; direction: SortDirection }[] {
+  if (raw == null) return fallback;
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length > MAX_SORT_RULES) return DEFAULT_SORT_RULES;
-    return parsed.every(isSortRule) ? parsed : DEFAULT_SORT_RULES;
+    if (!Array.isArray(parsed) || parsed.length > MAX_SORT_RULES) return fallback;
+    return parsed.every((r) => isRuleOver(r, fields)) ? (parsed as { field: F; direction: SortDirection }[]) : fallback;
   } catch {
-    return DEFAULT_SORT_RULES;
+    return fallback;
   }
 }

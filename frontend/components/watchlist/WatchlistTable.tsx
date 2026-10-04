@@ -1,21 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Check, Minus, X } from "@phosphor-icons/react";
+import { useMemo } from "react";
 
 import { MiniBarChart } from "@/components/charts/MiniBarChart";
 import { MOAT_LABEL_SHORT, MOAT_TONE } from "@/components/ticker/MoatPill";
 import { VALUATION_LABEL_SHORT, VALUATION_TONE } from "@/components/ticker/FairValuePill";
 import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGrowthPill";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { SortHeader } from "@/components/ui/sort-header";
+import { HEAD_CLASS, openTickerPage, RemoveCell, SkeletonRows, SortableColumnHead, useRemoveFlow } from "@/components/watchlist/tableParts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { SortableField, WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
 import { fmtCompactMoney, fmtMoney, fmtNumber, fmtSignedCompactMoneyTooltip } from "@/lib/format";
 import { toneForNullable } from "@/lib/tierColor";
 import { cn } from "@/lib/utils";
-import { removeTickerFromWatchlist } from "@/lib/hooks/useWatchlists";
 import { applyHeaderClick, sortWatchlistRows, type SortRule } from "@/lib/watchlistSort";
 
 interface Props {
@@ -49,7 +46,7 @@ interface Props {
 // required on each cell, not just the row, since sticky positioning is
 // applied per-`th` -- an unpainted cell would let body rows show through
 // as they scroll underneath.
-const HEAD_CLASS = "sticky top-0 z-20 bg-page";
+// HEAD_CLASS (the sticky header cell classes) lives in tableParts.tsx, shared with the ETF table.
 
 // The Analysis column collapses the 4 individual step chips into one
 // overall_score/overall_verdict pill (see the column-order comment below) --
@@ -139,21 +136,16 @@ function SortableHead({
   align?: "left" | "right";
   children: React.ReactNode;
 }) {
-  const priority = rules.findIndex((r) => r.field === field);
-  const active = priority !== -1;
-  const direction = active ? rules[priority].direction : undefined;
-  const ariaSort: "ascending" | "descending" | "none" = !active ? "none" : direction === "asc" ? "ascending" : "descending";
   return (
-    <TableHead className={className} sort={ariaSort}>
-      <SortHeader
-        label={children}
-        active={active}
-        direction={direction}
-        priority={active && rules.length > 1 ? priority + 1 : undefined}
-        onClick={() => onChange(applyHeaderClick(rules, field))}
-        align={align}
-      />
-    </TableHead>
+    <SortableColumnHead
+      field={field}
+      rules={rules}
+      onSort={(f) => onChange(applyHeaderClick(rules, f))}
+      className={className}
+      align={align}
+    >
+      {children}
+    </SortableColumnHead>
   );
 }
 
@@ -183,8 +175,6 @@ function SortableHead({
 // icon buttons instead of "Okay"/"Cancel" text -- this column has no room
 // for the full "Remove TICKER from WATCHLIST_NAME?" sentence, so the
 // question is carried in each icon's title/aria-label instead.
-type RemoveState = "idle" | "confirming" | "removing" | "error";
-
 // Ticker, Sector, Last, Rev, NI, CFO, Moat, Value, Analysis, Rating, Mkt cap,
 // Beta, P/E, remove -- matches the header row below; used only to span the
 // loading skeleton's rows across every column.
@@ -192,32 +182,7 @@ const COLUMN_COUNT = 14;
 
 export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesChange }: Props) {
   const sorted = useMemo(() => (rows ? sortWatchlistRows(rows, sortRules) : []), [rows, sortRules]);
-  const [removeState, setRemoveState] = useState<Record<string, RemoveState>>({});
-  // Keyed by ticker only (no watchlist id) -- reset on every tab switch so a
-  // lingering "confirming"/"error" state from a previous watchlist never
-  // bleeds onto a same-ticker row in a different one. Adjusted during render
-  // ("storing information from previous renders", same pattern
-  // app/watchlist/page.tsx's own sortState uses for the same activeId-change
-  // reason) rather than a useEffect, which would cause an extra render.
-  const [lastWatchlistId, setLastWatchlistId] = useState(watchlist.id);
-  if (watchlist.id !== lastWatchlistId) {
-    setLastWatchlistId(watchlist.id);
-    setRemoveState({});
-  }
-
-  async function handleRemoveConfirmed(ticker: string) {
-    setRemoveState((prev) => ({ ...prev, [ticker]: "removing" }));
-    try {
-      await removeTickerFromWatchlist(watchlist.id, ticker);
-    } catch {
-      setRemoveState((prev) => ({ ...prev, [ticker]: "error" }));
-      setTimeout(() => setRemoveState((prev) => ({ ...prev, [ticker]: "idle" })), 4000);
-    }
-  }
-
-  function openTicker(ticker: string) {
-    window.open(`/tickers/${ticker}`, "_blank", "noopener,noreferrer");
-  }
+  const removeFlow = useRemoveFlow(watchlist.id);
 
   if (watchlist.tickers.length === 0) {
     return <p className="text-xs text-text-tertiary">No tickers in this watchlist yet — add one from its ticker page.</p>;
@@ -231,11 +196,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
     return (
       <Table className="min-w-[1000px]">
         <TableBody>
-          {Array.from({ length: 5 }, (_, i) => (
-            <TableRow key={i} className="animate-pulse bg-surface-2">
-              <TableCell colSpan={COLUMN_COUNT} />
-            </TableRow>
-          ))}
+          <SkeletonRows columns={COLUMN_COUNT} />
         </TableBody>
       </Table>
     );
@@ -298,7 +259,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
       </TableHeader>
       <TableBody>
         {sorted.map((row) => (
-          <TableRow key={row.ticker} interactive onClick={() => openTicker(row.ticker)}>
+          <TableRow key={row.ticker} interactive onClick={() => openTickerPage(row.ticker)}>
             <TableCell className="w-[250px] max-w-[250px] overflow-hidden">
                 <p
                   className={cn(
@@ -377,57 +338,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
               <TableCell className="text-right font-mono text-text-secondary">
                 {row.pe_ratio != null && fmtNumber(row.pe_ratio)}
               </TableCell>
-              <TableCell className="text-center">
-                {(removeState[row.ticker] ?? "idle") === "confirming" ? (
-                  <div className="flex items-center justify-center gap-1">
-                    <Button
-                      variant="outline"
-                      size="icon-sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemoveConfirmed(row.ticker);
-                      }}
-                      aria-label={`Confirm: remove ${row.ticker} from ${watchlist.name}`}
-                      title={`Remove ${row.ticker} from ${watchlist.name}?`}
-                      className="border-warn/50 text-warn hover:border-warn hover:text-warn"
-                    >
-                      <Check size={16} aria-hidden="true" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon-sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setRemoveState((prev) => ({ ...prev, [row.ticker]: "idle" }));
-                      }}
-                      aria-label="Cancel"
-                      title="Cancel"
-                      className="text-text-tertiary"
-                    >
-                      <X size={16} aria-hidden="true" />
-                    </Button>
-                  </div>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="icon-sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setRemoveState((prev) => ({ ...prev, [row.ticker]: "confirming" }));
-                    }}
-                    disabled={removeState[row.ticker] === "removing"}
-                    aria-label={`Remove ${row.ticker}`}
-                    title={removeState[row.ticker] === "error" ? "Failed to remove — retry" : `Remove ${row.ticker}`}
-                    className={cn(
-                      removeState[row.ticker] === "error"
-                        ? "border-negative text-negative hover:border-negative"
-                        : "text-text-tertiary hover:border-negative hover:text-negative"
-                    )}
-                  >
-                    <Minus size={16} aria-hidden="true" />
-                  </Button>
-                )}
-              </TableCell>
+              <RemoveCell ticker={row.ticker} watchlistName={watchlist.name} flow={removeFlow} />
             </TableRow>
           ))}
         </TableBody>

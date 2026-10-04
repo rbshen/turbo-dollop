@@ -138,13 +138,23 @@ The header's action cluster also holds the shared universe button (Add to / Remo
   `TickerScore.is_etf` row). An ETF never opened, scored or watchlisted is therefore **not labelled** until its page is
   first viewed.
 - **Watchlist rows:** the list named "ETF" holds ETFs only (see "Add to watchlist") and has its own data endpoint,
-  `GET /api/watchlists/{id}/etf-rows` -> `list[EtfWatchlistRowOut]` (2026-10-04; the ETF table that renders it is a later step, until then the page
-  still renders the list with the stock table). Fields: `ticker`, `name`, `exchange`, `last_price`, `pct_change_1d`, `asset_class`, `expense_ratio`, `aum`,
+  `GET /api/watchlists/{id}/etf-rows` -> `list[EtfWatchlistRowOut]` (2026-10-04), rendered by the **ETF table** on the Watchlists page (below). Fields: `ticker`, `name`, `exchange`, `last_price`, `pct_change_1d`, `asset_class`, `expense_ratio`, `aum`,
   `holdings_count`, `avg_volume_30d`, `dividend_yield`, `beta`, `return_ytd`, `return_1y`. **Stored data only**: one select of `EtfScreenerRow` for the list's
   tickers through `etf_screener_data._row_out` (so Beta is null unless the asset class contains "equity") plus the cache-only profile exchange
   (`_cached_exchange`); no `compute_ticker_score`, Step 1, `/grades-consensus` or any FMP call, and no write (no `TickerScore` row, no view record).
   Rows come back in the list's added order (`list_watchlist_tickers`, `added_at`, same as the stock endpoint); a member with no `EtfScreenerRow` yet is
   still returned with null figures. Any list other than the exact name "ETF" answers 400 (`Only the "ETF" watchlist has an ETF table.`), an unknown id 404.
+  **The ETF table** (`components/watchlist/EtfWatchlistTable.tsx`, `lib/hooks/useEtfWatchlistRows.ts`, `lib/etfWatchlistSort.ts`; chosen in `app/watchlist/page.tsx`
+  only when `active.name === ETF_WATCHLIST_NAME`; E1-E5 and every other list keep the stock table, and only the active view's rows are fetched). Columns, in order:
+  **Ticker, Name, Price, % Chg, Class, Exp %, AUM, Holdings, Avg Vol 30d, Yield %, Beta, YTD, 1Y**, then the remove button. Formatting reuses the ETFs screener card's and the stock table's
+  helpers: `fmtMoney` (price), `fmtPct` + `pnlClass` (signed, green/red: % Chg, YTD, 1Y), `fmtPlainPct(n, 2)` (Exp %, Yield %), `fmtCompactMoney` (AUM), `fmtCompactNumber` (Avg Vol), `fmtNumber` (Beta)
+  and `toLocaleString("en-US")` (Holdings, as the Overview's Fund facts). Class is plain text (no badge). A null figure is an en dash "–", and a member with no stored row shows its ticker and dashes.
+  Ticker opens the ticker page in a new tab (row click, as the stock table); Name truncates with a title tooltip. **Sorting:** all 13 data columns, the stock table's click cycle and multi-sort
+  (up to 4), nulls always last; first click text A-Z, Exp % cheapest first, everything else highest first; **default AUM descending**. Rules persist per list under `fathom-etf-watchlist-sort-<id>`
+  (the stock table's `fathom-watchlist-sort-<id>` is never read or written by it); an unreadable value or any rule naming a field outside the ETF set falls back to the default. **Fit:** the 12 fixed columns plus
+  the remove column total 1008px, Name takes the rest (192px at a 1280px window) and never goes below 140px, so the table's `min-width` is 1160px; below about 1240px of window the container scrolls sideways.
+  Loading, error and empty states are the stock table's. The TradingView export uses the ETF rows' `exchange` (`EXCHANGE:SYMBOL`, a ticker with no cached exchange is skipped) and, an ETF row having no sector,
+  puts every ticker under one `###Other` section. Every watchlist add/remove/bulk-add revalidates both `/watchlists/{id}/rows` and `/watchlists/{id}/etf-rows`.
   An ETF on any other list is a stock-table row, and `WatchlistRowOut.is_etf` (from the score row) shows an "ETF" badge in the Analysis cell in place of
   the blank score, and the Rating cell shows a dash: `data/watchlist_data.py::_compose_row` makes **no** `/grades-consensus`
   call for an ETF row (FMP answers `[]` for a fund, so it was one wasted call and one empty cached row per ETF per window)

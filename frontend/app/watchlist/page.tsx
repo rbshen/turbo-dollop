@@ -8,7 +8,10 @@ import { Tabs } from "@/components/ui/tabs";
 import { ExportMenu } from "@/components/watchlist/ExportMenu";
 import { WatchlistDeleteButton } from "@/components/watchlist/WatchlistDeleteButton";
 import { WatchlistNameEditor } from "@/components/watchlist/WatchlistNameEditor";
+import { EtfWatchlistTable } from "@/components/watchlist/EtfWatchlistTable";
 import { WatchlistTable } from "@/components/watchlist/WatchlistTable";
+import { DEFAULT_ETF_SORT_RULES, ETF_SORT_STORAGE_KEY_PREFIX, parseEtfSortRules, type EtfSortRule } from "@/lib/etfWatchlistSort";
+import { useEtfWatchlistRows } from "@/lib/hooks/useEtfWatchlistRows";
 import { useWatchlists } from "@/lib/hooks/useWatchlists";
 import { useWatchlistRows } from "@/lib/hooks/useWatchlistRows";
 import { ETF_WATCHLIST_NAME } from "@/lib/monitoredWatchlists";
@@ -38,6 +41,17 @@ function loadSortRules(watchlistId: number): SortRule[] {
   }
 }
 
+// The ETF table keeps its own rules under its own key (a different field set and default), so nothing stored for the
+// stock table under the same list id can reach it; an unreadable or foreign value falls back to the ETF default.
+function loadEtfSortRules(watchlistId: number): EtfSortRule[] {
+  if (typeof window === "undefined") return DEFAULT_ETF_SORT_RULES;
+  try {
+    return parseEtfSortRules(window.localStorage.getItem(`${ETF_SORT_STORAGE_KEY_PREFIX}${watchlistId}`));
+  } catch {
+    return DEFAULT_ETF_SORT_RULES;
+  }
+}
+
 function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "watchlist";
 }
@@ -53,7 +67,14 @@ export default function WatchlistPage() {
     : null;
   const activeId = manualActiveId ?? mostRecentlyCreated?.id ?? null;
   const active = watchlists?.find((w) => w.id === activeId) ?? null;
-  const { data: rows, error: rowsError } = useWatchlistRows(active?.id ?? null);
+  // The list named "ETF" has its own table and its own rows endpoint; every other list keeps the stock table. Only the
+  // active view's rows are fetched.
+  const isEtfList = active?.name === ETF_WATCHLIST_NAME;
+  const { data: stockRows, error: stockRowsError } = useWatchlistRows(active && !isEtfList ? active.id : null);
+  const { data: etfRows, error: etfRowsError } = useEtfWatchlistRows(active && isEtfList ? active.id : null);
+  // What the TradingView export and its enabled state need from either kind of row. An ETF row has no sector.
+  const rows = isEtfList ? etfRows : stockRows;
+  const exportRows = rows?.map((r) => ({ ticker: r.ticker, exchange: r.exchange, sector: "sector" in r ? r.sector : null }));
 
   // Reloaded from localStorage whenever the active watchlist tab changes --
   // each watchlist has its own independent sort state (see
@@ -69,6 +90,26 @@ export default function WatchlistPage() {
     setSortState({ activeId, rules: activeId != null ? loadSortRules(activeId) : DEFAULT_SORT_RULES });
   }
   const sortRules = sortState.rules;
+
+  // The same per-list reload for the ETF table's rules.
+  const [etfSortState, setEtfSortState] = useState<{ activeId: number | null; rules: EtfSortRule[] }>({
+    activeId: null,
+    rules: DEFAULT_ETF_SORT_RULES,
+  });
+  if (activeId !== etfSortState.activeId) {
+    setEtfSortState({ activeId, rules: activeId != null ? loadEtfSortRules(activeId) : DEFAULT_ETF_SORT_RULES });
+  }
+  const etfSortRules = etfSortState.rules;
+
+  function handleEtfSortRulesChange(rules: EtfSortRule[]) {
+    setEtfSortState({ activeId, rules });
+    if (activeId == null) return;
+    try {
+      window.localStorage.setItem(`${ETF_SORT_STORAGE_KEY_PREFIX}${activeId}`, JSON.stringify(rules));
+    } catch {
+      // localStorage unavailable: the in-memory state still updates for this session.
+    }
+  }
 
   function handleSortRulesChange(rules: SortRule[]) {
     setSortState({ activeId, rules });
@@ -92,7 +133,7 @@ export default function WatchlistPage() {
   }, [active]);
 
   function handleExportTradingView() {
-    if (!active || !rows) return;
+    if (!active || !exportRows) return;
     // TradingView's own watchlist "sections" feature exports as ###SectionName
     // inline in the same comma-separated list -- group by sector (falling
     // back to a literal "Other" bucket, never dropping the ### marker for
@@ -100,8 +141,8 @@ export default function WatchlistPage() {
     // One pass over `rows` (raw fetch order, not the on-screen sort)
     // preserves each row's existing relative order within its own sector,
     // and sections appear in first-encounter order.
-    const bySector = new Map<string, typeof rows>();
-    for (const row of rows) {
+    const bySector = new Map<string, typeof exportRows>();
+    for (const row of exportRows) {
       const key = row.sector ?? "Other";
       const bucket = bySector.get(key);
       if (bucket) {
@@ -176,7 +217,7 @@ export default function WatchlistPage() {
         title="Watchlists"
         actions={
           <ExportMenu
-            disabled={!rows || rows.length === 0}
+            disabled={!exportRows || exportRows.length === 0}
             onExportTradingView={handleExportTradingView}
             onExportThinkorswim={handleExportThinkorswim}
           />
@@ -212,7 +253,23 @@ export default function WatchlistPage() {
         )}
       </div>
 
-      <WatchlistTable watchlist={active} rows={rows} error={rowsError} sortRules={sortRules} onSortRulesChange={handleSortRulesChange} />
+      {isEtfList ? (
+        <EtfWatchlistTable
+          watchlist={active}
+          rows={etfRows}
+          error={etfRowsError}
+          sortRules={etfSortRules}
+          onSortRulesChange={handleEtfSortRulesChange}
+        />
+      ) : (
+        <WatchlistTable
+          watchlist={active}
+          rows={stockRows}
+          error={stockRowsError}
+          sortRules={sortRules}
+          onSortRulesChange={handleSortRulesChange}
+        />
+      )}
     </PageContainer>
   );
 }

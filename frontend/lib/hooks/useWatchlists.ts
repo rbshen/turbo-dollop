@@ -22,6 +22,12 @@ export interface BulkAddResult {
   already_present: number;
 }
 
+/** Revalidates both row views of one watchlist: the stock table's `/rows` and the ETF table's `/etf-rows` (only the one
+ * the page has mounted actually refetches; an unmounted key is a no-op). */
+function mutateWatchlistRows(id: number) {
+  return Promise.all([mutate(`${KEY}/${id}/rows`), mutate(`${KEY}/${id}/etf-rows`)]);
+}
+
 export function useWatchlists() {
   return useApiResource<WatchlistOut[]>(KEY);
 }
@@ -46,19 +52,20 @@ export async function deleteWatchlist(id: number): Promise<void> {
 export async function addTickerToWatchlist(id: number, ticker: string): Promise<void> {
   await apiPost(`${KEY}/${id}/tickers`, { ticker });
   // Both the watchlist list (embeds each ticker's membership, used by
-  // AddToWatchlistButton) and this watchlist's own /rows (the Watchlist
-  // page's table data) need to reflect the new ticker.
-  await Promise.all([mutate(KEY), mutate(`${KEY}/${id}/rows`)]);
+  // AddToWatchlistButton) and this watchlist's own rows (the Watchlist
+  // page's table data, stock /rows or the ETF list's /etf-rows) need to
+  // reflect the new ticker.
+  await Promise.all([mutate(KEY), mutateWatchlistRows(id)]);
 }
 
 export async function removeTickerFromWatchlist(id: number, ticker: string): Promise<void> {
   await apiDelete(`${KEY}/${id}/tickers/${encodeURIComponent(ticker)}`);
-  await Promise.all([mutate(KEY), mutate(`${KEY}/${id}/rows`)]);
+  await Promise.all([mutate(KEY), mutateWatchlistRows(id)]);
 }
 
 export async function bulkAddTickersToWatchlist(id: number, tickers: string[]): Promise<BulkAddResult> {
   const result = await apiPost<BulkAddResult>(`${KEY}/${id}/tickers/bulk`, { tickers });
-  await Promise.all([mutate(KEY), mutate(`${KEY}/${id}/rows`)]);
+  await Promise.all([mutate(KEY), mutateWatchlistRows(id)]);
   return result;
 }
 
@@ -67,6 +74,6 @@ export async function bulkAddTickersToWatchlist(id: number, tickers: string[]): 
  * with the backend's own message (see errorDetail). */
 export async function addTickerToEtfWatchlist(ticker: string): Promise<EtfWatchlistAddOut> {
   const result = await apiPost<EtfWatchlistAddOut>(`/tickers/${encodeURIComponent(ticker)}/etf-watchlist`);
-  await Promise.all([mutate(KEY), mutate(`${KEY}/${result.watchlist_id}/rows`)]);
+  await Promise.all([mutate(KEY), mutateWatchlistRows(result.watchlist_id)]);
   return result;
 }
