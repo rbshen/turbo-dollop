@@ -30,7 +30,11 @@ vi.mock("@/lib/hooks/useSavedEtfFilters", () => ({
   deleteEtfFilter: (...args: unknown[]) => h.del(...args),
 }));
 vi.mock("@/components/ticker/AddToWatchlistButton", () => ({
-  AddToWatchlistButton: ({ tickers }: { tickers: string[] }) => <span data-testid="add-to-watchlist">{tickers.join(",")}</span>,
+  AddToWatchlistButton: ({ tickers, audience }: { tickers: string[]; audience?: string }) => (
+    <span data-testid="add-to-watchlist" data-audience={audience}>
+      {tickers.join(",")}
+    </span>
+  ),
 }));
 
 function etf(ticker: string, overrides: Partial<EtfScreenerRowOut> = {}): EtfScreenerRowOut {
@@ -178,6 +182,11 @@ describe("rows", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Asset class/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Equity" }));
     expect(screen.getByText(/^3 of 5 ETFs/)).toHaveTextContent("3 of 5 ETFs — 1 match the current filters");
+  });
+
+  it("bulk-adds for the etf audience, so the Add menu keeps the ETF list", () => {
+    render(<EtfsPage />);
+    expect(screen.getByTestId("add-to-watchlist")).toHaveAttribute("data-audience", "etf");
   });
 
   it("passes the filtered tickers to Add to watchlist", () => {

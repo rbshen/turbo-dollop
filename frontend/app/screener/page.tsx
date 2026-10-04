@@ -17,6 +17,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
 import { useScreener, useScreenerMeta } from "@/lib/hooks/useScreener";
 import { useWatchlists } from "@/lib/hooks/useWatchlists";
+import { listsForAudience } from "@/lib/monitoredWatchlists";
 import {
   DEFAULT_FILTER_STATE,
   excludeEtfs,
@@ -68,7 +69,12 @@ export default function ScreenerPage() {
   // (via watchlistTickerSet) when universe === "all" anyway.
   const [watchlistId, setWatchlistId] = useState<number | null>(null);
 
-  const selectedWatchlist = useMemo(() => (watchlists ?? []).find((w) => w.id === watchlistId) ?? null, [watchlists, watchlistId]);
+  // The ETF-only list is not offered here (and holds no stocks); a selection that names it anyway -- stale state, or a
+  // view saved before the list was hidden -- is treated as "no watchlist" rather than scoping every filter to ETFs.
+  const selectedWatchlist = useMemo(
+    () => listsForAudience(watchlists ?? [], "stock").find((w) => w.id === watchlistId) ?? null,
+    [watchlists, watchlistId]
+  );
   const watchlistActive = universe === "all" && selectedWatchlist != null;
   const watchlistTickerSet = useMemo(
     () => (watchlistActive && selectedWatchlist ? new Set(selectedWatchlist.tickers.map((t) => t.ticker)) : null),
@@ -155,7 +161,8 @@ export default function ScreenerPage() {
     // the delete-watchlist cascade, but an older client cache/tab could
     // still be holding a stale reference). Fall back to no watchlist
     // selected rather than erroring or pointing at nothing.
-    const referencedWatchlistStillExists = saved.watchlist_id != null && (watchlists ?? []).some((w) => w.id === saved.watchlist_id);
+    const referencedWatchlistStillExists =
+      saved.watchlist_id != null && listsForAudience(watchlists ?? [], "stock").some((w) => w.id === saved.watchlist_id);
     if (referencedWatchlistStillExists) {
       // Watchlist scoping only ever applies under "All" -- force it here
       // rather than trusting saved.universe, which could be stale/
@@ -209,7 +216,7 @@ export default function ScreenerPage() {
           edge, rather than sitting a row-height higher. */}
       <div className="flex flex-col gap-6 lg:flex-row">
         <aside className="w-full shrink-0 space-y-4 lg:w-64">
-          <WatchlistFilters watchlists={watchlists} value={watchlistId} onChange={handleWatchlistChange} disabled={universe !== "all"} />
+          <WatchlistFilters watchlists={watchlists} value={selectedWatchlist?.id ?? null} onChange={handleWatchlistChange} disabled={universe !== "all"} />
           <FundamentalFilters filters={filters} onFiltersChange={handleFiltersChange} sectors={sectors} companyTypes={companyTypes} />
           <TechnicalFilters filters={filters} onFiltersChange={handleFiltersChange} />
           <SavedFiltersBar
@@ -217,7 +224,7 @@ export default function ScreenerPage() {
             sortField={sortField}
             sortDirection={sortDirection}
             filters={filters}
-            watchlistId={watchlistId}
+            watchlistId={selectedWatchlist?.id ?? null}
             onLoad={handleLoadSavedFilter}
             onReset={handleResetFilters}
           />

@@ -36,7 +36,11 @@ vi.mock("@/components/screener/ScreenerCard", () => ({
 }));
 vi.mock("@/components/screener/RecomputeButton", () => ({ RecomputeButton: () => null }));
 vi.mock("@/components/ticker/AddToWatchlistButton", () => ({
-  AddToWatchlistButton: ({ label }: { label?: string }) => <span data-testid="add-to-watchlist-label">{label}</span>,
+  AddToWatchlistButton: ({ label, audience }: { label?: string; audience?: string }) => (
+    <span data-testid="add-to-watchlist-label" data-audience={audience ?? "default"}>
+      {label}
+    </span>
+  ),
 }));
 
 function scoreRow(ticker: string, overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
@@ -106,6 +110,31 @@ describe("the results header", () => {
   it("passes the sentence-case Add to watchlist label to the shared button", () => {
     render(<ScreenerPage />);
     expect(screen.getByTestId("add-to-watchlist-label")).toHaveTextContent("Add to watchlist");
+  });
+
+  it("uses the default stock audience, so the Add menu hides the ETF list", () => {
+    render(<ScreenerPage />);
+    expect(screen.getByTestId("add-to-watchlist-label")).toHaveAttribute("data-audience", "default");
+  });
+});
+
+describe("the ETF-only watchlist", () => {
+  beforeEach(() => {
+    h.watchlists = [watchlist(1, "W1", ["AAA", "CCC"]), watchlist(7, "ETF", ["SPY"]), watchlist(2, "Other", ["BBB"])];
+  });
+
+  it("is not an option of the sidebar Watchlist filter", () => {
+    render(<ScreenerPage />);
+    expect(Array.from(watchlistSelect().options).map((o) => o.textContent)).toEqual(["None", "W1", "Other"]);
+  });
+
+  it("is ignored when a saved view still names it: no watchlist filter, the saved universe applies", () => {
+    h.saved = [savedView({ name: "WL", universe: "nasdaq", watchlist_id: 7 })];
+    render(<ScreenerPage />);
+    loadSavedView("WL");
+    expect(lastUniverse()).toBe("nasdaq");
+    expect(watchlistSelect().value).toBe("");
+    expect(cards()).toEqual(["AAA", "BBB"]); // the whole nasdaq universe, not scoped to the ETF list's SPY
   });
 });
 

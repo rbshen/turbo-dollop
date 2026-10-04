@@ -127,6 +127,7 @@ export default function EtfsPage() {
             label="Add to watchlist"
             confirmDescription={`all ${sorted.length} filtered tickers`}
             disabled={sorted.length === 0}
+            audience="etf"
           />
         }
       />
@@ -135,7 +136,7 @@ export default function EtfsPage() {
 
       <div className="flex flex-col gap-6 lg:flex-row">
         <aside className="w-full shrink-0 space-y-4 lg:w-64">
-          <WatchlistFilters watchlists={watchlists} value={watchlistId} onChange={handleWatchlistChange} disabled={false} />
+          <WatchlistFilters watchlists={watchlists} value={watchlistId} onChange={handleWatchlistChange} disabled={false} audience="etf" />
           <EtfFundamentalFilters
             filters={filters}
             onFiltersChange={handleFiltersChange}

@@ -174,7 +174,7 @@ export function TickerHeader({ symbol, data }: Props) {
       actions={
         <>
           {universe.control}
-          <AddToWatchlistButton tickers={[data.ticker]} />
+          <AddToWatchlistButton tickers={[data.ticker]} audience="stock" />
           <RefreshButton ticker={data.ticker} />
         </>
       }

@@ -4,6 +4,7 @@ import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilte
 import { FormField } from "@/components/ui/form-field";
 import { Select } from "@/components/ui/Select";
 import type { WatchlistOut } from "@/lib/api/types";
+import { listsForAudience, type WatchlistAudience } from "@/lib/monitoredWatchlists";
 import { countActiveFilters, DEFAULT_FILTER_STATE } from "@/lib/screenerFilters";
 
 interface Props {
@@ -15,6 +16,8 @@ interface Props {
   // so flipping back to "All" restores it. See page.tsx's own comment on
   // why this doesn't need any state-clearing logic.
   disabled: boolean;
+  // "stock" (the default, the Stocks screener) leaves the ETF-only list named "ETF" out of the options; "etf" lists every list.
+  audience?: WatchlistAudience;
 }
 
 // Sits above FundamentalFilters/TechnicalFilters in the sidebar (Watchlist
@@ -27,7 +30,7 @@ interface Props {
 // filter is IN EFFECT only while a watchlist is selected and the universe is
 // All; a selection that is dimmed because the universe isn't All is not
 // applied, so its label is not orange and the section badge does not count it.
-export function WatchlistFilters({ watchlists, value, onChange, disabled }: Props) {
+export function WatchlistFilters({ watchlists, value, onChange, disabled, audience = "stock" }: Props) {
   const inEffect = value != null && !disabled;
 
   return (
@@ -51,7 +54,7 @@ export function WatchlistFilters({ watchlists, value, onChange, disabled }: Prop
           onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
         >
           <option value="">None</option>
-          {(watchlists ?? []).map((w) => (
+          {listsForAudience(watchlists ?? [], audience).map((w) => (
             <option key={w.id} value={w.id}>
               {w.name}
             </option>

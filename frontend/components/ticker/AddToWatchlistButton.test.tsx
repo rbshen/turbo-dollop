@@ -466,3 +466,77 @@ describe("AddToWatchlistButton: the naming step's focus", () => {
     expect(screen.getByRole("button", { name: "Add to watchlist" })).not.toHaveFocus();
   });
 });
+
+describe("AddToWatchlistButton: the ETF-only list", () => {
+  beforeEach(() => {
+    watchlists = [makeWatchlist(1, "Growth"), makeWatchlist(5, "ETF", ["SPY"]), makeWatchlist(2, "Value", ["AAPL"])];
+  });
+  const rowNames = () => [...document.querySelectorAll("#" + CSS.escape(screen.getByRole("button", { name: "Add to watchlist" }).getAttribute("aria-controls")!) + " .truncate")].map((e) => e.textContent);
+
+  it("hides the list named ETF by default (the stock audience) and shows the others", () => {
+    render(<AddToWatchlistButton tickers={["AAPL"]} />);
+    open();
+    expect(rowNames()).toEqual(["Growth", "Value"]);
+  });
+
+  it("hides it for an explicit stock audience, bulk too", () => {
+    render(<AddToWatchlistButton tickers={["AAPL", "MSFT"]} audience="stock" label="Add to watchlist" />);
+    open();
+    expect(rowNames()).toEqual(["Growth", "Value"]);
+  });
+
+  it("shows every list, ETF included, for the etf audience", () => {
+    render(<AddToWatchlistButton tickers={["SPY", "QQQ"]} audience="etf" label="Add to watchlist" />);
+    open();
+    expect(rowNames()).toEqual(["Growth", "ETF", "Value"]);
+  });
+
+  it("matches the name exactly: a list called etf or ETFs is an ordinary list", () => {
+    watchlists = [makeWatchlist(1, "etf"), makeWatchlist(2, "ETFs"), makeWatchlist(3, "ETF")];
+    render(<AddToWatchlistButton tickers={["AAPL"]} />);
+    open();
+    expect(rowNames()).toEqual(["etf", "ETFs"]);
+  });
+
+  it("says there are no watchlists when the ETF list is the only one", () => {
+    watchlists = [makeWatchlist(5, "ETF")];
+    render(<AddToWatchlistButton tickers={["AAPL"]} />);
+    open();
+    expect(screen.getByText("No watchlists yet")).toBeInTheDocument();
+  });
+
+  it("never offers the hidden list's remove button for a ticker that sits on it", () => {
+    render(<AddToWatchlistButton tickers={["SPY"]} />);
+    open();
+    expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
+  });
+});
+
+describe("AddToWatchlistButton: a new list cannot be named ETF", () => {
+  function name(value: string, audience?: "stock" | "etf") {
+    render(<AddToWatchlistButton tickers={["AAPL"]} audience={audience} />);
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "New watchlist" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value } });
+    fireEvent.click(screen.getByRole("button", { name: "Create and add" }));
+  }
+
+  it.each(["ETF", "etf", "  Etf  "])("refuses %j with a short message and no request", (value) => {
+    name(value);
+    expect(screen.getByRole("alert")).toHaveTextContent('"ETF" is reserved for the ETF-only watchlist.');
+    expect(createWatchlist).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox")).toBeInTheDocument(); // the naming step stays open to fix the name
+  });
+
+  it("refuses it for the etf audience too (the ETF page's button creates that list)", () => {
+    name("ETF", "etf");
+    expect(createWatchlist).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
+  it("still creates a list whose name merely contains ETF", async () => {
+    name("My ETFs");
+    await waitFor(() => expect(createWatchlist).toHaveBeenCalledWith("My ETFs"));
+  });
+});
+

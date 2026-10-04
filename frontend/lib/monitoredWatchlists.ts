@@ -8,6 +8,21 @@ export const MONITORED_WATCHLISTS_PHRASE = 'a watchlist named E<number> (E1, E2,
 // The list the ETF page's "Add to watchlist" button adds to (backend ETF_WATCHLIST_NAME).
 export const ETF_WATCHLIST_NAME = "ETF";
 
+/** Who a watchlist menu or filter is for. The list named "ETF" holds ETFs only (the backend refuses a stock), so
+ * stock-facing UI hides it and ETF-facing UI shows every list. */
+export type WatchlistAudience = "stock" | "etf";
+
+/** The lists a menu or filter for `audience` offers: everything for "etf", everything but the "ETF" list for "stock". */
+export function listsForAudience<T extends { name: string }>(watchlists: T[], audience: WatchlistAudience): T[] {
+  return audience === "etf" ? watchlists : watchlists.filter((w) => w.name !== ETF_WATCHLIST_NAME);
+}
+
+/** Any spelling of the reserved name ("etf", " ETF "): the backend refuses to create or rename a list to it, and the
+ * "New watchlist" box blocks it before the request. */
+export function isReservedEtfListName(name: string): boolean {
+  return name.trim().toLowerCase() === ETF_WATCHLIST_NAME.toLowerCase();
+}
+
 /** The empty-state sentence of a Technical card whose nightly job has no row for this ticker.
  * `check` is the card's own name ("BB+RSI entry signal"). An ETF is pointed at the ETF list. */
 export function notTrackedMessage(check: string, isEtf = false): string {

@@ -14,6 +14,7 @@ import {
   removeTickerFromWatchlist,
   useWatchlists,
 } from "@/lib/hooks/useWatchlists";
+import { isReservedEtfListName, listsForAudience, type WatchlistAudience } from "@/lib/monitoredWatchlists";
 import { WATCHLIST_NAME_MAX_LENGTH } from "@/lib/watchlistName";
 
 interface Props {
@@ -25,6 +26,10 @@ interface Props {
   // "all 37 filtered tickers" for the Screener's whole-result-set case.
   confirmDescription?: string;
   disabled?: boolean;
+  // Whose menu this is. "stock" (the default) hides the ETF-only list named "ETF" -- a stock can't be added to it (the
+  // backend refuses), so the stock ticker page and the Stocks screener never offer it. "etf" (the ETFs screener's bulk
+  // add) offers every list, "ETF" included.
+  audience?: WatchlistAudience;
 }
 
 type Panel = "idle" | "picking";
@@ -70,8 +75,9 @@ function StatusLabel({ status, labels }: { status: Status; labels: Record<Status
 const WARN_BUTTON_CLASS = "border-warn/50 text-warn hover:border-warn hover:text-warn";
 const REMOVE_BUTTON_CLASS = "hover:border-negative hover:text-negative";
 
-export function AddToWatchlistButton({ tickers, label, confirmDescription, disabled }: Props) {
-  const { data: watchlists } = useWatchlists();
+export function AddToWatchlistButton({ tickers, label, confirmDescription, disabled, audience = "stock" }: Props) {
+  const { data: allWatchlists } = useWatchlists();
+  const watchlists = allWatchlists ? listsForAudience(allWatchlists, audience) : undefined;
   const isBulk = tickers.length > 1;
   const [panel, setPanel] = useState<Panel>("idle");
   const [newListStep, setNewListStep] = useState<NewListStep>("idle");
@@ -207,6 +213,12 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
   async function handleCreateAndAdd() {
     const trimmedName = newListName.trim();
     if (!trimmedName) return;
+    if (isReservedEtfListName(trimmedName)) {
+      // The backend refuses it too (400); the ETF list is created by the ETF page's Add to watchlist button.
+      setNewListStatus("error");
+      setNewListError('"ETF" is reserved for the ETF-only watchlist.');
+      return;
+    }
     setNewListStatus("saving");
     setNewListError(null);
     try {
