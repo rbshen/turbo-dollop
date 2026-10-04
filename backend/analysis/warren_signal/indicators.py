@@ -26,6 +26,10 @@ WVF_LOOKBACK = 22  # `pd` in the reference script
 RSI_OVERBOUGHT = 70
 RSI_OVERSOLD = 30
 SCAN_BLUE_RSI_THRESHOLD = 12  # scanOverSold4
+PIVOT_LOW_RSI_CEILING = 50  # pivotLow: rsi < 50 on the recovery bar
+PARA_DROP_LOOKBACK = 35  # paraHighestHigh = Highest(high, 35)
+WVF_BETWEEN_LO = 25.0  # WVF_Between = Between(WVF_buy, 25, 27)
+WVF_BETWEEN_HI = 27.0
 
 
 def wilder_rma(s: pd.Series, length: int) -> pd.Series:
@@ -133,3 +137,32 @@ def compute_scan_blue(rsi: pd.Series, threshold: float = SCAN_BLUE_RSI_THRESHOLD
     """scanOverSold4: rsi[1] <= 12 -- the Blue trigger."""
     cond = rsi.shift(1) <= threshold
     return cond.fillna(False).astype(bool)
+
+
+def compute_pivot_low(rsi: pd.Series) -> pd.Series:
+    """pivotLow (plain -- NOT pivotLowMajor): rsi[1]<30 AND rsi[1]<rsi AND rsi<50 -- a single oversold bar
+    turning up while still below 50. Feeds only the per-ticker Blue profiles' scanOverSold2 branch c
+    (`paraDrop <= .70 and lastPivotLowPrice and WVF_Between`); the ANY-TICKER profile never reads it."""
+    r1 = rsi.shift(1)
+    cond = (r1 < RSI_OVERSOLD) & (r1 < rsi) & (rsi < PIVOT_LOW_RSI_CEILING)
+    return cond.fillna(False).astype(bool)
+
+
+def compute_para_drop(close: pd.Series, high: pd.Series, lookback: int = PARA_DROP_LOOKBACK) -> pd.Series:
+    """paraDrop = close / paraHighestHigh, with paraHighestHigh = Highest(high, 35) (the window includes the
+    current bar). 1.0 at a fresh high; <= 0.70 means a 30%+ collapse from the 35-bar high. NaN until the
+    window is full."""
+    return close / high.rolling(lookback).max().replace(0, np.nan)
+
+
+def adx_between(adx: pd.Series, lo: float, hi: float) -> pd.Series:
+    """ThinkScript Between(ADX, lo, hi): INCLUSIVE at both ends. NaN (warm-up) reads False."""
+    return ((adx >= lo) & (adx <= hi)).fillna(False).astype(bool)
+
+
+def wvf_between(
+    wvf_buy: pd.Series, lo: float = WVF_BETWEEN_LO, hi: float = WVF_BETWEEN_HI
+) -> pd.Series:
+    """ThinkScript Between(WVF_buy, 25, 27): INCLUSIVE at both ends, on the 0-100 scale compute_wvf_buy
+    returns. NaN (warm-up) reads False."""
+    return ((wvf_buy >= lo) & (wvf_buy <= hi)).fillna(False).astype(bool)
