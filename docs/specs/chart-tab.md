@@ -159,7 +159,7 @@ TickerChart.tsx`, `lib/chartTime.ts`, `chartPanes.ts`, `chartToggles.ts`, `chart
 - **Warren** replays the whole 730-day series (from `today-729d`, the nightly job's own window and `LOOKBACK_DAYS`; a test pins them equal) and
   only then slices to 90 days; replaying just the visible window gives different arrows. The panes' RSI/ADX/+DI/-DI/WVF are **the very
   series the state machine read** (`replay_with_series`, `ChartOut.warren_rsi/adx/plus_di/minus_di/wvf`), plus `warren_levels`
-  read from the engine constants (RSI 12/30/70/80.81/84.75, ADX 40, WVF 0.40). The existing `rsi` field (EWM RSI) is not reused.
+  read from the engine constants (RSI 12/30/70/80.81/84.75, ADX 40, WVF 0.40; RSI 12, the ANY-TICKER Blue trigger, is omitted for SPY/QQQ/TQQQ/TECL, which have their own Blue profile, `docs/specs/warren-signal.md`). The existing `rsi` field (EWM RSI) is not reused.
 - **BB+RSI** markers: `check_buy_signal` on every visible candle, **one marker per firing candle** (no first-per-day/week bucketing as on
   the daily ranges). Warren markers: one per (candle, kind), as before.
 - **LP:** computed over the full 730-day 2h series with the shared settings, **except `breach_recency_bars`, hardcoded to 20 candles (5 sessions)** for

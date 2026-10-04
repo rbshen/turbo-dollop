@@ -3,9 +3,10 @@
 A fifth, fully independent technical entry-signal lens. Alongside BB+RSI it is the second entry in the
 technical-signal family, both scoped to the same monitored-watchlist union (lists named `E<number>` or `ETF`, `data/watchlists.py`) and running on the same 2h adapter
 (FMP 60m bars, resampled into 2h session candles). It is ported from a reference Pine script ("ANY TICKER
-Δ1,3,4"). Buy-side (Blue/Yellow/Gray Up), sell-side (Blue/Yellow/Gray Down), the trailing stop line and the
+Δ1,3,4"); SPY, QQQ, TQQQ and TECL additionally have their own Blue Up definition ported from their
+ThinkorSwim scripts (see "Per-ticker Blue Up profiles"). Buy-side (Blue/Yellow/Gray Up), sell-side (Blue/Yellow/Gray Down), the trailing stop line and the
 gray-suppression state machine are all in scope, not an entry-only subset. The code lives in
-`backend/analysis/warren_signal/` (`indicators.py`, `state_machine.py`, `types.py`), and
+`backend/analysis/warren_signal/` (`indicators.py`, `state_machine.py`, `types.py`, `profiles.py`), and
 `state_machine.py`'s module docstring is the source of truth for the arrow conditions.
 
 The history behind these choices (benchmark mistake, warm-up-buffer measurements, the 2026-09-19 cleanup,
@@ -53,11 +54,64 @@ should go through the same entry point the real nightly job calls, not a lower-l
   otherwise poison the gain/loss seed window and make RSI `NaN`
   (`test_compute_rsi_wilder_is_0_for_unbroken_downtrend`,
   `test_compute_dmi_adx_reads_strongly_bullish_for_a_clean_uptrend`).
-- **Not ported (dead code in the reference script).** `pivotLow` (plain, distinct from
-  `pivotLowMajor`/`scanOverSold3`), `adxBetween`, `wvfBetween`, and `paraHighestHigh`/`paraDrop` are computed
-  in the given spec but never gate any arrow or state transition, the same class of dead code as
-  `scanOverSold1`/`scanOverSold2`. This was confirmed with the user before implementation (only the text
-  description of the script was available, not the `.pine` file).
+- **Dead code in the ANY-TICKER reference script, live in the per-ticker profiles.** `pivotLow` (plain, distinct from
+  `pivotLowMajor`/`scanOverSold3`), `ADX_Between`, `WVF_Between` and `paraHighestHigh`/`paraDrop` (and the script's
+  `scanOverSold1`/`scanOverSold2`) gate nothing in the ANY-TICKER script, so a ticker without its own profile never
+  reads them (confirmed with the user before the original implementation; only the text description of that script
+  was available, not the `.pine` file). SPY, QQQ, TQQQ and TECL's ThinkScripts define Blue Up with exactly these
+  (`analysis/warren_signal/indicators.py`: `compute_pivot_low`, `compute_para_drop`, `adx_between`, `wvf_between`,
+  `compute_blue`), all inclusive/strict exactly as written. The per-ticker Blue is the only place they are used.
+
+## Per-ticker Blue Up profiles (2026-10-04)
+
+SPY, QQQ, TQQQ and TECL each have their own Blue Up definition, transcribed from the ThinkScripts in
+`~/warren-thinkscripts/` (`rp_RSI_WVF_{SPY,QQQ,TQQQ}STUDY.ts`, `rp_RSI_Pivot_WVF_TECLSTUDY.ts`; **the ThinkScript is the source of
+truth**, no number comes from anywhere else). Every other ticker keeps the ANY-TICKER rule (`scanOverSold4`, `RSI[1] <= 12`), and its
+output is byte-identical to before (pinned in `test_state_machine.py`; also checked identical on 60 real cached tickers, 1,589 events).
+
+- **Mechanism.** `WarrenProfile` / `TickerBlueRules` (`types.py`), `ANY_TICKER` (the default), and `compute_blue(candles, rsi, adx, wvf,
+  profile)` (`indicators.py`) replace the old `compute_scan_blue` call; `replay` / `replay_with_series` take `profile` (default `ANY_TICKER`).
+  The engine never sees a ticker symbol. The symbol lookup is `data/warren_signal_data.py::profile_for` (`TICKER_PROFILES`): the **only**
+  place a symbol selects a profile, used by `compute_and_store_warren_signal` (nightly) and by the Chart tab's on-demand 2H range, so the
+  stored signal and the chart cannot use different definitions. The profiles are in `profiles.py`.
+- **What a profile changes.** Only the Blue Up trigger (`blueUp = scanOverSold1 or scanOverSold2`), which feeds `yellowCountSinceBlue`,
+  `stopCount`'s reset, `anyBuy` (the `seen*` resets) and the `blue_up` arrow exactly as `scanOverSold4` did. Yellow/Gray up, every down
+  arrow, the stop line and gray suppression are identical across all five scripts (diffed line by line). SPY/QQQ's extra `RSI > 50` in
+  `scanOverbought` is redundant with `pivotHigh` (RSI > 70) and has no field. A Blue changes yellow/gray labels downstream: it resets
+  `stopCount`, which un-grays a later yellow.
+- **Operator rules.** `and` binds tighter than `or` (the scripts have no parentheses; `compute_blue` spells every grouping out), `Between` is
+  inclusive, `RSI_Num[1]` is the previous 2h candle's RSI, `RSI_Num` the current one, and `volume` is the 2h candle's summed volume.
+- **The numbers** (`profiles.py` is authoritative): `ADX_Between` 43-46 (SPY, QQQ) / 39.2-46 (TQQQ, TECL); `Volume_Num` 70M / 70M / 300M / 4M;
+  SOS1 caps 24M (SPY), 24M and 10M (QQQ), 692200 (TQQQ, TECL); SOS2 branch-b RSI cutoff 14 / 16.1 / 16.61 / 16.61.
+- **Ported as written, do not "fix" without the owner's decision.** (1) TQQQ's SOS1 volume cap is 692200, TECL's number (TQQQ's median 2h
+  bar is ~18.7M shares, only 0.1% of bars are at or under 692200), so TQQQ's scanOverSold1 can essentially never fire; the script is
+  TECL's with only `Volume_Num` changed. (2) QQQ's scanOverSold2 ends in two ungated ORs, `RSI_Num[1] < 16.3` and `WVF_Buy >= 17` (no volume
+  or ADX condition), and the latter makes QQQ's own branch c (`WVF_Between(25, 27)`) unreachable on its own. (3) For SPY, TQQQ and TECL,
+  SOS1 branch a is a strict subset of branch b and never contributes (test-pinned).
+- **Chart.** The RSI pane's 12 "Blue trigger" reference line exists only for the ANY-TICKER profile: `warren_reference_levels(profile)`
+  omits it for the four (their Blue is not a single RSI level). The pane label and lines come from the response's `warren_levels`, so
+  the frontend has no logic for it.
+- **Scope and data state (checked 2026-10-04).** None of the four is on a monitored list, so the nightly job does not process them and
+  there are no `TechnicalEntrySignal`/`WarrenSignalEvent` rows for them (so adopting the profiles left no stale rows). The Chart tab's
+  2H range computes the profiled signal on demand for them anyway (live, uncached, nothing stored). FMP returns the full 730 days of
+  `/historical-chart/1hour` for all four: 499 sessions, 494 with 7 bars and 5 half-days with 4, RTH only. **Events are insert-only, so
+  there is no purge or profile-version mechanism: editing a profile's thresholds later (or adding a ticker to `TICKER_PROFILES` after it
+  already has stored events) leaves the old Blue rows behind.** Not built; out of scope of the 2026-10-04 change.
+- **Data caveats for the volume gates** (FMP `/historical-chart/1hour`, measured 2026-10-04). (a) Prices and volume are **split-adjusted,
+  dividend-unadjusted**: TQQQ's 2-for-1 on 2025-11-20 shows pre-split bars halved in price and doubled in volume (2025-11-18 close 49.16 vs
+  the non-split-adjusted EOD close 98.36), while SPY/QQQ closes match the non-dividend-adjusted EOD close (SPY 2026-09-17: 762.64 vs
+  762.60; dividend-adjusted would be 760.71). RSI, ADX, WVF and paraDrop are scale-free, so only the volume thresholds feel it (TQQQ's
+  pre-2025-11-20 volumes are on the post-split scale). TOS reports raw volume. (b) Intraday volume does not always agree with FMP's own
+  daily volume: the sum of a day's 60m volumes over EOD volume has a median of 0.84 (SPY), 0.88 (QQQ), 0.94 (TQQQ), 0.96 (TECL), but on
+  19 (QQQ), 31 (TQQQ) and 9 (TECL) of 500 days it is above 2x (up to 6.0x, 7.1x, 4.3x; SPY never; e.g. TQQQ 2025-11-18: 801M hourly vs 267M
+  EOD, and 1.60B from the 1-minute bars). (c) For TECL the FMP 2h volume runs about 1.25x IBKR's RTH TRADES volume (median over 1,746 bars,
+  drifting 1.1-1.3x by quarter). No TOS volume reference exists in the repo. Until TOS bar volumes are compared, treat the volume-gated
+  branches (SOS1 caps, `Volume_Num`) as approximate.
+- **Fire rates over the 2-year FMP window** (1,990 candles per ticker, 2024-10 to 2026-10): ANY-TICKER Blue fires 0 times for all four;
+  the profiles fire 0 (SPY), 6 (QQQ, 4 runs), 0 (TQQQ), 1 (TECL, 2025-04-07 09:30). The branch code reproduces TECL's four known
+  Blue Ups from 2022-2026 (`~/ubiquitous-fiesta/full_history_signals.csv`, IBKR bars) exactly. Tests: `analysis/warren_signal/test_profiles.py`
+  (per-branch edges, and-before-or pin, QQQ ungated ORs), `test_state_machine.py` (ANY-TICKER identical to the pre-profile pipeline),
+  `tests/test_warren_signal_data.py` (profile selection, nightly routing), `tests/test_chart_2h.py` (chart-vs-nightly consistency).
 
 ## Storage
 
@@ -69,7 +123,7 @@ should go through the same entry point the real nightly job calls, not a lower-l
   replayed bar (`WarrenReplayResult.live_stop_price`), which can reflect an earlier-held yellow entry rather
   than the bar `signal_kind` fired on.
 - **History: a dedicated table, `WarrenSignalEvent`,** not a reuse of `TechnicalEntrySignalEvent`. Warren's
-  Blue-Up (`scanOverSold4`, `rsiValue[1] <= 12`) and Yellow-Up (`scanOverSold3`, a 3-bar oversold recovery
+  Blue-Up (`scanOverSold4`, `rsiValue[1] <= 12`; the four profiled tickers' own definition is in "Per-ticker Blue Up profiles") and Yellow-Up (`scanOverSold3`, a 3-bar oversold recovery
   pattern) conditions reference different bars' RSI values and can genuinely both be true on the same bar
   (a sharp V-shaped RSI spike from deeply oversold straight through 30). That would collide with
   `TechnicalEntrySignalEvent`'s `UniqueConstraint` on `(ticker, signal_type, timeframe, fired_at)`, which
@@ -181,7 +235,7 @@ reader. It is wired into `core/cron_health.py`'s `CRON_JOB_NAMES` / `_EXPECTED_C
   `build_2h_session_candles_fast`), drops the forming candle first, then slices the arrows to the last 90 days. Markers are **per candle**
   (one per (candle, kind)), time-stamped by the candle's window start, not bucketed per day/week as the daily ranges' stored-event markers are.
   `replay_with_series` additionally returns the RSI, +DI, -DI, ADX and WVF(`wvfBuy`) series the machine used (the existing `replay()` and its outputs
-  are unchanged) and `warren_reference_levels()` reads the thresholds from the same constants (RSI 12/30/70/80.81/84.75, ADX 40, WVF 0.40), so the three panes
+  are unchanged) and `warren_reference_levels()` reads the thresholds from the same constants (RSI 12/30/70/80.81/84.75, ADX 40, WVF 0.40; the RSI 12 line is omitted for the four tickers with their own Blue profile), so the three panes
   always match the arrows. Warm-up matters: a 90-day-only replay gives different arrows, and the Wilder RSI differs from the chart's EWM RSI by up to ~19
   points on 90 days of data (it converges to ~1e-14 with 730 days). **Consistency with stored data (checked 2026-10-02, 108 monitored tickers, last 90 days):**
   the Technical tab's latest-state row matched the on-demand replay for 105 of 105 tickers; of 346 stored arrows, 330 reproduced and 16 (14 tickers) did not, none

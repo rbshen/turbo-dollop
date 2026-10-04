@@ -1,5 +1,5 @@
 """Warren RSI/ADX/WVF indicator math, ported from the "ANY TICKER" reference
-Pine script (execution/alert/plot code discarded -- see CLAUDE.md's Warren
+Pine script and the four per-ticker ThinkScripts (execution/alert/plot code discarded -- see CLAUDE.md's Warren
 signal section). Deliberately NOT reusing analysis/entry_signal/indicators.py::
 compute_rsi: that RSI is EWM-seeded (pandas' ewm default, seeded from the
 first observation), while Pine's built-in `RSI(14)` uses `ta.rma` internally
@@ -9,11 +9,13 @@ machine depends on exact-value threshold crossings (12, 30, 70, 80.81, 84.75),
 so this divergence is deliberate, not an oversight -- see wilder_rma below,
 shared by RSI, DMI, and ADX, all of which use the identical Wilder smoothing.
 
-pivotLow (plain, not pivotLowMajor), adxBetween, wvfBetween, and
-paraHighestHigh/paraDrop from the reference script are dead code -- like
-scanOverSold1/scanOverSold2, none of them gate any arrow or state transition
-in the ported logic below. Confirmed with the user before this file was
-written; not ported.
+The ANY-TICKER Blue trigger is scanOverSold4 (`RSI[1] <= 12`); scanOverSold1/scanOverSold2 and their inputs
+-- pivotLow (plain, not pivotLowMajor), ADX_Between, WVF_Between and paraDrop (close / Highest(high, 35)) --
+are dead code in that script: they gate no arrow or state transition, so for every ticker without its own
+profile they are not read. They are LIVE for SPY, QQQ, TQQQ and TECL, whose own ThinkScripts define Blue Up as
+scanOverSold1 or scanOverSold2 (see compute_blue, profiles.py and docs/specs/warren-signal.md, "Per-ticker Blue
+Up profiles"); the helpers below (compute_pivot_low, compute_para_drop, adx_between, wvf_between) exist for
+those profiles only.
 """
 
 import numpy as np
