@@ -123,7 +123,10 @@ The "ETF" watchlist holds ETFs only.`) for anything that is not a known ETF (cac
 `EtfScreenerRow`), a never-seen ticker included; the check runs before the list is created. The generic add and bulk add
 enforce the same rule for a list named "ETF" (bulk: all or nothing, every offender named). The list can't be renamed or
 deleted, and no other list can take the name (`data/watchlists.py::tickers_not_allowed_on_watchlist`; the Watchlists page shows no
-rename or delete control for it). See docs/decisions.md, 2026-10-04. Once the ETF is on any **monitored** list the button becomes a quiet, disabled ghost
+rename or delete control for it). **Stock UI never offers the list** (2026-10-04): `AddToWatchlistButton` takes an `audience`, default `"stock"`, which hides the list named
+"ETF" (the stock ticker page and the Stocks screener); the ETFs screener's bulk add passes `"etf"` and shows every list; the Stocks screener's Watchlist filter omits it too, and a saved
+view or state that still names it loads as no watchlist filter. The Add menu's "New watchlist" box refuses the name "ETF" in any case (`lib/monitoredWatchlists.ts`: `listsForAudience`,
+`isReservedEtfListName`). See docs/decisions.md, 2026-10-04. Once the ETF is on any **monitored** list the button becomes a quiet, disabled ghost
 "On watchlist <name>" with a check icon (first name in natural order, `+N` when on several); removal stays on the
 Watchlists page. Which lists are monitored comes from `WatchlistOut.monitored` (backend `is_monitored_watchlist_name`),
 so the frontend never re-implements the naming rule. An ETF only on an unmonitored list still shows the primary button.

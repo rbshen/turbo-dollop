@@ -25,7 +25,7 @@ export function EtfFundamentalFilters({ filters, onFiltersChange, assetClasses }
   }
 
   return (
-    <CollapsibleFilterSection title="Fundamental" count={countActiveEtfFilters(filters, false, ETF_FUNDAMENTAL_FILTER_KEYS)}>
+    <CollapsibleFilterSection title="Fundamental" count={countActiveEtfFilters(filters, ETF_FUNDAMENTAL_FILTER_KEYS)}>
       <div className="space-y-4">
         <MultiSelectDropdown
           label="Asset class"

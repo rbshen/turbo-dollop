@@ -86,11 +86,6 @@ describe("filterEtfRows", () => {
     expect(tickers(filterEtfRows(rows, state({ bbRsiEntrySignal: true })))).toEqual(["GLD"]);
     expect(tickers(filterEtfRows(rows, state({ warrenSignalKinds: ["blue_up", "gray_up"] })))).toEqual(["WAR"]);
   });
-
-  it("scopes to a watchlist's tickers, and combines with the other filters", () => {
-    expect(tickers(filterEtfRows(ROWS, DEFAULT_ETF_FILTER_STATE, new Set(["TLT", "GLD"])))).toEqual(["TLT", "GLD"]);
-    expect(tickers(filterEtfRows(ROWS, state({ assetClasses: ["Commodities"] }), new Set(["TLT", "SPY"])))).toEqual([]);
-  });
 });
 
 describe("sortEtfRows", () => {
@@ -138,11 +133,11 @@ describe("countActiveEtfFilters", () => {
     expect(new Set(sections).size).toBe(sections.length);
   });
 
-  it("counts ranges, lists and the checkbox, per section, plus a watchlist in effect", () => {
+  it("counts ranges, lists and the checkbox, per section", () => {
     const s = state({ assetClasses: ["Equity"], aum: { min: 1, max: null }, beta: { min: null, max: 2 }, bbRsiEntrySignal: true });
-    expect(countActiveEtfFilters(s, false, ETF_FUNDAMENTAL_FILTER_KEYS)).toBe(2);
-    expect(countActiveEtfFilters(s, false, ETF_TECHNICAL_FILTER_KEYS)).toBe(2);
-    expect(countActiveEtfFilters(s, true)).toBe(5);
-    expect(countActiveEtfFilters(DEFAULT_ETF_FILTER_STATE, false)).toBe(0);
+    expect(countActiveEtfFilters(s, ETF_FUNDAMENTAL_FILTER_KEYS)).toBe(2);
+    expect(countActiveEtfFilters(s, ETF_TECHNICAL_FILTER_KEYS)).toBe(2);
+    expect(countActiveEtfFilters(s)).toBe(4);
+    expect(countActiveEtfFilters(DEFAULT_ETF_FILTER_STATE)).toBe(0);
   });
 });

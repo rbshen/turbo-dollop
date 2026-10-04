@@ -16,13 +16,8 @@ const LISTS = [
 const options = () => Array.from((screen.getByLabelText(/^Limit results to/) as HTMLSelectElement).options).map((o) => o.textContent);
 
 describe("WatchlistFilters", () => {
-  it("leaves the ETF-only list out of the Stocks screener's options by default", () => {
+  it("leaves the ETF-only list out of the options", () => {
     render(<WatchlistFilters watchlists={LISTS} value={null} onChange={vi.fn()} disabled={false} />);
     expect(options()).toEqual(["None", "E1", "Growth"]);
-  });
-
-  it("lists every watchlist for the etf audience", () => {
-    render(<WatchlistFilters watchlists={LISTS} value={null} onChange={vi.fn()} disabled={false} audience="etf" />);
-    expect(options()).toEqual(["None", "E1", "ETF", "Growth"]);
   });
 });

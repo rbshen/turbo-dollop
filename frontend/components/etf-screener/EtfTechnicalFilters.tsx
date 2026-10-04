@@ -26,7 +26,7 @@ export function EtfTechnicalFilters({ filters, onFiltersChange }: Props) {
   }
 
   return (
-    <CollapsibleFilterSection title="Technical" count={countActiveEtfFilters(filters, false, ETF_TECHNICAL_FILTER_KEYS)}>
+    <CollapsibleFilterSection title="Technical" count={countActiveEtfFilters(filters, ETF_TECHNICAL_FILTER_KEYS)}>
       <div className="space-y-4">
         <RangeField label="Beta" value={filters.beta} onChange={(r) => patch({ beta: r })} />
         <RangeField label="1Y vs SPY" unit="pp" value={filters.vsSpy1y} onChange={(r) => patch({ vsSpy1y: r })} />

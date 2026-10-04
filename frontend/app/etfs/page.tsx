@@ -9,7 +9,6 @@ import { SavedEtfFiltersBar } from "@/components/etf-screener/SavedEtfFiltersBar
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Pagination } from "@/components/screener/Pagination";
 import { SortControls } from "@/components/screener/SortControls";
-import { WatchlistFilters } from "@/components/screener/WatchlistFilters";
 import { AddToWatchlistButton } from "@/components/ticker/AddToWatchlistButton";
 import { PageHeader } from "@/components/ui/page-header";
 import type { SavedEtfFilter } from "@/lib/api/types";
@@ -24,7 +23,6 @@ import {
   type EtfSortField,
 } from "@/lib/etfScreenerFilters";
 import { useEtfScreener, useEtfScreenerMeta } from "@/lib/hooks/useEtfScreener";
-import { useWatchlists } from "@/lib/hooks/useWatchlists";
 import type { SortDirection } from "@/lib/screenerFilters";
 
 // Same page size as the Stocks Screener (6 rows of cards at the 3-column xl grid).
@@ -34,34 +32,20 @@ const NO_ASSET_CLASSES: string[] = [];
 
 // The ETFs page: the Stocks Screener's shell (header, sort row, sidebar + card grid, pagination, saved views) over the
 // ETF read-model (GET /api/etf-screener). Filtering, sorting and paging are client-side, as on the Stocks page. One
-// universe, so no universe selector (and the Watchlist filter is never dimmed), and no Recompute: the rows are written
-// by the nightly ETF job. Spec: docs/specs/etf-screener.md.
+// universe, so no universe selector, no Watchlist filter (the only ETF list is the ETF-only "ETF" watchlist, which is
+// managed on the Watchlists page), and no Recompute: the rows are written by the nightly ETF job. Spec:
+// docs/specs/etf-screener.md.
 export default function EtfsPage() {
   const { data, error } = useEtfScreener();
   const { data: meta } = useEtfScreenerMeta();
-  const { data: watchlists } = useWatchlists();
 
   const [filters, setFilters] = useState<EtfFilterState>(DEFAULT_ETF_FILTER_STATE);
   const [sortField, setSortField] = useState<EtfSortField>(DEFAULT_ETF_SORT_FIELD);
   const [sortDirection, setSortDirection] = useState<SortDirection>(DEFAULT_ETF_SORT_DIRECTION);
   const [page, setPage] = useState(1);
-  const [watchlistId, setWatchlistId] = useState<number | null>(null);
 
-  const selectedWatchlist = useMemo(() => (watchlists ?? []).find((w) => w.id === watchlistId) ?? null, [watchlists, watchlistId]);
-  const watchlistTickerSet = useMemo(
-    () => (selectedWatchlist ? new Set(selectedWatchlist.tickers.map((t) => t.ticker)) : null),
-    [selectedWatchlist]
-  );
-
-  const filtered = useMemo(() => filterEtfRows(data ?? [], filters, watchlistTickerSet), [data, filters, watchlistTickerSet]);
+  const filtered = useMemo(() => filterEtfRows(data ?? [], filters), [data, filters]);
   const sorted = useMemo(() => sortEtfRows(filtered, sortField, sortDirection), [filtered, sortField, sortDirection]);
-
-  // How many of the selected watchlist's tickers have an ETF row at all (an ETF the nightly job has not reached yet
-  // has none) -- the same "X of Y" note the Stocks page shows for a watchlist.
-  const watchlistRowCount = useMemo(() => {
-    if (!watchlistTickerSet || !data) return null;
-    return data.filter((row) => watchlistTickerSet.has(row.ticker)).length;
-  }, [watchlistTickerSet, data]);
 
   const nPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const currentPage = Math.min(page, nPages);
@@ -74,14 +58,8 @@ export default function EtfsPage() {
 
   function handleResetFilters() {
     handleFiltersChange(DEFAULT_ETF_FILTER_STATE);
-    setWatchlistId(null);
     setSortField(DEFAULT_ETF_SORT_FIELD);
     setSortDirection(DEFAULT_ETF_SORT_DIRECTION);
-  }
-
-  function handleWatchlistChange(next: number | null) {
-    setWatchlistId(next);
-    setPage(1);
   }
 
   function handleSortChange(field: EtfSortField, direction: SortDirection) {
@@ -95,9 +73,8 @@ export default function EtfsPage() {
     setFilters({ ...DEFAULT_ETF_FILTER_STATE, ...saved.filters });
     setSortField(saved.sort_field);
     setSortDirection(saved.sort_direction);
-    // The saved watchlist only applies if it still exists (see the Stocks page for why a stale reference is possible).
-    const stillExists = saved.watchlist_id != null && (watchlists ?? []).some((w) => w.id === saved.watchlist_id);
-    setWatchlistId(stillExists ? saved.watchlist_id : null);
+    // saved.watchlist_id is ignored: the ETFs page has no Watchlist filter (a view saved before it was removed loads
+    // as the same view without the watchlist scope).
     setPage(1);
   }
 
@@ -109,12 +86,7 @@ export default function EtfsPage() {
       <PageHeader
         title="ETFs"
         subtitle={
-          !data ? undefined : selectedWatchlist ? (
-            <>
-              {watchlistRowCount} of {selectedWatchlist.tickers.length} &quot;{selectedWatchlist.name}&quot; tickers
-              {sorted.length !== watchlistRowCount && ` — ${sorted.length} match the current filters`}
-            </>
-          ) : (
+          !data ? undefined : (
             <>
               {data.length} of {meta ? meta.total_etfs : "…"} ETFs
               {sorted.length !== data.length && ` — ${sorted.length} match the current filters`}
@@ -136,7 +108,6 @@ export default function EtfsPage() {
 
       <div className="flex flex-col gap-6 lg:flex-row">
         <aside className="w-full shrink-0 space-y-4 lg:w-64">
-          <WatchlistFilters watchlists={watchlists} value={watchlistId} onChange={handleWatchlistChange} disabled={false} audience="etf" />
           <EtfFundamentalFilters
             filters={filters}
             onFiltersChange={handleFiltersChange}
@@ -147,7 +118,6 @@ export default function EtfsPage() {
             sortField={sortField}
             sortDirection={sortDirection}
             filters={filters}
-            watchlistId={watchlistId}
             onLoad={handleLoadSavedFilter}
             onReset={handleResetFilters}
           />

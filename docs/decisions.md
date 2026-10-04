@@ -818,3 +818,13 @@ localStorage key (`fathom-etf-watchlist-sort-<id>`), so a rule stored for the st
 in the stock table. **Headers are short** (Class, Exp %, Holdings, Avg Vol 30d, Yield %) and the 13 columns fit at 1280px without scrolling by fixed widths with a flexible Name; below that the table keeps a 1160px min-width and
 the container scrolls (calculation in `EtfWatchlistTable.tsx`; not browser-verified, per CLAUDE.md). **Null is "–"** (an en dash), not the screener card's em dash, as specified. **Export:** an ETF row has no sector, so the
 TradingView file puts the ETF list's tickers under a single `###Other` section. **Refresh:** `useWatchlists.ts::mutateWatchlistRows` revalidates `/rows` and `/etf-rows` after add, remove, bulk add and the ETF page's add.
+
+### 2026-10-04 — The ETF-only list leaves stock UI; the ETFs screener loses its Watchlist filter
+Steps 5 and 6 of the ETF watchlist work (two commits). **Supersedes the 2026-10-02 ETFs-page decision** that the Watchlist filter "lists every watchlist (ETF and E1-E5 included)": with one ETF-only list and the backend
+guard (2026-10-04, "The ETF watchlist is ETF-only"), the filter had nothing left to offer an ETF user that the Watchlists page's ETF table does not. **Step 5:** `AddToWatchlistButton` takes `audience` (default `"stock"` hides the list
+named `ETF`; `"etf"` shows all). The stock ticker page and the Stocks screener use the default; the ETFs screener's bulk add passes `"etf"` (ETFs can still go to E1-E5 and to "ETF"); the ETF ticker page keeps its own one-click
+`EtfWatchlistButton`, untouched. The Stocks screener's Watchlist filter omits the list, and `selectedWatchlist` is derived from the stock-visible lists only, so a selection that names it (a saved view from before the list was hidden,
+stale state) is treated as no watchlist filter: the saved universe applies and nothing is scoped to ETFs (the saved view's own `watchlist_id` is not rewritten until it is saved again). The Add menu's "New watchlist" box refuses
+the name "ETF" in any case with `"ETF" is reserved for the ETF-only watchlist.` and sends no request (the backend refuses it too). **Step 6:** the ETFs page drops the Watchlist section, `watchlistId` state, the watchlist subtitle and the
+saved-view watchlist logic; `filterEtfRows` and `countActiveEtfFilters` lose their watchlist parameters (callers already passed none/false). `SavedEtfFiltersBar` saves `watchlist_id: null`; an ETF view carrying one
+(none exist) loads with it ignored. No backend change: `/api/etf-screener` never took a watchlist parameter, and `SavedScreenerFilterIn.watchlist_id` stays for stock views. `WatchlistFilters` is now stock-only.

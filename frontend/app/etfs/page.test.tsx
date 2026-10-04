@@ -106,7 +106,6 @@ function savedView(overrides: Partial<SavedEtfFilter> & { name: string }): Saved
 
 const cards = () => screen.queryAllByRole("link").map((a) => a.querySelector("p")?.textContent);
 const sortSelect = () => screen.getByLabelText("Sort by") as HTMLSelectElement;
-const watchlistSelect = () => screen.getByLabelText(/^Limit results to/) as HTMLSelectElement;
 const directionButton = () => screen.getByRole("button", { name: /^Sort direction:/ });
 
 beforeEach(() => {
@@ -128,16 +127,12 @@ describe("the ETFs page: shell", () => {
     expect(screen.queryByText("S&P 500")).toBeNull();
   });
 
-  it("orders the sidebar Watchlist, Fundamental, Technical, with Watchlist never dimmed", () => {
+  it("orders the sidebar Fundamental, Technical and has no Watchlist section or filter", () => {
     render(<EtfsPage />);
     const headings = screen.getAllByRole("heading", { level: 2 }).map((el) => el.textContent);
-    expect(headings).toEqual(["Watchlist", "Fundamental", "Technical"]);
-    expect(watchlistSelect()).not.toBeDisabled();
-  });
-
-  it("offers every watchlist, ETF and E-lists included", () => {
-    render(<EtfsPage />);
-    expect(Array.from(watchlistSelect().options).map((o) => o.textContent)).toEqual(["None", "ETF", "E1"]);
+    expect(headings).toEqual(["Fundamental", "Technical"]);
+    expect(screen.queryByLabelText(/^Limit results to/)).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Watchlist" })).toBeNull();
   });
 
   it("lists the ETF sort options, AUM first by default, descending", () => {
@@ -213,11 +208,16 @@ describe("filtering", () => {
     expect(cards()).toEqual(["SPY"]);
   });
 
-  it("scopes to a watchlist", () => {
+  it("counts the active filters per section, and the subtitle never has a watchlist flavour", () => {
     render(<EtfsPage />);
-    fireEvent.change(watchlistSelect(), { target: { value: "1" } });
-    expect(cards()).toEqual(["SPY", "GLD"]);
-    expect(screen.getByText(/2 of 2 "ETF" tickers/)).toBeInTheDocument();
+    const subtitle = () => screen.getByRole("heading", { level: 1 }).nextElementSibling?.textContent;
+    expect(subtitle()).toBe("3 of 3 ETFs");
+    const aum = screen.getByRole("group", { name: /AUM/ });
+    fireEvent.change(within(aum).getByLabelText("Minimum"), { target: { value: "60B" } });
+    expect(subtitle()).toBe("3 of 3 ETFs — 2 match the current filters");
+    expect(screen.getByTitle("1 applied")).toBeInTheDocument(); // the Fundamental section's badge (AUM); none for Technical
+    expect(screen.getAllByTitle(/applied$/)).toHaveLength(1);
+    expect(screen.queryByText(/tickers$/)).toBeNull();
   });
 
   it("says so when no ETF matches the filters", () => {
@@ -267,11 +267,10 @@ describe("saved views (kind=etf)", () => {
     fireEvent.click(screen.getByRole("button", { name: /^(Saved views|Cheap|Gone)/ }));
   }
 
-  it("saves the current ETF view: all universe, ETF sort field and ETF filter state, watchlist", async () => {
+  it("saves the current ETF view: all universe, ETF sort field and ETF filter state, no watchlist", async () => {
     render(<EtfsPage />);
     fireEvent.change(sortSelect(), { target: { value: "expense_ratio" } });
     fireEvent.click(directionButton());
-    fireEvent.change(watchlistSelect(), { target: { value: "1" } });
     fireEvent.click(screen.getByRole("button", { name: /^Asset class/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Equity" }));
 
@@ -286,11 +285,11 @@ describe("saved views (kind=etf)", () => {
       sort_field: "expense_ratio",
       sort_direction: "asc",
       filters: { ...DEFAULT_ETF_FILTER_STATE, assetClasses: ["Equity"] },
-      watchlist_id: 1,
+      watchlist_id: null,
     });
   });
 
-  it("loads a saved view: filters, sort, direction and watchlist; a missing key falls back to the default", () => {
+  it("loads a saved view: filters, sort and direction; a missing key falls back to the default; a watchlist on it is ignored", () => {
     h.saved = [
       savedView({
         name: "Cheap",
@@ -298,24 +297,29 @@ describe("saved views (kind=etf)", () => {
         sort_direction: "asc",
         // an older view without the newer keys
         filters: { assetClasses: ["Fixed Income"], aum: { min: null, max: 1e11 } } as never,
-        watchlist_id: 2,
+        watchlist_id: 2, // E1 holds only TLT; ignored, so the scope does not narrow the result by itself
       }),
     ];
+    h.rows = [...ROWS, etf("QQQ", { asset_class: "Fixed Income", aum: 1e9 })];
     render(<EtfsPage />);
     openSavedViews();
     fireEvent.click(within(screen.getByRole("group", { name: "Saved views" })).getByRole("button", { name: "Cheap" }));
     expect(sortSelect().value).toBe("expense_ratio");
     expect(directionButton().getAttribute("aria-label")).toContain("ascending");
-    expect(watchlistSelect().value).toBe("2");
-    expect(cards()).toEqual(["TLT"]);
+    expect(cards()).toEqual(["QQQ", "TLT"]); // every Fixed Income ETF (cheapest first), not only the saved watchlist's TLT
   });
 
-  it("falls back to no watchlist when the saved one is gone", () => {
+  it("loads a view whose watchlist no longer exists, or that is the ETF-only list, the same way: ignored", () => {
     h.saved = [savedView({ name: "Gone", watchlist_id: 99 })];
     render(<EtfsPage />);
     openSavedViews();
     fireEvent.click(within(screen.getByRole("group", { name: "Saved views" })).getByRole("button", { name: "Gone" }));
-    expect(watchlistSelect().value).toBe("");
+    expect(cards()).toEqual(["SPY", "GLD", "TLT"]);
+    cleanup();
+    h.saved = [savedView({ name: "Gone", watchlist_id: 1 })]; // list 1 is the ETF list in this fixture
+    render(<EtfsPage />);
+    openSavedViews();
+    fireEvent.click(within(screen.getByRole("group", { name: "Saved views" })).getByRole("button", { name: "Gone" }));
     expect(cards()).toEqual(["SPY", "GLD", "TLT"]);
   });
 
@@ -327,13 +331,14 @@ describe("saved views (kind=etf)", () => {
     await vi.waitFor(() => expect(h.del).toHaveBeenCalledWith("Cheap"));
   });
 
-  it("Reset puts filters, watchlist and sort back to the defaults", () => {
+  it("Reset puts filters and sort back to the defaults", () => {
     render(<EtfsPage />);
     fireEvent.change(sortSelect(), { target: { value: "beta" } });
-    fireEvent.change(watchlistSelect(), { target: { value: "1" } });
+    const aum = screen.getByRole("group", { name: /AUM/ });
+    fireEvent.change(within(aum).getByLabelText("Minimum"), { target: { value: "1T" } });
+    expect(screen.getByText("No ETFs match the current filters.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Reset" }));
     expect(sortSelect().value).toBe("aum");
-    expect(watchlistSelect().value).toBe("");
     expect(cards()).toEqual(["SPY", "GLD", "TLT"]);
   });
 });

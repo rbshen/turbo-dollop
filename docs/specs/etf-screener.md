@@ -76,7 +76,8 @@ equities is meaningless (TLT reads 2.4). The ETF page's sector weights keep the 
 view can share a name. `GET /api/screener/filters`, `PUT /api/screener/filters/{name}` and
 `DELETE /api/screener/filters/{name}` take an optional `?kind=` query parameter defaulting to `stock` (any other value is
 a 422); with no parameter they behave exactly as before. `SavedScreenerFilterOut` gained a `kind` field. Deleting a
-watchlist still removes every view that references it, whatever its kind.
+watchlist still removes every view that references it, whatever its kind. (The ETFs page has no Watchlist filter since 2026-10-04: it saves
+`watchlist_id: null`, and an ETF view that carries one loads with it ignored.)
 
 ## Frontend: the ETFs page (step 5)
 
@@ -84,16 +85,17 @@ Route `/etfs` (`app/etfs/page.tsx`, tab title "ETFs"), second item of the top na
 Stocks Screener's nav label and heading were renamed in the same change: "Screener" -> "Stocks", page heading and tab title
 "Stocks Screener"; the route stays `/screener` and `/` still redirects to it. The page is the Stocks page's shell
 (header, Sort row, sidebar plus 3-column card grid, 18 per page, saved views, Reset) with client-side filtering, sorting
-and paging over `GET /api/etf-screener`. No universe selector, no Recompute button; the Watchlist filter is never dimmed
-and lists every watchlist (ETF and E1-E5 included). The header's "Add to watchlist" adds the filtered tickers, as on the
-Stocks page.
+and paging over `GET /api/etf-screener`. No universe selector, no Recompute button, and **no Watchlist filter** (removed
+2026-10-04: the only ETF list is the ETF-only "ETF" watchlist, managed on the Watchlists page; the filter used to list every
+watchlist). The header's "Add to watchlist" adds the filtered tickers, as on the Stocks page, and offers every list
+(`audience="etf"`, the "ETF" list included; the Stocks page's menu hides it).
 
 - **Data and keys.** `lib/hooks/useEtfScreener.ts` (`/etf-screener`, `/etf-screener/meta`) and
   `lib/hooks/useSavedEtfFilters.ts` (key `/etf-screener/filters`, request `/screener/filters?kind=etf`). **No ETF SWR key
   starts with `/screener`**, so the Moat / Valuation / Bank-capital `mutate("/screener")` calls and the Recompute sweep
   never refresh ETF data (`lib/hooks/useEtfScreener.test.tsx` pins it). The stock saved-views hook is unchanged (key
   `/screener/filters`, no `kind`).
-- **Sidebar**, in order: **Watchlist**, **Fundamental** (Asset class multi-select from `meta.asset_classes`; ranges
+- **Sidebar**, in order: **Fundamental** (Asset class multi-select from `meta.asset_classes`; ranges
   Expense ratio %, Quote USD, 1D change %, AUM USD with the `500M` / `2B` suffixes), **Technical** (Beta; 1Y vs SPY in
   percentage points; Weinstein stage with "Pending"; Warren entry (2h); BB + RSI entry (2h) with the monitored-lists
   caption). Section titles are the Stocks page's singular "Fundamental" / "Technical". "Quote" is the price range, as on the
@@ -107,10 +109,10 @@ Stocks page.
   AUM, Exp. ratio, 1Y vs SPY ("+3.5 pp"), Beta. The whole card is a link to `/tickers/X`, `target="_blank"` (the same
   inline new-tab pattern as `ScreenerCard`; the nav's background-tab click replay is nav-only).
 - **States.** Zero rows: "ETF data hasn't been loaded yet. It is filled by the nightly ETF job." (until the job's first run). Rows but no match: "No ETFs match the current filters." Subtitle: "X of `total_etfs` ETFs", then "— N match the
-  current filters" (no hidden-ticker note since the opt-in flip), or the watchlist flavour as on the Stocks page.
+  current filters" (no hidden-ticker note since the opt-in flip; there is no watchlist flavour any more).
 - **Shared vs twin.** Shared as they were or parameterized: `SortControls` (an `options` prop, default the stock list),
   `SavedFiltersBarView` (generic over universe, sort field, filter state and saved row; the stock `SavedFiltersBar` and the new
-  `SavedEtfFiltersBar` wrap it), `WatchlistFilters`, `CollapsibleFilterSection`, `Pagination`, `MultiSelectDropdown`,
+  `SavedEtfFiltersBar` wrap it), `CollapsibleFilterSection`, `Pagination`, `MultiSelectDropdown`,
   `RangeField`, `Checkbox`, `AddToWatchlistButton`, `WeinsteinStagePill`, and in `lib/screenerFilters.ts` the range test
   (`inRange`), counting rule (`countActiveIn`) and null-last sort (`sortRows`) that the stock functions now call. ETF twins
   (bound to the ETF row or state): `EtfScreenerCard`, `EtfFundamentalFilters`, `EtfTechnicalFilters`

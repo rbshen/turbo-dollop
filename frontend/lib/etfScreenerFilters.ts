@@ -63,21 +63,12 @@ export const ETF_TECHNICAL_FILTER_KEYS: readonly EtfFilterKey[] = [
 
 const ALL_ETF_FILTER_KEYS = Object.keys(DEFAULT_ETF_FILTER_STATE) as EtfFilterKey[];
 
-export function countActiveEtfFilters(
-  filters: EtfFilterState,
-  watchlistActive: boolean,
-  keys: readonly EtfFilterKey[] = ALL_ETF_FILTER_KEYS
-): number {
-  return countActiveIn(filters, watchlistActive, keys);
+export function countActiveEtfFilters(filters: EtfFilterState, keys: readonly EtfFilterKey[] = ALL_ETF_FILTER_KEYS): number {
+  return countActiveIn(filters, false, keys);
 }
 
-export function filterEtfRows(
-  rows: EtfScreenerRowOut[],
-  filters: EtfFilterState,
-  watchlistTickers: Set<string> | null = null
-): EtfScreenerRowOut[] {
+export function filterEtfRows(rows: EtfScreenerRowOut[], filters: EtfFilterState): EtfScreenerRowOut[] {
   return rows.filter((row) => {
-    if (watchlistTickers && !watchlistTickers.has(row.ticker)) return false;
     if (filters.assetClasses.length > 0 && (!row.asset_class || !filters.assetClasses.includes(row.asset_class))) return false;
     if (!inRange(row.expense_ratio, filters.expenseRatio)) return false;
     if (!inRange(row.last_price, filters.quote)) return false;
