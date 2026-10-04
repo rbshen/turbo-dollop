@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import { cleanup, render } from "@testing-library/react";
+import { LineStyle } from "lightweight-charts";
 import type { IChartApi, ISeriesApi, SeriesType } from "lightweight-charts";
 import { afterEach, beforeAll, expect, it, vi } from "vitest";
 
 import { TickerChart } from "@/components/chart/TickerChart";
 import type { ChartOut } from "@/lib/api/types";
+import { AXIS_FONT_SIZE_LARGER, AXIS_TEXT_BRIGHTER, DEFAULT_AXIS_OPTIONS } from "@/lib/chartAxis";
 import { etIsoToFakeUtc } from "@/lib/chartTime";
 import { computeRightOffset } from "@/lib/chartZoom";
 
@@ -108,7 +110,7 @@ it("2H·90D: mounts with main + three Warren sub-panes (stretch 580/100/100/100)
   expect(panes).toHaveLength(4);
   expect(panes.map((p) => p.getStretchFactor())).toEqual([580, 100, 100, 100]);
   expect(created!.options().timeScale.timeVisible).toBe(true);
-  expect(getByText(/Warren RSI \(14\) · 12 · 30 · 70 · 80\.81 · 84\.75/)).toBeInTheDocument();
+  expect(getByText(/Warren RSI \(14\) · 12 · 80\.81 · 84\.75/)).toBeInTheDocument(); // no 30/70: those lines are gone
   expect(getByText(/Warren ADX \(14\) · 40/)).toBeInTheDocument();
   expect(getByText(/Warren WVF \(22\) · 0\.40/)).toBeInTheDocument();
   expect(container.textContent).toMatch(/15:30–16:00 ET/); // the latest candle's full window in the legend
@@ -140,11 +142,11 @@ it("2H·90D: candles, sub-pane lines and zone lines use fake-UTC numeric times; 
     expect(extension).toEqual([...extension].sort((a, b) => a - b));
   }
 
-  // The five Warren sub-pane series (RSI; ADX, +DI, -DI; WVF) carry numeric times too.
+  // The three Warren sub-pane series (RSI; ADX alone, no +DI/-DI; WVF) carry numeric times too.
   const subPaneLines = allSeries.filter((s) => s.getPane().paneIndex() > 0);
-  expect(subPaneLines).toHaveLength(5);
+  expect(subPaneLines).toHaveLength(3);
   for (const s of subPaneLines) expect(s.data().every((d) => typeof d.time === "number")).toBe(true);
-  expect(subPaneLines.map((s) => s.getPane().paneIndex())).toEqual([1, 2, 2, 2, 3]);
+  expect(subPaneLines.map((s) => s.getPane().paneIndex())).toEqual([1, 2, 3]);
 });
 
 it("2H·90D: toggling overlays after mount does not throw (markers, zone lines)", () => {
@@ -172,4 +174,85 @@ it("daily ranges keep their date-only axis and the two RSI/Stochastic panes (580
   expect(getByText("Full Stochastic (5, 3, 3) EMA")).toBeInTheDocument();
   // Daily bars keep their business-day strings untouched.
   expect(allSeries.find((s) => s.seriesType() === "Candlestick")!.data().map((d) => d.time)).toEqual(dates);
+});
+
+// --- Warren pane reference lines ---
+
+it("2H·90D: the RSI pane draws only the dashed 12, 80.81 and 84.75 lines (12 tagged); ADX only the dotted 40", () => {
+  render(<TickerChart data={twoHData()} {...props} />);
+  const lines = (pane: number) =>
+    allSeries.filter((s) => s.getPane().paneIndex() === pane).flatMap((s) => s.priceLines().map((l) => l.options()));
+  const rsi = lines(1);
+  expect(rsi.map((l) => l.price)).toEqual([12, 80.81, 84.75]);
+  expect(rsi.every((l) => l.lineStyle === LineStyle.Dashed)).toBe(true);
+  expect(rsi.map((l) => l.axisLabelVisible)).toEqual([true, false, false]);
+  const adx = lines(2);
+  expect(adx.map((l) => l.price)).toEqual([40]);
+  expect(adx[0].lineStyle).toBe(LineStyle.Dashed);
+});
+
+// --- Axis options ---
+
+const layoutOf = () => created!.options().layout;
+const densityOf = (pane: number) => created!.priceScale("right", pane).options().tickMarkDensity;
+const formatOf = (pane: number) => allSeries.filter((s) => s.getPane().paneIndex() === pane)[0].options().priceFormat;
+
+it("axis options all off: the layout, density and price formats are exactly the originals", () => {
+  render(<TickerChart data={twoHData()} {...props} axisOptions={DEFAULT_AXIS_OPTIONS} />);
+  expect(layoutOf().textColor).toBe("#9499a0");
+  expect(layoutOf().fontSize).toBe(12);
+  expect(layoutOf().fontFamily).toBe("var(--font-mono), ui-monospace, monospace");
+  for (const pane of [0, 1, 2, 3]) {
+    expect(densityOf(pane)).toBe(2.5);
+    expect(formatOf(pane)).toMatchObject({ type: "price", precision: 2, minMove: 0.01 });
+  }
+});
+
+it("axis options: brighter/larger, tabular and fewer ticks apply live, and turn back off to the originals", () => {
+  const data = twoHData();
+  const { rerender } = render(<TickerChart data={data} {...props} />);
+  const all = { hideOverlap: true, brighter: true, fewerTicks: true, tabular: true };
+  rerender(<TickerChart data={data} {...props} axisOptions={all} />);
+  expect(layoutOf().textColor).toBe(AXIS_TEXT_BRIGHTER);
+  expect(layoutOf().fontSize).toBe(AXIS_FONT_SIZE_LARGER);
+  expect(layoutOf().fontFamily).not.toContain("var(");
+  for (const pane of [0, 1, 2, 3]) {
+    expect(densityOf(pane)).toBe(5);
+    expect(formatOf(pane).type).toBe("custom");
+  }
+  expect(created!.panes()).toHaveLength(4); // applied to the live chart, not a rebuild
+  rerender(<TickerChart data={data} {...props} axisOptions={DEFAULT_AXIS_OPTIONS} />);
+  expect(layoutOf().textColor).toBe("#9499a0");
+  expect(layoutOf().fontSize).toBe(12);
+  expect(layoutOf().fontFamily).toBe("var(--font-mono), ui-monospace, monospace");
+  for (const pane of [0, 1, 2, 3]) {
+    expect(densityOf(pane)).toBe(2.5);
+    expect(formatOf(pane)).toMatchObject({ type: "price", precision: 2, minMove: 0.01 });
+  }
+});
+
+it("axis options: each toggle changes only its own setting", () => {
+  const data = twoHData();
+  const { rerender } = render(<TickerChart data={data} {...props} />);
+  rerender(<TickerChart data={data} {...props} axisOptions={{ ...DEFAULT_AXIS_OPTIONS, fewerTicks: true }} />);
+  expect(densityOf(0)).toBe(5);
+  expect(layoutOf().fontSize).toBe(12);
+  expect(formatOf(0).type).toBe("price");
+  rerender(<TickerChart data={data} {...props} axisOptions={{ ...DEFAULT_AXIS_OPTIONS, hideOverlap: true }} />);
+  expect(densityOf(0)).toBe(2.5);
+  expect(formatOf(0).type).toBe("custom");
+});
+
+it("axis options on a daily chart's panes: the RSI/Stochastic scales are left alone", () => {
+  const dates = ["2026-07-06", "2026-07-07", "2026-07-08"];
+  const data = {
+    ...base(), range: "D_6M", timeframe: "daily",
+    bars: dates.map((time, i) => ({ time, open: 100 + i, high: 102 + i, low: 99 + i, close: 101 + i })),
+    rsi: dates.map((time, i) => ({ time, value: 40 + i })),
+    stochastic: dates.map((time, i) => ({ time, k: 30 + i, d: 31 + i })),
+  } as ChartOut;
+  render(<TickerChart data={data} {...props} axisOptions={{ hideOverlap: true, brighter: false, fewerTicks: true, tabular: false }} />);
+  expect(densityOf(0)).toBe(5);
+  expect(densityOf(1)).toBe(2.5);
+  expect(densityOf(2)).toBe(2.5);
 });

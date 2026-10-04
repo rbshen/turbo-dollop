@@ -274,7 +274,7 @@ reader. It is wired into `core/cron_health.py`'s `CRON_JOB_NAMES` / `_EXPECTED_C
   (one per (candle, kind)), time-stamped by the candle's window start, not bucketed per day/week as the daily ranges' stored-event markers are.
   `replay_with_series` additionally returns the RSI, +DI, -DI, ADX and WVF(`wvfBuy`) series the machine used (the existing `replay()` and its outputs
   are unchanged) and `warren_reference_levels()` reads the thresholds from the same constants (RSI 12/30/70/80.81/84.75, ADX 40, WVF 0.40; the RSI 12 line is omitted for the four tickers with their own Blue profile), so the three panes
-  always match the arrows. Warm-up matters: a 90-day-only replay gives different arrows, and the Wilder RSI differs from the chart's EWM RSI by up to ~19
+  always match the arrows (the chart draws the RSI, ADX and WVF panes; +DI/-DI are still computed and sent but not plotted, and the RSI 30/70 levels are reported but not drawn: `docs/specs/chart-tab.md`). Warm-up matters: a 90-day-only replay gives different arrows, and the Wilder RSI differs from the chart's EWM RSI by up to ~19
   points on 90 days of data (it converges to ~1e-14 with 730 days). **Consistency with stored data (checked 2026-10-02, 108 monitored tickers, last 90 days):**
   the Technical tab's latest-state row matched the on-demand replay for 105 of 105 tickers; of 346 stored arrows, 330 reproduced and 16 (14 tickers) did not, none
   the other way round. 14 of the 16 were written before the FMP bar switch (2026-09-26); the other two (CRM, NTAP) sit at borderline RSI thresholds (e.g. 84.32 against 84.75). Every

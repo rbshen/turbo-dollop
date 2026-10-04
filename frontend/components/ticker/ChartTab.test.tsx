@@ -346,3 +346,72 @@ describe("ChartTab: the 2H · 90D range", () => {
     expect(OFFERED.every((l) => isOn(btn(l)))).toBe(true);
   });
 });
+
+describe("ChartTab: the Axis dropdown", () => {
+  beforeEach(() => window.sessionStorage.clear());
+
+  const axisProps = () => chartProps.axisOptions as Record<string, boolean>;
+  const ALL_OFF = { hideOverlap: false, brighter: false, fewerTicks: false, tabular: false };
+
+  it("is offered on 2H · 90D only", () => {
+    render(<ChartTab ticker="AAPL" />);
+    expect(screen.queryByRole("button", { name: /^Axis/ })).toBeNull(); // D · 6M, the default
+    for (const other of ["D · 1Y", "D · 2Y", "W · 4Y"]) {
+      fireEvent.click(btn(other));
+      expect(screen.queryByRole("button", { name: /^Axis/ })).toBeNull();
+    }
+    fireEvent.click(btn("2H · 90D"));
+    expect(btn("Axis")).toBeInTheDocument();
+  });
+
+  it("opens a group with one checkbox per fix, all unchecked, and hands the chart all-off", () => {
+    render(<ChartTab ticker="AAPL" />);
+    fireEvent.click(btn("2H · 90D"));
+    expect(axisProps()).toEqual(ALL_OFF);
+    fireEvent.click(btn("Axis"));
+    const group = screen.getByRole("group", { name: "Axis options" });
+    const boxes = Array.from(group.querySelectorAll<HTMLInputElement>("input[type=checkbox]"));
+    expect(boxes).toHaveLength(4);
+    expect(boxes.map((b) => b.checked)).toEqual([false, false, false, false]);
+    for (const name of ["Hide overlapping labels", "Brighter and larger", "Fewer ticks", "Tabular numerals"]) {
+      expect(screen.getByRole("checkbox", { name })).toBeInTheDocument();
+    }
+  });
+
+  it("each checkbox flips only its own option; Escape closes the popover", () => {
+    render(<ChartTab ticker="AAPL" />);
+    fireEvent.click(btn("2H · 90D"));
+    fireEvent.click(btn("Axis"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Fewer ticks" }));
+    expect(axisProps()).toEqual({ ...ALL_OFF, fewerTicks: true });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Tabular numerals" }));
+    expect(axisProps()).toEqual({ ...ALL_OFF, fewerTicks: true, tabular: true });
+    expect(btn("Axis (2)")).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("group", { name: "Axis options" }), { key: "Escape" });
+    expect(screen.queryByRole("group", { name: "Axis options" })).toBeNull();
+  });
+
+  it("a range that does not offer the options is always told all-off; switching back restores the choices", () => {
+    render(<ChartTab ticker="AAPL" />);
+    fireEvent.click(btn("2H · 90D"));
+    fireEvent.click(btn("Axis"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Brighter and larger" }));
+    expect(axisProps().brighter).toBe(true);
+    fireEvent.click(btn("D · 1Y"));
+    expect(axisProps()).toEqual(ALL_OFF);
+    fireEvent.click(btn("2H · 90D"));
+    expect(axisProps().brighter).toBe(true);
+  });
+
+  it("keeps the choices for the browser session only (sessionStorage), not localStorage", () => {
+    const { unmount } = render(<ChartTab ticker="AAPL" />);
+    fireEvent.click(btn("2H · 90D"));
+    fireEvent.click(btn("Axis"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Fewer ticks" }));
+    expect(window.localStorage.getItem("fathom-chart-axis-options")).toBeNull();
+    unmount();
+    render(<ChartTab ticker="AAPL" />);
+    fireEvent.click(btn("2H · 90D"));
+    expect(axisProps().fewerTicks).toBe(true);
+  });
+});

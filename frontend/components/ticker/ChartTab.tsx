@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 
+import { ChartAxisMenu } from "@/components/chart/ChartAxisMenu";
 import { TickerChart } from "@/components/chart/TickerChart";
 import type { ZoomBounds } from "@/components/chart/TickerChart";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,8 @@ import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
 import type { ChartRange } from "@/lib/api/types";
 import { DEFAULT_SIGNAL_TOGGLES, effectiveToggles, INTRADAY_CHART_RANGE, visibleToggleOptions } from "@/lib/chartToggles";
 import type { SignalToggles } from "@/lib/chartToggles";
+import { axisOptionsOffered, DEFAULT_AXIS_OPTIONS, effectiveAxisOptions, loadAxisOptions, saveAxisOptions } from "@/lib/chartAxis";
+import type { AxisOptions } from "@/lib/chartAxis";
 
 interface Props {
   ticker: string;
@@ -95,6 +98,14 @@ export function ChartTab({ ticker, isEtf }: Props) {
     setToggleState({ loaded: true, toggles: loadSignalToggles() });
   }
   const signalToggles = toggleState.toggles;
+  // Axis readability options (lib/chartAxis.ts): all off by default, kept for the browser session only (sessionStorage,
+  // loaded during render like the toggles above), and only handed to a range that offers them -- every other range is
+  // told all-off.
+  const [axisState, setAxisState] = useState<{ loaded: boolean; options: AxisOptions }>({ loaded: false, options: DEFAULT_AXIS_OPTIONS });
+  if (!axisState.loaded) {
+    setAxisState({ loaded: true, options: loadAxisOptions() });
+  }
+  const axisOptions = axisState.options;
   const { data, error, isLoading } = useTickerChart(ticker, range);
   // What the chart is told: each saved toggle ANDed with "this range offers it" (hidden toggles are forced off but
   // their saved value is left alone, so switching back restores it).
@@ -120,6 +131,12 @@ export function ChartTab({ ticker, isEtf }: Props) {
     const next = { ...signalToggles, [key]: !signalToggles[key] };
     setToggleState({ loaded: true, toggles: next });
     saveSignalToggles(next);
+  }
+
+  function handleAxisChange(key: keyof AxisOptions) {
+    const next = { ...axisOptions, [key]: !axisOptions[key] };
+    setAxisState({ loaded: true, options: next });
+    saveAxisOptions(next);
   }
 
   function handleRangeChange(next: ChartRange) {
@@ -158,6 +175,9 @@ export function ChartTab({ ticker, isEtf }: Props) {
           ))}
         </div>
         <div className="flex items-center gap-1">
+          {axisOptionsOffered(range) && (
+            <ChartAxisMenu options={axisOptions} onChange={handleAxisChange} />
+          )}
           <Button variant="outline" size="sm" onClick={() => setZoomIndex((i) => Math.max(0, i - 1))} disabled={!chartShown || !zoomBounds.canZoomOut}>
             Zoom out
           </Button>
@@ -198,6 +218,7 @@ export function ChartTab({ ticker, isEtf }: Props) {
           showSma50={shown.sma50}
           showSma200={shown.sma200}
           showStage={shown.stage}
+          axisOptions={effectiveAxisOptions(axisOptions, range)}
           zoomIndex={zoomIndex}
           onZoomBoundsChange={handleZoomBoundsChange}
         />

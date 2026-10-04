@@ -52,8 +52,8 @@ describe("subPaneSpecs", () => {
 
   it("2H labels name the indicator and list the engine's reference levels", () => {
     const labels = subPaneSpecs(twoH()).map((s) => s.label);
-    expect(labels).toEqual(["Warren RSI (14) · 12 · 30 · 70 · 80.81 · 84.75", "Warren ADX (14) · 40", "Warren WVF (22) · 0.40"]);
-    expect(subPaneSpecs(twoH())[1].legend?.map((l) => l.text)).toEqual(["ADX", "+DI", "-DI"]);
+    expect(labels).toEqual(["Warren RSI (14) · 12 · 80.81 · 84.75", "Warren ADX (14) · 40", "Warren WVF (22) · 0.40"]);
+    expect(subPaneSpecs(twoH())[1].legend?.map((l) => l.text)).toEqual(["ADX"]);
   });
 
   it("2H omits a pane whose series is empty, and still labels without levels", () => {

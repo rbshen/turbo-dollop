@@ -2,7 +2,7 @@ import type { ChartOut } from "@/lib/api/types";
 
 // Which sub-panes sit under the Chart tab's price pane, per range. The daily/weekly ranges keep their RSI(14) and
 // Full Stochastic panes (each only when its series has data); the 2H·90D range replaces them with three panes drawn
-// from the backend's Warren series -- RSI, ADX with +DI/-DI, and WVF -- so the panes always match the arrows.
+// from the backend's Warren series -- RSI, ADX (the ADX line only), and WVF -- so the panes always match the arrows.
 
 export type PaneId = "rsi" | "stochastic" | "warren-rsi" | "warren-adx" | "warren-wvf";
 
@@ -25,6 +25,15 @@ export const SUB_PANE_HEIGHT = 100;
 // lightweight-charts' fixed pane-separator height.
 export const PANE_SEPARATOR_HEIGHT = 1;
 
+/** The classic RSI 30/70 levels the engine still reports in `warren_levels.rsi`. The 2H panes no longer draw them
+ * (no line, no axis tag, not in the pane label): only the Warren-specific levels remain (12, 80.81, 84.75). */
+export const WARREN_RSI_HIDDEN_LEVELS: ReadonlySet<number> = new Set([30, 70]);
+
+/** The RSI reference levels the 2H Warren RSI pane draws and names. */
+export function drawnRsiLevels(levels: number[]): number[] {
+  return levels.filter((v) => !WARREN_RSI_HIDDEN_LEVELS.has(v));
+}
+
 /** Formats a reference level for a pane label: integers bare, others with two decimals (0.4 -> "0.40"). */
 export function formatLevel(v: number): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(2);
@@ -32,7 +41,7 @@ export function formatLevel(v: number): string {
 
 type PaneData = Pick<
   ChartOut,
-  "timeframe" | "rsi" | "stochastic" | "warren_rsi" | "warren_adx" | "warren_plus_di" | "warren_minus_di" | "warren_wvf" | "warren_levels"
+  "timeframe" | "rsi" | "stochastic" | "warren_rsi" | "warren_adx" | "warren_wvf" | "warren_levels"
 >;
 
 export function subPaneSpecs(data: PaneData): PaneSpec[] {
@@ -40,7 +49,7 @@ export function subPaneSpecs(data: PaneData): PaneSpec[] {
     const levels = data.warren_levels;
     const specs: PaneSpec[] = [];
     if (data.warren_rsi.length > 0) {
-      const lv = levels ? ` · ${levels.rsi.map(formatLevel).join(" · ")}` : "";
+      const lv = levels ? ` · ${drawnRsiLevels(levels.rsi).map(formatLevel).join(" · ")}` : "";
       specs.push({ id: "warren-rsi", label: `Warren RSI (14)${lv}`, height: SUB_PANE_HEIGHT });
     }
     if (data.warren_adx.length > 0) {
@@ -51,8 +60,6 @@ export function subPaneSpecs(data: PaneData): PaneSpec[] {
         height: SUB_PANE_HEIGHT,
         legend: [
           { text: "ADX", className: "text-chart-ema21" },
-          { text: "+DI", className: "text-chart-up" },
-          { text: "-DI", className: "text-chart-down" },
         ],
       });
     }
