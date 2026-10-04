@@ -118,7 +118,12 @@ zones and the chart are all bar-based, so none needed hiding. Adapted:
 `EtfWatchlistButton` (ETF page only; stock pages keep `AddToWatchlistButton`). One click calls
 `POST /api/tickers/{t}/etf-watchlist`: adds to the watchlist named **"ETF"**, creating it if missing, idempotent
 (`added: false` for a member, even at the cap). At the 100-ticker cap it answers 400 with a message naming the list and
-`n/100`, shown under the button. Once the ETF is on any **monitored** list the button becomes a quiet, disabled ghost
+`n/100`, shown under the button. **The "ETF" list is ETF-only** (2026-10-04): the add is refused with a 400 (`XYZ is not an ETF.
+The "ETF" watchlist holds ETFs only.`) for anything that is not a known ETF (cached profile / score row says ETF, or an
+`EtfScreenerRow`), a never-seen ticker included; the check runs before the list is created. The generic add and bulk add
+enforce the same rule for a list named "ETF" (bulk: all or nothing, every offender named). The list can't be renamed or
+deleted, and no other list can take the name (`data/watchlists.py::tickers_not_allowed_on_watchlist`; the Watchlists page shows no
+rename or delete control for it). See docs/decisions.md, 2026-10-04. Once the ETF is on any **monitored** list the button becomes a quiet, disabled ghost
 "On watchlist <name>" with a check icon (first name in natural order, `+N` when on several); removal stays on the
 Watchlists page. Which lists are monitored comes from `WatchlistOut.monitored` (backend `is_monitored_watchlist_name`),
 so the frontend never re-implements the naming rule. An ETF only on an unmonitored list still shows the primary button.
@@ -132,7 +137,8 @@ The header's action cluster also holds the shared universe button (Add to / Remo
   from local knowledge only (`data/etf_data.py::known_etf_tickers`: a cached profile with `isEtf`/`isFund`, or a
   `TickerScore.is_etf` row). An ETF never opened, scored or watchlisted is therefore **not labelled** until its page is
   first viewed.
-- **Watchlist rows:** `WatchlistRowOut.is_etf` (from the score row) shows an "ETF" badge in the Analysis cell in place of
+- **Watchlist rows:** the list named "ETF" holds ETFs only (see "Add to watchlist"), but it is still rendered by the stock table until the
+  dedicated ETF table is built (a later step); an ETF on any other list is a stock-table row. `WatchlistRowOut.is_etf` (from the score row) shows an "ETF" badge in the Analysis cell in place of
   the blank score, and the Rating cell shows a dash: `data/watchlist_data.py::_compose_row` makes **no** `/grades-consensus`
   call for an ETF row (FMP answers `[]` for a fund, so it was one wasted call and one empty cached row per ETF per window)
   and the row carries the `N/A` placeholder (`NO_CONSENSUS_RATING`), which sorts last. The consensus call is made after the

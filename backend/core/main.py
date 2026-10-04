@@ -163,6 +163,10 @@ from data.watchlists import (
     add_watchlist_ticker,
     bulk_add_watchlist_tickers,
     ETF_WATCHLIST_NAME,
+    etf_only_message,
+    is_etf_watchlist,
+    is_reserved_etf_list_name,
+    tickers_not_allowed_on_watchlist,
     count_net_new_tickers,
     create_watchlist,
     delete_watchlist,
@@ -1082,6 +1086,8 @@ def watchlists_list() -> list[WatchlistOut]:
 
 @app.post("/api/watchlists", response_model=WatchlistOut, status_code=201)
 def watchlists_create(body: WatchlistIn) -> WatchlistOut:
+    if is_reserved_etf_list_name(body.name):
+        raise _reserved_name_error(body.name)
     with Session(engine) as session:
         if get_watchlist_by_name(session, body.name) is not None:
             raise HTTPException(status_code=409, detail=f"A watchlist named '{body.name}' already exists")
@@ -1089,9 +1095,24 @@ def watchlists_create(body: WatchlistIn) -> WatchlistOut:
         return _watchlist_out(row, [])
 
 
+def _reserved_name_error(name: str) -> HTTPException:
+    return HTTPException(
+        status_code=400,
+        detail=f'The name "{name}" is reserved for the ETF-only "{ETF_WATCHLIST_NAME}" watchlist, which is created from an ETF\'s page.',
+    )
+
+
 @app.put("/api/watchlists/{watchlist_id}", response_model=WatchlistOut)
 def watchlists_update(watchlist_id: int, body: WatchlistUpdateIn) -> WatchlistOut:
     with Session(engine) as session:
+        current = session.get(Watchlist, watchlist_id)
+        if current is not None and body.name is not None and body.name != current.name:
+            # The ETF list is identified by its name (it is monitored and ETF-only), so it is never renamed and
+            # no other list may take the name (any case/whitespace spelling included).
+            if is_etf_watchlist(current.name):
+                raise HTTPException(status_code=400, detail=f'The "{ETF_WATCHLIST_NAME}" watchlist can\'t be renamed.')
+            if is_etf_watchlist(body.name) or is_reserved_etf_list_name(body.name):
+                raise _reserved_name_error(body.name)
         if body.name is not None:
             existing = get_watchlist_by_name(session, body.name)
             if existing is not None and existing.id != watchlist_id:
@@ -1107,6 +1128,9 @@ def watchlists_update(watchlist_id: int, body: WatchlistUpdateIn) -> WatchlistOu
 @app.delete("/api/watchlists/{watchlist_id}", status_code=204)
 def watchlists_delete(watchlist_id: int) -> None:
     with Session(engine) as session:
+        target = session.get(Watchlist, watchlist_id)
+        if target is not None and is_etf_watchlist(target.name):
+            raise HTTPException(status_code=400, detail=f'The "{ETF_WATCHLIST_NAME}" watchlist can\'t be deleted.')
         deleted = delete_watchlist(session, watchlist_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
@@ -1135,6 +1159,9 @@ async def watchlist_add_ticker(watchlist_id: int, body: WatchlistTickerIn) -> Wa
             raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
         if get_watchlist_ticker(session, watchlist_id, ticker) is not None:
             raise HTTPException(status_code=409, detail=f"{ticker} is already in this watchlist")
+        not_allowed = tickers_not_allowed_on_watchlist(session, watchlist.name, [ticker])
+        if not_allowed:
+            raise HTTPException(status_code=400, detail=etf_only_message(not_allowed))
         # A watchlist can never hold more than WATCHLIST_CAPACITY tickers,
         # existing + incoming combined -- checked here too (not just the
         # bulk endpoint) so a watchlist sitting at exactly the cap correctly
@@ -1156,10 +1183,13 @@ async def watchlist_bulk_add_tickers(watchlist_id: int, body: WatchlistBulkAddIn
         watchlist = session.get(Watchlist, watchlist_id)
         if watchlist is None:
             raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
-        # Whole-operation rejection, not a partial fill: the capacity check
-        # runs before any insert happens. Computed against net-new tickers
-        # only (see count_net_new_tickers) -- re-adding tickers already in
-        # the watchlist never counts against the cap.
+        # Whole-operation rejection, not a partial fill: the ETF-only check (every submitted ticker, all
+        # offenders named) and the capacity check both run before any insert happens. The cap is computed
+        # against net-new tickers only (see count_net_new_tickers) -- re-adding tickers already in the
+        # watchlist never counts against it.
+        not_allowed = tickers_not_allowed_on_watchlist(session, watchlist.name, tickers)
+        if not_allowed:
+            raise HTTPException(status_code=400, detail=etf_only_message(not_allowed))
         existing_count, net_new_count = count_net_new_tickers(session, watchlist_id, tickers)
         if existing_count + net_new_count > WATCHLIST_CAPACITY:
             raise _capacity_error(existing_count, net_new_count)
@@ -1184,6 +1214,12 @@ async def ticker_add_to_etf_watchlist(ticker: str) -> EtfWatchlistAddOut:
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         watchlist = get_watchlist_by_name(session, ETF_WATCHLIST_NAME)
+        # Checked before the list is created, so a refused ticker never leaves an empty "ETF" list behind. A
+        # ticker already on the list stays an idempotent no-op below.
+        already_member = watchlist is not None and get_watchlist_ticker(session, watchlist.id, ticker) is not None
+        not_allowed = [] if already_member else tickers_not_allowed_on_watchlist(session, ETF_WATCHLIST_NAME, [ticker])
+        if not_allowed:
+            raise HTTPException(status_code=400, detail=etf_only_message(not_allowed))
         if watchlist is None:
             try:
                 watchlist = create_watchlist(session, ETF_WATCHLIST_NAME)

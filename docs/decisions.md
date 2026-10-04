@@ -774,3 +774,19 @@ writer that commits during the copy); the two `mode=ro` engines (wipe dry run, `
 litestream, systemd unit or /etc/cron entry touches the file. **New:** `core/db.py::_log_journal_mode` (INFO `wal`, WARNING otherwise, never raises, a pure read) called from `init_db`.
 **Consequences:** any hand copy of the live file must use the backup API or include `-wal` and `-shm` (runbook, "WAL"); a restored `delete`-mode backup needs WAL re-enabled; the `-wal`
 grows while the 03:30 backup holds its read snapshot and shrinks at the next checkpoint. Rollback: stop the app, `PRAGMA journal_mode=DELETE`, restart (runbook).
+
+### 2026-10-04 — The "ETF" watchlist is ETF-only and permanent
+Step 1 of the ETF watchlist work (the dedicated ETF table, hiding the list in stock UI and removing the ETFs screener's Watchlist filter are later steps). **Decided (owner):**
+(1) **Strict rule.** A ticker may join the list named `ETF` only if it is a *known* ETF: `known_etf_tickers` (cached profile `isEtf`/`isFund`, or a `TickerScore.is_etf` row) or a ticker with an
+`EtfScreenerRow`. A stock **and a never-seen ticker** are both refused, so a ticker nobody has opened cannot sneak in. Every other list is unchanged (stocks, ETFs and unknown tickers all allowed).
+One definition, `data/watchlists.py::tickers_not_allowed_on_watchlist`, used by all three add paths: `POST /api/watchlists/{id}/tickers`, `.../tickers/bulk` (every submitted ticker validated before any
+insert, all offenders named, nothing added) and `POST /api/tickers/{t}/etf-watchlist` (checked **before** the list is created, so a refused ticker leaves no empty list; a ticker already on the list
+stays an idempotent `added: false`). **HTTP 400**, like the capacity error: `XYZ is not an ETF. The "ETF" watchlist holds ETFs only.` (`XYZ, ABC are not ETFs. ...` for several).
+(2) **The list cannot be renamed or deleted** (HTTP 400: `The "ETF" watchlist can't be renamed.` / `... can't be deleted.`); it is identified by its name and is a monitored list, so a rename silently
+dropped it from the Liquidity Zone / BB+RSI / Warren jobs and a second "ETF" list would appear on the next ETF-page click. A PUT that leaves the name unchanged (or only sets a sort preference) still
+works. **No other list can be renamed to `ETF`** in any case/whitespace spelling (`etf`, `Etf`, ` ETF `; 400 `The name "etf" is reserved for the ETF-only "ETF" watchlist, ...`), even when no
+`ETF` list exists (it is created from an ETF's page). The generic create keeps its behavior (409 for an exact duplicate) and additionally refuses the non-exact spellings (400); creating the exact
+`ETF` list when it does not exist is still allowed and is guarded like any ETF list. (Before, a rename to an existing `ETF` was a 409; it is now the 400 above.)
+(3) **Frontend, minimal:** the Watchlists page shows no Delete button and no rename pencil for the `ETF` list.
+**Not covered / known gaps:** a stock already on the list before this change would stay (none exist on the live DB, checked 2026-10-04); the one-off `pipeline/rename_monitored_watchlists.py` and a
+direct DB edit bypass the API guard; ETFs can still be added to any other list (E1-E5, ...), by design.

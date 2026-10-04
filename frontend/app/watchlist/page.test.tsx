@@ -42,11 +42,14 @@ function renderPage() {
   );
 }
 
+let fixture: WatchlistOut[] = WATCHLISTS;
+
 beforeEach(() => {
+  fixture = WATCHLISTS;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => {
-      const body = url.includes("/rows") ? [] : WATCHLISTS;
+      const body = url.includes("/rows") ? [] : fixture;
       return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
     })
   );
@@ -67,5 +70,18 @@ describe("WatchlistPage", () => {
 
     await waitFor(() => expect(screen.getByRole("tab", { name: "W1" })).toHaveAttribute("aria-selected", "true"));
     expect(screen.getByRole("tab", { name: "W2" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("offers rename and delete for an ordinary list but neither for the ETF list", async () => {
+    fixture = [{ ...WATCHLISTS[0], id: 3, name: "ETF", created_at: "2026-01-03T00:00:00Z" }, WATCHLISTS[1]];
+    renderPage();
+    // The ETF list is the most recently created, so it is the active tab.
+    await waitFor(() => expect(screen.getByRole("tab", { name: "ETF" })).toHaveAttribute("aria-selected", "true"));
+    expect(screen.queryByRole("button", { name: /^Rename/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Delete/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "W2" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Rename W2" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /^Delete/ })).toBeInTheDocument();
   });
 });

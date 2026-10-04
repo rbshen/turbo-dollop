@@ -320,9 +320,20 @@ def test_known_etf_tickers_reads_profile_flags_and_score_rows_only():
 # ---------------------------------------------------------------------------
 
 
-def _main_engine(monkeypatch):
+def _main_engine(monkeypatch, etfs=()):
+    """A fresh engine patched onto main; `etfs` get a cached profile that says ETF (the ETF list only takes known
+    ETFs). The immediate EtfScreenerRow write after an ETF add is stubbed: it would call FMP."""
     engine = _engine()
     monkeypatch.setattr(main, "engine", engine)
+
+    async def no_row_write(tickers, max_rows=5):
+        return []
+
+    monkeypatch.setattr(main, "ensure_etf_screener_rows", no_row_write)
+    with Session(engine) as session:
+        for ticker in etfs:
+            session.add(_profile_row(ticker, isEtf=True, isFund=False))
+        session.commit()
     return engine
 
 
@@ -331,7 +342,7 @@ def test_the_etf_watchlist_name_is_a_monitored_name():
 
 
 def test_add_creates_the_etf_list_on_first_use_and_adds_the_ticker(monkeypatch):
-    engine = _main_engine(monkeypatch)
+    engine = _main_engine(monkeypatch, etfs=["QQQ"])
     with TestClient(main.app) as client:
         response = client.post("/api/tickers/qqq/etf-watchlist")
 
@@ -346,7 +357,7 @@ def test_add_creates_the_etf_list_on_first_use_and_adds_the_ticker(monkeypatch):
 
 
 def test_add_is_idempotent_and_reuses_the_existing_list(monkeypatch):
-    engine = _main_engine(monkeypatch)
+    engine = _main_engine(monkeypatch, etfs=["QQQ", "SMH"])
     with TestClient(main.app) as client:
         first = client.post("/api/tickers/QQQ/etf-watchlist").json()
         second = client.post("/api/tickers/QQQ/etf-watchlist")
@@ -360,7 +371,7 @@ def test_add_is_idempotent_and_reuses_the_existing_list(monkeypatch):
 
 
 def test_add_at_the_cap_is_rejected_with_a_clear_message_but_a_member_still_succeeds(monkeypatch):
-    engine = _main_engine(monkeypatch)
+    engine = _main_engine(monkeypatch, etfs=["QQQ"])
     with Session(engine) as session:
         watchlist = Watchlist(name="ETF", created_at=datetime(2026, 1, 1), updated_at=datetime(2026, 1, 1))
         session.add(watchlist)

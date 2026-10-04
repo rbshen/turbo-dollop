@@ -1,10 +1,12 @@
 import re
+from collections.abc import Iterable
 from datetime import datetime
 
 from sqlmodel import Session, select
 
-from core.models import SavedScreenerFilter, Watchlist, WatchlistTicker
+from core.models import EtfScreenerRow, SavedScreenerFilter, Watchlist, WatchlistTicker
 from core.tickers import normalize_ticker
+from data.etf_data import known_etf_tickers
 
 
 def list_watchlists(session: Session) -> list[Watchlist]:
@@ -34,6 +36,40 @@ MONITORED_WATCHLIST_PATTERN = re.compile(r"E[1-9][0-9]*|ETF")
 # The list the ETF page's "Add to watchlist" button adds to (created on first use). It is itself a
 # monitored list -- is_monitored_watchlist_name(ETF_WATCHLIST_NAME) is pinned by tests.
 ETF_WATCHLIST_NAME = "ETF"
+
+def is_etf_watchlist(name: str) -> bool:
+    """True for the one list that is ETF-only (exact, case-sensitive match, like the monitored rule)."""
+    return name == ETF_WATCHLIST_NAME
+
+
+def is_reserved_etf_list_name(name: str) -> bool:
+    """True for any spelling of the ETF list's name that is not the exact name ("etf", "Etf", " ETF "): a
+    list called that would look like the ETF list but be none (not monitored, no ETF-only guard). Rejected on
+    create and rename."""
+    return name != ETF_WATCHLIST_NAME and name.strip().casefold() == ETF_WATCHLIST_NAME.casefold()
+
+
+def tickers_not_allowed_on_watchlist(session: Session, watchlist_name: str, tickers: Iterable[str]) -> list[str]:
+    """The one rule for which tickers may join a list: any ticker may join any list except the ETF list, which
+    holds ETFs only. Strict: a ticker must be a KNOWN ETF (data/etf_data.py::known_etf_tickers -- cached profile
+    or score row says ETF/fund -- or a ticker with an EtfScreenerRow); a stock and a never-seen ticker are both
+    refused. Returns the offending tickers, normalized, deduped, in first-seen order ([] when all may join)."""
+    if not is_etf_watchlist(watchlist_name):
+        return []
+    names = list(dict.fromkeys(normalize_ticker(t) for t in tickers))
+    if not names:
+        return []
+    known = known_etf_tickers(session, names) | set(
+        session.exec(select(EtfScreenerRow.ticker).where(EtfScreenerRow.ticker.in_(names))).all()
+    )
+    return [t for t in names if t not in known]
+
+
+def etf_only_message(offenders: list[str]) -> str:
+    """The 400 text for tickers_not_allowed_on_watchlist's result."""
+    subject = f"{offenders[0]} is not an ETF" if len(offenders) == 1 else f"{', '.join(offenders)} are not ETFs"
+    return f'{subject}. The "{ETF_WATCHLIST_NAME}" watchlist holds ETFs only.'
+
 
 _NATURAL_SORT_DIGITS = re.compile(r"(\d+)")
 

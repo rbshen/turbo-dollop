@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { FIELD_ERROR_CLASS } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { updateWatchlist } from "@/lib/hooks/useWatchlists";
+import { ETF_WATCHLIST_NAME } from "@/lib/monitoredWatchlists";
 import { WATCHLIST_NAME_MAX_LENGTH } from "@/lib/watchlistName";
 import type { WatchlistOut } from "@/lib/api/types";
 
@@ -77,21 +78,25 @@ export function WatchlistNameEditor({ watchlist, rename = updateWatchlist, defau
   }
 
   if (status === "idle") {
+    // The "ETF" list is identified by its name (monitored, ETF-only), so the backend refuses to rename it: no pencil.
+    const renamable = watchlist.name !== ETF_WATCHLIST_NAME;
     return (
       <div className="flex items-center gap-1.5">
         <p className="text-xs text-text-tertiary">
           {watchlist.name} · {watchlist.tickers.length} ticker{watchlist.tickers.length === 1 ? "" : "s"}
         </p>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={startEditing}
-          aria-label={`Rename ${watchlist.name}`}
-          title="Rename watchlist"
-          className="text-text-tertiary"
-        >
-          <PencilSimple size={16} aria-hidden="true" />
-        </Button>
+        {renamable && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={startEditing}
+            aria-label={`Rename ${watchlist.name}`}
+            title="Rename watchlist"
+            className="text-text-tertiary"
+          >
+            <PencilSimple size={16} aria-hidden="true" />
+          </Button>
+        )}
       </div>
     );
   }

@@ -43,6 +43,12 @@ describe("WatchlistNameEditor", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
+  it("has no rename button for the ETF list (the backend refuses to rename it)", () => {
+    render(<WatchlistNameEditor watchlist={{ ...WATCHLIST, name: "ETF" }} />);
+    expect(screen.getByText("ETF · 2 tickers")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Rename/ })).not.toBeInTheDocument();
+  });
+
   it("uses the singular for exactly one ticker", () => {
     render(<WatchlistNameEditor watchlist={{ ...WATCHLIST, tickers: [WATCHLIST.tickers[0]] }} />);
     expect(screen.getByText("Growth · 1 ticker")).toBeInTheDocument();

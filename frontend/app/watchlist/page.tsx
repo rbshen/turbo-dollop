@@ -11,6 +11,7 @@ import { WatchlistNameEditor } from "@/components/watchlist/WatchlistNameEditor"
 import { WatchlistTable } from "@/components/watchlist/WatchlistTable";
 import { useWatchlists } from "@/lib/hooks/useWatchlists";
 import { useWatchlistRows } from "@/lib/hooks/useWatchlistRows";
+import { ETF_WATCHLIST_NAME } from "@/lib/monitoredWatchlists";
 import { DEFAULT_SORT_RULES, parseSortRules, type SortRule } from "@/lib/watchlistSort";
 
 // Sort state moved off the old page-level <select>/direction-toggle
@@ -205,7 +206,10 @@ export default function WatchlistPage() {
           underneath the user. */}
       <div className="flex items-center gap-2">
         <WatchlistNameEditor key={`name-${active.id}`} watchlist={active} />
-        <WatchlistDeleteButton key={`delete-${active.id}`} watchlist={active} onDeleted={() => setManualActiveId(null)} />
+        {/* The "ETF" list is permanent (the backend refuses to delete it). */}
+        {active.name !== ETF_WATCHLIST_NAME && (
+          <WatchlistDeleteButton key={`delete-${active.id}`} watchlist={active} onDeleted={() => setManualActiveId(null)} />
+        )}
       </div>
 
       <WatchlistTable watchlist={active} rows={rows} error={rowsError} sortRules={sortRules} onSortRulesChange={handleSortRulesChange} />
