@@ -364,3 +364,97 @@ def test_replay_with_series_raises_on_empty_candles():
 def test_reference_levels_come_from_the_engine_constants():
     levels = warren_reference_levels()
     assert levels == {"rsi": [12.0, 30.0, 70.0, 80.81, 84.75], "adx": [40.0], "wvf": [0.40]}
+
+
+# ---------------------------------------------------------------------------
+# Blue Up profile plumbing (ANY_TICKER must be exactly today's behavior)
+# ---------------------------------------------------------------------------
+
+from analysis.warren_signal.indicators import SCAN_BLUE_RSI_THRESHOLD, compute_blue
+from analysis.warren_signal.types import ANY_TICKER, QuietBlueBranch, TickerBlueRules, WarrenProfile
+
+
+def _crash_and_bounce_candles(n: int = 300) -> pd.DataFrame:
+    """A long wavy series with a sustained collapse in the middle so RSI(14) reaches <= 12 (Blue fires under
+    ANY_TICKER) and then recovers, giving Yellow/Down arrows around it too. No `volume` column on purpose:
+    ANY_TICKER must not need one."""
+    rng = np.random.default_rng(11)
+    closes = 100 + np.cumsum(rng.normal(0, 0.8, n)) + 6 * np.sin(np.arange(n) / 11)
+    closes[120:150] = closes[119] - np.arange(1, 31) * 2.5  # monotone drop -> RSI near 0
+    closes[150:] = closes[149] + np.cumsum(np.abs(rng.normal(1.2, 0.5, n - 150)))
+    idx = pd.date_range("2026-01-05 09:30", periods=n, freq="2h", tz="America/New_York")
+    return pd.DataFrame({"open": closes, "high": closes + 1.0, "low": closes - 1.0, "close": closes}, index=idx)
+
+
+def _legacy_replay(candles: pd.DataFrame):
+    """Today's pre-profile pipeline, spelled out: scan4 = compute_scan_blue(rsi) with the constant 12."""
+    from analysis.warren_signal.indicators import compute_scan_blue
+
+    close, high, low = candles["close"], candles["high"], candles["low"]
+    rsi = wi.compute_rsi_wilder(close)
+    _, _, adx = wi.compute_dmi_adx(high, low, close)
+    wvf = wi.compute_wvf_buy(close, low)
+    ph = wi.compute_pivot_high(rsi)
+    yc = (((wvf <= 0.40) & ph & (adx < 40.0)) | (rsi >= 84.75)).fillna(False)
+    ts = [t.to_pydatetime().replace(tzinfo=None) for t in candles.index]
+    return _replay_from_signals(
+        scan3=wi.compute_pivot_low_major(rsi).to_numpy(),
+        scan4=compute_scan_blue(rsi).to_numpy(),
+        bear1=(rsi.shift(1) >= 80.81).fillna(False).to_numpy(),
+        rsi_overbought=ph.to_numpy(),
+        yellow_cond=yc.to_numpy(),
+        rsi_vals=[float(v) if v == v else None for v in rsi.to_numpy()],
+        close_vals=close.to_numpy(),
+        low_vals=low.to_numpy(),
+        timestamps=ts,
+    )
+
+
+def test_any_ticker_is_the_rsi_12_rule_with_no_ticker_rules():
+    assert ANY_TICKER.rules is None
+    assert ANY_TICKER.blue_rsi1_max == SCAN_BLUE_RSI_THRESHOLD == 12
+
+
+def test_compute_blue_for_any_ticker_equals_compute_scan_blue_and_needs_no_volume():
+    candles = _crash_and_bounce_candles()
+    assert "volume" not in candles.columns
+    close, high, low = candles["close"], candles["high"], candles["low"]
+    rsi = wi.compute_rsi_wilder(close)
+    _, _, adx = wi.compute_dmi_adx(high, low, close)
+    wvf = wi.compute_wvf_buy(close, low)
+    blue = compute_blue(candles, rsi, adx, wvf, ANY_TICKER)
+    pd.testing.assert_series_equal(blue, wi.compute_scan_blue(rsi))
+    assert blue.sum() > 0  # the fixture really exercises Blue
+
+
+def test_replay_default_profile_is_identical_to_todays_pipeline_and_to_explicit_any_ticker():
+    candles = _crash_and_bounce_candles()
+    legacy = _legacy_replay(candles)
+    assert any(e.kind == "blue_up" for e in legacy.events)
+    assert any(e.kind == "yellow_up" for e in legacy.events)
+    assert replay(candles) == legacy
+    assert replay(candles, ANY_TICKER) == legacy
+    result, series = replay_with_series(candles, ANY_TICKER)
+    assert result == legacy
+    assert result == replay_with_series(candles)[0]
+    pd.testing.assert_series_equal(series.rsi, wi.compute_rsi_wilder(candles["close"]))
+
+
+def test_replay_routes_the_profile_into_the_blue_trigger():
+    # A ticker profile that can never fire replaces scanOverSold4 outright (no blue_up even where RSI[1] <= 12).
+    candles = _crash_and_bounce_candles().assign(volume=1000.0)
+    never = WarrenProfile(
+        name="never",
+        rules=TickerBlueRules(
+            adx_lo=1000.0, quiet_branches=(QuietBlueBranch(rsi1_max=-1.0, volume_max=0.0),), volume_num=1e18, sos2_rsi_b=-1.0
+        ),
+    )
+    assert any(e.kind == "blue_up" for e in replay(candles, ANY_TICKER).events)
+    assert not any(e.kind == "blue_up" for e in replay(candles, never).events)
+
+
+def test_ticker_rules_without_a_volume_column_raise():
+    candles = _crash_and_bounce_candles()
+    rules = TickerBlueRules(adx_lo=43.0, quiet_branches=(QuietBlueBranch(rsi1_max=18.0, volume_max=1.0),), volume_num=1.0, sos2_rsi_b=14.0)
+    with pytest.raises(ValueError, match="volume"):
+        replay(candles, WarrenProfile(name="needs-volume", rules=rules))

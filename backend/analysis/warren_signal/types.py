@@ -8,6 +8,12 @@ from datetime import datetime
 
 import pandas as pd
 
+# ThinkScript defaults shared by every per-ticker profile (the same literals appear in all four scripts).
+ADX_BETWEEN_HI = 46.0  # Between(ADX, <lo>, 46)
+SOS2_ADX_MAX = 29.66  # scanOverSold2 branch a: ADX <= 29.66
+SOS2_RSI_A_MAX = 40.0  # scanOverSold2 branch a: RSI_Num < 40 (current bar, strict)
+PARA_DROP_MAX = 0.70  # scanOverSold2 branch c: paraDrop <= .70
+
 # Every buy/sell arrow this engine can fire. Up-kinds are buy-side
 # (scanOverSold3/scanOverSold4-derived), Down-kinds are sell-side
 # (bear1/wvf+rsiOverbought/rsi84.75/rsiOverbought-derived). Order here has
@@ -72,3 +78,59 @@ class WarrenSeries:
     minus_di: pd.Series
     adx: pd.Series
     wvf: pd.Series
+
+
+@dataclass(frozen=True)
+class QuietBlueBranch:
+    """One operand of scanOverSold1 (the "quiet bar" Blue): `RSI_Num[1] <= rsi1_max [and WVF_Buy >= wvf_min]
+    and ADX_Between and volume <= volume_max`. All comparisons are inclusive (`<=` / `>=`), and so is
+    ADX_Between."""
+
+    rsi1_max: float
+    volume_max: float
+    wvf_min: float | None = None  # branch a only; None = no WVF term
+
+
+@dataclass(frozen=True)
+class TickerBlueRules:
+    """A per-ticker Blue Up definition, transcribed from that ticker's ThinkScript:
+
+        blueUp = scanOverSold1 or scanOverSold2
+        scanOverSold1 = <quiet branch a> or <quiet branch b>                       (see QuietBlueBranch)
+        scanOverSold2 = volume > Volume_Num and ADX <= 29.66 and RSI_Num < 40          (branch a)
+                     or RSI_Num < sos2_rsi_b and volume > Volume_Num                 (branch b)
+                     or paraDrop <= .70 and pivotLow and WVF_Between(25, 27)          (branch c)
+                     [or RSI_Num[1] < ungated_rsi1_lt]      (QQQ only; no volume/ADX gate)
+                     [or WVF_Buy >= ungated_wvf_min]        (QQQ only; no volume/ADX gate)
+
+    `and` binds tighter than `or` (see indicators.compute_blue, which spells every grouping out)."""
+
+    adx_lo: float  # ADX_Between(ADX, adx_lo, 46)
+    quiet_branches: tuple[QuietBlueBranch, ...]  # scanOverSold1 operands (a, b)
+    volume_num: float  # Volume_Num: the SOS2 "panic bar" volume floor (strict >)
+    sos2_rsi_b: float  # scanOverSold2 branch b: RSI_Num < this (current bar, strict)
+    ungated_rsi1_lt: float | None = None  # trailing OR: RSI_Num[1] < x
+    ungated_wvf_min: float | None = None  # trailing OR: WVF_Buy >= x
+    adx_hi: float = ADX_BETWEEN_HI
+    sos2_adx_max: float = SOS2_ADX_MAX
+    sos2_rsi_a_max: float = SOS2_RSI_A_MAX
+    para_drop_max: float = PARA_DROP_MAX
+
+
+@dataclass(frozen=True)
+class WarrenProfile:
+    """Which Blue Up definition the replay uses. `rules is None` is the ANY-TICKER definition
+    (scanOverSold4: `RSI_Num[1] <= blue_rsi1_max`), which needs no volume. A profile with `rules` replaces it
+    entirely -- the per-ticker scripts have no scanOverSold4. Everything else in the state machine (Yellow/Gray,
+    stops, every down arrow) is identical across all five scripts and is NOT profile-dependent. The engine
+    never sees a ticker symbol, only the profile it is handed; the symbol -> profile lookup lives in
+    data/warren_signal_data.py::profile_for."""
+
+    name: str
+    blue_rsi1_max: float = 12.0
+    rules: TickerBlueRules | None = None
+
+
+# The default Blue Up definition (scanOverSold4, `RSI_Num[1] <= 12`) -- what every ticker without its own
+# profile uses. Its threshold is pinned equal to indicators.SCAN_BLUE_RSI_THRESHOLD by a test.
+ANY_TICKER = WarrenProfile(name="any")

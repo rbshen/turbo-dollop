@@ -19,6 +19,8 @@ written; not ported.
 import numpy as np
 import pandas as pd
 
+from .types import WarrenProfile
+
 RSI_LENGTH = 14
 DI_LENGTH = 14
 ADX_LENGTH = 14
@@ -166,3 +168,50 @@ def wvf_between(
     """ThinkScript Between(WVF_buy, 25, 27): INCLUSIVE at both ends, on the 0-100 scale compute_wvf_buy
     returns. NaN (warm-up) reads False."""
     return ((wvf_buy >= lo) & (wvf_buy <= hi)).fillna(False).astype(bool)
+
+
+def compute_blue(candles: pd.DataFrame, rsi: pd.Series, adx: pd.Series, wvf_buy: pd.Series, profile: WarrenProfile) -> pd.Series:
+    """The Blue Up trigger (`blueUp`) for `profile`.
+
+    ANY-TICKER (`profile.rules is None`): scanOverSold4 = `RSI_Num[1] <= 12`, exactly compute_scan_blue; no
+    volume needed (candles may lack a `volume` column).
+
+    Per-ticker: scanOverSold1 or scanOverSold2, the ThinkScript's own groupings spelled out with explicit
+    parentheses (`and` binds tighter than `or`; the ThinkScript has no parentheses and relies on that):
+
+        sos1 = (rsi[1] <= A.rsi1_max [& wvf >= A.wvf_min] & adxBetween & vol <= A.volume_max)
+             | (rsi[1] <= B.rsi1_max & adxBetween & vol <= B.volume_max)
+        sos2 = (vol > V & adx <= 29.66 & rsi < 40) | (rsi < X & vol > V) | (paraDrop <= .70 & pivotLow & wvfBetween)
+             [| rsi[1] < ungated_rsi1_lt] [| wvf >= ungated_wvf_min]
+
+    Comparisons are strict/inclusive exactly as written in the scripts; ADX_Between and WVF_Between are
+    inclusive at both ends; a NaN comparison (warm-up) is False. `volume` is the 2h candle's summed volume.
+    """
+    rules = profile.rules
+    if rules is None:
+        return compute_scan_blue(rsi, profile.blue_rsi1_max)
+    if "volume" not in candles.columns:
+        raise ValueError(f"Warren profile {profile.name!r} gates Blue on volume, but the candles have no volume column")
+
+    volume = candles["volume"]
+    rsi1 = rsi.shift(1)
+    adx_ok = adx_between(adx, rules.adx_lo, rules.adx_hi)
+
+    sos1 = pd.Series(False, index=candles.index)
+    for branch in rules.quiet_branches:
+        term = (rsi1 <= branch.rsi1_max) & adx_ok & (volume <= branch.volume_max)
+        if branch.wvf_min is not None:
+            term = term & (wvf_buy >= branch.wvf_min)
+        sos1 = sos1 | term
+
+    sos2 = (
+        ((volume > rules.volume_num) & (adx <= rules.sos2_adx_max) & (rsi < rules.sos2_rsi_a_max))
+        | ((rsi < rules.sos2_rsi_b) & (volume > rules.volume_num))
+        | ((compute_para_drop(candles["close"], candles["high"]) <= rules.para_drop_max) & compute_pivot_low(rsi) & wvf_between(wvf_buy))
+    )
+    if rules.ungated_rsi1_lt is not None:
+        sos2 = sos2 | (rsi1 < rules.ungated_rsi1_lt)
+    if rules.ungated_wvf_min is not None:
+        sos2 = sos2 | (wvf_buy >= rules.ungated_wvf_min)
+
+    return (sos1 | sos2).fillna(False).astype(bool)

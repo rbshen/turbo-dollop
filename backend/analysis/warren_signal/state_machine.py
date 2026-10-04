@@ -29,14 +29,14 @@ from .indicators import (
     RSI_OVERBOUGHT,
     RSI_OVERSOLD,
     SCAN_BLUE_RSI_THRESHOLD,
+    compute_blue,
     compute_dmi_adx,
     compute_pivot_high,
     compute_pivot_low_major,
     compute_rsi_wilder,
-    compute_scan_blue,
     compute_wvf_buy,
 )
-from .types import WarrenReplayResult, WarrenSeries, WarrenSignalEvent
+from .types import ANY_TICKER, WarrenProfile, WarrenReplayResult, WarrenSeries, WarrenSignalEvent
 
 STOP_PERCENT = 10.0
 BEAR1_RSI_THRESHOLD = 80.81
@@ -175,7 +175,7 @@ def _replay_from_signals(
     )
 
 
-def replay_with_series(candles: pd.DataFrame) -> tuple[WarrenReplayResult, WarrenSeries]:
+def replay_with_series(candles: pd.DataFrame, profile: WarrenProfile = ANY_TICKER) -> tuple[WarrenReplayResult, WarrenSeries]:
     """replay() plus the indicator series it computed along the way (RSI, +DI, -DI, ADX, WVF). The
     result is identical to replay()'s -- same arrays feed the same state machine -- so a chart plotting
     these series can never disagree with the arrows."""
@@ -191,7 +191,7 @@ def replay_with_series(candles: pd.DataFrame) -> tuple[WarrenReplayResult, Warre
     wvf_buy = compute_wvf_buy(close, low)
 
     scan3 = compute_pivot_low_major(rsi)
-    scan4 = compute_scan_blue(rsi)
+    scan4 = compute_blue(candles, rsi, adx, wvf_buy, profile)
     rsi_overbought = compute_pivot_high(rsi)
     bear1 = (rsi.shift(1) >= BEAR1_RSI_THRESHOLD).fillna(False)
     # "the wvf/rsi84.75 condition" gating Yellow Down -- two of anySell's
@@ -216,7 +216,7 @@ def replay_with_series(candles: pd.DataFrame) -> tuple[WarrenReplayResult, Warre
     return result, WarrenSeries(rsi=rsi, plus_di=plus_di, minus_di=minus_di, adx=adx, wvf=wvf_buy)
 
 
-def replay(candles: pd.DataFrame) -> WarrenReplayResult:
+def replay(candles: pd.DataFrame, profile: WarrenProfile = ANY_TICKER) -> WarrenReplayResult:
     """candles must already be the 2h session candles (see
     analysis/entry_signal/resample.py::build_2h_session_candles, reused
     directly -- this state machine doesn't care how its bars were built,
@@ -224,4 +224,4 @@ def replay(candles: pd.DataFrame) -> WarrenReplayResult:
     columns and a datetime index. Computes every indicator vectorized, then
     delegates the sequential part to _replay_from_signals above. See
     replay_with_series for the variant that also returns the indicator series."""
-    return replay_with_series(candles)[0]
+    return replay_with_series(candles, profile)[0]
