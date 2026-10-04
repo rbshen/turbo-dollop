@@ -73,7 +73,7 @@ output is byte-identical to before (pinned in `test_state_machine.py`; also chec
   profile)` (`indicators.py`) replace the old `compute_scan_blue` call; `replay` / `replay_with_series` take `profile` (default `ANY_TICKER`).
   The engine never sees a ticker symbol. The symbol lookup is `data/warren_signal_data.py::profile_for` (`TICKER_PROFILES`): the **only**
   place a symbol selects a profile, used by `compute_and_store_warren_signal` (nightly) and by the Chart tab's on-demand 2H range, so the
-  stored signal and the chart cannot use different definitions. The profiles are in `profiles.py`.
+  stored signal and the chart cannot use different definitions. The profiles are in `profiles.py`; their volume terms read guarded volume (next bullets).
 - **What a profile changes.** Only the Blue Up trigger (`blueUp = scanOverSold1 or scanOverSold2`), which feeds `yellowCountSinceBlue`,
   `stopCount`'s reset, `anyBuy` (the `seen*` resets) and the `blue_up` arrow exactly as `scanOverSold4` did. Yellow/Gray up, every down
   arrow, the stop line and gray suppression are identical across all five scripts (diffed line by line). SPY/QQQ's extra `RSI > 50` in
@@ -97,21 +97,59 @@ output is byte-identical to before (pinned in `test_state_machine.py`; also chec
   `/historical-chart/1hour` for all four: 499 sessions, 494 with 7 bars and 5 half-days with 4, RTH only. **Events are insert-only, so
   there is no purge or profile-version mechanism: editing a profile's thresholds later (or adding a ticker to `TICKER_PROFILES` after it
   already has stored events) leaves the old Blue rows behind.** Not built; out of scope of the 2026-10-04 change.
-- **Data caveats for the volume gates** (FMP `/historical-chart/1hour`, measured 2026-10-04). (a) Prices and volume are **split-adjusted,
+- **Volume guard (2026-10-04).** FMP's intraday volume has episodes where a few single 1-minute prints carry more shares than the whole
+  day's official volume, so the volume-gated Blue branches (SOS1 `volume <= cap`, SOS2 `volume > Volume_Num`) fired on bars TOS shows no
+  arrow for (QQQ Nov 2025, Dec 2025, Feb 2026: TOS prints Blue Ups only on 2025-04-07 09:30 and 11:30). Before the replay, for a
+  profiled ticker only, `analysis/warren_signal/volume_guard.py::guard_candle_volume` sets the volume of **every 2h candle of a day to
+  NaN** when `sum(day's 2h-candle volume) / day's EOD volume > DAILY_VOLUME_RATIO_LIMIT` (**1.5**, a named constant; exactly 1.5 is kept),
+  **or when the day's EOD volume is missing, zero or NaN** (fail-closed). NaN fails both `>` and `<=`, so every volume term in the Blue
+  rules is off that day, while the branches with no volume term (SOS2-c, QQQ's `RSI[1] < 16.3` and `WVF_Buy >= 17` ORs) keep working.
+  The guard can only remove a Blue, never add one, and changes no Yellow/Gray/down-arrow input (those arrows move only if a removed Blue
+  had reset the stop counter; on the real data they were identical).
+  - **Where it lives.** In the candle build, between the 2h build and the replay; the engine, profiles and `compute_blue` are unchanged.
+    `data/warren_signal_data.py::signal_candles(ticker, candles, daily_volume)` is the one shared step: the nightly store
+    (`compute_and_store_warren_signal`) and the Chart tab's 2H range (`_get_chart_data_2h`) both call it. It returns `candles` itself
+    (the same object) for every ticker without volume rules, so ANY-TICKER output cannot change; those tickers never read daily volume.
+    It feeds the replay only: the candles the chart builds everything else from (bars, BB+RSI, LP) are untouched, and the chart response
+    carries no volume field at all.
+  - **Daily volume source.** The cached 1d bars (`SharedBarsCache`, `read_cached_daily_volume`, a pure read: completed sessions only, so
+    the in-progress session and a last bar written before its own close read as "no EOD volume"). The cached volume is FMP
+    `historical-price-eod/full`'s own: checked equal, 1,255 of 1,255 rows for each of SPY, QQQ and TECL (2026-10-04); TQQQ had no cached
+    daily bars at that time. A profiled ticker with no cached daily bars (an unlisted ticker opened on the chart) costs one uncached
+    `historical-price-eod/full` call per chart view (`_fetch_daily_volume_uncached`, completed sessions only, never written); a failed
+    fetch, or nothing cached for the nightly job, blanks every day (no volume-gated Blue at all; only SOS2-c and QQQ's ORs can fire).
+  - **Calibration (730 days, four tickers).** Hourly-sum / EOD is mostly 0.6-1.3 on normal days (the highest unflagged day is 1.30) and 1.5-7 in
+    the bad episodes: TECL Mar-Jul 2025, QQQ and TQQQ Sep 2025 - Mar 2026 (26 of QQQ's 36 days above 1.3 are also TQQQ's), SPY 8 isolated days.
+    At 1.5 the guard blanks 5 / 28 / 47 / 28 days (SPY / QQQ / TQQQ / TECL). The cause is upstream in FMP's intraday feed: the hourly bars
+    equal the 1-minute sums, with no duplicate bars, extended-hours volume or mis-ordering. IBKR's TECL day volume stays at 0.77-0.82 of EOD
+    through the same days, so EOD is the trustworthy side. Rejected alternatives: rescaling every day to EOD (creates a false SPY Blue on
+    2025-04-07: EOD includes extended hours, ratio 0.58 that day) and rebuilding volume from 1-minute bars (identical on QQQ, and it
+    loses TECL's 2025-04-07 Blue: FMP's 1-minute series was missing 16 of 390 minutes that day).
+  - **Result (2026-10-04, production candle path).** QQQ: exactly two Blue Ups, 2025-04-07 09:30 and 11:30 (the 11:30 one fires on the
+    ungated `RSI[1] < 16.3`); TECL: one (2025-04-07 09:30); SPY and TQQQ: none. Yellow/Gray/stop arrows identical to the unguarded replay for
+    all four. TECL's four IBKR-validated Blues (2022-11-04, 2024-04-22, 2024-08-05, 2025-04-07) still fire with the guard on (IBKR day sum
+    / EOD 0.72-0.93 on those days).
+  - **Known limits.** (1) The 1.5 limit was calibrated on four tickers over two years; other tickers or periods may show other ratios.
+    (2) The guard only removes volume gates. (3) The **low side is not addressed**: in Mar-Sep 2026 intraday volume runs 25-35% below
+    EOD on all four tickers (monthly median ratio 0.62-0.78), which makes `volume > Volume_Num` harder and `volume <= cap` easier to
+    meet; TOS volumes for that period have not been compared. (4) A just-finished session has no EOD volume until the daily-bar job has
+    run, so a volume-gated Blue on it only appears once the next replay sees its EOD (events are insert-if-absent, so a later night
+    adds it); the chart for the current day fails closed the same way.
+- **Other data caveats for the volume gates** (FMP `/historical-chart/1hour`, measured 2026-10-04). (a) Prices and volume are **split-adjusted,
   dividend-unadjusted**: TQQQ's 2-for-1 on 2025-11-20 shows pre-split bars halved in price and doubled in volume (2025-11-18 close 49.16 vs
   the non-split-adjusted EOD close 98.36), while SPY/QQQ closes match the non-dividend-adjusted EOD close (SPY 2026-09-17: 762.64 vs
   762.60; dividend-adjusted would be 760.71). RSI, ADX, WVF and paraDrop are scale-free, so only the volume thresholds feel it (TQQQ's
-  pre-2025-11-20 volumes are on the post-split scale). TOS reports raw volume. (b) Intraday volume does not always agree with FMP's own
-  daily volume: the sum of a day's 60m volumes over EOD volume has a median of 0.84 (SPY), 0.88 (QQQ), 0.94 (TQQQ), 0.96 (TECL), but on
-  19 (QQQ), 31 (TQQQ) and 9 (TECL) of 500 days it is above 2x (up to 6.0x, 7.1x, 4.3x; SPY never; e.g. TQQQ 2025-11-18: 801M hourly vs 267M
-  EOD, and 1.60B from the 1-minute bars). (c) For TECL the FMP 2h volume runs about 1.25x IBKR's RTH TRADES volume (median over 1,746 bars,
-  drifting 1.1-1.3x by quarter). No TOS volume reference exists in the repo. Until TOS bar volumes are compared, treat the volume-gated
-  branches (SOS1 caps, `Volume_Num`) as approximate.
-- **Fire rates over the 2-year FMP window** (1,990 candles per ticker, 2024-10 to 2026-10): ANY-TICKER Blue fires 0 times for all four;
-  the profiles fire 0 (SPY), 6 (QQQ, 4 runs), 0 (TQQQ), 1 (TECL, 2025-04-07 09:30). The branch code reproduces TECL's four known
-  Blue Ups from 2022-2026 (`~/ubiquitous-fiesta/full_history_signals.csv`, IBKR bars) exactly. Tests: `analysis/warren_signal/test_profiles.py`
-  (per-branch edges, and-before-or pin, QQQ ungated ORs), `test_state_machine.py` (ANY-TICKER identical to the pre-profile pipeline),
-  `tests/test_warren_signal_data.py` (profile selection, nightly routing), `tests/test_chart_2h.py` (chart-vs-nightly consistency).
+  pre-2025-11-20 volumes are on the post-split scale; FMP's EOD volume is split-adjusted the same way, so the guard's ratio is
+  unaffected). TOS reports raw volume. (b) For TECL the FMP 2h volume runs about 1.25x IBKR's RTH TRADES volume (median over 1,746 bars,
+  drifting 1.1-1.3x by quarter). No TOS volume reference exists in the repo beyond the user's own chart checks.
+- **Fire rates over the 2-year FMP window** (1,986 candles per ticker, 2024-10 to 2026-10): ANY-TICKER Blue fires 0 times for all four.
+  With the volume guard the profiles fire 0 (SPY), 2 (QQQ, 2025-04-07 09:30 and 11:30), 0 (TQQQ), 1 (TECL, 2025-04-07 09:30); without it QQQ
+  had 6. The branch code reproduces TECL's four known Blue Ups from 2022-2026 (`~/ubiquitous-fiesta/full_history_signals.csv`, IBKR bars)
+  exactly. Tests: `analysis/warren_signal/test_profiles.py` (per-branch edges, and-before-or pin, QQQ ungated ORs),
+  `analysis/warren_signal/test_volume_guard.py` (the guard: limit edges, missing/zero EOD, half-days, partial days, NaN through
+  `compute_blue`, non-profiled untouched), `test_state_machine.py` (ANY-TICKER identical to the pre-profile pipeline),
+  `tests/test_warren_signal_data.py` (profile selection, nightly routing and guard), `tests/test_chart_2h.py` (chart-vs-nightly
+  consistency with and without a flagged day, fail-closed cases, displayed candles unchanged).
 
 ## Storage
 
