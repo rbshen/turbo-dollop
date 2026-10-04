@@ -488,12 +488,36 @@ def _marker_set(out):
     return {(m.time, m.kind) for m in out.warren_signal_markers}
 
 
+def _day_sums(raw: pd.DataFrame) -> pd.Series:
+    """Summed 2h-candle volume per calendar day (what the volume guard compares to the day's EOD volume)."""
+    candles = _full_candles(raw)
+    return candles["volume"].groupby(candles.index.strftime("%Y-%m-%d")).sum()
+
+
+def _seed_daily_volume(ticker: str, eod: dict[str, float], fetched_at: datetime = datetime(2026, 10, 2, 5, 0)) -> None:
+    """Cached 1d bars (SharedBarsCache) carrying `eod` volume per date -- what a monitored ticker's guard reads. The
+    default fetched_at is after the last completed session's close, so the last bar is not 'provisional'."""
+    with Session(shared_bars_cache.engine) as session:
+        for d, v in eod.items():
+            session.add(
+                SharedBarsCache(ticker=ticker, interval="1d", bar_time=datetime.fromisoformat(d), open=1.0, high=1.0, low=1.0, close=1.0,
+                                volume=int(v), fetched_at=fetched_at, source=None)
+            )
+        session.commit()
+
+
+def _unflagged_eod(raw: pd.DataFrame) -> dict[str, float]:
+    """EOD volume equal to each day's summed candle volume: ratio exactly 1.0 everywhere."""
+    return {d: float(v) for d, v in _day_sums(raw).items()}
+
+
 def test_chart_uses_the_per_ticker_profile_and_hides_the_rsi_12_line_only_for_it(monkeypatch):
     from analysis.warren_signal.profiles import QQQ
     from analysis.warren_signal.types import ANY_TICKER
 
     raw = _with_panic_volume(_bars_60m(LAST_SESSION, seed=5))  # seed 5: has RSI<40 / ADX<=29.66 candles in the window
     _patch_source(monkeypatch, raw)
+    _seed_daily_volume("QQQ", _unflagged_eod(raw))  # every day's ratio is 1.0, so the volume guard keeps all volume
     candles = _full_candles(raw)
     visible_start = pd.Timestamp("2026-10-02") - pd.Timedelta(days=90)
 
@@ -522,6 +546,8 @@ def test_chart_markers_match_what_the_nightly_job_would_store(monkeypatch, ticke
     raw = _with_panic_volume(_bars_60m(LAST_SESSION, seed=5))
     _patch_source(monkeypatch, raw)
     monkeypatch.setattr(wsd, "engine", _engine())
+    if ticker == "QQQ":
+        _seed_daily_volume("QQQ", _unflagged_eod(raw))
     chart = _run(chart_data._get_chart_data_2h, ticker, KEY, NOW)
 
     row = wsd.compute_and_store_warren_signal(ticker, raw, source="fmp")
@@ -538,6 +564,185 @@ def test_chart_markers_match_what_the_nightly_job_would_store(monkeypatch, ticke
     if ticker == "QQQ":
         assert any(k == "blue_up" for _, k in stored_set)
 
-    expected_state = replay_with_series(_full_candles(raw), wsd.profile_for(ticker))[0]
+    expected_state = replay_with_series(wsd.signal_candles(ticker, _full_candles(raw), wsd.read_cached_daily_volume(ticker)), wsd.profile_for(ticker))[0]
     assert row.stop_count == expected_state.stop_count and row.gray_suppressed == expected_state.gray_suppressed
     assert row.signal_kind == expected_state.events[-1].kind
+
+
+# --- the volume guard: one shared step for the chart and the nightly store -----------------------------------------
+
+
+def _blue_times(out) -> set[str]:
+    return {t for t, k in _marker_set(out) if k == "blue_up"}
+
+
+def _panic_candles(raw: pd.DataFrame) -> list[str]:
+    """Window-start times of the candles `_with_panic_volume` gave > 70M shares (QQQ's Volume_Num)."""
+    c = _full_candles(raw)
+    return [t.strftime("%Y-%m-%dT%H:%M:%S") for t in c.index[(c["volume"] > 70_000_000).to_numpy()]]
+
+
+def _capture_replay_input(monkeypatch) -> dict:
+    """Records the candle frame the chart hands to the Warren replay (after the guard)."""
+    seen: dict = {}
+    real = chart_data.replay_with_series
+
+    def spy(candles, profile):
+        seen["frame"] = candles.copy()
+        return real(candles, profile)
+
+    monkeypatch.setattr(chart_data, "replay_with_series", spy)
+    return seen
+
+
+def _nan_volume_days(frame: pd.DataFrame) -> set[str]:
+    return set(frame.index[frame["volume"].isna().to_numpy()].strftime("%Y-%m-%d"))
+
+
+@pytest.mark.parametrize("flagged", [False, True])
+def test_chart_and_nightly_agree_with_the_guard_on_a_flagged_and_an_unflagged_qqq_day(monkeypatch, flagged):
+    import data.warren_signal_data as wsd
+    from analysis.entry_signal.resample import session_window_start
+
+    raw = _with_panic_volume(_bars_60m(LAST_SESSION, seed=5))
+    _patch_source(monkeypatch, raw)
+    monkeypatch.setattr(wsd, "engine", _engine())
+    panic = _panic_candles(raw)
+    assert panic
+    eod = _unflagged_eod(raw)
+    if flagged:  # the panic days' EOD volume is a third of the summed intraday volume: ratio 3.0 > 1.5
+        for t in panic:
+            eod[t[:10]] = eod[t[:10]] / 3
+    _seed_daily_volume("QQQ", eod)
+
+    chart = _run(chart_data._get_chart_data_2h, "QQQ", KEY, NOW)
+    wsd.compute_and_store_warren_signal("QQQ", raw, source="fmp")
+    visible_start = pd.Timestamp("2026-10-02") - pd.Timedelta(days=90)
+    with Session(wsd.engine) as session:
+        stored = session.exec(select(wsd.WarrenSignalEvent).where(wsd.WarrenSignalEvent.ticker == "QQQ")).all()
+    stored_set = {
+        (session_window_start(pd.Timestamp(e.fired_at, tz=_NY)).strftime("%Y-%m-%dT%H:%M:%S"), e.signal_kind)
+        for e in stored
+        if pd.Timestamp(e.fired_at) >= visible_start
+    }
+    assert stored_set == _marker_set(chart)  # same guard, same candles, same engine
+    if flagged:
+        assert not (set(panic) & _blue_times(chart))  # the false volume Blues are gone...
+    else:
+        assert set(panic) <= _blue_times(chart)  # ...and an unflagged day keeps its volume Blue
+
+
+def test_flagging_days_only_removes_blue_ups_and_leaves_bars_and_bb_rsi_alone(monkeypatch):
+    raw = _with_panic_volume(_bars_60m(LAST_SESSION, seed=5))
+    _patch_source(monkeypatch, raw)
+    panic = _panic_candles(raw)
+    eod = _unflagged_eod(raw)
+    _seed_daily_volume("QQQ", eod)
+    keep = _run(chart_data._get_chart_data_2h, "QQQ", KEY, NOW)
+
+    monkeypatch.setattr(shared_bars_cache, "engine", _engine())
+    for t in panic:
+        eod[t[:10]] /= 3
+    _seed_daily_volume("QQQ", eod)
+    flag = _run(chart_data._get_chart_data_2h, "QQQ", KEY, NOW)
+
+    assert _blue_times(flag) < _blue_times(keep)  # a strict subset: Blue Ups only ever disappear
+    assert flag.bars == keep.bars and flag.entry_signal_markers == keep.entry_signal_markers
+
+
+def test_displayed_candles_are_unchanged_by_the_guard_only_the_replay_input_is_blanked(monkeypatch):
+    raw = _with_panic_volume(_bars_60m(LAST_SESSION, seed=5))
+    _patch_source(monkeypatch, raw)
+    panic = _panic_candles(raw)
+    eod = _unflagged_eod(raw)
+    for t in panic:
+        eod[t[:10]] /= 3
+    _seed_daily_volume("QQQ", eod)
+    seen = _capture_replay_input(monkeypatch)
+
+    out = _run(chart_data._get_chart_data_2h, "QQQ", KEY, NOW)
+
+    assert _nan_volume_days(seen["frame"]) == {t[:10] for t in panic}  # blanked on exactly the flagged days
+    full = _full_candles(raw)
+    assert not full["volume"].isna().any()  # the frame everything else is built from is never touched
+    # The response carries OHLC only (ChartBarOut has no volume field), built from the untouched candles.
+    visible = full[full.index >= pd.Timestamp("2026-10-02") - pd.Timedelta(days=90)]
+    assert [b.close for b in out.bars] == visible["close"].tolist()
+    assert "volume" not in chart_data.ChartBarOut.model_fields
+
+
+def test_current_session_without_eod_fails_closed(monkeypatch):
+    raw = _with_panic_volume(_bars_60m(LAST_SESSION, seed=5))
+    _patch_source(monkeypatch, raw)
+    eod = _unflagged_eod(raw)
+    del eod[LAST_SESSION]  # the newest session's EOD is not cached yet
+    _seed_daily_volume("QQQ", eod)
+    seen = _capture_replay_input(monkeypatch)
+    _run(chart_data._get_chart_data_2h, "QQQ", KEY, NOW)
+    assert _nan_volume_days(seen["frame"]) == {LAST_SESSION}
+
+
+def test_an_in_progress_cached_daily_bar_is_not_trusted(monkeypatch):
+    # The newest cached 1d bar was written BEFORE its own session's close (provisional): it reads as "no EOD
+    # volume", so the guard fails closed on that day.
+    raw = _with_panic_volume(_bars_60m(LAST_SESSION, seed=5))
+    _patch_source(monkeypatch, raw)
+    _seed_daily_volume("QQQ", _unflagged_eod(raw), fetched_at=datetime(2026, 10, 1, 12, 0))  # written mid-session
+    seen = _capture_replay_input(monkeypatch)
+    _run(chart_data._get_chart_data_2h, "QQQ", KEY, NOW)
+    assert _nan_volume_days(seen["frame"]) == {LAST_SESSION}
+
+
+def test_non_profiled_ticker_never_touches_daily_volume_and_is_unaffected(monkeypatch):
+    raw = _with_panic_volume(_bars_60m(LAST_SESSION, seed=5))
+    _patch_source(monkeypatch, raw)
+
+    def boom(*a, **k):
+        raise AssertionError("daily volume must not be read for a ticker without volume rules")
+
+    monkeypatch.setattr(chart_data, "read_cached_daily_volume", boom)
+    monkeypatch.setattr(chart_data, "_fetch_daily_volume_uncached", boom)
+    seen = _capture_replay_input(monkeypatch)
+    out = _run(chart_data._get_chart_data_2h, "AAPL", KEY, NOW)
+    visible_start = pd.Timestamp("2026-10-02") - pd.Timedelta(days=90)
+    expected = {
+        (e.fired_at.strftime("%Y-%m-%dT%H:%M:%S"), e.kind)
+        for e in replay_with_series(_full_candles(raw))[0].events
+        if pd.Timestamp(e.fired_at) >= visible_start
+    }
+    assert _marker_set(out) == expected
+    assert not seen["frame"]["volume"].isna().any()  # the replay input is the very candle frame, volume intact
+
+
+def test_unlisted_profiled_ticker_gets_one_uncached_daily_fetch_of_completed_sessions_only(monkeypatch):
+    raw = _with_panic_volume(_bars_60m(LAST_SESSION, seed=5))
+    _patch_source(monkeypatch, raw)
+    calls = []
+    rows = [{"date": d, "open": 1, "high": 1, "low": 1, "close": 1, "volume": v} for d, v in _unflagged_eod(raw).items()]
+    rows.append({"date": "2026-10-02", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 5})  # the session in progress at NOW
+
+    async def fake_eod(ticker, a, b, group="daily_prices"):
+        calls.append((ticker, a, b))
+        return list(reversed(rows))  # FMP answers newest first
+
+    monkeypatch.setattr(chart_data.fmp_client, "get_historical_price_eod", fake_eod)
+    seen = _capture_replay_input(monkeypatch)
+    _run(chart_data._get_chart_data_2h, "QQQ", KEY, NOW)
+
+    assert len(calls) == 1 and calls[0][0] == "QQQ"
+    assert not seen["frame"]["volume"].isna().any()  # every completed session verified; nothing blanked
+    with Session(shared_bars_cache.engine) as session:
+        assert session.exec(select(SharedBarsCache).where(SharedBarsCache.interval == "1d")).all() == []  # nothing written
+
+
+def test_unlisted_profiled_ticker_whose_daily_fetch_fails_fails_closed_without_error(monkeypatch):
+    raw = _with_panic_volume(_bars_60m(LAST_SESSION, seed=5))
+    _patch_source(monkeypatch, raw)
+
+    async def fail(*a, **k):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(chart_data.fmp_client, "get_historical_price_eod", fail)
+    seen = _capture_replay_input(monkeypatch)
+    out = _run(chart_data._get_chart_data_2h, "QQQ", KEY, NOW)
+    assert out.chart_available and seen["frame"]["volume"].isna().all()

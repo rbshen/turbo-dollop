@@ -39,11 +39,13 @@ from analysis.entry_signal.resample import build_2h_session_candles
 from analysis.warren_signal.profiles import QQQ, SPY, TECL, TQQQ
 from analysis.warren_signal.state_machine import UP_KINDS, replay
 from analysis.warren_signal.types import ANY_TICKER, WarrenProfile, WarrenReplayResult
+from analysis.warren_signal.volume_guard import guard_for_profile
+from clients.shared_bars_cache import read_cached_completed_daily_bars
 from core.db import engine
 from core.models import TechnicalEntrySignal, WarrenSignalEvent
 from core.schemas import TechnicalEntrySignalOut
 from core.tickers import normalize_ticker
-from pandas import DataFrame
+from pandas import DataFrame, Series
 
 DEFAULT_SIGNAL_TYPE = "warren"
 DEFAULT_TIMEFRAME = "2h"
@@ -59,6 +61,35 @@ def profile_for(ticker: str) -> WarrenProfile:
     """The Blue Up profile for `ticker` (normalized like every other lookup here): its own if it has one in
     TICKER_PROFILES, else ANY_TICKER."""
     return TICKER_PROFILES.get(normalize_ticker(ticker), ANY_TICKER)
+
+
+# Calendar days of cached daily bars read for the volume guard: comfortably wider than the 730-day replay window.
+DAILY_VOLUME_LOOKBACK_DAYS = 740
+
+
+def volume_guard_applies(ticker: str) -> bool:
+    """True when the ticker's profile has volume rules (SPY/QQQ/TQQQ/TECL) -- the only tickers the volume guard
+    touches, and so the only ones for which a caller needs to look up daily volume at all."""
+    return profile_for(ticker).rules is not None
+
+
+def read_cached_daily_volume(ticker: str, now: datetime | None = None) -> Series:
+    """The ticker's EOD volume per date from the cached 1d bars (SharedBarsCache), through the most recent COMPLETED
+    session only: a pure read -- no fetch, no write -- that already drops a live in-progress bar and a last bar
+    written before its own session's close, so the current session reads as "no EOD volume" and the guard fails
+    closed on it. Empty when nothing is cached. (The cached 1d volume is FMP historical-price-eod/full's own
+    volume: checked equal, 1,255 of 1,255 rows each for SPY, QQQ and TECL, 2026-10-04.)"""
+    frame = read_cached_completed_daily_bars(normalize_ticker(ticker), DAILY_VOLUME_LOOKBACK_DAYS, reference=now)
+    return frame["volume"] if "volume" in frame.columns and not frame.empty else Series(dtype=float)
+
+
+def signal_candles(ticker: str, candles: DataFrame, daily_volume: Series | None) -> DataFrame:
+    """The candles the Blue Up replay should read for `ticker`: for a profiled ticker, `candles` with the volume of
+    every day failing the daily-volume check set to NaN (analysis/warren_signal/volume_guard.py); for any other
+    ticker, `candles` itself, untouched. THE shared step between the candle build and the replay -- the nightly
+    store and the Chart tab's 2H range both call it, so the stored signal and the chart cannot diverge. It feeds
+    the replay only: the volume a chart displays comes from the original candles."""
+    return guard_for_profile(candles, daily_volume, profile_for(ticker))
 
 # How long a row can go un-recomputed (e.g. its ticker dropped off every
 # monitored watchlist) before sweep_stale_warren_signals clears it -- same
@@ -241,6 +272,7 @@ def compute_and_store_warren_signal(
     source: str,
     signal_type: str = DEFAULT_SIGNAL_TYPE,
     timeframe: str = DEFAULT_TIMEFRAME,
+    daily_volume: Series | None = None,
 ) -> TechnicalEntrySignalOut:
     """Runs the pure state-machine replay against already-fetched raw
     intraday OHLCV bars (the full available history -- see
@@ -251,6 +283,9 @@ def compute_and_store_warren_signal(
     replay() itself stays a pure function of already-built candles, kept
     unit-testable without needing real intraday bars (see
     analysis/warren_signal/test_state_machine.py).
+
+    A profiled ticker's replay input has the volume of every day failing the daily-volume check blanked first (see
+    signal_candles); `daily_volume` overrides the cached-1d-bars lookup (tests, callers that already hold it).
 
     Only events fired at or after (first replayed candle + EVENT_WRITE_WARMUP_
     DAYS) are persisted to WarrenSignalEvent -- see that constant for why. The
@@ -264,7 +299,9 @@ def compute_and_store_warren_signal(
     entry_signal_data.py::compute_and_store_entry_signal."""
     ticker = normalize_ticker(ticker)
     candles = build_2h_session_candles(ohlcv)
-    result = replay(candles, profile_for(ticker))
+    if volume_guard_applies(ticker) and daily_volume is None:
+        daily_volume = read_cached_daily_volume(ticker)  # the cached 1d bars; none cached -> guard fails closed
+    result = replay(signal_candles(ticker, candles, daily_volume), profile_for(ticker))
     computed_at = datetime.now()
     replay_start = candles.index[0].to_pydatetime().replace(tzinfo=None)
     write_events_from = replay_start + timedelta(days=EVENT_WRITE_WARMUP_DAYS)

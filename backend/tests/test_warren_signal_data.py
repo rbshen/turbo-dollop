@@ -603,3 +603,101 @@ def test_compute_and_store_hands_the_tickers_profile_to_the_replay(monkeypatch):
     for ticker, expected in (("SPY", SPY), ("tecl", TECL), ("AAPL", ANY_TICKER)):
         compute_and_store_warren_signal(ticker, _tiny_ohlcv(), source="fmp")
         assert seen["profile"] is expected, ticker
+
+
+# --- the volume guard in the nightly store -------------------------------------------------------------------
+
+
+def _capture_candles(monkeypatch) -> dict:
+    seen: dict = {}
+
+    def spy_replay(candles, profile=None):
+        seen["candles"] = candles
+        return WarrenReplayResult(as_of=datetime(2026, 1, 5, 9, 30), events=[], gray_suppressed=False, stop_count=0, live_stop_price=None)
+
+    monkeypatch.setattr(warren_signal_data, "replay", spy_replay)
+    return seen
+
+
+def _two_days_of_bars() -> pd.DataFrame:
+    # Two full sessions of 60m bars, 1,000,000 shares each: a 2h candle is 2,000,000 (the last window's only bar is 1,000,000).
+    rows = []
+    for d in ("2026-01-05", "2026-01-06"):
+        for h in range(7):
+            rows.append((pd.Timestamp(f"{d} {9 + h}:30", tz="America/New_York"), 10.0, 10.5, 9.5, 10.0, 1_000_000))
+    return pd.DataFrame(rows, columns=["ts", "open", "high", "low", "close", "volume"]).set_index("ts")
+
+
+def test_profiled_ticker_replays_guarded_candles_and_non_profiled_replays_the_raw_ones(monkeypatch):
+    _fresh_engine(monkeypatch)
+    seen = _capture_candles(monkeypatch)
+    bars = _two_days_of_bars()  # each day sums to 7M shares
+    eod = pd.Series({pd.Timestamp("2026-01-05"): 7_000_000.0, pd.Timestamp("2026-01-06"): 4_000_000.0})  # ratios 1.0 and 1.75
+
+    compute_and_store_warren_signal("SPY", bars, source="fmp", daily_volume=eod)
+    v = seen["candles"]["volume"]
+    assert v[v.index.strftime("%Y-%m-%d") == "2026-01-05"].notna().all()
+    assert v[v.index.strftime("%Y-%m-%d") == "2026-01-06"].isna().all()  # 1.75 > 1.5: the whole day is blanked
+
+    compute_and_store_warren_signal("AAPL", bars, source="fmp", daily_volume=eod)  # no volume rules: untouched
+    assert seen["candles"]["volume"].notna().all()
+
+
+def test_profiled_ticker_reads_the_cached_daily_bars_when_no_volume_is_passed(monkeypatch):
+    _fresh_engine(monkeypatch)
+    seen = _capture_candles(monkeypatch)
+    monkeypatch.setattr(warren_signal_data, "read_cached_daily_volume", lambda t: pd.Series({pd.Timestamp("2026-01-05"): 7_000_000.0}))
+    compute_and_store_warren_signal("TECL", _two_days_of_bars(), source="fmp")
+    v = seen["candles"]["volume"]
+    assert v[v.index.strftime("%Y-%m-%d") == "2026-01-05"].notna().all()
+    assert v[v.index.strftime("%Y-%m-%d") == "2026-01-06"].isna().all()  # no EOD cached for that day: fail-closed
+
+
+def test_profiled_ticker_with_nothing_cached_fails_closed_on_every_day(monkeypatch):
+    import clients.shared_bars_cache as shared_bars_cache
+
+    _fresh_engine(monkeypatch)
+    cache_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(cache_engine)
+    monkeypatch.setattr(shared_bars_cache, "engine", cache_engine)  # empty: no daily bars at all
+    seen = _capture_candles(monkeypatch)
+    compute_and_store_warren_signal("QQQ", _two_days_of_bars(), source="fmp")
+    assert seen["candles"]["volume"].isna().all()
+
+
+def test_non_profiled_ticker_never_reads_daily_volume(monkeypatch):
+    _fresh_engine(monkeypatch)
+    seen = _capture_candles(monkeypatch)
+
+    def boom(*a, **k):
+        raise AssertionError("daily volume must not be read for a ticker without volume rules")
+
+    monkeypatch.setattr(warren_signal_data, "read_cached_daily_volume", boom)
+    compute_and_store_warren_signal("AAPL", _two_days_of_bars(), source="fmp")
+    assert seen["candles"]["volume"].notna().all()
+
+
+def test_read_cached_daily_volume_reads_completed_sessions_and_nothing_is_written(monkeypatch):
+    import clients.shared_bars_cache as shared_bars_cache
+    from core.models import SharedBarsCache
+
+    cache_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(cache_engine)
+    monkeypatch.setattr(shared_bars_cache, "engine", cache_engine)
+    with Session(cache_engine) as s:
+        for d, v in (("2026-09-29", 100), ("2026-09-30", 200), ("2026-10-01", 300)):
+            s.add(SharedBarsCache(ticker="QQQ", interval="1d", bar_time=datetime.fromisoformat(d), open=1.0, high=1.0, low=1.0, close=1.0,
+                                  volume=v, fetched_at=datetime(2026, 10, 2, 5, 0), source=None))
+        s.commit()
+    got = warren_signal_data.read_cached_daily_volume(" qqq ", now=datetime(2026, 10, 2, 14, 0, tzinfo=__import__("datetime").timezone.utc))
+    assert got.tolist() == [100.0, 200.0, 300.0] and [d.strftime("%Y-%m-%d") for d in got.index] == ["2026-09-29", "2026-09-30", "2026-10-01"]
+    assert warren_signal_data.read_cached_daily_volume("SPY").empty  # nothing cached for it
+    with Session(cache_engine) as s:
+        assert len(s.exec(select(SharedBarsCache)).all()) == 3  # a pure read
+
+
+def test_volume_guard_applies_exactly_to_the_profiled_tickers():
+    from data.warren_signal_data import volume_guard_applies
+
+    assert all(volume_guard_applies(t) for t in ("SPY", "QQQ", "TQQQ", "TECL", "spy"))
+    assert not any(volume_guard_applies(t) for t in ("AAPL", "QQQM", "SPXL", "SOXL"))

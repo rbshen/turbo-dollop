@@ -70,9 +70,11 @@ from clients.daily_bar_sources import _is_half_day, fmp_intraday_rows_to_frame, 
 from clients.fmp_client import fmp_client
 from clients.long_history_bars import get_long_history
 from clients.shared_bars_cache import (
+    DAILY_INTERVAL,
     INTRADAY_INTERVAL,
     _eastern_today,
     _most_recent_completed_intraday_bar_start,
+    _most_recent_completed_trading_date,
     get_or_fetch_bars_batch,
     has_cached_bars,
 )
@@ -97,7 +99,13 @@ from core.tickers import normalize_ticker
 from data.chart_events_data import DividendEvent, EarningsEvent, fetch_chart_events
 from data.entry_signal_data import get_entry_signal_data
 from data.liquidity_zone_data import compute_liquidity_zones_2h, get_liquidity_zone_data
-from data.warren_signal_data import get_warren_signal_data, profile_for
+from data.warren_signal_data import (
+    get_warren_signal_data,
+    profile_for,
+    read_cached_daily_volume,
+    signal_candles,
+    volume_guard_applies,
+)
 from helpers.liquidity_zone_config import get_liquidity_zone_settings, to_engine_settings
 from helpers.weinstein_config import load_weinstein_params
 
@@ -498,6 +506,31 @@ async def _fetch_intraday_bars(ticker: str, now: datetime) -> pd.DataFrame:
         return _empty_ohlcv()
 
 
+async def _fetch_daily_volume_uncached(ticker: str, now: datetime, lookback_days: int) -> pd.Series:
+    """EOD volume per date straight from FMP `/historical-price-eod/full` (one call), NEVER written anywhere -- for a
+    ticker with no cached daily bars, so the Warren volume guard has something to check against. Only completed
+    sessions are kept (a live session's partial EOD would read as a real figure), and any failure yields an empty
+    series, which the guard turns into "no volume-gated Blue" (fail-closed)."""
+    try:
+        start = _eastern_today(now) - timedelta(days=lookback_days + 10)
+        rows = await fmp_client.get_historical_price_eod(ticker, start.isoformat(), _eastern_today(now).isoformat())
+        frame = fmp_rows_to_frame(rows)
+        frame = frame[frame.index <= pd.Timestamp(_most_recent_completed_trading_date(now))]
+        return frame["volume"]
+    except Exception as exc:  # noqa: BLE001 -- fail closed, log the type only
+        logger.warning("Daily volume fetch failed for %s (%s)", ticker, type(exc).__name__)
+        return pd.Series(dtype=float)
+
+
+async def _daily_volume_for_signal(ticker: str, now: datetime) -> pd.Series:
+    """The daily volume the Warren volume guard checks a profiled ticker's 2h volume against: the cached 1d bars
+    when the ticker has them (a monitored ticker -- a DB read), else one uncached live FMP daily fetch (a ticker
+    opened on the chart that is on no list)."""
+    if has_cached_bars(ticker, DAILY_INTERVAL):
+        return read_cached_daily_volume(ticker, now)
+    return await _fetch_daily_volume_uncached(ticker, now, RANGE_CONFIG[INTRADAY_RANGE]["lookback_days"])
+
+
 def _iso(ts: pd.Timestamp | datetime) -> str:
     """Naive-ET wall-clock "YYYY-MM-DDTHH:MM:SS" -- the 2H_90D wire time (the candle's window START)."""
     return ts.strftime("%Y-%m-%dT%H:%M:%S")
@@ -575,7 +608,10 @@ async def _get_chart_data_2h(ticker: str, range_key: str, now: datetime | None =
 
     # Warren: full replay, then slice.
     profile = profile_for(ticker)  # the same lookup the nightly job uses (data/warren_signal_data.py)
-    result, series = replay_with_series(candles, profile)
+    # The replay reads volume-guarded candles for a profiled ticker (same helper as the nightly store); `candles`
+    # itself, which the chart displays, is untouched.
+    daily_volume = await _daily_volume_for_signal(ticker, now) if volume_guard_applies(ticker) else None
+    result, series = replay_with_series(signal_candles(ticker, candles, daily_volume), profile)
     warren_markers = sorted(
         (
             ChartMarkerOut(time=_iso(e.fired_at), label=_WARREN_KIND_LABELS[e.kind], kind=e.kind)
